@@ -1,5 +1,38 @@
 # yo-self P1 — executing-mode transpile-error tail (candidates)
 
+## ✅ RESOLVED — 0 real failures + metric correction (2026-07-01)
+
+**P1 is complete.** The TS compiler (same codegen logic as the faithful binary
+port) self-compiles `yo-self/main.yo --emit-c` in **81 s** producing **0 real**
+`// Failed to transpile` markers. Verify:
+
+```
+scripts/count-transpile-failures.sh /tmp/stage2_ts.c   # → "0 real (2 string-literal floor)"
+```
+
+**The metric was the trap.** A bare `grep -c "Failed to transpile" stage2.c`
+overcounts by a fixed floor of **2**: the codegen's own fallback-message
+_definitions_ — `String.from("// Failed to transpile ")` at
+`yo-self/codegen/exprs/generation.yo:409` (value-emit) and `:577` (ref-emit) —
+become two C string literals when yo-self compiles yo-self. So the entire drain
+log below (522 → 416 → … → 2) was really **520 → 414 → … → 0** real failures: the
+work in this log finished the drain; the "2" residual was never a failure. A REAL
+failure is an emitted COMMENT line (`^\s*// Failed to transpile`); the floor is a
+string-literal match (`"// Failed to transpile`). Always use
+`scripts/count-transpile-failures.sh`, never a bare grep.
+
+**Why it was only confirmable now:** the genuine count needs a COMPLETING
+self-compile. The yo-self binary's self-compile is memory-bound (peaks ~3× the TS
+compiler → swap-thrash/OOM on 16 GB — that is **P2**, task #21, NOT P1). The TS
+self-compile completes in 81 s and is the reference; corpus 96/96 (binary≡TS
+output) confirms the binary emits the same 0 real once P2 lets it finish.
+
+The historical drain log is retained below for the methodology and the
+root-cause analyses (def-time body-eval typing, branch-merge env divergence,
+recursive-enum self-shell clone, etc.).
+
+---
+
 ## 2026-06-25 (cont.) — ✅ branch-merge `case<base` fix: 422 → 416 (−6), clean
 
 **Committed.** The largest REAL cluster in the 422 [TTERR] map (the 9 "Frame level N has
@@ -736,7 +769,7 @@ that never calls these resolve sites (trace it). Either way this is a deep,
 focused, multi-step effort in the recursive-enum-shell subsystem — NOT a single
 targeted resolve insertion (9 ruled out). Warm-up-masked; systemic (field_types + args).
 
-DEFINITIVE DIAGNOSTIC (build #21, DBG_RESOLVE inside type_id_or_empty): for the
+DEFINITIVE DIAGNOSTIC (build #21, DBG*RESOLVE inside type_id_or_empty): for the
 SAME shell id (e.g. `enum_yo_id_5981__self_shell`), resolve_enum_shell returns BOTH
 `…5981__self_shell|vars=0` (final NOT registered — TIMING) on ~2 calls AND
 `…5981|vars=39` (resolved) on ~9 calls. So TWO facts are now PROVEN:
@@ -752,13 +785,13 @@ derived-clone path on a shell-typed RUNTIME (NoVal) receiver — NOT
 `find_methods_from_generic_impls` (takes a TypeVal, our receiver is NoVal). The
 TRUE next step: find the clone-resolution path for a RUNTIME enum value receiver
 (derive(Clone)/generic Clone impl dispatch in the method-CALL path,
-evaluator/calls/_), resolve the shell receiver THERE, AND fix the registration
+evaluator/calls/*), resolve the shell receiver THERE, AND fix the registration
 TIMING so the final exists before any clone of a shell-typed value. A deep,
 multi-faceted effort (shell + clone-via-generic-impl/derived + registration timing)
 — the hardest subsystem, confirmed beyond 9 build-validated targeted attempts. That is a focused
 effort on the recursive-enum-shell subsystem (the hardest part of the port, per
 [[yo-self-recursive-enum-self-shell]] + [[yo-self-phase3-hashmap-new-blocker]]).
-Warm-up-masked (not a real fixpoint blocker). (b) `and` ×1 — `name.starts_with("Box(")` at guards.yo:561 → non-bool. ISOLATED (repro ladder, this session): NOT default-arg (both `starts_with("a")` and `starts_with("a", usize(0))` fail) and NOT the `&&` (starts_with ALONE fails; `len()==` alone works). ROOT: a COMPTIME_STRING LITERAL arg to a `Self`-TYPED param — `name.starts_with(p)` with a String VARIABLE `p` WORKS, but `name.starts_with("a")` (literal) FAILS. `starts_with(self : Self, prefix : Self, …)`: the comptime-arg→param coercion (helper.yo:482) is GUARDED `!is_some_type(resolved_pt)`, and `prefix`'s `Self` is NOT resolved to the concrete receiver (String) because `ctx.self_type` is not the receiver during `try_to_call`'s arg-binding (the create_specialized Self fix runs LATER). FIX ATTEMPT (FAILED + REVERTED, this session): setting `ctx.self_type` from the `self` param's arg_type inside `try_to_call`'s param loop (so a later `prefix : Self` resolves) did NOT fix starts_with AND regressed expr 0→1, target 0→1, parser 4→5. Two reasons learned: (1) `resolved_pt` for `prefix` is an ALREADY-EVALUATED SomeT, not the `Self` identifier, so setting `ctx.self_type` does NOT make `evaluate_function_parameter_type_again` resolve it; (2) the self param's `arg_type` is NOT a clean receiver type (e.g. `_(Self)`for`ref(self) : Self`methods), so overwriting`ctx.self_type`with it corrupts Self resolution elsewhere. So the real fix must RESOLVE the SomeT`Self`in`resolved_pt`directly (in the coercion at helper.yo:482, guarded: only when the SomeT is`Self`and resolves to a concrete non-SomeT) — the regression-prone coercion area (touching it unguarded once regressed std 151→17, see [[yo-self-template-string-to-string-cluster]]); a careful, validated focused effort. Gates that catch regressions here: the small-module marker counts (expr/target were 0) +`check ./std`(sensitive to this coercion class). 2ND`and`ATTEMPT (no-op, reverted): resolve a BOUND SomeT via`get_value_of_some_type_from_env(callee_env_r, resolved_pt)`before the coercion guard — no-op because`Self`is NOT bound in callee_env_r during starts_with's arg-binding (the receiver type isn't threaded there). UNIFIED ROOT (both value.yo residuals):`field_types`AND`and`both stem from the RECEIVER TYPE not reaching instance-method arg-binding / method-resolution. Threading it is the central method-dispatch change that (a) regressed expr/target/parser when done via ctx.self_type from the self arg (ref-self`\*(Self)`corruption) and (b) no-op'd via env-resolution (Self not in env). So the value.yo tail needs ONE careful central fix: correctly thread the (deref'd, non-pointer) receiver type into instance-method arg-binding + method-resolution + as`Self`for coercion — validated incrementally against expr/target/std (all sensitive). A focused effort; 12 build-validated targeted attempts (10 field_types + 2 and) ruled out the peripheral approaches. 3RD`and`ATTEMPT (no-op, reverted): resolve a bare`SomeT("Self")`resolved_pt via the bound`self`var in callee_env_r before the coercion — no-op, so`prefix`'s resolved_pt is NOT a bare SomeT literally named "Self" (likely a fresh-id SomeT whose name isn't "Self", OR `self`isn't bound at that point, OR the failing path isn't this check_if_function_parameter_matches_argument). DEFINITIVE NEXT STEP for`and`: instrument `resolved_pt`(type_to_string + the SomeT name/id) for the prefix param of starts_with when compiling value.yo — determine the ACTUAL type before designing the resolution. INSTRUMENTATION OBSTACLE (build #24):`helper.yo`CANNOT`import("std/fmt")`for`eprintln`— it creates a circular import (helper.yo → std/fmt → … → calls/function.yo → helper.yo), build fails rc=1. So instrument via a NON-eprintln mechanism: a module-level`(g_dbg : ArrayList(String))`global written in helper.yo and printed by a caller that CAN import std/fmt, OR add the diagnostic in a callee/caller of check_if_function_parameter_matches_argument that already imports fmt, OR temporarily print from`function_type.yo`(which can import fmt) by threading the value out. 13 build-validated attempts total (10 field_types + 3 and); all peripheral guesses ruled out — both value.yo residuals need finer instrumentation of the exact type/path THEN a regression-prone central fix (a focused multi-session effort, not single-build attempts). The 6 visible MARKERS are all`if(...)`-as-value COLLATERAL = separate OPEN issue `yo-codegen-block-rhs-drops-statements`. |
+Warm-up-masked (not a real fixpoint blocker). (b) `and` ×1 — `name.starts_with("Box(")` at guards.yo:561 → non-bool. ISOLATED (repro ladder, this session): NOT default-arg (both `starts_with("a")` and `starts_with("a", usize(0))` fail) and NOT the `&&` (starts*with ALONE fails; `len()==` alone works). ROOT: a COMPTIME_STRING LITERAL arg to a `Self`-TYPED param — `name.starts_with(p)` with a String VARIABLE `p` WORKS, but `name.starts_with("a")` (literal) FAILS. `starts_with(self : Self, prefix : Self, …)`: the comptime-arg→param coercion (helper.yo:482) is GUARDED `!is_some_type(resolved_pt)`, and `prefix`'s `Self` is NOT resolved to the concrete receiver (String) because `ctx.self_type` is not the receiver during `try_to_call`'s arg-binding (the create_specialized Self fix runs LATER). FIX ATTEMPT (FAILED + REVERTED, this session): setting `ctx.self_type` from the `self` param's arg_type inside `try_to_call`'s param loop (so a later `prefix : Self` resolves) did NOT fix starts_with AND regressed expr 0→1, target 0→1, parser 4→5. Two reasons learned: (1) `resolved_pt` for `prefix` is an ALREADY-EVALUATED SomeT, not the `Self` identifier, so setting `ctx.self_type` does NOT make `evaluate_function_parameter_type_again` resolve it; (2) the self param's `arg_type` is NOT a clean receiver type (e.g. `*(Self)`for`ref(self) : Self`methods), so overwriting`ctx.self_type`with it corrupts Self resolution elsewhere. So the real fix must RESOLVE the SomeT`Self`in`resolved_pt`directly (in the coercion at helper.yo:482, guarded: only when the SomeT is`Self`and resolves to a concrete non-SomeT) — the regression-prone coercion area (touching it unguarded once regressed std 151→17, see [[yo-self-template-string-to-string-cluster]]); a careful, validated focused effort. Gates that catch regressions here: the small-module marker counts (expr/target were 0) +`check ./std`(sensitive to this coercion class). 2ND`and`ATTEMPT (no-op, reverted): resolve a BOUND SomeT via`get_value_of_some_type_from_env(callee_env_r, resolved_pt)`before the coercion guard — no-op because`Self`is NOT bound in callee_env_r during starts_with's arg-binding (the receiver type isn't threaded there). UNIFIED ROOT (both value.yo residuals):`field_types`AND`and`both stem from the RECEIVER TYPE not reaching instance-method arg-binding / method-resolution. Threading it is the central method-dispatch change that (a) regressed expr/target/parser when done via ctx.self_type from the self arg (ref-self`\*(Self)`corruption) and (b) no-op'd via env-resolution (Self not in env). So the value.yo tail needs ONE careful central fix: correctly thread the (deref'd, non-pointer) receiver type into instance-method arg-binding + method-resolution + as`Self`for coercion — validated incrementally against expr/target/std (all sensitive). A focused effort; 12 build-validated targeted attempts (10 field_types + 2 and) ruled out the peripheral approaches. 3RD`and`ATTEMPT (no-op, reverted): resolve a bare`SomeT("Self")`resolved_pt via the bound`self`var in callee_env_r before the coercion — no-op, so`prefix`'s resolved_pt is NOT a bare SomeT literally named "Self" (likely a fresh-id SomeT whose name isn't "Self", OR `self`isn't bound at that point, OR the failing path isn't this check_if_function_parameter_matches_argument). DEFINITIVE NEXT STEP for`and`: instrument `resolved_pt`(type_to_string + the SomeT name/id) for the prefix param of starts_with when compiling value.yo — determine the ACTUAL type before designing the resolution. INSTRUMENTATION OBSTACLE (build #24):`helper.yo`CANNOT`import("std/fmt")`for`eprintln`— it creates a circular import (helper.yo → std/fmt → … → calls/function.yo → helper.yo), build fails rc=1. So instrument via a NON-eprintln mechanism: a module-level`(g_dbg : ArrayList(String))`global written in helper.yo and printed by a caller that CAN import std/fmt, OR add the diagnostic in a callee/caller of check_if_function_parameter_matches_argument that already imports fmt, OR temporarily print from`function_type.yo`(which can import fmt) by threading the value out. 13 build-validated attempts total (10 field_types + 3 and); all peripheral guesses ruled out — both value.yo residuals need finer instrumentation of the exact type/path THEN a regression-prone central fix (a focused multi-session effort, not single-build attempts). The 6 visible MARKERS are all`if(...)`-as-value COLLATERAL = separate OPEN issue `yo-codegen-block-rhs-drops-statements`. |
 | `parser.yo`| 4 markers |`array_list(...)` macro-expansion ×3 (gated MACRO_DISPATCH) + arg-count |
 
 IMPORTANT — STACK, not memory: standalone-compiling a big module SIGSEGVs (rc=139,

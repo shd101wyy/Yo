@@ -73,6 +73,18 @@ by `ExprId`. Codegen reads from this table to produce well-typed C.
 
 ## Current status
 
+> **AUTHORITATIVE current state (2026-07-01) is in
+> [`BOOTSTRAPPING_CODEGEN.md`](BOOTSTRAPPING_CODEGEN.md).** The evaluator port is
+> complete (`check` green); the codegen port is substantially complete (differential
+> corpus 96/96). **P0** (heap-corruption SIGTRAP) FIXED; **P1** (executing-mode
+> transpile-error tail) COMPLETE — the TS compiler self-compiles `yo-self/main.yo`
+> in 81 s with **0 real** `// Failed to transpile` markers (measure with
+> `scripts/count-transpile-failures.sh`; a bare grep miscounts by a fixed
+> string-literal floor of 2). The **sole remaining blocker is P2 — memory**: the
+> yo-self binary peaks ~3× the TS compiler self-compiling, swap-thrashing the
+> Phase-6 fixpoint on 16 GB. The §"Functional state today" below predates this and
+> is retained only for history.
+
 ### Functional state today
 
 On `bootstrap/phase-4`, yo-self-bin can `check`:
@@ -123,11 +135,11 @@ What is **not yet working**:
 | Types                      | ~6500    | ⚠️ mostly ported (`yo-self/types/`, `yo-self/evaluator/types/`). HKT `SomeT.kindFunctionType` field added but not yet read — see §A.                                                                                                                            |
 | Evaluator — proper port    | ~35,000  | ⚠️ partial (`yo-self/evaluator/exprs/_expr.yo` + per-handler files). 133 `.yo` files vs 125 `.ts` files; structurally complete.                                                                                                                                 |
 | Evaluator — proto (legacy) | n/a      | bootstrap-only `yo-self/evaluator/eval.yo` (8258 lines) — to be retired                                                                                                                                                                                         |
-| Codegen handlers           | ~16,000  | ❌ DELETED 2026-06-11 — the untyped bootstrap walker was removed; the port restarts clean per `plans/BOOTSTRAPPING_CODEGEN.md`.                                                                                                                                  |
+| Codegen handlers           | ~16,000  | ❌ DELETED 2026-06-11 — the untyped bootstrap walker was removed; the port restarts clean per `plans/BOOTSTRAPPING_CODEGEN.md`.                                                                                                                                 |
 | Codegen — async runtime    | ~15,500  | ❌ not ported — blocks all async / effect tests                                                                                                                                                                                                                 |
 | Codegen — functions        | ~4500    | ❌ DELETED with the walker (see above)                                                                                                                                                                                                                          |
-| Codegen — utils            | ~1100    | ❌ DELETED with the walker (see above) |
-| Codegen — types            | ~2100    | ❌ DELETED with the walker (see above) |
+| Codegen — utils            | ~1100    | ❌ DELETED with the walker (see above)                                                                                                                                                                                                                          |
+| Codegen — types            | ~2100    | ❌ DELETED with the walker (see above)                                                                                                                                                                                                                          |
 | Doc system                 | ~1500    | ✅ ported (`yo-self/doc/`)                                                                                                                                                                                                                                      |
 | Build system               | ~1500    | ✅ ported (`yo-self/build_runner.yo` + `yo-self/evaluator/builtins/build.yo`)                                                                                                                                                                                   |
 | Dependency / cache         | ~800     | ✅ ported (`yo-self/cache.yo`, `yo-self/fetch.yo`, `yo-self/lock_file.yo`)                                                                                                                                                                                      |

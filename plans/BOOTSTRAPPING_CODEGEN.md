@@ -4,30 +4,35 @@ Plan for the codegen slice of self-hosting (successor to
 `BOOTSTRAPPING_EVALUATOR.md`, whose `check` surface went green 2026-06-10).
 `BOOTSTRAPPING.md` is the umbrella record — update both when status changes.
 
-**Status in one line (2026-06-20):** the emitter port is substantially
-complete — Phases 0–5 are done or near-done and the differential corpus
-(`tests/codegen-bootstrap/`, 83 fixtures) passes — but the **self-host fixpoint
-(Phase 6) is not reached**. P0 (the intermittent heap-corruption SIGTRAP) is FIXED.
-Remaining gates: **P2** — memory. The old "~37 GB, can't run on 16 GB" wall is
-**BROKEN**: building the self-host binary at `--optimize 1` + Rust-style sharing
-fixes (RC-share recursive `TypeValue` collections; share the immutable token
-source; share the def-time body env) make the unified stage-2 self-compile
-**complete on this 16 GB box** (peak ~7.5 GB; commit `e9d7bfde3`, corpus 83/83).
-It is now an optimization target: get under the measured **TS baseline of 3.8 GB**
-(yo-self codegen < TS). And **P1** — a long tail of executing-mode
-evaluator/codegen gaps in the completing self-compile's `stage2.c` (currently
-**527** `Failed to transpile` markers).
+**Status in one line (2026-07-01):** the emitter port is substantially complete —
+Phases 0–5 are done or near-done and the differential corpus
+(`tests/codegen-bootstrap/`, 96 fixtures) passes. **P0** (intermittent
+heap-corruption SIGTRAP) is FIXED. **P1** (executing-mode transpile-error tail) is
+**COMPLETE — 0 real failures**: the TS compiler self-compiles `yo-self/main.yo`
+(`--emit-c`) in **81 s** producing **zero** real `// Failed to transpile` markers,
+and the port is faithful (corpus 96/96 binary≡TS), so the yo-self binary emits the
+same. The only remaining gate is **P2** — memory: the yo-self **binary** peaks
+~10 GB RSS self-compiling (≈3× the TS compiler's ~3.3 GB), which swap-thrashes on a
+16 GB box (TS fits and finishes in 81 s). This memory bloat — not markers, not
+compute — is what blocks a _fast_ binary self-compile and the **Phase 6 fixpoint**
+on this hardware. The `YO_GC_FULL_PCT` env knob (`ed48c310c`) caps the GC's
+full-scan peak to help at the margin, but cannot shrink the live set.
 
-> **P1 ROOT CORRECTED (2026-06-23):** the tail is **NOT** the recursive-enum
-> self-shell. Eliminating the shell entirely (approach D,
-> `plans/RECURSIVE_ENUM_SHELL_REFACTOR.md`) leaves 527→527 markers (295/296
-> throw-points byte-identical) — the shell was orthogonal (only ~37 markers,
-> already fixed). The real root is **def-time body-eval typing**: the trial
-> wrapper `_trial_eval_fn_body` (calls/function_type.yo) evaluates ~93 of
-> yo-self's own function bodies with mistyped params/locals, so ordinary
-> `if`/`match` statements (246/296 throw-points are plain `if(...)`) throw "got
-> unit"/"incompatible types"/"member mismatch". Diagnosis in progress (instrument
-> the trial wrapper → throw→function map). See `issues/yo-self-p1-transpile-tail.md`.
+> **P1 METRIC CORRECTED (2026-07-01): every historical count was inflated by a
+> fixed floor of 2.** A naive `grep -c "Failed to transpile" stage2.c` matches the
+> codegen's OWN fallback-message _definitions_ — `String.from("// Failed to
+transpile ")` at `yo-self/codegen/exprs/generation.yo:409` (value-emit) and
+> `:577` (ref-emit) — which become two C string literals
+> (`(const uint8_t*)"// Failed to transpile "`) when yo-self compiles yo-self. A
+> REAL failure is an emitted COMMENT line (`^\s*// Failed to transpile <expr>`); a
+> string-literal match (`"// Failed to transpile`) is the floor. **So "527 → 30 →
+> 2" was "525 → 28 → 0" real failures** — the drain finished. Always measure with
+> `scripts/count-transpile-failures.sh <emitted.c>` (prints `<real> real (<floor>
+string-literal floor)`, exits non-zero iff real > 0), never a bare grep.
+> Caveat: the genuine count was only ever cleanly measurable from a COMPLETING
+> self-compile; the TS self-compile (which completes in 81 s) is the reference and
+> shows 0 real, confirming the binary (faithful port) would too once P2 lets it
+> finish. See `issues/yo-self-p1-transpile-tail.md`.
 
 ---
 
@@ -45,6 +50,7 @@ culminating in the fixpoint:
    compare run behavior — or seed ids for a text-equality build).
 
 **DONE when ALL hold:**
+
 - [ ] Differential harness: 100% of `tests/*.test.yo` PASS (same stdout, exit
       code, per-test results) on POSIX targets (macOS arm64 + Linux x86_64).
       Windows + WASM runtimes are an explicit out-of-scope follow-up.
@@ -59,16 +65,16 @@ culminating in the fixpoint:
 
 ## Validation gates (must stay green throughout)
 
-| Gate | Command | Expected |
-|---|---|---|
-| TS unit tests | `bun test --timeout 30000` | all pass |
-| TS evaluator on std | `node ./out/cjs/yo-cli.cjs check ./std` | all pass (count drifts) |
-| Full integration suite | `node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --parallel 2 --bail --c-compiler clang` | all pass, ~12 min |
-| Self-hosted sweep | `YO_MAIN_STACK_MB=4096 /tmp/yo-self-bin check ./std` / `./tests` / `./yo-self` | all pass except the 2 baseline fixtures `tests/circular_deps/circular_error_{a,b}.yo` (error identically under TS) |
-| **Differential harness** | `scripts/diff-test.sh tests/codegen-bootstrap --parallel 1` (env `YO_SELF_BIN`, default `/tmp/yo-self-bin`) | **no `DIFF`/`TS-FAIL`**; `SELF-FAIL` only from the flaky SIGTRAP (P0) — confirm any SELF-FAIL is flaky by re-running standalone |
+| Gate                     | Command                                                                                                               | Expected                                                                                                                        |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| TS unit tests            | `bun test --timeout 30000`                                                                                            | all pass                                                                                                                        |
+| TS evaluator on std      | `node ./out/cjs/yo-cli.cjs check ./std`                                                                               | all pass (count drifts)                                                                                                         |
+| Full integration suite   | `node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --parallel 2 --bail --c-compiler clang` | all pass, ~12 min                                                                                                               |
+| Self-hosted sweep        | `YO_MAIN_STACK_MB=4096 /tmp/yo-self-bin check ./std` / `./tests` / `./yo-self`                                        | all pass except the 2 baseline fixtures `tests/circular_deps/circular_error_{a,b}.yo` (error identically under TS)              |
+| **Differential harness** | `scripts/diff-test.sh tests/codegen-bootstrap --parallel 1` (env `YO_SELF_BIN`, default `/tmp/yo-self-bin`)           | **no `DIFF`/`TS-FAIL`**; `SELF-FAIL` only from the flaky SIGTRAP (P0) — confirm any SELF-FAIL is flaky by re-running standalone |
 
 > **Validate serially (`--parallel 1`).** Under `--parallel 3` the flaky SIGTRAP
-> (P0) produces non-deterministic SELF-FAILs on *different* fixtures each
+> (P0) produces non-deterministic SELF-FAILs on _different_ fixtures each
 > run; a serial run plus a standalone re-run of any failure is the reliable
 > signal. "Identical crash across builds → suspect the compiler, not your diff."
 
@@ -77,6 +83,7 @@ culminating in the fixpoint:
 ## Handoff onboarding
 
 **Environment (macOS dev box):**
+
 - `bun` drops out of PATH in fresh shells — re-export the devenv bin dir
   (`/nix/store/*-bun-*/bin` or the devenv profile) before `node`/`bun`.
 - `bun run build` before any `node ./out/cjs/yo-cli.cjs …` after TS edits. Never npm.
@@ -97,6 +104,7 @@ culminating in the fixpoint:
   stacks (template: `issues/fixed/yo-self-macro-dispatch-corruption.md`).
 
 **Conventions (non-negotiable):**
+
 - **Strict 1-to-1**: same functions, same order; language-forced divergences get
   a header comment. No yo-only helper files.
 - **TS-first for bugs**: if TS codegen has a bug, fix TS (with a `tests/` case
@@ -109,6 +117,7 @@ culminating in the fixpoint:
 
 **Yo-syntax landmines** (full list in
 `.github/skills/yo-syntax/syntax-cheatsheet.md` — read it):
+
 - Single-expression fn body must NOT have braces (`{ expr }` = struct lit).
 - `if(cond, { block })` — NOT `if(cond) { block }`.
 - No forward references; self-recursion via `recur`, not the fn's name.
@@ -131,7 +140,7 @@ string-building.**
 
 **Executing-mode requirement.** Codegen evaluates function bodies in
 `is_executing = true` mode with REAL, propagating errors — the def-eval-wall
-*swallow* that protects `check` does not apply. This surfaces the remaining
+_swallow_ that protects `check` does not apply. This surfaces the remaining
 evaluator tail by design (see P1). yo-self's own source is the harshest
 corpus there is.
 
@@ -147,32 +156,31 @@ the P2 memory issue.
 
 ---
 
-## Status snapshot (2026-06-20)
+## Status snapshot (2026-07-01)
 
-| Phase | State | Notes |
-|---|---|---|
-| 0 — baseline + differential harness + UAF fix | ✅ done | `scripts/diff-test.sh`; the ExprInfo-table UAF is fixed (RC layer clean) |
-| 1 — typed pipeline | ✅ done | constants/utils/context/collection/codegen-c orchestration |
-| 2 — expression emitters | ✅ substantially done | atoms, control flow, operators, struct/enum/newtype/tuple construction, property access, casts, address-of, pointer ops, extern calls, Index-trait dispatch |
-| 3 — functions/types/dyn/specialization | ✅ substantially done | dyn subsystem complete; generic specialization (instance+static, ctor-in-body, const-generic `Array(T,U)`, fresh-id body clone); generic `println`/`print` end-to-end |
-| 4 — memory-management correctness | 🟡 substantially done | RC dup/drop placement, cycle-GC scaffolding, dispose dispatch, runtime borrow-flag backstop wired (both compilers). Remaining: complete consume-tracking mirror; **systematic guard-page/ASan-clean validation is blocked by P0+P2** |
-| 5 — async/effects/parallelism (POSIX) | 🟡 substantially done | FSM transform core, state-machine + state-code-gen emitters, IO runtimes (Linux/macOS/Windows), `unwind` escape-propagation, parallelism runtime. Remaining: synchronous `ctl` effect handlers; the MATCH cluster in await codegen; `run_test` wiring in `main.yo` |
-| 6 — self-host fixpoint | ❌ not reached | the finish line; gated on P0–P2 |
+| Phase                                         | State                 | Notes                                                                                                                                                                                                                                                              |
+| --------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0 — baseline + differential harness + UAF fix | ✅ done               | `scripts/diff-test.sh`; the ExprInfo-table UAF is fixed (RC layer clean)                                                                                                                                                                                           |
+| 1 — typed pipeline                            | ✅ done               | constants/utils/context/collection/codegen-c orchestration                                                                                                                                                                                                         |
+| 2 — expression emitters                       | ✅ substantially done | atoms, control flow, operators, struct/enum/newtype/tuple construction, property access, casts, address-of, pointer ops, extern calls, Index-trait dispatch                                                                                                        |
+| 3 — functions/types/dyn/specialization        | ✅ substantially done | dyn subsystem complete; generic specialization (instance+static, ctor-in-body, const-generic `Array(T,U)`, fresh-id body clone); generic `println`/`print` end-to-end                                                                                              |
+| 4 — memory-management correctness             | 🟡 substantially done | RC dup/drop placement, cycle-GC scaffolding, dispose dispatch, runtime borrow-flag backstop wired (both compilers). Remaining: complete consume-tracking mirror; **systematic guard-page/ASan-clean validation is blocked by P0+P2**                               |
+| 5 — async/effects/parallelism (POSIX)         | 🟡 substantially done | FSM transform core, state-machine + state-code-gen emitters, IO runtimes (Linux/macOS/Windows), `unwind` escape-propagation, parallelism runtime. Remaining: synchronous `ctl` effect handlers; the MATCH cluster in await codegen; `run_test` wiring in `main.yo` |
+| 6 — self-host fixpoint                        | ❌ not reached        | the finish line; **now gated solely on P2** (P0 fixed, P1 = 0 real failures). The binary's ~3× memory peak swap-thrashes the stage-2 self-compile on 16 GB; needs the object-shrink refactor or a 32 GB box                                                        |
 
-Differential corpus: **80 fixtures, PASS** (serial, modulo P0). Test-suite
-denominators for Definition of Done: `tests/*.test.yo` = 85; `yo-self/tests/` =
-59 files (already green under TS; re-validate under `yo-self-bin test` in
-Phase 6).
+Differential corpus: **96 fixtures, PASS** (serial). Test-suite denominators for
+Definition of Done: `tests/*.test.yo` = 85; `yo-self/tests/` = 59 files (already
+green under TS; re-validate under `yo-self-bin test` in Phase 6).
 
 ---
 
 ## Remaining work — PRIORITIZED
 
 The systemic issues below gate the fixpoint, in priority order. With P0 fixed
-(2026-06-21), the corpus is deterministically green again, so the validation
-signal is reliable; the lead is now the P1 tail (steady, well-understood drain);
-the P2 memory issue is the deepest and ultimately blocks the unified fixpoint on
-this hardware.
+(2026-06-21) and **P1 complete (0 real transpile failures, 2026-07-01)**, the
+**sole remaining blocker is P2 — memory**: the binary self-compile peaks ~3× the
+TS compiler and swap-thrashes on this 16 GB box. P2 is now the lead and the only
+thing between here and the Phase 6 fixpoint.
 
 ### P0 — intermittent SIGTRAP-in-malloc (heap corruption) — ✅ FIXED (2026-06-21)
 
@@ -190,81 +198,70 @@ Detection used an RC quarantine (poison-instead-of-free in `__yo_decr_rc` →
 deterministic abort) — gmalloc does NOT reproduce freelist-corruption
 double-frees. See `issues/fixed/yo-self-codegen-intermittent-sigtrap.md`.
 
-### P1 (LEAD) — executing-mode evaluator/codegen tail (per-module transpile errors)
+### P1 — executing-mode evaluator/codegen tail — ✅ COMPLETE (0 real failures, 2026-07-01)
 
-Compiling individual modules surfaces `// Failed to transpile …` markers — each
-a *candidate* executing-mode gap. Small/medium modules are clean or near-clean;
-foundational modules (`error.yo`, `lexer.yo`, `token.yo`, `utils.yo`) are at 0.
-As of 2026-06-21, TWO families FIXED (validated: corpus 83/83 + std 152/152, zero
-regression): `Self`-not-found in specialized HashMap/HashSet method bodies ×4
-(`378914804`) + value.yo `field_labels` dual-struct clone (`8910182ad`). value.yo
-is down to **2** (`field_types` + `and`), parser.yo **3** (`array_list` ×2 + arg-count).
-The remaining tail is now ROOT-CAUSED to a few systemic mechanisms (see
-`issues/yo-self-p1-transpile-tail.md` for the full evidence; 10 build-validated fix
-attempts ruled out 10 distinct sites):
-- **`field_types` (value) / `args` (parser)** — clone of a recursive-enum
-  SELF-SHELL-typed runtime receiver. `clone` resolves via the generic Clone-impl /
-  derived-clone path (NOT the `type_id_or_empty` registry — proven: the chokepoint
-  resolve no-op'd), which the shell breaks → `clone`→TypeVal→`Type(1)`. Compounded by
-  registration TIMING (`resolve_enum_shell` returns `vars=0` before
-  `register_enum_final` on early calls). A deep, MULTI-FACETED effort (shell +
-  clone-via-generic-impl/derived + timing) in the hardest subsystem — not a single
-  targeted fix (10 ruled out). Warm-up-masked (likely vanishes in the real
-  fixpoint, like field_labels did).
-- **`and` (value)** — a comptime_str LITERAL arg to a `Self`-typed param
-  (`String.starts_with(prefix : Self)`): the comptime-arg→param coercion
-  (helper.yo:482) skips it because `Self` isn't resolved to the receiver during
-  arg-binding. Regression-prone area (touching it unguarded once regressed std
-  151→17); needs careful Self-resolution-in-coercion.
-- **`array_list` (parser ×2 + arg-count)** — gated MACRO_DISPATCH (the macro isn't
-  expanded at def-time eval).
+The transpile-error drain is **finished**. The TS compiler (the reference; same
+codegen logic as the faithful binary port) self-compiles `yo-self/main.yo`
+(`node out/cjs/yo-cli.cjs compile yo-self/main.yo --emit-c`) in **81 s**, emitting
+`stage2.c` with **0 real** `// Failed to transpile` markers. Verify with:
 
-> ⚠️ **Standalone per-module surveys OVERCOUNT.** Some markers are
-> warm-up/ordering artifacts, NOT real fixpoint blockers: a method first
-> specialized via a NESTED path (e.g. `xs.clone()` → `Self.with_capacity` →
-> `(*(T))(_ptr)` cast) can fail to bind the impl forall `T` and degenerate to
-> `Type(1)`, but the SAME method specialized DIRECTLY first (as happens
-> throughout the full self-compile) binds `T`, succeeds, and caches a good entry
-> the nested call reuses. So `value.yo`'s remaining `field_labels` error
-> disappears once `ArrayList(String).with_capacity` is warmed by any direct call
-> — it is substantially a per-module-compile artifact. The genuine remaining
-> tail can only be measured by the REAL stage-2 self-compile (P2-gated: OOMs on
-> 16 GB). Treat single-module marker counts as an upper bound, and confirm a
-> candidate is real (not warm-up-masked) before investing in a deep fix.
-> (Details + repro ladder: `issues/yo-self-p1-transpile-tail.md`.)
+```
+scripts/count-transpile-failures.sh /tmp/stage2_ts.c   # → "0 real (2 string-literal floor)"
+```
 
-The drain methodology is proven and steady:
+**The floor of 2 is not failures** — it is the codegen's own fallback-message
+_definitions_ compiled into the output (see the METRIC CORRECTED note at the top
+of this doc). Every historical "527 / 30 / 2 markers" figure was that count minus
+2 = real failures, so the true trajectory was **525 → 28 → 0**. The systemic
+mechanisms that drove the tail (def-time body-eval typing, `Self`-not-found in
+specialized method bodies, recursive-enum self-shell clone, comptime-arg→`Self`
+coercion, gated macro-dispatch) were all resolved over the session's fix series
+(tasks #48–#62); the warm-up-masking caveat below explains why the last
+per-module residuals vanished in the real (full) self-compile exactly as predicted.
 
-> survey per-module (`compile <m>.yo --emit-c --skip-c-compiler`,
-> `grep -c "Failed to transpile"`) → pick a tractable family → reproduce
-> minimally (`src/tests/fixme.yo`) → if the cond/expr has no ExprInfo, instrument
-> the def-time trial-eval swallow (`_trial_eval_fn_body` in
+> ⚠️ **Why standalone per-module surveys OVERCOUNTED (historical).** A method
+> first specialized via a NESTED path (e.g. `xs.clone()` → `Self.with_capacity` →
+> `(*(T))(_ptr)` cast) could fail to bind the impl forall `T` and degenerate to
+> `Type(1)`, but the SAME method specialized DIRECTLY first (as happens in the
+> full self-compile) binds `T`, succeeds, and caches a good entry the nested call
+> reuses. So single-module marker counts were an upper bound; the genuine count is
+> only meaningful from a COMPLETING self-compile — which the TS reference now
+> provides (0 real). Confirmed: the binary is a faithful port (corpus 96/96
+> binary≡TS output), so it emits the same 0 real once P2 lets it finish.
+
+Codegen-bug fixes that landed late in the drain and are validated in the corpus
+(96/96): try-macro/match-arm returning-arm env leak, iterator `Option(i32)`
+double-id (enum structural dedup), recursive-enum `Box(Self)` nested match
+(structural compatibility recursion). See `issues/fixed/`.
+
+Reusable drain methodology (kept for the record):
+
+> survey a COMPLETING compile (`scripts/count-transpile-failures.sh <emitted.c>`)
+> → reproduce minimally (`src/tests/fixme.yo`) → if the cond/expr has no ExprInfo,
+> instrument the def-time trial-eval swallow (`_trial_eval_fn_body` in
 > `evaluator/calls/function_type.yo`) to print the swallowed throw → root-cause →
 > fix in the evaluator or emitter → re-measure → corpus-validate → commit.
 
-Known open items in this bucket:
+Deferred (not P1 blockers — neither appears in the 0-real self-compile output):
+
 - General trait-`?=`-default codegen (`String`/`Ord`/`Error.source` `!=`
   defaults) — `create_specialized` must monomorphize default bodies with a
-  direct-call-only param bind + struct-id stability (Task #22; reverted 3× —
-  needs the param-bind isolated from the shared specialization path).
+  direct-call-only param bind + struct-id stability (Task #22; reverted 3×).
 - The MATCH cluster in await/async codegen and synchronous `ctl` effect
   handlers (Phase 5 tail).
-- Note: the LARGEST modules (`function.yo`, `match.yo`, `helper.yo`,
-  `codegen_c.yo`, the async modules) cannot be surveyed standalone today — they
-  `rc=134` OOM mid-compile (the P2 memory issue). Their tail is only reachable
-  once P2 is addressed or on a bigger box.
 
 ### P2 — memory: the unified self-compile now COMPLETES on 16 GB (goal: < TS)
 
 **The "~37 GB, can't run on a 16 GB box" wall is BROKEN.** That figure was the
 `-O0` build (stack-dominated: ~13 MB eval frames forcing a ~17 GB stack). The
-real *heap* driver was the port deep-`.clone()`ing value-type data wherever TS
+real _heap_ driver was the port deep-`.clone()`ing value-type data wherever TS
 shares a reference. Building the self-host binary at **`--optimize 1`** (LLVM
 stack coloring shrinks frames ~100×) plus a sequence of **Rust-style sharing
 fixes** make the unified `yo-self/main.yo` stage-2 self-compile **complete** on
 this 16 GB box.
 
 **Confirmed (commit `e9d7bfde3`, corpus 83/83 clean):**
+
 - `TypeValue.clone` RC-shares its recursive nested-type collections instead of
   deep-cloning them (the `EnumT`/`Struct`/`TraitT` arms; `ArrayList` is RC, so a
   plain field copy is a refcount bump). Sound because TypeValues are
@@ -272,21 +269,40 @@ this 16 GB box.
 - `Token.clone` shares the immutable `input` (full module source) instead of
   deep-copying it on every AST clone — that single copy was **~1.6 GB / 76% of
   peak** (`String.clone` 1.6 GB → 145 MB).
-- **Result: stage-2 self-compile completes, peak ~7.5 GB, `stage2.c` emitted,
-  30 transpile-error markers** = the real P1 tail (now measurable — P2 was
-  blocking P1 measurement).
+- **Result: stage-2 self-compile completes, profiled heap peak ~7.5 GB → ~5.26 GB
+  after the boxing series, `stage2.c` emitted, 0 real transpile-error markers
+  (P1 done — the historical "30" was 28 real + the 2-string floor).**
 
-**Target: the measured TS baseline is 3.8 GB** (`node yo-cli compile main.yo
---emit-c --skip-c-compiler`), NOT the ~1 GB an earlier note assumed. So "yo-self
-codegen < TS" is now a ~2× reduction from 7.5 GB.
+**Reference baseline (re-measured 2026-07-01): the TS compiler self-compiles
+`yo-self/main.yo --emit-c` in 81 s at ~3.3 GB peak** (`node out/cjs/yo-cli.cjs`).
+The yo-self **binary** does the same work but peaks **~10 GB RSS (≈3× TS)** — so on
+a 16 GB box (with ~7 GB system baseline) it swap-thrashes for hours, where TS fits
+and finishes in 81 s. **This 3× memory ratio is the entire reason the binary
+self-compile is slow** — it is not markers (0 real) and not compute.
+
+> **Ruled out — NOT a GC regression (2026-07-01).** Built the pre-Bacon-Rajan
+> binary (`dc6e0d69f^`, the old full-heap-at-2×-live GC) in a worktree and ran the
+> same self-compile: it peaks at the SAME ~8.6 GB RSS and swap-thrashes
+> identically. So the session's GC rewrite (`dc6e0d69f`) did not inflate the peak;
+> the ~3× bloat is the value-type object model (below), present in both.
+
+> **GC knob (`ed48c310c`): `YO_GC_FULL_PCT`** lets a constrained run cap the full
+> collector's re-arm factor below the default 2×-live (e.g. `YO_GC_FULL_PCT=110`).
+> It measurably keeps RSS lower and the early/mid self-compile phases at ~100 % CPU
+> (vs swap-thrash), but it cannot shrink the **live** working set, so the deepest
+> eval point (~10 GB) still exceeds 16 GB headroom. Useful margin, not a fix.
+
+**Target: drive the binary peak under the TS ~3.3 GB.** "yo-self codegen < TS" is a
+~3× reduction from the ~10 GB RSS binary peak (≈2× from the ~5.26 GB profiled heap).
 
 **Approach = Rust's memory model — owned `String` for building, `str` for views,
 `Arc<str>`(=`std/imm/string`) / RC-sharing for clone-heavy immutable data —
 applied biggest-first:**
+
 - ✅ RC-share recursive `TypeValue` collections; share the immutable token source.
 - ❌ Sharing the def-time body env (`snapshot_env` in `_build_def_time_body_env`
   instead of copying caller variables) — TRIED, REVERTED. Corpus-clean (83/83,
-  same 30 markers) but it *increased* peak 7.5 → 8.9 GB (sharing the caller
+  same 30 markers) but it _increased_ peak 7.5 → 8.9 GB (sharing the caller
   frames pinned more via ExprInfo env-snapshots than the copy did). Lesson: the
   2.6M `add_variable_to_env` Variables are **not** a single copy-loop — they are
   genuine bindings across all evaluated bodies (confirmed by `sample`: called
@@ -294,7 +310,7 @@ applied biggest-first:**
   every call), retained via ExprInfo env-snapshots.
 
 **The remaining gap to < TS is a multi-session object-shrink refactor.** The
-peak is dominated by heavy *value-type* objects where TS uses light shared refs:
+peak is dominated by heavy _value-type_ objects where TS uses light shared refs:
 **2.6M `Variable` @ 896 B (2.32 GB / 44%)** + **688K `ExprInfo` @ 1366 B
 (0.94 GB / 18%)**. Shrinking them means **boxing rarely-`Some` value-type
 fields** (e.g. `Variable.consumed_at_token`, `ExprInfo.origin_type` /
@@ -307,7 +323,7 @@ RC/handle type (thousands of sites) — the original "multi-week refactor". The
 heavy `Variable` fields (`ty`, `token`×3) can't be cheaply boxed (always present
 → boxing just moves them to the heap unless interned).
 
-**Fallback / pragmatic stance**: the practical win — the self-compile *completes*
+**Fallback / pragmatic stance**: the practical win — the self-compile _completes_
 on 16 GB (the fixpoint is now physically runnable here, and on a 32 GB+ box with
 ample headroom) — is DONE. Driving under TS's 3.8 GB is a separate, dedicated
 multi-session effort along the object-shrink path above.
@@ -325,6 +341,9 @@ multi-session effort along the object-shrink path above.
 
 - `scripts/diff-test.sh` — the differential harness; the `check`-equivalent run
   after every batch.
+- `scripts/count-transpile-failures.sh` — the **correct P1 metric**: counts real
+  emitted `// Failed to transpile` comment lines, separating them from the fixed
+  2-occurrence string-literal floor a bare grep miscounts. Use this, never a bare grep.
 - `plans/codegen-baseline-scorecard.md` — the committed Phase-0 baseline.
 - `BOOTSTRAPPING.md` — umbrella status; update its codegen rows as work lands.
 - `BOOTSTRAPPING_EVALUATOR.md` + `EVALUATOR_PORT_REVIEW.md` — the evaluator
