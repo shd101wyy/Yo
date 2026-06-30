@@ -80,3 +80,36 @@ emitter's line buffer). Localized to `_traverse_value`'s enum branch
 (`constructors.yo`) + `generate_yo_gc_trace_child` (`gc.yo`); the exact
 ownership share is not yet pinned. Only affects programs that use a
 cycle-GC-traced container of a newtype-over-enum (e.g. `HashMap(String, _)`).
+
+## Update 2 (2026-06-30): GC-tracer `switch()` is a binary HEAP-CORRUPTION bug
+
+Deeper investigation of the `((void(*)(void*)) switch ())` bug (task #54):
+
+**Mechanism (confirmed by instrumentation):** inside ONE `_traverse_value`
+call, `em.emit_string_line(\` switch (${access}.tag) {\`)`**overwrites the`visit_expr`String parameter** — it reads`'self'`immediately before the
+emit and`' switch ('`immediately after. So`visit_expr`'s heap buffer is
+freed earlier and the switch-literal allocation (`to_string(" switch (")`)
+reuses the same address.
+
+**Not a yo-self logic bug.** The compiled `_traverse_value` C has NO explicit
+`___drop(visit_expr)`, and the `.yo` code faithfully mirrors TS's
+`emitTraverseValue` (TS is immune — JS strings are immutable). So it's a
+binary-level RC-lifetime / shared-buffer bug in the TS-compiled yo-self: a
+String shallow-copy path (`to_string`/`+`/scope-end drop in the nested
+`cond`/`match`/`while`) frees a buffer still referenced by `visit_expr`. Same
+class as the known `continue-in-while heap corruption` / match-arm
+double-free TS-codegen bugs.
+
+**Workaround attempts that did NOT fix it (confirming heap corruption, not a
+reorderable alias):**
+
+- Defensive `String.new().push_string(tracer_code)` copy at the call site → still `switch ()`.
+- Capturing `safe_visit := visit_expr.clone()` before the switch emit and
+  recursing with it → the corruption just MOVED to `safe_visit` (became empty
+  `((void(*)(void*)))`).
+
+**Next step:** pin the premature free with ASan on the yo-self binary
+(`clang -fsanitize=address` on the emitted `.c`, run `binary compile
+/tmp/correct_hm.yo`), or audit the TS codegen RC-lifetime for the
+nested-`cond`/`while`/`String`-param pattern. Only affects cycle-GC traversal
+of a container holding a newtype-over-enum-over-RC (e.g. `HashMap(String, _)`).
