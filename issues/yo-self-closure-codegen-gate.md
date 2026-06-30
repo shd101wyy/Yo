@@ -84,6 +84,7 @@ closure. The next async cases need closures that CAPTURE outer variables — e.g
 `base := i32(10); io.async((io : Io) => (base + i32(32)))` (TS → 42), and `yield`'s
 internal closures (so every await-bearing FSM test hits this). For a capturing
 closure yo-self currently emits three errors:
+
 1. `__capture = /* skip generating value */` — `generate_io_async_sync_call` (and
    the FSM ctor) must build the capture-struct LITERAL `(<cap>){ .base = <value> }`
    from the closure's captured vars (FuncVal `cap_names`/`cap_tys`/`cap_vals`; a
@@ -92,15 +93,15 @@ closure yo-self currently emits three errors:
    the anon-fn `value` (a function reference, not a struct).
 2. `use of undeclared identifier 'base'` in the closure body — `generate_function`
    must set the closure-capture codegen context (`current_closure_capture_type_c_name`
-   + captured names) for marked closures so the atom emitter rewrites a captured
-   `base` to `((<cap>*)closure_context)->base` (atom.yo already has
-   `check_variable_is_closure_captured`; the context just needs wiring).
+   - captured names) for marked closures so the atom emitter rewrites a captured
+     `base` to `((<cap>*)closure_context)->base` (atom.yo already has
+     `check_variable_is_closure_captured`; the context just needs wiring).
 3. `int32_t = void*` at the await result — the result-type refinement must still
    resolve (it does for no-capture; verify it holds when the body captures).
-This is the `allocateClosureCapture` / `generateClosureConstruction` port (closures.ts)
-plus the closure-body capture-access context — the deferred closure-capture
-machinery. It is the gate for capturing/await-bearing async (incl. the full
-`tests/async_await.test.yo`, which TS passes 116/116).
+   This is the `allocateClosureCapture` / `generateClosureConstruction` port (closures.ts)
+   plus the closure-body capture-access context — the deferred closure-capture
+   machinery. It is the gate for capturing/await-bearing async (incl. the full
+   `tests/async_await.test.yo`, which TS passes 116/116).
 
 **Original status (now resolved):** OPEN — the next blocker after the async/await
 emitter ports + wiring.
@@ -192,10 +193,10 @@ plumbing are all in place; the remaining work is making them connect on the actu
 codegen-read node.
 
 **SYNC-FUTURE INFRA COMPLETE 2026-06-18 (commit 82233c5a5).** The io.async
-sync-future path now emits its full C (capture struct, __yo_param slot, set_effect,
+sync-future path now emits its full C (capture struct, **yo_param slot, set_effect,
 resume, dispose, constructor); the future var lowers to the correct `<struct>*`
 pointer (get_type_string SomeT branch consults the registry; future c_name
-registered with `*`); the no-capture `__capture` is `(<cap>){0}`. Validated std
+registered with `*`); the no-capture `**capture`is`(<cap>){0}`. Validated std
 152/152, corpus 58/58.
 
 **FINAL ROOT CAUSE of the last 2 C errors** (closure fn `closure_yo_id_*`
@@ -205,6 +206,7 @@ the `Impl(Fn(e:E)->T)` param (function.yo:1807, because it `is_some_type`), so
 `evaluate_anonymous_function_implementation` falls back to
 `_synthesize_default_func_type`, which makes every param + the return a FRESH SomeT
 (closure.yo `_synthesize_default_func_type`). Consequences:
+
 - `is_function_type_hard_generic` is true (any SomeT param ⇒ generic), so
   `should_skip_function_codegen` SKIPS the closure function — it is never emitted,
   yet the resume calls it. (NB: hard-generic checks only PARAMS, not the return —
@@ -221,7 +223,7 @@ types from the SOURCE annotations (`io : Io`) and its return type from the
 def-time-evaluated body (i32), instead of synthesizing fresh SomeTs. Option (b) is
 the more localized, lower-risk path: make the closure's own concrete signature
 authoritative when annotations/body are available, so it is neither skipped as
-generic nor lowered to void*. This is the final, narrowly-scoped step to emit `42`.
+generic nor lowered to void\*. This is the final, narrowly-scoped step to emit `42`.
 
 **PRE-EXISTING `check ./std` CRASH (bisected 2026-06-18).** While validating with
 `yo-self-bin check ./std`, the full-directory run crashes deterministically
@@ -312,3 +314,47 @@ convention before the async paths.
 
 Leaf helpers already ported in `closures.yo`: `check_variable_is_closure_captured`,
 `resolve_some_type_to_concrete`, `is_closure_construction`.
+
+---
+
+## Sync `Impl(Fn)` closure as a value-param to a user fn (2026-06-30)
+
+Surfaced by differential testing the self-compiled binary on
+`apply :: (fn(f : Impl(Fn(x:i32)->i32), x:i32)->i32)(f(x))` with
+`add_k := Impl(Fn(x:i32)->i32)({return(x+k);})` (repro `/tmp/cgbugs/04*.yo`).
+This is the SYNC static-dispatch closure path (closure_type.yo), distinct
+from the async `=>` path resolved above. The function-POINTER param path
+(`tests/codegen-bootstrap/fn_pointer_param.yo`) works; the Impl(Fn)
+capture-struct calling-convention path does not.
+
+**FIXED (commit 60d55c7c4) — two upstream prerequisites** that closure_type.yo
+omitted vs anonymous_function.yo:
+
+- `register_func_type(closure_id, synthetic_func_ty)` — was missing, so
+  `get_func_type` → `t_unit()` → closure emitted as `void closure(void)`
+  (params, return type, and `void* closure_context` all dropped).
+- `register_closure_capture_info(closure_id, {capture_type, frame_level})` —
+  was missing, so the body emitted captures raw (undeclared `k`) and
+  `register_impl_closure_call_mappings` skipped the closure.
+
+After the fix the closure signature + body are correct:
+`int32_t closure(void* closure_context, int32_t x)` with
+`x + ((cap*)closure_context)->k`.
+
+**STILL DEFERRED (gaps B + C)** — the closure-param specialization subsystem
+for a concrete (non-forall) user fn:
+
+- **B**: the closure-value variable is typed `void*` not the capture struct
+  (`void* add_k = (__yo_capture…){…}` — type mismatch). TS types it as the
+  capture struct (`__yo_struct… inc = …`).
+- **C**: `apply` is specialized as `…_rtparam0_Impl____Fn…` (the Impl(Fn) type
+  is NOT lowered to the capture struct) and the specialized function is never
+  emitted/declared (referenced once at the call site → implicit-decl error).
+  TS lowers rtparam0 to the capture struct id and emits the body
+  (`closure(&(f), x)`).
+
+`register_impl_closure_call_mappings` + `generate_closure_construction` ARE
+implemented in yo-self and now receive data (via the capture-info fix); the
+remaining work is the eval-side specialization that lowers an `Impl(Fn)`
+value-param to its concrete capture struct and registers the specialized
+function for codegen emission.
