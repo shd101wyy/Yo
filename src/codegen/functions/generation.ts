@@ -2471,11 +2471,15 @@ static void __yo_gc_collect_incremental() {
   // such passes become rare; when it reclaims a real cycle, reset to the floor.
   // Skip when disabled (SIZE_MAX via YO_GC_THRESHOLD=0).
   if (__yo_gc_collect_threshold != (size_t)-1) {
-    if (nwhite == 0) {
-      __yo_gc_collect_threshold = (__yo_gc_collect_threshold < (((size_t)-1) / 4)) ? __yo_gc_collect_threshold * 4 : ((size_t)-1) / 2;
-    } else {
-      __yo_gc_collect_threshold = __yo_gc_min_threshold;
-    }
+    // Heap-PROPORTIONAL trigger: collect again only once the possible-roots buffer
+    // grows to ~the live-object count, so on a large heap collections stay rare
+    // (each is ~O(heap)) while memory stays bounded (≈2x live). A pass that
+    // reclaims nothing backs off a further ×4 (cycle-poor workload); the floor is
+    // __yo_gc_min_threshold (or the env-pinned value).
+    size_t base = gc->tracked_count;
+    if (base < __yo_gc_min_threshold) base = __yo_gc_min_threshold;
+    if (nwhite == 0) base = (base < (((size_t)-1) / 4)) ? base * 4 : ((size_t)-1) / 2;
+    __yo_gc_collect_threshold = base;
   }
 }
 
