@@ -405,15 +405,55 @@ _compat_impl :: (
     // ArrayList(ME)))` hit a cached `(?*)(ME)` entry (both name=""), collapsing
     // HashMap's `data` field to `?*(ME)`. Structural exact comparison
     // distinguishes them (e.g. labels `[key, value]` vs `[name, kind]`).
-    .Struct({ id : aid, name : aname, field_labels : alabels, field_types : atypes, is_reference_semantics : aref, is_atomic_rc : aatomic, is_newtype : anew }) => match(
+    .Struct({ id : aid, name : aname, field_labels : alabels, field_types : atypes, is_reference_semantics : aref, is_atomic_rc : aatomic, is_newtype : anew, constructor_func_id : acfid }) => match(
       expected,
-      .Struct({ id : eid, name : ename, field_labels : elabels, field_types : etypes, is_reference_semantics : eref, is_atomic_rc : eatomic, is_newtype : enew }) => cond(
+      .Struct({ id : eid, name : ename, field_labels : elabels, field_types : etypes, is_reference_semantics : eref, is_atomic_rc : eatomic, is_newtype : enew, constructor_func_id : ecfid }) => cond(
         // Lenient: name equality, with EMPTY names as wildcards — types
         // reconstructed from values (type_of_eval_value) and pre-stamping
         // instantiations carry "" while `::`-bound types are now STAMPED
         // ("ArgParser" vs ""), and the mixed pair must stay compatible
         // (previously everything was "" so this never arose).
-        !(require_exact) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
+        //
+        // Non-exact struct compat. TS (compatibility.ts:288-331) has NO name-only
+        // shortcut for structs: it rejects only on field-count / nominal-distinctness
+        // and otherwise recurses field types. yo-self's old name-only rule rejected
+        // two instantiations of the SAME constructor whose STAMPED names differ —
+        // e.g. `Box(V)` (forall placeholder, or a recursive `Box(Self)` field whose
+        // name embeds the unresolved `__self_shell`) vs the resolved `Box(<final>)` —
+        // even though their fields are compatible. Restore TS behavior: accept the
+        // empty-name / equal-name wildcard fast paths, reject only genuinely-distinct
+        // nominals (different non-empty names, NO SomeT either side, DIFFERENT
+        // constructor_func_id — TS's `functionValue.funcId` check), and otherwise
+        // recurse field types (which resolves `__self_shell`s via the EnumT arm and
+        // treats a forall SomeT as compatible). See
+        // issues/yo-self-recursive-enum-nested-member-shell.md.
+        !(require_exact) => cond(
+          (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))) => true,
+          ((!(type_contains_some_type(actual)) && !(type_contains_some_type(expected))) && !((acfid.len() > usize(0)) && (acfid == ecfid))) => false,
+          (alabels.len() != elabels.len()) => false,
+          true => {
+            vkey_ne := ((aid.clone() + String.from("=>ne")) + eid);
+            cond(
+              _visited_contains(visited, vkey_ne) => true,
+              true => {
+                visited.push(vkey_ne);
+                (ok_ne : bool) = true;
+                (si_ne : usize) = usize(0);
+                while((si_ne < alabels.len()) && ok_ne, {
+                  al_ne := match(alabels.get(si_ne),.Some(v) => v,.None => ``);
+                  el_ne := match(elabels.get(si_ne),.Some(v) => v,.None => ``);
+                  at_ne := match(atypes.get(si_ne),.Some(v) => v,.None => TypeValue.Unit);
+                  et_ne := match(etypes.get(si_ne),.Some(v) => v,.None => TypeValue.Unit);
+                  if((al_ne != el_ne) || !(recur(at_ne, et_ne, false, visited)), {
+                    ok_ne = false;
+                  });
+                  si_ne = (si_ne + usize(1));
+                });
+                ok_ne
+              }
+            )
+          }
+        ),
         (aid == eid) => true,
         // Exact, different ids → structural. But the SEMANTICS KIND must match
         // first: a value `struct`, a reference `object`, an `atomic object`, and

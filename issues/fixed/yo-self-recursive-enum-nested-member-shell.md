@@ -1,4 +1,33 @@
-# yo-self: recursive value-enum `Box(Self)` member — `box(...)` returns unsubstituted `Box(V)` (OPEN)
+# yo-self: recursive value-enum `Box(Self)` member — `box(...)` returns unsubstituted `Box(V)` — FIXED
+
+## Resolution
+
+The real divergence was in `are_types_compatible` (NON-exact), not the call path.
+TS struct compat (`src/types/compatibility.ts:288-331`) has NO name-only shortcut:
+it rejects only on field-count / nominal-distinctness (different ids, neither side
+contains a SomeType, AND different constructor `funcId`) and otherwise recurses
+field types. yo-self had added a non-exact **name-only** struct branch
+(`yo-self/types/compatibility.yo`) that returned `aname == ename || ""-wildcard`
+WITHOUT recursing — so `Box(V)` (name stamped `"Box(V)"`) vs the field's
+`Box(<…__self_shell>)` was rejected purely on the differing stamped names, even
+though their fields are compatible (the box name-stamping, added for `is_boxed_type`,
+embeds the inner type string in the name).
+
+Fix: make the non-exact struct branch mirror TS — keep the equal/empty-name
+wildcard fast paths, reject only genuinely-distinct nominals (different non-empty
+names AND no SomeType either side AND different `constructor_func_id`), and
+otherwise recurse the field types (the EnumT arm resolves `__self_shell` → final,
+and a forall SomeT is compatible with anything). One-file change; the earlier
+`resolve_enum_shells_deep` attempt was reverted (the compat fix subsumes it).
+
+Validated: corpus **96/96** (was 94/95 — `recursive_enum_nested_match` now passes,
+zero regressions), `check ./std` 152/152.
+
+---
+
+## (original report below)
+
+# yo-self: recursive value-enum `Box(Self)` member — `box(...)` returns unsubstituted `Box(V)`
 
 The last failing corpus fixture: `tests/codegen-bootstrap/recursive_enum_nested_match.yo`.
 The self-compiled binary emits 2 "Failed to transpile" markers and prints only
