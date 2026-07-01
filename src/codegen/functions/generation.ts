@@ -2010,14 +2010,14 @@ static inline void* __yo_incr_rc(void* ptr) {
 static void* __yo_incr_rc_atomic(void* ptr) {
   if (ptr == NULL) return NULL;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  atomic_fetch_add_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_relaxed);
+  atomic_fetch_add_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_relaxed);
   return ptr;
 }
 
 static void __yo_decr_rc_atomic(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  size_t old_count = atomic_fetch_sub_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_acq_rel);
+  uint32_t old_count = atomic_fetch_sub_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_acq_rel);
   if (old_count == 1) {
     if (header->type_id) {
       __yo_dispose_dispatch(ptr);
@@ -2080,7 +2080,7 @@ static inline void __yo_decr_rc(void* ptr) {
     return;
   }
   
-  GC_DEBUG("Decr: ptr=%p RC=%zu->%zu\\n", ptr, header->ref_count, header->ref_count - 1);
+  GC_DEBUG("Decr: ptr=%p RC=%zu->%zu\\n", ptr, (size_t)header->ref_count, (size_t)(header->ref_count - 1));
 
   if (header->ref_count == 1) {
     // Last reference - deallocate immediately without decrementing (acyclic garbage).
@@ -2114,7 +2114,7 @@ static inline void* __yo_incr_rc(void* ptr) {
   if (ptr == NULL) return NULL;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   header->ref_count++;
-  GC_DEBUG("Incr: ptr=%p RC=%zu\\n", ptr, header->ref_count);
+  GC_DEBUG("Incr: ptr=%p RC=%zu\\n", ptr, (size_t)header->ref_count);
   return ptr;
 }`);
 
@@ -2128,14 +2128,14 @@ static inline void* __yo_incr_rc(void* ptr) {
 static void* __yo_incr_rc_atomic(void* ptr) {
   if (ptr == NULL) return NULL;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  atomic_fetch_add_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_relaxed);
+  atomic_fetch_add_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_relaxed);
   return ptr;
 }
 
 static void __yo_decr_rc_atomic(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  size_t old_count = atomic_fetch_sub_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_acq_rel);
+  uint32_t old_count = atomic_fetch_sub_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_acq_rel);
   
   if (old_count == 1) {
     // Last reference - deallocate

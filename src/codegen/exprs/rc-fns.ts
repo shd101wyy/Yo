@@ -546,7 +546,7 @@ export function generateRcCall(
   if (isRcType(argType)) {
     if (isAtomicReferenceStructType(argType)) {
       // Atomic objects need atomic_load to avoid data races across threads
-      return `atomic_load_explicit((_Atomic size_t*)&((__yo_ref_header_t*)(${argCode}))->ref_count, memory_order_acquire)`;
+      return `atomic_load_explicit((_Atomic uint32_t*)&((__yo_ref_header_t*)(${argCode}))->ref_count, memory_order_acquire)`;
     }
     return `((__yo_ref_header_t*)(${argCode}))->ref_count`;
   } else {

@@ -410,10 +410,14 @@ typedef struct __yo_thread_gc_state __yo_thread_gc_state_t;
     context.emitter.emitDeclarationLine(`
 // Reference counting header - non-atomic RC with cycle collection support
 typedef struct __yo_ref_header_t {
-  size_t ref_count;
+  // Packed into one 8-byte word (P2 memory): ref_count u32 (4B refs is far more
+  // than addressable memory can hold), gc_mark/gc_flags as bytes, borrow_count u16.
+  // Shrinks the header 64 -> 56 B, saving ~8 B on every RC object (~40M in the
+  // self-compile ⇒ ~0.3 GB). gc_mark holds __yo_gc_mark_t values 0..4.
+  uint32_t ref_count;
   uint8_t gc_flags;
+  uint8_t gc_mark;
   uint16_t borrow_count;  // Law-of-Exclusivity flag: # of live interior refs into this object
-  __yo_gc_mark_t gc_mark;
   struct __yo_ref_header_t* gc_next;
   struct __yo_ref_header_t* gc_prev;
   struct __yo_ref_header_t* roots_next;  // Bacon-Rajan possible-roots intrusive list (O(1) unlink at free)
@@ -441,7 +445,7 @@ struct __yo_thread_gc_state {
 // Lightweight reference counting header — no cycle detection fields
 // Uses type_id dispatch instead of function pointer for dispose (faster in WASM: br_table vs call_indirect)
 typedef struct __yo_ref_header_t {
-  size_t ref_count;
+  uint32_t ref_count;     // u32 (4B refs >> addressable memory); matches the atomic-RC casts
   uint16_t type_id;
   uint16_t borrow_count;  // Law-of-Exclusivity flag (fits in existing tail padding: 0 extra bytes)
 } __yo_ref_header_t;`);

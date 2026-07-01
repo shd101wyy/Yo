@@ -601,10 +601,14 @@ typedef struct __yo_thread_gc_state __yo_thread_gc_state_t;
       `
 // Reference counting header - non-atomic RC with cycle collection support
 typedef struct __yo_ref_header_t {
-  size_t ref_count;
+  // Packed into one 8-byte word (P2 memory): ref_count u32 (4B refs >> addressable
+  // memory), gc_mark/gc_flags as bytes, borrow_count u16. Shrinks the header 64 -> 56 B,
+  // saving ~8 B/object; e.g. ArrayList 88 -> 80 crosses the 96 -> 80 malloc class
+  // (~0.4 GB at self-compile scale). gc_mark holds __yo_gc_mark_t values 0..4.
+  uint32_t ref_count;
   uint8_t gc_flags;
+  uint8_t gc_mark;
   uint16_t borrow_count;
-  __yo_gc_mark_t gc_mark;
   struct __yo_ref_header_t* gc_next;
   struct __yo_ref_header_t* gc_prev;
   struct __yo_ref_header_t* roots_next;  // Bacon-Rajan possible-roots intrusive list (O(1) unlink at free)
@@ -634,7 +638,7 @@ struct __yo_thread_gc_state {
 // Lightweight reference counting header — no cycle detection fields
 // Uses type_id dispatch instead of function pointer for dispose (faster in WASM: br_table vs call_indirect)
 typedef struct __yo_ref_header_t {
-  size_t ref_count;
+  uint32_t ref_count;     // u32 (matches the atomic-RC casts; 4B refs >> addressable memory)
   uint16_t type_id;
   uint16_t borrow_count;
 } __yo_ref_header_t;`
