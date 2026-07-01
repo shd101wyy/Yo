@@ -148,6 +148,23 @@ Given children are interned, equality is shallow:
 - children **pointer-equal** (ArrayList elements compared by element pointer, same
   length). No deep recursion.
 
+> **Phase-0 finding (2026-07-01): the existing type-key helpers are UNSAFE to
+> intern on — a purpose-built structural key/eq is mandatory for Phase 2.**
+>
+> - `type_to_string_key` (`types/string.yo`, `_tts(t, 36)`) is deliberately
+>   **shallow/truncated** ("renders only the top few levels then `…`") to avoid an
+>   O(n²) hang — so two distinct DEEP types can share a key ⇒ interning on it would
+>   merge them ⇒ corruption.
+> - `synthesis_type_id` (`evaluator/types/synthesizer.yo`) returns the bare `id`
+>   for Struct/EnumT/TraitT/SomeT — which does NOT distinguish two generic
+>   INSTANTIATIONS of the same definition (`HashMap(i32,str)` vs `HashMap(str,i32)`
+>   share the struct `id`) ⇒ also unsafe as an identity key.
+> - `type_to_string` (full, depth 40) still truncates at 40 and is O(depth); not a
+>   safe/cheap key either.
+>   So Phase 2 must build the recursive structural hash (§4.3) + `type_eq_canonical`
+>   below; there is no ready-made shortcut. (Phase 0/1 — atomics — need no structural
+>   key: atomics are keyed by (tag, bits/signed/level) trivially.)
+
 This is DIFFERENT from the existing `are_types_compatible` (which is
 subtyping/compatibility, not identity) and from `_ctfe_args_equal`. It is strict
 structural identity for canonicalization. **Do not reuse the compatibility
@@ -236,10 +253,19 @@ thread / imm_threading**, and a **heap measurement** (macOS `heap` node count +
 yo-self emitter is N/A here (this is evaluator-side `types/` code, not codegen) —
 but keep TS `src/types/` and `yo-self/types/` in step where they correspond.
 
-- **Phase 0 — storage-interning spike (cheap safety probe).** Intern only at
-  `ExprInfo.ty` + `Variable.ty` setters. Validate gates + measure steady-heap drop.
-  Purpose: prove the intern table + equality + mutation-safety on a small surface
-  before the wide reroute. Low risk, partial win (steady only).
+- **Phase 0 — storage-interning spike (cheap safety probe). ✅ DONE 2026-07-01
+  (mechanism validated; reverted as a no-op — do NOT re-land as-is).** Implemented
+  `intern_type` (atomic variants → memoized canonical singletons; compound
+  pass-through) in `types/creators.yo` and applied it at the `ExprInfo.ty`
+  chokepoint (`new_expr_info`). Result: **correct + safe** (`check ./std` 152/152,
+  corpus 96/96 — atomic node-sharing does not break behavior) but **zero heap
+  change** (59.1 M nodes / 5.72 GB, unchanged). Why: root-level ExprInfo.ty
+  interning touches <688 K roots (<5 % of 13 M); the bulk is NESTED types (inside
+  compound ArrayLists), `Variable.ty` (2.6 M), caches, and transients — none of
+  which a root-only, atomics-only intern reaches. **Conclusion: skip narrow
+  storage-interning; Phase 1 goes straight to construction-site + RECURSIVE
+  interning.** The validated `intern_type` + singleton pattern (and the memoized
+  `t_*()` idiom) can be regenerated from git history / the P2 memory notes.
 - **Phase 1 — atomics.** `mk_*` for all nullary/Int/Float/TypeUni; reroute their
   construction sites; `t_*()` → `mk_*`. Measure (should dedup the atomic slice).
 - **Phase 2 — compound, one variant at a time.** Start with the highest-frequency
