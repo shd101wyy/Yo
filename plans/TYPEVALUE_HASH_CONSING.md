@@ -1,0 +1,284 @@
+# TypeValue hash-consing — design & scoping (P2 memory, peak reduction)
+
+Status: **DESIGN / not started.** Successor lever to the RC-header shrink
+(`c8fa9157c`, −0.43 GB steady). This is the one remaining lever with **multi-GB,
+peak-reducing** potential; it is a substantial, multi-phase change with real
+correctness risk. Read the whole doc before touching code.
+
+---
+
+## 1. Why (the measured problem)
+
+macOS `heap` on the yo-self **binary** self-compiling `yo-self/main.yo` (verified
+sizes via a `-Dmain` include-the-emitted-C `sizeof` probe; header now 56 B):
+
+| Object                                                                                            | sizeof | malloc class | live count | total   |
+| ------------------------------------------------------------------------------------------------- | ------ | ------------ | ---------- | ------- |
+| **TypeValue** (`ref(enum)`)                                                                       | 168 B  | 176/192      | **~13 M**  | ~2.5 GB |
+| **ArrayList** objects — TypeValues' `field_types`/`param_types`/`forall_types`/`variant_fields`/… | 80 B   | 80           | **~26 M**  | ~2.1 GB |
+| ArrayList backing buffers                                                                         | —      | 16/32        | ~16.5 M    | ~0.5 GB |
+
+**~90 % of the heap is rooted in TypeValue + its collection fields.** The TS
+reference compiles the same input in **81 s at ~3.3 GB**; the yo-self binary peaks
+**~9.5 GB** (transient eval surge) and is compressor-thrash-slow on 16 GB. The gap
+is that yo-self allocates **~13 M distinct TypeValue objects** where TS both shares
+references and lets the JS GC collect transients.
+
+Two facts that shape the design (both established this session):
+
+- **Allocation is DIFFUSE** (MallocStackLogging: largest single backtrace ~14 MB of
+  ~6 GB; construction spread across `evaluate_struct_type`, `substitute`,
+  `synthesize`, `_patch_self_shell`, `evaluate_comptime_fn_call`, …). ⇒ No hot site;
+  a per-site fix cannot work. Interning must live at a **chokepoint** (construction
+  factory) or be applied uniformly.
+- **The fit-determining metric is the transient PEAK, not steady size.** The header
+  shrink cut steady heap 0.43 GB but left the ~9.5 GB peak unchanged, because the
+  peak is a surge of _many distinct objects_, not per-object size. ⇒ Only reducing
+  the **count** (dedup) attacks the peak. Hash-consing is the count lever.
+
+Expected payoff: if the program has **D** distinct types and the evaluator
+materialises **N ≈ 13 M** TypeValue objects, hash-consing collapses N→D. D is
+bounded by the program's actual type vocabulary (concrete types, function
+signatures, struct/enum instantiations) — plausibly ~10⁵–10⁶, i.e. a **5–13×**
+reduction in TypeValue objects and their attached ArrayLists. That is the only
+change with a credible path to <16 GB peak (and toward the ~3.3 GB TS bar).
+
+---
+
+## 2. What hash-consing is here
+
+Maintain a global **intern table**: a canonical, deduplicated store of TypeValues.
+Construction returns the existing canonical instance for a structurally-equal type
+instead of allocating a new one. Because `TypeValue` is already a `ref(enum)`
+(a pointer), "sharing" is just returning the same pointer + an RC bump — no
+representation change is needed (unlike the "convert TypeValue to a handle type"
+worry in older P2 notes; that work was already done by the `ref(enum)` refactor,
+task #36).
+
+**Recursive (bottom-up) interning.** A compound type's children are interned
+_first_; then the parent's identity key is (variant tag, **child pointers**, scalar
+fields). Once children are canonical, structural equality on the parent is O(1)
+pointer comparison of children + scalar compare — no deep recursion at lookup time.
+
+---
+
+## 3. Faithfulness note (this is a deliberate divergence)
+
+The TS reference **memoizes atomic types** (`src/types/creators.ts`:
+`cachedComptimeIntType`, etc.) but does **not** hash-cons compound types — it
+relies on JS reference sharing + generational GC. So full hash-consing is a
+**yo-self-specific optimization**, in the same justified-divergence category as
+`Token.clone` returning self, the `ref(enum)` model, and the cycle GC. It must be
+documented as such (header comment on the intern module + this doc), and the
+atomic-type portion should be framed as _completing_ the port of TS's `cached*`
+memoization.
+
+---
+
+## 4. Design
+
+### 4.1 The intern table
+
+```
+// module: yo-self/types/intern.yo  (mirror: informed by src/types/, but this is
+// a yo-self memory optimization — TS has only the atomic cached* singletons)
+(g_type_intern : HashMap(u64, ArrayList(TypeValue))) = HashMap(u64, ArrayList(TypeValue)).new();
+```
+
+- Keyed by a **structural hash** `u64` (§4.3); value is a bucket (collision list)
+  of canonical TypeValues sharing that hash.
+- `intern(tv) -> TypeValue`: hash `tv`; scan its bucket for a structurally-equal
+  entry (§4.4); if found, **drop `tv`, return the canonical**; else insert `tv`
+  and return it.
+- The table is a **GC root** (module-level global) → interned types live for the
+  whole compile (intended: they are the dedup'd universe). They are never
+  cycle-collected while the table holds them.
+
+### 4.2 Where interning happens — CONSTRUCTION factory (not storage)
+
+To reduce the **peak** (not just steady retention), transient duplicates must be
+deduped _at construction_, so they are never separately allocated. Introduce
+interning constructors and route **all** construction through them:
+
+```
+mk_unit()  mk_bool()  mk_int(bits, signed)  mk_usize()  ...   // atomics: §4.5
+mk_pointer(pointee)            // interns pointee, then interns the Pointer node
+mk_struct(id, name, field_labels, field_types, ...)           // compound: children pre-interned
+mk_func(forall, params, implicit, where, result, meta)
+mk_enum(...)  mk_tuple(...)  mk_union(...)  mk_trait(...)  mk_dyn(...)  ...
+```
+
+Each `mk_*`:
+
+1. interns its child TypeValues (recursively — callers usually pass already-interned
+   children, but `mk_*` re-interns defensively; interning an already-canonical value
+   is an O(1) hash+pointer-hit),
+2. constructs the node,
+3. returns `intern(node)`.
+
+**Rerouting.** Replace the ~86 `TypeValue.Xxx(...)` construction sites (26 Func, 25
+Struct, 13 EnumT, …) — plus the `TypeValue.clone` reconstruction arms and the
+`substitute`/`synthesize` builders — with the `mk_*` calls. This is the bulk of the
+mechanical work. `creators.yo`'s `t_*()` accessors become thin wrappers over the
+atomic `mk_*` singletons (this also _finally_ lands the TS `cached*` memoization
+that a naive `t_*()`-memo attempt was a no-op for, because it caught only the
+accessor, not inline construction — see the P2 memory milestone notes).
+
+> **Storage-interning is the cheaper fallback** (intern only at `ExprInfo.ty` /
+> `Variable.ty` setters): far fewer sites, dedups the _retained_ set (helps steady
+> RSS), but does NOT dedup transient peaks. Use it as Phase 0 to validate the
+> mechanism/mutation-safety cheaply, but the peak win needs construction-interning.
+
+### 4.3 Structural hash
+
+`type_hash(tv) -> u64`, mixing (murmur3 fmix64 — already used in the std HashMap's
+`h1_hash`; see the hash-clustering fix in `git log`):
+
+- the variant tag,
+- scalar fields (bits/signed/level/bools/`id`/`name`/`cfid` string hashes),
+- **child identity**: since children are interned, hash their POINTER/identity
+  (or a per-node cached hash — see §4.7), not a deep re-hash.
+
+### 4.4 Structural equality (`type_eq_canonical`)
+
+Given children are interned, equality is shallow:
+
+- same variant tag,
+- scalar fields equal (string compare on `id`/`name`/`cfid`; `==` on bits/bools),
+- children **pointer-equal** (ArrayList elements compared by element pointer, same
+  length). No deep recursion.
+
+This is DIFFERENT from the existing `are_types_compatible` (which is
+subtyping/compatibility, not identity) and from `_ctfe_args_equal`. It is strict
+structural identity for canonicalization. **Do not reuse the compatibility
+predicates** — the Phase-3 HashMap.new blocker (name-only struct comparison was unsound for cache-key identity) shows name-only/loose
+comparison is unsound for identity keys.
+
+### 4.5 Atomics (Phase 1 — do first, lowest risk)
+
+The ~31 nullary/atomic variants (`Unit`, `Str`, `BoolT`, `Int(bits,signed)`×8,
+`Float(bits)`×2, `Usize`, `Isize`, `Comptime*`, `C*`, `TypeUni(level)`) are a finite
+singleton set. `mk_int(32,true)` etc. return module-level singletons (exactly TS's
+`cached*`). This validates the mechanism + mutation-safety on the simplest case
+before touching compound types. NOTE: memoizing only `t_*()` was measured as a
+**no-op** — Phase 1 is only meaningful once construction sites are rerouted to
+`mk_*` (§4.2).
+
+### 4.6 What must NOT be merged (identity-carrying types)
+
+- **`SomeT`** (type variables): each has a fresh unique `id` and denotes a DISTINCT
+  variable even when structurally similar. Its `id` is part of the key, so two
+  different type-vars never merge (correct) — but this also means SomeT gets little
+  dedup. Interning SomeT is still safe (keyed by id) but low-value; can be excluded
+  in Phase 1–2 and revisited.
+- Any type carrying a **fresh `random_id`** at construction: the id must be in the
+  key, or interning would wrongly merge/duplicate. Audit `Struct.id`,
+  `EnumT` id, `constructor_func_id` — these are deterministic per definition
+  (good, they dedup instantiations correctly) EXCEPT where a fresh random id is
+  minted (those won't dedup — acceptable).
+
+### 4.7 Optional: cache a per-node hash
+
+Store the computed `u64` hash on the node (there is spare room — after the header
+shrink, TypeValue is 168 B / 176 class; a `u64 hash` field lands in the same class
+if it fits the padding, else bumps to 192 — measure). Avoids re-hashing on every
+intern lookup. Optional; add only if profiling shows hashing is hot.
+
+---
+
+## 5. Correctness: the mutation-safety invariant
+
+**Interning is sound ONLY IF interned TypeValues are never mutated in place** (a
+shared canonical must not change under one holder). Evidence it holds:
+
+- `TypeValue.clone` already RC-shares nested collections and its doc asserts a
+  "codebase-wide audit found NO in-place mutation of these fields."
+- The clone-returns-self experiment this session shared whole TypeValue nodes and
+  was **corpus-neutral** (96/96) — direct evidence that node sharing is behavior-safe.
+
+But this is the #1 risk. **Before Phase 2**, do a dedicated audit + guard:
+
+- grep for `.ty =`, `.field_types =`, `.<typevalue-field> =` reassignments on a
+  TypeValue that could be interned; and for ArrayList `.push`/`.set`/`.clear` on a
+  TypeValue's collection field after construction. the P1 dirB clone-Comptime finding
+  historically found ONE in-place `.value=` on a reused prelude `TypeVal(Comptime)`
+  — confirm it is gone / not on an interned path.
+- Add a **debug assertion** (behind a flag): mark interned nodes; in RC-mutation or
+  the relevant setters, assert an interned node is never written. Run the corpus +
+  self-compile with it on.
+
+If a mutation site exists, either (a) make it rebuild-not-mutate (preferred, matches
+the invariant), or (b) exclude that construction path from interning.
+
+---
+
+## 6. GC interaction
+
+- The intern table is a strong GC root; interned types are reachable for the whole
+  compile → never cycle-collected while cached. Correct and intended.
+- Recursive/cyclic types (self-referential enums via `_patch_self_shell`): the
+  shell placeholder and the resolved node must intern consistently. **Risk**:
+  interning a shell vs its resolved form as different keys. Handle by interning only
+  AFTER shell resolution (`resolve_enum_shell`), or excluding shells. See
+  the recursive-enum self-shell mechanism.
+- RC: `intern` that finds a hit must **drop the caller's `tv`** (it's discarded) and
+  return the canonical (RC bump). Get this exactly right or you leak / double-free.
+
+---
+
+## 7. Phasing & validation gates (never regress)
+
+Gates each phase: **corpus 96/96** (`scripts/diff-test.sh`), **`check ./std`
+152/152** (TS + yo-self binary), **cycle_collector 16/16**, **arc / atomic_object /
+thread / imm_threading**, and a **heap measurement** (macOS `heap` node count +
+`scripts/count-transpile-failures.sh` stays 0 real). Validate under a **clean env**
+(`YO_MAIN_STACK_MB=2048`, kill stray procs). Commit per phase; mirror 1-to-1 in the
+yo-self emitter is N/A here (this is evaluator-side `types/` code, not codegen) —
+but keep TS `src/types/` and `yo-self/types/` in step where they correspond.
+
+- **Phase 0 — storage-interning spike (cheap safety probe).** Intern only at
+  `ExprInfo.ty` + `Variable.ty` setters. Validate gates + measure steady-heap drop.
+  Purpose: prove the intern table + equality + mutation-safety on a small surface
+  before the wide reroute. Low risk, partial win (steady only).
+- **Phase 1 — atomics.** `mk_*` for all nullary/Int/Float/TypeUni; reroute their
+  construction sites; `t_*()` → `mk_*`. Measure (should dedup the atomic slice).
+- **Phase 2 — compound, one variant at a time.** Start with the highest-frequency
+  compound (likely `Func` — every function/method type — then `Struct`, `EnumT`,
+  `Pointer`, `Tuple`). For each: add `mk_<variant>`, reroute its ~N construction
+  sites + the `TypeValue.clone` arm + substitute/synthesize builders, validate,
+  measure the heap `node count` drop. Stop early if a variant regresses or its
+  dedup is negligible.
+- **Phase 3 — hash/eq tuning + optional per-node hash cache** if hashing is hot.
+- **Phase 4 — measure the PEAK** on the full self-compile (clean env): target peak
+  well under the previous ~9.5 GB and toward the ~5.5 GB steady, ideally opening
+  headroom for a looser `YO_GC_FULL_PCT` (faster completion).
+
+## 8. Risks & rollback
+
+- **Mutation aliasing → corruption** (the P0 double-free class). Mitigate: §5 audit
+  - debug assertion; phase gates; RC discipline in `intern`.
+- **Merging types that must stay distinct** (SomeT/fresh-id). Mitigate: ids in the
+  key; exclude SomeT early.
+- **Shell/recursive-type interning inconsistency.** Mitigate: intern post-resolution.
+- **Hashing/lookup becomes the new hot spot.** Mitigate: fmix64 + per-node hash
+  cache; measure with `sample`.
+- **Rollback:** each phase is an isolated commit; `mk_*` can fall back to plain
+  construction (no intern) by making `intern` the identity function — a one-line
+  kill switch to bisect a regression.
+
+## 9. Effort estimate
+
+Multi-session. Phase 0 ~½ day (spike + safety). Phases 1–2 the bulk (reroute ~86
+construction sites + clone + substitute/synthesize; per-variant validate/measure).
+The dominant cost is the careful reroute + per-phase self-compile measurement
+(each full measure ~15–45 min wall in a clean env).
+
+## References
+
+- Measured breakdown, prior no-op experiments (clone-share, atomic-memo), header
+  shrink `c8fa9157c`: `plans/BOOTSTRAPPING_CODEGEN.md` P2 section + `git log`.
+- Hash mixing (murmur3 fmix64): `std/collections/hash_map` `h1_hash`.
+- Identity-key soundness lesson: name-only struct comparison is unsound for exact
+  cache-key identity (Phase-3 `HashMap.new` blocker; see `git log`).
+- Recursive-enum shell: `resolve_enum_shell` / `_patch_self_shell` in the evaluator.
+- Header-shrink + GC knob: commits `c8fa9157c`, `ed48c310c`; `docs/en-US/CYCLE_COLLECTION.md`.

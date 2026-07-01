@@ -309,24 +309,34 @@ applied biggest-first:**
   from `_evaluate_funcval_runtime_call` / identifier eval / init-assignment on
   every call), retained via ExprInfo env-snapshots.
 
-**The remaining gap to < TS is a multi-session object-shrink refactor.** The
-peak is dominated by heavy _value-type_ objects where TS uses light shared refs:
-**2.6M `Variable` @ 896 B (2.32 GB / 44%)** + **688K `ExprInfo` @ 1366 B
-(0.94 GB / 18%)**. Shrinking them means **boxing rarely-`Some` value-type
-fields** (e.g. `Variable.consumed_at_token`, `ExprInfo.origin_type` /
-`converted_runtime_type` — `Option(T)` reserves `sizeof(T)` inline even when
-`None`). Each such cut yields only ~150–270 MB and **ripples to consumers**
-(they expect the unboxed type → unbox at every read), so ~12–15 cuts are needed.
-Higher-leverage **type interning** (share one canonical `TypeValue`) is
-infeasible without converting the entire `TypeValue` representation to an
-RC/handle type (thousands of sites) — the original "multi-week refactor". The
-heavy `Variable` fields (`ty`, `token`×3) can't be cheaply boxed (always present
-→ boxing just moves them to the heap unless interned).
+**Re-measured 2026-07-01 (the numbers above this line predate the `ref(enum)`
+refactor and are STALE — Variable/ExprInfo shrank to pointers).** macOS `heap` on
+the binary self-compile + a `-Dmain` `sizeof` probe give the CURRENT breakdown:
+**~13 M TypeValue @ 168 B (~2.5 GB)** + **~26 M ArrayList objects @ 80 B (~2.1 GB)
+— the TypeValues' collection fields** (`field_types`/`param_types`/`forall_types`/
+`variant_fields`, 2–4 per compound type) + ~16.5 M backing buffers (~0.5 GB). So
+~90 % of the heap is rooted in TypeValue + its collections. Allocation is DIFFUSE
+(no hot site); the fit-determining metric is the transient **peak** (~9.5 GB), not
+steady size.
 
-**Fallback / pragmatic stance**: the practical win — the self-compile _completes_
-on 16 GB (the fixpoint is now physically runnable here, and on a 32 GB+ box with
-ample headroom) — is DONE. Driving under TS's 3.8 GB is a separate, dedicated
-multi-session effort along the object-shrink path above.
+Two levers, in order:
+
+- **DONE — RC header 64 → 56 B** (`c8fa9157c`): ref_count size_t→u32 + gc_mark
+  enum→u8, repacked into one 8-byte word. −0.43 GB steady (ArrayList 88→80 crosses
+  the 96→80 malloc class). Safe, validated (corpus 96/96, std 152/152, RC/cycle/
+  atomic/thread). Reduces steady pressure but NOT the peak (per-object size doesn't
+  bound a count-driven surge). Further header/variant micro-shrinks are diminishing
+  (~0.1–0.2 GB, rippling, peak-neutral) — not worth grinding.
+- **NEXT (the peak lever) — hash-cons TypeValues**: dedup structurally-identical
+  types so the evaluator materialises D distinct types instead of ~13 M. TypeValue
+  is ALREADY a `ref(enum)` (the "convert to a handle type" blocker is GONE — task
+  #36 did it), so interning is a refcount bump, not a representation rewrite. This
+  is the only lever with multi-GB, peak-reducing potential. Full design, phasing,
+  mutation-safety analysis, and risks: **`plans/TYPEVALUE_HASH_CONSING.md`**.
+
+**Pragmatic stance**: the self-compile already _completes_ on 16 GB in a clean env
+(`YO_MAIN_STACK_MB=2048`, no stray procs; peak ~9.5 GB fits, slow post-peak from
+compressor pressure). Driving under the TS ~3.3 GB bar is the hash-consing effort.
 
 ### Phase 6 — the fixpoint (after the above)
 
