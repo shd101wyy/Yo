@@ -5,7 +5,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { is_pointer_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ _traverse_value } :: import("../functions/constructors.yo");
+{ _traverse_value, set_traverse_visit_expr } :: import("../functions/constructors.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 /// `__yo_gc_collect()` — trigger a cycle-GC collection (0 args). Mirrors
 /// `generateYoGcCollect`.
@@ -44,7 +44,11 @@ generate_yo_gc_trace_child :: (fn(expr : AstExpr, indent : String, context : Fun
           deref := String.from("(*(");
           deref.push_string(slot_code);
           deref.push_str("))");
-          _traverse_value(deref, pointee, context, tracer_code);
+          // Set the traversal visit-callback global (see g_traverse_visit_expr
+          // in constructors.yo — hoisted out of a param to sidestep a codegen
+          // RC-lifetime bug, task #54).
+          set_traverse_visit_expr(tracer_code);
+          _traverse_value(deref, pointee, context);
           String.from("((void)0)")
         },
         .None => String.from("// Error: __yo_gc_trace_child slot missing type information")
