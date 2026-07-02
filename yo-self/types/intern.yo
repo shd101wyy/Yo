@@ -1,16 +1,16 @@
 //! TypeValue hash-consing / interning (P2 memory — plans/TYPEVALUE_HASH_CONSING.md).
 //!
-//! STATUS (2026-07-02): the key + `intern_type` are VALIDATED CORRECT — wiring
-//! `intern_type(ty)` at the ExprInfo.ty chokepoint kept corpus 96/96 + check ./std
-//! 152/152 (the earlier id-only key WRONG-MERGED → 32 corpus SELF-FAIL; this
-//! full-content key does not). But whole-tree interning at ExprInfo.ty is a MEMORY
-//! NO-OP (heap 59.9 M nodes, unchanged): it dedups only the ~688 K stored root tys,
-//! not the nested types / Variable.ty / caches / transients that dominate the 13 M.
-//! So this module is currently UNWIRED (nothing imports it → not compiled in).
-//! To turn it into a win, reuse this validated key from RECURSIVE interning
-//! (intern children, reconstruct the node) or CONSTRUCTION-site interning (attacks
-//! transients + the peak). Gate every change on the differential corpus (96/96),
-//! NOT check ./std (which skips codegen).
+//! STATUS (2026-07-02): the key + `intern_type` are VALIDATED CORRECT (the earlier
+//! id-only key WRONG-MERGED → 32 corpus SELF-FAIL; this full-content key does not).
+//! WIRED at CONSTRUCTION: `substitute` (types/substitution.yo) wraps its result in
+//! `intern_type`. Since `substitute` recurses, this interns every level bottom-up
+//! → generic-instantiation types dedup. MEASURED: TypeValue count 13.04 M → 11.59 M
+//! (−1.45 M), heap 5.72 → 5.44 GB, corpus 96/96 + check ./std 152/152. Whole-tree
+//! interning at the ExprInfo.ty *storage* chokepoint alone was a no-op (only ~688 K
+//! root tys) — CONSTRUCTION sites (which also see transients → the peak) are the
+//! win. To dedup more, wrap other type-construction sources (synthesize, the
+//! type-eval/struct/enum builders) in `intern_type` too. Gate: differential corpus
+//! 96/96 (NOT check ./std — it skips codegen).
 //!
 //! DELIBERATE yo-self-specific divergence from TS (which memoizes only atomic
 //! types in src/types/creators.ts). Dedup structurally-identical TypeValues so the
