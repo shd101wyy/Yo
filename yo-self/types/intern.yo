@@ -1,0 +1,507 @@
+//! TypeValue hash-consing / interning (P2 memory — plans/TYPEVALUE_HASH_CONSING.md).
+//!
+//! STATUS (2026-07-02): the key + `intern_type` are VALIDATED CORRECT — wiring
+//! `intern_type(ty)` at the ExprInfo.ty chokepoint kept corpus 96/96 + check ./std
+//! 152/152 (the earlier id-only key WRONG-MERGED → 32 corpus SELF-FAIL; this
+//! full-content key does not). But whole-tree interning at ExprInfo.ty is a MEMORY
+//! NO-OP (heap 59.9 M nodes, unchanged): it dedups only the ~688 K stored root tys,
+//! not the nested types / Variable.ty / caches / transients that dominate the 13 M.
+//! So this module is currently UNWIRED (nothing imports it → not compiled in).
+//! To turn it into a win, reuse this validated key from RECURSIVE interning
+//! (intern children, reconstruct the node) or CONSTRUCTION-site interning (attacks
+//! transients + the peak). Gate every change on the differential corpus (96/96),
+//! NOT check ./std (which skips codegen).
+//!
+//! DELIBERATE yo-self-specific divergence from TS (which memoizes only atomic
+//! types in src/types/creators.ts). Dedup structurally-identical TypeValues so the
+//! evaluator retains D distinct types instead of ~13 M (each dragging 2-4 ArrayLists).
+//!
+//! `intern_type(tv)` returns a canonical instance for a structurally-equal type
+//! (whole-tree interning). Applied at the ExprInfo.ty storage chokepoint.
+//!
+//! CORRECTNESS: the key MUST NOT be coarser than codegen's type identity
+//! (_type_key_at / g_struct_cfid_keys / g_enum_sig_keys), else interning merges
+//! types codegen emits as distinct C types (the 2026-07-02 wrong-merge: EnumT keyed
+//! by id alone merged generic instantiations differing in variant_fields → malformed
+//! C). So named types render their FULL distinguishing content (name + all flags +
+//! field/variant types recursively), guarded by a monotonic visited-id set that
+//! breaks reference cycles (a self-referential enum's field references it by id →
+//! rendered id-only on re-encounter). Never-pop keeps rendering deterministic
+//! (=> injective). A full-content key is at-least-as-fine as codegen's identity, so
+//! it can never wrong-merge; worst case it under-dedups (safe). Sound because
+//! TypeValues are rebuilt-not-mutated. Gate: differential corpus 96/96 (NOT
+//! check ./std — that skips codegen). List-of-types rendering is INLINE (not a
+//! helper) because a helper calling type_intern_key would be mutual recursion,
+//! which Yo forbids; self-recursion uses `recur(child, depth + 1, visited)`.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ TypeValue, FuncMeta } :: import("./definitions.yo");
+_b :: (fn(x : bool) -> String)(if(x, String.from("1"), String.from("0")));
+_contains :: (fn(xs : ArrayList(String), s : String) -> bool)({
+  n := xs.len();
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < n) && !(found), {
+    cur := match(xs.get(i),.Some(e) => e.clone(),.None => String.from(""));
+    found = (found || (cur == s));
+    i = (i + usize(1));
+  });
+  found
+});
+_join_strings :: (fn(xs : ArrayList(String)) -> String)({
+  out := String.from("");
+  n := xs.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(xs.get(i),.Some(s) => out.push_string(s.clone()),.None => ());
+    out.push_str(",");
+    i = (i + usize(1));
+  });
+  out
+});
+_join_bools :: (fn(xs : ArrayList(bool)) -> String)({
+  out := String.from("");
+  n := xs.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    out.push_string(_b(match(xs.get(i),.Some(b) => b,.None => false)));
+    i = (i + usize(1));
+  });
+  out
+});
+_join_i64s :: (fn(xs : ArrayList(i64)) -> String)({
+  out := String.from("");
+  n := xs.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    out.push_string(match(xs.get(i),.Some(v) => v.to_string(),.None => String.from("")));
+    out.push_str(",");
+    i = (i + usize(1));
+  });
+  out
+});
+_join_usizes :: (fn(xs : ArrayList(usize)) -> String)({
+  out := String.from("");
+  n := xs.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    out.push_string(match(xs.get(i),.Some(v) => v.to_string(),.None => String.from("")));
+    out.push_str(",");
+    i = (i + usize(1));
+  });
+  out
+});
+_meta_key :: (fn(m : FuncMeta) -> String)({
+  out := String.from("");
+  out.push_string(_join_strings(m.forall_labels.clone()));
+  out.push_str(";");
+  out.push_string(_join_strings(m.param_labels.clone()));
+  out.push_str(";");
+  out.push_string(_join_strings(m.implicit_labels.clone()));
+  out.push_str(";");
+  out.push_string(_join_bools(m.implicit_spreads.clone()));
+  out.push_str(";");
+  out.push_string(_b(m.result_is_comptime_only));
+  out.push_string(_join_bools(m.param_is_ref.clone()));
+  out.push_str(";");
+  out.push_string(_join_bools(m.param_is_owning.clone()));
+  out.push_str(";");
+  out.push_string(_b(m.result_is_ref));
+  out.push_string(_b(m.has_variadic));
+  out.push_string(_b(m.is_control));
+  out.push_str("e");
+  out.push_string(m.is_extern.clone().unwrap_or(String.from("")));
+  out.push_str("x");
+  out.push_string(m.extern_name.clone().unwrap_or(String.from("")));
+  out
+});
+// ---------------------------------------------------------------------------
+// type_intern_key — total, injective, recursion-safe structural key.
+// `visited` = tag+id tokens of named types currently in the render path; a
+// re-encounter renders id-only (breaks cycles). Monotonic (never popped) → the
+// rendering is deterministic → the key is injective.
+// ---------------------------------------------------------------------------
+type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)) -> String)(
+  if(
+    depth > usize(600),
+    String.from("~"),
+    match(
+      t,
+      .Unit => String.from("u"),
+      .BoolT => String.from("b"),
+      .Void => String.from("v"),
+      .Str => String.from("s"),
+      .Usize => String.from("z"),
+      .Isize => String.from("Z"),
+      .ComptimeInt => String.from("ci"),
+      .ComptimeFloat => String.from("cf"),
+      .ComptimeString => String.from("cs"),
+      .CChar => String.from("cc"),
+      .CShort => String.from("csh"),
+      .CUShort => String.from("cush"),
+      .CInt => String.from("cin"),
+      .CUInt => String.from("cuin"),
+      .CLong => String.from("cl"),
+      .CULong => String.from("cul"),
+      .CLongLong => String.from("cll"),
+      .CULongLong => String.from("cull"),
+      .CLongDouble => String.from("cld"),
+      .ExprT => String.from("X"),
+      .Int(bits, signed) => {
+        o := String.from("I");
+        o.push_string(bits.to_string());
+        o.push_string(_b(signed));
+        o
+      },
+      .Float(bits) => {
+        o := String.from("F");
+        o.push_string(bits.to_string());
+        o
+      },
+      .TypeUni(level) => {
+        o := String.from("T");
+        o.push_string(level.to_string());
+        o
+      },
+      .Pointer(pointee) => {
+        o := String.from("P");
+        o.push_string(recur(pointee, depth + usize(1), visited));
+        o
+      },
+      .ComptimeListT(child) => {
+        o := String.from("CL");
+        o.push_string(recur(child, depth + usize(1), visited));
+        o
+      },
+      .IsoT(child) => {
+        o := String.from("Is");
+        o.push_string(recur(child, depth + usize(1), visited));
+        o
+      },
+      .Array(element, length, length_var) => {
+        o := String.from("A");
+        o.push_string(recur(element, depth + usize(1), visited));
+        o.push_str("#");
+        o.push_string(length.to_string());
+        o.push_str("#");
+        o.push_string(length_var.clone());
+        o
+      },
+      .Tuple(field_labels, field_types) => {
+        o := String.from("Tup[");
+        o.push_string(_join_strings(field_labels.clone()));
+        o.push_str("|");
+        n := field_types.len();
+        (i : usize) = usize(0);
+        while(i < n, {
+          match(field_types.get(i),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+          o.push_str(",");
+          i = (i + usize(1));
+        });
+        o.push_str("]");
+        o
+      },
+      .Func({ forall_types : fa, param_types : pp, implicit_types : ii, where_types : ww, result : res, meta : m }) => {
+        o := String.from("Fn[");
+        na := fa.len();
+        (ia : usize) = usize(0);
+        while(ia < na, {
+          match(fa.get(ia),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+          o.push_str(",");
+          ia = (ia + usize(1));
+        });
+        o.push_str("|");
+        np := pp.len();
+        (ip : usize) = usize(0);
+        while(ip < np, {
+          match(pp.get(ip),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+          o.push_str(",");
+          ip = (ip + usize(1));
+        });
+        o.push_str("|");
+        ni := ii.len();
+        (ki : usize) = usize(0);
+        while(ki < ni, {
+          match(ii.get(ki),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+          o.push_str(",");
+          ki = (ki + usize(1));
+        });
+        o.push_str("|");
+        nw := ww.len();
+        (kw : usize) = usize(0);
+        while(kw < nw, {
+          match(ww.get(kw),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+          o.push_str(",");
+          kw = (kw + usize(1));
+        });
+        o.push_str("|");
+        o.push_string(recur(res, depth + usize(1), visited));
+        o.push_str("|");
+        o.push_string(_meta_key(m.*.clone()));
+        o.push_str("]");
+        o
+      },
+      .Struct({ id : sid, name : snm, field_labels : sfl, field_types : sft, is_reference_semantics : irs, is_atomic_rc : iar, is_newtype : isnt, constructor_func_id : cfid, type_arguments : sta, is_source_namespace : isns }) => {
+        tok := String.from("S:");
+        tok.push_string(sid.clone());
+        if(_contains(visited, tok.clone()), tok, {
+          visited.push(tok.clone());
+          o := tok;
+          o.push_str("{");
+          o.push_string(snm.clone());
+          o.push_str("|");
+          o.push_string(cfid.clone());
+          o.push_str("|");
+          o.push_string(_b(irs));
+          o.push_string(_b(iar));
+          o.push_string(_b(isnt));
+          o.push_string(_b(isns));
+          o.push_str("|");
+          o.push_string(_join_strings(sfl.clone()));
+          o.push_str("|");
+          nsf := sft.len();
+          (isf : usize) = usize(0);
+          while(isf < nsf, {
+            match(sft.get(isf),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+            o.push_str(",");
+            isf = (isf + usize(1));
+          });
+          o.push_str("|");
+          nsa := sta.len();
+          (isa : usize) = usize(0);
+          while(isa < nsa, {
+            match(sta.get(isa),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+            o.push_str(",");
+            isa = (isa + usize(1));
+          });
+          o.push_str("}");
+          o
+        })
+      },
+      .EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar) => {
+        tok := String.from("E:");
+        tok.push_string(eid.clone());
+        if(_contains(visited, tok.clone()), tok, {
+          visited.push(tok.clone());
+          o := tok;
+          o.push_str("{");
+          o.push_string(enm.clone());
+          o.push_str("|");
+          o.push_string(_join_strings(evns.clone()));
+          o.push_str("|");
+          o.push_string(_join_i64s(edis.clone()));
+          o.push_str("|");
+          nvf := evfs.len();
+          (ivf : usize) = usize(0);
+          while(ivf < nvf, {
+            inner := match(evfs.get(ivf),.Some(x) => x,.None => ArrayList(TypeValue).new());
+            nin := inner.len();
+            (iin : usize) = usize(0);
+            while(iin < nin, {
+              match(inner.get(iin),.Some(y) => o.push_string(recur(y, depth + usize(1), visited)),.None => ());
+              o.push_str(",");
+              iin = (iin + usize(1));
+            });
+            o.push_str(";");
+            ivf = (ivf + usize(1));
+          });
+          o.push_str("|");
+          nvl := evfl.len();
+          (ivl : usize) = usize(0);
+          while(ivl < nvl, {
+            match(evfl.get(ivl),.Some(labs) => o.push_string(_join_strings(labs.clone())),.None => ());
+            o.push_str(";");
+            ivl = (ivl + usize(1));
+          });
+          o.push_str("|");
+          o.push_string(esvn.clone().unwrap_or(String.from("n")));
+          o.push_str("|");
+          o.push_string(_b(eirs));
+          o.push_string(_b(eiar));
+          o.push_str("}");
+          o
+        })
+      },
+      .TraitT(tnm, tatn, tfl, tft, tid, tisc, tsc, tnsc) => {
+        tok := String.from("Tr:");
+        tok.push_string(tid.clone());
+        if(_contains(visited, tok.clone()), tok, {
+          visited.push(tok.clone());
+          o := tok;
+          o.push_str("{");
+          o.push_string(tnm.clone());
+          o.push_str("|");
+          o.push_string(_join_strings(tatn.clone()));
+          o.push_str("|");
+          o.push_string(_join_strings(tfl.clone()));
+          o.push_str("|");
+          ntf := tft.len();
+          (itf : usize) = usize(0);
+          while(itf < ntf, {
+            match(tft.get(itf),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+            o.push_str(",");
+            itf = (itf + usize(1));
+          });
+          o.push_str("|");
+          o.push_string(match(tisc,.Some(c) => recur(c, depth + usize(1), visited),.None => String.from("n")));
+          o.push_str("|");
+          nsc := tsc.len();
+          (isc : usize) = usize(0);
+          while(isc < nsc, {
+            match(tsc.get(isc),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+            o.push_str(",");
+            isc = (isc + usize(1));
+          });
+          o.push_str("|");
+          nnc := tnsc.len();
+          (inc : usize) = usize(0);
+          while(inc < nnc, {
+            match(tnsc.get(inc),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+            o.push_str(",");
+            inc = (inc + usize(1));
+          });
+          o.push_str("}");
+          o
+        })
+      },
+      .SomeT(smid, _, _, _, _, _, _, _, _, _) => {
+        o := String.from("So:");
+        o.push_string(smid.clone());
+        o
+      },
+      .Union(unm, ufl, uft) => {
+        o := String.from("Un:");
+        o.push_string(unm.clone());
+        o.push_str("[");
+        o.push_string(_join_strings(ufl.clone()));
+        o.push_str("|");
+        nu := uft.len();
+        (iu : usize) = usize(0);
+        while(iu < nu, {
+          match(uft.get(iu),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+          o.push_str(",");
+          iu = (iu + usize(1));
+        });
+        o.push_str("]");
+        o
+      },
+      .EffectsRowT(erl, ert) => {
+        o := String.from("ER[");
+        o.push_string(_join_strings(erl.clone()));
+        o.push_str("|");
+        ne := ert.len();
+        (ie : usize) = usize(0);
+        while(ie < ne, {
+          match(ert.get(ie),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+          o.push_str(",");
+          ie = (ie + usize(1));
+        });
+        o.push_str("]");
+        o
+      },
+      .TypeAppT(tac, taa) => {
+        o := String.from("TA");
+        o.push_string(recur(tac, depth + usize(1), visited));
+        o.push_str("[");
+        nta := taa.len();
+        (ita : usize) = usize(0);
+        while(ita < nta, {
+          match(taa.get(ita),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+          o.push_str(",");
+          ita = (ita + usize(1));
+        });
+        o.push_str("]");
+        o
+      },
+      .DynT(drtt, drtl, dntt, dntl) => {
+        o := String.from("Dy[");
+        nr := drtt.len();
+        (ir : usize) = usize(0);
+        while(ir < nr, {
+          match(drtt.get(ir),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+          o.push_str(",");
+          ir = (ir + usize(1));
+        });
+        o.push_str("|");
+        o.push_string(_join_usizes(drtl.clone()));
+        o.push_str("|");
+        nd := dntt.len();
+        (idn : usize) = usize(0);
+        while(idn < nd, {
+          match(dntt.get(idn),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+          o.push_str(",");
+          idn = (idn + usize(1));
+        });
+        o.push_str("|");
+        o.push_string(_join_usizes(dntl.clone()));
+        o.push_str("]");
+        o
+      },
+      .FnTraitT({ base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit, implicit_spreads : fnisp }) => {
+        o := String.from("FT:");
+        o.push_string(fnbn.clone());
+        o.push_str("[");
+        o.push_string(_join_strings(fncpl.clone()));
+        o.push_str("|");
+        ncp := fncpt.len();
+        (icp : usize) = usize(0);
+        while(icp < ncp, {
+          match(fncpt.get(icp),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+          o.push_str(",");
+          icp = (icp + usize(1));
+        });
+        o.push_str("|");
+        o.push_string(recur(fncr, depth + usize(1), visited));
+        o.push_str("|");
+        o.push_string(_join_strings(fnil.clone()));
+        o.push_str("|");
+        nfi := fnit.len();
+        (ifi : usize) = usize(0);
+        while(ifi < nfi, {
+          match(fnit.get(ifi),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+          o.push_str(",");
+          ifi = (ifi + usize(1));
+        });
+        o.push_str("|");
+        o.push_string(_join_bools(fnisp.clone()));
+        o.push_str("]");
+        o
+      },
+      .FutureTraitT({ base_name : ftbn, output : ftout, effect_labels : ftel, effect_types : ftet, effect_spreads : ftesp }) => {
+        o := String.from("FuT:");
+        o.push_string(ftbn.clone());
+        o.push_str("[");
+        o.push_string(recur(ftout, depth + usize(1), visited));
+        o.push_str("|");
+        o.push_string(_join_strings(ftel.clone()));
+        o.push_str("|");
+        nft := ftet.len();
+        (ift : usize) = usize(0);
+        while(ift < nft, {
+          match(ftet.get(ift),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+          o.push_str(",");
+          ift = (ift + usize(1));
+        });
+        o.push_str("|");
+        o.push_string(_join_bools(ftesp.clone()));
+        o.push_str("]");
+        o
+      }
+    )
+  )
+);
+(g_type_intern : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
+/// Return the canonical instance for a structurally-equal type. Whole-tree.
+intern_type :: (fn(t : TypeValue) -> TypeValue)({
+  key := type_intern_key(t, usize(0), ArrayList(String).new());
+  match(
+    g_type_intern.get(key.clone()),
+    .Some(canon) => canon,
+    .None => {
+      g_type_intern.set(key.clone(), t);
+      match(g_type_intern.get(key),.Some(c) => c,.None => TypeValue.Unit)
+    }
+  )
+});
+export(intern_type, type_intern_key);
