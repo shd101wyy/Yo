@@ -649,6 +649,52 @@ sanitize_for_sig :: (fn(s : String) -> String)({
   result
 });
 // ---------------------------------------------------------------------------
+// _param_type_sig
+// ---------------------------------------------------------------------------
+/// A structural signature string for a runtime parameter type, used in the
+/// compile-time specialization signature. `type_to_string` is LOSSY for generic
+/// instantiations — it renders `ArrayList(bool)` AND `ArrayList(String)` both as
+/// `<struct:struct_yo_id_3849>` (base struct id, NO element type). Using it alone
+/// (as the sig did) collapses EVERY `ArrayList(T).get` onto ONE specialized
+/// func_id regardless of `T`, so all element types share one C function with
+/// whichever `T` registered first → the stage-2 "incompatible type" class. This
+/// appends the struct's `type_arguments` (and enum variant-field types)
+/// recursively so `ArrayList(bool)` ≠ `ArrayList(String)`. TS distinguishes them
+/// via `paramType.id`; yo-self reconstructs the distinction structurally.
+/// Depth-guarded (recursive enums / deep generics) like type_key.
+_param_type_sig :: (fn(ty : TypeValue, depth : usize) -> String)({
+  base := type_to_string(ty);
+  if(depth > usize(4), {
+    return(base);
+  });
+  match(
+    ty,
+    .Struct({ type_arguments : tas }) => {
+      n := tas.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          tas.get(i),
+          .Some(a) => {
+            base.push_str("_");
+            base.push_string(recur(a, depth + usize(1)));
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    // NOTE: do NOT recurse enum variant_fields — the compiler's own giant
+    // recursive enums (TypeValue/AstExpr) would yield a distinct sig per recursion
+    // level → combinatorial specialization explosion (measured 2.8GB+ / never
+    // completes). Struct type_arguments alone distinguish ArrayList(bool) from
+    // ArrayList(String), the dominant collision; type_to_string's base id already
+    // separates distinct enums.
+    _ => ()
+  );
+  base
+});
+// ---------------------------------------------------------------------------
 // value_to_signature_string
 // ---------------------------------------------------------------------------
 /// Convert a value to a deterministic string for use in specialization cache keys.
@@ -777,7 +823,7 @@ compute_compile_time_signature :: (
   while(rti < n_rt, {
     ptype := match(runtime_param_tys.get(rti),.Some(t) => t,.None => t_unit());
     if(!(is_unit_type(ptype)), {
-      seg := `rtparam${rti.to_string()}_${sanitize_for_sig(type_to_string(ptype))}`;
+      seg := `rtparam${rti.to_string()}_${sanitize_for_sig(_param_type_sig(ptype, usize(0)))}`;
       parts.push(seg);
     });
     rti = (rti + usize(1));
