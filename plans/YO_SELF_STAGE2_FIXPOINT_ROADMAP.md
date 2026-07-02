@@ -4,6 +4,17 @@
 clean) AND matches TS performance. Perf half already met on `check ./std` (-O2: 10.9s
 vs TS 19.9s); the blocker is **stage-2 C validity**.
 
+**UPDATE (commit `fcb5b667d`): 1312 → 1189 errors (−123).** Fixed the dominant type-identity
+root: `compute_compile_time_signature` keyed runtime params by the LOSSY `type_to_string`
+(`ArrayList(bool)` and `ArrayList(String)` both → `<struct:struct_yo_id_3849>`), collapsing every
+`ArrayList(T).get/set/push` onto ONE specialized func_id → all element types shared one C function
+with whichever `T` registered first → "incompatible type". Fix: `_param_type_sig` appends the
+struct's `type_arguments` recursively (NOT enum variant_fields — that explodes on the compiler's
+recursive enums). incompat 300→206→177 (this commit brought it to 206; a later re-measure shows
+177). Residual type-identity: same-base-id generic-ENUM instantiations over different args still
+collide (enum recursion omitted to avoid the specialization explosion) — a smaller sub-case.
+Session trajectory: 3643 → 1627 → 1312 → 1189. corpus 97/97, check ./std 152/152.
+
 **UPDATE (commit `4950719fb`): 1627 → 1312 errors (−315).** Fixed the "Failed to transpile"
 cascade root: `find_function_calls_in_expr` now falls back to the durable macro-expansion
 table (like codegen), so method-callees inside match-arm-`if` macro expansions get collected.
