@@ -2070,16 +2070,37 @@ static size_t __yo_gc_full_pct = 200;            // Full-scan growth factor as a
 static inline void __yo_decr_rc(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  
-  // During GC collection, skip all tracked objects.
-  // The GC handles their lifecycle via trial deletion — decrementing here
-  // would double-count the reference removal. Non-tracked RC children are
-  // still decremented normally (they weren't trial-deleted).
-  if (__yo_gc_collecting && (header->gc_flags & __YO_GC_TRACKED)) {
+
+  // FAST PATH: untracked objects (their type cannot form reference cycles).
+  // No thread-local reads, no cycle bookkeeping: untracked objects are never
+  // registered, never BUFFERED, and never trial-deleted by the collector
+  // (its visitors skip non-TRACKED headers), so the collecting-skip,
+  // remove_root and unregister calls below are all no-ops for them. On Darwin
+  // every _Thread_local read is a _tlv_get_addr call, so keeping TLS out of
+  // this path measurably matters (profiled: __yo_decr_rc was 54% of a
+  // self-compile, with the TLS reads a further 10%).
+  if (!(header->gc_flags & __YO_GC_TRACKED)) {
+    GC_DEBUG("Decr: ptr=%p RC=%zu->%zu\\n", ptr, (size_t)header->ref_count, (size_t)(header->ref_count - 1));
+    if (header->ref_count == 1) {
+      GC_DEBUG("Decr: Deallocating ptr=%p (last ref)\\n", ptr);
+      if (header->dispose_fn) {
+        header->dispose_fn(ptr);
+      }
+      __yo_free(ptr);
+    } else {
+      header->ref_count--;
+    }
+    return;
+  }
+
+  // Tracked object. During GC collection, skip it: the GC handles tracked
+  // objects' lifecycle via trial deletion — decrementing here would
+  // double-count the reference removal.
+  if (__yo_gc_collecting) {
     GC_DEBUG("Decr: Skipping ptr=%p (GC collecting, tracked)\\n", ptr);
     return;
   }
-  
+
   GC_DEBUG("Decr: ptr=%p RC=%zu->%zu\\n", ptr, (size_t)header->ref_count, (size_t)(header->ref_count - 1));
 
   if (header->ref_count == 1) {
@@ -2098,14 +2119,16 @@ static inline void __yo_decr_rc(void* ptr) {
   } else {
     // More than one reference - just decrement. The object's RC dropped but it
     // is not freed, so it is a possible root of a garbage CYCLE (Bacon-Rajan):
-    // buffer tracked objects for the next collection.
+    // buffer it for the next collection. Already-buffered objects (the steady
+    // state for hot objects) only need recoloring — a byte write on the header
+    // cache line this decrement already dirtied; the buffering + the
+    // collection-threshold check live in __yo_gc_add_root (the count can only
+    // cross the threshold when it grows there).
     header->ref_count--;
-    if (header->gc_flags & __YO_GC_TRACKED) {
+    if (header->gc_flags & __YO_GC_BUFFERED) {
+      header->gc_mark = __YO_GC_CANDIDATE;
+    } else {
       __yo_gc_add_root(ptr);
-      if (!__yo_gc_collecting && __yo_current_thread_gc != NULL &&
-          __yo_current_thread_gc->possible_roots_count >= __yo_gc_collect_threshold) {
-        __yo_gc_collect_incremental();
-      }
     }
   }
 }
@@ -2349,17 +2372,28 @@ static void __yo_gc_unregister(void* ptr) {
   emitter.emitLine(`// Bacon-Rajan: buffer a possible cycle root (decremented to non-zero).
 static void __yo_gc_add_root(void* ptr) {
   __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
-  if (__yo_current_thread_gc == NULL) return;
+  // Flag check BEFORE the thread-local read: already-buffered only needs a
+  // recolor, and on Darwin every _Thread_local read is a _tlv_get_addr call.
   if (h->gc_flags & __YO_GC_BUFFERED) { h->gc_mark = __YO_GC_CANDIDATE; return; }
+  __yo_thread_gc_state_t* gc = __yo_current_thread_gc;  // single TLS read
+  if (gc == NULL) return;
   h->gc_flags |= __YO_GC_BUFFERED;
   h->gc_mark = __YO_GC_CANDIDATE; // purple
-  h->roots_next = __yo_current_thread_gc->possible_roots;
+  h->roots_next = gc->possible_roots;
   h->roots_prev = NULL;
-  if (__yo_current_thread_gc->possible_roots != NULL) {
-    __yo_current_thread_gc->possible_roots->roots_prev = h;
+  if (gc->possible_roots != NULL) {
+    gc->possible_roots->roots_prev = h;
   }
-  __yo_current_thread_gc->possible_roots = h;
-  __yo_current_thread_gc->possible_roots_count++;
+  gc->possible_roots = h;
+  gc->possible_roots_count++;
+  // Incremental collection trigger. The possible-roots count only grows here,
+  // so the threshold can only be crossed here — checking it on every tracked
+  // decrement (as before) was pure overhead. decr_rc never calls add_root
+  // while collecting (tracked decrements are skipped), so the guard is
+  // belt-and-braces for any other caller.
+  if (!__yo_gc_collecting && gc->possible_roots_count >= __yo_gc_collect_threshold) {
+    __yo_gc_collect_incremental();
+  }
 }
 
 // Bacon-Rajan: unlink a possible root (O(1), called at free or during collection).
