@@ -39,27 +39,41 @@ out of top-10). Remaining dominant class is now type-identity (undeclared 707 + 
 
 - **undeclared 707** — UNCHANGED by the fix (the −315 was ALL syntax/brace cascade collapse).
   Breakdown: **183 `_file____User_temp` never-materialized-temp drops** (single RC-drop root,
-  `drop_dup.yo` — biggest single cluster; RC-correctness-sensitive, validate with ASan), ~60
-  `g_*` module globals (module-var port, gated on type-identity), **15 `fn_yo_id` = uncollected
-  `.throw` EFFECT-HANDLER closures** in `Exception(throw : (err)->{..})` struct literals
-  (verified: all are `(__yo_struct_yo_id_5803){ .throw = fn_yo_id_N }` — the propagate-mode
-  exn handlers pervasive in the evaluator). NOT a collection-walker gap: `find_function_calls_in_expr`
-  (collection.yo:447) only walks `effect_analysis.handler_value`'s BODY, not registering the
-  handler — and TS (collection.ts:293) does EXACTLY the same (faithful). The divergence is the
-  effect-handler CODEGEN MODEL: yo-self emits the handler as a struct-field function POINTER
-  (`.throw = fn_id`) needing a standalone C definition, so it must be collected+emitted;
-  TS lowers `Exception(throw:..)` handlers differently (not a raw fn-pointer needing collection
-  here). This is Phase-5 effect-handler codegen, not a quick collection fix.), rest scattered.
-  REPRO NOTE: the temp-drop bug does NOT reproduce with minimal concrete-type code — verified
-  a faithful transcription of the source construct (`validate_concrete_type_constraints`,
-  function.yo:1448: a `while` with a match-early-return then `if(ast_expr_is_fn_call_of(arg,"!",
+  `drop_dup.yo` — biggest single cluster; RC-correctness-sensitive, validate with ASan).
+  READY-TO-EXECUTE DESIGN (worked out this session): (1) add `declared_c_var_names : HashSet(String)`
+  to `CodeGenContext` (struct in utils/index.yo + its constructor in codegen_c.yo); (2) in
+  `get_variable_type_string` (the CENTRAL choke-point — all 23 declaration-emission sites route
+  through it) record `sanitize_for_c_identifier(var_name, false)`; (3) in
+  `generate_deferred_drop_expressions` (drop_dup.yo:542) skip a drop whose target (via
+  `get_deferred_drop_target_atom_name` → resolved to its C name) is a temp NOT in
+  `declared_c_var_names`. SAFETY: skipping a drop for a NEVER-DECLARED C variable CANNOT
+  double-free (no such C variable exists) and cannot leak more than the current non-compiling
+  state (the variable never held a value in C — its value was inlined+dropped at the real site).
+  So the only correctness question is exact name-matching (raw token value from
+  get_deferred_drop_target_atom_name vs the codegen name recorded at declaration — verify they
+  align, else convert via get_variable_name_for_codegen with the atom's env). Validate: corpus 97
+  - std 152 + an ASan run on a representative corpus binary + re-measure (expect ~−150+).
+    Temps are globally-unique so no per-function reset of the set is needed. ~60
+    `g_*` module globals (module-var port, gated on type-identity), **15 `fn_yo_id` = uncollected
+    `.throw` EFFECT-HANDLER closures** in `Exception(throw : (err)->{..})` struct literals
+    (verified: all are `(__yo_struct_yo_id_5803){ .throw = fn_yo_id_N }` — the propagate-mode
+    exn handlers pervasive in the evaluator). NOT a collection-walker gap: `find_function_calls_in_expr`
+    (collection.yo:447) only walks `effect_analysis.handler_value`'s BODY, not registering the
+    handler — and TS (collection.ts:293) does EXACTLY the same (faithful). The divergence is the
+    effect-handler CODEGEN MODEL: yo-self emits the handler as a struct-field function POINTER
+    (`.throw = fn_id`) needing a standalone C definition, so it must be collected+emitted;
+    TS lowers `Exception(throw:..)` handlers differently (not a raw fn-pointer needing collection
+    here). This is Phase-5 effect-handler codegen, not a quick collection fix.), rest scattered.
+    REPRO NOTE: the temp-drop bug does NOT reproduce with minimal concrete-type code — verified
+    a faithful transcription of the source construct (`validate_concrete_type_constraints`,
+    function.yo:1448: a `while` with a match-early-return then `if(ast_expr_is_fn_call_of(arg,"!",
 Some(usize(1))), ..)`) compiles clean. It only manifests in the SPECIALIZED-GENERIC
-  instantiation (real AstExpr/enum types), e.g. emitted fn `yo_id_247313` where `drop(temp_144445)`
-  is emitted inside an `if` body but `temp_144445` is never declared (declaration elided while
-  its deferred-drop survived). NEXT: instrument the real self-compile — log in
-  `drop_dup.yo generate_deferred_drop_expressions` when a drop target name was never emitted as
-  a C decl (track declared names), and in the RC-emission layer where that drop was scheduled —
-  rather than chase a minimal repro.
+    instantiation (real AstExpr/enum types), e.g. emitted fn `yo_id_247313` where `drop(temp_144445)`
+    is emitted inside an `if` body but `temp_144445` is never declared (declaration elided while
+    its deferred-drop survived). NEXT: instrument the real self-compile — log in
+    `drop_dup.yo generate_deferred_drop_expressions` when a drop target name was never emitted as
+    a C decl (track declared names), and in the RC-emission layer where that drop was scheduled —
+    rather than chase a minimal repro.
 - **type-identity class ~395** (incompat 257 + member-ref 95 + passing 43) — now the dominant
   CLASS; generic-instantiation cfid consistency (index.yo:755/781), deep + previously-reverted.
   Sub-analysis: 115 incompat assign into `enum_<id>_struct_<id>` (enum-over-struct) — the enum
