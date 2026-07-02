@@ -17,7 +17,16 @@ out of top-10). Remaining dominant class is now type-identity (undeclared 707 + 
 - **undeclared 707** — UNCHANGED by the fix (the −315 was ALL syntax/brace cascade collapse).
   Breakdown: **183 `_file____User_temp` never-materialized-temp drops** (single RC-drop root,
   `drop_dup.yo` — biggest single cluster; RC-correctness-sensitive, validate with ASan), ~60
-  `g_*` module globals (module-var port, gated on type-identity), 15 `fn_yo_id`, rest scattered.
+  `g_*` module globals (module-var port, gated on type-identity), **15 `fn_yo_id` = uncollected
+  `.throw` EFFECT-HANDLER closures** in `Exception(throw : (err)->{..})` struct literals
+  (verified: all are `(__yo_struct_yo_id_5803){ .throw = fn_yo_id_N }` — the propagate-mode
+  exn handlers pervasive in the evaluator). NOT a collection-walker gap: `find_function_calls_in_expr`
+  (collection.yo:447) only walks `effect_analysis.handler_value`'s BODY, not registering the
+  handler — and TS (collection.ts:293) does EXACTLY the same (faithful). The divergence is the
+  effect-handler CODEGEN MODEL: yo-self emits the handler as a struct-field function POINTER
+  (`.throw = fn_id`) needing a standalone C definition, so it must be collected+emitted;
+  TS lowers `Exception(throw:..)` handlers differently (not a raw fn-pointer needing collection
+  here). This is Phase-5 effect-handler codegen, not a quick collection fix.), rest scattered.
   REPRO NOTE: the temp-drop bug does NOT reproduce with minimal concrete-type code — verified
   a faithful transcription of the source construct (`validate_concrete_type_constraints`,
   function.yo:1448: a `while` with a match-early-return then `if(ast_expr_is_fn_call_of(arg,"!",
