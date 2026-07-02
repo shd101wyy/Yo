@@ -49,6 +49,18 @@ Some(usize(1))), ..)`) compiles clean. It only manifests in the SPECIALIZED-GENE
   a struct with empty name). NEXT: instrument `type_key` to dump BOTH C names + the full TypeValue
   (name/id/cfid/type_args/fields) for one concrete incompat pair (e.g. bl-emit.c:23353
   `enum_5152_bool` vs `enum_17883*...`) to see EXACTLY what differs, before attempting a fix.
+
+  **REFINED ROOT (this session, from the C at cs-emit.c:23353):** it is NOT two dedup-able
+  instantiations of the same type — it is a **generic-specialization SUBSTITUTION bug**. The C
+  is `__yo_enum_yo_id_5152_bool t = yo_id_3872(trait_negated, j)` where `trait_negated :
+ArrayList(bool)` and `yo_id_3872` is `ArrayList.get` SPECIALIZED for it. The call site
+  correctly expects `Option(bool)` (enum_5152) but the specialized `get` RETURNS
+  `Option(enum_17868)` — i.e. the element type `T` was NOT substituted to `bool` in the
+  specialized function's return type (`enum_17868` is an unsubstituted `T`/SomeType-derived
+  enum). So the fix is in generic specialization / monomorphization (substitute type args into
+  the SPECIALIZED return type), NOT in `type_key` dedup — which is why the sig bridge failed.
+  This is the create_specialized / substitute() return-type path (related to task #22, #30).
+
 - **Residual 56 "Failed to transpile"** — NOT the macro-fallback family (that is fully fixed;
   plain while-condition/if-begin method calls compile clean now — verified). They cluster in an
   **async/effect function body** (a link/compile command builder that `io.await(cmd.status(io))`)
