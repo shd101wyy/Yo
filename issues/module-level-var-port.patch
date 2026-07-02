@@ -1,0 +1,359 @@
+diff --git a/yo-self/codegen/codegen_c.yo b/yo-self/codegen/codegen_c.yo
+index 0bc30b522..c7a576d18 100644
+--- a/yo-self/codegen/codegen_c.yo
++++ b/yo-self/codegen/codegen_c.yo
+@@ -21,6 +21,7 @@ open(import("std/string"));
+ { EvalValue } :: import("../value.yo");
+ { TargetInfo } :: import("../target.yo");
+ { ExprInfoTable, lookup_some_resolved_concrete } :: import("../expr_info.yo");
++{ AstExpr } :: import("../expr.yo");
+ { Emitter } :: import("../emitter.yo");
+ { is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, set_lookup_some_resolved_concrete } :: import("../types/guards.yo");
+ { type_contains_some_type, can_type_form_rc_cycle } :: import("../types/utils.yo");
+@@ -30,12 +31,12 @@ open(import("std/string"));
+ { CodeGenContext } :: import("./utils/index.yo");
+ { FunctionGenerationContext } :: import("./functions/context.yo");
+ { collect_required_functions, collect_trace_methods_from_generic_impls, collect_dispose_methods, register_find_function_calls_in_expr } :: import("./functions/collection.yo");
+-{ collect_required_types, collect_pointer_pointees, register_collect_type } :: import("./types/collection.yo");
++{ collect_required_types, collect_pointer_pointees, register_collect_type, collect_type } :: import("./types/collection.yo");
+ { collect_c_includes, emit_c_includes } :: import("./c/collection.yo");
+ { generate_type_declarations, generate_dyn_box_types } :: import("./types/generation.yo");
+ { fixup_dyn_impl_keys } :: import("./utils/fixup.yo");
+ { generate_function_declarations } :: import("./functions/declarations.yo");
+-{ generate_all_functions, generate_main_wrapper } :: import("./functions/generation.yo");
++{ generate_all_functions, generate_main_wrapper, emit_module_level_variable_declarations, module_level_init_exprs, _module_init_var_atom } :: import("./functions/generation.yo");
+ { generate_dyn_box_functions, generate_dyn_wrapper_functions, generate_dyn_vtables, generate_dyn_dup_drop } :: import("./functions/dyn.yo");
+ { register_generate_expr } :: import("./exprs/generation.yo");
+ { register_impl_closure_call_mappings } :: import("./exprs/closures.yo");
+@@ -209,6 +210,35 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
+   // First pass: collect functions and types reachable from the module exports.
+   collect_required_functions(module_value, base, info, true);
+   collect_required_types(module_value, base, info);
++  // Register each module-level global's OWN declared type (the LHS-atom type that
++  // emit_module_level_variable_declarations names), across ALL loaded modules —
++  // private module state missed by the export-driven collection. We collect the
++  // LHS-atom type directly rather than walking the whole init expr: the RHS-expr
++  // walk (TS collection.ts:142) surfaces mis-keyed generic-instantiation
++  // intermediates (e.g. an Option-over-value-struct that lowers under a key
++  // generate_type_declarations can't find), and the RHS's own types are already
++  // reached via function collection. Must precede generate_type_declarations.
++  mlv_exprs := module_level_init_exprs();
++  (mlv_i : usize) = usize(0);
++  while(mlv_i < mlv_exprs.len(), {
++    match(
++      mlv_exprs.get(mlv_i),
++      .Some(mlv_e) => {
++        lhs := match(mlv_e,.FnCall(_, _, a, _, _) => a.get(usize(0)),.Atom(_, _) => Option(AstExpr).None);
++        match(
++          lhs,
++          .Some(l) => match(
++            _module_init_var_atom(l),
++            .Some(atom) => match(base.get_expr_info(atom),.Some(ei) => collect_type(ei.ty, base),.None => ()),
++            .None => ()
++          ),
++          .None => ()
++        );
++      },
++      .None => ()
++    );
++    mlv_i = (mlv_i + usize(1));
++  });
+   // Pointer-field pointees missed by the dup/drop walk (e.g. HashMap/ArrayList
+   // element types behind `data : ?*(T)`); a separate pass so the main collection
+   // order — which the lazy array-struct registration depends on — is untouched.
+@@ -281,6 +311,12 @@ static Slice_uint8_t_u42_ __yo_args;
+   // Deferred async-block implementations (resume / set_effect / dispose / ctor),
+   // after all regular + dyn functions to avoid nesting. Mirrors codegen-c.ts:232.
+   generate_deferred_async_blocks(ctx);
++  // Module-level mutable variable declarations (file-scope statics). Emitted for
++  // BOTH library and binary builds so the C symbols exist; the decls go to the
++  // declaration section (before function bodies that reference them), and this
++  // also populates g_module_level_vars for generate_main_wrapper's init helper.
++  // Mirrors codegen-c.ts:249-251.
++  emit_module_level_variable_declarations(ctx);
+   // Main wrapper (executable mode only).
+   if(!(is_library), {
+     generate_main_wrapper(ctx);
+diff --git a/yo-self/codegen/functions/generation.yo b/yo-self/codegen/functions/generation.yo
+index ffd172913..acf49439f 100644
+--- a/yo-self/codegen/functions/generation.yo
++++ b/yo-self/codegen/functions/generation.yo
+@@ -20,15 +20,18 @@
+ //! skip (Gap 2).
+ open(import("std/string"));
+ { ArrayList } :: import("std/collections/array_list");
+-{ AstExpr, ast_expr_is_fn_call_of, BK_BEGIN, BK_RETURN } :: import("../../expr.yo");
++{ HashSet } :: import("std/collections/hash_set");
++{ AstExpr, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_token, ast_expr_id, BK_BEGIN, BK_RETURN, BK_ASSIGN, BK_INIT_ASSIGN, BK_COLON } :: import("../../expr.yo");
+ { EvalValue } :: import("../../value.yo");
+ { TypeValue } :: import("../../types/definitions.yo");
+-{ has_any_control_flow } :: import("../../expr_info.yo");
++{ has_any_control_flow, ExprInfoTable, expr_info_table_get } :: import("../../expr_info.yo");
+ { is_unit_type } :: import("../../types/guards.yo");
++{ type_contains_some_type } :: import("../../types/utils.yo");
+ { is_temp_variable_name } :: import("../../utils.yo");
+ { is_target_posix, is_target_linux } :: import("../../target.yo");
++{ Environment, get_variables_from_env } :: import("../../env.yo");
+ { get_func_type, is_closure_fn, get_closure_capture_info, is_effect_record_member } :: import("../../function_value.yo");
+-{ get_type_string, sanitize_for_c_identifier } :: import("../utils/index.yo");
++{ CodeGenContext, get_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen } :: import("../utils/index.yo");
+ { get_shell_redirect } :: import("../../evaluator/values/type_trait_methods.yo");
+ { FunctionGenerationContext } :: import("./context.yo");
+ { generate_function_prototype, should_skip_function_codegen } :: import("./declarations.yo");
+@@ -389,6 +392,156 @@ _main_call_args :: (fn(main_func_id : String, context : FunctionGenerationContex
+   out.push_str(")");
+   out
+ });
++// ---------------------------------------------------------------------------
++// Module-level mutable variable emission
++// ---------------------------------------------------------------------------
++//! Mirrors the moduleLevelInitExprs pipeline in TS (anonymous-module.ts collects
++//! them per module, module-manager.ts aggregates `allModuleLevelInitExprs` across
++//! ALL loaded modules, and codegen emits: (1) file-scope `static <type> <cname>;`
++//! declarations, (2) the init assignments inside a `__yo_main_module_init()`
++//! helper called first on the worker thread). yo-self keeps the aggregated list
++//! in a module global (single-threaded sequential compile makes this safe — the
++//! same proven side-channel pattern as g_traverse_visit_expr etc.).
++//!
++//! CRITICAL (faithful to generation.ts:820): the emitted C type is the LHS
++//! ATOM's type (`varAtom.$.type`), NOT the RHS expression's type — these can
++//! differ, and the LHS-atom type is what collect_types_from_expr(whole init
++//! expr) registers (it walks into the LHS atom and collects its ExprInfo.ty).
++/// One module-level variable ready for the init helper: its C name and RHS expr.
++ModuleLevelVar :: ref(struct(c_var_name : String, rhs : AstExpr));
++export(ModuleLevelVar);
++/// Aggregated module-level init exprs across all loaded modules (mirrors TS
++/// `allModuleLevelInitExprs`). Filled by add_module_level_init_exprs.
++(g_module_level_init_exprs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
++/// The vars whose decls were emitted, in order, for generate_main_wrapper's
++/// init helper. Filled by emit_module_level_variable_declarations.
++(g_module_level_vars : ArrayList(ModuleLevelVar)) = ArrayList(ModuleLevelVar).new();
++/// C-names already declared, to dedup a var re-added across load passes.
++(_g_mlv_seen : HashSet(String)) = HashSet(String).new();
++/// Read accessor for the aggregated init exprs (a mutable module global cannot be
++/// `export`ed directly — only compile-time vars can). Returns a shallow clone
++/// (the AstExpr elements are ref types) for read iteration by codegen_c.
++module_level_init_exprs :: (fn() -> ArrayList(AstExpr))(g_module_level_init_exprs.clone());
++export(module_level_init_exprs);
++/// Clear the module-level-var state at the start of a compile run.
++reset_module_level_init_exprs :: (fn() -> unit)({
++  g_module_level_init_exprs = ArrayList(AstExpr).new();
++  g_module_level_vars = ArrayList(ModuleLevelVar).new();
++  _g_mlv_seen = HashSet(String).new();
++});
++export(reset_module_level_init_exprs);
++/// The LHS variable-name atom of an init expr, or .None. For `x := v` the LHS is
++/// the atom `x`; for `(x : T) = v` the LHS is a `:` colon-pair whose first arg
++/// is the atom. Mirrors the varAtom extraction in anonymous-module.ts:385-405.
++_module_init_var_atom :: (fn(lhs : AstExpr) -> Option(AstExpr))(
++  cond(
++    ast_expr_is_atom(lhs) => Option(AstExpr).Some(lhs),
++    (ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_COLON,.Some(usize(2)))) =>
++      match(
++        match(lhs,.FnCall(_, _, a, _, _) => a.get(usize(0)),.Atom(_, _) => Option(AstExpr).None),
++        .Some(first) => if(ast_expr_is_atom(first), Option(AstExpr).Some(first), Option(AstExpr).None),
++        .None => Option(AstExpr).None
++      ),
++    true => Option(AstExpr).None
++  )
++);
++export(_module_init_var_atom);
++/// Collect the module-level init exprs of one just-evaluated module, filtering to
++/// module-level MUTABLE variables (faithful to anonymous-module.ts:383-416):
++///   - `x := v`: LHS atom with a resolved type and NO comptime value (runtime var).
++///   - `(x : T) = v` / `x = v`: the assigned variable is `is_module_level` in env.
++/// The ExprInfo (looked up in `info`) carries `.env`, so no separate env needed.
++add_module_level_init_exprs :: (fn(exprs : ArrayList(AstExpr), info : ExprInfoTable) -> unit)({
++  n := exprs.len();
++  (i : usize) = usize(0);
++  while(i < n, {
++    match(
++      exprs.get(i),
++      .Some(e) => if(ast_expr_is_fn_call(e), {
++        args := match(e,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
++        if(args.len() >= usize(2), {
++          lhs := match(args.get(usize(0)),.Some(l) => l,.None => e);
++          keep := cond(
++            ast_expr_is_fn_call_of(e, BK_INIT_ASSIGN,.Some(usize(2))) =>
++              // `:=` — LHS atom, has a type, no comptime value (runtime var).
++              (ast_expr_is_atom(lhs) && match(
++                expr_info_table_get(info, ast_expr_id(lhs)),
++                .Some(ei) => ei.value.is_none(),
++                .None => false
++              )),
++            ast_expr_is_fn_call_of(e, BK_ASSIGN,.Some(usize(2))) =>
++              // `=` — the assigned variable must be module-level.
++              match(
++                _module_init_var_atom(lhs),
++                .Some(atom) => match(
++                  expr_info_table_get(info, ast_expr_id(atom)),
++                  .Some(ei) => {
++                    vname := ast_expr_token(atom).value.clone();
++                    vars := get_variables_from_env(ei.env, vname);
++                    match(
++                      vars.get(vars.len() - usize(1)),
++                      .Some(v) => v.is_module_level,
++                      .None => false
++                    )
++                  },
++                  .None => false
++                ),
++                .None => false
++              ),
++            true => false
++          );
++          if(keep, {
++            _p := g_module_level_init_exprs.push(e);
++          });
++        });
++      }),
++      .None => ()
++    );
++    i = (i + usize(1));
++  });
++});
++export(add_module_level_init_exprs);
++/// Emit file-scope `static <type> <cname>;` for each module-level mutable var and
++/// record it (c_var_name + rhs) for generate_main_wrapper's init helper. Uses the
++/// LHS ATOM's type (not the RHS's). Mirrors emitModuleLevelVariableDeclarations.
++emit_module_level_variable_declarations :: (fn(context : FunctionGenerationContext) -> unit)({
++  em := context.base.emitter;
++  n := g_module_level_init_exprs.len();
++  (i : usize) = usize(0);
++  while(i < n, {
++    match(
++      g_module_level_init_exprs.get(i),
++      .Some(e) => if(ast_expr_is_fn_call(e), {
++        args := match(e,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
++        if(args.len() >= usize(2), {
++          lhs := match(args.get(usize(0)),.Some(l) => l,.None => e);
++          rhs := match(args.get(usize(1)),.Some(r) => r,.None => e);
++          match(
++            _module_init_var_atom(lhs),
++            .Some(atom) => match(
++              context.base.get_expr_info(atom),
++              .Some(ei) => if((!(is_unit_type(ei.ty))) && (!(type_contains_some_type(ei.ty))), {
++                vname := match(ei.variable_name,.Some(vn) => vn,.None => ast_expr_token(atom).value.clone());
++                cname := get_variable_name_for_codegen(vname, Option(Environment).Some(ei.env));
++                if(!(_g_mlv_seen.contains(cname.clone())), {
++                  _a := _g_mlv_seen.add(cname.clone());
++                  cty := get_type_string(ei.ty, context.base);
++                  em.emit_declaration_string_line(`static ${cty} ${cname}; // module-level mutable variable`);
++                  _v := g_module_level_vars.push(ModuleLevelVar(c_var_name : cname, rhs : rhs));
++                });
++              }),
++              .None => ()
++            ),
++            .None => ()
++          );
++        });
++      }),
++      .None => ()
++    );
++    i = (i + usize(1));
++  });
++});
++export(emit_module_level_variable_declarations);
+ /// Generate the C `main()` wrapper that calls `__yo_user_main`. On POSIX the
+ /// program body runs on a large-stack (1 GiB, YO_MAIN_STACK_MB-overridable)
+ /// worker thread; Windows/WASM call directly. Mirrors `generateMainWrapper`.
+@@ -430,13 +583,53 @@ generate_main_wrapper :: (fn(context : FunctionGenerationContext) -> unit)({
+     return();
+   });
+   main_call_args := _main_call_args(main_func_id, context);
++  // Build the module-level init helper + call snippets (mirrors generateMainWrapper
++  // 997-1012 / 1078-1086). The assignments run in a dedicated `void` helper on the
++  // worker thread so an effect-escape `return;` is valid C there; the worker entry
++  // calls it then bails on a startup escape. Non-POSIX inlines them into main().
++  has_mlv := (g_module_level_vars.len() > usize(0));
++  (mlv_helper : String) = String.new();
++  (mlv_posix_call : String) = String.new();
++  (mlv_inline : String) = String.new();
++  if(has_mlv, {
++    body := String.new();
++    inline := String.new();
++    nv := g_module_level_vars.len();
++    (vi : usize) = usize(0);
++    while(vi < nv, {
++      match(
++        g_module_level_vars.get(vi),
++        .Some(mv) => {
++          rhs_code := _call_generate_expr(mv.rhs, String.from("  "), context);
++          body.push_string(`  ${mv.c_var_name} = ${rhs_code};
++`);
++          inline.push_string(`  ${mv.c_var_name} = ${rhs_code};
++`);
++        },
++        .None => ()
++      );
++      vi = (vi + usize(1));
++    });
++    mlv_helper = `
++// Module-level mutable variable initialization (runs first on the worker thread).
++static void __yo_main_module_init(void) {
++${body}}
++`;
++    mlv_posix_call = `  // Initialize module-level mutable variables
++  __yo_main_module_init();
++  if (__yo_effect_escaped) return NULL;
++`;
++    mlv_inline = `  // Initialize module-level mutable variables
++${inline}`;
++  });
+   if(is_target_posix(context.base.target_info), {
++    em.emit_string(mlv_helper);
+     block :=
+       `
+ // Program body runs on a large-stack worker thread (see generateMainWrapper).
+ static void* __yo_main_thread_entry(void* __yo_unused_arg) {
+   (void)__yo_unused_arg;
+-  // Call sync main
++${mlv_posix_call}  // Call sync main
+   __yo_user_main${main_call_args};
+   return NULL;
+ }
+@@ -477,7 +670,7 @@ int main(int argc, char** argv) {
+   __yo_argc = (int32_t)argc;
+   __yo_argv = (uint8_t**)argv;
+   __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
+-  // Call sync main
++${mlv_inline}  // Call sync main
+   __yo_user_main${main_call_args};
+   return 0;
+ }
+diff --git a/yo-self/main.yo b/yo-self/main.yo
+index 7f8084c37..0171d3081 100644
+--- a/yo-self/main.yo
++++ b/yo-self/main.yo
+@@ -57,6 +57,7 @@ open(import("std/fmt"));
+ { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
+ { host_target, parse_target, TargetInfo, is_target_linux, is_target_windows } :: import("./target.yo");
+ { compile_module } :: import("./codegen/codegen_c.yo");
++{ reset_module_level_init_exprs, add_module_level_init_exprs } :: import("./codegen/functions/generation.yo");
+ // Temporary C source path used during compilation.
+ C_TMP :: "/tmp/yo_self_out.c";
+ extract_bare_import_path :: (fn(e : AstExpr) -> Option(String))(
+@@ -494,6 +495,13 @@ _eval_module_exprs_capturing_error :: (
+   result := evaluate_anonymous_module_begin_exprs(mod_exprs, env, ctx, false, false, local_exn);
+   out.push(result.module_value);
+   ___t := out_tys.push(result.module_type);
++  // COMPILE MODE ONLY: aggregate this module's module-level mutable var init exprs
++  // (mirrors TS module-manager allModuleLevelInitExprs across ALL loaded modules).
++  // Gated on the shared-table signal so `check`/`test` don't accumulate. Covers
++  // both loader-loaded imports and the entry module (both route through here).
++  if(g_shared_expr_info_table.is_some(), {
++    add_module_level_init_exprs(mod_exprs, ctx.expr_info_table);
++  });
+   true
+ });
+ /// Read + parse + evaluate the module at resolved abs `file://` path `abs` and
+@@ -1039,6 +1047,9 @@ run_compile :: (
+   // "Failed to transpile cond(...)". See issues/yo-self-cond-panic-arm-codegen.md.
+   shared_info_table := expr_info_table_new();
+   g_shared_expr_info_table = Option(ExprInfoTable).Some(shared_info_table);
++  // Start each compile with an empty module-level-var aggregation (the globals
++  // in generation.yo persist across runs in a long-lived binary).
++  reset_module_level_init_exprs();
+   // Ensure the prelude env is cached (provides std types to the evaluator).
+   if(g_cached_prelude_env.is_none(), {
+     _pre := check_single_file(`${std_path}/prelude.yo`, std_path.clone(), io, exn);
