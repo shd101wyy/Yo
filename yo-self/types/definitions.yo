@@ -353,68 +353,20 @@ TypeValue :: ref(
 impl(
   TypeValue,
   Clone(
-    clone : (fn(inout(self) : Self) -> Self)(
-      match(
-        self,
-        .Unit => TypeValue.Unit,
-        .BoolT => TypeValue.BoolT,
-        .Void => TypeValue.Void,
-        .Str => TypeValue.Str,
-        .Int(ibits, isigned) => TypeValue.Int(ibits, isigned),
-        .Float(fbits) => TypeValue.Float(fbits),
-        .Usize => TypeValue.Usize,
-        .Isize => TypeValue.Isize,
-        .ComptimeInt => TypeValue.ComptimeInt,
-        .ComptimeFloat => TypeValue.ComptimeFloat,
-        .ComptimeString => TypeValue.ComptimeString,
-        .CChar => TypeValue.CChar,
-        .CShort => TypeValue.CShort,
-        .CUShort => TypeValue.CUShort,
-        .CInt => TypeValue.CInt,
-        .CUInt => TypeValue.CUInt,
-        .CLong => TypeValue.CLong,
-        .CULong => TypeValue.CULong,
-        .CLongLong => TypeValue.CLongLong,
-        .CULongLong => TypeValue.CULongLong,
-        .CLongDouble => TypeValue.CLongDouble,
-        .TypeUni(tlevel) => TypeValue.TypeUni(tlevel),
-        .ExprT => TypeValue.ExprT,
-        .Pointer(inner) => TypeValue.Pointer(inner),
-        .Array(el, len, lvar) => TypeValue.Array(el, len, lvar.clone()),
-        .Tuple(labels, types) => TypeValue.Tuple(labels.clone(), types),
-        .Func({ forall_types : fts, param_types : pts, implicit_types : its, where_types : wts, result : ret, meta : m }) => TypeValue.Func(fts, pts, its, wts, ret, box(m.*.clone())),
-        // SHARE (RC-bump) `field_types` + `type_arguments` — the recursive
-        // nested-type collections — instead of deep-cloning. (See the rationale
-        // on the impl above; `ArrayList` is RC, so sharing is a refcount bump and
-        // is sound because these fields are rebuilt-not-mutated.)
-        .Struct({ id : sid, name : snm, field_labels : sfl, field_types : sft, is_reference_semantics : irs, is_atomic_rc : iar, is_newtype : isnt, constructor_func_id : cfid, type_arguments : sta, is_source_namespace : isns }) =>
-          TypeValue.Struct(sid.clone(), snm.clone(), sfl.clone(), sft, irs, iar, isnt, cfid.clone(), sta, isns),
-        // SHARE (RC-bump) `variant_fields` — the ArrayList(ArrayList(TypeValue))
-        // holding every variant's field types — instead of deep-cloning it. This
-        // is the single biggest self-compile win: an expr of type `TypeValue` /
-        // `AstExpr` stored its ~40-variant enum type into ExprInfo thousands of
-        // times, each formerly a deep clone of all variant field types. (Same
-        // RC-share rationale + safety as the impl doc above.)
-        .EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar) =>
-          TypeValue.EnumT(eid.clone(), enm.clone(), evns.clone(), evfs, esvn.clone(), evfl.clone(), edis.clone(), eirs, eiar),
-        .Union(unm, ufl, uft) => TypeValue.Union(unm.clone(), ufl.clone(), uft),
-        // SHARE (RC-bump) `tft` — the trait's method func types — instead of
-        // deep-cloning. This also subsumes the former self-referential-trait cycle
-        // guard (e.g. std `Error`'s `source : fn(self) -> Option(Dyn(Error))`,
-        // whose `tft` reaches its own `TraitT` via `Option(Dyn(Error))`). (Same
-        // RC-share rationale + safety as the impl doc above.)
-        .TraitT(tnm, tatn, tfl, tft, tid, tisc, tsc, tnsc) =>
-          TypeValue.TraitT(tnm.clone(), tatn.clone(), tfl.clone(), tft, tid.clone(), tisc, tsc, tnsc),
-        .SomeT(smid, snm2, slvl, spt, srtt, srtl, sntt, sntl, sier, skft) => TypeValue.SomeT(smid.clone(), snm2.clone(), slvl, spt, srtt, srtl.clone(), sntt, sntl.clone(), sier, skft),
-        .ComptimeListT(clchild) => TypeValue.ComptimeListT(clchild),
-        .EffectsRowT(erl, ert) => TypeValue.EffectsRowT(erl.clone(), ert),
-        .TypeAppT(tac, taa) => TypeValue.TypeAppT(tac, taa),
-        .IsoT(isochild) => TypeValue.IsoT(isochild),
-        .DynT(drtt, drtl, dntt, dntl) => TypeValue.DynT(drtt, drtl.clone(), dntt, dntl.clone()),
-        .FnTraitT(base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit, implicit_spreads : fnisp) => TypeValue.FnTraitT(base_name : fnbn.clone(), call_param_labels : fncpl.clone(), call_param_types : fncpt, call_result : fncr, implicit_labels : fnil.clone(), implicit_types : fnit, implicit_spreads : fnisp.clone()),
-        .FutureTraitT(base_name : ftbn, output : ftout, effect_labels : ftel, effect_types : ftet, effect_spreads : ftesp) => TypeValue.FutureTraitT(base_name : ftbn.clone(), output : ftout, effect_labels : ftel.clone(), effect_types : ftet, effect_spreads : ftesp.clone())
-      )
-    )
+    // RC-bump the WHOLE node (return `self`) — like `Token.clone`. `TypeValue`
+    // is a `ref(enum)`, so `self` is an RC handle; returning it shares the entire
+    // node (top node + all children) instead of allocating a fresh top node.
+    // This SUPERSEDES the former share-children/rebuild-top-node clone: that still
+    // allocated one new ~176 B top node per call (the self-compile calls
+    // `TypeValue.clone` millions of times storing expr types into ExprInfo /
+    // Variable.ty), which was the dominant residual TypeValue-count source after
+    // the `substitute` interning win. Sound for the same reason (TypeValues are
+    // rebuilt-not-mutated — a codebase-wide audit found NO in-place mutation of
+    // any TypeValue field; every consumer, e.g. `substitute`, constructs FRESH
+    // values) and it equally breaks the infinite-recursion problem the manual
+    // clone existed to solve (returning a handle never re-enters clone). Verified
+    // corpus-neutral (96/96). See plans/TYPEVALUE_HASH_CONSING.md §5.
+    clone : (fn(inout(self) : Self) -> Self)(self)
   )
 );
 // ---------------------------------------------------------------------------
