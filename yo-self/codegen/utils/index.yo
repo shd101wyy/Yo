@@ -696,6 +696,31 @@ _lookup_or_register_enum_sig :: (fn(sig : String, full_key : String) -> String)(
   )
 );
 
+// Monotonic set of named-type ids currently on the `_type_key_at` expansion
+// path (reset per top-level `type_key` call). A named type re-encountered
+// while already being expanded renders id-only — the SAME cycle-guard
+// discipline as types/intern.yo's type_intern_key. WHY: the compiler's own
+// giant recursive enums (TypeValue/AstExpr/EvalValue) reach _type_key_at
+// through `ArrayList(AstExpr)` → Struct arm → recurse into AstExpr → EnumT arm
+// → its own `ArrayList(AstExpr)` field → … The direct-ref-enum-field id-only
+// shortcut does NOT catch this (the recursion goes THROUGH a Struct wrapper),
+// so only the depth-4 cap bounded it: 40-way variant fanout × depth 4 built
+// multi-MB key strings per lookup, thousands of times → a ~300 MB/s runaway
+// during prototype emission (footprint 7→62 GB). The guard bounds each key to
+// O(distinct types on path) and is MORE precise than depth truncation (each
+// distinct type still gets a distinct key), so C-type identity is preserved.
+(g_tk_visited : ArrayList(String)) = ArrayList(String).new();
+_tk_seen :: (fn(id : String) -> bool)({
+  n := g_tk_visited.len();
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < n) && !(found), {
+    cur := match(g_tk_visited.get(i),.Some(e) => e.clone(),.None => String.from(""));
+    found = (found || (cur == id));
+    i = (i + usize(1));
+  });
+  found
+});
 _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
   match(
     t,
@@ -709,6 +734,21 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
         .Struct({ id : rid, constructor_func_id : rcfid, type_arguments : rtas }) => (rid, rcfid, rtas),
         _ => (id, cfid, tas)
       );
+      // Cycle guard (see g_tk_visited): a struct id already on the expansion
+      // path renders via its recorded cfid-key / id — no re-recursion into
+      // its (already-being-expanded) type arguments.
+      if((sid.len() > usize(0)) && _tk_seen(sid), {
+        return(
+          match(
+            g_struct_cfid_keys.get(sid.clone()),
+            .Some(k) => k,
+            .None => sid.clone()
+          )
+        );
+      });
+      if(sid.len() > usize(0), {
+        g_tk_visited.push(sid.clone());
+      });
       cond(
         // GENERIC INSTANTIATION with stable identity: key by (constructor_func_id, type_arguments).
         ((scfid.len() > usize(0)) && ((stas.len() > usize(0)) && (depth <= usize(4)))) => {
@@ -755,6 +795,14 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
       evns := match(rs,.EnumT({ variant_names : rvns }) => rvns, _ => ArrayList(String).new());
       evds := match(rs,.EnumT({ variant_discriminants : rvds }) => rvds, _ => ArrayList(i64).new());
       e_is_ref := match(rs,.EnumT({ is_reference_semantics : rirs }) => rirs, _ => false);
+      // Cycle guard (see g_tk_visited): an enum id already on the expansion
+      // path renders id-only rather than re-expanding its variant fields.
+      if((eid.len() > usize(0)) && _tk_seen(eid), {
+        return(eid.clone());
+      });
+      if(eid.len() > usize(0), {
+        g_tk_visited.push(eid.clone());
+      });
       if((eid.len() == usize(0)) || (depth > usize(4)), if(eid.len() > usize(0), eid.clone(), type_to_string(rs)), {
         // Build the per-field structural suffix ONCE (used in both the full key
         // and the structural signature).
@@ -872,7 +920,11 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
     _ => type_to_string(t)
   )
 );
-type_key :: (fn(t : TypeValue) -> String)(_type_key_at(t, usize(0)));
+type_key :: (fn(t : TypeValue) -> String)({
+  // Fresh expansion-path set per top-level key build (see g_tk_visited).
+  g_tk_visited = ArrayList(String).new();
+  _type_key_at(t, usize(0))
+});
 /// Look up the registered C type name for a named/structural type, panicking
 /// with a diagnostic if it was not collected. Mirrors the `context.types[...]`
 /// lookup + throw inside getTypeString's Tuple/Struct/Union/Enum arm.
