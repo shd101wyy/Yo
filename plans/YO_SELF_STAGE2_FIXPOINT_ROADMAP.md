@@ -11,8 +11,23 @@ This collapsed the syntax/brace cascades (implicit-int 172→47, K&R 74→20, ex
 out of top-10). Remaining dominant class is now type-identity (undeclared 707 + incompat 257
 
 - member-ref 95 + passing 43). See issues/fixed/yo-self-failed-transpile-if-in-match-arm.md.
-  Residual 56 "Failed to transpile" are mostly method calls in `while(...)` conditions — same
-  durable-fallback family, check other expr walkers next.
+
+**Verified 1312 distribution + accurate next targets:**
+
+- **undeclared 707** — UNCHANGED by the fix (the −315 was ALL syntax/brace cascade collapse).
+  Breakdown: **183 `_file____User_temp` never-materialized-temp drops** (single RC-drop root,
+  `drop_dup.yo` — biggest single cluster; RC-correctness-sensitive, validate with ASan), ~60
+  `g_*` module globals (module-var port, gated on type-identity), 15 `fn_yo_id`, rest scattered.
+- **type-identity class ~395** (incompat 257 + member-ref 95 + passing 43) — now the dominant
+  CLASS; generic-instantiation cfid consistency (index.yo:755/781), deep + previously-reverted.
+- **Residual 56 "Failed to transpile"** — NOT the macro-fallback family (that is fully fixed;
+  plain while-condition/if-begin method calls compile clean now — verified). They cluster in an
+  **async/effect function body** (a link/compile command builder that `io.await(cmd.status(io))`)
+  whose whole body is un-annotated — the Phase-5 async codegen subsystem, deferred.
+- residual syntax (implicit-int 47, K&R 20, expected-\* ~45) — remaining cascade tails.
+
+Recommended next: the **183 temp-drop single root** (`drop_dup.yo`, ASan-validate) OR the
+**type-identity class** (biggest, deep). Both are focused standalone tasks.
 
 **Prior baseline (`b3d499966`):** self-compile runs exit 0 and emits
 `/tmp/bl-emit.c` (682K-ish lines), which clang reported **1627 errors** (`-ferror-limit=0`;
