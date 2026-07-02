@@ -203,6 +203,42 @@ intern lookup. Optional; add only if profiling shows hashing is hot.
 
 ---
 
+## 4.8 CRITICAL constraint found by the Phase-1/2 attempt (2026-07-02)
+
+A first implementation — a total, injective `type_intern_key` (atomics by tag;
+structural types by full recursive structure; **named types Struct/EnumT/TraitT/
+SomeT keyed by `id` (+ generic `type_arguments`)**), whole-tree interning at
+`ExprInfo.ty` — compiled and passed `check ./std` 152/152 **but regressed the
+differential corpus to 59 PASS / 32 SELF-FAIL.** The failures are **C-compiler
+errors on malformed emitted types** (e.g. `__yo_enum_yo_id_3869_u8`), i.e. a
+**wrong merge**: interning replaced an `ExprInfo.ty` with a canonical instance
+that **codegen treats as a DIFFERENT type**. `check ./std` didn't catch it because
+`check` doesn't run codegen; the corpus (full compile→C→run) did.
+
+**Root lesson — the intern key MUST equal CODEGEN's type identity, which is finer
+than the evaluator-side `id`.** Codegen already dedups type _emissions_ by its own
+structural keys — `_type_key_at`, `g_struct_cfid_keys`, `g_enum_sig_keys`
+(`codegen/utils/index.yo`) — using `constructor_func_id`/variant signatures/full
+content, NOT the evaluator `id`. Keying by `id`(±args) merged types that share an
+`id` but that codegen emits as distinct C types (generic instantiations, or
+same-id types differing in fields codegen reads). So:
+
+- **Phase 2's key must be, or exactly match, codegen's `_type_key_at` identity.**
+  Options: (a) reuse `_type_key_at` as the intern key (but it is codegen-side and
+  may need codegen state / mutate registries — evaluate feasibility at eval time);
+  (b) replicate its exact keying evaluator-side and keep the two in lockstep (a
+  divergence-risk if they drift). Either way, the eval-side `id`-based key used in
+  this attempt is INSUFFICIENT and unsafe.
+- **The differential corpus is the required gate** (not `check ./std`): any intern
+  change must keep corpus 96/96. A cheaper pre-check: diff the interned self-compile
+  `stage2.c` against the baseline — a wrong merge changes it.
+- Kept the kill switch honest: the attempt was reverted (tree clean); `intern.yo`
+  is recoverable from git.
+
+This confirms hash-consing is genuinely a **codegen-coupled** change (the intern
+identity and codegen's type identity are one and the same), which is why it is the
+substantial multi-session core rather than a self-contained evaluator tweak.
+
 ## 5. Correctness: the mutation-safety invariant
 
 **Interning is sound ONLY IF interned TypeValues are never mutated in place** (a
@@ -266,6 +302,13 @@ but keep TS `src/types/` and `yo-self/types/` in step where they correspond.
   storage-interning; Phase 1 goes straight to construction-site + RECURSIVE
   interning.** The validated `intern_type` + singleton pattern (and the memoized
   `t_*()` idiom) can be regenerated from git history / the P2 memory notes.
+- **Phase 1/2 — first attempt DONE + reverted (2026-07-02): key must match
+  codegen identity (see §4.8).** A total injective key with named-types-by-`id`
+  - whole-tree interning at `ExprInfo.ty` broke codegen (corpus 32 SELF-FAIL,
+    wrong-merge → malformed C). **Redo with the key = codegen's `_type_key_at`
+    identity**, not the eval-side `id`. Everything else (the key skeleton, RC in
+    `intern`, the frame-merge gotcha: inline `if(c,"1","0")` args need a `_b` helper)
+    is recoverable from git.
 - **Phase 1 — atomics.** `mk_*` for all nullary/Int/Float/TypeUni; reroute their
   construction sites; `t_*()` → `mk_*`. Measure (should dedup the atomic slice).
 - **Phase 2 — compound, one variant at a time.** Start with the highest-frequency
