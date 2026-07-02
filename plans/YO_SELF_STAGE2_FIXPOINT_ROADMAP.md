@@ -18,6 +18,16 @@ out of top-10). Remaining dominant class is now type-identity (undeclared 707 + 
   Breakdown: **183 `_file____User_temp` never-materialized-temp drops** (single RC-drop root,
   `drop_dup.yo` — biggest single cluster; RC-correctness-sensitive, validate with ASan), ~60
   `g_*` module globals (module-var port, gated on type-identity), 15 `fn_yo_id`, rest scattered.
+  REPRO NOTE: the temp-drop bug does NOT reproduce with minimal concrete-type code — verified
+  a faithful transcription of the source construct (`validate_concrete_type_constraints`,
+  function.yo:1448: a `while` with a match-early-return then `if(ast_expr_is_fn_call_of(arg,"!",
+Some(usize(1))), ..)`) compiles clean. It only manifests in the SPECIALIZED-GENERIC
+  instantiation (real AstExpr/enum types), e.g. emitted fn `yo_id_247313` where `drop(temp_144445)`
+  is emitted inside an `if` body but `temp_144445` is never declared (declaration elided while
+  its deferred-drop survived). NEXT: instrument the real self-compile — log in
+  `drop_dup.yo generate_deferred_drop_expressions` when a drop target name was never emitted as
+  a C decl (track declared names), and in the RC-emission layer where that drop was scheduled —
+  rather than chase a minimal repro.
 - **type-identity class ~395** (incompat 257 + member-ref 95 + passing 43) — now the dominant
   CLASS; generic-instantiation cfid consistency (index.yo:755/781), deep + previously-reverted.
 - **Residual 56 "Failed to transpile"** — NOT the macro-fallback family (that is fully fixed;
