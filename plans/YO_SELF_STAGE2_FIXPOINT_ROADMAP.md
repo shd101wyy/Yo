@@ -39,6 +39,16 @@ Some(usize(1))), ..)`) compiles clean. It only manifests in the SPECIALIZED-GENE
   rather than chase a minimal repro.
 - **type-identity class ~395** (incompat 257 + member-ref 95 + passing 43) — now the dominant
   CLASS; generic-instantiation cfid consistency (index.yo:755/781), deep + previously-reverted.
+  Sub-analysis: 115 incompat assign into `enum_<id>_struct_<id>` (enum-over-struct) — the enum
+  structural-sig embeds the payload struct's key, so the ENUM divergence is DOWNSTREAM of the
+  struct key inconsistency. **HYPOTHESIS ELIMINATED (this session):** a structural-sig bridge in
+  `type_key` (register `s_<name>_<typeargs> → gs_key` in the cfid-full path, look it up in the
+  cfid-empty fallback) does NOT fix it — built + corpus 97 + std 152, but stage-2 went 1312→1314
+  (incompat +22: it even MERGED some distinct structs). So the two divergent C names do NOT share
+  `name`+`type_args` — the divergence is deeper (different type*args, or via the enum-sig path, or
+  a struct with empty name). NEXT: instrument `type_key` to dump BOTH C names + the full TypeValue
+  (name/id/cfid/type_args/fields) for one concrete incompat pair (e.g. bl-emit.c:23353
+  `enum_5152_bool` vs `enum_17883*...`) to see EXACTLY what differs, before attempting a fix.
 - **Residual 56 "Failed to transpile"** — NOT the macro-fallback family (that is fully fixed;
   plain while-condition/if-begin method calls compile clean now — verified). They cluster in an
   **async/effect function body** (a link/compile command builder that `io.await(cmd.status(io))`)
