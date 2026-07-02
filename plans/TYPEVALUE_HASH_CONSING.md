@@ -302,13 +302,17 @@ but keep TS `src/types/` and `yo-self/types/` in step where they correspond.
   storage-interning; Phase 1 goes straight to construction-site + RECURSIVE
   interning.** The validated `intern_type` + singleton pattern (and the memoized
   `t_*()` idiom) can be regenerated from git history / the P2 memory notes.
-- **Phase 1/2 — first attempt DONE + reverted (2026-07-02): key must match
-  codegen identity (see §4.8).** A total injective key with named-types-by-`id`
-  - whole-tree interning at `ExprInfo.ty` broke codegen (corpus 32 SELF-FAIL,
-    wrong-merge → malformed C). **Redo with the key = codegen's `_type_key_at`
-    identity**, not the eval-side `id`. Everything else (the key skeleton, RC in
-    `intern`, the frame-merge gotcha: inline `if(c,"1","0")` args need a `_b` helper)
-    is recoverable from git.
+- **Phase 1/2 — the KEY IS SOLVED + VALIDATED (2026-07-02), committed unwired as
+  `yo-self/types/intern.yo` (`29bef3a9f`).** After the id-only key wrong-merged
+  (§4.8), the fix was a FULL-CONTENT key (named types render name + all flags +
+  field/variant types recursively, cycle-guarded by a monotonic visited-id set →
+  injective and at-least-as-fine as codegen identity → cannot wrong-merge). Wiring
+  it at `ExprInfo.ty` kept corpus 96/96 + check ./std 152/152 (CORRECT) but was a
+  memory NO-OP (heap 59.9 M nodes unchanged — only ~688 K root tys deduped; the
+  13 M are nested/`Variable.ty`/cache/transient), so it is left UNWIRED (not
+  imported → not built → zero cost). Remaining work = reuse this validated key from
+  (a) RECURSIVE interning (intern children + reconstruct the node — the 25-variant
+  rebuild) or (b) CONSTRUCTION-site interning (also dedups transients → the PEAK).
 - **Phase 1 — atomics.** `mk_*` for all nullary/Int/Float/TypeUni; reroute their
   construction sites; `t_*()` → `mk_*`. Measure (should dedup the atomic slice).
 - **Phase 2 — compound, one variant at a time.** Start with the highest-frequency
