@@ -1,0 +1,41 @@
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+
+// Regression: a cond/if ARM whose value is (or contains) a string literal
+// with the WORD "return" in it must still be ASSIGNED to the result temp.
+// The arm-emission heuristic classifies generated code containing a `return`
+// statement as control flow (emitted bare, no assignment); it used a plain
+// \breturn\b scan that also matched the word INSIDE generated string
+// literals, leaving the result temp uninitialized — a garbage (ptr, len)
+// read at runtime (SIGBUS in the self-hosted compiler's own sources).
+// See issues/cond-arm-return-inside-string-literal.md.
+_helper :: (fn(is_completion : bool, indent : String, xs : Option(ArrayList(usize))) -> String)(
+  match(
+    xs,
+    .Some(pending) => if(pending.len() > usize(0), {
+      msg := indent.clone();
+      msg.push_str(if(is_completion, "// before early completion", "// before early return"));
+      msg
+    }, String.from("empty")),
+    .None => String.from("none")
+  )
+);
+
+test("if-arm string literal containing the word 'return' is still assigned", {
+  al := ArrayList(usize).new();
+  al.push(usize(1));
+  got := _helper(false, String.from("  "), Option(ArrayList(usize)).Some(al));
+  assert(got == "  // before early return");
+  got2 := _helper(true, String.from("  "), Option(ArrayList(usize)).Some(al));
+  assert(got2 == "  // before early completion");
+});
+
+test("match-arm string literal containing the word 'return' is still assigned", {
+  (k : usize) = usize(1);
+  s := match(
+    Option(usize).Some(k),
+    .Some(_) => String.from("took the early return path"),
+    .None => String.from("none")
+  );
+  assert(s == "took the early return path");
+});

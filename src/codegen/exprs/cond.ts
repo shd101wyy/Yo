@@ -13,6 +13,7 @@ import { isTempVariableName } from "../../utils";
 import { isBooleanValue } from "../../value";
 import { type FunctionGenerationContext } from "../functions/context";
 import {
+  codeContainsReturnStatement,
   type CodeGenContext,
   getTypeString,
   getVariableNameForCodegen,
@@ -132,7 +133,7 @@ export function generateCondExpression(
               !valueCode.startsWith("goto") &&
               valueCode !== "continue" &&
               valueCode !== "break" &&
-              !/\breturn\b/.test(valueCode)
+              !codeContainsReturnStatement(valueCode)
             ) {
               context.emitter.emitLine(`${indent}${tempVar} = ${valueCode};`);
             }
@@ -142,7 +143,7 @@ export function generateCondExpression(
               (valueCode.startsWith("goto") ||
                 valueCode === "continue" ||
                 valueCode === "break" ||
-                /\breturn\b/.test(valueCode))
+                codeContainsReturnStatement(valueCode))
             ) {
               context.emitter.emitLine(`${indent}${valueCode};`);
             }
@@ -375,7 +376,7 @@ export function generateCondExpression(
                           finalExpr,
                           BuiltinKeywords.return
                         )) ||
-                      /\breturn\b/.test(finalExprCode)
+                      codeContainsReturnStatement(finalExprCode)
                       // Use word boundary to avoid matching identifiers like
                       // `return_flag` inside struct-literal field names.
                       // (issue: struct-literal-in-match-arm-not-assigned)
@@ -477,7 +478,7 @@ export function generateCondExpression(
                 valueCode.startsWith("goto") ||
                 (exprIsFunctionCall(value) &&
                   exprIsFunctionCallOf(value, BuiltinKeywords.return)) ||
-                /\breturn\b/.test(valueCode)
+                codeContainsReturnStatement(valueCode)
               ) {
                 // For control flow statements, emit them directly without assignment
                 context.emitter.emitLine(`${valueIndent}${valueCode};`);

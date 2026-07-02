@@ -21,6 +21,7 @@ import { TypeTag } from "../../types/tags";
 import { isBooleanValue, isNumberValue, type Value } from "../../value";
 import { type FunctionGenerationContext } from "../functions/context";
 import {
+  codeContainsReturnStatement,
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
   type CodeGenContext,
@@ -46,9 +47,11 @@ function isControlFlowCode(code: string): boolean {
     code === "break" ||
     code === "continue" ||
     code.startsWith("goto") ||
-    // Use word boundary to avoid matching identifiers like `return_flag`
-    // inside struct-literal field names (issue: struct-literal-in-match-arm-not-assigned).
-    /\breturn\b/.test(code)
+    // Word-boundary + string-literal masking: identifiers like `return_flag`
+    // (issue: struct-literal-in-match-arm-not-assigned) and the word `return`
+    // INSIDE a generated string literal (issue:
+    // cond-arm-return-inside-string-literal) are NOT control flow.
+    codeContainsReturnStatement(code)
   );
 }
 

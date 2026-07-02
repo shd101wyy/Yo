@@ -382,6 +382,23 @@ export function sanitizeForCIdentifier(str: string, isExternC = false): string {
 }
 
 /**
+ * True when generated C code contains a `return` STATEMENT — the word
+ * `return` OUTSIDE any C string literal. cond/match arm emission uses this to
+ * decide whether an arm is control flow (emit bare) or a value (assign to the
+ * result temp). Generated string literals can legally contain the word (e.g.
+ * a Yo source literal "...before early return"); matching those made the
+ * emitter treat the arm as control flow and SKIP the result-temp assignment,
+ * leaving the temp UNINITIALIZED — a read of garbage (ptr,len) at runtime
+ * (SIGBUS; see issues/cond-arm-return-inside-string-literal.md).
+ */
+export function codeContainsReturnStatement(code: string): boolean {
+  // Mask double-quoted C string literals (handles \" and other escapes),
+  // then scan for the keyword.
+  const masked = code.replace(/"(?:[^"\\]|\\[\s\S])*"/g, '""');
+  return /\breturn\b/.test(masked);
+}
+
+/**
  * Check if a type should avoid const qualifier even when not mutable
  * This is needed for object types that need to support reference counting operations
  */

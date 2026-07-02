@@ -29,6 +29,33 @@ open(import("std/string"));
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
 );
+/// True when position `idx` lies INSIDE a double-quoted C string literal in
+/// `s` (parity walk with `\\`-escape skipping). Mirrors the TS fix
+/// (codeContainsReturnStatement, src/codegen/utils/index.ts): the word
+/// `return` inside a GENERATED STRING LITERAL (e.g. a Yo source literal
+/// "...before early return") is NOT a return statement — treating it as one
+/// skipped the arm's result-temp assignment and left the temp uninitialized
+/// (SIGBUS; issues/cond-arm-return-inside-string-literal.md).
+_inside_c_string_literal :: (fn(s : String, idx : usize) -> bool)({
+  (in_str : bool) = false;
+  (i : usize) = usize(0);
+  while(i < idx, {
+    b := s.byte_at(i);
+    cond(
+      (in_str && (b == u8(92))) => {
+        i = (i + usize(2));
+      },
+      (b == u8(34)) => {
+        in_str = !(in_str);
+        i = (i + usize(1));
+      },
+      true => {
+        i = (i + usize(1));
+      }
+    );
+  });
+  in_str
+});
 /// Whether `s` contains "return" as a whole word (the TS `\breturn\b` regex).
 _contains_word_return :: (fn(s : String) -> bool)({
   word := String.from("return");
@@ -42,7 +69,7 @@ _contains_word_return :: (fn(s : String) -> bool)({
         before_ok := if(idx == usize(0), true, !(_is_word_byte(s.byte_at(idx - usize(1)))));
         after_idx := (idx + wlen);
         after_ok := if(after_idx >= slen, true, !(_is_word_byte(s.byte_at(after_idx))));
-        if(before_ok && after_ok, {
+        if((before_ok && after_ok) && !(_inside_c_string_literal(s, idx)), {
           return(true);
         }, {
           from = (idx + usize(1));
