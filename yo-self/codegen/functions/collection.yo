@@ -16,7 +16,7 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_TEST, BF_DOT, BF_COMPTIME_EXPECT_ERROR } :: import("../../expr.yo");
 { get_type_trait_methods_by_name, type_id_or_empty, register_type_trait_method, MethodEntry } :: import("../../evaluator/values/type_trait_methods.yo");
-{ ExprInfoTable, expr_info_table_get, lookup_method_callee_value } :: import("../../expr_info.yo");
+{ ExprInfoTable, expr_info_table_get, lookup_method_callee_value, lookup_macro_expansion } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_struct_val, is_type_value, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_function_type, is_unit_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_boxed_type, is_expr_type } :: import("../../types/guards.yo");
@@ -429,7 +429,21 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
   match(
     ei_opt,
     .Some(ei) => {
-      match(ei.macro_expansion,.Some(me) => recur(me, context, info),.None => ());
+      // Prefer the per-expr macro_expansion; fall back to the durable id-keyed
+      // side-table when a later eval pass overwrote this call's ExprInfo WITHOUT
+      // macro_expansion (e.g. a match-arm `if(...)` re-evaluated during branch
+      // type-checking). CODEGEN falls back the same way (generation.yo), so
+      // WITHOUT this fallback here the collection walks nothing while codegen
+      // walks the expansion — leaving the expansion's method-callee functions
+      // (e.g. `cv.len()` inside `if(cv.len()>0,..)` in a match arm)
+      // UNCOLLECTED → codegen's concrete-method dispatch finds no C name and
+      // emits "// Failed to transpile" (which corrupts the C line). Mirrors the
+      // same fallback in collect_types_from_expr (types/collection.yo).
+      match(
+        ei.macro_expansion,
+        .Some(me) => recur(me, context, info),
+        .None => match(lookup_macro_expansion(ast_expr_id(expr)),.Some(me) => recur(me, context, info),.None => ())
+      );
       match(
         ei.effect_analysis,
         .Some(ea) => match(
