@@ -1,24 +1,20 @@
-pragma(Pragma.AllowUnsafe);
-open(import("std/libc/stdio.yo"));
-Gc :: import("std/gc");
-ENode :: ref(
-  enum(
-    ENil,
-    ECons(value : i32, next : Self)
+open(import("std/fmt"));
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+helper :: (fn(is_completion : bool, indent : String, xs : Option(ArrayList(usize))) -> unit)(
+  match(
+    xs,
+    .Some(pending) => if(pending.len() > usize(0), {
+      msg := indent.clone();
+      msg.push_str(if(is_completion, "AAA", "Drop local variables before early return"));
+      println(msg);
+    }),
+    .None => ()
   )
 );
-form_cycle :: (fn() -> unit)({
-  a := ENode.ECons(1, ENode.ENil);
-  b := ENode.ECons(2, ENode.ENil);
-  a.next = b; // overwrites a's ENil terminator
-  b.next = a; // overwrites b's ENil terminator; a<->b cycle
-});
 main :: (fn() -> unit)({
-  before := Gc.tracked_count();
-  form_cycle();
-  mid := Gc.tracked_count();
-  Gc.collect();
-  after := Gc.tracked_count();
-  unsafe(printf("before=%llu mid=%llu after=%llu\n", before, mid, after));
+  al := ArrayList(usize).new();
+  al.push(usize(1));
+  helper(false, String.from("  "), Option(ArrayList(usize)).Some(al));
 });
 export(main);
