@@ -60,6 +60,14 @@ ArrayList(bool)` and `yo_id_3872` is `ArrayList.get` SPECIALIZED for it. The cal
   enum). So the fix is in generic specialization / monomorphization (substitute type args into
   the SPECIALIZED return type), NOT in `type_key` dedup — which is why the sig bridge failed.
   This is the create_specialized / substitute() return-type path (related to task #22, #30).
+  EXACT LOCUS: `create_specialized_function_inline` (helper.yo:1140) computes
+  `spec_ret_ty := evaluate_function_return_type_again(<generic result type>, callee_env, ctx)`.
+  For the failing case it yields `Option(enum_17868)` not `Option(bool)` → so `callee_env` binds
+  the type param to the wrong type (an unsubstituted/mis-inferred `T`) in this (likely nested)
+  specialization context. NEXT: instrument `create_specialized_function_inline` to log func_id +
+  the generic result type + `spec_ret_ty` + the callee_env type-param bindings for the
+  ArrayList.get specialization, to see why `T` resolves to `enum_17868` rather than `bool`.
+  Deep specialization type-inference; validate any fix with corpus 97 + std 152 + re-measure.
 
 - **Residual 56 "Failed to transpile"** — NOT the macro-fallback family (that is fully fixed;
   plain while-condition/if-begin method calls compile clean now — verified). They cluster in an
