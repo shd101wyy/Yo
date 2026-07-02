@@ -54,7 +54,7 @@ Some(usize(1))), ..)`) compiles clean. It only manifests in the SPECIALIZED-GENE
   instantiations of the same type — it is a **generic-specialization SUBSTITUTION bug**. The C
   is `__yo_enum_yo_id_5152_bool t = yo_id_3872(trait_negated, j)` where `trait_negated :
 ArrayList(bool)` and `yo_id_3872` is `ArrayList.get` SPECIALIZED for it. The call site
-  correctly expects `Option(bool)` (enum_5152) but the specialized `get` RETURNS
+  correctly expects `Option(bool)` (enum*5152) but the specialized `get` RETURNS
   `Option(enum_17868)` — i.e. the element type `T` was NOT substituted to `bool` in the
   specialized function's return type (`enum_17868` is an unsubstituted `T`/SomeType-derived
   enum). So the fix is in generic specialization / monomorphization (substitute type args into
@@ -78,6 +78,14 @@ ArrayList(bool)` and `yo_id_3872` is `ArrayList.get` SPECIALIZED for it. The cal
   Option value to learn its spelling; then widen the search to where codegen reads the specialized
   return type for a call (get_func_type(specialized_func_id) → its Func result), which is what the
   emitted C prototype's return type actually comes from.
+  UPDATE 2 (this session): confirmed helper.yo:1140 IS the path — an unconditional log fired
+  550 times for `yo_id_3872` (ArrayList.get) specializations. But `type_to_string` is LOSSY: it
+  renders every specialized return type as bare `<enum:enum_yo_id_3869>` (the base `Option` id, no
+  type arg), so it cannot reveal whether the element arg is `bool` or wrong. NEXT (correct tool):
+  log `type_key(spec_ret_ty)` (shows the full parameterized `enum_3869*<argkey>`form) OR dump the
+ `.EnumT type_arguments`directly, for the`struct_yo_id_3849`(trait_negated's ArrayList)
+  specialization specifically — then trace how`callee_env`/`evaluate_function_return_type_again`
+  binds the element type. Use type_key, NOT type_to_string.
 
 - **Residual 56 "Failed to transpile"** — NOT the macro-fallback family (that is fully fixed;
   plain while-condition/if-begin method calls compile clean now — verified). They cluster in an
