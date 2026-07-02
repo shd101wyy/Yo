@@ -68,6 +68,16 @@ ArrayList(bool)` and `yo_id_3872` is `ArrayList.get` SPECIALIZED for it. The cal
   the generic result type + `spec_ret_ty` + the callee_env type-param bindings for the
   ArrayList.get specialization, to see why `T` resolves to `enum_17868` rather than `bool`.
   Deep specialization type-inference; validate any fix with corpus 97 + std 152 + re-measure.
+  INSTRUMENTATION RESULT (this session): a guarded log at helper.yo:1140 for specializations
+  whose `type_to_string(spec_ret_ty)` contains "Option" fired ZERO times over a full self-compile.
+  So EITHER `evaluate_function_return_type_again` at 1140 is NOT the path that produces
+  ArrayList.get's return type (it may come from a cached specialization / a different call path /
+  the funcId side-table `get_func_type`), OR `type_to_string` does not spell generic enums as
+  "Option" (likely the raw `enum(None,Some(..))`/id form). NEXT: first add an UNCONDITIONAL
+  counter/log at 1140 to confirm the path is hit at all, and log `type_to_string` of a known
+  Option value to learn its spelling; then widen the search to where codegen reads the specialized
+  return type for a call (get_func_type(specialized_func_id) → its Func result), which is what the
+  emitted C prototype's return type actually comes from.
 
 - **Residual 56 "Failed to transpile"** — NOT the macro-fallback family (that is fully fixed;
   plain while-condition/if-begin method calls compile clean now — verified). They cluster in an
