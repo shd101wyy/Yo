@@ -316,12 +316,24 @@ but keep TS `src/types/` and `yo-self/types/` in step where they correspond.
 - **FIRST WIN LANDED (`7f547078d`): `intern_type` wired at `substitute()`** →
   TypeValue 13.04 M → 11.59 M (−1.45 M), heap 5.72 → 5.44 GB, corpus 96/96.
   `substitute` recurses, so wrapping its result interns bottom-up (generic
-  instantiations dedup). **`type_of_eval_value` interning was net-NEGATIVE
-  (reverted)** — value-reconstructed types are mostly already-canonical/unique, so
-  the table/key overhead exceeds the dedup. Lesson: only wrap construction sources
-  that emit DUPLICATE types. The 80-class ArrayLists (26 M) stayed flat (dedup'd
-  nodes already shared their ArrayLists); cutting those needs Struct/EnumT dedup at
-  birth (diffuse: evaluate_struct_type/enum across many files) or recursive interning.
+  instantiations dedup).
+- **KEY PRINCIPLE found (2026-07-02): intern at PRE-canonical construction, NOT at
+  storage/downstream.** Wiring `intern_type` at `type_of_eval_value` AND at
+  `Variable.ty` (`add_variable_to_env`) were BOTH net-NEGATIVE (reverted): each
+  showed a **99.9 % hit rate** (only ~3.7 K distinct types across 36 M calls — types
+  ARE massively duplicated) yet the heap grew, because the types reaching those
+  points are **already canonical** (deduped upstream by `substitute`), so
+  re-interning is pure redundant key-building overhead. So downstream/storage
+  interning is redundant; only sources that emit types BEFORE canonicalization
+  (like `substitute`) pay off.
+- **The remaining ~11.6 M TypeValues + 26 M ArrayLists are `clone`-created NESTED
+  nodes** (every stored type is a `.clone()` → a fresh top node sharing children;
+  clone doesn't go through `substitute`). Deduping them needs either (a) interning
+  at `TypeValue.clone` — BLOCKED by an import cycle (`clone` lives in
+  `types/definitions.yo`, which `intern.yo` imports), or (b) RECURSIVE interning
+  (intern children + reconstruct — but named types Struct/EnumT have self-referential
+  fields, so reconstruction must treat them as leaves keyed by id, structural types
+  reconstruct their children). Both are the bigger next step.
 - **Phase 1 — atomics.** `mk_*` for all nullary/Int/Float/TypeUni; reroute their
   construction sites; `t_*()` → `mk_*`. Measure (should dedup the atomic slice).
 - **Phase 2 — compound, one variant at a time.** Start with the highest-frequency
