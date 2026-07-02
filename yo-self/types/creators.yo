@@ -312,6 +312,89 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .FutureTraitT(base_name : _) => TypeTag.TTrait
   )
 );
+/// True if `visited` already holds `tok` (linear scan — the set stays small:
+/// one token per distinct named type encountered on a shell walk).
+_shell_walk_visited :: (fn(visited : ArrayList(String), tok : String) -> bool)({
+  n := visited.len();
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < n) && !(found), {
+    cur := match(visited.get(i),.Some(e) => e.clone(),.None => String.from(""));
+    found = (found || (cur == tok));
+    i = (i + usize(1));
+  });
+  found
+});
+/// Read-only: does `t` (transitively, over the SAME containers
+/// `_patch_self_shell` rebuilds) contain the empty self-shell `shell_id`?
+/// `visited` is a MONOTONIC set of named-type tokens (never popped — the
+/// `type_intern_key` discipline): each distinct Struct/EnumT id is descended
+/// into ONCE, so the walk terminates on the CYCLIC type graphs the compiler's
+/// own sources produce (EvalValue → … → Variable → Option(EvalValue) → …)
+/// and is linear in distinct nodes. Zero allocation on the common
+/// no-shell path — this is the guard that keeps `_patch_self_shell` from
+/// rebuilding (and formerly recursing forever into) the whole type universe
+/// for every defined field (issues/patch-self-shell-exponential-walk.md).
+_contains_self_shell :: (
+  fn(t : TypeValue, shell_id : String, visited : ArrayList(String)) -> bool
+)(
+  match(
+    t,
+    .EnumT({ id, variant_names, variant_fields }) => cond(
+      ((id == shell_id) && (variant_names.len() == usize(0))) => true,
+      true => {
+        tok := String.from("E:");
+        tok.push_string(id.clone());
+        if(_shell_walk_visited(visited, tok.clone()), {
+          return(false);
+        });
+        visited.push(tok);
+        (hit : bool) = false;
+        (vi : usize) = usize(0);
+        while((vi < variant_fields.len()) && !(hit), {
+          inner := match(variant_fields.get(vi),.Some(x) => x,.None => ArrayList(TypeValue).new());
+          (fi : usize) = usize(0);
+          while((fi < inner.len()) && !(hit), {
+            ft := match(inner.get(fi),.Some(x) => x,.None => t_unit());
+            hit = recur(ft, shell_id, visited);
+            fi = (fi + usize(1));
+          });
+          vi = (vi + usize(1));
+        });
+        hit
+      }
+    ),
+    .Struct({ id, field_types, type_arguments }) => cond(
+      ((id == shell_id) && (field_types.len() == usize(0))) => true,
+      true => {
+        tok := String.from("S:");
+        tok.push_string(id.clone());
+        if(_shell_walk_visited(visited, tok.clone()), {
+          return(false);
+        });
+        visited.push(tok);
+        (hit : bool) = false;
+        (i : usize) = usize(0);
+        while((i < field_types.len()) && !(hit), {
+          ft := match(field_types.get(i),.Some(x) => x,.None => t_unit());
+          hit = recur(ft, shell_id, visited);
+          i = (i + usize(1));
+        });
+        (j : usize) = usize(0);
+        while((j < type_arguments.len()) && !(hit), {
+          ta := match(type_arguments.get(j),.Some(x) => x,.None => t_unit());
+          hit = recur(ta, shell_id, visited);
+          j = (j + usize(1));
+        });
+        hit
+      }
+    ),
+    .Pointer(inner) => recur(inner, shell_id, visited),
+    .Array(el, _, _) => recur(el, shell_id, visited),
+    .ComptimeListT(el) => recur(el, shell_id, visited),
+    _ => false
+  )
+);
 /// Replace an empty-variant/empty-field `Self` shell (matched by id +
 /// emptiness) with `final_ty` anywhere inside `t`. One-level rebuild over
 /// the standard type containers; the inserted `final_ty` itself still
@@ -320,8 +403,20 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
 /// Shared by enum.yo (recursive enums) and struct.yo (recursive structs);
 /// the `shell_id` passed at the call site is unique per type, so the
 /// enum and struct arms never cross-fire.
-_patch_self_shell :: (
-  fn(t : TypeValue, shell_id : String, final_ty : TypeValue) -> TypeValue
+///
+/// TERMINATION + PERF (issues/patch-self-shell-exponential-walk.md): the
+/// compiler's own sources produce CYCLIC type graphs (EvalValue → … →
+/// Variable → Option(EvalValue) → …), and the unguarded rebuild recursion
+/// walked them forever, allocating rebuilt collections at every level
+/// (~500 MB/s — the self-compile runaway). Now `_contains_self_shell` (cheap,
+/// read-only, cycle-guarded) gates the walk: no shell → `t` returned
+/// UNCHANGED (no rebuild, no recursion). When a shell IS present the rebuild
+/// walk itself carries the same monotonic visited-id guard: a named type
+/// already descended into is returned unchanged — any shell leaked behind a
+/// shared/cyclic node resolves at use sites via the finals registries (the
+/// documented deep-resolution path above).
+_patch_self_shell_guarded :: (
+  fn(t : TypeValue, shell_id : String, final_ty : TypeValue, visited : ArrayList(String)) -> TypeValue
 )(
   match(
     t,
@@ -334,6 +429,13 @@ _patch_self_shell :: (
       // fields. Without this, the shell inside `Option(Self)` stays an empty
       // placeholder and `can_type_form_rc_cycle` never reaches back to the root.
       true => {
+        tok := String.from("E:");
+        tok.push_string(id.clone());
+        // Cycle/shared-node guard — see the doc comment above.
+        if(_shell_walk_visited(visited, tok.clone()), {
+          return(t);
+        });
+        visited.push(tok);
         new_vfs := ArrayList(ArrayList(TypeValue)).new();
         (vi : usize) = usize(0);
         while(vi < variant_fields.len(), {
@@ -342,7 +444,7 @@ _patch_self_shell :: (
           (fi : usize) = usize(0);
           while(fi < inner.len(), {
             ft := match(inner.get(fi),.Some(x) => x,.None => t_unit());
-            new_inner.push(recur(ft, shell_id, final_ty));
+            new_inner.push(recur(ft, shell_id, final_ty, visited));
             fi = (fi + usize(1));
           });
           new_vfs.push(new_inner);
@@ -351,30 +453,49 @@ _patch_self_shell :: (
         .EnumT(id, name, variant_names, new_vfs, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc)
       }
     ),
-    .Pointer(inner) =>.Pointer(recur(inner, shell_id, final_ty)),
-    .Array(el, n, lv) =>.Array(recur(el, shell_id, final_ty), n, lv),
-    .ComptimeListT(el) =>.ComptimeListT(recur(el, shell_id, final_ty)),
+    .Pointer(inner) =>.Pointer(recur(inner, shell_id, final_ty, visited)),
+    .Array(el, n, lv) =>.Array(recur(el, shell_id, final_ty, visited), n, lv),
+    .ComptimeListT(el) =>.ComptimeListT(recur(el, shell_id, final_ty, visited)),
     .Struct({ id, name, field_labels, field_types, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, type_arguments, is_source_namespace }) => cond(
       ((id == shell_id) && (field_types.len() == usize(0))) => final_ty,
       true => {
+        tok := String.from("S:");
+        tok.push_string(id.clone());
+        // Cycle/shared-node guard — see the doc comment above.
+        if(_shell_walk_visited(visited, tok.clone()), {
+          return(t);
+        });
+        visited.push(tok);
         new_fts := ArrayList(TypeValue).new();
         (i : usize) = usize(0);
         while(i < field_types.len(), {
           ft := match(field_types.get(i),.Some(x) => x,.None => t_unit());
-          new_fts.push(recur(ft, shell_id, final_ty));
+          new_fts.push(recur(ft, shell_id, final_ty, visited));
           i = (i + usize(1));
         });
         new_tas := ArrayList(TypeValue).new();
         (j : usize) = usize(0);
         while(j < type_arguments.len(), {
           ta := match(type_arguments.get(j),.Some(x) => x,.None => t_unit());
-          new_tas.push(recur(ta, shell_id, final_ty));
+          new_tas.push(recur(ta, shell_id, final_ty, visited));
           j = (j + usize(1));
         });
         .Struct(id, name, field_labels, new_fts, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, new_tas, is_source_namespace)
       }
     ),
     _ => t
+  )
+);
+/// Public entry — the signature enum.yo/struct.yo call. Gate with the cheap
+/// read-only containment check: the overwhelmingly common case (a field type
+/// that never mentions `Self`) returns `t` UNCHANGED with zero rebuilds.
+_patch_self_shell :: (
+  fn(t : TypeValue, shell_id : String, final_ty : TypeValue) -> TypeValue
+)(
+  cond(
+    _contains_self_shell(t, shell_id.clone(), ArrayList(String).new()) =>
+      _patch_self_shell_guarded(t, shell_id, final_ty, ArrayList(String).new()),
+    true => t
   )
 );
 // Enum finalization side-table: `enum_id -> finalized EnumT`. During an

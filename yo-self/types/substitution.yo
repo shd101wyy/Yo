@@ -8,7 +8,12 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/collections/array_list"));
 open(import("std/string"));
 { TypeValue } :: import("./definitions.yo");
-{ intern_type } :: import("./intern.yo");
+// BISECT (2026-07-02): interning at substitute UNWIRED — the shared type
+// graphs it creates send _patch_self_shell's unmemoized walk exponential
+// during the emit-C self-compile (~500 MB/s allocation explosion; see
+// issues/patch-self-shell-exponential-walk.md). Re-wire only after the
+// patcher is sharing-safe.
+intern_type :: (fn(t : TypeValue) -> TypeValue)(t);
 // ---------------------------------------------------------------------------
 // Substitution map — parallel arrays for (name, level) → TypeValue.
 // ---------------------------------------------------------------------------

@@ -1638,6 +1638,11 @@ impl(
   )
 );
 /// Hash trait implementation — FNV-1a hash over the string's bytes.
+/// Bytes are read through the raw buffer pointer (same pattern as `==`'s
+/// memcmp path): the previous per-byte `al.get(i)` paid a bounds check +
+/// `Option(u8)` construction + match PER BYTE, which made hashing long keys
+/// (e.g. the compiler's structural type keys) the top profiled cost of
+/// HashMap-heavy phases.
 impl(
   String,
   Hash(
@@ -1647,18 +1652,21 @@ impl(
         self._bytes,
         .None => (),
         .Some(al) => {
-          i := usize(0);
           len := al.len();
-          while(i < len, i = (i + usize(1)), {
-            match(
-              al.get(i),
-              .Some(b) => {
+          match(
+            al.ptr(),
+            // SAFETY: `ptr()` is Some only for a live buffer of exactly
+            // `len` bytes; reads stay in [0, len).
+            .Some(p) => {
+              i := usize(0);
+              while(i < len, i = (i + usize(1)), {
+                b := unsafe((p &+ i).*);
                 h = (h ^ u64(b));
                 h = (h * u64(1099511628211));
-              },
-              .None => ()
-            );
-          });
+              });
+            },
+            .None => ()
+          );
         }
       );
       h

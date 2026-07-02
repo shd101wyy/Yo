@@ -654,10 +654,14 @@ can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(
 // reference), look up its id here to reuse the canonical C name from the stamped
 // copy. Without this, the same logical type (e.g. HashMap(i32,N)) gets two C structs
 // — one keyed by gs_<cfid>_<args>, one by the raw id — triggering a clang
-// -Wincompatible-pointer-types. ArrayList (not HashMap) to avoid any resize/rehash
-// inside the recursive _type_key_at hot path.
-StructCfidKeyEntry :: ref(struct(struct_id : String, cfid_key : String));
-(g_struct_cfid_keys : ArrayList(StructCfidKeyEntry)) = ArrayList(StructCfidKeyEntry).new();
+// -Wincompatible-pointer-types. struct_id → cfid_key, FIRST registration wins.
+// HashMap (was an ArrayList linear scan): the register site runs on EVERY
+// generic-instantiation keying without dedup, so the list grew with total
+// keyings and the no-cfid lookup scan turned the whole codegen phase
+// O(keyings²) — profiled at HOURS of String == on the self-compile (~55% of
+// the phase). A resize inside the recursive _type_key_at is harmless (no live
+// iterators are held across the recursion).
+(g_struct_cfid_keys : HashMap(String, String)) = HashMap(String, String).new();
 
 // Enum structural-signature dedup (the enum analogue of g_struct_cfid_keys).
 // `Struct` carries a `constructor_func_id` + `type_arguments` that give every
@@ -676,34 +680,21 @@ StructCfidKeyEntry :: ref(struct(struct_id : String, cfid_key : String));
 // minimal — only genuine duplicates collapse, and only to a C-layout-identical
 // peer. Reference-semantics enums are excluded (they key by id for recursion
 // termination). See issues/yo-self-iterator-option-identity.md.
-EnumSigKeyEntry :: ref(struct(sig : String, canonical_key : String));
-(g_enum_sig_keys : ArrayList(EnumSigKeyEntry)) = ArrayList(EnumSigKeyEntry).new();
+// sig → canonical_key, FIRST registration wins (HashMap — same O(n²)-scan
+// fix as g_struct_cfid_keys above).
+(g_enum_sig_keys : HashMap(String, String)) = HashMap(String, String).new();
 /// Look up the canonical key for a structural signature; register `full_key` as
-/// the canonical for `sig` on first sight. Linear scan (few entries, collection-
-/// time only), mirroring the struct cfid side-table.
-_lookup_or_register_enum_sig :: (fn(sig : String, full_key : String) -> String)({
-  (i : usize) = usize(0);
-  n := g_enum_sig_keys.len();
-  (found : Option(String)) = Option(String).None;
-  while((i < n) && found.is_none(), {
-    match(
-      g_enum_sig_keys.get(i),
-      .Some(e) => if(e.sig == sig, {
-        found = Option(String).Some(e.canonical_key);
-      }),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
+/// the canonical for `sig` on first sight.
+_lookup_or_register_enum_sig :: (fn(sig : String, full_key : String) -> String)(
   match(
-    found,
+    g_enum_sig_keys.get(sig.clone()),
     .Some(k) => k,
     .None => {
-      g_enum_sig_keys.push(EnumSigKeyEntry(sig : sig.clone(), canonical_key : full_key.clone()));
+      g_enum_sig_keys.set(sig.clone(), full_key.clone());
       full_key
     }
   )
-});
+);
 
 _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
   match(
@@ -734,31 +725,21 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
             );
             ti = (ti + usize(1));
           });
-          // Record the cfid-key for this struct id so cfid-empty copies use it.
+          // Record the cfid-key for this struct id so cfid-empty copies use
+          // it. First registration wins (mirrors the old first-match scan).
           if(sid.len() > usize(0), {
-            g_struct_cfid_keys.push(StructCfidKeyEntry(struct_id : sid, cfid_key : key.clone()));
+            if(!(g_struct_cfid_keys.contains_key(sid.clone())), {
+              g_struct_cfid_keys.set(sid.clone(), key.clone());
+            });
           });
           key
         },
-        // No cfid: search the side-table for a previously-recorded cfid-key
-        // for this struct id. Linear scan is cheap (few entries; hot only
-        // during collection, not per-expr lowering).
-        (sid.len() > usize(0)) => {
-          (found : Option(String)) = Option(String).None;
-          (ki : usize) = usize(0);
-          nk := g_struct_cfid_keys.len();
-          while((ki < nk) && found.is_none(), {
-            match(
-              g_struct_cfid_keys.get(ki),
-              .Some(e) => if(e.struct_id == sid, {
-                found = Option(String).Some(e.cfid_key);
-              }),
-              .None => ()
-            );
-            ki = (ki + usize(1));
-          });
-          match(found,.Some(k) => k,.None => sid.clone())
-        },
+        // No cfid: look up a previously-recorded cfid-key for this struct id.
+        (sid.len() > usize(0)) => match(
+          g_struct_cfid_keys.get(sid.clone()),
+          .Some(k) => k,
+          .None => sid.clone()
+        ),
         true => type_to_string(st)
       )
     },
@@ -835,7 +816,14 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
           while(si < evns.len(), {
             sig.push_str("_");
             match(evns.get(si),.Some(vn) => sig.push_string(vn),.None => ());
-            match(evds.get(si),.Some(d) => { sig.push_str("="); sig.push_string(d.to_string()); },.None => ());
+            match(
+              evds.get(si),
+              .Some(d) => {
+                sig.push_str("=");
+                sig.push_string(d.to_string());
+              },
+              .None => ()
+            );
             si = (si + usize(1));
           });
           sig.push_string(field_part);
