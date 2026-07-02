@@ -15,6 +15,18 @@ recursive enums). incompat 300→206→177 (this commit brought it to 206; a lat
 collide (enum recursion omitted to avoid the specialization explosion) — a smaller sub-case.
 Session trajectory: 3643 → 1627 → 1312 → 1189. corpus 97/97, check ./std 152/152.
 
+RESIDUAL type-identity (177 incompat) — direction (this session eliminated one option): routing
+the sig through `type_intern_key` (types/intern.yo — injective, recursion-safe) was tried: it
+COMPLETES (peak ~7GB, no explosion) but incompat got WORSE (177→203, total only 1189→1185). It
+OVER-distinguishes — being injective, it separates types that CODEGEN's `type_key` treats as the
+SAME C type, minting extra func_ids that then mismatch. The sig must align with codegen's OWN
+`type_key` (so two params of the same emitted C type share a func_id), not the interning key.
+type_key lives in codegen (evaluator→codegen import risk); options: (a) move type_key's core to a
+shared low-level module importable by both, or (b) extend the current struct-args `_param_type_sig`
+to also append generic-ENUM `variant_fields` BUT with type_key's exact visited-guard discipline
+(id-only on the recursion path) so it matches codegen without the explosion. Keep the committed
+struct-args version (1189) meanwhile.
+
 **UPDATE (commit `4950719fb`): 1627 → 1312 errors (−315).** Fixed the "Failed to transpile"
 cascade root: `find_function_calls_in_expr` now falls back to the durable macro-expansion
 table (like codegen), so method-callees inside match-arm-`if` macro expansions get collected.
