@@ -313,6 +313,15 @@ but keep TS `src/types/` and `yo-self/types/` in step where they correspond.
   imported → not built → zero cost). Remaining work = reuse this validated key from
   (a) RECURSIVE interning (intern children + reconstruct the node — the 25-variant
   rebuild) or (b) CONSTRUCTION-site interning (also dedups transients → the PEAK).
+- **FIRST WIN LANDED (`7f547078d`): `intern_type` wired at `substitute()`** →
+  TypeValue 13.04 M → 11.59 M (−1.45 M), heap 5.72 → 5.44 GB, corpus 96/96.
+  `substitute` recurses, so wrapping its result interns bottom-up (generic
+  instantiations dedup). **`type_of_eval_value` interning was net-NEGATIVE
+  (reverted)** — value-reconstructed types are mostly already-canonical/unique, so
+  the table/key overhead exceeds the dedup. Lesson: only wrap construction sources
+  that emit DUPLICATE types. The 80-class ArrayLists (26 M) stayed flat (dedup'd
+  nodes already shared their ArrayLists); cutting those needs Struct/EnumT dedup at
+  birth (diffuse: evaluate_struct_type/enum across many files) or recursive interning.
 - **Phase 1 — atomics.** `mk_*` for all nullary/Int/Float/TypeUni; reroute their
   construction sites; `t_*()` → `mk_*`. Measure (should dedup the atomic slice).
 - **Phase 2 — compound, one variant at a time.** Start with the highest-frequency
