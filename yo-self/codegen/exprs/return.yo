@@ -144,6 +144,20 @@ _resolve_drop_target_in_scope :: (fn(drop_expr : AstExpr, variables : ArrayList(
     }
   )
 );
+/// True if `init_token` (where a variable is initialized) is strictly AFTER
+/// the cleanup point of `cleanup_expr` in the SAME comparable token stream —
+/// i.e. the variable's C declaration appears LATER than this drop site, so it
+/// is not yet in C scope here. Mirrors `_variable_was_consumed_before_cleanup_point`
+/// (same token machinery). Conservative: returns false when the tokens are not
+/// comparable (different file/synthetic), so a drop is never wrongly suppressed
+/// outside the provable same-stream forward-reference case.
+_variable_initialized_after_cleanup_point :: (fn(init_token : Token, cleanup_expr : AstExpr) -> bool)({
+  if(!(_tokens_are_comparable(init_token, ast_expr_token(cleanup_expr))), {
+    return(false);
+  });
+  cleanup_point := _get_last_comparable_token_in_expr(cleanup_expr, init_token);
+  !(_token_is_at_or_before(init_token, cleanup_point))
+});
 /// Whether a pending drop should be emitted at this return's cleanup point.
 _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet(String), additional_skip : Option(HashSet(String)), use_env : bool, context : FunctionGenerationContext) -> bool)({
   var_name := match(get_deferred_drop_target_atom_name(drop_expr),.Some(vn) => vn,.None => return(false));
@@ -169,8 +183,19 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
   if(consumed_before, {
     return(false);
   });
-  // Skip declared-but-not-yet-initialized variables (C decl appears later).
-  match(latest_var.initialized_at_token,.Some(_) => true,.None => false)
+  // Skip a variable whose C declaration appears LATER than this drop site: a
+  // mid-body escape check (`if(__yo_effect_escaped){...}`) after a call drops
+  // the pending list, but that list (accumulated over the whole function body)
+  // includes locals declared AFTER this point (forward C references) — dropping
+  // them emits `__yo_decr_rc((void*)(x))` for an undeclared `x`. The env check
+  // above alone does NOT catch this: the recorded env is the END-of-scope env,
+  // which lists those later locals. (Stage-2 self-compile fixpoint; see
+  // issues/yo-self-binary-codegen-state.md.)
+  match(
+    latest_var.initialized_at_token,
+    .Some(it) => !(_variable_initialized_after_cleanup_point(it, expr)),
+    .None => false
+  )
 });
 /// Generate pending deferred drops from enclosing scopes before an early
 /// return. Mirrors `generatePendingDeferredDrops` (the effect-SM consumed-arg
