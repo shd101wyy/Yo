@@ -40,6 +40,26 @@ recursive enums). incompat 300→206→177 (this commit brought it to 206; a lat
 collide (enum recursion omitted to avoid the specialization explosion) — a smaller sub-case.
 Session trajectory: 3643 → 1627 → 1312 → 1189. corpus 97/97, check ./std 152/152.
 
+**PIVOTAL NEGATIVE RESULT (6th+7th approaches): the specialization cache is a RED HERRING for
+incompat — distinguishing MORE makes it WORSE.** The spec cache compares compile-time TypeVal args
+via `eval_value_eq` → lenient `are_types_compatible` (empty-name fast path). I changed that
+comparison to (6) `are_types_compatible_exact` → incompat 206→**215**; and (7) `type_key` equality
+→ incompat 206→**217** (and s-2 C ballooned 40MB→53MB: type_key is STATEFUL — mutates/reads
+g_struct_cfid_keys order-dependently — so calling it per cache-comparison in the evaluator phase
+thrashes → over-specialization). BOTH corpus 97/97 + std 152/152, both reverted. The lesson: the
+lenient baseline (206) is OPTIMAL among cache-comparison choices; making the evaluator distinguish
+generic instantiations MORE just mints more specialized functions, each of which re-exposes the
+CODEGEN type-identity inconsistency → net MORE incompat. So the `with_capacity` collapse was
+MASKING codegen bugs (fewer specializations = fewer inconsistency sites), not causing the incompat.
+DEFINITIVE REDIRECT: the ~206 incompat are NOT fixable from the evaluator (specialization / cache /
+spec-sig — 7 approaches now exhausted). The fix is in CODEGEN `type_key`'s handling of
+generic-instantiation structs whose `constructor_func_id` is empty and whose `id` churns across
+instantiations — it falls back to the raw churning `id` (index.yo `.Struct` arm, the
+`(sid.len() > 0) => g_struct_cfid_keys.get(sid) or sid` branch), emitting DIFFERENT C names for the
+same logical type. Make that fallback key by structural content (fields + cfid) so same-logical-type
+instantiations share ONE C name. That single codegen fix should cut the 206 incompat AND unblock the
+266 module-globals (same root). This is the true, precisely-located blocker.
+
 **FOURTH incompat approach RULED OUT (reverted): `ctx.self_type` cache key.** Same machinery as
 the third (new `SpecializedFunctionCache.spec_self_key` field + find/store threading + func_id
 suffix) but keyed by `ctx.self_type` (which function.yo:1097 sets to the concrete static-dot
