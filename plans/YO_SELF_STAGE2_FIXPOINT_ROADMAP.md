@@ -916,3 +916,26 @@ init-assignment emitter silently drops a statement whose RHS lacks ExprInfo — 
 property access inside that closure's def-time eval. Remaining 131: this async/effect tail
 (~40), unspecialized operator-method callees fn_yo_id_2230/5802 (10), unemitted effect
 handlers (4), enum-identity long tail (max 2/pair), misc.
+
+### Session 2026-07-04 cont.3 — statx/async family investigation state
+
+- `e.io.await(...)` in the io.async closure (std/fs/metadata.yo `_stat_path`) still emits
+  nothing after the `_is_dot_access` fix: the failure is NOT a def-time throw (TT-DEF shows
+  only "Frame level 3" remaining) — the closure body evaluates WITHOUT stamping ExprInfo for
+  the await statement (silent structural gap), and the init-assignment emitter silently drops
+  an info-less statement. The io.async block is then classified NO-await (sync-future path)
+  and the closure's return type degrades to bool (`sm->result` type mismatch errors).
+- There is NO eval-side special-case for io.await — bare `io.await(...)` works as an ordinary
+  field-method call on the `Io`-typed param. `e.io.await(...)` differs only in the receiver
+  being a FIELD ACCESS on the (unknown-valued) effect-record param — suspect: property access
+  `.io` on an unknown-value struct yields no usable receiver info, so the `.await` call
+  resolution silently bails.
+- Standalone repro is blocked on harness shape: TS rejects bare `(e) =>` without the
+  Future(..., IoExn) expected type flowing from a fn-return position; effectful awaits need
+  the handler context (std-internal pattern; NO corpus/test coverage — which is why this gap
+  survived). NEXT: instrument `evaluate_property_access` for field access on unknown-value
+  struct receivers + the method-dispatch entry for `.await`, compile main.yo with the debug
+  binary, grep the metadata closure. Then fix eval to stamp the await ExprInfo (TS does —
+  its `ioBuiltin` marker rides on the FIELD TYPE, receiver value not needed).
+
+Baseline: 131 (7 fixes committed this session; corpus 97/97, std 152/152 at every step).
