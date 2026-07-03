@@ -845,3 +845,35 @@ Instrumented the arg-synthesis (`check_if_function_parameter_matches_argument`, 
 **CORRECTED understanding (earlier cont.3 theory was WRONG):** the ~56 `Failed to transpile` / missing-ExprInfo cascade is NOT caused (solely) by the def-time throws. Proof: with the String==str throw fixed, the repro's `cond` STILL emits `Failed to transpile` with NO throw. The 7 swallowed def-time throws (4 String/str now fixed; remaining: `Incompatible types`, `Frame level N has different number of values`, `Expected bool type for "and" argument`) are SEPARATE from whatever leaves the cond without ExprInfo. So the cond halt is driven by MULTIPLE independent def-time throws AND/OR a distinct missing-ExprInfo mechanism (node-id/clone mismatch, or runtime-return fn body only partially evaluated — early statements got ExprInfo, the cond did not).
 
 **NEXT:** re-capture the remaining def-time throws WITH the String==str fix in place (re-instrument `_trial_eval_fn_body` swallow, function_type.yo:217, rebuild, grep `[TTERR]`), fix each remaining gap (`Frame level` = cross-arm binding count; `Expected bool for "and"` = `&&` operand typing; `Incompatible types`), and separately investigate why the cond node lacks ExprInfo even absent a throw. Repro: src/tests/fixme.yo. Baseline: 304 (all wins committed; corpus 97/97, std 152/152).
+
+---
+
+## Session 2026-07-04 (Fable) — 304 → 171 via three landed root fixes
+
+**Method that cracked it:** tag ALL 8 evaluator swallow sites (`-> unwind(())`) with unique
+eprintln markers → only 3 def-time throws remained in the whole main.yo compile → bisect each
+with single-construct repro files against the debug binary (no rebuild per probe).
+
+1. **`dd7b0a78b` trait `?=`-default fill at impls** (impl.yo; TS trait-type.ts:418-489 mirror):
+   defaults were registered in the trait-defaults side-table but NEVER filled into impls —
+   `impl(String, Eq(str)((==):...))` had no str-rhs `(!=)`; `optimize != ""` picked
+   `Eq(String).(!=)` and threw String-vs-str at def-time = the DOMINANT Failed-to-transpile
+   root (FTT 56→23; if×13→0). Same commit: type-DECL emission dedup by C name
+   (types/generation.yo) — two type_keys → one c_name double-emitted "redefinition of
+   enumerator" ×33. Errors 304→360 (holes unmasked)→322.
+2. **`57932bdbd` concrete-vs-SomeT compat rule + primitive registry ids** (−151, −47%):
+   compatibility.yo ports TS compatibility.ts:800-828 (unconstrained SomeT accepts any
+   concrete non-exact; constrained SomeT checks implements via new
+   `set_compat_type_implements_trait_fn` hook); trait_checking.yo `_type_id_for_trait_check`
+   → `type_id_or_empty` (primitives returned "" → registry lookup skipped →
+   `bool <: LogicalNot` false → prelude `(!)` module rejected bool operands inside `&&`).
+   322→**171**; implicit-int 45→5; K&R cascades gone.
+
+**Remaining 171:** 59 incompat-init = the `with_capacity`/`new` Self-collapse (ONE shared
+FuncVal per struct-internal static method of a generic type ctor — `enum_yo_id_13319`
+emitted as t122/t575/t792..t800 with different HashMap payloads; producer/consumer pick
+different instantiations). Fix IN FLIGHT (helper.yo): include `ctx.self_type` in the
+specialization CACHE KEY (compile*time_args, a TypeVal — compile-time only, no C arity
+change, unlike the regressed runtime_param_tys attempt) + a `\_self*<type_key>`SIG segment,
+GATED on the func type mentioning a`Self` SomeT. ~12 FTT sites left (3rd throw =
+"Frame level 3" await.yo:125 arm-merge; statx cond; evaluator while; argv index-call).
