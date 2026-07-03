@@ -877,3 +877,25 @@ specialization CACHE KEY (compile*time_args, a TypeVal — compile-time only, no
 change, unlike the regressed runtime_param_tys attempt) + a `\_self*<type_key>`SIG segment,
 GATED on the func type mentioning a`Self` SomeT. ~12 FTT sites left (3rd throw =
 "Frame level 3" await.yo:125 arm-merge; statx cond; evaluator while; argv index-call).
+
+### Session 2026-07-04 cont. — 171 → 132 via two more landed fixes; remaining-132 map
+
+3. **`865551e29` specialization keyed on (resolved) return type** (−26): with_capacity
+   Self-collapse CLOSED — call sites pass the PER-INSTANTIATION struct-field func_type
+   (concrete return), so keying the cache (extra COMPILE-TIME TypeVal — no C arity change)
+   - a `_ret_<type_key>` sig segment splits the collapsed family (47 bare
+     yo_id_13320 callers → 0). Two negative gates first (self_type-named-SomeT;
+     SomeT-only-return): both neutral — the colliders have CONCRETE declared returns.
+4. **`a70f2ad51` `_is_bare_literal` leading-digit requirement** (−13): identifiers of
+   digits+[fFlLuU] (`l1`, `f2`) were classified as numeric literals → ref-args wrapped in
+   compound literals `(&((String){l1}))` → newtype-over-enum initialized `.tag` with a
+   String (the 13× `__yo_t3_tag ← __yo_t2` cluster).
+
+**Remaining 132:** 24 expected-expression (dominant sub-root: statx/fs `io.await`-in-closure
+result emits empty operands `(() < ())` — async family ~12); 22+7 undeclared (mixed user
+vars + 4 unemitted effect handlers `fn_yo_id_*`); 29 incompat-init (enum-identity churn
+`enum_yo_id_13319` t122/t575/... + misc); 10 call-to-undeclared `fn_yo_id_2230`/`fn_yo_id_5802`
+(callers reference the UNSPECIALIZED trait-default/dyn method func_id — the operator call
+must specialize at eval; an infix-operator-callee collection branch in
+functions/collection.yo was tried and NEUTRAL — callers need the SPECIALIZED id, not
+registration of the generic one; reverted); 9 member-ref; 10 returning-incompat; misc tail.
