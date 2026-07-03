@@ -40,6 +40,27 @@ recursive enums). incompat 300→206→177 (this commit brought it to 206; a lat
 collide (enum recursion omitted to avoid the specialization explosion) — a smaller sub-case.
 Session trajectory: 3643 → 1627 → 1312 → 1189. corpus 97/97, check ./std 152/152.
 
+**COMPLETE 882-error-space MAP (all 4 classes root-caused; all deep/multi-front):**
+
+- **incompat 206** — codegen type-identity; NOT evaluator-fixable (7 approaches exhausted, below).
+  Fix = codegen `type_key` cfid-empty generic-instantiation struct fallback + coupled evaluator
+  distinguish, in that order.
+- **member-ref 95** — ALL are `base type 'void'`: the SYNCHRONOUS-AWAIT codegen
+  (await.yo:413-414) emits `${future_type_name} __sync_future = ...; ...->state`, but
+  `future_type_name = get_type_string(future_type)` resolves to `void*` because the async fn
+  (e.g. `yo_id_6900`) returns `void*` instead of its concrete Future state-machine struct — the
+  Phase-5 async SM-struct-TYPE-resolution gap (get_type_string's Future/SomeType async case falls
+  back to void* / the SM struct isn't registered under this future's type). `->state` /
+  `->__yo_resume_fn` on `void*` = the 95 errors. Independent of type-identity; a Phase-5 async
+  codegen fix (resolve the awaited future's type to its registered SM struct).
+- **undeclared 409** = 266 `g_*` module-globals (module-var port, gated on type-identity) + 92
+  local + 39 temp stragglers (scope-end/synthesized-fn drop path, see
+  [[yo-self-stage2-drop-emission-order]] ABANDONED extension) + 15 `fn_yo_id` effect-handler
+  fn-pointers (Phase-5 effect-handler codegen). rest scattered.
+  Every remaining class is a deep codegen change (type-identity, Phase-5 async, Phase-5 effects) or
+  gated on type-identity — none is a localized fix. Session brought 3643→882 (−307 this continuation:
+  temp-drop −101, early-return-drop −203, shared-type_key −3).
+
 **PIVOTAL NEGATIVE RESULT (6th+7th approaches): the specialization cache is a RED HERRING for
 incompat — distinguishing MORE makes it WORSE.** The spec cache compares compile-time TypeVal args
 via `eval_value_eq` → lenient `are_types_compatible` (empty-name fast path). I changed that
