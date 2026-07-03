@@ -15,6 +15,19 @@ METHOD: property_access NEWDBG instrumentation proved eval was correct → local
 receiver-type source (the earlier "record callee in side-table" no-op was because this path reads the
 registry fallback, not g_method_callee_values).
 
+**MEMBER-REF 104 — ROOT REFINED (SM struct EXISTS; registered under wrong SomeT id).** The async
+function (e.g. `yo_id_7197(path, io) -> void*`) DOES create its state-machine struct in its body
+(`io_async_block_yo_id_397717_sync_fut_t*`, memset + `state`/`__yo_resume_fn`), returned as `void*`.
+The sync-await (`void* __sync_future = <call>; __sync_future->state`) fails because
+`future_type_name = get_type_string(future_type)` → `void*`: get_type_string's SomeT arm
+(utils/index.yo:775) does `lookup_some_resolved_concrete(sid)`, but the SM struct is registered (async
+codegen ~2064) under the io.async BLOCK's future SomeT id — INTERNAL to the callee — while the
+CALLER's await looks up the FUNCTION-RETURN SomeT id (a different SomeT). Mismatch → void\*. FIX
+(Phase-5, deep): register the SM struct ALSO under the async function's return-type SomeT id (needs
+that id at block-codegen time), OR resolve the function-return SomeT to the block's future type. A
+generic header-cast at the await site is UNSAFE: `state`/`__yo_resume_fn` sit AFTER the per-block
+`__capture` field, so their offsets vary between SM structs. validate + revert-on-regress.
+
 Distribution @ 533: **incompat 170** — now dominated by GENERIC-METHOD specialization collapse (a
 DIFFERENT, deeper mechanism than the static-method fix above): e.g. `yo_id_15707_rtparam0_gs_...`
 specialized fns whose baked return type mismatches the call-site LHS (`enum_3936_usize` etc.) — one
