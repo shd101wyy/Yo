@@ -210,6 +210,22 @@ _try_resolve_associated_type :: (
   type_id := type_id_or_empty(type_val_inner);
   if(type_id != String.from(""), {
     registry_methods := get_type_trait_methods_by_name(type_id, prop_name);
+    // OVERLOAD DEFER: when a type carries MULTIPLE overloads of this method
+    // (e.g. `String` implements both `Eq(String).==` (other:String) and
+    // `Eq(str).==` (other:str)), do NOT commit to the first one here — resolving
+    // `Type.method` to a single FuncVal makes the call site take the
+    // `functionToCall.$.value` branch and skip argument-based overload
+    // selection, so `Self.(==)(lhs, str_rhs)` (the `Eq` `!=` default's internal
+    // call) picks `Eq(String).==` and then throws `Cannot unify "String" and
+    // "str"` unifying the `str` arg against the `String` param. Leaving it
+    // unresolved (return false) routes the call through `_try_find_receiver_
+    // method` + `_select_matching_overload` (function.yo), which handles the
+    // static-receiver case and picks the overload whose params match the args —
+    // exactly what the infix-operator path already does. Single-overload
+    // methods (the common case) are unaffected.
+    if(registry_methods.len() > usize(1), {
+      return(false);
+    });
     (rm_idx : usize) = usize(0);
     while(rm_idx < registry_methods.len(), {
       match(
