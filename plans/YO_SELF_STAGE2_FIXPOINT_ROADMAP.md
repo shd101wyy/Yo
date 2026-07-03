@@ -1,5 +1,16 @@
 # yo-self stage-2 fixpoint — error-distribution roadmap
 
+**NEGATIVE RESULT (base-func-id memoization — reverted): does NOT fix incompat 210.**
+Tried memoizing the base `fn_val_id` (function*type.yo:482, `try_to_implement_function_by_function_type`)
+by the definition expr's AST id (a `g_fn_expr_func_ids : HashMap(ExprId, String)` side-table), on the
+hypothesis that re-evaluating the same `fn(...)` across passes mints fresh ids so a call site and the
+definition disagree (the `yo_id_4077`: one 0-arg definition vs ~40 arg-bearing call sites). Result: 580
+→ **587 (+7 WORSE)**, incompat UNCHANGED at 210. So the collision is NOT base-id churn — it arises in
+SPECIALIZATION (`create_specialized_function_inline`) or method-callee resolution
+(`g_method_callee_values`), consistent with the ~9 prior exhausted approaches. NOTE: TS also uses
+`fn*${randomId()}` per-eval (function-type.ts:414) — TS's stability comes from evaluating each fn once,
+not from a stable id scheme. Reverted; baseline 580. Do not retry base-id memoization.
+
 **UPDATE (loop-exit drop gate): 741 → 580 errors (−161; commit `47237f3cb`).**
 `_emit_loop_body_drops_before_exit` (atom.yo — the `continue`/`break` drop path) filtered
 drops by ENV-liveness (SOURCE order), not C-emission order. An `x := match(...)`/`cond(...)`
@@ -15,7 +26,7 @@ std 152/152. Session trajectory: 3643 → … → 882 → 741 → 580.
 Distribution @ 580: **incompat 210** (type-identity — deep, ~9 approaches exhausted; +35 vs
 pre-module-var from newly-reachable init code), **member-ref 104** (async-fn future SM-struct never
 registered under its return type → void* → `->state`; root located, Phase-5 feature), **undeclared
-49** (now scattered: effect-handler `fn*yo_id**`pointers + a few block-RHS-elided locals`env`/`t`/
+49** (now scattered: effect-handler `fn*yo_id\*\*`pointers + a few block-RHS-elided locals`env`/`t`/
 `expr` [[yo-codegen-block-rhs-drops-statements]] + temps — no single dominant cluster), implicit-int
 45 + expected-expression 28 + non-const-initializer 21 (cascade artifacts from malformed functions
 downstream of the incompat/type-identity breakage). Next high-value: incompat 210 (type-identity)
