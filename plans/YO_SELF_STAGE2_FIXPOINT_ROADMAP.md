@@ -68,6 +68,17 @@ beyond the cfid-empty fallback (e.g. the argkeys themselves differ, or futures u
 mechanism). CONFIRMED EMPIRICALLY: the keystone needs the harder full rewrite (cfid-independent
 structural keying for BOTH branches, keyed on FIELD structure not name — since names are empty) or
 upstream always-stamp-cfid; the minimal additive form is insufficient. Reverted; baseline 882.
+FIELD-STRUCTURAL REFINEMENT — IMPLEMENTED + VALIDATED, ALSO REGRESSED (9th approach). Built the
+field-structural side-table (`<name>|<fieldsig>`, fieldsig = labels + recursive field-type keys,
+computed under the g*tk_visited guard for both the gs* record and cfid-empty lookup): corpus 97/97,
+std 152/152, PERF FINE (std check 31s = baseline, so the hot-path field recursion did NOT regress
+perf), but stage-2 885 (+3: incompat 208, undeclared 412). So BOTH additive side-table variants
+regress (name +2, field +3) via OVER-MERGE — a structural signature collides distinct types
+(same name+fields, or empty-name+same-fields) and hands an unstamped copy the WRONG sibling's key.
+The additive-side-table approach is now DEFINITIVELY DEAD (2 validated implementations). The
+def↔use mismatch is NOT recoverable by mapping a structural sig back to a stamped key — the fix
+must be the FULL cfid-independent rewrite (replace the `gs_` cfid scheme itself, not augment it) or
+upstream always-stamp-cfid, both dedicated deep work. Original (stale) analysis below:
 FIELD-STRUCTURAL REFINEMENT — ANALYZED, NOT SAFE AS A SIDE-TABLE: to make cfid-empty copies recover
 the stamped key via a FIELD signature (labels + recursive field-type keys, since names are empty),
 the signature must be RECORDED in the common cfid-present `gs_` branch — i.e. field recursion added
