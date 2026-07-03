@@ -13,6 +13,7 @@
 //! still deferred to Phase 4.
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
+open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 {
   AstExpr,
@@ -164,6 +165,20 @@ ReceiverMethodResult :: struct(
 // Mirrors the property-access branch of `evaluateFunctionCall` in TypeScript's
 // `function.ts` (lines 265-362), specifically the instance-method case.
 // ---------------------------------------------------------------------------
+/// Evaluate a method-call RECEIVER under a capture-free swallow `Exception`,
+/// pushing the evaluated node into `out` on success (the `_trial_eval_fn_body`
+/// out-param idiom — a throw unwinds this helper before the push). Used by
+/// `_try_find_receiver_method` when the receiver has no ExprInfo yet: a
+/// NESTED-access receiver (`e.io.await(...)` — a field access on the effect
+/// record) reaches the dispatch UNEVALUATED, unlike a bare-atom receiver
+/// (`io.await`) which the atom eval already stamped.
+_try_eval_receiver_node :: (
+  fn(arg : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
+)({
+  rcv_exn := Exception(throw : ((_e) -> unwind(())));
+  rcv_evaled := evaluate_expression_raw(arg, env, ctx, rcv_exn);
+  out.push(rcv_evaled);
+});
 _try_find_receiver_method :: (
   fn(
     callee : AstExpr,
@@ -197,11 +212,37 @@ _try_find_receiver_method :: (
     }
   );
   // 2. Get receiver's compiled type AND value from the expr-info table.
+  // On a miss, evaluate the receiver ON DEMAND (swallowed — a genuine failure
+  // still returns None exactly as before) and retry: a nested-access receiver
+  // (`e.io.await(...)`, std/fs — the effect record's IO field) reaches this
+  // dispatch UNEVALUATED, so `.await` resolution silently bailed, the whole
+  // await statement emitted no code, and the io.async block was mis-classified
+  // as await-free (stage-2 empty-operand `(() < ())` + `sm->result` bool
+  // mismatches). Mirrors TS, where evaluating the callee's property access
+  // evaluates its object first.
+  (receiver_expr_r : AstExpr) = receiver_expr;
   receiver_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(receiver_expr)),
     .Some(ri) => ri,
     .None => {
-      return(Option(ReceiverMethodResult).None);
+      rcv_out := ArrayList(AstExpr).new();
+      _try_eval_receiver_node(receiver_expr, env, ctx, rcv_out);
+      match(
+        rcv_out.get(usize(0)),
+        .Some(rn) => match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(rn)),
+          .Some(ri2) => {
+            receiver_expr_r = rn;
+            ri2
+          },
+          .None => {
+            return(Option(ReceiverMethodResult).None);
+          }
+        ),
+        .None => {
+          return(Option(ReceiverMethodResult).None);
+        }
+      )
     }
   );
   // A self-shell receiver (the empty `${enum}__self_shell` placeholder used as
@@ -259,7 +300,9 @@ _try_find_receiver_method :: (
     ReceiverMethodResult(
       method_val_opt : first.value,
       method_ty : first.ty,
-      receiver_expr : receiver_expr,
+      // The (possibly on-demand-evaluated) receiver node — its id carries the
+      // ExprInfo the arg-building + codegen read.
+      receiver_expr : receiver_expr_r,
       is_static : is_static,
       needs_pointer_conversion : first.needs_pointer_conversion,
       all_hits : hits
