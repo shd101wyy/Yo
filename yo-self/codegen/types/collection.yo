@@ -20,6 +20,7 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
+{ HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("../../types/definitions.yo");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call_of, make_err_expr, BK_TEST } :: import("../../expr.yo");
 { ExprInfoTable, expr_info_table_get, lookup_macro_expansion, get_module_level_init_exprs } :: import("../../expr_info.yo");
@@ -52,6 +53,31 @@ open(import("std/string"));
 // runtime-set global, so it does not reference find_function_calls_in_expr at
 // import time). The circular-import loader resolves the top-level exports.
 { _call_find_function_calls_in_expr, set_collect_type_fn } :: import("../functions/collection.yo");
+/// Intern map for generated C type names. yo-self's `TypeValue` has no numeric
+/// `.id` (TS's `type.id` → short stable `context.types[id].cName`,
+/// getTypeString utils/index.ts:521), so the codegen C name was historically the
+/// FULL structural `type_key` (`__yo_<type_key>`). For the compiler's own deeply
+/// recursive enums (`TypeValue`/`AstExpr`) `type_key` expands through `Struct`
+/// wrappers to 200 KB+ identifiers → stage-2 C blew up to ~10× TS's size (497 MB
+/// vs 51.7 MB for the same source) and a few contexts hit clang identifier
+/// limits. Intern each distinct `type_key` to a short, stable `__yo_t<N>` name.
+/// This is a pure content-addressed RENAME: the registry is still keyed by the
+/// full `type_key` (all `get_type_c_name(type_key(t))` lookups are unchanged), so
+/// the same type always maps to the same short name and distinct types to
+/// distinct names — enum tags / variant names derive from the registered c_name
+/// (get_enum_variant_c_name), so they shrink consistently too.
+(_g_type_c_name_intern : HashMap(String, String)) = HashMap(String, String).new();
+_intern_type_c_name :: (fn(key : String) -> String)(
+  match(
+    _g_type_c_name_intern.get(key),
+    .Some(existing) => existing,
+    .None => {
+      id := `__yo_t${_g_type_c_name_intern.len().to_string()}`;
+      _g_type_c_name_intern.set(key.clone(), id.clone());
+      id
+    }
+  )
+);
 /// A struct whose only SomeType content lives inside function-typed fields is
 /// still registerable as a concrete C type — the fn-ptr fields get type-erased
 /// at the C ABI. Mirrors `structSomeTypeIsOnlyInFunctionFields`.
@@ -175,12 +201,14 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
     || (is_module_type(type) || is_iso_type(type))
   );
   if(is_registerable, {
-    // Gap 3: extern-C names not modelled generally — use a sanitized mangled
-    // name derived from the registry key.
-    raw_name := String.from("__yo_");
-    raw_name.push_string(type_key(type));
-    c_name := sanitize_for_c_identifier(raw_name, false);
-    context.register_type(type_key(type), type, c_name, Option(String).None);
+    // Gap 3: extern-C names not modelled generally. Intern the (full) type_key
+    // to a short stable `__yo_t<N>` C name — see `_intern_type_c_name`. The
+    // registry stays keyed by the full type_key, so all lookups are unchanged;
+    // this only shrinks the EMITTED identifier (was `__yo_<full type_key>`,
+    // which reached 200 KB+ for recursive types → ~10× C bloat).
+    tk := type_key(type);
+    c_name := _intern_type_c_name(tk.clone());
+    context.register_type(tk, type, c_name, Option(String).None);
     // Struct fields (skip function-typed fields — emitted inline at call sites).
     match(
       type,
