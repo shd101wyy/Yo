@@ -57,6 +57,7 @@ open(import("std/string"));
   register_type_trait_method,
   register_shell_redirect,
   get_type_trait_methods_by_name,
+  get_trait_default,
   type_id_or_empty
 } :: import("./type_trait_methods.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -2307,6 +2308,74 @@ evaluate_module_value :: (
           );
           mj = (mj + usize(1));
         });
+        // Fill trait `?=` DEFAULT methods the impl did not override. The trait
+        // definition registered each default FuncVal in the trait-defaults
+        // side-table (trait.yo `register_trait_default`, keyed by trait id +
+        // label; TraitT stores no per-field defaults). Without this fill,
+        // `impl(String, Eq(str)((==) : ...))` registers NO `(!=)` for the
+        // str-rhs overload — `optimize != ""` then resolves to the ONLY `(!=)`
+        // in the registry, `Eq(String).(!=)` (other : String), and def-time
+        // body eval throws `Cannot unify "String" and "str"`, halting the
+        // enclosing fn's ExprInfo population (→ stage-2 "Failed to transpile"
+        // cascades). Mirrors TS trait-type.ts:418-489, which fills missing
+        // fields from `defaultValueExpr`/`defaultValue` when the trait value is
+        // built. Function-typed fields only; `Self` in the field type is
+        // substituted to the concrete receiver like the provided-method path.
+        match(
+          current_trait_ty,
+          .Some(ctt2) => match(
+            ctt2,
+            .TraitT({ field_labels : dtf_labels, field_types : dtf_types, id : dtf_trait_id }) => {
+              (dfi : usize) = usize(0);
+              while(dfi < dtf_labels.len(), {
+                d_label := match(dtf_labels.get(dfi),.Some(l) => l,.None => String.from(""));
+                d_ty := match(dtf_types.get(dfi),.Some(t) => t,.None => TypeValue.Unit);
+                // Did the impl provide this field?
+                (d_provided : bool) = false;
+                (dmi : usize) = usize(0);
+                while((dmi < method_exprs.len()) && !(d_provided), {
+                  match(
+                    method_exprs.get(dmi),
+                    .Some(dme) => {
+                      dme_name := match(
+                        dme,
+                        .FnCall(_, _, dca, _, _) => match(dca.get(usize(0)),.Some(dn) => ast_expr_token(dn).value,.None => String.from("")),
+                        .Atom(_, _) => String.from("")
+                      );
+                      if(dme_name == d_label, {
+                        d_provided = true;
+                      });
+                    },
+                    .None => ()
+                  );
+                  dmi = (dmi + usize(1));
+                });
+                if(((!(d_provided)) && is_function_type(d_ty)) && (receiver_type_id != String.from("")), {
+                  match(
+                    get_trait_default(dtf_trait_id.clone(), d_label.clone()),
+                    .Some(d_val) => {
+                      register_type_trait_method(
+                        receiver_type_id,
+                        MethodEntry(
+                          label : d_label.clone(),
+                          ty : _substitute_self_in_method_ty(d_ty, receiver_ty),
+                          value : Option(EvalValue).Some(d_val),
+                          source_trait_id : type_id_or_empty(ctt2),
+                          needs_pointer_conversion : false,
+                          self_type : Option(TypeValue).None
+                        )
+                      );
+                    },
+                    .None => ()
+                  );
+                });
+                dfi = (dfi + usize(1));
+              });
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
         ctx.current_impl_trait_field_labels = old_wt_labels_c3;
         ctx.current_impl_trait_field_types = old_wt_values_c3;
       }
