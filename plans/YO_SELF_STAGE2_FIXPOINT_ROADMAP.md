@@ -1,5 +1,16 @@
 # yo-self stage-2 fixpoint — error-distribution roadmap
 
+**INCOMPAT 210 ROOT REFINED (concrete trace): method-call callee MIS-RESOLUTION, not base-id churn.**
+The dominant `yo_id_4077` cluster: `yo_id_4077` is _defined_ 0-arg → `struct_4014` (the module_path/String
+type — i.e. it is `String.new()`), yet _called_ as `yo_id_4077(caller_env->module_path)` at ~40 sites.
+That call is `Environment.new(module_path)` (helper.yo:2066) — a 1-arg method → Environment (struct_20794).
+So codegen resolved `Environment.new`'s callee to the WRONG `.new` (String's 0-arg one). Both are `.new`
+methods; picking the correct one needs stable receiver-TYPE identity at the call's method-dispatch /
+`g_method_callee_values` resolution. So incompat 210 = method-dispatch callee resolution coupled to
+type-identity — NOT base func_id churn (below), NOT the codegen type_key (TKCHURN=0), NOT the spec-sig.
+Next attempt should instrument `g_method_callee_values` / the method-dispatch path for `.new`-family calls
+to see why the receiver type resolves to String instead of Environment. Deep; validate + revert-on-regress.
+
 **NEGATIVE RESULT (base-func-id memoization — reverted): does NOT fix incompat 210.**
 Tried memoizing the base `fn_val_id` (function*type.yo:482, `try_to_implement_function_by_function_type`)
 by the definition expr's AST id (a `g_fn_expr_func_ids : HashMap(ExprId, String)` side-table), on the
