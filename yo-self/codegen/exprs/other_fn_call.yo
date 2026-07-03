@@ -353,6 +353,18 @@ _is_bare_literal :: (fn(c : String) -> bool)({
         i = usize(1);
       });
       if(i >= n, false, {
+        // A C numeric literal must START with a digit or `.` (after an
+        // optional `-`). Without this, identifiers made only of digits and
+        // the numeric-suffix letters [fFlLuU] — e.g. `l1`, `f2`, `u8x` — were
+        // classified as literals ("1l"-style), so a ref-param arg like `l1`
+        // was wrapped in a compound literal `(&((String){l1}))` instead of
+        // `(&(l1))`; for a newtype-over-enum (String = Option(ArrayList(u8)))
+        // that initializes the enum's `.tag` with a String → the stage-2
+        // "initializing __yo_t3_tag with __yo_t2" cluster (13 errors).
+        first_b := c.byte_at(i);
+        if(!(((first_b >= u8(48)) && (first_b <= u8(57))) || (first_b == u8(46))), {
+          return(false);
+        });
         (ok : bool) = true;
         (seen_digit : bool) = false;
         while(i < n, {
