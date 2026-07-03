@@ -15,6 +15,28 @@ METHOD: property_access NEWDBG instrumentation proved eval was correct → local
 receiver-type source (the earlier "record callee in side-table" no-op was because this path reads the
 registry fallback, not g_method_callee_values).
 
+**INCOMPAT 170 — DEEPEST ROOT TRACED: generic-instantiation struct ids don't encode type args.**
+Concrete case (stage2.c:33372): `seg_iter` is `gs_yo_id_15687<usize>` (iterator over usize), so
+`seg_iter.next()` should return `Option(usize)` (enum*3936_usize). But codegen emits
+`yo_id_15707_rtparam0_gs_yo_id_15687_struct_yo_id_4014` — `.next()` specialized for
+`gs_15687<**String**>` → returns `Option(String)` (enum_5051_struct_4014) → incompatible. WHY: the
+method-callee side-table MISSES for this call (the FuncVal-callee eval branch at function.yo:3217
+records nothing, and recording `specialized_function_value` there was a NO-OP because it's None —
+the concrete per-instantiation specialization isn't captured), so codegen falls to the registry
+fallback (other_fn_call.yo:970) `get_type_trait_methods_by_name(type_id_or_empty(gs_15687<usize>),
+"next")`. But `type_id_or_empty` for a Struct returns its `id` (type_trait_methods.yo:58), and
+`gs_15687<usize>` and `gs_15687<String>` share the SAME generic base struct `id` (the id does NOT
+encode type args) → the registry can't distinguish them → returns the FIRST-registered `.next`
+(String's). ROOT = generic-instantiation type identity: a generic struct's `id` (and thus its
+method-registry key) omits the type arguments, so all instantiations collide. This is THE deep
+type-identity class (memories struct-identity-cache-collision / phase3-hashmap-new-blocker); the
+codegen `type_key` DOES encode args (gs*<cfid>\_<argkeys>) but the EVALUATOR's `type_id_or_empty` /
+method-registry key does not. Fix options (all deep, regression-prone — prior spec-sig/id approaches
+regressed): (a) make generic instantiations carry distinct ids encoding args, keyed consistently at
+impl-method registration AND call-site lookup; (b) capture the concrete per-instantiation
+specialization into g_method_callee_values at the FuncVal-callee eval branch so codegen never uses
+the ambiguous registry fallback. Validate + revert-on-regress; this is the ~9-approaches class.
+
 **MEMBER-REF 104 — ROOT REFINED (SM struct EXISTS; registered under wrong SomeT id).** The async
 function (e.g. `yo_id_7197(path, io) -> void*`) DOES create its state-machine struct in its body
 (`io_async_block_yo_id_397717_sync_fut_t*`, memset + `state`/`__yo_resume_fn`), returned as `void*`.
