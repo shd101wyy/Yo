@@ -40,7 +40,29 @@ recursive enums). incompat 300→206→177 (this commit brought it to 206; a lat
 collide (enum recursion omitted to avoid the specialization explosion) — a smaller sub-case.
 Session trajectory: 3643 → 1627 → 1312 → 1189. corpus 97/97, check ./std 152/152.
 
-**UPDATE (commit `1f23934c3`): 885 → 882 errors (−3); KEYSTONE DIAGNOSED.** Extracted the
+**PRECISE ROOT CAUSE of the ~206 incompat (traced @ 882, corrects the "codegen-side" label
+below).** The incompat is NOT codegen type_key and NOT the runtime-param spec-sig. It is that
+`compute_compile_time_signature` OMITS the `Self` / impl-level element type for generic METHODS.
+Concrete case: `yo_id_13320` is a `with_capacity(n : usize) -> Self`-style method (returns
+`enum_13319< gs_13298<String, V>, … >`). Its specialization signature is just `rtparam0_usize`
+(the ONLY runtime param is the `usize` capacity; its forall segment is EMPTY because the element
+type `V` is an impl-level/Self type param, NOT in this function's `func_type.meta.forall_labels`).
+So `with_capacity` for `V=DynImplEntry` (struct_298507), `V=CapturedVariable` (struct_224375),
+`V=ArrayStructInfo` (298505), `V=CodegenExternFnEntry` (298498)… ALL collapse onto ONE emitted
+function `yo_id_13320_rtparam0_usize` whose return type is baked to whichever `V` registered first
+(224375) → assigning its result to a `V=DynImplEntry` slot = "incompatible type". This is why the
+shared-type_key change barely moved incompat (the runtime-param segment is `usize` for all — type_key
+doesn't enter it). FIX DIRECTION (deep, evaluator-side, RISKY — validate hard): the sig must
+capture the Self / impl-level type args. Either (a) propagate the impl block's forall params into
+each method's `func_type.meta.forall_labels` at method registration (so the existing forall loop in
+compute_compile_time_signature picks them up — see memory yo-self-parametric-trait-impl-self-subst /
+"impl-level forall not bound in FN-REG-BODY"), or (b) thread the resolved `Self` type into
+compute_compile_time_signature and append `type_key(self_type)` to the sig. History: this is the
+same `with_capacity Bucket(K,V)` lever as the (completed) task #28; the method-sig omission is the
+residual. Both hand-mirror attempts and the shared-type_key extraction were necessary to RULE OUT
+type_key and localize it here.
+
+**UPDATE (commit `1f23934c3`): 885 → 882 errors (−3); type_key SHARED (spec-sig red herring ruled out).** Extracted the
 type*key cluster into shared `types/type_key.yo` (verbatim; codegen re-exports it, no import
 cycle — types/ is below both layers, and Yo re-exports imported names fine) and replaced the
 evaluator's `_param_type_sig` hand-mirror with a direct `type_key(ptype)` call. corpus 97/97
