@@ -57,6 +57,18 @@ keying. The remaining ~315 (undeclared stragglers, effect-handler fn-pointers, s
 separate/smaller. This keystone is the single highest-value target and the true floor of the
 fixpoint.
 
+**KEYSTONE FIX ATTEMPTED + REVERTED (8th type-identity approach): additive structural-sig side-table.**
+Added `g_struct_struct_keys` mapping `<name>|<argkeys>` → the stamped `gs_` key, recorded in the
+cfid-present branch and consulted FIRST in the cfid-empty fallback (so an unstamped copy recovers
+its stamped sibling's exact key; the `gs_` branch OUTPUT unchanged — minimal surface). Built 72s,
+corpus 97/97, std 152/152, but stage-2 884 (+2 WORSE: incompat 207, undeclared 412). So the additive
+side-table does NOT fix the def↔use mismatch — the failing cfid-empty structs evidently have EMPTY
+names (so `<name>|<argkeys>` never matches the stamped sibling) OR the id-churn/inconsistency is
+beyond the cfid-empty fallback (e.g. the argkeys themselves differ, or futures use a separate
+mechanism). CONFIRMED EMPIRICALLY: the keystone needs the harder full rewrite (cfid-independent
+structural keying for BOTH branches, keyed on FIELD structure not name — since names are empty) or
+upstream always-stamp-cfid; the minimal additive form is insufficient. Reverted; baseline 882.
+
 **KEYSTONE FIX DESIGN CONSTRAINT (critical — determined this session by reading type_key.yo:102-134).**
 The `.Struct` arm has TWO generic-instantiation branches: (a) cfid non-empty + type*args →
 `gs*<cfid>_<argkeys>`; (b) cfid EMPTY → `g_struct_cfid_keys.get(sid)`or raw`sid`. The def↔use
