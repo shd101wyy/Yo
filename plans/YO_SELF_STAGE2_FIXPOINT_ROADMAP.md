@@ -40,6 +40,23 @@ recursive enums). incompat 300→206→177 (this commit brought it to 206; a lat
 collide (enum recursion omitted to avoid the specialization explosion) — a smaller sub-case.
 Session trajectory: 3643 → 1627 → 1312 → 1189. corpus 97/97, check ./std 152/152.
 
+**UNIFICATION (this session): 567 of 882 errors share ONE keystone — codegen `type_key`
+def↔use consistency.** Traced member-ref 95 deeper: async.yo:1461-1463 ALREADY registers the
+future's SM struct under `type_key(future_type)` (c_name `${struct_name}*`) for io.async BLOCKS,
+and get_type_string's SomeT arm looks it up via `get_type_c_name(type_key(t))`. The member-ref
+failures are futures coming from async FUNCTIONS (e.g. `yo_id_6900`): the function's `Impl(Future)`
+RETURN type has a DIFFERENT `type_key` than the block's registered future type → lookup misses →
+`void*` → `->state`/`->__yo_resume_fn` on void\* = the 95 errors. That is the SAME `type_key`
+inconsistency (a type registered under one key, used under another) as the incompat class and the
+module-var-port cascade. So **incompat 206 + member-ref 95 + module-globals 266 = 567 errors all
+reduce to ONE keystone: make `type_key` produce the SAME key for a type at its
+registration/definition site and at every use site** (generic-instantiation structs with churning
+ids / empty cfid; future types flowing async-block→fn-return→await). Fix locus: codegen `type_key`
+(now shared in types/type_key.yo) — the `.Struct` cfid-empty→raw-id fallback + stable future-type
+keying. The remaining ~315 (undeclared stragglers, effect-handler fn-pointers, scattered) are
+separate/smaller. This keystone is the single highest-value target and the true floor of the
+fixpoint.
+
 **COMPLETE 882-error-space MAP (all 4 classes root-caused; all deep/multi-front):**
 
 - **incompat 206** — codegen type-identity; NOT evaluator-fixable (7 approaches exhausted, below).
