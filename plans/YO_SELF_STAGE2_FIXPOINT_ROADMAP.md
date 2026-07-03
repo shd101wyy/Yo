@@ -40,6 +40,23 @@ recursive enums). incompat 300→206→177 (this commit brought it to 206; a lat
 collide (enum recursion omitted to avoid the specialization explosion) — a smaller sub-case.
 Session trajectory: 3643 → 1627 → 1312 → 1189. corpus 97/97, check ./std 152/152.
 
+**UPDATE (commit `1f23934c3`): 885 → 882 errors (−3); KEYSTONE DIAGNOSED.** Extracted the
+type*key cluster into shared `types/type_key.yo` (verbatim; codegen re-exports it, no import
+cycle — types/ is below both layers, and Yo re-exports imported names fine) and replaced the
+evaluator's `_param_type_sig` hand-mirror with a direct `type_key(ptype)` call. corpus 97/97
+(DIFF 0), std 152/152. CRITICAL FINDING: using codegen's ACTUAL type_key moved incompat only
+211→206 — so the ~206 incompatible-type errors are NOT caused by the specialization signature
+(that hypothesis is now DISPROVEN; the spec-sig aligns perfectly with codegen and it barely
+matters). The 206 are CODEGEN-SIDE type_key inconsistency: type_key's recursive expansion emits
+DIFFERENT C type names for two instantiations that should share one C type (raw errors show
+`...gs_yo_id_A_struct_yo_id_B` vs a sibling with different inner ids — a type's declaration
+C-name diverging from its use-site C-name). This is the SAME generic-instantiation identity
+family as the module-var-port cascade (266 g*\* globals) — see memories struct-identity cache
+collision / comptime-fn cache / phase3-hashmap-new-blocker. NEXT: fix type_key (now in ONE shared
+place) so same-logical-type generic instantiations with differing inner eval-ids collapse to one
+key — that single fix should cut BOTH the 206 incompat AND unblock the 266-global module-var port.
+Session trajectory: 3643 → 1627 → 1312 → 1189 → 1088 → 885 → 882.
+
 RESIDUAL type-identity (211 incompat @ 885) — TWO hand-mirror attempts now REVERTED, both made
 incompat WORSE (over-distinguish):
 (1) type_intern_key sig (injective): 1189→1185 total but incompat 177→203.
