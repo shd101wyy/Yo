@@ -78,6 +78,8 @@ impl-method registration AND call-site lookup; (b) capture the concrete per-inst
 specialization into g_method_callee_values at the FuncVal-callee eval branch so codegen never uses
 the ambiguous registry fallback. Validate + revert-on-regress; this is the ~9-approaches class.
 
+**MEMBER-REF 104 — fn-return registration attempt (NO-OP, reverted).** Added `context.base.register_type(type_key(fn_return), fn_return, "${sm_struct}*")` at both async-block registration sites (generate_async_block ~1463 + preregister ~1901), guarded to a Future-returning `current_function_type`. Result: 399 UNCHANGED, member-ref still 104. So either (a) `current_function_type` isn't the async fn at these codegen sites, or (b) `type_key(fn-return SomeT registered here)` != `type_key(await's future_type at the caller)` — the two SomeTs differ enough that their type_keys don't match. NEXT: instrument to compare the two type_keys (register-site fn-return vs caller await future_type); the real fix likely needs the CALLER's await to resolve via the callee func_id → SM-struct (a func_id→sm_struct registry) rather than type_key matching. Additive/low-risk but ineffective as-is.
+
 **MEMBER-REF 104 — ROOT REFINED (SM struct EXISTS; registered under wrong SomeT id).** The async
 function (e.g. `yo_id_7197(path, io) -> void*`) DOES create its state-machine struct in its body
 (`io_async_block_yo_id_397717_sync_fut_t*`, memset + `state`/`__yo_resume_fn`), returned as `void*`.
