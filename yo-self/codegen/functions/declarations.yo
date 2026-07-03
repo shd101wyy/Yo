@@ -14,7 +14,7 @@ open(import("std/string"));
 { AstExpr } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { get_func_type, is_effect_record_member, is_closure_fn } :: import("../../function_value.yo");
-{ CodeGenContext, get_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
+{ CodeGenContext, get_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField, is_function_value_with_only_builtin_yo_inline_function_call, find_returned_async_block, type_key } :: import("../utils/index.yo");
 /// One evidence parameter threaded into a function that uses effect-record
 /// evidence passing. Mirrors the `EvidenceParameter` interface.
 EvidenceParameter :: ref(
@@ -477,19 +477,75 @@ should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : E
   });
   skip_unemittable || (skip1 || skip2)
 });
+/// Compute the override C return type for an async function whose declared
+/// return type implements Future. Mirrors TS `generateFunctionDeclaration` /
+/// `generateFunction` (declarations.ts:505-519, generation.ts:1206): use the
+/// RETURNED io.async block's state-machine struct name (`<struct>*`), falling
+/// back to the body's own future SomeType C name when the fn merely DELEGATES to
+/// another async fn (e.g. `File.open` → `File.open_with`). Without this the fn is
+/// declared `void*` and every caller's `io.await` does `void*->state` →
+/// "member reference base type 'void'". Returns `.None` for non-Future returns
+/// (callers keep their own non-Future body-type override).
+_async_override_return_type :: (
+  fn(function_type : TypeValue, body : Option(AstExpr), context : CodeGenContext) -> Option(String)
+)({
+  ret := _func_result_type(function_type);
+  if(!(type_implements_future(ret)), {
+    return(Option(String).None);
+  });
+  match(
+    body,
+    .None => Option(String).None,
+    .Some(b) => {
+      block_sn := match(
+        find_returned_async_block(Option(AstExpr).Some(b)),
+        .Some(block) => match(
+          context.get_expr_info(block),
+          .Some(ei) => ei.async_state_machine_struct_name,
+          .None => Option(String).None
+        ),
+        .None => Option(String).None
+      );
+      match(
+        block_sn,
+        .Some(sn) => {
+          r := sn.clone();
+          r.push_str("*");
+          // Also register the fn-RETURN future type's key → this SM struct, so a
+          // CALLER's `get_type_string(call_result_type)` resolves to the concrete
+          // struct instead of `void*` (yo-self SomeT has no resolvedConcreteType;
+          // TS's futureType.resolvedConcreteType points callers at the same
+          // registered async struct). Idempotent; only helps callers whose
+          // call-result type shares this type_key.
+          context.register_type(type_key(ret), ret, r.clone(), Option(String).None);
+          Option(String).Some(r)
+        },
+        .None => match(
+          context.get_expr_info(b),
+          .Some(ei) => if(
+            is_some_type(ei.ty) && type_implements_future(ei.ty),
+            Option(String).Some(get_type_string(ei.ty, context)),
+            Option(String).None
+          ),
+          .None => Option(String).None
+        )
+      )
+    }
+  )
+});
 /// Emit a single function's forward declaration with the right linkage. Mirrors
 /// `generateFunctionDeclaration`. `is_exported` is precomputed by the caller via
 /// the SAME predicate the body emitter (generate_function) uses, so the
 /// declaration's linkage matches the definition's.
-///
-/// DEFERRED (documented): the override-return-type computation for
-/// Impl(Future(T)) returns (findReturnedAsyncBlock → async state-machine struct
-/// name) — async, Phase 5. The non-Future SomeType body-type override is ported.
 generate_function_declaration :: (fn(function_type : TypeValue, c_function_name : String, is_extern : bool, is_exported : bool, body : Option(AstExpr), is_closure : bool, context : CodeGenContext) -> unit)({
   ret := _func_result_type(function_type);
-  // Override return type from the body's concrete type (non-Future SomeType paths).
+  // Override return type: Impl(Future(T)) → the returned async block's SM struct
+  // (see `_async_override_return_type`); otherwise the body's concrete type for
+  // SomeType / SomeType-containing signatures.
   (override : Option(String)) = Option(String).None;
-  if(!(type_implements_future(ret)), {
+  if(type_implements_future(ret), {
+    override = _async_override_return_type(function_type, body, context);
+  }, {
     match(
       body,
       .Some(b) => if(is_some_type(ret), {
@@ -637,4 +693,4 @@ generate_function_declarations :: (fn(context : CodeGenContext) -> unit)({
   generate_closure_vtable_declarations(context);
   em.emit_declaration_line("");
 });
-export(EvidenceParameter, collect_evidence_from_record, get_evidence_parameters, generate_function_prototype, generate_function_declaration, generate_object_constructor_declarations, generate_closure_constructor_declarations, generate_capture_dispose_function_declarations, generate_closure_vtable_declarations, generate_function_declarations, should_skip_function_codegen);
+export(EvidenceParameter, collect_evidence_from_record, get_evidence_parameters, generate_function_prototype, generate_function_declaration, generate_object_constructor_declarations, generate_closure_constructor_declarations, generate_capture_dispose_function_declarations, generate_closure_vtable_declarations, generate_function_declarations, should_skip_function_codegen, _async_override_return_type);
