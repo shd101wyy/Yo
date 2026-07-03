@@ -1,8 +1,23 @@
 # yo-self stage-2 fixpoint — error-distribution roadmap
 
+**INCOMPAT 210 — GROUND TRUTH CONFIRMED (fresh 580 emit): `yo_id_4077` IS `String.new()`.**
+Read the definition body: `static inline struct_4014 yo_id_4077()` returns a `struct_4014` built from an
+`ArrayList(u8)`-backed enum — i.e. `String.new()` (0-arg, empty String; struct_4014 = String). So the
+~40 `yo_id_4077(caller_env->module_path)` call sites (each `Environment.new(module_path)`, helper.yo:2066)
+MIS-EMIT String.new's C name: the evaluator's STATIC-method dispatch for `Environment.new` on the
+`ref(struct)` Environment type resolves to `String.new` instead of Environment's own inherent `new`
+(env.yo:355, `new : fn(module_path : String) -> Self`). Path: function.yo:229-237 — is_static→
+`get_type_trait_methods_by_name_from_env(env, "new", inner_ty=Environment)`. The registry
+(`get_type_trait_methods_by_name`, type_trait_methods.yo:180) is id-keyed via `type_id_or_empty`
+(Struct→id) with NO cross-type fallback, so this returns String.new only if (i) inner_ty resolves to
+String not Environment, or (ii) Environment's inherent `new` registered under a Struct id that differs
+from the call-site lookup id (ref-struct id churn). NEXT: instrument the env-variant lookup for
+`.new` on Environment to see the receiver Struct id at registration vs lookup. Deep, hot-path,
+regression-prone — validate + revert-on-regress.
+
 **INCOMPAT 210 ROOT REFINED (concrete trace): method-call callee MIS-RESOLUTION, not base-id churn.**
-The dominant `yo_id_4077` cluster: `yo_id_4077` is _defined_ 0-arg → `struct_4014` (the module_path/String
-type — i.e. it is `String.new()`), yet _called_ as `yo_id_4077(caller_env->module_path)` at ~40 sites.
+The dominant `yo_id_4077` cluster: `yo_id_4077` is _defined_ 0-arg → `struct_4014` (the module*path/String
+type — i.e. it is `String.new()`), yet \_called* as `yo_id_4077(caller_env->module_path)` at ~40 sites.
 That call is `Environment.new(module_path)` (helper.yo:2066) — a 1-arg method → Environment (struct_20794).
 So codegen resolved `Environment.new`'s callee to the WRONG `.new` (String's 0-arg one). Both are `.new`
 methods; picking the correct one needs stable receiver-TYPE identity at the call's method-dispatch /
