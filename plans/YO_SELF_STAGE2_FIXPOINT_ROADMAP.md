@@ -57,6 +57,22 @@ keying. The remaining ~315 (undeclared stragglers, effect-handler fn-pointers, s
 separate/smaller. This keystone is the single highest-value target and the true floor of the
 fixpoint.
 
+**KEYSTONE FIX DESIGN CONSTRAINT (critical — determined this session by reading type_key.yo:102-134).**
+The `.Struct` arm has TWO generic-instantiation branches: (a) cfid non-empty + type*args →
+`gs*<cfid>_<argkeys>`; (b) cfid EMPTY → `g_struct_cfid_keys.get(sid)`or raw`sid`. The def↔use
+inconsistency is that ONE logical type reaches (a) at some sites (cfid stamped) and (b) at others
+(unstamped copy, churning id) → two different keys. Making ONLY branch (b) structural does NOT fix
+it: (b)'s structural key (`gsx_<fields>_<args>`) would differ from (a)'s cfid key (`gs_<cfid>_<args>`)
+→ still two keys for one type. THE FIX MUST BE CFID-INDEPENDENT FOR BOTH BRANCHES — key every
+generic-instantiation struct purely structurally (field labels + recursive field-type keys +
+type_args, under the existing g_tk_visited cycle guard), so cfid-present and cfid-empty instances
+agree. This is a MAJOR, delicate rewrite of type_key's core struct keying (the cfid-based `gs_`
+scheme was itself added to fix earlier same-fielded-instantiation collisions — see commits
+"struct-identity cache collision" / "Codegen layer-2 stable type identity"), so it needs a
+dedicated session + full corpus/std/stage-2 validation, not an end-of-session edit. Alternative
+(upstream, evaluator-side): ensure cfid is ALWAYS stamped on generic-instantiation structs so
+branch (b) never fires — but that's the same churn source that has resisted fixes all along.
+
 **COMPLETE 882-error-space MAP (all 4 classes root-caused; all deep/multi-front):**
 
 - **incompat 206** — codegen type-identity; NOT evaluator-fixable (7 approaches exhausted, below).
