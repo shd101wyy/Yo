@@ -899,3 +899,20 @@ vars + 4 unemitted effect handlers `fn_yo_id_*`); 29 incompat-init (enum-identit
 must specialize at eval; an infix-operator-callee collection branch in
 functions/collection.yo was tried and NEUTRAL — callers need the SPECIALIZED id, not
 registration of the generic one; reverted); 9 member-ref; 10 returning-incompat; misc tail.
+
+### Session 2026-07-04 cont.2 — 132 → 131; next root pinned
+
+7th fix `d1ac8407c`: `_is_dot_access` accepts `<recv>.io.await/state/spawn` (effect-bundle IO
+field) — TS's `ioBuiltin` marker is semantic; the bare-atom-`io` syntactic check missed
+`e.io.await(...)`. Validated corpus/std; net −1 (unmasking).
+
+**Next root (statx closure, ~12 empty-operand errors):** `closure_yo_id_7340`
+(std/fs/metadata.yo) STILL emits no await — the `result := e.io.await(statx(...), e.io)`
+STATEMENT is dropped entirely: the EVALUATOR never stamps ExprInfo for the await call in
+this closure (the FuncVal-callee arm at function.yo:3288 only fires when `e.io.await`
+resolves to a FuncVal; `e` is the effect-record param — resolution bails earlier, and the
+init-assignment emitter silently drops a statement whose RHS lacks ExprInfo — the OPEN
+"Block-RHS drops statements" behavior). Debug next by instrumenting the eval of `e.io`
+property access inside that closure's def-time eval. Remaining 131: this async/effect tail
+(~40), unspecialized operator-method callees fn_yo_id_2230/5802 (10), unemitted effect
+handlers (4), enum-identity long tail (max 2/pair), misc.
