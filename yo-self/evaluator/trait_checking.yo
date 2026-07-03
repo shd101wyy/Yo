@@ -34,7 +34,7 @@ open(import("std/string"));
   is_dyn_type,
   is_type_hierarchy_type
 } :: import("../types/guards.yo");
-{ are_types_compatible } :: import("../types/compatibility.yo");
+{ are_types_compatible, set_compat_type_implements_trait_fn } :: import("../types/compatibility.yo");
 {
   get_trait_type_from_env,
   get_value_of_some_type_from_env
@@ -261,8 +261,7 @@ _ondemand_guard_contains :: (fn(key : String) -> bool)({
 _type_id_for_trait_check :: (fn(ty : TypeValue) -> String)(
   match(
     ty,
-    .Struct({ id }) => id,
-    .EnumT(id, _, _, _, _, _, _, _, _) => id,
+    // `type_id_or_empty` has no Union arm — keep the name-keyed special case.
     .Union(name, _, _) => name,
     // SomeT: must mirror `type_id_or_empty` (the REGISTRATION key in
     // impl.yo) — a manual `impl(X, Send())` on an extern opaque type
@@ -275,8 +274,18 @@ _type_id_for_trait_check :: (fn(ty : TypeValue) -> String)(
     // `.trait.fields`. A never-impl'd SomeT (ordinary generic param) has a
     // fresh `sometype_<random>` id that simply misses the registry and
     // falls through to the where-clause/resolution steps as before.
-    .SomeT(id, _, _, _, _, _, _, _, _, _) => id,
-    _ => String.from("")
+    // Everything else must mirror `type_id_or_empty` (the REGISTRATION key
+    // in impl.yo) EXACTLY — Struct/EnumT/SomeT ids AND the primitive
+    // synthetic ids (`__yo_t_bool`, `__yo_t_usize`, `str`, ...). The old
+    // hand-rolled copy here covered Struct/EnumT/SomeT but returned `""` for
+    // primitives, so step 4 (registry lookup) was SKIPPED for every
+    // primitive target: `bool <: LogicalNot` came back false even though
+    // `impl(bool, LogicalNot(...))` registered fine under `__yo_t_bool` —
+    // which made the prelude `(!)` operator module's `_Self : (LogicalNot)`
+    // param reject a bool operand in the concrete-vs-constrained-SomeT
+    // compat rule. TS can't diverge this way: both sides use the same type
+    // OBJECT's `.trait.fields`.
+    _ => type_id_or_empty(ty)
   )
 );
 // ---------------------------------------------------------------------------
@@ -1578,9 +1587,19 @@ unmark_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String
 // Install type_implements_trait_bool as the function pointer used by
 // impl.yo's try_match_generic_impl for where-clause checking.
 // This breaks the circular dependency between the two modules.
+/// Env-less adapter for compatibility.yo's concrete-vs-constrained-SomeT rule.
+/// `type_implements_trait_bool` needs an Environment for scoped where-clause
+/// resolution; the compat check has none, so pass a fresh empty env — the
+/// registry-backed lookups (type-trait-methods / generic impls) are global
+/// side-tables and still answer; env-scoped cases degrade to "not implemented"
+/// (fall through to the old strict behavior — never a new false-positive).
+_compat_implements_adapter :: (fn(t : TypeValue, trait_type : TypeValue) -> bool)(
+  type_implements_trait_bool(t, trait_type, Environment.new(String.from("")))
+);
 _trait_checking_init := (fn() -> bool)({
   set_type_implements_trait_fn(type_implements_trait_bool);
   set_register_trait_value_fn(register_type_trait_value);
+  set_compat_type_implements_trait_fn(_compat_implements_adapter);
   true
 })();
 // ---------------------------------------------------------------------------
