@@ -810,3 +810,14 @@ Root B (108 + cascades) via future-SomeT-identity preservation, then Root A
 2. **~59 incompatible-init + undeclared** = the generic-instantiation type-identity roots (still open; `gs_<cfid>` vs bare sid).
 
 Session net: stage-2 **882 → 304 (−578)** across the broader effort; C size **497 MB → 57 MB**. Both halves advanced (perf: C ≈ TS; self-compile: −578). Self-compile still non-zero.
+
+### Session 2026-07-03 (cont. 3) — remaining-304 UNIFYING root: def-time body-eval halts mid-function
+
+Investigated all 304 clusters + a minimal repro. KEY finding: the two biggest clusters share ONE root.
+
+- **`// Failed to transpile if/while/cond`** (missing ExprInfo, generation.yo:408) AND **`use of undeclared identifier fn_yo_id_*`** (unemitted effect handlers) both come from **def-time body evaluation HALTING partway** in complex functions (e.g. the CLI `compile` handler `yo_id_398441`): nodes BEFORE the halt get ExprInfo + emit fine; the halt point + everything AFTER lose ExprInfo → control-flow emits `Failed to transpile`, and effect-record constructions after the halt never run `collect_effect_record_members` (collection.yo:418) so their `.throw = fn_yo_id_N` handlers are never collected/emitted → undeclared. This unifies ~100+ of the 304 (Failed-to-transpile ~56 + undeclared-handler ~45 + implicit-int/K&R/expected-expr/expected-id cascades).
+- The halt = an eval throw swallowed by the def-time trial-eval wrapper (which wraps the WHOLE body, so a mid-body throw stops the tail). yo-self's evaluator throws where TS succeeds.
+- **Minimal repro of the exact halt construct** (`cond((s=="") && flag => ..., ...)` + statements after, self-hosted binary emit-c) did NOT reproduce — `after-cond` present, 0 Failed-to-transpile. So the halt is CONTEXT-SPECIFIC (the throwing construct depends on the function's specific types/methods — e.g. `Command.arg` resolution, effect `exn`/`io` params), not the control-flow shape. Pinning it needs evaluator instrumentation on the specific halting functions (find the swallowed throw).
+- Other residual clusters: enum/newtype C-name identity collision (`__yo_t3` = both `enum_yo_id_4021` AND a String-newtype typedef — needs `type_arguments` on EnumT, 62 fragile positional destructures); JoinHandle.await result-type is an unresolved SomeT not Option(T) (await.yo:612 bail — evaluator gap).
+
+All deep/context-specific; no safe narrow fix found. Baseline held at 304 (committed 9cbf4f245), corpus 97/97, std 152/152.
