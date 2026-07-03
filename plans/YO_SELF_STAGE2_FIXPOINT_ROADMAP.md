@@ -4,6 +4,31 @@
 clean) AND matches TS performance. Perf half already met on `check ./std` (-O2: 10.9s
 vs TS 19.9s); the blocker is **stage-2 C validity**.
 
+**UPDATE (commit `4d9b447b0`): 1088 → 885 errors (−203).** Fixed the early-return-cleanup
+"drop a not-yet-declared C var" class (user vars: label*sub/value_sub/env/…, 156 sites + temp
+escape-drops + cascades). Root: a `x := match(...)`/`cond(...)` binding emits its C declaration
+AFTER the RHS switch, so a `throw` inside the RHS precedes x's declaration; TS's return.ts filter
+relies on each expr's point-in-time env having `initializedAtToken` unset for the in-flight
+binding, but yo-self's recorded env is the END-of-scope env, so its `_keep_pending_drop` used a
+SOURCE-ORDER token heuristic that can't see RHS-after-declaration order. Fix: use C-emission
+order as ground truth — `declared_c_var_names` is now reset per function + seeded with params in
+`generate_function`, grows as each declaration emits, and `_keep_pending_drop` skips a pending
+drop whose target C name isn't declared yet (can't double-free/leak: no C value bound). undeclared
+612→409, incompat/member unchanged. corpus 97/97 (DIFF 0, SELF-FAIL 0), std 152/152. Remaining 885
+distribution: undeclared 409 (266 `g*\*`module globals + 92 local-var stragglers + 39 temps + 15`fn_yo_id` effect handlers), incompat 211, member 95. The two dominant remaining classes — the
+266 module globals (module-var port) and 211 incompat — BOTH gate on the type-identity keystone.
+Session trajectory: 3643 → 1627 → 1312 → 1189 → 1088 → 885.
+
+**UPDATE (commit `9c9c7d870`): 1189 → 1088 errors (−101).** Landed the temp-drop fix
+(READY-TO-EXECUTE DESIGN below, now DONE): `CodeGenContext.declared_c_var_names` records every
+declared C variable name at the `get_variable_type_string` choke-point, and
+`generate_deferred_drop_expressions` skips a deferred drop whose target is a temp name
+(`is_temp_variable_name`) never declared. undeclared 707→612, undeclared-temp 183→85. corpus
+97/97, std 152/152; plain corpus binaries terminate with matching TS output. (ASan run deadlocks
+against the runtime's custom worker-thread stack — pre-existing, unrelated; safety is by
+construction: skipping a drop of a never-emitted C var can't double-free or leak.) Session
+trajectory: 3643 → 1627 → 1312 → 1189 → 1088.
+
 **UPDATE (commit `fcb5b667d`): 1312 → 1189 errors (−123).** Fixed the dominant type-identity
 root: `compute_compile_time_signature` keyed runtime params by the LOSSY `type_to_string`
 (`ArrayList(bool)` and `ArrayList(String)` both → `<struct:struct_yo_id_3849>`), collapsing every
