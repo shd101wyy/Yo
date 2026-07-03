@@ -1,5 +1,27 @@
 # yo-self stage-2 fixpoint — error-distribution roadmap
 
+**INCOMPAT 210 — TRUE ROOT (property-access resolution) + no-op fix attempt (reverted).**
+Confirmed the mis-resolution is UPSTREAM in property-access, not codegen callee lookup or call-eval
+recording. `Environment.new` IS correctly emitted (`yo_id_20814(module_path)->struct_20794*`), but the
+callee VALUE for the ~39 `Environment.new(module_path)` calls is ALREADY `String.new` before codegen —
+property_access.yo (`is_struct_type` static branch, ~771) searches Environment's struct `field_labels`
+for `new`, finds the label, but yo-self's TypeValue carries NO field VALUES (types/values are split; the
+inherent `new` FuncVal lives in the paired StructVal, not the Struct TypeValue). One candidate fall-back is
+`get_type_trait_methods_by_name(type_id_or_empty(Environment), "new")` (~872). ATTEMPTED (reverted,
+NO-OP): recording `call_result_rt.specialized_function_value` / `callee_value` in
+`g_method_callee_values` at the FuncVal-callee branch (function.yo:3230) so codegen uses it — 580
+UNCHANGED. This result is AMBIGUOUS: either (a) `callee_value` is ALREADY String.new at that branch
+(evaluator mis-resolves there), or (b) codegen does NOT read the side-table for these calls (they
+don't match other_fn_call.yo's `method_atom_ok && !recv_is_dyn` method-dispatch branch — likely
+handled as a plain call reading the callee differently). IMPORTANT CONTRA-EVIDENCE: the evaluator
+resolves `Environment.new` CORRECTLY during `check ./std` / corpus (both pass), so the mis-resolution
+is specific to the stage-2 codegen path, NOT a universal evaluator bug. NEXT (needs instrumentation,
+multi-cycle): log at function.yo:3217 what `callee_value`'s func_id is for an `Environment.new` call
+(distinguishes a vs b), then fix the identified site. Inherent `ref(struct)` methods
+(`Environment :: ref(struct(new : fn...))`, env.yo:355) are registered ONLY via impl.yo's
+register_type_trait_method — verify whether the struct-def path registers them at all. Deep;
+validate + revert-on-regress.
+
 **INCOMPAT 210 — GROUND TRUTH CONFIRMED (fresh 580 emit): `yo_id_4077` IS `String.new()`.**
 Read the definition body: `static inline struct_4014 yo_id_4077()` returns a `struct_4014` built from an
 `ArrayList(u8)`-backed enum — i.e. `String.new()` (0-arg, empty String; struct_4014 = String). So the
