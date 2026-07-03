@@ -35,6 +35,7 @@ open(import("std/fmt"));
 {
   AstExpr,
   ExprId,
+  ast_expr_id,
   ast_expr_is_fn_call_of,
   ast_expr_is_atom_of,
   make_err_expr,
@@ -572,6 +573,32 @@ record_macro_expansion :: (fn(call_id : ExprId, expanded : AstExpr) -> unit)({
 lookup_macro_expansion :: (fn(call_id : ExprId) -> Option(AstExpr))(
   g_macro_expansions.get(call_id)
 );
+// Module-level mutable-variable init expressions, collected during module-body
+// evaluation (`evaluate_anonymous_module_begin_exprs`) and consumed by codegen
+// to emit file-scope `static` declarations + initialize them in the main
+// wrapper. TS carries these on `moduleValue.moduleLevelInitExprs` (value.ts) and
+// aggregates them in module-manager.ts (`allModuleLevelInitExprs`); yo-self's
+// EvalValue enum cannot hold the field, so this durable global is the idiomatic
+// eval→codegen bridge (same pattern as g_macro_expansions / g_method_callee_values
+// above). Dedup by expr id bounds re-collection across the evaluator's multiple
+// passes; codegen additionally dedups by resolved C variable name (a global may
+// still be recorded under distinct clone ids) to avoid duplicate C declarations.
+(g_module_level_init_exprs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+(g_module_level_init_seen : HashMap(ExprId, bool)) = HashMap(ExprId, bool).new();
+/// Record a module-level `:=` / `(x : T) = v` init expression for codegen.
+record_module_level_init_expr :: (fn(e : AstExpr) -> unit)({
+  eid := ast_expr_id(e);
+  already := match(g_module_level_init_seen.get(eid),.Some(_) => true,.None => false);
+  if(!(already), {
+    g_module_level_init_seen.set(eid, true);
+    g_module_level_init_exprs.push(e);
+  });
+  ()
+});
+/// All collected module-level init expressions (for codegen declaration + init).
+get_module_level_init_exprs :: (fn() -> ArrayList(AstExpr))(
+  g_module_level_init_exprs
+);
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
 // (mirrors `src/expr-traversal.ts`).
 export(Path, PathCollection, path_collection_new);
@@ -587,3 +614,4 @@ export(record_method_callee_value, lookup_method_callee_value);
 export(register_extern_c_global, is_extern_c_global);
 export(register_some_resolved_concrete, lookup_some_resolved_concrete);
 export(record_macro_expansion, lookup_macro_expansion);
+export(record_module_level_init_expr, get_module_level_init_exprs);

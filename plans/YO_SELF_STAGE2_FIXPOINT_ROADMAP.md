@@ -1,5 +1,38 @@
 # yo-self stage-2 fixpoint — error-distribution roadmap
 
+**UPDATE (module-level-variable emission PORTED): 882 → 741 errors (−141).** Ported the
+deferred module-level mutable-variable subsystem (TS `emitModuleLevelVariableDeclarations` +
+`moduleLevelInitExprs` collection + `collectTypesFromExpr` on init exprs). yo-self codegen
+emitted **0** `static ... // module-level mutable variable` declarations (TS emits 105) — every
+`g_*` module global (`g_evaluate_expression`, `g_method_callee_values`, …) was USED (assigned/
+read) but never DECLARED → the dominant "use of undeclared identifier" class. Fix, faithful to
+src/: (1) evaluator `evaluate_anonymous_module_begin_exprs` (anonymous_module.yo) collects `x :=
+v` (atom LHS, no comptime value) and `(x : T) = v` (a `:` binding LHS) init exprs into a durable
+`g_module_level_init_exprs` side-table in expr_info.yo — the idiomatic eval→codegen bridge (same
+pattern as g_macro_expansions; the EvalValue enum can't carry TS's `moduleValue.moduleLevelInitExprs`
+field). KEY: the `=` case must key off the LHS _shape_ (`:` binding), NOT `variable.isModuleLevel`
+— that flag is false for IMPORTED modules (their body evaluates inside a loader function frame),
+which is why an earlier is_module_level-gated attempt collected only the 8 `:=` globals; (2) codegen
+`emit_module_level_variable_declarations` (generation.yo) emits file-scope `static <type> <cname>;`
+per var, deduped by resolved C name; (3) `generate_main_wrapper` emits a `__yo_main_module_init()`
+helper initializing each (emitted DIRECTLY to the emitter, header-first, so an RC-returning
+initializer's aux temps land INSIDE the fn body — a detached string orphans them at file scope →
+"initializer element is not a compile-time constant"; deferred-drops reset so the value MOVES into
+the global), called first on the worker thread / from main on the direct path; (4) types/collection.yo
+`collect_required_types` walks the init exprs so their instantiation types (e.g. HashMap(K,V)) are
+registered. yo-self now emits 100/105 module vars (5 edge shapes remain). VALIDATED: corpus 97/97
+(DIFF 0), std 152/152, minimal repro compiles+runs. Distribution 741: undeclared 210 (was 409),
+incompat 210 (was 175 — newly-reachable init code exposed more), member-ref 104, implicit-int 45,
+expected-expression 28, non-const-initializer 21. Session trajectory: 3643 → … → 882 → 741.
+
+**RETRACTED (this session): the "faithful funcId encoding" experiment.** Encoding impl-block forall
+substitutions into the specialized method funcId (mirroring TS impl.ts:1550 `_specialized_K_..._V_...`)
+DOES engage (with_capacity per-V now distinct) but regressed 882→971 + ballooned C to 475MB — it
+distinguishes MORE specializations, exposing more references to the (then-)undeclared module globals
+
+- a structural cascade. Reverted. The module-var emission above is the correct prerequisite; the
+  funcId change may be revisitable ON TOP of it (unvalidated).
+
 **Goal:** yo-self self-compiles into a _valid_ working compiler (stage-2 C compiles
 clean) AND matches TS performance. Perf half already met on `check ./std` (-O2: 10.9s
 vs TS 19.9s); the blocker is **stage-2 C validity**.

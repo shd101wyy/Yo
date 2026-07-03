@@ -35,7 +35,7 @@ open(import("std/string"));
 { generate_type_declarations, generate_dyn_box_types } :: import("./types/generation.yo");
 { fixup_dyn_impl_keys } :: import("./utils/fixup.yo");
 { generate_function_declarations } :: import("./functions/declarations.yo");
-{ generate_all_functions, generate_main_wrapper } :: import("./functions/generation.yo");
+{ generate_all_functions, generate_main_wrapper, emit_module_level_variable_declarations } :: import("./functions/generation.yo");
 { generate_dyn_box_functions, generate_dyn_wrapper_functions, generate_dyn_vtables, generate_dyn_dup_drop } :: import("./functions/dyn.yo");
 { register_generate_expr } :: import("./exprs/generation.yo");
 { register_impl_closure_call_mappings } :: import("./exprs/closures.yo");
@@ -281,9 +281,13 @@ static Slice_uint8_t_u42_ __yo_args;
   // Deferred async-block implementations (resume / set_effect / dispose / ctor),
   // after all regular + dyn functions to avoid nesting. Mirrors codegen-c.ts:232.
   generate_deferred_async_blocks(ctx);
-  // Main wrapper (executable mode only).
+  // Module-level mutable variable declarations (file-scope statics). Emitted for
+  // both executable and library builds so the C symbols exist. Mirrors
+  // codegen-c.ts:251. Returns the (c_var_name, rhs) list for initialization.
+  module_vars := emit_module_level_variable_declarations(ctx);
+  // Main wrapper (executable mode only); initializes the module-level vars first.
   if(!(is_library), {
-    generate_main_wrapper(ctx);
+    generate_main_wrapper(ctx, module_vars);
   });
   // Type-tag dispose dispatch switch.
   emit_dispose_dispatch(base);

@@ -22,7 +22,7 @@ open(import("std/string"));
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../../types/definitions.yo");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call_of, make_err_expr, BK_TEST } :: import("../../expr.yo");
-{ ExprInfoTable, expr_info_table_get, lookup_macro_expansion } :: import("../../expr_info.yo");
+{ ExprInfoTable, expr_info_table_get, lookup_macro_expansion, get_module_level_init_exprs } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_type_value, type_of_eval_value } :: import("../../value.yo");
 { is_control_fn, get_func_type } :: import("../../function_value.yo");
 {
@@ -569,6 +569,20 @@ collect_required_types :: (fn(module_value : EvalValue, context : CodeGenContext
     },
     _ => ()
   );
+  // Collect types from module-level mutable variable init expressions — these
+  // may reference types from imported modules not otherwise reachable (e.g. a
+  // `(g_map : HashMap(K, V)) = HashMap(K, V).new()` global whose HashMap
+  // instantiation is used nowhere else). Mirrors collection.ts:138-144.
+  mlv_inits := get_module_level_init_exprs();
+  (mli : usize) = usize(0);
+  while(mli < mlv_inits.len(), {
+    match(
+      mlv_inits.get(mli),
+      .Some(ie) => collect_types_from_expr(ie, context, info),
+      .None => ()
+    );
+    mli = (mli + usize(1));
+  });
   // Fixpoint: keep collecting from newly-discovered functions until none are
   // new. Snapshot the keys each pass (the registry grows during collection).
   processed := HashSet(String).new();

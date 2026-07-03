@@ -35,7 +35,8 @@ open(import("std/string"));
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
-  expr_info_table_set
+  expr_info_table_set,
+  record_module_level_init_expr
 } :: import("../../expr_info.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -535,6 +536,48 @@ evaluate_anonymous_module_begin_exprs :: (
             },
             .None => ()
           );
+          // Collect module-level init expressions for codegen (mirrors TS
+          // anonymous-module.ts:383-417). These become file-scope `static`
+          // declarations, initialized in the main wrapper. Two shapes:
+          //   x := value;         — `:=` with an atom LHS that has a runtime
+          //                         type but no compile-time value.
+          //   (x : T) = value;    — `=` where the assigned variable is
+          //                         module-level.
+          if(ast_expr_is_fn_call(evaluated), {
+            if(ast_expr_is_fn_call_of(evaluated, ":=", Option(usize).Some(usize(2))), {
+              init_args := match(evaluated,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+              init_lhs := match(init_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
+              if(ast_expr_is_atom(init_lhs), {
+                lhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(init_lhs));
+                match(
+                  lhs_info_opt,
+                  .Some(li) => if(li.value.is_none(), {
+                    record_module_level_init_expr(evaluated);
+                  }),
+                  .None => ()
+                );
+              });
+            }, {
+              if(ast_expr_is_fn_call_of(evaluated, "=", Option(usize).Some(usize(2))), {
+                assign_args := match(evaluated,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+                assign_lhs := match(assign_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
+                // A `(x : T) = v` binding at module-begin scope is a module-level
+                // runtime global by construction — the LHS is a `:` binding (NOT
+                // a bare-atom reassignment of an existing var, which needs no new
+                // static). TS gates this on `variable.isModuleLevel`, but that
+                // flag is false here for IMPORTED modules (their body evaluates
+                // inside a loader function frame → is_inside_fn_body), so the
+                // shape check is the reliable signal for both compilers.
+                if(ast_expr_is_fn_call_of(assign_lhs, ":", Option(usize).Some(usize(2))), {
+                  binding_args := match(assign_lhs,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+                  binding_lhs := match(binding_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
+                  if(ast_expr_is_atom(binding_lhs), {
+                    record_module_level_init_expr(evaluated);
+                  });
+                });
+              });
+            });
+          });
         });
       }
     );
