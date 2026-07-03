@@ -68,6 +68,16 @@ beyond the cfid-empty fallback (e.g. the argkeys themselves differ, or futures u
 mechanism). CONFIRMED EMPIRICALLY: the keystone needs the harder full rewrite (cfid-independent
 structural keying for BOTH branches, keyed on FIELD structure not name — since names are empty) or
 upstream always-stamp-cfid; the minimal additive form is insufficient. Reverted; baseline 882.
+FIELD-STRUCTURAL REFINEMENT — ANALYZED, NOT SAFE AS A SIDE-TABLE: to make cfid-empty copies recover
+the stamped key via a FIELD signature (labels + recursive field-type keys, since names are empty),
+the signature must be RECORDED in the common cfid-present `gs_` branch — i.e. field recursion added
+to the HOTTEST type_key path, which risks regressing the PERFORMANCE half of the goal (currently
+met; type_key runs constantly during codegen). Plus over-merge risk for same-C-layout distinct
+types. So a hot-path side-table is disqualified. The viable designs are: (1) CACHE the fieldsig
+per struct id (compute once), then key by it in both branches; (2) make cfid ALWAYS stamped upstream
+(evaluator) so branch (b) never fires — the root, but the churn source that has resisted fixes; or
+(3) key generic instantiations by (base-struct-id + argkeys) if a STABLE base-struct id independent
+of instantiation churn exists. All are dedicated-session work with perf + regression validation.
 
 **KEYSTONE FIX DESIGN CONSTRAINT (critical — determined this session by reading type_key.yo:102-134).**
 The `.Struct` arm has TWO generic-instantiation branches: (a) cfid non-empty + type*args →
