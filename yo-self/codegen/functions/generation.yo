@@ -20,6 +20,7 @@
 //! skip (Gap 2).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_is_fn_call_of, BK_BEGIN, BK_RETURN } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -290,6 +291,40 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
           .None => ()
         );
       });
+      // Reset the per-function set of C variable names declared SO FAR (see
+      // declared_c_var_names / _keep_pending_drop): an early-return drop must be
+      // suppressed for a var whose C declaration has not yet been emitted at that
+      // point (a `x := match(...)` binding emits its declaration AFTER the RHS's
+      // switch, so a `throw` inside the RHS would otherwise drop the not-yet-
+      // declared `x`). Seed it with the parameters, which ARE in scope from entry
+      // (they are declared by the prototype, not via get_variable_type_string).
+      context.base.declared_c_var_names = HashSet(String).new();
+      match(
+        function_type,
+        .Func({ param_types : _pt, meta : _pm }) => {
+          _pls := _pm.*.param_labels;
+          _pn := _pt.len();
+          (_pi : usize) = usize(0);
+          while(_pi < _pn, {
+            _pnm := match(
+              _pls.get(_pi),
+              .Some(_lbl) => if(_lbl.len() > usize(0), sanitize_for_c_identifier(_lbl.clone(), false), {
+                _p := String.from("param");
+                _p.push_string(_pi.to_string());
+                _p
+              }),
+              .None => {
+                _p := String.from("param");
+                _p.push_string(_pi.to_string());
+                _p
+              }
+            );
+            _dp := context.base.declared_c_var_names.add(_pnm);
+            _pi = (_pi + usize(1));
+          });
+        },
+        _ => ()
+      );
       generate_function_body(body_box, function_type, String.from("  "), context);
       context.current_closure_captures = prev_caps;
       context.current_closure_capture_frame_level = prev_cap_level;

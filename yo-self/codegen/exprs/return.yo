@@ -27,7 +27,7 @@ open(import("std/string"));
 { t_unit } :: import("../../types/creators.yo");
 { generate_atom } :: import("./atom.yo");
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("./drop_dup.yo");
-{ get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture } :: import("../utils/index.yo");
+{ get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier } :: import("../utils/index.yo");
 /// The atom a `___drop(x)` / `x.___drop()` drop expression targets.
 _drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
   match(
@@ -191,6 +191,22 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
   // above alone does NOT catch this: the recorded env is the END-of-scope env,
   // which lists those later locals. (Stage-2 self-compile fixpoint; see
   // issues/yo-self-binary-codegen-state.md.)
+  //
+  // Authoritative C-emission-order guard. The source-order token heuristic below
+  // cannot see that a `x := match(...)` / `cond(...)` binding emits its C
+  // declaration AFTER the RHS's switch — so a `throw` inside the RHS precedes x's
+  // declaration in C, and dropping x here references an undeclared identifier.
+  // TS avoids this because each expr carries a point-in-time env where the
+  // not-yet-completed binding's `initializedAtToken` is still unset; yo-self's
+  // recorded env is the END-of-scope env, so we use declared_c_var_names (reset
+  // per function + seeded with params in generate_function, grown as each
+  // declaration is emitted via get_variable_type_string) as the C-emission-order
+  // ground truth. A target whose C name has not been declared yet holds no value
+  // in C, so skipping its drop cannot double-free or leak.
+  c_name := sanitize_for_c_identifier(var_name, false);
+  if(!(context.base.declared_c_var_names.contains(c_name)), {
+    return(false);
+  });
   match(
     latest_var.initialized_at_token,
     .Some(it) => !(_variable_initialized_after_cleanup_point(it, expr)),
