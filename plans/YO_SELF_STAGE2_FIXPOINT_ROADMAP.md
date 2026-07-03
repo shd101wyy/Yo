@@ -19,6 +19,21 @@ the WRONG distinguisher (are_types_compatible_exact wholesale, type_key, base-id
 `.next` specialization was emitted → the cache equated the two receivers → type_arguments were the gap.
 Session trajectory: 3643 → … → 882 → 741 → 580 → 533 → 399 (−483 this session, ~55%).
 
+**ENUM-INCOMPAT 44 — negative results (this session, all reverted): NOT a comparison-layer or sig-append fix.**
+Confirmed the residual incompat (Option(HashMap(usize,_)) vs Option(HashMap(String,_)), etc.) is the
+STATIC/return-type-only specialization collapse: the instantiation type args come from the receiver/
+expected type, NOT from a runtime argument, so `compute_compile_time_signature` (which keys runtime
+params by concrete `ae.arg_type`, helper.yo:1117) can't capture them. Tried & reverted: (1) remove the
+struct `(aid==eid)` exact shortcut — no-op (field_types generic SomeT, not the shortcut). (2) remove the
+EnumT `(aid==eid)` shortcut — no-op +2 (enum variant_fields generic SomeT). (3) eval_value_eq TypeVal →
+are_types_compatible_exact — no-op +1 (not the compile_time_arg path). (4) append `ctx.self_type` (generic
+instantiation) to `runtime_param_tys` in create_specialized — **REGRESSED 399→3033** ("too few arguments
+to function call" ×2600: over-specialization broke call-site arity, the documented self_type-approach
+failure). REMAINING viable fix = the DEEP one: propagate impl-block forall params into each method's
+`func_type.meta.forall_labels` at registration so the existing forall loop in
+compute_compile_time_signature captures the impl-level type args (memory yo-self-parametric-trait-impl-self-subst).
+Multi-site evaluator change; the type_arguments exact-compat fix (above) is the prerequisite that makes it sound.
+
 Distribution @ 399: **member-ref 104** (async-fn void\* returns — now the biggest; SM struct registered
 under io.async-block SomeT id not fn-return SomeT id, see below), incompat 46 (was 170; residual
 generic/type-identity), implicit-int 45 + expected-expression 28 + non-const-initializer 21 + K&R-param
