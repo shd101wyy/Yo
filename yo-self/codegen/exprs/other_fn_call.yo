@@ -938,7 +938,25 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     // unresolved/uncollected.
     if(method_atom_ok && !(recv_is_dyn), {
       mname := ast_expr_token(match(dmethod_args.get(usize(1)),.Some(ma) => ma,.None => make_err_expr())).value;
-      recv_ty := match(dm_runtime.get(usize(0)),.Some(rv) => match(context.base.get_expr_info(rv),.Some(rvi) => rvi.ty,.None => TypeValue.Unit),.None => TypeValue.Unit);
+      // Receiver type id for the registry FALLBACK. Use the DOT-RECEIVER
+      // (`dmethod_args[0]`, e.g. `Environment` in `Environment.new(mp)`), NOT the
+      // first RUNTIME arg (`dm_runtime[0]`): for a STATIC call `Type.method(args)`
+      // the evaluator prepends no receiver, so dm_runtime[0] is the first
+      // ARGUMENT (e.g. `mp : String`) — using its id made the fallback resolve the
+      // wrong same-named method (`Environment.new` → `String.new`) → "incompatible
+      // type". The dot-receiver's ExprInfo value is a `TypeVal` for a static call
+      // (use its inner type) and the receiver instance for an instance call (use
+      // its type); fall back to the old dm_runtime[0] behavior if no ExprInfo.
+      recv_dot := match(dmethod_args.get(usize(0)),.Some(r) => r,.None => make_err_expr());
+      recv_ty := match(
+        context.base.get_expr_info(recv_dot),
+        .Some(rdi) => match(
+          rdi.value,
+          .Some(rv) => match(rv,.TypeVal(inner) => inner, _ => rdi.ty),
+          .None => rdi.ty
+        ),
+        .None => match(dm_runtime.get(usize(0)),.Some(rv) => match(context.base.get_expr_info(rv),.Some(rvi) => rvi.ty,.None => TypeValue.Unit),.None => TypeValue.Unit)
+      );
       tid := type_id_or_empty(recv_ty);
       if(tid.len() > usize(0), {
         // Prefer the evaluator's RESOLVED method over a registry re-lookup. The
