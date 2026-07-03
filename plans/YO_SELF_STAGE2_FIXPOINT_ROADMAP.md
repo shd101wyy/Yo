@@ -722,3 +722,74 @@ The 66 also include method calls in `while(...)` conditions — same family, re-
 - `<bin> check ./std` → 152, `check ./tests`, `check ./yo-self`
 - re-measure the clang error count on the regenerated stage-2 C
 - for RC-touching fixes: also `--sanitize address` a representative binary
+
+---
+
+## Session 2026-07-03 — decisive root decomposition (baseline held at 399)
+
+**Baseline re-measured clean: 399 clang errors, stage-2 C = 497 MB. TS emits the
+SAME source (`yo-self/main.yo`) as 51.7 MB → yo-self over-emits ~10×.** The 10×
+is NOT function count (stage2 has 3738 fn bodies vs TS 6522 — FEWER) — it is
+per-identifier blowup: single C type-identifier lines reach **224 KB**.
+
+### Root A — `type_key` structural blowup (the 10× size; ~5 direct errors + all bloat)
+
+`codegen/utils/index.yo:get_type_string` emits the full structural `type_key`
+as the C type name. TS instead uses `context.types[type.id].cName` — a SHORT,
+stable name keyed by a NUMERIC type id (getTypeString, utils/index.ts:521).
+yo-self's `TypeValue` has no numeric id, so `type_key` (types/type_key.yo)
+recursively expands the whole nested type; its `g_tk_visited` set only cuts
+NAMED-type cycles and does NOT cut recursion THROUGH `Struct` wrappers → the
+compiler's own recursive enums (`TypeValue`/`AstExpr`) expand to 224 KB names.
+Fix = intern types to short ids (structural key → counter → `yo_t<N>`), the
+faithful mirror of TS's `id → cName`. LARGE (touches every `get_type_string`
+call site + all C type names → high corpus/std regression risk). Bounding/
+truncating names instead is UNSAFE (distinct types would collide).
+
+### Root B — async future lowered to `void*` (108 `'void'` errors + most of the 265 cascades)
+
+Await emits `void* __sync_future_N = ...; __sync_future_N->state;` — `void*`
+has no members → "member reference base type 'void'" + "assigning from
+incompatible type 'void'". `await.yo:378` DOES call
+`get_type_string(future_type)`, but `future_type` is a `SomeT` whose
+`get_type_string` arm (utils/index.yo, `.SomeT`) misses BOTH
+`lookup_some_resolved_concrete(sid)` and `get_type_c_name(type_key(t))` →
+`void*` fallback. The async pre-pass registers the SM/sync-fut struct under
+`type_key(block.future_type)` (`async.yo:1463`), and `type_key(SomeT)` = the
+SomeT's **id string** (type_key.yo:232). So registration and await only match
+if the future SomeT's **id is preserved** from async-fn-return synthesis to the
+await site — it is NOT (fresh `random_id`, same SomeT-identity class as the
+generic-impl funcId blocker `yo-self-phase3-generic-impl-funcid`). This is why
+the prior "register under fn-return SomeT" attempt was a NO-OP: the id itself
+diverges. Fix requires preserving/threading the future SomeT identity (deep),
+OR resolving the future SomeT → concrete registered struct at await via the
+`FutureTraitT` (localized but unproven; risk another no-op).
+
+### Root C — generic static-method funcId collision (this session, FALSIFIED as the fix)
+
+Static methods on generic types (`HashMap._alloc_with_capacity`, `.new`,
+`.with_capacity`) resolve via the FLAT trait-method registry
+(`env.yo:get_type_trait_methods_by_name_from_env` → keyed by
+`type_id_or_empty` which DROPS type_arguments), returning a SHARED base
+func_id. TS instead attaches per-concrete-type methods (distinct funcId
+encoding `Self`, impl.ts:1551) to the concrete type's `.trait`.
+
+- **Attempt 1** (impl.yo `_inject_forall_captures`: bake concrete impl-forall
+  bindings into the method func*id, gated all-concrete): built clean, corpus
+  path OK, **but stage-2 stayed EXACTLY 399** — the suffix reached find_methods-
+  resolved methods (13263/13298 got `\_usize_gs*...`) but NOT the static registry
+path (`with_capacity` 13320 stayed bare). Neutral. Reverted.
+- **Attempt 2** (env.yo `_specialize_method_ids_for_concrete_receiver`: rewrite
+  registry-resolved static-method func_ids by the receiver's concrete
+  type_arguments, gated all-concrete, fresh MethodEntry copies): **REGRESSED
+  399 → 589** (C shrank 497 MB → 48 MB ≈ TS size, but +190 errors — 265
+  "expected expression" from malformed bodies). Reverted. Lesson: distinct
+  func_ids WITHOUT re-resolving the concrete return type just multiply
+  mismatches; `with_capacity` already returns a concrete enum (NOT collapsed),
+  so Root C was never the void-collapse source — Root B is.
+
+**Conclusion:** all three roots are deep type-identity / interning ports, each a
+dedicated-session change; two localized attempts this session were falsified and
+reverted. Baseline preserved at 399 / clean tree. Highest-leverage next target =
+Root B (108 + cascades) via future-SomeT-identity preservation, then Root A
+(interning) for size+perf.
