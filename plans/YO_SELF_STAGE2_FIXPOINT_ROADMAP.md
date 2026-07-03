@@ -40,6 +40,22 @@ recursive enums). incompat 300→206→177 (this commit brought it to 206; a lat
 collide (enum recursion omitted to avoid the specialization explosion) — a smaller sub-case.
 Session trajectory: 3643 → 1627 → 1312 → 1189. corpus 97/97, check ./std 152/152.
 
+**THIRD incompat approach RULED OUT (reverted): resolved-return-type cache key.** Added
+`SpecializedFunctionCache.resolved_return_type` + keyed the spec cache AND the specialized
+func_id by `evaluate_function_return_type_again(result, callee_env, ctx)` (gated on
+`type_contains_some_type` for perf; find+store threaded identically so no re-spec loop; built in
+72s, corpus 97/97, std 152, check ./std 31s @ -O0). Result: incompat 206→206 (UNCHANGED), total
+882→880. ROOT of the no-op: at the cache-lookup point `callee_env` does NOT yet have the concrete
+element type `V` bound — that binding happens DURING specialization, AFTER the lookup — so the
+"resolved" return type is still generic/`Self`, identical across the collapsing cases. DEFINITIVE
+CONCLUSION (3 approaches ruled out: hand-mirror ×2 over-distinguished; return-type-cache no-op):
+the 206 incompat REQUIRE the faithful fix — thread the impl-level/`Self` type params as
+COMPILE-TIME (forall) args at method-call specialization, so they land in BOTH `callee_env` and
+`compile_time_arg_values` (which the cache already keys on) BEFORE the lookup. That is a deep
+change in the method-dispatch → specialization arg-binding path (how a method resolved on
+`HashMap(K,V)` passes K/V as comptime args to the method's specialization). See memory
+yo-self-parametric-trait-impl-self-subst / "impl-level forall not bound in FN-REG-BODY".
+
 **PRECISE ROOT CAUSE of the ~206 incompat (traced @ 882, corrects the "codegen-side" label
 below).** The incompat is NOT codegen type_key and NOT the runtime-param spec-sig. It is that
 `compute_compile_time_signature` OMITS the `Self` / impl-level element type for generic METHODS.
