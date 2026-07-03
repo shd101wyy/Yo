@@ -405,9 +405,9 @@ _compat_impl :: (
     // ArrayList(ME)))` hit a cached `(?*)(ME)` entry (both name=""), collapsing
     // HashMap's `data` field to `?*(ME)`. Structural exact comparison
     // distinguishes them (e.g. labels `[key, value]` vs `[name, kind]`).
-    .Struct({ id : aid, name : aname, field_labels : alabels, field_types : atypes, is_reference_semantics : aref, is_atomic_rc : aatomic, is_newtype : anew, constructor_func_id : acfid }) => match(
+    .Struct({ id : aid, name : aname, field_labels : alabels, field_types : atypes, is_reference_semantics : aref, is_atomic_rc : aatomic, is_newtype : anew, constructor_func_id : acfid, type_arguments : ata }) => match(
       expected,
-      .Struct({ id : eid, name : ename, field_labels : elabels, field_types : etypes, is_reference_semantics : eref, is_atomic_rc : eatomic, is_newtype : enew, constructor_func_id : ecfid }) => cond(
+      .Struct({ id : eid, name : ename, field_labels : elabels, field_types : etypes, is_reference_semantics : eref, is_atomic_rc : eatomic, is_newtype : enew, constructor_func_id : ecfid, type_arguments : eta }) => cond(
         // Lenient: name equality, with EMPTY names as wildcards — types
         // reconstructed from values (type_of_eval_value) and pre-stamping
         // instantiations carry "" while `::`-bound types are now STAMPED
@@ -454,6 +454,32 @@ _compat_impl :: (
             )
           }
         ),
+        // DISTINCT generic instantiations: two structs whose concrete
+        // `type_arguments` differ are DIFFERENT types even when they share a
+        // base `id` (yo-self ids churn) and their `field_types` are still the
+        // generic placeholder (`SomeT(T)` in both, so the field comparison below
+        // wrongly matches). e.g. `Iter(usize)` vs `Iter(String)` collapsed the
+        // specialization cache → one `.next()` served both, its return baked to
+        // whichever registered first → "incompatible type". Only fires when BOTH
+        // carry non-empty type_arguments of equal length and some arg is
+        // exact-incompatible; same-args (same instantiation) falls through to the
+        // id/field checks unchanged, so non-generic and identical structs are
+        // untouched.
+        ({
+          (ta_differ : bool) = false;
+          if((ata.len() > usize(0)) && (ata.len() == eta.len()), {
+            (tai : usize) = usize(0);
+            while((tai < ata.len()) && !(ta_differ), {
+              at2 := match(ata.get(tai),.Some(v) => v,.None => TypeValue.Unit);
+              et2 := match(eta.get(tai),.Some(v) => v,.None => TypeValue.Unit);
+              if(!(recur(at2, et2, true, visited)), {
+                ta_differ = true;
+              });
+              tai = (tai + usize(1));
+            });
+          });
+          ta_differ
+        }) => false,
         (aid == eid) => true,
         // Exact, different ids → structural. But the SEMANTICS KIND must match
         // first: a value `struct`, a reference `object`, an `atomic object`, and
