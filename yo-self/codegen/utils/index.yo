@@ -167,6 +167,14 @@ CodeGenContext :: ref(
     /// CodeGenContext.disposeTypeIds / nextDisposeTypeId.
     dispose_type_ids : HashMap(String, usize),
     next_dispose_type_id : usize,
+    /// C variable names actually emitted as declarations (recorded by
+    /// get_variable_type_string, the choke-point for every `<Type> <name>`
+    /// declaration). Read by generate_deferred_drop_expressions to skip a drop
+    /// whose target TEMP was never materialized (declaration elided while its
+    /// deferred-drop survived) — emitting `__yo_decr_rc(undeclared_temp)` is an
+    /// undeclared-identifier error. Temp names are globally unique, so this
+    /// accumulates across functions without needing a per-function reset.
+    declared_c_var_names : HashSet(String),
     /// Resolved concrete capture-struct type id → its generated closure impl fn.
     /// Populated at closure construction; read at closure call sites to emit
     /// `fn(&(cb), args)`. Mirrors CodeGenContext.implClosureCallMap (utils/index.ts:139).
@@ -215,6 +223,7 @@ impl(
       exported_function_labels : HashMap(String, String).new(),
       dispose_type_ids : HashMap(String, usize).new(),
       next_dispose_type_id : usize(1),
+      declared_c_var_names : HashSet(String).new(),
       impl_closure_call_map : HashMap(String, ImplClosureCallInfo).new()
     )
   ),
@@ -1097,7 +1106,11 @@ get_variable_type_string :: (
 )({
   result := get_type_string(t, context);
   result.push_str(" ");
-  result.push_string(sanitize_for_c_identifier(var_name, false));
+  c_name := sanitize_for_c_identifier(var_name, false);
+  // Record the declared C name (choke-point for every typed declaration) so the
+  // deferred-drop pass can skip drops for temps that were never materialized.
+  _dv := context.declared_c_var_names.add(c_name.clone());
+  result.push_string(c_name);
   result
 });
 /// Generate the C name for an enum variant: `<ENUM_CNAME>_<VARIANT>` (both

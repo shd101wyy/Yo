@@ -23,7 +23,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { is_array_type, is_tuple_type, is_dyn_type, is_atomic_reference_struct_type, is_reference_struct_type, is_atomic_reference_enum_type, is_reference_enum_type, is_iso_type, is_struct_type, is_enum_type, is_some_type, is_newtype_type } :: import("../../types/guards.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ random_id } :: import("../../utils.yo");
+{ random_id, is_temp_variable_name } :: import("../../utils.yo");
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -553,7 +553,22 @@ generate_deferred_drop_expressions :: (fn(expr : AstExpr, indent : String, conte
             drops.get(i),
             .Some(drop_expr) => {
               skip_capture := is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures);
-              if(!(skip_capture), {
+              // Skip a drop whose target TEMP was never emitted as a C declaration
+              // (declaration elided while its deferred-drop survived) — emitting
+              // `__yo_decr_rc(undeclared_temp)` is an undeclared-identifier error.
+              // Gated to temp names (is_temp_variable_name) so function params /
+              // user vars (declared in the C signature, not via get_variable_type_string)
+              // are never skipped. Safe: a never-declared C variable cannot be
+              // double-freed and holds no value to leak.
+              undeclared_temp := match(
+                get_deferred_drop_target_atom_name(drop_expr),
+                .Some(nm) => {
+                  cn := sanitize_for_c_identifier(nm, false);
+                  is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) && !(context.base.declared_c_var_names.contains(cn))
+                },
+                .None => false
+              );
+              if(!(skip_capture) && !(undeclared_temp), {
                 sc_skip := match(
                   context.short_circuit_handled_drop_var_names,
                   .Some(handled) => match(
