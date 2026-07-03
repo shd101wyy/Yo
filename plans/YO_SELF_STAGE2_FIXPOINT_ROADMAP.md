@@ -939,3 +939,24 @@ handlers (4), enum-identity long tail (max 2/pair), misc.
   its `ioBuiltin` marker rides on the FIELD TYPE, receiver value not needed).
 
 Baseline: 131 (7 fixes committed this session; corpus 97/97, std 152/152 at every step).
+
+### Session 2026-07-04 cont.4 — async family: probe results (INVALID earlier zeros; real data now)
+
+**TOOLING LESSON (important):** three probe cycles produced FALSE zero-hit conclusions because a
+leftover probe captured `arg` in a `->` Exception handler (illegal — capture-free), which made
+`function.yo` FAIL TO IMPORT; the grep-filtered build output hid the failure, and the stale
+`/tmp/yo-self-dbg` binary kept "working". ALWAYS verify a probe string exists in the emitted
+`.c` before trusting a zero-hit run (`grep -c PROBE /tmp/<bin>.c`).
+
+**Valid probe data (verified binary):** every `io.await` call in the compile evaluates exactly
+ONCE and stamps ExprInfo (`[EVALAWAIT] ... pred=true` ×71; `[INITAWAIT] ... info=true` ×52,
+including std/fs/metadata.yo:112 and all file.yo awaits). The eval side is FINE. The await
+STATEMENT vanishes at CODEGEN: `generate_await` never runs for it (no AWAITSM hits, no error
+comments) — the codegen init-assignment (codegen/exprs/init_assignment.yo:182-187) silently
+returns "" via one of TWO skip branches: `_last_is_compile_time_only` or `_last_is_module_level`
+on the LHS var (`result`), read from `lhs_ei.env`'s LAST binding. Eval-side determination says
+result should be neither (force_compile_time_bindings=false in the closure-body ctx;
+is_module_level=false because is_evaluating_function_body_or_async_block is Some) — so the
+codegen reads a DIFFERENT/stale binding for `result` from the lhs ExprInfo env snapshot.
+**NEXT (one build):** instrument both skip returns in codegen init_assignment to print
+(fn, var, which-skip) — that pins the wrong-binding source; then fix the binding/env snapshot.
