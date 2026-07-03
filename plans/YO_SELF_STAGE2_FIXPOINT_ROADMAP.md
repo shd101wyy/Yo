@@ -40,6 +40,23 @@ recursive enums). incompat 300→206→177 (this commit brought it to 206; a lat
 collide (enum recursion omitted to avoid the specialization explosion) — a smaller sub-case.
 Session trajectory: 3643 → 1627 → 1312 → 1189. corpus 97/97, check ./std 152/152.
 
+**FOURTH incompat approach RULED OUT (reverted): `ctx.self_type` cache key.** Same machinery as
+the third (new `SpecializedFunctionCache.spec_self_key` field + find/store threading + func_id
+suffix) but keyed by `ctx.self_type` (which function.yo:1097 sets to the concrete static-dot
+receiver BEFORE `create_specialized_function_inline`), gated on `type_contains_some_type(result)`.
+Built 71s, corpus 97/97, std 152/152 — but incompat 206→206 AGAIN, total 880, IDENTICAL to the
+third attempt. That identical result is the tell: the shared gate `type_contains_some_type(result)`
+is almost certainly FALSE for `with_capacity`-style functions at that point (so neither approach
+ever engaged — `Self`/the impl-return type isn't a `SomeT` variant there), OR `ctx.self_type` is
+not the concrete receiver on `with_capacity`'s actual dispatch path. FIVE approaches now ruled out
+(hand-mirror ×2 over-distinguish; shared-type_key isolates type_key as irrelevant; return-type &
+self_type cache keys both no-op/un-engaged). CONCLUSION HARDENED: localized spec-cache-key tweaks
+do NOT reach this — the fix must be at the METHOD-DISPATCH level, threading the impl/type-path type
+args (K,V) as actual forall/compile-time args into the call's `arg_values.forall_args` so they land
+in `compile_time_arg_values` (already a cache key) naturally. Next session: instrument the
+`with_capacity` dispatch (function.yo method-call path) to see where K/V are known and why they
+aren't passed as forall args; that is the true root, in the arg-binding of method resolution.
+
 **THIRD incompat approach RULED OUT (reverted): resolved-return-type cache key.** Added
 `SpecializedFunctionCache.resolved_return_type` + keyed the spec cache AND the specialized
 func_id by `evaluate_function_return_type_again(result, callee_env, ctx)` (gated on
