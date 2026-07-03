@@ -1120,6 +1120,37 @@ create_specialized_function_inline :: (
         );
         ai = (ai + usize(1));
       });
+      // Distinguish specializations by the RESOLVED RETURN TYPE when the
+      // declared result mentions a SomeT. A generic type-constructor's
+      // struct-internal static method (HashMap(K,V).with_capacity /
+      // ._alloc_with_capacity / .new — hash_map.yo) is ONE shared FuncVal
+      // across instantiations: no forall_labels carry K/V and the runtime
+      // params don't mention them, so compile-time args + runtime param types
+      // are IDENTICAL for HashMap(usize,String) and HashMap(usize,i32) — the
+      // cache returned the FIRST instantiation's specialization (its concrete
+      // return type baked in) for every later receiver → stage-2
+      // "initializing __yo_tA with __yo_tB" mismatches on Result(HashMap(...)).
+      // TS cannot collide here: its per-instantiation FunctionValue OBJECTS
+      // each carry their own specializedFunctionCaches. The call site DOES
+      // resolve the return per receiver (the caller-side C locals are typed
+      // correctly) — so key the specialization on that resolved return: an
+      // EXTRA COMPILE-TIME cache-key value (+ a sig segment below), NOT a
+      // runtime param (a prior attempt appending self_type to
+      // runtime_param_tys changed C call arity and regressed massively).
+      // GATED on the DECLARED result containing a SomeT, so fns with concrete
+      // declared returns are untouched; for a still-unresolved generic return
+      // the probe stays the same SomeT for every caller (no split).
+      (ret_sig_ty : Option(TypeValue)) = Option(TypeValue).None;
+      {
+        declared_ret := match(func_type,.Func({ result : dr }) => dr, _ => t_unit());
+        ret_probe := cond(
+          (get_all_some_types(declared_ret).len() > usize(0)) =>
+            evaluate_function_return_type_again(declared_ret, callee_env, ctx),
+          true => declared_ret
+        );
+        ret_sig_ty = Option(TypeValue).Some(ret_probe);
+        compile_time_args.push(EvalValue.TypeVal(ret_probe));
+      };
       // ------------------------------------------------------------------
       // Cache lookup
       // ------------------------------------------------------------------
@@ -1139,6 +1170,17 @@ create_specialized_function_inline :: (
           // ------------------------------------------------------------------
           // Compute specialized func_id
           sig := compute_compile_time_signature(func_type, arg_values, callee_env, runtime_param_tys, exn);
+          // Resolved-return segment — must vary exactly when the cache-key
+          // extra value above varies, so distinct receivers get distinct
+          // emitted func_ids (same gate).
+          match(
+            ret_sig_ty,
+            .Some(rt_sig2) => {
+              sig.push_str("_ret_");
+              sig.push_string(sanitize_for_sig(type_key(rt_sig2)));
+            },
+            .None => ()
+          );
           specialized_func_id := if(
             sig.len() > usize(0),
             `${func_id}_${sig}`,
