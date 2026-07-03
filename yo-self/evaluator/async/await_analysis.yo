@@ -103,7 +103,35 @@ _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool
                 .None => false,
                 .Some(oe) => match(
                   oe,
-                  .FnCall(_, _, _, _, _) => false,
+                  // `<recv>.io.await(...)` — the receiver is itself a dot
+                  // access whose MEMBER is the object name (e.g. the effect
+                  // bundle's IO field: `e.io.await(...)`, std/fs/metadata.yo).
+                  // TS's `ioBuiltin` type marker matches these semantically
+                  // (the field's type IS the IO module); the bare-atom-only
+                  // syntactic check missed them, so `e.io.await(statx(...))`
+                  // emitted NO await sequence at all — downstream reads of the
+                  // result produced empty operands `(() < ())` (stage-2
+                  // expected-expression cluster).
+                  .FnCall(_, inner_fb, inner_args, inner_infix, _) => cond(
+                    (inner_infix == false) => false,
+                    (inner_args.len() != usize(2)) => false,
+                    true => match(
+                      inner_fb,
+                      .FnCall(_, _, _, _, _) => false,
+                      .Atom(_, inner_tok) => cond(
+                        (inner_tok.kind != TokenKind.Dot) => false,
+                        true => match(
+                          inner_args.get(usize(1)),
+                          .None => false,
+                          .Some(ime) => match(
+                            ime,
+                            .FnCall(_, _, _, _, _) => false,
+                            .Atom(_, itok) => (itok.value == obj_name)
+                          )
+                        )
+                      )
+                    )
+                  ),
                   .Atom(_, tok) => (tok.value == obj_name)
                 )
               );
