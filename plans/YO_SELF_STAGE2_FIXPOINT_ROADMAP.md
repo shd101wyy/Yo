@@ -1,16 +1,37 @@
 # yo-self stage-2 fixpoint — error-distribution roadmap
 
+**UPDATE (loop-exit drop gate): 741 → 580 errors (−161; commit `47237f3cb`).**
+`_emit_loop_body_drops_before_exit` (atom.yo — the `continue`/`break` drop path) filtered
+drops by ENV-liveness (SOURCE order), not C-emission order. An `x := match(...)`/`cond(...)`
+binding emits its C declaration AFTER the RHS switch, so a `continue`/`break` inside the RHS
+precedes the declaration → the emitted `__yo_decr_rc((void*)(gt))` referenced an undeclared local
+(`gt`/`et`/`res`/…). Fix: gate the drop by `context.base.declared_c_var_names` (the same
+C-emission-order ground truth the committed `_keep_pending_drop`/return.yo early-return fix uses).
+Safe by construction (no C value bound → skipping its drop can't double-free/leak); targeted to
+the loop-exit path ONLY, so it does NOT touch the synth-function drop path that regressed a prior
+blanket attempt. **undeclared 210→49.** Validated corpus 97/97 (DIFF 0 — double-free oracle),
+std 152/152. Session trajectory: 3643 → … → 882 → 741 → 580.
+
+Distribution @ 580: **incompat 210** (type-identity — deep, ~9 approaches exhausted; +35 vs
+pre-module-var from newly-reachable init code), **member-ref 104** (async-fn future SM-struct never
+registered under its return type → void* → `->state`; root located, Phase-5 feature), **undeclared
+49** (now scattered: effect-handler `fn*yo_id**`pointers + a few block-RHS-elided locals`env`/`t`/
+`expr` [[yo-codegen-block-rhs-drops-statements]] + temps — no single dominant cluster), implicit-int
+45 + expected-expression 28 + non-const-initializer 21 (cascade artifacts from malformed functions
+downstream of the incompat/type-identity breakage). Next high-value: incompat 210 (type-identity)
+or member-ref 104 (async future type registration) — both deep.
+
 **UPDATE (module-level-variable emission PORTED): 882 → 741 errors (−141).** Ported the
 deferred module-level mutable-variable subsystem (TS `emitModuleLevelVariableDeclarations` +
 `moduleLevelInitExprs` collection + `collectTypesFromExpr` on init exprs). yo-self codegen
 emitted **0** `static ... // module-level mutable variable` declarations (TS emits 105) — every
 `g_*` module global (`g_evaluate_expression`, `g_method_callee_values`, …) was USED (assigned/
 read) but never DECLARED → the dominant "use of undeclared identifier" class. Fix, faithful to
-src/: (1) evaluator `evaluate_anonymous_module_begin_exprs` (anonymous_module.yo) collects `x :=
+src/: (1) evaluator `evaluate_anonymous_module_begin_exprs` (anonymous*module.yo) collects `x :=
 v` (atom LHS, no comptime value) and `(x : T) = v` (a `:` binding LHS) init exprs into a durable
 `g_module_level_init_exprs` side-table in expr_info.yo — the idiomatic eval→codegen bridge (same
 pattern as g_macro_expansions; the EvalValue enum can't carry TS's `moduleValue.moduleLevelInitExprs`
-field). KEY: the `=` case must key off the LHS _shape_ (`:` binding), NOT `variable.isModuleLevel`
+field). KEY: the `=` case must key off the LHS \_shape* (`:` binding), NOT `variable.isModuleLevel`
 — that flag is false for IMPORTED modules (their body evaluates inside a loader function frame),
 which is why an earlier is_module_level-gated attempt collected only the 8 `:=` globals; (2) codegen
 `emit_module_level_variable_declarations` (generation.yo) emits file-scope `static <type> <cname>;`
