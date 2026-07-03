@@ -1,5 +1,27 @@
 # yo-self stage-2 fixpoint — error-distribution roadmap
 
+**UPDATE (static-method callee fallback fix): 580 → 533 errors (−47; commit `b51624a81`).**
+Traced the dominant incompat cluster to ground truth: the evaluator resolves `Environment.new`
+CORRECTLY (instrumented: recv=Environment sid=struct_20794 fid0=yo_id_20814), but CODEGEN's concrete
+method-call registry FALLBACK (other_fn_call.yo:941) computed the receiver type id from `dm_runtime[0]`
+— the first RUNTIME arg. For a STATIC call `Type.method(args)` the evaluator prepends NO receiver, so
+dm_runtime[0] is the first ARGUMENT (`module_path : String`), giving String's id → the fallback
+resolved `String.new` (0-arg → struct_4014) instead of `Environment.new` → "incompatible type" at ~39
+sites. Fix: compute `tid` from the DOT-RECEIVER (`dmethod_args[0]`) — its ExprInfo value is a `TypeVal`
+for a static call (use inner type), the receiver instance for an instance call (use its type); old
+dm_runtime[0] path kept as the no-ExprInfo fallback. incompat 210→170; `yo_id_4077(module_path)` now 0.
+Validated corpus 97/97 (DIFF 0), std 152/152. Session trajectory: 3643 → … → 882 → 741 → 580 → 533.
+METHOD: property_access NEWDBG instrumentation proved eval was correct → localized to codegen fallback
+receiver-type source (the earlier "record callee in side-table" no-op was because this path reads the
+registry fallback, not g_method_callee_values).
+
+Distribution @ 533: **incompat 170** — now dominated by GENERIC-METHOD specialization collapse (a
+DIFFERENT, deeper mechanism than the static-method fix above): e.g. `yo_id_15707_rtparam0_gs_...`
+specialized fns whose baked return type mismatches the call-site LHS (`enum_3936_usize` etc.) — one
+specialized func serving multiple instantiations, return baked to whichever registered first. Plus
+member-ref 104 (async-fn void\* returns), undeclared 48, implicit-int 45, expected-expression 28,
+non-const-initializer 21. Next: the generic-method specialization return-type collapse (deep).
+
 **INCOMPAT 210 — TRUE ROOT (property-access resolution) + no-op fix attempt (reverted).**
 Confirmed the mis-resolution is UPSTREAM in property-access, not codegen callee lookup or call-eval
 recording. `Environment.new` IS correctly emitted (`yo_id_20814(module_path)->struct_20794*`), but the
