@@ -40,6 +40,34 @@ recursive enums). incompat 300→206→177 (this commit brought it to 206; a lat
 collide (enum recursion omitted to avoid the specialization explosion) — a smaller sub-case.
 Session trajectory: 3643 → 1627 → 1312 → 1189. corpus 97/97, check ./std 152/152.
 
+RESIDUAL type-identity (211 incompat @ 885) — TWO hand-mirror attempts now REVERTED, both made
+incompat WORSE (over-distinguish):
+(1) type_intern_key sig (injective): 1189→1185 total but incompat 177→203.
+(2) `_param_type_sig` enum branch mirroring type_key's structural sig (variant names +
+discriminants + visited-guarded field recursion): built fine (72s, NO explosion — the
+visited guard works), corpus 97/97 + std 152, but incompat 211→258, total 885→937. ROOT of
+the drift: `ref(enum(...))` types (TypeValue/AstExpr) — codegen type_key keys them by ID
+(index.yo:863 `if(e_is_ref, key, {structural})`) and also applies `resolve_enum_shell` +
+the `g_enum_sig_keys` dedup; a partial mirror lacks all three → different merging than
+codegen → extra mismatching func_ids.
+LESSON (now empirically confirmed twice): a partial hand-mirror of type_key DRIFTS and
+over-distinguishes. The ONLY reliable alignment is to make the spec-sig use codegen's ACTUAL
+`type_key`. Direct import is blocked: type_key is NOT exported, and helper.yo↔codegen would
+cycle (`codegen/functions/collection.yo` already imports `create_specialized_function_inline`
+from helper.yo). SO the path is option (a): EXTRACT the type_key cluster into a new shared
+low-level module `yo-self/types/type_key.yo` (types/ is below both layers → no cycle). Cluster
+to move (all currently in codegen/utils/index.yo): `type_key`, `_type_key_at`, `_tk_seen`,
+`_lookup_or_register_enum_sig`, `can_optimize_as_nullable_pointer`, globals `g_tk_visited` /
+`g_struct_cfid_keys` / `g_enum_sig_keys`. Deps it needs: `resolve_enum_shell`/`resolve_struct_shell`
+(already in types/creators.yo) + `type_to_string` (types/string.yo). Then codegen/utils/index.yo
+imports type_key from the new module (re-export for its existing users), and helper.yo's
+`_param_type_sig` becomes `type_key(ty)`. CAUTION: verify `can_optimize_as_nullable_pointer`'s
+own deps don't pull codegen; and the stateful globals will now be populated during the EVALUATOR
+phase (specialization) before codegen — benign IF runtime param types are concrete at spec time
+(they should be) and both phases compute from the same type values (first-registration-wins stays
+consistent). Validate: corpus 97 + std 152 + re-measure incompat (expect a LARGE drop, this is
+the keystone that also unblocks the 266 module-globals port).
+
 RESIDUAL type-identity (177 incompat) — direction (this session eliminated one option): routing
 the sig through `type_intern_key` (types/intern.yo — injective, recursion-safe) was tried: it
 COMPLETES (peak ~7GB, no explosion) but incompat got WORSE (177→203, total only 1189→1185). It
