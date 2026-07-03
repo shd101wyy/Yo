@@ -40,6 +40,21 @@ recursive enums). incompat 300→206→177 (this commit brought it to 206; a lat
 collide (enum recursion omitted to avoid the specialization explosion) — a smaller sub-case.
 Session trajectory: 3643 → 1627 → 1312 → 1189. corpus 97/97, check ./std 152/152.
 
+**CORRECTION (instrumented, TKCHURN=0): the `type_key` def↔use "keystone" UNIFICATION BELOW IS
+DISPROVEN.** I instrumented `type_key`'s cfid-empty→raw-id fallback (`.Struct` branch b) to eprintln
+any generic instantiation (type*args present) that falls to its raw churning id — the supposed
+def↔use leak. Full stage-2 emit: **TKCHURN total = 0.** So NO generic-instantiation struct ever
+churns through the cfid-empty path — `type_key` keys generic structs CONSISTENTLY (they carry cfid
+→ the `gs*<cfid>\_<args>`branch, or the recorded cfid-key). This is why ALL the codegen`type_key`experiments (shared extraction, both additive side-tables) couldn't move incompat and the field one
+regressed: they targeted a NON-problem. The incompat's real root is the EVALUATOR's`with_capacity`
+specialization collapse (one specialized func serving multiple element types, its return baked to
+whichever V registered first) — a genuinely different mechanism. The 7 evaluator cache/sig approaches
+made it WORSE because distinguishing specializations exposed OTHER downstream issues, not because
+type_key was wrong. NET: the incompat is evaluator-side spec identity, type_key is NOT the fix; the
+"567-error unification" was an incorrect inference and is retracted. (member-ref 95 is still the
+separate async future-type-resolution gap; module-globals 266 still gate on generic-instantiation
+identity but via the EVALUATOR spec path, not type_key.) STALE (retracted) unification follows:
+
 **UNIFICATION (this session): 567 of 882 errors share ONE keystone — codegen `type_key`
 def↔use consistency.** Traced member-ref 95 deeper: async.yo:1461-1463 ALREADY registers the
 future's SM struct under `type_key(future_type)` (c_name `${struct_name}*`) for io.async BLOCKS,
