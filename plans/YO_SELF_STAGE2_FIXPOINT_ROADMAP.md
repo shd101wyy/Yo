@@ -1,5 +1,31 @@
 # yo-self stage-2 fixpoint — error-distribution roadmap
 
+**BREAKTHROUGH (struct type_arguments in exact compat): 533 → 399 errors (−134; commit `9e4077300`).**
+The generic-method "specialization collapse" (thought deep/regression-prone) had a CLEAN root fix.
+Concrete: `Iter(usize).next()` reused `Iter(String)`'s specialization (only String's `.next` was
+emitted; its Option(String) return assigned to an Option(usize) var → incompatible). ROOT:
+`are_types_compatible_exact` (the spec-cache runtime-param comparison) never compared struct
+`type_arguments`. yo-self struct `id`s churn across instantiations, so `Iter(usize)`/`Iter(String)`
+share a base id AND their `field_types` are the generic placeholder (`SomeT(T)` in both) — so BOTH the
+`(aid==eid)` shortcut and the structural field comparison matched. The ONLY distinguisher is the
+concrete `type_arguments` ([usize] vs [String]), which the exact `.Struct` arm ignored. FIX
+(compatibility.yo): before the id/field checks in the exact struct path, return false when both structs
+carry non-empty `type_arguments` of equal length and some arg is exact-incompatible (recur, require_exact);
+same-args falls through unchanged (non-generic/identical untouched). **incompat 170→46.** Validated
+corpus 97/97 (DIFF 0), std 152/152. LESSON: the prior "distinguishing more regresses" results were about
+the WRONG distinguisher (are_types_compatible_exact wholesale, type_key, base-id) — the RIGHT one
+(concrete type_arguments) is sound and clean. METHOD: traced via emitted C — both `gs_15687_usize` and
+`gs_15687_struct_4014` structs exist (distinct), `.iter()` returns usize correctly, but only String's
+`.next` specialization was emitted → the cache equated the two receivers → type_arguments were the gap.
+Session trajectory: 3643 → … → 882 → 741 → 580 → 533 → 399 (−483 this session, ~55%).
+
+Distribution @ 399: **member-ref 104** (async-fn void\* returns — now the biggest; SM struct registered
+under io.async-block SomeT id not fn-return SomeT id, see below), incompat 46 (was 170; residual
+generic/type-identity), implicit-int 45 + expected-expression 28 + non-const-initializer 21 + K&R-param
+19 + expected-identifier 17 (~130 SYNTAX CASCADES from malformed functions — should largely clear once
+member-ref/incompat roots are fixed), undeclared 44 (block-RHS-elided locals + effect-handler fn ptrs).
+Next high-value: member-ref 104 (async SM-struct SomeT-id registration).
+
 **UPDATE (static-method callee fallback fix): 580 → 533 errors (−47; commit `b51624a81`).**
 Traced the dominant incompat cluster to ground truth: the evaluator resolves `Environment.new`
 CORRECTLY (instrumented: recv=Environment sid=struct_20794 fid0=yo_id_20814), but CODEGEN's concrete
