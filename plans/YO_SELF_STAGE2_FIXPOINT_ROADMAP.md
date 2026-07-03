@@ -49,10 +49,18 @@ Session trajectory: 3643 → 1627 → 1312 → 1189. corpus 97/97, check ./std 1
   (await.yo:413-414) emits `${future_type_name} __sync_future = ...; ...->state`, but
   `future_type_name = get_type_string(future_type)` resolves to `void*` because the async fn
   (e.g. `yo_id_6900`) returns `void*` instead of its concrete Future state-machine struct — the
-  Phase-5 async SM-struct-TYPE-resolution gap (get_type_string's Future/SomeType async case falls
-  back to void* / the SM struct isn't registered under this future's type). `->state` /
-  `->__yo_resume_fn` on `void*` = the 95 errors. Independent of type-identity; a Phase-5 async
-  codegen fix (resolve the awaited future's type to its registered SM struct).
+  Phase-5 async SM-struct-TYPE-resolution gap. `->state`/`->__yo_resume_fn` on `void*` = the 95
+  errors. Independent of type-identity. ROOT LOCATED (this session): `get_type_string`'s SomeT arm
+  (index.yo:775-790) tries `lookup_some_resolved_concrete(sid)` then `get_type_c_name(type_key(t))`
+  → both MISS → void\*. WHY they miss: the only `register_some_resolved_concrete` in async codegen
+  (async.yo:2064) registers the io.async block's OUTPUT type, NOT the future's SM struct; and async
+  FUNCTIONS (vs io.async blocks — which do get `io_async_block_..._sync_fut_t` structs) never
+  register an SM struct under their future return type at all. NO clean local cast (the generic
+  `__yo_future_generic_t` uses field `resume_fn`, but the emitted code + concrete SM structs use
+  `__yo_resume_fn` — different names). FIX = register each async function's SM struct in
+  `context.types` under `type_key(future_return_type)` (and/or `register_some_resolved_concrete`
+  under the future SomeT id) during the async pre-pass, so get_type_string resolves it. Substantial
+  Phase-5 feature (async-fn SM-struct emission + type registration), not localized.
 - **undeclared 409** = 266 `g_*` module-globals (module-var port, gated on type-identity) + 92
   local + 39 temp stragglers (scope-end/synthesized-fn drop path, see
   [[yo-self-stage2-drop-emission-order]] ABANDONED extension) + 15 `fn_yo_id` effect-handler
