@@ -21,7 +21,8 @@ open(import("std/string"));
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
-  expr_info_table_set
+  expr_info_table_set,
+  record_macro_expansion
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -164,6 +165,13 @@ try_to_convert_to_pointer_type :: (
   expr_info_table_set(ctx.expr_info_table, fresh_id, yo_as_info);
   out_info := new_expr_info(env, target_type);
   out_info.value =.None;
+  // ALSO record in the durable id-keyed side-table: a later eval pass (e.g.
+  // a cond-arm re-eval or branch-merge trial) can overwrite this expr's
+  // ExprInfo WITHOUT macro_expansion, losing the lowering — codegen then
+  // FTTs the conversion (`u32(n)`/`i32(perm.mode)` in arm-result position,
+  // the stage-2 conversion cluster). Same durable-table pattern as the
+  // if-macro fix (see record_macro_expansion / lookup_macro_expansion).
+  record_macro_expansion(ast_expr_id(expr), yo_as_node.clone());
   out_info.macro_expansion = Option(AstExpr).Some(yo_as_node);
   expr_info_table_set(ctx.expr_info_table, orig_id, out_info);
   .Some(expr)
