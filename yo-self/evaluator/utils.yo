@@ -873,39 +873,29 @@ merge_and_check_envs :: (
           if((frame_i != max_frame_level) && (case_vars_len != base_vars_len), {
             cond(
               (case_vars_len > base_vars_len) => {
-                // Check whether all extra variables are temp variables.
-                (all_temps : bool) = true;
-                (ek : usize) = base_vars_len;
-                while(ek < case_vars_len, {
-                  extra_var := match(case_frame.variables.get(ek),.Some(v) => v,.None => make_err_variable(env));
-                  if(!(is_temp_variable_name(env.module_path, extra_var.name)), {
-                    all_temps = false;
-                  });
-                  ek = (ek + usize(1));
-                });
-                if(all_temps, {
-                  // Adopt extra temps into the base env frame. Adopted temps
-                  // must NOT own RC values (each branch handles its own drops).
-                  (ek2 : usize) = base_vars_len;
-                  while(ek2 < case_vars_len, {
-                    extra_var2 := match(case_frame.variables.get(ek2),.Some(v) => v,.None => make_err_variable(env));
+                // Adopt extra TEMP variables into the base env frame (adopted
+                // temps must NOT own RC values — each branch handles its own
+                // drops); SKIP extra non-temp variables instead of rejecting.
+                // A non-temp extra is an ARM-LOCAL binding that yo-self's
+                // per-arm frame accounting placed in a non-innermost frame —
+                // sibling arms legitimately don't have it, and TS has no such
+                // count check at all (case locals pop with their frames). The
+                // previous all-or-nothing throw ("Frame level N has different
+                // number of values for different cases", no TS counterpart)
+                // rejected big match-bodied fns during def-eval and left their
+                // WHOLE bodies unstamped (the 16-FTT stage-2 cluster in
+                // yo_id_264770/yo_id_360923). Third relaxation of this merge —
+                // see [[yo-self-branch-merge-trivial-arm]] for the first two.
+                (ek2 : usize) = base_vars_len;
+                while(ek2 < case_vars_len, {
+                  extra_var2 := match(case_frame.variables.get(ek2),.Some(v) => v,.None => make_err_variable(env));
+                  if(is_temp_variable_name(env.module_path, extra_var2.name), {
                     extra_var2.is_owning_the_rc_value = false;
                     {
                       frame.variables.push(extra_var2);
                     };
-                    ek2 = (ek2 + usize(1));
                   });
-                }, {
-                  exn.throw(
-                    dyn(
-                      format_error_message(
-                        ast_expr_token(match(bodies.get(cj),.Some(b) => b,.None => make_err_expr())),
-                        `Frame level ${frame_i} has different number of values for different cases.`,
-                        false,
-                        .None
-                      )
-                    )
-                  );
+                  ek2 = (ek2 + usize(1));
                 });
               },
               // case_vars_len < base_vars_len: this case env is SHORTER than the
