@@ -302,3 +302,30 @@ closure return type is the FSM `result` slot); may resolve once A lands. **Verif
 5. Scattered (~8) — triage last.
 
 Fixing A + B alone would take 133 → ~31 (a 77% cut) if each root resolves cleanly.
+
+---
+
+## Session 2026-07-04 (cont.) — async family LANDED; drain state at 131
+
+**Committed sequence:** 133 → 123 (Family B) → **semantic milestone** (`2fddf6137`: awaits
+restored — L1 body_eval_env T/E bind + property_access SomeT-receiver resolve + L2 single-extraction
+body pass-through + L3 `IO_ASYNC_FSM_ENABLED :: false` gate; the FSM path panics in generate_atom's
+Phase-5 SM-variable stub and had NEVER succeeded in stage-2 — measure emits with EXIT CODES, stale
+.c files produced two phantom "237" readings) → 164 → 139 (`50c4dac33`: async return-override
+registration pre-pass ×2 rounds + delegate-fallback cascade + preregister/dispatcher naming
+coherence) → **131** (`a9fa797ed`: unregistered extern futures lower to `__yo_io_future_t*` per TS
+utils/index.ts:615). All steps corpus PASS 98 DIFF 0 + std 152/152.
+
+**Remaining 131 = mapped clusters:**
+
+- ~53 downstream of **61 FTT def-eval holes across just 18 fns** (25 expected-expr + 28 undeclared
+  identifiers). Swallow map (via `_trial_eval_anon_body` handler eprintln — the ANONSW technique):
+  - 7× `Cannot cast unit to *(u8)` at `buf := *(u8)(malloc(buf_size).unwrap())` — malloc().unwrap()
+    yields UNIT **only in the `(e)`-param closures** (command.yo:206, metadata.yo:112) while the
+    IDENTICAL line in `(io)`-param closures (file.yo is_file) evaluates fine → eval-order/cache-
+    dependent `Option(*(void)).unwrap` resolution (the comptime-fn/specialization cache-collision
+    class). NEXT TARGET.
+  - 4× `evaluate_function_call: arg not evaluated`; singles: `(out_fd &+ usize(0)).*` deref,
+    `__yo_expr_to_string` expr-arg, usize/unit unify.
+- ~43 type-mismatches = Family C (lossy type_key on nested generics) — deep/systemic.
+- 2 residual void->state; ~8 scattered.
