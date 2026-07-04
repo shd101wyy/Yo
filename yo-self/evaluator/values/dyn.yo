@@ -110,6 +110,43 @@ _unwrap_box_for_method_lookup :: (fn(t : TypeValue) -> TypeValue)({
   });
   result
 });
+/// Monomorphize a trait `?=`-default method FuncVal to a concrete receiver.
+/// The registered default is GENERIC over `Self` (e.g. `Error.source ?= (self)
+/// -> .None`, typed `fn(inout(self):Self) -> Option(Dyn(SelfTrait))`); codegen
+/// skips its generic body (→ undeclared dyn wrapper `fn_..._source`, the stage-2
+/// Error.source cluster). Route it through `create_specialized_function_inline`
+/// with `ctx.self_type = value_type` so `Self` in the body/return resolves to the
+/// receiver, producing a concrete, collectable FuncVal with a per-type func_id.
+/// Applied whenever the resolved field value IS the trait default (matched by
+/// func_id) — the impl.yo default-fill registers the RAW generic default in the
+/// type-trait-method registry, so it is found via exact/by_label here, not only
+/// via the get_trait_default fall-through. Returns `fv` unchanged when it is not
+/// a FuncVal or not the default.
+_monomorphize_default_fv :: (
+  fn(fv : EvalValue, default_fid : String, value_type : TypeValue, caller_env : Environment, ctx : EvalContext, exn : Exception) -> EvalValue
+)(
+  cond(
+    !(is_func_val(fv)) => fv,
+    (default_fid == String.new()) => fv,
+    match(fv,.FuncVal(__mfv, _) => (__mfv.*.func_id == default_fid), _ => false) => {
+      default_ft := get_func_type(default_fid.clone());
+      self_args := ArrayList(ArgEntry).new();
+      _sa := self_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : value_type.clone(), arg_type : value_type.clone()));
+      spec_argvals := ArgValues(
+        forall_args : ArrayList(ArgEntry).new(),
+        args : self_args,
+        implicit_args : Option(ArrayList(ArgEntry)).None,
+        variadic_args : ArrayList(VarArgEntry).new()
+      );
+      saved_self_ty := ctx.self_type;
+      ctx.self_type = Option(TypeValue).Some(value_type.clone());
+      spec_fv := create_specialized_function_inline(fv, default_ft, spec_argvals, caller_env, caller_env, ctx, exn);
+      ctx.self_type = saved_self_ty;
+      spec_fv
+    },
+    true => fv
+  )
+);
 _resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue, ctx : EvalContext, caller_env : Environment, exn : Exception) -> ArrayList(EvalValue))({
   trait_vals := ArrayList(EvalValue).new();
   // Resolve trait methods on the UNDERLYING type when the payload is a Box.
@@ -173,31 +210,24 @@ _resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue, c
                 // resolves to the receiver), producing a concrete, collectable
                 // FuncVal. Falls back to the raw default if specialization is not
                 // possible.
+                // The trait's `?=` default func_id — used to detect (and
+                // monomorphize) a generic default whether it was found via the
+                // registry (exact/by_label, because impl.yo fills the raw default
+                // there) or via the get_trait_default fall-through.
+                default_fid_for_field := match(
+                  get_trait_default(trait_id.clone(), fname.clone()),
+                  .Some(dfv) => if(is_func_val(dfv), match(dfv,.FuncVal(__dfvd, _) => __dfvd.*.func_id.clone(), _ => String.new()), String.new()),
+                  .None => String.new()
+                );
                 resolved_field := match(
                   exact,
-                  .Some(v) => Option(EvalValue).Some(v),
+                  .Some(v) => Option(EvalValue).Some(_monomorphize_default_fv(v, default_fid_for_field.clone(), value_type.clone(), caller_env, ctx, exn)),
                   .None => match(
                     by_label,
-                    .Some(bv) => Option(EvalValue).Some(bv),
+                    .Some(bv) => Option(EvalValue).Some(_monomorphize_default_fv(bv, default_fid_for_field.clone(), value_type.clone(), caller_env, ctx, exn)),
                     .None => match(
                       get_trait_default(trait_id.clone(), fname.clone()),
-                      .Some(default_fv) => if(is_func_val(default_fv), {
-                        default_fid := match(default_fv,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.new());
-                        default_ft := get_func_type(default_fid.clone());
-                        self_args := ArrayList(ArgEntry).new();
-                        _sa := self_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : value_type.clone(), arg_type : value_type.clone()));
-                        spec_argvals := ArgValues(
-                          forall_args : ArrayList(ArgEntry).new(),
-                          args : self_args,
-                          implicit_args : Option(ArrayList(ArgEntry)).None,
-                          variadic_args : ArrayList(VarArgEntry).new()
-                        );
-                        saved_self_ty := ctx.self_type;
-                        ctx.self_type = Option(TypeValue).Some(value_type.clone());
-                        spec_fv := create_specialized_function_inline(default_fv, default_ft, spec_argvals, caller_env, caller_env, ctx, exn);
-                        ctx.self_type = saved_self_ty;
-                        Option(EvalValue).Some(spec_fv)
-                      }, Option(EvalValue).Some(default_fv)),
+                      .Some(default_fv) => Option(EvalValue).Some(_monomorphize_default_fv(default_fv, default_fid_for_field.clone(), value_type.clone(), caller_env, ctx, exn)),
                       .None => Option(EvalValue).None
                     )
                   )

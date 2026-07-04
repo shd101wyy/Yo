@@ -170,6 +170,22 @@ consult `lookup_some_resolved_concrete`). All 5 localized attempts reverted; bas
 
 ---
 
+## Family B — Error.source trait-default fn not emitted (10 errors) — ✅ RESOLVED (2026-07-04)
+
+**Fixed.** Stage-2 **133 → 123** (−10), corpus 97→98 (PASS 98 DIFF 0), std 152/152, zero regressions.
+Root: `_resolve_dyn_trait_values` (evaluator/values/dyn.yo) only monomorphized the `source`
+trait-default when it fell through to the `get_trait_default` branch — but impl.yo's default-fill
+(dd7b0a78b) registers the RAW generic default in the type-trait-method registry, so it was found
+first via `exact`/`by_label` and used un-specialized (the shared generic func*id → hard-generic →
+codegen skips its body → dyn wrapper `\_\_yo_wrap*..._source`references an undeclared`fn_...\_source`).
+Fix: extracted `\_monomorphize_default_fv(fv, default_fid, value_type, …)`and applied it to the
+resolved field from ALL THREE sources (exact/by_label/default) — it specializes via`create_specialized_function_inline`with`ctx.self_type = value_type`iff the value's func_id equals
+the trait default's (so real overrides are untouched). Regression test:`tests/codegen-bootstrap/dyn_error_source_default.yo`.
+
+---
+
+### (original analysis)
+
 ## Family B — Error.source trait-default fn not emitted (10 errors)
 
 **Root:** the dyn-wrapper functions for the `Error` trait's `source()` method all call
