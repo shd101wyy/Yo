@@ -671,6 +671,37 @@ _lookup_named_c_type :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
 /// DIVERGENCE: TS's `type.isExtern && type.externName` early return is
 /// omitted (Gap 3 — yo-self models is_extern only on Func; extern-C struct
 /// types are a later-phase concern).
+/// Local Future check for the SomeT `get_type_string` fallback: true iff the
+/// SomeT's required traits contain a `FutureTraitT` (the SomeT shape of
+/// `Impl(Future(T, E))`). Kept local so this foundational module does not
+/// import the evaluator's trait_checking.
+_some_t_requires_future :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .SomeT({ required_trait_types : rtts }) => {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      n := rtts.len();
+      while((i < n) && !(found), {
+        match(
+          rtts.get(i),
+          .Some(rt) => match(
+            rt,
+            .FutureTraitT(_, _, _, _, _) => {
+              found = true;
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => false
+  )
+);
+
 get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
   match(
     t,
@@ -785,7 +816,21 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
         match(
           context.get_type_c_name(type_key(t)),
           .Some(cn) => cn,
-          .None => String.from("void*")
+          // A FUTURE-implementing SomeType with no registration is an
+          // unregistered EXTERN future (an async-runtime extern like
+          // `__yo_async_waitpid_start` returns the generic runtime future) —
+          // lower it to `__yo_io_future_t*`, not `void*`, so wrapper fns and
+          // sync-await polling sites read `->state`/`->result` on the real
+          // struct. Mirrors TS getTypeString case 3 (utils/index.ts:615:
+          // "Fallback - use __yo_io_future_t for unregistered extern
+          // futures"). The Future check is local (required_trait_types
+          // contains a FutureTraitT) to keep this foundational module free of
+          // evaluator imports.
+          .None => if(
+            _some_t_requires_future(t),
+            String.from("__yo_io_future_t*"),
+            String.from("void*")
+          )
         )
       )
     ),
