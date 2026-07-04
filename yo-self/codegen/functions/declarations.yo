@@ -522,11 +522,19 @@ _async_override_return_type :: (
         },
         .None => match(
           context.get_expr_info(b),
-          .Some(ei) => if(
-            is_some_type(ei.ty) && type_implements_future(ei.ty),
-            Option(String).Some(get_type_string(ei.ty, context)),
-            Option(String).None
-          ),
+          .Some(ei) => if(is_some_type(ei.ty) && type_implements_future(ei.ty), {
+            // DELEGATE fallback (fn returns another async fn's future; no own
+            // block): the body's future C name resolves through the CALLEE's
+            // block_sn registration above. When it resolves concretely, also
+            // register THIS fn's return key → the same struct, so a further
+            // delegate (a delegate-of-a-delegate) and this fn's own callers
+            // resolve too (see _preregister_async_return_overrides).
+            del_s := get_type_string(ei.ty, context);
+            if(!(del_s == String.from("void*")), {
+              context.register_type(type_key(ret), ret, del_s.clone(), Option(String).None);
+            });
+            Option(String).Some(del_s)
+          }, Option(String).None),
           .None => Option(String).None
         )
       )
@@ -660,6 +668,42 @@ generate_function_declarations :: (fn(context : CodeGenContext) -> unit)({
   em.emit_declaration_line("/// Dyn type constructors");
   em.emit_declaration_line("");
   em.emit_declaration_line("/// Regular functions");
+  // Registration-only pre-pass: compute the async return-type override for
+  // every Future-returning fn BEFORE emitting any prototype. The override's
+  // block_sn path registers `type_key(fn.ret) → <block>_(state|sync_fut)_t*`,
+  // which a DELEGATE's declaration (fn returning another async fn's future
+  // with no block of its own) needs to resolve its own return C type — the
+  // single emission loop resolved delegates only when the callee happened to
+  // iterate first (HashMap order), else the prototype degraded to `void*`
+  // while the definition (emitted after callee bodies) said the struct type:
+  // the stage-2 `void*->state` cluster. Two rounds cover delegate chains of
+  // depth 2 (the fallback registration above cascades one hop per round).
+  (aro_round : usize) = usize(0);
+  while(aro_round < usize(2), {
+    aro_keys := context.functions.keys();
+    (aro_go : bool) = true;
+    while(aro_go, {
+      match(
+        aro_keys.next(),
+        .Some(aro_fid) => match(
+          context.get_function_entry(aro_fid.clone()),
+          .Some(aro_entry) => {
+            aro_ft := get_func_type(aro_fid.clone());
+            aro_ret := _func_result_type(aro_ft);
+            if(type_implements_future(aro_ret) && !(should_skip_function_codegen(aro_fid.clone(), aro_entry.c_name.clone(), aro_entry.value, context)), {
+              aro_body := if(is_effect_record_member(aro_fid.clone()), Option(AstExpr).None, _func_value_body(aro_entry.value));
+              _aro := _async_override_return_type(aro_ft, aro_body, context);
+            });
+          },
+          .None => ()
+        ),
+        .None => {
+          aro_go = false;
+        }
+      );
+    });
+    aro_round = (aro_round + usize(1));
+  });
   // Iterate functions by id so the exported-linkage predicate (keyed by func_id)
   // matches generate_function exactly.
   keys := context.functions.keys();

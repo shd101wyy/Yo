@@ -1927,7 +1927,13 @@ preregister_async_blocks_in_expr :: (fn(expr : AstExpr, context : FunctionGenera
                 p
               }
             );
-            has_await_analysis := io_async_await_analysis(expr, context).is_some();
+            // Must mirror the dispatcher's routing decision (generation.yo):
+            // FSM (_state_t) only when the FSM path is enabled AND analysis
+            // exists — else the sync-future (_sync_fut_t) name. A mismatch
+            // (preregister says _state_t, body emits _sync_fut_t) makes every
+            // declaration-time return-type lookup miss or point at a struct
+            // that is never defined.
+            has_await_analysis := (IO_ASYNC_FSM_ENABLED && (io_async_await_analysis(expr, context).is_some()));
             struct_name := if(has_await_analysis, `${async_block_id}_state_t`, `${async_block_id}_sync_fut_t`);
             kind_label := if(has_await_analysis, String.from("state machine"), String.from("sync future"));
             _set_async_sm_struct_name(expr, struct_name.clone(), context);
