@@ -329,3 +329,24 @@ utils/index.ts:615). All steps corpus PASS 98 DIFF 0 + std 152/152.
     `__yo_expr_to_string` expr-arg, usize/unit unify.
 - ~43 type-mismatches = Family C (lossy type_key on nested generics) — deep/systemic.
 - 2 residual void->state; ~8 scattered.
+
+## Drain progress: 131 → 127 (`244c6a812`) — T-shadowing root closed
+
+The 7× `Cannot cast unit` cluster root: the L1 fix bound the io.async forall **T** (future
+output) by NAME into the closure body env, shadowing every `forall(T)` generic the body calls
+(`malloc(n).unwrap()` → unwrap's T resolved to the future output → unify fail → unit → cast
+throw poisoned whole bodies). Fix: bind only **E**. FTT holes 61 → 32. Regression test:
+`tests/codegen-bootstrap/io_async_closure_generic_method.yo`. Repro method: 90s fixme.yo loop
+against the ANONSW-instrumented debug binary; plain-fn-vs-closure A/B isolated the ctx.
+
+**Remaining 32 FTTs across 13 fns (~30 real; 2 are yo-self source strings containing the
+marker text):**
+
+- `yo_id_264770` (10) + `yo_id_360923` (6): yo-self's own evaluator/codegen fns; first FTT at a
+  big `x := match(expr_info_table_get(...), …)` binding — PLAIN-fn def-eval throws; instrument
+  the fn-body trial swallow (function_type.yo) the same way as ANONSW to map them.
+- int-conversion-in-arm cluster (5 fns × 1): `usize(n)` / `i32(perm.mode)` / `i64(i)` / `u32(b1)`
+  in cond/match ARM-result position fails def-eval.
+- `e.exn` effect-bundle cluster (closures 7144/7072/6521, 6): `e.exn.throw(dyn(...))` /
+  `IoError.check(x, e.exn)` — the bundle's ctl-handler FIELD usage.
+- `argv(i + usize(1))` index-call single.
