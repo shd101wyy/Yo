@@ -118,7 +118,22 @@ T/E forall pre-binding + `is_inside_io_async_call` + closure-arg eval + await re
 refinement/stamping in the unknown-callee case too. This is the faithful equivalent of TS's
 type-marker dispatch (which is value-independent).
 
-**Regression traps (both verified this session):**
+**Attempt 3 (structural prebind — fires correctly but insufficient):** hoisted a structural
+`_prebind_io_async_forall` to the TOP of `evaluate_function_call` (fires regardless of callee-value
+kind). Verified it now **fires for is_file/exists with the correct `T=bool, E=Io`** (30 hits,
+fs/process included). But stage-2 stayed at ~133 and awaits still dropped, because it binds `T`/`E`
+as **env VARIABLES** (a faithful port of TS helper.ts:1314's `addVariableToEnv`) — and yo-self's
+closure param type is **inferred from the expected FnTrait as a SomeType OBJECT**, not an atom that
+looks up `env`. So the env var binding never reaches the closure's `io : E` param.
+
+**Remaining piece (the actual mechanism yo-self needs):** resolve the closure's E **SomeType** to
+concrete via `register_some_resolved_concrete(E_someType_id, Io)` — the yo-self-native equivalent of
+TS setting `eSomeType.resolvedConcreteType = bundleType` (function.ts:2181). Requires extracting the
+E SomeType id from the io.async callee's 2nd param type (`Impl(Fn(e : E) -> T)`) and confirming the
+closure-param inference path consults `lookup_some_resolved_concrete`. The env var-binding (attempt 3)
+is a real missing port but is NOT the operative mechanism for these closures; it was reverted (neutral).
+
+**Regression traps (all verified this session):**
 
 - An unguarded `.None`-arm io.await result synth (guarded only on `is_io_await_call && args>=1`)
   → **314 errors** (`awaits: 279` vs 148): over-fired and drove a malformed sync-await emission.
