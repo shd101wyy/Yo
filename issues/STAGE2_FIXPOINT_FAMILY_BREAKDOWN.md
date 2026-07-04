@@ -34,8 +34,8 @@ downstream symptoms (below), not 92 independent bugs.
 
 **Root:** the `io.async` closure's await metadata does not reach the codegen-read closure.
 `register_closure_await_analysis` is keyed by a `func_id`, but the closure is evaluated
-more than once (def-time body eval + codegen-prep) and each eval mints a **fresh** func_id;
-the codegen-read closure is a _clone_ evaluated without `is_inside_io_async_call`. When the
+more than once (def-time body eval + codegen-prep) and each eval mints a **fresh** func*id;
+the codegen-read closure is a \_clone* evaluated without `is_inside_io_async_call`. When the
 analysis lands under a func_id the codegen closure does not share, codegen sees
 `io_async_await_analysis == None` and takes the **sync path instead of the FSM path TS takes**
 — and on that sync path the `result := io.await(...)` statement is dropped (the LHS binding
@@ -71,16 +71,61 @@ Worst single function: `closure_yo_id_7629` — **18 errors** (an await-in-`whil
 dropped await → undefined `result`/`buf` → missing-type-specifier on the loop label,
 double `__yo_free`, then a structural brace error as the malformed body unwinds).
 
-**Fix direction:** make the await analysis + refined closure return type reach the
-codegen-read closure regardless of func_id churn — either (a) restore
-`is_inside_io_async_call` on the sticky `mark_closure_for_codegen` re-eval so the await
-resolves to concrete during the eval codegen reads, or (b) key the await-analysis side-table
-by something stable across the clone (the closure's _source_ expr identity, not the minted
-func_id). (a) is closest to the TS model (TS keys await handling on the field/`ioBuiltin`
-type, which the receiver value doesn't gate). Attempts to synthesize the await result on the
-eval `.None` fallback path REGRESSED to 314 (over-triggers + drives a malformed sync-await
-emission) — do not repeat; the fix belongs at the analysis-dispatch level, not the await-eval
-fallback.
+### CONFIRMED ROOT (2026-07-04, decisive probe)
+
+It is **not** a func_id side-table keying problem. Instrumenting the analyzer and the eval
+stamping site proved:
+
+- `analyze_await_points` **detects all 33** awaits structurally (`is_io_await_call` matches).
+- But `get_info(await_arg)` returns **None for all 33** → the future arg's `ExprInfo` was
+  never stamped → no typed suspension point → `has_awaits=false` → sync path → dropped.
+- The io.await **stamping** branch (`evaluate_function_call`, the `.Some` callee-value arm)
+  fires **0 times** for any fs/process closure (17 hits, all in main.yo with a concrete `io`).
+
+**Why:** inside `io.async((io) => { … io.await(fut, io) … })`, the closure's `io` parameter
+is the async **bundle SomeT param — it has a TYPE but no runtime VALUE at def-time**. So the
+`io.await` callee (property-access `io.await`, resolved from the `Io` struct's
+`await : __yo_io_await` field) resolves to **no value**, and `evaluate_function_call` takes
+the **`.None` (no-callee-value) arm**, which has no io.await handling — it soft-falls, never
+evaluating/stamping the future arg. TS avoids this entirely: it resolves `.await` from the
+field's `ioBuiltin` **type** marker (no value needed), so the arg is always typed.
+
+### FINAL ROOT (2026-07-04, corrected — the real one)
+
+The Phase-5 io.async/io.await machinery in `evaluate_function_call` lives entirely inside the
+**`.Some(callee_value)` FuncVal arm** (the `is_io_async_call` guard that sets
+`is_inside_io_async_call`, and the `is_io_await_call` result-refinement/stamping). Instrumenting
+that guard proved it fires **0 times** for any std/fs/process function.
+
+**Why:** in `io.async((io) => { … io.await(fut, io) … })` inside e.g.
+`is_file :: (fn(path, io : Io) -> Impl(Future(bool, Io)))(io.async(…))`, the **outer** `io`
+is `is_file`'s own **value-less `io : Io` param** at definition time. Property-access `io.async`
+(and inside the closure, `io.await`) is resolved by property_access.yo:821 (field-on-struct on a
+value-less receiver) to an **`UnknownVal` of the builtin's fn type — NOT a `FuncVal`**. So in
+`evaluate_function_call` the callee value is not a `FuncVal`; the `.Some`-FuncVal arm is skipped,
+and the entire structural io.async/io.await handling (T/E forall binding, `is_inside_io_async_call`,
+await stamping) **never runs** for these functions. The closure body is still def-evaluated (so
+`analyze_await_points` runs — `AWREG` fired), but with no T/E context and no await stamping, so
+`get_info(await_arg)=None` → `has_awaits=false` → sync path → await dropped.
+
+TS never hits this: `io.async`/`io.await` dispatch on the field type's **`ioBuiltin` marker**
+(no runtime value needed), so a value-less `io` param is fine.
+
+**Fix direction (final):** hoist yo-self's io.async / io.await handling so it fires
+**structurally** (`is_io_async_call(expr)` / `is_io_await_call(expr)`) in `evaluate_function_call`
+**regardless of whether the callee resolved to a `FuncVal` or an `UnknownVal`** — i.e. run the
+T/E forall pre-binding + `is_inside_io_async_call` + closure-arg eval + await result
+refinement/stamping in the unknown-callee case too. This is the faithful equivalent of TS's
+type-marker dispatch (which is value-independent).
+
+**Regression traps (both verified this session):**
+
+- An unguarded `.None`-arm io.await result synth (guarded only on `is_io_await_call && args>=1`)
+  → **314 errors** (`awaits: 279` vs 148): over-fired and drove a malformed sync-await emission.
+- Pre-binding `forall(T,E)` inside the `.Some`-FuncVal arm → **no effect** (that arm never runs
+  for these functions; `IOG`/`IOASYNC` probes = 0 hits).
+  Any real fix must be the structural hoist above AND must confirm the FSM path emits valid C for
+  these specific closures (the earlier malformed statx call had a truncated operand list).
 
 ---
 
