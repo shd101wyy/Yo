@@ -350,3 +350,27 @@ marker text):**
 - `e.exn` effect-bundle cluster (closures 7144/7072/6521, 6): `e.exn.throw(dyn(...))` /
   `IoError.check(x, e.exn)` — the bundle's ctl-handler FIELD usage.
 - `argv(i + usize(1))` index-call single.
+
+## Drain progress: 122 committed (`eab0dd082`) — bundle-field-arg cluster mapped, not landed
+
+FTT 61 → 10 across the session. The remaining ~8 real FTTs:
+
+**`e.<field>`-as-ARG cluster (~6, the dominant tail):** ANY bundle field access used as a fn
+argument (`IoError.check(n, e.exn)`, `gio(e.io)`) fails with `evaluate_function_call: arg not
+evaluated` — property access on the closure's bundle param leaves the node UNSTAMPED. `e.io.await`
+works only because awaits are handled structurally. PADBG probe: the runtime field branch IS
+reached with obj info but **`base_ty=E` (unresolved SomeT)** — `get_value_of_some_type_from_env`
+does not resolve E despite the L1 concrete binding, because `_do_chain_resolve`
+(types/env_lookup.yo) requires `_was_self_bound` — a PRIOR self-marker binding
+(`E → TypeVal(the param's own E SomeT)`) as ownership proof before accepting a concrete rebind.
+Adding the marker binding (from param_types' E SomeT) STILL left base_ty=E — suspect
+`_chain_resolve`'s definition-frame-level FAST PATH returns before consulting the env bindings
+(unverified). Minimal repro: `io.async((e) => { a := gio(e.io); x := e.exn; a })` in fixme.yo
+with the ANONSW/PADBG debug binary (90s loop). NEXT: verify the fast path, or bypass
+name-chain-resolution entirely by resolving the closure param SomeT at BIND time (param loop) via
+the same marker+concrete pair, or stamp `e.<field>` from the L1-known bundle type directly in
+property_access when the receiver is the marked closure's bundle param.
+
+**Singles:** `argv(i + usize(1))` index-call (yo_id_401428); closure 7123's cond-return.
+
+Remaining 122 ≈ 8-FTT tail + ~43 Family-C type-mismatches (lossy type_key, deep) + scattered.
