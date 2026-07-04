@@ -133,6 +133,32 @@ E SomeType id from the io.async callee's 2nd param type (`Impl(Fn(e : E) -> T)`)
 closure-param inference path consults `lookup_some_resolved_concrete`. The env var-binding (attempt 3)
 is a real missing port but is NOT the operative mechanism for these closures; it was reverted (neutral).
 
+**Attempt 5 (bind into body-eval env + resolve param SomeType by name — the decisive one):**
+Confirmed via `[PARAMTY]` probe that the closure param is a **SomeType uniformly named `"E"`**
+(id per-closure, e.g. 1739). Re-applied the structural call-site prebind of `E→concrete` AND
+added a param-loop resolution (`get_value_of_some_type_from_env(env, rp_ty)` before binding) in
+`anonymous_function.yo`. Still 136, no awaits recovered. The `[PARAMRES]` probe showed why:
+
+```
+19×  pname=e  rp_ty=E  resolved=E      E_in_env=1
+ 8×  pname=e  rp_ty=E  resolved=IoExn  E_in_env=1
+ 3×  pname=io rp_ty=E  resolved=E      E_in_env=1   ← the is_file/statx cases
+```
+
+`E_in_env=1` is the **original forall-E binding, NOT the call-site prebind** — the closure's
+param-loop `env` is a **different env instance** than `evaluate_function_call`'s `env` where the
+prebind ran, so the concrete `E→Io` binding never reaches it. The 8 `IoExn` successes resolve on
+their own (normal specialization), independent of the prebind. **Conclusion: binding `E` at the
+io.async call site fundamentally cannot reach the closure body's type-inference env in yo-self's
+architecture.** The concrete effect (from the io.async expected `Impl(Future(T,E))`) and the
+closure's param-inference env are only connected in TS via calleeEnv threading + a shared forall-E
+SomeType object; yo-self separates them (the closure param is a _fresh_ SomeType named `E`, not the
+signature's E object). This is a **structural/design-level gap**, not a localized patch: the fix
+must thread the io.async forall-E concretization into the closure's param-type inference (e.g. make
+`resolve_param_types_from_expected` substitute E into the closure param type in BOTH the FuncVal and
+value-less callee paths, or register the closure's own fresh-E id → concrete and have param binding
+consult `lookup_some_resolved_concrete`). All 5 localized attempts reverted; baseline clean at 133.
+
 **Regression traps (all verified this session):**
 
 - An unguarded `.None`-arm io.await result synth (guarded only on `is_io_await_call && args>=1`)
