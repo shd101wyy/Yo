@@ -53,11 +53,12 @@ open(import("std/string"));
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ t_unit, t_some_t, t_func_simple } :: import("../../types/creators.yo");
+{ t_unit, t_some_t, t_func_simple, t_type } :: import("../../types/creators.yo");
 {
   EvalValue,
   FuncValData,
-  create_unknown_val
+  create_unknown_val,
+  create_type_value
 } :: import("../../value.yo");
 {
   EvalContext,
@@ -79,11 +80,12 @@ open(import("std/string"));
   create_capture_type_and_value,
   FuncCapturedVarInfo
 } :: import("../utils/closure.yo");
-{ extract_fn_trait_from_type } :: import("../trait_checking.yo");
+{ extract_fn_trait_from_type, extract_future_trait_from_type } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { create_function_body_evaluation_context } :: import("../calls/function_type.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound } :: import("../../types/utils.yo");
+{ is_some_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 {
   clear_flow_violation,
@@ -837,6 +839,8 @@ evaluate_anonymous_function_implementation :: (
   // Mirrors: definitionSiteEnclosingFunctionType = context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
   //   ? context.isEvaluatingFunctionBodyOrAsyncBlock.type : undefined
   // in src/evaluator/values/anonymous-function.ts.
+  (io_async_output_ty : Option(TypeValue)) = Option(TypeValue).None;
+  (io_async_effect_ty : Option(TypeValue)) = Option(TypeValue).None;
   match(
     ctx.is_evaluating_function_body_or_async_block,
     .Some(fb_ctx) => match(
@@ -850,6 +854,26 @@ evaluate_anonymous_function_implementation :: (
             _ => TypeValue.Unit
           );
           register_definition_site_return(func_id.clone(), enclosing_return_ty);
+          // Extract concrete io.async forall(T, E) from the enclosing fn's
+          // return `Impl(Future(T, E))` — bound into body_eval_env below so the
+          // closure's `(io : E)` param resolves E to the concrete effect bundle
+          // during def-time body eval (value-less-io path; stage-2 async family).
+          match(
+            extract_future_trait_from_type(enclosing_return_ty),
+            .Some(fut_tt) => match(
+              fut_tt,
+              .FutureTraitT({ output : o, effect_types : ets }) => {
+                if(!(is_some_type(o)), {
+                  io_async_output_ty = Option(TypeValue).Some(o);
+                });
+                match(ets.get(usize(0)),.Some(e0) => if(!(is_some_type(e0)), {
+                  io_async_effect_ty = Option(TypeValue).Some(e0);
+                }),.None => ());
+              },
+              _ => ()
+            ),
+            .None => ()
+          );
         },
         .None => ()
       ),
@@ -922,6 +946,29 @@ evaluate_anonymous_function_implementation :: (
     // issue). TS evaluates in the live env and restores `outerEnv` after
     // (anonymous-function.ts:1062) — the snapshot gives the same net effect.
     body_eval_env := snapshot_env(env);
+    // Bind io.async's forall(T, E) into the env the closure body actually
+    // evaluates in, so `io : E` params resolve to the concrete bundle and
+    // `io.await(...)` inside can resolve + stamp (else the await is dropped —
+    // the stage-2 async family). Name-based: the closure param is a SomeType
+    // uniformly named "E"/"T"; get_value_of_some_type_from_env chain-resolves.
+    if(mark_closure_for_codegen, {
+      match(
+        io_async_effect_ty,
+        .Some(e_conc) => {
+          e_tok := synthetic_token(String.from("E"), body_eval_env.module_path);
+          _be := add_variable_to_env(body_eval_env, String.from("E"), t_type(), Option(EvalValue).Some(create_type_value(e_conc)), true, false, false, false, e_tok);
+        },
+        .None => ()
+      );
+      match(
+        io_async_output_ty,
+        .Some(t_conc) => {
+          t_tok := synthetic_token(String.from("T"), body_eval_env.module_path);
+          _bt := add_variable_to_env(body_eval_env, String.from("T"), t_type(), Option(EvalValue).Some(create_type_value(t_conc)), true, false, false, false, t_tok);
+        },
+        .None => ()
+      );
+    });
     body_eval_ctx := create_function_body_evaluation_context(
       function_type,
       body_ctx_func_val,

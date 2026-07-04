@@ -1138,6 +1138,15 @@ Raw pointer operations may dereference invalid memory.`,
   // populated form so `fields_labels`/`fields_types` come from the real struct
   // (no-op for non-structs and populated structs — see resolve_struct_shell).
   base_ty = resolve_struct_shell(base_ty);
+  // Resolve a SomeType value-receiver (e.g. the io.async closure's `io : E`
+  // bundle param) to its concrete type from env before field access — E is
+  // bound into the closure's body_eval_env by evaluate_anonymous_function.
+  if(is_some_type(base_ty), {
+    resolved_recv := get_value_of_some_type_from_env(env, base_ty);
+    if(!(is_some_type(resolved_recv)), {
+      base_ty = resolve_struct_shell(resolved_recv);
+    });
+  });
   obj_val_main := match(obj_info_opt,.Some(oi) => oi.value,.None => Option(EvalValue).None);
   // -------------------------------------------------------------------------
   // Struct / Tuple / Union field access

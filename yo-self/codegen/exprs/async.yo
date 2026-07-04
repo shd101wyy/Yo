@@ -1411,29 +1411,62 @@ io_async_await_analysis :: (fn(expr : AstExpr, context : FunctionGenerationConte
 /// /constructor/dispose emitted after all regular functions), and emits the cold
 /// constructor call. Returns the C expression for the resulting (cold) future.
 /// Faithful port of `generateAsyncBlock` (async.ts:63).
-generate_async_block :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("/* Error: async block missing ExprInfo */")));
-  // Extract the body: io.async(closure) → the closure FuncVal's body; otherwise args[0].
-  is_io_async := is_io_async_call(expr);
-  body_expr_opt := if(
-    is_io_async,
-    match(
-      ei.runtime_arg_exprs_in_order,
-      .Some(rargs) => match(
-        rargs.get(usize(0)),
-        .Some(carg) => match(
-          context.base.get_expr_info(carg),
-          .Some(cei) => match(
+/// Whether the io.async STATE-MACHINE (FSM) codegen path is enabled. Currently
+/// OFF: the FSM resume-body emission is incomplete — `generate_atom`'s
+/// state-machine variable resolution (atom.yo, the `sm->var_<id>` /
+/// `sm->__capture.<name>` mapping ported from TS atom.ts:258-460) is a Phase-5
+/// panic stub, so any io.async routed to `generate_async_block` ABORTS the
+/// compile (SIGABRT) as soon as its resume body references a variable. All
+/// io.async lower through `generate_io_async_sync_call` (eager sync-future +
+/// blocking awaits) — the de-facto path that passes the full corpus incl. the
+/// io_async_fsm_* tests. Flip to true once the atom.yo SM-variable resolution
+/// is ported.
+IO_ASYNC_FSM_ENABLED :: false;
+/// Extract the io.async(closure) body for the state-machine path: the closure
+/// FuncVal's body, read from the runtime-arg's ExprInfo — `closure_function_value`
+/// first, falling back to `cei.value` when it is None (evaluate_anonymous_function
+/// sets only `info.value`; the value-less-io path stamps closures there). `.None`
+/// when neither is available — the dispatcher then routes the call to the
+/// sync-future path instead of emitting a broken FSM body (whose SM struct would
+/// never be defined: the stage-2 incomplete-type cluster).
+io_async_closure_body :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> Option(AstExpr))({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(Option(AstExpr).None));
+  match(
+    ei.runtime_arg_exprs_in_order,
+    .Some(rargs) => match(
+      rargs.get(usize(0)),
+      .Some(carg) => match(
+        context.base.get_expr_info(carg),
+        .Some(cei) => {
+          fv_opt := match(
             cei.closure_function_value,
+            .Some(f) => Option(EvalValue).Some(f),
+            .None => match(cei.value,.Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None),.None => Option(EvalValue).None)
+          );
+          match(
+            fv_opt,
             .Some(fv) => match(fv,.FuncVal(__fvd2, _) => Option(AstExpr).Some(__fvd2.*.body), _ => Option(AstExpr).None),
             .None => Option(AstExpr).None
-          ),
-          .None => Option(AstExpr).None
-        ),
+          )
+        },
         .None => Option(AstExpr).None
       ),
       .None => Option(AstExpr).None
     ),
+    .None => Option(AstExpr).None
+  )
+});
+generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), indent : String, context : FunctionGenerationContext) -> String)({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("/* Error: async block missing ExprInfo */")));
+  // The io.async closure body is extracted ONCE by the dispatcher (via
+  // io_async_closure_body) and passed in — reading `cei.value` is a DESTRUCTIVE
+  // move (Option(EvalValue) field reads move; see the dyn.yo use-after-move
+  // note), so a second extraction here would find it consumed and bail.
+  // For a plain async block (non-io.async), the body is args[0].
+  is_io_async := is_io_async_call(expr);
+  body_expr_opt := if(
+    is_io_async,
+    io_async_body,
     match(expr,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(x) => Option(AstExpr).Some(x),.None => Option(AstExpr).None), _ => Option(AstExpr).None)
   );
   body_expr := match(body_expr_opt,.Some(b) => b,.None => return(String.from("/* Error: async requires exactly 1 argument */")));
@@ -2299,6 +2332,8 @@ export(
   generate_async_block_state_dispose_function,
   generate_async_block_constructor,
   generate_async_block,
+  io_async_closure_body,
+  IO_ASYNC_FSM_ENABLED,
   generate_deferred_async_blocks,
   preregister_async_blocks_in_expr,
   preregister_async_block_types,
