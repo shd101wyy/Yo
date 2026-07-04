@@ -159,6 +159,27 @@ must thread the io.async forall-E concretization into the closure's param-type i
 value-less callee paths, or register the closure's own fresh-E id → concrete and have param binding
 consult `lookup_some_resolved_concrete`). All 5 localized attempts reverted; baseline clean at 133.
 
+**Attempt 6 (BREAKTHROUGH on layer 1 — the eval fix works):** bind concrete `T`/`E` into the
+closure's **`body_eval_env`** (not the call-site env) in `evaluate_anonymous_function`, sourced from
+the **enclosing fn's return `Impl(Future(T,E))`** (which `anonymous_function` already reads for
+`register_definition_site_return`), + resolve a SomeType value-receiver via
+`get_value_of_some_type_from_env` in property_access before field access. This is the env-threading
+connection all prior attempts lacked: `anonymous_function` has BOTH the concrete effect (from the
+enclosing return) AND the exact env the closure body evaluates in. **Result: awaits RESOLVE** —
+empty-ops 6→3, sync_future 148→**224** (+76 closures now take the async path instead of dropping).
+
+But stage-2 rose 123→**237**: layer 1 exposed **layer 2**. The newly-async closures call OTHER async
+fns and await them via the sync-await path, but those callees' **state-machine struct definitions are
+never emitted** — 77 `incomplete definition of type 'io_async_block_..._state_t'` + 37 `member
+reference base ... is not a structure` (reading `->state` on the incomplete SM struct). The SM structs
+were never collected because these closures were previously sync-dropped, so the nested-async codegen
+path was never exercised for them. **Layer-2 fix = collect + emit SM struct definitions for
+nested-async calls reachable from the un-dropped closures** (codegen collection, substantial). The
+attempt-6 eval fix is CORRECT and should be re-applied together with the layer-2 fix (they must land
+together — the eval fix alone regresses 123→237). Reverted to keep the green baseline; exact edits are
+in the git reflog / this doc (anonymous_function.yo body_eval_env T/E bind + property_access base_ty
+SomeType resolve).
+
 **Regression traps (all verified this session):**
 
 - An unguarded `.None`-arm io.await result synth (guarded only on `is_io_await_call && args>=1`)
