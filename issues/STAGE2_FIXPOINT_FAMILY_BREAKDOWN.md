@@ -180,6 +180,27 @@ together — the eval fix alone regresses 123→237). Reverted to keep the green
 in the git reflog / this doc (anonymous_function.yo body_eval_env T/E bind + property_access base_ty
 SomeType resolve).
 
+**Attempt 7 (layer-2 codegen fallback — partial, exposes layer 3):** with attempt-6's layer-1 eval
+fix re-applied, added a fallback in `generate_async_block`'s body extraction (async.yo): when the
+closure arg's `closure_function_value` is None, fall back to `cei.value` if it's a FuncVal (mirroring
+the fallback already in `io_async_await_analysis`) — because `evaluate_anonymous_function` sets only
+`info.value`, not `closure_function_value`. This cleared MOST `async requires exactly 1 argument`
+errors (many → 4). But stage-2 stayed 237 and the 77 `incomplete definition of type
+'io_async_block_..._state_t'` persist: the ~4 remaining failing async fns are **SPECIALIZED instances**
+(e.g. `yo_id_7125` = `exists`) whose CLONED body's io.async closure arg has **no ExprInfo at all** —
+neither `closure_function_value` nor a FuncVal `value` — so even the fallback finds nothing, the body
+degrades to the error string, and the fn's SM struct is never emitted (each missing SM struct is
+referenced ~11× → the 77-error cascade). **Layer 3 = specialized-async-fn cloned-body closure-arg
+ExprInfo**: when a generic/effectful async fn is specialized for codegen, its cloned body's inner
+io.async closure is not (re)evaluated/stamped, so codegen has no closure FuncVal to extract the body
+from. This is the deepest layer and the true remaining blocker for the async family.
+
+**Family A = 3 layers, all mapped:** (1) closure param `E` resolution — eval fix in
+anonymous_function body_eval_env, WORKS; (2) generate_async_block body-extraction fallback to
+`cei.value`, WORKS for non-specialized; (3) specialized-async-fn cloned-body closure-arg ExprInfo —
+UNSOLVED, the true blocker. All three must land together (1 alone regresses 123→237; 1+2 still 237
+due to 3). All reverted to keep green 123.
+
 **Regression traps (all verified this session):**
 
 - An unguarded `.None`-arm io.await result synth (guarded only on `is_io_await_call && args>=1`)
