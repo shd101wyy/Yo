@@ -62,8 +62,10 @@ open(import("std/string"));
   type_implements_future,
   type_implements_fn,
   type_implements_trait_bool,
-  extract_fn_trait_from_type
+  extract_fn_trait_from_type,
+  extract_future_trait_from_type
 } :: import("../trait_checking.yo");
+{ is_io_async_call } :: import("../async/await_analysis.yo");
 {
   EvalValue,
   FuncValData,
@@ -71,7 +73,8 @@ open(import("std/string"));
   value_to_string,
   create_type_value,
   create_unknown_val,
-  is_unknown_val
+  is_unknown_val,
+  is_type_val
 } :: import("../../value.yo");
 {
   EvalContext,
@@ -114,7 +117,8 @@ open(import("std/string"));
   get_func_param_defaults,
   get_func_param_default_exprs,
   get_func_where_constraints,
-  WhereConstraintEntry
+  WhereConstraintEntry,
+  collect_wrapper_trait_somes
 } :: import("../types/function.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
@@ -2390,6 +2394,51 @@ try_to_call_function_with_arguments :: (
       //     callee_env (e.g. an enclosing impl's type param arriving through
       //     the FuncVal captures — self-binding would shadow the real value).
       sig_some_types := get_all_some_types(func_type);
+      // `get_all_some_types` stops at a SomeT boundary (faithful mirror of TS's
+      // `getAllSomeTypes`), so type variables NESTED inside a wrapper's Fn-trait
+      // carrier — `E`/`T` inside `Impl(Fn(e : E) -> T)` — are not returned. TS
+      // never needs them here because its callee env extends the signature's
+      // definition env, which already holds their self-markers; yo-self builds
+      // callee_env fresh, so those inner markers must be recreated too. Collect
+      // and append them before the marker loop so a later concrete rebinding of
+      // an inner var (e.g. io.async binding `E = IoExn`) can be resolved
+      // (`get_value_of_some_type_from_env`'s ownership check needs the marker).
+      {
+        (wrap_extra : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+        (we_i : usize) = usize(0);
+        while(we_i < sig_some_types.len(), {
+          match(
+            sig_some_types.get(we_i),
+            .Some(wsst) => {
+              wnested := collect_wrapper_trait_somes(wsst);
+              (wn_i : usize) = usize(0);
+              while(wn_i < wnested.len(), {
+                match(
+                  wnested.get(wn_i),
+                  .Some(wn) => {
+                    wrap_extra.push(wn);
+                  },
+                  .None => ()
+                );
+                wn_i = (wn_i + usize(1));
+              });
+            },
+            .None => ()
+          );
+          we_i = (we_i + usize(1));
+        });
+        (wx_i : usize) = usize(0);
+        while(wx_i < wrap_extra.len(), {
+          match(
+            wrap_extra.get(wx_i),
+            .Some(wx) => {
+              sig_some_types.push(wx);
+            },
+            .None => ()
+          );
+          wx_i = (wx_i + usize(1));
+        });
+      };
       {
         (seen_st_ids : ArrayList(String)) = ArrayList(String).new();
         (sg_i : usize) = usize(0);
@@ -2496,6 +2545,93 @@ try_to_call_function_with_arguments :: (
           synthetic_token(flabel, callee_env.module_path)
         );
         fpi = (fpi + usize(1));
+      });
+      // ----------------------------------------------------------------
+      // Step 6b: io.async — pre-bind the effect-bundle forall `E` from the
+      // expected return type. Mirrors TS `helper.ts:1312-1366` (which binds both
+      // `T` and `E`). `io.async`'s signature is
+      //   fn(forall(T, E), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))
+      // and the closure argument's parameter type references `E`. When the call
+      // has an expected type `Impl(Future(T, E_concrete))`, bind `E` to that
+      // concrete effect bundle in `callee_env` NOW — before the argument loop —
+      // so Step 7's `evaluate_function_parameter_type_again` resolves the closure
+      // param `Impl(Fn(e : E) -> T)` to `Impl(Fn(e : E_concrete) -> T)` and the
+      // closure body binds `e` with the concrete bundle. Without this, `e : SomeT
+      // E` reaches codegen as `void*` and `e.io`/`e.exn` emit `member reference
+      // base type 'void *'` (the stage-2 bundle-field-as-arg cluster).
+      //
+      // DELIBERATELY binds ONLY `E`, not `T` (the future OUTPUT), unlike TS: the
+      // yo-self async pipeline keeps the future output as an UNRESOLVED SomeType
+      // through eval (the sync-future struct + io.await refinement are registered
+      // against that SomeType id; resolving `T` here breaks that registration and
+      // regresses all async — see issues/yo-self-async-await-struct-result-eval.md
+      // and the [[yo-self-stage2-family-breakdown]] async-codegen note). `E` (the
+      // effect bundle) is NOT part of that pipeline, so binding it is safe.
+      // yo-self has no `ioBuiltin` type marker (await_analysis.yo) — detect the
+      // call structurally. Guard: only bind a label not already concrete.
+      if(is_io_async_call(expr), {
+        match(
+          ctx.expected_type,
+          .Some(io_exp) => match(
+            extract_future_trait_from_type(io_exp.ty),
+            .Some(io_ftt) => match(
+              io_ftt,
+              .FutureTraitT({ effect_types : io_ets }) => {
+                match(
+                  io_ets.get(usize(0)),
+                  .Some(io_e_conc) => if(!(is_some_type(io_e_conc)), {
+                    (eb_i : usize) = usize(0);
+                    while(eb_i < n_forall, {
+                      eb_label := match(fl.get(eb_i),.Some(l) => l,.None => String.from(""));
+                      if(eb_label == "E", {
+                        // Skip when already bound to a concrete (non-SomeType) value.
+                        eb_existing := get_variables_from_env(callee_env, eb_label.clone());
+                        (eb_already : bool) = false;
+                        if(eb_existing.len() > usize(0), {
+                          match(
+                            eb_existing.get(eb_existing.len() - usize(1)),
+                            .Some(eb_var) => match(
+                              eb_var.value,
+                              .Some(eb_val) => if(is_type_val(eb_val), {
+                                match(
+                                  eb_val,
+                                  .TypeVal(eb_tv) => if(!(is_some_type(eb_tv)), {
+                                    eb_already = true;
+                                  }),
+                                  _ => ()
+                                );
+                              }),
+                              .None => ()
+                            ),
+                            .None => ()
+                          );
+                        });
+                        if(!(eb_already), {
+                          add_variable_to_env(
+                            callee_env,
+                            eb_label.clone(),
+                            t_type(),
+                            Option(EvalValue).Some(create_type_value(io_e_conc.clone())),
+                            true,
+                            false,
+                            false,
+                            false,
+                            synthetic_token(eb_label.clone(), callee_env.module_path)
+                          );
+                        });
+                      });
+                      eb_i = (eb_i + usize(1));
+                    });
+                  }),
+                  .None => ()
+                );
+              },
+              _ => ()
+            ),
+            .None => ()
+          ),
+          .None => ()
+        );
       });
       // ----------------------------------------------------------------
       // Step 7: Process regular parameters.

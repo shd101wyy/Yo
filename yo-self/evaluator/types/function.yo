@@ -3798,11 +3798,147 @@ evaluate_function_type :: (
 /// resolve each via `get_value_of_some_type_from_env`, and `substitute`.
 /// A bare-SomeT input keeps the direct single-lookup path (identical result,
 /// no list allocation).
+/// Collect the SomeTypes nested inside a SomeT wrapper's `Fn`-trait carrier —
+/// the `E`/`T` inside `Impl(Fn(e : E) -> T)`. `get_all_some_types` deliberately
+/// stops at a SomeT boundary (a faithful mirror of TS's `getAllSomeTypes`, which
+/// never recurses into a SomeType and reaches inner vars only via type-expr
+/// re-evaluation). yo-self stores no type expr, so `_resolve_some_types_deep`
+/// walks the `Fn` carrier here so a closure parameter's bundle type resolves at
+/// the call site.
+///
+/// Deliberately does NOT descend into a `Future` carrier (`Impl(Future(T, E))`):
+/// yo-self's async codegen keeps the future's output/effect UNRESOLVED through
+/// eval (the sync-future struct is registered against the wrapper SomeType id).
+/// Resolving them would change the return type's identity and break that
+/// registration. The `Fn` carrier yields the same `E`/`T` instances (shared
+/// forall vars) so their self-markers still get recreated.
+collect_wrapper_trait_somes :: (fn(wrapper : TypeValue) -> ArrayList(TypeValue))({
+  acc := ArrayList(TypeValue).new();
+  rtts := match(
+    wrapper,
+    .SomeT(_, _, _, _, required_trait_types : rts, _, _, _, _, _) => rts,
+    _ => ArrayList(TypeValue).new()
+  );
+  (i : usize) = usize(0);
+  while(i < rtts.len(), {
+    rtt := match(rtts.get(i),.Some(t) => t,.None => t_unit());
+    match(
+      rtt,
+      .FnTraitT({ call_param_types : cpts, call_result : cr, implicit_types : its }) => {
+        (cj : usize) = usize(0);
+        while(cj < cpts.len(), {
+          match(
+            cpts.get(cj),
+            .Some(pt) => {
+              inner := get_all_some_types(pt);
+              (ii : usize) = usize(0);
+              while(ii < inner.len(), {
+                match(
+                  inner.get(ii),
+                  .Some(s) => {
+                    acc.push(s);
+                  },
+                  .None => ()
+                );
+                ii = (ii + usize(1));
+              });
+            },
+            .None => ()
+          );
+          cj = (cj + usize(1));
+        });
+        cr_inner := get_all_some_types(cr);
+        (ci : usize) = usize(0);
+        while(ci < cr_inner.len(), {
+          match(
+            cr_inner.get(ci),
+            .Some(s) => {
+              acc.push(s);
+            },
+            .None => ()
+          );
+          ci = (ci + usize(1));
+        });
+        (ij : usize) = usize(0);
+        while(ij < its.len(), {
+          match(
+            its.get(ij),
+            .Some(it) => {
+              inner := get_all_some_types(it);
+              (ik : usize) = usize(0);
+              while(ik < inner.len(), {
+                match(
+                  inner.get(ik),
+                  .Some(s) => {
+                    acc.push(s);
+                  },
+                  .None => ()
+                );
+                ik = (ik + usize(1));
+              });
+            },
+            .None => ()
+          );
+          ij = (ij + usize(1));
+        });
+      },
+      _ => ()
+    );
+    i = (i + usize(1));
+  });
+  acc
+});
 _resolve_some_types_deep :: (
   fn(ty : TypeValue, env : Environment) -> TypeValue
 )({
   if(is_some_type(ty), {
-    return(get_value_of_some_type_from_env(env, ty));
+    r := get_value_of_some_type_from_env(env, ty);
+    // Wrapper resolved to a concrete type → done.
+    if(!(is_some_type(r)), {
+      return(r);
+    });
+    // The wrapper is still an unbound SomeT (e.g. `Impl(Fn(e : E) -> T)` whose
+    // `Impl` var is unbound while an inner var like `E` is now concrete). Resolve
+    // the SomeTypes nested in its `Fn` carrier and substitute them back — the
+    // value-space equivalent of TS re-evaluating the parameter's type expr.
+    // Without it a closure bundle param stays `Impl(Fn(e : E) -> T)`, `e` lowers
+    // to `void*`, and `e.io` / `e.exn` field accesses fail.
+    nested := collect_wrapper_trait_somes(r);
+    if(nested.len() == usize(0), {
+      return(r);
+    });
+    ns := subst_new();
+    (nbound : bool) = false;
+    (nti : usize) = usize(0);
+    while(nti < nested.len(), {
+      nst := match(nested.get(nti),.Some(t) => t,.None => t_unit());
+      (nres : TypeValue) = get_value_of_some_type_from_env(env, nst);
+      if(is_some_type(nres), {
+        match(
+          nres,
+          .SomeT({ id : nrsid }) => match(
+            lookup_some_resolved_concrete(nrsid),
+            .Some(c) => {
+              nres = c;
+            },
+            .None => ()
+          ),
+          _ => ()
+        );
+      });
+      if(!(is_some_type(nres)), {
+        match(
+          nst,
+          .SomeT(_, nst_name, nst_lvl, _, _, _, _, _, _, _) => {
+            subst_add(ns, nst_name, nst_lvl, nres);
+            nbound = true;
+          },
+          _ => ()
+        );
+      });
+      nti = (nti + usize(1));
+    });
+    return(cond(nbound => substitute(ns, r), true => r));
   });
   some_types := get_all_some_types(ty);
   if(some_types.len() == usize(0), {
@@ -3908,6 +4044,7 @@ export(evaluate_function_parameters);
 export(apply_where_clause_constraints);
 export(evaluate_function_parameter_type_again);
 export(evaluate_function_return_type_again);
+export(collect_wrapper_trait_somes);
 export(FuncParam, FuncParamsResult, PendingConstraint, ExtractComptimeResult);
 export(_add_where_clause_constraint, _trait_has_receiver);
 export(

@@ -434,6 +434,19 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
       // (std/http/client.yo). Within a Func that declares forall "E",
       // any SomeT named "E" lexically IS that inner forall, so
       // name-based shadowing is sound.
+      //
+      // The anonymous `Impl(...)` sugar wrapper is per-signature too: an
+      // "Impl" SomeT reached THROUGH a nested Func is that Func's OWN
+      // param/return sugar (`action : Impl(Fn(e : E) -> T)`), never the outer
+      // var being unified. Same id-preservation trap: resolving a closure
+      // bundle param to a concrete `IoExn` (which embeds `Io`'s method fields,
+      // each `fn(forall(T,E), action : Impl(...)) -> Impl(...)`) made the outer
+      // closure-wrapper "Impl" a FALSE infinite type. "Impl" is a reserved
+      // sugar name (never a user var), so shadowing it inside a nested Func is
+      // sound — mirrors the forall-label shadowing below.
+      if(some_type_name == "Impl", {
+        return(false);
+      });
       {
         (sfi : usize) = usize(0);
         while(sfi < forall_labels.len(), {
@@ -967,10 +980,40 @@ _synthesize_fn_traits :: (
     exn : Exception
   ) -> SynthesizeResult
 )({
-  exp_params := match(expected_ty,.FnTraitT(_, _, pts, _, _, _, _) => pts, _ => ArrayList(TypeValue).new());
-  giv_params := match(given_ty,.FnTraitT(_, _, pts, _, _, _, _) => pts, _ => ArrayList(TypeValue).new());
-  exp_result := match(expected_ty,.FnTraitT(_, _, _, r, _, _, _) => r, _ => TypeValue.Unit);
-  giv_result := match(given_ty,.FnTraitT(_, _, _, r, _, _, _) => r, _ => TypeValue.Unit);
+  // Either side may be a `Func` rather than an `FnTraitT`: this helper also
+  // synthesizes an `Impl(Fn(...))` (FnTraitT) against a concrete closure `Func`
+  // (see the caller guard `is_fn_trait_type(exp_trait) && is_function_type(given)`
+  // and the doc note below). TS converts the FnTraitT to its `isFn.callType`
+  // (a Func) and runs Func-vs-Func synthesis (synthesizer.ts:516-523); the
+  // value-space equivalent is to read params/result from whichever shape each
+  // side is. Without the `.Func` arms, a `Func` given fell to `TypeValue.Unit`
+  // for its result, so `Impl(Fn(e : E) -> T)` vs `fn(e : IoExn) -> i32` bound
+  // the io.async forall `T = unit` (→ later `Future(unit,E)` vs
+  // `Future(i32,IoExn)` "Cannot unify unit and i32").
+  exp_params := match(
+    expected_ty,
+    .FnTraitT(_, _, pts, _, _, _, _) => pts,
+    .Func({ param_types : pts }) => pts,
+    _ => ArrayList(TypeValue).new()
+  );
+  giv_params := match(
+    given_ty,
+    .FnTraitT(_, _, pts, _, _, _, _) => pts,
+    .Func({ param_types : pts }) => pts,
+    _ => ArrayList(TypeValue).new()
+  );
+  exp_result := match(
+    expected_ty,
+    .FnTraitT(_, _, _, r, _, _, _) => r,
+    .Func({ result : r }) => r,
+    _ => TypeValue.Unit
+  );
+  giv_result := match(
+    given_ty,
+    .FnTraitT(_, _, _, r, _, _, _) => r,
+    .Func({ result : r }) => r,
+    _ => TypeValue.Unit
+  );
   (ee : Environment) = expected_env;
   (ge : Environment) = given_env;
   n := exp_params.len();

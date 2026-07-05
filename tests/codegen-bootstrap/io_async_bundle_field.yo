@@ -1,0 +1,26 @@
+{ println } :: import("std/fmt");
+{ IoExn } :: import("std/error");
+
+use_io :: (fn(io : Io) -> i32)(i32(0));
+
+// An io.async closure whose bundle parameter `e` — resolved to the concrete
+// effect bundle `IoExn` from the enclosing fn's return `Impl(Future(i32, IoExn))`
+// — is projected field-wise: `e.io` passed as a call argument and `e.exn` bound.
+// Exercises the value-less-io def-eval path: `io.async` resolves to an unknown
+// function-typed callee, so the call must (a) pre-bind the effect forall `E`
+// from the expected return type and (b) resolve the closure parameter type to
+// the concrete bundle, so `e.io`/`e.exn` type-check instead of lowering `e` to
+// `void*`. Regression guard for the stage-2 bundle-field-as-arg cluster.
+make_future :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((e) => {
+    a := use_io(e.io);
+    x := e.exn;
+    a + i32(42)
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  _task := make_future(io);
+  println(i32(42));
+});
+export(main);
