@@ -461,7 +461,17 @@ should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : E
   is_erm := is_effect_record_member(func_id.clone());
   has_evidence := (get_evidence_parameters(function_type).len() > usize(0));
   ret := _func_result_type(function_type);
-  skip_unemittable := (!(is_user_main) && (is_function_type_hard_generic(function_type) || _func_has_expr_param(function_type)));
+  // Effect-record members (`Exception(throw : (err) -> unwind(...))` handlers) MUST
+  // be emitted even when hard-generic: their forall params are type-erased to `void*`
+  // and their address is stored as a `void*` fn pointer in the effect record
+  // (`.throw = fn_yo_id_N`). Skipping them leaves that pointer undeclared. Mirrors TS's
+  // `!value.isEffectRecordMember` guard on the hard-generic skip in BOTH
+  // declarations.ts:189 and generation.ts:669. (`skip1`/`skip2` already exempt ERMs;
+  // `skip_unemittable` was the missing exemption.)
+  // A MACRO (Expr-typed param) is NEVER emittable — skip it regardless of ERM status.
+  // Only the hard-generic skip is ERM-exempt (an effect handler's forall params are
+  // type-erased to void*; a macro's Expr param is not a runtime type at all).
+  skip_unemittable := (!(is_user_main) && (((!(is_erm)) && is_function_type_hard_generic(function_type)) || _func_has_expr_param(function_type)));
   skip1 := ((!(is_user_main) && (!(is_effectful) && (!(has_evidence) && !(is_erm)))) && (is_function_type_hard_generic(function_type) || (_func_result_is_comptime_only(function_type) || is_function_value_with_only_builtin_yo_inline_function_call(value).is_some())));
   has_generic_params := ((!(is_user_main) && (!(is_effectful) && !(is_erm))) && _func_has_generic_params(function_type));
   has_generic_return := type_contains_some_type_for_codegen_param(ret, ArrayList(String).new());

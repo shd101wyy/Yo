@@ -374,3 +374,143 @@ property_access when the receiver is the marked closure's bundle param.
 **Singles:** `argv(i + usize(1))` index-call (yo_id_401428); closure 7123's cond-return.
 
 Remaining 122 ≈ 8-FTT tail + ~43 Family-C type-mismatches (lossy type_key, deep) + scattered.
+
+---
+
+## Session 2026-07-05 — 98-error breakdown + undeclared-handler family FULLY MAPPED (4 layers)
+
+Baseline HEAD (`b7bcd0f4c`) now emits **98** clang errors (down from 122 — the async
+value-less-io chain landed since the 122 doc). Fresh by-enclosing-function breakdown:
+
+| Family                                                                                | errors | notes                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Family C — generic-instantiation identity**                                         | ~40    | `yo_id_13634`(11)+`yo_id_13622`(5)+`yo_id_13623`(5) all instantiate the SAME `enum_yo_id_13621`/`gs_yo_id_13600` — call-site LHS `__yo_t649` vs callee return `__yo_t683` (structurally-identical enum, different codegen ids). `yo_id_13622` = a `with_capacity`-style generic specialized into ~40 return-type variants. Deep/systemic (lossy type_key on nested generics). |
+| **Undeclared effect handlers** (`.throw = fn_yo_id_N`)                                | 16     | root FULLY mapped below — a **4-layer** chain, all faithful-port bugs                                                                                                                                                                                                                                                                                                         |
+| **Leaked locals** (`t`,`_file____User_temp_N`,`t_expr`,`get_info`,`frame`,`arg_expr`) | ~7     | codegen emits a var USE whose declaration was dropped; localized                                                                                                                                                                                                                                                                                                              |
+
+### Undeclared-handler family — the complete 4-layer root chain
+
+All 16 are `Exception(throw : (err) -> unwind(...))` handlers (impl.yo:590, function.yo:178/405/1227,
+helper.yo:2108, index_trait.yo:757, function_type.yo:217, anonymous_function.yo:278, test.yo:83, …).
+Each emits `(__yo_t39){ .throw = fn_yo_id_N }` referencing an undeclared handler. Traced end-to-end
+via instrumentation ([CERM]/[EXC] probes in collection.yo, [DEFER] probe in anonymous_function.yo);
+the handler IS collected (`collect_effect_record_members` registers it) but never **emitted**:
+
+- **Layer 1 — ERM skip** (`declarations.yo:464`, `should_skip_function_codegen`): the
+  `skip_unemittable = hard_generic || has_expr_param` term does **not** exempt `is_erm`, unlike its
+  sibling `skip1`/`skip2` (which do). A hard-generic handler is therefore skipped (no prototype, no
+  body) → undeclared. TS exempts effect-record-members from the hard-generic skip **everywhere**
+  (declarations.ts:189, generation.ts:669: `!value.isEffectRecordMember && (isFunctionTypeHardGeneric …)`).
+  Fix: `skip_unemittable := ((!is_user_main && !is_erm) && (hard_generic || has_expr_param))`.
+  Verified: drops fn_yo_id undeclared 16→5, but the 11 newly-emitted bodies are malformed → net 98
+  (composition shifts to Layer-2 symptoms). NEEDED but insufficient alone.
+
+- **Layer 2 — deferred handler body** (`anonymous_function.yo:882`): `should_defer_body` keys on the
+  **synthesized** `forall_labels.len()`. A bare handler `(err) -> unwind(...)` checked against the
+  expected `Exception.throw : ctl(forall(ResumeType), error : AnyError) -> ResumeType` INHERITS
+  `forall_labels = [ResumeType]` even though its **source** declares no forall → body eval deferred →
+  the body's `unwind(...)` sub-expr is UNSTAMPED → codegen `generate_func_call` bails at its
+  `get_expr_info` guard (generation.yo:405) BEFORE the unwind dispatch (line 496) → emits
+  `return // Failed to transpile unwind(())` (→ "expected expression"). TS keys on
+  `forallParamExprs.length` — the anon-fn's **own** source forall args (anonymous-function.ts:759;
+  the forall-count mismatch guard at :320 is commented out) — so a bare handler with a concrete
+  `error : AnyError` param IS evaluated. yo-self already extracts source forall as
+  `forall_param_exprs` (line 576); fix: `should_defer_body := (forall_param_exprs.len() > usize(0))`
+  (keep `forall_labels` for the env-binding at ~688). Verified: bodies now evaluate (real code like
+  `err.to_string()` appears) — exposing Layer 3.
+
+- **Layer 3 — param-name mismatch**: once evaluated, the C prototype is generated from the handler
+  type's `param_labels` = `[error]` (the **expected** `Exception.throw` signature's label), but the
+  body's atom emitter uses the **source** lambda param name `err` → `error` declared, `err`
+  referenced → "use of undeclared identifier 'err'" (7×). The handler FuncVal carries the EXPECTED
+  type's param_labels rather than the source `(err)` names. TS's FunctionValue params come from the
+  source declaration. Fix direction: the anon-fn FuncVal's `param_labels` must use SOURCE param names
+  (from `regular_param_exprs`), not the expected type's labels — OR the prototype must emit the source
+  name. (declarations.yo:156-163 already _intends_ source labels — the bug is that the stored
+  `param_labels` are the expected ones.)
+
+- **Layer 4 — unwind value type**: the install site reads the value via
+  `memcpy(&_unw_result, __yo_unwind_value, sizeof(<caller_ret>)); return _unw_result;`
+  (confirmed in try_match_generic_impl, stage2.c). So `generate_unwind`'s ERM path MUST
+  `memcpy(__yo_unwind_value, &_unw_val, sizeof(argT))` with the arg's concrete type — which needs the
+  unwind arg's ExprInfo (available only after Layer 2 evaluates the body). A bare stub
+  (`__yo_effect_escaped=1; return {0};`) is **semantically wrong** — it leaves `_unw_result` garbage
+  (except when the unwind value is genuinely all-zero, e.g. `Option.None`/`unit` — which happens to
+  be true for all 16 CURRENT handlers, but is not a general fix).
+
+**Why incremental landing regressed (98 → 103):** L1 alone = 98 (malformed bodies). L1+L2 = 103
+(`err` undeclared jumps 1→7 as L3 surfaces). The four layers **must land together** (same pattern as
+Family A's 3 async layers). All reverted to keep the green 98 baseline. The fix is well-understood and
+faithful; it needs L1+L2+L3(+L4 verification) applied+built+validated (std 152 + corpus 102) as one
+change, plus a regression test (`tests/codegen-bootstrap/effect_handler_generic_unwind.yo`: a fn with
+`Exception(throw : (err) -> unwind(default))` over a concrete-but-forall-carrying effect, run to
+observe the default). Do NOT land partially.
+
+**L3 exact location (confirmed):** `anonymous_function.yo:749` binds the body under the SOURCE param
+name (`param_name := _get_param_name_from_expr(rpe, exp_label)` → `err`), and `actual_param_labels`
+(line 752) = source names, but `register_func_type(func_id, function_type)` (line 806) registers the
+EXPECTED type whose `meta.param_labels` = `[error]`. The codegen prototype (`generate_function_prototype`,
+declarations.yo:160) reads the registered type's `param_labels` → `error`; the body's atom emitter emits
+`err`. Fix: register a Func type whose `meta.param_labels` = `actual_param_labels` (rebuild the FuncMeta),
+OR make codegen read the FuncVal's `params`. TS's FunctionValue.type.parameters carry the source labels.
+
+### Leaked-locals family (~7) — loop-body-local drops emitted past their C scope
+
+Representative: `yo_id_246467(ty)` (a `_type_extract`-style walker, stage2.c L223974). A
+`t := match(iter.next(), .Some(v) => v, .None => continue)` binding inside a `while` loop declares
+`__yo_t6* t` and a temp `_file____User_temp_144087` INSIDE the loop body's C block. At the loop-exit
+label the codegen emits their RC-drops:
+
+```c
+    loop_yo_id_407148:;
+    __yo_decr_rc((void*)(t));                         // 't' out of scope here
+    __yo_decr_rc((void*)(_file____User_temp_144087)); // temp out of scope here
+```
+
+C block-scopes loop-body locals to the `while (...) { }` body, so at the post-loop label they are
+undeclared. Root: the deferred-drop / scope-end tracking schedules loop-body locals for the
+FUNCTION/enclosing-scope drop set instead of the per-iteration loop-body scope; they must be dropped
+at each `break`/`continue`/end-of-iteration INSIDE the loop body, not after it. Localized to the
+while-loop drop emission + deferred-drop scope model (compare TS `generateWhileLoop` drop scoping).
+~7 errors (`t`, temps in a couple such walkers).
+
+### Priority (98-error state)
+
+1. **Family C (~40)** — generic-instantiation identity collapse (deep/systemic). Biggest lever;
+   needs per-case confirmation the two ids are structurally identical (task #30 machinery not firing
+   for `enum_yo_id_13621`/`gs_yo_id_13600` instantiations) vs a genuine eval type divergence.
+2. **Undeclared handlers (16)** — the 4-layer chain above; land L1+L2+L3+L4 together.
+3. **Leaked-locals (~7)** — loop-body-local drop scoping.
+
+---
+
+## LANDED 2026-07-05 — undeclared-handler L1+L2+L3+L4 (faithful; stage-2 98 → 93)
+
+Landed the four layers together (stub-free — a stub for deferred bodies was tried and REJECTED as a
+divergence; TS never stubs unwind handlers). Validated: **stage-2 98 → 93** (−5), **corpus 102/102**
+(PASS 102 DIFF 0 SELF-FAIL 0), **check ./std 152/152**, zero regressions.
+
+- **L1** (declarations.yo `should_skip_function_codegen`): `skip_unemittable` now exempts `is_erm`
+  from the hard-generic skip but STILL always skips `_func_has_expr_param` (macros). Refinement
+  needed after the naive `!(is_user_main) && !(is_erm) && (...)` regressed the corpus by emitting an
+  Expr-param macro that is an ERM (`yo_id_3(value : Expr)` → `// Unknown type: Expr` malformed C in
+  deque/hashmap_self_cycle). Correct form: `!is_user_main && ((!is_erm && hard_generic) ||
+has_expr_param)`.
+- **L2** (anonymous_function.yo:882): defer on `forall_param_exprs.len()` (SOURCE forall) not
+  `forall_labels` (inherited).
+- **L3** (anonymous_function.yo:806): register a Func type with source `param_labels`
+  (`actual_param_labels`) via a fresh FuncMeta (FuncMeta derives Clone) — the body binds/emits the
+  source name.
+- **L4**: no code change — `generate_unwind`'s ERM `memcpy __yo_unwind_value` uses the arg's
+  ExprInfo, which L2 now stamps. Verified: `fn_yo_id_243457` (try_match's handler) emits
+  `err; __yo_effect_escaped = 1; { __yo_t296 _unw_val = {.tag=NONE}; memcpy(__yo_unwind_value,…); }
+return (void*){0};` — CORRECT, matches TS.
+
+**Remaining (stage-2 93):** ~13 `expected expression` from effect handlers in GENERIC enclosing fns
+(e.g. `fn_yo_id_276504` = `(_err) -> unwind(())`) whose bodies are STILL deferred — their enclosing
+generic fn's body is deferred, so the handler is only reached through a SPECIALIZED clone whose body
+was never (re)evaluated/stamped → `generate_function_body` emits `// Failed to transpile unwind()`.
+**Faithful fix (NOT a stub):** evaluate/stamp the specialized clone's inner effect-handler bodies
+during `create_specialized_function_inline` (the same "specialized-clone body ExprInfo" class as
+Family A layer 3). Then codegen emits their real bodies + correct unwind values, exactly as TS.
+Then Family C (~40) and leaked-locals (~7) remain.

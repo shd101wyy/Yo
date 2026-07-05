@@ -803,7 +803,26 @@ evaluate_anonymous_function_implementation :: (
   );
   // Record this function's own resolved Func type by func_id so codegen can
   // emit its C prototype (Gap 10 — FuncVal carries only param-name strings).
-  register_func_type(func_id.clone(), function_type.clone());
+  //
+  // L3: register with the SOURCE param labels (`actual_param_labels`), NOT the expected
+  // type's `meta.param_labels`. The body binds + the atom emitter emits the SOURCE param
+  // name (e.g. `err` from `(err) -> ...`), but a bare handler's `function_type` inherits
+  // the EXPECTED label (e.g. `error` from `Exception.throw : ctl(…, error : AnyError) →
+  // …`). The C prototype is generated from this registered type's `meta.param_labels`, so
+  // registering the expected label yields "undeclared identifier 'err'" (proto declares
+  // `error`, body references `err`). TS's FunctionValue.type carries the anon fn's OWN
+  // (source) param labels. Rebuild a fresh Func with the source labels; leave
+  // `function_type` (used below for body-eval + the expr's ExprInfo) untouched.
+  corrected_func_type := match(
+    function_type.clone(),
+    .Func(_l3ft, _l3pt, _l3it, _l3wt, _l3r, _l3m) => {
+      _l3nm := _l3m.*.clone();
+      _l3nm.param_labels = actual_param_labels.clone();
+      TypeValue.Func(_l3ft.clone(), _l3pt.clone(), _l3it.clone(), _l3wt.clone(), _l3r.clone(), box(_l3nm))
+    },
+    _ => function_type.clone()
+  );
+  register_func_type(func_id.clone(), corrected_func_type);
   // Phase 5/3 (closure codegen): an io.async `=>` closure must carry the
   // capture-struct type + closure marker the codegen needs (closure functions take
   // a `void* closure_context` capture parameter; the sync-future path reads
@@ -878,7 +897,17 @@ evaluate_anonymous_function_implementation :: (
   //   3. the post-eval gates below (unwind-needs-ctl, capture checks) throw
   //      via the real `exn` directly.
   // -------------------------------------------------------------------------
-  (should_defer_body : bool) = (forall_labels.len() > usize(0));
+  // Defer body eval on the SOURCE forall count (`forall_param_exprs`), NOT the
+  // synthesized type's `forall_labels`. A bare handler `Exception(throw : (err) ->
+  // unwind(...))` checked against the expected `ctl(forall(ResumeType), error :
+  // AnyError) -> ResumeType` INHERITS `forall_labels = [ResumeType]` even though its
+  // source declares no forall — keying the defer on `forall_labels` would wrongly skip
+  // evaluating the body, leaving its `unwind` sub-expr UNSTAMPED (→ codegen "// Failed
+  // to transpile unwind(...)"). TS keys on `forallParamExprs.length` (the anon fn's OWN
+  // forall args — anonymous-function.ts:759; the forall-count mismatch guard at :320 is
+  // commented out). The env still binds the inherited `forall_labels` below (~line 688)
+  // for bodies that DO reference ResumeType.
+  (should_defer_body : bool) = (forall_param_exprs.len() > usize(0));
   if(!(should_defer_body), {
     (sd_i : usize) = usize(0);
     while((sd_i < param_types.len()) && !(should_defer_body), {
