@@ -11,7 +11,7 @@ open(import("std/string"));
 { t_unit, t_bool, t_comptime_int, t_comptime_float, t_comptime_string, t_type, t_some_t } :: import("./types/creators.yo");
 { is_type_0 } :: import("./types/guards.yo");
 { AstExpr } :: import("./expr.yo");
-{ are_types_compatible } :: import("./types/compatibility.yo");
+{ are_types_compatible, are_types_compatible_exact } :: import("./types/compatibility.yo");
 /// Non-`Self`-referencing fields of `EvalValue.FuncVal`, factored out and stored
 /// behind a `Box` (P2 memory). These reference only `String`/`AstExpr`/`TypeValue`
 /// (NOT `Self`/`EvalValue`), so the struct is defined BEFORE `EvalValue` (no
@@ -262,7 +262,16 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
     .BreakVal => match(b,.BreakVal => true, _ => false),
     .ContinueVal => match(b,.ContinueVal => true, _ => false),
     .TypeVal(at) =>
-      match(b,.TypeVal(bt) => are_types_compatible(at, bt), _ => false),
+      // EXACT type identity (not lenient compatibility): mirrors TS `areValuesEqual`
+      // (value.ts:699-704) passing `requireExactMatch = true`. `eval_value_eq` keys the
+      // specialization cache (`_find_specialization_cache`, on compile-time arg VALUES —
+      // which include the forall type args like a HashMap's `V`), so a lenient compare
+      // collapses distinct instantiations: `HashMap<usize, ArrayList>` and
+      // `HashMap<usize, WhileLoopInfo>` are `are_types_compatible` (both `struct_13613`)
+      // but NOT identical — a lenient key let `Self._alloc_with_capacity`'s specialization
+      // for one V be reused for the other, so the callee's `Result<Self>` return type
+      // disagreed with the call site (stage-2 Family-C incompatible-type cluster).
+      match(b,.TypeVal(bt) => are_types_compatible_exact(at, bt), _ => false),
     .StructVal(atn, anames, avals) =>
       match(
         b,
