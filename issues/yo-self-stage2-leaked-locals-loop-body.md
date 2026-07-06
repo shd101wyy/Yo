@@ -111,5 +111,34 @@ temp undeclared errors to clear). A wrong drop point double-frees or leaks.
 - Source = extract_future_trait_from_type (trait_checking.yo:1397), fn yo_id_246492.
 - TS drops loop-body locals at the iteration end (inside the loop); yo-self at the
   enclosing scope-end (after the loop) → out of C scope.
-- Trigger = control flow in the loop body (continue/return) → the loop-body begin
-  block's scope-end drops are skipped.
+- Trigger = control flow in the loop body (continue/return).
+
+## REFINED (2nd attempt — instrumented `_schedule_scope_end_drops`, all reverted)
+
+Two findings that CORRECT the initial hypothesis:
+
+1. The skip-on-control-flow rule checks only DIRECT statements of the begin block
+   for `return`/`break`/`continue`. In `extract_future` the control flow is NESTED
+   inside `match(t, .FutureTraitT => return(...))` / `match(get(i), .None => {i++;
+continue})` — NOT direct statements — so the while-body begin block does NOT
+   skip. "The skip skips the loop body" was WRONG.
+2. **Confirmed evaluator FRAME LEAK** (co-var probe): `t` and `i` appear TOGETHER
+   in ONE NON-loop (arm) frame. Normally `i` is in the arm frame and `t` in the
+   while-body frame — separate. Their co-occurrence proves the while-body local
+   `t` LEAKED UP into the enclosing arm frame (via `evaluate_while` env threading
+   around the body eval, while.yo:310). BUT in that arm frame `t` is NOT
+   e7-eligible (the e7 probe did not fire) — so the arm's
+   `_schedule_scope_end_drops` does NOT emit `___drop(t)`.
+
+So the after-loop `__yo_decr_rc(t)` is emitted by NEITHER the while-body scope-end
+(those emit INSIDE the loop via generate_loop_body) NOR the arm scope-end (t not
+e7-eligible). It comes from a THIRD path — the pending-deferred-drops / loop-exit
+machinery: `context.pending_deferred_drops` + `loop_body_drops_baseline_count`
+(while_loop.yo:218-219), drained by `_emit_loop_body_drops_before_exit`
+(atom.yo:32, before continue/break) and `generate_pending_deferred_drops`
+(return.yo:219, before return). NEXT: instrument that path to find where `t`
+enters pending_deferred_drops and why the drop lands at/after the loop label
+rather than inside the body — then either (a) fix the evaluator frame leak so `t`
+stays a while-body local dropped inside the loop (TS behavior), or (b) gate the
+pending/loop-exit drop by C-scope liveness (like the `declared_c_var_names` gate,
+commit 47237f3cb, but tracking scope EXIT). RC-safety-critical.
