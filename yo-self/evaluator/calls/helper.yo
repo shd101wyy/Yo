@@ -128,7 +128,8 @@ open(import("std/string"));
   mark_as_control_fn,
   is_control_fn,
   get_definition_site_return,
-  register_func_type
+  register_func_type,
+  get_func_type
 } :: import("../../function_value.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
@@ -2143,6 +2144,28 @@ resolve_param_types_from_expected :: (
     pj = (pj + usize(1));
   });
 });
+_func_type_has_runtime_some_param :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Func({ param_types : pts }) => {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      n := pts.len();
+      while((i < n) && !(found), {
+        match(
+          pts.get(i),
+          .Some(pt) => if(is_some_type(pt) && !(type_implements_future(pt)), {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => false
+  )
+);
 try_to_call_function_with_arguments :: (
   fn(
     func_val : Option(EvalValue),
@@ -3045,7 +3068,18 @@ try_to_call_function_with_arguments :: (
         .Some(fvp) => match(fvp,.FuncVal(__fvd13, _) => (__fvd13.*.forall_names.len() > usize(0)), _ => false),
         .None => false
       );
-      is_func_generic := (((fl.len() > usize(0)) || (il.len() > usize(0))) || fv_has_forall);
+      callee_own_type := match(
+        func_val,
+        .Some(fvg) => match(fvg,.FuncVal(__fvg, _) => get_func_type(__fvg.*.func_id), _ => func_type),
+        .None => func_type
+      );
+      callee_own_generic := _func_type_has_runtime_some_param(callee_own_type);
+      is_func_generic := ((((fl.len() > usize(0)) || (il.len() > usize(0))) || fv_has_forall) || callee_own_generic);
+      spec_template_type := if(
+        callee_own_generic && !(_func_type_has_runtime_some_param(func_type)),
+        callee_own_type,
+        func_type
+      );
       (spec_func_val : Option(EvalValue)) = Option(EvalValue).None;
       if(!(skip_specialization) && is_func_generic, {
         callee_fid_g := match(
@@ -3117,7 +3151,7 @@ try_to_call_function_with_arguments :: (
             spec_func_val = Option(EvalValue).Some(
               create_specialized_function_inline(
                 fv2,
-                func_type,
+                spec_template_type,
                 spec_av,
                 callee_env_m,
                 caller_env_m,

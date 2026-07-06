@@ -1395,6 +1395,15 @@ evaluate_function_call :: (
       if(op_ret_has_some && ctx.expected_type.is_none(), {
         ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : receiver_ty, env : env));
       });
+      // Thread `Self` = the receiver (lhs) type into the call so a trait-default
+      // operator lambda (`Eq.!= : (lhs, rhs) -> not(Self.(==)(lhs, rhs))`) that
+      // gets SPECIALIZED for a concrete receiver resolves `Self.(==)` in its body.
+      // create_specialized only reconstructs `ctx.self_type` from a param NAMED
+      // `self` (helper.yo); the `!=` lambda's first param is `lhs`, so without
+      // this its body emits "// Failed to transpile Self.(==)". TS carries this
+      // via functionType.SelfType set by the operator-dispatch caller.
+      saved_op_self := ctx.self_type;
+      ctx.self_type = Option(TypeValue).Some(receiver_ty);
       call_result_op := try_to_call_function_with_arguments(
         first_m.value,
         first_m.ty,
@@ -1408,6 +1417,7 @@ evaluate_function_call :: (
         false,
         exn
       );
+      ctx.self_type = saved_op_self;
       ctx.expected_type = saved_op_et;
       // Resolve an associated-type return (`comptime(Self.Output)`) that came
       // back as a bare SomeT (`Output`) because the impl's associated-type

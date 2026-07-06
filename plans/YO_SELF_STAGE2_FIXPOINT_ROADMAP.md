@@ -1,5 +1,45 @@
 # yo-self stage-2 fixpoint — error-distribution roadmap
 
+**CURRENT STATE @ commit `9f95c203a`: 60 clang errors** (measure with
+`clang -std=c11 -ferror-limit=0` — the default limit=20 hides two-thirds).
+The 399 figure below and everything under it is STALE (older era); this session
+drove stage-2 ~164 → 60 (commits 50c4dac33 async pre-pass, a9fa797ed extern
+future, 244c6a812 io.async forall shadow, eab0dd082 \_\_yo_as macro-expansion,
+b7bcd0f4c value-less-io bundle, d29e5d524 concrete-enclosing effect handlers,
+c7cbc947b plain-`:=` unwind handlers, 9f95c203a Family-C spec-cache exact
+identity). VERIFIED distribution @ 60 (all remaining families are DEEP):
+
+- **undeclared identifier 12** — leaked-locals: 5 user vars (`t`, `t_expr`,
+  `get_info`, `frame`, `arg_expr` — loop-body/block-RHS drop scheduled at the
+  enclosing scope-end, out of C scope) + 7 `_file____User_temp_*` never-
+  materialized temp drops. RC-drop-scope; RC-safety-critical.
+- **expected expression 12** — SYNTAX CASCADE downstream of malformed functions
+  (skipped bodies from the families below); should largely clear once roots fixed.
+- **undeclared function 5** — ALL `fn_yo_id_2230` = the **String==str family**
+  (`String != str`/`== str`). ROOT FULLY MAPPED in
+  issues/yo-self-stage2-string-ne-str-specialization.md: the shared abstract
+  `Eq.!=` DEFAULT lambda is never per-instantiation SPECIALIZED (yo-self's
+  spec gate helper.yo:3048 keys on forall/implicit only, MISSING TS's
+  `isFunctionTypeGeneric` SomeType-param clause), so its OWN registered type
+  stays abstract `fn(lhs : Self, rhs : str)` → emission `should_skip` →
+  hard-generic skip, while collection registers the call → undeclared. Fix =
+  specialize the trait-default lambda toward its ABSTRACT type (bind Self→recv,
+  Rhs→arg) so a fresh concrete fn is minted (TS does exactly this: id_47035).
+  Two coupled changes (gate keys on FuncVal-own type + create_specialized gets
+  the abstract template); regression-prone → focused session + full validation.
+- **assigning/passing incompatible ~13** + int-conv ~9 — type-identity family
+  (the ~9-approaches-exhausted incompat class documented below).
+- **conflicting types 1** (`closure_yo_id_6942` proto `void*` vs def `__yo_t413*`)
+  - member-ref — the async family (SM-struct return-type resolution, Phase-5).
+
+METHOD that cracked String==str (reusable): minimal repro compiled by BOTH the
+yo-self binary and `./yo-cli` (TS) → confirm TS clean → diff the emitted C's
+callee naming → probe collection's skip-decision + emission's `should_skip` +
+the specialization gate (guarded eprintln of a `str` literal — `str` DOES impl
+ToString, so `eprintln(str)` needs no owned temp → avoids the begin.yo
+frame-merge trap). Probes revealed: collection registers, emission skips, and
+the passed method type is concrete while the FuncVal's own type is abstract.
+
 **BREAKTHROUGH (struct type_arguments in exact compat): 533 → 399 errors (−134; commit `9e4077300`).**
 The generic-method "specialization collapse" (thought deep/regression-prone) had a CLEAN root fix.
 Concrete: `Iter(usize).next()` reused `Iter(String)`'s specialization (only String's `.next` was
