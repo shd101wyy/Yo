@@ -4,8 +4,34 @@
 the self-compiled `yo-self` binary's `test` subcommand pass `./tests` and
 `./yo-self/tests` (tasks #69, #70).
 
-**Current state @ commit `099e9ca9c`: 56 stage-2 clang errors** (was 60; this
-session fixed the String==str family, `d72e5080d`, and pinned leaked-locals).
+**Current state: 44 stage-2 clang errors** (was 56; session landed the
+per-closure async result-type fix, `a675f54eb`, −12).
+
+**Session 2026-07-06:**
+
+### Landed: Phase 4 per-closure result-type fix (−12)
+
+`commit a675f54eb` — `yo-self/codegen/exprs/async.yo`
+Root cause: Multiple closures implementing the same `Future(T)` trait share
+a single `lookup_some_resolved_concrete` key (the SomeType id). The first
+closure's registration poisons all subsequent closures' struct result types.
+Fix: composite key `output_some_id@@async_block_id` — unique per closure.
+
+### Investigated: Phase 1 init-assignment skip in async closures
+
+The `result := e.io.await(...)` assignment in `io.async((e) => { ... })`
+produces NO C code. The init-assignment codegen skips it because
+`_last_is_compile_time_only` returns true (the def-time evaluation marks
+variables as compile-time-only, and the codegen reads this stale binding).
+Three attempted fixes (checking RHS runtime-ness, checking io.await, removing
+the check entirely) were ALL neutral — the issue is deeper in the sync-future
+generation pipeline. The await expression's codegen isn't called because
+`generate_await` returns `""` when `in_async_state_machine` is set, and the
+sync-future path generates await differently (through the state-machine
+codegen). This is the "statx/async family" documented in the roadmap
+(session 2026-07-04 cont.3).
+
+### Remaining error breakdown (44 total):
 
 **Session 2026-07-06: Phase 1 extensively investigated (DEEP evaluator issue
 found — type stored on Variable lacks ref-semantics flag); Phase 2 attempted
