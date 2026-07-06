@@ -1498,10 +1498,16 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ind
   analysis := match(io_async_await_analysis(expr, context),.Some(a) => a,.None => panic("Missing await analysis for async block. This should have been computed during evaluation."));
   // Result type (T in Future(T)); resolve an unresolved SomeType output.
   (result_type : TypeValue) = match(future_trait_type,.FutureTraitT({ output : o }) => o.clone(), _ => future_type);
+  // Per-closure composite key for some-resolved-concrete: append the unique
+  // async_block_id so different closures sharing the same Future(T) trait
+  // do NOT cross-contaminate each other's registered result type.
+  _rsid_base := match(result_type,.SomeT({ id : i }) => i, _ => String.from(""));
+  _per_clone_rsid := _rsid_base.clone();
+  _per_clone_rsid.push_str("@@");
+  _per_clone_rsid.push_string(async_block_id.clone());
   if(is_some_type(result_type), {
-    rsid := match(result_type,.SomeT({ id : i }) => i, _ => String.from(""));
     match(
-      lookup_some_resolved_concrete(rsid),
+      lookup_some_resolved_concrete(_per_clone_rsid.clone()),
       .Some(rct) => {
         result_type = rct;
       },
@@ -1528,6 +1534,11 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ind
         );
       })
     );
+  });
+  // Register under the per-closure key so future lookups (by the same closure
+  // or await site) resolve to this concrete type without clobbering siblings.
+  if(!(is_some_type(result_type)), {
+    register_some_resolved_concrete(_per_clone_rsid.clone(), result_type.clone());
   });
   result_type_c_name := get_type_string(result_type, context.base);
   em := context.base.emitter;
@@ -2037,8 +2048,25 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   // awaited value's type via `lookup_some_resolved_concrete` instead of lowering
   // the await binding to `void*`.
   output_some_id := match(result_type,.SomeT({ id : i }) => i, _ => String.from(""));
+  // Per-closure composite key: append the unique async_block_id to the
+  // output_some_id so that different closures implementing the same Future(T)
+  // do NOT share the same resolved-concrete-type registration. Without this,
+  // the FIRST closure's registration poisons ALL subsequent closures' result
+  // types → "assigning from incompatible type" C errors.
+  ab_id := match(
+    cei.variable_name,
+    .Some(n) => n,
+    .None => {
+      p := String.from("io_async_block_");
+      p.push_string(random_id(String.from("async")));
+      p
+    }
+  );
+  per_clone_key := output_some_id.clone();
+  per_clone_key.push_str("@@");
+  per_clone_key.push_string(ab_id.clone());
   if(is_some_type(result_type), {
-    rsid := match(result_type,.SomeT({ id : i }) => i, _ => String.from(""));
+    rsid := per_clone_key.clone();
     match(
       lookup_some_resolved_concrete(rsid),
       .Some(rct) => {
@@ -2096,11 +2124,12 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
       .None => ()
     );
   });
-  // Register the resolved concrete result under the future-trait output SomeType id
-  // so the matching `io.await` site can resolve the awaited value's type (rather
-  // than emitting `void* p = ...; p.field` which fails to transpile).
-  if(!(is_some_type(result_type)) && !(output_some_id.is_empty()), {
-    register_some_resolved_concrete(output_some_id.clone(), result_type.clone());
+  // Register the resolved concrete result under the PER-CLOSURE composite key
+  // (output_some_id @@ async_block_id) so the matching `io.await` site can
+  // resolve the awaited value's type. The await site matches because it shares
+  // the same async_block_id (it awaits the same io.async expression).
+  if(!(is_some_type(result_type)) && !(per_clone_key.is_empty()), {
+    register_some_resolved_concrete(per_clone_key.clone(), result_type.clone());
   });
   result_type_c_name := get_type_string(result_type, context.base);
   struct_name := match(ei.async_state_machine_struct_name,.Some(s) => s,.None => return(String.from("/* Error: Missing sync future struct name */")));

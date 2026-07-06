@@ -7,6 +7,20 @@ the self-compiled `yo-self` binary's `test` subcommand pass `./tests` and
 **Current state @ commit `099e9ca9c`: 56 stage-2 clang errors** (was 60; this
 session fixed the String==str family, `d72e5080d`, and pinned leaked-locals).
 
+**Session 2026-07-06: Phase 1 extensively investigated (DEEP evaluator issue
+found — type stored on Variable lacks ref-semantics flag); Phase 2 attempted
+(proto-vs-def mismatch for async closures, needs body ExprInfo at proto time);
+Phase 3 CONFIRMED FIXED (fn_yo_id_2230 undeclared errors are gone); Phase 4
+LANDED: **56→44 (-12)\*\* — fixed per-closure result-type registration in
+`generate_io_async_sync_call` and `generate_async_block` (used composite key
+`output_some_id@@async_block_id` so different closures sharing the same
+Future(T) trait don't cross-contaminate each other's resolved concrete result
+type). Remaining: 44 errors (13 leaked-locals, 1 async proto, ~18 type-identity,
+~12 syntax cascades).
+
+**Session 2026-07-06: Phase 1 extensively investigated; Phase 2 attempted.**
+Error count unchanged at 56. See detailed findings below.
+
 This doc is the actionable plan. Deep per-family analysis lives in:
 
 - `plans/YO_SELF_STAGE2_FIXPOINT_ROADMAP.md` — full history + type-identity analysis.
@@ -181,6 +195,38 @@ the definition then disagree (`void*` vs `__yo_t413*`) = conflicting types.
    struct at BOTH sites.
 
 **Validate** as §1. Phase-5 async feature area; check the roadmap's async notes.
+
+---
+
+### Phase 1 INVESTIGATION RESULTS (2026-07-06)
+
+Extensive probing confirmed the root cause at a DEEP evaluator level:
+
+1. **Codegen probe (LB-DROPS-IN/SED):** The while-loop body's `deferred_drop_expressions` is `<none>` — the evaluator's `_schedule_scope_end_drops` returns `None` for the body's begin block. The ARM's begin block drops `t` after the loop (out of C scope).
+
+2. **EDROP-VAR probe:** The Variable for `t` has `is_owning_the_rc_value = true` but `is_reference_struct_type(v.ty) || is_reference_enum_type(v.ty)` returns `false`. The Variable stores the type with `is_reference_semantics = false` even though the C type `__yo_t6*` IS a ref struct. This prevents e1 from passing → `to_drop` is empty → `_schedule_scope_end_drops` returns `None`.
+
+3. **Attempted fixes and results:**
+
+   - Changing e1 to use `is_rc_type()` instead: no change (error count ~60, neutral)
+   - Changing e1 to use `type_contains_rc_type()`: **REGRESSED to 140 errors** (matches container types like ArrayList, causing double-frees)
+   - Route B codegen fix: requires `HashSet.clone()` which doesn't exist in yo-self; using `unsafe(ptr.*)` requires `pragma(Pragma.AllowUnsafe)` but the fix became too complex
+
+4. **CONCLUSION:** The root cause is deeper than `_schedule_scope_end_drops` — the evaluator stores variable types with `is_reference_semantics = false` for types that ARE reference types in the codegen. This is likely a type-copy issue during `add_variable_to_env` or `evaluate_init_assignment`. A dedicated session is needed to trace why the Variable's type loses its reference-semantics flag.
+
+### Phase 2 INVESTIGATION RESULTS (2026-07-06)
+
+The `conflicting types for 'closure_yo_id_6942'` error (proto `void*` vs def `__yo_t401*`):
+
+1. The pre-pass `_preregister_async_return_overrides` runs before prototypes but `_async_override_return_type` returns `None` for closures because `find_returned_async_block` can't find the `io.async` block inside the closure body at pre-pass time (body ExprInfo not yet available).
+
+2. **Attempted fixes and results:**
+
+   - Added body ExprInfo type fallback in `generate_function_declaration`: NEUTRAL (ExprInfo not available at proto time)
+   - Added direct registration in pre-pass: **REGRESSED** (introduced 2 new clang errors in the yo-self binary itself)
+   - The fix needs the pre-pass or prototype phase to have access to the closure's body type, which requires the body ExprInfo to be available earlier.
+
+3. **POTENTIAL FIX:** Extend the async pre-registration walk (`preregister_async_blocks_in_expr`) to also handle closure bodies by calling `_set_async_sm_struct_name` on any `io.async(...)` found inside closure bodies. Or clone the `find_returned_async_block` logic to work without ExprInfo (purely AST-based).
 
 ---
 
