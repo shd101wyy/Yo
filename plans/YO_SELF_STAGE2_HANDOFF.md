@@ -33,16 +33,45 @@ codegen). This is the "statx/async family" documented in the roadmap
 
 ### Remaining error breakdown (44 total):
 
-**Session 2026-07-06: Phase 1 extensively investigated (DEEP evaluator issue
-found — type stored on Variable lacks ref-semantics flag); Phase 2 attempted
-(proto-vs-def mismatch for async closures, needs body ExprInfo at proto time);
-Phase 3 CONFIRMED FIXED (fn_yo_id_2230 undeclared errors are gone); Phase 4
-LANDED: **56→44 (-12)\*\* — fixed per-closure result-type registration in
-`generate_io_async_sync_call` and `generate_async_block` (used composite key
-`output_some_id@@async_block_id` so different closures sharing the same
-Future(T) trait don't cross-contaminate each other's resolved concrete result
-type). Remaining: 44 errors (13 leaked-locals, 1 async proto, ~18 type-identity,
-~12 syntax cascades).
+**Session 2026-07-06 (cont.) — statx/async deep investigation:**
+
+### GEN-AWAIT-MATCHED probe confirms dispatch fires for statx closure
+
+36 `is_io_await_call` dispatch matches across the entire self-compile. The
+statx closure's `e.io.await(...)` is dispatched to `generate_await`. But:
+
+1. **No FSM skip**: `in_async_state_machine` is NOT set for the closure
+   (`IO_ASYNC_FSM_ENABLED` is `false`; only 1 AWAIT-IN-FSM hit total, in
+   self-compiled codegen, not in user code).
+
+2. **No error path**: All 8 early-return error strings appear in self-compiled
+   codegen only, none in user functions.
+
+3. **Yet no poll-loop code**: After the `GEN-AWAIT-MATCHED` probe, the function
+   body immediately continues with `bool _file____User_temp_6611;` (the cond
+   result) — zero poll-loop/result-extraction code between them. The working
+   awaits (e.g., line 33033) DO have the full `// Synchronous await ...` block.
+
+4. **Hypothesis**: `generate_await` emits via `context.base.emitter`, but the
+   emit output lands in a buffer that gets discarded/overwritten. The
+   init-assignment codegen also uses `context.base.emitter` and its output
+   appears correctly, so the emitter is the same — but `generate_await`'s
+   templated strings might hit a codegen bug that silently skips them
+   (e.g., `get_type_string(future_type, ...)` returning `void*` for the
+   `__yo_io_future_t*` type, causing a formatting issue).
+
+5. **Working awaits** all use `__yo_io_future_t*` (the concrete Io future type).
+   The statx await uses `IO_file.statx(...)` which returns a Future whose
+   `future_type_name` from `get_type_string(future_type, context.base)` likely
+   resolves to a different string format.
+
+**POTENTIAL FIX**: In `generate_await`, check the resolved `future_type_name`
+and ensure it's a valid C type for the `__sync_future` variable declaration.
+The `get_type_string` for the statx Future type may return an invalid/unusable
+C type. Compare with TS: `glibc_stat.futureTypeCName` resolves through the
+`typeRegistry.cName` which is always a valid short name.
+
+Verbosity required due to extensive probing without finding the exact mechanism.
 
 **Session 2026-07-06: Phase 1 extensively investigated; Phase 2 attempted.**
 Error count unchanged at 56. See detailed findings below.
