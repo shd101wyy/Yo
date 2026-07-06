@@ -10,9 +10,17 @@ c7cbc947b plain-`:=` unwind handlers, 9f95c203a Family-C spec-cache exact
 identity). VERIFIED distribution @ 60 (all remaining families are DEEP):
 
 - **undeclared identifier 12** — leaked-locals: 5 user vars (`t`, `t_expr`,
-  `get_info`, `frame`, `arg_expr` — loop-body/block-RHS drop scheduled at the
-  enclosing scope-end, out of C scope) + 7 `_file____User_temp_*` never-
-  materialized temp drops. RC-drop-scope; RC-safety-critical.
+  `get_info`, `frame`, `arg_expr`) + 7 `_file____User_temp_*`. ROOT MAPPED (with
+  decisive TS comparison) in issues/yo-self-stage2-leaked-locals-loop-body.md: a
+  loop-body owning local (e.g. `t := match(get(i),.Some(v)=>v,.None=>continue)`
+  in extract_future_trait_from_type) whose while body contains control flow
+  (continue/return) → `_schedule_scope_end_drops` SKIPS the loop-body begin
+  block → `t` is never dropped at the iteration end (TS DOES drop it there,
+  per-iteration) → the enclosing match-arm scope-end drops it AFTER the loop,
+  past the C `}` that scopes it → "undeclared identifier". Fix = emit the
+  loop-body fall-through drops even with control flow, coordinated with
+  `_emit_loop_body_drops_before_exit` so nothing double-drops. RC-safety-critical
+  (validate corpus DIFF=double-free oracle + ASan).
 - **expected expression 12** — SYNTAX CASCADE downstream of malformed functions
   (skipped bodies from the families below); should largely clear once roots fixed.
 - **undeclared function 5** — ALL `fn_yo_id_2230` = the **String==str family**
