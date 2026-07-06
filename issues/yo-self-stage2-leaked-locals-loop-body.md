@@ -131,14 +131,43 @@ continue})` — NOT direct statements — so the while-body begin block does NOT
    `_schedule_scope_end_drops` does NOT emit `___drop(t)`.
 
 So the after-loop `__yo_decr_rc(t)` is emitted by NEITHER the while-body scope-end
-(those emit INSIDE the loop via generate_loop_body) NOR the arm scope-end (t not
-e7-eligible). It comes from a THIRD path — the pending-deferred-drops / loop-exit
-machinery: `context.pending_deferred_drops` + `loop_body_drops_baseline_count`
-(while_loop.yo:218-219), drained by `_emit_loop_body_drops_before_exit`
-(atom.yo:32, before continue/break) and `generate_pending_deferred_drops`
-(return.yo:219, before return). NEXT: instrument that path to find where `t`
-enters pending_deferred_drops and why the drop lands at/after the loop label
-rather than inside the body — then either (a) fix the evaluator frame leak so `t`
-stays a while-body local dropped inside the loop (TS behavior), or (b) gate the
-pending/loop-exit drop by C-scope liveness (like the `declared_c_var_names` gate,
-commit 47237f3cb, but tracking scope EXIT). RC-safety-critical.
+(those emit INSIDE the loop via generate_loop_body) NOR — I thought — the arm
+scope-end. It comes from the pending-deferred-drops / loop-exit machinery OR the
+arm scope-end. Confirmed below.
+
+## DEFINITIVE PIN (3rd pass — injected `// [SED-SCOPE-END]` tag into generate_deferred_drop_expressions, reverted)
+
+The after-loop `__yo_decr_rc((void*)(t))` is **immediately preceded by
+`// [SED-SCOPE-END]`** → it is emitted by **`generate_deferred_drop_expressions`
+(drop_dup.yo:542)** draining the **ARM begin block's `deferred_drop_expressions`**.
+So `t` IS in the arm block's deferred_drops (i.e. the arm frame's
+`_schedule_scope_end_drops` DID include `t` as e7-eligible — the earlier co-var
+probe's "t not e7-eligible" reading was for a different `_schedule` invocation).
+NOT the pending/loop-exit path (that would be comment-less too, but the tag
+proves it's the scope-end path), NOT `generate_pending_deferred_drops` (that
+emits its own "// Drop local variables before early return/completion" comment).
+
+Why the existing skip doesn't catch it: `generate_deferred_drop_expressions` has
+an `undeclared_temp` skip — but it is gated to TEMP names (`is_temp_variable_name`)
+and checks `!declared_c_var_names.contains(cn)`. `t` is a USER var (not skipped),
+AND `t` IS in `declared_c_var_names` at the arm-scope-end point (its declaration
+emitted INSIDE the loop; `declared_c_var_names` is FUNCTION-scoped, grown-only,
+never removed on block exit) — so it reads as "declared" even though its C block
+`{}` closed. `declared_c_var_names` tracks DECLARATION, not scope EXIT.
+
+## Fix options (RC-safety-critical, focused session)
+
+(a) EVALUATOR (correct, matches TS): stop `t` (a while-body local) from ending up
+in the ARM frame's `_schedule_scope_end_drops`; it should be dropped by the
+WHILE-BODY frame INSIDE the loop (per-iteration). Requires finding which frame
+`t := match(...)` binds into during `evaluate_while`'s body eval and why it is
+attributed to the arm frame (instrument `add_variable_to_env` frame level for
+`t`). This is the faithful fix.
+(b) CODEGEN (pragmatic, but LEAKS `t`): make drop-emission scope-EXIT aware — e.g.
+snapshot `declared_c_var_names` on loop-body entry and treat vars declared
+only inside the (now-closed) loop `{}` as out-of-scope at the arm scope-end,
+extending the `undeclared_temp` skip to user vars. Safe (no double-free) but
+leaks `t` and does NOT match TS. Only acceptable if (a) proves too deep.
+
+Validate corpus 103/103 (DIFF 0 = double-free oracle) + std 152/152 + ASan +
+stage-2 (expect the 5 user-var + several temp undeclared errors to clear).
