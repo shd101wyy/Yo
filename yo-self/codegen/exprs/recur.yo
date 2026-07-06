@@ -10,7 +10,7 @@ open(import("std/string"));
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { get_variable_name_for_codegen, get_type_string } :: import("../utils/index.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, get_variables_from_env } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 /// Emit a recursive self-call `<currentFunctionName>(<args>)`. If the recur
 /// has a result variable name, emit it into a named temp first (so enclosing
@@ -30,7 +30,31 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
             if(i > usize(0), {
               args_list.push_str(", ");
             });
-            args_list.push_string(_call_generate_expr(arg, indent.clone(), context));
+            arg_code := _call_generate_expr(arg, indent.clone(), context);
+            // Strip `(*name)` to `name` for ref (inout) params — both the
+            // caller and callee expect a pointer, so the deref is wrong.
+            // Mirrors TS recur.ts:34-51.
+            match(
+              context.base.get_expr_info(arg),
+              .Some(aei) => match(
+                aei.variable_name,
+                .Some(vn) => {
+                  arg_vars := get_variables_from_env(aei.env, vn.clone());
+                  if((arg_vars.len() > usize(0)) && (arg_code.starts_with("(*")) && (arg_code.ends_with(")")), {
+                    match(
+                      arg_vars.get(arg_vars.len() - usize(1)),
+                      .Some(v) => if(v.is_ref, {
+                        arg_code = arg_code.substring(usize(2), arg_code.len() - usize(1));
+                      }),
+                      .None => ()
+                    );
+                  });
+                },
+                .None => ()
+              ),
+              .None => ()
+            );
+            args_list.push_string(arg_code);
           },
           .None => ()
         );
