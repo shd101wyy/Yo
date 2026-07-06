@@ -4,10 +4,15 @@
 the self-compiled `yo-self` binary's `test` subcommand pass `./tests` and
 `./yo-self/tests` (tasks #69, #70).
 
-**Current state: 44 stage-2 clang errors** (was 56; session landed the
-per-closure async result-type fix, `a675f54eb`, −12).
+**Current state: 39 stage-2 clang errors** (was 56; −17 total).
 
-**Session 2026-07-06:**
+### Progress log
+
+| Session    | Change                                          | Δ           |
+| ---------- | ----------------------------------------------- | ----------- |
+| Prior      | per-closure async result-type fix (`a675f54eb`) | 56→44 (-12) |
+| 2026-07-06 | unwind double-return fix (`d0518c359`)          | 44→42 (-2)  |
+| 2026-07-06 | recur ref-param deref strip (`dd4473afc`)       | 42→39 (-3)  |
 
 ### Landed: Phase 4 per-closure result-type fix (−12)
 
