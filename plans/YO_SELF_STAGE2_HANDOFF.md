@@ -4,7 +4,7 @@
 the self-compiled `yo-self` binary's `test` subcommand pass `./tests` and
 `./yo-self/tests` (tasks #69, #70).
 
-**Current state: 35 stage-2 clang errors** (was 56; −21 total).
+**Current state: 31 stage-2 clang errors** (was 56; −25 total).
 
 ### Progress log
 
@@ -246,56 +246,82 @@ that cleared 9 errors touches the same code, so re-validate corpus 103/103 + std
 
 ## Phase 2 — expected expression (10 errors, MAJORITY) + await dispatch
 
-**Errors:** `expected expression` ×10 — the largest remaining category. These are
-C syntax errors like `if ((() < ()))` and `return (() >= ())` where comparison
-operands are empty strings.
+**Errors:** `expected expression` ×10 — the largest remaining category. C syntax
+errors like `if ((() < ()))` (is_file/is_dir) and `return (() >= ())` (exists)
+where BOTH comparison operands are empty strings.
 
-**Root (confirmed via AW-SYNC/AW-RET probes 2026-07-07):** `generate_await` is
-correctly dispatched (`is_io_await_call` matches), but `get_expr_info(future_arg)`
-returns `None` for 3 `io.await` calls inside closure bodies (specifically
-`IO_file.statx(AT_FDCWD, cstr, ...)` in `std/fs/file.yo:exists`/`is_file`).
+**Discriminator (confirmed 2026-07-07 sess 3):** it is NOT statx-specific and NOT
+naming — it is the **effect type**. `exists`/`is_file`/`is_dir` return
+`Future(bool, Io)` (single effect Io) → closure param is `io : Io` → `io.await(...)`
+(atom receiver). `canonical` (line 409) awaits the SAME `IO_file.statx(...)` via
+`e.io.await(...)` (param `e : IoExn` bundle) and WORKS. So the failing shape is the
+**atom-receiver `io.await` in a single-effect-Io io.async closure**; the working
+shape is the nested `e.io.await` in a multi-effect bundle closure.
 
-The 3 misses cause `generate_await` to return early (`"// Error: await argument
-must be a Future type"`), emitting no poll-loop code. The calling begin block then
-processes the `result := io.await(...)` init-assignment with an empty RHS, and the
-downstream `result >= i32(0)` comparison emits `(() >= ())` because the await
-result variable is never assigned → empty operand.
+**TS is CLEAN for this exact input** (verified via `./yo-cli compile yo-self/main.yo
+--emit-c`: 0 empty-operand patterns; yo-self emits 4). yo-self-bin (built by TS)
+compiles std/fs fine. So this is a PURE yo-self divergence — do NOT touch TS.
 
-**36 total `is_io_await_call` dispatches work correctly** (emit proper poll-loop
-with `// Synchronous await` block). Only 3 fail.
+**OLD THEORY REFUTED (2026-07-07 sess 3):** the "`get_expr_info(future_arg)` is
+None → `generate_await` early-returns" story is WRONG. Ruled out by instrumentation
+(all probes reverted after use):
 
-**Why ExprInfo is missing:** The `IO_file.statx(...)` expression inside the closure
-body has its ExprInfo stored during def-time body evaluation
-(`_trial_eval_anon_body` → `evaluate_expression_raw`), but at codegen time,
-`context.base.get_expr_info(future_arg)` looks up by `ast_expr_id(future_arg)` and
-gets `None`. This is likely an AST-node-ID mismatch: the evaluator stores ExprInfo
-under a specialized/cloned node's ID, but the codegen reads the original AST's ID.
+- **FUTP probe** (helper.yo `check_if_function_parameter_matches_argument`, guarded
+  `param_label`=="fut"): 70 io.await/spawn `fut` args, **ALL `actual == evaled`** —
+  NO node replacement. The future-arg node id is stable through eval; the arg's
+  ExprInfo IS stored under the id the codegen reads. So the expected-type-coercion /
+  node-wrap hypothesis is dead (the committed `skip_expected_type` fix, `7c4191da8`,
+  is still correct-and-faithful — it just does NOT fix this cascade).
+- **AWP-FAIL probe** (await.yo `generate_await` None-return): the error-comment
+  return string does NOT appear as emitted C → `generate_await`'s future-arg None
+  path is NEVER hit for statx. So generate_await is not the failure point.
+- **AWRES probe** (function.yo, all 3 `try_to_call` result sites 3354/3535/3603,
+  guarded `is_io_await_call(expr)`): io.await results ARE computed, ALL `unknown=Y`
+  (runtime), types = 37×i32, 10×unit (legit close/write), 9×struct, 5×bool, 5×File,…
+  So the statx await's result value is a correct **runtime i32** (in the 37). io.await
+  reaches these sites via the `.None` (no-compile-time-callee) branch, NOT the
+  `.Some` branch — the io.await refinement at function.yo:3341 is effectively DEAD.
+- **[TTERR] probe** (anonymous_function.yo `_trial_eval_anon_body` swallow handler
+  printing `err.to_string()`): only 4 swallowed errors total, **none statx-related**.
+  So the statx closure body does NOT throw at the `_trial_eval_anon_body` swallow.
 
-**Key TS divergence:** TS stores `expr.$` (ExprInfo) in-band on EVERY AST node.
-yo-self stores ExprInfo in a separate `expr_info_table` keyed by expression ID.
-This indirection means IDs must match between eval-time and codegen-time — any
-cloning or specialization breaks the ID link.
+**REFINED ROOT (precise pin):** For `exists` (simplest — no cond/Statx), the emitted
+C is: `buf_size`/`buf` declared correctly, then the whole `result := io.await(statx,
+io)` statement VANISHES (no `int32_t result`, no poll-loop) AND the final
+`result >= i32(0)` emits `(() >= ())` (BOTH operands empty — even the `i32(0)`
+literal → `""`). Empty operands mean those nodes have NO ExprInfo/resolution at
+codegen. Since (a) the io.await result IS computed (AWRES), (b) `buf`/`buf_size`
+(earlier statements) DO emit, but (c) `result >= i32(0)` (final statement) does NOT
+→ the closure-body evaluation **stops right after the `result := io.await(...)`
+binding**: statements before it get ExprInfo, statements at/after it do not. The
+stop is a swallowed throw during the `result` init-assignment BINDING (after the RHS
+io.await result is computed), atom-form-specific, and is caught at a swallow OTHER
+than `_trial_eval_anon_body` (since [TTERR] there is silent for statx).
 
-**Faithful-port fix candidates:**
+**NEXT STEP (do this first — one rebuild):** instrument the OTHER swallow sites to
+catch the atom-`io.await` binding throw. Candidates (grep `-> unwind(())` handlers):
+`test.yo:83`, `function.yo:411`/`184`/`1233`, `impl.yo:1191`, `index_trait.yo:757`,
+`function_type.yo:217`, `trait.yo:575`. Add `eprintln(err.to_string())` (NB: the
+throw param is `error : AnyError`, which has `.to_string()` — see main.yo:489) to
+each, rebuild, grep the stderr for `file.yo`/`statx`/`await`. Then read the throw
+message: it points at the exact init-assignment binding step that rejects the
+atom-`io.await` rhs. Likely candidates in `initialization_assignment.yo` (the steps
+AFTER `rhs = evaluate_expression_raw`, ~line 232): `has_any_control_flow` check
+(~283, if the atom io.await result carries a spurious control_flow flag),
+`require_expr_not_consumed`/`set_expr_as_needs_to_call_dup` (~303-305, if the `io`
+param arg is consumed by the await), or `prohibit_void_type` (~245). Compare each
+against TS `initialization-assignment.ts` — the atom form must match nested.
 
-1. Add ExprInfo as an in-band field on `AstExpr` (like TS `expr.$`) — major
-   refactor, eliminates ID-mismatch root cause forever.
-2. In `generate_await`, when `get_expr_info(future_arg)` returns None, try to get
-   the future type from the `io.await` call's own ExprInfo (which IS available —
-   `expr_ei` at line 375 succeeds). The await call's result type can be used to
-   reconstruct the future type.
-3. Fix the evaluator to ensure ExprInfo is stored under the SAME ID the codegen
-   reads — trace the `IO_file.statx(...)` node's ID through eval→codegen.
+**GOTCHA (cost me 2 failed builds):** (1) importing `is_unknown_val`/`await_analysis`
+into `initialization_assignment.yo` created a circular import ("Record field
+to_string not found in source namespace type"). (2) **Nested backticks in a template
+interpolation** — `` `...${if(x, `Y`, `N`)}...` `` — fail to compile with the same
+"to_string not found in source namespace type" error; extract the inner `if`/`cond`
+to a separate `uvs :=` statement first.
 
-**FALLBACKS ATTEMPTED + REVERTED:**
-
-- Using `__yo_io_future_t*` as fallback future type caused 12 NEW errors (47 total)
-  because the generic future type doesn't have `__yo_resume_fn`/`state`/`result`
-  fields that the poll-loop codegen accesses.
-
-**Next step:** Option 1 (in-band ExprInfo) is the cleanest faithful port but
-requires modifying `AstExpr`, the evaluator, and codegen. Option 2 is more
-targeted. Start with option 2.
+**FALLBACKS ATTEMPTED + REVERTED (older):** using `__yo_io_future_t*` as fallback
+future type in generate_await → +12 errors (generic future type lacks
+`__yo_resume_fn`/`state`/`result`). Do NOT retry.
 
 ---
 
