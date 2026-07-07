@@ -216,6 +216,32 @@ env-threading). RC-SAFETY-CRITICAL — validate corpus DIFF 0 + ASan.
 
 `get_info` is separate (closure-capture codegen — route through the capture struct).
 
+**SHARP FINDING (2026-07-07 session 2, instrumented `_schedule_scope_end_drops`, reverted):**
+Probed all 22 `arg_expr` locals scheduled for drop: 20 are fine (dropped in their own
+frame), but **2 leak into the FUNCTION frame** (co-var `arg_exprs` param present) —
+those are the errors (`yo_id_257875` = a struct-ctor arg-matcher). CRITICAL: both the
+leaked AND the correct `arg_expr` have `Variable.frame_level=2, env.frames.len()=3` —
+i.e. the leaked `arg_expr` **binds at the FUNCTION frame level (2), NOT the while-body
+frame (3)**. So a "skip drops whose frame_level ≠ current frame" filter does NOT work
+(leaked and correct are indistinguishable by level). The while-body frame is simply
+NOT ACTIVE when `arg_expr := match(arg_exprs.get(i), .Some(v)=>v, ...)` binds.
+
+ROOT (hypothesis, needs 1 more probe to confirm): the `match(...)` RHS threads its arm
+body's env back via `env.frames = bi.env.frames` (match.yo:2249). For this Option
+`.Some(v)` match the arm-body env is SHORTER than the pre-match env — the while-body
+frame got popped during the match's arm-body eval (likely the `fabb2d9dd` match fix's
+`pop_env_frame` / the with-fields `while(len > base_frame_count)` pop removing one frame
+too many for this optimized-Option path) — so after the match, `env` has [0,1,2]
+(while-body frame 3 gone), and `arg_expr` binds at level 2 (the function frame). NEXT:
+instrument `add_variable_to_env` for `arg_expr` to print `env.frames.len()` at BIND
+(expect 3, not 4), and instrument match.yo's `env.frames = bi.env.frames` (2249) +
+the with-fields `base_frame_count_wf` to see if the arm-body env lost the while-body
+frame. Then fix the match env-threading to PRESERVE the enclosing (while-body) frame
+(pop only match_arm_frame, not the enclosing frame). RC-CRITICAL — the `fabb2d9dd` fix
+that cleared 9 errors touches the same code, so re-validate corpus 103/103 + std 152/152
+
+- that the 9 stay fixed + these 2 clear.
+
 ---
 
 ## Phase 2 — expected expression (10 errors, MAJORITY) + await dispatch
