@@ -161,9 +161,27 @@ match-frame leak fix (`fabb2d9dd`) eliminated these by correctly popping
 `match_arm_frame` from the body's ExprInfo.env, preventing loop-body variables from
 leaking into the arm's begin-block scope-end drops.
 
-**REMAINING (4):** `get_info` + 3 `_file____User_temp_*` temps in other contexts
-(branch leaks in if/else, cond branches — NOT fixed by the match fix since they
-don't go through match arm evaluation).
+**REMAINING (5, re-confirmed 2026-07-07 session 2):** `get_info` (69066) + `arg_expr`
+(80975) + 3 temps (`_161724`, `_161837` @80976-77, `_188205` @206397).
+
+**CORRECTION — these are NOT cond/if branch-frame leaks (that theory is WRONG):**
+
+- `arg_expr` is in `yo_id_257875` (a struct-ctor arg-matching fn): it is
+  `arg_expr := match(arg_exprs.get(i), .Some(v) => v, ...)` INSIDE a `while` loop,
+  dropped (with `_161724`/`_161837`) at the FUNCTION scope-end (after the loop) via
+  `generate_deferred_drop_expressions` → out of C block scope. This is the SAME
+  WHILE-BODY leak class as `extract_future`'s `t` (see
+  issues/yo-self-stage2-leaked-locals-loop-body.md), NOT a match/cond arm issue.
+  The `fabb2d9dd` match fix cleared the match_arm_frame leaks (9) but NOT these
+  while-body ones. CONFIRMED: TS `cond.ts:90` does NOT push a per-case frame or
+  call `popEnvFrame` (`const caseEnv = env; // evaluateBeginExpression pushes its
+own`), so a "cond popEnvFrame" fix would be UNFAITHFUL + a no-op. The real fix is
+  the WHILE-BODY leak (while.yo env-threading, `env.frames = body_info.env.frames`
+  at while.yo:490) — same as the pinned leaked-locals issue.
+- `get_info` (69066) is DIFFERENT: it's a CLOSURE CAPTURE emitted as a bare
+  identifier. The closure `closure_yo_id_277703(void* closure_context, ...)` reads
+  `get_info` directly instead of `((CaptureStruct*)closure_context)->get_info`.
+  Fix is in closure-capture codegen (route captured vars through the capture struct).
 
 **Investigation findings from sessions 2026-07-06/07:**
 
@@ -186,13 +204,17 @@ The original 13 undeclared errors came from two root causes:
 - The evaluator-level fix (match.yo) is the correct approach — extend to other
   branching constructs.
 
-**Remaining Route A fix:** Apply the same `pop_env_frame` cleanup pattern to
-if/else and cond branch evaluation, ensuring branch-local variables' ExprInfo.env
-doesn't leak frames.
+**Remaining fix (2026-07-07 session 2 correction):** The 4 non-`get_info` errors are
+WHILE-BODY leaks (a `x := match(iter.get(i), ...)` local in a `while`, dropped at the
+enclosing/function scope-end out of C scope). Fix at the EVALUATOR: `evaluate_while`
+(while.yo) must not let the loop-body frame's vars leak into the outer env via
+`env.frames = body_info.env.frames` (line 490) — mirror the match.yo `fabb2d9dd` fix
+(pop the leaked frame from `body_info.env` before ingesting). See the full pin in
+issues/yo-self-stage2-leaked-locals-loop-body.md (the drop is emitted by
+`generate_deferred_drop_expressions` / arm-scope-end; the var leaked there via the
+env-threading). RC-SAFETY-CRITICAL — validate corpus DIFF 0 + ASan.
 
-**DO NOT attempt Route B codegen scope tracking** — it's a dead end (too many
-variable declaration paths don't go through `get_variable_type_string`, and
-the `declared_c_var_names` hashset has no scope information).
+`get_info` is separate (closure-capture codegen — route through the capture struct).
 
 ---
 
