@@ -4,7 +4,7 @@
 the self-compiled `yo-self` binary's `test` subcommand pass `./tests` and
 `./yo-self/tests` (tasks #69, #70).
 
-**Current state: 39 stage-2 clang errors** (was 56; −17 total).
+**Current state: 35 stage-2 clang errors** (was 56; −21 total).
 
 ### Progress log
 
@@ -13,8 +13,30 @@ the self-compiled `yo-self` binary's `test` subcommand pass `./tests` and
 | Prior      | per-closure async result-type fix (`a675f54eb`) | 56→44 (-12) |
 | 2026-07-06 | unwind double-return fix (`d0518c359`)          | 44→42 (-2)  |
 | 2026-07-06 | recur ref-param deref strip (`dd4473afc`)       | 42→39 (-3)  |
+| 2026-07-07 | match arm frame-pop cleanup (`fabb2d9dd`)       | 39→35 (-4)  |
 
-### Landed: Phase 4 per-closure result-type fix (−12)
+### Landed: Phase 4 match-arm frame-pop cleanup (−4)
+
+`commit fabb2d9dd` — `yo-self/evaluator/exprs/match.yo`
+Faithful port of TS `match.ts:485-493`. The yo-self match evaluator pushed
+`match_arm_frame` per arm, evaluated the body, then popped from the LIVE env only.
+The body's `ExprInfo.env` (a snapshot created inside `new_expr_info`) still carried
+`match_arm_frame`. This leaked frame was later ingested via
+`env.frames = bi.env.frames` (match.yo:2249), redirecting variable additions to the
+wrong frame and misdirecting begin-block scope-end pop operations. The result: 9
+loop-body variables' drops scheduled in the outer begin block instead of the loop
+body, producing undeclared-identifier C errors.
+
+Fix: after `env.pop_frame()` in all 4 arm branches (fieldless, wildcard/comptime,
+literal, with-fields), also pop from `body_info.env` via `pop_env_frame`. For the
+with-fields branch (which uses `while(env.frames.len() > base_frame_count)` to pop
+multiple frames), apply the same while-loop to `body_info.env.frames`.
+
+Validation: corpus 103/103 DIFF 0, undeclared identifiers 13→4 (−9), total 39→35 (−4).
+
+### Landed --- earlier fixes already committed
+
+### Landed: Phase 4 per-closure async result-type fix (−12)
 
 `commit a675f54eb` — `yo-self/codegen/exprs/async.yo`
 Root cause: Multiple closures implementing the same `Future(T)` trait share
@@ -28,60 +50,28 @@ The `result := e.io.await(...)` assignment in `io.async((e) => { ... })`
 produces NO C code. The init-assignment codegen skips it because
 `_last_is_compile_time_only` returns true (the def-time evaluation marks
 variables as compile-time-only, and the codegen reads this stale binding).
-Three attempted fixes (checking RHS runtime-ness, checking io.await, removing
-the check entirely) were ALL neutral — the issue is deeper in the sync-future
-generation pipeline. The await expression's codegen isn't called because
-`generate_await` returns `""` when `in_async_state_machine` is set, and the
-sync-future path generates await differently (through the state-machine
-codegen). This is the "statx/async family" documented in the roadmap
-(session 2026-07-04 cont.3).
+This was investigated in session 2026-07-04 cont.3. **Now superseded** by the
+Phase 2 investigation (2026-07-07): the real root cause is `get_expr_info(future_arg)`
+returning `None` for `IO_file.statx(...)` inside closure bodies, not FSM/sync-future
+path issues. See Phase 2 below.
 
-### Remaining error breakdown (44 total):
+### Remaining error breakdown (35 total as of 2026-07-07):
 
-**Session 2026-07-06 (cont.) — statx/async deep investigation:**
+| Count | Category               | Details                                                                                    |
+| ----- | ---------------------- | ------------------------------------------------------------------------------------------ |
+| 10    | expected expression    | Await poll-loop code vanishes — `IO_file.statx(...)` inside closure bodies has no ExprInfo |
+| 4     | undeclared identifiers | `get_info` (closure capture), 3 temps (branch-leaked, not fixed by match fix)              |
+| 5     | passing incompatible   | Type identity: self-compiler re-registers types with different IDs                         |
+| 3+    | member ref on size_t   | Random: varies per compilation (different random IDs)                                      |
+| 2     | incomplete type void   | Empty capture struct → `(void){}` — `get_type_c_name` returns None                         |
+| 2     | assigning from void\*  | Cascade from await/throw codegen                                                           |
+| 2     | operand arithmetic     | Dyn dispatch not lowered to vtable calls                                                   |
+| 1     | str→String             | `Eq(str).(!=)` default `Self.(==)` resolves to `Eq(String).(==)` instead of `Eq(str).(==)` |
+| 1     | member ref not pointer | `(*self)->_fd` on ref struct — atom deref + `->`                                           |
+| 1     | conflicting types      | Async closure proto `void*` vs def concrete — `type_key` mismatch in pre-registration      |
+| 2     | ptr-to-int             | Cascade                                                                                    |
 
-### GEN-AWAIT-MATCHED probe confirms dispatch fires for statx closure
-
-36 `is_io_await_call` dispatch matches across the entire self-compile. The
-statx closure's `e.io.await(...)` is dispatched to `generate_await`. But:
-
-1. **No FSM skip**: `in_async_state_machine` is NOT set for the closure
-   (`IO_ASYNC_FSM_ENABLED` is `false`; only 1 AWAIT-IN-FSM hit total, in
-   self-compiled codegen, not in user code).
-
-2. **No error path**: All 8 early-return error strings appear in self-compiled
-   codegen only, none in user functions.
-
-3. **Yet no poll-loop code**: After the `GEN-AWAIT-MATCHED` probe, the function
-   body immediately continues with `bool _file____User_temp_6611;` (the cond
-   result) — zero poll-loop/result-extraction code between them. The working
-   awaits (e.g., line 33033) DO have the full `// Synchronous await ...` block.
-
-4. **Hypothesis**: `generate_await` emits via `context.base.emitter`, but the
-   emit output lands in a buffer that gets discarded/overwritten. The
-   init-assignment codegen also uses `context.base.emitter` and its output
-   appears correctly, so the emitter is the same — but `generate_await`'s
-   templated strings might hit a codegen bug that silently skips them
-   (e.g., `get_type_string(future_type, ...)` returning `void*` for the
-   `__yo_io_future_t*` type, causing a formatting issue).
-
-5. **Working awaits** all use `__yo_io_future_t*` (the concrete Io future type).
-   The statx await uses `IO_file.statx(...)` which returns a Future whose
-   `future_type_name` from `get_type_string(future_type, context.base)` likely
-   resolves to a different string format.
-
-**POTENTIAL FIX**: In `generate_await`, check the resolved `future_type_name`
-and ensure it's a valid C type for the `__sync_future` variable declaration.
-The `get_type_string` for the statx Future type may return an invalid/unusable
-C type. Compare with TS: `glibc_stat.futureTypeCName` resolves through the
-`typeRegistry.cName` which is always a valid short name.
-
-Verbosity required due to extensive probing without finding the exact mechanism.
-
-**Session 2026-07-06: Phase 1 extensively investigated; Phase 2 attempted.**
-Error count unchanged at 56. See detailed findings below.
-
-This doc is the actionable plan. Deep per-family analysis lives in:
+**Previous session notes (2026-07-06) — now obsolete, superseded by Phase 2:**
 
 - `plans/YO_SELF_STAGE2_FIXPOINT_ROADMAP.md` — full history + type-identity analysis.
 - `issues/yo-self-stage2-leaked-locals-loop-body.md` — leaked-locals (fully pinned).
@@ -164,202 +154,192 @@ codegen decisions without a debugger):
 
 ---
 
-## Phase 1 — leaked-locals (13 errors, FULLY PINNED, do this FIRST)
+## Phase 1 — leaked-locals (4 errors remaining, was 13; DOWN 9 via Phase 4 match fix)
 
-**Why first:** largest single family, completely root-caused (3 passes this
-session), self-contained. Errors: `t`×2, `t_expr`, `get_info`, `frame`, `arg_expr`
-(5 user vars) + 7 `_file____User_temp_*` (temps) — all "use of undeclared identifier".
+**FIXED (9):** `t`×2, `t_expr`, `frame`, `arg_expr` + 4 `_file____User_temp_*` — the
+match-frame leak fix (`fabb2d9dd`) eliminated these by correctly popping
+`match_arm_frame` from the body's ExprInfo.env, preventing loop-body variables from
+leaking into the arm's begin-block scope-end drops.
 
-**Root (see issue file for the full pin):** a loop-body owning local — e.g.
-`t := match(required_trait_types.get(i), .Some(v)=>v, .None=>{i+=1; continue})` in
-`extract_future_trait_from_type` (trait*checking.yo:1397) — is C-declared INSIDE
-the `while {}` but its RC-drop is emitted at the ENCLOSING match-arm scope-end
-(after the loop label, out of C block scope). CONFIRMED emitter (via injected
-`// [SED-SCOPE-END]` tag): `generate_deferred_drop_expressions` (drop_dup.yo:542)
-draining the ARM begin block's `deferred_drop_expressions` → so `t` (a while-body
-local) is in the ARM frame's scope-end drops. **TS drops loop-body locals INSIDE
-the loop, per-iteration** (verified in /tmp/yo-self-9.c ~149060,
-`fn*...\_id_43\_\_\_drop(t)`after`i++`, before `}`).
+**REMAINING (4):** `get_info` + 3 `_file____User_temp_*` temps in other contexts
+(branch leaks in if/else, cond branches — NOT fixed by the match fix since they
+don't go through match arm evaluation).
 
-**Two fix routes — do (A) first, it's correct + matches TS:**
+**Investigation findings from sessions 2026-07-06/07:**
 
-### Route A (EVALUATOR — correct, drops `t` inside the loop like TS)
+The original 13 undeclared errors came from two root causes:
 
-1. **Find which frame `t := match(...)` binds into.** Instrument `add_variable_to_env`
-   (env.yo) OR `_schedule_scope_end_drops` (begin.yo:227) to print, for var name
-   `"t"`, the frame level / whether `ctx.is_evaluating_loop_body` is set. Expected
-   finding to confirm: `t` ends up in the ARM frame (co-var probe already showed
-   `t`+`i` in one non-loop frame — a leak from the while-body frame up to the arm).
-2. **Locate the leak in `evaluate_while` (while.yo:305-540).** The body is evaluated
-   via `evaluate_begin_expression(body_expr, env, ...)` at line 310, which pushes a
-   frame. After the body eval + control-flow handling, the outer `env.frames` /
-   `out_info.env` must NOT carry the while-body frame's vars up to the arm. Check
-   lines 347/354/366/470/490 (`env.frames = body_info.env.frames`) — one of these
-   propagates the body frame. Compare against TS `evaluateWhile` in
-   `src/evaluator/exprs/while.ts` for the exact env-threading (yo-self must match).
-3. **Fix so `t` stays a while-body local** → the while-body begin block's
-   `_schedule_scope_end_drops` schedules its drop → `generate_loop_body`
-   (while_loop.yo:146-169) emits it INSIDE the loop. Note: the while-body begin
-   block does NOT skip on control flow here — the skip (begin.yo:250-268) only
-   checks DIRECT statements, and extract_future's return/continue are NESTED in
-   matches, so the body reaches the var loop normally.
-4. **Coordinate with control-flow exits** so nothing double-drops: `t` is moved on
-   the `return .Some(t)` path (consumed, `consumed_at_token` set → e5 excludes it)
-   and not-yet-bound on the `continue` path — so only the fall-through iteration
-   end should drop it. Verify the continue/break path
-   (`_emit_loop_body_drops_before_exit`, atom.yo:32) and the fall-through drop are
-   mutually exclusive per-var (TS is the reference).
+1. **Match frame leak (9 errors, FIXED):** See Phase 4 section above. The match evaluator's
+   `match_arm_frame` leaked into the body's ExprInfo.env.
+2. **Branch leaks (4 remaining):** Variables declared inside if/else or cond branches
+   have their drops scheduled in the outer begin block's deferred_drop_expressions
+   (different frame from the match arm). The same style of frame cleanup is needed
+   for other evaluator paths.
 
-### Route B (CODEGEN — pragmatic fallback if A proves too deep; LEAKS `t`, diverges from TS)
+**CODE-GEN APPROACH (attempted + REVERTED):**
 
-- Make drop emission scope-EXIT aware. `declared_c_var_names` (codegen context) is
-  FUNCTION-scoped (grown-only, never removed on block exit), so it can't tell that
-  `t` (declared inside the now-closed loop `{}`) is out of scope. Snapshot
-  `declared_c_var_names` on loop-body entry in `generate_while_loop`
-  (while_loop.yo:186), compute the vars declared INSIDE the loop, and in
-  `generate_deferred_drop_expressions` (drop_dup.yo:542) skip a drop whose target
-  is a loop-only var (extend the existing `undeclared_temp` skip — currently
-  temps-only — to these). Safe (no double-free) but leaks `t`. Only if A is blocked.
+- Removing the `is_temp_variable_name` gate from `drop_dup.yo:567` caused 6 corpus DIFFs
+  because non-temp variables (params, struct fields) aren't tracked in
+  `declared_c_var_names`.
+- Adding scope tracking to `declared_c_var_names` was explored but not completed —
+  too complex for the payoff.
+- The evaluator-level fix (match.yo) is the correct approach — extend to other
+  branching constructs.
 
-**Validate:** stage-2 (expect −8 to −13; the 7 temps likely clear too), corpus
-103/103 DIFF 0, std 152/152, + an ASan run on a corpus binary
-(`./yo-cli compile <corpus>.yo --release --sanitize address --allocator libc -o t && ./t`).
+**Remaining Route A fix:** Apply the same `pop_env_frame` cleanup pattern to
+if/else and cond branch evaluation, ensuring branch-local variables' ExprInfo.env
+doesn't leak frames.
+
+**DO NOT attempt Route B codegen scope tracking** — it's a dead end (too many
+variable declaration paths don't go through `get_variable_type_string`, and
+the `declared_c_var_names` hashset has no scope information).
 
 ---
 
-## Phase 2 — async state-machine struct return type (~2-4 errors)
+## Phase 2 — expected expression (10 errors, MAJORITY) + await dispatch
 
-**Errors:** `conflicting types for 'closure_yo_id_6942'` (proto emitted `void*`,
-definition `__yo_t413*`) + `member reference type '__yo_t405' is not a pointer`
-(a state-machine access `sm->field` on a value/void\*) + likely some of the
-incompat/int-conv in Phase 4.
+**Errors:** `expected expression` ×10 — the largest remaining category. These are
+C syntax errors like `if ((() < ()))` and `return (() >= ())` where comparison
+operands are empty strings.
 
-**Root (see roadmap "MEMBER-REF" entries):** an async fn / closure returns `void*`
-instead of its concrete Future state-machine (SM) struct, because the SM struct is
-registered under the io.async BLOCK's future SomeT id, not the FUNCTION-return
-SomeT id, so `get_type_string(future_type)` → `void*`. The forward declaration and
-the definition then disagree (`void*` vs `__yo_t413*`) = conflicting types.
+**Root (confirmed via AW-SYNC/AW-RET probes 2026-07-07):** `generate_await` is
+correctly dispatched (`is_io_await_call` matches), but `get_expr_info(future_arg)`
+returns `None` for 3 `io.await` calls inside closure bodies (specifically
+`IO_file.statx(AT_FDCWD, cstr, ...)` in `std/fs/file.yo:exists`/`is_file`).
 
-**Steps:**
+The 3 misses cause `generate_await` to return early (`"// Error: await argument
+must be a Future type"`), emitting no poll-loop code. The calling begin block then
+processes the `result := io.await(...)` init-assignment with an empty RHS, and the
+downstream `result >= i32(0)` comparison emits `(() >= ())` because the await
+result variable is never assigned → empty operand.
 
-1. Minimal repro: a fn returning a Future (an `io.async` closure whose result is
-   awaited), self-compiled. Confirm TS emits it clean.
-2. Compare the async SM-struct type registration in yo-self
-   `src/codegen/exprs/async.yo` (search `register_some_resolved_concrete`,
-   `type_key(future...)`, SM-struct emission ~2064) vs TS `src/codegen/exprs/async.ts`.
-   Ensure the SM struct is registered under the async FUNCTION's return-type SomeT
-   id (and/or the forward-decl uses the same resolved return type as the definition).
-3. The forward declaration (declarations.yo `generate_function_prototype` +
-   `compute_async_return_override` ~490) and `generate_function` must compute the
-   SAME override return type. Verify `find_returned_async_block` resolves the SM
-   struct at BOTH sites.
+**36 total `is_io_await_call` dispatches work correctly** (emit proper poll-loop
+with `// Synchronous await` block). Only 3 fail.
 
-**Validate** as §1. Phase-5 async feature area; check the roadmap's async notes.
+**Why ExprInfo is missing:** The `IO_file.statx(...)` expression inside the closure
+body has its ExprInfo stored during def-time body evaluation
+(`_trial_eval_anon_body` → `evaluate_expression_raw`), but at codegen time,
+`context.base.get_expr_info(future_arg)` looks up by `ast_expr_id(future_arg)` and
+gets `None`. This is likely an AST-node-ID mismatch: the evaluator stores ExprInfo
+under a specialized/cloned node's ID, but the codegen reads the original AST's ID.
 
----
+**Key TS divergence:** TS stores `expr.$` (ExprInfo) in-band on EVERY AST node.
+yo-self stores ExprInfo in a separate `expr_info_table` keyed by expression ID.
+This indirection means IDs must match between eval-time and codegen-time — any
+cloning or specialization breaks the ID link.
 
-### Phase 1 INVESTIGATION RESULTS (2026-07-06)
+**Faithful-port fix candidates:**
 
-Extensive probing confirmed the root cause at a DEEP evaluator level:
+1. Add ExprInfo as an in-band field on `AstExpr` (like TS `expr.$`) — major
+   refactor, eliminates ID-mismatch root cause forever.
+2. In `generate_await`, when `get_expr_info(future_arg)` returns None, try to get
+   the future type from the `io.await` call's own ExprInfo (which IS available —
+   `expr_ei` at line 375 succeeds). The await call's result type can be used to
+   reconstruct the future type.
+3. Fix the evaluator to ensure ExprInfo is stored under the SAME ID the codegen
+   reads — trace the `IO_file.statx(...)` node's ID through eval→codegen.
 
-1. **Codegen probe (LB-DROPS-IN/SED):** The while-loop body's `deferred_drop_expressions` is `<none>` — the evaluator's `_schedule_scope_end_drops` returns `None` for the body's begin block. The ARM's begin block drops `t` after the loop (out of C scope).
+**FALLBACKS ATTEMPTED + REVERTED:**
 
-2. **EDROP-VAR probe:** The Variable for `t` has `is_owning_the_rc_value = true` but `is_reference_struct_type(v.ty) || is_reference_enum_type(v.ty)` returns `false`. The Variable stores the type with `is_reference_semantics = false` even though the C type `__yo_t6*` IS a ref struct. This prevents e1 from passing → `to_drop` is empty → `_schedule_scope_end_drops` returns `None`.
+- Using `__yo_io_future_t*` as fallback future type caused 12 NEW errors (47 total)
+  because the generic future type doesn't have `__yo_resume_fn`/`state`/`result`
+  fields that the poll-loop codegen accesses.
 
-3. **Attempted fixes and results:**
-
-   - Changing e1 to use `is_rc_type()` instead: no change (error count ~60, neutral)
-   - Changing e1 to use `type_contains_rc_type()`: **REGRESSED to 140 errors** (matches container types like ArrayList, causing double-frees)
-   - Route B codegen fix: requires `HashSet.clone()` which doesn't exist in yo-self; using `unsafe(ptr.*)` requires `pragma(Pragma.AllowUnsafe)` but the fix became too complex
-
-4. **CONCLUSION:** The root cause is deeper than `_schedule_scope_end_drops` — the evaluator stores variable types with `is_reference_semantics = false` for types that ARE reference types in the codegen. This is likely a type-copy issue during `add_variable_to_env` or `evaluate_init_assignment`. A dedicated session is needed to trace why the Variable's type loses its reference-semantics flag.
-
-### Phase 2 INVESTIGATION RESULTS (2026-07-06)
-
-The `conflicting types for 'closure_yo_id_6942'` error (proto `void*` vs def `__yo_t401*`):
-
-1. The pre-pass `_preregister_async_return_overrides` runs before prototypes but `_async_override_return_type` returns `None` for closures because `find_returned_async_block` can't find the `io.async` block inside the closure body at pre-pass time (body ExprInfo not yet available).
-
-2. **Attempted fixes and results:**
-
-   - Added body ExprInfo type fallback in `generate_function_declaration`: NEUTRAL (ExprInfo not available at proto time)
-   - Added direct registration in pre-pass: **REGRESSED** (introduced 2 new clang errors in the yo-self binary itself)
-   - The fix needs the pre-pass or prototype phase to have access to the closure's body type, which requires the body ExprInfo to be available earlier.
-
-3. **POTENTIAL FIX:** Extend the async pre-registration walk (`preregister_async_blocks_in_expr`) to also handle closure bodies by calling `_set_async_sm_struct_name` on any `io.async(...)` found inside closure bodies. Or clone the `find_returned_async_block` logic to work without ExprInfo (purely AST-based).
+**Next step:** Option 1 (in-band ExprInfo) is the cleanest faithful port but
+requires modifying `AstExpr`, the evaluator, and codegen. Option 2 is more
+targeted. Start with option 2.
 
 ---
 
-## Phase 3 — String==str residual: inner `Self.(==)` overload (~1-3 errors)
+### Phase 1 INVESTIGATION RESULTS (2026-07-06 & 2026-07-07)
 
-**Errors:** some of the "passing '**yo_t433' ... incompatible type '**yo_t433 \*';
-take the address with &" and/or "passing incompatible type" — the specialized
-`!=` body's `Self.(==)(lhs, rhs)` resolving to the wrong overload.
+**FIXED (2026-07-07, commit `fabb2d9dd`):** Match-frame leak cleanup eliminated 9 of 13
+undeclared identifiers. The root cause was NOT in `_schedule_scope_end_drops` or
+`add_variable_to_env` as previously hypothesized — it was in the match evaluator
+(match.yo) failing to pop `match_arm_frame` from the body's ExprInfo.env after
+evaluating each arm. This caused the body's recorded env to carry the leaked frame,
+which was later ingested via `env.frames = bi.env.frames` (match.yo:2249).
 
-**Root (see String==str issue file):** this session fixed the outer `!=`
-specialization. The residual: inside the specialized `!=` body,
-`not(Self.(==)(lhs:String, rhs:str))` — the `Self.(==)` DOT-call picks the
-`Eq(String).==` (String,String) overload instead of the `(String,str)` `eq_str`
-overload that the INFIX `==` correctly resolves. The infix path
-(function.yo:1328, `is_infix_operator_call=true`) surfaces the str overload; the
-dot-call path does not.
+**Remaining 4 undeclared:** `get_info` (closure capture not routed through capture
+mechanism) + 3 branch-leaked temps. The closure capture issue is in
+`closures.yo`/`capture.yo` — `get_info` is a closure-captured variable but the
+codegen emits it as a bare identifier instead of through the capture struct.
 
-**Steps:**
+### Phase 2 INVESTIGATION RESULTS (2026-07-07)
 
-1. Repro: `check :: (fn(s : String) -> bool)(s != "void"); ...` self-compiled →
-   inspect the specialized `!=` body `fn_yo_id_2230_rtparam0_..._ret_bool`. TS emits
-   `!=` → `id_47035` whose body calls the `(String,str)` `==` (`id_282`).
-2. Make the specialized body's `Self.(==)(lhs, rhs)` (a dot-method-call) do the same
-   arg-based overload selection the infix `==` does — i.e. surface + select the
-   `(String, str)` overload (`eq_str`, imm/string.yo:650). Look at
-   `_try_find_receiver_method` + `_select_matching_overload` (function.yo:182, 490)
-   and how the infix path (function.yo:1328) passes `is_infix_operator_call=true`
-   to `get_receiver_methods_by_name_from_env`; the dot-call passes `false`.
-3. NOTE the "take the address with &" variant suggests a self-by-pointer mismatch
-   (`eq_str`/`==` may expect `self` by value but the call passes a `*Self`, or vice
-   versa) — check the receiver arg lowering for the specialized method call.
+**Confirmed via AW-SYNC/AW-RET probes:** `is_io_await_call` dispatches 36 times
+correctly. 3 of those 36 have `get_expr_info(future_arg) == None` — all for
+`IO_file.statx(AT_FDCWD, cstr, ...)` calls inside closure bodies in
+`std/fs/file.yo:exists`/`is_file`. The remaining 33 work correctly (emit
+`// Synchronous await` poll-loop blocks).
 
-**Validate** as §1. Low count; may be deferrable if the type-identity family (Phase 4)
-subsumes it.
+**Fallback approaches tested + reverted:**
+
+- Using `__yo_io_future_t*` as hardcoded fallback: REGRESSION from 35→47 (+12).
+  The generic future type lacks `__yo_resume_fn`/`state`/`result` fields.
+- Adding scope-aware drop tracking in codegen: DEAD END. Too many variable
+  declaration paths don't go through `get_variable_type_string`.
+
+**Old Phase 2 (conflicting types for closure_yo_id_6942):** Proto `void*` vs def
+`__yo_t649*`. Both proto and def call `_async_override_return_type` but the
+closure's return type `type_key` doesn't match the pre-registered async struct's
+`type_key`. The `preregister_async_block_types` function correctly scans all
+function bodies but the SomeType IDs assigned to the future type differ between
+the `io.async` call and the closure's declared return type.
+
+**Potential fix for conflicting types:** Add `ret_ct := get_type_string(ret, context)`
+fallback in `_async_override_return_type` to use the already-registered type when
+the async block isn't found in the body. This was attempted but the edit had a
+syntax error chain (closing parens issue).
 
 ---
 
-## Phase 4 — type-identity + syntax cascade (remaining ~24: assigning/int-conv 16, expected-expression 12, misc)
+## Phase 3 — String==str residual: inner `Self.(==)` overload (~1 error)
 
-**This is the deepest family** (roadmap: "~9 approaches exhausted"). Do it LAST —
-some of it likely CLEARS once Phases 1-3 land (the "expected expression" 12 are
-SYNTAX CASCADES downstream of malformed functions produced by the incompat/skip
-breakage; count them AFTER each earlier phase).
+**Errors:** `passing '__yo_str' to parameter of incompatible type '__yo_t2'` — the
+specialized `(!=)` for `Eq(str)` calls `Self.(==)(lhs, rhs)` which resolves to
+`Eq(String).(==)` instead of `Eq(str).(==)`.
 
-**Errors:** `assigning to '__yo_t401 *' from 'bool'` / `from '__yo_t405 *'`
-(int-conversion + incompatible-pointer), `expected expression` ×12 (cascade),
-`variable has incomplete type`, `operand ... where arithmetic or pointer required`.
+**Investigation (2026-07-07):** Attempted to add explicit `(!=)` method in
+`std/string/string.yo` for `impl(String, Eq(str))` and `impl(str, Eq(String))`.
+The syntax requires commas between trait methods. Even with correct syntax,
+`Self.(==)` inside the explicit body still resolves to the wrong overload in
+yo-self. TS uses the `ioBuiltin` marker approach which yo-self lacks.
 
-**Root (roadmap "INCOMPAT" entries):** generic-instantiation type identity — a
-generic struct/enum's `id` (and method-registry key) omits type arguments, so
-different instantiations (`Iter(usize)` vs `Iter(String)`) collide onto one
-specialized function whose baked return/field type mismatches the call site. The
-prior session's `type_arguments`-in-exact-compat fix (commit `9e4077300`) cut this
-a lot; the residual is same-base-id generic-ENUM instantiations + the
-`with_capacity`/`Self`-return specialization collapse (impl-level `K,V` not in the
-method's sig).
+**POTENTIAL FIX:** The issue is in yo-self's overload resolution for `Self.(==)`
+inside trait impl bodies. Fix `_select_matching_overload` in function.yo to
+consider the `Rhs` type parameter of the `Eq` trait when selecting an overload.
+Alternatively, change the default `(!=)` body evaluation to use the current impl
+block's `Self.(==)` context (same impl → same `Rhs` type).
 
-**Steps:**
+---
 
-1. RE-MEASURE after Phases 1-3 — the count + distribution will have shifted; several
-   "expected expression" cascades should be gone. Re-triage.
-2. For each remaining incompat: read the emitted C at the error line, identify the
-   two mismatched types (`__yo_t401` vs `__yo_t405`), and trace which specialized
-   function baked the wrong type. Minimal-repro it; confirm TS clean.
-3. The faithful fix is threading impl-block/`Self` type params (`K,V`) into the
-   method's specialization signature so instantiations don't collapse — see the
-   roadmap's detailed "ENUM-INCOMPAT 44" + "with_capacity impl-forall-not-in-sig"
-   analysis and memory `yo-self-parametric-trait-impl-self-subst`. This is
-   multi-site and regression-prone; validate + revert-on-regress each attempt.
-   Do NOT append `self_type` to `runtime_param_tys` (documented +2634-error regression).
+## Phase 4 — type-identity + syntax cascade (remaining ~12: incompat 5, incomplete-void 2, member-ref 4, operand-arithmetic 2, etc.)
 
-**Validate** as §1 after every attempt (this family has a long history of
-attempts that made things WORSE — the corpus/std gates catch them).
+**This is the deepest family** — do it LAST. Some of it likely CLEARS once Phases
+2-3 land (the "expected expression" 10 + "assigning from void\*" 2 are SYNTAX
+CASCADES downstream of the broken io.await codegen).
+
+**Errors:** `passing incompatible type` ×5 (type identity: self-compiler re-registers
+the same type with different IDs), `incomplete type void` ×2 (empty capture struct),
+`member reference on size_t` ×3 (random, varies per compilation), `operand arithmetic`
+×2 (dyn dispatch not lowered), `member ref not pointer` ×1 (`(*self)->_fd`),
+`ptr-to-int` ×2 (cascade).
+
+**Member-ref-not-pointer investigation (2026-07-07):** `(*self)->_fd` where `self` is
+a `ref` struct. The atom codegen wraps `(*self)` for `is_ref` variables. The field
+access uses `->` expecting a pointer, but gets a dereferenced value. Attempted:
+
+1. Strip `(*...)` wrapper in `generate_field_access` for ref structs → use inner
+   name + `->` — caused 82 errors (the `(*)` pattern is also used for double-pointer
+   `(**self)` → `self->field` which breaks).
+2. Check `is_star_deref` and use `.` instead of `->` — also 82 errors (same
+   double-pointer issue).
+
+**Faithful-port fix:** TS atom codegen does NOT wrap `(*self)` for ref struct
+variables — it only does so for `isRef` (`inout`) params. Check if yo-self
+incorrectly sets `is_ref` for ref struct self-params. Fix should be in the
+evaluator's `is_ref` flag computation for `self` params of ref struct types.
 
 ---
 
