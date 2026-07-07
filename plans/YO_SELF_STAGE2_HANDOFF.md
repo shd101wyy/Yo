@@ -368,6 +368,25 @@ after the param loop); use `is_creating_closure` (defined earlier, same value).
 future type in generate_await → +12 errors (generic future type lacks
 `__yo_resume_fn`/`state`/`result`). Do NOT retry.
 
+**FALLBACKS ATTEMPTED + REVERTED (2026-07-07 sess 5) — DO NOT RETRY:**
+
+1. **while.yo: `pop_env_frame(body_info.env)` before line 490.**
+   Hypothesis: the while-body frame leaked into `body_info.env` and needed cleanup
+   (mirroring the `fabb2d9dd` match fix). RESULT: 103→67 PASS, 31 DIFF, 5 SELF-FAIL
+   (massive regression). WHY IT FAILS: `body_info.env` was snapshotted AFTER
+   `pop_frame_nonmutating` (begin.yo:913 before new_expr_info at 917), so the begin
+   frame is ALREADY removed. Popping again removes the function-scope frame, causing
+   all variable lookups to resolve at wrong frame levels. DO NOT RETRY.
+
+2. **env_lookup.yo: replace `_def_frame_confirms_binding` with full-env search.**
+   Changed the gate from per-frame lookup (`_lookup_by_frame`) to full env scan
+   (`get_variables_from_env`), so the `E=Io` binding in `io.async` (added at current
+   top frame) is found regardless of the `E` SomeType's definition frame. RESULT:
+   31→144 errors, 12 SELF-FAIL (massive regression). WHY IT FAILS: the gate exists to
+   prevent false matches — removing it causes type resolution to accept stale/invalid
+   bindings from unrelated frames, breaking all generic type resolution. The fix must
+   be TARGETED to the specific `E` binding, not a broad gate removal. DO NOT RETRY.
+
 ---
 
 ### Phase 1 INVESTIGATION RESULTS (2026-07-06 & 2026-07-07)
