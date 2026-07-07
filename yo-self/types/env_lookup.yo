@@ -413,8 +413,9 @@ _chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayL
         r,
         .Some(tv) =>
           cond(
-            // Self-bound (SomeType binding to itself) → unbound
-            _same_some_id(tv, sid) => Option(TypeValue).Some(start),
+            // Self-bound (SomeType binding to itself) — still unbound;
+            // fall through to chain search which scans all frames.
+            _same_some_id(tv, sid) => Option(TypeValue).None,
             // Another SomeT at the same frame → fall through to chain search
             is_some_type(tv) => Option(TypeValue).None,
             // Concrete binding → return it
