@@ -65,7 +65,7 @@ open(import("std/string"));
   extract_fn_trait_from_type,
   extract_future_trait_from_type
 } :: import("../trait_checking.yo");
-{ is_io_async_call } :: import("../async/await_analysis.yo");
+{ is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call } :: import("../async/await_analysis.yo");
 {
   EvalValue,
   FuncValData,
@@ -428,6 +428,7 @@ check_if_function_parameter_matches_argument :: (
     param_type : TypeValue,
     is_ct_only : bool,
     param_is_owning : bool,
+    skip_expected_type : bool,
     arg_expr_raw : AstExpr,
     callee_env : Environment,
     caller_env : Environment,
@@ -450,8 +451,20 @@ check_if_function_parameter_matches_argument :: (
   (callee_env_r : Environment) = callee_env;
   resolved_pt := evaluate_function_parameter_type_again(param_type, callee_env_r, ctx);
   // Step 3: Evaluate arg with param type as expected-type hint.
+  //
+  // For io.await/io.state/io.spawn/JoinHandle.await args (`skip_expected_type`),
+  // evaluate WITHOUT an expected type so the future arg keeps its NATURAL type
+  // (e.g. `IoFuture`) rather than being coerced to the `Impl(Future(T,E))`
+  // SomeType parameter — coercion can make synthesis unable to resolve the forall
+  // `T` from `Future(T)`. Mirrors TS helper.ts:378-384 (the
+  // `functionType.ioBuiltin === "io_await"` skip); yo-self has no `ioBuiltin`
+  // marker, so the caller detects the io-builtin structurally.
   saved_exp := ctx.expected_type;
-  ctx.expected_type =.Some(ExpectedTypeCtx(ty : resolved_pt, env : callee_env_r));
+  if(skip_expected_type, {
+    ctx.expected_type = Option(ExpectedTypeCtx).None;
+  }, {
+    ctx.expected_type =.Some(ExpectedTypeCtx(ty : resolved_pt, env : callee_env_r));
+  });
   evaled_arg := evaluate_expression_raw(actual_arg, caller_env, ctx, exn);
   ctx.expected_type = saved_exp;
   // Extract ExprInfo for the evaluated arg.
@@ -2664,6 +2677,11 @@ try_to_call_function_with_arguments :: (
       rt_args := ArrayList(AstExpr).new();
       (callee_env_m : Environment) = callee_env;
       (caller_env_m : Environment) = caller_env;
+      // io-builtin args (io.await/io.state/io.spawn/JoinHandle.await) must be
+      // evaluated WITHOUT an expected type so the future arg keeps its natural
+      // type (TS helper.ts:378-384 `functionType.ioBuiltin` skip). yo-self has no
+      // `ioBuiltin` marker, so detect the call structurally here (once).
+      io_builtin_skip_expected := (((is_io_await_call(expr) || is_io_state_call(expr)) || is_io_spawn_call(expr)) || is_join_handle_await_call(expr));
       (pi : usize) = usize(0);
       while(pi < n_params, {
         plabel := match(pl.get(pi),.Some(l) => l,.None => String.from(""));
@@ -2736,6 +2754,7 @@ try_to_call_function_with_arguments :: (
           false,
           // is_ct_only: Phase 3 treats all regular params as runtime
           p_owning,
+          io_builtin_skip_expected,
           parg,
           callee_env_m,
           caller_env_m,
