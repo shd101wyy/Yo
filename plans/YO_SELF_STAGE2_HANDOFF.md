@@ -298,26 +298,71 @@ stop is a swallowed throw during the `result` init-assignment BINDING (after the
 io.await result is computed), atom-form-specific, and is caught at a swallow OTHER
 than `_trial_eval_anon_body` (since [TTERR] there is silent for statx).
 
-**NEXT STEP (do this first — one rebuild):** instrument the OTHER swallow sites to
-catch the atom-`io.await` binding throw. Candidates (grep `-> unwind(())` handlers):
-`test.yo:83`, `function.yo:411`/`184`/`1233`, `impl.yo:1191`, `index_trait.yo:757`,
-`function_type.yo:217`, `trait.yo:575`. Add `eprintln(err.to_string())` (NB: the
-throw param is `error : AnyError`, which has `.to_string()` — see main.yo:489) to
-each, rebuild, grep the stderr for `file.yo`/`statx`/`await`. Then read the throw
-message: it points at the exact init-assignment binding step that rejects the
-atom-`io.await` rhs. Likely candidates in `initialization_assignment.yo` (the steps
-AFTER `rhs = evaluate_expression_raw`, ~line 232): `has_any_control_flow` check
-(~283, if the atom io.await result carries a spurious control_flow flag),
-`require_expr_not_consumed`/`set_expr_as_needs_to_call_dup` (~303-305, if the `io`
-param arg is consumed by the await), or `prohibit_void_type` (~245). Compare each
-against TS `initialization-assignment.ts` — the atom form must match nested.
+### DEFINITIVE ROOT (2026-07-07 sess 4 — probes; all reverted)
 
-**GOTCHA (cost me 2 failed builds):** (1) importing `is_unknown_val`/`await_analysis`
+The single-effect-`Io` io.async closure's param **`io` resolves to type `IoExn`
+(the bundle), not `Io`.** `IoExn` has `.io`/`.exn` fields but **no `.await`**, so the
+callee `io.await` resolves to type **`unit`** → the call takes the `.None`
+no-compile-time-callee branch (function.yo:3589) with a `unit` callee (no params, so
+the statx `fut` arg is never processed → `fut=<no-info>`), the awaited **result type
+collapses to `unit`**, `result : unit`, and `generate_atom` returns `""` for a
+unit-typed atom (atom.yo:200) → `result >= i32(0)` emits `(() >= ())`. Confirmed by
+probes: `[PD] io : IoExn` (×3 statx) vs `[PD] e : IoExn` (×27 bundle, correct);
+`[NRES] callee=unit ret=unit fut=<no-info>` (×3) vs proper `fn(forall(T,E)…)->T`
+(×45). The io.async `E`-binding (helper.yo:2608) DOES compute the right effect
+(`[EB] eff0=Io` ×3, `eff0=IoExn` ×27) and `[EBA] already=N` (it binds), but the
+binding is **not honored** by closure param-type resolution.
+
+WHY the E-binding is ignored: closure param types resolve via
+`evaluate_function_parameter_type_again` → `_resolve_some_types_deep` (types/
+function.yo) → for the nested `E` SomeT, `get_value_of_some_type_from_env` →
+`_do_chain_resolve` (types/env_lookup.yo:294). `_do_chain_resolve` FINDS the added
+`"E"=Io` variable but only RETURNS the concrete when `_was_self_bound` OR
+`_def_frame_confirms_binding` passes — `_def_frame_confirms_binding` looks up `"E"`
+**at the E SomeT's DEFINITION frame**, but `add_variable_to_env` puts the binding at
+the env's LAST frame, so the gate REJECTS it and resolution falls through to the
+shared-global `lookup_some_resolved_concrete(E_id)` — which holds a PRIOR io.async
+call's effect (`IoExn`), since the forall-`E` SomeType id is shared across all
+io.async calls. TS has no such problem: it binds `E` as a per-call calleeEnv variable
+(helper.ts:1348) and env-lookup honors it (no def-frame ownership gate).
+
+**TWO FIXES ATTEMPTED + REVERTED (both INERT for statx — cascade unchanged at 10):**
+
+1. **Mutate the existing forall-`E` placeholder's value to `TypeVal(Io)` in place**
+   (so `_def_frame_confirms_binding` sees the concrete at the placeholder's frame).
+   Variable IS `ref` (env.yo:58) so the mutation reached the env, but the placeholder
+   is NOT at the E SomeT's def frame → gate still failed. Net −0 (perturbed random IDs
+   → 31→35 noise). REVERTED.
+2. **`register_some_resolved_concrete(ft.get(eb_i)_someT_id, io_e_conc)`** in the
+   E-binding (override the global fallback per-call, using `ft`=forall_types from the
+   Func meta, in scope at helper.yo:2244). INERT (stayed 31, statx unchanged) — likely
+   `ft`'s forall-`E` SomeType id ≠ the `E` id inside the action param `Impl(Fn(e:E)→T)`
+   that `_resolve_some_types_deep` actually looks up (so the register missed), OR the
+   `IoExn` comes from an EARLIER synthesis pass (the yo-self analogue of TS
+   helper.ts:1302 `synthesizeTypes`), not the `lookup_some_resolved_concrete` fallback.
+   REVERTED.
+
+**NEXT STEP (fresh session):** confirm the exact `E`→`IoExn` source before the next
+fix — instrument `_do_chain_resolve` / `_resolve_some_types_deep` to print, for the
+closure param `E` SomeT, (a) its id + def frame_level, (b) whether `_do_chain_resolve`
+returns concrete or falls to `lookup_some_resolved_concrete`, (c) what
+`lookup_some_resolved_concrete(E_id)` holds and WHO registered it. Also check the
+yo-self synthesis pass equivalent of TS helper.ts:1302 (does it bind `E` to a stale
+`IoExn` before the io.async E-binding?). The FAITHFUL fix is to make the per-call
+`E` binding win over the shared-global fallback (either register the CORRECT E id —
+the one resolution looks up — per call, OR bind `E` at its def frame so
+`_def_frame_confirms_binding` accepts it, OR freshen the forall-`E` SomeType id per
+io.async call like the RESULT-type freshening at function.yo:3335-3339). RC-safe
+(pure typing), but async-sensitive — validate corpus 103/103 + std 152/152.
+
+**GOTCHAS (cost real build cycles):** (1) importing `is_unknown_val`/`await_analysis`
 into `initialization_assignment.yo` created a circular import ("Record field
 to_string not found in source namespace type"). (2) **Nested backticks in a template
 interpolation** — `` `...${if(x, `Y`, `N`)}...` `` — fail to compile with the same
 "to_string not found in source namespace type" error; extract the inner `if`/`cond`
-to a separate `uvs :=` statement first.
+to a separate `uvs :=` statement first. (3) probes referencing a variable defined
+LATER in the fn fail (no forward refs) — e.g. `mark_closure_for_codegen` (defined
+after the param loop); use `is_creating_closure` (defined earlier, same value).
 
 **FALLBACKS ATTEMPTED + REVERTED (older):** using `__yo_io_future_t*` as fallback
 future type in generate_await → +12 errors (generic future type lacks
