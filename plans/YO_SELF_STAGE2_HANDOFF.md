@@ -4,7 +4,7 @@
 the self-compiled `yo-self` binary's `test` subcommand pass `./tests` and
 `./yo-self/tests` (tasks #69, #70).
 
-**Current state: 18 stage-2 clang errors** (was 56; −38 total).
+**Current state: 9 stage-2 clang errors** (was 56; −47 total).
 
 ---
 
