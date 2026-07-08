@@ -4,7 +4,7 @@
 the self-compiled `yo-self` binary's `test` subcommand pass `./tests` and
 `./yo-self/tests` (tasks #69, #70).
 
-**Current state: 9 stage-2 clang errors** (was 56; −47 total).
+**Current state: 9 stage-2 clang errors** (was 56; −47 total). Next: ctl-throw ResumeType family (4, see issues/yo-self-dyn-fn-field.md follow-on section), undeclared temp/get_info (2), FTT (2), member-ref (1).
 
 ---
 
