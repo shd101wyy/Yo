@@ -202,3 +202,39 @@ from the EXPECTED-RETURN synthesis (TS behavior — helper.ts:1302's
 tempReturnType/expectedEnv synthesis). Alternatively drive the box call
 directly with explicit forall_args (ArgValues) instead of re-evaluating a
 synthetic FnCall. The box arg fn-ptr emission issue also still pending.
+
+## Round 5 (2026-07-09) — V = Impl(Fn) SomeT (TS shape) — box stamp fixed, bridge broken
+
+Boxing with V = the `inner_expected` Impl(Fn) SomeT + registering
+`register_some_resolved_concrete(SomeT id → capture struct)` produced the
+TS-shaped boxes (`Box(fn(x : i32) -> i32)` — no more Box(unit)), BUT:
+
+- the box payload emits `void* _u42_` — the SomeT→concrete bridge did NOT
+  resolve; the Box instantiation's field V SomeT is a CLONE with a different
+  id than the one registered (Box CTFE → substitute/intern re-mint), so the
+  id-keyed global misses. Same per-object-identity root class as the
+  intern-key and tracer families.
+- generate*dyn_box_functions still emits unsanitized
+  `__yo_dyn_box_unknown_fn(x : i32) -> bool` identifiers (independent bug:
+  `unknown*${type_key(...)}` fallbacks must go through
+  sanitize_for_c_identifier).
+
+## CONVERGED DIAGNOSIS (after 5 rounds)
+
+Every layer of this family (and the shared-Bucket-tracer family) fails on the
+same structural divergence: yo-self keys type identity by SHARED/CLONED ids
+where TS uses per-object fields (`resolvedConcreteType`) and per-object
+caches. The durable fix is the SomeT `resolved_concrete_type` field
+(definitions.ts:191 mirror) so resolutions travel WITH the type object through
+clone/substitute/intern — this dissolves: the box-payload bridge here, the
+Bucket-tracer receiver identity, and retires the g_some_resolved_concrete
+global (plus its IoExn gating hacks in evaluator/types/function.yo:3926-64).
+TypeValue is ref(enum) now, so the field is implementable (mutation via a
+ref-struct cell or rebuild-on-set). Estimated as a dedicated refactor session:
+add field to SomeT (definitions.yo:249, 11th field), update creators/clone/
+positional matches, EXCLUDE from type_key/intern-key/compatibility identity,
+convert write sites (synthesizer.yo:1262/1336, function.yo:3313,
+closure_type.yo:298, helper.yo:1355, async.yo:1541/2132) and read sites
+(await.yo:384+, utils/index.yo:807, closures.yo:53, state_machine.yo:56+,
+async.yo multiple) to prefer the field with the global as fallback, then
+delete the global once stage-2 is stable.
