@@ -2882,6 +2882,59 @@ try_to_call_function_with_arguments :: (
       // Step 9: Evaluate return type.
       // ----------------------------------------------------------------
       (return_type : TypeValue) = evaluate_function_return_type_again(ret_b, callee_env_m, ctx);
+      // A CONTROL (`ctl`) function whose result stays the forall ResumeType
+      // SomeT (e.g. `Exception.throw : ctl(forall(ResumeType), ...) ->
+      // ResumeType` — a runtime FIELD value, so the ctl-inline path never
+      // runs): resolve the result per CALL SITE — the caller's expected type,
+      // else the enclosing function's return type (the same rule
+      // evaluate_ctl_function_body_inline uses) — carried on the SomeT's
+      // resolved_concrete (the prelude ResumeType is SHARED; a global
+      // registration would collide across calls). Without this the throw's
+      // fn-ptr cast/temp emitted `void*` merge-assigned to i32
+      // (the IoError.check stage-2 family).
+      if(is_some_type(return_type) && match(func_type,.Func({ meta : __cfm }) => __cfm.*.is_control, _ => false), {
+        (ctl_rt_conc : TypeValue) = match(
+          ctx.expected_type,
+          .Some(cet) => cet.ty,
+          .None => TypeValue.Unit
+        );
+        if(is_some_type(ctl_rt_conc) || is_unit_type(ctl_rt_conc), {
+          ctl_rt_conc = match(
+            ctx.is_evaluating_function_body_or_async_block,
+            .Some(cfb) => match(
+              cfb.kind,
+              .FunctionBody => match(
+                cfb.func_type,
+                .Some(cfty) => match(cfty,.Func({ result : crb }) => crb, _ => TypeValue.Unit),
+                .None => TypeValue.Unit
+              ),
+              _ => TypeValue.Unit
+            ),
+            .None => TypeValue.Unit
+          );
+        });
+        if(!(is_some_type(ctl_rt_conc)) && !(is_unit_type(ctl_rt_conc)), {
+          match(
+            return_type,
+            .SomeT(ct_id, ct_nm, ct_fl, ct_pt, ct_rtt, ct_rtl, ct_ntt, ct_ntl, ct_ier, ct_kft, _) => {
+              return_type = TypeValue.SomeT(
+                ct_id,
+                ct_nm,
+                ct_fl,
+                ct_pt,
+                ct_rtt,
+                ct_rtl,
+                ct_ntt,
+                ct_ntl,
+                ct_ier,
+                ct_kft,
+                Option(TypeValue).Some(ctl_rt_conc)
+              );
+            },
+            _ => ()
+          );
+        });
+      });
       // Step 10: Synthesize return type against the caller's expected type.
       if(ctx.expected_type.is_some(), {
         match(
@@ -3158,6 +3211,56 @@ try_to_call_function_with_arguments :: (
                 exn
               )
             );
+            // The ctl call's RESULT is the forall ResumeType, concrete per
+            // CALL SITE (the enclosing function's return type — the same
+            // derivation evaluate_ctl_function_body_inline uses). Carry it on
+            // the result SomeT's resolved_concrete so codegen types the
+            // fn-ptr cast/temp concretely: `exn.throw(...)` merge-assigned to
+            // an i32 local emitted a `void*` temp ("incompatible pointer to
+            // integer conversion", the IoError.check stage-2 family). The
+            // prelude ResumeType SomeT is SHARED — a global registration
+            // would collide across calls with different resume types; the
+            // per-object field is per-call-safe.
+            if(is_some_type(return_type), {
+              (ctl_res_conc : TypeValue) = match(
+                ctx.is_evaluating_function_body_or_async_block,
+                .Some(fb_ctx2) => match(
+                  fb_ctx2.kind,
+                  .FunctionBody => match(
+                    fb_ctx2.func_type,
+                    .Some(enclosing_ty2) => match(
+                      enclosing_ty2,
+                      .Func({ result : rb2 }) => rb2,
+                      _ => match(func_type,.Func({ result : rb2b }) => rb2b, _ => TypeValue.Unit)
+                    ),
+                    .None => match(func_type,.Func({ result : rb2c }) => rb2c, _ => TypeValue.Unit)
+                  ),
+                  _ => match(func_type,.Func({ result : rb2d }) => rb2d, _ => TypeValue.Unit)
+                ),
+                .None => match(func_type,.Func({ result : rb2e }) => rb2e, _ => TypeValue.Unit)
+              );
+              if(!(is_some_type(ctl_res_conc)) && !(is_unit_type(ctl_res_conc)), {
+                match(
+                  return_type,
+                  .SomeT(cr_id, cr_nm, cr_fl, cr_pt, cr_rtt, cr_rtl, cr_ntt, cr_ntl, cr_ier, cr_kft, _) => {
+                    return_type = TypeValue.SomeT(
+                      cr_id,
+                      cr_nm,
+                      cr_fl,
+                      cr_pt,
+                      cr_rtt,
+                      cr_rtl,
+                      cr_ntt,
+                      cr_ntl,
+                      cr_ier,
+                      cr_kft,
+                      Option(TypeValue).Some(ctl_res_conc)
+                    );
+                  },
+                  _ => ()
+                );
+              });
+            });
           });
           // Regular specialization if ctl path did not produce a result.
           if(spec_func_val.is_none(), {
