@@ -163,3 +163,23 @@ inside the Box CTFE the resolved V — suspect the pre-bound `V` env frame
 the field eval on the first call, or a comptime-fn cache interaction.
 Also still open: the box-ARG emission for whichever closure emits
 `(__yo_tN)(closure_yo_id_X)` (fn-ptr) instead of the capture-struct value.
+
+## Round 3b probe (2026-07-09) — collapse point PINNED
+
+`[CBT]` at `_create_boxed_type`'s return: BOTH calls produce CORRECT boxes
+(`inner=capture_5818 box=struct_5819`, `inner=capture_5829 box=struct_5830`)
+— the Box CTFE and its V pre-binding are fine. The `Box(unit)` in the C comes
+from the synthetic `box(inner)` CALL's specialization: its func-id reads
+`yo_id_3511_unit_rtparam0_capture_yo_id_58XX_ret_gs_yo_id_3506_...` — the
+FORALL segment is "unit" (V bound to unit at the call) while the rtparam and
+resolved-return segments are correct. So the box() call's forall-V synthesis
+binds V := unit for one of the closures despite ctx.expected_type =
+Box(capture) — likely the def-eval UnknownValue→unit soft-fallback in forall
+binding when the arg's ExprInfo value is unknown, or V synthesis ignoring the
+expected return. NEXT: in try_to_call/helper.yo forall binding for the box
+call, make V bind from the EXPECTED RETURN (Box(T) → V=T, TS behavior), or
+pass V explicitly in the synthetic call. Also noted: capture-struct ids CHURN
+across eval passes (5818/5822/5829 for two closures) — codegen may read a mix;
+if the C shows mismatched capture ids between box specialization and capture
+decl, the durable-id fix (g_capture_struct_ids keying) may need to cover this
+flow.
