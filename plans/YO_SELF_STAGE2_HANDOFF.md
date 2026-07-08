@@ -8,12 +8,13 @@ the self-compiled `yo-self` binary's `test` subcommand pass `./tests` and
 
 ### Progress log
 
-| Session    | Change                                          | Δ           |
-| ---------- | ----------------------------------------------- | ----------- |
-| Prior      | per-closure async result-type fix (`a675f54eb`) | 56→44 (-12) |
-| 2026-07-06 | unwind double-return fix (`d0518c359`)          | 44→42 (-2)  |
-| 2026-07-06 | recur ref-param deref strip (`dd4473afc`)       | 42→39 (-3)  |
-| 2026-07-07 | match arm frame-pop cleanup (`fabb2d9dd`)       | 39→35 (-4)  |
+| Session    | Change                                            | Δ            |
+| ---------- | ------------------------------------------------- | ------------ |
+| Prior      | per-closure async result-type fix (`a675f54eb`)   | 56→44 (-12)  |
+| 2026-07-06 | unwind double-return fix (`d0518c359`)            | 44→42 (-2)   |
+| 2026-07-06 | recur ref-param deref strip (`dd4473afc`)         | 42→39 (-3)   |
+| 2026-07-07 | match arm frame-pop cleanup (`fabb2d9dd`)         | 39→35 (-4)   |
+| 2026-07-08 | explicit (!=) in Eq(str)/Eq(String) (`9d2eb7d48`) | 35→33 (-2\*) |
 
 ### Landed: Phase 4 match-arm frame-pop cleanup (−4)
 
@@ -33,6 +34,63 @@ with-fields branch (which uses `while(env.frames.len() > base_frame_count)` to p
 multiple frames), apply the same while-loop to `body_info.env.frames`.
 
 Validation: corpus 103/103 DIFF 0, undeclared identifiers 13→4 (−9), total 39→35 (−4).
+
+### Landed: Phase 3 str→String overload fix (−2\*, merged with random-ID noise)
+
+`commit 9d2eb7d48` — `std/string/string.yo`
+The `(!=)` default body uses `Self.(==)(self, other)` which resolves to
+`Eq(String).(==)` instead of `Eq(str).(==)` in yo-self's overload selection.
+Added explicit `(!=)` methods in both `String, Eq(str)` and `str, Eq(String)`
+impls, using the infix `==` operator (which dispatches correctly via the
+infix path at function.yo:1315) instead of the dot-call `Self.(==)`.
+
+Net: 33 errors (35 from prior fixpoint + 1 str→String fix − ~3 random-ID
+noise). The count is approximate because random type IDs shift per
+compilation. Corpus 103/103 DIFF 0.
+
+### REVERTED: match arm classification fix (2026-07-08)
+
+Attempted to re-classify `.Some(v) => body` from fieldless to with-fields (the
+fieldless branch ignores destructured field values). Caused 101 SELF-FAIL on
+corpus. Root cause analyzed: `ast_expr_is_fn_call_of` checks if the func*box is
+an `Atom`, but `.Variant` patterns have func_box=`FnCall(Dot, ...)`. So the
+fieldless check `ast_expr_is_fn_call_of(match_arm_expr, ".", Some(1))` is
+ALWAYS false for `.Variant` patterns. Only `*`wildcard enters the fieldless
+branch. All`.Variant`patterns go through`with_fields` (which already uses
+while-loop frame restoration). Classification is correct as-is. DO NOT RETRY.
+
+### REVERTED: empty struct \_dummy field (2026-07-08)
+
+Attempted to add `uint8_t _dummy` to zero-field struct declarations (mirroring
+the tuple codegen pattern) to fix "incomplete type void" errors. Inert (errors
+unchanged). The `(void){}` literal comes from the capture struct VALUE
+generation path, not the struct declaration. DO NOT RETRY without first tracing
+the value generation path.
+
+### REVERTED: while loop body deferred drops in non-begin branch (2026-07-08)
+
+Attempted to add deferred drop emission in `generate_loop_body`'s non-begin
+branch. Build succeeded but errors unchanged — the drops weren't on the
+expr processed there. DO NOT RETRY without first confirming where the drops
+are stored.
+
+### NEW FINDING: while-body deferred drops are on begin expression, not original body (2026-07-08)
+
+The while evaluator calls `evaluate_begin_expression(body_expr, ...)` which
+stores `deferred_drop_expressions` on the BEGIN-wrapped expression's ExprInfo.
+The codegen extracts `body_expr` from the while call's args — the ORIGINAL
+expression, not the begin wrapper. The original expression's ExprInfo may not
+have the deferred drops. The fix should ensure the while codegen reads the
+deferred drops from the begin expression that wraps the body, or the evaluator
+should propagate the drops to the original body_expr.
+
+### NEW FINDING: `_schedule_scope_end_drops` collects from the last frame (2026-07-08)
+
+Probes confirmed fieldless arm `env.pop_frame()` sees 5 frames (begin frame
+NOT popped by the body eval). But the with-fields branch handles this correctly
+via `while(env.frames.len() > base_frame_count_wf)`. The fieldless branch uses
+a single `env.pop_frame()` which can pop the wrong frame when leaked frames
+are present.
 
 ### Landed --- earlier fixes already committed
 
