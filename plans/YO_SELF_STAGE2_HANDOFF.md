@@ -124,6 +124,26 @@ codegen decisions without a debugger):
 
 ---
 
+## PRIMARY NEXT STEP — SomeT `resolved_concrete_type` per-object field (unblocks 7+ errors)
+
+After 5 fix rounds on Dyn(Fn) and 2 on the Bucket tracer (2026-07-09, all
+recorded in issues/), every remaining hard family converges on ONE structural
+divergence: yo-self keys type resolutions by SHARED/CLONED SomeT ids
+(g_some_resolved_concrete global) where TS carries them on the type OBJECT
+(`SomeType.resolvedConcreteType`, definitions.ts:191). Clones/interning/
+re-instantiation re-mint ids, so id-keyed resolutions miss or collide.
+
+The refactor (spec in issues/yo-self-dyn-fn-field.md "CONVERGED DIAGNOSIS"):
+add `resolved_concrete_type` to SomeT (definitions.yo:249), exclude it from
+type_key / type_intern_key / compatibility identity, convert the
+register/lookup_some_resolved_concrete write+read sites to prefer the field
+(global as fallback during transition). This dissolves the Dyn(Fn) box-payload
+bridge, the Bucket-tracer receiver identity, and retires the IoExn gating
+hacks (evaluator/types/function.yo:3926-64). Gates after each step: corpus
+103/103 DIFF 0, std 152/152, stage-2 count (baseline 18).
+
+---
+
 ## Shared-GC-tracer family (3 errors) — ROOT KNOWN, fix requires re-instantiation
 
 **Root (probe-confirmed 2026-07-09):** ONE Bucket `trace` specialization serves ALL
