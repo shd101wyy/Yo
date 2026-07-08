@@ -66,3 +66,28 @@ effect_analysis.yo.
   dyn method dispatch handles trait-METHOD calls on dyn receivers, not
   Fn-trait dyn FIELD values; find where the call currently degrades to the
   `((cast)recv->field)(args)` struct-to-fnptr cast.
+
+## WIP attempt (2026-07-09) — saved as issues/wip-dyn-fn-field.patch
+
+Three-part change (eval FnTraitT marker TraitVal + codegen closure-call-map
+wrapper path + other*fn_call.yo dyn-Fn vtable call lowering) BUILT clean and
+moved the pipeline past the missing-trait-values bail, exposing the NEXT
+layer: **the dyn'd closure is never auto-boxed** in this shape — the
+DynImplEntry's concrete type reaches codegen as the RAW fn type, so
+generate_dyn_box_functions emits malformed identifiers
+(`__yo_dyn_box_unknown_fn(x : i32) -> bool`, from `unknown*<type_key>` with an
+unsanitized type string). Reverted to keep the tree green.
+
+Remaining work, in order:
+
+1. Make the eval auto-box route (dyn.yo:~366 gate + `_create_boxed_type`)
+   actually box a CLOSURE payload (inner type is FnTraitT/Impl(Fn) — check
+   whether the synthetic `box(inner)` eval fails/swallows for closures, and
+   whether the executing-mode route 2 boxes at all).
+2. Sanitize `_concrete_c_name`/`unknown_<key>` fallbacks through
+   `sanitize_for_c_identifier` (defensive, independent of 1).
+3. Re-apply the saved patch and iterate on the repro
+   (issues/repro-dyn-fn-field.yo): expect wrapper
+   `return closure_c((void*)&box-><field>, args)` + vtable `.call` slot +
+   call-site `(recv.field).vtable->call(...)`, then binary prints 42/true.
+4. Gates: corpus 103/103 DIFF 0, std 152/152, stage-2 (baseline 18, family = 4).
