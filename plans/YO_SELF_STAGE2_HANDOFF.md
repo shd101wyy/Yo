@@ -6,6 +6,34 @@ the self-compiled `yo-self` binary's `test` subcommand pass `./tests` and
 
 **Current state: 27 stage-2 clang errors** (was 56; −29 total).
 
+### Phase 2 PRECISE ROOT (2026-07-08)
+
+The expected-expression errors are caused by the closure param getting a FRESH
+SomeType instead of inheriting the forall E SomeType from io.async.
+
+**Confirmed by DCR probes**: `_do_chain_resolve` correctly resolves the forall `E`
+to `Io` in callee_env. But the closure param `io` at anonymous_function.yo:172
+gets a fresh `t_some_t("io", frame_level)` — a NEW SomeType with a different
+ID. When the closure body accesses `io.await(...)`, the resolution looks up
+`SomeType("io")`, NOT `SomeType("E")`. The E=Io binding in callee_env doesn't
+match the fresh SomeType's ID.
+
+**TS faithfully (anonymous-function.ts:417-439)**: TS checks if the param has
+an explicit annotation `(name : E)`. If not annotated (naked param), TS uses
+the expected Fn-trait parameter type directly. yo-self creates fresh SomeTypes
+for ALL params unconditionally.
+
+**C code confirmation**: `closure_yo_id_7499(void* closure_context, __yo_t46 e)`
+— `__yo_t46` is `IoExn`, NOT `Io`. The param is typed as IoExn (the bundle),
+so `io.await` (which accesses `.await` on Io) fails because IoExn has no
+`.await` field.
+
+**Fix required**: In anonymous_function.yo, when a closure param has no explicit
+type annotation, use the expected Fn-trait param type from the enclosing call
+context (io.async's `action : Impl(Fn(e : E) -> T)`) instead of creating a
+fresh SomeType. This requires plumbing the expected param types through the
+closure type creation path, mirroring TS anonymous-function.ts:428-439.
+
 ### Remaining error breakdown (27 total as of 2026-07-08):
 
 | Count | Category               | Details                                                                               |
