@@ -183,3 +183,22 @@ across eval passes (5818/5822/5829 for two closures) — codegen may read a mix;
 if the C shows mismatched capture ids between box specialization and capture
 decl, the durable-id fix (g_capture_struct_ids keying) may need to cover this
 flow.
+
+## Round 4 (2026-07-09) — V env-pre-binding INERT
+
+Pre-binding `V := capture_struct` in a scoped env frame around the synthetic
+`box(inner)` call did NOT change the emission (`Box(unit)` persists). Unlike
+the io.async E-binding (which is honored because helper.yo's io.async
+pre-bind code itself checks the env), the GENERAL call-path forall binding for
+`box`'s `forall(V)` does not consult env bindings — it computes V from the
+ARG value/type, and for a dyn'd closure under def-eval the arg value is
+unknown → V collapses to unit.
+
+NEXT (round 5): fix inside the call path — find where forall arg VALUES are
+computed for runtime calls (try_to_call/helper.yo forall-binding loop) and,
+when the computed forall value is unknown/unit AND ctx.expected_type matches
+the declared return shape (`Box(V)` vs expected `Box(T)`), bind the forall
+from the EXPECTED-RETURN synthesis (TS behavior — helper.ts:1302's
+tempReturnType/expectedEnv synthesis). Alternatively drive the box call
+directly with explicit forall_args (ArgValues) instead of re-evaluating a
+synthetic FnCall. The box arg fn-ptr emission issue also still pending.
