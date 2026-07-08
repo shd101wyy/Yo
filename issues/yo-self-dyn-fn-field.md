@@ -44,3 +44,25 @@ All in the suspension-analysis detector infra: the `detector.detect(...)` /
 `detector.should_skip_body(...)` calls (await/effect analysis) and the
 `SuspensionPointDetector(...)` constructions in await_analysis.yo /
 effect_analysis.yo.
+
+## Implementation pointers (for the fix session)
+
+- Eval: `_resolve_dyn_trait_values` (evaluator/values/dyn.yo:150) matches ONLY
+  `.TraitT` required traits — `Fn` traits are the `FnTraitT` VARIANT, so the
+  loop falls through and trait_vals stays empty. The fix needs an FnTraitT arm
+  whose single method value = the dyn'd CLOSURE FuncVal (available at the
+  dyn()-eval callers, not inside \_resolve_dyn_trait_values — thread it in).
+- Codegen: `generate_dyn_call` (codegen/exprs/dyn.yo:88) registers
+  `DynImplEntry(dyn_type, concrete_type, data_type, trait_values)` via
+  register_dyn_impl; the vtable emitter walks TraitT field_labels — FnTraitT
+  has none, needs a synthetic `call` slot + a wrapper taking (data, params...)
+  that unboxes the capture struct and calls the closure fn (TS names the slot
+  `call`: `(h->apply).vtable->call((h->apply).data, 32)`).
+- The value data path (box the capture struct) already exists: the eval route
+  at dyn.yo:~370 wraps the inner expr in `box(...)` under the expected Dyn
+  field type.
+- Field-CALL lowering: `h.apply(args)` where `apply : Dyn(Fn(...))` must emit
+  `(recv->apply).vtable->call((recv->apply).data, args...)` — the existing
+  dyn method dispatch handles trait-METHOD calls on dyn receivers, not
+  Fn-trait dyn FIELD values; find where the call currently degrades to the
+  `((cast)recv->field)(args)` struct-to-fnptr cast.
