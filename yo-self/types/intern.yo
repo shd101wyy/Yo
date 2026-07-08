@@ -365,10 +365,65 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
           o
         })
       },
-      .SomeT(smid, _, _, _, _, _, _, _, _, _) => {
-        o := String.from("So:");
-        o.push_string(smid.clone());
-        o
+      // SomeT keyed by id ALONE wrong-merges: the shared `Impl(Fn(e : E) -> T)`
+      // io.async action wrapper keeps ONE id across all call sites, but
+      // `substitute` produces per-call variants whose required_trait_types
+      // differ (`Fn(e : IoExn) -> i32` vs `Fn(e : Io) -> bool`). An id-only
+      // key canonicalizes every later call's substituted wrapper back to the
+      // FIRST interned variant — the stage-2 statx cluster (single-effect
+      // closure param typed IoExn). Render the full distinguishing content,
+      // same shape as the TraitT/EnumT arms (visited-guarded for cycles).
+      .SomeT(smid, smnm, smfl, smpt, smrtt, smrtl, smntt, smntl, smier, smkft) => {
+        tok := String.from("So:");
+        tok.push_string(smid.clone());
+        if(_contains(visited, tok.clone()), tok, {
+          visited.push(tok.clone());
+          o := tok;
+          o.push_str("{");
+          o.push_string(smnm.clone());
+          o.push_str("|");
+          o.push_string(smfl.to_string());
+          o.push_str("|");
+          o.push_string(recur(smpt, depth + usize(1), visited));
+          o.push_str("|");
+          nrt := smrtt.len();
+          (irt : usize) = usize(0);
+          while(irt < nrt, {
+            match(smrtt.get(irt),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+            o.push_str(",");
+            irt = (irt + usize(1));
+          });
+          o.push_str("|");
+          nrl := smrtl.len();
+          (irl : usize) = usize(0);
+          while(irl < nrl, {
+            match(smrtl.get(irl),.Some(l) => o.push_string(l.to_string()),.None => ());
+            o.push_str(",");
+            irl = (irl + usize(1));
+          });
+          o.push_str("|");
+          nnt := smntt.len();
+          (int_ : usize) = usize(0);
+          while(int_ < nnt, {
+            match(smntt.get(int_),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+            o.push_str(",");
+            int_ = (int_ + usize(1));
+          });
+          o.push_str("|");
+          nnl := smntl.len();
+          (inl : usize) = usize(0);
+          while(inl < nnl, {
+            match(smntl.get(inl),.Some(l) => o.push_string(l.to_string()),.None => ());
+            o.push_str(",");
+            inl = (inl + usize(1));
+          });
+          o.push_str("|");
+          o.push_string(_b(smier));
+          o.push_str("|");
+          o.push_string(match(smkft,.Some(k) => recur(k, depth + usize(1), visited),.None => String.from("n")));
+          o.push_str("}");
+          o
+        })
       },
       .Union(unm, ufl, uft) => {
         o := String.from("Un:");
