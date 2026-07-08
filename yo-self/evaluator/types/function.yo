@@ -34,7 +34,7 @@ open(import("std/fmt"));
   BK_TUPLE
 }
 :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_some_resolved_concrete, register_some_resolved_concrete } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
@@ -3913,6 +3913,10 @@ _resolve_some_types_deep :: (
     while(nti < nested.len(), {
       nst := match(nested.get(nti),.Some(t) => t,.None => t_unit());
       (nres : TypeValue) = get_value_of_some_type_from_env(env, nst);
+      // Track whether the resolution came from the env (true) or from
+      // the global lookup_some_resolved_concrete fallback (false).
+      // Only register when sourced from env to avoid re-caching IoExn.
+      (nres_from_env : bool) = !(is_some_type(nres));
       if(is_some_type(nres), {
         match(
           nres,
@@ -3929,8 +3933,13 @@ _resolve_some_types_deep :: (
       if(!(is_some_type(nres)), {
         match(
           nst,
-          .SomeT(_, nst_name, nst_lvl, _, _, _, _, _, _, _) => {
+          .SomeT(nst_id, nst_name, nst_lvl, _, _, _, _, _, _, _) => {
             subst_add(ns, nst_name, nst_lvl, nres);
+            // Register the concrete type in the global table when
+            // resolved from the env (not from the stale fallback).
+            if(nres_from_env, {
+              register_some_resolved_concrete(nst_id, nres);
+            });
             nbound = true;
           },
           _ => ()
