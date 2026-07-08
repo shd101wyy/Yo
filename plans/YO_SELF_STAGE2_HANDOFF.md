@@ -6,6 +6,40 @@ the self-compiled `yo-self` binary's `test` subcommand pass `./tests` and
 
 **Current state: 27 stage-2 clang errors** (was 56; −29 total).
 
+### Remaining error breakdown (27 total as of 2026-07-08):
+
+| Count | Category               | Details                                                                               |
+| ----- | ---------------------- | ------------------------------------------------------------------------------------- |
+| 10    | expected expression    | `io`→`IoExn` in single-effect closures (Phase 2)                                      |
+| 4+1   | passing incompatible   | Type identity: self-compiler re-registers types with different IDs (Phase 4)          |
+| 2     | undeclared identifiers | `get_info` (closure capture), 1 temp (remaining branch leak, Phase 1)                 |
+| 2     | incomplete type void   | Empty capture struct → `(void){}` — capture VALUE gen path, not struct decl (Phase 4) |
+| 2     | assigning from void\*  | Cascade from await codegen (Phase 4)                                                  |
+| 2     | operand arithmetic     | Dyn dispatch not lowered to vtable calls (Phase 4)                                    |
+| 1     | member ref not pointer | `(*self)->_fd` on ref struct (Phase 4)                                                |
+| 1     | conflicting types      | Async closure proto vs def — type_key mismatch (Phase 4)                              |
+| 2     | ptr-to-int             | Cascade (Phase 4)                                                                     |
+
+### get_info investigation (2026-07-08)
+
+Probes confirmed `get_info` IS tracked by `track_variable_usage` (frame_level=1 < eval_frames=4/5).
+It IS in `enrich_captured_variables` output. But the capture struct (`__yo_t830`) only has `await_extras`.
+Investigations:
+
+- `is_compile_time_only` = false (not filtering get_info)
+- `_struct_some_type_is_only_in_function_fields` gate: if the struct had get_info (type Impl(Fn)),
+  it would be blocked from collection because Impl(Fn) is a SomeType in a non-function field.
+  But the struct doesn't even have get_info — it was never created with it.
+
+**Root cause NOT yet confirmed**: the capture struct is created without `get_info` as a field.
+Either the capture was cached from a prior eval that didn't track get_info, or the variable
+is removed between tracking and capture struct creation (anonymous_function.yo:1079-1095).
+
+**TS faithful note**: TS's `typeContainsSomeType` (utils.ts:507-521) explicitly treats Impl(Fn)
+and Impl(Future) as concrete at codegen time (`return false`). yo-self's `type_contains_some_type`
+does not have this gate — it always returns true for SomeT. This is a porting gap but fixing it
+won't help until get_info is in the capture struct.
+
 ### Progress log
 
 | Session    | Change                                                 | Δ            |
