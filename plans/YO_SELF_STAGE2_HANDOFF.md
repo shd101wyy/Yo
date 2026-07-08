@@ -4,17 +4,18 @@
 the self-compiled `yo-self` binary's `test` subcommand pass `./tests` and
 `./yo-self/tests` (tasks #69, #70).
 
-**Current state: 31 stage-2 clang errors** (was 56; −25 total).
+**Current state: 27 stage-2 clang errors** (was 56; −29 total).
 
 ### Progress log
 
-| Session    | Change                                            | Δ            |
-| ---------- | ------------------------------------------------- | ------------ |
-| Prior      | per-closure async result-type fix (`a675f54eb`)   | 56→44 (-12)  |
-| 2026-07-06 | unwind double-return fix (`d0518c359`)            | 44→42 (-2)   |
-| 2026-07-06 | recur ref-param deref strip (`dd4473afc`)         | 42→39 (-3)   |
-| 2026-07-07 | match arm frame-pop cleanup (`fabb2d9dd`)         | 39→35 (-4)   |
-| 2026-07-08 | explicit (!=) in Eq(str)/Eq(String) (`9d2eb7d48`) | 35→33 (-2\*) |
+| Session    | Change                                                 | Δ            |
+| ---------- | ------------------------------------------------------ | ------------ |
+| Prior      | per-closure async result-type fix (`a675f54eb`)        | 56→44 (-12)  |
+| 2026-07-06 | unwind double-return fix (`d0518c359`)                 | 44→42 (-2)   |
+| 2026-07-06 | recur ref-param deref strip (`dd4473afc`)              | 42→39 (-3)   |
+| 2026-07-07 | match arm frame-pop cleanup (`fabb2d9dd`)              | 39→35 (-4)   |
+| 2026-07-08 | explicit (!=) in Eq(str)/Eq(String) (`9d2eb7d48`)      | 35→33 (-2\*) |
+| 2026-07-08 | fieldless while-pop + loop scope markers (`395537d77`) | 33→27 (-6)   |
 
 ### Landed: Phase 4 match-arm frame-pop cleanup (−4)
 
@@ -34,6 +35,26 @@ with-fields branch (which uses `while(env.frames.len() > base_frame_count)` to p
 multiple frames), apply the same while-loop to `body_info.env.frames`.
 
 Validation: corpus 103/103 DIFF 0, undeclared identifiers 13→4 (−9), total 39→35 (−4).
+
+### Landed: Phase 1 while-body frame-pop + C scope markers (−6)
+
+`commit 395537d77` — `yo-self/evaluator/exprs/match.yo` + `yo-self/codegen/exprs/while_loop.yo`
+
+**match.yo fix**: The fieldless arm (`_ => body`) used a single `env.pop_frame()`,
+which pops the wrong frame when a leaked frame (e.g. unpopped begin frame from
+the body's evaluate_begin_expression) is present. Changed to while-loop pop
+`while(env.frames.len() > base_frame_count_fl)` (mirrors the with-fields
+branch). Also changed `pop_env_frame(body_info_fl.env)` from single pop to
+while-loop for symmetric robustness.
+
+**while_loop.yo fix**: `generate_loop_body` emitted begin-block statements
+flat without C scope markers. TS wraps them in `{ // begin block ... }`,
+creating proper C scopes where local-variable drops clean up at the closing
+`}`. Added matching scope markers to yo-self.
+
+Net: undeclared 5→2 (−3, arg_expr + 2 temps fixed), total 33→27 (−6). The
+remaining undeclared errors: `get_info` (closure capture codegen) + 1
+remaining temp variable (likely from a different code path's frame leak).
 
 ### Landed: Phase 3 str→String overload fix (−2\*, merged with random-ID noise)
 
@@ -113,21 +134,19 @@ Phase 2 investigation (2026-07-07): the real root cause is `get_expr_info(future
 returning `None` for `IO_file.statx(...)` inside closure bodies, not FSM/sync-future
 path issues. See Phase 2 below.
 
-### Remaining error breakdown (35 total as of 2026-07-07):
+### Remaining error breakdown (27 total as of 2026-07-08):
 
-| Count | Category               | Details                                                                                    |
-| ----- | ---------------------- | ------------------------------------------------------------------------------------------ |
-| 10    | expected expression    | Await poll-loop code vanishes — `IO_file.statx(...)` inside closure bodies has no ExprInfo |
-| 4     | undeclared identifiers | `get_info` (closure capture), 3 temps (branch-leaked, not fixed by match fix)              |
-| 5     | passing incompatible   | Type identity: self-compiler re-registers types with different IDs                         |
-| 3+    | member ref on size_t   | Random: varies per compilation (different random IDs)                                      |
-| 2     | incomplete type void   | Empty capture struct → `(void){}` — `get_type_c_name` returns None                         |
-| 2     | assigning from void\*  | Cascade from await/throw codegen                                                           |
-| 2     | operand arithmetic     | Dyn dispatch not lowered to vtable calls                                                   |
-| 1     | str→String             | `Eq(str).(!=)` default `Self.(==)` resolves to `Eq(String).(==)` instead of `Eq(str).(==)` |
-| 1     | member ref not pointer | `(*self)->_fd` on ref struct — atom deref + `->`                                           |
-| 1     | conflicting types      | Async closure proto `void*` vs def concrete — `type_key` mismatch in pre-registration      |
-| 2     | ptr-to-int             | Cascade                                                                                    |
+| Count | Category               | Details                                                                               |
+| ----- | ---------------------- | ------------------------------------------------------------------------------------- |
+| 10    | expected expression    | Await poll-loop code vanishes — `io`→`IoExn` in single-effect closures                |
+| 4+1   | passing incompatible   | Type identity: self-compiler re-registers types with different IDs                    |
+| 2     | undeclared identifiers | `get_info` (closure capture), 1 temp (remaining branch leak)                          |
+| 2     | incomplete type void   | Empty capture struct → `(void){}` — capture VALUE gen, not struct decl                |
+| 2     | assigning from void\*  | Cascade from await/throw codegen                                                      |
+| 2     | operand arithmetic     | Dyn dispatch not lowered to vtable calls                                              |
+| 1     | member ref not pointer | `(*self)->_fd` on ref struct — atom deref + `->`                                      |
+| 1     | conflicting types      | Async closure proto `void*` vs def concrete — `type_key` mismatch in pre-registration |
+| 2     | ptr-to-int             | Cascade                                                                               |
 
 **Previous session notes (2026-07-06) — now obsolete, superseded by Phase 2:**
 
