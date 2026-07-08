@@ -146,3 +146,20 @@ therefore either `get_closure_capture_info` returning capture_type=unit, or
 the closure's ExprInfo ty degenerating to unit in this flow — probe
 `[DYNBOX] ne_value_type=... cci=...` at the route-1 boxing site (one rebuild)
 to pick between them before implementing.
+
+## Round 3 probe results (2026-07-09)
+
+`[DYNBOX]` at the route-1 boxing site shows BOTH closures resolve correct
+capture structs (`cci=<struct:capture_yo_id_5818> vt=fn(x : i32) -> i32`,
+`cci=<struct:capture_yo_id_5829> vt=fn(x : i32) -> bool`) — the unit collapse
+is NOT at the boxing-input site. In the same emission, ONE Box instantiation
+is correctly shaped (`struct_yo_id_5830 { _u42_ : capture_5829 }`) while the
+OTHER emits `Box(unit) { void _u42_ }` — so the collapse happens INSIDE the
+Box CTFE (`_create_boxed_type` → `struct(* : V)` field eval), and it is
+order/frame-dependent (first call collapses, second works, or vice versa).
+Next probe: print `type_to_string(box_ty)` at `_create_boxed_type`'s return +
+inside the Box CTFE the resolved V — suspect the pre-bound `V` env frame
+(cenv.push_frame + add_variable_to_env at dyn.yo:78-91) not being visible to
+the field eval on the first call, or a comptime-fn cache interaction.
+Also still open: the box-ARG emission for whichever closure emits
+`(__yo_tN)(closure_yo_id_X)` (fn-ptr) instead of the capture-struct value.
