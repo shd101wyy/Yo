@@ -536,6 +536,24 @@ _compat_impl :: (
           ta_differ
         }) => false,
         (aid == eid) => true,
+        // Self-SHELL identity (exact only): a struct self-shell is an
+        // EMPTY-FIELDS, empty-name struct sharing its FINAL's struct_id
+        // (struct.yo:76-95) — "distinguished from the final purely by its
+        // empty field list". Under exact comparison an empty-fields side must
+        // therefore compare by ID ONLY: two different structs' shells are both
+        // 0-field ""-named and would wrongly compare STRUCTURALLY EQUAL,
+        // colliding the comptime-fn CTFE cache — `Box(Self)` inside the
+        // SECOND `ref(struct(... : Option(Box(Self))))` hit the FIRST struct's
+        // cached `Box(shell)` entry, so e.g. SuspensionCapturedVariable's
+        // `is_owning_the_same_rc_value_as` field emitted as
+        // `Option(Box(Variable))` (stage-2 `__yo_t628 → __yo_t114`
+        // incompatible-type cluster). TS has no shells — its `Self` IS the
+        // final object mutated in place, so a cached Self arg "grows" with the
+        // final and never matches another struct's empty in-progress type;
+        // id-only comparison for shells is the faithful equivalent of that
+        // object identity. (aid == eid already returned true above, so
+        // reaching here with an empty side means different ids → distinct.)
+        ((atypes.len() == usize(0)) || (etypes.len() == usize(0))) => false,
         // Exact, different ids → structural. But the SEMANTICS KIND must match
         // first: a value `struct`, a reference `object`, an `atomic object`, and
         // a `newtype` with IDENTICAL fields are DISTINCT types. Without this, the

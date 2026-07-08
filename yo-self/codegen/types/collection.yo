@@ -40,7 +40,7 @@ open(import("std/string"));
   is_array_type
 } :: import("../../types/guards.yo");
 { type_contains_some_type } :: import("../../types/utils.yo");
-{ resolve_enum_shell } :: import("../../types/creators.yo");
+{ resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 {
   CodeGenContext,
   type_key,
@@ -161,7 +161,12 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
   // the empty shell type is never registered/emitted — regardless of whether the
   // shell or the final is reached first. With the type_key shell-resolve above,
   // references to the shell also key to the final. Passthrough for non-shells.
-  type := resolve_enum_shell(type_in);
+  // Same for STRUCT self-shells (empty-fields struct sharing the final's id,
+  // struct.yo:76-95): a `ref(struct(... : Option(Box(Self))))` field carries
+  // `Box(shell)`; if the shell reaches collection first, its EMPTY field list
+  // registers the C struct decl under the same type_key as the final, and the
+  // final is then deduped away — emitting `struct { header; }` with no members.
+  type := resolve_struct_shell(resolve_enum_shell(type_in));
   if(context.get_type_entry(type_key(type)).is_some(), {
     return(()); // Already collected this type
   });
