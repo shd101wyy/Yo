@@ -114,3 +114,27 @@ closure's EMPTY capture struct (or register a 0-field capture struct for
 capture-free closures at creation, matching TS), and make the box() arg emit
 the capture-struct VALUE (`(capture){}` for capture-free) rather than the fn
 pointer. Then re-run issues/repro-dyn-fn-field.yo (expect 42/true) and gates.
+
+## Round 3 scoping (context-limited session end)
+
+Layer-3 root REFINED: `create_capture_type_and_value` DOES build a real
+0-field capture Struct for capture-free closures (utils/closure.yo:207+,
+`Struct(capture_<id>, "", [], [], ...)`). The `Box(unit)`/`void _u42_` C came
+from yo-self's EMPTY-STRUCT ≈ unit equivalence: type printing/`get_type_string`
+render a 0-field struct as unit/void (see also compatibility.yo:338's
+`Unit ≈ empty struct` non-exact rule). TS instead emits a real named empty C
+struct (`__yo_struct_..._id_126 {}`) and boxes `(that){}`.
+
+Round-3 work items:
+
+1. Make `get_type_string`/box-payload emission preserve a 0-field capture
+   struct's identity (emit the struct typedef, not void) — check how TS's
+   getTypeString handles empty structs and mirror; the capture struct IS
+   collected (it appeared as `__yo_t6 <struct:capture_yo_id_5829>` with an
+   empty body in the round-2 C, so the DECL side already works — the VALUE/
+   field-type side collapses).
+2. Make the box() arg for a capture-free closure emit the capture-struct
+   value (`(capture){}`), not the closure fn pointer
+   (`(__yo_t19)(closure_yo_id_5820)` in round-2 C).
+3. Re-apply issues/wip-dyn-fn-field.patch (round-2 version, includes the
+   route-1 capture-struct boxing) and iterate on issues/repro-dyn-fn-field.yo.
