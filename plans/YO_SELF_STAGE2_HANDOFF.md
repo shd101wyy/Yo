@@ -124,6 +124,50 @@ codegen decisions without a debugger):
 
 ---
 
+## Shared-GC-tracer family (3 errors) — ROOT KNOWN, fix requires re-instantiation
+
+**Root (probe-confirmed 2026-07-09):** ONE Bucket `trace` specialization serves ALL
+Bucket instantiations. During EACH HashMap-trace body re-eval, the inner
+`bucket.trace(tracer)` call's receiver arg*type is the SHARED GENERIC
+`Bucket(K, V)` TypeValue object (one id), so
+`compute_compile_time_signature` renders the IDENTICAL degenerate sig
+(`...\_struct_struct_yo_id_NNNN*...`) for every instantiation — the
+specialization cache/func-id collide and the first Bucket tracer body is
+called with every Bucket layout (member-ref errors when layouts differ, silent
+wrong-offset tracing when they don't). Minimal repro:
+`scratchpad/repro_tracer2.yo`— two HashMaps (String/usize keys) with a cyclic
+ref-struct value; the collision shows as 3 incompatible-pointer WARNINGS + one
+shared`yo_id_12\_\_...` tracer in the emitted C.
+
+**Two fixes attempted and REVERTED (both INERT):** resolving the sig's
+runtime-param types via `evaluate_function_parameter_type_again` against (a)
+callee_env and (b) caller_env — substitution DOES NOT RECURSE into nominal
+struct types (by design, both compilers), so the generic Bucket passes through
+unchanged. Concretizing `Bucket(K, V)` → `Bucket(String, Node)` requires
+RE-INSTANTIATION (a comptime-fn call with the bound K/V), i.e. the
+"generic-instantiation type-identity consistency" critical path (same blocker
+as the module-var port). TS cannot collide here: per-instantiation
+FunctionValue OBJECTS carry their own `specializedFunctionCaches`.
+
+**Probe kit (rebuild with these when resuming):** `[SPEC-MISS/HIT]` at
+create_specialized_function_inline's cache lookup (guard: any runtime param
+whose `type_key` contains `"<struct:"` — the degenerate-rendering marker) +
+`[TRSPEC] ctkey/fid` in `_specialize_and_register_trace`
+(codegen/functions/collection.yo).
+
+**Also noted:** `type_key` has NO Pointer arm — `*(T)` falls to the
+`type_to_string` catch-all (type*key.yo:270). Aligning pointers with
+`*<child-key>\_ptr` would make pointer keys consistent, but is NOT sufficient
+for this family (the receiver OBJECT itself is shared/generic).
+
+**Candidate directions:** (1) re-instantiate the receiver's generic
+instantiation at the inner-call site when its type_arguments/SomeT fields are
+resolvable from the env (drive the comptime-fn cache — gives stable
+per-instantiation identity for free); (2) port TS's FuncVal-attached
+per-instantiation specialization caches.
+
+---
+
 ## Phase 2 — expected expression statx cluster — RESOLVED (2026-07-09)
 
 **Fixed by ONE surgical change**: `yo-self/types/intern.yo` — `type_intern_key`'s
