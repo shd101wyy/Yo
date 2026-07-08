@@ -3918,17 +3918,29 @@ _resolve_some_types_deep :: (
       // Only register when sourced from env to avoid re-caching IoExn.
       (nres_from_env : bool) = !(is_some_type(nres));
       if(is_some_type(nres), {
-        match(
-          nres,
-          .SomeT({ id : nrsid }) => match(
-            lookup_some_resolved_concrete(nrsid),
-            .Some(c) => {
-              nres = c;
-            },
-            .None => ()
-          ),
-          _ => ()
+        // Only fall back to the global table when the env lookup
+        // returned a FRESH SomeType (from get_value_of_some_type_from_env's
+        // self-bound/def-frame gating). Skip the fallback for "E" (effect
+        // param) — the global table is poisoned by prior IoExn registrations
+        // and would resolve E to IoExn even for single-effect io.async calls.
+        _skip_fallback := match(
+          nst,
+          .SomeT(_, _nsn, _, _, _, _, _, _, _, _) => (_nsn == String.from("E")),
+          _ => false
         );
+        if(!(_skip_fallback), {
+          match(
+            nres,
+            .SomeT({ id : nrsid }) => match(
+              lookup_some_resolved_concrete(nrsid),
+              .Some(c) => {
+                nres = c;
+              },
+              .None => ()
+            ),
+            _ => ()
+          );
+        });
       });
       if(!(is_some_type(nres)), {
         match(
@@ -3937,8 +3949,18 @@ _resolve_some_types_deep :: (
             subst_add(ns, nst_name, nst_lvl, nres);
             // Register the concrete type in the global table when
             // resolved from the env (not from the stale fallback).
+            // Skip registering IoExn — it's a compound effect that
+            // would overwrite single-effect Io and poison subsequent
+            // io.async calls that only need Io.
             if(nres_from_env, {
-              register_some_resolved_concrete(nst_id, nres);
+              _is_ioexn := match(
+                nres,
+                .Struct({ id : _reg_sid }) => (_reg_sid == String.from("IoExn")),
+                _ => false
+              );
+              if(!(_is_ioexn), {
+                register_some_resolved_concrete(nst_id, nres);
+              });
             });
             nbound = true;
           },
