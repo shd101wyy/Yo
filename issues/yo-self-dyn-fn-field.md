@@ -256,3 +256,19 @@ it carries resolved_concrete; if cache is the culprit, make \_ctfe_args_equal
 distinguish SomeTs by (id + has-resolved-concrete identity) or bypass the
 cache for the dyn box path. Also still pending: capture-free closure box-ARG
 emits a fn-ptr cast instead of the capture value.
+
+## Follow-on family: ctl throw ResumeType (4 stage-2 errors, OPEN)
+
+`IoError.check`-style `exn.throw(...)` (plain Exception, per-call
+forall(ResumeType)) merge-assigned to a concrete local emits a `void*`
+temp/cast. Two eval-side fixes landed (ctl-inline path + try_to_call Step 9 —
+resolve from expected/enclosing-return onto the result SomeT's
+resolved_concrete) but were INERT for these sites: the emitted ExprInfo comes
+from a third path. A [CTLC] probe at other_fn_call's fn-ptr cast
+(ret_str=="void*" && func_code.contains("throw")) fired ZERO times despite
+976 `void* (_)`casts in the emit and the C literally containing`((void_ (\*)(\_\_yo_t65))exn.throw)(...)` — either the cast is emitted by a
+different (unfound) builder, or func_code differs at probe time, or the
+build didn't include the probe. NEXT: verify the probe actually ran
+(add an unconditional counter print), then trace the cast origin. Remaining
+stage-2 (9): this family (4), undeclared temp+get_info (2), FTT expected-
+expression (2), member-ref (1).
