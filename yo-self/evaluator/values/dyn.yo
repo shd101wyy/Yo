@@ -21,7 +21,7 @@ open(import("std/string"));
 { Environment, synthetic_token, get_variables_from_env, add_variable_to_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry } :: import("../context.yo");
 { EvalValue, is_func_val, create_type_value } :: import("../../value.yo");
-{ get_func_type } :: import("../../function_value.yo");
+{ get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
 { create_specialized_function_inline } :: import("../calls/helper.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, generate_some_type_id } :: import("../../types/creators.yo");
@@ -238,6 +238,23 @@ _resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue, c
               trait_vals.push(EvalValue.TraitVal(tname, field_names, field_vals));
               ()
             },
+            // Fn trait (Dyn(Fn(...)) — e.g. a dyn'd CLOSURE stored in a struct
+            // field): the closure ITSELF is the implementation; there is no
+            // registry impl to resolve. Push a marker TraitVal so
+            // `generate_dyn_call` proceeds (it bails on an EMPTY list) — the
+            // C wrapper for the synthetic `call` slot resolves the closure fn
+            // via the impl_closure_call_map (capture-struct id → closure C
+            // name), mirroring TS's implClosureCallMap.
+            .FnTraitT(_, _, _, _, _, _, _) => {
+              trait_vals.push(
+                EvalValue.TraitVal(
+                  String.from("Fn"),
+                  ArrayList(String).new(),
+                  ArrayList(Option(EvalValue)).new()
+                )
+              );
+              ()
+            },
             _ => ()
           ),
           .None => ()
@@ -363,10 +380,65 @@ evaluate_dyn_value :: (
     // get REAL ids (alloc_global_expr_id) — id=0 breaks the call's ExprInfo/forall
     // setup. The boxed expr is surfaced via runtime_arg_exprs_in_order (the field
     // generate_dyn_call reads). Trait evidence stays on the PRE-box concrete type.
+    //
+    // Dyn'd CLOSURE payload (Dyn(Fn(...)) struct fields): `Box(<fn type>)` is
+    // not constructible (fn-typed struct fields are rejected — the
+    // SuspensionPointDetector design note), and the closure's runtime value IS
+    // its capture struct — box THAT instead. Mirrors TS, whose box rtparam is
+    // the capture struct (`box_Impl(Fn...)(struct(base : i32))`); the capture
+    // struct is also the key the C wrapper resolves through
+    // impl_closure_call_map.
+    (ne_box_inner_ty : TypeValue) = ne_value_type;
+    match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(inner_ne)),
+      .Some(iiv) => match(
+        iiv.value,
+        .Some(ival) => match(
+          ival,
+          .FuncVal(__nfvd, _) => match(
+            get_closure_capture_info(__nfvd.*.func_id.clone()),
+            .Some(cci) => match(
+              inner_expected,
+              // Mirror TS: box with V = the Impl(Fn) SOMET whose
+              // resolved_concrete = the closure's CAPTURE STRUCT (TS's
+              // `box_Impl(Fn(...))` specialization; resolvedConcreteType
+              // carries the layout). The PER-OBJECT field survives the Box
+              // CTFE's clone/substitute/intern, so codegen's get_type_string
+              // lays the box payload out as the capture struct — the id-keyed
+              // global misses there (round-5 finding).
+              .Some(iec) => match(
+                iec.ty,
+                .SomeT(bx_id, bx_nm, bx_fl, bx_pt, bx_rtt, bx_rtl, bx_ntt, bx_ntl, bx_ier, bx_kft, _) => {
+                  ne_box_inner_ty = TypeValue.SomeT(
+                    bx_id,
+                    bx_nm,
+                    bx_fl,
+                    bx_pt,
+                    bx_rtt,
+                    bx_rtl,
+                    bx_ntt,
+                    bx_ntl,
+                    bx_ier,
+                    bx_kft,
+                    Option(TypeValue).Some(cci.capture_type)
+                  );
+                },
+                _ => ()
+              ),
+              .None => ()
+            ),
+            .None => ()
+          ),
+          _ => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
     (ne_final_expr : AstExpr) = inner_ne;
     if(!(is_reference_struct_type(ne_value_type)) && !(is_dyn_type(ne_value_type)), {
       match(
-        _create_boxed_type(ne_value_type, env, ctx, exn),
+        _create_boxed_type(ne_box_inner_ty, env, ctx, exn),
         .Some(box_ty) => {
           ne_box_tok := synthetic_token(String.from("box"), env.module_path);
           ne_box_atom := AstExpr.Atom(alloc_global_expr_id(), ne_box_tok);

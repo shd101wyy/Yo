@@ -69,7 +69,7 @@ open(import("std/fmt"));
   ArgEntry,
   VarArgEntry
 } :: import("../context.yo");
-{ is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type } :: import("../../types/guards.yo");
+{ is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_fn_trait_type, is_unit_type } :: import("../../types/guards.yo");
 { is_control_fn } :: import("../types/control_fn_registry.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -890,7 +890,8 @@ _funcval_bind_foralls :: (
     env : Environment,
     n_forall : usize,
     fa_bound_names : ArrayList(String),
-    fa_bound_types : ArrayList(TypeValue)
+    fa_bound_types : ArrayList(TypeValue),
+    expected_param_types : ArrayList(TypeValue)
   ) -> unit
 )({
   (fa_i : usize) = usize(0);
@@ -914,8 +915,18 @@ _funcval_bind_foralls :: (
         // i32), throwing "Cannot unify i32 and str" when specializing
         // println/print (Gap-6). A comptime TYPE arg is a `Type` value, not
         // comptime_str, so this only catches string-literal value args.
+        // Prefer the EXPECTED-RETURN-resolved param type over the raw arg
+        // type when the arg is a closure/fn (or unit under def-eval) and the
+        // expected resolution produced an Impl SomeT: `box((x) => ...)` with
+        // expected `Box(Impl(Fn...)-SomeT)` must bind `V` to that SomeT (TS
+        // binds foralls from expected FIRST and never overrides with the arg;
+        // arg-driven V:=<fn type>/unit produced `Box(fn(...))`/`Box(unit)`
+        // with a void*/void payload — the Dyn(Fn) family). Narrowly gated so
+        // ordinary value calls keep arg-driven inference.
+        exp_pt := match(expected_param_types.get(ptn_i),.Some(t) => t,.None => t_unit());
         fa_infer_ty := cond(
           is_comptime_string_type(arg_info.ty) => TypeValue.Str,
+          (((is_function_type(arg_info.ty) || is_fn_trait_type(arg_info.ty)) || is_unit_type(arg_info.ty)) && is_some_type(exp_pt)) => exp_pt,
           true => arg_info.ty
         );
         _add_forall := add_variable_to_env(
@@ -2515,6 +2526,7 @@ Fix: wrap the call:
           .None => false
         );
         (resolved_param_types : ArrayList(TypeValue)) = fv_param_types;
+        (rpt_from_expected : bool) = false;
         if(((forall_names.len() > usize(0)) && !(fv_has_explicit_forall)) && ctx.expected_type.is_some(), {
           match(
             ctx.expected_type,
@@ -2523,6 +2535,7 @@ Fix: wrap the call:
               resolve_param_types_from_expected(fv_func_type, fv_exp.ty, fv_exp.env, env, ctx, rpt_holder);
               if(rpt_holder.len() == fv_param_types.len(), {
                 resolved_param_types = rpt_holder;
+                rpt_from_expected = true;
               });
             },
             .None => ()
@@ -2708,7 +2721,8 @@ Fix: wrap the call:
           env,
           n_forall,
           fa_bound_names,
-          fa_bound_types
+          fa_bound_types,
+          if(rpt_from_expected, resolved_param_types, ArrayList(TypeValue).new())
         );
         // v4.1: validate the PLACES bound to ref parameters (after argument
         // evaluation so the chain types are resolved). Mirrors TS

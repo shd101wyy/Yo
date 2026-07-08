@@ -373,7 +373,7 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
       // FIRST interned variant — the stage-2 statx cluster (single-effect
       // closure param typed IoExn). Render the full distinguishing content,
       // same shape as the TraitT/EnumT arms (visited-guarded for cycles).
-      .SomeT(smid, smnm, smfl, smpt, smrtt, smrtl, smntt, smntl, smier, smkft, _) => {
+      .SomeT(smid, smnm, smfl, smpt, smrtt, smrtl, smntt, smntl, smier, smkft, smrcp) => {
         tok := String.from("So:");
         tok.push_string(smid.clone());
         if(_contains(visited, tok.clone()), tok, {
@@ -421,6 +421,14 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
           o.push_string(_b(smier));
           o.push_str("|");
           o.push_string(match(smkft,.Some(k) => recur(k, depth + usize(1), visited),.None => String.from("n")));
+          // resolved_concrete is resolution METADATA, not identity — but the
+          // intern canonical must not STRIP it: a field-carrying SomeT that
+          // key-collides with a field-less one canonicalizes to the field-less
+          // instance and the resolution is lost (the Dyn(Fn) box payload
+          // emitted void*). Render it so carriers stay distinct instances
+          // (under-dedup is safe per the header doctrine).
+          o.push_str("|");
+          o.push_string(match(smrcp,.Some(rc) => recur(rc, depth + usize(1), visited),.None => String.from("n")));
           o.push_str("}");
           o
         })

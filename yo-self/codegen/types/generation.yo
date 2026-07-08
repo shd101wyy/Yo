@@ -796,6 +796,19 @@ _walk_add_dep :: (fn(deps_set : HashSet(String), dep_ty : TypeValue, self_type_i
 /// enum/newtype/value-struct/tuple by-value dependency chain.
 _walk_by_value_dep :: (fn(deps_set : HashSet(String), ft : TypeValue, self_type_id : String, guard_nullable : bool, cname_to_typeid : HashMap(String, String), context : CodeGenContext) -> unit)(
   cond(
+    // A SomeT field with a per-object resolved concrete is EMITTED as that
+    // concrete (get_type_string SomeT arm) — order the decl after it
+    // (Box(Impl(Fn)-SomeT) embeds the closure CAPTURE STRUCT by value; without
+    // this edge the capture body comes later → "field has incomplete type").
+    is_some_type(ft) => match(
+      ft,
+      .SomeT({ resolved_concrete : wrc }) => match(
+        wrc,
+        .Some(wrct) => recur(deps_set, wrct, self_type_id, guard_nullable, cname_to_typeid, context),
+        .None => ()
+      ),
+      _ => ()
+    ),
     is_enum_type(ft) => if(guard_nullable && can_optimize_as_nullable_pointer(ft).is_some(), (), {
       _walk_add_dep(deps_set, ft, self_type_id, cname_to_typeid, context);
     }),

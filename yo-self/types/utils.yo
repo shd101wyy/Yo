@@ -838,7 +838,37 @@ type_requires_inference :: (fn(_ty : TypeValue) -> bool)(false);
 type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
   match(
     ty,
-    .SomeT(name : _) => true,
+    // Mirrors TS typeContainsSomeType (utils.ts:507-521): a SomeType that
+    // implements Fn or Future — or carries a per-object resolved concrete —
+    // is CONCRETE at codegen time (closures lower to their capture struct /
+    // FnTraitT; futures to state-machine structs). Without this carve-out the
+    // contains-SomeT gates skip emitting Box(Impl(Fn)) constructors and drop
+    // Impl(Fn)-typed capture fields (the get_info cluster).
+    .SomeT({ required_trait_types : cst_rtt, resolved_concrete : cst_rc }) => cond(
+      match(cst_rc,.Some(_) => true,.None => false) => false,
+      true => {
+        (cst_has_fn_or_fut : bool) = false;
+        (cst_i : usize) = usize(0);
+        while(cst_i < cst_rtt.len(), {
+          match(
+            cst_rtt.get(cst_i),
+            .Some(cst_t) => match(
+              cst_t,
+              .FnTraitT(_, _, _, _, _, _, _) => {
+                cst_has_fn_or_fut = true;
+              },
+              .FutureTraitT(_, _, _, _, _) => {
+                cst_has_fn_or_fut = true;
+              },
+              _ => ()
+            ),
+            .None => ()
+          );
+          cst_i = (cst_i + usize(1));
+        });
+        !(cst_has_fn_or_fut)
+      }
+    ),
     .TypeAppT(constructor : _) => true,
     _ => false
   )

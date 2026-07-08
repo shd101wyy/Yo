@@ -15,7 +15,7 @@ open(import("std/string"));
 { is_some_type, is_dyn_type, is_function_type } :: import("../../types/guards.yo");
 { type_implements_fn, extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
-{ type_key, get_variable_name_for_codegen, ImplClosureCallInfo } :: import("../utils/index.yo");
+{ type_key, get_variable_name_for_codegen, ImplClosureCallInfo, get_type_string } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { is_closure_fn, get_closure_capture_info } :: import("../../function_value.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
@@ -49,8 +49,11 @@ resolve_some_type_to_concrete :: (fn(t : TypeValue) -> TypeValue)({
   (go : bool) = true;
   while(go && is_some_type(cur), {
     sid := match(cur,.SomeT({ id : i }) => i, _ => String.from(""));
+    // Per-object resolved concrete first (survives clone/substitute/intern);
+    // global table as fallback.
+    own_rc := match(cur,.SomeT({ resolved_concrete : orc }) => orc, _ => Option(TypeValue).None);
     match(
-      lookup_some_resolved_concrete(sid),
+      match(own_rc,.Some(o1) => Option(TypeValue).Some(o1),.None => lookup_some_resolved_concrete(sid)),
       .Some(rct) => if(type_key(rct) == type_key(cur), {
         go = false;
       }, {
@@ -173,7 +176,20 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
     // dispatch (register by the resolved concrete capture/SomeT id).
     concrete := resolve_some_type_to_concrete(ei.ty);
     concrete_id := match(concrete,.Struct({ id : kid }) => kid,.SomeT({ id : sid }) => sid, _ => type_key(ei.ty));
-    concrete_c_name := match(context.base.get_type_c_name(concrete_id.clone()),.Some(n) => n,.None => String.from("void"));
+    // The compound literal's type must be the CAPTURE STRUCT — take it from
+    // the closure's registered capture info (keyed by fid; always present,
+    // an empty struct for capture-free closures). The ExprInfo ty here can be
+    // an UNRESOLVED SomeT whose C lowering is void*/"void" — that emitted
+    // `(void){}` / `(void*){}` (incomplete-type C errors).
+    concrete_c_name := match(
+      get_closure_capture_info(fid.clone()),
+      .Some(nc_cci) => get_type_string(nc_cci.capture_type, context.base),
+      .None => match(
+        context.base.get_type_c_name(concrete_id.clone()),
+        .Some(n) => n,
+        .None => get_type_string(concrete, context.base)
+      )
+    );
     key := concrete_id;
     _r := context.base.impl_closure_call_map.set(
       key,
