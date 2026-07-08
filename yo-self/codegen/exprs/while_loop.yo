@@ -124,6 +124,11 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
       context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(current_drops, prev_pending));
       context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(current_consumed, prev_consumed));
       em := context.base.emitter;
+      // Scope-marker: C block for begin-local variables (mirrors begin.yo:137).
+      // Required so deferred drops of locals declared here scope-clean.
+      hdr := indent.clone();
+      hdr.push_str("{ // begin block (loop body)");
+      em.emit_string_line(hdr);
       args := _args(body_expr);
       n := args.len();
       (i : usize) = usize(0);
@@ -167,6 +172,9 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
         },
         .None => ()
       );
+      ftr := indent.clone();
+      ftr.push_str("} // end begin block (loop body)");
+      em.emit_string_line(ftr);
       context.pending_deferred_drops = prev_pending;
       context.consumed_var_pending_drops = prev_consumed;
     },

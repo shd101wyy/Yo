@@ -1350,6 +1350,8 @@ evaluate_match :: (
         // Set ExprInfo for variantNameExpr (BEFORE push_frame)
         vne_fl_info := new_expr_info(env, new_enum_type_fl);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(variant_name_expr), vne_fl_info);
+        // Save pre-arm frame count for cleanup (mirrors with-fields branch).
+        base_frame_count_fl := env.frames.len();
         // Push frame for this arm
         env.push_frame(false);
         // Set ExprInfo for matchArmExpr (AFTER push_frame)
@@ -1383,7 +1385,9 @@ evaluate_match :: (
         evaluated_body_fl := evaluate_begin_expression(rhs_expr_em, env, ctx, ArrayList(Variable).new(), false, exn);
         ctx.expected_type = old_expected_fl;
         ctx.is_executing = old_executing_fl;
-        env.pop_frame();
+        while(env.frames.len() > base_frame_count_fl, {
+          env.pop_frame_nonmutating();
+        });
         body_info_fl_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_fl));
         if(body_info_fl_opt.is_none(), {
           exn.throw(
@@ -1399,7 +1403,9 @@ evaluate_match :: (
           return(expr);
         });
         body_info_fl := match(body_info_fl_opt,.Some(bi) => bi,.None => new_expr_info(env, t_unit()));
-        pop_env_frame(body_info_fl.env);
+        while(body_info_fl.env.frames.len() > base_frame_count_fl, {
+          pop_env_frame(body_info_fl.env);
+        });
         consume_case_body_temp_var(evaluated_body_fl, body_info_fl.env, ctx);
         // NOTE: do NOT null body_info_fl.value here for a runtime/unknown
         // scrutinee. `body_info_fl` IS the shared ExprInfo object stored in the
