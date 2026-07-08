@@ -238,3 +238,21 @@ closure_type.yo:298, helper.yo:1355, async.yo:1541/2132) and read sites
 (await.yo:384+, utils/index.yo:807, closures.yo:53, state_machine.yo:56+,
 async.yo multiple) to prefer the field with the global as fallback, then
 delete the global once stage-2 is stable.
+
+## Step 2 attempt (post-field-commit bca8eccc5, stage-2 baseline now 15)
+
+The SomeT `resolved_concrete` field landed (bca8eccc5) and its
+substitution-preserve alone cleared the shared-Bucket-tracer family (18→15).
+Step-2 wiring (in the refreshed wip patch): get*type_string SomeT arm prefers
+the per-object field; dyn route rebuilds the box SomeT with
+resolved_concrete=Some(capture struct). RESULT: box payload STILL emits
+`void\* \_u42*` — the field type object reaching struct emission is NOT the
+rebuilt SomeT. Prime suspect: the Box comptime-fn CACHE returns an
+instantiation whose field is the OLD same-id SomeT (ctfe args compare SomeTs
+by ID, so the rebuilt object cache-hits the pre-field entry) — OR the field is
+dropped in evaluate_type_field's V resolution. NEXT PROBE: in
+\_create_boxed_type's return, print the box's field_types[0] rendered + whether
+it carries resolved_concrete; if cache is the culprit, make \_ctfe_args_equal
+distinguish SomeTs by (id + has-resolved-concrete identity) or bypass the
+cache for the dyn box path. Also still pending: capture-free closure box-ARG
+emits a fn-ptr cast instead of the capture value.
