@@ -49,7 +49,8 @@ open(import("std/string"));
   Environment,
   add_variable_to_env,
   synthetic_token,
-  snapshot_env
+  snapshot_env,
+  get_variables_from_env
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
@@ -84,6 +85,7 @@ open(import("std/string"));
 { create_function_body_evaluation_context } :: import("../calls/function_type.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound } :: import("../../types/utils.yo");
+{ is_some_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 {
   clear_flow_violation,
@@ -454,6 +456,15 @@ evaluate_anonymous_function_implementation :: (
     .Some(etc) => etc.ty,
     .None => _synthesize_default_func_type(param_decl, env)
   );
+  // For closures passed to generic functions (e.g. io.async), the callee's
+  // env carries forall bindings (E=Io, T=i32). Extract it so the closure's
+  // parameter types can be resolved against those bindings before body
+  // evaluation. Mirrors TS anonymous-function.ts:205 `expectedTypeEnv`.
+  expected_type_env := match(
+    ctx.expected_type,
+    .Some(etc) => etc.env,
+    .None => env
+  );
   // -------------------------------------------------------------------------
   // Determine whether this is a closure (`=>` / `=>>`) or regular function
   // (`->`).  For closures the expected type is normally SomeT or FnTraitT
@@ -739,12 +750,44 @@ evaluate_anonymous_function_implementation :: (
   while(rp_i < n_regular, {
     rpe := match(regular_param_exprs.get(rp_i),.Some(a) => a,.None => make_err_expr());
     exp_label := match(param_labels.get(rp_i),.Some(n) => n,.None => String.from(""));
-    rp_ty := match(param_types.get(rp_i),.Some(t) => t,.None => TypeValue.Unit);
+    rp_ty_raw := match(param_types.get(rp_i),.Some(t) => t,.None => TypeValue.Unit);
+    // Substitute forall SomeTypes (e.g. `E`) in the param type with their
+    // concrete bindings from the callee env. Mirrors TS
+    // substituteSomeTypesFromEnv at anonymous-function.ts:249.
+    rp_ty := match(
+      rp_ty_raw,
+      .SomeT(_, srp_name, _, _, _, _, _, _, _, _) => {
+        _st_bind_vars := get_variables_from_env(expected_type_env, srp_name.clone());
+        (_st_bound : Option(TypeValue)) = Option(TypeValue).None;
+        (_st_bi : usize) = _st_bind_vars.len();
+        while(_st_bi > usize(0), {
+          _st_bi = (_st_bi - usize(1));
+          match(
+            _st_bind_vars.get(_st_bi),
+            .Some(sv) => match(
+              sv.value,
+              .Some(sval) => match(
+                sval,
+                .TypeVal(stv) => if(!(is_some_type(stv)), {
+                  _st_bound = Option(TypeValue).Some(stv);
+                  _st_bi = usize(0);
+                }),
+                _ => ()
+              ),
+              .None => ()
+            ),
+            .None => ()
+          );
+        });
+        match(_st_bound,.Some(t) => t,.None => rp_ty_raw)
+      },
+      _ => rp_ty_raw
+    );
     // Derive the actual parameter name from the user's expression.
     param_name := _get_param_name_from_expr(rpe, exp_label.clone());
     // param_type_name for generic param binding at call time
     ptn := match(
-      rp_ty,
+      rp_ty_raw,
       .SomeT(_, name, _, _, _, _, _, _, _, _) => name,
       _ => String.from("")
     );
