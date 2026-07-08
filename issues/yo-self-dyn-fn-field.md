@@ -138,3 +138,11 @@ Round-3 work items:
    (`(__yo_t19)(closure_yo_id_5820)` in round-2 C).
 3. Re-apply issues/wip-dyn-fn-field.patch (round-2 version, includes the
    route-1 capture-struct boxing) and iterate on issues/repro-dyn-fn-field.yo.
+
+Round-3 note: `inner_expected` (dyn.yo:306) is ALREADY a SomeT wrapping the
+Dyn's required traits (an Impl(Fn) equivalent), so the closure eval gets a
+correct expected type. The `Box(unit)` source for the CAPTURE-FREE closure is
+therefore either `get_closure_capture_info` returning capture_type=unit, or
+the closure's ExprInfo ty degenerating to unit in this flow — probe
+`[DYNBOX] ne_value_type=... cci=...` at the route-1 boxing site (one rebuild)
+to pick between them before implementing.
