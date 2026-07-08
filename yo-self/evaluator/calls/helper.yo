@@ -314,7 +314,7 @@ validate_function_return_type :: (
       .Some(st) =>
         match(
           st,
-          .SomeT(_, name, _, _, required_trait_types, _, _, _, _, _) => {
+          .SomeT(_, name, _, _, required_trait_types, _, _, _, _, _, _) => {
             // Determine whether this SomeT should be skipped.
             should_skip := (
               type_implements_future(st) ||
@@ -348,7 +348,7 @@ validate_function_return_type :: (
                                   .Some(tst) => {
                                     match(
                                       tst,
-                                      .SomeT(_, tname, _, _, _, _, _, _, _, _) => {
+                                      .SomeT(_, tname, _, _, _, _, _, _, _, _, _) => {
                                         if(tname == name, {
                                           found_transitively = true;
                                         });
@@ -2129,7 +2129,7 @@ resolve_param_types_from_expected :: (
   (si : usize) = usize(0);
   while(si < sig_somes.len(), {
     sst := match(sig_somes.get(si),.Some(t) => t,.None => t_unit());
-    snm := match(sst,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
+    snm := match(sst,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
     if(snm.len() > usize(0), {
       add_variable_to_env(
         synth_env,
@@ -2480,8 +2480,8 @@ try_to_call_function_with_arguments :: (
         (sg_i : usize) = usize(0);
         while(sg_i < sig_some_types.len(), {
           sg_st := match(sig_some_types.get(sg_i),.Some(t) => t,.None => t_unit());
-          sg_id := match(sg_st,.SomeT(id, _, _, _, _, _, _, _, _, _) => id, _ => String.from(""));
-          sg_nm := match(sg_st,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
+          sg_id := match(sg_st,.SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => String.from(""));
+          sg_nm := match(sg_st,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
           (sg_dup : bool) = false;
           (sd_i : usize) = usize(0);
           while((sd_i < seen_st_ids.len()) && !(sg_dup), {

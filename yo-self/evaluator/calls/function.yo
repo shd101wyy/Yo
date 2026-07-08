@@ -1049,7 +1049,7 @@ _evaluate_funcval_runtime_call :: (
         rst := match(ret_somes.get(rsi),.Some(t) => t,.None => t_unit());
         match(
           rst,
-          .SomeT(_, rst_name, rst_lvl, _, _, _, _, _, _, _) => {
+          .SomeT(_, rst_name, rst_lvl, _, _, _, _, _, _, _, _) => {
             (bni : usize) = usize(0);
             while(bni < fa_bound_names.len(), {
               bn := match(fa_bound_names.get(bni),.Some(x) => x,.None => String.from(""));
@@ -1799,7 +1799,7 @@ Fix: wrap the call:
           // SomeT — three cases: (1) HKT kind-annotated type constructor F(A…)
           // → build a TypeApplication; (2) wraps a FnTrait (Impl(Fn(...) -> T))
           // → closure; (3) neither → error.
-          .SomeT(_, _, _, _, _, _, _, _, _, kind_fn_opt) =>
+          .SomeT(_, _, _, _, _, _, _, _, _, kind_fn_opt, _) =>
             match(
               kind_fn_opt,
               // (1) HKT: applying a kind-annotated type constructor `F(A…)`.
@@ -3334,7 +3334,7 @@ Fix: wrap the call:
           // matches. See issues/yo-self-multi-async-block-metadata-collision.md.
           ret_type_rt = match(
             ret_type_rt,
-            .SomeT({ name : sn, frame_level : sfl, parent_type : spt, required_trait_types : srtt, required_trait_levels : srtl, negative_trait_types : sntt, negative_trait_levels : sntl, is_effects_row : sier, kind_function_type : skft }) => TypeValue.SomeT(generate_some_type_id(), sn, sfl, spt, srtt, srtl, sntt, sntl, sier, skft),
+            .SomeT({ name : sn, frame_level : sfl, parent_type : spt, required_trait_types : srtt, required_trait_levels : srtl, negative_trait_types : sntt, negative_trait_levels : sntl, is_effects_row : sier, kind_function_type : skft, resolved_concrete : srcp }) => TypeValue.SomeT(generate_some_type_id(), sn, sfl, spt, srtt, srtl, sntt, sntl, sier, skft, srcp),
             _ => ret_type_rt
           );
         });

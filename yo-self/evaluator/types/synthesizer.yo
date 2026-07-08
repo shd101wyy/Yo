@@ -198,7 +198,7 @@ synthesis_type_id :: (fn(ty : TypeValue) -> String)(
     .Struct({ id }) => id,
     .EnumT(id, _, _, _, _, _, _, _, _) => id,
     .TraitT(_, _, _, _, id, _, _, _) => id,
-    .SomeT(id, _, _, _, _, _, _, _, _, _) => id,
+    .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id,
     _ => type_to_string_key(ty)
   )
 );
@@ -346,7 +346,7 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
   visited.push(ty_id);
   match(
     ty,
-    .SomeT(sid, _, _, _, _, _, _, _, _, _) => (some_type_id == sid),
+    .SomeT(sid, _, _, _, _, _, _, _, _, _, _) => (some_type_id == sid),
     .Struct({ field_types }) => {
       (res : bool) = false;
       i := usize(0);
@@ -723,7 +723,7 @@ _synthesize_implicit_params :: (
         }, {
           match(
             ty,
-            .SomeT(_, _, _, _, _, _, _, _, is_er, _) => {
+            .SomeT(_, _, _, _, _, _, _, _, is_er, _, _) => {
               if(is_er, {
                 unsolved_spreads.push(entry);
               });
@@ -934,7 +934,7 @@ _synthesize_implicit_params :: (
     );
     match(
       unsolved.ty,
-      .SomeT(_, sname, _, _, _, _, _, _, is_er, _) => {
+      .SomeT(_, sname, _, _, _, _, _, _, is_er, _, _) => {
         if(is_er, {
           // Collect remaining unmatched given entries
           remaining_labels := ArrayList(String).new();
@@ -1125,39 +1125,39 @@ _synthesize_types_impl :: (
   if(is_some_type(expected_ty) && is_some_type(given_ty), {
     expected_bound := get_value_of_some_type_from_env(ee, expected_ty);
     given_bound := get_value_of_some_type_from_env(ge, given_ty);
-    exp_some_id := match(expected_ty,.SomeT(id, _, _, _, _, _, _, _, _, _) => id, _ => ``);
-    giv_some_id := match(given_ty,.SomeT(id, _, _, _, _, _, _, _, _, _) => id, _ => ``);
+    exp_some_id := match(expected_ty,.SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
+    giv_some_id := match(given_ty,.SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
     exp_bound_is_some := is_some_type(expected_bound);
     giv_bound_is_some := is_some_type(given_bound);
     cond(
       !(exp_bound_is_some) => {
         // Expected is bound — use its value to bind given
         val := EvalValue.TypeVal(expected_bound);
-        _bind_some_type(ge, match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val, expected_bound, tok, exn);
+        _bind_some_type(ge, match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), val, expected_bound, tok, exn);
       },
       !(giv_bound_is_some) => {
         // Given is bound — use its value to bind expected
         val := EvalValue.TypeVal(given_bound);
-        _bind_some_type(ee, match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val, given_bound, tok, exn);
+        _bind_some_type(ee, match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), val, given_bound, tok, exn);
       },
       (exp_some_id == giv_some_id) => (),
       // Same SomeType — nothing to do
       true => {
         // Both unbound — bind expected to given.type (given is the unification target)
         val := EvalValue.TypeVal(given_ty);
-        _bind_some_type(ee, match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val, given_ty, tok, exn);
+        _bind_some_type(ee, match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), val, given_ty, tok, exn);
         val2 := EvalValue.TypeVal(given_ty);
-        _bind_some_type(ge, match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val2, given_ty, tok, exn);
+        _bind_some_type(ge, match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), val2, given_ty, tok, exn);
       }
     );
     // After unifying, recursively synthesize required trait type parameters
     if(exp_some_id != giv_some_id, {
       match(
         expected_ty,
-        .SomeT(_, _, _, _, expected_traits, _, _, _, _, _) => {
+        .SomeT(_, _, _, _, expected_traits, _, _, _, _, _, _) => {
           match(
             given_ty,
-            .SomeT(_, _, _, _, given_traits, _, _, _, _, _) => {
+            .SomeT(_, _, _, _, given_traits, _, _, _, _, _, _) => {
               n_et := expected_traits.len();
               (eti : usize) = usize(0);
               while(eti < n_et, {
@@ -1228,10 +1228,10 @@ _synthesize_types_impl :: (
   // Case: expected is SomeType (given may be concrete)
   if(is_some_type(expected_ty), {
     bound := get_value_of_some_type_from_env(ee, expected_ty);
-    exp_id2 := match(expected_ty,.SomeT(id, _, _, _, _, _, _, _, _, _) => id, _ => ``);
-    exp_name := match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``);
-    exp_traits := match(expected_ty,.SomeT(_, _, _, _, rts, _, _, _, _, _) => rts, _ => ArrayList(TypeValue).new());
-    if(is_some_type(bound) && (match(bound,.SomeT(bid, _, _, _, _, _, _, _, _, _) => (bid == exp_id2), _ => false)), {
+    exp_id2 := match(expected_ty,.SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
+    exp_name := match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``);
+    exp_traits := match(expected_ty,.SomeT(_, _, _, _, rts, _, _, _, _, _, _) => rts, _ => ArrayList(TypeValue).new());
+    if(is_some_type(bound) && (match(bound,.SomeT(bid, _, _, _, _, _, _, _, _, _, _) => (bid == exp_id2), _ => false)), {
       // Unbound — bind to given_ty
       // Occurs check
       {
@@ -1301,8 +1301,8 @@ _synthesize_types_impl :: (
   // Case: given is SomeType (expected is concrete)
   if(is_some_type(given_ty), {
     existing_bound := get_value_of_some_type_from_env(ge, given_ty);
-    giv_id2 := match(given_ty,.SomeT(id, _, _, _, _, _, _, _, _, _) => id, _ => ``);
-    giv_name := match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``);
+    giv_id2 := match(given_ty,.SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
+    giv_name := match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``);
     if(!(is_some_type(existing_bound)), {
       // Given is already bound — recurse
       res := _synthesize_call(expected_ty, ee, existing_bound, ge, checked, opts, exn);

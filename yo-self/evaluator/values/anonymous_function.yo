@@ -480,7 +480,7 @@ evaluate_anonymous_function_implementation :: (
     expected_ty,
     .Func({ result : _ }) => Option(TypeValue).Some(expected_ty),
     .FnTraitT(_, _, _, _, _, _, _) => Option(TypeValue).Some(_func_from_fn_trait(expected_ty)),
-    .SomeT(_, _, _, _, _, _, _, _, _, _) => {
+    .SomeT(_, _, _, _, _, _, _, _, _, _, _) => {
       fn_trait_opt := extract_fn_trait_from_type(expected_ty);
       match(
         fn_trait_opt,
@@ -701,6 +701,7 @@ evaluate_anonymous_function_implementation :: (
       ArrayList(TypeValue).new(),
       ArrayList(usize).new(),
       false,
+      Option(TypeValue).None,
       Option(TypeValue).None
     );
     fl_tok := synthetic_token(fl_name.clone(), env.module_path);
@@ -756,7 +757,7 @@ evaluate_anonymous_function_implementation :: (
     // substituteSomeTypesFromEnv at anonymous-function.ts:249.
     rp_ty := match(
       rp_ty_raw,
-      .SomeT(_, srp_name, _, _, _, _, _, _, _, _) => {
+      .SomeT(_, srp_name, _, _, _, _, _, _, _, _, _) => {
         _st_bind_vars := get_variables_from_env(expected_type_env, srp_name.clone());
         (_st_bound : Option(TypeValue)) = Option(TypeValue).None;
         (_st_bi : usize) = _st_bind_vars.len();
@@ -788,7 +789,7 @@ evaluate_anonymous_function_implementation :: (
     // param_type_name for generic param binding at call time
     ptn := match(
       rp_ty_raw,
-      .SomeT(_, name, _, _, _, _, _, _, _, _) => name,
+      .SomeT(_, name, _, _, _, _, _, _, _, _, _) => name,
       _ => String.from("")
     );
     param_type_names.push(ptn.clone());

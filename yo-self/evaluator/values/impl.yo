@@ -664,7 +664,7 @@ try_match_generic_impl :: (
     while((wci < n_wc) && all_bound, {
       wc_some := match(entry.where_constraint_some_types.get(wci),.Some(s) => s,.None => t_unit());
       wc_trait := match(entry.where_constraint_traits.get(wci),.Some(t) => t,.None => t_unit());
-      wc_name := match(wc_some,.SomeT(_, nm, _, _, _, _, _, _, _, _) => nm, _ => ``);
+      wc_name := match(wc_some,.SomeT(_, nm, _, _, _, _, _, _, _, _, _) => nm, _ => ``);
       // Resolve the bound type the SAME way as the bindings loop above (with the
       // name-based fallback), not a plain env lookup — else the binding may stay
       // abstract and the check is silently skipped. A concrete binding that does
@@ -968,7 +968,7 @@ find_methods_from_generic_impls :: (
                 sb_ty := match(match_bindings.get(sb_i),.Some(t) => t,.None => t_unit());
                 match(
                   sb_some,
-                  .SomeT(_, _, lvl, _, _, _, _, _, _, _) => subst_add(spec_s, sb_name, lvl, sb_ty),
+                  .SomeT(_, _, lvl, _, _, _, _, _, _, _, _) => subst_add(spec_s, sb_name, lvl, sb_ty),
                   _ => ()
                 );
                 sb_i = (sb_i + usize(1));
@@ -1130,7 +1130,7 @@ _find_self_level_in_method_ty :: (
           pts.get(i),
           .Some(p) => match(
             p,
-            .SomeT(_, n, lvl, _, _, _, _, _, _, _) => {
+            .SomeT(_, n, lvl, _, _, _, _, _, _, _, _) => {
               if(n == "Self", {
                 found = Option(usize).Some(lvl);
               });
@@ -1144,7 +1144,7 @@ _find_self_level_in_method_ty :: (
       if(found.is_none(), {
         match(
           ret,
-          .SomeT(_, n, lvl, _, _, _, _, _, _, _) => {
+          .SomeT(_, n, lvl, _, _, _, _, _, _, _, _) => {
             if(n == "Self", {
               found = Option(usize).Some(lvl);
             });

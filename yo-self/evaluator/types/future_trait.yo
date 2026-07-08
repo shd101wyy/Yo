@@ -50,7 +50,7 @@ _effect_label_for :: (fn(effect_type : TypeValue, effect_expr : AstExpr) -> Stri
   match(
     effect_type,
     .Struct({ name, is_source_namespace : fl_sns }) => cond(fl_sns => name, true => ast_expr_to_string(effect_expr)),
-    .SomeT(_, name, _, _, _, _, _, _, _, _) => name,
+    .SomeT(_, name, _, _, _, _, _, _, _, _, _) => name,
     _ => ast_expr_to_string(effect_expr)
   )
 );
@@ -124,7 +124,7 @@ _resolve_effect_row_spread :: (
                     ri = (ri + usize(1));
                   });
                 },
-                .SomeT(_, _, _, _, _, _, _, _, _, _) => {
+                .SomeT(_, _, _, _, _, _, _, _, _, _, _) => {
                   // Case 2: SomeT effects row variable — use as spread marker
                   out_labels.push(row_var_name);
                   out_types.push(type_box);
@@ -174,7 +174,7 @@ _resolve_effect_row_spread :: (
                     ri = (ri + usize(1));
                   });
                 },
-                .SomeT(_, _, _, _, _, _, _, _, _, _) => {
+                .SomeT(_, _, _, _, _, _, _, _, _, _, _) => {
                   // Case 4: UnknownVal with SomeT type — use SomeT as spread marker
                   out_labels.push(row_var_name);
                   out_types.push(type_box);
@@ -196,6 +196,7 @@ _resolve_effect_row_spread :: (
                     ArrayList(TypeValue).new(),
                     ArrayList(usize).new(),
                     true,
+                    Option(TypeValue).None,
                     Option(TypeValue).None
                   );
                   out_labels.push(row_var_name);

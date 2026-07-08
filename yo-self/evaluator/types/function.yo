@@ -363,7 +363,7 @@ _collect_where_constraints_from_some_t :: (
 )({
   match(
     ty,
-    .SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _, _) => {
       (ri : usize) = usize(0);
       while(ri < required_trait_types.len(), {
         match(
@@ -579,7 +579,7 @@ _add_where_clause_constraint :: (
 )(
   match(
     some_ty,
-    .SomeT(_, _, _, _, required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels, _, _, _) => {
       if(is_negated, {
         negative_trait_types.push(trait_ty);
         negative_trait_levels.push(usize(0));
@@ -1279,7 +1279,7 @@ use_id :: (fn(forall(T : Type),
                 new_some := av_box;
                 match(
                   new_some,
-                  .SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _, _) => {
+                  .SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _, _, _) => {
                     // Merge required traits
                     (ri : usize) = usize(0);
                     while(ri < new_rtt.len(), {
@@ -2328,6 +2328,7 @@ evaluate_function_parameters :: (
             ArrayList(TypeValue).new(),
             ArrayList(usize).new(),
             true,
+            Option(TypeValue).None,
             Option(TypeValue).None
           );
           row_kind_type := TypeValue.TypeUni(usize(1));
@@ -2501,7 +2502,7 @@ evaluate_function_parameters :: (
                     // TypeVal but not EffectsRowT — must be a SomeT with is_effects_row
                     is_er_some := match(
                       inner_ty.clone(),
-                      .SomeT(_, _, _, _, _, _, _, _, is_er, _) => is_er,
+                      .SomeT(_, _, _, _, _, _, _, _, is_er, _, _) => is_er,
                       _ => false
                     );
                     if(!(is_er_some), {
@@ -2581,6 +2582,7 @@ evaluate_function_parameters :: (
                       ArrayList(TypeValue).new(),
                       ArrayList(usize).new(),
                       true,
+                      Option(TypeValue).None,
                       Option(TypeValue).None
                     );
                     implicit_params.push(
@@ -3729,7 +3731,7 @@ evaluate_function_type :: (
     );
     match(
       fp.ty,
-      .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
+      .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
         (ti2 : usize) = usize(0);
         while(ti2 < required_trait_types.len(), {
           tt := match(
@@ -3816,7 +3818,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : TypeValue) -> ArrayList(TypeValue))
   acc := ArrayList(TypeValue).new();
   rtts := match(
     wrapper,
-    .SomeT(_, _, _, _, required_trait_types : rts, _, _, _, _, _) => rts,
+    .SomeT(_, _, _, _, required_trait_types : rts, _, _, _, _, _, _) => rts,
     _ => ArrayList(TypeValue).new()
   );
   (i : usize) = usize(0);
@@ -3925,7 +3927,7 @@ _resolve_some_types_deep :: (
         // and would resolve E to IoExn even for single-effect io.async calls.
         _skip_fallback := match(
           nst,
-          .SomeT(_, _nsn, _, _, _, _, _, _, _, _) => (_nsn == String.from("E")),
+          .SomeT(_, _nsn, _, _, _, _, _, _, _, _, _) => (_nsn == String.from("E")),
           _ => false
         );
         if(!(_skip_fallback), {
@@ -3945,7 +3947,7 @@ _resolve_some_types_deep :: (
       if(!(is_some_type(nres)), {
         match(
           nst,
-          .SomeT(nst_id, nst_name, nst_lvl, _, _, _, _, _, _, _) => {
+          .SomeT(nst_id, nst_name, nst_lvl, _, _, _, _, _, _, _, _) => {
             subst_add(ns, nst_name, nst_lvl, nres);
             // Register the concrete type in the global table when
             // resolved from the env (not from the stale fallback).
@@ -4004,7 +4006,7 @@ _resolve_some_types_deep :: (
     if(!(is_some_type(resolved)), {
       match(
         st,
-        .SomeT(_, st_name, st_lvl, _, _, _, _, _, _, _) => {
+        .SomeT(_, st_name, st_lvl, _, _, _, _, _, _, _, _) => {
           subst_add(s, st_name, st_lvl, resolved);
           bound_any = true;
         },

@@ -193,7 +193,8 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
         required_trait_types : rts,
         required_trait_levels : rlvls,
         negative_trait_types : nts,
-        negative_trait_levels : nlvls
+        negative_trait_levels : nlvls,
+        resolved_concrete : rcp
       ) => {
         found := subst_lookup(s, n, lvl);
         match(
@@ -214,7 +215,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
               new_nts.push(recur(s, elem));
               i = (i + usize(1));
             });
-            .SomeT(orig_id, n, lvl, pt, new_rts, rlvls, new_nts, nlvls, false, Option(TypeValue).None)
+            .SomeT(orig_id, n, lvl, pt, new_rts, rlvls, new_nts, nlvls, false, Option(TypeValue).None, rcp)
           }
         )
       },

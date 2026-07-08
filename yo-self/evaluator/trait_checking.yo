@@ -775,7 +775,7 @@ type_implements_trait :: (
   // via _add_where_clause_constraint (no separate env lookup needed).
   match(
     target,
-    .SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _, _) => {
       (found_req : bool) = false;
       (found_neg : bool) = false;
       // Check required_trait_types.
@@ -1095,7 +1095,7 @@ type_implements_acyclic :: (fn(ty : TypeValue, env : Environment) -> bool)(
 type_implements_fn :: (fn(ty : TypeValue) -> bool)(
   match(
     ty,
-    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
@@ -1150,7 +1150,7 @@ extract_fn_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
   match(
     ty,
     .FnTraitT(base_name : _) => Option(TypeValue).Some(ty),
-    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
       while(i < n, {
@@ -1208,7 +1208,7 @@ extract_fn_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
 type_implements_future :: (fn(ty : TypeValue) -> bool)(
   match(
     ty,
-    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
@@ -1398,7 +1398,7 @@ extract_future_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
   match(
     ty.clone(),
     .FutureTraitT(base_name : _) => Option(TypeValue).Some(ty),
-    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
       while(i < n, {
@@ -1528,7 +1528,7 @@ find_some_type_missing_comptime_constraint :: (
         // Check required_trait_types.
         match(
           ty,
-          .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
+          .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
             n := required_trait_types.len();
             (i : usize) = usize(0);
             (has_comptime : bool) = false;

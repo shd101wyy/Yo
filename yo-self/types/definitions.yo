@@ -267,7 +267,15 @@ TypeValue :: ref(
       // (e.g. `F : (fn(T : Type) -> Type)`). The boxed `Func` TypeValue
       // captures the kind so `F(A)` can be evaluated as a TypeApplication.
       // Mirrors `SomeType.kindFunctionType` in `src/types/definitions.ts:238`.
-      kind_function_type : Option(Self)
+      kind_function_type : Option(Self),
+      // The resolved concrete type for this SomeType, carried ON the type
+      // object so it survives clone/substitute/intern (unlike the id-keyed
+      // g_some_resolved_concrete global, whose entries are lost when ids
+      // re-mint). Mirrors `SomeType.resolvedConcreteType`
+      // (src/types/definitions.ts:191). EXCLUDED from type_key /
+      // type_intern_key / compatibility identity — it is resolution
+      // metadata, not part of the type's identity.
+      resolved_concrete : Option(Self)
     ),
     // Phase 2f: advanced type variants ----------------------------------------
     /// The Yo `Expr` type (a quoted expression node).
