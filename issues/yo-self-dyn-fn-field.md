@@ -91,3 +91,26 @@ Remaining work, in order:
    `return closure_c((void*)&box-><field>, args)` + vtable `.call` slot +
    call-site `(recv.field).vtable->call(...)`, then binary prints 42/true.
 4. Gates: corpus 103/103 DIFF 0, std 152/152, stage-2 (baseline 18, family = 4).
+
+## Round 2 (2026-07-09, patch updated in-place)
+
+Added route-1 closure→capture-struct boxing (`get_closure_capture_info` on the
+inner FuncVal → `_create_boxed_type(cci.capture_type)`). RESULT: the capturing
+closure (`apply`, captures `base`) now boxes its capture struct correctly.
+LAYER 3 exposed — **capture-free closures**:
+
+- `get_closure_capture_info` returns `capture_type = unit` for a no-capture
+  closure → `Box(unit)` emits `void _u42_;` (field has incomplete type) and
+  `__yo_dyn_box_unknown_unit`.
+- The capture-free closure's C value repr emits as a bare fn-ptr cast
+  (`(__yo_t19)(closure_yo_id_5820)`) where the box ctor expects the capture
+  struct value.
+- TS reference: capture-free closures still box an EMPTY STRUCT
+  (`(__yo_struct_..._id_126){}` — struct(), 0 fields), and the vtable wrapper
+  passes `&box->_u42_` as closure_context regardless.
+
+Fix direction for round 3: make the dyn route treat a unit capture_type as the
+closure's EMPTY capture struct (or register a 0-field capture struct for
+capture-free closures at creation, matching TS), and make the box() arg emit
+the capture-struct VALUE (`(capture){}` for capture-free) rather than the fn
+pointer. Then re-run issues/repro-dyn-fn-field.yo (expect 42/true) and gates.
