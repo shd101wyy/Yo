@@ -4,7 +4,7 @@
 the self-compiled `yo-self` binary's `test` subcommand pass `./tests` and
 `./yo-self/tests` (tasks #69, #70).
 
-**Current state: 20 stage-2 clang errors** (was 56; −36 total).
+**Current state: 18 stage-2 clang errors** (was 56; −38 total).
 
 ---
 
@@ -99,18 +99,28 @@ codegen decisions without a debugger):
 
 ---
 
-## Remaining error breakdown (20 total as of 2026-07-09)
+## Remaining error breakdown (18 total as of 2026-07-09)
 
-| Count | Category               | Details                                                                                       |
-| ----- | ---------------------- | --------------------------------------------------------------------------------------------- |
-| 5     | passing incompatible   | `__yo_t628/630` → `__yo_t114`: type identity, self-compiler re-registers types (Phase 4)      |
-| 4     | expected expression    | 2× dyn() "missing trait values" (136218), 2× "Failed to transpile" leftovers (232195, 233916) |
-| 2     | incomplete type void   | Empty capture struct → `(void){}` — capture VALUE gen path, not struct decl (Phase 4)         |
-| 2     | undeclared identifiers | `get_info` (closure capture, 248170), 1 temp (branch leak, 136267)                            |
-| 2     | assigning from void\*  | `__yo_t414` from void\* (147362, 184218) — cascade from await codegen (Phase 4)               |
-| 2     | operand arithmetic     | Dyn dispatch not lowered to vtable calls (232751-2, Phase 4)                                  |
-| 2     | ptr-to-int             | void\* → int32/`__yo_t28` (84999, 103964)                                                     |
-| 1     | member ref not pointer | `__yo_t380` not a pointer (215588)                                                            |
+| Count | Category               | Details                                                                                                                                                                                                                                                                               |
+| ----- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 4     | expected expression    | 2x dyn() "missing trait values", 2x "Failed to transpile" leftovers                                                                                                                                                                                                                   |
+| 3     | member ref base type   | ONE shared GC tracer (`yo_id_12__struct_yo_id_13636`) reused across ALL Bucket instantiations; body traces Option-key, slot decl is Bucket(usize,\_) — trace-specialization not per-instantiation. (Was the old 5x passing-incompatible family — same root, different manifestation.) |
+| 2     | incomplete type void   | Empty capture struct -> `(void){}` — capture VALUE gen path                                                                                                                                                                                                                           |
+| 2     | undeclared identifiers | `get_info` (closure capture), 1 temp (branch leak)                                                                                                                                                                                                                                    |
+| 2     | operand arithmetic     | Dyn dispatch not lowered to vtable calls                                                                                                                                                                                                                                              |
+| 2     | assigning from void\*  | `__yo_t414` from void\* — cascade from await codegen                                                                                                                                                                                                                                  |
+| 2     | ptr-to-int             | void\* -> int32/`__yo_t28`                                                                                                                                                                                                                                                            |
+| 1     | member ref not pointer | ref-struct member access                                                                                                                                                                                                                                                              |
+
+----- | ---------------------- | --------------------------------------------------------------------------------------------- |
+| 5 | passing incompatible | `__yo_t628/630` → `__yo_t114`: type identity, self-compiler re-registers types (Phase 4) |
+| 4 | expected expression | 2× dyn() "missing trait values" (136218), 2× "Failed to transpile" leftovers (232195, 233916) |
+| 2 | incomplete type void | Empty capture struct → `(void){}` — capture VALUE gen path, not struct decl (Phase 4) |
+| 2 | undeclared identifiers | `get_info` (closure capture, 248170), 1 temp (branch leak, 136267) |
+| 2 | assigning from void\* | `__yo_t414` from void\* (147362, 184218) — cascade from await codegen (Phase 4) |
+| 2 | operand arithmetic | Dyn dispatch not lowered to vtable calls (232751-2, Phase 4) |
+| 2 | ptr-to-int | void\* → int32/`__yo_t28` (84999, 103964) |
+| 1 | member ref not pointer | `__yo_t380` not a pointer (215588) |
 
 ---
 
