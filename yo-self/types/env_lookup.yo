@@ -208,8 +208,11 @@ _def_frame_confirms_binding :: (
 _was_self_bound :: (fn(env : Environment, name : String, id_to_find : String) -> bool)({
   (found : bool) = false;
   n_frames := env.frames.len();
-  (fi : usize) = usize(0);
-  while((fi < n_frames) && !(found), {
+  // Search top-down (most recent frame first) so a per-call binding
+  // wins over a stale marker left by a prior synthesis / io.async call.
+  (fi : usize) = n_frames;
+  while((fi > usize(0)) && !(found), {
+    fi = (fi - usize(1));
     match(
       env.frames.get(fi),
       .Some(frame) => {
@@ -248,7 +251,6 @@ _was_self_bound :: (fn(env : Environment, name : String, id_to_find : String) ->
       },
       .None => ()
     );
-    fi = (fi + usize(1));
   });
   found
 });
