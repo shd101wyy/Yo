@@ -103,7 +103,9 @@ random_id :: (fn(_module_path : String) -> String)({
 /// (the em-dash template-segment corruption in the stage-2 binary). Only
 /// strips when both ends are `"`; anything else passes through unchanged.
 str_lit_unquote_bytes :: (fn(raw : String) -> String)({
-  n := raw.len();
+  // BYTE count — String.len() counts CHARACTERS (std skips UTF-8
+  // continuation bytes); this helper walks bytes.
+  n := raw.as_bytes().len();
   if((n >= usize(2)) && ((raw.byte_at(usize(0)) == u8(34)) && (raw.byte_at(n - usize(1)) == u8(34))), {
     bytes := raw.as_bytes();
     inner := ArrayList(u8).new();

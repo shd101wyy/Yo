@@ -47,7 +47,7 @@ find the miscompiled function in stage2W1.c → find the yo-self emitter bug
 fix → re-emit → re-build → re-run. The corpus diff-test can also run with
 YO_SELF_BIN=/tmp/yo-self-stage2 once the binary survives startup.
 
-### Stage-2-binary runtime bug #1: multibyte template-segment corruption (ACTIVE)
+### Stage-2-binary runtime bug #1: multibyte template-segment corruption (RESOLVED 2026-07-09)
 
 Seconds-fast repro (src/tests/fixme.yo):
 
@@ -184,6 +184,24 @@ NEXT PROBE (byte-dump only, NO ${} templates): dump byte arrays (decimal,
 manual loop into a String, single-arg eprintln) at (1) parser part push,
 (2) codegen comptime-value StrLit entry, (3) post-strip, (4) the ref-spill
 arg `c`. The first corrupted point localizes the producer.
+
+**RESOLVED — the grand unification:** std `String.len()` counts **CHARACTERS**
+by design (skips UTF-8 continuation bytes); `as_bytes().len()` and the builtin
+`str.len` count BYTES. Any byte-processing loop bounded by `String.len()`
+silently truncates/misreads multibyte content. The corruption's producer was
+codegen/exprs/comptime_value.yo: `_strip_str_delims` (byte_at(n-1) with a
+char-counted n missed the closing quote → strip no-op) + `_c_string_literal`
+(byte loop over char-counted n → emitted the first 17 BYTES of the 19-byte
+QUOTED raw) + the `.len =` push (char count) — jointly producing
+`"\" — evaluator O", .len = 17`. Fixed all three to `as_bytes().len()`, plus
+utils.yo `str_lit_unquote_bytes`. The TS comptime byte-len fold was REVERTED
+(char-count is the consistent semantics; commit 6e0c94ca9 reverted). All the
+earlier probe "truncations" were the SAME bug inside the probes' own display
+loops. Corpus test: tests/codegen-bootstrap/template_multibyte.yo. Validated:
+repro TS-parity, corpus 107/107 DIFF 0, std 152/152.
+REMAINING AUDIT (same class, lower priority): byte_at loops near .len() in
+formatter.yo, token.yo, codegen/utils/index.yo, codegen/exprs/{match,
+init_assignment,cond}.yo — sweep with the gates after the fixpoint.
 
 ---
 

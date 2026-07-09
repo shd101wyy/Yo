@@ -1,0 +1,14 @@
+open(import("std/fmt"));
+open(import("std/string"));
+
+// Multibyte (em-dash) content in a template-string segment: byte loops in
+// codegen must bound by as_bytes().len() (BYTES), not String.len()
+// (CHARACTERS) — a char-counted bound truncated the segment's tail bytes and
+// skipped the quote-strip (the stage-2-binary corruption family).
+main :: (fn() -> unit)({
+  path := String.from("abc.yo");
+  println(`check: ${path} — evaluator OK`);
+  s := String.from(" — evaluator OK");
+  println(`chars=${s.len()} bytes=${s.as_bytes().len()}`);
+});
+export(main);

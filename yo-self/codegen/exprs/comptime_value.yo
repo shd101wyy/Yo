@@ -57,7 +57,12 @@ _is_comptime_string :: (fn(ty : TypeValue) -> bool)(
 /// ends are `"` and the string is at least 2 bytes (synthetic StrLits built
 /// without delimiters pass through unchanged).
 _strip_str_delims :: (fn(raw : String) -> String)({
-  n := raw.len();
+  // BYTE count, NOT String.len() (which counts CHARACTERS — std skips UTF-8
+  // continuation bytes): this function walks BYTES, and a char-counted bound
+  // made byte_at(n-1) miss the closing quote on multibyte content (strip
+  // no-op) while _c_string_literal below truncated the tail bytes — the
+  // em-dash template corruption in the stage-2 binary.
+  n := raw.as_bytes().len();
   if((n >= usize(2)) && ((raw.byte_at(usize(0)) == u8(34)) && (raw.byte_at(n - usize(1)) == u8(34))), {
     // Byte-exact strip of the first/last byte (the ASCII `"` delimiters).
     // `len()`/`byte_at` are byte-indexed but `substring` is rune-indexed, so
@@ -76,7 +81,8 @@ _strip_str_delims :: (fn(raw : String) -> String)({
 /// characters. The faithful stand-in for TS `JSON.stringify(value)`.
 _c_string_literal :: (fn(raw : String) -> String)({
   out := String.from("\"");
-  n := raw.len();
+  // BYTE count (see _strip_str_delims note): this loop reads raw BYTES.
+  n := raw.as_bytes().len();
   (i : usize) = usize(0);
   while(i < n, {
     b := raw.byte_at(i);
@@ -165,7 +171,8 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
           lit := String.from("(__yo_str){ .ptr = (const uint8_t*)");
           lit.push_string(_c_string_literal(raw.clone()));
           lit.push_str(", .len = ");
-          lit.push_string(raw.len().to_string());
+          // __yo_str .len is BYTES.
+          lit.push_string(raw.as_bytes().len().to_string());
           lit.push_str(" }");
           lit
         },
