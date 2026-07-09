@@ -199,6 +199,26 @@ utils.yo `str_lit_unquote_bytes`. The TS comptime byte-len fold was REVERTED
 earlier probe "truncations" were the SAME bug inside the probes' own display
 loops. Corpus test: tests/codegen-bootstrap/template_multibyte.yo. Validated:
 repro TS-parity, corpus 107/107 DIFF 0, std 152/152.
+
+### Stage-2-binary runtime bug #2: needs_cycle_gc verdict diverges (ACTIVE)
+
+Stage-2 binary WORKS (needs YO_MAIN_STACK_MB=16384 for -O0 compile paths;
+check works at 8192 — document/consider -O1 stage-2 builds). MINI-FIXPOINT
+(template_multibyte.yo emitted by stage-1 vs stage-2): 1222-line diff, ALL
+downstream of ONE divergence: stage-1 (and TS reference) pick the cycle-GC
+RC runtime; stage-2 picks the lightweight one — the stage-2 binary
+MISCOMPUTES `compute_needs_cycle_gc` (codegen_c.yo:76) /
+`can_type_form_rc_cycle` (types/utils.yo:737). Same source, two binaries,
+different verdict = a miscompiled dependency in the stage-2 C (suspects: the
+recursive `_type_refs_back_to_cyclic`, `buffer_element_type`, the base.types
+iteration, or any string/name comparison inside — could be another latent
+emit bug family). DEBUG: differential probe — eprintln each type id for
+which can_type_form_rc_cycle returns TRUE during compute_needs_cycle_gc
+(ASCII ids → template probes safe), run BOTH stage-1 and stage-2 on
+template_multibyte.yo, diff the lists; descend into the first type where
+they disagree (probe \_type_refs_back_to_cyclic decisions for that type).
+Round cost ~10 min (stage-1 rebuild 5 + stage-2 emit 3 + clang -O0 2).
+
 REMAINING AUDIT (same class, lower priority): byte_at loops near .len() in
 formatter.yo, token.yo, codegen/utils/index.yo, codegen/exprs/{match,
 init_assignment,cond}.yo — sweep with the gates after the fixpoint.
