@@ -74,15 +74,15 @@ _tk_seen :: (fn(id : String) -> bool)({
 _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
   match(
     t,
-    .Struct({ id, constructor_func_id : cfid, type_arguments : tas }) => {
+    .Struct({ id, constructor_func_id : cfid, type_arguments : tas, field_types : fts }) => {
       // Resolve a leaked recursive-struct SELF-SHELL to its final so the shell and
       // its final share ONE C type key. Mirrors the EnumT branch below. No-op for
       // non-shells. See resolve_struct_shell (creators.yo).
       st := resolve_struct_shell(t);
-      (sid, scfid, stas) := match(
+      (sid, scfid, stas, sfts) := match(
         st,
-        .Struct({ id : rid, constructor_func_id : rcfid, type_arguments : rtas }) => (rid, rcfid, rtas),
-        _ => (id, cfid, tas)
+        .Struct({ id : rid, constructor_func_id : rcfid, type_arguments : rtas, field_types : rfts }) => (rid, rcfid, rtas, rfts),
+        _ => (id, cfid, tas, fts)
       );
       // Cycle guard (see g_tk_visited): a struct id already on the expansion
       // path renders via its recorded cfid-key / id — no re-recursion into
@@ -101,7 +101,15 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
       });
       cond(
         // GENERIC INSTANTIATION with stable identity: key by (constructor_func_id, type_arguments).
-        ((scfid.len() > usize(0)) && ((stas.len() > usize(0)) && (depth <= usize(4)))) => {
+        // NO depth cap: the g_tk_visited cycle guard already bounds recursion;
+        // a depth cap made every generic nested deeper than the cap fall back
+        // to the g_struct_cfid_keys[sid] single slot, which is
+        // first-registration-wins and thus WRONG for shared-id generics like
+        // Bucket(K,V) (all instantiations share one eval struct id) — the
+        // flaky GC-tracer .label/.ty cluster: a deep Bucket keyed as the
+        // FIRST-seen instantiation, collapsing two different layouts onto one
+        // C name, order-dependent per emit. Long keys are ugly but correct.
+        ((scfid.len() > usize(0)) && (stas.len() > usize(0))) => {
           key := `gs_${scfid.clone()}`;
           (ti : usize) = usize(0);
           while(ti < stas.len(), {
@@ -116,18 +124,51 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
             ti = (ti + usize(1));
           });
           // Record the cfid-key for this struct id so cfid-empty copies use
-          // it. First registration wins (mirrors the old first-match scan).
+          // it — but ONLY while the sid maps to ONE instantiation key. When a
+          // SECOND different key arrives (shared-id generics: every
+          // Bucket(K,V) instantiation shares one eval struct id), POISON the
+          // slot: a cfid-empty copy can then no longer be attributed to any
+          // single instantiation and must key STRUCTURALLY (below). The old
+          // first-registration-wins slot pinned every cfid-empty copy to the
+          // FIRST instantiation — one specialized Bucket tracer served 36
+          // different Bucket layouts (the flaky GC-tracer .label/.ty cluster),
+          // with registration order deciding the winner per emit.
           if(sid.len() > usize(0), {
-            if(!(g_struct_cfid_keys.contains_key(sid.clone())), {
-              g_struct_cfid_keys.set(sid.clone(), key.clone());
-            });
+            match(
+              g_struct_cfid_keys.get(sid.clone()),
+              .Some(prev) => if(!((prev == key) || (prev == String.from("!AMBIG"))), {
+                g_struct_cfid_keys.set(sid.clone(), String.from("!AMBIG"));
+              }),
+              .None => {
+                g_struct_cfid_keys.set(sid.clone(), key.clone());
+              }
+            );
           });
           key
         },
         // No cfid: look up a previously-recorded cfid-key for this struct id.
+        // A POISONED slot (multiple instantiations share this sid) keys
+        // STRUCTURALLY — sid + per-field type keys — so two cfid-empty copies
+        // with different layouts get different, DETERMINISTIC keys (the enum
+        // analogue: g_enum_sig_keys). Unpoisoned sids behave exactly as before.
         (sid.len() > usize(0)) => match(
           g_struct_cfid_keys.get(sid.clone()),
-          .Some(k) => k,
+          .Some(k) => if(k == String.from("!AMBIG"), {
+            skey := sid.clone();
+            (sfi : usize) = usize(0);
+            while(sfi < sfts.len(), {
+              match(
+                sfts.get(sfi),
+                .Some(sft) => {
+                  skey.push_str("_");
+                  skey.push_string(recur(sft, depth + usize(1)));
+                },
+                .None => ()
+              );
+              sfi = (sfi + usize(1));
+            });
+            skey
+          }, k),
           .None => sid.clone()
         ),
         true => type_to_string(st)

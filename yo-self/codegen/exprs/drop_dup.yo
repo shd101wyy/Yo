@@ -27,7 +27,7 @@ open(import("std/string"));
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields } :: import("../utils/index.yo");
+{ get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
 /// The registered C name of the first `method_name` entry for `type`, if it is
 /// a function value registered in the codegen function table.
@@ -60,9 +60,31 @@ get_dispose_function_for_type :: (fn(type : TypeValue, context : FunctionGenerat
 /// None for types that use the auto-derived field-walk traversal. Mirrors the
 /// registry-lookup half of `findUserTraceMethodForType` (the specialized `trace`
 /// is registered under the concrete type id by `collect_trace_methods_from_generic_impls`).
-get_trace_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationContext) -> Option(String))(
-  _method_c_name(type, "trace", context)
-);
+get_trace_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationContext) -> Option(String))({
+  // trace is registered under type_key(type) (instantiation-precise), not the
+  // raw shared struct id — see collection.yo _specialize_and_register_trace.
+  if(!(is_struct_type(type) || (is_enum_type(type) || (is_dyn_type(type) || (is_some_type(type) || is_iso_type(type))))), {
+    return(Option(String).None);
+  });
+  methods := get_type_trait_methods_by_name(type_key(type), String.from("trace"));
+  match(
+    methods.get(usize(0)),
+    .Some(entry) => match(
+      entry.value,
+      .Some(v) => match(
+        v,
+        .FuncVal(__fvd2, _) => match(
+          context.base.get_function_entry(__fvd2.*.func_id),
+          .Some(e) => Option(String).Some(e.c_name),
+          .None => Option(String).None
+        ),
+        _ => Option(String).None
+      ),
+      .None => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+});
 /// If `value_arg` is a forall-typed (SomeType) parameter atom, recover its
 /// concrete parameter type from the enclosing function signature. Mirrors
 /// `resolveSomeTypeParamType` (the SomeType.resolvedConcreteType branches are
