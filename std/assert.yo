@@ -20,7 +20,7 @@ panic :: (fn(forall(T : Type), msg : T, where(T <: ToString)) -> unit)({
 /// Runtime assertion. If `flag` is false, call `panic(msg)`.
 ///
 /// `msg` must implement `ToString`.
-assert :: (fn(forall(T : Type), flag : bool, msg : T, where(T <: ToString)) -> unit)({
+assert :: (fn(forall(T : Type), flag : bool, (msg : T) ?= "Assertion failed.", where(T <: ToString)) -> unit)({
   cond(
     flag => (),
     true => panic(msg)

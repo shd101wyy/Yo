@@ -92,13 +92,13 @@ if(done, println("done"), println("pending"));
 
 ## String types
 
-| Syntax             | Type              | Context                          |
-| ------------------ | ----------------- | -------------------------------- |
-| `"hello"`          | `str`             | Runtime contexts (most code)     |
+| Syntax             | Type           | Context                          |
+| ------------------ | -------------- | -------------------------------- |
+| `"hello"`          | `str`          | Runtime contexts (most code)     |
 | `"hello"`          | `comptime_str` | Inside `comptime` functions      |
-| `` `hello ${x}` `` | `String`          | Always (template string)         |
-| `` `hello` ``      | `String`          | Always (template without interp) |
-| `*(u8)("hello")`   | `*(u8)`           | Pointer cast for C interop       |
+| `` `hello ${x}` `` | `String`       | Always (template string)         |
+| `` `hello` ``      | `String`       | Always (template without interp) |
+| `*(u8)("hello")`   | `*(u8)`        | Pointer cast for C interop       |
 
 Key rules:
 
@@ -106,7 +106,9 @@ Key rules:
 - In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_str` — it does NOT auto-convert to `str`.
 - For `String` constants, prefer `` `hello` `` over `String.from("hello")`.
 - **`String.from(`` `...` ``)` is WRONG**: `` `...` `` is already `String`; `String.from` takes `str`. Use `` `...` `` directly or `String.from("...")` with double quotes.
-- **`assert` takes `str`, not `String`**: `assert(cond, "message")` — always use `""`. Passing a template string `` `...` `` causes a type mismatch. Use a custom `check_str` helper when you need `String` diagnostics.
+- **`assert`/`panic` require an explicit import**: `{ assert, panic } :: import("std/assert");` — they are NOT prelude-ambient. Both are generic over `where(T <: ToString)`, so `str`, `String` (template strings), integers, etc. all work as messages: `assert(cond, `got ${x}`)`. `assert(cond)` uses the default message.
+- **`__yo_panic` is the diverging builtin** (message must be `str`/`comptime_str`/`*(u8)`). Use it (not `panic`) in VALUE-position match/cond arms — e.g. `.None => __yo_panic("...")` in an arm that must yield `T` — because `std/assert`'s `panic` is a normal fn returning `unit` and cannot adopt the sibling arm's type. Statement-position `panic("...")` from `std/assert` is fine.
+- Low-level std modules inside `std/assert`'s own dependency cycle (`std/string/string.yo`, `std/collections/array_list.yo`, …) cannot import it — they use `cond`/`if` + `__yo_panic` directly.
 
 ## Calls, operators, and whitespace
 
@@ -523,8 +525,8 @@ test("Async test", {
 
 - `test("description", { body })` defines a test — `io : Io` is automatically available
 - All tests can use `io.async(...)`, `io.await(...)`, etc. without a `using` clause
-- `assert(condition, "message")` — runtime assertion (always include a message)
-- `comptime_assert(condition)` — compile-time assertion
+- `assert(condition, "message")` — runtime assertion; requires `{ assert } :: import("std/assert");` at the top of the test file
+- `comptime_assert(condition)` — compile-time assertion (builtin, no import)
 - `comptime_expect_error(expr)` — verify code produces a compile error
 
 ## Design-by-contract clauses

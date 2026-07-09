@@ -666,7 +666,26 @@ test("Parse := with parenthesized -> RHS", {
   e := only_expr(prog);
   assert(ast_expr_is_fn_call(e), ":= should produce FnCall");
 });
-test("Parse colon : with multi-line parenthesized -> RHS", {
+test("Parse ?= with multi-line parenthesized -> RHS", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(());
+      }
+    )
+  );
+  prog := parse(
+    `x ?= (
+  (lhs, rhs) ->
+    lhs + rhs
+)`,
+    `test.yo`,
+    exn
+  );
+  e := only_expr(prog);
+  assert(ast_expr_is_fn_call(e), "?= with multi-line should produce FnCall");
+});
+test("Parse colon : with multi-line parenthesized -> RHS in struct field", {
   exn := Exception(
     throw : (
       (err) -> {
@@ -686,5 +705,5 @@ test("Parse colon : with multi-line parenthesized -> RHS", {
     exn
   );
   e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "colon with multi-line parens should parse");
+  assert(ast_expr_is_fn_call(e), "colon with multi-line parens should produce FnCall");
 });

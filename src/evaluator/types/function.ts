@@ -467,8 +467,14 @@ Use owned collections (ArrayList/String), 'ref(name) : T' parameters for in-plac
       if (!parameterType) {
         parameterType = defaultValue.type;
       } else {
-        // Check if the default value type is compatible with the parameter type
+        // Check if the default value type is compatible with the parameter type.
+        // When the parameter type still contains an unresolved generic
+        // (`(msg : T) ?= "..."` with `forall(T)`), defer the check to the
+        // call site: binding the default there infers T from the default
+        // value and validates any `where` constraints, exactly like an
+        // explicitly passed argument.
         if (
+          !typeContainsSomeType(parameterType) &&
           !areTypesCompatible(
             { type: parameterType, env },
             { type: defaultValue.type, env }
@@ -2341,7 +2347,7 @@ export function evaluateFunctionType({
   let returnLabel: string | undefined = undefined;
   let isReturnTypeCompileTimeOnly = false;
   let isReturnTypeUnquote = false;
-  let isReturnTypeRef = false;
+  const isReturnTypeRef = false;
   let returnTypeExpr: Expr = returnExpr;
   /// has label
   /// -> (ret : i32)

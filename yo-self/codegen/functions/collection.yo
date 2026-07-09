@@ -60,7 +60,7 @@ _call_collect_type :: (fn(type : TypeValue, context : CodeGenContext) -> unit)(
   match(
     g_collect_type,
     .Some(f) => f(type, context),
-    .None => panic("collect_type called before set_collect_type_fn")
+    .None => __yo_panic("collect_type called before set_collect_type_fn")
   )
 );
 /// Call the registered find_function_calls_in_expr (panics if unregistered).
@@ -68,7 +68,7 @@ _call_find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContex
   match(
     g_find_function_calls_in_expr,
     .Some(f) => f(expr, context, info),
-    .None => panic("find_function_calls_in_expr called before register_find_function_calls_in_expr")
+    .None => __yo_panic("find_function_calls_in_expr called before register_find_function_calls_in_expr")
   )
 );
 /// True if `t` is an extern function type (any language).

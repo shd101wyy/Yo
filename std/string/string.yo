@@ -501,11 +501,7 @@ impl(
             end_byte = byte_index;
             break;
           });
-          (b : u8) = match(
-            al.get(byte_index),
-            .Some(v) => v,
-            .None => u8(0)
-          );
+          (b : u8) = al(byte_index);
           (byte_len : usize) = cond(
             (b < u8(0x80)) => usize(1),
             (b < u8(0xE0)) => usize(2),
@@ -1306,11 +1302,7 @@ impl(
         });
         (start_idx : usize) = usize(0);
         while(start_idx < total_bytes, {
-          (b : u8) = match(
-            al.get(start_idx),
-            .Some(v) => v,
-            .None => u8(0)
-          );
+          (b : u8) = al(start_idx);
           if(!(Self._is_whitespace_byte(b)), {
             break;
           });
@@ -1318,11 +1310,7 @@ impl(
         });
         (end_idx : usize) = total_bytes;
         while(end_idx > start_idx, {
-          (b : u8) = match(
-            al.get(end_idx - usize(1)),
-            .Some(v) => v,
-            .None => u8(0)
-          );
+          (b : u8) = al(end_idx - usize(1));
           if(!(Self._is_whitespace_byte(b)), {
             break;
           });
@@ -2384,11 +2372,7 @@ impl(
     index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
       match(
         self._bytes,
-        .Some(bytes) => match(
-          bytes.get(idx),
-          .Some(v) => &(v),
-          .None => __yo_panic("String: index out of bounds")
-        ),
+        .Some(bytes) => &(bytes(idx)),
         .None => __yo_panic("String: index on empty string")
       )
     )

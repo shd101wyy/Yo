@@ -685,3 +685,35 @@ test("Unterminated template string raises LexerError", {
   tokenize(src, `test.yo`, exn);
   assert(false, "expected a lexer error to be raised");
 });
+// ─── Bracket token counts for parenthesized expressions ──────────────────────
+test("Tokenize x : (fn() -> i32) yields correct bracket count", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected lexer error");
+        unwind(());
+      }
+    )
+  );
+  toks := tokenize(`x : (fn() -> i32)`, `test.yo`, exn);
+  lp := usize(0);
+  rp := usize(0);
+  i := usize(0);
+  n := toks.len();
+  while(i < n, {
+    match(
+      toks.get(i),
+      .None => (),
+      .Some(tok) => {
+        cond(
+          (tok.kind == TokenKind.LParen) => { lp = (lp + usize(1)); },
+          (tok.kind == TokenKind.RParen) => { rp = (rp + usize(1)); },
+          true => ()
+        );
+      }
+    );
+    i = (i + usize(1));
+  });
+  assert((lp == usize(2)), "expected 2 LParen tokens");
+  assert((rp == usize(2)), "expected 2 RParen tokens");
+});

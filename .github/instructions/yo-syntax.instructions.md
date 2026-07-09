@@ -221,8 +221,8 @@ Yo has **no operator precedence**. Two rules:
 1. **A chain of the SAME operator is left-associative** — no parentheses needed.
    `a + b + c` parses as `(a + b) + c`; `(A | B | C | D)` is fine as-is.
 2. **Adjacent DIFFERENT operators require explicit parentheses** — otherwise a
-   parse error: *"Adjacent different operators need parentheses to clarify
-   grouping."*
+   parse error: _"Adjacent different operators need parentheses to clarify
+   grouping."_
 
 ```rust
 // CORRECT — same operator, no nesting needed:
@@ -240,7 +240,7 @@ associativity (an earlier rule let a leading/trailing newline pick
 associativity; it has been removed — see `plans/OPERATOR_ASSOCIATIVITY.md`).
 
 `:`, `:=`, `=`, `::`, and `->` are ordinary operators with no precedence, so a
-type/value containing a *different* top-level operator must be parenthesized:
+type/value containing a _different_ top-level operator must be parenthesized:
 
 ```rust
 // `:` vs `->` — wrap the fn type:
@@ -267,7 +267,7 @@ Example: `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`
 
 ## Unary operators need parentheses around their operand
 
-Unary operators (`!`, `&`, `-`, `~`) are prefix calls, so they **require parentheses around their operand**. A bare `!x` / `&s` / `-n` is a *"Paren-less function and operator calls are not supported"* error (the same rule that rejects `func arg`).
+Unary operators (`!`, `&`, `-`, `~`) are prefix calls, so they **require parentheses around their operand**. A bare `!x` / `&s` / `-n` is a _"Paren-less function and operator calls are not supported"_ error (the same rule that rejects `func arg`).
 
 ```rust
 // WRONG — paren-less unary operand:
@@ -282,7 +282,7 @@ func(&(s), label, extra);
 This applies to **all** unary operators: `!`, `&`, `-`, `~`.
 
 **`!x && y` is invalid** because `!x` is a paren-less unary. Since unary and infix
-are *different operators with no precedence*, you must parenthesize — and the two
+are _different operators with no precedence_, you must parenthesize — and the two
 groupings mean different things, so choose by intent:
 
 ```rust
@@ -299,17 +299,17 @@ groupings mean different things, so choose by intent:
 
 The right shape for a function parameter depends on what kind of type the value is:
 
-| Type kind                                                     | Shape                                                   | Why                                                                                                             |
-| ------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `ref(struct(...))` / `ref(enum(...))` (incl. `atomic(ref(...))`) | `name : Type`                                        | Reference-semantics types — mutations propagate via the underlying RC value. No pointer needed.                 |
-| `struct(...)` value type (read-only)                          | `name : Type`                                           | Pass by value. Cheap if small; consider `inout` for large structs.                                              |
-| `struct(...)` value type (need mutation)                      | `inout(name) : Type`                                    | Caller's binding sees in-place writes. See [`inout` section](#inoutname--t-parameters-for-in-place-mutation) below. |
-| `enum(...)` (read-only)                                       | `name : Type`                                           | Same as struct.                                                                                                 |
-| `enum(...)` (need mutation)                                   | `inout(name) : Type`                                    | Same as struct.                                                                                                 |
-| Primitive (`i32`, `bool`, …)                                  | `name : Type` for read, `inout(name) : Type` for mutation | Same rule.                                                                                                      |
-| Receiver of mutating method on `ref(struct(...))`/`ref(enum(...))` | `self : Self`                                      | Reference semantics — explicit `inout(self)` is unnecessary noise (though it works).                            |
-| Receiver of mutating method on value type (trait or inherent) | `inout(self) : Self`                                    | Caller-side writes propagate. Established for `Hash`, `Clone`, `ToString`, `Iterator`.                          |
-| Raw FFI pointer (legitimate `*(T)`)                           | `name : *(T)`                                           | Only when interfacing with C / the runtime ABI. Requires `pragma(Pragma.AllowUnsafe);` at the file top.         |
+| Type kind                                                          | Shape                                                     | Why                                                                                                                 |
+| ------------------------------------------------------------------ | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `ref(struct(...))` / `ref(enum(...))` (incl. `atomic(ref(...))`)   | `name : Type`                                             | Reference-semantics types — mutations propagate via the underlying RC value. No pointer needed.                     |
+| `struct(...)` value type (read-only)                               | `name : Type`                                             | Pass by value. Cheap if small; consider `inout` for large structs.                                                  |
+| `struct(...)` value type (need mutation)                           | `inout(name) : Type`                                      | Caller's binding sees in-place writes. See [`inout` section](#inoutname--t-parameters-for-in-place-mutation) below. |
+| `enum(...)` (read-only)                                            | `name : Type`                                             | Same as struct.                                                                                                     |
+| `enum(...)` (need mutation)                                        | `inout(name) : Type`                                      | Same as struct.                                                                                                     |
+| Primitive (`i32`, `bool`, …)                                       | `name : Type` for read, `inout(name) : Type` for mutation | Same rule.                                                                                                          |
+| Receiver of mutating method on `ref(struct(...))`/`ref(enum(...))` | `self : Self`                                             | Reference semantics — explicit `inout(self)` is unnecessary noise (though it works).                                |
+| Receiver of mutating method on value type (trait or inherent)      | `inout(self) : Self`                                      | Caller-side writes propagate. Established for `Hash`, `Clone`, `ToString`, `Iterator`.                              |
+| Raw FFI pointer (legitimate `*(T)`)                                | `name : *(T)`                                             | Only when interfacing with C / the runtime ABI. Requires `pragma(Pragma.AllowUnsafe);` at the file top.             |
 
 **Anti-patterns to avoid:**
 
@@ -483,7 +483,7 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 - **Do NOT wrap the `while` condition in `runtime(...)`** — `while(runtime(cond), body)` is redundant because the condition is already evaluated at runtime by default. Write `while(cond, body)`. (`runtime(...)` only matters in a `::`/comptime context to force runtime evaluation; a `while` condition is never that context.)
 - **`while(comptime(cond), body)`** explicitly opts into compile-time loop unrolling. Requires `cond` to be a compile-time-known value. The evaluator will error if it detects an infinite loop (e.g., `while(comptime(true), ...)` with no `break`/`return`/`unwind`).
 - If you use a comptime-only (`::`) variable in a bare `while` condition (without `comptime()`), the compiler will **error**: the condition would never change at runtime, causing an infinite loop.
-- When calling `assert`, always add 2nd argument: `assert(condition, "error message");`
+- `assert`/`panic` live in `std/assert` (`{ assert, panic } :: import("std/assert");`) — not prelude-ambient. Messages accept any `ToString` type (template strings OK); `assert(cond)` uses a default message. The diverging builtin for value-position arms is `__yo_panic("str only")`.
 - Pointer arithmetic uses `&+`, `&-`, `&<`, `&>`, `&<=`, `&>=` operators with `&` prefix.
 
 ## `unsafe(...)` and `pragma(Pragma.AllowUnsafe);` for raw pointer operations
@@ -577,11 +577,11 @@ The builtin `Slice(T)` and the view methods `String.as_str()` /
 
 **Functions cannot return `inout`, and there are no local inout bindings** (v4/v4.1, `plans/BORROW_EXCLUSIVITY.md`): they are second-class and exist ONLY in parameter position. `inout(r) := …` is rejected (fields read/write in place: `h.s = v`). Return the value instead (reference-semantics values are handles that mutate in place; struct values copy), or take a callback parameter that receives `inout(name) : T`. An inout ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — chains through an intermediate reference-semantics value and module-level field roots are rejected (bind the value to a local first: `b := a.b`).
 
-| Form                                                               | Verdict                                       |
-| ------------------------------------------------------------------ | --------------------------------------------- |
-| `-> comptime(T)` (unlabeled), `-> (comptime(name) : T)` (labeled)  | ✅ valid                                      |
-| `-> inout(T)`, `-> (inout(name) : T)`, `-> (name : inout(T))`      | ❌ rejected — functions cannot return `inout` |
-| `-> (name : comptime(T))`                                          | ❌ rejected — modifier goes on the label      |
+| Form                                                              | Verdict                                       |
+| ----------------------------------------------------------------- | --------------------------------------------- |
+| `-> comptime(T)` (unlabeled), `-> (comptime(name) : T)` (labeled) | ✅ valid                                      |
+| `-> inout(T)`, `-> (inout(name) : T)`, `-> (name : inout(T))`     | ❌ rejected — functions cannot return `inout` |
+| `-> (name : comptime(T))`                                         | ❌ rejected — modifier goes on the label      |
 
 Enforced at function-type evaluation (`src/evaluator/types/function.ts`) and the yo-self port (`yo-self/evaluator/types/function.yo`). See `tests/ref_return_ban.test.yo`.
 
@@ -599,7 +599,7 @@ match(
   // SAFETY: idx bounds-checked above (idx < self._length);
   // _ptr points at the Rc-managed heap buffer.
   .Some(_ptr) => (_ptr &+ idx),
-  .None => panic("ArrayList: empty")
+  .None => __yo_panic("ArrayList: empty")
 )
 ```
 

@@ -1022,7 +1022,13 @@ evaluate_function_parameter :: (
                   param_type =.Some(dv_ty);
                 },
                 .Some(pt) => {
-                  if(!(are_types_compatible(pt, dv_ty)), {
+                  // When the parameter type still contains an unresolved
+                  // generic (`(msg : T) ?= "..."` with `forall(T)`), defer
+                  // the check to the call site: binding the default there
+                  // infers T from the default value and validates any
+                  // `where` constraints, exactly like an explicitly passed
+                  // argument. Mirrors TS function.ts (same guard).
+                  if((!(type_contains_some_type(pt))) && (!(are_types_compatible(pt, dv_ty))), {
                     exn.throw(
                       dyn(
                         format_error_message(

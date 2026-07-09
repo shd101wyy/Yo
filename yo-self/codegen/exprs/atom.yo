@@ -157,7 +157,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
       .None => ()
     );
     if(context.in_async_state_machine.is_some(), {
-      panic("generate_atom: async state-machine continue is Phase 5");
+      __yo_panic("generate_atom: async state-machine continue is Phase 5");
     });
     return(String.from("continue"));
   });
@@ -176,13 +176,13 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
       .None => ()
     );
     if(context.in_async_state_machine.is_some(), {
-      panic("generate_atom: async state-machine break is Phase 5");
+      __yo_panic("generate_atom: async state-machine break is Phase 5");
     });
     return(String.from("break"));
   });
   if(tv == "return", {
     if(context.in_async_state_machine.is_some(), {
-      panic("generate_atom: async state-machine return (completion) is Phase 5");
+      __yo_panic("generate_atom: async state-machine return (completion) is Phase 5");
     });
     return(String.from("return"));
   });
@@ -205,7 +205,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
   );
   // --- async/effect SM variable resolution: Phase 5 (gated) ---
   if(context.in_async_state_machine.is_some() && context.state_machine_variables.is_some(), {
-    panic("generate_atom: state-machine variable resolution is Phase 5");
+    __yo_panic("generate_atom: state-machine variable resolution is Phase 5");
   });
   // --- variable / comptime-constant / closure-capture ---
   match(

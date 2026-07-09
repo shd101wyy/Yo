@@ -687,7 +687,7 @@ emit_async_block_struct_definition :: (
                   future_type := match(
                     context.base.get_expr_info(future_expr),
                     .Some(ei) => ei.ty,
-                    .None => panic("Internal error: await expression missing type info for future argument")
+                    .None => __yo_panic("Internal error: await expression missing type info for future argument")
                   );
                   awaited_future_type_c_name := get_type_string(future_type, context.base);
                   if(!(emitted_header), {
@@ -1496,7 +1496,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ind
   // type registry by type_key; TS keyed by the SomeType's unique id).
   context.base.register_type(type_key(future_type), future_type, `${struct_name.clone()}*`, Option(String).None);
   // Await analysis computed during evaluation.
-  analysis := match(io_async_await_analysis(expr, context),.Some(a) => a,.None => panic("Missing await analysis for async block. This should have been computed during evaluation."));
+  analysis := match(io_async_await_analysis(expr, context),.Some(a) => a,.None => __yo_panic("Missing await analysis for async block. This should have been computed during evaluation."));
   // Result type (T in Future(T)); resolve an unresolved SomeType output.
   (result_type : TypeValue) = match(future_trait_type,.FutureTraitT({ output : o }) => o.clone(), _ => future_type);
   // Per-closure composite key for some-resolved-concrete: append the unique

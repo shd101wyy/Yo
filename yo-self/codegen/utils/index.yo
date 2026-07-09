@@ -656,7 +656,7 @@ _lookup_named_c_type :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
     .None => {
       // panic requires a `str`; the dynamic type name goes to stderr.
       eprintln(`get_type_string: no C type name found for ${type_to_string(t)} (type not collected before lowering)`);
-      panic("get_type_string: type not registered in context.types (see stderr)")
+      __yo_panic("get_type_string: type not registered in context.types (see stderr)")
     }
   )
 );
@@ -838,7 +838,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
         )
       )
     ),
-    .IsoT({}) => panic("get_type_string: Iso lowering is Phase 3 — not yet ported"),
+    .IsoT({}) => __yo_panic("get_type_string: Iso lowering is Phase 3 — not yet ported"),
     // Dynamic dispatch type — a value struct { data ptr, vtable ptr } passed
     // by value. Mirrors getTypeString's TypeTag.Dyn case (utils/index.ts:547):
     // return the registered fat-pointer C type name (keyed by type_key here,
@@ -846,10 +846,10 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
     .DynT({}) => match(
       context.get_type_c_name(type_key(t)),
       .Some(cn) => cn,
-      .None => panic("No C type name found for dynamic dispatch type")
+      .None => __yo_panic("No C type name found for dynamic dispatch type")
     ),
-    .FnTraitT({}) => panic("get_type_string: Fn-trait lowering is Phase 3/5 — not yet ported"),
-    .FutureTraitT({}) => panic("get_type_string: Future-trait lowering is Phase 5 — not yet ported"),
+    .FnTraitT({}) => __yo_panic("get_type_string: Fn-trait lowering is Phase 3/5 — not yet ported"),
+    .FutureTraitT({}) => __yo_panic("get_type_string: Future-trait lowering is Phase 5 — not yet ported"),
     // Comptime-only / type-level types should not reach codegen.
     _ => {
       fallback := String.from("// Unknown type: ");
@@ -894,7 +894,7 @@ get_enum_variant_c_name :: (
     },
     .None => {
       eprintln(`get_enum_variant_c_name: no C type name found for enum ${type_to_string(enum_type)}`);
-      panic("get_enum_variant_c_name: enum type not registered (see stderr)")
+      __yo_panic("get_enum_variant_c_name: enum type not registered (see stderr)")
     }
   )
 );

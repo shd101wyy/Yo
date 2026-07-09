@@ -536,7 +536,11 @@ impl(
     Output : T,
     /// Returns a pointer to the element at the given index. Panics if the index is out of bounds.
     index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
-      assert(idx < self._length, "ArrayList: index out of bounds");
+      // Bounds check via `if` + `__yo_panic` (not `assert`: this module is
+      // inside `std/assert`'s dependency cycle and cannot import it).
+      if(idx >= self._length, {
+        __yo_panic("ArrayList: index out of bounds");
+      });
       match(
         self._ptr,
         .Some(_ptr) => (_ptr &+ idx),

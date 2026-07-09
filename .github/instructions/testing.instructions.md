@@ -142,10 +142,15 @@ Do NOT use `ASAN_OPTIONS=stack_size=N` — that sets the fake stack, not the rea
 Tests use the `test` keyword with exactly 2 arguments: a name string and a body block.
 
 ```rust
+{ assert } :: import("std/assert");
 test("my test", {
   assert(true, "ok");
 });
 ```
+
+`assert`/`panic` are NOT prelude-ambient — every test file that uses them
+needs `{ assert, panic } :: import("std/assert");` at the top (after any
+`pragma(...)` line).
 
 **`io : Io` is automatically bound** inside every test body — no parameter is needed. All tests can use `io.async(...)`, `io.await(...)`, `io.spawn(...)`, etc. directly:
 
@@ -162,19 +167,21 @@ test("Async test", {
 
 ## Assertion builtins for Yo tests
 
-- `assert(condition, "message")` — runtime assertion (evaluates at runtime in the compiled C code)
+- `assert(condition, "message")` — runtime assertion (evaluates at runtime in the compiled C code); requires `{ assert } :: import("std/assert");`. The message accepts any `ToString` type; `assert(condition)` uses the default message.
 - `comptime_assert(condition, "message")` — compile-time assertion (evaluates during compilation). Use this for testing comptime behavior.
 - `comptime_expect_error(expr)` — expects the expression to produce a compile-time error. Use this to test that invalid code is properly rejected.
 
-**IMPORTANT**: `assert(condition, msg)` takes `str` for `msg`. Do NOT pass a template string (`` `...` ``):
+`assert(condition, msg)` accepts any `msg` implementing `ToString` — plain
+`str` literals, template strings, integers, etc. all work:
 
 ```rust
-// ❌ WRONG — template string is String, not str
 assert(false, `unexpected: ${value}`);
-
-// ✅ CORRECT — use a plain str literal
 assert(false, "unexpected");
 ```
+
+For a diverging panic in a VALUE-position match/cond arm (the arm must yield
+`T`), use the builtin `__yo_panic("...")` — `std/assert`'s `panic` returns
+`unit` and cannot adopt the sibling arm's type.
 
 ## Exception effect in yo-self tests
 
