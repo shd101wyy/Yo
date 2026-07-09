@@ -45,3 +45,23 @@ and conditionally throws. TS compiles + runs (`true`); yo-self emits 8 errors:
 3. Then the remaining: undeclared get_info/temp (may clear with this), and
    verify the argv(i+1) FTT (@197915 in stage2v.c) separately — Index-trait
    with computed index arg, likely a distinct small fix.
+
+## Probe results (2026-07-09, rounds 2-3)
+
+- [ISREF-A/B] probes: NEITHER eval is_ref set site fires for close's `self`
+  (the 54 ISREF-A hits are legit inout std methods) — yet `(*self)->` emits.
+- The deref does NOT come from atom.yo `_var_read_code` (a type-gated version
+  changed nothing): it comes from property_access.yo `_ptr_field_access`,
+  which received object_type = **Pointer(Thing)** for the `self._fd` read —
+  the `self` binding/ExprInfo the RECEIVER eval recorded carries `*(Thing)`.
+- Prime suspect: the method-call receiver binding (needs_pointer_conversion
+  in ReceiverMethodResult / the receiver-arg binding at t.close(io)) records
+  `*(Thing)` for self, and the def-eval body read picks it up — OR env-bleed
+  from a foreign frame. NEXT: probe the recorded ExprInfo ty for the `self`
+  ATOM inside close's body (one [SELFTY] eprintln in property_access
+  \_ptr_field_access printing object_type when field=\_fd), then fix where the
+  binding/reads get the spurious pointer wrap (reference-semantics receivers
+  need NO pointer conversion — they are already pointers; TS
+  needsPointerConversion is for VALUE receivers).
+- The io.async FTT cond + io-future member errors in the repro are further
+  facets, likely downstream of the same self-typing pollution.
