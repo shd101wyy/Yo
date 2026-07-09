@@ -4,14 +4,42 @@
 the self-compiled `yo-self` binary's `test` subcommand pass `./tests` and
 `./yo-self/tests` (tasks #69, #70).
 
-**Current state: 2 deterministic + 1 FLAKY stage-2 error families** (was 56).
-Deterministic: undeclared `get_info` (1), undeclared RC-drop temp `_file____User_temp_18xxxx` (1).
-FLAKY (nondeterministic per emit — appears in some runs as ~8-10 clang errors): GC-tracer
-`.label`/`.ty` member-refs on `__yo_tNNN *` (a Bucket VALUE that is a ref-struct pointer
-traced as an inline struct — type-identity flips run-to-run; suspect instantiation-order
-dependent struct-identity registration). The argv-index if-arm FTT is FIXED (begin.yo
-index-field carry). **Compare stage-2 runs by error TEXT, not count — and re-run twice
-before attributing a new error family to your change.**
+**Current state: 1 deterministic stage-2 error + 1 FLAKY family** (was 56).
+Deterministic: undeclared RC-drop temp `_file____User_temp_1886xx` (1 error — scope-end
+drop of a never-materialized temp at a loop tail).
+FLAKY (nondeterministic per emit, ~8-10 errors when it appears): GC-tracer `.label`/`.ty`
+member-refs on `__yo_tNNN *` — the tracer body specialized for Bucket(String, FuncParam-like)
+bound to a different Bucket instantiation's slot type (order-dependent struct identity).
+FIXED this session: member-ref (\*self) family, io.async closure FTT, argv-index if-arm FTT,
+undeclared get_info (closure-param capture), capture-in-capture emission order, box-of-closure
+collection. **Compare stage-2 runs by error TEXT and re-run before attributing new errors.**
+
+### Next step for the RC-temp (the 1 deterministic error)
+
+`__yo_decr_rc((void*)(_file____User_temp_1886xx))` at a loop tail in the
+await-analysis per-point loop (yo*id_252975-family fn); the temp has exactly ONE
+occurrence (never declared). The scope-end skip gate EXISTS
+(codegen/exprs/drop_dup.yo:567: `is_temp_variable_name(ei.env.module_path, cn)
+&& !declared_c_var_names.contains(cn)`) but this instance evades it — suspected
+PREFIX MISMATCH: the temp was minted under a different module_path (URL-form
+`file:///Users/...` → prefix `_file____User...`) than the drop site's
+`ei.env.module_path`, so `is_temp_variable_name` returns false and the gate
+never fires. PROBE: at drop_dup.yo:567, when `cn.contains("\_temp*")`and the
+module check is false, eprintln module_path + cn; run stage-2; then either fix
+the minting module_path or relax the gate to any`contains("_temp_")` name
+not in declared_c_var_names (TS has NO such gate at all — the whole skip is a
+yo-self-only compensation, so the relaxed form is safe by the same argument
+as the original: a never-declared C var cannot double-free or leak).
+
+### The FLAKY tracer cluster (root direction)
+
+Tracer fn `yo_id_12__struct_struct_yo_id_NNN...` body specialized for
+`Bucket(String, FuncParam-like)` (walks `.value.label`/`.value.ty`) but bound
+to a DIFFERENT Bucket instantiation's slot type (e.g. value = `_SlotRange*` or
+`size_t`). [TRACE-SPEC] probe (collection.yo \_specialize_and_register_trace)
+showed 1:1 ct→fid on a clean run — the collision is elsewhere (suspect
+get_trace_function_for_type lookup or the traversal generator's Bucket-slot
+type resolution). Appears in roughly half of emits; compare by error text.
 
 ---
 
