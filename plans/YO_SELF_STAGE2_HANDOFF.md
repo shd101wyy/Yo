@@ -32,94 +32,20 @@ clang -std=c11 -O0 -w /tmp/stage2.c -o /tmp/yo-self-stage2 <link flags from a no
 diff /tmp/stage2.c /tmp/stage3.c && echo FIXPOINT-OK
 ```
 
-**Current state: DETERMINISTIC stage-2 errors = 0** (was 56). The RC-drop temp is
-FIXED (undeclared-minted-temp gate at all THREE deferred-drop emitters: begin.yo,
-drop_dup.yo, while_loop.yo — the third was ungated). The ONLY remaining stage-2
-failure is the FLAKY GC-tracer cluster (~10 errors in roughly half of emits):
-tracer body specialized for Bucket(String, FuncParam-like) (walks
-`.value.label`/`.value.ty`) bound to a DIFFERENT Bucket instantiation's slot type.
-[TRACE-SPEC] probing showed the trace-specialization ct→fid mapping is 1:1 — the
-collision is DOWNSTREAM (suspect `get_trace_function_for_type` lookup or the
-traversal generator's Bucket-slot type resolution). This nondeterminism ALSO
-blocks the fixpoint gate below — fix it next.
+**Current state: STAGE-2 CLANG ERRORS = 0, EMISSION DETERMINISTIC** (was 56).
+Three consecutive stage-2 emits: 0 errors, byte-identical C (the type-identity
+trio: depth-cap removal + poison-slot structural keys + trace registry by
+type_key). Gates: corpus 106/106 DIFF 0, std 152/152.
 
-### The FLAKY tracer cluster (root direction)
-
-Tracer body walks `.value.label`/`.value.ty` (Bucket(String, FuncParam-like))
-but binds a different Bucket instantiation's slot type. Mechanism narrowed
-(types/type*key.yo): generic structs key by `gs*<constructor*func_id>*<arg keys>`(depth ≤ 4), and`g_struct_cfid_keys[struct_id] → key`("first registration
-wins") maps ids to cfid-keys so cfid-empty COPIES reuse them. Collision path:
-if the EVALUATOR hands two different`Bucket(String, V1/V2)`instantiations the
-SAME struct id (comptime-fn cache returning a shared/mutated TypeValue — the
-"name-only struct compare / in-place mutation" class), the first-seen key wins
-for both → one C name, one layout, two callers → the`.label`/`.ty` cluster.
-Flakiness = which instantiation registers first (iteration-order dependent).
-
-NEXT: repro with two HashMap(String, A)/HashMap(String, B) (A = plain struct
-with label+ty-ish fields, B = ref struct) + cycle-GC live so tracers emit; if
-small programs don't trip it, probe stage-2: print struct id + cfid-key at
-g_struct_cfid_keys registration for ids whose key was ALREADY registered with
-a DIFFERENT key (that's the smoking gun), then fix the eval-side id sharing
-(resolve-args-before-cache-compare, cf. task #40) or make the cfid key include
-the field-type keys. This also unblocks the FIXPOINT gate (deterministic
-emission).
-
-**[CFID-DUP] probe RESULT (smoking gun found):** 53,113 firings per stage-2
-emit. Struct id `struct_yo_id_13640` (constructor `gs_yo_id_13627` = the
-generic Bucket/HashMap-slot struct) computes DOZENS of different cfid-keys —
-every `Bucket(K,V)` instantiation shares ONE evaluator struct id (13640) with
-per-instantiation `type_arguments`, and `g_struct_cfid_keys[sid]` (single-slot,
-first-registration-wins, used so cfid-EMPTY copies can key correctly) pins ALL
-cfid-empty copies of ANY instantiation to the FIRST instantiation's key
-(`gs_yo_id_13627_struct_yo_id_4014_gs_yo_id_3843_bool`). Whenever a
-cfid-empty copy of a DIFFERENT instantiation flows into type registration /
-tracer synthesis, its C identity collapses onto the first one → the
-`.label`/`.ty` tracer cluster; which instantiation's layout wins is
-registration-order dependent → flaky. Also fires with RAW SomeT-id keys
-(`gs_yo_id_13627_2128_2129`) = an UNRESOLVED generic keyed pre-substitution.
-
-FIX DIRECTION (choose after inspecting the copy sites): the sid→key mapping is
-only sound when a struct id is 1:1 with an instantiation — it is NOT for the
-shared-generic-id scheme. Either (a) find where copies shed
-`constructor_func_id`/`type_arguments` (clone/shell/substitution) and PRESERVE
-them so no cfid-empty copies exist, or (b) drop the sid→key mapping and make
-cfid-empty copies an ERROR path (panic in debug) to surface the shedding
-sites. Option (a) is the faithful one (TS types never lose their identity
-fields). Do NOT "fix" by including field types in the key — the sharing is
-upstream.
-
-REFINED (after reading types/type_key.yo): the `g_struct_cfid_keys[sid]`
-single-slot is consulted by THREE paths, all under-determined for a shared-id
-generic like Bucket (all instantiations share `struct_yo_id_13640`, differing
-only in `type_arguments`):
-
-1. cfid-empty/stas-empty copies,
-2. **depth > 4 truncation** — the full-key branch is gated
-   `cfid && stas && depth <= 4`; a Bucket nested deeper than 4 in another
-   type's key falls back to the sid slot even though it HAS its full identity
-   (the huge closure-capture-arg keys in the CFID-DUP dump are exactly these),
-3. the `_tk_seen` cycle-guard.
-   Candidate surgical fix: remove the `depth <= 4` cap (the `g_tk_visited` cycle
-   guard already bounds recursion; the cap only bounds KEY LENGTH — long keys are
-   ugly but correct), and for paths 1/3 verify whether they ever fire for 13640
-   with a mismatched first-key (add a targeted probe). Then re-check: tracer
-   cluster gone across N≥4 consecutive emits + emissions byte-stable (fixpoint
-   precondition). Validate the key-length cost on stage-2 emit time (was
-   quadratic-ish in the past — see the C-template split-emit memory).
-
-## 0. Ground rules (READ FIRST)
-
-**Faithful-port discipline (non-negotiable):** For every bug — (1) confirm the
-TypeScript compiler (`./yo-cli`) emits CLEAN C from the same input; (2) find the
-yo-self DIVERGENCE from `src/`; (3) fix yo-self to match `src/`. If TS is also
-wrong, fix TS first, then port. NO workarounds, NO stubs. `yo-self/` must stay a
-1-to-1 port of `src/`.
-
-**Editing `.yo` files does NOT need `bun run build`** (that only rebuilds the TS
-compiler). Just re-run `./yo-cli compile yo-self/main.yo`.
-
-**RC-safety:** the drop/dup families are RC-critical. A wrong drop point =
-double-free or leak. The corpus diff-test is the double-free ORACLE (see §1).
+**NEW FRONTIER — stage-2 binary runtime correctness:** the stage-2 C compiles
+clean (`clang -O0 -w stage2W1.c → /tmp/yo-self-stage2`) but the binary
+SIGSEGVs (rc 139, no output) on ANY compile, even a small file, even with
+YO_MAIN_STACK_MB=4096. The self-hosting FIXPOINT (stage-2 ≡ stage-3) and tasks
+#69/#70 are blocked on this. Debug loop: lldb backtrace on a small compile →
+find the miscompiled function in stage2W1.c → find the yo-self emitter bug
+(TS-emitted stage-1 C is the faithful reference — diff the same function) →
+fix → re-emit → re-build → re-run. The corpus diff-test can also run with
+YO_SELF_BIN=/tmp/yo-self-stage2 once the binary survives startup.
 
 ---
 
