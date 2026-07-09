@@ -53,7 +53,7 @@ open(import("std/fmt"));
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator } :: import("../../token.yo");
-{ EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val } :: import("../../value.yo");
+{ EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 {
@@ -2818,7 +2818,16 @@ Fix: wrap the call:
           );
           (bind_ty : TypeValue) = arg_info.ty;
           (bind_val : Option(EvalValue)) = arg_info.value;
-          (is_ct : bool) = match(arg_info.value,.Some(_) => true,.None => false);
+          // A concrete arg value binds the param compile-time-only (Phase-3
+          // comptime-folding heuristic) — EXCEPT a closure/function value: a
+          // FuncVal-bound param must stay a RUNTIME binding so a nested
+          // closure referencing it records it as a CAPTURE
+          // (track_variable_usage skips compile-time-only bindings; a ct
+          // get_info param made the dyn detect-closure's capture struct drop
+          // the field → undeclared `get_info` in the emitted C). TS binds
+          // isCompileTimeOnly from the PARAMETER declaration, never from
+          // arg-value presence (helper.ts:573).
+          (is_ct : bool) = match(arg_info.value,.Some(av) => !(is_func_val(av)),.None => false);
           if((is_comptime_string_type(arg_info.ty) && (!(is_some_type(resolved_decl_pt)))) && (!(is_comptime_string_type(resolved_decl_pt))), {
             bind_ty = resolved_decl_pt.clone();
             bind_val = Option(EvalValue).Some(create_unknown_val(resolved_decl_pt));
