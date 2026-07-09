@@ -1,9 +1,9 @@
-//! evaluator/builtins/panic — implements evaluate_panic.
+//! evaluator/builtins/panic — implements evaluate_panic for __yo_panic.
 //!
 //! 1:1 port of `src/evaluator/builtins/panic.ts`.
 //!
-//! `panic(msg)` validates the optional string argument and annotates the
-//! call with the surrounding function's return type (panic diverges).
+//! `__yo_panic(msg)` validates the argument type (str, comptime_str, or *(u8))
+//! and annotates the call with the surrounding function's return type (__yo_panic diverges).
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 {
@@ -23,11 +23,12 @@ open(import("std/string"));
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_bool, t_ptr } :: import("../../types/creators.yo");
-{ is_comptime_string_type, is_str_type } :: import("../../types/guards.yo");
+{ is_comptime_string_type, is_str_type, is_u8_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
+{ panic, assert } :: import("std/assert");
 evaluate_panic :: (
   fn(
     expr : AstExpr,
@@ -46,7 +47,7 @@ evaluate_panic :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            String.from("panic() can only be called inside a function body or test block"),
+            String.from("__yo_panic() can only be called inside a function body or test block"),
             false,
             .None
           )
@@ -61,7 +62,7 @@ evaluate_panic :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          String.from("Cannot use \"panic\" during compile-time function evaluation analysis. Functions containing \"panic\" cannot be evaluated at compile time."),
+          String.from("Cannot use \"__yo_panic\" during compile-time function evaluation analysis. Functions containing \"__yo_panic\" cannot be evaluated at compile time."),
           false,
           .None
         )
@@ -155,12 +156,18 @@ evaluate_panic :: (
           ),
           .None => is_comptime_string_type(msg_type)
         );
-        if(!(is_str) && !(is_comptime_str), {
+        // *(u8) — C string pointer (e.g. from String.to_c_str())
+        is_ptr_to_u8 := match(
+          msg_type,
+          .Pointer(pointee) => is_u8_type(pointee),
+          _ => false
+        );
+        if(!(is_str) && !(is_comptime_str) && !(is_ptr_to_u8), {
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(msg_expr),
-                String.from("panic message must be a comptime_str or str"),
+                String.from("__yo_panic message must be comptime_str, str, or *(u8)"),
                 false,
                 .None
               )

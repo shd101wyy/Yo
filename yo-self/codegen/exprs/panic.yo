@@ -6,7 +6,8 @@ open(import("std/string"));
 { _call_generate_expr } :: import("./_expr.yo");
 { _c_string_literal } :: import("./comptime_value.yo");
 { get_type_string } :: import("../utils/index.yo");
-{ is_str_type } :: import("../../types/guards.yo");
+{ is_str_type, is_u8_type } :: import("../../types/guards.yo");
+{ panic, assert } :: import("std/assert");
 /// `panic(...)`: emit a stderr message (if any) + abort(), then return an
 /// unreachable type-correct dummy value (`*(T*)NULL`) so the C compiles
 /// (panic never returns). Mirrors `generatePanic`.
@@ -43,9 +44,20 @@ generate_panic :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
           });
         },
         .None => {
-          // Runtime message — evaluate it; str uses the fat-pointer fields.
+          // Runtime message — evaluate it; str uses the fat-pointer fields,
+          // *(u8) is a C string pointer.
           msg_code := _call_generate_expr(msg_arg, indent.clone(), context);
+          msg_ei_ty := match(msg_ei,.Some(mei) => Option(TypeValue).Some(mei.ty),.None =>.None);
           msg_is_str := match(msg_ei,.Some(mei) => is_str_type(mei.ty),.None => false);
+          msg_is_ptr_u8 := match(
+            msg_ei_ty,
+            .Some(t) => match(
+              t,
+              .Pointer(pointee) => is_u8_type(pointee),
+              _ => false
+            ),
+            .None => false
+          );
           em := context.base.emitter;
           line := indent.clone();
           if(msg_is_str, {
@@ -55,9 +67,18 @@ generate_panic :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
             line.push_string(msg_code.clone());
             line.push_str(".ptr);");
           }, {
-            line.push_str("fprintf(stderr, \"%s\\n\", ");
-            line.push_string(msg_code.clone());
-            line.push_str(");");
+            cond(
+              msg_is_ptr_u8 => {
+                line.push_str("fprintf(stderr, \"%s\\n\", (const char*)");
+                line.push_string(msg_code.clone());
+                line.push_str(");");
+              },
+              true => {
+                line.push_str("fprintf(stderr, \"%s\\n\", ");
+                line.push_string(msg_code.clone());
+                line.push_str(");");
+              }
+            );
           });
           em.emit_string_line(line);
           l2 := indent.clone();
