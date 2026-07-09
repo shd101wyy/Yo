@@ -14,6 +14,7 @@
 //!   - has_index_impl: Array fast path + trait-field/registry method lookup
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
+{ str_lit_unquote_bytes } :: import("../../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
 { Environment, get_receiver_methods_by_name_from_env } :: import("../../env.yo");
@@ -61,7 +62,7 @@ _str_unquote :: (fn(raw : String) -> String)({
   rn := raw.len();
   if(
     rn >= usize(2),
-    raw.substring(usize(1), rn - usize(1)),
+    str_lit_unquote_bytes(raw),
     String.new()
   )
 });
@@ -859,7 +860,7 @@ try_to_call_with_index_trait :: (
       rn := raw.len();
       str_unquoted := if(
         rn >= usize(2),
-        raw.substring(usize(1), rn - usize(1)),
+        str_lit_unquote_bytes(raw),
         String.new()
       );
       result := _try_comptime_string_index(arg_expr, str_unquoted, caller_env, ctx, exn);

@@ -22,6 +22,7 @@
 //!     `hashString`, `clearAllModuleCounters`. These are deferred until
 //!     their TS callers gain yo-self counterparts.
 open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
 // ---------------------------------------------------------------------------
 // Temp variable name generation
 // ---------------------------------------------------------------------------
@@ -95,6 +96,27 @@ random_id :: (fn(_module_path : String) -> String)({
   g_random_id_counter = (g_random_id_counter + usize(1));
   `yo_id_${count.to_string()}`
 });
+/// Byte-exact StrLit unquote: drop the first and last BYTE (the ASCII `"`
+/// delimiters yo-self's StrLit convention keeps). The historical pattern
+/// `raw.substring(1, raw.len()-1)` mixed `len()` (BYTES) with `substring`
+/// (CHAR-indexed) — correct for ASCII, CORRUPTING for multibyte content
+/// (the em-dash template-segment corruption in the stage-2 binary). Only
+/// strips when both ends are `"`; anything else passes through unchanged.
+str_lit_unquote_bytes :: (fn(raw : String) -> String)({
+  n := raw.len();
+  if((n >= usize(2)) && ((raw.byte_at(usize(0)) == u8(34)) && (raw.byte_at(n - usize(1)) == u8(34))), {
+    bytes := raw.as_bytes();
+    inner := ArrayList(u8).new();
+    (i : usize) = usize(1);
+    while(i < (n - usize(1)), {
+      _p := inner.push(match(bytes.get(i),.Some(b) => b,.None => u8(0)));
+      i = (i + usize(1));
+    });
+    String.from_bytes(inner)
+  }, raw.clone())
+});
+
+export(str_lit_unquote_bytes);
 export(
   generate_temp_variable_name_prefix,
   generate_new_temp_variable_name,

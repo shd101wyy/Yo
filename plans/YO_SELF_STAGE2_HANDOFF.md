@@ -163,10 +163,27 @@ template_multibyte.yo + multibyte-len, full gates, commit. Then stage-2 chain
 prelude contains multibyte in comments/strings and the parse loop uses
 len/substring mixes?), FIXPOINT, tasks #69/#70.
 
-Note the exact observed corruption shape (leading `\"` kept + trailing K
-dropped, len 17) did not reproduce from armchair-tracing substring clamping —
-verify empirically per-site after the central fix; if a site survives, byte-dump
-(no `${}` probes — see the probe-reliability caution above).
+**Round 7 result: fixing ALL evaluator substring-unquotes did NOT cure it**
+(byte-exact str_lit_unquote_bytes landed in utils.yo + 32 eval.yo sites + 2
+index_trait.yo + central comptime_string_fns.yo helper — KEEP these, they are
+real latent bugs — but the em-dash repro still emits
+`"\" — evaluator O", .len = 17`). REFINED HYPOTHESIS: the emitted content =
+raw StrLit bytes [0..17) with len = correct CONTENT length 17 — i.e. a
+ZERO-COPY unquote taking (ptr + 0, len - 2) instead of (ptr + 1, len - 2):
+a `str`-level slice/view (not the String rebuilds fixed so far). Look for:
+(a) `str` slice helpers over token/StrLit values in the stage-1 pipeline
+(lexer token slicing from the source buffer, `__yo_str_from_raw_parts`
+uses, `as_str`/view helpers with (ptr,len) math);
+(b) std String→str views (`as_str`) combined with len-2 math;
+(c) the C-literal path in codegen for the ARG position (the corrupted literal
+materializes at a `__yo_ref_spill` for a ref-param arg — maybe the arg's
+STR value at RUNTIME in the stage-1 binary is a (ptr,len-2)-style slice
+of the quoted raw made by a `str`-returning unquote somewhere in
+codegen/utils — grep `- usize(2)` and `.ptr` math in yo-self).
+NEXT PROBE (byte-dump only, NO ${} templates): dump byte arrays (decimal,
+manual loop into a String, single-arg eprintln) at (1) parser part push,
+(2) codegen comptime-value StrLit entry, (3) post-strip, (4) the ref-spill
+arg `c`. The first corrupted point localizes the producer.
 
 ---
 

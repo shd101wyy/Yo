@@ -127,7 +127,7 @@ open(import("std/fmt"));
   is_expr_val,
   value_to_string
 } :: import("../value.yo");
-{ random_id } :: import("../utils.yo");
+{ random_id, str_lit_unquote_bytes } :: import("../utils.yo");
 { parse_raw_int, parse_raw_float } :: import("./utils.yo");
 { decode_str_lit_escapes } :: import("./values/string.yo");
 {
@@ -1330,8 +1330,8 @@ handle_method_dispatch :: (
                               return(Option(EvalResult).None);
                             },
                             true => {
-                              lhs_inner := lhs_raw.substring(usize(1), ln - usize(1));
-                              rhs_inner := rhs_raw.substring(usize(1), rn - usize(1));
+                              lhs_inner := str_lit_unquote_bytes(lhs_raw);
+                              rhs_inner := str_lit_unquote_bytes(rhs_raw);
                               concat_str :=
                                 (((String.from("\"") + lhs_inner) + rhs_inner) + String.from("\""));
                               return(Option(EvalResult).Some(eval_result(.StrLit(concat_str), t_comptime_string())));
@@ -1537,8 +1537,8 @@ handle_method_dispatch :: (
                                 return(Option(EvalResult).None);
                               },
                             true => {
-                              inner_sw := raw_sw.substring(usize(1), n_sw - usize(1));
-                              pfx_inner := pfx_raw.substring(usize(1), n_pfx - usize(1));
+                              inner_sw := str_lit_unquote_bytes(raw_sw);
+                              pfx_inner := str_lit_unquote_bytes(pfx_raw);
                               return(Option(EvalResult).Some(eval_result(.BoolVal(inner_sw.starts_with(pfx_inner)), t_bool())));
                             }
                           )
@@ -1585,8 +1585,8 @@ handle_method_dispatch :: (
                                 return(Option(EvalResult).None);
                               },
                             true => {
-                              inner_ew := raw_ew.substring(usize(1), n_ew - usize(1));
-                              sfx_inner := sfx_raw.substring(usize(1), n_sfx - usize(1));
+                              inner_ew := str_lit_unquote_bytes(raw_ew);
+                              sfx_inner := str_lit_unquote_bytes(sfx_raw);
                               return(Option(EvalResult).Some(eval_result(.BoolVal(inner_ew.ends_with(sfx_inner)), t_bool())));
                             }
                           )
@@ -1633,8 +1633,8 @@ handle_method_dispatch :: (
                                 return(Option(EvalResult).None);
                               },
                             true => {
-                              inner_con := raw_con.substring(usize(1), n_con - usize(1));
-                              sub_inner := sub_raw.substring(usize(1), n_sub - usize(1));
+                              inner_con := str_lit_unquote_bytes(raw_con);
+                              sub_inner := str_lit_unquote_bytes(sub_raw);
                               return(Option(EvalResult).Some(eval_result(.BoolVal(inner_con.contains(sub_inner)), t_bool())));
                             }
                           )
@@ -1701,7 +1701,7 @@ handle_method_dispatch :: (
                                           return(Option(EvalResult).None);
                                         },
                                         true => {
-                                          inner_sb := raw_sb.substring(usize(1), n_sb - usize(1));
+                                          inner_sb := str_lit_unquote_bytes(raw_sb);
                                           inner_len_sb := inner_sb.len();
                                           start_i := match(
                                             parse_raw_int(start_raw),
@@ -1901,7 +1901,7 @@ handle_method_dispatch :: (
                   return(Option(EvalResult).None);
                 }
               );
-              sep_inner := cond((sep_str.len() >= usize(2)) => sep_str.substring(usize(1), sep_str.len() - usize(1)), true => sep_str);
+              sep_inner := cond((sep_str.len() >= usize(2)) => str_lit_unquote_bytes(sep_str), true => sep_str);
               (result_j : String) = String.from("");
               (ji : usize) = usize(0);
               while(ji < av_items_j.len(), {
@@ -1910,7 +1910,7 @@ handle_method_dispatch :: (
                   .Some(jitem) => {
                     item_inner := match(
                       jitem,
-                      .StrLit(s) => cond((s.len() >= usize(2)) => s.substring(usize(1), s.len() - usize(1)), true => s),
+                      .StrLit(s) => cond((s.len() >= usize(2)) => str_lit_unquote_bytes(s), true => s),
                       .IntLit(s) => s,
                       _ => String.from("")
                     );
@@ -2950,7 +2950,7 @@ handle_method_dispatch :: (
                   return(Option(EvalResult).Some(eval_result(.ArrayVal(ArrayList(EvalValue).new()), t_unit())));
                 },
                 true => {
-                  inner_ab := raw_ab.substring(usize(1), n_ab - usize(1));
+                  inner_ab := str_lit_unquote_bytes(raw_ab);
                   bytes_ab := inner_ab.as_bytes();
                   result_ab := ArrayList(EvalValue).new();
                   (abi : usize) = usize(0);
@@ -3390,7 +3390,7 @@ handle_method_dispatch :: (
                   return(Option(EvalResult).None);
                 },
                 true => {
-                  inner_rp := raw_rp.substring(usize(1), n_rp - usize(1));
+                  inner_rp := str_lit_unquote_bytes(raw_rp);
                   count_val := match(
                     method_call_args.get(usize(0)),
                     .Some(ce) => match(
@@ -3472,7 +3472,7 @@ handle_method_dispatch :: (
                                   return(Option(EvalResult).None);
                                 },
                                 true => {
-                                  inner_ca := raw_ca.substring(usize(1), n_ca - usize(1));
+                                  inner_ca := str_lit_unquote_bytes(raw_ca);
                                   cond(
                                     (ca_idx_u >= inner_ca.len()) => {
                                       return(Option(EvalResult).None);
@@ -3563,9 +3563,9 @@ handle_method_dispatch :: (
                                             return(Option(EvalResult).None);
                                           },
                                         true => {
-                                          inner_ra := raw_ra.substring(usize(1), n_ra - usize(1));
-                                          from_inner := from_raw.substring(usize(1), n_fr - usize(1));
-                                          to_inner := to_raw.substring(usize(1), n_tr - usize(1));
+                                          inner_ra := str_lit_unquote_bytes(raw_ra);
+                                          from_inner := str_lit_unquote_bytes(from_raw);
+                                          to_inner := str_lit_unquote_bytes(to_raw);
                                           replaced := inner_ra.replace_all(from_inner, to_inner);
                                           result_ra := ((String.from("\"") + replaced) + String.from("\""));
                                           return(Option(EvalResult).Some(eval_result(.StrLit(result_ra), t_comptime_string())));
@@ -3599,7 +3599,7 @@ handle_method_dispatch :: (
                   return(Option(EvalResult).None);
                 },
                 true => {
-                  inner_tr := raw_tr.substring(usize(1), n_tr2 - usize(1));
+                  inner_tr := str_lit_unquote_bytes(raw_tr);
                   trimmed := inner_tr.trim();
                   result_tr := ((String.from("\"") + trimmed) + String.from("\""));
                   return(Option(EvalResult).Some(eval_result(.StrLit(result_tr), t_comptime_string())));
@@ -3621,7 +3621,7 @@ handle_method_dispatch :: (
                   return(Option(EvalResult).None);
                 },
                 true => {
-                  inner_up := raw_up.substring(usize(1), n_up - usize(1));
+                  inner_up := str_lit_unquote_bytes(raw_up);
                   result_up := ((String.from("\"") + inner_up.to_uppercase()) + String.from("\""));
                   return(Option(EvalResult).Some(eval_result(.StrLit(result_up), t_comptime_string())));
                 }
@@ -3642,7 +3642,7 @@ handle_method_dispatch :: (
                   return(Option(EvalResult).None);
                 },
                 true => {
-                  inner_lo := raw_lo.substring(usize(1), n_lo - usize(1));
+                  inner_lo := str_lit_unquote_bytes(raw_lo);
                   result_lo := ((String.from("\"") + inner_lo.to_lowercase()) + String.from("\""));
                   return(Option(EvalResult).Some(eval_result(.StrLit(result_lo), t_comptime_string())));
                 }
@@ -3667,7 +3667,7 @@ handle_method_dispatch :: (
                   return(Option(EvalResult).Some(eval_result(.EnumVal(String.from(".None"), none_pi), t_unit())));
                 },
                 true => {
-                  inner_pi := raw_pi.substring(usize(1), n_pi - usize(1));
+                  inner_pi := str_lit_unquote_bytes(raw_pi);
                   match(
                     parse_raw_int(inner_pi),
                     .None => {
@@ -3700,7 +3700,7 @@ handle_method_dispatch :: (
                   return(Option(EvalResult).None);
                 },
                 true => {
-                  inner_rep := raw_rep.substring(usize(1), n_rep - usize(1));
+                  inner_rep := str_lit_unquote_bytes(raw_rep);
                   old_arg := match(
                     method_call_args.get(usize(0)),
                     .Some(oa) => match(
@@ -3739,8 +3739,8 @@ handle_method_dispatch :: (
                       return(Option(EvalResult).None);
                     }
                   );
-                  old_inner := cond((old_arg.len() >= usize(2)) => old_arg.substring(usize(1), old_arg.len() - usize(1)), true => old_arg);
-                  new_inner := cond((new_arg.len() >= usize(2)) => new_arg.substring(usize(1), new_arg.len() - usize(1)), true => new_arg);
+                  old_inner := cond((old_arg.len() >= usize(2)) => str_lit_unquote_bytes(old_arg), true => old_arg);
+                  new_inner := cond((new_arg.len() >= usize(2)) => str_lit_unquote_bytes(new_arg), true => new_arg);
                   replaced := inner_rep.replace(old_inner, new_inner);
                   result_rep := ((String.from("\"") + replaced) + String.from("\""));
                   return(Option(EvalResult).Some(eval_result(.StrLit(result_rep), t_comptime_string())));
@@ -3766,7 +3766,7 @@ handle_method_dispatch :: (
                   return(Option(EvalResult).Some(eval_result(.EnumVal(String.from(".None"), none_ix), t_unit())));
                 },
                 true => {
-                  inner_ix := raw_ix.substring(usize(1), n_ix - usize(1));
+                  inner_ix := str_lit_unquote_bytes(raw_ix);
                   needle_str := match(
                     method_call_args.get(usize(0)),
                     .Some(na2) => match(
@@ -3786,7 +3786,7 @@ handle_method_dispatch :: (
                       return(Option(EvalResult).None);
                     }
                   );
-                  needle_inner := cond((needle_str.len() >= usize(2)) => needle_str.substring(usize(1), needle_str.len() - usize(1)), true => needle_str);
+                  needle_inner := cond((needle_str.len() >= usize(2)) => str_lit_unquote_bytes(needle_str), true => needle_str);
                   match(
                     inner_ix.index_of(needle_inner),
                     .Some(pos) => {
@@ -3819,7 +3819,7 @@ handle_method_dispatch :: (
                   return(Option(EvalResult).None);
                 },
                 true => {
-                  inner_sp := raw_sp.substring(usize(1), n_sp - usize(1));
+                  inner_sp := str_lit_unquote_bytes(raw_sp);
                   delim_str := match(
                     method_call_args.get(usize(0)),
                     .Some(de) => match(
@@ -3839,7 +3839,7 @@ handle_method_dispatch :: (
                       return(Option(EvalResult).None);
                     }
                   );
-                  delim_inner := cond((delim_str.len() >= usize(2)) => delim_str.substring(usize(1), delim_str.len() - usize(1)), true => delim_str);
+                  delim_inner := cond((delim_str.len() >= usize(2)) => str_lit_unquote_bytes(delim_str), true => delim_str);
                   parts := inner_sp.split(delim_inner);
                   result_arr := ArrayList(EvalValue).new();
                   (spi : usize) = usize(0);
@@ -6094,8 +6094,8 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                   cond(
                     ((ln_s < usize(2)) || (rn_s < usize(2))) => Option(EvalResult).None,
                     true => {
-                      lhs_inner_s := lhs_raw_s.substring(usize(1), ln_s - usize(1));
-                      rhs_inner_s := rhs_raw_s.substring(usize(1), rn_s - usize(1));
+                      lhs_inner_s := str_lit_unquote_bytes(lhs_raw_s);
+                      rhs_inner_s := str_lit_unquote_bytes(rhs_raw_s);
                       concat_s := (((String.from("\"") + lhs_inner_s) + rhs_inner_s) + String.from("\""));
                       .Some(eval_result(.StrLit(concat_s), t_comptime_string()))
                     }
@@ -6962,7 +6962,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                           .StrLit(raw_pref) => {
                             n_pref := raw_pref.len();
                             inner_pref := cond(
-                              (n_pref >= usize(2)) => raw_pref.substring(usize(1), n_pref - usize(1)),
+                              (n_pref >= usize(2)) => str_lit_unquote_bytes(raw_pref),
                               true => raw_pref
                             );
                             uniq := random_id(String.from(""));
@@ -7272,7 +7272,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                       cond(
                         (rn < usize(2)) => Option(EvalResult).None,
                         true => {
-                          path_str := raw.substring(usize(1), rn - usize(1));
+                          path_str := str_lit_unquote_bytes(raw);
                           match(
                             g_module_loader,
                             .None => Option(EvalResult).None,
