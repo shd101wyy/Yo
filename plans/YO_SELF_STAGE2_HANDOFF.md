@@ -64,6 +64,30 @@ a DIFFERENT key (that's the smoking gun), then fix the eval-side id sharing
 the field-type keys. This also unblocks the FIXPOINT gate (deterministic
 emission).
 
+**[CFID-DUP] probe RESULT (smoking gun found):** 53,113 firings per stage-2
+emit. Struct id `struct_yo_id_13640` (constructor `gs_yo_id_13627` = the
+generic Bucket/HashMap-slot struct) computes DOZENS of different cfid-keys —
+every `Bucket(K,V)` instantiation shares ONE evaluator struct id (13640) with
+per-instantiation `type_arguments`, and `g_struct_cfid_keys[sid]` (single-slot,
+first-registration-wins, used so cfid-EMPTY copies can key correctly) pins ALL
+cfid-empty copies of ANY instantiation to the FIRST instantiation's key
+(`gs_yo_id_13627_struct_yo_id_4014_gs_yo_id_3843_bool`). Whenever a
+cfid-empty copy of a DIFFERENT instantiation flows into type registration /
+tracer synthesis, its C identity collapses onto the first one → the
+`.label`/`.ty` tracer cluster; which instantiation's layout wins is
+registration-order dependent → flaky. Also fires with RAW SomeT-id keys
+(`gs_yo_id_13627_2128_2129`) = an UNRESOLVED generic keyed pre-substitution.
+
+FIX DIRECTION (choose after inspecting the copy sites): the sid→key mapping is
+only sound when a struct id is 1:1 with an instantiation — it is NOT for the
+shared-generic-id scheme. Either (a) find where copies shed
+`constructor_func_id`/`type_arguments` (clone/shell/substitution) and PRESERVE
+them so no cfid-empty copies exist, or (b) drop the sid→key mapping and make
+cfid-empty copies an ERROR path (panic in debug) to surface the shedding
+sites. Option (a) is the faithful one (TS types never lose their identity
+fields). Do NOT "fix" by including field types in the key — the sharing is
+upstream.
+
 ## 0. Ground rules (READ FIRST)
 
 **Faithful-port discipline (non-negotiable):** For every bug — (1) confirm the
