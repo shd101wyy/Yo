@@ -45,15 +45,24 @@ blocks the fixpoint gate below — fix it next.
 
 ### The FLAKY tracer cluster (root direction)
 
-Tracer fn `yo_id_12__struct_struct_yo_id_NNN...` body specialized for
-`Bucket(String, FuncParam-like)` (walks `.value.label`/`.value.ty`) but bound
-to a DIFFERENT Bucket instantiation's slot type (e.g. value = `_SlotRange*` or
-`size_t`). [TRACE-SPEC] probe (collection.yo \_specialize_and_register_trace)
-showed 1:1 ct→fid on a clean run — the collision is elsewhere (suspect
-get_trace_function_for_type lookup or the traversal generator's Bucket-slot
-type resolution). Appears in roughly half of emits; compare by error text.
+Tracer body walks `.value.label`/`.value.ty` (Bucket(String, FuncParam-like))
+but binds a different Bucket instantiation's slot type. Mechanism narrowed
+(types/type*key.yo): generic structs key by `gs*<constructor*func_id>*<arg keys>`(depth ≤ 4), and`g_struct_cfid_keys[struct_id] → key`("first registration
+wins") maps ids to cfid-keys so cfid-empty COPIES reuse them. Collision path:
+if the EVALUATOR hands two different`Bucket(String, V1/V2)`instantiations the
+SAME struct id (comptime-fn cache returning a shared/mutated TypeValue — the
+"name-only struct compare / in-place mutation" class), the first-seen key wins
+for both → one C name, one layout, two callers → the`.label`/`.ty` cluster.
+Flakiness = which instantiation registers first (iteration-order dependent).
 
----
+NEXT: repro with two HashMap(String, A)/HashMap(String, B) (A = plain struct
+with label+ty-ish fields, B = ref struct) + cycle-GC live so tracers emit; if
+small programs don't trip it, probe stage-2: print struct id + cfid-key at
+g_struct_cfid_keys registration for ids whose key was ALREADY registered with
+a DIFFERENT key (that's the smoking gun), then fix the eval-side id sharing
+(resolve-args-before-cache-compare, cf. task #40) or make the cfid key include
+the field-type keys. This also unblocks the FIXPOINT gate (deterministic
+emission).
 
 ## 0. Ground rules (READ FIRST)
 
