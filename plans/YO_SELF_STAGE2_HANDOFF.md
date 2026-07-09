@@ -200,7 +200,7 @@ earlier probe "truncations" were the SAME bug inside the probes' own display
 loops. Corpus test: tests/codegen-bootstrap/template_multibyte.yo. Validated:
 repro TS-parity, corpus 107/107 DIFF 0, std 152/152.
 
-### Stage-2-binary runtime bug #2: needs_cycle_gc verdict diverges (ACTIVE)
+### Stage-2-binary runtime bug #2: needs_cycle_gc verdict diverges (ROOT FIXED — sentinel leak; successor bug #2b ACTIVE)
 
 Stage-2 binary WORKS (needs YO_MAIN_STACK_MB=16384 for -O0 compile paths;
 check works at 8192 — document/consider -O1 stage-2 builds). MINI-FIXPOINT
@@ -218,6 +218,35 @@ which can_type_form_rc_cycle returns TRUE during compute_needs_cycle_gc
 template_multibyte.yo, diff the lists; descend into the first type where
 they disagree (probe \_type_refs_back_to_cyclic decisions for that type).
 Round cost ~10 min (stage-1 rebuild 5 + stage-2 emit 3 + clang -O0 2).
+
+**RESOLVED root of #2:** the type_key POISON sentinel ("!AMBIG") leaked as a
+literal key through the `_tk_seen` CYCLE-GUARD path (g_struct_cfid_keys.get
+without the poison check) — **3310 `_AMBIG` occurrences** in stage-2 C, i.e.
+massive C-identity collisions (distinct ArrayList instantiations merged) →
+the stage-2 binary's hang (sample of the hung process named the fn whose
+MANGLED NAME contained `_AMBIG` — one-shot find) and the needs_cycle_gc
+divergence. Fixed: cycle-guard falls back to bare sid when poisoned
+(types/type_key.yo). New emit stage2P1.c: 0 real \_AMBIG (5 = a legit
+`Ambiguous` enum variant), clang 0.
+
+**Bug #2b (ACTIVE):** the sentinel-CLEAN stage-2 binary (built -O0 or -O1
+from stage2P1.c) now SIGBUS(138)/SIGSEGV(139) on any compile — even -O1
+(small frames → NOT stack). lldb: crash in `yo_id_401724` (the run_compile
+driver family) at an 8-byte indexed load whose base is STRING BYTES — bad
+address 0x2e6c746e63663c20 = ASCII " <fcntl." (from a c_include "<fcntl.h>"
+string) — i.e. an ArrayList(String)-style container iterated with
+pointer-sized stride over a byte buffer: a String/str/list LAYOUT confusion
+in the stage-2 C (relative of the String-\_bytes / ArrayList(String) family,
+task #53). NOTE: the OLD collision-ridden stage2Z1 binary RAN this compile —
+the sentinel fix changed type identities (correctly), exposing this latent
+layout divergence. ISOLATION STEP 1: the [NCG] probe is still compiled into
+stage2P1 — strip it (codegen_c.yo), rebuild stage-1, fresh probe-less
+stage-2 emit, -O1 build, retest (rules the probe in/out). STEP 2 if it still
+crashes: find the c_include-list handling in the driver (search yo-self
+main.yo/codegen for fcntl/c_include header iteration), compare its C in
+stage2P1.c vs the stage-1 reference emit (./yo-cli compile yo-self/main.yo
+--emit-c) — the layout diff names the emitter bug. Sentinel fix itself is
+gate-validated and committed separately.
 
 REMAINING AUDIT (same class, lower priority): byte_at loops near .len() in
 formatter.yo, token.yo, codegen/utils/index.yo, codegen/exprs/{match,

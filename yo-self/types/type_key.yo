@@ -91,7 +91,15 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
         return(
           match(
             g_struct_cfid_keys.get(sid.clone()),
-            .Some(k) => k,
+            // A POISONED slot ("!AMBIG" — multiple instantiations share this
+            // sid) must NOT leak the sentinel as a key: two different nested
+            // types would both render "!AMBIG" and collide (the sentinel
+            // appeared inside specialized C fn names, merging distinct
+            // ArrayList instantiations — the stage-2 binary's runtime hang).
+            // Fall back to the bare sid: the cycle guard only fires for a
+            // type already ON the expansion path, where id-only rendering is
+            // the pre-poison behavior for self-references.
+            .Some(k) => if(k == String.from("!AMBIG"), sid.clone(), k),
             .None => sid.clone()
           )
         );
