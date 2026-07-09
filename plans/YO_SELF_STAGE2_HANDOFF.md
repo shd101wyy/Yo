@@ -279,6 +279,25 @@ the DISTINCTIVE calls (`buffer_element_type`'s Option return match) and
 - Bug #2c (separate): probe-less clean binary at -O1 HANGS (works -O0) —
   UB-under-optimization in the emitted C; sample showed the inlined driver
   self-looping. Park until #2 fixed.
+- Rounds 13-14 (C-diff): stage-2's compiled compute_needs_cycle_gc
+  (yo_id_401566) AND buffer_element_type (yo_id_16748, incl. the
+  `&& result.is_none()` loop conditions) are FAITHFUL to source and to
+  stage-1's C. Remaining uncompared: `_type_refs_back_to_cyclic`
+  (yo_id_16767 in /tmp/stage2T1x.c; stage-1:
+  fn_yoa70a5baa_id_104\_\_type_refs_back_to_cyclic in /tmp/stage1-ref.c
+  — use the string-literal-aware brace extractor from this session's
+  transcript, extract at the DEFINITION line found via
+  `grep -n 'static.*<name>(' file | tail -1`).
+- If that too is faithful → the divergence is in the runtime TYPE DATA: the
+  ArrayList (struct 3849) type object the STAGE-2 EVALUATOR constructs has a
+  buffer field whose type is NOT the `?*(E)` EnumT shape (buffer_element_type
+  then correctly returns None on WRONG data). Strategy: make the type DATA
+  visible via the .c channel WITHOUT touching the fragile analysis region —
+  e.g. emit a C comment per collected type listing field-type TAGS from the
+  types/collection walk (a DIFFERENT, hopefully non-fragile region), diff
+  stage-1 vs stage-2 for struct 3849's field shapes. The data divergence then
+  points at the stage-2 EVALUATOR bug (parse/eval of ArrayList's `?*(E)`
+  field — possibly another latent stage-2 runtime bug in type construction).
 - PROBE STILL IN TREE: codegen_c.yo minimal [NCG] emit — STRIP before any
   commit (git diff should show codegen_c.yo + nothing else unexpected).
 
