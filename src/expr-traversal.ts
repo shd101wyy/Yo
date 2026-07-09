@@ -143,7 +143,11 @@ export function allPathsUnwind(expr: Expr): boolean {
   // so renames don't bypass the check silently.
   if (exprIsAtom(expr.func)) {
     const callee = expr.func.token.value;
-    if (callee === "panic" || callee === "abort" || callee === "unreachable") {
+    if (
+      callee === "__yo_panic" ||
+      callee === "abort" ||
+      callee === "unreachable"
+    ) {
       return true;
     }
   }

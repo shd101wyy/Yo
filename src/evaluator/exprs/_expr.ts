@@ -706,7 +706,7 @@ ${exprToString(expr)}`,
         env,
         context: { ...context },
       });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.panic)) {
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_panic)) {
       // panic
       return evaluatePanic({
         expr,

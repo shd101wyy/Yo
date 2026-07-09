@@ -1,0 +1,25 @@
+//! Runtime assertion and panic functions.
+//!
+//! `panic` accepts `str` messages directly (forwarded to `__yo_panic`).
+//! `assert` accepts `str` messages and delegates to `panic`.
+//!
+//! For types implementing `ToString`, call `.to_string()` before passing:
+//!   assert(flag, my_val.to_string());
+//!   panic(my_val.to_string());
+//!
+//! Usage:
+//!   assert(x > i32(0), "x must be positive");
+//!   assert(opt.is_some(), "Expected Some");
+//!   panic("unexpected condition");
+/// Terminate the program with a message.
+panic :: (fn(msg : str) -> unit)(
+  __yo_panic(msg)
+);
+/// Runtime assertion. If `flag` is false, call `panic(msg)`.
+assert :: (fn(flag : bool, msg : str) -> unit)(
+  cond(
+    flag => (),
+    true => panic(msg)
+  )
+);
+export(panic, assert);

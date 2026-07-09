@@ -155,7 +155,7 @@ _alloc_map_children :: (fn(comptime(K) : Type, comptime(V) : Type, count : u8, w
   match(
     malloc(sz),
     .Some(p) => p,
-    .None => panic("imm.Map: allocation failed")
+    .None => __yo_panic("imm.Map: allocation failed")
   )
 });
 _branch_index_for :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, where(K <: (Eq(K), Hash, Send), V <: Send)) -> u8)(
@@ -239,7 +239,7 @@ _alloc_pairs :: (fn(comptime(K) : Type, comptime(V) : Type, count : usize, where
   match(
     malloc(sz),
     .Some(p) => *(Pair(K, V))(p),
-    .None => panic("imm.Map: collision allocation failed")
+    .None => __yo_panic("imm.Map: collision allocation failed")
   )
 });
 _coll_find_key :: (fn(comptime(K) : Type, comptime(V) : Type, coll : MapCollision(K, V), k : K, where(K <: (Eq(K), Hash, Send), V <: Send)) -> Option(usize))({
@@ -960,7 +960,7 @@ impl(
     i := usize(0);
     plen := pairs.len();
     while(i < plen, i = (i + usize(1)), {
-      p := match(pairs.get(i),.Some(__e) => __e,.None => panic("from_entries: index out of bounds"));
+      p := match(pairs.get(i),.Some(__e) => __e,.None => __yo_panic("from_entries: index out of bounds"));
       result = result.insert(p.key, p.value);
     });
     result

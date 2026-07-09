@@ -1221,7 +1221,7 @@ export const BuiltinFunctions = {
   c_include: ["c_include"],
 
   // Error handling
-  panic: ["panic"],
+  __yo_panic: ["__yo_panic"],
 
   // Rc/Gc related
   __yo_decr_rc: ["__yo_decr_rc"], // decrement the reference-counter (usize)

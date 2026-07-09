@@ -642,7 +642,7 @@ function generateFuncCall(
   }
 
   // panic - print error message and call abort() [C stdlib]
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.panic)) {
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_panic)) {
     return generatePanic(expr, indent, context);
   }
 

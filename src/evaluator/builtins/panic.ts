@@ -2,7 +2,10 @@ import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import type { FnCallExpr } from "../../expr";
 import { createPtrType } from "../../types/creators";
-import { isComptimeStringType, isStrType as isStrTypeGuard } from "../../types/guards";
+import {
+  isComptimeStringType,
+  isStrType as isStrTypeGuard,
+} from "../../types/guards";
 import { VUnit } from "../../unit-value";
 import { isComptimeStringValue, isUnknownValue } from "../../value";
 import type { EvaluatorContext } from "../context";
@@ -24,7 +27,7 @@ export function evaluatePanic({
   ) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `panic() can only be called inside a function body or test block`,
+      errorMessage: `__yo_panic() can only be called inside a function body or test block`,
     });
   }
 
@@ -33,7 +36,7 @@ export function evaluatePanic({
   if (context.isAnalyzingCtfeCapability) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Cannot use "panic" during compile-time function evaluation analysis. Functions containing "panic" cannot be evaluated at compile time.`,
+      errorMessage: `Cannot use "__yo_panic" during compile-time function evaluation analysis. Functions containing "__yo_panic" cannot be evaluated at compile time.`,
     });
   }
 

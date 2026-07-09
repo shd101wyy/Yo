@@ -116,7 +116,7 @@ impl(
     match(
       result,
       .Ok(map) => map,
-      .Err(_) => panic("Failed to allocate HashMap")
+      .Err(_) => __yo_panic("Failed to allocate HashMap")
     )
   }),
   /**
@@ -141,7 +141,7 @@ impl(
     match(
       result,
       .Ok(map) => map,
-      .Err(_) => panic("Failed to allocate HashMap")
+      .Err(_) => __yo_panic("Failed to allocate HashMap")
     )
   }),
   /**
@@ -151,7 +151,7 @@ impl(
     match(
       self.ctrl,
       .Some(ptr) => ptr,
-      .None => panic("HashMap ctrl pointer is null")
+      .None => __yo_panic("HashMap ctrl pointer is null")
     )
   ),
   /**
@@ -161,7 +161,7 @@ impl(
     match(
       self.data,
       .Some(ptr) => ptr,
-      .None => panic("HashMap data pointer is null")
+      .None => __yo_panic("HashMap data pointer is null")
     )
   ),
   /**
@@ -213,7 +213,7 @@ impl(
         true => ()
       );
     });
-    panic("HashMap is full - should have resized")
+    __yo_panic("HashMap is full - should have resized")
   }),
   /**
   * Check if HashMap needs resizing based on load factor
@@ -701,7 +701,7 @@ impl(
           data_ptr := Self._data_ptr(self);
           &((data_ptr &+ i).*.value)
         },
-        .None => panic("HashMap: key not found")
+        .None => __yo_panic("HashMap: key not found")
       )
     })
   )

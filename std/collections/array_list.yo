@@ -48,7 +48,7 @@ impl(
       (new_len <= self._capacity) => {
         self._length = new_len;
       },
-      true => panic("set_len: new length exceeds capacity")
+      true => __yo_panic("set_len: new length exceeds capacity")
     );
   }),
   /**
@@ -127,7 +127,7 @@ impl(
               _length : usize(0),
               _capacity : cap
             ),
-          .None => panic("malloc returned None")
+          .None => __yo_panic("malloc returned None")
         )
       }
     )
@@ -178,7 +178,7 @@ impl(
             self._length = (self._length + usize(1));
             .Ok(())
           },
-          .None => panic("ArrayList has capacity but no ptr")
+          .None => __yo_panic("ArrayList has capacity but no ptr")
         )
     )
   ),
@@ -246,7 +246,7 @@ impl(
             // Otherwise, reallocate to exact size
             match(
               self._ptr,
-              .None => panic("ArrayList has capacity but no ptr"),
+              .None => __yo_panic("ArrayList has capacity but no ptr"),
               .Some(old_ptr) => {
                 new_some_ptr := GlobalAllocator.realloc(
                   .Some(*(void)(old_ptr)),
@@ -304,7 +304,7 @@ impl(
           true =>
             match(
               self._ptr,
-              .None => panic("ArrayList has length but no ptr"),
+              .None => __yo_panic("ArrayList has length but no ptr"),
               .Some(_ptr) => {
                 // Shift remaining elements left to fill the gap
                 // We need to move elements from [start + actual_count, length) to [start, ...)
@@ -397,7 +397,7 @@ impl(
           true =>
             match(
               self._ptr,
-              .None => panic("ArrayList has length but no ptr"),
+              .None => __yo_panic("ArrayList has length but no ptr"),
               .Some(src_ptr) => {
                 // Create new ArrayList with exact capacity
                 new_list := Self.with_capacity(slice_length);
@@ -455,7 +455,7 @@ impl(
             self._ptr =.Some((*(T))(new_ptr));
             self._capacity = new_capacity;
           },
-          .None => panic("ArrayList.ensure_total_capacity: allocation failed")
+          .None => __yo_panic("ArrayList.ensure_total_capacity: allocation failed")
         );
       }
     );
@@ -476,7 +476,7 @@ impl(
             _ := unsafe(memcpy(dst, (*(void))(src), count * sizeof(T)));
             self._length = (self._length + count);
           },
-          .None => panic("ArrayList.extend_from_ptr: no ptr after ensure_total_capacity")
+          .None => __yo_panic("ArrayList.extend_from_ptr: no ptr after ensure_total_capacity")
         );
       }
     );
@@ -522,7 +522,7 @@ impl(
             _ := unsafe(memset(start, byte_val, fill_count));
             self._length = new_len;
           },
-          .None => panic("ArrayList.resize_with_byte: no ptr after ensure")
+          .None => __yo_panic("ArrayList.resize_with_byte: no ptr after ensure")
         );
       }
     );
@@ -540,7 +540,7 @@ impl(
       match(
         self._ptr,
         .Some(_ptr) => (_ptr &+ idx),
-        .None => panic("ArrayList: index on empty list")
+        .None => __yo_panic("ArrayList: index on empty list")
       )
     })
   )

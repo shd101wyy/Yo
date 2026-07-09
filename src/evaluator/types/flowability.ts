@@ -149,7 +149,7 @@ export function isFlowableExpr(
   }
   if (
     exprIsFunctionCall(expr) &&
-    exprIsFunctionCallOf(expr, BuiltinFunctions.panic)
+    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_panic)
   ) {
     return true;
   }
@@ -725,7 +725,10 @@ export function requireValidRefArgumentPlaces({
         rawType && isSomeType(rawType) && rawType.resolvedConcreteType
           ? rawType.resolvedConcreteType
           : rawType;
-      if (hopType && (isReferenceStructType(hopType) || isAtomicReferenceStructType(hopType))) {
+      if (
+        hopType &&
+        (isReferenceStructType(hopType) || isAtomicReferenceStructType(hopType))
+      ) {
         hasObjectHop = true;
         break;
       }
@@ -753,7 +756,8 @@ export function requireValidRefArgumentPlaces({
       const rootType = rootVar?.type;
       const rootIsObject =
         rootType !== undefined &&
-        (isReferenceStructType(rootType) || isAtomicReferenceStructType(rootType));
+        (isReferenceStructType(rootType) ||
+          isAtomicReferenceStructType(rootType));
       const refArgType = argExprs[i]?.$?.type;
       const refTypeContainsRc =
         refArgType !== undefined && typeContainsRcType(refArgType);

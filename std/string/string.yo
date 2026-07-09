@@ -434,9 +434,9 @@ impl(
       .Some(b) => match(
         b.get(index),
         .Some(v) => v,
-        .None => panic("String.byte_at: index out of bounds")
+        .None => __yo_panic("String.byte_at: index out of bounds")
       ),
-      .None => panic("String.byte_at: index out of bounds")
+      .None => __yo_panic("String.byte_at: index out of bounds")
     )
   ),
   /**
@@ -478,7 +478,11 @@ impl(
             end_byte = byte_index;
             break;
           });
-          (b : u8) = al(byte_index);
+          (b : u8) = match(
+            al.get(byte_index),
+            .Some(v) => v,
+            .None => u8(0)
+          );
           (byte_len : usize) = cond(
             (b < u8(0x80)) => usize(1),
             (b < u8(0xE0)) => usize(2),
@@ -1279,7 +1283,11 @@ impl(
         });
         (start_idx : usize) = usize(0);
         while(start_idx < total_bytes, {
-          (b : u8) = al(start_idx);
+          (b : u8) = match(
+            al.get(start_idx),
+            .Some(v) => v,
+            .None => u8(0)
+          );
           if(!(Self._is_whitespace_byte(b)), {
             break;
           });
@@ -1287,7 +1295,11 @@ impl(
         });
         (end_idx : usize) = total_bytes;
         while(end_idx > start_idx, {
-          (b : u8) = al(end_idx - usize(1));
+          (b : u8) = match(
+            al.get(end_idx - usize(1)),
+            .Some(v) => v,
+            .None => u8(0)
+          );
           if(!(Self._is_whitespace_byte(b)), {
             break;
           });
@@ -2349,8 +2361,12 @@ impl(
     index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
       match(
         self._bytes,
-        .Some(bytes) => &(bytes(idx)),
-        .None => panic("String: index on empty string")
+        .Some(bytes) => match(
+          bytes.get(idx),
+          .Some(v) => &(v),
+          .None => __yo_panic("String: index out of bounds")
+        ),
+        .None => __yo_panic("String: index on empty string")
       )
     )
   )
@@ -2390,13 +2406,13 @@ impl(
 panic_dyn :: (fn(msg : String) -> unit)({
   // Write the heap message bytes to stderr, then abort via panic.
   // (str is the STATIC string view now — a heap String can't be passed
-  // to panic(str); see plans/SLICE_REWORK.md.)
+  // to __yo_panic(str); see plans/SLICE_REWORK.md.)
   rb := msg.raw_bytes();
   // SAFETY: rb points into msg's live buffer for the duration of the call.
   // fwrite (ANSI C) instead of POSIX write(2, …) so the emitted C is portable
   // to Windows targets.
   ___ := unsafe(fwrite(*(void)(rb.ptr), usize(1), rb.len, stderr));
-  panic("");
+  __yo_panic("");
 }); /// Like `assert`, but accepts a runtime `String` message (e.g. a template
 /// string with interpolation: `` `error: ${value}` ``).
 ///

@@ -5766,13 +5766,7 @@ impl(
 );
 // (str is a builtin type — no export needed; the identifier resolves
 // everywhere like bool/i32.)
-assert :: (fn(flag : bool, (msg : str) ?= "Assertion failed.") -> unit)(
-  cond(
-    flag => (),
-    true => panic(msg)
-  )
-);
-export(assert);
+export();
 /// ComptimeList
 impl(forall(T : Type), ComptimeList(T), Comptime());
 impl(forall(T : Type), ComptimeList(T), Acyclic());
@@ -6336,7 +6330,7 @@ impl(
     match(
       self,
       .Some(value) => value,
-      .None => panic("Called unwrap on a None value")
+      .None => __yo_panic("Called unwrap on a None value")
     )
   ),
   /// Extract the contained value, or return `or_value` if `None`.
@@ -6469,7 +6463,7 @@ impl(
     match(
       self,
       .Some(value) => value,
-      .None => panic("Called comptime_unwrap on a None value")
+      .None => __yo_panic("Called comptime_unwrap on a None value")
     )
   ),
   comptime_unwrap_or : (fn(comptime(self) : Self, comptime(or_value) : T) -> comptime(T))(
@@ -7096,7 +7090,7 @@ impl(
     match(
       self,
       .Ok(value) => value,
-      .Err(_) => panic("Called unwrap on an Error value")
+      .Err(_) => __yo_panic("Called unwrap on an Error value")
     )
   ),
   /// Extract the `Err` value, panicking if `Ok`.
@@ -7104,7 +7098,7 @@ impl(
     match(
       self,
       .Err(error) => error,
-      .Ok(_) => panic("Called unwrap_err on an Ok value")
+      .Ok(_) => __yo_panic("Called unwrap_err on an Ok value")
     )
   ),
   /// Return `true` if the result is `Ok`.
@@ -7250,14 +7244,14 @@ impl(
     match(
       self,
       .Ok(value) => value,
-      .Err(_) => panic("Called comptime_unwrap on an Err value")
+      .Err(_) => __yo_panic("Called comptime_unwrap on an Err value")
     )
   ),
   comptime_unwrap_err : (fn(comptime(self) : Self) -> comptime(ErrorType))(
     match(
       self,
       .Err(error) => error,
-      .Ok(_) => panic("Called comptime_unwrap_err on an Ok value")
+      .Ok(_) => __yo_panic("Called comptime_unwrap_err on an Ok value")
     )
   ),
   comptime_is_ok : (fn(comptime(self) : Self) -> comptime(bool))(
