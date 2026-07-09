@@ -626,3 +626,65 @@ test("generate_expr_from_code: function call produces fn call expr", {
   expr := generate_expr_from_code(String.from("foo()"), exn);
   assert(ast_expr_is_fn_call(expr), "foo() should be a fn call expression");
 });
+// ─── Colon/assignment operators with parenthesized -> RHS ────────────────────
+// Regression: these patterns are used extensively in the prelude and must parse
+// without error. The RHS (fn(...) -> T) is a parenthesized expression — the
+// strict operator grouping check must not fire.
+test("Parse colon : with parenthesized -> RHS", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(());
+      }
+    )
+  );
+  prog := parse(`x : (fn() -> i32)`, `test.yo`, exn);
+  e := only_expr(prog);
+  assert(ast_expr_is_fn_call(e), "colon : should produce FnCall");
+});
+test("Parse ?= with parenthesized -> RHS", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(());
+      }
+    )
+  );
+  prog := parse(`x ?= (fn() -> i32)`, `test.yo`, exn);
+  e := only_expr(prog);
+  assert(ast_expr_is_fn_call(e), "?= should produce FnCall");
+});
+test("Parse := with parenthesized -> RHS", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(());
+      }
+    )
+  );
+  prog := parse(`x := (fn() -> i32)`, `test.yo`, exn);
+  e := only_expr(prog);
+  assert(ast_expr_is_fn_call(e), ":= should produce FnCall");
+});
+test("Parse colon : with multi-line parenthesized -> RHS", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(());
+      }
+    )
+  );
+  prog := parse(
+    `({
+    Output : comptime_int,
+    (+) : (
+      (lhs, rhs) ->
+        lhs + rhs
+    )
+})`,
+    `test.yo`,
+    exn
+  );
+  e := only_expr(prog);
+  assert(ast_expr_is_fn_call(e), "colon with multi-line parens should parse");
+});

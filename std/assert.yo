@@ -1,25 +1,30 @@
 //! Runtime assertion and panic functions.
 //!
-//! `panic` accepts `str` messages directly (forwarded to `__yo_panic`).
-//! `assert` accepts `str` messages and delegates to `panic`.
-//!
-//! For types implementing `ToString`, call `.to_string()` before passing:
-//!   assert(flag, my_val.to_string());
-//!   panic(my_val.to_string());
+//! Both `panic` and `assert` accept any type that implements the `ToString`
+//! trait — its `.to_string().to_c_str()` result is forwarded to the built-in
+//! `__yo_panic`. The `to_c_str()` allocates a C string on the heap; the caller
+//! (process termination via abort) does not need to free it.
 //!
 //! Usage:
 //!   assert(x > i32(0), "x must be positive");
 //!   assert(opt.is_some(), "Expected Some");
 //!   panic("unexpected condition");
+{ ToString } :: import("std/fmt/to_string");
 /// Terminate the program with a message.
-panic :: (fn(msg : str) -> unit)(
-  __yo_panic(msg)
-);
+///
+/// `msg` must implement `ToString`.
+panic :: (fn(forall(T : Type), msg : T, where(T <: ToString)) -> unit)({
+  __yo_panic(msg.to_string().to_c_str());
+  ()
+});
 /// Runtime assertion. If `flag` is false, call `panic(msg)`.
-assert :: (fn(flag : bool, msg : str) -> unit)(
+///
+/// `msg` must implement `ToString`.
+assert :: (fn(forall(T : Type), flag : bool, msg : T, where(T <: ToString)) -> unit)({
   cond(
     flag => (),
     true => panic(msg)
-  )
-);
+  );
+  ()
+});
 export(panic, assert);

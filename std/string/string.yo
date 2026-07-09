@@ -4,6 +4,8 @@ pragma(Pragma.AllowUnsafe);
 { rune } :: import("./rune.yo");
 { memcpy, memcmp, strlen } :: import("../libc/string.yo");
 { fwrite, stderr } :: import("../libc/stdio.yo");
+{ GlobalAllocator } :: import("../allocator.yo");
+{ malloc } :: GlobalAllocator;
 /// String operation error variants.
 StringError :: enum(
   /// The input bytes are not valid UTF-8.
@@ -183,6 +185,27 @@ impl(
       )
     )
   ),
+  /**
+  * Allocate a null-terminated C string copy on the heap.
+  * The caller MUST free the returned pointer to avoid a memory leak.
+  */
+  to_c_str : (fn(self : Self) -> *(u8))({
+    raw := self.raw_bytes();
+    sz := (raw.len + usize(1));
+    ptr_opt := malloc(sz);
+    ptr := match(
+      ptr_opt,
+      .Some(p) => *(u8)(p),
+      .None => __yo_panic("to_c_str: allocation failed")
+    );
+    if(raw.len > usize(0), {
+      unsafe(memcpy(*(void)(ptr), *(void)(raw.ptr), raw.len));
+    });
+    // Null-terminate
+    (null_byte : *(u8)) = (ptr &+ raw.len);
+    null_byte.* = u8(0);
+    ptr
+  }),
   /**
   * Decode a UTF-8 encoded rune starting at the given byte index
   * Internal helper method

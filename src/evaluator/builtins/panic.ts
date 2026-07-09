@@ -4,7 +4,9 @@ import type { FnCallExpr } from "../../expr";
 import { createPtrType } from "../../types/creators";
 import {
   isComptimeStringType,
+  isPtrType,
   isStrType as isStrTypeGuard,
+  isU8Type,
 } from "../../types/guards";
 import { VUnit } from "../../unit-value";
 import { isComptimeStringValue, isUnknownValue } from "../../value";
@@ -92,11 +94,13 @@ export function evaluatePanic({
       msgValue &&
       (isComptimeStringValue(msgValue) ||
         (isUnknownValue(msgValue) && isComptimeStringType(msgValue.type)));
+    const msgIsCStr =
+      msgType && isPtrType(msgType) && isU8Type(msgType.childType);
 
-    if (!msgIsStr && !isComptimeStr) {
+    if (!msgIsStr && !isComptimeStr && !msgIsCStr) {
       throw formatErrorMessage({
         token: messageExpr.token,
-        errorMessage: `panic message must be a comptime_str or str`,
+        errorMessage: `__yo_panic message must be comptime_str, str, or *(u8)`,
       });
     }
   }
