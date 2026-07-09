@@ -248,6 +248,40 @@ stage2P1.c vs the stage-1 reference emit (./yo-cli compile yo-self/main.yo
 --emit-c) — the layout diff names the emitter bug. Sentinel fix itself is
 gate-validated and committed separately.
 
+#### Bug #2 status after rounds 8-12 (2026-07-09 afternoon)
+
+- Sentinel-clean PROBE-LESS stage-2 binary RUNS the small compile (-O0,
+  YO_MAIN_STACK_MB=16384) but picks the Lightweight RC preamble; stage-1 and
+  TS pick cycle-GC → verdict divergence CONFIRMED post-sentinel.
+- s1 [NCGT] trace of the verdict: root struct_yo_id_3849 (ArrayList), fields
+  f0-f2=0, **b0=1** — the BUFFER-element path (`buffer_element_type` +
+  `_type_refs_back_to_cyclic(elem)`) produces cyc=1. Stage-2 must compute 0
+  somewhere on this path.
+- EVERY instrumented stage-2 build crashes 139 (three probe styles: eprintln
+  template, cross-layer C-comment, global-trace-list, minimal local-only
+  probe) while the probe-less build runs — the region is FRAGILE in stage-2:
+  the same miscompile that flips the verdict makes added code crash. (The
+  earlier probed-hang at 13:5x was the sentinel collisions; post-fix probes
+  crash instead.)
+- Stage-2's compute*needs_cycle_gc compiled C (yo_id_401566 in
+  /tmp/stage2T1x.c) reads FAITHFUL (guards, probe, yo_id_16870 =
+  can_type_form_rc_cycle, set+shortcircuit). NEXT: diff yo_id_16870 and its
+  callees (buffer_element_type, \_type_refs_back_to_cyclic) against stage-1's
+  `fn*...\_can_type_form_rc_cycle` in /tmp/stage1-ref.c (52MB TS reference
+emit EXISTS at /tmp/stage1-ref.c; probe-carrying source). CAUTION: naive
+brace-matching extraction fails (braces inside string literals) — use a
+string-literal-aware scanner or clang -ast-dump, or grep the fn body for
+the DISTINCTIVE calls (`buffer_element_type`'s Option return match) and
+  compare call sequences rather than full bodies.
+- Artifacts: /tmp/stage2T1x.c (stage-2 C with minimal probe),
+  /tmp/stage1-ref.c (TS reference), /tmp/fn-s1.c + /tmp/fn-s2.c (compute
+  fns, s1 valid + s2 valid), /tmp/ncgt-s1.txt (verdict trace).
+- Bug #2c (separate): probe-less clean binary at -O1 HANGS (works -O0) —
+  UB-under-optimization in the emitted C; sample showed the inlined driver
+  self-looping. Park until #2 fixed.
+- PROBE STILL IN TREE: codegen_c.yo minimal [NCG] emit — STRIP before any
+  commit (git diff should show codegen_c.yo + nothing else unexpected).
+
 REMAINING AUDIT (same class, lower priority): byte_at loops near .len() in
 formatter.yo, token.yo, codegen/utils/index.yo, codegen/exprs/{match,
 init_assignment,cond}.yo — sweep with the gates after the fixpoint.
