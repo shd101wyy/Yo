@@ -947,6 +947,21 @@ evaluate_begin_expression :: (
   if((ast_expr_id(expr) == ast_expr_id(last_expr)) && carry_runtime_args, {
     out_info.runtime_arg_exprs_in_order = last_info.runtime_arg_exprs_in_order;
   });
+  // Same shared-id clobber: an Index-trait call stamped `index_trait_ptr_type`
+  // / `index_method_type` / `index_method_value` on this id (function.yo's
+  // out_idx paths); dropping them turns a bare `xs(i)` cond/if arm body into
+  // "Failed to transpile" (generation.yo's index branch needs both). Carry
+  // them across when the result node IS the inner call node AND the result is
+  // runtime (same gate as runtime_arg_exprs_in_order above: a comptime-FOLDED
+  // element access emits via the comptime-value path — carrying the index
+  // fields would wrongly route it through the index-call C branch). (TS clones
+  // the inner expr into the begin node, so its `$` never collides —
+  // begin.ts:1016-1045.)
+  if(((ast_expr_id(expr) == ast_expr_id(last_expr)) && carry_runtime_args) && last_info.index_method_type.is_some(), {
+    out_info.index_trait_ptr_type = last_info.index_trait_ptr_type;
+    out_info.index_method_type = last_info.index_method_type;
+    out_info.index_method_value = last_info.index_method_value;
+  });
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   // Attach temp variable for the begin block result (no-op stub in Phase 2aa).
   attach_temp_variable_to_expr(expr, true, ctx);

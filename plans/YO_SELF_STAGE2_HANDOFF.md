@@ -4,7 +4,14 @@
 the self-compiled `yo-self` binary's `test` subcommand pass `./tests` and
 `./yo-self/tests` (tasks #69, #70).
 
-**Current state: 3 stage-2 clang errors** (was 56; −53 total). Remaining: undeclared get_info (1), FTT expected-expression / argv-index (1), undeclared RC-drop temp (1).
+**Current state: 2 deterministic + 1 FLAKY stage-2 error families** (was 56).
+Deterministic: undeclared `get_info` (1), undeclared RC-drop temp `_file____User_temp_18xxxx` (1).
+FLAKY (nondeterministic per emit — appears in some runs as ~8-10 clang errors): GC-tracer
+`.label`/`.ty` member-refs on `__yo_tNNN *` (a Bucket VALUE that is a ref-struct pointer
+traced as an inline struct — type-identity flips run-to-run; suspect instantiation-order
+dependent struct-identity registration). The argv-index if-arm FTT is FIXED (begin.yo
+index-field carry). **Compare stage-2 runs by error TEXT, not count — and re-run twice
+before attributing a new error family to your change.**
 
 ---
 
