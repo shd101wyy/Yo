@@ -47,6 +47,46 @@ find the miscompiled function in stage2W1.c → find the yo-self emitter bug
 fix → re-emit → re-build → re-run. The corpus diff-test can also run with
 YO_SELF_BIN=/tmp/yo-self-stage2 once the binary survives startup.
 
+### Stage-2-binary runtime bug #1: multibyte template-segment corruption (ACTIVE)
+
+Seconds-fast repro (src/tests/fixme.yo):
+
+```rust
+main :: (fn() -> unit)({
+  path := String.from("abc.yo");
+  println(`check: ${path} — evaluator OK`);   // em-dash = 3-byte UTF-8
+});
+```
+
+TS prints `check: abc.yo — evaluator OK`; the yo-self-compiled binary prints
+`check: abc.yo" — evaluator O`. The emitted C literal for the TRAILING segment
+is `"\" — evaluator O", .len = 17` — the value equals runes **[0..15)** of the
+QUOTED raw `" — evaluator OK"` (17 runes), i.e. some consumer strips quotes
+with `substring(0, N)` (N = content rune count / len-2) instead of
+`substring(1, N+1)` — keeps the LEADING quote, drops the trailing `K`+quote.
+ASCII leading segments print correctly, so the buggy site is hit only by the
+trailing/RHS-of-+ segment or only when rune_count != byte_count triggers a
+different code path. Checked clean already: lexer.yo template scan (rune SB),
+parser.yo parse_template_string (rune-correct), evaluator/values/string.yo
+decode_str_lit_escapes (rune-correct, re-adds quotes),
+codegen/exprs/comptime_value.yo \_strip_str_delims (byte-exact).
+NEXT PROBE: eprintln the StrLit raw at decode_str_lit_escapes OUT + at
+\_strip_str_delims IN for values containing "evaluator" in the repro — the
+side whose input is already corrupted localizes the bug to eval-concat
+(comptime `+` folding of the to_string chain — check the comptime string
+concat implementation for a substring(0, len-2)-style unquote) vs codegen.
+Prime suspect AFTER those: the comptime `+` fold unquoting its StrLit
+operands (search evaluator for where two StrLits concatenate — the RHS
+unquote). NOTE this bug is in the STAGE-1 binary (yo-self-poison, TS-built)
+→ it is a YO-SELF SOURCE bug uncaught because the corpus has no multibyte
+template test — ADD tests/codegen-bootstrap/template_multibyte.yo with the
+repro once fixed.
+
+Also: the stage-2 binary printed "parsed 0 top-level exprs" for the prelude —
+after the template fix re-check; if parsing still returns 0 exprs there is a
+second runtime bug (likely ALSO string/multibyte related — the source files
+contain multibyte chars in comments).
+
 ---
 
 ## 1. The iteration loop + validation protocol (used EVERY phase)
