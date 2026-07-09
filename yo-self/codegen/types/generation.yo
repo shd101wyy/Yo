@@ -13,6 +13,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_reference_struct_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
 { type_contains_some_type } :: import("../../types/utils.yo");
+{ lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_target_windows, is_target_macos } :: import("../../target.yo");
 {
@@ -802,10 +803,21 @@ _walk_by_value_dep :: (fn(deps_set : HashSet(String), ft : TypeValue, self_type_
     // this edge the capture body comes later → "field has incomplete type").
     is_some_type(ft) => match(
       ft,
-      .SomeT({ resolved_concrete : wrc }) => match(
+      .SomeT({ id : w_sid, resolved_concrete : wrc }) => match(
         wrc,
         .Some(wrct) => recur(deps_set, wrct, self_type_id, guard_nullable, cname_to_typeid, context),
-        .None => ()
+        // No per-object resolution: fall back to the GLOBAL registry, exactly
+        // like get_type_string's SomeT arm (utils/index.yo) — a closure-param
+        // capture field (Impl(Fn) SomeT) is registered there
+        // (register_some_resolved_concrete at closure creation), so without
+        // this fallback the emitter prints the capture struct while the dep
+        // walk adds no edge → "field has incomplete type" when a capture
+        // struct embeds another closure's capture struct by value.
+        .None => match(
+          lookup_some_resolved_concrete(w_sid),
+          .Some(grct) => recur(deps_set, grct, self_type_id, guard_nullable, cname_to_typeid, context),
+          .None => ()
+        )
       ),
       _ => ()
     ),
@@ -819,6 +831,17 @@ _walk_by_value_dep :: (fn(deps_set : HashSet(String), ft : TypeValue, self_type_
       _walk_add_dep(deps_set, ft, self_type_id, cname_to_typeid, context);
     },
     is_tuple_type(ft) => {
+      _walk_add_dep(deps_set, ft, self_type_id, cname_to_typeid, context);
+    },
+    // A closure-valued field types as the closure's Func type but is EMITTED
+    // as its capture STRUCT by value (get_type_string lowers a closure Func
+    // to the capture struct C name via the impl-closure map). Order the
+    // declaring struct after that capture struct: a capture struct that
+    // captures another closure (e.g. await-analysis's detect capturing
+    // get_info) otherwise emits before its field's definition ("field has
+    // incomplete type"). _walk_add_dep no-ops when the C name is not a
+    // known type id (a plain fn-pointer field), so this edge is safe.
+    is_function_type(ft) => {
       _walk_add_dep(deps_set, ft, self_type_id, cname_to_typeid, context);
     },
     true => ()

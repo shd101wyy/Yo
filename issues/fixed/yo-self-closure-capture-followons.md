@@ -35,3 +35,20 @@ TS prints 21. yo-self emit now has capture{get_info, extras} (correct) but:
 TS reference C (same repro): capture struct `{ .extras = extras, .get_info = get_info }`
 by value; the closure call passes `&(ctx->get_info)`; box fn emitted as
 `fn_..._box_Impl_u40_Fn..._idstruct_...` keyed on the capture struct.
+
+## RESOLVED (2026-07-09)
+
+1. **Emission order** — `_walk_by_value_dep`'s SomeT arm now falls back to the
+   GLOBAL `lookup_some_resolved_concrete` registry when the per-object
+   `resolved_concrete` is None (mirroring get_type_string's SomeT arm), plus a
+   `is_function_type` arm routing through `_walk_add_dep` (no-op for plain
+   fn-pointer fields). The capture-in-capture field now orders after its
+   definition.
+2. **Box-fn collection** — `_func_has_some_param` used a raw
+   `get_all_some_types` scan; a SomeT param carrying `resolved_concrete`
+   (the box-of-closure's Impl(Fn) param resolved to its capture struct) IS
+   concrete at codegen — switched to `type_contains_some_type` (which has the
+   carve-out). The box specialization now collects and emits.
+
+Validated: repro prints 21 (TS parity), corpus 106/106 DIFF 0 (incl. new
+tests/codegen-bootstrap/closure_param_capture.yo), std check 152/152.
