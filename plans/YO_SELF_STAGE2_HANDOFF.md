@@ -298,6 +298,28 @@ the DISTINCTIVE calls (`buffer_element_type`'s Option return match) and
   stage-1 vs stage-2 for struct 3849's field shapes. The data divergence then
   points at the stage-2 EVALUATOR bug (parse/eval of ArrayList's `?*(E)`
   field — possibly another latent stage-2 runtime bug in type construction).
+- **Round 15 REFRAMING (pivotal):** the stage-2 emit of the small program
+  (/tmp/s2g-out.c, 1342 lines) vs stage-1 (/tmp/s1j.c, 2499 lines) is HALF
+  the size and contains NO ArrayList struct at all (zero `_ptr;`/`_length`
+  fields; only 2 `__yo_ref_header_t` structs vs many in s1). The
+  needs_cycle_gc "divergence" is a SYMPTOM: **stage-2's codegen TYPES TABLE
+  is nearly empty** — the collection walk finds ~2 types instead of dozens.
+  The analysis functions are all faithful (rounds 13-14); they simply run on
+  missing data. NEW ROOT DIRECTION: the stage-2 binary's TYPE COLLECTION
+  (codegen/types/collection.yo walk over ExprInfo / module graph) or the
+  upstream ExprInfo table population diverges massively at stage-2 runtime.
+  NEXT: (1) compare the overall inventories: `grep -c 'static inline'
+s1j/s2g` + list struct decl comments in both — quantify what classes are
+  missing (types only? functions too?); (2) if functions are missing too →
+  the eval/ExprInfo phase is the divergence (much earlier than codegen);
+  (3) probe candidate: emit a C comment with `context.types` COUNT (+
+  functions count) at codegen start — the collection region may be less
+  crash-fragile than the analysis region; diff counts s1 vs s2. Also
+  RE-CHECK: does the s2-emitted small program even COMPILE+RUN (clang
+  s2g-out.c + execute — it may be a broken emit that happens to be
+  clang-clean)? If it RUNS correctly despite missing types, the collection
+  path legitimately differs (e.g. s2 inlines/skips differently) — compare
+  outputs first before assuming breakage.
 - PROBE STILL IN TREE: codegen_c.yo minimal [NCG] emit — STRIP before any
   commit (git diff should show codegen_c.yo + nothing else unexpected).
 
