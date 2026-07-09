@@ -4,7 +4,7 @@
 the self-compiled `yo-self` binary's `test` subcommand pass `./tests` and
 `./yo-self/tests` (tasks #69, #70).
 
-**Current state: 5 stage-2 clang errors** (was 56; −51 total). Remaining: FTT expected-expression (2), undeclared get_info + temp (2), member-ref (1).
+**Current state: 3 stage-2 clang errors** (was 56; −53 total). Remaining: undeclared get_info (1), FTT expected-expression / argv-index (1), undeclared RC-drop temp (1).
 
 ---
 

@@ -57,7 +57,7 @@ open(import("std/string"));
   type_contains_some_type
 } :: import("../../types/utils.yo");
 { is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type } :: import("../../types/guards.yo");
-{ convert_comptime_type_to_runtime_type_with_expected } :: import("../../types/env_lookup.yo");
+{ convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 {
   type_implements_future,
   type_implements_fn,
@@ -428,6 +428,7 @@ check_if_function_parameter_matches_argument :: (
     param_type : TypeValue,
     is_ct_only : bool,
     param_is_owning : bool,
+    param_is_ref : bool,
     skip_expected_type : bool,
     arg_expr_raw : AstExpr,
     callee_env : Environment,
@@ -615,7 +616,7 @@ check_if_function_parameter_matches_argument :: (
   });
   // Step 9: Bind param variable in callee_env.
   param_tok := synthetic_token(param_label, callee_env_r.module_path);
-  add_variable_to_env(
+  bound_param_opt := add_variable_to_env(
     callee_env_r,
     param_label,
     final_pt,
@@ -629,6 +630,22 @@ check_if_function_parameter_matches_argument :: (
     // is_implicit
     param_tok
   );
+  // inout(name) : T parameters — propagate the flag onto the binding this
+  // call created so the callee body's codegen dereferences reads (`(*name)`)
+  // and reassignment is accepted. Mirrors TS helper.ts:584
+  // (`isRef: parameter.isRef, isReassignable: parameter.isRef`). Marking the
+  // exact created Variable (not an env-wide name search) keeps enclosing
+  // same-named bindings (e.g. an outer method's by-value `self`) untouched.
+  if(param_is_ref, {
+    match(
+      bound_param_opt,
+      .Some(bound_param) => {
+        bound_param.is_ref = true;
+        bound_param.is_reassignable = true;
+      },
+      .None => ()
+    );
+  });
   CheckParamResult(
     callee_env : callee_env_r,
     caller_env : caller_env_r,
@@ -1397,35 +1414,6 @@ create_specialized_function_inline :: (
           // TS specializeFunction (`cloneExpr` of the body). The specialized
           // FuncVal below carries this clone so codegen walks the right nodes.
           cloned_body := clone_expr_fresh_ids(body);
-          // Mark `ref`-parameter bindings as is_ref so the specialized body's
-          // codegen dereferences them (`(*self)->field`), matching the def-time
-          // body-eval path (_build_def_time_body_env). try_to_call binds params
-          // via check_if_function_parameter_matches_argument → add_variable_to_env,
-          // which can't set is_ref — so a `inout(self) : Self` object method (e.g.
-          // ArrayList's Index `index`, reached only via the index-trait
-          // specialization path) emitted `self->field` on a `Self*` (pointer to
-          // handle) and failed to transpile. Scoped to specialization, so the hot
-          // normal-call binding path is untouched; non-specialized bodies already
-          // get is_ref from the def-time eval. Variable is an object (mutable).
-          spec_param_is_ref := match(func_type,.Func({ meta : __fm2 }) => __fm2.*.param_is_ref, _ => ArrayList(bool).new());
-          (mref_i : usize) = usize(0);
-          while(mref_i < params.len(), {
-            is_ref_param := match(spec_param_is_ref.get(mref_i),.Some(b) => b,.None => false);
-            if(is_ref_param, {
-              p_lbl := match(params.get(mref_i),.Some(l) => l,.None => String.from(""));
-              mvars := get_variables_from_env(callee_env, p_lbl);
-              if(mvars.len() > usize(0), {
-                match(
-                  mvars.get(mvars.len() - usize(1)),
-                  .Some(mv) => {
-                    mv.is_ref = true;
-                  },
-                  .None => ()
-                );
-              });
-            });
-            mref_i = (mref_i + usize(1));
-          });
           // Set `ctx.self_type` to the concrete receiver so `Self` — and
           // especially `Self.static_method` like HashMap's
           // `Self._find_bucket(self, ...)` — resolves inside the specialized
@@ -2245,6 +2233,7 @@ try_to_call_function_with_arguments :: (
       fl := __fm8.*.forall_labels;
       pl := __fm8.*.param_labels;
       pio := __fm8.*.param_is_owning;
+      pref := __fm8.*.param_is_ref;
       il := __fm8.*.implicit_labels;
       ispr := __fm8.*.implicit_spreads;
       fn_has_variadic := __fm8.*.has_variadic;
@@ -2612,7 +2601,62 @@ try_to_call_function_with_arguments :: (
             extract_future_trait_from_type(io_exp.ty),
             .Some(io_ftt) => match(
               io_ftt,
-              .FutureTraitT({ effect_types : io_ets }) => {
+              .FutureTraitT({ output : io_t_out, effect_types : io_ets }) => {
+                // Bind the future OUTPUT forall `T` when the expected output is
+                // concrete (TS binds T unconditionally at helper.ts:1334-1362;
+                // yo-self guards on concreteness because the async pipeline's
+                // sync-future/io.await refinements are keyed on the UNRESOLVED
+                // SomeT id — a SomeT-to-SomeT bind would break them for the
+                // no-expected case, which must keep working as before). With
+                // `T := unit` bound, the io.async closure argument's Fn type
+                // resolves to `Fn(e : E_conc) -> unit`, the closure BODY is
+                // evaluated with expected `unit`, and a ctl `exn.throw(...)`
+                // arm inside types as `unit` (the Step-10 adopt) — so the
+                // def-time body eval survives and the closure gets ExprInfo +
+                // FSM treatment (the self-capture io.async FTT family).
+                if(!(is_some_type(io_t_out)), {
+                  (tb_i : usize) = usize(0);
+                  while(tb_i < n_forall, {
+                    tb_label := match(fl.get(tb_i),.Some(l) => l,.None => String.from(""));
+                    if(tb_label == "T", {
+                      tb_existing := get_variables_from_env(callee_env, tb_label.clone());
+                      (tb_already : bool) = false;
+                      if(tb_existing.len() > usize(0), {
+                        match(
+                          tb_existing.get(tb_existing.len() - usize(1)),
+                          .Some(tb_var) => match(
+                            tb_var.value,
+                            .Some(tb_val) => if(is_type_val(tb_val), {
+                              match(
+                                tb_val,
+                                .TypeVal(tb_tv) => if(!(is_some_type(tb_tv)), {
+                                  tb_already = true;
+                                }),
+                                _ => ()
+                              );
+                            }),
+                            .None => ()
+                          ),
+                          .None => ()
+                        );
+                      });
+                      if(!(tb_already), {
+                        add_variable_to_env(
+                          callee_env,
+                          tb_label.clone(),
+                          t_type(),
+                          Option(EvalValue).Some(create_type_value(io_t_out.clone())),
+                          true,
+                          false,
+                          false,
+                          false,
+                          synthetic_token(tb_label.clone(), callee_env.module_path)
+                        );
+                      });
+                    });
+                    tb_i = (tb_i + usize(1));
+                  });
+                });
                 match(
                   io_ets.get(usize(0)),
                   .Some(io_e_conc) => if(!(is_some_type(io_e_conc)), {
@@ -2754,6 +2798,7 @@ try_to_call_function_with_arguments :: (
           false,
           // is_ct_only: Phase 3 treats all regular params as runtime
           p_owning,
+          match(pref.get(pi),.Some(b) => b,.None => false),
           io_builtin_skip_expected,
           parg,
           callee_env_m,
@@ -2900,6 +2945,23 @@ try_to_call_function_with_arguments :: (
             );
             callee_env_m = synth_ret.expected_env;
             return_type = evaluate_function_return_type_again(ret_b, callee_env_m, ctx);
+            // When the (re-evaluated) return type is compatible with the
+            // caller's expected type and the expected type is fully concrete,
+            // ADOPT the expected type as the call's return type. Mirrors TS
+            // helper.ts:1593-1605 (`returnType = context.expectedType.type`).
+            // This is what resolves a ctl call's free `ResumeType` result in
+            // statement position (e.g. `exn.throw(...)` as a cond arm under a
+            // unit sibling arm): TS records the call as `unit`, so the arm
+            // merge unifies; without it the bare SomeT refused to unify and
+            // the def-time body eval of the enclosing closure was swallowed
+            // (io.async callback FTT — the self-capture stage-2 family).
+            (ret_for_adopt : TypeValue) = return_type;
+            if(is_some_type(ret_for_adopt), {
+              ret_for_adopt = get_value_of_some_type_from_env(callee_env_m, ret_for_adopt);
+            });
+            if(are_types_compatible(ret_for_adopt, et.ty) && !(type_contains_some_type(et.ty)), {
+              return_type = et.ty;
+            });
           },
           .None => ()
         );

@@ -65,3 +65,39 @@ and conditionally throws. TS compiles + runs (`true`); yo-self emits 8 errors:
   needsPointerConversion is for VALUE receivers).
 - The io.async FTT cond + io-future member errors in the repro are further
   facets, likely downstream of the same self-typing pollution.
+
+## RESOLVED (2026-07-09) — stage-2 5 → 3
+
+Three faithful-port fixes (all validated: repro compiles+runs printing `true`
+matching TS; corpus 104/104 DIFF 0; std check 152/152):
+
+1. **`(*self)->` member-ref** — close's by-value `self` binding was marked
+   `is_ref` by create_specialized_function_inline's env-wide name-search
+   marking (a yo-self-only compensation): a 1-param std method's
+   specialization (`fn(self : Self : (ToString))`) searched `callee_env` for
+   "self" and marked the ENCLOSING method's binding. Fix: thread
+   `param_is_ref` (from func meta) into
+   `check_if_function_parameter_matches_argument` Step 9 and mark the EXACT
+   Variable that binding creates (mirrors TS helper.ts:584
+   `isRef/isReassignable: parameter.isRef`); DELETE the env-wide spec-block
+   marking.
+
+2. **io.async closure body FTT** (`cond` no-ExprInfo, def-eval swallowed
+   "Incompatible types: unit vs ResumeType") — two missing TS mechanisms:
+   - Step-10 adopt-expected-return (TS helper.ts:1593-1605): after return
+     synthesis, adopt the caller's expected type when compatible and concrete
+     (yo-self compat is env-free, so resolve the SomeT return via
+     `get_value_of_some_type_from_env` first). This types a ctl
+     `exn.throw(...)` cond-arm as `unit` so arms unify.
+   - Step-6b io.async `T` pre-bind (TS helper.ts:1334-1362): bind forall `T`
+     from a CONCRETE expected `Impl(Future(T,E))` output (guarded on
+     concreteness to keep the unresolved-SomeT async pipeline intact for the
+     no-expected case), so the closure arg's Fn type resolves to
+     `Fn(e : E_conc) -> unit` and the body evals with expected `unit`.
+     Plus anonymous_function.yo: clear the marked-closure body expected ONLY
+     when the closure return is still a SomeT (the fresh `_ret` case).
+
+Debug chain that found it: [RSELF] read-site probe (single-binding env,
+ty=Thing, ref=true) → [SETREF-SPEC] set-site probe with fn-type
+(`fn(self : Self : (ToString))` ≠ close) → TS-side [TSRET]/[TSBODYEXP]
+probes showing throw ret=unit exp=unit and 13× unit bodyExpectedType.

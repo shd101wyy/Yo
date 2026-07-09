@@ -1012,7 +1012,8 @@ evaluate_anonymous_function_implementation :: (
     // body types as SomeT and the concrete result-refine is skipped (closure return
     // + future result then lower to void*). Clear the expected type so the body
     // types naturally (the closure's result is inferred from the body anyway).
-    if(mark_closure_for_codegen, {
+    ret_ty_for_body := match(function_type,.Func({ result : brt }) => brt, _ => t_unit());
+    if(mark_closure_for_codegen && is_some_type(ret_ty_for_body), {
       body_eval_ctx.expected_type = Option(ExpectedTypeCtx).None;
     });
     anon_body_out := ArrayList(AstExpr).new();
