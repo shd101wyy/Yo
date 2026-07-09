@@ -127,6 +127,47 @@ contain multibyte chars in comments).
   mirror when porting.
 - TS suite green after the byte-len fix (bun test fixme.test.ts 1/1).
 
+#### ROOT CAUSE CONFIRMED (yo-self source): StrLit unquote = substring(1, BYTE_len-1) with CHAR-indexed substring
+
+Rebuilding stage-1 with the byte-len-fixed TS did NOT cure the emission → the
+bug lives in yo-self source. Found: yo-self's StrLit convention "unquote =
+raw.substring(1, raw.len()-1)" mixes `len()` (BYTES) with `substring`
+(CHAR-indexed, std/string/string.yo:458 "like JavaScript substring") — correct
+for ASCII (bytes==chars), corrupting for multibyte. SITES (all need the fix):
+
+- evaluator/builtins/comptime_string_fns.yo str_lit_unquote (:53) — central helper
+- evaluator/calls/index_trait.yo :64, :862
+- evaluator/eval.yo :1333, :1334, :1540, :1541, :1588, :1589, :1636, :1637,
+  :1704, :1904, :1913, :2953 (the comptime string-op folds: concat/starts/
+  ends/contains/split etc.)
+- CLI-layer (lower risk, ASCII-ish inputs, fix for hygiene): lock_file.yo:53,
+  main.yo:89, :277 (version.yo:67 and install_command.yo:103 strip a 'v'
+  prefix — char-safe as written, verify).
+
+FIX DESIGN: add ONE byte-exact helper to yo-self/utils.yo:
+
+```rust
+// Byte-exact StrLit unquote: drop the first/last BYTE (the ASCII `"`
+// delimiters). substring() is CHAR-indexed and len() is BYTES — mixing them
+// corrupts multibyte content (the em-dash template corruption).
+str_lit_unquote_bytes :: (fn(raw : String) -> String)({ ... as_bytes loop [1, n-1) ... String.from_bytes })
+```
+
+(same shape as codegen/exprs/comptime_value.yo \_strip_str_delims — which was
+already byte-exact; consider MOVING that helper to utils.yo and importing it
+in both layers). Replace every site above; comptime_string_fns.yo's
+str_lit_unquote can delegate. Then: rebuild stage-1, re-run em-dash repro
+(expect clean literal + correct runtime output), corpus tests
+template_multibyte.yo + multibyte-len, full gates, commit. Then stage-2 chain
+(emit 0 deterministic), prelude parsed-0 recheck (LIKELY same root — the
+prelude contains multibyte in comments/strings and the parse loop uses
+len/substring mixes?), FIXPOINT, tasks #69/#70.
+
+Note the exact observed corruption shape (leading `\"` kept + trailing K
+dropped, len 17) did not reproduce from armchair-tracing substring clamping —
+verify empirically per-site after the central fix; if a site survives, byte-dump
+(no `${}` probes — see the probe-reliability caution above).
+
 ---
 
 ## 1. The iteration loop + validation protocol (used EVERY phase)
