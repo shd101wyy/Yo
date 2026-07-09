@@ -65,14 +65,7 @@ export function evaluateYoComptimeStringFunctions({
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_length)
     ) {
       if (isComptimeStringValue(arg.$.value)) {
-        // BYTE length (UTF-8), not JS UTF-16 char count: `len()` on
-        // str/String counts bytes, and the comptime fold must agree — a
-        // multibyte literal (e.g. an em-dash) otherwise folds short and every
-        // downstream consumer (loops, __yo_str .len emission via runtime
-        // values) truncates the tail bytes.
-        value = createComptimeIntValue(
-          BigInt(Buffer.byteLength(arg.$.value.value, "utf8"))
-        );
+        value = createComptimeIntValue(BigInt(arg.$.value.value.length));
       } else {
         value = createUnknownValue(createComptimeIntType(), { env, context });
       }
