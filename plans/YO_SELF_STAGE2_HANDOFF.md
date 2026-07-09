@@ -343,6 +343,25 @@ s1j/s2g` + list struct decl comments in both — quantify what classes are
   small programs; the yo-self COMPILER binary itself is the miscompiled
   artifact — its own HashMap/String usage patterns differ, e.g.
   module-level-global maps).
+  **ROUND 17 — THE ROOT SYMPTOM (start here):** `yo-self-s2g check <any file>`
+  prints `parsed 0 top-level exprs` for EVERY input (prelude and user files
+  alike). The stage-2 binary's LEXER or PARSER yields zero expressions from
+  valid source; every downstream symptom (empty types table, no main
+  emitted, Lightweight verdict, silent skeleton emit, "evaluator OK"
+  vacuously) cascades from parse-0. Bug #2 IS a stage-2 parser/lexer runtime
+  failure. NEXT SESSION ENTRY: (1) find where "parsed N top-level exprs" is
+  printed (main.yo check path) and what feeds N (the parser result list);
+  (2) determine WHICH stage fails: lexer (0 tokens?) or parser (tokens but 0
+  exprs) — if instrumentation crashes the binary again, use lldb breakpoints
+  on the stage-2 binary's lexer/parser fns (function names findable in
+  stage2Q1.c by matching distinctive string constants like "unterminated
+  template string") and inspect counts in the debugger WITHOUT rebuilding;
+  (3) the corpus-validated stage-1-emitted small programs run correctly, so
+  the miscompiled construct is something the COMPILER binary uses that small
+  programs don't (scale? module-level globals? the file-read path?) — also
+  consider: the file READ (readFile → String) may return empty/garbage in
+  stage-2 (check by pointing the s2 binary at a nonexistent file and
+  comparing the error path vs a real file).
 - PROBE STILL IN TREE: codegen_c.yo minimal [NCG] emit — STRIP before any
   commit (git diff should show codegen_c.yo + nothing else unexpected).
 
