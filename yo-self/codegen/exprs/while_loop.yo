@@ -10,7 +10,9 @@ open(import("std/string"));
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { Emitter } :: import("../../emitter.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ random_id } :: import("../../utils.yo");
+{ _looks_like_minted_temp } :: import("./begin.yo");
+{ get_deferred_drop_target_atom_name, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ random_id, is_temp_variable_name } :: import("../../utils.yo");
 /// Emit `<indent><text>` + newline.
 _emit_line :: (fn(em : Emitter, indent : String, text : String) -> unit)({
   line := indent.clone();
@@ -157,12 +159,31 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
             match(
               drops.get(di),
               .Some(de) => {
-                code := _call_generate_expr(de, indent.clone(), context);
-                if(code.len() > usize(0), {
-                  line := indent.clone();
-                  line.push_string(code);
-                  line.push_str(";");
-                  em.emit_string_line(line);
+                // Skip a drop whose target TEMP was never emitted as a C
+                // declaration — same gate as begin.yo's _emit_deferred_drops /
+                // drop_dup.yo's generate_deferred_drop_expressions (an
+                // expression whose C emission was elided leaves its
+                // eval-minted temp undeclared while the deferred-drop
+                // survives; `__yo_decr_rc(undeclared_temp)` is an
+                // undeclared-identifier error — the await-analysis loop-tail
+                // stage-2 hole). Safe: a never-declared C variable cannot be
+                // double-freed and holds no value to leak.
+                undeclared_temp := match(
+                  get_deferred_drop_target_atom_name(de),
+                  .Some(nm) => {
+                    cn := sanitize_for_c_identifier(nm, false);
+                    (is_temp_variable_name(match(ei_opt,.Some(e2) => e2.env.module_path.clone(),.None => String.from("")), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !(context.base.declared_c_var_names.contains(cn))
+                  },
+                  .None => false
+                );
+                if(!(undeclared_temp), {
+                  code := _call_generate_expr(de, indent.clone(), context);
+                  if(code.len() > usize(0), {
+                    line := indent.clone();
+                    line.push_string(code);
+                    line.push_str(";");
+                    em.emit_string_line(line);
+                  });
                 });
               },
               .None => ()

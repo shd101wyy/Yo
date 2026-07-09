@@ -539,6 +539,7 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
 });
 /// Emit the evaluator-deferred drop expressions for `expr` (closure-capture and
 /// short-circuit-handled drops are skipped). Mirrors `generateDeferredDropExpressions`.
+{ _looks_like_minted_temp } :: import("./begin.yo");
 generate_deferred_drop_expressions :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> unit)(
   match(
     context.base.get_expr_info(expr),
@@ -564,7 +565,7 @@ generate_deferred_drop_expressions :: (fn(expr : AstExpr, indent : String, conte
                 get_deferred_drop_target_atom_name(drop_expr),
                 .Some(nm) => {
                   cn := sanitize_for_c_identifier(nm, false);
-                  is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) && !(context.base.declared_c_var_names.contains(cn))
+                  (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !(context.base.declared_c_var_names.contains(cn))
                 },
                 .None => false
               );

@@ -1,35 +1,47 @@
 # yo-self stage-2 fixpoint — HANDOFF PLAN (remaining work)
 
-**Goal:** drive the yo-self self-compile ("stage-2") clang errors to **0**, then make
-the self-compiled `yo-self` binary's `test` subcommand pass `./tests` and
-`./yo-self/tests` (tasks #69, #70).
+**Goal:** drive the yo-self self-compile ("stage-2") clang errors to **0**, then
+verify the **self-hosting fixpoint** (below), then make the self-compiled
+`yo-self` binary's `test` subcommand pass `./tests` and `./yo-self/tests`
+(tasks #69, #70).
 
-**Current state: 1 deterministic stage-2 error + 1 FLAKY family** (was 56).
-Deterministic: undeclared RC-drop temp `_file____User_temp_1886xx` (1 error — scope-end
-drop of a never-materialized temp at a loop tail).
-FLAKY (nondeterministic per emit, ~8-10 errors when it appears): GC-tracer `.label`/`.ty`
-member-refs on `__yo_tNNN *` — the tracer body specialized for Bucket(String, FuncParam-like)
-bound to a different Bucket instantiation's slot type (order-dependent struct identity).
-FIXED this session: member-ref (\*self) family, io.async closure FTT, argv-index if-arm FTT,
-undeclared get_info (closure-param capture), capture-in-capture emission order, box-of-closure
-collection. **Compare stage-2 runs by error TEXT and re-run before attributing new errors.**
+**Fixpoint requirement (BEFORE tasks #69/#70):** the C source yo-self emits for
+itself must be self-consistent across generations. Two levels:
 
-### Next step for the RC-temp (the 1 deterministic error)
+1. **Stage-2 ≡ Stage-3 (required).** Build stage-2 binary from the stage-2 C
+   (`clang stage2.c → yo-self-stage2`), have IT emit yo-self again
+   (`yo-self-stage2 compile yo-self/main.yo --emit-c → stage3.c`), and require
+   `stage2.c` ≡ `stage3.c` byte-identical (after normalizing any
+   embedded-path/timestamp lines if present). This is the classic bootstrap
+   fixpoint: the compiler the compiler builds must rebuild itself identically.
+   Prereq: id/temp minting must be DETERMINISTIC across runs — the flaky
+   tracer cluster shows current emission is order-dependent, so fixing that
+   nondeterminism is part of this gate.
+2. **Stage-1 ≡ Stage-2 (aspirational, tracks the 1-to-1 port).** The
+   TS-emitted C for yo-self (`./yo-cli compile yo-self/main.yo --emit-c`)
+   vs the yo-self-emitted C. Byte-equality here requires the port to
+   replicate TS's id allocation order exactly — track the DIFF SIZE as a
+   port-fidelity metric (`diff stage1.c stage2.c | wc -l`) and drive it down,
+   but do not block tasks #69/#70 on byte-equality; the corpus diff-test
+   (runtime-output equivalence) plus level 1 are the correctness gates.
 
-`__yo_decr_rc((void*)(_file____User_temp_1886xx))` at a loop tail in the
-await-analysis per-point loop (yo*id_252975-family fn); the temp has exactly ONE
-occurrence (never declared). The scope-end skip gate EXISTS
-(codegen/exprs/drop_dup.yo:567: `is_temp_variable_name(ei.env.module_path, cn)
-&& !declared_c_var_names.contains(cn)`) but this instance evades it — suspected
-PREFIX MISMATCH: the temp was minted under a different module_path (URL-form
-`file:///Users/...` → prefix `_file____User...`) than the drop site's
-`ei.env.module_path`, so `is_temp_variable_name` returns false and the gate
-never fires. PROBE: at drop_dup.yo:567, when `cn.contains("\_temp*")`and the
-module check is false, eprintln module_path + cn; run stage-2; then either fix
-the minting module_path or relax the gate to any`contains("_temp_")` name
-not in declared_c_var_names (TS has NO such gate at all — the whole skip is a
-yo-self-only compensation, so the relaxed form is safe by the same argument
-as the original: a never-declared C var cannot double-free or leak).
+```bash
+# Fixpoint check (level 1)
+clang -std=c11 -O0 -w /tmp/stage2.c -o /tmp/yo-self-stage2 <link flags from a normal build>
+/tmp/yo-self-stage2 compile yo-self/main.yo --emit-c --skip-c-compiler -o /tmp/stage3
+diff /tmp/stage2.c /tmp/stage3.c && echo FIXPOINT-OK
+```
+
+**Current state: DETERMINISTIC stage-2 errors = 0** (was 56). The RC-drop temp is
+FIXED (undeclared-minted-temp gate at all THREE deferred-drop emitters: begin.yo,
+drop_dup.yo, while_loop.yo — the third was ungated). The ONLY remaining stage-2
+failure is the FLAKY GC-tracer cluster (~10 errors in roughly half of emits):
+tracer body specialized for Bucket(String, FuncParam-like) (walks
+`.value.label`/`.value.ty`) bound to a DIFFERENT Bucket instantiation's slot type.
+[TRACE-SPEC] probing showed the trace-specialization ct→fid mapping is 1:1 — the
+collision is DOWNSTREAM (suspect `get_trace_function_for_type` lookup or the
+traversal generator's Bucket-slot type resolution). This nondeterminism ALSO
+blocks the fixpoint gate below — fix it next.
 
 ### The FLAKY tracer cluster (root direction)
 

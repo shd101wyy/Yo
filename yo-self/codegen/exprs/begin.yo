@@ -21,7 +21,7 @@ open(import("std/string"));
 { is_temp_variable_name } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, is_deferred_drop_for_closure_capture, get_deferred_drop_target_atom_name } :: import("../utils/index.yo");
+{ get_type_string, is_deferred_drop_for_closure_capture, get_deferred_drop_target_atom_name, sanitize_for_c_identifier } :: import("../utils/index.yo");
 /// Concatenate `current` then `prev` (both optional) into a fresh drop list.
 _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
@@ -65,6 +65,41 @@ _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayLi
 });
 /// Emit this block's scope-end deferred drops: skip drops for closure captures
 /// and drops already emitted inside a short-circuit conditional branch.
+/// True iff `cn` looks like an eval-minted temp C name: contains `_temp_`
+/// followed by ONLY digits (at least one) to the end — e.g.
+/// `_file____User_temp_188653`. Module-blind fallback for the undeclared-temp
+/// drop gates: `is_temp_variable_name` recomputes the module prefix from the
+/// DROP SITE's `ei.env.module_path`, which can differ in FORM from the temp's
+/// minting module path (URL `file:///...` vs relative `./...`), so the scoped
+/// check alone misses cross-form temps. The digits-only suffix keeps user
+/// variables like `await_future_temp_var_aliases` out.
+_looks_like_minted_temp :: (fn(cn : String) -> bool)({
+  marker := String.from("_temp_");
+  idx_opt := cn.index_of(marker);
+  match(
+    idx_opt,
+    .None => false,
+    .Some(idx) => {
+      start := (idx + marker.len());
+      n := cn.len();
+      if(start >= n, {
+        return(false);
+      });
+      (i : usize) = start;
+      (ok : bool) = true;
+      while(i < n, {
+        b := cn.byte_at(i);
+        if(!((b >= u8(48)) && (b <= u8(57))), {
+          ok = false;
+          i = n;
+        }, {
+          i = (i + usize(1));
+        });
+      });
+      ok
+    }
+  )
+});
 _emit_deferred_drops :: (fn(ei : ExprInfo, indent : String, context : FunctionGenerationContext) -> unit)(
   match(
     ei.deferred_drop_expressions,
@@ -77,7 +112,23 @@ _emit_deferred_drops :: (fn(ei : ExprInfo, indent : String, context : FunctionGe
           drops.get(di),
           .Some(drop_expr) => {
             skip_capture := is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures);
-            if(!(skip_capture), {
+            // Skip a drop whose target TEMP was never emitted as a C
+            // declaration — same gate as drop_dup.yo's
+            // generate_deferred_drop_expressions (an arm/expression whose C
+            // emission was elided leaves its eval-minted temp undeclared while
+            // the deferred-drop survives on the scope's ExprInfo; emitting
+            // `__yo_decr_rc(undeclared_temp)` is an undeclared-identifier
+            // error — the await-analysis loop-tail stage-2 hole). Safe: a
+            // never-declared C variable cannot be double-freed or leak.
+            undeclared_temp := match(
+              get_deferred_drop_target_atom_name(drop_expr),
+              .Some(nm) => {
+                cn := sanitize_for_c_identifier(nm, false);
+                (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !(context.base.declared_c_var_names.contains(cn))
+              },
+              .None => false
+            );
+            if(!(skip_capture) && !(undeclared_temp), {
               sc_skip := match(
                 context.short_circuit_handled_drop_var_names,
                 .Some(handled) => match(
@@ -231,4 +282,5 @@ generate_begin :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
     }
   )
 });
+export(_looks_like_minted_temp);
 export(generate_begin);
