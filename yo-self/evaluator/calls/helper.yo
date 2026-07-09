@@ -2882,6 +2882,28 @@ try_to_call_function_with_arguments :: (
       // Step 9: Evaluate return type.
       // ----------------------------------------------------------------
       (return_type : TypeValue) = evaluate_function_return_type_again(ret_b, callee_env_m, ctx);
+      // Step 10: Synthesize return type against the caller's expected type.
+      if(ctx.expected_type.is_some(), {
+        match(
+          ctx.expected_type,
+          .Some(et) => {
+            checked_ret := ArrayList(TypePair).new();
+            (synth_ret_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
+            synth_ret := synthesize_types(
+              return_type,
+              callee_env_m,
+              et.ty,
+              et.env,
+              checked_ret,
+              synth_ret_opts,
+              exn
+            );
+            callee_env_m = synth_ret.expected_env;
+            return_type = evaluate_function_return_type_again(ret_b, callee_env_m, ctx);
+          },
+          .None => ()
+        );
+      });
       // A CONTROL (`ctl`) function whose result stays the forall ResumeType
       // SomeT (e.g. `Exception.throw : ctl(forall(ResumeType), ...) ->
       // ResumeType` — a runtime FIELD value, so the ctl-inline path never
@@ -2934,28 +2956,6 @@ try_to_call_function_with_arguments :: (
             _ => ()
           );
         });
-      });
-      // Step 10: Synthesize return type against the caller's expected type.
-      if(ctx.expected_type.is_some(), {
-        match(
-          ctx.expected_type,
-          .Some(et) => {
-            checked_ret := ArrayList(TypePair).new();
-            (synth_ret_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
-            synth_ret := synthesize_types(
-              return_type,
-              callee_env_m,
-              et.ty,
-              et.env,
-              checked_ret,
-              synth_ret_opts,
-              exn
-            );
-            callee_env_m = synth_ret.expected_env;
-            return_type = evaluate_function_return_type_again(ret_b, callee_env_m, ctx);
-          },
-          .None => ()
-        );
       });
       // ----------------------------------------------------------------
       // Step 11: Process implicit parameters.
