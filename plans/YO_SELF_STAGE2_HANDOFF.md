@@ -87,6 +87,33 @@ after the template fix re-check; if parsing still returns 0 exprs there is a
 second runtime bug (likely ALSO string/multibyte related — the source files
 contain multibyte chars in comments).
 
+#### Bug #1 probe results (2026-07-09, rounds 4-6) — REFRAMED as a TS+yo-self len()/char-count family
+
+- [DSL] (evaluate_string_literal in/out) and [SSD] (codegen \_strip_str_delims
+  INPUT) both CLEAN; [SLA] (StrLit arm OUTPUT) CORRUPTED; [AMP] shows the
+  corrupted literal flowing into the ref-spill. So the corruption arises
+  between strip-in and literal-out INSIDE the stage-1 binary — the strip/
+  escape/len code is Yo code whose STRING PRIMITIVES misbehave on multibyte.
+- Minimal TS-level tests (src/tests/fixme.yo variants, ./yo-cli-compiled):
+  `String.from(" — evaluator OK").len()` printed **15** (JS chars; 17 bytes);
+  `String.from("\" — ok\"").len()` printed **7** (9 bytes). The emitted C
+  literal itself is CORRECT (content+len) after the comptime-len fix — so a
+  SECOND fold/compute site still returns char counts at runtime-print time.
+- FIXED so far: src/evaluator/builtins/comptime-string-fns.ts
+  \_\_yo_comptime_string_length now folds Buffer.byteLength (committed).
+- NEXT: (a) find the remaining TS site that yields 15/7 for a.len() — likely
+  a CTFE execution of std String.len() over a comptime string value, or
+  another builtin fold (scan comptime-string-fns.ts siblings: substring/
+  byte_at/index_of for char-vs-byte); re-run the a/b/c len test until
+  17/5/9. (b) Port every fix to yo-self's mirror (comptime string builtins).
+  (c) Re-run the em-dash template repro under /tmp/yo-self-poison-rebuilt;
+  the [SLA] corruption should disappear once the len family is consistent
+  (the strip loop's `n - 1` boundary came from a short len). (d) Corpus test
+  template_multibyte.yo + a len()-of-multibyte test. (e) Then stage-2 chain,
+  prelude parsed-0 recheck, fixpoint, #69/#70.
+- Probes STILL IN TREE (strip before commit): string.yo [DSL],
+  comptime_value.yo [SSD]+[SLA], other_fn_call.yo [AMP].
+
 ---
 
 ## 1. The iteration loop + validation protocol (used EVERY phase)
