@@ -88,6 +88,25 @@ sites. Option (a) is the faithful one (TS types never lose their identity
 fields). Do NOT "fix" by including field types in the key — the sharing is
 upstream.
 
+REFINED (after reading types/type_key.yo): the `g_struct_cfid_keys[sid]`
+single-slot is consulted by THREE paths, all under-determined for a shared-id
+generic like Bucket (all instantiations share `struct_yo_id_13640`, differing
+only in `type_arguments`):
+
+1. cfid-empty/stas-empty copies,
+2. **depth > 4 truncation** — the full-key branch is gated
+   `cfid && stas && depth <= 4`; a Bucket nested deeper than 4 in another
+   type's key falls back to the sid slot even though it HAS its full identity
+   (the huge closure-capture-arg keys in the CFID-DUP dump are exactly these),
+3. the `_tk_seen` cycle-guard.
+   Candidate surgical fix: remove the `depth <= 4` cap (the `g_tk_visited` cycle
+   guard already bounds recursion; the cap only bounds KEY LENGTH — long keys are
+   ugly but correct), and for paths 1/3 verify whether they ever fire for 13640
+   with a mismatched first-key (add a targeted probe). Then re-check: tracer
+   cluster gone across N≥4 consecutive emits + emissions byte-stable (fixpoint
+   precondition). Validate the key-length cost on stage-2 emit time (was
+   quadratic-ish in the past — see the C-template split-emit memory).
+
 ## 0. Ground rules (READ FIRST)
 
 **Faithful-port discipline (non-negotiable):** For every bug — (1) confirm the
