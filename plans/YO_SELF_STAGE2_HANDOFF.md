@@ -320,6 +320,29 @@ s1j/s2g` + list struct decl comments in both — quantify what classes are
   clang-clean)? If it RUNS correctly despite missing types, the collection
   path legitimately differs (e.g. s2 inlines/skips differently) — compare
   outputs first before assuming breakage.
+  ANSWERED (round 16): the s2 emit does NOT link — **undefined `_main`**: the
+  stage-2 emit contains NO user functions at all (47 vs 89 static fns; the 47
+  are runtime/std skeleton). So BOTH type and FUNCTION collection come up
+  empty in the stage-2 binary — `collect_required_functions` walking the
+  module exports finds no `main`. The compile still exits 0 (silent
+  skeleton emit). SHARPEST HYPOTHESIS: module-value/exports lookup (HashMap
+  get by name) MISSES at stage-2 runtime — a String equality/hash divergence
+  in the stage-2 binary would explain all symptoms at once (empty
+  collections, fragile instrumented builds, wrong verdicts, silent success).
+  NEXT (fresh context): (1) tiny stage-2 experiment — have the stage-2
+  binary compile a program and check whether ANY user fn is emitted;
+  (2) probe the module-exports lookup via the .c channel at the
+  collect_required_functions entry (emit a comment with the export names
+  found + module fields count — the collection phase runs before the fragile
+  analysis region); (3) suspect list: HashMap.get/String.eq/hash in the
+  stage-2 binary (test with a stage-2-compiled HashMap smoke program — cf.
+  corpus tests run FINE under stage-1, so the BUG IS ONLY IN STAGE-2-BUILT
+  CODE: find which construct in std's HashMap/String compiled wrong by
+  stage-1's emitter... note corpus DIFF 0 covers stage-1-emitted programs
+  INCLUDING HashMap tests — so stage-1-emitted HashMap code is CORRECT for
+  small programs; the yo-self COMPILER binary itself is the miscompiled
+  artifact — its own HashMap/String usage patterns differ, e.g.
+  module-level-global maps).
 - PROBE STILL IN TREE: codegen_c.yo minimal [NCG] emit — STRIP before any
   commit (git diff should show codegen_c.yo + nothing else unexpected).
 
