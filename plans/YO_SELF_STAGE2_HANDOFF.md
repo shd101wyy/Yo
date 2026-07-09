@@ -113,6 +113,19 @@ contain multibyte chars in comments).
   prelude parsed-0 recheck, fixpoint, #69/#70.
 - Probes STILL IN TREE (strip before commit): string.yo [DSL],
   comptime_value.yo [SSD]+[SLA], other_fn_call.yo [AMP].
+- **CAUTION on probe READINGS**: every eprintln probe in the stage-1 binary
+  renders through ITS OWN template-interpolation machinery, which is exactly
+  what's under suspicion for multibyte — a "corrupted" probe line may be a
+  printing artifact while the underlying value is fine (and vice versa).
+  GROUND TRUTH = the emitted .c file contents only. Re-derive the fault
+  chain by diffing values written to the .c, or print via byte dumps
+  (byte_at loop of ASCII digits) instead of `${}` interpolation.
+- TS comptime slice fold (comptime-string-fns.ts \_\_yo_comptime_string_slice)
+  uses JS .slice (UTF-16 ≈ runes for BMP) — Yo substring is RUNE-indexed so
+  this is approximately correct; len() is BYTES (fixed). Verify std's
+  len/substring semantics stay consistent in yo-self's comptime builtin
+  mirror when porting.
+- TS suite green after the byte-len fix (bun test fixme.test.ts 1/1).
 
 ---
 
