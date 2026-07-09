@@ -1,0 +1,40 @@
+open(import("std/string"));
+{ println } :: import("std/fmt");
+{ IoExn, Exception } :: import("std/error");
+
+inner_fut :: (fn(io : Io) -> Impl(Future(i32, Io)))(io.async((io) => i32(0)));
+
+Thing :: ref(
+  struct(
+    _fd : i32,
+    _is_closed : bool
+  )
+);
+
+impl(
+  Thing,
+  close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
+    fd := self._fd;
+    io.async(
+      (e) =>
+        cond(
+          self._is_closed => (),
+          true => {
+            result := e.io.await(inner_fut(e.io), e.io);
+            self._is_closed = true;
+            cond(
+              (result < i32(0)) => e.exn.throw(dyn(`bad`)),
+              true => ()
+            )
+          }
+        )
+    )
+  })
+);
+
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  t := Thing(_fd : i32(3), _is_closed : false);
+  io.await(t.close(io), IoExn(io : io, exn : exn));
+  println(t._is_closed);
+});
+export(main);
