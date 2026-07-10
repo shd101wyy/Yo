@@ -544,23 +544,12 @@ impl(
       );
       cond(
         (curr.kind == TokenKind.Comma) => {
+          // TS (parser.ts:1269-1271) just advances past the comma and loops
+          // back into parseExpression — a trailing comma before `)` is then
+          // REJECTED there ("Unexpected token"). A previous port accepted
+          // trailing commas here, silently admitting programs the TS
+          // bootstrap rejects.
           idx = (idx + usize(1));
-          // Accept trailing comma: skip whitespace, check for RParen.
-          nxt_idx := self.skip_ws_fwd(idx);
-          nxt := match(
-            self.tokens.get(nxt_idx),
-            .Some(t) => t,
-            .None => {
-              return(FnArgsResult(args : args, index : nxt_idx));
-            }
-          );
-          is_rp := (nxt.kind == TokenKind.RParen);
-          cond(
-            is_rp => {
-              return(FnArgsResult(args : args, index : (nxt_idx + usize(1))));
-            },
-            true => ()
-          );
         },
         (((curr.kind == TokenKind.Semicolon) || (curr.kind == TokenKind.RBracket)) || (curr.kind == TokenKind.RCurlyBracket)) => {
           return(FnArgsResult(args : args, index : idx));
@@ -1032,29 +1021,23 @@ impl(
       exn : Exception
     ) -> ParseResult
   )({
+    // Mirrors parser.ts:894-899 EXACTLY: rhs is a FnCall AND isInfix AND its
+    // callee is an Atom whose token is NOT a Dot. No arg-count restriction
+    // and no callee-token-kind restriction — TS has neither (same guard
+    // pattern removed from the infix branch's rhs_is_chained_op).
     rhs_is_infix_non_dot := match(
       rhs,
-      .FnCall(_, rfb, rargs, ris_infix, _) => cond(
+      .FnCall(_, rfb, _, ris_infix, _) => cond(
         (ris_infix == false) => false,
-        (rargs.len() != usize(2)) => false,
         true => match(
           rfb,
-          .Atom(_, ft) => ((ft.kind == TokenKind.Operator) || (ft.kind == TokenKind.Dot)),
+          .Atom(_, ft) => (ft.kind != TokenKind.Dot),
           .FnCall(_, _, _, _, _) => false
         )
       ),
       .Atom(_, _) => false
     );
-    is_dot_func := match(
-      rhs,
-      .FnCall(_, rfb, _, _, _) => match(
-        rfb,
-        .Atom(_, ft) => (ft.kind == TokenKind.Dot),
-        .FnCall(_, _, _, _, _) => false
-      ),
-      .Atom(_, _) => false
-    );
-    if(rhs_is_infix_non_dot && (is_dot_func == false), {
+    if(rhs_is_infix_non_dot, {
       (left_operand : AstExpr) = match(
         rhs,
         .FnCall(_, _, rargs, _, _) => match(
@@ -1237,30 +1220,27 @@ impl(
         rhs := rhs_pr.expr;
         rhs_end := rhs_pr.index;
         // Check if rhs is an infix (non-dot) expression
-        rhs_is_infix := match(
+        // Check if the RHS is already an operator expression (chained
+        // operators). Mirrors parser.ts:1083-1088 EXACTLY: rhs is a FnCall
+        // AND isInfix AND its callee is an Atom whose token is NOT a Dot
+        // (dot chains are allowed). No arg-count restriction and no
+        // callee-token-kind restriction — TS has neither (a previous port
+        // added `rargs.len() == 2` and `kind ∈ {Operator, Dot}` guards,
+        // which silently ACCEPTED chains TS rejects).
+        rhs_is_chained_op := match(
           rhs,
-          .FnCall(_, rfb, rargs, ris_infix, _) => cond(
+          .FnCall(_, rfb, _, ris_infix, _) => cond(
             (ris_infix == false) => false,
-            (rargs.len() != usize(2)) => false,
             true => match(
               rfb,
-              .Atom(_, ft) => ((ft.kind == TokenKind.Operator) || (ft.kind == TokenKind.Dot)),
+              .Atom(_, ft) => (ft.kind != TokenKind.Dot),
               .FnCall(_, _, _, _, _) => false
             )
           ),
           .Atom(_, _) => false
         );
-        rhs_is_dot := match(
-          rhs,
-          .FnCall(_, rfb, _, _, _) => match(
-            rfb,
-            .Atom(_, ft) => (ft.kind == TokenKind.Dot),
-            .FnCall(_, _, _, _, _) => false
-          ),
-          .Atom(_, _) => false
-        );
         rhs_is_parenthesized := self.is_parenthesized_expr(rhs_start, rhs_end - usize(1));
-        if((rhs_is_infix && (rhs_is_dot == false)) && (rhs_is_parenthesized == false), {
+        if(rhs_is_chained_op && (rhs_is_parenthesized == false), {
           // Stricter operator grouping (plans/OPERATOR_ASSOCIATIVITY.md): a chain
           // of the SAME operator left-associates; adjacent DIFFERENT operators
           // require explicit parentheses. No precedence, no newline rule (source

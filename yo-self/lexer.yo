@@ -234,38 +234,52 @@ tokenize :: (
       (c.char == u32(0x27)) => {
         k := (i + usize(1));
         val_sb := StringBuilder.new();
-        rune_count := usize(0);
-        char_closed := false;
+        // TS validity (lexer.ts:324) is UTF-16 CODE-UNIT length:
+        // `value.length === 1 || (value.length === 2 && value[0] === "\\")`.
+        // Track the UTF-16 length (a rune > U+FFFF counts 2) and whether the
+        // first collected char is a backslash. TS has NO separate
+        // "unterminated" throw — at EOF the collected value reaches the same
+        // validity check (so `'a` at EOF is a VALID char token in both).
+        (utf16_len : usize) = usize(0);
+        (first_is_backslash : bool) = false;
         val_sb.write_byte(u8(0x27));
         while(k < n, {
           ck := chars.get(k).unwrap_or(null_rune);
           cond(
             (ck.char == u32(0x5C)) => {
+              if(utf16_len == usize(0), {
+                first_is_backslash = true;
+              });
               val_sb.write_rune(ck);
+              utf16_len = (utf16_len + usize(1));
               k = (k + usize(1));
               if(k < n, {
-                val_sb.write_rune(chars.get(k).unwrap_or(null_rune));
+                esc := chars.get(k).unwrap_or(null_rune);
+                val_sb.write_rune(esc);
+                utf16_len = (utf16_len + usize(1));
+                if(esc.char > u32(0xFFFF), {
+                  utf16_len = (utf16_len + usize(1));
+                });
               });
-              rune_count = (rune_count + usize(1));
               k = (k + usize(1));
             },
             (ck.char == u32(0x27)) => {
               i = k;
-              char_closed = true;
               k = n;
             },
             true => {
               val_sb.write_rune(ck);
-              rune_count = (rune_count + usize(1));
+              utf16_len = (utf16_len + usize(1));
+              if(ck.char > u32(0xFFFF), {
+                utf16_len = (utf16_len + usize(1));
+              });
               k = (k + usize(1));
             }
           );
         });
-        if(!(char_closed), {
-          exn.throw(dyn(LexerError(message : `unterminated char literal`, row : line, column : col, character : char_idx)));
-        });
-        if(rune_count != usize(1), {
-          exn.throw(dyn(LexerError(message : `invalid char literal: expected exactly one character`, row : line, column : col, character : char_idx)));
+        char_is_valid := ((utf16_len == usize(1)) || ((utf16_len == usize(2)) && first_is_backslash));
+        if(!(char_is_valid), {
+          exn.throw(dyn(LexerError(message : `invalid char literal: expected char to have length 1`, row : line, column : col, character : char_idx)));
         });
         val_sb.write_byte(u8(0x27));
         tok_val := val_sb.to_string();
@@ -300,9 +314,9 @@ tokenize :: (
             }
           );
         });
-        if(!(str_closed), {
-          exn.throw(dyn(LexerError(message : `unterminated string literal`, row : line, column : col, character : char_idx)));
-        });
+        // TS has NO unterminated-string check — the scan just runs to EOF and
+        // the token is pushed with the closing quote appended (lexer.ts:347-378).
+        str_closed;
         val_sb.write_byte(u8(0x22));
         tok_val := val_sb.to_string();
         tokens.push(Token(kind : TokenKind.StringLit, value : tok_val, row : line, column : col, character : char_idx, module_path : module_path, input : input));
@@ -470,7 +484,7 @@ tokenize :: (
           is_hex => {
             while(j < n, {
               dj := chars.get(j).unwrap_or(null_rune);
-              is_hex_d := ((((dj.is_digit()) || ((dj.char >= u32(0x41)) && (dj.char <= u32(0x46)))) || ((dj.char >= u32(0x61)) && (dj.char <= u32(0x66)))) || (dj.char == u32(0x5F)));
+              is_hex_d := (((dj.is_digit()) || ((dj.char >= u32(0x41)) && (dj.char <= u32(0x46)))) || ((dj.char >= u32(0x61)) && (dj.char <= u32(0x66))));
               if(!(is_hex_d), {
                 break;
               });
@@ -481,7 +495,7 @@ tokenize :: (
           is_bin => {
             while(j < n, {
               dj := chars.get(j).unwrap_or(null_rune);
-              is_bin_d := (((dj.char == u32(0x30)) || (dj.char == u32(0x31))) || (dj.char == u32(0x5F)));
+              is_bin_d := ((dj.char == u32(0x30)) || (dj.char == u32(0x31)));
               if(!(is_bin_d), {
                 break;
               });
@@ -492,7 +506,7 @@ tokenize :: (
           is_oct => {
             while(j < n, {
               dj := chars.get(j).unwrap_or(null_rune);
-              is_oct_d := (((dj.char >= u32(0x30)) && (dj.char <= u32(0x37))) || (dj.char == u32(0x5F)));
+              is_oct_d := ((dj.char >= u32(0x30)) && (dj.char <= u32(0x37)));
               if(!(is_oct_d), {
                 break;
               });
@@ -517,7 +531,15 @@ tokenize :: (
         // Float: decimal point followed by a digit
         if(is_decimal, {
           dot_check := chars.get(j).unwrap_or(null_rune);
-          if(dot_check.char == u32(0x2E), {
+          // NOTE: For parsing case like x.0.0 — the char BEFORE the number
+          // start must not be '.' (TS lexer.ts:567 `input[startIndex - 1] !==
+          // "."`), so the middle 0 of `x.0.0` stays an Integer and the second
+          // dot remains a field access instead of merging into `0.0`.
+          prev_is_dot := cond(
+            (i == usize(0)) => false,
+            true => (chars.get(i - usize(1)).unwrap_or(null_rune).char == u32(0x2E))
+          );
+          if((dot_check.char == u32(0x2E)) && (prev_is_dot == false), {
             next_j := (j + usize(1));
             next_j_rune := chars.get(next_j).unwrap_or(null_rune);
             if(next_j_rune.is_digit(), {
@@ -544,11 +566,14 @@ tokenize :: (
             next_j_rune := chars.get(next_j).unwrap_or(null_rune);
             has_exp_digits := cond(
               (next_j >= n) => false,
-              ((next_j_rune.char == u32(0x2B)) || (next_j_rune.char == u32(0x2D))) => ((next_j + usize(1)) < n),
+              ((next_j_rune.char == u32(0x2B)) || (next_j_rune.char == u32(0x2D))) => true,
               true => next_j_rune.is_digit()
             );
+            // A bare exponent (`1e10`) does NOT make the token a Float: TS
+            // consumes the e-notation in the INTEGER branch and still pushes
+            // TokenType.Integer (lexer.ts:614-647). Only a decimal point sets
+            // is_float.
             if(has_exp_digits, {
-              is_float = true;
               num_sb.write_rune(exp_check);
               j = next_j;
               sign_rune := chars.get(j).unwrap_or(null_rune);

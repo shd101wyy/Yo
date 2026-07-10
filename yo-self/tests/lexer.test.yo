@@ -198,7 +198,10 @@ test("Float with decimal point", {
     }
   );
 });
-test("Float with exponent", {
+test("Bare exponent stays Integer (TS parity)", {
+  // TS consumes e-notation in the INTEGER branch and still pushes
+  // TokenType.Integer for a dot-less literal (src/lexer.ts:614-647):
+  // `1e10` is Integer("1e10"); only a decimal point makes a Float.
   exn := Exception(
     throw : (
       (err) -> {
@@ -213,7 +216,7 @@ test("Float with exponent", {
     toks.get(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Float, "expected Float");
+      assert(tok.kind == TokenKind.Integer, "expected Integer (TS lexes bare exponent as Integer)");
       assert(tok.value == `1e10`, "value must be '1e10'");
     }
   );
@@ -633,21 +636,30 @@ test("find_matching_bracket returns None for non-bracket", {
   assert(result ==.None, "identifier has no matching bracket");
 });
 // ─── Error handling ───────────────────────────────────────────────────────────
-test("Unterminated string literal raises LexerError", {
+test("Unterminated string auto-closes at EOF (TS parity)", {
+  // TS has NO unterminated-string check (src/lexer.ts:347-378): the scan runs
+  // to end-of-input and the token is pushed with the closing quote appended.
   exn := Exception(
     throw : (
       (err) -> {
-        match(
-          downcast(err, LexerError),
-          .Some(le) => assert(le.message == `unterminated string literal`, "wrong error message"),
-          .None => assert(false, "expected LexerError")
-        );
+        assert(false, "unexpected error");
         unwind(());
       }
     )
   );
-  tokenize(`"unterminated`, `test.yo`, exn);
-  assert(false, "expected a lexer error to be raised");
+  // NOTE (both compilers): the scan index is only advanced when the closing
+  // quote is FOUND, so after the auto-closed token the tail re-lexes as
+  // ordinary tokens — assert only the first token.
+  toks := non_ws(lex_or_panic(`"unterminated`, exn));
+  assert(toks.len() >= usize(1), "expected at least 1 token");
+  match(
+    toks.get(usize(0)),
+    .None => assert(false, "no token"),
+    .Some(tok) => {
+      assert(tok.kind == TokenKind.StringLit, "expected StringLit");
+      assert(tok.value == `"unterminated"`, "value auto-closed with quote");
+    }
+  );
 });
 test("Unterminated block comment raises LexerError", {
   exn := Exception(
@@ -706,14 +718,18 @@ test("Tokenize x : (fn() -> i32) yields correct bracket count", {
       .None => (),
       .Some(tok) => {
         cond(
-          (tok.kind == TokenKind.LParen) => { lp = (lp + usize(1)); },
-          (tok.kind == TokenKind.RParen) => { rp = (rp + usize(1)); },
+          (tok.kind == TokenKind.LParen) => {
+            lp = (lp + usize(1));
+          },
+          (tok.kind == TokenKind.RParen) => {
+            rp = (rp + usize(1));
+          },
           true => ()
         );
       }
     );
     i = (i + usize(1));
   });
-  assert((lp == usize(2)), "expected 2 LParen tokens");
-  assert((rp == usize(2)), "expected 2 RParen tokens");
+  assert(lp == usize(2), "expected 2 LParen tokens");
+  assert(rp == usize(2), "expected 2 RParen tokens");
 });

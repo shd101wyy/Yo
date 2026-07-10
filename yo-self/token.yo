@@ -93,7 +93,9 @@ is_identifier_continue :: (fn(c : rune) -> bool)(
 string_is_operator :: (fn(s : String) -> bool)({
   n := s.bytes_len();
   cond(
-    (n == usize(0)) => false,
+    // Vacuously true for the empty string — TS token.ts:132
+    // `if (str.length === 0) return true;`.
+    (n == usize(0)) => true,
     true => {
       (i : usize) = usize(0);
       (ok : bool) = true;
