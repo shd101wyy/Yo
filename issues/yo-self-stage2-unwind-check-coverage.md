@@ -2,7 +2,25 @@
 
 ## Status
 
-OPEN (2026-07-10). Current stage-2 runtime frontier after the
+PARTIALLY RESOLVED (2026-07-11, commit 5a5d28d15) — the sandbox-prelude
+crash is FIXED: method-call unwind coverage (codegen method branch +
+evaluator temp attach, TS function.ts:2263) and the multi-statement
+fn-body TAIL deferred-dup port (generation.ts:1699-1754; tail temp
+declared via get_variable_type_string). The stage-2 binary now handles
+/tmp/s2box exactly like stage-1 (graceful "Variable foo not found",
+rc=0), evaluates the REAL std/prelude.yo (trivial file check rc=0), and
+its emission is deterministic (stage-2 emit ×2 byte-identical).
+
+REMAINING (next frontier): the full self-compile still dies — stage-3
+emit rc=133 (SIGTRAP malloc abort). Bisect: `check yo-self/token.yo`
+rc=0, `check yo-self/expr_info.yo` rc=133, `check yo-self/parser.yo`
+rc=133. Smallest repro: YO_MAIN_STACK_MB=16384 /tmp/s2v16 check
+yo-self/expr_info.yo (heap-corruption abort — residual RC divergence
+exercised by mid-size evaluation; same differential method applies:
+shrink the file, lldb + MallocStackLogging, compare stage-2 vs TS-ref
+emission of the implicated fn).
+
+ORIGINAL ISSUE (2026-07-10): Current stage-2 runtime frontier after the
 ref-struct-get() dup chain and the frontend fidelity fixes landed
 (6e2313264, 66326af85).
 
