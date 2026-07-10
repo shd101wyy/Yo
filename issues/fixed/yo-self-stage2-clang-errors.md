@@ -56,8 +56,23 @@ Corpus regression test: tests/codegen-bootstrap/short_circuit_rc_temp_drop.yo
 (corpus 109/109 DIFF 0 after adding it; check ./yo-self 303/303; hashmap
 reclaims; all repros byte-correct).
 
-STILL OPEN (single remaining item from this investigation): the
-errno-constant divergence described below.
+FOURTH ITEM FIXED (2026-07-10, same session) — the errno divergence, and
+with it EVERY item from this investigation is resolved. The bug was not
+constant folding: `get_variable_name_for_codegen` consulted the NAME-keyed
+extern-C-globals registry, so IoError.from_errno's `errno : i32` PARAMETER
+(shadowing <errno.h>'s `errno : *(int)`) kept the raw name `errno` — the
+emitted comparisons read the C errno MACRO (thread-local, 0) instead of the
+argument, mapping every code to Other ("unknown I/O error"). TS's rule is
+per-RESOLVED-variable (`variable.type.isExtern === "c"` — extern-ness rides
+the TYPE), so the faithful port keys the registry by declared TYPE:
+`register_extern_c_global(name, ty)` (c_include.yo passes the field type)
+and the codegen matches `type_key(registered) == type_key(resolved var)`.
+(First attempt gated on is_module_level — wrong: c_include bindings are not
+module-level-marked, which broke every `stdout`/`stderr` use; 39 corpus
+SELF-FAILs, reverted for the type-match.)
+
+Corpus regression test: tests/codegen-bootstrap/dyn_error_throw_ioerror.yo
+(re-added; corpus 110/110 DIFF 0). Stage-2: 0 clang errors, deterministic.
 
 RESOLVED-10 (was): 10 residual errors: scope-end drops (inline value-enum
 `switch((temp).tag){…decr_rc…}`) referencing a temp DECLARED INSIDE a nested

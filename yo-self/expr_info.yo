@@ -517,15 +517,24 @@ lookup_method_callee_value :: (fn(call_id : ExprId) -> Option(EvalValue))(
 // C name (skip the `__yo_c_reserved_` reserved-word prefix) for such symbols —
 // the C header is `#include`d, so the real `stdout` is in scope. Populated by
 // c_include's field loop; read by get_variable_name_for_codegen.
-(g_extern_c_globals : HashMap(String, bool)) = HashMap(String, bool).new();
-/// Mark `name` as an extern-C global symbol (called by c_include per field).
-register_extern_c_global :: (fn(name : String) -> unit)({
-  g_extern_c_globals.set(name, true);
+(g_extern_c_globals : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
+/// Mark `name` as an extern-C global symbol with its DECLARED type (called by
+/// c_include per field). The type is what identifies "this resolved binding
+/// IS the global": TS hangs `isExtern === "c"` on the TYPE itself, so a LOCAL
+/// binding that merely shares the name (e.g. an `errno : i32` parameter
+/// shadowing <errno.h>'s `errno : *(int)`) does not match — see
+/// get_extern_c_global_type's consumer in codegen get_variable_name_for_codegen.
+register_extern_c_global :: (fn(name : String, ty : TypeValue) -> unit)({
+  g_extern_c_globals.set(name, ty);
   ()
 });
-/// True if `name` is a c_include'd extern-C global symbol.
+/// The declared type of the c_include'd extern-C global `name`, if any.
+get_extern_c_global_type :: (fn(name : String) -> Option(TypeValue))(
+  g_extern_c_globals.get(name)
+);
+/// True if `name` is a c_include'd extern-C global symbol (name-only check).
 is_extern_c_global :: (fn(name : String) -> bool)(
-  match(g_extern_c_globals.get(name),.Some(b) => b,.None => false)
+  g_extern_c_globals.get(name).is_some()
 );
 // Phase 5 (async/effects): the resolved CONCRETE type for a `SomeT`, keyed by the
 // SomeT's unique `id`. TS stores this as a mutable `SomeType.resolvedConcreteType`
@@ -611,7 +620,7 @@ export(ExprInfo, new_expr_info);
 export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get);
 export(record_method_callee_type, lookup_method_callee_type);
 export(record_method_callee_value, lookup_method_callee_value);
-export(register_extern_c_global, is_extern_c_global);
+export(register_extern_c_global, is_extern_c_global, get_extern_c_global_type);
 export(register_some_resolved_concrete, lookup_some_resolved_concrete);
 export(record_macro_expansion, lookup_macro_expansion);
 export(record_module_level_init_expr, get_module_level_init_exprs);

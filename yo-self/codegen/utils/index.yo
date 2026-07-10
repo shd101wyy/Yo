@@ -41,7 +41,7 @@ open(import("std/string"));
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { Emitter } :: import("../../emitter.yo");
 { TargetInfo } :: import("../../target.yo");
-{ ExprInfoTable, ExprInfo, expr_info_table_get, is_extern_c_global, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_type, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 {
   AstExpr,
   BF_UNSAFE,
@@ -921,7 +921,20 @@ get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Enviro
           // tracked in the g_extern_c_globals registry). Either way, keep the REAL
           // C name (skip the `__yo_c_reserved_` reserved-word prefix).
           is_extern_c_fn := match(variable.ty,.Func({ meta : __fm1 }) => match(__fm1.*.is_extern,.Some(lang) => (lang == "c"),.None => false), _ => false);
-          is_extern_c_glob := is_extern_c_global(variable.name.clone());
+          // The registry is NAME-keyed, but TS's rule is per-RESOLVED-variable
+          // (`variable.type.isExtern === "c"` — extern-ness rides the TYPE):
+          // a LOCAL binding that merely shares the name (IoError.from_errno's
+          // `errno : i32` parameter shadowing <errno.h>'s `errno : *(int)`)
+          // must still be renamed — emitting the raw name made the body read
+          // the C `errno` MACRO instead of the parameter (from_errno(2)
+          // returned Other instead of NotFound under the self-compiled
+          // binary). Match the RESOLVED variable's type against the global's
+          // DECLARED type to restore the per-variable semantics.
+          is_extern_c_glob := match(
+            get_extern_c_global_type(variable.name.clone()),
+            .Some(gty) => (type_key(gty) == type_key(variable.ty)),
+            .None => false
+          );
           is_extern_c := ((is_extern_c_fn) || (is_extern_c_glob));
           var_name := sanitize_for_c_identifier(variable.name.clone(), is_extern_c);
           // A generated fn_* name shadowing a local → prefer the original name.

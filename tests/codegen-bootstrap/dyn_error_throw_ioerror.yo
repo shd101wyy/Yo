@@ -1,0 +1,23 @@
+open(import("std/fmt"));
+{ IoError } :: import("std/sys/errors");
+{ Error, Exception } :: import("std/error");
+
+f :: (fn(code : i32, exn : Exception) -> unit)({
+  if(code > i32(0), {
+    exn.throw(dyn(IoError.from_errno(code)));
+  });
+});
+
+main :: (fn() -> unit)({
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`caught: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  f(i32(2), exn);
+  println(`done`);
+});
+export(main);
