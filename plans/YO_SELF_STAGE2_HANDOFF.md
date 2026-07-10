@@ -1,14 +1,28 @@
 # yo-self self-hosting — HANDOFF PLAN (fresh-agent entry point)
 
-_Last updated 2026-07-09 (end of an ~18-round debugging session; tree clean,
-all fixes committed on `feat/bootstrap-codegen`)._
+_Last updated 2026-07-10 (after the assert/panic repair + RC-protocol +
+stage-2-clang-0 sessions; tree clean, all fixes committed on
+`feat/bootstrap-codegen`; corpus now 111 files)._
 
 **Goal:** make yo-self compile itself **correctly**:
 
-1. ~~Stage-2 emit: 0 clang errors~~ — **DONE, deterministic** (three consecutive
-   emits: 0 errors, byte-identical C).
-2. **← YOU ARE HERE: fix the stage-2 BINARY runtime** (it compiles clean but
-   misbehaves at runtime — root symptom below).
+1. ~~Stage-2 emit: 0 clang errors~~ — **DONE, deterministic** (re-verified
+   2026-07-10 after regressing to 416 during the assert refactor; the four
+   fixes are in issues/fixed/yo-self-stage2-clang-errors.md).
+2. **← YOU ARE HERE: fix the stage-2 BINARY runtime.** The old
+   "parsed 0 top-level exprs" frontier is SURPASSED (compound-literal RC +
+   value-enum dup fixes): the stage-2 binary now parses argv, reads files,
+   and runs its lexer/parser. TWO new stage-2-only divergences:
+   - `s2 check <any file>` → "paren-less function and operator calls are not
+     supported" at std/prelude.yo:20:0 (`export(Comptime);` right after
+     `Comptime :: trait(id := "Comptime")`) — the stage-2 PARSER mis-parses
+     a construct stage-1 accepts. NOTE: the error prints an EMPTY module
+     path (" --> :20:0") — possibly a second, smaller string bug.
+   - `s2 fmt --check <file>` → panics `"HashSet ctrl pointer is null"`.
+     Both only manifest on the compiler's own code shapes — small workouts
+     (HashSet/HashMap-of-String, argv echo) agree with TS. `fmt` is the
+     PRELUDE-FREE parse probe (parses only the given file); prefer it for
+     parser bisection.
 3. Verify the **self-hosting fixpoint** (required, see below).
 4. Tasks **#69** (`stage-2-binary test ./tests` passes) and **#70**
    (`test ./yo-self/tests` passes).
@@ -20,7 +34,7 @@ also wrong, fix TS first, then port. NO workarounds, NO stubs.
 
 ---
 
-## THE ENTRY POINT — stage-2 binary parses 0 expressions (bug #2 root symptom)
+## PREVIOUS ENTRY POINT (SURPASSED 2026-07-10 — kept for the repro recipe)
 
 ```bash
 # Reproduce in ~10 min from a clean tree:
