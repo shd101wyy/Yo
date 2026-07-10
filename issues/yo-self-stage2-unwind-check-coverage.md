@@ -45,6 +45,20 @@ dup (candidates: expr_info_table_set overwrite dropping while borrowed
 aliases live, begin.yo's last_info alias flow, or scope-end drops of
 `info` locals that were bound WITHOUT the +1 in some emission shape).
 
+FURTHER VERIFIED: emitted HashMap.set (yo*id_12568…) stores the ExprInfo
+at net **+2** (incr(value) + temp_dup incr; wrapper drops the displaced
+old entry correctly) — over-retained, so the premature free does NOT come
+through table_set/get. Remaining suspects, in order: (1) an ArrayList
+field SHARED between two ExprInfos without dup (e.g. begin.yo's
+shared-id clobber carries: `out_info.deferred_dup_expressions =
+last_info.deferred_dup_expressions`, runtime_arg_exprs_in_order,
+index*\* carries) — both infos' disposals drop the same list →
+double-free → heap corruption; (2) the ~15 missing dups in stage-2's
+evaluate_initialization_assignment vs TS-ref (62 vs 77 dups; TS also has
+2672 vs 127 drops from full escape-path cleanup — stage-2's thinner
+escape cleanup is a separate fidelity gap). Fresh TS reference:
+/tmp/s1-ref-v3.c.
+
 Next: find which stage-2-emitted drop releases a table-held ExprInfo —
 candidates: (a) the arm-dup/arm-drop pairing around expr_info_table_get
 match arms (nullable-ptr Option(ExprInfo) cleanup dropping the TABLE's
