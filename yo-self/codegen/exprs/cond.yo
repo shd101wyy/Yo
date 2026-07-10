@@ -395,7 +395,20 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
                     h.push_str("{");
                     em.emit_string_line(h);
                   }, {
+                    // Mirror begin.ts:47-49: the condition is a single-expr
+                    // begin whose node the yo-self evaluator REUSES (TS clones
+                    // it into a begin node, so TS's begin codegen pushes its
+                    // deferred drops into pendingDeferredDrops before the body
+                    // generates). Push them here so a short-circuit branch
+                    // inside the condition can flush a branch-scoped temp's
+                    // drop IN-branch (emitDropsForConditionalBranch) instead
+                    // of the call-site flush emitting it after the branch's
+                    // C scope closed ("use of undeclared identifier").
+                    cnd_drops := match(context.base.get_expr_info(condition),.Some(cnd_ei) => cnd_ei.deferred_drop_expressions,.None => Option(ArrayList(AstExpr)).None);
+                    cnd_prev := context.pending_deferred_drops;
+                    context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cnd_drops, cnd_prev));
                     cc := _call_generate_expr(condition, current_indent.clone(), context);
+                    context.pending_deferred_drops = cnd_prev;
                     h := current_indent.clone();
                     h.push_str("if (");
                     h.push_string(cc);
@@ -410,7 +423,12 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
                   else_depth = (else_depth + usize(1));
                   current_indent.push_str("  ");
                   if(!(is_ct_true), {
+                    // Same pending window as the first-condition site above.
+                    cnd_drops2 := match(context.base.get_expr_info(condition),.Some(cnd_ei2) => cnd_ei2.deferred_drop_expressions,.None => Option(ArrayList(AstExpr)).None);
+                    cnd_prev2 := context.pending_deferred_drops;
+                    context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cnd_drops2, cnd_prev2));
                     cc := _call_generate_expr(condition, current_indent.clone(), context);
+                    context.pending_deferred_drops = cnd_prev2;
                     h := current_indent.clone();
                     h.push_str("if (");
                     h.push_string(cc);

@@ -84,13 +84,19 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
     match(
       context.base.get_expr_info(body_expr),
       .Some(ei) => {
-        // M1: do NOT feed the begin block's scope-end drops into the EARLY-RETURN
-        // (pending) path. yo-self has no init-position-filtered early-return drops
-        // yet (TS begin.ts:2068-2122 — M3), so emitting a function's scope-end drops
-        // unfiltered at an early return would drop not-yet-live locals → codegen
-        // crash. The scope-end drops are still emitted at normal exit (line ~129).
-        // (consumed_variable_drop_expressions stays as TS-faithful copy — empty under M1.)
-        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
+        // Feed the function body's scope-end drops into the pending path,
+        // mirroring begin.ts:47-49 (the begin codegen pushes its
+        // deferredDropExpressions on ENTRY). This is what lets a nested
+        // short-circuit branch flush a branch-scoped temp's drop IN-branch
+        // (emitDropsForConditionalBranch scans pending) instead of the
+        // fn-end flush referencing an identifier whose C scope has closed.
+        // The old M1 conservatism (empty pending — an early return would
+        // drop not-yet-live locals) is superseded by the C-declaration-order
+        // gate in the drop emitters (declared_c_var_names +
+        // is_temp/minted-temp check): a not-yet-declared local at an early
+        // return is skipped there, which is the emission-level equivalent of
+        // TS's init-position filter (begin.ts:2068-2122).
+        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(ei.deferred_drop_expressions));
         context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(ei.consumed_variable_drop_expressions));
       },
       .None => ()

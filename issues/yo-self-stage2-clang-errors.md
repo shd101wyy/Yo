@@ -30,7 +30,36 @@ dup temp. Also added the undeclared-temp gate to
 Corpus regression test: tests/codegen-bootstrap/match_arm_borrowed_field_return.yo
 (corpus now 108/108 DIFF 0).
 
-STILL OPEN — 10 residual errors: scope-end drops (inline value-enum
+THIRD FAMILY FIXED (2026-07-10, same session) — STAGE-2 IS NOW CLEAN:
+0 clang errors, DETERMINISTIC (two emits byte-identical). The residual
+10 errors were short-circuit-branch RC temps (`(a || String.from(...))`,
+`(a && xs.get(0))`) whose drops flushed OUTSIDE the branch's C scope. The
+faithful mechanism already existed on both sides
+(emitDropsForConditionalBranch scans pendingDeferredDrops, flushes
+in-branch, records handled names) — but yo-self never fed the enclosing
+scope's drops into `pending`:
+
+1. `codegen/exprs/cond.yo`: the condition is a single-expr begin whose NODE
+   the yo-self evaluator reuses (TS clones it into a begin node, so TS's
+   begin codegen pushes its drops into pending on entry — begin.ts:47-49).
+   Both condition-generation sites now wrap `_call_generate_expr(condition)`
+   in the same pending window.
+2. `codegen/functions/generation.yo`: the function BODY's scope-end drops
+   now feed `pending` on entry (begin.ts:47-49 verbatim). The old "M1: do
+   NOT feed" conservatism (early returns would drop not-yet-live locals) is
+   superseded by the C-declaration-order gate in every drop emitter
+   (declared_c_var_names + initialized_at_token resolution in
+   return.yo's generate_pending_deferred_drops) — the emission-level
+   equivalent of TS's init-position filter (begin.ts:2068-2122).
+
+Corpus regression test: tests/codegen-bootstrap/short_circuit_rc_temp_drop.yo
+(corpus 109/109 DIFF 0 after adding it; check ./yo-self 303/303; hashmap
+reclaims; all repros byte-correct).
+
+STILL OPEN (single remaining item from this investigation): the
+errno-constant divergence described below.
+
+RESOLVED-10 (was): 10 residual errors: scope-end drops (inline value-enum
 `switch((temp).tag){…decr_rc…}`) referencing a temp DECLARED INSIDE a nested
 `{ // begin block }` C scope but flushed at FUNCTION scope after the braces
 closed. Root: yo-self declares evaluator temps at first use (inside the
