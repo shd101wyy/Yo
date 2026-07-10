@@ -120,8 +120,10 @@ are compiled FAITHFULLY — they run on missing data.
 ## Iteration loop + validation gates (EVERY change)
 
 ```bash
-# Stage-1 rebuild after any yo-self/*.yo edit (~5 min; no bun build needed):
-./yo-cli compile yo-self/main.yo -o /tmp/yo-self-bin &> /tmp/build.txt
+# Stage-1 rebuild after any yo-self/*.yo edit — ALWAYS -O2 (user directive
+# 2026-07-10: -O2 everywhere; kills the -O0 stack-exhaustion class and runs
+# the evaluator ~4-10x faster; clang takes a few extra minutes):
+./yo-cli compile yo-self/main.yo --release -o /tmp/yo-self-bin &> /tmp/build.txt
 tail -1 /tmp/build.txt    # must be "Successfully compiled ..."
 
 # Gates (non-negotiable; REVERT on any regression):
@@ -195,6 +197,29 @@ Related issue docs: `issues/fixed/yo-self-close-self-capture.md`,
 `issues/fixed/yo-self-dyn-fn-field.md`.
 
 ---
+
+## Evaluator performance parity (user requirement, 2026-07-10)
+
+`check ./yo-self` must be in the same league as TS. Measured (Mac mini M4):
+
+| run                                                                 | time                          |
+| ------------------------------------------------------------------- | ----------------------------- |
+| TS `./yo-cli check ./yo-self` (303 files, one shared ModuleManager) | 78 s                          |
+| yo-self -O2, `check yo-self/tests/expr_traversal.test.yo` ALONE     | 26.7 s                        |
+| TS, same single file alone                                          | 20.4 s                        |
+| yo-self -O2, `check ./yo-self` cumulative                           | RUNAWAY at file 167 (>36 min) |
+
+Single-file parity is already fine (~1.3x). The blocker is CUMULATIVE
+directory checks: after ~166 files of accumulated GLOBAL registry state the
+same file's own top-level eval recurses unboundedly
+(evaluate_recur → create_specialized_function_inline → begin, stack depth
+1421+ and growing; `sample <pid>` confirms). PRE-EXISTING — the pre-fix
+binary shows identical single-file times, and the -O0 gate crash at file
+167 (rc=139, 4 GiB stack) is the same phenomenon. NOT caused by the
+2026-07-10 RC/frontend fixes. Prime suspects: per-name registry growth
+(get_type_trait_methods_by_name candidate lists accumulate across files →
+overload trial-matching explosion), NOT the module cache (demand loader
+caches across files like TS).
 
 ## Definition of done (tasks #69, #70)
 
