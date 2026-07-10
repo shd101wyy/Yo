@@ -19,13 +19,32 @@ yo-self/expr_info.yo (heap-corruption abort). Guard-malloc pin
 (DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib under lldb): first bad
 access inside the stage-2 emission of **evaluate_initialization_assignment**
 (yo_id_236636 in /tmp/stage2-v16.c, offset +3264) — reading freed memory
-while evaluating expr_info.yo's top-level `::`/`:=` bindings. Next step:
-extract yo_id_236636 from /tmp/stage2-v16.c, diff against the TS-ref
-emission of evaluate_initialization_assignment in /tmp/s1-ref-v2.c
-(REGENERATE — it predates commits 66326af85/5a5d28d15), or bisect
-expr_info.yo's top-level forms to a minimal binding shape and check its
-corpus-style emission (fast loop: /tmp/yo-self-bin emit of a small file,
-no stage-2 rebuild needed).
+while evaluating expr_info.yo's top-level `::`/`:=` bindings. REFINED PIN (gmalloc + disassembly): the faulting sequence inside
+yo_id_236636 (evaluate_initialization_assignment) is
+`temp = yo_id_224488(table, id); if (temp.tag == SOME) { dup(temp.value->field...) }`
+where **yo_id_224488 = expr_info_table_get** — the table returns an
+ExprInfo whose memory is FREED (guarded page). I.e. the stage-2 binary
+over-releases an ExprInfo the table still references — the ExprInfo-table
+UAF class (see memory yo-self-macro-dispatch-corruption-fixed for the
+previous instance) — but this time in STAGE-1'S EMISSION of the
+evaluator's own table/dup code.
+
+Minimal repro (5s, no rebuild): any nontrivial import —
+printf 'open(import("std/fmt"));\nx :: "p";\nexport(x);\n' > /tmp/t.yo
+YO_MAIN_STACK_MB=16384 /tmp/s2v16 check /tmp/t.yo # rc=133
+Under gmalloc the first bad access is deterministic at yo_id_236636+3264.
+NOTE: content bisection is UNRELIABLE for this bug (UAF visibility depends
+on allocation patterns — some richer probes "pass" while corrupted).
+
+Next: find which stage-2-emitted drop releases a table-held ExprInfo —
+candidates: (a) the arm-dup/arm-drop pairing around expr_info_table_get
+match arms (nullable-ptr Option(ExprInfo) cleanup dropping the TABLE's
+reference), (b) an over-drop in expr_info_table_set replacing entries,
+(c) interaction with today's attach_temp_variable_to_expr addition
+(more table-held infos mutated). Differential: extract the table-get
+match-arm cleanup shape from /tmp/stage2-v16.c vs a FRESH TS reference
+emission (regenerate s1-ref: ./yo-cli compile yo-self/main.yo --emit-c
+--skip-c-compiler -o /tmp/s1-ref-v3).
 
 ORIGINAL ISSUE (2026-07-10): Current stage-2 runtime frontier after the
 ref-struct-get() dup chain and the frontend fidelity fixes landed
