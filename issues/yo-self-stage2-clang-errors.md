@@ -2,7 +2,44 @@
 
 ## Status
 
-OPEN. Introduced by the assert/panic refactor family (`7122740e9`..`4355dd1dd`);
+PARTIALLY FIXED (2026-07-10): the typedef/dyn-box family (all `unknown type
+name` + t782-cascade errors) is FIXED — stage-2 clang errors 416 → 265, with
+ZERO unknown-type errors remaining. Root cause was NOT a collection miss:
+`type_key()` returns a String that on a dedup HIT SHARES ITS BUFFER with the
+canonical key stored in `g_enum_sig_keys`; the dyn-impl registration in
+`codegen/functions/collection.yo` did `impl_key := type_key(concrete);
+impl_key.push_str("_"); impl_key.push_string(type_key(dyn))` — the pushes
+appended `_dyn_trait_...` ONTO THE STORED CANONICAL in place. Every later
+`type_key(IoError)` then returned a longer key (probe showed the key growing
+by one `_dyn_trait_yo_id_..._trait_yo_id_...` per dyn-impl registration, 10
+distinct `__yo_tN` names for one enum), minting fresh c-names for function
+code while the typedef stayed under the first name. Fix: build the impl key
+in a fresh template string, plus defensive `.clone()` on the three shared-
+buffer returns in `types/type_key.yo` (enum sig hit, struct cycle-guard hit,
+struct structural-fallback hit).
+
+STILL OPEN — second, independent family (~265 errors, ALSO present in the
+pre-RC-fix control at 4355dd1dd): match-arm dup statements referencing
+eval-time temp names that were never declared in C, e.g.
+
+```c
+case __YO_T138_SOME: {
+  __yo_t139* e = tmp.data.Some.value;
+  ((__yo_t6*)__yo_incr_rc((void*)(_file____User_temp_159360)));  // undeclared
+  _file____User_temp_159363 = e->ty;                             // ← 3 ids later
+```
+
+The `___dup(<temp>)` expression embeds the temp variable name minted at ONE
+evaluation of the arm body (`.Some(e) => e.ty` with e.ty RC-typed), but the
+body was re-evaluated later (temp ids drift by ~3) and codegen materializes
+the NEW temp while the deferred dup still names the OLD one. Same
+side-table/id-churn family as the "durable macro-expansion" fixes. Entry
+point: find where match-arm result dups are attached
+(`set_expr_as_needs_to_call_dup` / `consume_case_body_temp_var` callers in
+`evaluator/exprs/match.yo`) and why the arm body's second evaluation does not
+refresh (or remove) the stale deferred dup.
+
+Previously OPEN as: Introduced by the assert/panic refactor family (`7122740e9`..`4355dd1dd`);
 NOT by the RC-protocol fix `97e51f176` (bisect: the binary built at `4355dd1dd`
 emits the same errors — 417 vs 416, same class). The last clean stage-2
 (0 errors, deterministic) was at the handoff `dddcbbbc5`. The true baseline is

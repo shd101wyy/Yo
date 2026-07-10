@@ -723,9 +723,16 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
                     vty := vei.ty;
                     if(is_reference_struct_type(vty) || is_boxed_type(vty), {
                       concrete := if(is_boxed_type(vty), match(vty,.Struct({ field_types }) => match(field_types.get(usize(0)),.Some(ft) => ft,.None => vty), _ => vty), vty);
-                      impl_key := type_key(concrete.clone());
-                      impl_key.push_str("_");
-                      impl_key.push_string(type_key(ei.ty));
+                      // Build the impl key in a FRESH string. `type_key` can
+                      // return a String sharing its buffer with the canonical
+                      // key stored in g_enum_sig_keys / g_struct_cfid_keys (a
+                      // dedup HIT returns the stored value); pushing onto it
+                      // in place APPENDED "_<dyn key>" to the stored canonical
+                      // itself, so every later type_key(IoError) returned a
+                      // longer key → a fresh __yo_tN c-name per dyn-impl
+                      // registration while the typedef stayed under the first
+                      // name (stage-2: 416 "unknown type name" clang errors).
+                      impl_key := `${type_key(concrete.clone())}_${type_key(ei.ty)}`;
                       context.register_dyn_impl(impl_key, DynImplEntry(dyn_type : ei.ty, concrete_type : concrete, data_type : vty, trait_values : tvs));
                     });
                   },

@@ -38,7 +38,11 @@ open(import("std/string"));
 _lookup_or_register_enum_sig :: (fn(sig : String, full_key : String) -> String)(
   match(
     g_enum_sig_keys.get(sig.clone()),
-    .Some(k) => k,
+    // CLONE the stored canonical: a returned String shares the map value's
+    // buffer, so an in-place push by any caller would corrupt the canonical
+    // (the IoError stage-2 typedef split). Same hardening on the struct
+    // cfid-key returns below.
+    .Some(k) => k.clone(),
     .None => {
       g_enum_sig_keys.set(sig.clone(), full_key.clone());
       full_key
@@ -99,7 +103,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
             // Fall back to the bare sid: the cycle guard only fires for a
             // type already ON the expansion path, where id-only rendering is
             // the pre-poison behavior for self-references.
-            .Some(k) => if(k == String.from("!AMBIG"), sid.clone(), k),
+            .Some(k) => if(k == String.from("!AMBIG"), sid.clone(), k.clone()),
             .None => sid.clone()
           )
         );
@@ -176,7 +180,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
               sfi = (sfi + usize(1));
             });
             skey
-          }, k),
+          }, k.clone()),
           .None => sid.clone()
         ),
         true => type_to_string(st)
