@@ -18,8 +18,39 @@ in a fresh template string, plus defensive `.clone()` on the three shared-
 buffer returns in `types/type_key.yo` (enum sig hit, struct cycle-guard hit,
 struct structural-fallback hit).
 
-STILL OPEN — second, independent family (~265 errors, ALSO present in the
-pre-RC-fix control at 4355dd1dd): match-arm dup statements referencing
+SECOND FAMILY MOSTLY FIXED (2026-07-10, same session): 265 → 10 errors.
+The match-arm deferred-dup materialization was missing — ported
+match.ts:105-150 verbatim into `codegen/exprs/match.yo generate_case_body`
+(same mechanism as the existing `return.yo handle_func_call_deferred_dup`):
+when the arm value carries deferred dups, (1) generate the RAW expr code,
+(2) DECLARE the expr's eval temp (`T <variableName> = <raw>;`), (3) emit the
+dup as `T <dupTemp> = <dup of declared temp>;`, (4) the arm result is the
+dup temp. Also added the undeclared-temp gate to
+`generate_deferred_dup_expressions` (mirror of the existing drop gate).
+Corpus regression test: tests/codegen-bootstrap/match_arm_borrowed_field_return.yo
+(corpus now 108/108 DIFF 0).
+
+STILL OPEN — 10 residual errors: scope-end drops (inline value-enum
+`switch((temp).tag){…decr_rc…}`) referencing a temp DECLARED INSIDE a nested
+`{ // begin block }` C scope but flushed at FUNCTION scope after the braces
+closed. Root: yo-self declares evaluator temps at first use (inside the
+nested block) while the drop was scheduled on an outer frame; TS declares
+temps at the frame's own block level so its drops always see them. The
+faithful fix is the temp-placement emission port (declare frame-level temps
+at the frame's C block), NOT a declared-names bookkeeping patch. Locations:
+grep the stage-2 clang log for "use of undeclared identifier" — 5 distinct
+temps × decl-inside-block shapes.
+
+ALSO DISCOVERED (separate, pre-existing): errno CONSTANT divergence — the
+same `exn.throw(dyn(IoError.from_errno(i32(2))))` prints
+"file or directory not found" under TS but "unknown I/O error" under the
+self-compiled binary (the `i32(ENOENT)` comparisons in IoError.from_errno
+resolve differently — likely c_include constant folding). Repro:
+scratchpad ioerr_repro / the dyn_error_throw_ioerror.yo file removed from
+the corpus to keep the gate green.
+
+Original second-family analysis:
+match-arm dup statements referencing
 eval-time temp names that were never declared in C, e.g.
 
 ```c

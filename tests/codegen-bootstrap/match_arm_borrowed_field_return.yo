@@ -1,0 +1,16 @@
+open(import("std/fmt"));
+N :: ref(struct(id : i32));
+E :: ref(struct(ty : N));
+f :: (fn(o : Option(E)) -> N)(
+  match(
+    o,
+    .Some(e) => e.ty,
+    .None => N(id : i32(0))
+  )
+);
+main :: (fn() -> unit)({
+  e := E(ty : N(id : i32(7)));
+  n := f(Option(E).Some(e));
+  println(`${n.id.to_string()}`);
+});
+export(main);

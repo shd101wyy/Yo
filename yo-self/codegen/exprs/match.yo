@@ -23,8 +23,10 @@ open(import("std/string"));
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("./drop_dup.yo");
-{ get_type_string, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name } :: import("../utils/index.yo");
+{ generate_deferred_drop_expressions, generate_deferred_dup_expressions, generate_dup_code_for_value } :: import("./drop_dup.yo");
+{ is_temp_variable_name } :: import("../../utils.yo");
+{ _looks_like_minted_temp } :: import("./begin.yo");
+{ get_type_string, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name } :: import("../utils/index.yo");
 { resolve_enum_shell } :: import("../../types/creators.yo");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
@@ -241,7 +243,85 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
     context.consumed_var_pending_drops = prev_consumed;
     final_code
   }, {
-    // Non-begin: emit deferred dups, then the expression.
+    // Non-begin. When the arm value carries deferred `___dup`s (returning a
+    // borrowed value out of the arm — e.g. `.Some(e) => e.ty`), mirror
+    // match.ts:105-150 exactly:
+    //   1. generate the RAW expression code,
+    //   2. DECLARE the expr's eval temp (`T <variableName> = <raw>;`) — the
+    //      dup references that temp, and without the declaration codegen
+    //      emitted `__yo_incr_rc(<undeclared temp>)`,
+    //   3. emit the deferred dups,
+    //   4. the arm result is the DUP temp's C name.
+    match(
+      context.base.get_expr_info(body_expr),
+      .Some(bei) => match(
+        bei.deferred_dup_expressions,
+        .Some(bdups) => if(bdups.len() > usize(0), {
+          raw_code := _call_generate_expr(body_expr, indent.clone(), context);
+          (final_code : String) = raw_code.clone();
+          match(
+            bei.variable_name,
+            .Some(bvn) => {
+              btv := get_variable_name_for_codegen(bvn.clone(), Option(Environment).Some(bei.env));
+              if(!(btv == raw_code), {
+                bem := context.base.emitter;
+                bline := indent.clone();
+                bline.push_string(get_type_string(bei.ty, context.base));
+                bline.push_str(" ");
+                bline.push_string(btv.clone());
+                bline.push_str(" = ");
+                bline.push_string(raw_code.clone());
+                bline.push_str(";");
+                bem.emit_string_line(bline);
+                _bd := context.base.declared_c_var_names.add(btv.clone());
+              });
+              final_code = btv;
+            },
+            .None => ()
+          );
+          // Emit the dup ONCE: declare the dup temp and initialize it with
+          // the dup of the (now declared) body value — TS's
+          // `T tmpN = fn___dup(tmpM);` shape. The arm result is the dup temp
+          // (match.ts:143-150). When the dup carries no temp name, fall back
+          // to the plain deferred-dup emission (the body temp is declared,
+          // so the undeclared-temp gate passes).
+          (dup_named : bool) = false;
+          match(
+            bdups.get(usize(0)),
+            .Some(bdup0) => match(
+              context.base.get_expr_info(bdup0),
+              .Some(bdup_info) => match(
+                bdup_info.variable_name,
+                .Some(dvn) => {
+                  dtv := get_variable_name_for_codegen(dvn.clone(), Option(Environment).Some(bdup_info.env));
+                  dem := context.base.emitter;
+                  dline := indent.clone();
+                  dline.push_string(get_type_string(bei.ty, context.base));
+                  dline.push_str(" ");
+                  dline.push_string(dtv.clone());
+                  dline.push_str(" = ");
+                  dline.push_string(generate_dup_code_for_value(final_code.clone(), bei.ty, context));
+                  dline.push_str(";");
+                  dem.emit_string_line(dline);
+                  _dd := context.base.declared_c_var_names.add(dtv.clone());
+                  final_code = dtv;
+                  dup_named = true;
+                },
+                .None => ()
+              ),
+              .None => ()
+            ),
+            .None => ()
+          );
+          if(!(dup_named), {
+            generate_deferred_dup_expressions(body_expr, indent.clone(), context);
+          });
+          return(final_code);
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
     generate_deferred_dup_expressions(body_expr, indent.clone(), context);
     _call_generate_expr(body_expr, indent.clone(), context)
   })

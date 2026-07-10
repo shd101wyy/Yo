@@ -684,12 +684,29 @@ generate_deferred_dup_expressions :: (fn(expr : AstExpr, indent : String, contex
           match(
             dups.get(i),
             .Some(dup_expr) => if(ast_expr_is_fn_call(dup_expr), {
-              code := _call_generate_expr(dup_expr, indent.clone(), context);
-              if(code.len() > usize(0), {
-                line := indent.clone();
-                line.push_string(code);
-                line.push_str(";");
-                em.emit_string_line(line);
+              // Skip a dup whose target TEMP was never emitted as a C
+              // declaration (the ___dup names the eval-time temp of e.g. an
+              // inlined property read; re-evaluation also drifts temp ids) —
+              // emitting `__yo_incr_rc(undeclared_temp)` is an
+              // undeclared-identifier error. Same gate as the drop path
+              // above. Callers that still need the +1 apply it to the
+              // GENERATED value instead (match.yo generate_case_body).
+              dup_undeclared_temp := match(
+                get_deferred_dup_target_atom_name(dup_expr),
+                .Some(dnm) => {
+                  dcn := sanitize_for_c_identifier(dnm, false);
+                  (is_temp_variable_name(ei.env.module_path.clone(), dcn.clone()) || _looks_like_minted_temp(dcn.clone())) && (!(context.base.declared_c_var_names.contains(dcn)))
+                },
+                .None => false
+              );
+              if(!(dup_undeclared_temp), {
+                code := _call_generate_expr(dup_expr, indent.clone(), context);
+                if(code.len() > usize(0), {
+                  line := indent.clone();
+                  line.push_string(code);
+                  line.push_str(";");
+                  em.emit_string_line(line);
+                });
               });
             }),
             .None => ()
