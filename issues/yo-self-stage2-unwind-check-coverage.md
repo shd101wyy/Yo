@@ -36,6 +36,15 @@ Under gmalloc the first bad access is deterministic at yo_id_236636+3264.
 NOTE: content bisection is UNRELIABLE for this bug (UAF visibility depends
 on allocation patterns — some richer probes "pass" while corrupted).
 
+VERIFIED: the emitted HashMap.get for the ExprInfo table (yo_id_12570…,
+called by expr_info_table_get) is RC-correct — net +1 (double-incr +
+single-decr of bucket.value; the earlier get()-dup fixes reached it). So
+the table-held ExprInfo is freed by a DIFFERENT over-release: an ExprInfo
+alias somewhere in the emitted evaluator is dropped without a matching
+dup (candidates: expr_info_table_set overwrite dropping while borrowed
+aliases live, begin.yo's last_info alias flow, or scope-end drops of
+`info` locals that were bound WITHOUT the +1 in some emission shape).
+
 Next: find which stage-2-emitted drop releases a table-held ExprInfo —
 candidates: (a) the arm-dup/arm-drop pairing around expr_info_table_get
 match arms (nullable-ptr Option(ExprInfo) cleanup dropping the TABLE's
