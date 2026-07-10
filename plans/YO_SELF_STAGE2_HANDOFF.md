@@ -9,20 +9,21 @@ stage-2-clang-0 sessions; tree clean, all fixes committed on
 1. ~~Stage-2 emit: 0 clang errors~~ — **DONE, deterministic** (re-verified
    2026-07-10 after regressing to 416 during the assert refactor; the four
    fixes are in issues/fixed/yo-self-stage2-clang-errors.md).
-2. **← YOU ARE HERE: fix the stage-2 BINARY runtime.** The old
-   "parsed 0 top-level exprs" frontier is SURPASSED (compound-literal RC +
-   value-enum dup fixes): the stage-2 binary now parses argv, reads files,
-   and runs its lexer/parser. TWO new stage-2-only divergences:
-   - `s2 check <any file>` → "paren-less function and operator calls are not
-     supported" at std/prelude.yo:20:0 (`export(Comptime);` right after
-     `Comptime :: trait(id := "Comptime")`) — the stage-2 PARSER mis-parses
-     a construct stage-1 accepts. NOTE: the error prints an EMPTY module
-     path (" --> :20:0") — possibly a second, smaller string bug.
-   - `s2 fmt --check <file>` → panics `"HashSet ctrl pointer is null"`.
-     Both only manifest on the compiler's own code shapes — small workouts
-     (HashSet/HashMap-of-String, argv echo) agree with TS. `fmt` is the
-     PRELUDE-FREE parse probe (parses only the given file); prefer it for
-     parser bisection.
+2. ~~Fix the stage-2 BINARY runtime (parser + fmt divergences)~~ — **DONE
+   2026-07-11.** Both named divergences were ONE bug class: token-String
+   use-after-free from `ArrayList(ref-struct).get()` emitting no element
+   dup (the "paren-less" error, the empty module path, AND the fmt
+   HashSet-null panic were all downstream corruption). Fixed by the
+   4-layer RC chain (commit 6e2313264) + unwind coverage / borrowed-tail
+   return dup (5a5d28d15); `fmt --check` and sandbox/real-prelude checks
+   now match stage-1 (rc=0). Frontend fidelity audit also landed
+   (66326af85 — 8 lexer/parser divergences incl. the `:=` operator-guard
+   workarounds).
+   **← YOU ARE HERE: one residual stage-2 UAF blocks the full
+   self-compile** — `expr_info_table_get` returns a freed ExprInfo during
+   `evaluate_initialization_assignment` on any nontrivial module
+   (5-second repro + guard-malloc pin + verified-clean components in
+   issues/yo-self-stage2-unwind-check-coverage.md).
 3. Verify the **self-hosting fixpoint** (required, see below).
 4. Tasks **#69** (`stage-2-binary test ./tests` passes) and **#70**
    (`test ./yo-self/tests` passes).
@@ -82,9 +83,9 @@ are compiled FAITHFULLY — they run on missing data.
 
 - `-O0` binaries need `YO_MAIN_STACK_MB=16384` for compile paths (8192
   suffices for `check`); rc 138/139 with an empty log = stack, not logic.
-- **Bug #2c (parked)**: the same clean binary at `-O1` HANGS (infinite loop
-  in the inlined driver) while `-O0` runs — likely UB-in-emitted-C exposed
-  by optimization. Fix after parse-0; `-O0` is usable meanwhile.
+- ~~Bug #2c (`-O1` hang)~~ — SUPERSEDED 2026-07-11: stage-2 binaries are
+  now built at `-O2` (clang -std=c11 -w -O2) and run correctly (sandbox,
+  real-prelude check, fmt). No hang observed at -O2.
 - `sample <pid> 5` on a hung process names the looping fn in one shot
   (worked twice this session). Bad-address values decode as ASCII — e.g.
   `0x2e6c746e63663c20` = `" <fcntl."` = string bytes dereferenced as a
