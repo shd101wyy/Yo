@@ -598,7 +598,99 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
         out.push_str(")");
         out
       },
-      .None => value_code.clone()
+      // No registered ___dup method (yo-self synthesizes none): dup the value
+      // enum INLINE — the dup mirror of the inline value-enum DROP arm above.
+      // Previously this fell through to a NO-OP, so every dup of a value enum
+      // carrying RC fields (e.g. String's underlying Option(ArrayList(u8)) via
+      // the newtype arm) silently lost its +1 — the widened scope-end drops
+      // then freed buffers still held elsewhere (the stage-2 binary's argv
+      // strings corrupted: args() pushed each String, the loop-end drop freed
+      // the buffer the list slot held).
+      .None => match(
+        can_optimize_as_nullable_pointer(concrete_type),
+        // Nullable-pointer enum: the value IS the inner pointer; dup = incr
+        // when non-NULL. Statement + pass-through value, like the struct arm.
+        .Some(_np_inner) => {
+          np_line := String.from("if ((");
+          np_line.push_string(value_code.clone());
+          np_line.push_str(") != NULL) { __yo_incr_rc((void*)(");
+          np_line.push_string(value_code.clone());
+          np_line.push_str(")); }");
+          em.emit_string_line(np_line);
+          value_code.clone()
+        },
+        // Tagged representation: copy to a temp, dup each RC field of the
+        // active variant IN PLACE, return the temp (the enum mirror of the
+        // value-struct dup temp pattern below).
+        .None => match(
+          concrete_type,
+          .EnumT({ variant_names : ed_vns, variant_fields : ed_vfs, variant_field_labels : ed_vls }) => {
+            ed_temp := String.from("temp_dup_enum_");
+            ed_temp.push_string(random_id(String.from("")));
+            ed_decl := get_type_string(concrete_type, context.base);
+            ed_decl.push_str(" ");
+            ed_decl.push_string(ed_temp.clone());
+            ed_decl.push_str(" = ");
+            ed_decl.push_string(value_code.clone());
+            ed_decl.push_str(";");
+            em.emit_string_line(ed_decl);
+            em.emit_string_line(`switch ((${ed_temp.clone()}).tag) {`);
+            ed_nv := ed_vns.len();
+            (ed_vi : usize) = usize(0);
+            while(ed_vi < ed_nv, {
+              ed_vname := match(ed_vns.get(ed_vi),.Some(v) => v,.None => String.from(""));
+              ed_fields := match(ed_vfs.get(ed_vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+              ed_labels := match(ed_vls.get(ed_vi),.Some(l) => l,.None => ArrayList(String).new());
+              ed_nf := ed_fields.len();
+              (ed_has_rc : bool) = false;
+              (ed_ci : usize) = usize(0);
+              while(ed_ci < ed_nf, {
+                match(
+                  ed_fields.get(ed_ci),
+                  .Some(ed_ft0) => if(type_contains_rc_type(ed_ft0), {
+                    ed_has_rc = true;
+                  }),
+                  .None => ()
+                );
+                ed_ci = (ed_ci + usize(1));
+              });
+              if(ed_has_rc, {
+                ed_tag := get_enum_variant_c_name(concrete_type, ed_vname.clone(), context.base);
+                em.emit_string_line(`  case ${ed_tag}: {`);
+                (ed_fi : usize) = usize(0);
+                while(ed_fi < ed_nf, {
+                  match(
+                    ed_fields.get(ed_fi),
+                    .Some(ed_ft) => if(type_contains_rc_type(ed_ft), {
+                      ed_flabel := match(ed_labels.get(ed_fi),.Some(l) => l,.None => String.from(""));
+                      ed_fname := sanitize_for_c_identifier(ed_flabel, false);
+                      ed_access := `(${ed_temp.clone()}).data.${ed_vname.clone()}.${ed_fname}`;
+                      ed_fd := recur(ed_access.clone(), ed_ft, context);
+                      if((ed_fd.len() > usize(0)) && (!(ed_fd == ed_access)), {
+                        ed_line := String.from("    ");
+                        ed_line.push_string(ed_access);
+                        ed_line.push_str(" = ");
+                        ed_line.push_string(ed_fd);
+                        ed_line.push_str(";");
+                        em.emit_string_line(ed_line);
+                      });
+                    }),
+                    .None => ()
+                  );
+                  ed_fi = (ed_fi + usize(1));
+                });
+                em.emit_string_line(String.from("    break;"));
+                em.emit_string_line(String.from("  }"));
+              });
+              ed_vi = (ed_vi + usize(1));
+            });
+            em.emit_string_line(String.from("  default: break;"));
+            em.emit_string_line(String.from("}"));
+            ed_temp
+          },
+          _ => value_code.clone()
+        )
+      )
     ),
     true => value_code.clone()
   )
