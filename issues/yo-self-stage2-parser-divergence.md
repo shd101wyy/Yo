@@ -44,6 +44,18 @@ Also observed: the error message prints an EMPTY module path
 (` --> :20:0`) — possibly a separate small string bug in
 make_parse_error's path plumbing under stage-2.
 
+## Additional probe data (sentinel statements)
+
+- The error fires on the FIRST statement after the `:=` construct,
+  whatever it is (`a :: i32(1);` sentinel → error on ITS line, export
+  untouched). Interleaved comments don't absorb it. The threshold scales:
+  20 leading comments → error still on the first post-`:=` statement.
+- The >=6 comments must be BEFORE the `:=` construct (6 after: clean;
+  3 before + 3 after: clean) — the failing computation involves the
+  construct's ABSOLUTE token index (leading comments shift it past a
+  boundary; a fixed-size lookback / hardcoded window in the `:=` parse
+  path is the prime suspect).
+
 ## Analysis so far
 
 - Pure code tokens past any count are fine (3× `a :: i32(1);` = 21 tokens,
