@@ -2,6 +2,42 @@
 
 ## Status
 
+ROOT CAUSE OF THE expr_info.yo UAF PINNED AND FIXED (2026-07-11 second
+session): NOT the ExprInfo table at all — the freed object was the module
+**Environment**. malloc_history under gmalloc + MallocStackLogging (lldb
+`script` + `platform shell malloc_history <pid> $x28` at the fault) showed
+ALLOC by `Environment.new` (yo_id_20142, 112 bytes, from the check driver)
+and FREE inside the stage-2 emission of **evaluate_trait_type**
+(yo_id_283186) invoked from evaluate_expression_raw while
+evaluate_initialization_assignment evaluated a prelude `X :: trait(...)`
+rhs. The stage-2 emission binds `(env_mut : Environment) = env` as a PLAIN
+ALIAS (`__yo_t60* env_mut = env;` — no dup) yet still emits the scope-end
+`__yo_decr_rc(env_mut)` — net −1 on the caller's env per call. The TS
+reference emission has `env_mut = ___dup(env)` at the same site.
+
+Evaluator divergence (the fix, in yo-self/evaluator/exprs/assignment.yo):
+the atom/typed-binding `=` path never ported assignment.ts:305-323
+(`lhsConsumedByRhs`, `requireExprNotConsumed(rhs)`,
+`setExprAsNeedsToCallDup(rhs)` + env re-read) nor the ts:759-800 ExprInfo
+tail (3-branch: init → unit; lhs-consumed → unit; real reassignment →
+old-value info + attach_temp_variable_to_expr so codegen saves+drops the
+old value). The codegen side (codegen/exprs/assignment.yo) was already
+complete — it honors needs_to_call_dup via emit_deferred_dup_or_code and
+ei.variable_name via the save-old-value temp; only the evaluator never
+marked the rhs. Every `(x : T) = param` / `x = rhs` in the whole compiler
+(env_mut bindings in trait.yo etc.) was a net-release of the RHS object.
+Corpus regression test: tests/codegen-bootstrap/param_alias_binding.yo
+(pre-fix stage-1-emitted binary prints `5 5 ` — "hello" freed — instead of
+`5 5 5 hello`).
+
+Known REMAINING (separate, leak-class, non-crashing) divergences found by
+the ExprInfo RC event-stream diff of yo_id_236636 vs the TS reference
+emission of evaluate_initialization_assignment: stage-2 never emits the
+normal-path scope-end drops for `actual_lhs_info`/`ali_after`/`ali_final`/
+`lhs_info`/`expr_info` locals and the Option(ExprInfo) get() temps (TS
+drops all of them), and the property-assignment save-old-value temps
+(\_347666 etc.) are dropped only on early-return paths. Leaks, not UAFs.
+
 PARTIALLY RESOLVED (2026-07-11, commit 5a5d28d15) — the sandbox-prelude
 crash is FIXED: method-call unwind coverage (codegen method branch +
 evaluator temp attach, TS function.ts:2263) and the multi-statement

@@ -341,6 +341,21 @@ evaluate_binding :: (
     is_implicit,
     ast_expr_token(lhs)
   );
+  // The variable is NOT initialized yet — initialization happens in the
+  // enclosing `=` assignment. Mirrors binding.ts:211
+  // (`initializedAtToken: undefined`). add_variable_to_env stamps
+  // Some(token) (correct for params and `:=` bindings), so clear it here.
+  // Without this, `(x : T) = rhs` reads as a REASSIGNMENT in
+  // evaluate_assignment (is_mutating_defined_variable true) and wrongly
+  // attaches a save-old-value temp for a variable that has no old value —
+  // emitting `T temp = x; // Save old value` before `x` is even declared.
+  match(
+    _var_opt,
+    .Some(new_binding_var) => {
+      new_binding_var.initialized_at_token =.None;
+    },
+    .None => ()
+  );
   // Write ExprInfo for the lhs expression.
   // pathCollection = [[variableName]] (one-element path collection, matches TS).
   lhs_path := ArrayList(String).new();

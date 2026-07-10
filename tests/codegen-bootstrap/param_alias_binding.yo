@@ -1,0 +1,42 @@
+open(import("std/fmt"));
+open(import("std/string"));
+
+// Regression: `(x : T) = rhs` / `x = rhs` assignments must mark the RHS with
+// set_expr_as_needs_to_call_dup (dup-on-store; assignment.ts:321). Without it,
+// yo-self-emitted C bound `(h2 : Holder) = h` as a plain alias while still
+// emitting the scope-end drop for h2 — a net RC -1 on the caller's object per
+// call. In stage-2 this freed the module Environment out from under the
+// ExprInfo table (`(env_mut : Environment) = env` in evaluate_trait_type):
+// evaluate_initialization_assignment then read rhs_info.env from freed memory
+// (issues/yo-self-stage2-unwind-check-coverage.md, gmalloc pin 2026-07-11).
+// Reassignment (`x = rhs`) additionally attaches a temp variable so the OLD
+// value is saved and dropped (assignment.ts:759-800).
+Holder :: struct(
+  name : String
+);
+
+use_alias :: (
+  fn(h : Holder) -> usize
+)({
+  (h2 : Holder) = h;
+  h2.name.len()
+});
+
+reassign_alias :: (
+  fn(h : Holder) -> usize
+)({
+  (h2 : Holder) = h;
+  h2 = h;
+  h2.name.len()
+});
+
+main :: (
+  fn() -> unit
+)({
+  h := Holder(name : String.from("hello"));
+  a := use_alias(h);
+  b := use_alias(h);
+  c := reassign_alias(h);
+  println(`${a.to_string()} ${b.to_string()} ${c.to_string()} ${h.name}`);
+});
+export(main);

@@ -869,6 +869,41 @@ evaluate_assignment :: (
       exn.throw(dyn(format_error_message(ast_expr_token(rhs), viol_msg, false,.None)));
     });
   });
+  // Check if the LHS variable was consumed by the RHS (e.g., via own parameter).
+  // This happens in patterns like `v = v.push(x)` where push takes own(self).
+  // If consumed, we must NOT create a temp variable to save the old value,
+  // because the old value's ownership was transferred to the callee.
+  // Mirrors assignment.ts:305-315.
+  lhs_consumed_by_rhs := {
+    cvars := get_variables_from_env(env, variable_name);
+    cond(
+      (cvars.len() > usize(0)) => match(
+        cvars.get(cvars.len() - usize(1)),
+        .Some(lv) => lv.consumed_at_token.is_some(),
+        .None => false
+      ),
+      true => false
+    )
+  };
+  // Check if the RHS variable has been consumed (moved). Mirrors assignment.ts:318.
+  require_expr_not_consumed(rhs_evaled, env, ctx, exn);
+  // Under the new ownership model, all assignments transfer ownership, so we
+  // always need to call dup on the RHS. Without this, codegen emits the
+  // scope-end drop for the (owning) LHS binding but no matching dup — every
+  // `(x : T) = rhs` / `x = rhs` whose RHS is a borrowed RC value net-releases
+  // the caller's object (the stage-2 Environment UAF). Mirrors assignment.ts:321.
+  set_expr_as_needs_to_call_dup(rhs_evaled, ctx, exn);
+  // Re-read env in case set_expr_as_needs_to_call_dup updated it (TS: env = rhs.$.env).
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs_evaled)),
+    .Some(ri_after_dup) => {
+      env.frames = ri_after_dup.env.frames;
+      env.module_path = ri_after_dup.env.module_path;
+      env.function_declaration_frame_level = ri_after_dup.env.function_declaration_frame_level;
+      env.input_string = ri_after_dup.env.input_string;
+    },
+    .None => ()
+  );
   // Check control flow.
   if(has_any_control_flow(rhs_info.control_flow), {
     match(
@@ -955,14 +990,29 @@ evaluate_assignment :: (
   lhs_info2.path_collection.push(lhs_path);
   lhs_info2.variable_name =.Some(variable_name);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs_resolved), lhs_info2);
-  // Write ExprInfo for the whole `=` expression.
-  expr_info := new_expr_info(env, t_unit());
-  expr_info.value =.Some(EvalValue.UnitVal);
-  expr_info.is_compile_time_only_assignment =.Some(updated_variable.is_compile_time_only);
-  // Note: isMutatingDefinedVariable distinction used for temp-variable attachment (Phase 3).
-  // For Phase 2v both init and reassignment emit the same unit info.
-  _unused := is_mutating_defined_variable;
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
+  // Write ExprInfo for the whole `=` expression. Mirrors assignment.ts:759-800:
+  // - initialization (variable not yet initialized) → unit info;
+  // - reassignment whose old value was consumed by the RHS (e.g. passed to an
+  //   `own` parameter) → unit info: the callee owns the old value, no temp;
+  // - otherwise (real reassignment) → info carrying the OLD value/type plus an
+  //   attached temp variable, so codegen saves the old value into the temp and
+  //   drop-tracks it (balances the dup-on-store above).
+  if(!(is_mutating_defined_variable) || lhs_consumed_by_rhs, {
+    expr_info := new_expr_info(env, t_unit());
+    expr_info.value =.Some(EvalValue.UnitVal);
+    expr_info.is_compile_time_only_assignment =.Some(variable.is_compile_time_only);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
+  }, {
+    // NOTE: This should return the original value of lhs.
+    expr_info := new_expr_info(env, variable.ty);
+    expr_info.value = variable.value;
+    expr_info.is_compile_time_only_assignment =.Some(variable.is_compile_time_only);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
+    // This temp variable is used to hold the old value of lhs.
+    // (yo-self divergence: attach_temp_variable_to_expr takes no
+    // is_owning_the_same_rc_value_as optimization argument.)
+    attach_temp_variable_to_expr(expr, true, ctx);
+  });
   expr
 });
 export(
