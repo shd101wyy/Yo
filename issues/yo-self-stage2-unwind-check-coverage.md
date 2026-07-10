@@ -15,10 +15,17 @@ REMAINING (next frontier): the full self-compile still dies — stage-3
 emit rc=133 (SIGTRAP malloc abort). Bisect: `check yo-self/token.yo`
 rc=0, `check yo-self/expr_info.yo` rc=133, `check yo-self/parser.yo`
 rc=133. Smallest repro: YO_MAIN_STACK_MB=16384 /tmp/s2v16 check
-yo-self/expr_info.yo (heap-corruption abort — residual RC divergence
-exercised by mid-size evaluation; same differential method applies:
-shrink the file, lldb + MallocStackLogging, compare stage-2 vs TS-ref
-emission of the implicated fn).
+yo-self/expr_info.yo (heap-corruption abort). Guard-malloc pin
+(DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib under lldb): first bad
+access inside the stage-2 emission of **evaluate_initialization_assignment**
+(yo_id_236636 in /tmp/stage2-v16.c, offset +3264) — reading freed memory
+while evaluating expr_info.yo's top-level `::`/`:=` bindings. Next step:
+extract yo_id_236636 from /tmp/stage2-v16.c, diff against the TS-ref
+emission of evaluate_initialization_assignment in /tmp/s1-ref-v2.c
+(REGENERATE — it predates commits 66326af85/5a5d28d15), or bisect
+expr_info.yo's top-level forms to a minimal binding shape and check its
+corpus-style emission (fast loop: /tmp/yo-self-bin emit of a small file,
+no stage-2 rebuild needed).
 
 ORIGINAL ISSUE (2026-07-10): Current stage-2 runtime frontier after the
 ref-struct-get() dup chain and the frontend fidelity fixes landed
