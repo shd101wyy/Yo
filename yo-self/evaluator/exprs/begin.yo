@@ -43,7 +43,7 @@ open(import("std/string"));
   has_control_flow,
   has_any_control_flow
 } :: import("../../expr_info.yo");
-{ Environment, Variable, Frame, add_variable_to_env } :: import("../../env.yo");
+{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx
@@ -51,12 +51,12 @@ open(import("std/string"));
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ is_some_type, is_reference_struct_type, is_reference_enum_type } :: import("../../types/guards.yo");
+{ is_some_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_flowable_expr, flow_options_default, FlowOptions }
 :: import("../../types/flowability.yo");
-{ type_representation_contains_raw_ptr } :: import("../../types/utils.yo");
+{ type_representation_contains_raw_ptr, type_contains_rc_type } :: import("../../types/utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { format_error_message } :: import("../../error.yo");
@@ -64,8 +64,10 @@ open(import("std/string"));
 {
   attach_temp_variable_to_expr,
   throw_expr_is_implicit_variable_error,
-  consume_case_body_temp_var
+  consume_case_body_temp_var,
+  set_expr_as_needs_to_call_dup
 } :: import("../utils.yo");
+{ Token } :: import("../../token.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // DupCallsResult — stub result type for collectDupCallsConservatively.
@@ -285,15 +287,26 @@ _schedule_scope_end_drops :: (
     match(
       fvars.get(vi),
       .Some(v) => {
-        // M1 scope: drop only DIRECT RC handles (ref struct / ref enum) — the
-        // validated-working case. Newtypes (e.g. String) and value-structs holding
-        // RC fields need a recursive drop whose codegen path is a dormant, untested
-        // crash (memmove EXC_BAD_ACCESS); deferred to a follow-up. Cyclable cycle-GC
-        // types (Node, ENode, ArrayList(Self)) are ref struct/enum, so covered.
-        e1 := (v.is_owning_the_rc_value && (is_reference_struct_type(v.ty) || is_reference_enum_type(v.ty)));
+        // Mirrors TS getVariablesNeedingDrop (src/env.ts): any owning local
+        // whose type CONTAINS an RC-managed type needs a scope-end drop —
+        // including value-structs with RC fields (e.g. Bucket(K, V) locals in
+        // HashMap.set; their ___drop decrements the field). The earlier "M1"
+        // narrowing to direct ref-struct/ref-enum handles under-dropped those
+        // locals: the compound-literal dup + dup-on-store then over-counted
+        // every store by +1 and cycle collection never reclaimed HashMap
+        // cycles (issues/yo-self-compound-literal-rc-overcount.md).
+        e1 := (v.is_owning_the_rc_value && type_contains_rc_type(v.ty));
         e2 := (e1 && (!(v.is_module_level)));
         e3 := (e2 && (!(v.is_ref)));
-        e4 := (e3 && (!(is_some_type(v.ty))));
+        // Skip only UNRESOLVED SomeTypes with no required traits (no concrete
+        // drop possible). Bounded/resolved SomeTypes keep their drop — mirrors
+        // TS getVariablesNeedingDrop's resolvedConcreteType/requiredTraits check.
+        some_undroppable := match(
+          v.ty,
+          .SomeT({ required_trait_types : s_rtt, resolved_concrete : s_rc }) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
+          _ => false
+        );
+        e4 := (e3 && (!(some_undroppable)));
         e5 := (e4 && v.consumed_at_token.is_none());
         e6 := (e5 && (!(_name_matches_opt(v.name.clone(), result_var_name))));
         e7 := (e6 && (!(_name_matches_opt(v.name.clone(), tail_atom_name))));
@@ -902,6 +915,104 @@ evaluate_begin_expression :: (
   // would drop the begin frame from THAT snapshot too, hiding begin-local
   // bindings from any later consumer of the recorded env (e.g. the flowability
   // check). See issues/fixed/yo-self-recorded-env-aliasing.md.
+  // Simplified begin-tail ownership (mirrors begin.ts:1705-1778): when the
+  // block's result is a bare local, an OWNING local from the CURRENT frame
+  // (or an `own(...)` parameter of the enclosing function) transfers
+  // ownership out — mark it consumed so the scope-end scheduler skips it.
+  // A NON-OWNING local (e.g. a match pattern binding borrowing the
+  // scrutinee's payload) or one from an OUTER frame is SHARED out — mark the
+  // tail with a deferred `___dup` so codegen emits the balancing incr before
+  // the owner's scope-end `___drop` runs (without it, widening the drop
+  // predicate to value enums/structs freed payloads still in use — the
+  // hashmap_self_cycle abort).
+  (return_value_expr : AstExpr) = last_expr;
+  if(ast_expr_is_fn_call_of(last_expr, BK_RETURN, Option(usize).Some(usize(1))), {
+    match(
+      last_expr,
+      .FnCall(_, _, ret_args, _, _) => match(
+        ret_args.get(usize(0)),
+        .Some(ra) => {
+          return_value_expr = ra;
+        },
+        .None => ()
+      ),
+      _ => ()
+    );
+  });
+  rv_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(return_value_expr));
+  rv_name_opt := match(
+    rv_info_opt,
+    .Some(rv_info) => rv_info.variable_name,
+    .None => Option(String).None
+  );
+  match(
+    rv_name_opt,
+    .None => (),
+    .Some(rv_name) => {
+      rv_vars := get_variables_from_env(env, rv_name);
+      nrv := rv_vars.len();
+      if(nrv > usize(0), {
+        match(
+          rv_vars.get(nrv - usize(1)),
+          .None => (),
+          .Some(rv) => {
+            ty_ok := match(
+              rv_info_opt,
+              .Some(rv_info_t) => are_types_compatible(rv.ty, rv_info_t.ty),
+              .None => false
+            );
+            if(ty_ok, {
+              // `own(name) : T` parameters in the parameter frame also transfer
+              // ownership directly when returned from ANY nested begin block —
+              // mirrors begin.ts `isOwnParamReturn` (matched by label against
+              // the enclosing function's parameter list).
+              is_own_param_return := (
+                (rv.is_owning_the_rc_value && rv.consumed_at_token.is_none()) && match(
+                  ctx.is_evaluating_function_body_or_async_block,
+                  .Some(fc) => match(
+                    fc.kind,
+                    .FunctionBody => match(
+                      fc.func_type,
+                      .Some(fty) => match(
+                        fty,
+                        .Func({ meta : own_fm }) => {
+                          (own_found : bool) = false;
+                          own_labels := own_fm.*.param_labels;
+                          own_flags := own_fm.*.param_is_owning;
+                          (own_i : usize) = usize(0);
+                          n_own := own_labels.len();
+                          while((own_i < n_own) && (!(own_found)), {
+                            lbl_match := match(own_labels.get(own_i),.Some(lbl) => (lbl == rv_name),.None => false);
+                            flag_match := match(own_flags.get(own_i),.Some(fl) => fl,.None => false);
+                            if(lbl_match && flag_match, {
+                              own_found = true;
+                            });
+                            own_i = (own_i + usize(1));
+                          });
+                          own_found
+                        },
+                        _ => false
+                      ),
+                      .None => false
+                    ),
+                    _ => false
+                  ),
+                  .None => false
+                )
+              );
+              if((rv.is_owning_the_rc_value && ((rv.frame_level == (env.frames.len() - usize(1))) || is_own_param_return)) && rv.consumed_at_token.is_none(), {
+                // Transfer: consumed — the scope-end scheduler (e5) skips it.
+                rv.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(last_expr)));
+              }, {
+                // Borrow/outer-frame share: balancing dup.
+                set_expr_as_needs_to_call_dup(return_value_expr, ctx, exn);
+              });
+            });
+          }
+        );
+      });
+    }
+  );
   // M1: schedule scope-end RC drops for this frame's owning named locals BEFORE the
   // frame is popped (the `___drop(name)` exprs are evaluated against `env` while the
   // names are still in scope). See _schedule_scope_end_drops + plans/YO_SELF_NAMED_LOCAL_DROPS.md.
@@ -961,6 +1072,14 @@ evaluate_begin_expression :: (
     out_info.index_trait_ptr_type = last_info.index_trait_ptr_type;
     out_info.index_method_type = last_info.index_method_type;
     out_info.index_method_value = last_info.index_method_value;
+  });
+  // Same shared-id clobber: the begin-tail ownership pass above may have
+  // attached a deferred `___dup` to the tail's ExprInfo (non-owning local
+  // shared out — e.g. `.Ok(map) => map`). Losing it un-balances the owner's
+  // scope-end drop (the map is freed while the caller still holds it). Carry
+  // it across unconditionally when the result node IS the inner node.
+  if((ast_expr_id(expr) == ast_expr_id(last_expr)) && last_info.deferred_dup_expressions.is_some(), {
+    out_info.deferred_dup_expressions = last_info.deferred_dup_expressions;
   });
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   // Attach temp variable for the begin block result (no-op stub in Phase 2aa).

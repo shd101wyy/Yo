@@ -2,7 +2,32 @@
 
 ## Status
 
-OPEN. Introduced by `10e82d0c0` ("fix(yo-self): compound literal RC management
+FIXED (2026-07-10). Four coupled changes, validated by corpus diff-test
+107/107 DIFF 0 (incl. hashmap_self_cycle now "fully reclaimed"),
+`check ./yo-self` 303/303, stage-2 emit unchanged vs pre-fix control:
+
+1. `other_fn_call.yo` compound-literal builder: the blanket
+   `(__yo_incr_rc(code), code)` comma expression REVERTED — it evaluated
+   `code` twice (a fresh `N(...)` ctor arg allocated TWO objects) and
+   over-counted moves. Replaced with `emit_deferred_dup_or_code` per arg —
+   the evaluator already attaches the correct dup/consume decision to every
+   ctor arg (`set_expr_as_needs_to_call_dup`, calls/type.yo).
+2. `begin.yo` `_schedule_scope_end_drops`: predicate widened from the "M1"
+   ref-struct/ref-enum narrowing to TS-faithful `type_contains_rc_type`
+   (+ the unresolved-SomeType nuance).
+3. `begin.yo` begin-tail ownership (mirrors begin.ts:1705-1778): owning
+   current-frame/own-param tail local → consumed (transfer); non-owning
+   (pattern binding) or outer-frame tail local → deferred `___dup`. Plus:
+   the single-expression-begin shared-id ExprInfo clobber now carries
+   `deferred_dup_expressions` across (it dropped the freshly attached dup).
+4. `drop_dup.yo` `generate_drop_code_for_value`: value-STRUCT arm now drops
+   RC fields INLINE (mirrors the value-enum arm; yo-self synthesizes no
+   \_\_\_drop methods) instead of silently emitting nothing; newtype arm added
+   (transparent typedef → recurse on the inner type with the same code).
+
+Original analysis below.
+
+Previously OPEN. Introduced by `10e82d0c0` ("fix(yo-self): compound literal RC management
 for pointer-typed fields"). That commit's message records the corpus result
 "106/107, 1 DIFF on hashmap_self_cycle.yo (RC timing change … non-fatal)".
 The DIFF is **not** benign: the self-compiled binary's output leaks the

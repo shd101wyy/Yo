@@ -308,7 +308,28 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
         _ => String.from("")
       )
     ),
-    // Value struct carrying RC fields: drop via its synthesized ___drop method, if any.
+    // Newtype (`newtype(_f : Inner)`): a TRANSPARENT typedef to `Inner` at
+    // the C ABI (no struct wrapper, no `._f` member) — drop the inner value
+    // by recursing on the inner field's type with the SAME value_code.
+    // Mirrors the newtype arm of generate_dup_code_for_value below.
+    is_newtype_type(concrete_type) => {
+      nt_rfs := get_runtime_struct_fields(concrete_type);
+      match(
+        nt_rfs.get(usize(0)),
+        .Some(nt_f) => cond(
+          type_contains_rc_type(nt_f.ty) => recur(value_code.clone(), nt_f.ty, context),
+          true => String.from("")
+        ),
+        .None => String.from("")
+      )
+    },
+    // Value struct carrying RC fields: drop via its registered ___drop method
+    // when one exists (specialized generic impls), else drop each RC field
+    // INLINE — the same rationale as the value-enum arm above (yo-self lowers
+    // RC ops directly instead of synthesizing per-type ___drop methods; TS
+    // calls the synthesized fn_..___drop here). Previously the missing-method
+    // case silently emitted NOTHING, so value-struct locals (e.g. Bucket(K, V)
+    // in HashMap.set) never released their RC fields at scope end.
     is_struct_type(concrete_type) => match(
       get_drop_function_for_type(concrete_type, context),
       .Some(fn) => {
@@ -318,7 +339,30 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
         out.push_str(")");
         out
       },
-      .None => String.from("")
+      .None => {
+        vs_rfs := get_runtime_struct_fields(concrete_type);
+        (vs_fi : usize) = usize(0);
+        while(vs_fi < vs_rfs.len(), {
+          match(
+            vs_rfs.get(vs_fi),
+            .Some(vs_f) => if(type_contains_rc_type(vs_f.ty), {
+              fref := String.from("(");
+              fref.push_string(value_code.clone());
+              fref.push_str(").");
+              fref.push_string(sanitize_for_c_identifier(vs_f.label.clone(), false));
+              fd := recur(fref, vs_f.ty, context);
+              if(fd.len() > usize(0), {
+                line := fd;
+                line.push_str(";");
+                em.emit_string_line(line);
+              });
+            }),
+            .None => ()
+          );
+          vs_fi = (vs_fi + usize(1));
+        });
+        String.from("")
+      }
     ),
     true => String.from("")
   )
