@@ -57,12 +57,18 @@ does. Concrete example — `parse()` (parser.yo:1448):
 Map each TS emitEffectUnwindCheck site to the corresponding yo-self
 emitter branch and add the missing computation + emission:
 
-1. other-fn-call.ts:1384 (void-result call) ↔ present.
-2. other-fn-call.ts:1517 (temp-var call) ↔ present.
-3. other-fn-call.ts:1702/1718 (method-call result paths) ↔ MISSING in
-   yo-self's method/property-access call emission.
-4. other-fn-call.ts:1808 ↔ check.
-5. functions/generation.ts site ↔ check.
+1. other-fn-call.ts:1384 (void-result call, gated on callMayUnwind) and
+   :1517 (temp-var-result call, same gate) — in TS these cover ORDINARY
+   METHOD CALLS too, because TS compiles a method call through the same
+   main call path (receiver as first arg). yo-self's METHOD-call emission
+   branch is separate and has NO ou_may_unwind computation/emission —
+   that's the dominant missing coverage (`Parser.new(...)`,
+   `p.get_program(exn)`).
+2. other-fn-call.ts:1702 (direct local-handler atom call, install-point
+   check via isHandlerAtomBoundLocally) and :1718 (`exn.throw(...)`
+   effect-record-field call, propagate) ↔ verify yo-self equivalents.
+3. other-fn-call.ts:1808 ↔ verify.
+4. functions/generation.ts site ↔ verify.
 
 The `_call_may_unwind` inputs at the method branch need the resolved
 method Func type's param types (g_method_callee_types side-table has the
