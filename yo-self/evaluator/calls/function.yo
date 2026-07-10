@@ -3618,7 +3618,62 @@ Fix: wrap the call:
             false,
             exn
           );
-          ret_type_none := call_result_none.return_type;
+          (ret_type_none : TypeValue) = call_result_none.return_type;
+          // io.async / io.await result-type refinement — SAME logic as the
+          // FuncVal-callee branch above. This VALUELESS-callee path runs when
+          // the receiver is a runtime param with no compile-time value (def-time
+          // body eval binds params valueless, TS function-type.ts:346), so the
+          // Io struct field yields no FuncVal. TS keys the equivalent handling
+          // on functionType.ioBuiltin (type-carried, value-independent —
+          // helper.ts:379/1314); yo-self keys on the call SHAPE, which is
+          // equally value-independent, so the refinement must run here too.
+          if(is_io_async_call(expr), {
+            match(
+              _future_output_some_id(ret_type_none),
+              .Some(oid_n) => match(
+                args.get(usize(0)),
+                .Some(carg_n) => match(
+                  expr_info_table_get(ctx.expr_info_table, ast_expr_id(carg_n)),
+                  .Some(cinfo_n) => match(
+                    cinfo_n.value,
+                    .Some(cfv_n) => match(
+                      cfv_n,
+                      .FuncVal(__fvdn, _) => match(
+                        get_func_type(__fvdn.*.func_id),
+                        .Func({ result : rr_n }) => if(!(is_some_type(rr_n)), {
+                          register_some_resolved_concrete(oid_n.clone(), rr_n.clone());
+                        }),
+                        _ => ()
+                      ),
+                      _ => ()
+                    ),
+                    .None => ()
+                  ),
+                  .None => ()
+                ),
+                .None => ()
+              ),
+              .None => ()
+            );
+            ret_type_none = match(
+              ret_type_none,
+              .SomeT({ name : snn, frame_level : sfln, parent_type : sptn, required_trait_types : srttn, required_trait_levels : srtln, negative_trait_types : snttn, negative_trait_levels : sntln, is_effects_row : siern, kind_function_type : skftn, resolved_concrete : srcpn }) => TypeValue.SomeT(generate_some_type_id(), snn, sfln, sptn, srttn, srtln, snttn, sntln, siern, skftn, srcpn),
+              _ => ret_type_none
+            );
+          });
+          if(is_io_await_call(expr), {
+            match(
+              ret_type_none,
+              .SomeT({ id : tid_n }) => match(
+                lookup_some_resolved_concrete(tid_n),
+                .Some(concrete_n) => {
+                  ret_type_none = concrete_n;
+                },
+                .None => ()
+              ),
+              _ => ()
+            );
+          });
           out_none := new_expr_info(call_result_none.caller_env, ret_type_none);
           out_none.value = Option(EvalValue).Some(_call_result_unknown(ret_type_none, callee_env));
           out_none.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_none.runtime_arg_exprs_in_order);

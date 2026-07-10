@@ -2,11 +2,46 @@
 
 ## Status
 
-OPEN — bisected to a minimal repro (2026-07-10). This is the current
-fixpoint blocker: the stage-2 binary now parses argv and runs its
-lexer/parser (parse-0 long surpassed), but `check` rejects the real
-std/prelude.yo at line 20 with "paren-less function and operator calls are
-not supported".
+RESOLVED (2026-07-10, same day) — the "parser divergence" was not a parser
+bug at all: it was a use-after-free of TOKEN STRING VALUES. Emitted
+`ArrayList(T).get()` for ref-struct T returned `Some(*(_ptr+index))` with
+NO `__yo_incr_rc`, while every caller's match-arm cleanup still emitted the
+decr — each `get()` was a net −1 on the element, so the parser's token
+`.value` buffers were freed one read at a time (the ≥6-comment threshold
+was just when allocator reuse made the corruption visible; `[TOK]`-dump
+tracing showed all values perfect at tokenize time and dead at parse time).
+
+Four faithful ports fixed the chain (all in one commit; corpus test
+tests/codegen-bootstrap/arraylist_refstruct_get.yo):
+
+1. evaluator/exprs/property_access.yo — a runtime deref of an
+   UnknownVal-carrying pointer now falls through to the RUNTIME branch
+   (attaching the borrowed temp, TS property-access.ts:381-398); the
+   Unknown early-return is gated on ctx.is_in_function_call_checking_phase.
+2. codegen/exprs/drop_dup.yo — emit_deferred_dup_or_code's materialize
+   path declares via get_variable_type_string (the declared_c_var_names
+   choke-point), so the undeclared-temp gate no longer suppresses the very
+   dup the materialization enables.
+3. expr.yo wrap_body_in_begin + both def-time trial helpers — a bare-ATOM
+   function body (`to_string : (...)(self)`) is wrapped in a synthetic
+   `begin(...)` before dispatch, so the begin-tail ownership pass emits the
+   borrowed-param \_\_\_dup (TS routes ALL bodies through
+   evaluateBeginExpression). Narrowed to atoms: wrapping closure CALL
+   bodies perturbed the async result-refine pipeline.
+4. evaluator/calls/function_type.yo — \_build_def_time_body_env binds
+   runtime params VALUELESS (TS function-type.ts:346); Some(UnknownVal)
+   made set_expr_as_needs_to_call_dup's value-branch early-return.
+   - calls/function.yo — the io.async/io.await result-type refinement is
+     also applied on the VALUELESS-callee path (TS keys on
+     functionType.ioBuiltin, value-independent), since a def-time `io.async`
+     field read now has no FuncVal.
+
+NEXT FRONTIER (new issue): the stage-2 binary now parses the sandbox
+prelude fully but SIGSEGVs during EVALUATION — a swallowed throw
+("Variable foo not found") lets a NULL AstExpr (`rhs_evaled`) reach
+ast_expr_is_fn_call in the assignment control-flow validator: the
+\_\_yo_effect_escaped propagation is lost between the throw and the check.
+Real std/prelude.yo shows "parsed 0 top-level exprs" (throw-skeleton).
 
 ## Minimal repro (sandbox recipe — no rebuild needed per probe)
 

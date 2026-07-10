@@ -1,0 +1,40 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+
+// Regression: ArrayList(ref-struct).get() must ___dup the element before
+// wrapping it in Some. Without the dup every get() was a net RC -1 on the
+// element (the caller's match-arm cleanup still drops it), so repeated reads
+// freed the element's String fields while the list still referenced them —
+// the root cause of the stage-2 parser divergence (token values read as
+// empty/garbage after 12 reads; issues/yo-self-stage2-parser-divergence.md).
+Item :: ref(
+  struct(
+    name : String
+  )
+);
+
+main :: (fn() -> unit)({
+  items := ArrayList(Item).new();
+  items.push(Item(name : String.from("alpha")));
+  items.push(Item(name : String.from("beta")));
+  i := usize(0);
+  while(i < usize(6), {
+    match(
+      items.get(usize(0)),
+      .Some(it) => {
+        println(it.name);
+      },
+      .None => ()
+    );
+    match(
+      items.get(usize(1)),
+      .Some(it) => {
+        println(it.name);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+export(main);

@@ -22,7 +22,7 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, wrap_body_in_begin } :: import("../../expr.yo");
 { copy_func_param_defaults, copy_func_param_default_exprs, copy_macro_registration, get_func_variadic_param, copy_func_variadic_param, copy_func_where_constraints } :: import("../types/function.yo");
 {
   ExprInfo,
@@ -216,7 +216,10 @@ _trial_eval_fn_body :: (
   // flow-soundness rejection sets `flow_violation_pending()` BEFORE throwing;
   // the def-time caller re-raises it via the real `exn` after this returns.
   inner_exn := Exception(throw : ((_err) -> unwind(())));
-  evaluated := evaluate_expression_raw(body, env, ctx, inner_exn);
+  // Wrap a non-begin body in a synthetic `begin(...)` so even a bare-atom
+  // body runs the begin-tail ownership pass (see wrap_body_in_begin and
+  // _trial_eval_anon_body in values/anonymous_function.yo).
+  evaluated := evaluate_expression_raw(wrap_body_in_begin(body), env, ctx, inner_exn);
   out.push(evaluated);
 });
 /// Build a fresh definition-time evaluation env for a function body: captures
@@ -323,6 +326,13 @@ _build_def_time_body_env :: (
     // field/element-type eval throws "expected type for element, got A"
     // (field.yo:293) — the dominant def-time-eval swallow category. Mirrors the
     // SomeT binding in evaluate_function_parameters (function.yo:1169).
+    // Runtime params bind with NO value (TS function-type.ts:346:
+    // `value: isCompileTimeOnly ? [createUnknownValue(...)] : undefined`).
+    // Binding them to `Some(UnknownVal)` made every body read of a param
+    // look like a comptime value, so set_expr_as_needs_to_call_dup's
+    // value-branch early-returned and a borrowed-param tail (`to_string :
+    // (...)(self)`) lost its balancing ___dup — println(s) then freed the
+    // caller's String buffer (net −1 per call).
     pv := if(is_type_0(pt), {
       // Prefer the signature's own SomeT for this name; mint only when
       // the signature never mentions the param.
@@ -344,15 +354,15 @@ _build_def_time_body_env :: (
       });
       match(
         sig_match,
-        .Some(st) => create_type_value(st),
-        .None => create_type_value(t_some_t(pn, pf_level))
+        .Some(st) => Option(EvalValue).Some(create_type_value(st)),
+        .None => Option(EvalValue).Some(create_type_value(t_some_t(pn, pf_level)))
       )
-    }, create_unknown_val(pt));
+    }, Option(EvalValue).None);
     add_parameter_to_env(
       fresh_env,
       pn,
       pt,
-      Option(EvalValue).Some(pv),
+      pv,
       false,
       p_ref,
       false,

@@ -883,3 +883,38 @@ export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);
 export(is_function_boundary_arrow);
 export(alloc_global_expr_id, clone_expr_fresh_ids);
+/// Wrap `body` in a synthetic `begin(body)` call when it is not already a
+/// `begin(...)` node. Mirrors TS's function-body evaluation, which ALWAYS
+/// routes through `evaluateBeginExpression` (anonymous-function.ts:829) whose
+/// implicit single-expression wrap (begin.ts:1016-1045) gives even a
+/// bare-atom body the begin machinery — in particular the begin-tail
+/// ownership pass, so a borrowed-param tail like `to_string : (...)(self)`
+/// receives its balancing ___dup. yo-self's def-time trials route through
+/// the expression DISPATCHER (a direct begin.yo import from values/ would
+/// close an import cycle), so the wrap happens here at the AST level; a
+/// curly body is already a begin call and passes through untouched.
+wrap_body_in_begin :: (fn(body : AstExpr) -> AstExpr)({
+  // Narrow to bare-ATOM bodies: a FnCall body already routes through the
+  // dispatcher's own handling (a curly body IS a begin; a call body's
+  // result flows through the call's ExprInfo), and wrapping closure call
+  // bodies perturbed the async closure result-refine pipeline (io_async
+  // corpus). Only an atom tail (e.g. `(...)(self)`) misses the begin-tail
+  // ownership pass without the wrap.
+  if(!(ast_expr_is_atom(body)), {
+    return(body);
+  });
+  tok := ast_expr_token(body);
+  begin_tok := Token(
+    kind : TokenKind.Identifier,
+    value : String.from(BK_BEGIN),
+    row : tok.row,
+    column : tok.column,
+    character : tok.character,
+    module_path : tok.module_path,
+    input : tok.input
+  );
+  args := ArrayList(AstExpr).new();
+  args.push(body);
+  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), begin_tok.clone()), args, false, begin_tok)
+});
+export(wrap_body_in_begin);

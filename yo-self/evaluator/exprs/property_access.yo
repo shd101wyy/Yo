@@ -35,6 +35,7 @@ open(import("std/string"));
 } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ get_struct_fields } :: import("../types/field.yo");
 {
   EvalValue,
   create_type_value,
@@ -548,14 +549,24 @@ Raw pointer operations may dereference invalid memory.`,
                   return(expr);
                 },
                 .UnknownVal(_) => {
-                  deref_unk := create_unknown_val(resolved_base);
-                  out_unk := new_expr_info(env, resolved_base);
-                  out_unk.value = Option(EvalValue).Some(deref_unk);
-                  out_unk.origin_type = Option(TypeValue).Some(ot);
-                  out_unk.is_accessing_property = Option(bool).Some(true);
-                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_unk);
-                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_unk);
-                  return(expr);
+                  // CHECKING PHASE ONLY: keep the comptime Unknown placeholder.
+                  // In execution mode a call-chain result carries `UnknownVal`
+                  // under yo-self's runtime-result convention where TS carries
+                  // `undefined` — TS then takes the RUNTIME deref branch below
+                  // (property-access.ts:381-398), which attaches a borrowed
+                  // temp so `.Some((_ptr &+ index).*)`-style uses get a ___dup
+                  // (missing dup freed every ArrayList(ref-struct) element on
+                  // get(); see issues/yo-self-stage2-parser-divergence.md).
+                  if(ctx.is_in_function_call_checking_phase, {
+                    deref_unk := create_unknown_val(resolved_base);
+                    out_unk := new_expr_info(env, resolved_base);
+                    out_unk.value = Option(EvalValue).Some(deref_unk);
+                    out_unk.origin_type = Option(TypeValue).Some(ot);
+                    out_unk.is_accessing_property = Option(bool).Some(true);
+                    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_unk);
+                    expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_unk);
+                    return(expr);
+                  });
                 },
                 _ => ()
               );
@@ -1454,7 +1465,33 @@ Raw pointer operations may dereference invalid memory.`,
                   }
                 );
               },
-              .None => ()
+              .None => {
+                // Object has no compile-time value (e.g. a def-time runtime
+                // param bound valueless — TS function-type.ts:346): resolve
+                // the member value from the module type's REGISTERED fields.
+                // Mirrors TS property-access.ts:757-760, which reads
+                // `field.assignedValue ?? createUnknownValue(field.type)` off
+                // the TYPE, independent of the receiver's value — this is how
+                // `io.async(...)` resolves inside a def-time function body.
+                mod_sid := match(base_ty,.Struct({ id : msid }) => msid, _ => String.from(""));
+                (mod_reg_val : Option(EvalValue)) = Option(EvalValue).None;
+                match(
+                  get_struct_fields(mod_sid),
+                  .Some(mod_tfs) => match(
+                    mod_tfs.get(fi_mod),
+                    .Some(mod_tf) => {
+                      mod_reg_val = mod_tf.assigned_value;
+                    },
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                out_mod.value = match(
+                  mod_reg_val,
+                  .Some(av) => Option(EvalValue).Some(av),
+                  .None => Option(EvalValue).Some(create_unknown_val(ft_mod))
+                );
+              }
             );
             return(expr);
           }

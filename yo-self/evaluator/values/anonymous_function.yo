@@ -35,6 +35,7 @@ open(import("std/string"));
   ast_expr_is_fn_call_of,
   ast_expr_is_atom,
   make_err_expr,
+  wrap_body_in_begin,
   BK_TUPLE
 } :: import("../../expr.yo");
 {
@@ -278,7 +279,10 @@ _trial_eval_anon_body :: (
 )({
   clear_flow_violation();
   inner_exn := Exception(throw : ((_err) -> unwind(())));
-  evaluated := evaluate_expression_raw(body, env, ctx, inner_exn);
+  // Wrap a non-begin body in a synthetic `begin(...)` so even a bare-atom
+  // body runs the begin-tail ownership pass (TS anonymous-function.ts:829
+  // always routes through evaluateBeginExpression; see wrap_body_in_begin).
+  evaluated := evaluate_expression_raw(wrap_body_in_begin(body), env, ctx, inner_exn);
   out.push(evaluated);
 });
 /// Post-body-eval capture checks. Mirrors anonymous-function.ts:

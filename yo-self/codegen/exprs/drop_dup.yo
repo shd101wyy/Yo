@@ -27,7 +27,7 @@ open(import("std/string"));
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key } :: import("../utils/index.yo");
+{ get_type_string, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
 /// The registered C name of the first `method_name` entry for `type`, if it is
 /// a function value registered in the codegen function table.
@@ -864,9 +864,12 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
         );
         cond(
           needs_materialize => {
-            decl := get_type_string(ei.ty, context.base);
-            decl.push_str(" ");
-            decl.push_string(t_name.clone());
+            // Declare via get_variable_type_string — the choke-point that records
+            // the C name in declared_c_var_names. Building the decl by hand left
+            // the temp unregistered, so generate_deferred_dup_expressions'
+            // undeclared-temp gate suppressed the very dup this materialization
+            // exists to enable (ArrayList(ref-struct).get() lost its element +1).
+            decl := get_variable_type_string(ei.ty, t_name.clone(), context.base);
             decl.push_str(" = ");
             decl.push_string(fallback_code.clone());
             decl.push_str(";");
