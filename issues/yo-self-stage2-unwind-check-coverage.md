@@ -2,6 +2,67 @@
 
 ## Status
 
+DRAIN LOOP STATUS (2026-07-11 third session, through stage2-v20): the
+t1.yo repro is surfacing stage-1 RC-emission divergences ONE AT A TIME —
+two fixed, one open:
+
+1. FIXED (fb079277e): match-arm property-read dup lost to STALE eval-temp
+   (evaluate_function_call's `.Some(ci) => ci.env` → callee_env net −1;
+   was rc=133). Fix: generate_case_body's unnamed-dup fallback dups the
+   GENERATED declared temp. Corpus test: match_arm_property_dup.yo.
+2. FIXED (5eff2ff23): cond emitter had NO arm deferred-dup handling
+   (cond.ts:409-470 unported) — `resolved_methods := cond(..., true =>
+methods)` in get_receiver_methods_by_name_from_env double-dropped
+   `methods` (was rc=139). Corpus test: cond_arm_local_dup.yo.
+3. OPEN (stage2-v20, t1 rc=133): 64-byte object freed inside
+   yo_id_228095 = the match-bodies env merger
+   (`(env, bodies : ArrayList(AstExpr), ctx, exn) -> Environment`,
+   merge_and_check_envs shape, called from evaluate handler
+   yo_id_267646) — GC trial-delete then walks the freed child via
+   **yo*traverse***yo_t99 (t99 carries `id : Option(String)` —
+   Variable/Frame-like). Suspect: merge_and_check_envs emission
+   over-releases a frame/variable one of the merged envs still holds
+   (cf. memory yo-self-branch-merge-trivial-arm).
+
+DRAIN WORKFLOW (repeatable, ~30 min/iteration):
+a. lldb -b with DYLD_INSERT_LIBRARIES=libgmalloc.dylib +
+MallocStackLogging=full on /tmp/s2vNN `check /tmp/t1.yo`;
+at fault run malloc_history <pid> $x0 → ALLOC/FREE stacks → fn ids.
+b. Identify ids via `grep 'static inline.*yo_id_N(' stage2-vNN.c`
+(signature → yo-self source fn).
+c. clang -O2 -g the stage2 .c, `image lookup -a <addr>` → exact C line
+of the extra drop / missing dup; read the emitted shape.
+d. Compare with the TS reference emission of the same source fn
+(/tmp/s1-ref-v3.c) — find the missing \_\_\_dup / extra decr.
+e. Fix STAGE-1's emission (yo-self/codegen/...) or the evaluator mark —
+match.yo generate_case_body and cond.yo \_emit_value_arm are the
+proven drift-safe templates (stale eval-temp → dup the GENERATED
+declared temp instead of the recorded atom name).
+f. Gates: corpus 115/115 DIFF 0 + check ./std 153/153 → commit →
+re-emit stage-2 → clang (0 errors) → t1.yo again.
+
+PREVIOUS FRONTIER NOTE (stage2-v18): stage-2 emit is
+now FAST (72 s, was 45 min), deterministic (×2 byte-identical), clang -O2
+0 errors (the v17 Bucket GC-tracer type-identity collision is FIXED via
+type_key structural fallback, commit 5e75a87ea). The /tmp/t1.yo repro
+still dies rc=133 — NEW PIN (gmalloc + MallocStackLogging +
+malloc_history at fault): crash is **yo_gc_trial_delete_visitor walking
+**yo_traverse**\_yo_t59 (t59 = ExprInfo) — the GC visits `obj->env` whose
+112-byte Environment was ALLOCATED by new_expr_info→clone_env
+(yo_id_224310→yo_id_222750) under a sub-evaluation (yo_id_249280) of
+**evaluate_function_call** (yo_id_264748, calls/function.yo), and FREED
+by an inlined decr chain INSIDE evaluate_function_call itself
+(yo_id_264748+~0xC2xx, direct malloc_zone_free) while the ExprInfo table
+still references the info. Same over-release class as the fixed env_mut
+alias, different site: stage-1's emission of function.yo drops an
+ExprInfo-held env at net −1. GC disable (YO_GC_THRESHOLD=0) does NOT
+avoid it — the full-scan trigger in **yo_gc_register keys on
+\_\_yo_gc_full_threshold, not the env-set threshold (faithful to TS; the
+GC is only the detector). Next: clang -g build of stage2-v18.c →
+malloc_history under the -g binary → atos the FREE site to the exact C
+line → map to the function.yo construct stage-1 mis-emits, then fix the
+STAGE-1 (yo-self codegen) RC emission for that shape.
+
 ROOT CAUSE OF THE expr_info.yo UAF PINNED AND FIXED (2026-07-11 second
 session): NOT the ExprInfo table at all — the freed object was the module
 **Environment**. malloc_history under gmalloc + MallocStackLogging (lldb
