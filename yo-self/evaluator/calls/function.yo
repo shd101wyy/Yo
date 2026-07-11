@@ -2076,7 +2076,13 @@ Fix: wrap the call:
             out_s.value = struct_val;
             out_s.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_s.runtime_arg_exprs_in_order);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_s);
-            expr
+            // Explicit `return(expr)` (mirrors TS function.ts:2470 `return expr`).
+            // A bare tail `expr` here skipped the return-dup for NON-RC struct
+            // results (set_expr's type gate saw the concrete non-RC struct type),
+            // so evaluate_expression returned the borrowed AstExpr node without
+            // +1 → the comptime_list evaluated_arg over-release (t5.yo). Explicit
+            // returns emit the node dup; the bare tail did not.
+            return(expr);
           },
           // ----------------------------------------------------------------
           // Enum variant construction: EnumType.Variant(field1, field2, ...).
