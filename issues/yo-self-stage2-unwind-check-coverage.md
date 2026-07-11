@@ -185,6 +185,25 @@ tails dup ×531); the ring tool pins any next object in minutes
 context: /tmp/yo-self-binNN compile ... --emit-c then instrument +
 run `check /tmp/t1.yo`).
 
+8-STATE (corrected censuses + next probe): per-fn-windowed census of
+stage2-v24 shows only ~44 GENUINE un-dup'd `return expr;` sites (the
+earlier 350 number was a 1-line-window artifact — most incrs sit
+~10-40 lines above their return, past the drop switches). 13 of the
+44 are in evaluate_match (yo_id_269822; e.g. stage2-v24.c:96379 — a
+mid-body `return(expr)` after a matched_type reassignment region).
+Same fn has OTHER returns WITH the dup → per-return-site variance in
+the arm-begin tail-ownership attach (BT2 conditions: var found /
+not-consumed / ty_ok at THAT return's eval). The RET probe confirmed
+the return EMITTER consumes dups whenever attached (63/63 in match.yo
+single-file, which reproduces the miss pattern in ~30 s:
+`/tmp/yo-self-binNN compile yo-self/evaluator/exprs/match.yo --emit-c`
+then the per-fn census script). NEXT: extend the BT2 probe to log
+per-return-site expr ids + failing condition during the match.yo
+single-file compile, map missing ids to match.yo source lines, fix
+the attach condition that fails for those sites. The doomed t1 object
+(args element) is consistent with its arg's eval path returning bare
+through one of these evaluate_match returns.
+
 DRAIN WORKFLOW (repeatable, ~30 min/iteration):
 a. lldb -b with DYLD_INSERT_LIBRARIES=libgmalloc.dylib +
 MallocStackLogging=full on /tmp/s2vNN `check /tmp/t1.yo`;
