@@ -165,6 +165,26 @@ loop vs TS's (TS emits full per-return cleanup; stage-2's is thinner)
 — the FIRST crash-class instance of the documented escape-path
 fidelity gap.
 
+8-REFINED (tombstone detector, scripts/rc-tombstone-instrument.py):
+the full RC event history of the doomed object (an ARGS ELEMENT of a
+comptime_list call) is: creation(+1) + get-dup(+1) + arm-dup(+1) −
+get-temp-drop − decr(arg) − decr(evaluated_arg) = rc 0 → freed, later
+re-read. All comptime_list-side ops BALANCE (the fn's own tail dup IS
+emitted — earlier "450 bare return expr" reading was a grep-window
+error; the ~100 dup-before-return-expr counts are the true handler
+tails). The missing +1 is the RESULT convention on the ARG's OWN
+evaluation: `evaluated_arg := evaluate_expression(arg, ...)` is
+dropped as OWNED by the caller, but for simple/atom-class arg nodes
+the DISPATCHER's inline arm returns the INPUT node bare (no dup) —
+callee broke the owned-result convention. NEXT: find the
+evaluate_expression dispatch arm(s) that assign the input `expr`
+directly to the dispatch result temp (stage2 `_file..._temp_446846 =
+   expr` shapes) and compare TS's emission of the same arms (TS handler
+tails dup ×531); the ring tool pins any next object in minutes
+(single-file compile of values/comptime_list.yo REPRODUCES the crash
+context: /tmp/yo-self-binNN compile ... --emit-c then instrument +
+run `check /tmp/t1.yo`).
+
 DRAIN WORKFLOW (repeatable, ~30 min/iteration):
 a. lldb -b with DYLD_INSERT_LIBRARIES=libgmalloc.dylib +
 MallocStackLogging=full on /tmp/s2vNN `check /tmp/t1.yo`;
