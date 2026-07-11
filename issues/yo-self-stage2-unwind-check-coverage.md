@@ -152,6 +152,18 @@ read the emitted arg-binding in stage2-v24.c above :332695 to see
 which of the three dup routes was taken, compare TS's emission of
 the same loop (values/comptime-list.ts), extend the drift-safe
 fallback to the missing shape.
+VERIFIED (v24 emission): the arg binding itself BALANCES — args.get's
++1 (payload decr at stage2-v24.c:332687) and the arm dup at :332382
+(decr(arg) at :332695) pair correctly. The over-release is therefore
+on the THROW / effect-escape path inside the element loop (the
+"Failed to evaluate expr_list element" throw runs constantly under
+def-time swallowed evaluation): the escape block drops loop locals,
+and either control re-enters the loop after a swallowed unwind
+(double-drop of that iteration's refs) or the escape block drops refs
+the normal tail also drops. Compare the escape-block emission of this
+loop vs TS's (TS emits full per-return cleanup; stage-2's is thinner)
+— the FIRST crash-class instance of the documented escape-path
+fidelity gap.
 
 DRAIN WORKFLOW (repeatable, ~30 min/iteration):
 a. lldb -b with DYLD_INSERT_LIBRARIES=libgmalloc.dylib +
