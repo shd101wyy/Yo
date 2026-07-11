@@ -2,6 +2,45 @@
 
 ## Status
 
+## FIXPOINT FRONTIER (2026-07-11, after the 2 comptime_list UAF fixes)
+
+The comptime_list UAF (fixed by 3ed667915 + 75939ebb4) was the FIRST stage-2
+blocker; t5/t2/t1/token.yo now `check` clean on stage-2. The NEXT blocker — and
+the one that blocks the actual FIXPOINT (`stage-2 compile yo-self`) — is a
+**derived-Eq comptime-verification divergence**:
+
+- `YO_MAIN_STACK_MB=16384 <stage-2-bin> compile yo-self/main.yo --emit-c
+--skip-c-compiler --release -o /tmp/stage3` crashes rc=139 IMMEDIATELY with:
+  `Expected bool value for "comptime_assert", got: _ => false  Value: <fn(_)>`
+  over the AUTO-GENERATED derived `==` body for TokenKind
+  (`match(lhs, .Operator => match(rhs,.Operator=>true,_=>false), ... )`).
+- MECHANISM: `derive(Eq)` (prelude `__derive_eq`, `derive_rule(Eq,...)` at
+  prelude:6683) builds the `==` body as a STRING, then splices
+  `#(match_body.to_expr())` where `to_expr` = `__yo_comptime_string_to_expr`
+  (evaluate*comptime_string_to_expr, type_fns.yo:1264 →
+  `generate_expr_from_code`, parser.yo:1413). The Eq trait-verification
+  comptime_assert then comptime-evaluates that body — and its INNER match arms
+  `.V => true` / `* => false` come out as LAMBDAS (`<fn(\_)>`) / bare variant
+  values instead of match arms → not a bool → comptime_assert throws → abort.
+- CONTEXT-DEPENDENT (state corruption, NOT a pure parser bug): `check
+yo-self/token.yo` standalone PASSES (rc=0) — the SAME derive(Eq(TokenKind))
+  works. It fails only inside the full `compile yo-self` and inside `check
+yo-self/expr.yo` (which imports TokenKind and uses `==` at expr.yo:401/415/430).
+  Hand-written nested comptime matches fold correctly; standalone
+  `derive(K,Eq(K))` (2 or 30 variants) + use works; importing the real
+  ./token.yo + `k == TokenKind.Operator` works. Only the full-module context
+  triggers it ⇒ an earlier-processed declaration/module poisons comptime
+  string→expr parse/eval state (suspect: `generate_expr_from_code` global
+  parser/lexer state or the g_next_global_expr_id id counter shared with the
+  main parse; or a comptime-fn / macro-expansion cache).
+- NEXT: instrument `generate_expr_from_code` (parser.yo:1413) to dump the parsed
+  AST of the derived-Eq string during `compile yo-self` — is the AST already
+  wrong (arms as lambdas ⇒ parser-state bug) or correct (⇒ comptime match-eval
+  bug)? Then bisect which earlier yo-self module, when loaded first, flips
+  `check token.yo` from pass to fail (load token.yo AFTER another module).
+  Compare stage-2 vs TS behavior at that point. Fix faithfully (may be a TS bug
+  too — verify `./yo-cli` on the same forced sequence).
+
 DRAIN ITEM 8 — TWO faithful fixes LANDED (2026-07-11):
 
 - **3ed667915**: `type_contains_rc_type` `.SomeT` follows `resolved_concrete`
