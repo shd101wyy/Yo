@@ -15,14 +15,16 @@
 //! (Phase 4). The corpus has none, so arm values are assigned directly.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_is_fn_call_of, BK_BEGIN, BK_RETURN } :: import("../../expr.yo");
-{ has_any_control_flow } :: import("../../expr_info.yo");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call_of, BK_BEGIN, BK_RETURN } :: import("../../expr.yo");
+{ ExprInfo, has_any_control_flow } :: import("../../expr_info.yo");
 { EvalValue } :: import("../../value.yo");
 { is_unit_type, is_pointer_type } :: import("../../types/guards.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string } :: import("../utils/index.yo");
+{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ generate_dup_code_for_value, generate_deferred_dup_expressions } :: import("./drop_dup.yo");
+{ get_type_string, get_variable_name_for_codegen } :: import("../utils/index.yo");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
@@ -156,6 +158,130 @@ _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayLi
 /// values emit nothing, otherwise assign to the cond temp.
 _emit_value_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Option(String), is_unit : bool, cond_outer_is_ptr : bool, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
+  // Arm value carrying deferred `___dup`s (returning a borrowed/shared local
+  // out of the arm — e.g. `true => methods`): port of cond.ts:409-470. Declare
+  // the arm's eval temp, apply the balancing dup, and assign the result to the
+  // cond temp. Without this the arm result aliased the local while the scope
+  // end dropped BOTH names (get_receiver_methods_by_name_from_env's
+  // `resolved_methods := cond(..., true => methods)` double-dropped `methods`
+  // — the stage-2 t1.yo rc=139 UAF). Same drift-safe shape as
+  // match.yo generate_case_body: when the recorded dup names a STALE eval
+  // temp (re-evaluation drift), apply the dup to the GENERATED value instead.
+  arm_dups := match(
+    context.base.get_expr_info(value),
+    .Some(avei) => match(
+      avei.deferred_dup_expressions,
+      .Some(vdups) => if(vdups.len() > usize(0), Option(ExprInfo).Some(avei), Option(ExprInfo).None),
+      .None => Option(ExprInfo).None
+    ),
+    .None => Option(ExprInfo).None
+  );
+  match(
+    arm_dups,
+    .Some(vei) => {
+      raw_code := _call_generate_expr(value, value_indent.clone(), context);
+      if(_is_cf_code(value, raw_code.clone(), context), {
+        cfline := value_indent.clone();
+        cfline.push_string(raw_code.clone());
+        cfline.push_str(";");
+        em.emit_string_line(cfline);
+        return(());
+      });
+      (final_code : String) = raw_code.clone();
+      (declared_temp : bool) = false;
+      match(
+        vei.variable_name,
+        .Some(vvn) => {
+          vtv := get_variable_name_for_codegen(vvn.clone(), Option(Environment).Some(vei.env));
+          // Skip the temp-var declaration when value is an inout-param atom —
+          // `T name = (*name);` would shadow the pointer parameter
+          // (cond.ts:427-443, issues/inout-multi-stmt-body-shadow.md).
+          (is_inout_atom : bool) = false;
+          if(ast_expr_is_atom(value), {
+            iv_vars := get_variables_from_env(vei.env, vvn.clone());
+            if(iv_vars.len() > usize(0), {
+              match(
+                iv_vars.get(iv_vars.len() - usize(1)),
+                .Some(iv) => if(iv.is_ref, {
+                  is_inout_atom = true;
+                }),
+                .None => ()
+              );
+            });
+          });
+          if((!(is_inout_atom)) && (!(vtv == raw_code)), {
+            dline := value_indent.clone();
+            dline.push_string(get_type_string(vei.ty, context.base));
+            dline.push_str(" ");
+            dline.push_string(vtv.clone());
+            dline.push_str(" = ");
+            dline.push_string(raw_code.clone());
+            dline.push_str(";");
+            em.emit_string_line(dline);
+            _cd := context.base.declared_c_var_names.add(vtv.clone());
+          });
+          final_code = vtv;
+          declared_temp = true;
+        },
+        .None => ()
+      );
+      // Apply the dup: named dup temp when available (cond.ts:451-458), else
+      // the drift-safe escape hatch — dup the generated value directly.
+      (dup_named : bool) = false;
+      arm_dup_list := match(vei.deferred_dup_expressions,.Some(d) => d,.None => ArrayList(AstExpr).new());
+      match(
+        arm_dup_list.get(usize(0)),
+        .Some(vdup0) => match(
+          context.base.get_expr_info(vdup0),
+          .Some(vdup_info) => match(
+            vdup_info.variable_name,
+            .Some(dvn) => {
+              dtv := get_variable_name_for_codegen(dvn.clone(), Option(Environment).Some(vdup_info.env));
+              dline2 := value_indent.clone();
+              dline2.push_string(get_type_string(vei.ty, context.base));
+              dline2.push_str(" ");
+              dline2.push_string(dtv.clone());
+              dline2.push_str(" = ");
+              dline2.push_string(generate_dup_code_for_value(final_code.clone(), vei.ty, context));
+              dline2.push_str(";");
+              em.emit_string_line(dline2);
+              _dd := context.base.declared_c_var_names.add(dtv.clone());
+              final_code = dtv;
+              dup_named = true;
+            },
+            .None => ()
+          ),
+          .None => ()
+        ),
+        .None => ()
+      );
+      if(
+        !(dup_named),
+        if(declared_temp, {
+          fline := value_indent.clone();
+          fline.push_string(generate_dup_code_for_value(final_code.clone(), vei.ty, context));
+          fline.push_str(";");
+          em.emit_string_line(fline);
+        }, {
+          generate_deferred_dup_expressions(value, value_indent.clone(), context);
+        })
+      );
+      match(
+        temp_var_opt,
+        .Some(tv) => if(!(is_unit), {
+          tline := value_indent.clone();
+          tline.push_string(tv.clone());
+          tline.push_str(" = ");
+          tline.push_string(_maybe_address_of(value, final_code.clone(), cond_outer_is_ptr, context));
+          tline.push_str(";");
+          em.emit_string_line(tline);
+        }),
+        .None => ()
+      );
+      return(());
+    },
+    .None => ()
+  );
   value_code := _call_generate_expr(value, value_indent.clone(), context);
   if(_is_cf_code(value, value_code.clone(), context), {
     line := value_indent.clone();

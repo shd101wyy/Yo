@@ -1,0 +1,36 @@
+// Regression: a cond arm returning a bare OWNING local (`true => methods`)
+// must apply the balancing arm-result ___dup — the cond emitter previously
+// had no deferred-dup handling at all (cond.ts:409-470 unported), so the
+// cond result ALIASED the local while scope end dropped both names:
+// get_receiver_methods_by_name_from_env's
+// `resolved_methods := cond(..., true => methods)` double-dropped `methods`
+// (the stage-2 t1.yo rc=139 GC-trial-delete UAF).
+open(import("std/fmt"));
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+
+Item :: ref(struct(name : String));
+
+pick :: (fn(flag : bool, xs : ArrayList(Item)) -> ArrayList(Item))({
+  r := cond(
+    flag => {
+      kept := ArrayList(Item).new();
+      kept.push(Item(name : String.from("kept")));
+      kept
+    },
+    true => xs
+  );
+  r
+});
+
+main :: (fn() -> unit)({
+  xs := ArrayList(Item).new();
+  xs.push(Item(name : String.from("alpha")));
+  got := pick(false, xs);
+  match(got.get(usize(0)),.Some(it) => println(it.name),.None => println(`missing`));
+  match(xs.get(usize(0)),.Some(it) => println(it.name),.None => println(`missing`));
+  got2 := pick(true, xs);
+  match(got2.get(usize(0)),.Some(it) => println(it.name),.None => println(`missing`));
+  match(xs.get(usize(0)),.Some(it) => println(it.name),.None => println(`missing`));
+});
+export(main);
