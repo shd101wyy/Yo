@@ -394,8 +394,20 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       },
       // Iso — check child type
       .IsoT(child : child) => recur(child, depth + u32(1)),
-      // SomeT — conservatively true (unresolved generic)
-      .SomeT(required_trait_types : _) => true,
+      // SomeT — follow the resolved concrete type if present (mirrors TS
+      // `typeContainsRcType` utils.ts:187-192: `if (resolvedConcreteType)
+      // return typeContainsRcType(resolvedConcreteType); else return true`).
+      // The Future carve-out (TS `typeImplementsFuture`) is already handled by
+      // `is_rc_type(ty)` above (line ~307). Without this follow-through a
+      // SomeType resolved to a NON-RC concrete (e.g. a plain struct returned by
+      // a comptime call) was reported RC → its result temp was marked owning →
+      // the return-tail dup was skipped → stage-2 comptime_list evaluated_arg
+      // over-release (issues/yo-self-stage2-unwind-check-coverage.md).
+      .SomeT({ required_trait_types : _, resolved_concrete : rc }) => match(
+        rc,
+        .Some(concrete) => recur(concrete, depth + u32(1)),
+        .None => true
+      ),
       // Function — false (functions are not reference types)
       .Func({ result : _ }) => false,
       // Everything else — false
