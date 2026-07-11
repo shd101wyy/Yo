@@ -109,6 +109,24 @@ Option(Box(Token)).Some(box(t.clone()))` emits (stage2-v20.c:318326+):
    fix ALL mismatches in one pass (the fn is the single hottest
    consumed-at writer; several drain items have landed here).
 
+6. FIXED (814363d43): match-SUBJECT deferred dup — begin-wrapped non-atom
+   scrutinee (`match(base_var.consumed_at_token, ...)`) carried the
+   begin-tail dup but generate_match_expression never emitted it. Emits
+   on the declared subject temp now. t1 rc=139 → rc=138. Corpus 117/117.
+7. OPEN (stage2-v22, t1 rc=138): UAF READ (incr on freed 96-byte object,
+   MethodEntry-like) during generic-impl method lookup
+   (yo_id_242332(concrete_type, method_name, env) ← yo_id_243603 ←
+   get_receiver_methods ← evaluate_function_call). The object was freed
+   by `__yo_decr_rc(m_to_push)` inside yo_id_242796 (an evaluate handler,
+   stage2-v22.c:190524) right AFTER a push/registration sequence that
+   also built a variable binding via yo_id_20399(forall_env, name, ty,
+   Some(mval), ...) — a PUSH-THEN-DROP: the pusher drops the MethodEntry
+   it just stored (or the registration under-retains) while the method
+   registry still references it. Next: find the source (an impl-method
+   registration loop pushing `m_to_push` — grep yo-self for m_to_push /
+   the registration site), compare the TS emission's RC ops around the
+   same push, fix, gates, re-emit, t1.
+
 DRAIN WORKFLOW (repeatable, ~30 min/iteration):
 a. lldb -b with DYLD_INSERT_LIBRARIES=libgmalloc.dylib +
 MallocStackLogging=full on /tmp/s2vNN `check /tmp/t1.yo`;
