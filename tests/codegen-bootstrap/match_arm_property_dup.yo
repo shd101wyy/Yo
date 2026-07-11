@@ -1,0 +1,27 @@
+// Regression: a match arm returning a ref-struct FIELD (property read) out of
+// the arm must attach the balancing deferred ___dup, exactly like an arm
+// returning a bare local. Divergence found via stage-2 t1.yo rc=133: yo-self's
+// begin-tail ownership dup fired for the `.None => fallback` identifier arm but
+// NOT for the `.Some(ci) => ci.env` property arm — evaluate_function_call's
+// `callee_env := match(callee_info_opt, .Some(ci) => ci.env, .None => env)`
+// then over-released the ExprInfo-held Environment (net -1 per call).
+open(import("std/fmt"));
+open(import("std/string"));
+
+Env :: ref(struct(name : String));
+Info :: ref(struct(env : Env));
+
+pick :: (fn(opt : Option(Info), fallback : Env) -> Env)({
+  e := match(opt,.Some(ci) => ci.env,.None => fallback);
+  e
+});
+
+main :: (fn() -> unit)({
+  env := Env(name : String.from("alpha"));
+  info := Info(env : env);
+  o := Option(Info).Some(info);
+  got := pick(o, env);
+  println(got.name);
+  println(info.env.name);
+});
+export(main);

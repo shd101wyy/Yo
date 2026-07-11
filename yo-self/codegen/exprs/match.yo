@@ -314,7 +314,29 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
             .None => ()
           );
           if(!(dup_named), {
-            generate_deferred_dup_expressions(body_expr, indent.clone(), context);
+            // No usable dup-temp name. The recorded dup expr may reference a
+            // STALE eval temp (re-evaluation drift: a later pass re-attached a
+            // fresh temp to the arm body, but the deferred ___dup built by an
+            // earlier pass still names the old one) — emitting it would either
+            // reference an undeclared C identifier or be suppressed by the
+            // undeclared-temp gate, silently LOSING the arm's balancing +1
+            // (evaluate_function_call's `.Some(ci) => ci.env` arm then stored
+            // callee_env at net -1: the stage-2 t1.yo ExprInfo-env UAF). When
+            // the body value is a DECLARED temp, apply the dup to the
+            // GENERATED value directly — the gate comment's escape hatch.
+            match(
+              bei.variable_name,
+              .Some(_) => {
+                fdem := context.base.emitter;
+                fdline := indent.clone();
+                fdline.push_string(generate_dup_code_for_value(final_code.clone(), bei.ty, context));
+                fdline.push_str(";");
+                fdem.emit_string_line(fdline);
+              },
+              .None => {
+                generate_deferred_dup_expressions(body_expr, indent.clone(), context);
+              }
+            );
           });
           return(final_code);
         }),
