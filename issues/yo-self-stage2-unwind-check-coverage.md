@@ -122,10 +122,14 @@ Option(Box(Token)).Some(box(t.clone()))` emits (stage2-v20.c:318326+):
    also built a variable binding via yo_id_20399(forall_env, name, ty,
    Some(mval), ...) — a PUSH-THEN-DROP: the pusher drops the MethodEntry
    it just stored (or the registration under-retains) while the method
-   registry still references it. Next: find the source (an impl-method
-   registration loop pushing `m_to_push` — grep yo-self for m_to_push /
-   the registration site), compare the TS emission's RC ops around the
-   same push, fix, gates, re-emit, t1.
+   registry still references it. SOURCE FOUND: yo-self/evaluator/values/
+   impl.yo:1667-1673 — `(m_to_push : EvalValue) = mval` (or the
+   \_stamp_impl_forall_on_method copy) then `method_values.push(m_to_push)`
+   then scope-end drop. The `=` typed-binding is the dup-on-store class
+   (d684840c8): check whether BOTH branches' assignments got the rhs dup
+   and whether ArrayList(EvalValue).push retains — then compare the TS
+   emission's RC ops around the same push (impl.ts:773 region in
+   s1-ref-v3.c), fix, gates, re-emit, t1.
 
 DRAIN WORKFLOW (repeatable, ~30 min/iteration):
 a. lldb -b with DYLD_INSERT_LIBRARIES=libgmalloc.dylib +
