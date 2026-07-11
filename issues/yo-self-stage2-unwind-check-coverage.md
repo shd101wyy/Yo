@@ -73,6 +73,30 @@ Option(Box(Token)).Some(box(t.clone()))` emits (stage2-v20.c:318326+):
    forall-slot alignment). Verify: box_arg_move_property_store.yo flips
    from DIFF to PASS; then gates → stage-2 → t1.
 
+4. FIXED (d8211eaf1): own-param move consume in the inline FuncVal arg
+   loop — evaluate_function_call pre-evaluates args in its own loop,
+   bypassing try_to_call_function_with_arguments, so own(...) params
+   (box) never consumed their args; the statement cleanup then dropped
+   the box-moved clone temp. Corpus test box_arg_move_property_store.yo
+   flipped to PASS (116/116). t1 rc=133 → rc=139.
+5. OPEN (stage2-v21, t1 rc=139): STILL merge_and_check_envs, next shape —
+   a PLAIN FIELD READ of an RC-payload value enum:
+   `base_var.consumed_at_token` (Option(Box(Token))) feeding `.is_some()`
+   materializes the Option into a temp WITHOUT dup'ing the payload
+   (stage2-v21.c:315145: `_tmp = base_var->consumed_at_token;` — no
+   incr), then the read-temp cleanup drops the payload
+   (stage2-v21.c:315160: `switch(_tmp){Some: decr(...)}`) — net −1 on
+   the field's Box each time the check runs. The TS reference emission
+   dups the Option payload right after the same read
+   (s1-ref-v3.c:253470: `temp2 = ___dup(temp1)`). DIVERGENCE: the
+   property-READ path for value-enum results with RC payloads either
+   fails to attach the deferred dup (evaluator) or fails to emit it
+   before scheduling the temp drop (codegen) — same family as the
+   match-arm/cond-arm fixes but at a direct statement read. Repro
+   direction: `if(h.slot.is_some(), ...)` on a ref-struct with
+   Option(Box(T)) field, called repeatedly — each check leaks −1 until
+   the box frees while the field still holds it.
+
 DRAIN WORKFLOW (repeatable, ~30 min/iteration):
 a. lldb -b with DYLD_INSERT_LIBRARIES=libgmalloc.dylib +
 MallocStackLogging=full on /tmp/s2vNN `check /tmp/t1.yo`;
