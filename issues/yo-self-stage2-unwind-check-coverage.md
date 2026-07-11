@@ -17,16 +17,30 @@ DRAIN ITEM 8 — TWO faithful fixes LANDED (2026-07-11):
   structs, rc=139→0) AND yo-self/token.yo (rc=134→0). Gates: corpus 118/118
   DIFF 0, check ./std 153/153. Stage-1 (binf3) checks template_multibyte +
   expr.yo clean.
-- **STILL-OPEN stage-2 crashes (separate bug classes)**:
-  - `tests/codegen-bootstrap/template_multibyte.yo` (template strings): rc=139
-    at clang -O1, but runs CLEAN (rc=0) under the -O0 RC-tombstone with ZERO
-    UAF detected. Since the tombstone quarantines frees and only checks
-    incr/decr, this is a **plain use-after-free** (reading a freed struct field,
-    NOT via \_\_yo_incr/decr_rc) that the RC tombstone MASKS — a different bug
-    class. Needs ASan (`clang -O1 -g -fsanitize=address`, libc allocator) or
-    lldb, not the RC tombstone. LESSON: an -O1-only rc=139 that the RC tombstone
-    can't reproduce/detect = plain UAF or clang UB, not an RC imbalance.
-  - `yo-self/expr.yo`: rc=139 (untriaged; may be same class).
+- **STILL-OPEN stage-2 crashes (two SEPARATE bug classes, both triaged)**:
+  - **`template_multibyte.yo` = clang -O1 UB / layout, NOT RC**: plain -O0
+    build PASSES (rc=0); plain -O1 build CRASHES (rc=139); the -O0 RC-tombstone
+    also runs clean, ZERO UAF. An -O0-passes/-O1-crashes split the RC tombstone
+    can't detect ⇒ undefined behavior clang exploits at -O1 (uninitialized read
+    / aliasing / bad cast in the emitted C), not an RC imbalance. Next:
+    `clang -O1 -g -fsanitize=undefined,address` on a SMALLER template-string
+    repro (ASan on the full binary + prelude is too slow), or bisect -O1, or
+    lldb the -O1 binary. Do NOT chase RC drops here.
+  - **`expr.yo` = comptime-forced enum `==` yields a non-bool** (comptime-eval
+    divergence, cascades to swallow→abort; NOT a crash). 1-line minimal repro:
+    `printf 'K :: enum(A, B);\ncomptime_assert(K.B == K.B);\nexport(K);\n' > /tmp/te.yo`
+    → stage-2 `check` fails `Expected bool value for "comptime_assert", got ...
+Value: <fn(.)>`; TS `./yo-cli` and stage-1 both rc=0. Discriminators
+    (stage-2 binary): RUNTIME `x == K.B` works; LAZY `z :: (K.A==K.B); export(z)`
+    works; but `comptime_assert(K.B == K.B)` and `y :: (K.B==K.B);
+comptime_assert(y)` FAIL; non-enum `comptime_assert(usize(3)==usize(3))`
+    works. So only comptime-FORCING an enum `==` diverges — the stage-2
+    evaluator yields the `==` equality FUNCTION value (`<fn(.)>`) instead of
+    APPLYING it to fold to bool. A comptime operator-application divergence
+    specific to enum equality; NEW class, unrelated to the comptime_list UAF.
+    Next: how comptime_assert forces its arg vs a binding; how enum `==`
+    resolves+applies at comptime (evaluate_comptime_fn_call / `==` builtin /
+    derived-Eq); diff stage-2 emission vs s1-ref for that path.
 
 DRAIN ITEM 8 — SomeT fix LANDED (3ed667915), struct-ctor arm OPEN (2026-07-11):
 
