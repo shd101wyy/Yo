@@ -131,6 +131,28 @@ Option(Box(Token)).Some(box(t.clone()))` emits (stage2-v20.c:318326+):
    emission's RC ops around the same push (impl.ts:773 region in
    s1-ref-v3.c), fix, gates, re-emit, t1.
 
+7b. FIXED (ce0d64133 + 052ddea94): the non-retaining push was TWO bugs —
+(a) is*rc_type read is_reference_semantics off recursive SELF-SHELLS
+without resolving them (guards.yo now resolves via
+resolve_enum_shell/resolve_struct_shell); (b) set_expr_as_needs_to*
+call_dup's `if (expr.$.value)` port early-returned for params bound
+Some(UnknownVal) by create_specialized_function_inline's rebind
+(helper.yo:1372/1387) — UnknownVal now counts as NO value (TS
+undefined parity). VERIFIED: both ArrayList(EvalValue).push
+specializations in stage2-v24 retain. Gates 117/117 + 153/153. 8. OPEN (stage2-v24, t1 rc=139, crash MOVED): UAF incr inside
+yo_id_277811 = evaluate handler of values/comptime_list.yo — the
+element loop's per-iteration cleanup `__yo_decr_rc(arg)`
+(stage2-v24.c:332695) frees an element of the expr's ARGS list, then
+a later read (yo_id_277811+840, inlined incr+2) touches the freed
+AstExpr. Same lost-arm-dup family: `arg := match(args.get(j),
+   .Some(a) => a, ...)` — the get()-payload arm dup didn't materialize
+in this emission (unnamed/stale variant that generate_case_body's
+item-1 fallback doesn't reach, OR the loop-context clobber). Next:
+read the emitted arg-binding in stage2-v24.c above :332695 to see
+which of the three dup routes was taken, compare TS's emission of
+the same loop (values/comptime-list.ts), extend the drift-safe
+fallback to the missing shape.
+
 DRAIN WORKFLOW (repeatable, ~30 min/iteration):
 a. lldb -b with DYLD_INSERT_LIBRARIES=libgmalloc.dylib +
 MallocStackLogging=full on /tmp/s2vNN `check /tmp/t1.yo`;
