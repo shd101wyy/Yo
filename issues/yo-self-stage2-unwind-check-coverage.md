@@ -2,6 +2,46 @@
 
 ## Status
 
+DRAIN ITEM 8 — SomeT fix LANDED (3ed667915), struct-ctor arm OPEN (2026-07-11):
+
+- **FIXED (committed 3ed667915)**: `type_contains_rc_type` `.SomeT` stub
+  (`=> true`) now follows `resolved_concrete` (faithful to TS utils.ts:187-192).
+  This was making SomeT-resolved-to-non-RC results owning → their return-tail
+  dup was skipped → over-release. Fixes t1.yo (fmt-import case, rc=139→0) and
+  the corpus file template_multibyte.yo. Gates: corpus 118/118 DIFF 0, check
+  ./std 153/153.
+- **OPEN — struct-construction return arm** (t5.yo:
+  `S :: struct(n:usize); lst :: comptime_list(S(usize(1)), S(usize(2)))`,
+  still rc=139; yo-self/token.yo rc=134, expr.yo rc=139 — the real fixpoint
+  blocker). Object-level probe of comptime_list.yo's loop shows for t5's
+  elements: `argid == evalid` (same node) and `evalty = S`, `contains_rc=false`.
+  The element flows through `evaluate_function_call`'s STRUCT-CONSTRUCTION arm
+  (function.yo:2075-2079: `out_s := new_expr_info(caller_env, func_type);
+out_s.value = struct_val; ...; expr_info_table_set(...); expr`), NOT the
+  out_none arm (verified: guarded probes at 3271/3598/3723 never fire for t5).
+  The over-release: comptime_list drops `evaluated_arg` (an AstExpr node, RC at
+  its META/declared type), but `evaluate_function_call`'s struct-ctor return
+  did not dup the node. The return-tail dup at set_expr (utils.yo:638) is gated
+  on `type_contains_rc_type(ei.ty)` where ei.ty = the struct-ctor result type.
+  At OBJECT time that's concrete non-RC `S` → no dup; the emission decision is
+  made at DEF-TIME (compiling function.yo), where the result type is
+  generic/SomeT — the TS/yo-self divergence is in that def-time type.
+- **REGRESSION LESSON**: TS's struct-ctor arm calls
+  `attachTempVariableToExpr(expr, true, ...)` (function.ts:2461); yo-self's
+  omits it. But naively PORTING that call REGRESSES t1/t2 to rc=138 — for RC
+  structs, attach makes an owning temp → set_expr CONSUMES it (no dup) AND the
+  owning temp gets a scope-end drop → double-free. So the attach call is NOT a
+  safe standalone port; the RC-struct fall-through (no attach → dup) is
+  currently correct, and only the NON-RC-struct case is missing its dup. The
+  real fix must give the non-RC-struct return its AstExpr-node dup WITHOUT
+  breaking the RC-struct path — likely by ensuring the def-time struct-ctor
+  result type is treated as its AstExpr node (RC) for the return dup, or by
+  the attach preserving the borrowed-param ownership (utils.yo:146-150) so
+  set_expr builds the dup rather than consuming. Next: -O0 alloc-tombstone on
+  the 3ed667915 stage-2 for t5 to get the exact no-dup yo_id, then compare the
+  struct-ctor def-time type_to_string between TS (`./yo-cli`) and the stage-2
+  binary via a guarded probe in function.yo's struct-ctor arm.
+
 DRAIN ITEM 8 ROOT-CAUSE PINNED (2026-07-11, stage2-v24, tombstone+alloc-table):
 The t1/t2 `check` SIGSEGV (rc=139) is an **over-release of a comptime_list
 element AST node** inside `evaluate_comptime_list_value` (yo_id_277811,
