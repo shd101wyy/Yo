@@ -2,6 +2,32 @@
 
 ## Status
 
+DRAIN ITEM 8 — TWO faithful fixes LANDED (2026-07-11):
+
+- **3ed667915**: `type_contains_rc_type` `.SomeT` follows `resolved_concrete`
+  (was stubbed `=> true`; TS utils.ts:187-192). Fixes the out_none-path
+  over-release.
+- **75939ebb4**: evaluate_function_call struct-construction arm uses explicit
+  `return(expr)` (was bare tail `expr`; TS function.ts:2470 `return expr`).
+  Explicit returns emit the AstExpr node dup; the bare tail skipped it when
+  set_expr's type gate (utils.yo:638) saw the concrete NON-RC struct result.
+  Confirmed by emission diff: TS `___dup(expr)` (s1-ref:191041) vs yo-self
+  `= expr` (stage2-fix:329107).
+- **RESULT**: stage-2 `check` now passes t5.yo/t2.yo/t1.yo (comptime_list of
+  structs, rc=139→0) AND yo-self/token.yo (rc=134→0). Gates: corpus 118/118
+  DIFF 0, check ./std 153/153. Stage-1 (binf3) checks template_multibyte +
+  expr.yo clean.
+- **STILL-OPEN stage-2 crashes (separate bug classes)**:
+  - `tests/codegen-bootstrap/template_multibyte.yo` (template strings): rc=139
+    at clang -O1, but runs CLEAN (rc=0) under the -O0 RC-tombstone with ZERO
+    UAF detected. Since the tombstone quarantines frees and only checks
+    incr/decr, this is a **plain use-after-free** (reading a freed struct field,
+    NOT via \_\_yo_incr/decr_rc) that the RC tombstone MASKS — a different bug
+    class. Needs ASan (`clang -O1 -g -fsanitize=address`, libc allocator) or
+    lldb, not the RC tombstone. LESSON: an -O1-only rc=139 that the RC tombstone
+    can't reproduce/detect = plain UAF or clang UB, not an RC imbalance.
+  - `yo-self/expr.yo`: rc=139 (untriaged; may be same class).
+
 DRAIN ITEM 8 — SomeT fix LANDED (3ed667915), struct-ctor arm OPEN (2026-07-11):
 
 - **FIXED (committed 3ed667915)**: `type_contains_rc_type` `.SomeT` stub
