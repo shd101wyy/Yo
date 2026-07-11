@@ -599,7 +599,20 @@ set_expr_as_needs_to_call_dup :: (
         .None => new_expr_info_placeholder_for_unreachable_(rhs)
       );
       // --- Compile-time value handling (mirrors `if (expr.$.value)`). ---
-      if(ei.value.is_some(), {
+      // yo-self runtime results are `Some(UnknownVal)` where TS uses
+      // `undefined` — treat UnknownVal as NO value here, or a runtime PARAM
+      // bound by create_specialized_function_inline's Some(UnknownVal) rebind
+      // early-returns WITHOUT the dup (a non-temp name skips the
+      // needs_dup_for_non_owning_rc_temp fallthrough): ArrayList.push's
+      // `(*target_ptr) = value` then specialized with NO element retain in
+      // exactly those specializations — the stage-2 t1.yo impl-method-registry
+      // UAF (one EvalValue push retained, its twin didn't).
+      has_concrete_value := match(
+        ei.value,
+        .Some(cv) => !(is_unknown_val(cv)),
+        .None => false
+      );
+      if(has_concrete_value, {
         (needs_dup_for_non_owning_rc_temp : bool) = false;
         if(is_temp_variable_name(ei.env.module_path, variable_name) && type_contains_rc_type(ei.ty), {
           match(
