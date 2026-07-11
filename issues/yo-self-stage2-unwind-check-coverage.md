@@ -40,6 +40,25 @@ yo-self/expr.yo` (which imports TokenKind and uses `==` at expr.yo:401/415/430).
   `check token.yo` from pass to fail (load token.yo AFTER another module).
   Compare stage-2 vs TS behavior at that point. Fix faithfully (may be a TS bug
   too — verify `./yo-cli` on the same forced sequence).
+- **UPDATE — PARSE RULED OUT (parser is NOT the bug)**: instrumented
+  `generate_expr_from_code` (parser.yo:1413) to dump the parsed AST of the
+  derived-Eq string. BOTH stage-1 AND stage-2 parse it CORRECTLY:
+  `match(lhs, .Operator => match(rhs, .Operator => true, _ => false), ...)` —
+  proper nested match, arms intact. So the divergence is purely in the comptime
+  EVALUATION of the correctly-parsed match (stage-2 yields a wildcard arm
+  `_ => false` as a lambda `<fn(_)>` / a bare variant instead of folding to
+  bool). Suspected class: an ExprInfo / expr-id COLLISION in the full-module
+  compile — the `comptime_assert` node and the generated derived-Eq node get
+  the same id in `g_next_global_expr_id` (minted by generate_expr_from_code AND
+  the main parse), so the comptime_assert reads the derived-Eq body's value from
+  the expr_info_table (EXACTLY the cross-file id-collision the parser.yo:114-120
+  comment warns about — "second-parsed file's import value gets stamped over").
+  Context-dependent because enough modules must be loaded to collide. NEXT:
+  instrument the comptime_assert failure (comptime_assert.yo:146) to print
+  `ast_expr_id(arg_expr)` and compare with the generated derived-Eq node's id in
+  stage-2 vs stage-1; if they collide, the fix is in id allocation
+  (generate_expr_from_code / g_next_global_expr_id) — verify TS mints these ids
+  from a DIFFERENT/non-colliding space and port that.
 
 DRAIN ITEM 8 — TWO faithful fixes LANDED (2026-07-11):
 
