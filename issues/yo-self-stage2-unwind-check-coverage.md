@@ -2,6 +2,140 @@
 
 ## Status
 
+DRAIN ITEM 8 ROOT-CAUSE PINNED (2026-07-11, stage2-v24, tombstone+alloc-table):
+The t1/t2 `check` SIGSEGV (rc=139) is an **over-release of a comptime_list
+element AST node** inside `evaluate_comptime_list_value` (yo_id_277811,
+yo-self/evaluator/values/comptime_list.yo:73-144 loop).
+
+- **Minimal deterministic repro**: `printf 'x :: "p";\nexport(x);' > /tmp/t2.yo`
+  then run the stage-2 binary `check /tmp/t2.yo` FROM THE REPO ROOT (needs
+  ./std). No `open(import("std/fmt"))` needed — the doomed node is a PRELUDE
+  AST node (allocated by the parser, `parse_expression` → FnCall via
+  yo_id_226313), flowing as an element of a prelude comptime_list.
+- **The TS reference emission of yo-self (`/tmp/s1-ref-v3.c`) runs t2 CLEAN**
+  (rc=0). Same yo-self source → this is a **pure emission divergence** in a
+  callee, NOT in evaluate_comptime_list_value itself (its emitted RC ops are
+  provably equivalent to TS: arm dups `a`, val arm dups `v`, both ct arms
+  dup, `return expr` does `incr(expr); return expr`; every apparent
+  "missing INCR" in the normalized count diff was a naming artifact — yo-self
+  materializes the bound var into a temp and does `INCR temp`).
+- **Exact RC ledger** (from the alloc-table tombstone, -O0 clean backtraces):
+  the doomed element gets exactly **2 acquisitions** — `INCR` in
+  `get()` (yo_id_3136, the ArrayList get-dup) and `INCR` in the arm
+  (`.Some(a) => a` arm-dup, yo_id_277811) — but **3 drops** at the loop-body
+  scope-end: `decr(Option-inner)`, `decr(arg)`, `decr(evaluated_arg)`.
+  All three drops hit the SAME pointer because
+  `evaluated_arg := evaluate_expression(arg)` **returns `arg` aliased with NO
+  +1** (no evaluate_expression INCR appears in the object's history).
+- **The imbalance**: `arg`/`Option-inner` drops are balanced by get+arm
+  (+2/-2). The `evaluated_arg` drop is UNBALANCED — evaluate_expression
+  returned a borrow but the loop drops evaluated_arg as owned → net -1 →
+  frees a live parser AST node → UAF on the next touch.
+- **TS is balanced** because TS's `evaluate_expression` returns the element
+  with +1 (its `evaluated_arg` is genuinely owned / distinct), so its
+  (identical) `___drop(evaluated_arg)` is safe. TS's emitted loop-body drop
+  set is IDENTICAL to yo-self's (both drop evaluated_arg, arg, Option-inner).
+- **FAST STANDALONE REPRO** (no prelude spelunking):
+  `printf 'S :: struct(n : usize);\nlst :: comptime_list(S(usize(1)), S(usize(2)));\nexport(lst);\n' > /tmp/t5.yo`
+  Then `YO_MAIN_STACK_MB=16384 /tmp/s2bin check /tmp/t5.yo` (from repo root) →
+  rc=139. `/tmp/s1ref check /tmp/t5.yo` (TS-compiled yo-self) → rc=0. Plain
+  `./yo-cli check /tmp/t5.yo` → rc=0. Same 2-INCR(get,arm)/3-DECR genealogy as
+  t1/t2. Element = a struct-ctor FnCall `S(usize(1))` with a compile-time value.
+- **NEXT — pinpoint target**: `_evaluate_expression`'s FnCall fall-through is
+  `evaluate_function_call(expr, env, t_unit(), None, ctx, exn)` (\_expr.yo:923).
+  `evaluate_function_call` (yo-self/evaluator/calls/function.yo) has MANY
+  comptime return points that return the INPUT `expr` (lines 3273, 3326, 3416,
+  3599, 3647, 3724). For the comptime struct-ctor element, one of these returns
+  `expr` as a BORROW (the return-tail dup is skipped by
+  set_expr_as_needs_to_call_dup's `has_concrete_value` early-return because the
+  node carries a real comptime value). TS's evaluate_function_call gives the
+  same return a +1 (its `evaluated_arg` is genuinely owned, so the identical
+  loop-body `___drop(evaluated_arg)` is safe). **ACTION**: find
+  `evaluate_function_call` (the yo*id whose body matches, or fn*...\_evaluate_function_call
+  in s1-ref-v3.c), diff the comptime return-`expr` emission between stage2-v24.c
+  and s1-ref-v3.c — the TS side has a `___dup(expr)`/distinct-fresh-node the
+  yo-self side lacks. Port that dup. `has_concrete_value` skipping the dup is the
+  suspected root: for a returned node that ALIASES a caller-owned AST node the
+  skip is unsound; TS must not skip here (verify why — likely the returned node
+  is a FRESH synthesized node in TS vs the input node in yo-self, or TS's temp
+  lacks the value so has_concrete_value is false).
+  Rebuild loop: fix function.yo → `./yo-cli compile yo-self/main.yo --release -o /tmp/yo-self-bin`
+  (~few min) → emit stage-2 → clang → `check /tmp/t5.yo` must be rc=0. Gates:
+  corpus 117/117, check ./std 153/153.
+- **EXACT no-dup return site pinned** (stage2-v24.c:319905 in yo_id_264759 =
+  evaluate_function_call): `_file____User_temp_399763 = expr;` with NO
+  `incr(expr)` — this is the `out_none` UnknownVal fall-through tail
+  (function.yo:3720-3724): `out_none := new_expr_info(...); out_none.value =
+Some(_call_result_unknown(...)); expr_info_table_set(...,expr,out_none);
+attach_temp_variable_to_expr(expr, true, ctx); expr`. ALL other
+  `return expr;` sites in this fn DO `incr(expr)` first; only this comptime
+  tail path omits it → returns the caller-owned input AST node as a borrow,
+  which the comptime_list loop then drops as `evaluated_arg`.
+- **PUZZLE RESOLVED — it is a CODEGEN / compiled-evaluator divergence, NOT an
+  evaluator-logic or node-identity difference**:
+  - A TS-side probe in `src/evaluator/values/comptime-list.ts` shows `arg ===
+evaluatedArg` (SAME object) in TS too — the TS evaluator uses JS GC and does
+    ZERO manual RC on AstExpr nodes. So node identity is NOT the difference.
+  - The manual-RC drops/dups only exist in the COMPILED output. Diffing the two
+    emissions of the SAME yo-self source `evaluate_function_call` (function.yo
+    out*none path): the TS-compiled reference `s1-ref-v3.c:204540` emits
+    `\_temp = fn*...\_\_\_dup(expr); ... return \_temp;`— it DUPS expr. The
+yo-self-compiled`stage2-v24.c:319905`emits`\_temp_399763 = expr;` — NO dup.
+  - Both C files come from compiling the IDENTICAL function.yo source
+    (`out_none := new_expr_info(...); out_none.value = Some(_call_result_unknown(...));
+expr_info_table_set(...); attach_temp_variable_to_expr(expr, true, ctx); expr`).
+    The ONLY difference is the codegen: TS-codegen computed a
+    deferredDupExpression for the tail `expr`; yo-self-codegen did not.
+  - Therefore the yo-self-COMPILED evaluator's `set_expr_as_needs_to_call_dup`
+    (utils.yo:577) / `attach_temp_variable_to_expr` (utils.yo:112) computes a
+    DIFFERENT deferred-dup at RUNTIME than the TS evaluator does on the same
+    input. `check ./yo-self` is green (type-check only, never runs these paths),
+    so this is a compiled-behavior divergence invisible to `check`.
+  - **HYPOTHESIS**: attach makes an OWNING temp for `expr` (new-temp branch,
+    utils.yo:184-204, `_is_owning_rc=true`); then set_expr_as_needs_to_call_dup
+    sees an owning temp → CONSUMES it (utils.yo:642-658) → returns WITHOUT a dup.
+    In TS the temp ends up NON-owning (borrowed), so set_expr builds the dup.
+    The divergence is the temp's `is_owning_the_rc_value` at that point — likely
+    the preserve-borrowing rule (utils.yo:146-150) fires in TS but not yo-self
+    because `expr` had an existing BORROWED variable_name in TS (→ existing-var
+    branch, preserved borrowed) whereas in yo-self `out_none` reset variable_name
+    to None (→ new-temp branch, owning). Verify: does TS's evaluator keep
+    `expr.$.variableName` across the out_none ExprInfo replacement while yo-self's
+    `new_expr_info`+`expr_info_table_set` drops it?
+  - **NEXT EXPERIMENT**: add module-guarded eprintln in yo-self
+    `attach_temp_variable_to_expr` and `set_expr_as_needs_to_call_dup` printing,
+    for the out_none tail expr, which branch runs + the temp's is_owning; rebuild
+    stage-1 (`./yo-cli compile yo-self/main.yo --release -o /tmp/yo-self-bin`);
+    emit stage-2; run `check /tmp/t5.yo`; compare to what TS does (instrument
+    src/expr.ts attachTempVariableToExpr similarly + `./yo-cli check /tmp/t5.yo`).
+    Fix so yo-self matches TS (likely: preserve `expr`'s existing borrowed
+    variable_name across the out_none ExprInfo swap, OR don't mark the tail temp
+    owning when expr is a caller-owned input node).
+- **~~OPEN PUZZLE~~ (superseded above)**: TS's
+  equivalent (function.ts:2358-2369) ALSO resets `expr.$` to a new ExprInfo
+  WITHOUT variableName and calls `attachTempVariableToExpr(expr, true)`, which
+  ALSO creates an OWNING temp → `setExprAsNeedsToCallDup` would consume it
+  (no dup) the same way. So the attach/set-dup logic is faithfully ported and
+  is NOT the divergence. The real difference must be one of: (a) in TS the
+  comptime_list ELEMENT node handed to evaluate_function_call is a distinct
+  (macro-expanded / freshly-synthesized) node, not the shared parser node, so
+  its drop is safe; (b) the element's `value`/ownership state entering the
+  loop differs; or (c) an upstream dup (get/arm/macro-expansion) produces a
+  different net count in TS. RESOLVE with EVALUATOR-LEVEL instrumentation:
+  add a guarded eprintln in comptime_list.yo's loop printing
+  `ast_expr_id(arg)` vs `ast_expr_id(evaluated_arg)` and the arg element's
+  variable ownership, in BOTH `./yo-cli check /tmp/t5.yo` (TS) and the
+  stage-2 binary — if TS's evaluated_arg id != arg id but yo-self's are equal,
+  the divergence is that yo-self returns the SAME node where TS returns a
+  fresh one (fix: make the out_none/comptime path return a fresh node or dup,
+  matching TS's node identity). This is the precise next experiment.
+- **Tooling**: `scripts/rc-tombstone-instrument.py` now bounds the decr body
+  by the incr-fn start (fixes the 3rd stray `__yo_free` in the fast/tracked
+  paths). A one-off alloc-backtrace-table extension (persistent per-pointer
+  table, survives ring wrap) lives in the scratchpad recipe below and was the
+  key to catching a long-lived parser node whose alloc had scrolled off the
+  4M event ring.
+
 DRAIN LOOP STATUS (2026-07-11 third session, through stage2-v20): the
 t1.yo repro is surfacing stage-1 RC-emission divergences ONE AT A TIME —
 two fixed, one open:

@@ -105,10 +105,14 @@ assert old_decr in src
 src = src.replace(old_decr, new_decr, 1)
 
 j = src.index(new_decr)
-seg = src[j:j+4200]
+# Bound the decr body by the start of the incr function so a fixed window
+# cannot bleed into a following function's __yo_free(ptr) (the decr->incr gap
+# shrinks as the emitted fast/tracked paths evolve).
+body_end = src.index('static inline void* __yo_incr_rc(void* ptr) {', j)
+seg = src[j:body_end]
 assert seg.count('__yo_free(ptr);') == 2
 seg = seg.replace('__yo_free(ptr);', '__yo_ts_free(ptr);', 2)
-src = src[:j] + seg + src[j+4200:]
+src = src[:j] + seg + src[body_end:]
 
 old_incr = '''static inline void* __yo_incr_rc(void* ptr) {
   if (ptr == NULL) return NULL;
