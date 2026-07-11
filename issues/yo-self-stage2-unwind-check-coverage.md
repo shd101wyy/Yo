@@ -102,15 +102,30 @@ expr_info_table_set(...); attach_temp_variable_to_expr(expr, true, ctx); expr`).
     to None (→ new-temp branch, owning). Verify: does TS's evaluator keep
     `expr.$.variableName` across the out_none ExprInfo replacement while yo-self's
     `new_expr_info`+`expr_info_table_set` drops it?
-  - **NEXT EXPERIMENT**: add module-guarded eprintln in yo-self
-    `attach_temp_variable_to_expr` and `set_expr_as_needs_to_call_dup` printing,
-    for the out_none tail expr, which branch runs + the temp's is_owning; rebuild
-    stage-1 (`./yo-cli compile yo-self/main.yo --release -o /tmp/yo-self-bin`);
-    emit stage-2; run `check /tmp/t5.yo`; compare to what TS does (instrument
-    src/expr.ts attachTempVariableToExpr similarly + `./yo-cli check /tmp/t5.yo`).
-    Fix so yo-self matches TS (likely: preserve `expr`'s existing borrowed
-    variable_name across the out_none ExprInfo swap, OR don't mark the tail temp
-    owning when expr is a caller-owned input node).
+  - **REFINEMENT (narrows the fix to the TYPE domain)**: the deferred-dup is
+    gated at utils.yo:638 `if(!(type_contains_rc_type(ei.ty)), { return; })`
+    (faithful to expr.ts:2500 `if (typeContainsRcType(expr.$.type)) { ...dup... }`).
+    So set_expr only builds the dup when `ei.ty` (the expr's SEMANTIC type =
+    out_none.ty = the call's `ret_type_none`) contains RC. TS emits `___dup(expr)`
+    ⟹ in the TS-codegen run `ei.ty` IS RC; yo-self does NOT ⟹ in the yo-self run
+    `ei.ty` is non-RC (or `type_contains_rc_type` disagrees). The divergence is
+    therefore in what `ret_type_none` resolves to for the comptime element, or in
+    `type_contains_rc_type` / shell-resolution on it — NOT in attach/set_expr
+    control flow (those are faithful). Instrument `type_contains_rc_type(ei.ty)`
+    and `ei.ty` (type_to_string) at utils.yo:638 for the out_none tail; compare to
+    TS. Suspect: the element's return type is an AstExpr/ref(enum) shell whose
+    is_reference_semantics is lost (cf. [[yo-self-refstruct-get-dup-chain]] shell
+    resolution in types/guards.yo `is_rc_type`) → type_contains_rc_type wrongly
+    returns false in yo-self.
+- **NEXT EXPERIMENT**: add module-guarded eprintln in yo-self
+  `attach_temp_variable_to_expr` and `set_expr_as_needs_to_call_dup` printing,
+  for the out_none tail expr, which branch runs + the temp's is_owning; rebuild
+  stage-1 (`./yo-cli compile yo-self/main.yo --release -o /tmp/yo-self-bin`);
+  emit stage-2; run `check /tmp/t5.yo`; compare to what TS does (instrument
+  src/expr.ts attachTempVariableToExpr similarly + `./yo-cli check /tmp/t5.yo`).
+  Fix so yo-self matches TS (likely: preserve `expr`'s existing borrowed
+  variable_name across the out_none ExprInfo swap, OR don't mark the tail temp
+  owning when expr is a caller-owned input node).
 - **~~OPEN PUZZLE~~ (superseded above)**: TS's
   equivalent (function.ts:2358-2369) ALSO resets `expr.$` to a new ExprInfo
   WITHOUT variableName and calls `attachTempVariableToExpr(expr, true)`, which
