@@ -96,6 +96,18 @@ Option(Box(Token)).Some(box(t.clone()))` emits (stage2-v20.c:318326+):
    direction: `if(h.slot.is_some(), ...)` on a ref-struct with
    Option(Box(T)) field, called repeatedly — each check leaks −1 until
    the box frees while the field still holds it.
+   REPRO ATTEMPTS (both print correctly under stage-1 bin — do NOT
+   reproduce): plain `h.slot.is_some()` AND `flag && (h.slot.is_some())`
+   (tests/codegen-bootstrap/value*enum_field_read_dup.yo, kept as a
+   guard). The divergence needs merge's exact context — receiver is a
+   Variable ref obtained from frame.variables.get() match arm, inside a
+   while loop, under `all_consumed && v.consumed_at_token.is_some()`.
+   RECOMMENDED NEXT ROUTE instead of repro-hunting: direct RC event-
+   stream diff of the EMITTED yo_id_228095 (stage2-v21.c:314xxx-318xxx)
+   against TS's fn*...\_merge_and_check_envs (s1-ref-v3.c:251848+) —
+   enumerate every incr/decr on Option(Box(Token)) temps in both and
+   fix ALL mismatches in one pass (the fn is the single hottest
+   consumed-at writer; several drain items have landed here).
 
 DRAIN WORKFLOW (repeatable, ~30 min/iteration):
 a. lldb -b with DYLD_INSERT_LIBRARIES=libgmalloc.dylib +

@@ -1,0 +1,38 @@
+// Regression: a plain FIELD READ of an RC-payload value enum
+// (`h.slot` : Option(Box(Tok)) feeding `.is_some()`) must dup the payload
+// when the read materializes an owning temp — the temp's cleanup drops the
+// payload, so a dup-less read is net −1 on the FIELD's box per check.
+// Stage-2's merge_and_check_envs `base_var.consumed_at_token.is_some()`
+// emitted exactly that (stage2-v21.c:315145+: read with no incr, then
+// switch/decr of the read temp); the TS reference dups right after the
+// read (s1-ref-v3.c:253470). Each check leaked −1 until the Box freed
+// while the field still held it (t1.yo rc=139 GC-trial-delete UAF).
+open(import("std/string"));
+{ println } :: import("std/fmt");
+
+Tok :: ref(struct(text : String));
+derive(Tok, Clone);
+
+Holder :: ref(struct(slot : Option(Box(Tok))));
+
+has :: (fn(h : Holder, flag : bool) -> bool)(
+  // The read must sit on the RHS of a short-circuit `&&` — the crashing
+  // merge_and_check_envs shape is `all_consumed && v.consumed_at_token.is_some()`
+  // (a plain read emits correctly; the && rhs materialization missed the dup).
+  flag && (h.slot.is_some())
+);
+
+main :: (fn() -> unit)({
+  t := Tok(text : String.from("alpha"));
+  h := Holder(slot : Option(Box(Tok)).Some(box(t.clone())));
+  (i : usize) = usize(0);
+  while(i < usize(6), {
+    if(has(h, true), {
+      ();
+    });
+    i = (i + usize(1));
+  });
+  match(h.slot,.Some(b) => println(b.*.text),.None => println(`none`));
+  println(t.text);
+});
+export(main);
