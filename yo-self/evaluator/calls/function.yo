@@ -44,6 +44,8 @@ open(import("std/fmt"));
   Environment,
   add_variable_to_env,
   synthetic_token,
+  get_variables_from_env,
+  make_err_variable,
   get_receiver_methods_by_name_from_env,
   get_type_trait_methods_by_name_from_env
 } :: import("../../env.yo");
@@ -55,7 +57,7 @@ open(import("std/fmt"));
 { Token, TokenKind, string_is_operator } :: import("../../token.yo");
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
-{ attach_temp_variable_to_expr } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, set_expr_as_consumed, set_expr_as_needs_to_call_dup } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -2637,6 +2639,38 @@ Fix: wrap the call:
             );
             _push_arg := evaled_arg_infos.push(arg_info);
             _push_rt := runtime_arg_exprs.push(evaled_arg);
+            // Step 4b own-consume (port of helper.ts:411-451 / helper.yo:543):
+            // this inline FuncVal arg loop BYPASSES
+            // try_to_call_function_with_arguments, so `own(...)` params never
+            // consumed their args here — `box(t.clone())` left the clone temp
+            // owning and the statement cleanup dropped it AFTER box() moved it
+            // (net −1 on the boxed payload: the stage-2 t1.yo rc=133 UAF;
+            // corpus repro box_arg_move_property_store.yo). Owning arg → MOVE
+            // (consume, no dup); borrowed → materialize via ___dup + consume.
+            fv_p_owning := match(fv_param_is_owning.get(ai),.Some(o) => o,.None => false);
+            fv_p_is_ct := match(
+              resolved_param_types.get(ai),
+              .Some(apt2) => is_type_hierarchy_type(apt2),
+              .None => false
+            );
+            if(fv_p_owning && (!(fv_p_is_ct)), {
+              match(
+                arg_info.variable_name,
+                .None => (),
+                .Some(fv_avn) => {
+                  fv_avars := get_variables_from_env(env, fv_avn);
+                  if(fv_avars.len() > usize(0), {
+                    fv_avar := match(fv_avars.get(fv_avars.len() - usize(1)),.Some(v) => v,.None => make_err_variable(env));
+                    if(fv_avar.is_owning_the_rc_value, {
+                      set_expr_as_consumed(evaled_arg, env, true, ctx, exn);
+                    }, {
+                      set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn);
+                      set_expr_as_consumed(evaled_arg, env, true, ctx, exn);
+                    });
+                  });
+                }
+              );
+            });
           };
           ai = (ai + usize(1));
         });
