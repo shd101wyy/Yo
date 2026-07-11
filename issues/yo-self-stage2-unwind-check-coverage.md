@@ -26,21 +26,31 @@ DRAIN ITEM 8 — TWO faithful fixes LANDED (2026-07-11):
     `clang -O1 -g -fsanitize=undefined,address` on a SMALLER template-string
     repro (ASan on the full binary + prelude is too slow), or bisect -O1, or
     lldb the -O1 binary. Do NOT chase RC drops here.
-  - **`expr.yo` = comptime-forced enum `==` yields a non-bool** (comptime-eval
-    divergence, cascades to swallow→abort; NOT a crash). 1-line minimal repro:
-    `printf 'K :: enum(A, B);\ncomptime_assert(K.B == K.B);\nexport(K);\n' > /tmp/te.yo`
-    → stage-2 `check` fails `Expected bool value for "comptime_assert", got ...
-Value: <fn(.)>`; TS `./yo-cli` and stage-1 both rc=0. Discriminators
-    (stage-2 binary): RUNTIME `x == K.B` works; LAZY `z :: (K.A==K.B); export(z)`
-    works; but `comptime_assert(K.B == K.B)` and `y :: (K.B==K.B);
-comptime_assert(y)` FAIL; non-enum `comptime_assert(usize(3)==usize(3))`
-    works. So only comptime-FORCING an enum `==` diverges — the stage-2
-    evaluator yields the `==` equality FUNCTION value (`<fn(.)>`) instead of
-    APPLYING it to fold to bool. A comptime operator-application divergence
-    specific to enum equality; NEW class, unrelated to the comptime_list UAF.
-    Next: how comptime_assert forces its arg vs a binding; how enum `==`
-    resolves+applies at comptime (evaluate_comptime_fn_call / `==` builtin /
-    derived-Eq); diff stage-2 emission vs s1-ref for that path.
+  - **`expr.yo` = context-dependent stage-2 comptime divergence** (real, but
+    NOT minimally reproducible yet). PROPER rc — WARNING: `cmd | tail; echo $?`
+    reports TAIL's rc, not the command's; use `cmd >log 2>&1; echo $?` or
+    `${PIPESTATUS[0]}`. With correct capture: TS `./yo-cli check yo-self/expr.yo`
+    rc=0, stage-1 rc=0, **stage-2 rc=134**. First error: `Expected bool value
+for "comptime_assert", got: .InnerDocLineComment` with an AUTO-GENERATED
+    derived-Eq `match(lhs, .Operator => match(rhs,.Operator=>true,_=>false), ...
+.Whitespace => ...)` for TokenKind — a comptime_assert (derive/trait-contract
+    check) evaluates the derived `==` match to a VARIANT VALUE
+    (`.InnerDocLineComment`) instead of bool in stage-2; cascades to
+    "module error.yo not preloaded".
+    **CORRECTION of a prior note**: the earlier claimed 1-line repro
+    `comptime_assert(K.B == K.B)` is BOGUS — it fails on TS too (rc=1);
+    `comptime_assert(enum==enum)` is not valid; the earlier "TS rc=0" was a
+    pipe-to-tail rc bug. Isolation attempts that ALL PASS on stage-2 (so are NOT
+    the trigger): `derive(K,Eq(K))` alone (2 and 30 variants); `derive + (k==K.A)`
+    in a fn body; cross-module derive+use; importing the real `./token.yo`
+    TokenKind + `k == TokenKind.Operator`; the `||`-of-two-== form (expr.yo:430).
+    Only the FULL expr.yo triggers it ⇒ context-dependent — some earlier
+    declaration in expr.yo (the AstExpr ref-enum def / its derive(Clone) /
+    forward-ref shells / a poisoned comptime cache) corrupts the later TokenKind
+    comptime-== fold. Next: bisect expr.yo (copy to `yo-self/zz.yo` so
+    `./token.yo` resolves; delete declaration blocks until the comptime_assert
+    error disappears) to find the poisoning declaration, then minimize +
+    emission-diff. NEW class, unrelated to the comptime_list UAF.
 
 DRAIN ITEM 8 — SomeT fix LANDED (3ed667915), struct-ctor arm OPEN (2026-07-11):
 
