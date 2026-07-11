@@ -77,6 +77,25 @@ match>)` is a REAL comptime_assert (e.g. one of the prelude ones like
   if they collide only in stage-2, fix the id allocation so generated nodes never
   reuse a parsed node's id (compare `alloc_global_expr_id` / g_next_global_expr_id
   behavior stage-2 vs TS; may be a TS parity issue — verify `./yo-cli`).
+- **UPDATE 3 — id-collision theory REFUTED; real bug = derived `==` returns
+  `<unknown: unit>` not bool.** Enriched the comptime*assert error (print
+  assert node loc + arg loc + ids). The FIRST failure during `compile yo-self`:
+  arg = `not(lhs == rhs)` — the Eq `!=` DEFAULT body (`((!=) : ((lhs, rhs) ->
+not(lhs == rhs)))` at prelude:6667), evaluating to `Value: <unknown: unit>`.
+  `assert_loc=./std/prelude.yo arg_loc=./std/prelude.yo expr_id=22121
+arg_id=107468` — ids are FAR APART, NO collision. So: the `==` on TokenKind
+  (with unknown lhs/rhs), when the `!=` default is verified, returns
+  `<unknown: UNIT>` instead of `<unknown: BOOL>` ⇒ `not(unit)` ⇒ unit ⇒
+  comptime_assert(non-bool) throws. ROOT: the derived `==` body
+  `match(lhs, .V => match(rhs, .V => true, * => false), ...)`has its RETURN
+TYPE inferred as`unit`(its arms' nested matches mis-evaluate — the earlier`<fn(\_)>`/ variant symptoms are the same class), so the`==`call type is
+unit. Context-dependent:`check token.yo`(defines+derives TokenKind) PASSES;
+fails only when the`!=`default is instantiated/verified in the full compile.
+NEXT: find who comptime_asserts the`!=`default`not(lhs==rhs)`(the`?=`default-verification path / trait method registration), and why the derived`==`'s match infers `unit`return there — instrument the match return-type
+inference (evaluate_match) for the spliced derived body with unknown subject;
+compare stage-2 vs TS. Likely the`#(match_body.to_expr())`-spliced match's
+  arm-body types aren't inferred (arms seen as lambdas) ⇒ union type collapses
+  to unit. Verify TS infers bool for the same spliced match.
 
 DRAIN ITEM 8 — TWO faithful fixes LANDED (2026-07-11):
 
