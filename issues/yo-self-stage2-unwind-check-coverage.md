@@ -14,15 +14,39 @@ two fixed, one open:
    (cond.ts:409-470 unported) — `resolved_methods := cond(..., true =>
 methods)` in get_receiver_methods_by_name_from_env double-dropped
    `methods` (was rc=139). Corpus test: cond_arm_local_dup.yo.
-3. OPEN (stage2-v20, t1 rc=133): 64-byte object freed inside
-   yo_id_228095 = the match-bodies env merger
-   (`(env, bodies : ArrayList(AstExpr), ctx, exn) -> Environment`,
-   merge_and_check_envs shape, called from evaluate handler
-   yo_id_267646) — GC trial-delete then walks the freed child via
-   **yo*traverse***yo_t99 (t99 carries `id : Option(String)` —
-   Variable/Frame-like). Suspect: merge_and_check_envs emission
-   over-releases a frame/variable one of the merged envs still holds
-   (cf. memory yo-self-branch-merge-trivial-arm).
+3. OPEN (stage2-v20, t1 rc=133) — PINNED TO THE EXACT EXTRA DROP:
+   inside yo_id_228095 = merge_and_check_envs (utils.yo), the
+   consumed-at store `base_var.consumed_at_token =
+Option(Box(Token)).Some(box(t.clone()))` emits (stage2-v20.c:318326+):
+   save old; clone; box(clone); store Some(box);
+   \_\_yo_decr_rc(clone_temp); // ← EXTRA — box() MOVED the clone
+   drop displaced old; // correct
+   The TS reference emission (s1-ref-v3.c:253483+) has NO decr of the
+   clone temp — box consumes its argument, so the post-store drop of the
+   box's arg temp over-releases the Token/Box (GC trial-delete then walks
+   the freed child of a Variable → t1 rc=133). DIVERGENCE CLASS: a call
+   argument MOVED into an own(...)-param callee (box) must be marked
+   consumed so the statement's rhs-temp cleanup skips it; stage-1's
+   emission of this property-assignment shape drops it anyway. Find where
+   the post-store `decr(clone_temp)` is emitted (property-assignment rhs
+   temp cleanup in codegen/exprs/assignment.yo, or deferred-drop list on
+   the box-call ExprInfo) and compare the consume marking against TS's
+   call-site handling of own params (calls/helper.ts).
+   NOTE: the same `x.consumed_at_token = Some(box(tok))` construct exists
+   at consume.yo / utils.yo (this session's perf fix) and many merge
+   sites — one codegen fix covers all.
+   NEXT STEPS (verified so far): helper.yo Step 4b (own-param move
+   consume, lines ~543-560) IS a faithful port of helper.ts:411-451 —
+   so either (a) box()'s call path BYPASSES Step 4b (box may route
+   through a builtin/generic fast path — check where `box` calls bind
+   args: evaluator/values/box handling vs try_to_call/bind_argument), or
+   (b) the statement-level rhs-temp cleanup that emits the post-store
+   `decr(clone_temp)` (property-assignment path in
+   codegen/exprs/assignment.yo — the `_tmpN; decr(...)` right between
+   the store and the displaced-old drop) ignores the consumed mark.
+   Probe both sides with the established module-guarded eprintln pattern
+   on a small repro: `x.field = Option(Box(Token)).Some(box(t.clone()))`
+   with a ref-struct x — then fix stage-1, gates, re-emit, t1.
 
 DRAIN WORKFLOW (repeatable, ~30 min/iteration):
 a. lldb -b with DYLD_INSERT_LIBRARIES=libgmalloc.dylib +
