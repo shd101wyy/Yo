@@ -63,7 +63,15 @@ Option(Box(Token)).Some(box(t.clone()))` emits (stage2-v20.c:318326+):
    pushes into deferred_drop_expressions / which temps stay owning)
    against assignment.ts's property path. try_to_implement_function_by*
    function_type is NOT the binder (it is the fn-DEFINITION handler).
-   with a ref-struct x — then fix stage-1, gates, re-emit, t1.
+   FINAL PIN: TS's emitted mark() has NO drop of the clone temp ANYWHERE
+   (not statement-level, not scope-end) — TS marked it CONSUMED at the
+   call. So the fix is on the CONSUME side: yo-self's comptime-generic
+   call path (evaluate_comptime_fn_call's arg-collect, comptime_fn.yo —
+   where box(forall(V : Type), own(value) : V) binds) must apply
+   helper.yo Step 4b's own-consume (owning arg → move/consume; borrowed
+   → dup+consume), keyed on the fn's param_is_owning flags (mind
+   forall-slot alignment). Verify: box_arg_move_property_store.yo flips
+   from DIFF to PASS; then gates → stage-2 → t1.
 
 DRAIN WORKFLOW (repeatable, ~30 min/iteration):
 a. lldb -b with DYLD_INSERT_LIBRARIES=libgmalloc.dylib +
