@@ -15,7 +15,7 @@ two fixed, one open:
 methods)` in get_receiver_methods_by_name_from_env double-dropped
    `methods` (was rc=139). Corpus test: cond_arm_local_dup.yo.
 3. OPEN (stage2-v20, t1 rc=133) — PINNED TO THE EXACT EXTRA DROP:
-   inside yo_id_228095 = merge_and_check_envs (utils.yo), the
+   inside yo*id_228095 = merge_and_check_envs (utils.yo), the
    consumed-at store `base_var.consumed_at_token =
 Option(Box(Token)).Some(box(t.clone()))` emits (stage2-v20.c:318326+):
    save old; clone; box(clone); store Some(box);
@@ -44,8 +44,25 @@ Option(Box(Token)).Some(box(t.clone()))` emits (stage2-v20.c:318326+):
    `decr(clone_temp)` (property-assignment path in
    codegen/exprs/assignment.yo — the `_tmpN; decr(...)` right between
    the store and the displaced-old drop) ignores the consumed mark.
-   Probe both sides with the established module-guarded eprintln pattern
-   on a small repro: `x.field = Option(Box(Token)).Some(box(t.clone()))`
+   PROBE RESULTS (2026-07-11, [PIO-LOOP]/[4B] label-guarded probes):
+   RUNTIME REPRO LANDED: tests/codegen-bootstrap/box_arg_move_property_store.yo
+   (TS prints "alpha\nalpha"; stage-1-compiled binary prints EMPTY line
+   then "alpha" — the boxed payload is freed by the extra drop; the corpus
+   diff runner flags it). Probes prove box's `value` arg NEVER binds
+   through try_to_call_function_with_arguments' param loop (helper.yo
+   Step 7 → check_if_function_parameter_matches_argument → Step 4b): the
+   only "value"-labeled params seen there during the repro compile are
+   std/string methods. box (forall(V : Type)) is routed through the
+   COMPTIME-FN path (evaluate_comptime_fn_call / specialization), which
+   has NO own-consume — but TS's comptime-fn.ts ALSO has none, and TS
+   still emits no extra drop. So the REAL divergence is on the DROP
+   side: yo-self's property-assignment evaluator schedules a
+   statement-level drop for the rhs's intermediate call-arg temp (the
+   clone) that TS never schedules — diff yo-self
+   evaluator/exprs/assignment.yo's property-path ExprInfo tail (what it
+   pushes into deferred_drop_expressions / which temps stay owning)
+   against assignment.ts's property path. try_to_implement_function_by*
+   function_type is NOT the binder (it is the fn-DEFINITION handler).
    with a ref-struct x — then fix stage-1, gates, re-emit, t1.
 
 DRAIN WORKFLOW (repeatable, ~30 min/iteration):
