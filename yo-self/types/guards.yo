@@ -12,7 +12,7 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("./definitions.yo");
-{ type_value_tag } :: import("./creators.yo");
+{ type_value_tag, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
 // ---------------------------------------------------------------------------
 // Extern opaque-Type registry. `extern("Yo", X : Type)` declares an opaque type
 // whose value is a SomeT PLACEHOLDER (e.g. `__yo_thread_t`); codegen emits a
@@ -430,9 +430,25 @@ is_concrete_trait_type :: (fn(t : TypeValue) -> bool)(
 is_rc_type :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Struct({ is_reference_semantics : is_ref }) => is_ref,
+    // Resolve a leaked recursive SELF-SHELL before reading the flag: shells
+    // lose `is_reference_semantics`, so a shell of a ref(enum)/ref(struct)
+    // (e.g. EvalValue during its own definition) read as NON-RC here — the
+    // dup-on-store predicate then skipped the element retain when
+    // specializing ArrayList(EvalValue).push, producing a push that stores
+    // WITHOUT +1 (the stage-2 t1.yo rc=138 UAF: impl method registry read a
+    // method value freed by the pusher's scope-end drop). Same shell-resolve
+    // pattern as type_key / eval-match (yo-self-recursive-enum-self-shell).
+    .Struct({ is_reference_semantics : is_ref }) => match(
+      resolve_struct_shell(t),
+      .Struct({ is_reference_semantics : r_res }) => r_res,
+      _ => is_ref
+    ),
     // Reference-semantics enums (`ref(enum(…))`) are RC-managed like objects.
-    .EnumT({ is_reference_semantics : is_ref }) => is_ref,
+    .EnumT({ is_reference_semantics : is_ref }) => match(
+      resolve_enum_shell(t),
+      .EnumT({ is_reference_semantics : r_res }) => r_res,
+      _ => is_ref
+    ),
     .DynT(required_trait_types : _) => true,
     .IsoT(_) => true,
     .SomeT(required_trait_types : req_traits) => {
