@@ -1105,8 +1105,27 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
         decl.push_string(matched_value_code.clone());
         decl.push_str(";");
         em.emit_string_line(decl);
+        _sd := context.base.declared_c_var_names.add(subject_var_name.clone());
         matched_value_code = subject_var_name;
       });
+      // The SUBJECT may carry a deferred `___dup` (begin-wrapped non-atom
+      // scrutinee returning a borrowed read — e.g. merge_and_check_envs'
+      // `match(base_var.consumed_at_token, ...)`: the Option value's temp is
+      // dropped at scope end while the FIELD still holds the Box payload).
+      // TS emits the dup right after the read via the begin tail
+      // (s1-ref-v3.c:253470); emit it here on the DECLARED subject temp —
+      // drift-safe (never trust the recorded atom name; see
+      // generate_case_body / cond.yo _emit_value_arm).
+      match(
+        subject_ei.deferred_dup_expressions,
+        .Some(sdups) => if(sdups.len() > usize(0), {
+          sdline := indent.clone();
+          sdline.push_string(generate_dup_code_for_value(matched_value_code.clone(), match_value_type, context));
+          sdline.push_str(";");
+          em.emit_string_line(sdline);
+        }),
+        .None => ()
+      );
     },
     .None => ()
   );
