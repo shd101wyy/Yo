@@ -171,7 +171,17 @@ _generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionG
   // (via g_some_resolved_concrete) so the map key matches what the construction /
   // pre-pass registered (the capture-struct id, not the SomeT id).
   capture_type := resolve_some_type_to_concrete(match(cei.capture_type,.Some(c) => c,.None => cei.ty));
-  mapped_opt := context.base.impl_closure_call_map.get(type_key(capture_type.clone()));
+  // The impl_closure_call_map is keyed by the BARE capture-struct id at every
+  // set site (closures.yo — capture-struct sids are unique per closure), NOT
+  // by type_key: type_key of a cfid-empty struct with field types is now
+  // STRUCTURAL (sid + field keys), so keying the get by type_key missed.
+  cb_map_key := match(
+    capture_type,
+    .Struct({ id : cb_sid }) => cb_sid,
+    .SomeT({ id : cb_sid }) => cb_sid,
+    _ => type_key(capture_type.clone())
+  );
+  mapped_opt := context.base.impl_closure_call_map.get(cb_map_key);
   capture_c_name := _capture_type_c_name(capture_type.clone(), context);
   closure_fn := match(
     _closure_fn_c_name(cei.value, cei.closure_function_value, context),

@@ -30,6 +30,42 @@ Corpus regression test: tests/codegen-bootstrap/param_alias_binding.yo
 (pre-fix stage-1-emitted binary prints `5 5 ` — "hello" freed — instead of
 `5 5 5 hello`).
 
+Remaining known port gaps on the same TS region (deferred, corpus-green):
+assignment.ts:716 generates a NEW variable id on reassignment ("dup calls
+on the old ID won't be matched with drop calls on the new ID") — yo-self
+keeps `id : updated_variable.id`; assignment.ts:717-744
+findRcValueOwnerRelationship / isOwningTheSameRcValueAs shared-ownership
+tracking on reassignment is not ported (yo-self attach_temp_variable_to_expr
+takes no third argument). PERF NOTE: the dup-on-store + temp-attach port
+made stage-1 evaluation of yo-self markedly slower (stage-2 emit went from
+~5 min to 45+ min; `sample` shows 85% in \_\_yo_decr_rc under
+\_schedule_scope_end_drops → set_variable_as_consumed →
+update_existing_variable String-id compares) — more owned temps per frame
+× linear env scans. Faithful (TS attaches the same temps; TS comptime
+`while` unrolling clones the body per iteration in BOTH compilers, so
+counts match) but the env-scan cost is yo-self's (task #78 territory).
+Quantified: `check yo-self/tests/expr_traversal.test.yo` went 26.7 s →
+
+> 16 min (aborted); every String== / ArrayList(ref-struct).get() in the
+> env scans pays an incr/decr pair, so the extra per-assignment scans
+> (lhs_consumed_by_rhs lookup + attach lookups + one \_\_\_drop eval per RC
+> temp) multiply into ~40x. PERF ROOT PINNED AND FIXED (2026-07-11 third
+> session): `sample` of the live check showed ~88% of the worker inside
+> `_schedule_scope_end_drops → evaluate_drop → set_variable_as_consumed →
+update_existing_variable` — and that write-back is a PURE NO-OP in
+> yo-self: `variable` comes from get_variables_from_env which returns the
+> env's actual Variable REFS (Variable is reference-semantics), so
+> `(new_var : Variable) = variable; new_var.consumed_at_token = ...`
+> already mutates the env's object in place; the subsequent
+> update_existing_variable full-env scan copied the object's fields onto
+> itself. TS needs the write-back because its `{...variable}` spread makes
+> a COPY — the alias port didn't. Landed (semantics-neutral): consumed-at
+> marking mutates in place at consume.yo + utils.yo (2 sites), dropping the
+> scan on the hot path entirely; update_existing_variable also early-exits
+> after the unique-id match for its remaining REAL callers (assignment /
+> va_start / synthesizer construct genuinely new Variables and keep the
+> write-back).
+
 Known REMAINING (separate, leak-class, non-crashing) divergences found by
 the ExprInfo RC event-stream diff of yo_id_236636 vs the TS reference
 emission of evaluate_initialization_assignment: stage-2 never emits the

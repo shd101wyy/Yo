@@ -17,8 +17,7 @@ open(import("std/string"));
 {
   Variable,
   Environment,
-  get_variables_from_env,
-  update_existing_variable
+  get_variables_from_env
 } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
@@ -94,10 +93,14 @@ set_variable_as_consumed :: (
       });
     },
     .None => {
-      // Set the variable as consumed.
-      (new_var : Variable) = variable;
-      new_var.consumed_at_token = Option(Box(Token)).Some(box(token.clone()));
-      update_existing_variable(env, variable, new_var);
+      // Set the variable as consumed. `variable` IS the env's Variable object
+      // (get_variables_from_env returns refs; Variable is reference-semantics),
+      // so the field write below mutates it in place — no update_existing_variable
+      // write-back scan needed. TS needs the write-back because its `{...variable}`
+      // spread makes a COPY; the alias-then-scan port of that was a pure no-op
+      // that dominated evaluation (88% of a heavy `check` sat in this scan's
+      // String-id compares under scope-end drop scheduling).
+      variable.consumed_at_token = Option(Box(Token)).Some(box(token.clone()));
     }
   );
 });

@@ -22,7 +22,7 @@ open(import("std/string"));
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../types/definitions.yo");
 { EvalValue } :: import("../value.yo");
-{ Environment, Variable } :: import("../env.yo");
+{ Environment, Variable, _frame_positions } :: import("../env.yo");
 { AstExpr } :: import("../expr.yo");
 { PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new } :: import("../expr_info.yo");
 { Token } :: import("../token.yo");
@@ -595,7 +595,16 @@ track_variable_usage :: (
       if(frame_level >= eval_env.frame_count(), {
         return(());
       });
-      // Find the variable in the evaluation environment.
+      // Find the variable in the evaluation environment. Per-frame, use the
+      // name index when available (see Frame.name_index / _frame_positions —
+      // the same fast path get_variables_from_env uses) with the original
+      // linear scan as the small-frame fallback: this walk runs once per
+      // tracked identifier read under scope-end drop evaluation, and the
+      // blind per-candidate `v.name == variable_name` String compares (each
+      // paying an Rc incr/decr pair) dominated heavy `check` runs. Semantics
+      // identical: first match, outermost frame first (TS context.ts:671
+      // does the same frames[i].variables.find scan — cheap there because
+      // JS string === has no RC cost).
       var_found := Option(Variable).None;
       actual_frame_level := usize(0);
       fi := usize(0);
@@ -605,23 +614,45 @@ track_variable_usage :: (
         match(
           frame_opt,
           .Some(frame) => {
-            vi := usize(0);
-            n_vars := frame.variables.len();
-            while(vi < n_vars, {
-              match(
-                frame.variables.get(vi),
-                .Some(v) => {
-                  if(v.name == variable_name, {
-                    var_found = Option(Variable).Some(v);
-                    actual_frame_level = fi;
-                    vi = n_vars; // break inner loop
-                    fi = n_frames; // break outer loop
-                  });
-                },
-                .None => ()
-              );
-              vi = (vi + usize(1));
-            });
+            match(
+              _frame_positions(frame, variable_name.clone()),
+              .Some(ps) => {
+                if(ps.len() > usize(0), {
+                  match(
+                    ps.get(usize(0)),
+                    .Some(pos) => match(
+                      frame.variables.get(pos),
+                      .Some(v) => {
+                        var_found = Option(Variable).Some(v);
+                        actual_frame_level = fi;
+                        fi = n_frames; // break outer loop
+                      },
+                      .None => ()
+                    ),
+                    .None => ()
+                  );
+                });
+              },
+              .None => {
+                vi := usize(0);
+                n_vars := frame.variables.len();
+                while(vi < n_vars, {
+                  match(
+                    frame.variables.get(vi),
+                    .Some(v) => {
+                      if(v.name == variable_name, {
+                        var_found = Option(Variable).Some(v);
+                        actual_frame_level = fi;
+                        vi = n_vars; // break inner loop
+                        fi = n_frames; // break outer loop
+                      });
+                    },
+                    .None => ()
+                  );
+                  vi = (vi + usize(1));
+                });
+              }
+            );
           },
           .None => ()
         );

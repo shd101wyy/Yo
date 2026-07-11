@@ -162,10 +162,23 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
         // A POISONED slot (multiple instantiations share this sid) keys
         // STRUCTURALLY — sid + per-field type keys — so two cfid-empty copies
         // with different layouts get different, DETERMINISTIC keys (the enum
-        // analogue: g_enum_sig_keys). Unpoisoned sids behave exactly as before.
-        (sid.len() > usize(0)) => match(
-          g_struct_cfid_keys.get(sid.clone()),
-          .Some(k) => if(k == String.from("!AMBIG"), {
+        // analogue: g_enum_sig_keys). A NEVER-REGISTERED sid (.None) with
+        // known field types ALSO keys structurally: shared-id generics whose
+        // instantiations are all cfid-empty (Bucket(K,V) — created by the
+        // with_capacity Type(1) path, so NO instantiation ever records a gs_
+        // key) otherwise render bare-sid everywhere and every layout collapses
+        // onto ONE key — one GcTracer visit specialization served all Bucket
+        // layouts and walked the wrong fields (TS emits 47 distinct Bucket
+        // visit fns, one per instantiation). Unpoisoned REGISTERED sids
+        // (.Some non-poison) behave exactly as before.
+        (sid.len() > usize(0)) => {
+          slot := g_struct_cfid_keys.get(sid.clone());
+          need_structural := match(
+            slot,
+            .Some(k) => (k == String.from("!AMBIG")),
+            .None => (sfts.len() > usize(0))
+          );
+          if(need_structural, {
             skey := sid.clone();
             (sfi : usize) = usize(0);
             while(sfi < sfts.len(), {
@@ -180,9 +193,12 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
               sfi = (sfi + usize(1));
             });
             skey
-          }, k.clone()),
-          .None => sid.clone()
-        ),
+          }, match(
+            slot,
+            .Some(k) => k.clone(),
+            .None => sid.clone()
+          ))
+        },
         true => type_to_string(st)
       )
     },

@@ -125,7 +125,13 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
   if(field_labels.len() > usize(0), {
     // Impl closure WITH captures — stack-allocate the capture struct.
     struct_id := match(capture_ty,.Struct({ id : sid }) => sid, _ => String.from(""));
-    capture_c_name := match(context.base.get_type_c_name(struct_id),.Some(n) => n,.None => return(String.from("// Error: Capture type not found for closure")));
+    // Look up by the FULL type_key, not the bare struct id: the registry is
+    // keyed by type_key(t), and for a cfid-empty struct with field types the
+    // key is now STRUCTURAL (sid + field keys) — bare-sid lookup only worked
+    // while type_key collapsed such structs to their sid (the Bucket visit-fn
+    // collision). TS looks up by struct id because TS ids are per-instantiation
+    // AND are the registry key; type_key is yo-self's equivalent identity.
+    capture_c_name := match(context.base.get_type_c_name(type_key(capture_ty)),.Some(n) => n,.None => return(String.from("// Error: Capture type not found for closure")));
     // Build `(captureCName){ .label = <constructing-scope var>, ... }`.
     data := String.from("(");
     data.push_string(capture_c_name.clone());

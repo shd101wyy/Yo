@@ -66,8 +66,7 @@ open(import("std/string"));
   find_variable_in_env,
   make_err_variable,
   generate_variable_id,
-  add_variable_to_begin_block_frame,
-  update_existing_variable
+  add_variable_to_begin_block_frame
 } :: import("../env.yo");
 { Token, TokenKind } :: import("../token.yo");
 { EvalContext } :: import("./context.yo");
@@ -519,18 +518,18 @@ set_expr_as_consumed :: (
           v := match(vars.get(vars.len() - usize(1)),.Some(x) => x,.None => make_err_variable(env));
           match(
             v.consumed_at_token,
-            // Step 5: not yet consumed → mark now.
+            // Step 5: not yet consumed → mark now. `v` IS the env's Variable
+            // (refs from get_variables_from_env; Variable is reference-
+            // semantics) so the in-place write is the update — the former
+            // alias-then-update_existing_variable write-back was a no-op
+            // full-env scan on the hot consumed-marking path (see consume.yo).
             .None => {
-              new_var := v;
-              new_var.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(expr)));
-              update_existing_variable(env, v, new_var);
+              v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(expr)));
             },
             .Some(consumed_tok) => cond(
               // Allowed to re-consume — overwrite the consumption point.
               allow_consume_again => {
-                new_var := v;
-                new_var.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(expr)));
-                update_existing_variable(env, v, new_var);
+                v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(expr)));
               },
               // Step 4: throw `use of moved value`.
               true => {
