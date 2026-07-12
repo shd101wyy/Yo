@@ -802,3 +802,57 @@ YO_MAIN_STACK_MB=16384 /tmp/yo-self-bin compile yo-self/main.yo --emit-c --skip-
 clang -std=c11 -w -O2 /tmp/stage2.c -o /tmp/s2
 cd /tmp/s2box && /tmp/s2 check t.yo   # rc=139 today; must match stage-1
 ```
+
+---
+
+## 2026-07-12 — stage-2 `check yo-self` UAF: one class FIXED, residual ExprInfo-UAF pinned
+
+**FIXED + committed (165a4608e)**: 6 `evaluate_function_call` return arms used a
+bare tail `expr` where TS uses explicit `return expr` (function.ts
+2288/2470/2536/2576/...). yo-self codegen omits the node dup on a bare-tail
+`expr` return of a borrowed AstExpr for non-RC-typed results (same class as
+75939ebb4). Arms fixed (function.yo): enum-ctor (~2207), unify-ctor (~2236),
+body-executed (~3279), runtime out_rt (~3422), method out_m (~3605), none
+out_none (~3730) → all `return(expr);`. Validated: stage-1b `check ./std`
+153/153 green; moved the stage-2 crash from a wild AST-node UAF cycle
+(rc=138, tight 3-frame evaluate_function_call↔evaluate_expression↔raw loop)
+to a residual over-release.
+
+**RESIDUAL FRONTIER = ExprInfo-UAF (premature decr of a still-referenced
+object)**. Two crash faces of the SAME bug:
+
+- `stage-2 check yo-self/main.yo` (rc=139): `evaluated_body_contains_unwind`
+  (expr_traversal.yo:45), called on `specialized_body` in
+  `create_specialized_function_inline` (helper.yo:1628), walks a FnCall whose
+  callee **Atom** (id=0, token=NULL, header rc=0xcd9b703d garbage) was freed
+  and reused for a string. specialized_body = `evaluate_begin_expression(
+clone_expr_fresh_ids(body))` (helper.yo:1416/1465).
+- `stage-2 check yo-self/parser.yo` (rc=139, SMALL REPRO — much faster than
+  main.yo; lexer.yo passes, parser/eval/function.yo crash): `__yo_gc_mark_gray`
+  → `__yo_traverse___yo_t59` (**\_\_yo_t59 = ExprInfo**) visits its `ty` field
+  (a freed+reused TypeValue whose `traverse_fn` is now ASCII bytes
+  `0x00003d3d3d206564` = "de ===") → calls garbage fn ptr → crash. I.e. an
+  **ExprInfo holds a `ty` (TypeValue) whose rc hit 0 while the ExprInfo still
+  references it**. This is the git-log "expr_info_table_get returns freed
+  ExprInfo / table-held entry over-released" frontier, now with concrete field
+  evidence (ExprInfo.ty).
+
+**Diagnosis tooling note (IMPORTANT)**: the RC tombstone
+(scripts/rc-tombstone-instrument.py) CANNOT catch this — it quarantines frees
+and only fires on a subsequent incr/decr of the freed obj, but this dangling
+ref is **read-only** (walked/GC-traced, never RC-op'd again). Under quarantine
+parser.yo `check` PASSES (rc=0). Also tried: adding `__yo_ts_check` to
+`__yo_gc_mark_gray` to fire on GC-visit of a quarantined-freed node — did NOT
+fire (quarantine changes GC timing/roots enough to suppress the over-release).
+Two per-op `backtrace()` calls make the tombstone unusably slow on any real
+input; neutered `__yo_rg_log`'s backtrace (kept FREE + USE site bt) to make it
+tractable.
+
+**NEXT (non-masking method needed)**: poison-on-free that STILL frees (so the
+real reuse-crash reproduces) but keeps a pointer→free-backtrace table; at the
+crash, look up the faulting node's most-recent free bt (the over-release site).
+Or: a targeted decr counter on ExprInfo.ty / the specific TypeValue. Small repro
+to iterate on: `stage-2 check yo-self/parser.yo`. TS + stage-1b both rc=0 on it,
+so it is a pure yo-self stage-2 divergence. Likely site: where a TypeValue
+stored into an ExprInfo (new_expr_info `ty:` field, or an `out.ty`/table_set
+path) is over-released during specialization body eval — find the extra decr.
