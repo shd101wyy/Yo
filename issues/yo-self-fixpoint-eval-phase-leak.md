@@ -391,3 +391,19 @@ localized change; that measured scope is why the affordability fix cannot be
 landed safely in a bounded step. The alternative (env RC-balance so the callee
 env disposes its Variables at call end, avoiding per-block drop scheduling
 entirely) is the smaller-surface path to investigate first next session.
+
+## Env RC-balance alternative RULED OUT (2026-07-13) — M3 is genuinely required
+
+Checked the "make callee_env a borrow (no dup-on-store incr)" alternative:
+`callee_env := match(callee_info_opt, .Some(ci) => ci.env, .None => env)`
+(function.yo:1716) — both arms ARE borrows (ci.env field / env param), so
+callee_env should indeed be a borrow (TS: `calleeEnv = functionType.env`, no
+incr), and fixing that removes callee_env's own +1. BUT the DOMINANT leaker is
+the `new_variable` Variables (2.7M live) pushed onto the call frame — they leak
+because the frame's owning-RC locals are never dropped at scope exit, which is
+exactly what M3 (scope-end drops) provides. s1 (no leak) drops them via TS's M3;
+yo-self's `skip_block` omits them. So the env-borrow tweak does NOT fix the
+dominant Variable leak — M3 is genuinely required, and its only blocker is the
+affordable-drop-representation refactor (40+ sites). No bounded shortcut exists;
+the lazy-materialization (or ExprInfo-reclamation / task #21) refactor is the
+sole path to item 3.
