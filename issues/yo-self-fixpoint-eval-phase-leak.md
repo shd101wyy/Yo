@@ -425,3 +425,21 @@ across the ~40 `deferred_drop_expressions` sites, or per-specialization ExprInfo
 reclamation (task #21). Confirmed by attempting the design, not just reasoning:
 there is no safe bounded fix; item 3's remainder is a dedicated architectural
 refactor.
+
+## Better lead (2026-07-13): scratch expr_info_table for def-time trial eval
+
+yo-self trial-evaluates function bodies at definition time with FRESH-ID clones
+and swallowing exceptions (function.yo:389-435 `_trial_call_overload_candidate`,
+`trial_exn := Exception(throw : ((_err) -> unwind(())))`; the general
+def-time-body-eval per `yo-self-defeval-wall`). Each trial's fresh-id ExprInfos
+are DISCARDED but still accumulate forever in the whole-compile `expr_info_table`
+— this is very likely the bulk of the 56GB (and it makes M3 worse because M3 adds
+drop nodes to each). PROMISING FIX (more localized than the 40-site drop refactor):
+run the def-time trial eval against a SCRATCH `expr_info_table` (swap
+`ctx.expr_info_table` for a fresh one before the trial, restore + discard after),
+so throwaway trial ExprInfos never enter the persistent table. PREREQUISITE to
+verify first: codegen must RE-evaluate bodies for real (not reuse the def-time
+trial's ExprInfos) — check whether the real/codegen eval overwrites or depends on
+def-time ExprInfos before implementing; if codegen reuses them, this breaks and
+the 40-site drop-representation refactor is required instead. This scratch-table
+approach also directly attacks task #21 (compile memory) independent of M3.
