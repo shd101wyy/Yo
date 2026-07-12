@@ -493,3 +493,55 @@ codegen reuses — they cannot simply be skipped by mode. The corpus RC oracle
 caught it pre-commit; reverted. This empirically rules out mode-gating as a bounded
 fix and confirms the reclamation must be structural (only prune ExprInfos proven
 dead, or make drops lightweight) — the careful architectural refactor.
+
+## ROOT CAUSE SHARPENED (2026-07-13): never-pruned ExprInfo table holding env snapshots
+
+Pinned the exact mechanism of the ~60GB compile-time footprint (and why porting M3
+explodes it further):
+
+- **TS** stores per-node eval data ON the node: `src/expr.ts:495,510` — `$?: EvaluatedExprData`.
+  When a function specialization's cloned AST becomes unreachable, **V8 GC reclaims the
+  node AND its `$` (including its `env`) together.** Memory stays bounded automatically.
+- **yo-self** stores it in a GLOBAL side-table: `expr_info.yo:456`
+  `ExprInfoTable :: newtype(data : HashMap(ExprId, ExprInfo))`, held in `ctx.expr_info_table`,
+  keyed by integer `ExprId`, and **NEVER pruned**. Every evaluated node across every
+  specialization stays in the table for the whole compile.
+- Each `ExprInfo` carries a **required `env : Environment` field** (`expr_info.yo:317`),
+  populated via `snapshot_env(env)` (`expr_info.yo:410`). The snapshot is shallow (shares
+  Frame refs) — but because SOME live ExprInfo references each Frame, the union of ALL frames
+  ever snapshotted (and their Variables/TypeValues/EvalValues) stays alive for the whole compile.
+  That union is the ~60GB. (Control /tmp/yo-self-s1, pre-RC-arc, compiled main.yo at 9.2GB;
+  the RC arc multiplied evaluated-node count — dup/drop nodes — hence the 6x.)
+- **Removing M3's `skip_block`** (begin.yo:264) adds a re-parsed `___drop(name)` node (each
+  carrying its own env snapshot) for every owning-RC local in every control-flow block — and
+  control-flow blocks are ubiquitous (every fn with a `return`). That is the +56GB explosion.
+
+### Why the cheap shortcuts are ALL ruled out (each verified this session)
+
+- **Null the env field post-eval**: UNSAFE — codegen READS `info.env` (216 sites in TS codegen,
+  73 in yo-self). Most only read `env.module_path` for `is_temp_variable_name`, but async
+  (`state_code_gen.yo`, `state_machine.yo`) and assignment (`assignment.yo:66,82,93`) paths call
+  `get_variables_from_env(ei.env, …)` needing the actual frames. Can't drop env wholesale.
+- **Per-specialization table pruning (mirror V8 GC)**: no safe reclaim boundary. Specialization
+  is interleaved/lazy (triggered from helper.yo ×5, function.yo ×3, index_trait, dyn, anon-fn)
+  and each specialized body is re-walked by MULTIPLE later codegen passes (RC drop-emission,
+  tracer specialization, async state machines). Frames are shared across functions. Removing a
+  function's ids after "its" codegen breaks a later pass's read → corpus regression.
+- **is_executing mode-gate**: corpus DIFF 6 (drops needed in non-executing mode too). See above.
+
+### The ONE faithful fix (task #21) — node-attached ExprInfo storage
+
+Make yo-self match TS's storage model: move `ExprInfo` off the global `expr_info_table` and ONTO
+the `AstExpr` node, so RC reclaims it with the node (yo-self's RC == TS's GC for this purpose).
+Concretely: add a mutable cell to each variant —
+`Atom(id, token, info : ref(Option(ExprInfo)))`
+`FnCall(id, func, args, is_infix, token, info : ref(Option(ExprInfo)))`
+— and rewrite `expr_info_table_set/get` to write/read `node.info.*` (threading the NODE, not just
+the id, to every call site; ~hundreds of sites). Then a specialization's cloned nodes (and their
+ExprInfo + env snapshots) are reclaimed when the specialized FunctionValue's body is dropped —
+bounded, exactly like TS. This is the correct 1:1 port (the global table was the yo-self-specific
+divergence, comment at expr.yo:308-313). It is large and pervasive; it cannot be landed AND
+validated (corpus + std + fixpoint footprint) within a bounded session turn without risking the
+verified-green compiler, so it is scoped here for a dedicated focused effort rather than attempted
+piecemeal. Once landed, re-apply M3 (remove skip_block) on the already-landed declaredCVarNames
+gate (68f5cb49c), then run the fixpoint (stage-2.c ≡ stage-3.c).
