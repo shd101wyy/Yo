@@ -2204,7 +2204,7 @@ Fix: wrap the call:
             out_e.value = enum_val;
             out_e.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_e.runtime_arg_exprs_in_order);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_e);
-            expr
+            return(expr);
           },
           // ----------------------------------------------------------------
           // Union construction: UnionType(field_value).
@@ -2233,7 +2233,7 @@ Fix: wrap the call:
             out_u.value = Option(EvalValue).None;
             out_u.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_u.runtime_arg_exprs_in_order);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_u);
-            expr
+            return(expr);
           },
           // ----------------------------------------------------------------
           // Trait specialization (Item := T) or implementation.
@@ -3276,7 +3276,7 @@ Fix: wrap the call:
         // attachTempVariableToExpr on the body-executed call path).
         attach_temp_variable_to_expr(expr, true, ctx);
         param_vars;
-        expr
+        return(expr);
       },
       // ------------------------------------------------------------------
       // Fallthrough: UnknownVal or other EvalValue shape — treat as a
@@ -3419,7 +3419,7 @@ Fix: wrap the call:
         out_rt.value = Option(EvalValue).Some(_call_result_unknown(ret_type_rt, env));
         out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_rt.runtime_arg_exprs_in_order);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);
-        expr
+        return(expr);
       }
     ),
     // Callee produced no compile-time value.
@@ -3602,7 +3602,7 @@ Fix: wrap the call:
           // NO escape check and a swallowed throw crashed the stage-2 binary
           // (issues/yo-self-stage2-unwind-check-coverage.md).
           attach_temp_variable_to_expr(expr, true, ctx);
-          expr
+          return(expr);
         },
         // No method found: evaluate args via try_to_call_function_with_arguments.
         // Mirrors TypeScript's isFunctionType path when functionToCall.value == undefined.
@@ -3727,7 +3727,7 @@ Fix: wrap the call:
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_none);
           // Same temp attachment as the method arm (TS function.ts:2263).
           attach_temp_variable_to_expr(expr, true, ctx);
-          expr
+          return(expr);
         }
       )
     }
