@@ -545,3 +545,40 @@ validated (corpus + std + fixpoint footprint) within a bounded session turn with
 verified-green compiler, so it is scoped here for a dedicated focused effort rather than attempted
 piecemeal. Once landed, re-apply M3 (remove skip_block) on the already-landed declaredCVarNames
 gate (68f5cb49c), then run the fixpoint (stage-2.c ≡ stage-3.c).
+
+## NODE-ATTACH STRUCTURALLY BLOCKED (2026-07-13, empirically proven)
+
+Tested the TS-faithful fix (store ExprInfo on the AstExpr node like `expr.$`). It is
+INFEASIBLE in yo-self's module system:
+
+- To put a `info : ExprInfo` cell on `AstExpr` (in `expr.yo`), `expr.yo` must reference
+  `ExprInfo`, which references `EvalValue` (`expr_info.yo:322,340,370,388` etc.).
+- `EvalValue` (`value.yo`) references `AstExpr` — inherently (`FunctionValue.body : AstExpr`
+  at value.yo:24; `EvalValue.ExprVal(expr : AstExpr)` at value.yo:186). Functions and quoted
+  values hold AST nodes; this cannot be removed.
+- So `expr.yo → value.yo → expr.yo` is a MUTUAL DESTRUCTURING CYCLE.
+- **PROBE (reverted):** adding `{ EvalValue } :: import("./value.yo")` to `expr.yo` fails at
+  load: _"Cannot destructure from a module that is still being evaluated (circular import).
+  The requested fields are not yet available."_ — cascades `check ./yo-self` to 84/303.
+- TS resolves the identical `expr.ts ↔ value.ts` cycle because `import type` is erased at
+  compile time; yo-self imports are VALUE (namespace-destructuring) imports evaluated at load
+  time, so the cycle is a hard error. **This is the real reason the port uses a side-table**
+  keyed by id — it keeps the module graph an acyclic DAG (`value → expr`;
+  `expr_info → {expr, value, env}`). Node-attach would need type-only/lazy imports — a
+  language/loader feature, out of scope.
+
+### Consequence — the memory fix MUST live within the side-table model
+
+Remaining tractable levers (in priority order):
+
+1. **Env-trim at RC-synthesis sites (bounded, next):** the RC arc (9.2GB→56GB) added a table
+   entry + `snapshot_env` per synthesized `___drop`/`___dup` node. These leaf nodes are used
+   only for codegen EMISSION; codegen reads `ei.env.module_path` (a String) for them, not
+   `get_variables_from_env` (which is only hit on async/assignment/await nodes). If the drop/dup
+   ExprInfos retain a lightweight env (module_path only, no frame chain) the dominant retained
+   memory (frames→Variables→Types/Values pinned by the never-freed table) is cut for the arc's
+   added entries — WITHOUT the infeasible node-attach. Must verify codegen never calls
+   get_variables_from_env on a drop/dup node, then validate corpus+std+main.yo footprint.
+2. **Coarse table reclamation** between top-level declarations — unsafe as-is (specializations
+   are shared across declarations via the cache; a cleared entry re-read → None → breakage).
+   Would need a reachability/refcount on cache-shared specializations.
