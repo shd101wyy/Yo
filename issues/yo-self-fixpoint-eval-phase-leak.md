@@ -479,3 +479,17 @@ ExprInfo/env accumulation). The fixpoint uses COMPILE; s2 compile leaks because 
 the codegen missing-drops (M3) issue, distinct from this check-phase env retention.
 Both ultimately trace to yo-self not reclaiming compile-time eval state (envs,
 ExprInfos, drop nodes) that TS's tracing GC frees — the shared task-#21 root.
+
+## is_executing drop-gate RULED OUT (2026-07-13) — gates caught RC divergence
+
+Tried the most promising bounded lever: gate `_schedule_scope_end_drops` on
+`ctx.is_executing` (skip building scope-end drop nodes during non-executing
+def-time validation/type-check trials, which fire millions of times; only build
+them for the real is_executing=true compile eval). s1 built clean, `check ./std`
+153/153 — BUT corpus diff-test regressed to **DIFF 6** (RC behavior of the
+self-compiled binaries diverged from TS on 6 files, e.g. ref_enum_option_cycle).
+So the scope-end drops are NEEDED even for some non-executing-mode ExprInfos that
+codegen reuses — they cannot simply be skipped by mode. The corpus RC oracle
+caught it pre-commit; reverted. This empirically rules out mode-gating as a bounded
+fix and confirms the reclamation must be structural (only prune ExprInfos proven
+dead, or make drops lightweight) — the careful architectural refactor.
