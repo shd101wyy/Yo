@@ -856,3 +856,51 @@ to iterate on: `stage-2 check yo-self/parser.yo`. TS + stage-1b both rc=0 on it,
 so it is a pure yo-self stage-2 divergence. Likely site: where a TypeValue
 stored into an ExprInfo (new_expr_info `ty:` field, or an `out.ty`/table_set
 path) is over-released during specialization body eval — find the extra decr.
+
+### 2026-07-12 (cont.) — dynamic-tooling outcomes + narrowed lead
+
+Tried FOUR ways to catch the residual read-after-free on the parser.yo repro;
+recording so the next session skips them:
+
+1. **Quarantine tombstone** (frees never reused): parser.yo `check` PASSES
+   (rc=0) — masks it. The dangling ref is READ-ONLY (GC-trace / unwind-walk),
+   never incr/decr'd again, so the incr/decr-based detector never fires.
+   Also added `__yo_ts_check` at `__yo_gc_mark_gray` entry → still no fire
+   (quarantine shifts GC roots/timing).
+2. **Real-free + persistent freed-table**: FIRED but was a FALSE POSITIVE —
+   address `0xc0ec09cc0` freed then reused; a legit RC-op on the reused object
+   hit the stale table entry (USE=`yo_id_3354`=String-from-slice,
+   FREE=`_..._sync_fut_t_resume`). Ruled out because the quarantine run did NOT
+   flag it.
+3. **Real-free + reuse-aware table** (malloc hook `__yo_ts_unfree` clears an
+   address from the freed-set on realloc; DELETED sentinel (void\*)1): parser.yo
+   PASSES (rc=0) — instrumentation heap-layout shift masks the corruption, and
+   there is no RC-op-after-free to catch (pure read-after-free).
+4. **ASan** (`-O1 -g -fsanitize=address` on stage2b.c): HANGS — spins at 100%
+   CPU, ~0 RSS, no progress/output (bad interaction with the yo-self async
+   runtime init; tried YO_MAIN_STACK_MB=16384 and 2048, both hang). Not viable
+   as-is.
+
+**Narrowed bug class = store-without-dup (missing INCR), NOT an extra DECR.**
+The real-free history for the freed obj showed only **1 DECR** before free
+(rc 1→0) — i.e. it had rc=1 when a SECOND holder still referenced it, so a
+`dup`/INCR is MISSING at a store site (same shape as the 6-site AstExpr fix
+165a4608e and the d684840c8 "dup-on-store for = assignments" fix). Two victim
+types: a TypeValue stored into `ExprInfo.ty` (parser.yo) and an AstExpr callee
+Atom in a specialized body (main.yo).
+
+**NEXT candidates (code inspection, faithful port vs TS)**:
+
+- A TypeValue-returning function that returns a **borrowed** TypeValue via a
+  bare tail `expr` (the TypeValue analog of the 6-site AstExpr fix); its result
+  gets stored into `ExprInfo.ty` / `out.ty` without the return-dup → dangles.
+  Grep evaluator for `.ty =`/`out.*.ty =` and tail-`ty`/`return ty` sites;
+  diff against TS.
+- Extend the `= assignment` dup-on-store (d684840c8) to **struct-field**
+  assignments (`info.ty = ...`, `out.value = ...`) if codegen only covers
+  variable reassignment.
+  Best tool for the next attempt: a DECR/INCR **counter** keyed by the specific
+  victim object (poison-on-free that keeps the free bt AND a malloc hook that
+  clears on reuse, PLUS a read-side check injected into `__yo_traverse___yo_t59`
+  / `ast_expr_is_fn_call_of`), or fix the store site by inspection and verify the
+  parser.yo repro goes rc=139→0.
