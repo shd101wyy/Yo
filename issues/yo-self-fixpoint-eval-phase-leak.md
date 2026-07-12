@@ -460,3 +460,22 @@ ExprInfos codegen needs). Distinguishing these precisely (and confirming which
 dominate the 56GB) is the correctness-sensitive prerequisite. This is why item 3's
 remainder is a careful, validated effort, not a bounded edit — verified at code
 level, every candidate fix is either ineffective (measured) or correctness-risky.
+
+## Refined root cause (2026-07-13): leak is ExprInfo.env accumulation, not popped_env_frame
+
+Found `ExprInfo.popped_env_frame` is WRITE-ONLY DEAD STATE (written begin.yo:1033,
+never read anywhere) — removed the store (verified safe: check ./std 153/153,
+corpus PASS 118 / DIFF 0). But `check main.yo` STILL plateaus at 56GB, because the
+per-call env Variables (`new_variable`, the dominant leaker) are ALSO retained via
+every inner expression's `ExprInfo.env`: each ExprInfo holds the env it was
+evaluated in, and inner exprs evaluated while a frame is live hold envs that
+INCLUDE that frame. Since `ExprInfo.env` is read/needed everywhere, this cannot be
+removed — the fix is to RECLAIM ExprInfos (and their envs) after they are no longer
+needed (task #21), i.e. the whole-compile `expr_info_table` never prunes, so every
+def-time-eval'd expression's env (with its frame Variables) lives forever.
+Also clarified check-vs-compile: `s1 compile main.yo` = 9.2GB (evals only reachable
+functions) but `s1 CHECK main.yo` = 56GB (type-checks ALL functions → full
+ExprInfo/env accumulation). The fixpoint uses COMPILE; s2 compile leaks because of
+the codegen missing-drops (M3) issue, distinct from this check-phase env retention.
+Both ultimately trace to yo-self not reclaiming compile-time eval state (envs,
+ExprInfos, drop nodes) that TS's tracing GC frees — the shared task-#21 root.
