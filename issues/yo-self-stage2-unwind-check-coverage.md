@@ -928,7 +928,17 @@ while table-held): the store site is elsewhere — likely a TypeValue/Environmen
 into some container borrowed, or an ExprInfo field mutated (`info.env =`/`info.ty =`)
 without dup-on-store. BLOCKER for progress: no working dynamic catcher for this
 read-after-free (RC tombstone quarantine masks; reuse-aware masks via heap-layout;
-persistent-table false-positives on reuse; **ASan hangs** — spins 100% CPU/~0 RSS in
+persistent-table false-positives on reuse; **ASan hangs on ANY input incl. trivial** (init-level, not parser.yo-specific;
+100% CPU/~0 RSS in
 early async-runtime init, both 16GB and 2GB stack). Resolving the ASan hang (or writing
 a poison-on-free + malloc-hook-clears-on-reuse + read-side-check-in-`__yo_traverse___yo_t59`
 variant) is the prerequisite to pinning the exact store site.
+
+**ASan confirmed non-viable**: `/tmp/s2b-asan check /tmp/triv.yo` (a 3-line file)
+also HANGS (60s timeout, 0 output, 100% CPU) — the hang is init-level (async
+event-loop / interceptor conflict), NOT parser.yo-specific. Next session: fixing
+the ASan init hang is the unblock (try `ASAN_OPTIONS=start_deactivated=1`, or
+disable the async runtime's busy-poll, or build the check path without io.async),
+OR write the layout-stable poison-on-free+read-side-check catcher. get() is ruled
+out; focus on ExprInfo `env`/`ty` store sites (snapshot_env storage, info.env=/
+info.ty= mutations, or a borrowed TypeValue/Environment stored into a container).
