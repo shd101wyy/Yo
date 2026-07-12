@@ -1081,3 +1081,27 @@ overwrite. Catcher recipe unchanged (scripts/rc-free-site-catcher.py on stage2d)
 NOTE: also a latent value-type-keyed HashMap-identity codegen collision surfaced
 (HashMap(String,TypeValue) vs another HashMap(?,TypeValue)) — worked around by
 storing TypeVal in a HashMap(String,EvalValue).
+
+### 2026-07-12 (cont.7) — residual is the SPECIALIZATION path; type_expr-clone attempt REGRESSED
+
+USE backtrace of the residual fire (catcher on stage2d): the freed AstExpr is
+walked by `evaluated_body_contains_unwind` (yo_id_258650, recursive `(e)->bool`)
+over a SPECIALIZED body (from yo_id_260006 = specialization helper, under
+evaluate_function_call) — i.e. a node PART OF a specialized body, freed during a
+numeric/pointer conversion (`usize(x)`/`*(T)(p)`) evaluated inside that body.
+So it is the same "freed AstExpr callee in a specialized body" shape as the
+pre-derive-fix unwind-walk victim, now triggered by the conversion path.
+
+ATTEMPTED + REVERTED: `type_expr := match(expr, .FnCall(_, func_box, _, _, _) =>
+func_box.clone())` in numeric_type.yo Case 3 + pointer_type.yo Case 2 (hypothesis:
+the **yo_as node aliases expr's callee borrowed). It REGRESSED stage-2 parser.yo
+3/5 → 0/8 (check ./std stayed 153/153). So match-field-return already dups
+func_box (the extra clone perturbed codegen / id relationships). NOT the fix.
+NEXT: the over-release is elsewhere in the conversion→**yo_as path or in how the
+specialization clones/evaluates a body containing a conversion. Suspect the
+double-push of `evaluated` (numeric: \_make_yo_as_node args + yo_as_rt; pointer:
+call_args + rt_args) OR macro_expansion storage (yo_as_node stored in out_info +
+durable table via record_macro_expansion(clone) — the durable clone vs the stored
+original RC). Use the catcher; the freed node's identity (callee vs arg vs a
+sub-node) still needs pinning (debug line info is coarse at -O1; try instrumenting
+\_make_yo_as_node / the two pushes with per-node ids).
