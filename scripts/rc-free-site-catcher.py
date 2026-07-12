@@ -20,6 +20,7 @@ infra = r'''
 #define __FR_BTN 12
 static void** __fr_key;
 static void** __fr_bt;   // __FR_CAP * __FR_BTN
+static unsigned char* __fr_snap;  // __FR_CAP * 128 bytes (node bytes at free time; 56-byte RC/GC header, AstExpr data at +56)
 static int __fr_init_done = 0;
 static void __fr_init(void){
   if(__fr_init_done) return; __fr_init_done = 1;
@@ -27,6 +28,7 @@ static void __fr_init(void){
   // heap layout -> the layout-dependent corruption still manifests identically.
   __fr_key = (void**)mmap(NULL, (size_t)__FR_CAP*sizeof(void*), PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE, -1, 0);
   __fr_bt  = (void**)mmap(NULL, (size_t)__FR_CAP*__FR_BTN*sizeof(void*), PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE, -1, 0);
+  __fr_snap = (unsigned char*)mmap(NULL, (size_t)__FR_CAP*128, PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE, -1, 0);
 }
 static inline unsigned __fr_h(void* p){ unsigned long long x=(unsigned long long)p; x^=x>>33; x*=0xff51afd7ed558ccdULL; x^=x>>33; return (unsigned)(x & (__FR_CAP-1)); }
 static void __fr_record(void* p){
@@ -36,6 +38,7 @@ static void __fr_record(void* p){
   __fr_key[i]=p;
   void* bt[__FR_BTN+2]; int n=backtrace(bt,__FR_BTN+2);
   for(int k=0;k<__FR_BTN;k++) __fr_bt[(size_t)i*__FR_BTN+k]=(k+2<n)?bt[k+2]:NULL;
+  for(int b=0;b<128;b++) __fr_snap[(size_t)i*128+b]=((unsigned char*)p)[b];
 }
 static void __fr_dump(void* p){
   if(!__fr_init_done){ fprintf(stderr,"[FR] no free table\n"); return; }
@@ -44,6 +47,13 @@ static void __fr_dump(void* p){
     if(__fr_key[i]==p){
       fprintf(stderr,"[FR] most-recent free of %p at:\n", p);
       backtrace_symbols_fd(&__fr_bt[(size_t)i*__FR_BTN], __FR_BTN, 2);
+      unsigned char* nb=&__fr_snap[(size_t)i*128];
+      unsigned tag=*(unsigned*)&nb[56];
+      unsigned long long fid=*(unsigned long long*)&nb[64];   // Atom.id / FnCall.id
+      unsigned long long a2=*(unsigned long long*)&nb[72];    // Atom.token / FnCall.func
+      unsigned long long a3=*(unsigned long long*)&nb[80];    // FnCall.args
+      unsigned long long ftok=*(unsigned long long*)&nb[96];  // FnCall.token
+      fprintf(stderr,"[FR] freed AstExpr @free: tag=%u(0=Atom,1=FnCall) id=%llu f2=0x%llx f3=0x%llx fntok=0x%llx\n", tag, fid, a2, a3, ftok);
       return;
     }
     i=(i+1)&(__FR_CAP-1);
