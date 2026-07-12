@@ -2,7 +2,12 @@
 
 ## Status
 
-OPEN. Second of two gen-2 (self-compiled binary) RC over-releases behind the
+**FIXED 2026-07-13** (commit 6b5c0ceb0) via fix option 3 — wrapped the
+`evaluated_callee` match in `___dup(...)` (same-node RC bump). Verified: s2 check
+expr_traversal.yo 139→0, corpus diff-test PASS 118 DIFF 0. Below is the original
+analysis.
+
+(historical) Second of two gen-2 (self-compiled binary) RC over-releases behind the
 stage-2 fixpoint. The FIRST (`set_expr_as_needs_to_call_dup` missing env
 propagation) is FIXED (see below); this one remains.
 
