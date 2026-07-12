@@ -29,6 +29,23 @@ open(import("std/string"));
 /// Mirrors `FunctionValue.deriveRule` / `TraitType.deriveRule` from TypeScript,
 /// but stored globally since yo-self types are immutable enums.
 (g_derive_rules : HashMap(String, EvalValue)) = HashMap(String, EvalValue).new();
+/// Parallel registry: trait name → derive rule FuncVal's Func TYPE. Needed so
+/// `call_registered_derive_rule` can bind the rule fn with its real type (the
+/// call path dispatches on the callee variable's declared type, so a
+/// value-only binding evaluates to `<unknown: unit>`). TS carries this on
+/// `FunctionValue.type`.
+/// Stored as `EvalValue.TypeVal` (reusing `HashMap(String, EvalValue)` — the
+/// SAME instantiation as `g_derive_rules` — avoids a distinct `HashMap(String,
+/// TypeValue)` codegen type).
+(g_derive_rule_types : HashMap(String, EvalValue)) = HashMap(String, EvalValue).new();
+/// Look up a registered derive rule's Func type by trait name.
+get_derive_rule_type :: (fn(name : String) -> Option(TypeValue))(
+  match(
+    g_derive_rule_types.get(name),
+    .Some(v) => match(v,.TypeVal(t) => Option(TypeValue).Some(t), _ => Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  )
+);
 /// Extract the registry key from a trait arg expression.
 ///   Atom("Clone")       → Some("Clone")
 ///   FnCall("Eq", [...]) → Some("Eq")
@@ -145,12 +162,13 @@ evaluate_derive_rule :: (
       )
     );
   });
-  // Store in the global registry.
-  _set := g_derive_rules.set(key, derive_fn_val);
+  // Store in the global registry (value + Func type).
+  _set := g_derive_rules.set(key.clone(), derive_fn_val);
+  _sett := g_derive_rule_types.set(key, EvalValue.TypeVal(derive_fn_info.ty));
   out := new_expr_info(env, t_unit());
   out.value = Option(EvalValue).Some(EvalValue.UnitVal);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
   expr
 });
 export(evaluate_derive_rule);
-export(extract_derive_key, get_derive_rule);
+export(extract_derive_key, get_derive_rule, get_derive_rule_type);
