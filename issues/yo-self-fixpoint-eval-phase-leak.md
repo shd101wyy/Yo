@@ -199,6 +199,47 @@ diff-test + `s2 check main.yo` footprint bounded. Reverted to green pending that
 multi-layer fix; the leak diagnosis and the working-but-incomplete fix are
 recorded here.
 
+## Attempt 2 (2026-07-13): the fix is blocked by a CASCADE of latent ID-sensitive TS-codegen bugs
+
+Removing `skip_block` from `begin.yo` shifts every global expression id (the
+`alloc_global_expr_id` counter moves), which changes temp names and ExprInfo
+keys across ALL files. That surfaces latent, id-position-sensitive bugs in TS's
+OWN codegen (the compiler that builds s1) — NOT in the M3 logic itself. Fixing
+them in dependency order (faithful-port rule = fix TS first):
+
+1. **`initialization-assignment.ts:497` `rhs.$!.env` null-deref** — RHS with no
+   ExprInfo. Guarded with `rhs.$?.env` (temp vars always carry env → false).
+   FIXED (revertible one-liner).
+2. **`return.ts` early-return drop filter missing the initialized-after-cleanup
+   check** — TS only checked `initializedAtToken` EXISTS, not its position, so it
+   emitted a drop for a variable initialized later in the body. Ported yo-self's
+   `_variable_initialized_after_cleanup_point` into TS as
+   `variableInitializedAfterCleanupPoint`, applied at both filter sites. FIXED.
+3. **`return.ts` drops a variable that has `initializedAtToken` but was NEVER
+   declared in C** (`evaluate_function_call`'s `_yo…_temp_283624`: appears only
+   in `___drop(...)` calls, no declaration anywhere) → `use of undeclared
+identifier` (20 clang errors). Fix #2 does NOT catch it (its token is not
+   comparable to the cleanup expr, so the position check returns "not-after").
+   **This is the real blocker.** yo-self's codegen survives the identical case
+   via `context.base.declared_c_var_names` — a C-emission-order ground-truth set
+   (reset per function, seeded with params, grown as each declaration is
+   emitted). **TS has no equivalent** (it relies on point-in-time
+   `initializedAtToken`, which is inaccurate for a var whose declaration codegen
+   skipped — e.g. an init-assignment that returned `""`). Completing the fix
+   requires giving TS a `declaredCVarNames` mechanism (or teaching the drop
+   filter to skip variables whose declaration was elided) — a substantial,
+   high-blast-radius TS-codegen change (affects every compiled program) needing
+   the full integration-test suite to validate.
+
+Net: the M3 fix is correct and demonstrably works (s1.c dropped
+`evaluated_callee` on early returns once fixes #1+#2 let codegen proceed), but
+landing it end-to-end is gated on a TS-codegen robustness project (#3), because
+any yo-self edit that shifts ids trips this latent TS landmine. All attempts
+reverted to green. NEXT: implement `declaredCVarNames` in TS codegen (mirror
+yo-self), then re-apply fixes #1/#2 + the `skip_block` removal, then validate
+(corpus diff-test + `check ./std` + integration suite + `s2 check main.yo`
+footprint bounded) before the fixpoint.
+
 ## Fix direction (next dedicated effort)
 
 Make yo-self's codegen drop the per-call callee environment (and recursively its
