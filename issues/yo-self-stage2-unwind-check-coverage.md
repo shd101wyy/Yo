@@ -1131,3 +1131,24 @@ conversion path:
   derived Clone keeps ids — need a dup that preserves id AND gives an independent
   RC handle, or fix the codegen dup-on-multi-use). Catcher (corrected offsets) is
   committed.
+
+### 2026-07-12 (cont.9) — evaluated double-push FIXED (confirmed); crash is a DIFFERENT head (multi-headed residual)
+
+Fixed a CONFIRMED over-release (7b81b5710): in the **yo_as lowering, `evaluated`
+was pushed into both the **yo_as node's args AND runtime_arg_exprs with ONE ref
+(emitted C: `evaluated` used twice, zero incr between — codegen omits the dup for
+a var passed to a function then reused). Now pushes `evaluated.clone()` into
+runtime_arg_exprs. Verified in emitted stage2f.c (yo_id_11554 clone before the
+rt push). Gate: stage-1 check ./std 153/153.
+
+BUT stage-2 parser.yo pass rate is UNCHANGED: 12/20 (60%), same as pre-fix 3/5.
+So the freed FnCall (id 112163) the catcher reported is NOT `evaluated` — it is a
+DIFFERENT over-released node. The residual is MULTI-HEADED: the derive port took
+parser.yo 0→60%, and each remaining head is its own confirmed over-release found
+the same way (catcher → emitted-C dup/drop audit → fix). ./std still crashes too.
+
+NEXT: enhance the catcher to snapshot the freed node's TOKEN CONTENT (row +
+module_path, deref the token ptr at snap+96 at free time) to identify which
+source construct id-112163 is, then audit its emitted-C RC. The
+catcher+emitted-C method is reliable (2 confirmed fixes landed: derive port +
+this double-push); the residual just has several such heads.
