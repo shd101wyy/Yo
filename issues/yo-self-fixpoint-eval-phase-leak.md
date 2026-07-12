@@ -407,3 +407,21 @@ dominant Variable leak — M3 is genuinely required, and its only blocker is the
 affordable-drop-representation refactor (40+ sites). No bounded shortcut exists;
 the lazy-materialization (or ExprInfo-reclamation / task #21) refactor is the
 sole path to item 3.
+
+## Interning shortcut RULED UNSAFE (2026-07-13) — sharing AST nodes reintroduces double-free
+
+Considered making M3 affordable by INTERNING `___drop(name)` nodes globally
+(one shared node per name, reused across all specializations' blocks; compute
+the drop's type from each block's own env at emission for per-specialization
+correctness). This would bound the retained node count cheaply. BUT it requires
+SHARING AstExpr nodes across blocks, and yo-self's RC assumes tree-ownership of
+AST nodes: a shared node is dropped when one owning block is dropped, dangling
+for the others — the exact shared-node / id-collision double-free class that bit
+this project before (the `.clone()`-keeps-id regressions; see
+yo-self-macro-dispatch-corruption / the `___dup` vs `.clone()` lesson). So
+interning is NOT a safe shortcut. That leaves only the pervasive
+compute-drops-from-`popped_env_frame`-at-codegen (or lightweight-record) refactor
+across the ~40 `deferred_drop_expressions` sites, or per-specialization ExprInfo
+reclamation (task #21). Confirmed by attempting the design, not just reasoning:
+there is no safe bounded fix; item 3's remainder is a dedicated architectural
+refactor.
