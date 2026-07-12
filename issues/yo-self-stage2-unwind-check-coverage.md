@@ -1055,3 +1055,29 @@ NEXT: catcher on stage2d (recipe above), decode yo_id_296436+27908 to the
 evaluate_expression_raw dispatch, compare numeric_type.yo/pointer_type.yo to
 numeric-type.ts/pointer-type.ts for the missing dup / stray drop. This is a
 separate, well-localized fix of the SAME class as the derive one.
+
+### 2026-07-12 (cont.6) — residual refined: NOT the converter (it's faithful); table-replace-on-re-eval
+
+`try_to_convert_to_numeric_type` (numeric_type.yo) is a FAITHFUL port of
+numeric-type.ts: both re-evaluate `arg_expr` via evaluate_expression (ts:288-303,
+`evaluatedArg.$.env/value/type`). So the residual over-release is NOT in the
+converter. Catcher free stack: evaluate_expression_raw (yo_id_296436+27908) ←
+evaluate_expression ← the converter (yo_id_263390, +204 = its FIRST
+`evaluate_expression(arg_expr)`) ← evaluate_function_call.
+
+**Refined root:** evaluate_function_call evaluates the call's args (populating
+`arg_expr`'s ExprInfo in the table), THEN dispatches to the numeric/pointer
+converter which RE-evaluates `arg_expr` (with `expected_type=None`). The re-eval's
+`expr_info_table_set(arg_expr_id, new_info)` REPLACES the table entry — yo-self's
+HashMap.set drops the OLD ExprInfo (TS's `argExpr.$ = …` doesn't; GC). If the old
+ExprInfo (or its env/ty) is still referenced by the first eval's borrow, the
+replace over-releases it → the GC/walk UAF. This is the git-frontier
+"expr_info_table_set drops a table-held entry still referenced" class, exposed by
+double-evaluation. FIX candidates (faithful): (a) the borrow that keeps the old
+ExprInfo alive across the replace must dup (find it — likely in evaluate_function_call's
+arg handling, where an arg's env/ty is read borrowed then the node re-evaluated);
+or (b) audit expr_info_table_set/HashMap.set replace-drop vs TS's in-place `$`
+overwrite. Catcher recipe unchanged (scripts/rc-free-site-catcher.py on stage2d).
+NOTE: also a latent value-type-keyed HashMap-identity codegen collision surfaced
+(HashMap(String,TypeValue) vs another HashMap(?,TypeValue)) — worked around by
+storing TypeVal in a HashMap(String,EvalValue).
