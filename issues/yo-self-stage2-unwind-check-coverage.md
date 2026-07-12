@@ -1152,3 +1152,31 @@ module_path, deref the token ptr at snap+96 at free time) to identify which
 source construct id-112163 is, then audit its emitted-C RC. The
 catcher+emitted-C method is reliable (2 confirmed fixes landed: derive port +
 this double-push); the residual just has several such heads.
+
+### 2026-07-12 (cont.10) — the crash node is freed DURING evaluate_expression(arg_expr), not the double-push
+
+Key correction: the `evaluated` double-push (fixed 7b81b5710) is a real rc
+imbalance but is NON-CRASHING — both owners (out_info.macro_expansion + durable
+macro table; yo_as_info.runtime_arg_exprs) PERSIST in the ExprInfo table and are
+never dropped, so the shared single ref stays alive (hence parser.yo pass rate
+unchanged at 60%). The fix is still correct (prevents a UAF if timing changes)
+but is not the crash.
+
+The ACTUAL crash: the freed FnCall (id 112163) is freed at
+`evaluate_expression_raw+27908` — i.e. DURING `evaluate_expression(arg_expr)`
+inside the numeric/pointer converter (which clears expected_type, re-evals
+arg_expr). So it is a general evaluate_expression_raw over-release of a body
+sub-expression, exposed by the converter's re-eval with expected_type=None, in a
+SPECIALIZED body. NOT converter-specific. Likely the same class as the 6-site
+evaluate_function_call return fix but on a different eval path, OR a codegen
+dup-on-multi-use miss (a variable passed to a function then reused isn't dup'd —
+confirmed generally in the double-push emitted C).
+
+NEXT (two options): (A) HIGH-LEVERAGE but risky: fix the yo-self codegen
+last-use/dup analysis so a variable passed as a function-call argument then
+reused IS dup'd (would clear multiple heads; audit yo-self/codegen/exprs/
+drop_dup.yo + the atom-read dup decision vs TS). (B) per-head: decode
+evaluate_expression_raw+<off> to the exact builtin dispatch that frees during
+arg_expr eval; identify id-112163 (catcher token-content snapshot — Token
+\_\_yo_t27 offsets: header 56, then kind/value/row...). Two confirmed fixes landed
+this arc (derive port 0→60%; double-push dup); ./std still crashes (same heads).
