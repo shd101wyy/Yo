@@ -1030,3 +1030,28 @@ evaluate-bare-type-name-for-its-type hack). Then verify parser.yo rc=139→0 AND
 `check ./std` (stage-2 also crashes on ./std, same derive-heavy class). This is a
 ~200-line faithful re-port; substantial but well-scoped. TS compiler rc=0 on
 parser.yo confirms the target behavior.
+
+### 2026-07-12 (cont.5) — FAITHFUL DERIVE PORT LANDED (af65888f9); residual = numeric/pointer arg-convert over-release
+
+`call_registered_derive_rule` faithfully re-ported to mirror derive.ts (commit
+af65888f9): push temp frame → bind target/rule-fn/target-Expr/forall/where/ctx/
+trait-params as comptime vars → evaluate GENERATED `ruleFn(type, ctx, tps)` →
+extract ExprVal → pop frame → eval impl. Enablers: `forceCompileTimeBindings`
+save/set/restore; derive_rule.yo registers each rule's Func TYPE
+(g_derive_rule_types, stored as EvalValue.TypeVal to reuse HashMap(String,
+EvalValue) — a distinct HashMap(String,TypeValue) collided in codegen
+["member reference base type size_t is not a structure", a value-type-keyed
+HashMap identity collision — a SEPARATE latent codegen bug worth noting]).
+Gates: stage-1 check ./std 153/153; **stage-2 check parser.yo 0/5 → 3/5 passing.**
+
+**RESIDUAL over-release (caught by scripts/rc-free-site-catcher.py on stage2d):**
+free at `evaluate_expression_raw` (yo_id_296436) reached via **yo_id_263390 =
+`try_to_convert_to_numeric_type` / `try_to_convert_to_pointer_type`** (numeric_type.yo
+/ pointer_type.yo; sig `(target_type, arg_expr, expr, caller_env, ctx, exn) ->
+Option(AstExpr)`, "Failed to evaluate argument"). It evaluates `arg_expr` via
+evaluate_expression and returns `.Some(expr)`; the over-release is in that
+arg-eval / result handling (parser.yo does heavy `usize`/`u8` conversions).
+NEXT: catcher on stage2d (recipe above), decode yo_id_296436+27908 to the
+evaluate_expression_raw dispatch, compare numeric_type.yo/pointer_type.yo to
+numeric-type.ts/pointer-type.ts for the missing dup / stray drop. This is a
+separate, well-localized fix of the SAME class as the derive one.
