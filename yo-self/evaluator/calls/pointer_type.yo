@@ -158,9 +158,12 @@ try_to_convert_to_pointer_type :: (
   yo_as_node := AstExpr.FnCall(fresh_id, func_atom, call_args, false, orig_tok);
   yo_as_info := new_expr_info(env, target_type);
   yo_as_info.value =.None;
-  // runtimeArgExprsInOrder: only the value arg (not the type) — mirrors TS
+  // runtimeArgExprsInOrder: only the value arg (not the type) — mirrors TS.
+  // `evaluated` is already owned by call_args above; push an independent handle
+  // so runtime_arg_exprs does not share that single ref (yo-self codegen omits
+  // the dup for a variable passed then reused → stage-2 UAF). Clone keeps the id.
   rt_args := ArrayList(AstExpr).new();
-  rt_args.push(evaluated);
+  rt_args.push(evaluated.clone());
   yo_as_info.runtime_arg_exprs_in_order =.Some(rt_args);
   expr_info_table_set(ctx.expr_info_table, fresh_id, yo_as_info);
   out_info := new_expr_info(env, target_type);

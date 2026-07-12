@@ -432,7 +432,12 @@ try_to_convert_to_numeric_type :: (
     yo_as_info := new_expr_info(env, target_type);
     yo_as_info.value =.None;
     yo_as_rt := ArrayList(AstExpr).new();
-    yo_as_rt.push(evaluated);
+    // `evaluated` is already owned by the __yo_as node's args (above); push an
+    // independent handle here so `runtime_arg_exprs` does not share that single
+    // ref (yo-self codegen omits the dup for a variable passed to a function
+    // then reused, so both structures owned the one ref → stage-2 UAF). Clone
+    // keeps the id (runtime-arg materialization looks up its ExprInfo).
+    yo_as_rt.push(evaluated.clone());
     yo_as_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(yo_as_rt);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(yo_as_node), yo_as_info);
     out_info := new_expr_info(env, target_type);
