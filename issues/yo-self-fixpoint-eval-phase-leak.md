@@ -325,3 +325,39 @@ sleep 15; heap <pid> -s | head -20     # yo_id_20437 (new_variable) #1
 
 Note: `malloc_history -allBySize` is too slow (times out) at this allocation
 volume; use `heap -s` (fast, MSL-derived site names).
+
+## Attempt 4 (2026-07-13): affordability is ARCHITECTURAL, not GC-tunable
+
+The `declaredCVarNames` codegen gate LANDED and is validated (committed
+`68f5cb49c`): with it, removing yo-self's `skip_block` (M3) makes s1 build with
+**0 clang errors** (the 20-error undeclared-temp cascade is fully resolved) —
+and the gate alone (no M3) is regression-free (s1 clean, `check ./std` 153/153,
+corpus PASS 118 / DIFF 0 / SELF-FAIL 0).
+
+But M3 itself is blocked by a compile-time memory explosion, and the two cheap
+levers are RULED OUT:
+
+- **Aggressive GC does NOT help.** With M3 applied (s1 builds clean), emitting
+  main.yo under `YO_GC_THRESHOLD=64` still climbs 27G→36G→53G→56G and SIGKILLs
+  (~7 min). The transient `___drop` nodes are **reachable/pinned** (retained on
+  each block's `ExprInfo.deferred_drop_expressions`), not unreachable cyclic
+  garbage — same reachable-not-cyclic property as the runtime leak, so no
+  `YO_GC_*` setting reclaims them.
+- **Direct AST-building (skip `generate_expr_from_code`'s lexer+parser) is
+  insufficient** — the cost is dominated by the COUNT of drop nodes, not per-node
+  build cost. M3 materializes one `___drop` node per owning-RC local per block,
+  and the compiler's giant control-flow functions (`evaluate_function_call` et
+  al., 10-20+ owning locals) × their many specialized instantiations produce
+  tens of millions of pinned drop nodes (baseline non-control-flow blocks already
+  ~9GB; adding control-flow blocks → 56GB+).
+
+**Conclusion:** M3-as-a-faithful-port (eagerly schedule + retain scope-end drops
+on every block's ExprInfo during eval) is architecturally too expensive in
+yo-self. TS gets away with it because its tracing GC reclaims the transient
+per-specialization drop Exprs; yo-self pins them on whole-compile ExprInfo
+tables. The real fix: materialize scope-end drop nodes **lazily at codegen time**
+(only for blocks actually emitted — bounded by final AST size), or represent a
+scheduled drop as a lightweight `(var_name, type)` record the drop emitter
+expands on demand rather than a retained AST node. Both are deeper
+evaluator/codegen architecture changes than a localized fix — the well-scoped
+next effort. After it, M3 + the landed `declaredCVarNames` gate complete item 3.
