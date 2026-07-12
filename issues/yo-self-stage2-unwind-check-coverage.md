@@ -904,3 +904,31 @@ Atom in a specialized body (main.yo).
   clears on reuse, PLUS a read-side check injected into `__yo_traverse___yo_t59`
   / `ast_expr_is_fn_call_of`), or fix the store site by inspection and verify the
   parser.yo repro goes rc=139→0.
+
+### 2026-07-12 (cont.2) — HashMap.get(ExprInfo) RULED OUT as the over-release
+
+Direct evidence on the parser.yo GC crash (`__yo_gc_mark_gray`→`__yo_traverse___yo_t59`):
+the victim is an **ExprInfo** (`__yo_t59`) whose stored `env` (Environment, `__yo_t60`)
+OR `ty` (TypeValue) child is freed while the ExprInfo is still live (GC-traced). The
+ExprInfo has `original_expr`=None, `variable_name`=None ⇒ a synthesized intermediate
+(from `new_expr_info(env, ty)`). `new_expr_info` stores `env: snapshot_env(env)` (a
+freshly-built Environment) and `ty: ty` — struct construction moves both in (owned).
+
+Inspected the emitted `HashMap(usize, ExprInfo).get` (yo-self `get`, C `yo_id_12570...`,
+stage2b.c:465862) + `expr_info_table_get` wrapper (`yo_id_224496`, 135987). RC is
+**CORRECT**: `temp_dup` incr on `bucket.value` (+1, the copied bucket owns it) is
+balanced by `__yo_decr_rc((bucket).value)` at scope end (−1); the explicit `incr(val)`
+gives the returned `.Some(val)` exactly +1 (owned). Net = +1 owned return, caller drops
+→ balanced. So **get is NOT the over-release** (at worst a benign +1 leak from the
+discarded `temp_dup_struct`, which is OVER-retention — opposite of this UAF). This lead
+is closed.
+
+Remaining suspects for the missing-INCR store (env/ty of a synthesized ExprInfo freed
+while table-held): the store site is elsewhere — likely a TypeValue/Environment stored
+into some container borrowed, or an ExprInfo field mutated (`info.env =`/`info.ty =`)
+without dup-on-store. BLOCKER for progress: no working dynamic catcher for this
+read-after-free (RC tombstone quarantine masks; reuse-aware masks via heap-layout;
+persistent-table false-positives on reuse; **ASan hangs** — spins 100% CPU/~0 RSS in
+early async-runtime init, both 16GB and 2GB stack). Resolving the ASan hang (or writing
+a poison-on-free + malloc-hook-clears-on-reuse + read-side-check-in-`__yo_traverse___yo_t59`
+variant) is the prerequisite to pinning the exact store site.
