@@ -361,3 +361,15 @@ scheduled drop as a lightweight `(var_name, type)` record the drop emitter
 expands on demand rather than a retained AST node. Both are deeper
 evaluator/codegen architecture changes than a localized fix — the well-scoped
 next effort. After it, M3 + the landed `declaredCVarNames` gate complete item 3.
+
+## Attempt 5 (2026-07-13): direct-build EMPIRICALLY ruled out — retention, not parse cost
+
+Implemented direct AST construction of `___drop(name)` (AstExpr.FnCall + Atom via
+alloc_global_expr_id/synthetic_token) in `_schedule_scope_end_drops`, replacing
+`generate_expr_from_code`, + re-applied M3. s1 built clean; emitting main.yo
+**still plateaus at 56GB** (unchanged from the string-parse version). So the
+transient parser garbage was NOT the cost — it is the RETAINED drop nodes (and
+the env/Variable state they pin) on per-block-per-specialization ExprInfo entries
+that accumulate in the whole-compile expr_info_table. Confirms: no per-creation
+optimization helps; only NOT retaining them (lazy codegen-time materialization)
+or reclaiming per-specialization ExprInfo state (task #21) will. Reverted to green.
