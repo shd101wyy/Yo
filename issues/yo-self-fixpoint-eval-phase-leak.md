@@ -443,3 +443,20 @@ trial's ExprInfos) — check whether the real/codegen eval overwrites or depends
 def-time ExprInfos before implementing; if codegen reuses them, this breaks and
 the 40-site drop-representation refactor is required instead. This scratch-table
 approach also directly attacks task #21 (compile memory) independent of M3.
+
+### Scratch-table caveat (verified in code): \_trial_eval_fn_body evals the ORIGINAL body
+
+`_trial_eval_fn_body` (function_type.yo:208) evaluates `wrap_body_in_begin(body)`
+— the ORIGINAL body node, NOT a fresh-id clone. So the ExprInfos it creates share
+ids with what codegen later reads. For NON-generic functions (no specialization
+clone), codegen reuses exactly those def-time ExprInfos → scratch-tabling this
+eval would drop them and break codegen ("Failed to transpile" / get_expr_info
+None) unless codegen re-evaluates the body in executing mode. So the scratch-table
+must be applied ONLY to the genuinely-throwaway fresh-id-clone trials (overload
+resolution `_trial_call_overload_candidate` function.yo:389, and any
+specialization TRIALS that are discarded) — NOT the def-time validation eval of
+original bodies, and NOT the real specialization eval (helper.yo:1465, whose
+ExprInfos codegen needs). Distinguishing these precisely (and confirming which
+dominate the 56GB) is the correctness-sensitive prerequisite. This is why item 3's
+remainder is a careful, validated effort, not a bounded edit — verified at code
+level, every candidate fix is either ineffective (measured) or correctness-risky.
