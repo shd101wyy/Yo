@@ -42,6 +42,34 @@ stage-2-clang-0 sessions; tree clean, all fixes committed on
    tracing GC). Full root + repro + fix direction:
    **`issues/yo-self-fixpoint-eval-phase-leak.md`**. Fixing this leak (not more
    RAM) unblocks item 3 and item 4.
+
+   **STATE (2026-07-13) — root cause is the unported M3 milestone; codegen half
+   LANDED, evaluator half is an architecture task:**
+
+   - The leak = yo-self's `_schedule_scope_end_drops` (begin.yo) big-hammer
+     SKIPS scope-end drops for every control-flow-bearing block (`skip_block`),
+     so `callee_env` + per-call env Variables are never dropped. TS has the M3
+     early-return-drop machinery (begin.ts:2064-2140) and does not leak.
+   - **DONE + committed (`68f5cb49c`):** the TS-codegen `declaredCVarNames`
+     drop-emission gate — removing `skip_block` otherwise trips a latent
+     undeclared-C-temp cascade (20 clang errors); with the gate, s1 builds M3
+     with **0 errors**. Gate alone is regression-free (s1 clean, `check ./std`
+     153/153, corpus PASS 118 / DIFF 0 / SELF-FAIL 0).
+   - **BLOCKER (do NOT just re-apply `skip_block` removal):** M3 as a faithful
+     port explodes s1's _compile-time_ memory to 56GB (rc=137) — it eagerly
+     builds+pins a `___drop` AST node per owning-RC local per block per
+     specialization on ExprInfo (via `generate_expr_from_code`), and the
+     compiler's giant control-flow fns × specializations make it unbounded.
+     RULED OUT (commit `8bac1ddbf`): aggressive GC (`YO_GC_THRESHOLD=64`, nodes
+     are pinned not cyclic) and direct AST-build (cost is node COUNT).
+   - **NEXT (the real evaluator/codegen work):** materialize scope-end drops
+     LAZILY at codegen time (bounded by emitted AST, not eval/specialization
+     passes) — e.g. store a lightweight `(var_name, type)` record and expand
+     `___drop` on demand in the drop emitters — and/or reclaim per-specialization
+     ExprInfo state (task #21). Then re-apply the `skip_block` removal on top of
+     the landed `declaredCVarNames` gate and validate `s1 emit main.yo` footprint
+     stays ~≤10GB before running the fixpoint.
+
 4. Tasks **#69** (`stage-2-binary test ./tests` passes) and **#70**
    (`test ./yo-self/tests` passes) — gated on item 3's leak fix.
 
