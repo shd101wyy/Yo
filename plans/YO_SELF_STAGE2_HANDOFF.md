@@ -24,9 +24,26 @@ stage-2-clang-0 sessions; tree clean, all fixes committed on
    `evaluate_initialization_assignment` on any nontrivial module
    (5-second repro + guard-malloc pin + verified-clean components in
    issues/yo-self-stage2-unwind-check-coverage.md).
+   The residual UAF (`evaluated_callee` double-drop) was fixed 2026-07-12
+   (commits 6b5c0ceb0, 4b3fc4043 — `set_expr_as_needs_to_call_dup` env store
+   - `___dup(evaluated_callee)`). Corpus diff-test PASS / DIFF 0, `check ./std`
+     clean.
 3. Verify the **self-hosting fixpoint** (required, see below).
+   **← YOU ARE HERE (2026-07-13): NOT a hardware limit — the self-compiled
+   binary LEAKS ~60GB compiling `main.yo`.** Prior "needs a 32GB box" (task
+   #21) is a MIS-DIAGNOSIS: the control binary s1 (TS-compiled yo-self) does
+   the identical compile in 76s / 9.2GB peak and COMPLETES; s2 (self-compiled)
+   balloons to 56-73GB (compressed — RSS lies, watch `top -stats mem,cmprs`)
+   and is jetsam-killed (rc=137). It is an **eval-phase RC leak**, dominated by
+   callee-environment Variables (`new_variable`, 2.7M+ live at 15s) never
+   dropped on the `__yo_effect_escaped` throw-propagation paths that fire
+   millions of times during def-time trial-eval. This is a yo-self codegen
+   drop-emission divergence from TS (which reclaims the dead state via its
+   tracing GC). Full root + repro + fix direction:
+   **`issues/yo-self-fixpoint-eval-phase-leak.md`**. Fixing this leak (not more
+   RAM) unblocks item 3 and item 4.
 4. Tasks **#69** (`stage-2-binary test ./tests` passes) and **#70**
-   (`test ./yo-self/tests` passes).
+   (`test ./yo-self/tests` passes) — gated on item 3's leak fix.
 
 **Faithful-port discipline (non-negotiable):** for every bug — (1) confirm the
 TypeScript compiler (`./yo-cli`) behaves correctly on the same input; (2) find
