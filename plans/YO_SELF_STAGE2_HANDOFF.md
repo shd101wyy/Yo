@@ -62,13 +62,36 @@ stage-2-clang-0 sessions; tree clean, all fixes committed on
      compiler's giant control-flow fns × specializations make it unbounded.
      RULED OUT (commit `8bac1ddbf`): aggressive GC (`YO_GC_THRESHOLD=64`, nodes
      are pinned not cyclic) and direct AST-build (cost is node COUNT).
-   - **NEXT (the real evaluator/codegen work):** materialize scope-end drops
-     LAZILY at codegen time (bounded by emitted AST, not eval/specialization
-     passes) — e.g. store a lightweight `(var_name, type)` record and expand
-     `___drop` on demand in the drop emitters — and/or reclaim per-specialization
-     ExprInfo state (task #21). Then re-apply the `skip_block` removal on top of
-     the landed `declaredCVarNames` gate and validate `s1 emit main.yo` footprint
-     stays ~≤10GB before running the fixpoint.
+   - **ROOT CAUSE PINNED (2026-07-13):** the leak is NOT drop-node-specific — it is
+     the never-pruned global `expr_info_table` (`expr_info.yo:456`,
+     `HashMap<ExprId,ExprInfo>`), where every `ExprInfo` holds an `env` snapshot
+     (`expr_info.yo:317,410`). TS stores this on the node (`expr.$`,
+     `src/expr.ts:495,510`), so V8 GC reclaims a specialization's `$` (incl its `env`)
+     once its cloned AST is unreachable → bounded. yo-self keeps every entry forever →
+     ~60GB compiling main.yo; removing `skip_block` (M3) adds an env-carrying `___drop`
+     node per owning-RC local per (ubiquitous) control-flow block → +56GB. See the full
+     analysis in `issues/yo-self-fixpoint-eval-phase-leak.md`.
+   - **ALL cheap shortcuts RULED OUT (each committed as evidence this session):**
+     null-`env`-post-eval (codegen READS `info.env` — 216 TS / 73 yo-self sites, incl
+     `get_variables_from_env`); per-specialization table pruning (no safe reclaim
+     boundary — specialization is interleaved/lazy and each body is re-walked by
+     multiple later codegen passes, frames shared across functions); `is_executing`
+     mode-gate (corpus **DIFF 6** — drops are needed in non-executing mode too).
+   - **THE FIX (task #21) — node-attached ExprInfo, faithful 1:1 with TS `expr.$`:**
+     add `info : ref(Option(ExprInfo))` to `AstExpr.Atom`/`FnCall` (`expr.yo:283-284`);
+     rewrite the ~635 `expr_info_table_get/set` call sites (all have the node in scope —
+     627 inline `ast_expr_id(node)`, 8 via node-in-scope id locals) to read/write
+     `node.info.*`; init the cell in the ~119 `AstExpr` constructors + parser + the
+     `Clone` impl (shares the cell = today's same-id semantics) + `clone_expr_fresh_ids`
+     (fresh `ref(None)` = TS `$: undefined`) + `make_err_expr`. Then a dropped
+     specialized body reclaims its nodes' ExprInfos+env snapshots = TS GC → bounded.
+     Must land **atomically** (cannot stage green: a node written via table but read via
+     cell returns `None` → breakage). After it lands: re-apply `skip_block` removal on
+     the landed `declaredCVarNames` gate (`68f5cb49c`), validate corpus+std, rebuild s2,
+     confirm `s2 emit main.yo` footprint bounded (~≤10GB), then run the fixpoint. This is
+     a ~750-site mechanical-but-atomic refactor scoped for a dedicated multi-hour
+     effort — it is NOT bounded-turn-safe (cannot be landed AND fully validated within a
+     single turn without risking the verified-green compiler).
 
 4. Tasks **#69** (`stage-2-binary test ./tests` passes) and **#70**
    (`test ./yo-self/tests` passes) — gated on item 3's leak fix.
