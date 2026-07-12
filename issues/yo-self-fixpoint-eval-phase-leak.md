@@ -373,3 +373,21 @@ the env/Variable state they pin) on per-block-per-specialization ExprInfo entrie
 that accumulate in the whole-compile expr_info_table. Confirms: no per-creation
 optimization helps; only NOT retaining them (lazy codegen-time materialization)
 or reclaiming per-specialization ExprInfo state (task #21) will. Reverted to green.
+
+## Scope of the lazy-materialization refactor (measured 2026-07-13)
+
+`ExprInfo.deferred_drop_expressions : Option(ArrayList(AstExpr))` is consumed at
+**40+ sites** across yo-self codegen (grep): begin.yo, return.yo, cond.yo,
+match.yo, while_loop.yo, other_fn_call.yo, functions/{generation,collection}.yo,
+and the async state-machine machinery (state_machine.yo ~20 sites,
+state_code_gen.yo, plus the `context.yo` FunctionGenerationContext fields and
+`pending_deferred_drops`/`_concat_drops` plumbing). Changing the representation
+to lightweight `(var_name, type)` records (so drops are expanded to C on demand
+via `generate_drop_code_for_value` instead of retained AST nodes) means
+rewriting all of them — including the async drop-chaining
+(`_chain_additional_remaining`, `_append_exprs`, branch `deferred_drop_expressions`
+fields) — and mirroring in TS. This is a pervasive multi-session refactor, not a
+localized change; that measured scope is why the affordability fix cannot be
+landed safely in a bounded step. The alternative (env RC-balance so the callee
+env disposes its Variables at call end, avoiding per-block drop scheduling
+entirely) is the smaller-surface path to investigate first next session.
