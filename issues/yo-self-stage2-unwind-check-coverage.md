@@ -988,3 +988,45 @@ ArrayList) — this non-faithful reimplementation is the likely source. TS compi
 decr in evaluate_derive. Fix faithfully by mirroring derive.ts's addComptimeVar
 env-building (or dup the specific over-released ty/env). Verify parser.yo rc=139→0
 AND `check ./std` (stage-2 also crashes on ./std, same class).
+
+### 2026-07-12 (cont.4) — ROOT: derive.yo is a NON-FAITHFUL port of derive.ts
+
+Added a walk-path check to the catcher (scripts/rc-free-site-catcher.py): in
+`ast_expr_is_fn_call_of`, if a FnCall's callee Atom has a NULL token (the exact
+freed-callee crash signature) → dump its free backtrace. It fired and — KEY —
+gave the SAME free stack as the GC-path victim: `evaluate_expression_raw+26036`
+= the `evaluate_derive` dispatch (inlined), i.e. **evaluate_derive scope-end**.
+So BOTH victims (walk-path freed AstExpr callee AND GC-path freed ExprInfo
+env/ty) come from ONE over-release: evaluate_derive drops locals that are still
+referenced (by the expr_info_table and/or the registered derived methods).
+
+The bare-tail `expr`→`return(expr)` fix at derive.yo:702 did NOT fix it (rebuilt
+
+- tested, parser.yo still rc=139) — reverted. So it is a different decr at
+  derive scope-end.
+
+**ROOT CAUSE (faithful-port lens):** `evaluate_derive` / `call_registered_derive_rule`
+in derive.yo is a HEAVILY DIVERGENT reimplementation of derive.ts, NOT a 1:1 port:
+
+- derive.ts (5.-6., lines 608-665): builds `DeriveContext(${targetVar}, ${forallVar},
+${whereVar})` via generateExprFromCode, evaluates it, and
+  `addComptimeVar(env, ctxVarName, ctxResult.$.type, ctxResult.$.value)`; trait
+  params via `createExprValue` + addComptimeVar. All temp exprs are JS objects
+  kept alive by GC.
+- derive.yo (call_registered_derive_rule, lines 57-450): hand-builds
+  `arg0/1/2` ExprInfos + `evaled_arg_infos` ArrayList + `fresh_env` +
+  `add_variable_to_env`, and does the `dc_type := match(expr_info_table_get(...,
+ast_expr_id(evaluate_expression(generate_expr_from_code("DeriveContext"),
+caller_env, ctx))), ...)` hack — evaluating a bare "DeriveContext" just to
+  read its TYPE, creating a TEMP AstExpr whose ExprInfo lands in the table
+  while the temp expr itself is dropped at scope-end (→ dangling table ExprInfo
+  / freed AST nodes referenced by the derived methods).
+
+**FIX (faithful port, the disciplined path):** rewrite derive.yo's
+`call_registered_derive_rule` to mirror derive.ts's addComptimeVar-based env
+building (evaluate real `DeriveContext(...)` expr; bind via comptime vars using
+the evaluated result's ExprInfo type/value; no hand-built arg ExprInfos, no
+evaluate-bare-type-name-for-its-type hack). Then verify parser.yo rc=139→0 AND
+`check ./std` (stage-2 also crashes on ./std, same derive-heavy class). This is a
+~200-line faithful re-port; substantial but well-scoped. TS compiler rc=0 on
+parser.yo confirms the target behavior.

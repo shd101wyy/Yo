@@ -6,6 +6,7 @@
 # dladdr; on a corrupt (freed+reused) node, dumps that node's recorded free
 # backtrace = the premature-free / over-release site.
 import sys
+import re
 src = open(sys.argv[1]).read()
 
 infra = r'''
@@ -92,6 +93,21 @@ mg_new = '''static void __yo_gc_mark_gray(__yo_ref_header_t* s) {
 }'''
 assert mg in src, "mark_gray body not found verbatim"
 src = src.replace(mg, mg_new, 1)
+
+
+# walk-path check: ast_expr_is_fn_call_of dereferences a FnCall's callee Atom
+# token; a freed+reused callee has a NULL token. Inject a precise check (a valid
+# Atom callee ALWAYS has a token, so no reuse false-positive) that dumps the
+# callee's recorded free backtrace.
+m = re.search(r'static inline bool yo_id_\d+\(__yo_t26\* e, __yo_str func_name, __yo_t63 arg_count\) \{\n', src)
+if m:
+    ins = ('  if (e && e->tag == __YO_T26_FNCALL) { __yo_t26* __fr_fb = e->data.FnCall.func;'
+           ' if (__fr_fb && __fr_fb->tag == __YO_T26_ATOM && __fr_fb->data.Atom.token == NULL)'
+           ' __fr_report_corrupt((void*)__fr_fb); }\n')
+    src = src[:m.end()] + ins + src[m.end():]
+    print("walk-path check injected")
+else:
+    print("WARN: ast_expr_is_fn_call_of signature not found")
 
 open(sys.argv[2],'w').write(src)
 print("instrumented ->", sys.argv[2])
