@@ -1105,3 +1105,29 @@ durable table via record_macro_expansion(clone) — the durable clone vs the sto
 original RC). Use the catcher; the freed node's identity (callee vs arg vs a
 sub-node) still needs pinning (debug line info is coarse at -O1; try instrumenting
 \_make_yo_as_node / the two pushes with per-node ids).
+
+### 2026-07-12 (cont.8) — freed node = real FnCall (id 112163); suspect `evaluated` double-push
+
+Corrected the catcher's free-node snapshot offsets (RC/GC header is **56 bytes**:
+ref_count word + 6 GC pointers; AstExpr data at +56). Definitive: the freed node
+is a **FnCall** (tag=1), id=112163, with VALID func/args/token pointers at free
+time — a well-formed node in the specialized body, over-released (NOT the
+id=0/token=NULL Atom mis-read earlier from wrong offsets).
+
+Most likely `evaluated` (= `evaluate_expression(arg_expr)`, itself a FnCall that
+is part of the specialized body), over-released by its DOUBLE-PUSH in the
+conversion path:
+
+- numeric_type.yo: `_make_yo_as_node(..., evaluated, ...)` pushes it into the
+  yo_as_node args, then `yo_as_rt.push(evaluated)` pushes it into
+  runtime_arg_exprs — same variable used twice.
+- pointer_type.yo: `call_args.push(evaluated)` then `rt_args.push(evaluated)`.
+  TS shares `evaluatedArg` in both (GC); yo-self needs both refs counted. If the
+  codegen's dup-on-non-last-use misfires (esp. the numeric case where the first
+  use is a FUNCTION-CALL arg to \_make_yo_as_node), `evaluated` is over-released.
+  NEXT: snapshot the freed FnCall's TOKEN (row/module) to confirm it is `evaluated`
+  (add token read at snap+96→deref), OR test making both pushes take independently-
+  counted refs WITHOUT an id-collision (the type_expr .clone() regressed because
+  derived Clone keeps ids — need a dup that preserves id AND gives an independent
+  RC handle, or fix the codegen dup-on-multi-use). Catcher (corrected offsets) is
+  committed.
