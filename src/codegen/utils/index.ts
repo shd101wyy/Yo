@@ -53,6 +53,20 @@ export interface CodeGenContext {
   types: Record<TypeId, { type: Type; cName: string }>;
 
   /**
+   * C-emission-order ground truth: the C identifiers actually declared so far in
+   * the CURRENT function (reset per function in generateFunction, seeded with the
+   * function's params, grown as each variable declaration string is built via
+   * getVariableTypeString). The early-return/unwind drop emitters consult it to
+   * skip dropping a TEMP whose C declaration has not been emitted yet at that
+   * exit point — a synthetic temp can carry an initializedAtToken (so the
+   * position check is inconclusive) while its declaration lives in a later/other
+   * branch, which would otherwise emit `___drop` on an undeclared C identifier.
+   * Only consulted for temp names, so regular named locals are unaffected.
+   * Mirrors yo-self's `declared_c_var_names` (codegen/utils/index.yo).
+   */
+  declaredCVarNames?: Set<string>;
+
+  /**
    * Collected functions that need to be generated
    */
   functions: Record<
@@ -807,6 +821,10 @@ export function getVariableTypeString(
 ): string {
   // Sanitize the variable name to avoid C reserved words/macros like errno
   const sanitizedVarName = sanitizeForCIdentifier(varName);
+  // Record this identifier as C-declared for the current function (see
+  // declaredCVarNames). Building the declaration string is the choke point for
+  // every emitted C variable declaration, mirroring yo-self.
+  context.declaredCVarNames?.add(sanitizedVarName);
   // For all types (including arrays), use the consistent struct wrapper approach
   return `${getTypeString(type, context)} ${sanitizedVarName}`;
 }

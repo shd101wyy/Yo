@@ -52,6 +52,12 @@ let tempVariableNameCount = 1;
 function generateTempVariableNamePrefix(modulePath: string): string {
   return `_${generateModuleId(modulePath)}_temp_`;
 }
+// Module-independent test for a codegen-minted temp C name
+// (`_<moduleId>_temp_<n>`). Used by the drop emitters' declared-name gate when
+// the drop target has no env to recover its minting module from.
+export function isCodegenTempName(cName: string): boolean {
+  return /^_.+_temp_[0-9]+$/.test(cName);
+}
 export function generateNewTempVariableName(modulePath: string): string {
   return `${generateTempVariableNamePrefix(modulePath)}${tempVariableNameCount++}`;
 }

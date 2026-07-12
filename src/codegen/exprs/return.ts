@@ -13,6 +13,7 @@ import {
 } from "../../expr";
 import type { Token } from "../../token";
 import { isUnitType } from "../../types/guards";
+import { isCodegenTempName } from "../../utils";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
   type CodeGenContext,
@@ -98,7 +99,7 @@ function handleFuncCallDeferredDup(
  * Get the C codegen variable name from a deferred drop expression.
  * Used to match pending drops against SM-consumed arg C names.
  */
-function getDeferredDropTargetCName(dropExpr: Expr): string | undefined {
+export function getDeferredDropTargetCName(dropExpr: Expr): string | undefined {
   // ___drop(varName) form
   if (
     exprIsFunctionCall(dropExpr) &&
@@ -350,6 +351,23 @@ export function generatePendingDeferredDrops(
             // RHS evaluation. Emitting a drop here would reference an
             // undeclared C identifier.
             if (!latestVar.initializedAtToken) return false;
+            // A TEMP whose C declaration has not been emitted yet at this exit
+            // point (declaredCVarNames grows in C-emission order) must not be
+            // dropped — it would otherwise reference an undeclared C identifier
+            // (a synthetic temp can carry an initializedAtToken while its
+            // declaration lives in a later/other branch). Applies only to temps;
+            // regular named locals are always declared. Mirrors yo-self's
+            // declared_c_var_names gate (codegen/exprs/return.yo).
+            {
+              const dropCName = getDeferredDropTargetCName(dropExpr);
+              if (
+                dropCName &&
+                isCodegenTempName(dropCName) &&
+                !(context.declaredCVarNames?.has(dropCName) ?? true)
+              ) {
+                return false;
+              }
+            }
             return true;
           })
         : context.pendingDeferredDrops.filter((dropExpr) => {
@@ -426,6 +444,18 @@ export function generateConsumedVarDropsForEscape(
           // hasn't been emitted yet. Dropping it here would reference an
           // undeclared C identifier (same guard as generatePendingDeferredDrops).
           if (!latestVar.initializedAtToken) return false;
+          // Same declared_c_var_names gate as generatePendingDeferredDrops: skip
+          // a TEMP whose C declaration has not been emitted yet at this unwind.
+          {
+            const dropCName = getDeferredDropTargetCName(dropExpr);
+            if (
+              dropCName &&
+              isCodegenTempName(dropCName) &&
+              !(context.declaredCVarNames?.has(dropCName) ?? true)
+            ) {
+              return false;
+            }
+          }
           return true;
         })
       : [...context.consumedVarPendingDrops];

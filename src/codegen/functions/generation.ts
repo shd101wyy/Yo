@@ -1323,6 +1323,17 @@ export function generateFunction(
   const previousFunctionName = context.currentFunctionName;
   const previousFunctionType = (context as FunctionGenerationContext)
     .currentFunctionType;
+  // Per-function C-declared-name set (see declaredCVarNames). Reset here (saved
+  // for restore below so nested closure generation does not clobber the outer
+  // function's set) and seed with the parameters, which the C signature
+  // declares; body declarations grow it via getVariableTypeString.
+  const previousDeclaredCVarNames = context.declaredCVarNames;
+  context.declaredCVarNames = new Set<string>();
+  for (const param of functionType.parameters) {
+    if (param.label) {
+      context.declaredCVarNames.add(sanitizeForCIdentifier(param.label));
+    }
+  }
   context.currentFunctionName = functionName;
   (context as FunctionGenerationContext).currentFunctionType = functionType;
 
@@ -1459,6 +1470,7 @@ export function generateFunction(
   generateFunctionBody(functionValue.body, functionType, "  ", context);
 
   // Restore previous function name, type, closure captures, and parameter aliases
+  context.declaredCVarNames = previousDeclaredCVarNames;
   context.currentFunctionName = previousFunctionName;
   (context as FunctionGenerationContext).currentFunctionType =
     previousFunctionType;

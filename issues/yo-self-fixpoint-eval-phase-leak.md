@@ -240,6 +240,56 @@ yo-self), then re-apply fixes #1/#2 + the `skip_block` removal, then validate
 (corpus diff-test + `check ./std` + integration suite + `s2 check main.yo`
 footprint bounded) before the fixpoint.
 
+## Attempt 3 (2026-07-13): declaredCVarNames LANDED + validated; M3 blocked by a NEW affordability wall
+
+Implemented the full `declaredCVarNames` mechanism in TS codegen (COMMITTED,
+dormant-but-validated groundwork):
+
+- `CodeGenContext.declaredCVarNames: Set<string>` (utils/index.ts), reset +
+  seeded with params per function in `generateFunction`, grown as each
+  declaration string is built in `getVariableTypeString`.
+- `isCodegenTempName` (src/utils.ts) — module-independent temp-name test
+  (`/^_.+_temp_[0-9]+$/`), used because a synthetic drop target may have no env
+  to recover its minting module from.
+- Drop-emission gate (skip a codegen TEMP whose C name is not yet in
+  `declaredCVarNames`) at the universal choke point `generateDeferredDropExpressions`
+  (drop-dup.ts) + `generateDropCodeForValue`, plus the early-return/unwind filters
+  in `return.ts` and the scope-end loops in `begin.ts`.
+- `variableInitializedAfterCleanupPoint` (return.ts) + `rhs.$?.env` guard
+  (initialization-assignment.ts).
+
+RESULT: with these + the `skip_block` removal, **s1 built CLEAN (0 clang errors)**
+— the 20-error undeclared-temp cascade was fully resolved (found the true choke
+point after tracing: the drops are resolved `fn_TYPE___drop(x)` method calls
+emitted via `generateDeferredDropExpressions`, not the `___drop` builtin). Gates
+with the infra alone (no M3): **s1 clean, check ./std 153/153, corpus PASS 118 /
+DIFF 0 / SELF-FAIL 0.** The infra is correct and regression-free.
+
+**BUT M3 hit a NEW, deeper wall — compile-time memory, not codegen:** with the
+`skip_block` removal, **s1fix (stage-1) itself balloons to 67GB compiling
+main.yo** (rc=137) — it can't even emit stage-2.c. Root: yo-self's
+`_schedule_scope_end_drops` builds each `___drop(name)` via
+`generate_expr_from_code("___drop(${name})")` — it **PARSES a string into fresh
+AST nodes** per owning local per block, on every (repeated, trial-eval) block
+evaluation. Un-skipping control-flow blocks (the majority) multiplies that
+per-eval string-parsing across the whole compiler's millions of def-time evals →
+tens of GB of transient/retained drop-node garbage. (It also regressed one corpus
+file, `dyn_error_throw_ioerror`, to SELF-FAIL — same class in yo-self's own
+codegen emitting an undeclared temp; gone once M3 is reverted.)
+
+So M3-as-designed trades the s2 _runtime_ RC leak for an s1 _compile-time_
+allocation explosion. Reverted the `skip_block` removal (kept the validated TS
+infra). **The real remaining work is to make M3's scope-end-drop scheduling
+affordable** — do not re-parse `___drop(name)` per eval:
+
+1. build the `___drop` AST node directly (no `generate_expr_from_code`), and/or
+2. CACHE the scheduled drop nodes per AST-node id (create once, reuse across
+   the repeated def-time/trial-eval passes), and/or
+3. only materialize drops at codegen time rather than eagerly during eval.
+   Then re-apply `skip_block` removal + the TS `declaredCVarNames` gates (already
+   landed) and validate `s1 emit main.yo` footprint stays ~≤10GB before the fixpoint.
+   This also likely helps the pre-existing eval-phase cost.
+
 ## Fix direction (next dedicated effort)
 
 Make yo-self's codegen drop the per-call callee environment (and recursively its

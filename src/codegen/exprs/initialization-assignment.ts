@@ -38,7 +38,7 @@ export function generateInitializationAssignment(
   indent: string,
   context: CodeGenContext
 ): string | undefined {
-  let lhs = expr.args[0]!;
+  const lhs = expr.args[0]!;
   const rhs = expr.args[1]!;
 
   // Debug: Log all := assignments in state machines
@@ -135,7 +135,8 @@ export function generateInitializationAssignment(
       }
 
       // Use -> for ref types (which are pointers), . for regular types
-      const memberAccessOp = rhsType && isReferenceStructType(rhsType) ? "->" : ".";
+      const memberAccessOp =
+        rhsType && isReferenceStructType(rhsType) ? "->" : ".";
 
       context.emitter.emitLine(
         `${indent}${varTypeAndName} = ${rhsCode}${memberAccessOp}${fieldName}; // Destructuring ${label}`
@@ -492,11 +493,14 @@ export function generateInitializationAssignment(
         );
         context.emitter.emitLine(`${indent}sm->${fieldName} = ${rhsCode};`);
       } else {
-        // Check if RHS is a temp variable with a registered async struct name
-        const rhsIsTempVar = isTempVariableName(
-          rhs.$!.env.modulePath,
-          rhsCode.trim()
-        );
+        // Check if RHS is a temp variable with a registered async struct name.
+        // A temp variable always carries an ExprInfo with an env; when the RHS
+        // has no ExprInfo (rhs.$ undefined) it cannot be a temp var, so default
+        // to false rather than dereferencing rhs.$!.env.
+        const rhsEnvForTemp = rhs.$?.env;
+        const rhsIsTempVar = rhsEnvForTemp
+          ? isTempVariableName(rhsEnvForTemp.modulePath, rhsCode.trim())
+          : false;
         let cTypeString: string;
 
         if (rhsIsTempVar && context.tempVarAsyncStructNames) {
