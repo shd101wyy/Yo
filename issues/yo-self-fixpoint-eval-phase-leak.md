@@ -582,3 +582,21 @@ Remaining tractable levers (in priority order):
 2. **Coarse table reclamation** between top-level declarations — unsafe as-is (specializations
    are shared across declarations via the cache; a cleared entry re-read → None → breakage).
    Would need a reachability/refcount on cache-shared specializations.
+
+## EMPIRICAL FOOTPRINT MEASUREMENT (2026-07-13, current HEAD 9c7580095)
+
+Ran the actual item-3 chain from a fresh `--release` s1 to confirm the blocker (not
+relying on prior-session numbers):
+
+- Built s1 (`./yo-cli compile yo-self/main.yo --release`) — OK.
+- Ran `s1 compile yo-self/main.yo --emit-c --skip-c-compiler` (the stage-2.c emission),
+  monitored with `top -l 1 -pid <pid> -stats mem,cmprs`:
+  - t=20s **27G**, t=40s 30G, t=60s 36G, t=100s **56G**, then **plateaus at 56G**
+    (52–53G compressed; RSS only ~2.6G — macOS compressor holding the leaked heap).
+  - Did NOT complete; thrashes the compressor and never produces stage2.c.
+- **Machine: 16 GB physical RAM + 12 GB swap ≈ 28 GB usable. Footprint 56 G = ~2× capacity.**
+- **Conclusion: item 3 (fixpoint stage-2.c ≡ stage-3.c) is unrunnable on this 16GB box.**
+  Task #21's fallback ("run fixpoint on 32GB+ box") really needs **64GB+** given the 56G
+  plateau. The only in-repo path is the memory fix — which the analyses above prove is a
+  major architectural effort (node-attach blocked by the loader import cycle; reclamation
+  has no safe boundary under the global multi-pass codegen). Both cheap levers are closed.
