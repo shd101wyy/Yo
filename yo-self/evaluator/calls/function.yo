@@ -1659,15 +1659,27 @@ evaluate_function_call :: (
   // `func_expr` — the callee atom (`recur`) is not a bound variable and an
   // identifier lookup would throw "Variable recur not found". Mirrors TS
   // `evaluateFunctionCall`'s `givenFunc` shortcut (function.ts:234-237).
-  evaluated_callee := match(
-    given_value,
-    .Some(gv) => {
-      gc_info := new_expr_info(env, given_type);
-      gc_info.value = Option(EvalValue).Some(gv);
-      expr_info_table_set(ctx.expr_info_table, ast_expr_id(func_expr), gc_info);
-      func_expr
-    },
-    .None => evaluate_expression_raw(func_expr, env, ctx, exn)
+  // `___dup`: both arms yield `func_expr` (the `.None` arm's
+  // `evaluate_expression_raw` returns its input node ALIASED, rc unchanged — a
+  // borrow), but `evaluated_callee` is a separate owning local dropped at scope
+  // end alongside `func_expr`. Without an independent ref the two drops race one
+  // owned ref (the func_box dup) and free the parent-owned callee node in a
+  // specialized body (the stage-2 `check` UAF, node 92024). TS keeps ONE
+  // reassigned `func` (one drop); yo-self's two-alias split needs the same-node
+  // incr here. `___dup` (NOT `.clone()`, which mints a new node with the SAME id
+  // → ExprInfo id-collision / heap corruption) keeps the id so
+  // `ast_expr_id(evaluated_callee)` still resolves its ExprInfo.
+  evaluated_callee := ___dup(
+    match(
+      given_value,
+      .Some(gv) => {
+        gc_info := new_expr_info(env, given_type);
+        gc_info.value = Option(EvalValue).Some(gv);
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(func_expr), gc_info);
+        func_expr
+      },
+      .None => evaluate_expression_raw(func_expr, env, ctx, exn)
+    )
   );
   ctx.expected_type = callee_saved_expected;
   // Call-overload expansion: when the callee is a source-namespace struct

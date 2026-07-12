@@ -686,6 +686,21 @@ set_expr_as_needs_to_call_dup :: (
       dup_list := ArrayList(AstExpr).new();
       dup_list.push(evaluated_dup);
       ei.deferred_dup_expressions = Option(ArrayList(AstExpr)).Some(dup_list);
+      // Propagate the dup call's env onto the rhs's ExprInfo (mirrors TS
+      // `expr.$.env = evaluatedDupCallExpr.$!.env` in expr.ts:2581). The dup
+      // eval added the `___dup` temp to that env; the deferred-dup codegen in
+      // begin/match resolves the dup temp's C name via the rhs ExprInfo's env,
+      // so without this the temp is unresolved and the balancing incr is
+      // silently dropped (over-release of a borrowed match-arm return — e.g.
+      // `func_expr := match(expr, .FnCall(_, fb,…) => fb)` in
+      // evaluate_function_call, the stage-2 specialized-body UAF).
+      match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_dup)),
+        .Some(dup_ei) => {
+          ei.env = dup_ei.env;
+        },
+        .None => ()
+      );
     }
   );
 });
