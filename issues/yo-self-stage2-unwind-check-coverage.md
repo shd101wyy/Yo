@@ -942,3 +942,49 @@ disable the async runtime's busy-poll, or build the check path without io.async)
 OR write the layout-stable poison-on-free+read-side-check catcher. get() is ruled
 out; focus on ExprInfo `env`/`ty` store sites (snapshot_env storage, info.env=/
 info.ty= mutations, or a borrowed TypeValue/Environment stored into a container).
+
+### 2026-07-12 (cont.3) — LAYOUT-STABLE CATCHER WORKS; over-release localized to evaluate_derive
+
+Built `scripts/rc-free-site-catcher.py` — the FIRST tool that catches this
+read-after-free without masking it. Key insight: back the free-record table with
+**mmap** (separate region) so the malloc-heap layout is byte-identical → the
+layout-dependent corruption still manifests. It records a backtrace at every
+`free` (normal frees, no quarantine) and, in `__yo_gc_mark_gray`, validates
+`s->traverse_fn` via `dladdr`; on a corrupt (freed+reused) node it dumps that
+node's recorded free backtrace = the over-release site. Recipe:
+
+```
+python3 scripts/rc-free-site-catcher.py /tmp/stage2b.c /tmp/stage2b-fr.c
+clang -std=c11 -w -O1 -g /tmp/stage2b-fr.c -o /tmp/s2b-fr
+# GC-path crash is intermittent (~1 in 5); loop until it fires:
+for i in $(seq 8); do YO_GC_FULL_PCT=1 YO_MAIN_STACK_MB=6144 /tmp/s2b-fr check yo-self/parser.yo 2>&1 | grep -q "CORRUPT GC NODE" && break; done
+# decode offsets: lldb -b -o "image lookup -n yo_id_NNN" /tmp/s2b-fr ; then image lookup -a <base+off>
+```
+
+NOTE: must build at **-O1** (the GC `mark_gray` crash path only manifests at -O1;
+-O0 takes the unwind-walk path which this check doesn't cover). backtrace-per-free
+is slow but tractable on parser.yo.
+
+**RESULT (verified fire):**
+
+- FREE (over-release): `evaluate_expression_raw` (yo_id_295699) at stage2b-fr.c
+  99117 — the dispatch to `evaluate_derive` (yo_id_289560, inlined). So the
+  over-release is INSIDE **`evaluate_derive`** (yo-self/evaluator/builtins/derive.yo).
+- USE (still-referenced): the GC traces an ExprInfo (`__yo_traverse___yo_t59`)
+  via `snapshot_env` (yo_id_222756) and visits the freed child (env/ty).
+
+The victim is an ExprInfo's `env`/`ty` freed while an ExprInfo still references it,
+during derive execution. RULED OUT by inspection: `add_variable_to_env` correctly
+dups `ty` (C:95167) and `value` (C:95171) into the bound Variable; HashMap.get is
+RC-correct. **derive.yo DIVERGES STRUCTURALLY from derive.ts** (yo-self builds
+`evaled_arg_infos` [arg0/1/2 ExprInfos] + `fresh_env` + `add_variable_to_env`;
+derive.ts uses `addComptimeVar` with evaluated type/value directly, no ExprInfo
+ArrayList) — this non-faithful reimplementation is the likely source. TS compiler
+`check yo-self/parser.yo` = rc=0 (confirmed).
+
+**NEXT (one catcher iteration to pin the line):** enhance the catcher's
+`__fr_report_corrupt` to also walk up and print the OWNING ExprInfo's
+`original_expr` token (identifies which derived construct), then map the exact
+decr in evaluate_derive. Fix faithfully by mirroring derive.ts's addComptimeVar
+env-building (or dup the specific over-released ty/env). Verify parser.yo rc=139→0
+AND `check ./std` (stage-2 also crashes on ./std, same class).
