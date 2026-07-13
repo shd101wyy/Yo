@@ -650,3 +650,28 @@ This sidesteps the node-attach import-cycle wall and replicates TS's GC semantic
   and confirm the peak drops below capacity + the fixpoint diff. This is the recommended path
   for a focused session on adequate hardware; it is the first design that clears the import
   cycle that blocks node-attach.
+
+## FINAL FEASIBILITY (2026-07-13): every path needs a new language/loader/arch feature
+
+Checked the last enabler — the callback-inversion path needs a user drop hook to fire
+`g_on_expr_dispose(id)` when an AstExpr drops. **yo-self has NO user-facing `Drop` trait / dispose
+hook** — `___dispose` is compiler-SYNTHESIZED (auto-derived; codegen_c.yo:241), with no seam to
+run user code on drop. So that path requires ADDING a Drop-hook language feature.
+
+Consolidated: bounding the fixpoint compile's ~56G footprint requires ONE of —
+
+1. **Node-attach ExprInfo** → needs type-only/lazy imports in the loader (to break the
+   `expr↔value` value-import cycle). LOADER feature.
+2. **Callback drop-reclamation** → needs a user `Drop`/finalizer hook on AstExpr. LANGUAGE feature.
+3. **Table reclamation** → needs a safe reclaim boundary; none exists under the global multi-pass
+   codegen + shared-id derived Clone. CODEGEN-ARCHITECTURE change.
+
+…and EVERY one, once built, still needs a **64GB+ machine** to validate (the memory win is
+unmeasurable on 16GB — the main.yo emission OOM-kills before you can observe a partial drop, and
+the corpus gate only checks RC correctness, not footprint).
+
+**Honest ceiling:** item 3 (fixpoint stage-2.c ≡ stage-3.c) is not completable in this
+environment (16GB box, current yo-self language/loader/codegen). It requires a focused effort on
+64GB+ hardware plus one of the three feature-level changes above. Items 1, 2, and item 3's codegen
+half (declaredCVarNames, 68f5cb49c) are done; item 4 (#69/#70) stays gated. All findings this
+session are committed as evidence; the verified-green compiler is untouched throughout.
