@@ -957,3 +957,34 @@ FULL main.yo byte-exact fixpoint is blocked by three separable things, in priori
    Items 2–3 are small/cosmetic (functionally-equivalent output); item 1 is the architectural blocker.
    So on a 64GB box, `diff <(norm stage2.c) <(norm stage3.c)` would be near-empty (only the sizeof-fold
    class), and the remaining work to a byte-exact main.yo fixpoint is items 2+3 plus the M3 memory fix.
+
+## PIVOTAL (2026-07-13): M3 is AFFORDABLE now (9G, no explosion) — the "56GB architectural wall" was STALE
+
+Empirically re-tested removing yo-self begin.yo `skip_block` (scheduling scope-end drops for
+control-flow blocks = the M3 milestone), now that the declaredCVarNames Emitter fix is in place:
+
+- s1 (TS-built, M3-enabled) **BUILDS clean** (no def-time explosion) and **emits stage2.c at 9.3G,
+  COMPLETES** (31.6MB). The prior "M3 explodes s1 to 56GB" (task #21 / handoff BLOCKER) is STALE —
+  it does NOT reproduce. M3 is affordable.
+- corpus: **DIFF 0** (no double-free from the added drops) — but **SELF-FAIL 1**
+  (dyn_error_throw_ioerror.yo) and the M3 stage2.c **fails to clang-compile** with undeclared-temp
+  drops (e.g. `_file____User_temp_584456` at m3-stage2.c:147719) → s2 not buildable from it.
+
+**So the fixpoint is NOT blocked by the architectural table/import-cycle wall.** M3 (which fixes s2's
+dominant callee-env leak) is cheap. The REMAINING blocker is CORRECTNESS of the M3 scope-end drops:
+a few reference temps not declared at the escape/early-return point (the declaredCVarNames gate +
+Emitter capture catch MOST but not all — the same uninit/cross-branch-temp class). The faithful fix
+is TS's early-return-only drop attachment (begin.ts:2064-2140: `attachEarlyReturnOnlyDropExpressionToReturns`)
+
+- ensuring EVERY M3 drop path consults declaredCVarNames. This is BOUNDED codegen work, not an
+  architectural refactor.
+
+**Corrected completion path for item 3 (fixpoint):**
+
+1. Port M3 faithfully (remove skip_block + attach early-return-only drops like begin.ts) so the
+   scope-end drops emit WITHOUT undeclared-temp references. M3 emission is affordable (9G, proven).
+2. Validate: corpus PASS 118/DIFF 0/SELF-FAIL 0; s1 emits stage2.c @9G; build s2; s2 emits
+   stage3.c @9G (M3 drops fix the callee-env leak → no OOM); `diff` (normalize temp counters).
+3. Address the residual sizeof-fold + temp-counter-offset for byte-exactness (cosmetic).
+   This supersedes the "needs 64GB / node-attach architectural fix" conclusion — the leak fix is M3,
+   and M3 is affordable; only the drop-emission correctness (undeclared-temp gating) remains.
