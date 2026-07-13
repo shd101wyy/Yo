@@ -1331,3 +1331,39 @@ for call/escape exprs (the faithful TS model), or (b) make the drop-scheduler at
 only to escapes that are LEXICALLY AFTER the local's full binding statement AND within the same C block
 scope (scope-aware, not flat). Validate on the repro above (h dropped, no undeclared p) + corpus 118 +
 the s2 memory trajectory (bounded, not 26→56G). This is the concrete entry point for #65.
+
+## PROBE-CONFIRMED root + correct fix design (2026-07-13)
+
+Instrumented `_keep_pending_drop` (eprintln, reverted) on the small repro and on the one file the naive
+fix regressed (`effect_handler_struct_result.yo`, local `p := if(… raise() …)`):
+
+[PROBE keep h] use_env=true has_ei=true env_vars=1 in_declared=false (run() loop-body local; SHOULD drop)
+[PROBE keep p] use_env=true has_ei=true env_vars=1 in_declared=false (binding contains the escape; must NOT drop)
+
+Both named locals are PRESENT in the escape expr's recorded env (env_vars=1) and ABSENT from
+declared_c_var_names (in_declared=false, which records only minted temps + params). So:
+
+- The env-branch `declared_c_var_names` guard (return.yo ~228) requires EVERY drop target to be in the
+  set, so it filters BOTH `h` (→ leak) and `p` (→ correctly avoids the undeclared crash). It's a blunt
+  gate that suppresses the leak fix as a side effect of preventing the crash.
+- yo-self's recorded env is END-OF-SCOPE (confirmed: `p` is in the raise-call's env even though the
+  escape is inside `p`'s own initializer). So it CANNOT be used as a point-in-time liveness signal, and
+  restricting the guard to temps (TS's isCodegenTempName gate) regresses `p` (env still has it; its
+  init-token is the LHS, before the escape → init-check keeps it → `use of undeclared identifier 'p'`).
+- Recording named locals in the flat set is block-scope-UNSOUND (sibling match-arm bindings).
+
+**Correct fix (scope-aware, point-in-time, repro-validatable): M3-driver-extended-to-calls.** At EVAL
+time in `evaluate_begin_expression`, for each statement that is / contains a may-unwind call, attach
+`___drop(local)` escape-drops for the owning-RC locals bound by PRECEDING statements of the same begin
+block (a new ExprInfo field, e.g. `escape_deferred_drop_expressions`, mirroring the M3
+`early_return_only_deferred_drop_expressions` machinery already ported). Codegen's
+`emit_effect_unwind_check` then emits THAT list on the `if(__yo_effect_escaped)` path instead of
+filtering the whole end-of-scope pending list. This is correct for all three cases WITHOUT env/declared
+heuristics:
+
+- `h` (bound by a preceding statement) → attached → dropped ✓
+- `p` (bound BY the statement that contains the escape, not a preceding one) → not attached → skipped ✓
+- sibling match-arm bindings (not top-level begin statements) → not attached → skipped ✓
+  Validate on the repro in the section above (h dropped, no undeclared p) + corpus 118 + s2 memory
+  trajectory (bounded, not 26→56G). This is the concrete, correct #65 implementation task; it reuses the
+  existing M3 attach/walk helpers and is validatable on the small repro (no OOM).
