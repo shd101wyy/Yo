@@ -1,6 +1,59 @@
 # Stage-2 fixpoint blocker: ~60GB RC leak in eval phase (NOT a hardware limit)
 
-## Status: OPEN — root localized, fix pending
+## Status: LEAK FIXED (bounded) — fixpoint completion now gated on #78 evaluator perf
+
+## UPDATE (2026-07-13) — escape-path drop leak FIXED via block-scope-aware scope stack
+
+The dominant escape-path leak is **fixed**. s2 compiling `main.yo` no longer
+balloons to 56–73GB → jetsam; memory is now **bounded** (1.3GB at the default GC
+threshold; ~8GB at `YO_GC_THRESHOLD=5000000`). The remaining blocker to actually
+emitting `stage3.c` in practical time is the **separate #78 evaluator-perf issue**
+(self-compiled binary spends ~100% in `__yo_gc_collect` — many drops are still
+missing on the NORMAL, non-escape paths, so the Bacon-Rajan collector does the
+work RC should, and thrashes). GC-disabled (`YO_GC_THRESHOLD=0`) OOMs on
+compressed memory; GC-enabled bounds memory but runs very slowly.
+
+### The fix
+
+The `__yo_effect_escaped` escape path (`return.yo _keep_pending_drop`, `!use_env`)
+must decide, for each pending deferred drop, whether the target's C variable is
+**still in C scope** at the escape point. TS keeps ALL pending drops on the escape
+path (no filter) because in TS's C every pending-drop target IS in scope; yo-self's
+scope placement differs (owned locals get buried in `switch`/`if` C blocks that
+close before an escape). The old heuristics all failed:
+
+- source-token order → reordered control-flow initializers → clang errors
+- flat declared-set → block-unsound (sibling match-arm bindings) → 20 clang errors
+- begin-block markers only → too coarse (misses `switch`/`if`/`case` C braces) →
+  20 clang errors (drops emitted for locals whose enclosing C block already closed)
+
+The correct signal is a **block-scope stack maintained by the emitter**, tracking
+**EVERY** C brace (not just begin-block markers). `_emitter_track_scope`
+(`emitter.yo`) scans each emitted body line char-by-char — skipping string/char
+literals and `//` comments so braces inside them are not miscounted — and pushes a
+`"{"` sentinel on every structural `{`, pops back through the last sentinel on
+every `}`, and records a declaration's C name (in the enclosing frame) when the
+line is a `<type> <name> = …` decl. The stack (a flat `ArrayList(String)`;
+`CodeGenContext.declared_scopes`, seeded with params, pointed at via
+`Emitter.scope_ref`) therefore holds exactly the names of currently-open C blocks.
+The escape gate keeps a pending drop iff its target C name appears in the stack —
+i.e. declared before this point AND still in C scope. This drops still-in-scope
+owned locals (the leak this closes, e.g. `callee_env_m`) while skipping locals
+whose enclosing C block already ran its own scope-end drop (avoiding the double-
+free / undeclared-identifier the coarser heuristics produced).
+
+A flat `ArrayList(String)` (with `"{"` sentinels) is used rather than a stack of
+`HashSet` frames because yo-self's own codegen mis-drops the nested
+`ArrayList(HashSet(String))` generic — the self-compiled binary double-frees
+(malloc freelist guard SIGTRAP) on startup. (That nested-generic RC codegen bug is
+a latent, separate issue; sidestepped here.)
+
+Validation: `check ./yo-self` 303/303; s1 self-emits `stage2.c` with **0 clang
+errors** (was 20 with the coarse tracker); s2 built and runs; memory bounded.
+
+---
+
+## (historical) Status: OPEN — root localized, fix pending
 
 ## TL;DR — the diagnosis was wrong
 

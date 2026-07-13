@@ -158,6 +158,26 @@ _variable_initialized_after_cleanup_point :: (fn(init_token : Token, cleanup_exp
   cleanup_point := _get_last_comparable_token_in_expr(cleanup_expr, init_token);
   !(_token_is_at_or_before(init_token, cleanup_point))
 });
+/// True iff `cn` appears in the block-scope stack — i.e. its C variable was
+/// declared before this point AND its enclosing C block is still open (closed
+/// blocks' names are popped). The escape-path liveness signal (see
+/// `_emitter_track_scope`). The `"{"` block sentinels never match a real C name.
+_scope_stack_contains :: (fn(stack : ArrayList(String), cn : String) -> bool)({
+  n := stack.len();
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < n) && !(found), {
+    match(
+      stack.get(i),
+      .Some(nm) => if(nm == cn.clone(), {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
 /// Whether a pending drop should be emitted at this return's cleanup point.
 _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet(String), additional_skip : Option(HashSet(String)), use_env : bool, context : FunctionGenerationContext) -> bool)({
   var_name := match(get_deferred_drop_target_atom_name(drop_expr),.Some(vn) => vn,.None => return(false));
@@ -190,47 +210,26 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
     // so the env-based filter below wrongly rejects a still-live local (a
     // loop-body `h` across a may-unwind call — the per-call callee_env leak) and
     // wrongly ACCEPTS a local whose C decl follows the escape (`p := if(… raise()
-    // …)`). Use the scope-aware, C-emission-order-correct signal instead: keep the
-    // drop iff its target was bound BEFORE the current top-level statement (its
-    // initialized_at_token strictly precedes context.current_statement_start_token)
-    // and is not consumed before this cleanup point. A local bound BY this
-    // statement (init at/after the statement token — e.g. the escape is inside its
-    // own initializer) or in a nested block is skipped. The minted-temp C-emission
-    // guard above already handled temps. See issues/yo-self-fixpoint-eval-phase-leak.md.
+    // …)`). The only sound signal is the block-scope stack maintained by the
+    // emitter (`_emitter_track_scope`): keep the drop iff its target C variable is
+    // in SOME still-open C block frame — declared BEFORE this escape AND still in
+    // scope. This drops a live loop-body/callee local (its frame is open → the
+    // callee_env leak this closes) while skipping a control-flow-initialized
+    // binding whose C decl lands in an enclosing frame only after its arm frames
+    // pop (absent here → op_result_val) and a sibling match-arm binding (its frame
+    // popped when the arm closed). Consumption still suppresses the drop.
+    // See issues/yo-self-fixpoint-eval-phase-leak.md.
     match(
-      context.current_statement_start_token,
-      .None => return(true),
-      .Some(stmt_tok) => match(
-        _get_deferred_drop_target_variable(drop_expr, context),
-        .None => return(true),
-        .Some(tv) => {
-          consumed_esc := match(tv.consumed_at_token,.Some(ct) => _variable_was_consumed_before_cleanup_point(ct.*, expr),.None => false);
-          if(consumed_esc, {
-            return(false);
-          });
-          // Conservatively skip a REASSIGNABLE named local on the escape path.
-          // A `(x : T) = if(… raise() …)` mutable binding is initialized via a
-          // control-flow expr whose body contains the escape, so at the escape `x`
-          // is not yet assigned (uninitialized / prior value) and its C decl may
-          // follow the escape — dropping it is an undeclared/uninit-memory error
-          // (the op_result_val / m_result_val cases). Immutable `:=` bindings
-          // (the common owning locals, e.g. a loop-body ref) are NOT reassignable
-          // and still drop here — that is the leak this closes. Skipping a
-          // reassignable local's escape drop can only leak (its normal-path +
-          // drop-on-reassign handling stays), never double-free.
-          // See issues/yo-self-fixpoint-eval-phase-leak.md.
-          if(tv.is_reassignable, {
-            return(false);
-          });
-          bound_before := match(
-            tv.initialized_at_token,
-            .Some(it) => (_tokens_are_comparable(it, stmt_tok) && ((it.character) < (stmt_tok.character))),
-            .None => false
-          );
-          return(bound_before);
-        }
-      )
+      _get_deferred_drop_target_variable(drop_expr, context),
+      .Some(tv) => {
+        consumed_esc := match(tv.consumed_at_token,.Some(ct) => _variable_was_consumed_before_cleanup_point(ct.*, expr),.None => false);
+        if(consumed_esc, {
+          return(false);
+        });
+      },
+      .None => ()
     );
+    return(_scope_stack_contains(context.base.declared_scopes, guard_cn.clone()));
   });
   env := match(context.base.get_expr_info(expr),.Some(ei) => ei.env,.None => return(true));
   variables := get_variables_from_env(env, var_name);
@@ -733,9 +732,9 @@ emit_effect_unwind_check :: (fn(indent : String, context : FunctionGenerationCon
     });
     emit_async_future_escape(em, inner.clone(), Option(String).None, Option(String).None);
   }, {
-    // skip_env_check=true: use the statement-scoped liveness signal in
-    // _keep_pending_drop's !use_env branch (context.current_statement_start_token),
-    // NOT the END-of-scope env which leaks live locals here. Closes the per-call
+    // skip_env_check=true: use the block-scope-stack liveness signal in
+    // _keep_pending_drop's !use_env branch (context.declared_scopes), NOT the
+    // END-of-scope env which leaks live locals here. Closes the per-call
     // callee_env leak on the __yo_effect_escaped path (stage-2 fixpoint).
     generate_pending_deferred_drops(inner.clone(), context, expr, false, true, true, Option(HashSet(String)).None);
     generate_consumed_var_drops_for_escape(inner.clone(), context, expr, false);

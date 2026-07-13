@@ -6,8 +6,7 @@
 //! is named while_loop.yo (`while` is a keyword).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_leftmost_token, ast_expr_is_fn_call_of, BK_BEGIN, BK_COMPTIME, BK_ASSIGN } :: import("../../expr.yo");
-{ Token } :: import("../../token.yo");
+{ AstExpr, ast_expr_is_fn_call_of, BK_BEGIN, BK_COMPTIME, BK_ASSIGN } :: import("../../expr.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { Emitter } :: import("../../emitter.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -139,12 +138,6 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
         match(
           args.get(i),
           .Some(arg) => {
-            // Mark this loop-body statement's start token so a mid-statement
-            // `__yo_effect_escaped` check drops only locals bound by EARLIER
-            // loop-body statements (return.yo _keep_pending_drop escape branch) —
-            // the loop-body per-call callee_env leak. See
-            // issues/yo-self-fixpoint-eval-phase-leak.md.
-            context.current_statement_start_token = Option(Token).Some(ast_expr_leftmost_token(arg));
             code := _call_generate_expr(arg, indent.clone(), context);
             if(code.len() > usize(0), {
               line := indent.clone();

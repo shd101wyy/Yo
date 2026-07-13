@@ -16,7 +16,6 @@ open(import("std/string"));
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
 { AstExpr } :: import("../../expr.yo");
-{ Token } :: import("../../token.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { CapturedVariable, AwaitAnalysisResult } :: import("../../evaluator/async/await_analysis_types.yo");
 { CodeGenContext } :: import("../utils/index.yo");
@@ -243,19 +242,7 @@ FunctionGenerationContext :: ref(
     current_evidence_params : Option(HashMap(String, EvidenceParameter)),
     /// Async blocks deferred to after all regular functions are generated. Mirrors
     /// `deferredAsyncBlocks`.
-    deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock)),
-    /// Start token of the TOP-LEVEL begin/loop-body statement currently being
-    /// emitted. Set by generate_function_body / generate_loop_body before each
-    /// statement. On the `__yo_effect_escaped` escape path a pending drop is kept
-    /// only if its target was bound BEFORE this statement (its
-    /// initialized_at_token strictly precedes this token) — so a local bound by
-    /// an EARLIER statement (live across a may-unwind call) is dropped, while one
-    /// bound BY the current statement (its init token == this token, e.g. the
-    /// escape sits inside its own initializer `p := if(… raise() …)`) or inside a
-    /// nested block is skipped. This is the per-call scope-aware liveness signal
-    /// that closes the stage-2 eval-phase leak. See
-    /// issues/yo-self-fixpoint-eval-phase-leak.md.
-    current_statement_start_token : Option(Token)
+    deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock))
   )
 );
 impl(
@@ -294,8 +281,7 @@ impl(
       async_cond_branch_info : Option(HashMap(usize, AsyncCondBranchInfo)).None,
       async_body_return_expr : Option(AstExpr).None,
       current_evidence_params : Option(HashMap(String, EvidenceParameter)).None,
-      deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock)).None,
-      current_statement_start_token : Option(Token).None
+      deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock)).None
     )
   )
 );

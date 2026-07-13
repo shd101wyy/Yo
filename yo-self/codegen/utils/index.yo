@@ -177,6 +177,15 @@ CodeGenContext :: ref(
     /// undeclared-identifier error. Temp names are globally unique, so this
     /// accumulates across functions without needing a per-function reset.
     declared_c_var_names : HashSet(String),
+    /// Block-scope stack of declared C var names (named locals + temps), encoded
+    /// as a flat list with `"{"` sentinels at block boundaries, maintained by the
+    /// emitter (`_emitter_track_scope`) during function-body emission. Read ONLY by
+    /// the __yo_effect_escaped escape gate (return.yo _keep_pending_drop, !use_env):
+    /// a pending drop is kept iff its target's C name appears in the list (declared-
+    /// before AND still in scope). This is the block-scope-aware C-emission-order
+    /// signal that the flat set and source-token heuristics could not provide. See
+    /// issues/yo-self-fixpoint-eval-phase-leak.md.
+    declared_scopes : ArrayList(String),
     /// Resolved concrete capture-struct type id → its generated closure impl fn.
     /// Populated at closure construction; read at closure call sites to emit
     /// `fn(&(cb), args)`. Mirrors CodeGenContext.implClosureCallMap (utils/index.ts:139).
@@ -226,6 +235,7 @@ impl(
       dispose_type_ids : HashMap(String, usize).new(),
       next_dispose_type_id : usize(1),
       declared_c_var_names : HashSet(String).new(),
+      declared_scopes : ArrayList(String).new(),
       impl_closure_call_map : HashMap(String, ImplClosureCallInfo).new()
     )
   ),

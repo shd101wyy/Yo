@@ -378,42 +378,6 @@ ast_expr_id :: (fn(e : AstExpr) -> ExprId)(
     .FnCall(id, _, _, _, _) => id
   )
 );
-/// The LEFTMOST (minimum-character) token in `e`'s subtree, among tokens in the
-/// same source stream as `e`'s own token. Unlike `ast_expr_token` (which returns
-/// the FnCall's stored operator token — e.g. `:=` for `p := …`, positioned AFTER
-/// the LHS), this finds the statement's true start. Used by codegen to mark a
-/// begin/loop statement's start so a mid-statement escape drops only locals bound
-/// by EARLIER statements. See issues/yo-self-fixpoint-eval-phase-leak.md.
-ast_expr_leftmost_token :: (fn(e : AstExpr) -> Token)({
-  own := ast_expr_token(e);
-  match(
-    e,
-    .Atom(_, _) => own,
-    .FnCall(_, func, args, _, _) => {
-      (best : Token) = own;
-      fc := recur(func);
-      if(((fc.module_path == best.module_path) && (fc.input == best.input)) && (fc.character < best.character), {
-        best = fc;
-      });
-      n := args.len();
-      (i : usize) = usize(0);
-      while(i < n, {
-        match(
-          args.get(i),
-          .Some(a) => {
-            c := recur(a);
-            if(((c.module_path == best.module_path) && (c.input == best.input)) && (c.character < best.character), {
-              best = c;
-            });
-          },
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-      best
-    }
-  )
-});
 /// True if `e` is an Atom.
 ast_expr_is_atom :: (fn(e : AstExpr) -> bool)(
   match(
@@ -573,7 +537,7 @@ export(BF_TYPEOF, BF_SIZEOF, BF_ALIGNOF, BF_TYPEID, BF_RUNTIME, BF_UNWIND, BF_RE
 export(BK_COMPTIME, BK_GIVEN, BK_FORALL, BK_COLON, BK_ASSIGN, BK_INIT_ASSIGN, BK_CONST, BK_COND, BK_MATCH);
 export(BK_WHILE, BK_RETURN, BK_BREAK, BK_TEST);
 export(BK_EXTERN, BK_C_INCLUDE, BK_SUBTYPE_OF, BK_EXISTS, BK_WHERE);
-export(make_err_expr, ast_expr_token, ast_expr_leftmost_token, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_atom_and_operator, ast_expr_is_infix_op_fn_call, ast_expr_to_string);
+export(make_err_expr, ast_expr_token, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_atom_and_operator, ast_expr_is_infix_op_fn_call, ast_expr_to_string);
 // ---------------------------------------------------------------------------
 // Atom / FnCall predicate helpers (mirrors src/expr.ts exprIsAtomOf, etc.)
 // ---------------------------------------------------------------------------
