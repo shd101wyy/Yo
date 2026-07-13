@@ -988,3 +988,33 @@ is TS's early-return-only drop attachment (begin.ts:2064-2140: `attachEarlyRetur
 3. Address the residual sizeof-fold + temp-counter-offset for byte-exactness (cosmetic).
    This supersedes the "needs 64GB / node-attach architectural fix" conclusion — the leak fix is M3,
    and M3 is affordable; only the drop-emission correctness (undeclared-temp gating) remains.
+
+## M3 port precisely scoped (2026-07-13) — the bounded remaining work for the fixpoint
+
+M3 emission is affordable (9G, proven). The naive skip_block removal leaves undeclared-temp drops
+because the flat `declared_c_var_names` set cannot model cross-branch C scope: a temp declared in
+branch A is "in the set" for branch B's escape-cleanup drop, but is out of C scope there → undeclared
+identifier. TS solves this NOT with the flat set but with per-return token-position attachment:
+
+- **`attachEarlyReturnOnlyDropExpressionToReturns` (begin.ts:130-238):** recursively walks the block;
+  for each `return`/`unwind` whose cleanup point satisfies `tokenIsAtOrBefore(initializedAtToken,
+cleanupPoint) && tokenIsBefore(cleanupPoint, consumedAtToken)`, attaches the drop to that return's
+  `earlyReturnOnlyDeferredDropExpressions`. Recurses through cond/match/macroExpansion.
+- **`scheduleScopeEndDrops` (begin.ts:~2064-2140):** the driver that computes the scope-end drop set
+  and calls the above for early-return-bearing blocks.
+- **ExprInfo field `earlyReturnOnlyDeferredDropExpressions`** + its codegen emission at the return.
+
+Porting these to yo-self (replacing the `skip_block` big-hammer in `_schedule_scope_end_drops`) is the
+faithful M3 milestone. It is BOUNDED (clear 1:1 TS reference) but LARGE (recursive token-position
+walker + new ExprInfo field + codegen), and must be validated with the full s1→s2→stage3 chain
+(corpus PASS/DIFF/SELF-FAIL 0 + s2 emits stage3.c at ~9G + normalized `diff` = FIXPOINT-OK). It is the
+same subtle uninit/cross-branch-temp class that crashed s2 in the flat-set shortcuts, so it needs the
+token-position logic done faithfully, not a flat-set approximation.
+
+**Item-3 completion checklist (all bounded, non-architectural):**
+
+1. Port M3 (attachEarlyReturnOnly + earlyReturnOnlyDeferredDropExpressions + codegen) → yo-self.
+2. Rebuild s1 (9G), corpus PASS 118/DIFF 0/SELF-FAIL 0, emit stage2.c @9G.
+3. Build s2, emit stage3.c @9G (M3 drops fix the callee-env leak → no OOM).
+4. `diff <(norm stage2.c) <(norm stage3.c)` = FIXPOINT-OK; then drive the temp-counter + sizeof-fold
+   residuals to byte-exact.
