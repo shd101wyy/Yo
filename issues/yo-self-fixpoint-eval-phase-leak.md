@@ -781,3 +781,28 @@ declaration emission for that temp against TS's in the 9G control's stage2.c (`/
 Validate: rebuild s1 (still 9G after reverting 68f5cb49c) → rebuild s2 from the fixed stage2.c →
 s2 compiles main.yo at ~9G and COMPLETES → run the fixpoint diff. This is a concrete codegen
 declaration-emission bug, fully validatable on THIS 16GB box.
+
+## FIX LANDED (part 1) + completion path (2026-07-13)
+
+Definitively proved the leak and landed the first, validated part:
+
+- **Proof:** emitting yo-self with the gate ON vs OFF, the gate SKIPS ~88,000 temp drops
+  (108,281 → 20,021). Sampling: **194/200 skipped temps are DECLARED (real, live) → their
+  skipped drop LEAKS**; only ~a handful are genuine never-declared phantoms (e.g. temp_283669).
+  Root: `declaredCVarNames` is grown ONLY via `getVariableTypeString`, but many result temps are
+  declared via `getTypeString` → untracked → gate wrongly treats them as undeclared → skips drop.
+- **Part 1 landed (commit — begin/cond/match/index-callee):** added `declaredCVarNames.add()` at
+  those 4 getTypeString-based result-temp declarations. Recovers 53,286/108,281 temp-drops.
+  Corpus **PASS 118 / DIFF 0** (RC-safe). s1 main.yo emission peak **56G → ~53G** (24G plateau
+  extended) — CONFIRMS recovering drops reduces the leak. (Still OOMs; ~55K drops remain skipped.)
+- **Remaining (part 2):** the ~15,479 still-skipped temps are ARGUMENT / pre-statement result
+  temps (e.g. `_yo008166df_temp_315261 = fn_..._from(...)` passed to format_error_message) plus
+  other-fn-call.ts:1793,2203 and other getTypeString-based decl sites. Two options:
+  1. Continue adding `declaredCVarNames.add(name)` at each remaining getTypeString temp-decl site.
+  2. ROBUST one-shot: in `generateFunction`, PRE-WALK the body AST collecting every
+     `ExprInfo.variableName` and seed `declaredCVarNames` up front (evaluator temps like
+     `_yoHASH_temp_N` are the bulk and ARE carried as node variableNames; genuine phantoms like
+     temp_283669 are env Variables, NOT node variableNames, so they stay correctly skipped).
+- **Then:** apply the SAME fix to yo-self's codegen (its `declared_c_var_names` gate has the
+  identical gap — that is the s2 leak). Rebuild s1 (9G) → emit stage2.c → build s2 → s2 emits
+  stage3.c (9G) → `diff` = fixpoint. Every step validatable on THIS 16GB box (corpus + emission).
