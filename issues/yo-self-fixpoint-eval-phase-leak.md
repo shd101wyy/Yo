@@ -1018,3 +1018,38 @@ token-position logic done faithfully, not a flat-set approximation.
 3. Build s2, emit stage3.c @9G (M3 drops fix the callee-env leak → no OOM).
 4. `diff <(norm stage2.c) <(norm stage3.c)` = FIXPOINT-OK; then drive the temp-counter + sizeof-fold
    residuals to byte-exact.
+
+## M3 PORT STARTED (2026-07-13): scaffolding committed green; walker/driver/helpers remain (all TS refs captured)
+
+**Committed green (behaviorally no-op until the walker sets the field):**
+
+- ExprInfo `early_return_only_deferred_drop_expressions` field (expr_info.yo) + init.
+- Codegen `generate_early_return_only_deferred_drop_expressions` (return.yo) un-no-op'd to emit it.
+- check ./yo-self 303/303.
+
+**Remaining (turnkey — exact TS references read this session):**
+
+1. Port 3 missing helpers into begin.yo (evaluator):
+   - `is_function_boundary_for_early_drop` (begin.ts): `exprIsFunctionCallOf(->/=>)` &&
+     (isAnonymousFunctionDefinition || isFunctionValue(value) || func is fn/ctl/unsafe_fn/Fn ||
+     `!expr.$`).
+   - `variable_can_need_drop_ignoring_consumed` (begin.ts): is_owning_the_rc_value &&
+     type_contains_rc_type && !is_module_level && !(unresolved-SomeT-no-traits). (Same as the
+     e1..e4 predicate already inline in `_schedule_scope_end_drops`.)
+   - `variable_is_captured_by_current_function` (begin.ts): `ctx.captured_variables?.has(name)`
+     (verify yo-self ctx has captured_variables).
+2. Port `attach_early_return_only_drop_expression_to_returns` (begin.ts:130-238): recursive walker;
+   at each return/unwind atom or call, if `tokenIsAtOrBefore(initializedAtToken, cleanupPoint) &&
+tokenIsBefore(cleanupPoint, consumedAtToken)`, append dropExpr to the node's
+   early_return_only_deferred_drop_expressions. Recurses through macroExpansion, cond/match (and
+   `=>` branch parts), stops at function boundaries / TypeValue-fn callees.
+3. Port the driver (begin.ts:2068-2122) into evaluate_begin: compute earlyReturnOnlyVariables from
+   the current frame (has consumed+initialized tokens, block-token at-or-before init, not captured,
+   not auto-generated, NOT already in the regular scope-end drop set, can-need-drop-ignoring-consumed);
+   build a drop per var (consumed cleared) and attach to each return via the walker. REMOVE the
+   `skip_block` big-hammer (control-flow blocks now schedule regular scope-end drops normally — M3
+   emission proven affordable at 9G).
+4. Validate: rebuild s1 (9G), corpus PASS 118/DIFF 0/SELF-FAIL 0, emit stage2.c @9G, build s2, emit
+   stage3.c @9G (M3 early-return drops fix the callee-env leak → no OOM), `diff <(norm stage2.c)
+<(norm stage3.c)` = FIXPOINT-OK. Iterate on any undeclared-temp/crash (the token-position logic
+   is what makes cross-branch early-return drops scope-correct — do it faithfully).
