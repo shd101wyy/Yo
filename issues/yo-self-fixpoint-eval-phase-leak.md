@@ -806,3 +806,34 @@ Definitively proved the leak and landed the first, validated part:
 - **Then:** apply the SAME fix to yo-self's codegen (its `declared_c_var_names` gate has the
   identical gap — that is the s2 leak). Rebuild s1 (9G) → emit stage2.c → build s2 → s2 emits
   stage3.c (9G) → `diff` = fixpoint. Every step validatable on THIS 16GB box (corpus + emission).
+
+## LEAK FIXED — TS fully (56G→9G), yo-self partially (56G→26G) (2026-07-13, committed + corpus-green)
+
+Root cause CONFIRMED by the gate ON/OFF drop-diff: the `declaredCVarNames` drop-skip gate
+(68f5cb49c) skips a `___drop` for any codegen temp NOT in the set; the set was grown only via
+`getVariableTypeString`, but ~30 temp-decl paths build the declaration via `getTypeString`, so the
+gate SKIPPED ~88,000 live-RC temp drops → the 6x leak (invisible to corpus — a leak, not a
+double-free, leaves output unchanged).
+
+**FIX = centralize declaration tracking in the Emitter** (records every codegen temp DECLARED in an
+emitted code line, in C-emission order so forward-ref protection holds; `___drop((cast)(name))` uses
+never match decl position, so genuine phantoms stay correctly skipped):
+
+- **TS (commit 0b9928b95): FULLY FIXED.** s1 main.yo emission **56G → 9.2G and COMPLETES**
+  (produces stage2.c). temp-drops 20021→107960/108281 (321 remaining = the one genuine phantom).
+  Corpus PASS 118 / DIFF 0. The PRIMARY compiler no longer leaks.
+- **yo-self (commit 2e329eeee): PARTIAL.** Ported the Emitter capture (manual parse, no regex).
+  s2 (built from yo-self-codegen-emitted stage2.c) **56G → 26G**, builds, corpus PASS 118 / DIFF 0.
+  Residual: the module-blind `_emitter_is_minted_temp` (requires `_temp_`+digits-to-end) misses
+  module-PREFIXED temps that yo-self's gate flags via `is_temp_variable_name` → those stay skipped.
+
+**REMAINING to complete the fixpoint (s2 → 9G):** broaden the yo-self Emitter's decl detection to
+record the module-prefixed temps WITHOUT false positives. A blanket "record any decl-position
+identifier" was tried and is UNSAFE — it recorded non-temp fragments (e.g. `giv`, `exp`) as
+declarations, so yo-self emitted `___drop`s for undeclared identifiers → stage2.c failed to clang-
+compile. The precise fix: record a decl-position identifier iff it satisfies the SAME predicate the
+gate uses — i.e. `_looks_like_minted_temp(name)` (digits-to-end) OR the module-prefixed
+`is_temp_variable_name` form (`_file____<module>_temp_<...>`). Extend `_emitter_is_minted_temp` to
+also accept the `_temp_`-with-trailing-suffix module-prefixed shape while still rejecting user vars
+like `await_future_temp_var_aliases`. Then: s1→stage2.c@9G → build s2 → s2→stage3.c@9G →
+`diff stage2.c stage3.c` = FIXPOINT-OK. All steps validatable on this 16GB box.
