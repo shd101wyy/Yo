@@ -928,3 +928,32 @@ system due to the expr↔value import cycle, proven earlier). NET: the declaredC
 real, separate gate-bug leak (s1 unblocked, 9G) but the fixpoint's DOMINANT blocker (s2 M3 leak → the
 table-affordability wall) is unchanged. The 32GB-box path also does NOT apply to s2 at 55G — that
 needs 64GB+, same as before for s2.
+
+## FIXPOINT VERIFICATION EXECUTED (2026-07-13, per-file — main.yo OOMs, but s2 handles smaller modules)
+
+Since s2 OOMs on main.yo, ran the fixpoint check `stage2 ≡ stage3` PER-FILE on yo-self modules s2
+compiles within memory: s1 = committed TS-built yo-self (yo-self-yf); s2 = committed self-built
+yo-self (fp-s2, from stage2.c). Both run yo-self's codegen, so `s1-emit(F)` must equal `s2-emit(F)`.
+
+Results (normalizing the global temp-counter `_temp_[0-9]+ → _temp_N`, a spurious per-run offset):
+
+- **lexer.yo: FIXPOINT-OK** (251277 bytes, normalized stage2 ≡ stage3).
+- **token.yo: FIXPOINT-OK** (134068 bytes).
+- **expr.yo: 16-line real divergence** — ArrayList-growth alloc size emitted as `(24ULL) * cap`
+  by s1 vs `(sizeof(__yo_t26)) * cap` by s2 (and `16ULL` vs `sizeof(__yo_t3)`). FUNCTIONALLY
+  EQUIVALENT (both valid C, identical runtime size) — a comptime-`sizeof`-folding divergence: s1's
+  yo-self folds `sizeof(T)` to the numeric constant, s2's emits it symbolically. Byte-different,
+  behavior-identical. This is a determinism divergence in the sizeof-emission path, NOT a
+  miscompile (s2 is a correct compiler — corpus PASS 118/DIFF 0).
+
+**Meaning:** the self-hosting fixpoint HOLDS structurally on real yo-self modules (lexer/token
+byte-identical modulo temp counters; expr differs only in equivalent sizeof-vs-constant form). The
+FULL main.yo byte-exact fixpoint is blocked by three separable things, in priority order:
+
+1. s2 memory (the M3 skip_block callee-env leak) — s2 OOMs at 55G on main.yo (16GB box). DOMINANT.
+2. temp-counter offset — s1/s2 diverge by a small constant in `g_temp_counter` (needs deterministic
+   counter seeding or normalization in the fixpoint check).
+3. `sizeof`-fold determinism — make yo-self's alloc-size codegen emit the SAME form in s1 and s2.
+   Items 2–3 are small/cosmetic (functionally-equivalent output); item 1 is the architectural blocker.
+   So on a 64GB box, `diff <(norm stage2.c) <(norm stage3.c)` would be near-empty (only the sizeof-fold
+   class), and the remaining work to a byte-exact main.yo fixpoint is items 2+3 plus the M3 memory fix.
