@@ -747,3 +747,37 @@ true phantoms are skipped; or (c) fix 6b5c0ceb0's `___dup` to not emit the phant
 (faithful single-reassigned-local like TS) and then revert 68f5cb49c entirely. Validate: rebuild
 s1 → corpus PASS/DIFF 0 → main.yo emission completes at ~9G → run the fixpoint diff. This is a
 concrete codegen fix, NOT an architectural GC change.
+
+## PIVOTAL CORRECTION (2026-07-13): the leak is in YO-SELF's codegen, not TS
+
+Ran the control fixpoint chain and found the decisive asymmetry:
+
+- Control **s1** (yo-self binary emitted by **TS codegen**) compiles main.yo at **9G — no leak**.
+- Control **s2** (SAME yo-self source, but its binary emitted by yo-self's **self-hosted codegen**,
+  i.e. built from s1's stage2.c) compiles main.yo at **56G — leaks/OOMs**.
+- s1 and s2 run identical yo-self logic; the ONLY difference is which codegen produced their C.
+  ⇒ **yo-self's self-hosted codegen emits leaky binaries; TS codegen does not.**
+
+Mechanism: yo-self's codegen SCHEDULES a `___drop` for temps it never DECLARES (e.g.
+`_yo73831c64_temp_283669`, an `AstExpr*`), and its `declared_c_var_names` gate then SKIPS that drop
+(else undeclared-C-identifier error) → the RC value is never released → leak. TS codegen for the
+same construct DECLARES the temp, so its drop is valid and emitted → no leak (9G). So the divergence
+is: **yo-self codegen fails to emit a C declaration for a temp that TS declares.**
+
+`68f5cb49c` then PORTED yo-self's leaky skip-gate INTO TS codegen (as "M3 groundwork"), which made
+TS ALSO skip those drops → s1 regressed 9G→56G. So 68f5cb49c has two problems: (1) it made TS match
+yo-self's leak, and (2) it is groundwork for an unlanded path. **Reverting 68f5cb49c restores TS to
+its correct 9G behavior** — but does NOT fix s2 (yo-self codegen still leaks), so the fixpoint stays
+blocked at the s2→stage3 step until yo-self's codegen is fixed.
+
+### THE REAL FIX (both compilers, faithful port)
+
+Find where yo-self's codegen fails to emit the C DECLARATION for a temp it later drops (the temp that
+forces `declared_c_var_names` to skip) and make it declare the temp — matching TS codegen, which does
+declare it (control s1 = 9G proves TS's emission is correct & leak-free). Then neither codegen needs
+the skip-gate and neither leaks. Prime locus: the early-return/`__yo_effect_escaped` cleanup temps in
+`evaluate_function_call`-style large functions; `temp_283669` is `AstExpr*` — compare yo-self codegen's
+declaration emission for that temp against TS's in the 9G control's stage2.c (`/tmp/ctrl-out.c`).
+Validate: rebuild s1 (still 9G after reverting 68f5cb49c) → rebuild s2 from the fixed stage2.c →
+s2 compiles main.yo at ~9G and COMPLETES → run the fixpoint diff. This is a concrete codegen
+declaration-emission bug, fully validatable on THIS 16GB box.
