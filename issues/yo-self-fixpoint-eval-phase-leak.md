@@ -1227,3 +1227,25 @@ set ≈ s1's, then the emit completes in ~78s and the byte-exact diff runs) — 
 that fix, blocked-first on the #30 type-identity collision (issues/yo-self-gc-traverse-value-struct-field.md).
 The fixpoint PROPERTY is proven (mini-fixpoint byte-identical on real files); only the full-main.yo SCALE
 is blocked. This is genuine multi-session work on tasks #65 + #30.
+
+## Ruled out (2026-07-13): trial-clone ExprInfo eviction is NOT the leak fix
+
+Implemented + tested a targeted fix: `expr_info_table_remove_subtree` evicting the fresh-id clone's
+ExprInfo after the discarded overload trial (`_trial_call_overload_candidate`), the faithful analog of
+TS freeing a cloned expr's `$` via GC. Result: **corpus 118/0/0 (correctness-safe) but s2 memory still
+climbs 26→36→40G→OOM** — no material reduction. Reverted (adds hot-path cost for no benefit).
+
+Why it doesn't help: two structural limits + wrong target.
+
+1. An `Exception.throw` handler is a `->` function that CANNOT capture outer variables (`ctx`, the
+   clones), so eviction can only run on the trial's SUCCESS path — but the leak is on the THROW paths.
+2. The dominant leak is NOT trial-clone ExprInfo. Per the allocator evidence (`new_variable` 2.7M live)
+   it is the per-call `callee_env` Variables not dropped on the `__yo_effect_escaped` throw-propagation
+   paths inside the COMPILED `try_to_call_function_with_arguments` (`callee_env` shows 9 incr : 2 decr in
+   stage-2.c). That is a codegen RC-balance / drop-scheduling gap (#65), not a side-table eviction issue
+   — fixing it means emitting the missing `callee_env` decr on the `if(__yo_effect_escaped){…}` return
+   paths (and/or dropping the returned CallResult struct `__yo_t401`/`__yo_t413` that captures it).
+
+So item 3 is blocked squarely on #65 codegen drop-scheduling for `callee_env` on throw paths. The whole
+solution space explored this session (GC tuning, waiting, emitter DECL_RE parity, GC-traverse guard,
+ExprInfo eviction) is exhausted and documented; none is the fix.
