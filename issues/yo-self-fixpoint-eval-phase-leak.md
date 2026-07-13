@@ -1367,3 +1367,34 @@ heuristics:
   Validate on the repro in the section above (h dropped, no undeclared p) + corpus 118 + s2 memory
   trajectory (bounded, not 26→56G). This is the concrete, correct #65 implementation task; it reuses the
   existing M3 attach/walk helpers and is validatable on the small repro (no OOM).
+
+## Escape-drop fix IMPLEMENTED (partial, committed ba76c8b52) — 2026-07-13
+
+Implemented the scope-aware escape-drop gate (commit ba76c8b52): new
+`context.current_statement_start_token` (set in generate_function_body +
+generate_loop_body to `ast_expr_leftmost_token(arg)`), emit_effect_unwind_check now
+`skip_env_check=true`, and \_keep_pending_drop's !use_env branch keeps a pending drop
+iff its target was bound BEFORE the current top-level statement AND not consumed.
+Immutable `:=` locals live across a may-unwind call now DROP on the escape path
+(verified on the repro; matches TS). Gates: corpus 118/0/0, check 303/303, main.yo
+self-emit clang-compiles 0 errors.
+
+**Still partial — s2 still climbs on main.yo.** REASSIGNABLE named locals
+(`(x:T) = …`) are conservatively SKIPPED on the escape path, because a
+`(op_result_val:T) = if(… raise() …)` binding is uninitialized at a mid-initializer
+escape and its C decl may follow it (the op_result_val / m_result_val undeclared
+cases in a deeply-nested match/cond arm, where current_statement_start_token is the
+enclosing top-level statement, not op_result_val's own — so bound_before came out
+TRUE and it was wrongly kept until the reassignable-skip was added). But the dominant
+leak — the arg-matching loop's `callee_env_m` — IS reassignable, so it's skipped too
+→ s2 still leaks → OOM on main.yo.
+
+**To finish (remove the reassignable-skip safely):** the reassignable-skip is only
+needed because op_result_val's escape sits in a NESTED arm whose statement token
+isn't its own. Two ways: (a) set current_statement_start_token in EVERY nested
+statement-emission context (cond/match arm bodies) with proper save/restore so a
+reassignable local bound by the CURRENT (possibly nested) statement is correctly
+identified as not-bound-before — then callee_env_m (bound by a PRIOR loop statement)
+drops while op_result_val (bound by its own statement) skips, no reassignable-skip
+needed; or (b) point-in-time env resolution. Validate: main.yo 0 clang errors +
+corpus 118 + s2 memory BOUNDED (not 26→46G) → then the fixpoint diff completes.
