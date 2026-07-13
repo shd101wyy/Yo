@@ -1334,6 +1334,12 @@ export function generateFunction(
       context.declaredCVarNames.add(sanitizeForCIdentifier(param.label));
     }
   }
+  // Point the emitter at this function's set so every body line that DECLARES a
+  // codegen temp records it (in C-emission order) regardless of which codegen
+  // path built the declaration — the drop-emission gate then never treats a
+  // declared temp as undeclared and skips its (live-RC) drop. Restored below.
+  const previousEmitterDeclaredRef = context.emitter.declaredCVarNamesRef;
+  context.emitter.declaredCVarNamesRef = context.declaredCVarNames;
   context.currentFunctionName = functionName;
   (context as FunctionGenerationContext).currentFunctionType = functionType;
 
@@ -1471,6 +1477,7 @@ export function generateFunction(
 
   // Restore previous function name, type, closure captures, and parameter aliases
   context.declaredCVarNames = previousDeclaredCVarNames;
+  context.emitter.declaredCVarNamesRef = previousEmitterDeclaredRef;
   context.currentFunctionName = previousFunctionName;
   (context as FunctionGenerationContext).currentFunctionType =
     previousFunctionType;

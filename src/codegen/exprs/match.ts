@@ -376,6 +376,7 @@ export function generateMatchExpression(
           context.emitter.emitLine(
             `${indent}  ${getTypeString(varType, context)} ${destructuredVarName} = ${matchedValueCode};`
           );
+          context.declaredCVarNames?.add(destructuredVarName);
         }
       }
 

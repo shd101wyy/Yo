@@ -1792,6 +1792,7 @@ export function generateOtherFunctionCall(
                 context.emitter.emitLine(
                   `${indent}${getTypeString(typeToUse, context)} ${tempVar} = ${fnPtrCast}(${castedArgsList});`
                 );
+                context.declaredCVarNames?.add(tempVar);
               }
               storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
 
@@ -2202,6 +2203,7 @@ export function generateOtherFunctionCall(
             context.emitter.emitLine(
               `${indent}${getTypeString(returnType, context)} ${tempVar} = ${closureCall};`
             );
+            context.declaredCVarNames?.add(tempVar);
             storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
 
             // Release borrow flags after the call
