@@ -29,8 +29,30 @@ stage-2-clang-0 sessions; tree clean, all fixes committed on
    - `___dup(evaluated_callee)`). Corpus diff-test PASS / DIFF 0, `check ./std`
      clean.
 3. Verify the **self-hosting fixpoint** (required, see below).
-   **← YOU ARE HERE (2026-07-13): NOT a hardware limit — the self-compiled
-   binary LEAKS ~60GB compiling `main.yo`.** Prior "needs a 32GB box" (task
+   **← STATE (2026-07-13, LATEST — escape-path leak FIXED, commit `b73ddfcc7`):**
+   The ~60GB eval-phase RC leak that OOM-killed s2 compiling `main.yo` is FIXED.
+   s2's memory is now **bounded** (1.3GB at the default GC threshold; ~8GB at
+   `YO_GC_THRESHOLD=5000000`) — no more 56-73GB jetsam kill. Root+fix: on the
+   `__yo_effect_escaped` escape path, yo-self kept/skipped pending deferred drops
+   using an unreliable heuristic; the correct signal is a **block-scope stack
+   maintained by the emitter** tracking EVERY C brace (string/char/comment-aware
+   char scan; `_emitter_track_scope`, emitter.yo), against which the escape gate
+   (`return.yo _keep_pending_drop`) keeps a drop iff its target is still in an
+   open C scope. Verified: `stage2.c` self-emit 0 clang errors (was 20 with a
+   begin-block-marker-only tracker); `check ./yo-self` 303/303; corpus PASS 118 /
+   DIFF 0. Full analysis: **`issues/yo-self-fixpoint-eval-phase-leak.md`**.
+
+   **REMAINING blocker to a byte-exact `diff stage2.c stage3.c` (the separate
+   #78/#65 evaluator-perf task, NOT a leak):** s2 emits stage3.c very slowly
+   because the cycle-GC (`__yo_gc_collect`) thrashes — many RC drops are still
+   missing on the NORMAL (non-escape) paths, so the collector does the reclaim
+   RC should. GC-disabled (`YO_GC_THRESHOLD=0`) OOMs on compressed memory;
+   GC-enabled bounds memory but runs long. Closing the normal-path drop gap to
+   TS parity is what remains to make the full-`main.yo` fixpoint complete in
+   practical time. (The mini-fixpoint on small programs is already byte-identical.)
+
+   **(older 2026-07-13 state — superseded by the above):** the self-compiled
+   binary LEAKS ~60GB compiling `main.yo`. Prior "needs a 32GB box" (task
    #21) is a MIS-DIAGNOSIS: the control binary s1 (TS-compiled yo-self) does
    the identical compile in 76s / 9.2GB peak and COMPLETES; s2 (self-compiled)
    balloons to 56-73GB (compressed — RSS lies, watch `top -stats mem,cmprs`)
@@ -39,9 +61,7 @@ stage-2-clang-0 sessions; tree clean, all fixes committed on
    dropped on the `__yo_effect_escaped` throw-propagation paths that fire
    millions of times during def-time trial-eval. This is a yo-self codegen
    drop-emission divergence from TS (which reclaims the dead state via its
-   tracing GC). Full root + repro + fix direction:
-   **`issues/yo-self-fixpoint-eval-phase-leak.md`**. Fixing this leak (not more
-   RAM) unblocks item 3 and item 4.
+   tracing GC).
 
    **STATE (2026-07-13, LATEST) — leak ROOT-CAUSED + FIXED (TS fully, yo-self
    partially); the earlier "node-attached ExprInfo ~750-site" plan below is
