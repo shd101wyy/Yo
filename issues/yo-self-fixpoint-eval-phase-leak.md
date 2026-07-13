@@ -1130,3 +1130,75 @@ arrows; yo-self should match: if the arrow node's ExprInfo lacks a resolved Func
 treat it as a boundary), OR stop the walker at the specific catch/handler construct. This is the ONE
 remaining gap; M3 is otherwise RC-correct (DIFF 0) and self-compiles 117/118. Activation reverted per
 the no-regression gate; scaffolding + walker remain committed green (inactive).
+
+## RESOLVED — M3 activated & committed green (2026-07-13, commit 7e7ebced1)
+
+The last 1/118 (dyn_error_throw_ioerror) is FIXED and the full M3 subsystem is now ACTIVE and
+committed. Three coordinated changes (all faithful-port-justified):
+
+1. **begin.yo** — removed the `skip_block` big-hammer from `_schedule_scope_end_drops` (TS has no such
+   hammer); re-added the M3 driver in `evaluate_begin_expression` (attaches early-return-only `___drop`s
+   for CONSUMED locals to each return/unwind — port of begin.ts:2068-2122).
+2. **begin.yo** — simplified `_is_function_boundary_for_early_drop` to treat ANY `->`/`=>` arrow as a
+   boundary. Match-arm `=>` never reach this predicate (the walker recurses into cond/match branch
+   PARTS, not arm nodes), so any arrow here is a closure/handler = a new C function scope. This stops
+   the walker cross-attaching an enclosing var's drop to a return inside the nested handler function
+   (the dyn_error_throw_ioerror SELF-FAIL). The prior is_anonymous/FuncVal check missed the handler
+   because yo-self sets those markers only after closure specialization, later than this def-time walk.
+3. **return.yo** — applied the `declared_c_var_names` C-emission-order guard on ALL paths in
+   `_keep_pending_drop` (previously the escape path, `skip_env_check=true`, bypassed it). yo-self
+   over-materializes intermediate temps that codegen folds inline (never declaring them in C) yet still
+   schedules their scope-end drop; the guard skips their drop (no C variable exists → cannot leak).
+
+Gates: corpus PASS 118 / DIFF 0 / SELF-FAIL 0; check ./std 153/153; check ./yo-self 303/303.
+
+## Item-3 fixpoint STATUS + the REMAINING PERF divergence (2026-07-13)
+
+Fixpoint chain executed:
+
+- s1 (yo-self by TS, --release) emits stage2.c: **78s, 10.1 GB peak** (31.7 MB C).
+- clang -O2 stage2.c → s2: **0 errors** (item 1 confirmed).
+- s2 emits stage3.c: with GC on, s2 runs at **~26 GB stable / ~48 min** (still going at report time);
+  with `YO_GC_THRESHOLD=0` it runs FAST (~226s) but **OOMs** (peak footprint 98 GB) — abnormal
+  termination, no output.
+
+**Root of the s2 slowness (the user's perf-parity concern):** `sample` shows **100% of leaf time in
+`__yo_gc_collect`** — the Bacon-Rajan FULL collector (`__yo_gc_register` triggers it when tracked_count
+crosses the adaptive 2x-live `__yo_gc_full_threshold`). s2's tracked-object graph is far larger than
+s1's, so each O(tracked) full scan is enormous and they repeat as the graph grows.
+
+Differential emit counts (yo-self stage2.c vs TS ts-main.c, SAME main.yo source):
+
+- `// Drop local variables before early return` blocks: **2388 (yo-self) vs 15611 (TS)** — 6.5x fewer.
+- (Raw `___drop` count 17 vs 240331 is NOT comparable — yo-self INLINES enum drops as
+  `switch(tag){case SOME: __yo_decr_rc(payload)}` while TS calls typed `fn_..___drop()`.)
+
+**The `YO_GC_THRESHOLD=0` OOM proves the extra memory is CYCLIC garbage** (GC-on bounds it at 26 GB by
+reclaiming ~72 GB of cycles; a pure acyclic missing-drop leak keeps RC>0 forever and GC could NOT
+reclaim it). So yo-self's emitted C leaves reference CYCLES as garbage that TS breaks promptly: TS emits
+a scope-end/early-return drop that decrements a cycle member to RC 0 (freed immediately, cycle never
+becomes GC garbage); yo-self MISSES that drop (6.5x fewer blocks), so the cycle survives to be reclaimed
+by the expensive full collector. Missing-drops and cyclic-garbage are therefore the SAME root.
+
+**Where the missing drops come from (two candidate causes, not yet split):**
+
+- (a) `declared_c_var_names` guard suppression: the guard skips a drop whose temp the emitter never
+  recorded. yo-self's `_emitter_record_declared_temp` (emitter.yo) matches only `<type> <name> = `
+  (initialized) — it does NOT record `<type> <name>;` (uninitialized) declarations, unlike TS's
+  `DECL_RE = /[\w>*\]]\s+([A-Za-z_]\w*)\s*(?:=(?!=)|;)/`. stage2.c has ~9k uninit temp decls. A `;`-decl
+  temp later assigned & needing a scope-end drop is thus unrecorded → its drop is guard-filtered → the
+  object (possibly a cycle member) leaks to the GC. NOTE: naively adding `;` recording previously
+  CRASHED s2 — an uninit temp then passes the (declared-only) escape-path guard and gets dropped before
+  assignment. A safe fix must ALSO gate the escape path on initialization (yo-self's escape path passes
+  skip_env_check=true, matching TS, so the init check is bypassed there — but TS's pending list does not
+  contain those uninit temps, so TS never hits it; yo-self's scheduling DOES include them).
+- (b) scheduling gaps: the 6.5x block deficit may also reflect fewer scope-end/early-return drops
+  SCHEDULED by the evaluator (getVariablesNeedingDrop-equivalent + M3 driver coverage), independent of
+  the emitter guard.
+
+**Next step for perf parity (tasks #34/#65 territory):** split (a) vs (b) by counting guard-suppressed
+drops vs scheduled drops on a small self-compiled input; then either (a) make the emitter record `;`
+decls AND add an initialization gate to the escape path so uninit temps are never dropped, or (b) close
+the scheduling deficit. Validate each change against the full corpus (PASS 118 / DIFF 0 / SELF-FAIL 0)
+and REVERT on any regression. Target: s2 tracked graph ≈ s1's 10 GB so the full GC stays cheap and s2
+matches s1's ~78s.
