@@ -898,3 +898,33 @@ s1→s2→stage3 chain to validate, not just corpus).
 - Fixpoint (stage2.c ≡ stage3.c): NOT produced on this 16GB box (s2 OOMs at 26G). RUNNABLE NOW on
   a 32GB box with the current commits (26G < 32GB) — task #21's documented fallback. On 16GB it
   needs the pre-init-drop guard strengthening above to reach 9G.
+
+## CORRECTION (2026-07-13, measured): s2 peak is ~55G, NOT 26G — my earlier claim was a plateau misread
+
+Re-ran the committed-state (2e329eeee) s2 emitting stage3.c, CLEAN (84% mem free) and to OOM:
+memory climbed 26G(t=24s) → 36G(t=60s) → **55G(t=108s), held to OOM** (swap grew to 10G). The "26G"
+I reported earlier was an INTERMEDIATE PLATEAU sampled before the final climb — NOT the peak.
+
+**Consequence — corrected diagnosis of the two leaks:**
+
+- **s1's 56G→9G** (TS fix, 0b9928b95) is REAL and confirmed: the declaredCVarNames drop-skip GATE
+  bug (skipping ~88K temp drops) was s1's leak; fixed; stage2.c now producible (was OOM before).
+  This genuinely ADVANCED the fixpoint one stage (blocker moved from "s1 OOMs" to "s2 OOMs").
+- **s2's ~55G is DOMINATED by the ORIGINAL M3 leak, NOT the temp-drop gate.** The yo-self
+  declaredCVarNames Emitter port (2e329eeee) is a correct faithful fix (mirrors TS, corpus PASS 118
+  / DIFF 0, fixes the same gate bug in yo-self codegen) but it BARELY moves s2 (~56G→55G): s2's
+  binary is emitted by yo-self's codegen, whose `_schedule_scope_end_drops` `skip_block` SKIPS
+  scope-end drops for every control-flow block → callee-env Variables never dropped (the handoff's
+  "2.7M+ live new_variable" leak). That is the M3 milestone, still UNPORTED.
+- TS codegen has M3 (begin.ts:2064-2140), which is why s1 (TS-emitted binary) does NOT have this
+  leak and runs at 9G once the gate bug is fixed.
+
+**So the fixpoint's remaining blocker is M3 (remove yo-self begin.yo `skip_block`), and M3 is blocked
+by the never-pruned `expr_info_table` compile-time explosion** (removing skip_block builds a `___drop`
+AST node per owning-RC local per control-flow block via generate_expr_from_code, each pinned with an
+env snapshot in the never-pruned table → s1's RUNTIME emitting stage2.c re-explodes to ~56G). That is
+the architectural table-affordability issue (node-attached ExprInfo — infeasible on yo-self's module
+system due to the expr↔value import cycle, proven earlier). NET: the declaredCVarNames work fixed a
+real, separate gate-bug leak (s1 unblocked, 9G) but the fixpoint's DOMINANT blocker (s2 M3 leak → the
+table-affordability wall) is unchanged. The 32GB-box path also does NOT apply to s2 at 55G — that
+needs 64GB+, same as before for s2.
