@@ -600,3 +600,23 @@ relying on prior-session numbers):
   plateau. The only in-repo path is the memory fix — which the analyses above prove is a
   major architectural effort (node-attach blocked by the loader import cycle; reclamation
   has no safe boundary under the global multi-pass codegen). Both cheap levers are closed.
+
+## OOM CONFIRMED + fix cannot be validated on this box (2026-07-13)
+
+- Re-ran the stage-2.c emission to completion-or-death: process **jetsam OOM-killed** at the
+  56G plateau (empty output, no stage2.c) after ~7 min. Confirms the summary's rc=137. Not a
+  bounded-time thrash that eventually finishes — it dies.
+- Single-module compiles do NOT reproduce it: `s1 compile yo-self/lexer.yo --emit-c` finishes
+  in ~5s at low memory (250KB C). The 56G is inherent to compiling the WHOLE compiler
+  (main.yo → every module + every generic specialization) — it scales with total
+  specialization count × the RC arc (pre-RC-arc control was 9.2G; RC arc → 56G, ~6×).
+- **Therefore a memory fix cannot be developed on this 16GB box:** the corpus diff-test gate
+  validates RC _correctness_ (small programs, low memory) but NOT a memory _reduction_; the
+  only thing that measures the reduction is the main.yo emission, which OOM-kills until the
+  fix is ALREADY sufficient (<~24G). It is all-or-nothing — you cannot see "56G→45G" progress,
+  so you cannot iterate a partial fix here. Developing/validating the memory fix REQUIRES a
+  64GB+ machine (to run the emission, watch peak drop, and confirm the fixpoint diff).
+- Net: item 3 on current hardware is blocked two ways at once — (1) the fixpoint run itself
+  needs 64GB+, and (2) the memory fix that would shrink it also needs 64GB+ to validate.
+  The clean fix (node-attach) is separately blocked by the loader import cycle. This is the
+  honest ceiling of what this environment can do for item 3.
