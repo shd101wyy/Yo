@@ -208,9 +208,24 @@ are compiled FAITHFULLY — they run on missing data.
    Prereq (emission determinism) is DONE — stage-1-emitted stage-2 C is
    byte-identical across runs.
 
-   **Mini-fixpoint (fast signal, run first):** both binaries emit the same
-   SMALL file; diff. Currently FAILS via the parse-0 cascade (stage-2 emits
-   a skeleton).
+   **STATUS 2026-07-13:** Items 1 & 2 CONFIRMED (stage2.c clang-compiles 0
+   errors; UAF fixed). The M3 drop-fix is committed green (corpus 118/0/0);
+   it cut the s2 leak 56-73GB→~26GB. **Mini-fixpoint now PASSES** — s1 and s2
+   emit BYTE-IDENTICAL C (after `_temp_[0-9]+`/`yo_id_[0-9]+` normalization,
+   the only difference being temp-ID numbering) for `empty_main`,
+   `fn_body_arith`, `extern_c_puts` (parse-0 cascade is long gone). So the
+   yo-self codegen IS a deterministic fixpoint on real inputs.
+
+   **The full-main.yo byte-exact diff (line 202-205) is BLOCKED by perf**, not
+   correctness: s2 emits main.yo at ~26GB and the full-heap cycle GC goes
+   near-quadratic over that tracked set, so the emit does not complete in a
+   reasonable time on a 16GB box (>58min, no completion). `YO_GC_THRESHOLD=0`
+   runs fast (~226s) but OOMs at 98GB (the extra heap is reclaimable cyclic
+   garbage); `YO_GC_FULL_PCT=130` bounds memory but is slower still. The fix is
+   to reduce s2's tracked set to ≈ s1's 10GB by closing the drop-SCHEDULING gap
+   (yo-self emits ~7x fewer owned-local drops than TS → cycles survive to the
+   GC). See issues/yo-self-fixpoint-eval-phase-leak.md and (BLOCKER, fix first)
+   issues/yo-self-gc-traverse-value-struct-field.md.
 
 2. **Stage-1 ≡ Stage-2 (aspirational port-fidelity metric).** Track
    `diff stage1.c stage2.c | wc -l` and drive it down; do NOT block #69/#70
