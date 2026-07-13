@@ -1202,3 +1202,28 @@ decls AND add an initialization gate to the escape path so uninit temps are neve
 the scheduling deficit. Validate each change against the full corpus (PASS 118 / DIFF 0 / SELF-FAIL 0)
 and REVERT on any regression. Target: s2 tracked graph ≈ s1's 10 GB so the full GC stays cheap and s2
 matches s1's ~78s.
+
+## DEFINITIVE (2026-07-13, end of session): GC tuning is futile — s2 OOMs on main.yo, #65 leak fix REQUIRED
+
+Exhaustively confirmed that item 3's full-main.yo diff cannot be produced without fixing the leak:
+
+- **Default GC:** s2's memory footprint climbs unbounded on main.yo (measured 26G → 36G → 56G over ~100s
+  via `top -stats mem,cmprs`) → jetsam (abnormal exit, empty log). It does NOT reliably complete. (One
+  earlier run showed a constant "1058M" reading that was a `top` artifact — every other run climbs.)
+- **`YO_GC_THRESHOLD=0`** (disable incremental): fast (~226s) but OOMs at 98GB peak.
+- **`YO_GC_FULL_PCT=1000`** (raise full-collector threshold): 32G in 45s → OOM at 90s.
+- **`YO_GC_FULL_PCT=130`** (lower it): bounded but even slower (>58min, no completion).
+
+So the full collector at the DEFAULT 2x-live threshold is the ONLY setting that bounds memory, and it
+does so by running O(all-tracked) constantly (`sample` = 100% `__yo_gc_collect`), which is why the emit
+either OOMs (when garbage outpaces it) or takes >80min (when it keeps up). There is NO GC-tuning or
+patience path. **The garbage MUST be reduced at the source** — the #65 drop-scheduling gap (yo-self
+emits ~7x fewer owned-local drops than TS; `callee_env` captured into CallResult structs `__yo_t401`/
+`__yo_t413` shows 9 incr : 2 decr → net +7 leaked refs/call, accumulating as reference cycles the full
+collector must repeatedly reclaim).
+
+**Bottom line for item 3 / item 4:** blocked on the #65 leak fix (reduce cyclic garbage so s2's tracked
+set ≈ s1's, then the emit completes in ~78s and the byte-exact diff runs) — and, for the emitter half of
+that fix, blocked-first on the #30 type-identity collision (issues/yo-self-gc-traverse-value-struct-field.md).
+The fixpoint PROPERTY is proven (mini-fixpoint byte-identical on real files); only the full-main.yo SCALE
+is blocked. This is genuine multi-session work on tasks #65 + #30.
