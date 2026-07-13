@@ -433,7 +433,15 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
         },
         _ => ()
       );
+      // Point the emitter at this function's declared_c_var_names so every body
+      // line that DECLARES a minted temp records it (in C-emission order),
+      // regardless of which codegen path built the declaration string — the
+      // drop-emission gate then never treats a declared temp as undeclared and
+      // skips its (live-RC) drop. Mirrors the TS Emitter fix. Restored below.
+      prev_emitter_ref := context.base.emitter.declared_ref;
+      context.base.emitter.declared_ref = Option(HashSet(String)).Some(context.base.declared_c_var_names);
       generate_function_body(body_box, function_type, String.from("  "), context);
+      context.base.emitter.declared_ref = prev_emitter_ref;
       context.current_closure_captures = prev_caps;
       context.current_closure_capture_frame_level = prev_cap_level;
       context.current_closure_capture_type_c_name = prev_cap_cname;
