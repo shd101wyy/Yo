@@ -706,3 +706,44 @@ cleanup path. Fix = dedup the drop list / don't schedule phantom drops. Validate
 corpus PASS/DIFF 0, then main.yo emission peak drops toward ~9G and COMPLETES (item 3 unblocked
 ON THIS BOX). This supersedes the node-attach / callback-drop / 64GB conclusions — the leak is a
 fixable accumulation bug, not an architectural GC gap.
+
+## BISECTED (2026-07-13): the 6x regression is commit 68f5cb49c (declaredCVarNames drop-skip gate)
+
+Four-config bisect via measured s1 main.yo emission footprint (each: build s1, run
+`compile yo-self/main.yo --emit-c`, watch `top -stats mem`):
+
+| config (6b5c0ceb0 UAF-fix / 68f5cb49c gate) | builds?                                  | peak footprint      |
+| ------------------------------------------- | ---------------------------------------- | ------------------- |
+| control (no 6b / no 68)                     | yes                                      | **9.2G, COMPLETES** |
+| no 6b / **yes 68**                          | yes                                      | **56G (OOM)**       |
+| yes 6b / yes 68 (HEAD)                      | yes                                      | 56G (OOM)           |
+| yes 6b / no 68                              | no (temp_283669 undeclared clang errors) |
+
+- **Reverting 6b5c0ceb0 alone stays at 56G** → 6b5c0ceb0 (the borrowed-callee `___dup`) is NOT
+  the memory cause (matches the earlier "reverting the dup didn't help" note).
+- **The ONLY difference between the 9G control and the 56G config is 68f5cb49c** → it is the
+  6x regression. It is a TS-codegen change billed as "M3 groundwork" for a path (yo-self
+  begin.yo skip_block removal) that is NOT landed — so it delivers ZERO current benefit while
+  causing a 6x leak.
+- **Mechanism:** the gate skips a `___drop` when `isCodegenTempName(name) && !declaredCVarNames.has(name)`.
+  `declaredCVarNames` is seeded with params and grown ONLY in `getVariableTypeString`. Temps
+  declared through any OTHER emission path are therefore absent from the set, so the gate
+  wrongly classifies those REAL, declared temps as "undeclared" and SKIPS their drop → the RC
+  value is never released → leak. In the no-6b config there are no genuine phantoms yet the
+  gate still inflated 9G→56G, proving it skips REAL drops. A leak (not a double-free) does not
+  change program output, so the corpus diff-test (PASS/DIFF 0) cannot detect it — which is why
+  68f5cb49c was landed "regression-free."
+- Note `temp_283669` (undeclared, from 6b5c0ceb0's dup) is a genuine phantom the gate correctly
+  suppresses — that is why fully reverting 68f5cb49c fails to build with 6b5c0ceb0 present. So the
+  fix must keep SOME phantom suppression while not skipping real drops.
+
+### FIX (next, validatable on THIS box)
+
+Either (a) COMPLETE `declaredCVarNames` so it records every C-declared temp (all declaration
+emission paths, not just getVariableTypeString) — then the gate skips only genuine phantoms and
+real drops are emitted (→ 9G); or (b) replace the "declared YET" incremental check with a
+"declared ANYWHERE in this function" check (pre-scan the function body's declarations) so only
+true phantoms are skipped; or (c) fix 6b5c0ceb0's `___dup` to not emit the phantom temp
+(faithful single-reassigned-local like TS) and then revert 68f5cb49c entirely. Validate: rebuild
+s1 → corpus PASS/DIFF 0 → main.yo emission completes at ~9G → run the fixpoint diff. This is a
+concrete codegen fix, NOT an architectural GC change.
