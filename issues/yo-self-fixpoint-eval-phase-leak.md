@@ -620,3 +620,33 @@ relying on prior-session numbers):
   needs 64GB+, and (2) the memory fix that would shrink it also needs 64GB+ to validate.
   The clean fix (node-attach) is separately blocked by the loader import cycle. This is the
   honest ceiling of what this environment can do for item 3.
+
+## VIABLE PATH FOUND (2026-07-13): callback-inversion drop-reclamation + per-id liveness refcount
+
+This sidesteps the node-attach import-cycle wall and replicates TS's GC semantics:
+
+- **Dependency inversion (breaks the cycle):** `expr.yo` gets a global
+  `(g_on_expr_dispose : Option(fn(ExprId) -> unit)) = .None` and a CUSTOM `AstExpr` drop that
+  calls it with the node's id. `expr_info.yo` (or main.yo init) sets
+  `g_on_expr_dispose = remove-from-table`. `expr.yo` never imports `ExprInfo`/`EvalValue` —
+  only `fn(ExprId)->unit` — so NO `expr↔value` cycle. Table stays a global singleton the
+  callback reaches.
+- **Effect:** when a node drops (RC=0) its ExprInfo entry is reclaimed. Throwaway validation
+  trials (`is_executing=false`, fired millions of times — see function_type.yo:208
+  `_trial_eval_fn_body`) drop their nodes right after the trial → entries reclaimed. This
+  bounds memory WITHOUT skipping any drop creation (so it does NOT regress corpus the way the
+  is_executing gate did — codegen's live-FunctionValue-held nodes keep their entries).
+- **BLOCKER to resolve — shared ids:** the derived `Clone` (expr.yo:296-306) SHARES ids by
+  design (a clone reuses the original's ExprInfo entry; comment expr.yo:308-313). So two live
+  nodes can share one id; removing the entry on either's drop UAFs the other. Fix = a per-id
+  **liveness refcount**: `HashMap<ExprId, usize>` incremented at every AstExpr construction
+  (parser + ~119 `AstExpr.Atom/FnCall` sites + Clone + clone_expr_fresh_ids + make_err_expr)
+  and decremented in the custom drop; remove the ExprInfo entry only when the count reaches 0.
+  Correct even with shared ids (it is exactly object-liveness, which V8 gives TS for free).
+- **Cost/risk:** custom `AstExpr` drop (delicate — must still recurse func/args; interacts with
+  RC/cycle-GC \_\_\_dispose), +1 HashMap op per node create/drop (perf), and the ~119 constructor
+  edits. Correctness is checkable via the corpus RC oracle (small programs). BUT the memory
+  win is NOT measurable on this 16GB box — needs a 64GB+ machine to run the main.yo emission
+  and confirm the peak drops below capacity + the fixpoint diff. This is the recommended path
+  for a focused session on adequate hardware; it is the first design that clears the import
+  cycle that blocks node-attach.
