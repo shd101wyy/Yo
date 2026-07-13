@@ -1424,3 +1424,32 @@ before), op_result_val (decl reordered after → not yet in set → skip), calle
 drop), AND sibling-arm bindings (scope-aware). This is the true #65 fix; it requires the emitter to
 record named-local decls with a scope stack (push on `{`, pop on `}`) rather than a flat per-function
 set. Validate: main.yo 0 clang errors + corpus 118 + s2 memory bounded → fixpoint diff completes.
+
+## THREE approaches implemented+tested — only a codegen-level scope stack remains (2026-07-13)
+
+Exhaustively implemented and tested three escape-gate liveness signals against the full main.yo
+self-emit (each reverted; committed green = the token+reassignable-skip partial fix, ba76c8b52):
+
+1. **Source-token order** (init token < current-statement token): 4 clang errors. `op_result_val`'s
+   control-flow initializer is codegen-REORDERED so its C decl follows one of its escapes, yet
+   source-order says bound-before → undeclared. Needs the reassignable-skip band-aid, which also skips
+   the dominant reassignable leaker `callee_env_m` → s2 still OOMs. (committed as the partial fix.)
+
+2. **Flat C-emission-order set** (`declared_all_c_var_names`, all named+temp decls, never removed): 20
+   clang errors. Block-UNSOUND — a name declared in match-arm 1 stays "declared" at arm 2's escape where
+   it is out of C scope (`field_labels`/`svn`). Same failure class as the earlier fix4 attempt.
+
+3. **(implied) Emitter brace-detection scope stack**: unreliable — yo-self's own C-emitting functions
+   contain string literals with `{`/`}`, so counting braces in emitted lines false-triggers scope
+   push/pop during codegen of those functions.
+
+**Conclusion (validated, not conjecture): the only correct signal is a SCOPE STACK maintained at the
+codegen BLOCK-EMITTER level** — push a scope frame when a block emitter opens a C block (generate_begin
+`{ // begin block`, generate_loop_body, generate_function body, cond/match arm bodies, if/switch
+blocks), pop on close, record each declared C var into the top frame, and the escape gate keeps a drop
+iff its target is in some CURRENTLY-OPEN frame (declared-before AND in-scope). This is correct for all
+cases (op_result_val: decl reordered after escape → not yet pushed → skip; callee_env_m: in an open
+frame → drop; sibling-arm bindings: popped when the arm closes → skip). It is a substantial change
+touching every block-emitting site with strict push/pop pairing (a missed pop → undeclared crash; an
+extra pop → dropped-too-early). That is the definitive #65 completion; validate on the repro + main.yo
+0-clang-errors + corpus 118 + s2 memory bounded → fixpoint diff completes.
