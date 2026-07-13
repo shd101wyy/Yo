@@ -1274,3 +1274,60 @@ chain mirroring TS `getVariablesNeedingDrop`) rejects the `CheckParamResult` loc
 scope-end, compared against what TS schedules for the same variable. Fix the filter divergence so the
 loop body schedules the drop. Validate with the s2 memory-trajectory signal (climbs → bounded) since
 full main.yo completion is the very thing being fixed. This is the concrete #65 entry point.
+
+## BREAKTHROUGH (2026-07-13): leak REPRODUCED in a small no-OOM file + exact fix + why shortcuts fail
+
+Reproduced the eval-phase leak in a standalone repro (no OOM, ~instant emit) — the fast iteration
+loop this whole investigation lacked:
+
+```rust
+Env2 :: ref(struct(x : i32));
+maybe_throw :: (fn(v : i32, exn : Exception) -> i32)({ if(v > 3, { exn.throw(dyn(String.from("boom"))); }); v });
+run :: (fn(n : i32, exn : Exception) -> i32)({
+  (sum : i32) = 0; (i : i32) = 0;
+  while(i < n, {
+    h := Env2(x : i);              // ref local, live across the call below
+    r := maybe_throw(i, exn);      // may set __yo_effect_escaped
+    sum = ((sum + h.x) + r); i = (i + 1);
+  });
+  sum
+});
+```
+
+yo-self emits (LEAK): `if (__yo_effect_escaped) { return (int32_t){0}; }` — `h` NOT dropped.
+TS emits (CORRECT): `if (__yo_effect_escaped) { // Drop local variables before early return\n
+fn_..._id_21___drop(h); return (int32_t){0}; }` — `h` IS dropped.
+
+So the mid-body effect-unwind check (`emit_effect_unwind_check` → `generate_pending_deferred_drops`,
+return.yo) fails to drop still-live locals on the escape path. In the real evaluator this is exactly the
+per-call `callee_env` (and its parameter Variables) leaking on the millions of def-time trial-eval throw
+paths → the 26→56G OOM.
+
+**Why it leaks in yo-self but not TS:** `emit_effect_unwind_check` calls
+`generate_pending_deferred_drops(..., skip_env_check=false)`. With use_env=true, `_keep_pending_drop`
+resolves each pending drop against the CALL expr's recorded env. TS's env is POINT-IN-TIME (has `h`,
+lacks not-yet-bound locals). yo-self records the END-of-scope env, and its resolution returns empty for
+`h` → `h` filtered → leaked.
+
+**Fixes tried this session (all reverted; each teaches the constraint):**
+
+- `skip_env_check=true` in emit_effect_unwind_check + `_keep_pending_drop`'s !use_env branch resolving
+  via the drop's OWN atom env + init-token/consumed checks → DROPS `h` correctly (verified) BUT
+  regressed `effect_handler_struct_result`: it also drops `p := if(… raise() …)` whose C decl is emitted
+  AFTER the escape (inside its own initializer) — source-token order ≠ C-emission order, so the
+  init-token check wrongly keeps `p` → `use of undeclared identifier 'p'`.
+- Gate the escape drop on `declared_c_var_names.contains` (C-emission-order truth): corpus 118/0/0 but
+  only +14 drops on main.yo — because it records ONLY minted temps, so it SKIPS the leaking NAMED
+  locals (callee_env_m et al.). Marginal, no OOM relief.
+- Record NAMED locals in declared_c_var_names too (flat set): **block-scope-UNSOUND** — a name declared
+  in one match arm (`field_labels`) appears "declared" at an escape in a sibling arm where it's out of C
+  scope → 20 clang errors (`use of undeclared identifier 'field_labels'/'svn'/…`). Flat set cannot model
+  C block scoping; only uniquely-numbered temps are safe in it.
+
+**THE fix (next session, now precisely scoped):** make yo-self resolve the escape-path pending drops
+against a POINT-IN-TIME env like TS (so `h` is present, `p`/sibling-arm bindings are absent), rather
+than the end-of-scope env + flat declared set. Either (a) record per-expr point-in-time env snapshots
+for call/escape exprs (the faithful TS model), or (b) make the drop-scheduler attach the escape drop
+only to escapes that are LEXICALLY AFTER the local's full binding statement AND within the same C block
+scope (scope-aware, not flat). Validate on the repro above (h dropped, no undeclared p) + corpus 118 +
+the s2 memory trajectory (bounded, not 26→56G). This is the concrete entry point for #65.
