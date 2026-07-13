@@ -359,10 +359,38 @@ generate_consumed_var_drops_for_escape :: (fn(indent : String, context : Functio
     .None => ()
   )
 );
-/// `early_return_only_deferred_drop_expressions` is absent in yo-self ExprInfo
-/// (documented model gap) → no-op. Mirrors `generateEarlyReturnOnlyDeferredDropExpressions`.
+/// Emit the early-return-only deferred drops attached to `expr` (a return/unwind
+/// node) — M3. Mirrors `generateEarlyReturnOnlyDeferredDropExpressions`
+/// (src/codegen/exprs/return.ts): skip closure-capture drops, emit the rest.
 generate_early_return_only_deferred_drop_expressions :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> unit)(
-  ()
+  match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => match(
+      ei.early_return_only_deferred_drop_expressions,
+      .Some(early_drops) => {
+        em := context.base.emitter;
+        (i : usize) = usize(0);
+        while(i < early_drops.len(), {
+          match(
+            early_drops.get(i),
+            .Some(drop_expr) => if(!(is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures)), {
+              code := _call_generate_expr(drop_expr, indent.clone(), context);
+              if(code.len() > usize(0), {
+                line := indent.clone();
+                line.push_string(code);
+                line.push_str(";");
+                em.emit_string_line(line);
+              });
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  )
 );
 /// Deferred-dup handling for an atom return value. Mirrors `handleAtomDeferredDup`.
 handle_atom_deferred_dup :: (fn(expr : AstExpr, atom_code : String, indent : String, context : FunctionGenerationContext) -> String)(

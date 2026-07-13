@@ -393,7 +393,13 @@ ExprInfo :: ref(
     /// True when `->` / `=>` defines an anonymous function (new function boundary).
     is_anonymous_function_definition : Option(bool),
     /// Unrolled loop bodies for comptime-terminated while loops.
-    comptime_unrolled_bodies : Option(ArrayList(AstExpr))
+    comptime_unrolled_bodies : Option(ArrayList(AstExpr)),
+    /// M3 (early-return-only drops): `___drop` expressions attached to THIS
+    /// return/unwind node that must fire ONLY on this early-return path — for a
+    /// local that is initialized before this exit but consumed (moved out) after
+    /// it, so the block's normal scope-end drop would miss it. Mirrors TS
+    /// `earlyReturnOnlyDeferredDropExpressions` (src/expr.ts / begin.ts:130-238).
+    early_return_only_deferred_drop_expressions : Option(ArrayList(AstExpr))
   )
 );
 /// Create an ExprInfo with the three required fields and all optional fields set to `.None`.
@@ -443,7 +449,8 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
     is_index_trait_address_of : Option(bool).None,
     is_compile_time_only_assignment : Option(bool).None,
     is_anonymous_function_definition : Option(bool).None,
-    comptime_unrolled_bodies : Option(ArrayList(AstExpr)).None
+    comptime_unrolled_bodies : Option(ArrayList(AstExpr)).None,
+    early_return_only_deferred_drop_expressions : Option(ArrayList(AstExpr)).None
   )
 );
 // ---------------------------------------------------------------------------
