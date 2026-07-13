@@ -141,6 +141,7 @@ function generateIndexTraitCall(
       context.emitter.emitLine(
         `${indent}${calleeType} ${tempName} = ${calleeCode};`
       );
+      context.declaredCVarNames?.add(tempName);
       calleeCode = tempName;
     }
   }

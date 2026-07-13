@@ -210,6 +210,9 @@ export function generateMatchExpression(
   if (!isUnit && tempVariableName) {
     const varType = getTypeString(valueType, context);
     context.emitter.emitLine(`${indent}${varType} ${tempVariableName};`);
+    // Record the C declaration so the drop-emission gate does not skip this
+    // (declared) temp's drop as if undeclared (a skipped live-RC drop leaks).
+    context.declaredCVarNames?.add(tempVariableName);
   }
 
   // Generate the matched value

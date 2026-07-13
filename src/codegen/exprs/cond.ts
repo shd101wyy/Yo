@@ -110,6 +110,9 @@ export function generateCondExpression(
     if (!isUnit && tempVar && !canOptimizeToDirect) {
       const varType = getTypeString(valueType, context);
       context.emitter.emitLine(`${indent}${varType} ${tempVar};`);
+      // Record the C declaration so the drop-emission gate does not skip this
+      // (declared) temp's drop as if undeclared (a skipped live-RC drop leaks).
+      context.declaredCVarNames?.add(tempVar);
     }
 
     // If we can optimize to direct generation, just generate the value expression

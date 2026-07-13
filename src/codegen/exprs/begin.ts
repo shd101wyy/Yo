@@ -37,6 +37,11 @@ export function generateBegin(
       context.emitter.emitLine(
         `${indent}${getTypeString(valueType, context)} ${tempVariableName};`
       );
+      // Record the C declaration so the drop-emission gate does not treat this
+      // (now-declared) temp as undeclared and SKIP its drop — a skipped drop for
+      // a live RC temp leaks. This declaration uses getTypeString (not
+      // getVariableTypeString), so declaredCVarNames must be updated explicitly.
+      context.declaredCVarNames?.add(tempVariableName);
     }
 
     // Evaluate each argument
