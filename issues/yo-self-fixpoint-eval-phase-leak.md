@@ -1107,3 +1107,26 @@ two omitted filters added (auto-generated skip in the driver; TypeValue-fn-calle
 walker). Then corpus must reach PASS 118/DIFF 0/SELF-FAIL 0, after which s1 emits stage2.c @9G → build
 s2 → s2 emits stage3.c @9G (M3 fixes the callee-env leak) → `diff <(norm stage2.c) <(norm stage3.c)` =
 FIXPOINT-OK. M3 is otherwise complete and RC-validated; this is the last faithful-filter gap.
+
+## 1/118 cause REFINED (2026-07-13): M3 walker crosses an effect-handler function boundary
+
+Added the two omitted filters (auto-generated skip + TypeValue-fn-callee is_function_type boundary)
+and re-tested: still PASS 117 / DIFF 0 / SELF-FAIL 1 (dyn_error_throw_ioerror). Diagnosed the exact
+mechanism: the undeclared `temp_4682` is emitted INSIDE a nested handler C function
+(`fn_yo_id_5164(__yo_t5 err)` — the caught-error handler) in its early-return cleanup, but temp_4682
+belongs to the ENCLOSING function. So the M3 walker (`_attach_early_return_only_drop_to_returns`)
+recursed INTO the effect/error handler's body (a `=>` closure / `ctl` handler passed to the catching
+construct) and attached the enclosing var's drop to a return there — crossing a C FUNCTION boundary.
+
+`_is_function_boundary_for_early_drop` should stop the walker at that handler, but does NOT recognize
+this handler form: the handler `=>`/closure's ExprInfo in yo-self evidently lacks the
+`is_anonymous_function_definition` flag AND a `.FuncVal` value at walk time (they are set later, during
+closure specialization), so the arrow-boundary check falls through and the walker recurses in.
+
+**Precise fix for the last 1/118:** strengthen `_is_function_boundary_for_early_drop` to recognize the
+effect/error-handler closure boundary even when its ExprInfo isn't yet a FuncVal — e.g. treat ANY `=>`
+/`->` arrow node as a boundary (TS's `!expr.$` fallthrough already returns true for un-evaluated
+arrows; yo-self should match: if the arrow node's ExprInfo lacks a resolved FuncVal/anon flag, still
+treat it as a boundary), OR stop the walker at the specific catch/handler construct. This is the ONE
+remaining gap; M3 is otherwise RC-correct (DIFF 0) and self-compiles 117/118. Activation reverted per
+the no-regression gate; scaffolding + walker remain committed green (inactive).
