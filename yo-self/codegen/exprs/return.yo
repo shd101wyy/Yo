@@ -170,6 +170,21 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
   if(match(additional_skip,.Some(s) => s.contains(var_name.clone()),.None => false), {
     return(false);
   });
+  // C-emission-order guard, applied on ALL paths — including the escape path,
+  // where the caller passes skip_env_check=true and the env-based resolution
+  // below (which also enforces this via declared_c_var_names at the end) is
+  // skipped. A minted codegen temp whose C declaration has NOT been emitted at
+  // this point holds no C value, so dropping it emits
+  // `__yo_decr_rc((void*)(x))` for an undeclared identifier. yo-self
+  // over-materializes some intermediate temps that codegen folds inline (never
+  // declaring them) yet still schedules their scope-end drop; TS does not
+  // create those frame variables, so its escape path never sees them. Skipping
+  // an undeclared temp's drop cannot double-free or leak (no C variable exists).
+  // See issues/yo-self-fixpoint-eval-phase-leak.md.
+  guard_cn := sanitize_for_c_identifier(var_name.clone(), false);
+  if(guard_cn.contains(String.from("_temp_")) && !(context.base.declared_c_var_names.contains(guard_cn.clone())), {
+    return(false);
+  });
   if(!(use_env), {
     return(true);
   });
@@ -374,12 +389,24 @@ generate_early_return_only_deferred_drop_expressions :: (fn(expr : AstExpr, inde
           match(
             early_drops.get(i),
             .Some(drop_expr) => if(!(is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures)), {
-              code := _call_generate_expr(drop_expr, indent.clone(), context);
-              if(code.len() > usize(0), {
-                line := indent.clone();
-                line.push_string(code);
-                line.push_str(";");
-                em.emit_string_line(line);
+              // Gate: skip a minted TEMP whose C declaration has not been emitted at
+              // this return point (declared_c_var_names = C-emission-order ground truth).
+              skip_undeclared := match(
+                get_deferred_drop_target_atom_name(drop_expr),
+                .Some(vn) => {
+                  cn := sanitize_for_c_identifier(vn, false);
+                  cn.contains(String.from("_temp_")) && !(context.base.declared_c_var_names.contains(cn))
+                },
+                .None => false
+              );
+              if(!(skip_undeclared), {
+                code := _call_generate_expr(drop_expr, indent.clone(), context);
+                if(code.len() > usize(0), {
+                  line := indent.clone();
+                  line.push_string(code);
+                  line.push_str(";");
+                  em.emit_string_line(line);
+                });
               });
             }),
             .None => ()

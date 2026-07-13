@@ -308,23 +308,21 @@ _variable_is_captured_by_current_function :: (fn(v : Variable, ctx : EvalContext
 /// guard the rare case of a return value that is itself a function-type call;
 /// the token-position gate in `_attach_if_cleanup_needs_drop` already prevents a
 /// wrong attach there.)
-_is_function_boundary_for_early_drop :: (fn(expr : AstExpr, ctx : EvalContext) -> bool)({
+_is_function_boundary_for_early_drop :: (fn(expr : AstExpr, _ctx : EvalContext) -> bool)({
+  // Any `->`/`=>` arrow reaching here is a CLOSURE / effect-or-error handler body
+  // (a new C function boundary) — match-arm `=>` never reach this predicate because
+  // the walker handles cond/match arms separately (recursing into their branch
+  // PARTS, not the arm node). So treat any arrow as a boundary and STOP: an
+  // enclosing block's early-return drop must never attach to a `return`/`unwind`
+  // inside a nested function body (a different C function scope → undeclared temp).
+  // Broader than TS's is_anon/FuncVal check, but sound here: yo-self sets those
+  // markers only after closure specialization, LATER than this def-time walk, so a
+  // narrow check misses the handler and the walker cross-attaches (the
+  // dyn_error_throw_ioerror SELF-FAIL). Also stop at fn/ctl/unsafe_fn/Fn callees.
   is_arrow := (ast_expr_is_fn_call_of(expr, "->", Option(usize).None) || ast_expr_is_fn_call_of(expr, "=>", Option(usize).None));
-  if(!(is_arrow), {
-    return(false);
+  if(is_arrow, {
+    return(true);
   });
-  match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
-    .None => return(true),
-    .Some(ei) => {
-      if(match(ei.is_anonymous_function_definition,.Some(b) => b,.None => false), {
-        return(true);
-      });
-      if(match(ei.value,.Some(v) => match(v,.FuncVal(_, _) => true, _ => false),.None => false), {
-        return(true);
-      });
-    }
-  );
   match(
     expr,
     .FnCall(_, func, _, _, _) => if(
@@ -357,9 +355,13 @@ _attach_if_cleanup_needs_drop :: (fn(expr : AstExpr, cleanup_point : Token, vari
         (found : bool) = false;
         (fi : usize) = usize(0);
         while(fi < existing.len(), {
-          match(existing.get(fi),.Some(e) => if(ast_expr_id(e) == ast_expr_id(drop_expr), {
-            found = true;
-          }),.None => ());
+          match(
+            existing.get(fi),
+            .Some(e) => if(ast_expr_id(e) == ast_expr_id(drop_expr), {
+              found = true;
+            }),
+            .None => ()
+          );
           fi = (fi + usize(1));
         });
         if(!(found), {
@@ -454,32 +456,10 @@ _schedule_scope_end_drops :: (
   //      and the returned value's temp isn't excluded as moved-out (consume — M2),
   //      so scheduling drops on a control-flow block crashes codegen when it emits a
   //      drop for a not-yet-live / moved-out local. (See plans/YO_SELF_NAMED_LOCAL_DROPS.md.)
-  (skip_block : bool) = false;
-  na := begin_args.len();
-  (sai : usize) = usize(0);
-  while((sai < na) && !(skip_block), {
-    match(
-      begin_args.get(sai),
-      .Some(stmt) => {
-        // (§C landed: the field/index/deref store now dups its RHS — assignment.yo
-        // codegen via emit_deferred_dup_or_code — so a reassigned-into local is
-        // balanced and CAN be scope-dropped. The earlier field-write skip is removed.)
-        // Control-flow exit (call or atom form).
-        cf := (
-          (ast_expr_is_fn_call_of(stmt, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(stmt, BF_UNWIND, Option(usize).None)) ||
-            ((ast_expr_is_atom(stmt) && ast_expr_is_atom_of(stmt, BK_RETURN)) || (ast_expr_is_atom(stmt) && (ast_expr_is_atom_of(stmt, "break") || ast_expr_is_atom_of(stmt, "continue"))))
-        );
-        if(cf, {
-          skip_block = true;
-        });
-      },
-      .None => ()
-    );
-    sai = (sai + usize(1));
-  });
-  if(skip_block, {
-    return(Option(ArrayList(AstExpr)).None);
-  });
+  // M3: skip_block big-hammer REMOVED — control-flow blocks now schedule regular
+  // scope-end drops (non-consumed locals) here; consumed-local early-return drops
+  // are attached to returns by the driver in evaluate_begin_expression. See
+  // issues/yo-self-fixpoint-eval-phase-leak.md.
   // A bare-atom block result is a named local moved out (returned) — never drop it.
   tail_atom_name := if(
     ast_expr_is_atom(last_expr),
@@ -1228,6 +1208,39 @@ evaluate_begin_expression :: (
     current_frame_opt,
     .Some(fr) => _schedule_scope_end_drops(fr, begin_args, last_info.variable_name, last_expr, env, ctx, exn),
     .None => Option(ArrayList(AstExpr)).None
+  );
+  // M3 driver: attach early-return-only `___drop`s for CONSUMED (moved-out) owning
+  // locals to each return/unwind preceding consumption (begin.ts:2068-2122). Runs
+  // before pop_frame. Consumed vars are disjoint from the scope-end drop set.
+  match(
+    current_frame_opt,
+    .Some(fr2) => {
+      begin_tok := ast_expr_token(expr);
+      (evi : usize) = usize(0);
+      while(evi < fr2.variables.len(), {
+        match(
+          fr2.variables.get(evi),
+          .Some(ev) => {
+            not_auto := !(ev.token.module_path.starts_with(String.from("auto-generated://")));
+            eligible := (ev.consumed_at_token.is_some() && (ev.initialized_at_token.is_some() && (not_auto && (!(_variable_is_captured_by_current_function(ev, ctx)) && _variable_can_need_drop_ignoring_consumed(ev)))));
+            init_ok := match(ev.initialized_at_token,.Some(it) => _m3_token_is_at_or_before(begin_tok, it),.None => false);
+            if(eligible && init_ok, {
+              drop_code := `___drop(${ev.name})`;
+              drop_expr := generate_expr_from_code(drop_code, exn);
+              evaluated := evaluate_expression_raw(drop_expr, env, ctx, exn);
+              (dai : usize) = usize(0);
+              while(dai < begin_args.len(), {
+                match(begin_args.get(dai),.Some(arg) => _attach_early_return_only_drop_to_returns(arg, ev, evaluated, ctx),.None => ());
+                dai = (dai + usize(1));
+              });
+            });
+          },
+          .None => ()
+        );
+        evi = (evi + usize(1));
+      });
+    },
+    .None => ()
   );
   env.pop_frame_nonmutating();
   // -------------------------------------------------------------------------
