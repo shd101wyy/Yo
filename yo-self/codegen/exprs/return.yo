@@ -186,25 +186,6 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
     return(false);
   });
   if(!(use_env), {
-    // Escape path: env-based resolution below is skipped (skip_env_check=true).
-    // The declared-guard above catches temps whose combined `Type x = …` line is
-    // emitted later, but a SPLIT decl/assign temp (`Type x;` early, `x = val;`
-    // later) IS declared here yet not-yet-initialized — dropping it references
-    // uninitialized memory. So also gate on initialized_at_token, resolved via the
-    // drop target's own ExprInfo env (independent of the pending env). A target with
-    // no init token (e.g. a param, live from entry) is kept. Mirrors the env-path
-    // init check below and keeps the newly-recorded `Type x;` temps drop-safe.
-    match(
-      _get_deferred_drop_target_variable(drop_expr, context),
-      .Some(tv) => match(
-        tv.initialized_at_token,
-        .Some(it) => if(_variable_initialized_after_cleanup_point(it, expr), {
-          return(false);
-        }),
-        .None => ()
-      ),
-      .None => ()
-    );
     return(true);
   });
   env := match(context.base.get_expr_info(expr),.Some(ei) => ei.env,.None => return(true));

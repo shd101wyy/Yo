@@ -40,76 +40,54 @@ _emitter_is_minted_temp :: (fn(cn : String) -> bool)({
     }
   )
 });
-/// True iff `b` is a C type-ending char: an identifier byte OR `>` `*` `]`.
-/// Mirrors the `[\w>*\]]` class in the TS Emitter's DECL_RE.
-_emitter_is_type_char :: (fn(b : u8) -> bool)(
-  _emitter_is_ident_byte(b) || ((b == u8(62)) || ((b == u8(42)) || (b == u8(93))))
-);
-/// When a line DECLARES a minted temp, record its C name in `set`. Faithful port
-/// of the TS Emitter's declaredCVarNames capture (src/emitter.ts): the drop-emission
+/// When a line declares a minted temp (`<type> <temp> = …`), record its C name
+/// in `set`. Mirrors the TS Emitter's declaredCVarNames capture: the drop-emission
 /// gate skips a `___drop` for any minted temp NOT in declared_c_var_names, and the
 /// many temp-decl paths that build the declaration via get_type_string (not
 /// get_variable_type_string) otherwise leave their temps untracked → the gate
-/// wrongly skips their (live-RC) drops → LEAK.
-///
-/// Matches TS's `DECL_RE = /[\w>*\]]\s+([A-Za-z_]\w*)\s*(?:=(?!=)|;)/` on the FIRST
-/// decl-pattern occurrence (regex `exec` finds one match): a type-ending char, ≥1
-/// space, the identifier, optional spaces, then `=` (not `==`) or `;`. Crucially
-/// this records BOTH the combined `Type x = …` form AND the split `Type x;` form
-/// (uninitialized decl, later assigned via a bare `x = …`) — the latter was the
-/// leak: its temp was never recorded, so its scope-end drop was always guard-filtered
-/// and the object survived as GC-reclaimable cyclic garbage. The `Type x;` temps are
-/// made drop-SAFE by the initialization-position gate in return.yo's _keep_pending_drop
-/// (a `Type x;` temp not yet assigned at a cleanup point is skipped there). An
-/// assignment `x = …` (identifier at line start, no type char before it) and a
-/// `___drop((cast)(x))` use (identifier inside parens) both fail the type-char test,
-/// so genuine never-declared phantoms are never recorded. C-emission order is
-/// preserved (this runs per emitted line). See issues/yo-self-fixpoint-eval-phase-leak.md.
+/// wrongly skips their (live-RC) drops → LEAK. Recorded in C-emission order so
+/// forward-ref protection holds; a `___drop((cast)(temp))` use has the temp inside
+/// parens (not in `<type> <name> =` position), so genuine never-declared phantoms
+/// are never recorded. See issues/yo-self-fixpoint-eval-phase-leak.md.
 _emitter_record_declared_temp :: (fn(set : HashSet(String), line : String) -> unit)({
   if(!(line.contains(String.from("_temp_"))), {
     return(());
   });
-  n := line.len();
-  (i : usize) = usize(0);
-  (done : bool) = false;
-  while((i < n) && !(done), {
-    b := line.byte_at(i);
-    is_id_start := (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(97)) && (b <= u8(122))) || (b == u8(95))));
-    if(is_id_start, {
-      start := i;
-      while((i < n) && _emitter_is_ident_byte(line.byte_at(i)), {
-        i = (i + usize(1));
+  eq_opt := line.index_of(String.from(" = "));
+  match(
+    eq_opt,
+    .None => (),
+    .Some(eq) => {
+      if(eq == usize(0), {
+        return(());
       });
-      end := i;
-      // Preceding: skip spaces backward from `start`; require ≥1 space and a
-      // type-ending char before it (the `[\w>*\]]\s+` prefix in DECL_RE).
-      (p : usize) = start;
-      while((p > usize(0)) && (line.byte_at(p - usize(1)) == u8(32)), {
-        p = (p - usize(1));
+      // Walk back over the identifier immediately preceding " = ".
+      (ns : usize) = eq;
+      while((ns > usize(0)) && _emitter_is_ident_byte(line.byte_at(ns - usize(1))), {
+        ns = (ns - usize(1));
       });
-      has_type := ((p < start) && ((p > usize(0)) && _emitter_is_type_char(line.byte_at(p - usize(1)))));
-      // Following: skip spaces forward from `end`; require `;` or `=` (not `==`).
-      (q : usize) = end;
-      while((q < n) && (line.byte_at(q) == u8(32)), {
-        q = (q + usize(1));
+      if(ns == eq, {
+        return(());
       });
-      follows_ok := if(q < n, {
-        cb := line.byte_at(q);
-        if(cb == u8(59), true, if(cb == u8(61), ((q + usize(1)) >= n) || (line.byte_at(q + usize(1)) != u8(61)), false))
-      }, false);
-      if(has_type && follows_ok, {
-        // First decl-pattern match on the line wins (mirrors regex `exec`): stop
-        // scanning whether or not the matched identifier is a minted temp.
-        done = true;
-        name := line.substring(start, end);
-        if(_emitter_is_minted_temp(name.clone()), {
-          _r := set.add(name);
-        });
+      // Declaration position: the identifier must be preceded by `<type> ` — i.e.
+      // a space (ns-1) that is itself preceded by a non-space type char (ns-2).
+      // An assignment `<temp> = …` has the identifier at line start (only indent
+      // before it) → skip (it declares nothing new).
+      if(ns < usize(2), {
+        return(());
       });
-    }, {
-      i = (i + usize(1));
-    });
-  });
+      if(line.byte_at(ns - usize(1)) != u8(32), {
+        return(());
+      });
+      if(line.byte_at(ns - usize(2)) == u8(32), {
+        return(());
+      });
+      name := line.substring(ns, eq);
+      if(_emitter_is_minted_temp(name.clone()), {
+        _r := set.add(name);
+      });
+    }
+  )
 });
 /// Simple string emitter with three output sections.
 ///
