@@ -1249,3 +1249,28 @@ Why it doesn't help: two structural limits + wrong target.
 So item 3 is blocked squarely on #65 codegen drop-scheduling for `callee_env` on throw paths. The whole
 solution space explored this session (GC tuning, waiting, emitter DECL_RE parity, GC-traverse guard,
 ExprInfo eviction) is exhausted and documented; none is the fix.
+
+## Trace narrowed to the exact fix site (2026-07-13, end of session)
+
+Followed the leak from symptom to source:
+
+- OOM → `sample` 100% `__yo_gc_collect` → cyclic garbage (THRESHOLD=0 OOMs at 98G) →
+- `callee_env` 9 incr : 2 decr → `callee_env` is captured into per-parameter `CheckParamResult` ref
+  structs (helper.yo:409 `CheckParamResult :: ref(struct(callee_env, caller_env, arg_value, ...))`,
+  built once per param by `check_if_function_parameter_matches_argument`, helper.yo:425) inside the
+  arg-matching WHILE loop of `try_to_call_function_with_arguments`.
+- yo-self's loop codegen `generate_loop_body` (codegen/exprs/while_loop.yo:153-195) DOES emit
+  per-iteration scope-end drops from the body begin block's `deferred_drop_expressions`. So the drop
+  MECHANISM is present and correct.
+- Therefore the gap is upstream, in the EVALUATOR: `_schedule_scope_end_drops`
+  (evaluator/exprs/begin.yo:439) does not SCHEDULE a drop for the `CheckParamResult` (and the
+  callee_env-carrying locals) in that loop body — so `deferred_drop_expressions` omits them and each
+  iteration leaks one `CheckParamResult` (→ callee_env → parameter Variables). Over millions of
+  def-time arg-matching iterations this is the dominant leak.
+
+**Exact next step:** determine why `_schedule_scope_end_drops`'s filter (begin.yo:486-500, the e1–e7
+chain mirroring TS `getVariablesNeedingDrop`) rejects the `CheckParamResult` local — check its
+`is_owning_the_rc_value` / `type_contains_rc_type` / `consumed_at_token` on the loop-body frame at
+scope-end, compared against what TS schedules for the same variable. Fix the filter divergence so the
+loop body schedules the drop. Validate with the s2 memory-trajectory signal (climbs → bounded) since
+full main.yo completion is the very thing being fixed. This is the concrete #65 entry point.
