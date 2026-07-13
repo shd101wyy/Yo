@@ -1053,3 +1053,32 @@ tokenIsBefore(cleanupPoint, consumedAtToken)`, append dropExpr to the node's
    stage3.c @9G (M3 early-return drops fix the callee-env leak → no OOM), `diff <(norm stage2.c)
 <(norm stage3.c)` = FIXPOINT-OK. Iterate on any undeclared-temp/crash (the token-position logic
    is what makes cross-branch early-return drops scope-correct — do it faithfully).
+
+## M3 ACTIVATION TESTED (2026-07-13): RC-correct (DIFF 0), 117/118 self-compile — 1 cross-branch edge case
+
+Fully ported + activated M3 (walker + driver + skip_block removal + codegen emission with a
+declared_c_var_names gate) and tested end-to-end:
+
+- s1 builds clean at ~9G (NO undeclared-temp errors in stage2.c — the walker's per-return token
+  gate scopes the consumed-var early drops correctly, unlike the naive skip_block removal).
+- **corpus: PASS 117 / DIFF 0 / SELF-FAIL 1.** DIFF 0 = M3 is RC-CORRECT (no double-free). The lone
+  SELF-FAIL is `dyn_error_throw_ioerror.yo`: its emitted C references an undeclared temp
+  (`_file____User_temp_4682`) inside an inline enum `___drop` (`switch((temp).tag){ ... __yo_decr_rc((temp).data.Some.value) }`)
+  at a return where the temp lives in a SIBLING match-arm's C block scope. A REGULAR scope-end drop
+  (now scheduled because skip_block is gone) is emitted at that early-return via the pending-drop
+  path; the flat `declared_c_var_names` set recorded the temp (declared in the sibling arm, emitted
+  earlier) so the C-emission-order gate does not skip it, but in C-BLOCK scope it is out of scope
+  there → undeclared identifier.
+
+**This is the fundamental flat-set-vs-C-block-scope limitation** (the same class that has surfaced
+all session). M3 itself is RC-correct and works for 117/118; the residual is that a per-function flat
+`declared_c_var_names` cannot express C `{}`-block scope, so a sibling-arm temp appears "declared" at
+an early-return in another arm. Per the non-negotiable no-regression gate (118→117 is a regression),
+the activation was REVERTED; the M3 scaffolding + walker remain committed green (inactive).
+
+**Remaining to finish the fixpoint (precisely pinned):** make the pending/scope-end drop emission at
+an early-return respect C-BLOCK scope, not just per-function C-emission order — e.g. reset/snapshot
+`declared_c_var_names` per emitted `{}` block (so a sibling arm's temps are not considered declared at
+another arm's return), OR scope the pending-drop list to enclosing blocks only (exclude sibling-arm
+scope-end drops). This is the one edge case between the RC-correct M3 activation (117/118, DIFF 0) and
+the full fixpoint. Everything else (walker, driver, token gate, codegen) is ported and validated.
