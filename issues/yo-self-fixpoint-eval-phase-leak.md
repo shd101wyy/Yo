@@ -873,3 +873,28 @@ NOT a blind broadening (both blind attempts failed as above).
 - yo-self codegen leak: **56G→26G** (2e329eeee), safe; s2 still OOMs on 16GB → stage3.c/diff not yet
   produced. Fixpoint blocked only on the residual uninit-temp refinement above (or a ≥32GB box:
   26G fits comfortably in 32GB, so the fixpoint IS runnable there right now with the current commits).
+
+## Residual CONCLUSIVELY needs the pre-init-drop guard, not recording-broadening (2026-07-13)
+
+Third attempt: record at the temp's INITIALIZATION point (bare first-assignment `<temp> = val`,
+name at line-start) in addition to init-decls — reasoning it marks the temp initialized (safer than
+the uninit `<type> temp;` decl). Result: builds, **corpus PASS 118 / DIFF 0**, but s2 STILL CRASHES
+at startup (same as the `;` case). So ANY recording beyond strict `<type> temp = …` init-decls
+introduces a pre-initialization drop on some cross-branch path → `___drop(garbage)` → crash.
+
+**Conclusion:** the 26G→9G residual is NOT closable by broadening the Emitter's decl detection
+(3 variants tried: blind→clang errors; uninit-`;`→crash; init-assignment→crash). It requires
+strengthening yo-self's pre-init-drop GUARD (`_variable_initialized_after_cleanup_point` /
+`initialized_at_token`, return.yo:211) to TS parity — TS's `;`-branch recording is safe precisely
+because its `initializedAtToken` position check independently suppresses pre-init drops, and
+yo-self's equivalent is weaker. That is a control-flow-correctness fix in the drop emitters, a
+separate focused effort (each iteration risks the s2 startup crash, so it needs the full
+s1→s2→stage3 chain to validate, not just corpus).
+
+**FINAL net state of item 3:**
+
+- TS codegen leak: FULLY FIXED (0b9928b95) — s1 emits stage2.c at 9G; primary compiler done.
+- yo-self codegen leak: 56G → 26G (2e329eeee), safe (builds, s2 runs, corpus green).
+- Fixpoint (stage2.c ≡ stage3.c): NOT produced on this 16GB box (s2 OOMs at 26G). RUNNABLE NOW on
+  a 32GB box with the current commits (26G < 32GB) — task #21's documented fallback. On 16GB it
+  needs the pre-init-drop guard strengthening above to reach 9G.
