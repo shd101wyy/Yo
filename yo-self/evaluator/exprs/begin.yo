@@ -226,6 +226,75 @@ _name_matches_opt :: (fn(name : String, opt : Option(String)) -> bool)(
 /// generic (`SomeType`) vars and the block's result-temp / returned bare-local (moved
 /// out). The `___drop(name)` exprs are built inline (the builder in calls/helper.yo
 /// cannot be imported — begin.yo <-> helper.yo would be a mutual destructuring cycle).
+// ---------------------------------------------------------------------------
+// M3 (early-return-only drops) — evaluator-local token-order primitives + var
+// predicates. The token primitives are copies of the codegen ones in
+// return.yo (the evaluator must not import codegen). Mirror tokenIsAtOrBefore /
+// tokenIsBefore / getLastComparableTokenInExpr and variableCanNeedDrop*/
+// variableIsCapturedByCurrentFunction. (Used by the M3 walker + driver.)
+// ---------------------------------------------------------------------------
+_m3_tokens_comparable :: (fn(left : Token, right : Token) -> bool)(
+  (left.module_path == right.module_path) && (left.input == right.input)
+);
+_m3_token_is_at_or_before :: (fn(left : Token, right : Token) -> bool)(
+  if(!(_m3_tokens_comparable(left, right)), false, left.character <= right.character)
+);
+_m3_token_is_before :: (fn(left : Token, right : Token) -> bool)(
+  if(!(_m3_tokens_comparable(left, right)), false, left.character < right.character)
+);
+_m3_max_comparable_token :: (fn(node : AstExpr, reference : Token, best : Token) -> Token)({
+  tok := ast_expr_token(node);
+  best2 := if(_m3_tokens_comparable(tok, reference) && (tok.character > best.character), tok, best);
+  match(
+    node,
+    .FnCall(_, func, args, _, _) => {
+      (acc : Token) = recur(func, reference, best2);
+      n := args.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          args.get(i),
+          .Some(a) => {
+            acc = recur(a, reference, acc);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      acc
+    },
+    .Atom(_, _) => best2
+  )
+});
+_m3_last_comparable_token_in_expr :: (fn(expr : AstExpr, reference : Token) -> Token)({
+  init := ast_expr_token(expr);
+  init2 := if(!(_m3_tokens_comparable(init, reference)), reference, init);
+  _m3_max_comparable_token(expr, reference, init2)
+});
+/// A local that CAN need a scope-end drop, ignoring consumed status. Mirrors
+/// `variableCanNeedDropIgnoringConsumed`.
+_variable_can_need_drop_ignoring_consumed :: (fn(v : Variable) -> bool)({
+  if(!(v.is_owning_the_rc_value), {
+    return(false);
+  });
+  if(!(type_contains_rc_type(v.ty)), {
+    return(false);
+  });
+  if(v.is_module_level, {
+    return(false);
+  });
+  some_undroppable := match(
+    v.ty,
+    .SomeT({ required_trait_types : s_rtt, resolved_concrete : s_rc }) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
+    _ => false
+  );
+  !(some_undroppable)
+});
+/// True iff `v` is captured by the current function/closure. Mirrors
+/// `variableIsCapturedByCurrentFunction`.
+_variable_is_captured_by_current_function :: (fn(v : Variable, ctx : EvalContext) -> bool)(
+  match(ctx.captured_variables,.Some(cv) => cv.contains_key(v.name.clone()),.None => false)
+);
 _schedule_scope_end_drops :: (
   fn(
     frame : Frame,
