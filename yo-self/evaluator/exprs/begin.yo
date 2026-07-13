@@ -31,7 +31,14 @@ open(import("std/string"));
   BK_RETURN,
   BF_UNWIND,
   BK_ASSIGN,
-  BK_INIT_ASSIGN
+  BK_INIT_ASSIGN,
+  BK_COND,
+  BK_MATCH,
+  BK_FN,
+  BK_CTL,
+  BK_UNSAFE_FN,
+  BK_FN_TRAIT,
+  ast_expr_is_fn_call
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -295,6 +302,138 @@ _variable_can_need_drop_ignoring_consumed :: (fn(v : Variable) -> bool)({
 _variable_is_captured_by_current_function :: (fn(v : Variable, ctx : EvalContext) -> bool)(
   match(ctx.captured_variables,.Some(cv) => cv.contains_key(v.name.clone()),.None => false)
 );
+/// True iff `expr` is a nested function-definition boundary — recursion for
+/// early-return drops must stop here. Mirrors `isFunctionBoundaryForEarlyDrop`
+/// (begin.ts). (The TypeValue-fn-callee boundary sub-checks are omitted: they
+/// guard the rare case of a return value that is itself a function-type call;
+/// the token-position gate in `_attach_if_cleanup_needs_drop` already prevents a
+/// wrong attach there.)
+_is_function_boundary_for_early_drop :: (fn(expr : AstExpr, ctx : EvalContext) -> bool)({
+  is_arrow := (ast_expr_is_fn_call_of(expr, "->", Option(usize).None) || ast_expr_is_fn_call_of(expr, "=>", Option(usize).None));
+  if(!(is_arrow), {
+    return(false);
+  });
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
+    .None => return(true),
+    .Some(ei) => {
+      if(match(ei.is_anonymous_function_definition,.Some(b) => b,.None => false), {
+        return(true);
+      });
+      if(match(ei.value,.Some(v) => match(v,.FuncVal(_, _) => true, _ => false),.None => false), {
+        return(true);
+      });
+    }
+  );
+  match(
+    expr,
+    .FnCall(_, func, _, _, _) => if(
+      ast_expr_is_fn_call_of(func, BK_FN, Option(usize).None) || (ast_expr_is_fn_call_of(func, BK_CTL, Option(usize).None) || (ast_expr_is_fn_call_of(func, BK_UNSAFE_FN, Option(usize).None) || ast_expr_is_fn_call_of(func, BK_FN_TRAIT, Option(usize).None))),
+      return(true),
+      ()
+    ),
+    .Atom(_, _) => ()
+  );
+  false
+});
+/// If `variable` is still initialized at `cleanup_point` on the `expr`
+/// return/unwind path, and its init is at-or-before that point which is strictly
+/// before its consumption, attach `drop_expr` to `expr`'s
+/// early_return_only_deferred_drop_expressions. Mirrors the inner
+/// `attachIfCleanupPointNeedsDrop` (begin.ts).
+_attach_if_cleanup_needs_drop :: (fn(expr : AstExpr, cleanup_point : Token, variable : Variable, drop_expr : AstExpr, init_tok : Token, consumed_tok : Token, ctx : EvalContext) -> unit)({
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
+    .None => (),
+    .Some(ei) => {
+      vars := get_variables_from_env(ei.env, variable.name.clone());
+      if(vars.len() == usize(0), {
+        return(());
+      });
+      latest := match(vars.get(vars.len() - usize(1)),.Some(v) => v,.None => return(()));
+      match(latest.initialized_at_token,.None => return(()),.Some(_) => ());
+      if(_m3_token_is_at_or_before(init_tok, cleanup_point) && _m3_token_is_before(cleanup_point, consumed_tok), {
+        existing := match(ei.early_return_only_deferred_drop_expressions,.Some(l) => l,.None => ArrayList(AstExpr).new());
+        (found : bool) = false;
+        (fi : usize) = usize(0);
+        while(fi < existing.len(), {
+          match(existing.get(fi),.Some(e) => if(ast_expr_id(e) == ast_expr_id(drop_expr), {
+            found = true;
+          }),.None => ());
+          fi = (fi + usize(1));
+        });
+        if(!(found), {
+          _p := existing.push(drop_expr);
+          ei.early_return_only_deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(existing);
+        });
+      });
+    }
+  );
+});
+/// Recursively attach `drop_expr` (for `variable`) to every return/unwind in
+/// `expr` where the variable is live-but-not-yet-consumed. Mirrors
+/// `attachEarlyReturnOnlyDropExpressionToReturns` (begin.ts:130-238).
+_attach_early_return_only_drop_to_returns :: (fn(expr : AstExpr, variable : Variable, drop_expr : AstExpr, ctx : EvalContext) -> unit)({
+  init_tok := match(variable.initialized_at_token,.Some(t) => t,.None => return(()));
+  consumed_tok := match(variable.consumed_at_token,.Some(cb) => cb.*,.None => return(()));
+  if(ast_expr_is_atom(expr), {
+    if(ast_expr_is_atom_of(expr, BK_RETURN) || ast_expr_is_atom_of(expr, BF_UNWIND), {
+      _attach_if_cleanup_needs_drop(expr, ast_expr_token(expr), variable, drop_expr, init_tok, consumed_tok, ctx);
+    });
+    return(());
+  });
+  match(
+    expr,
+    .FnCall(_, func, args, _, _) => {
+      if(ast_expr_is_fn_call_of(expr, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
+        _attach_if_cleanup_needs_drop(expr, _m3_last_comparable_token_in_expr(expr, consumed_tok), variable, drop_expr, init_tok, consumed_tok, ctx);
+        return(());
+      });
+      match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
+        .Some(ei) => match(ei.macro_expansion,.Some(mx) => recur(mx, variable, drop_expr, ctx),.None => ()),
+        .None => ()
+      );
+      if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), {
+        recur(func, variable, drop_expr, ctx);
+        (ci : usize) = usize(0);
+        while(ci < args.len(), {
+          match(
+            args.get(ci),
+            .Some(arg) => if(ast_expr_is_fn_call(arg) && ast_expr_is_fn_call_of(arg, "=>", Option(usize).None), {
+              match(
+                arg,
+                .FnCall(_, _, bargs, _, _) => {
+                  (bj : usize) = usize(0);
+                  while(bj < bargs.len(), {
+                    match(bargs.get(bj),.Some(bp) => recur(bp, variable, drop_expr, ctx),.None => ());
+                    bj = (bj + usize(1));
+                  });
+                },
+                .Atom(_, _) => ()
+              );
+            }, {
+              recur(arg, variable, drop_expr, ctx);
+            }),
+            .None => ()
+          );
+          ci = (ci + usize(1));
+        });
+        return(());
+      });
+      if(_is_function_boundary_for_early_drop(expr, ctx), {
+        return(());
+      });
+      recur(func, variable, drop_expr, ctx);
+      (ai : usize) = usize(0);
+      while(ai < args.len(), {
+        match(args.get(ai),.Some(a) => recur(a, variable, drop_expr, ctx),.None => ());
+        ai = (ai + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  )
+});
 _schedule_scope_end_drops :: (
   fn(
     frame : Frame,
