@@ -43,7 +43,40 @@ stage-2-clang-0 sessions; tree clean, all fixes committed on
    **`issues/yo-self-fixpoint-eval-phase-leak.md`**. Fixing this leak (not more
    RAM) unblocks item 3 and item 4.
 
-   **STATE (2026-07-13) — root cause is the unported M3 milestone; codegen half
+   **STATE (2026-07-13, LATEST) — leak ROOT-CAUSED + FIXED (TS fully, yo-self
+   partially); the earlier "node-attached ExprInfo ~750-site" plan below is
+   SUPERSEDED.** The real bug was NOT the never-pruned table per se — it was the
+   `declaredCVarNames` drop-skip gate (commit 68f5cb49c) skipping ~88,000 live-RC
+   temp drops: `declaredCVarNames` was grown only via `getVariableTypeString`, but
+   ~30 result/argument temp-declaration paths build the declaration via
+   `getTypeString` → untracked → the gate wrongly skipped their drops → the 6x
+   leak (invisible to corpus — a leak, not a double-free, leaves output unchanged).
+   FIX = centralize declaration tracking in the Emitter (record every codegen temp
+   DECLARED in an emitted code line, in C-emission order):
+
+   - **TS codegen — FULLY FIXED (commit 0b9928b95):** s1's `main.yo` emission
+     **56G → 9.2G and COMPLETES** (produces stage2.c). temp-drops 20021 → 107960
+     of 108281 (the 321 remaining = the one genuine phantom). corpus PASS 118/DIFF 0.
+   - **yo-self codegen — PARTIAL (commit 2e329eeee):** ported the Emitter capture
+     (manual parse, no regex). s2 (built from yo-self-codegen-emitted stage2.c)
+     **56G → 26G**, builds, s2 RUNS, corpus PASS 118/DIFF 0.
+   - **Fixpoint chain run:** s1→stage2.c @9G ✓ → build s2 ✓ → s2→stage3.c reaches a
+     26G plateau but OOM-kills on this **16GB** box → `diff` not produced HERE.
+     **RUNNABLE NOW on a 32GB box** with these commits (26G < 32GB).
+   - **Residual (26G→9G on 16GB):** temps declared UNINITIALIZED then branch-assigned;
+     their valid post-init drops are still skipped (init-decl-only recording misses
+     them). Three recording-broadening shortcuts were tried + reverted (blind→clang
+     errors; uninit-`;`-decl→s2 startup crash; init-assignment→s2 startup crash) —
+     a flat `declared_c_var_names` set cannot model cross-branch init state.
+     TRUE FIX = strengthen yo-self's pre-init-drop guard
+     (`_variable_initialized_after_cleanup_point`/`initialized_at_token`, return.yo)
+     to TS parity (per-branch init tracking); a separate control-flow-correctness
+     effort that must be validated with the full s1→s2→stage3 chain (corpus cannot
+     catch the crash). Full analysis: `issues/yo-self-fixpoint-eval-phase-leak.md`.
+
+   ***
+
+   **(SUPERSEDED — historical) root cause was the unported M3 milestone; codegen half
    LANDED, evaluator half is an architecture task:**
 
    - The leak = yo-self's `_schedule_scope_end_drops` (begin.yo) big-hammer
