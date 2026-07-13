@@ -1398,3 +1398,29 @@ identified as not-bound-before — then callee_env_m (bound by a PRIOR loop stat
 drops while op_result_val (bound by its own statement) skips, no reassignable-skip
 needed; or (b) point-in-time env resolution. Validate: main.yo 0 clang errors +
 corpus 118 + s2 memory BOUNDED (not 26→46G) → then the fixpoint diff completes.
+
+## PROBE-CONCLUSIVE (2026-07-13): why the reassignable-skip is required — token-order ≠ C-emission-order
+
+Probed the escape gate during the main.yo self-emit (return.yo, temporary eprintln):
+
+[PROBE esc op_result_val] stmt_tok.char=58887 init.char=66957 → init > stmt → bound_before FALSE → skip ✓
+[PROBE esc op_result_val] stmt_tok.char=68649 init.char=66957 → init < stmt → bound_before TRUE → KEEP ✗
+
+`op_result_val` (a `(op_result_val : Option) = if(… raise() …)` reassignable binding) is dropped at TWO
+escape sites. At the SECOND (stmt 68649, a source position AFTER op_result_val's binding token 66957),
+`bound_before` is TRUE — yet op_result_val's C DECLARATION is codegen-REORDERED to AFTER that escape
+(the `if` initializer spans past 68649, or the decl is emitted post-if), so `___drop(op_result_val)`
+there is `use of undeclared identifier`. So source-token order (init < statement) does NOT imply
+C-emission order (declared-before) for control-flow-initialized bindings. The token-based liveness
+signal is therefore INSUFFICIENT on its own, which is exactly why removing the reassignable-skip
+reintroduces the 4 clang errors. The reassignable-skip keeps main.yo compiling but skips the dominant
+reassignable leak (`callee_env_m`) → s2 still climbs.
+
+**Conclusive: the only fully-correct signal is C-emission order.** The complete fix must track named
+locals in `declared_c_var_names` in C-emission order AND be block-scope-aware (the fix4 flat-set attempt
+was block-unsound on sibling match-arm bindings). Then the escape gate keeps a drop iff the target's C
+name is already in the emission-order set (declared before this point) — correct for h (declared
+before), op_result_val (decl reordered after → not yet in set → skip), callee_env_m (declared before →
+drop), AND sibling-arm bindings (scope-aware). This is the true #65 fix; it requires the emitter to
+record named-local decls with a scope stack (push on `{`, pop on `}`) rather than a flat per-function
+set. Validate: main.yo 0 clang errors + corpus 118 + s2 memory bounded → fixpoint diff completes.
