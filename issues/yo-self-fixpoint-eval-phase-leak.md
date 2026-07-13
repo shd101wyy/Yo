@@ -837,3 +837,39 @@ gate uses — i.e. `_looks_like_minted_temp(name)` (digits-to-end) OR the module
 also accept the `_temp_`-with-trailing-suffix module-prefixed shape while still rejecting user vars
 like `await_future_temp_var_aliases`. Then: s1→stage2.c@9G → build s2 → s2→stage3.c@9G →
 `diff stage2.c stage3.c` = FIXPOINT-OK. All steps validatable on this 16GB box.
+
+## Residual-26G refinement attempts (2026-07-13) — uninit-decl recording is UNSAFE in yo-self
+
+Tried to close the residual yo-self leak (26G → 9G) by broadening the Emitter's decl detection.
+Two attempts, both reverted:
+
+1. **Record ANY decl-position identifier** (drop the minted-temp filter): UNSAFE — recorded
+   non-temp fragments (e.g. `giv`, `exp`) as declarations, so yo-self emitted `___drop`s for
+   undeclared identifiers → stage2.c failed to clang-compile.
+2. **Also record uninitialized decls `<type> <temp>;`** (mirroring the TS regex's `;` branch):
+   builds and passes corpus, but the emitted stage2.c makes **s2 CRASH at startup** (empty output).
+   Recording a temp at its UNINIT declaration marks it "declared" before it is assigned, so the
+   gate stops skipping an early-exit drop of a not-yet-initialized temp → `___drop(garbage)` → crash
+   at compiler scale (corpus's small programs don't exercise it).
+
+Root insight: `declared_c_var_names` is a flat per-function, C-emission-order set — a good proxy for
+"declared AND initialized" ONLY at initialized-decl (`<type> <temp> = …`) sites. For a temp declared
+uninitialized then assigned in a branch, recording at the decl (or naively at a bare assignment)
+lets the gate emit a pre-initialization drop in a sibling branch → uninitialized-memory drop → crash.
+TS survives its `;` branch because its pre-init drops are ALSO guarded by the `initializedAtToken`
+position check; yo-self's `_variable_initialized_after_cleanup_point` guard is evidently weaker, so
+recording uninit decls exposes pre-init drops yo-self does not catch.
+
+**Safe floor = commit 2e329eeee** (" = " init-decl recording only): s2 56G→26G, builds, s2 RUNS
+(leaks to OOM, no crash), corpus PASS 118 / DIFF 0. **The residual (temps declared uninitialized then
+branch-assigned) requires either (a) strengthening yo-self's initialized-at-token pre-init-drop guard
+to TS parity so uninit-decl recording becomes safe, or (b) recording at the temp's first ASSIGNMENT
+with per-branch liveness — not the flat set.** This is a subtle control-flow-correctness refinement,
+NOT a blind broadening (both blind attempts failed as above).
+
+### Net state of item 3
+
+- TS codegen leak: **FULLY FIXED** (s1 emits stage2.c at 9G, 0b9928b95) — primary compiler done.
+- yo-self codegen leak: **56G→26G** (2e329eeee), safe; s2 still OOMs on 16GB → stage3.c/diff not yet
+  produced. Fixpoint blocked only on the residual uninit-temp refinement above (or a ≥32GB box:
+  26G fits comfortably in 32GB, so the fixpoint IS runnable there right now with the current commits).
