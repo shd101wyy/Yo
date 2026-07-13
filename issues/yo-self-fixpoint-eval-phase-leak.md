@@ -675,3 +675,34 @@ environment (16GB box, current yo-self language/loader/codegen). It requires a f
 64GB+ hardware plus one of the three feature-level changes above. Items 1, 2, and item 3's codegen
 half (declaredCVarNames, 68f5cb49c) are done; item 4 (#69/#70) stays gated. All findings this
 session are committed as evidence; the verified-green compiler is untouched throughout.
+
+## REFRAMED (2026-07-13): 56G is a REGRESSION (duplicate/phantom drop accumulation), NOT a hardware wall
+
+Overturns the "needs 64GB" conclusion above with two measurements:
+
+- **The pre-regression control `/tmp/yo-self-s1` (commit ~859928eb3, Jul 12) compiles the SAME
+  main.yo at 9.2G in 75s and COMPLETES** (30MB stage2.c). The box handles the fixpoint fine at
+  baseline. So 56G is a ~6× REGRESSION introduced in the `859928eb3..HEAD` range
+  (only 2 code commits: 6b5c0ceb0 RC-fix, 68f5cb49c declaredCVarNames gate), not inherent.
+- **Smoking gun — phantom/duplicate drops:** in the gate-OFF emission, the single temp
+  `_yo73831c64_temp_283669` (type `AstExpr*` = `__yo_enum_yoe4f8607a_id_3*`) appears **321 times,
+  ALL as `___drop` calls, and is NEVER declared/assigned anywhere.** It is a phantom the evaluator
+  scheduled for drop ~16× per escape block × ~20 escape blocks in `evaluate_function_call`. Each
+  such phantom `___drop(name)` is built via `generate_expr_from_code` (fresh lex+parse) and
+  evaluated → a fresh ExprInfo + env snapshot pinned in the never-pruned `expr_info_table`. The
+  drop-list DUPLICATION (same var dropped ~16× in one cleanup list) multiplies these table
+  entries → the 6× memory.
+- The `68f5cb49c` gate SKIPS these at CODEGEN (correct — they're never-declared phantoms, so
+  no runtime leak from them), which is why it is load-bearing to BUILD (without it → 20
+  undeclared-C-identifier clang errors). So the gate is NOT the leak; the EVALUATOR's bloated
+  deferred-drop lists are.
+
+### Next (concrete, bounded, validatable)
+
+Find where the deferred-drop list accumulates the SAME variable's drop ~16× (dedup missing) and/or
+schedules drops for never-materialized (phantom) temps, in the `859928eb3..HEAD` delta — prime
+suspect: 6b5c0ceb0's `set_expr_as_needs_to_call_dup` env-propagation + the escape/early-return
+cleanup path. Fix = dedup the drop list / don't schedule phantom drops. Validate: rebuild s1,
+corpus PASS/DIFF 0, then main.yo emission peak drops toward ~9G and COMPLETES (item 3 unblocked
+ON THIS BOX). This supersedes the node-attach / callback-drop / 64GB conclusions — the leak is a
+fixable accumulation bug, not an architectural GC gap.
