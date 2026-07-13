@@ -186,7 +186,51 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
     return(false);
   });
   if(!(use_env), {
-    return(true);
+    // Escape path (skip_env_check=true): yo-self's recorded env is END-of-scope,
+    // so the env-based filter below wrongly rejects a still-live local (a
+    // loop-body `h` across a may-unwind call — the per-call callee_env leak) and
+    // wrongly ACCEPTS a local whose C decl follows the escape (`p := if(… raise()
+    // …)`). Use the scope-aware, C-emission-order-correct signal instead: keep the
+    // drop iff its target was bound BEFORE the current top-level statement (its
+    // initialized_at_token strictly precedes context.current_statement_start_token)
+    // and is not consumed before this cleanup point. A local bound BY this
+    // statement (init at/after the statement token — e.g. the escape is inside its
+    // own initializer) or in a nested block is skipped. The minted-temp C-emission
+    // guard above already handled temps. See issues/yo-self-fixpoint-eval-phase-leak.md.
+    match(
+      context.current_statement_start_token,
+      .None => return(true),
+      .Some(stmt_tok) => match(
+        _get_deferred_drop_target_variable(drop_expr, context),
+        .None => return(true),
+        .Some(tv) => {
+          consumed_esc := match(tv.consumed_at_token,.Some(ct) => _variable_was_consumed_before_cleanup_point(ct.*, expr),.None => false);
+          if(consumed_esc, {
+            return(false);
+          });
+          // Conservatively skip a REASSIGNABLE named local on the escape path.
+          // A `(x : T) = if(… raise() …)` mutable binding is initialized via a
+          // control-flow expr whose body contains the escape, so at the escape `x`
+          // is not yet assigned (uninitialized / prior value) and its C decl may
+          // follow the escape — dropping it is an undeclared/uninit-memory error
+          // (the op_result_val / m_result_val cases). Immutable `:=` bindings
+          // (the common owning locals, e.g. a loop-body ref) are NOT reassignable
+          // and still drop here — that is the leak this closes. Skipping a
+          // reassignable local's escape drop can only leak (its normal-path +
+          // drop-on-reassign handling stays), never double-free.
+          // See issues/yo-self-fixpoint-eval-phase-leak.md.
+          if(tv.is_reassignable, {
+            return(false);
+          });
+          bound_before := match(
+            tv.initialized_at_token,
+            .Some(it) => (_tokens_are_comparable(it, stmt_tok) && ((it.character) < (stmt_tok.character))),
+            .None => false
+          );
+          return(bound_before);
+        }
+      )
+    );
   });
   env := match(context.base.get_expr_info(expr),.Some(ei) => ei.env,.None => return(true));
   variables := get_variables_from_env(env, var_name);
@@ -689,7 +733,11 @@ emit_effect_unwind_check :: (fn(indent : String, context : FunctionGenerationCon
     });
     emit_async_future_escape(em, inner.clone(), Option(String).None, Option(String).None);
   }, {
-    generate_pending_deferred_drops(inner.clone(), context, expr, false, true, false, Option(HashSet(String)).None);
+    // skip_env_check=true: use the statement-scoped liveness signal in
+    // _keep_pending_drop's !use_env branch (context.current_statement_start_token),
+    // NOT the END-of-scope env which leaks live locals here. Closes the per-call
+    // callee_env leak on the __yo_effect_escaped path (stage-2 fixpoint).
+    generate_pending_deferred_drops(inner.clone(), context, expr, false, true, true, Option(HashSet(String)).None);
     generate_consumed_var_drops_for_escape(inner.clone(), context, expr, false);
     ret_ty := match(context.current_function_type,.Some(ft) => match(ft,.Func({ result : r }) => r, _ => t_unit()),.None => t_unit());
     if(is_handler_installation, {
