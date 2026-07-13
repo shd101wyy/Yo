@@ -1082,3 +1082,28 @@ an early-return respect C-BLOCK scope, not just per-function C-emission order �
 another arm's return), OR scope the pending-drop list to enclosing blocks only (exclude sibling-arm
 scope-end drops). This is the one edge case between the RC-correct M3 activation (117/118, DIFF 0) and
 the full fixpoint. Everything else (walker, driver, token gate, codegen) is ported and validated.
+
+## Pinpointed the 1/118 M3 self-fail cause (2026-07-13): omitted TS driver/walker filters
+
+The `dyn_error_throw_ioerror` cross-arm over-attach is NOT a C-block-scope limitation (TS uses a
+flat, non-block-scoped declaredCVarNames and works). It is that my M3 port OMITTED two TS filters:
+
+1. **Driver (begin.ts:2083):** `if (variable.token.modulePath.startsWith("auto-generated://")) continue;`
+   — skip auto-generated temps as early-return candidates. (yo-self HAS the `auto-generated://`
+   convention, parser.yo:1419; Variable.token.module_path is accessible.) [temp_4682 is `_file____User`,
+   NOT auto-generated, so this alone won't fix it — but it's a required faithful filter.]
+2. **Walker (begin.ts:218-233):** stop recursion when the callee is a TypeValue that is a function
+   type / implements Fn:
+   `if (exprIsFunctionCall(expr.func) && isTypeValue(expr.func.$.value) && isFunctionType(...)) return;`
+   `if (... && typeImplementsFn(...)) return;`
+   I OMITTED these ("rare edge case"), so the walker recurses PAST a function-type-callee boundary in
+   the dyn/error construct and attaches temp_4682's drop to an unwind in a sibling scope → undeclared.
+   These need is_type_value (value.yo), is_function_type (types/guards), type_implements_fn
+   (trait_checking — verify no import cycle into begin.yo).
+
+**Precise remaining step to finish item 3:** re-apply the M3 activation (driver + skip_block removal +
+return.yo early-return gate — all authored+tested this session, RC-correct DIFF 0 at 117/118) WITH the
+two omitted filters added (auto-generated skip in the driver; TypeValue-fn-callee boundary stops in the
+walker). Then corpus must reach PASS 118/DIFF 0/SELF-FAIL 0, after which s1 emits stage2.c @9G → build
+s2 → s2 emits stage3.c @9G (M3 fixes the callee-env leak) → `diff <(norm stage2.c) <(norm stage3.c)` =
+FIXPOINT-OK. M3 is otherwise complete and RC-validated; this is the last faithful-filter gap.
