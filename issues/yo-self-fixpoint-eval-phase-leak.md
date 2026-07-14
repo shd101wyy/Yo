@@ -53,6 +53,46 @@ errors** (was 20 with the coarse tracker); s2 built and runs; memory bounded.
 
 ---
 
+## DIAGNOSIS CORRECTED (2026-07-14) — it is GC-SCAN COST, not a leak / missing drops
+
+Instrumenting the emitted `__yo_gc_collect` (a `fprintf` of `tracked_count` +
+`full_threshold` at each full-scan entry) in BOTH s1 (TS-emitted `/tmp/yo-self-s1.c`)
+and s2 (yo-self-emitted `/tmp/stage2.c`) compiling `yo-self/main.yo` shows:
+
+- **s1 and s2 have the IDENTICAL tracked_count trajectory**: full scans at
+  256 → 512 → 1024 → … doubling each time (`full_threshold` == `tracked_count`
+  at every scan, i.e. each full scan reclaims ≈0 — the compiler builds a large
+  MOSTLY-LIVE graph, exactly as the GC-runtime comment says). s1 reaches scan #17
+  (tracked 16,777,216) and then **exits rc=0 in ~78s total**. s2 follows the SAME
+  256→8M sequence.
+- So s2 does **NOT** create more objects, leak more, or generate more cyclic
+  garbage than s1 — the object counts are identical. The earlier "yo-self emits
+  ~7x fewer drops → cyclic garbage" theory is **WRONG** as the fixpoint blocker.
+- The blocker is **raw speed**: a single full scan at 8M objects takes **>34 min**
+  in s2, whereas s1 does ALL 17 scans (up to 16M) in 78s total — s2's GC scan is
+  ≳30× slower over the SAME object set. Full scans are triggered by `new_variable`
+  (yo_id_20437 = the env-Variable allocator) during deep recursive eval, via
+  `__yo_gc_register`'s `tracked_count >= full_threshold` auto-trigger.
+- The GC runtime C is BYTE-IDENTICAL between s1 and s2 (verified), and yo-self
+  emits FEWER per-type tracer calls than TS (129 vs 202 `((void(*)(void*))self)(`
+  sites) — so it is not gross traverse over-emission. The ≳30× per-scan slowdown
+  over an identical object graph is the open puzzle: candidates are (a) s2's
+  emitted eval/RC/traverse C is per-instruction slower than TS's (contradicts the
+  [[yo-self-perf-release-vs-o0]] "~3.5x faster at --release" note — re-measure),
+  (b) s2's runtime object GRAPH has more inter-object EDGES (denser env/variable
+  cross-refs) so the O(V+E) scan hits a much larger E, or (c) an O(n²) via
+  `__yo_gc_scan_restore_visitor` re-traversing a shared hub (global env /
+  expr_info_table). Instrument edge counts / per-scan wall-time next.
+- **Actionable reframing:** because full scans reclaim ≈0 during the compile,
+  they are near-pure overhead there; s1 tolerates them (fast), s2 cannot (slow).
+  The fix is task **#65 / #34** (make yo-self's emitted eval+GC C match TS speed,
+  or make the full scan cheap/rare), NOT more drop emission. The escape-path leak
+  fix (`b73ddfcc7`) remains correct and necessary (it bounds the WITHOUT-GC
+  footprint), but is not sufficient for a practical full-`main.yo` fixpoint on
+  this box. The fixpoint PROPERTY is sound: s1-emit ≡ s2-emit is byte-identical
+  (after temp-id normalization) on real RC/loop/reassign code (`reassign_test`
+  verified this session) — only the full-`main.yo` SCALE is speed-blocked.
+
 ## Residual #78 GC-thrash — investigation results (2026-07-14, post leak-fix)
 
 After the escape-path leak fix (`b73ddfcc7`) memory is bounded, but s2 emitting
