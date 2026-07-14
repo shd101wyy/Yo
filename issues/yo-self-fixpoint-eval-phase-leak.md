@@ -53,6 +53,25 @@ errors** (was 20 with the coarse tracker); s2 built and runs; memory bounded.
 
 ---
 
+## GC-tuning route CLOSED (2026-07-14) — full scans are required for memory
+
+Tested the "full scans reclaim ~0 → make them rare" hypothesis: `YO_GC_FULL_PCT=100000`
+(full scan only when tracked grows 1000x → essentially never during the compile;
+incremental collector left ON at default). Result: s2 **OOMed (rc=137) within ~2
+min** — RSS stayed ~3.5GB but COMPRESSED memory ballooned past the box limit
+(jetsam). So the incremental (possible_roots) collector alone does NOT bound the
+footprint; the full scans DO reclaim (the earlier "reclaim ~0" held only for the
+early growth scans #1-16 I could observe — later/steady-state full scans reclaim
+the move-formed cycles incremental misses). Conclusion: **the full scans cannot be
+avoided; they must run AND be fast.** Since s2's full scan over an 8M-object set
+takes >34 min while s1 does all 17 scans (to 16M) in 78s total — a ≳30× (per big
+scan, closer to ~200-400×) super-linear blowup over an IDENTICAL object count —
+the remaining work is to find and fix that scan-cost blowup (#65/#34): compare
+runtime EDGE counts (does s2's env/Variable graph have more inter-object edges?),
+time a single full scan at matched tracked_count in s1 vs s2, and check
+`__yo_gc_scan_restore_visitor` for O(n²) hub re-traversal. This is a dedicated
+perf investigation, not a bounded patch, and GC env-tuning does not shortcut it.
+
 ## DIAGNOSIS CORRECTED (2026-07-14) — it is GC-SCAN COST, not a leak / missing drops
 
 Instrumenting the emitted `__yo_gc_collect` (a `fprintf` of `tracked_count` +
