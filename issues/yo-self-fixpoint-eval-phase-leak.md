@@ -39,7 +39,38 @@ BOTH with a per-full-scan **edge counter** and a **dispose_fn histogram**
     (#65) = the 48min emit; (2) an un-elided dup holds a reference until scope end →
     object freed LATER → higher peak (26G vs s1 10G).
 
-### The fix (faithful port) — feasible; infra already present
+### UPDATE (2026-07-14): the dup/drop-pair elision hypothesis is FALSIFIED
+
+I implemented the full faithful elision port (collect_dup_calls_conservatively,
+\_search_recursively, handleBranchingExpression, OPTIMIZE_DUP_AND_DROP_PAIRS —
+straight-line + branch handling; check ./yo-self 303/303, corpus 118/DIFF0) and
+MEASURED it. It is NOT the perf/memory lever and was REVERTED (only #30 kept):
+
+1. **RC-NEUTRAL → zero memory effect.** Eliding a dup/drop PAIR removes one incr
+   AND its paired decr — the object's ref_count trajectory and lifetime are
+   unchanged, so peak memory (26G) and edges/obj (6.4 @2M) are byte-identical
+   before and after. The "un-elided dup → delayed free → 26G" reasoning below was
+   WRONG; pairs are lifetime-neutral. edges/obj measures structural out-degree,
+   which elision cannot change.
+2. **Ineffective.** Removed only ~0.6% of emitted RC-op sites (incr 9654→9390,
+   decr 47352→46704): most of yo-self's RC ops are not begin-scope owning-local
+   pairs (they're ArrayList ops, inline expr dups, etc.).
+3. **Branch handling ~8x SLOWER.** The per-branch collection + O(dups×children×
+   subtree) child-index re-walks (no precomputed dupToChildIndex) add crippling
+   per-begin-block eval overhead: 2M objects in 45s vs 16.7M pre-elision.
+
+**Corrected conclusion:** the 26G-vs-10G gap is GENUINE over-retention — at a
+matched tracked_count s2's live set holds higher-out-degree objects (compiler
+intermediates: TypeValue/ExprInfo/env Frames) that s1 has already freed. That is
+UNPAIRED references (a missing decr OR an extra unpaired incr), NOT balanced
+dup/drop pairs. Next: dispose_fn histogram at matched tracked_count to name the
+over-retained type, then trace which reference keeps it alive. The "54% decr_rc"
+CPU profile is the sheer VOLUME of correct RC traffic (yo-self inlines every drop
+vs TS's typed \_\_\_drop fns), not redundant pairs. Do NOT re-attempt the elision.
+
+The #30 type_key ref-semantics fix is the durable win of this round (kept).
+
+### (obsolete — see falsification above) The fix (faithful port) — feasible; infra already present
 
 `deferred_dup_expressions` exists (`yo-self/expr_info.yo:350`);
 `set_expr_as_needs_to_call_dup` (`utils.yo:577`) is real. Port surface in TS
