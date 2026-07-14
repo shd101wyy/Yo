@@ -115,13 +115,31 @@ multiplying live objects 4×+. Alternatively a non-terminating eval loop specifi
 to s2's emitted code (the [[yo-self-p3-perf-and-runaway]] `_patch_self_shell`
 runaway).
 
-**NEXT (confirm + fix):** instrument the module loader (`_load_module_at_abs` /
-the yo_id_402974 path) to `eprintln` the path on each load; run s2 to ~30M objects
-(~20 min) and check if the SAME path loads many times (→ cache-key bug: normalize
-the key / dedup) or many DISTINCT paths (→ a genuine re-eval loop). Cross-check
-the same counts in s1. Fix = restore the cache-hit / termination that s2 misses so
-its object count matches s1's ~16M; then the fixpoint completes (scans are fine).
-The escape-path leak fix (`b73ddfcc7`) remains correct+committed.
+**Module-reload probe result (2026-07-14) — module re-loading is NOT the runaway.**
+An `eprintln("[LOADPROBE] "+abs)` after the cache-guard in `_load_module_at_abs`
+(the single choke-point all real loads funnel through, main.yo:508) shows s1
+loads **251 modules, 251 DISTINCT paths — each exactly once** (cache perfect). s2
+runs the identical cache logic, so it also loads each once; the sampled
+`yo_id_402974(path)` was just one of those 251 normal loads caught mid-flight, not
+a re-load. (Direct s2 confirmation is blocked because Yo's `eprintln` BUFFERS
+stderr — it only flushes at exit, and s2 dies by jetsam-SIGKILL which does not
+flush; use a C-level `fprintf(stderr,…); fflush(stderr);` probe for a running s2,
+as the [SCAN]/[GCCYC] probes did.) So the 4×+ object runaway is **elsewhere in the
+evaluator** — redundant specialization / repeated def-time body eval / a
+non-terminating eval loop — not import loading.
+
+**NEXT (confirm + fix) — the runaway is in eval, not module loading:** add a
+FLUSH-capable per-function allocation/entry counter (C-level, into the hot
+evaluator fns `yo_id_265082`=evaluate_expression / `yo_id_296713`,`yo_id_297551`
+=evaluate_function_call, and the specialization path) that dumps counts every N
+seconds via `fprintf(stderr)+fflush`; run s2 to ~30M objects and s1 to completion,
+diff the per-fn call counts. The fn whose count is ~4× higher in s2 is the
+runaway. Likely a missing memoization (comptime-fn cache, type interning,
+specialization dedup — [[yo-self-specialization-sig-typeargs]],
+[[yo-self-intern-key-somet-wrong-merge]]) so s2 re-specializes/re-evaluates what
+s1 caches. Fix = restore that cache/dedup so s2's object count matches s1's ~16M;
+then the fixpoint completes (scans are fine, memory bounds). The escape-path leak
+fix (`b73ddfcc7`) remains correct+committed and is unrelated.
 
 ## (DISPROVEN) ROOT LOCALIZED (2026-07-14) — s2's `tracked_objects` GC list goes CYCLIC at ~8M objects (infinite loop in the full-scan list walk)
 
