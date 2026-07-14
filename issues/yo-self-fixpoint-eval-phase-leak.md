@@ -53,6 +53,55 @@ errors** (was 20 with the coarse tracker); s2 built and runs; memory bounded.
 
 ---
 
+## ROOT LOCALIZED (2026-07-14) — s2's `tracked_objects` GC list goes CYCLIC at ~8M objects (infinite loop in the full-scan list walk)
+
+Instrumented the full scan to print `tracked_count`/`edges`/`ms` at each entry AND
+per-scan duration. Run uncontended:
+
+```
+#11 tracked=262144  edges=818133   ms=69
+#12 tracked=524288  edges=1740863  ms=186
+#13 tracked=1048576 edges=3780129  ms=400
+#14 tracked=2097152 edges=7255445  ms=793
+#15 tracked=4194304 edges=13647339 ms=1713   <- last COMPLETED scan
+#16 tracked=8388608 ...                        <- NEVER completes
+```
+
+Scans #1–#15 are cheap and ~LINEAR (edges/obj ≈ 3.5, no dense hub; total scan
+time through #15 ≈ 4s). Scan #16 (8M objects) **never completes** — it has run
+
+> 10 min stuck at a CONSTANT instruction offset. `sample` = ~100% in
+> `__yo_gc_collect + 224`; disassembly of that offset is the **candidate-mark loop**
+> (`for (obj=head; obj; obj=obj->gc_next) obj->gc_mark = CANDIDATE` →
+> `strb w,[obj,#5]; ldr obj,[obj,#8]; cbnz obj`). A walk of an 8M-node list is
+> ~0.1s, so being stuck there >10 min means the `tracked_objects` singly-linked
+> list (via `gc_next`, header offset 8) has a **CYCLE** → the walk is an **infinite
+> loop**. s1 (TS-emitted) completes the SAME scans (#16 @8M, #17 @16M) inside its
+> 78s — so **s1's list terminates, s2's does not**.
+
+**This is a memory-CORRUPTION bug, not "slow GC".** The prior "super-linear scan
+cost" framing was wrong — the scan doesn't run slowly, it runs forever on a
+corrupted list. And it is NOT in the GC runtime: `__yo_gc_register`
+(double-register-guarded, line ~17053), `__yo_gc_unregister`, `__yo_gc_collect`
+and the thresholds are BYTE-IDENTICAL between s1 and s2. So the `gc_next`-cycle
+must be created by **s2's EMITTED code** (a dispose/drop/traverse function, or a
+buffer overflow that overwrites a `gc_next` field), which differs from s1's
+emission — a codegen divergence, exactly the faithful-port bug class.
+
+**NEXT (for the dedicated effort):** find what corrupts the tracked list. It fires
+only at ~8M live objects (deep into a ~20-min self-compile), so iteration is slow.
+Approaches: (a) add a cycle-cap to the candidate-mark walk (`if (++steps >
+tracked_count + 1024) { /* dump obj addr, prev, gc_next */ abort() }`), rebuild,
+run to scan #16 → get the offending node's address + the node whose `gc_next`
+points back; (b) run under a guard-page allocator / ASan to catch the `gc_next`
+overwrite at the write (ASan historically hangs on the async runtime — try
+`--allocator libc --sanitize address` on a `check`-only, no-async path); (c) audit
+s2-vs-s1 emitted `___dispose`/`___drop`/`traverse_fn` for a divergence that could
+double-free or write past a struct into the adjacent header's `gc_next`. The
+escape-path leak fix (`b73ddfcc7`) is correct and unrelated (corpus DIFF 0; it
+only bounded memory enough to REACH scan #16, exposing this pre-existing latent
+corruption).
+
 ## GC-tuning route CLOSED (2026-07-14) — full scans are required for memory
 
 Tested the "full scans reclaim ~0 → make them rare" hypothesis: `YO_GC_FULL_PCT=100000`
