@@ -53,6 +53,59 @@ errors** (was 20 with the coarse tracker); s2 built and runs; memory bounded.
 
 ---
 
+## Residual #78 GC-thrash — investigation results (2026-07-14, post leak-fix)
+
+After the escape-path leak fix (`b73ddfcc7`) memory is bounded, but s2 emitting
+`stage3.c` is impractically slow: `sample` = ~100% in `__yo_gc_collect` (the FULL
+heap scan, reached via `__yo_gc_register` when `tracked_count >= full_threshold`).
+`YO_GC_THRESHOLD=0` (no auto-GC) still OOMs (~98GB) → the GC is reclaiming a large
+volume of **cyclic garbage**; with GC on, memory is bounded (~1.3GB, compressed
+24MB) but the repeated O(tracked) full scans dominate CPU (2h+ at default
+threshold, no completion; even an 86KB effect program takes 12min+). Every GC
+threshold config was tried: default → thrash-but-bounded; 2M/5M/FULL_PCT=300 →
+compressed OOM (jetsam, RSS misleads); 0 → OOM. None both bound memory AND
+complete.
+
+**Ruled out as the cause (this session), each verified:**
+
+1. **GC runtime is a faithful port.** The emitted `__yo_gc_register` /
+   `__yo_gc_collect` / `__yo_gc_collect_incremental` and thresholds
+   (`collect_threshold=256`, `full_threshold=256`, `full_pct=200`) are
+   BYTE-IDENTICAL between TS's emission (`/tmp/yo-self-s1.c`) and yo-self's
+   self-emission (`/tmp/stage2.c`). Not a GC-runtime-emitter bug.
+2. **Not over-tracking.** yo-self emits FEWER `__yo_gc_register` call sites than
+   TS (134 vs 176) — the `can_type_form_rc_cycle` gate (types/utils.yo, fully
+   implemented, structural DFS) is working; the cycle-GC scan set is not larger
+   than TS's. (The 176-vs-134 gap = 42 cyclic types TS registers that yo-self
+   does not — a possible faithful-port miss worth a look, but NOT the dominant
+   thrash source: an unregistered cyclic type would leak _reachably_ and GC-on
+   would not bound it, yet GC-on does.)
+3. **`get_variables_needing_drop` (env.yo) is a verbatim match** of TS
+   `getVariablesNeedingDrop` (env.ts:2233) — same filters (consumed / owning /
+   type_contains_rc_type / module-level / SomeT-no-traits).
+4. **Drop codegen matches TS on every simple RC pattern**, verified by
+   emitting the same program with `./yo-cli` (TS) and s1 and diffing the function
+   body: an immutable RC local in a loop (`h := Env2(x:i)`) → dropped at loop-end
+   AND escape; a reassignable RC local (`(env : Env2) = …; env = …`) →
+   drop-on-reassign AND scope-end drop (with `__yo_scope_ret` capture); the
+   escape-path drops (the b73ddfcc7 fix). All identical to TS.
+
+**Conclusion:** the residual gap does NOT reproduce in small hand-written
+programs — yo-self's drop codegen is faithful there. The excess cyclic garbage is
+generated only inside the compiler's OWN complex runtime (generic specialization,
+closures capturing envs, recursive-enum AST/TypeValue/EvalValue graphs), where
+some owned-RC locals' scope-end/early drops are still not scheduled, so their
+RCs are never decremented → they never enter the incremental collector's
+`possible_roots` → only the expensive full scan reclaims them. Localizing this
+requires diffing the two ~30-50MB self-emission C files function-by-function
+(names do NOT align: TS `fn_yoXXX_id_N_name` uses per-module ids, yo-self
+`yo_id_N` uses global ids), or instrumenting the evaluator's drop-scheduling to
+count per-source-function owned-RC locals not scheduled for drop. This is the
+dedicated #78 effort; it is NOT a bounded-turn-safe patch and its only full
+validation is the 2h+ s2 self-emit. Do NOT make speculative broad
+drop-scheduling changes — they risk regressing the corpus DIFF-0 green state with
+no fast validation signal.
+
 ## (historical) Status: OPEN — root localized, fix pending
 
 ## TL;DR — the diagnosis was wrong
