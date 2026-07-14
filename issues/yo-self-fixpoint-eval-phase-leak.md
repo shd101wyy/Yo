@@ -53,7 +53,52 @@ errors** (was 20 with the coarse tracker); s2 built and runs; memory bounded.
 
 ---
 
-## ROOT LOCALIZED (2026-07-14) — s2's `tracked_objects` GC list goes CYCLIC at ~8M objects (infinite loop in the full-scan list walk)
+## REAL ROOT (2026-07-14, FINAL) — s2 evaluator RUNAWAY: creates ~4×+ more LIVE objects than s1 for the same compile → OOM
+
+The cyclic-list theory below is DISPROVEN. Adding a cycle-cap to the candidate-mark
+walk (abort if it exceeds tracked_count+2048 nodes) and running uncontended: the
+walk never trips the cap (list is NOT cyclic), and the full scans COMPLETE and keep
+going. The per-scan trace to OOM:
+
+```
+#15 tracked=4.19M  edges=13.6M  ms=1717
+#16 tracked=8.39M  edges=22.3M  ms=3109
+#17 tracked=16.78M edges=39.1M  ms=11467   <- s1 STOPS HERE: emits stage2.c, exit 78s
+#18 tracked=33.55M edges=86.5M  ms=22363   <- s2 keeps allocating
+#19 tracked=67.11M edges=181M   ms=53198   <- ...then jetsam (rc=137)
+```
+
+Decisive facts:
+
+- The full scans are ~LINEAR and COMPLETE (no cycle, no super-linear blowup; ms
+  tracks tracked×edges). The GC is fine. Prior "cyclic list" and "super-linear
+  scan" framings are both WRONG.
+- Each scan reclaims ≈0 (full_threshold == tracked_count at every scan) → the whole
+  tracked set is LIVE, not garbage.
+- s1 (TS-emitted) peaks at **16M** live objects (scan #17) and then FINISHES the
+  compile (emits stage2.c, exit rc=0, 78s). s2 (yo-self-emitted) reaches 16M but
+  does **NOT** finish — it runs away to 33M, 67M, … until OOM.
+- So for the IDENTICAL compile of the IDENTICAL source, **s2's evaluator creates
+  ≥4× more live objects than s1**. This is an evaluator OBJECT-COUNT RUNAWAY —
+  redundant/extra work or retained state that s1 does not create — NOT missing RC
+  drops (the objects are live/reachable, not leaked garbage) and NOT GC cost.
+
+This matches the known "cumulative check runaway" (#78) / `_patch_self_shell`
+runaway ([[yo-self-p3-perf-and-runaway]]). It is a yo-self EMITTED-code divergence
+from TS: s2's evaluator does extra allocation-heavy work past the point s1 finishes
+— candidates: a missing memoization/cache (comptime-fn cache, type interning,
+specialization dedup) so s2 re-creates objects s1 reuses; or a loop/recursion that
+iterates more in s2. The escape-path leak fix (`b73ddfcc7`) bounded the earlier
+56-73GB leak and is correct+unrelated.
+
+**NEXT:** reach ~30M objects (past where s1 finished, ~20 min) and `sample` s2 —
+the top stack there is doing work s1 never does; that function is the runaway.
+Cross-check by counting, in s1 vs s2, how many times key evaluator entry points
+(evaluate_function_call, specialization, comptime-fn cache lookups) fire for the
+same compile. Fix = restore the cache/dedup/termination that s2 is missing so its
+object count matches s1's ~16M. Then the fixpoint completes (scans are fine).
+
+## (DISPROVEN) ROOT LOCALIZED (2026-07-14) — s2's `tracked_objects` GC list goes CYCLIC at ~8M objects (infinite loop in the full-scan list walk)
 
 Instrumented the full scan to print `tracked_count`/`edges`/`ms` at each entry AND
 per-scan duration. Run uncontended:
