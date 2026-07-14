@@ -2088,6 +2088,14 @@ Fix: wrap the call:
             out_s.value = struct_val;
             out_s.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_s.runtime_arg_exprs_in_order);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_s);
+            // Set temp variable holding the struct-construction result so an
+            // owned RC struct (ref-struct) is materialized into a caller-frame
+            // temp and dropped at scope end. Mirrors TS function.ts:2461
+            // `attachTempVariableToExpr(expr, true, undefined, callReturnIsRef)`
+            // (callReturnIsRef is always false here: the callee type is a struct
+            // TypeValue, not a FunctionType). Omitting this leaked every
+            // constructed ref-struct (the 9x under-free / 26G blocker).
+            attach_temp_variable_to_expr(expr, true, ctx);
             // Explicit `return(expr)` (mirrors TS function.ts:2470 `return expr`).
             // A bare tail `expr` here skipped the return-dup for NON-RC struct
             // results (set_expr's type gate saw the concrete non-RC struct type),
@@ -2216,6 +2224,9 @@ Fix: wrap the call:
             out_e.value = enum_val;
             out_e.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_e.runtime_arg_exprs_in_order);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_e);
+            // Materialize the enum-construction result into an owning temp so a
+            // ref-enum value is dropped at scope end. Mirrors TS function.ts:2527.
+            attach_temp_variable_to_expr(expr, true, ctx);
             return(expr);
           },
           // ----------------------------------------------------------------
@@ -2245,6 +2256,9 @@ Fix: wrap the call:
             out_u.value = Option(EvalValue).None;
             out_u.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_u.runtime_arg_exprs_in_order);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_u);
+            // Materialize the union-construction result into an owning temp.
+            // Mirrors TS function.ts:2567.
+            attach_temp_variable_to_expr(expr, true, ctx);
             return(expr);
           },
           // ----------------------------------------------------------------
