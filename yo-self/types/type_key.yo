@@ -78,40 +78,51 @@ _tk_seen :: (fn(id : String) -> bool)({
 _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
   match(
     t,
-    .Struct({ id, constructor_func_id : cfid, type_arguments : tas, field_types : fts }) => {
+    .Struct({ id, constructor_func_id : cfid, type_arguments : tas, field_types : fts, is_reference_semantics : t_is_ref }) => {
       // Resolve a leaked recursive-struct SELF-SHELL to its final so the shell and
       // its final share ONE C type key. Mirrors the EnumT branch below. No-op for
       // non-shells. See resolve_struct_shell (creators.yo).
       st := resolve_struct_shell(t);
-      (sid, scfid, stas, sfts) := match(
+      (sid, scfid, stas, sfts, s_is_ref) := match(
         st,
-        .Struct({ id : rid, constructor_func_id : rcfid, type_arguments : rtas, field_types : rfts }) => (rid, rcfid, rtas, rfts),
-        _ => (id, cfid, tas, fts)
+        .Struct({ id : rid, constructor_func_id : rcfid, type_arguments : rtas, field_types : rfts, is_reference_semantics : rirs }) => (rid, rcfid, rtas, rfts, rirs),
+        _ => (id, cfid, tas, fts, t_is_ref)
       );
+      // #30: a reference-semantics struct (`ref(struct …)` → emitted as a pointer
+      // field) and a value struct with the SAME fields have DIFFERENT C layouts
+      // and MUST NOT share a C type id. `type_key` historically omitted this, so
+      // two `Bucket(K,V)` instantiations — one with a ref `value` field, one with
+      // a value `value` field — collapsed onto one id; the GC traverse fn built for
+      // the ref layout was then emitted for the value layout (`if(struct){…}` — a
+      // clang scalar-type error, main.yo-only). Prefix ref-semantics struct keys so
+      // they never collide with value structs; ref structs still dedup among
+      // themselves (constant marker). See issues/yo-self-gc-traverse-value-struct-field.md.
+      ref_pfx := if(s_is_ref, String.from("R#"), String.from(""));
       // Cycle guard (see g_tk_visited): a struct id already on the expansion
       // path renders via its recorded cfid-key / id — no re-recursion into
       // its (already-being-expanded) type arguments.
       if((sid.len() > usize(0)) && _tk_seen(sid), {
-        return(
-          match(
-            g_struct_cfid_keys.get(sid.clone()),
-            // A POISONED slot ("!AMBIG" — multiple instantiations share this
-            // sid) must NOT leak the sentinel as a key: two different nested
-            // types would both render "!AMBIG" and collide (the sentinel
-            // appeared inside specialized C fn names, merging distinct
-            // ArrayList instantiations — the stage-2 binary's runtime hang).
-            // Fall back to the bare sid: the cycle guard only fires for a
-            // type already ON the expansion path, where id-only rendering is
-            // the pre-poison behavior for self-references.
-            .Some(k) => if(k == String.from("!AMBIG"), sid.clone(), k.clone()),
-            .None => sid.clone()
-          )
+        cyc_inner := match(
+          g_struct_cfid_keys.get(sid.clone()),
+          // A POISONED slot ("!AMBIG" — multiple instantiations share this
+          // sid) must NOT leak the sentinel as a key: two different nested
+          // types would both render "!AMBIG" and collide (the sentinel
+          // appeared inside specialized C fn names, merging distinct
+          // ArrayList instantiations — the stage-2 binary's runtime hang).
+          // Fall back to the bare sid: the cycle guard only fires for a
+          // type already ON the expansion path, where id-only rendering is
+          // the pre-poison behavior for self-references.
+          .Some(k) => if(k == String.from("!AMBIG"), sid.clone(), k.clone()),
+          .None => sid.clone()
         );
+        cyc_out := ref_pfx.clone();
+        cyc_out.push_string(cyc_inner);
+        return(cyc_out);
       });
       if(sid.len() > usize(0), {
         g_tk_visited.push(sid.clone());
       });
-      cond(
+      raw_key := cond(
         // GENERIC INSTANTIATION with stable identity: key by (constructor_func_id, type_arguments).
         // NO depth cap: the g_tk_visited cycle guard already bounds recursion;
         // a depth cap made every generic nested deeper than the cap fall back
@@ -200,7 +211,10 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
           ))
         },
         true => type_to_string(st)
-      )
+      );
+      out_key := ref_pfx.clone();
+      out_key.push_string(raw_key);
+      out_key
     },
     .EnumT({ id, variant_fields : vfs }) => {
       // Resolve a leaked recursive-enum SELF-SHELL to its final so the shell and

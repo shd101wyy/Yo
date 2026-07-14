@@ -38,6 +38,9 @@ open(import("std/string"));
   BK_CTL,
   BK_UNSAFE_FN,
   BK_FN_TRAIT,
+  BK_WHILE,
+  BF_DUP,
+  ExprId,
   ast_expr_is_fn_call
 } :: import("../../expr.yo");
 {
@@ -58,7 +61,8 @@ open(import("std/string"));
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ is_some_type } :: import("../../types/guards.yo");
+{ is_some_type, is_reference_struct_type } :: import("../../types/guards.yo");
+{ expr_tree_contains_return } :: import("../../expr_traversal.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_flowable_expr, flow_options_default, FlowOptions }
@@ -87,7 +91,21 @@ DupCallsResult :: ref(
     /// Maps base-variable id → list of `___dup(...)` call expressions.
     dup_calls : HashMap(String, ArrayList(AstExpr)),
     /// Variable ids that have dups in some branches but not all (conservative).
-    vars_with_partial_branch_dups : ArrayList(String)
+    vars_with_partial_branch_dups : ArrayList(String),
+    /// Maps a dup-call expr id → the USE-SITE token of the RHS that owns it (the
+    /// expr whose `deferred_dup_expressions` held it). Mirrors TS
+    /// `__useSiteToken` (src/expr.ts:2579): the point of ownership transfer, used
+    /// to set an accurate `consumed_at_token` so early returns AFTER the transfer
+    /// do not re-drop the moved value.
+    dup_use_site_tokens : HashMap(ExprId, Box(Token))
+  )
+);
+/// Build an empty `DupCallsResult`.
+_new_dup_calls_result :: (fn() -> DupCallsResult)(
+  DupCallsResult(
+    dup_calls : HashMap(String, ArrayList(AstExpr)).new(),
+    vars_with_partial_branch_dups : ArrayList(String).new(),
+    dup_use_site_tokens : HashMap(ExprId, Box(Token)).new()
   )
 );
 // ---------------------------------------------------------------------------
@@ -101,17 +119,223 @@ is_unit_value_expression :: (fn(expr : AstExpr) -> bool)(
   ast_expr_is_fn_call_of(expr, BK_TUPLE,.Some(usize(0)))
 );
 // ---------------------------------------------------------------------------
-// collect_dup_calls_conservatively — stub
+// _search_recursively / collect_dup_calls_conservatively
 // ---------------------------------------------------------------------------
-/// Stub. The real implementation traverses `expr` recursively to collect all
-/// `___dup(...)` calls, keyed by the base-variable id they dup.
-/// Deferred to Phase 3.
-collect_dup_calls_conservatively :: (fn(_expr : AstExpr) -> DupCallsResult)(
-  DupCallsResult(
-    dup_calls : HashMap(String, ArrayList(AstExpr)).new(),
-    vars_with_partial_branch_dups : ArrayList(String).new()
+/// Recursively collect `___dup(name)` call expressions, keyed by the id of the
+/// variable they dup. Mirrors `searchRecursively` in
+/// `src/evaluator/exprs/begin.ts:355-627`.
+///
+/// CONSERVATIVE (straight-line only): `while` loops (execute multiple times) AND
+/// `cond`/`match` branches (cross-branch dup analysis not yet ported) are SKIPPED
+/// — dups inside them are not collected, so their scope-exit drops are always
+/// preserved. This can only MISS an optimisation, never wrongly cancel a drop.
+_record_dup :: (fn(result : DupCallsResult, var_id : String, dup_expr : AstExpr) -> unit)({
+  match(
+    result.dup_calls.get(var_id.clone()),
+    .Some(lst) => {
+      lst.push(dup_expr);
+    },
+    .None => {
+      nl := ArrayList(AstExpr).new();
+      nl.push(dup_expr);
+      _s := result.dup_calls.set(var_id, nl);
+    }
+  );
+});
+_search_recursively :: (fn(expr : AstExpr, result : DupCallsResult, ctx : EvalContext) -> unit)({
+  ei_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr));
+  // Recurse into this expr's deferred dup expressions. The owner `expr` is the
+  // RHS use site → stamp its token for each contained dup (mirrors TS
+  // __useSiteToken, set at dup creation to expr.token).
+  match(
+    ei_opt,
+    .Some(ei) => match(
+      ei.deferred_dup_expressions,
+      .Some(dups) => {
+        owner_tok := ast_expr_token(expr);
+        (di : usize) = usize(0);
+        ndups := dups.len();
+        while(di < ndups, {
+          match(
+            dups.get(di),
+            .Some(d) => {
+              _t := result.dup_use_site_tokens.set(ast_expr_id(d), box(owner_tok.clone()));
+              recur(d, result, ctx);
+            },
+            .None => ()
+          );
+          di = (di + usize(1));
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  // Detect a `___dup(name)` call and record it under the dup'd variable's id.
+  if(ast_expr_is_fn_call_of(expr, BF_DUP, Option(usize).Some(usize(1))), {
+    match(
+      expr,
+      .FnCall(_, _, dargs, _, _) => match(
+        dargs.get(usize(0)),
+        .Some(name_atom) => {
+          vname := ast_expr_token(name_atom).value;
+          match(
+            ei_opt,
+            .Some(ei2) => {
+              vars := get_variables_from_env(ei2.env, vname.clone());
+              nv := vars.len();
+              if(nv > usize(0), {
+                match(
+                  vars.get(nv - usize(1)),
+                  .Some(v) => _record_dup(result, v.id.clone(), expr),
+                  .None => ()
+                );
+              });
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      ),
+      _ => ()
+    );
+    return(());
+  });
+  // Skip while loops (body may execute multiple times) and cond/match branches
+  // (conservative — cross-branch analysis deferred to Stage 2b).
+  if(ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None), {
+    return(());
+  });
+  if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None), {
+    return(());
+  });
+  if(ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), {
+    return(());
+  });
+  // Recurse into function calls (func + args).
+  match(
+    expr,
+    .FnCall(_, f, cargs, _, _) => {
+      recur(f, result, ctx);
+      (ai : usize) = usize(0);
+      na := cargs.len();
+      while(ai < na, {
+        match(cargs.get(ai),.Some(a) => recur(a, result, ctx),.None => ());
+        ai = (ai + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  );
+});
+/// Collect all `___dup(...)` calls in `expr` keyed by the base-variable id.
+/// Mirrors `collectDupCallsConservatively` (begin.ts:630).
+collect_dup_calls_conservatively :: (fn(expr : AstExpr, ctx : EvalContext) -> DupCallsResult)({
+  result := _new_dup_calls_result();
+  _search_recursively(expr, result, ctx);
+  result
+});
+/// True iff the subtree rooted at `expr` holds (in some ExprInfo's
+/// `deferred_dup_expressions`) a dup call with id `dup_id`. Same conservative
+/// traversal as `_search_recursively` (skips `while`/`cond`/`match` bodies), so
+/// it agrees with which child a collected dup belongs to. Used to compute a
+/// dup's begin-arg child index for the hasReturnBeforeDup guard.
+_expr_subtree_contains_dup :: (fn(expr : AstExpr, dup_id : ExprId, ctx : EvalContext) -> bool)({
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
+    .Some(ei) => match(
+      ei.deferred_dup_expressions,
+      .Some(dups) => {
+        (i : usize) = usize(0);
+        while(i < dups.len(), {
+          match(
+            dups.get(i),
+            .Some(d) => if(ast_expr_id(d) == dup_id, {
+              return(true);
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  if(ast_expr_is_fn_call_of(expr, BF_DUP, Option(usize).Some(usize(1))), {
+    return(false);
+  });
+  if(ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None), {
+    return(false);
+  });
+  if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None), {
+    return(false);
+  });
+  if(ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), {
+    return(false);
+  });
+  match(
+    expr,
+    .FnCall(_, f, args, _, _) => {
+      if(recur(f, dup_id, ctx), {
+        return(true);
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        found := match(args.get(i),.Some(a) => recur(a, dup_id, ctx),.None => false);
+        if(found, {
+          return(true);
+        });
+        i = (i + usize(1));
+      });
+      false
+    },
+    .Atom(_, _) => false
   )
-);
+});
+/// Remove the dup call with id `dup_id` from every `deferred_dup_expressions`
+/// list in the subtree rooted at `expr`. Mirrors `removeDupCallsFromExpr`
+/// (begin.ts:652).
+_remove_dup_from_expr :: (fn(expr : AstExpr, dup_id : ExprId, ctx : EvalContext) -> unit)({
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
+    .Some(ei) => match(
+      ei.deferred_dup_expressions,
+      .Some(dups) => {
+        kept := ArrayList(AstExpr).new();
+        (i : usize) = usize(0);
+        while(i < dups.len(), {
+          match(
+            dups.get(i),
+            .Some(d) => if(ast_expr_id(d) != dup_id, {
+              _k := kept.push(d);
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        if(kept.len() == usize(0), {
+          ei.deferred_dup_expressions = Option(ArrayList(AstExpr)).None;
+        }, {
+          ei.deferred_dup_expressions = Option(ArrayList(AstExpr)).Some(kept);
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  match(
+    expr,
+    .FnCall(_, f, args, _, _) => {
+      recur(f, dup_id, ctx);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(args.get(i),.Some(a) => recur(a, dup_id, ctx),.None => ());
+        i = (i + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  );
+});
 // ---------------------------------------------------------------------------
 // _check_keyword_position
 // ---------------------------------------------------------------------------
@@ -1201,6 +1425,103 @@ evaluate_begin_expression :: (
       });
     }
   );
+  // -------------------------------------------------------------------------
+  // OPTIMIZE_DUP_AND_DROP_PAIRS — straight-line dup/drop elision.
+  // Mirrors begin.ts:1787-2062 (conservative subset). For each owning RC local
+  // of the current frame dup'd EXACTLY ONCE in straight-line code (branch/while
+  // dups are not collected → their drops are always kept), cancel the dup/drop
+  // pair: mark the local consumed at the dup's USE-SITE token (so the M1 scheduler
+  // skips its scope-end drop and the M3 driver attaches early-return drops only to
+  // returns BEFORE the transfer) and remove the dup from its owner's
+  // deferred_dup_expressions (so codegen emits neither the incr nor the decr).
+  // Guards (faithful to TS): skip value-structs with RC fields (memcpy copy —
+  // each needs its own drop); skip a dup that sits in a begin-arg child AFTER a
+  // child containing a return/unwind (the early-return path never runs the dup,
+  // so the value is still live and its scope-end drop must stay).
+  if(ast_expr_is_fn_call(expr), {
+    match(
+      current_frame_opt,
+      .Some(opt_fr) => {
+        dup_result := collect_dup_calls_conservatively(expr, ctx);
+        // Earliest begin-arg child index containing a return/unwind (-1 = none).
+        (earliest_ret : isize) = (isize(0) - isize(1));
+        (cix : usize) = usize(0);
+        while((cix < begin_args.len()) && (earliest_ret < isize(0)), {
+          match(
+            begin_args.get(cix),
+            .Some(carg) => if(expr_tree_contains_return(carg), {
+              earliest_ret = isize(cix);
+            }),
+            .None => ()
+          );
+          cix = (cix + usize(1));
+        });
+        efv := opt_fr.variables;
+        (evx : usize) = usize(0);
+        nefv := efv.len();
+        while(evx < nefv, {
+          match(
+            efv.get(evx),
+            .Some(ov) => {
+              some_undroppable := match(
+                ov.ty,
+                .SomeT({ required_trait_types : s_rtt2, resolved_concrete : s_rc2 }) => (s_rc2.is_none() && (s_rtt2.len() == usize(0))),
+                _ => false
+              );
+              is_value_with_rc := ((!(is_reference_struct_type(ov.ty))) && type_contains_rc_type(ov.ty));
+              eligible := (
+                ov.is_owning_the_rc_value && type_contains_rc_type(ov.ty)
+                && (!(ov.is_module_level)) && (!(ov.is_ref))
+                && ov.consumed_at_token.is_none()
+                && (!(some_undroppable)) && (!(is_value_with_rc))
+              );
+              if(eligible, {
+                match(
+                  dup_result.dup_calls.get(ov.id.clone()),
+                  .Some(dlist) => {
+                    if(dlist.len() == usize(1), {
+                      the_dup := match(dlist.get(usize(0)),.Some(x) => x,.None => make_err_expr());
+                      dup_id := ast_expr_id(the_dup);
+                      // Child index of this dup (only needed when the block has a return).
+                      (has_ret_before : bool) = false;
+                      if(earliest_ret >= isize(0), {
+                        (dcx : usize) = usize(0);
+                        (dup_child : isize) = (isize(0) - isize(1));
+                        while((dcx < begin_args.len()) && (dup_child < isize(0)), {
+                          match(
+                            begin_args.get(dcx),
+                            .Some(cc) => if(_expr_subtree_contains_dup(cc, dup_id, ctx), {
+                              dup_child = isize(dcx);
+                            }),
+                            .None => ()
+                          );
+                          dcx = (dcx + usize(1));
+                        });
+                        has_ret_before = ((dup_child >= isize(0)) && (dup_child > earliest_ret));
+                      });
+                      if(!(has_ret_before), {
+                        use_tok := match(
+                          dup_result.dup_use_site_tokens.get(dup_id),
+                          .Some(bt) => bt.*.clone(),
+                          .None => ast_expr_token(last_expr)
+                        );
+                        ov.consumed_at_token = Option(Box(Token)).Some(box(use_tok));
+                        _remove_dup_from_expr(expr, dup_id, ctx);
+                      });
+                    });
+                  },
+                  .None => ()
+                );
+              });
+            },
+            .None => ()
+          );
+          evx = (evx + usize(1));
+        });
+      },
+      .None => ()
+    );
+  });
   // M1: schedule scope-end RC drops for this frame's owning named locals BEFORE the
   // frame is popped (the `___drop(name)` exprs are evaluated against `env` while the
   // names are still in scope). See _schedule_scope_end_drops + plans/YO_SELF_NAMED_LOCAL_DROPS.md.

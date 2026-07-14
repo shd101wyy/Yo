@@ -2,6 +2,74 @@
 
 ## Status: LEAK FIXED (bounded) — fixpoint completion now gated on #78 evaluator perf
 
+## ROOT CAUSE FOUND (2026-07-14) — #78 is UN-ELIDED dup/drop pairs, NOT missing drops
+
+Runtime differential (faithful-port method) settles the long-running #65/#78
+question. Built s1 (`compile yo-self/main.yo --release` → TS-emitted `/tmp/s1.c`)
+and s2 (s1 self-emits `/tmp/stage2.c` → `clang -O2`). Patched `__yo_gc_collect` in
+BOTH with a per-full-scan **edge counter** and a **dispose_fn histogram**
+(scratchpad `patch_gc3.py` / `patch_gc6.py`), ran each `check yo-self/main.yo`:
+
+| tracked | s1 edges (edges/obj) | s2 edges (edges/obj) |
+| ------- | -------------------- | -------------------- |
+| 262K    | 1.33M (5.1)          | 1.31M (5.0)          |
+| 1M      | 3.31M (3.2)          | 6.52M (6.2)          |
+| 2M      | 4.59M (2.2)          | 13.4M (6.4)          |
+| 4M      | 7.15M (1.7)          | 27.0M (6.4)          |
+
+- **Object trajectory IDENTICAL** (full scans at doublings 256→8.4M, **reclaim=0
+  every scan in BOTH**). So s2 does NOT create more objects and there is NO
+  cyclic-garbage difference — this **kills the "7x fewer scope-end drops → cyclic
+  garbage → GC thrash" theory as the blocker.** Drops (M1/M3,
+  `get_variables_needing_drop`) ARE ported; the "all stubbed" comments in
+  `begin.yo:5-11` / `1080-1090` are STALE.
+- **s2 holds ~2–4x more LIVE traced references per object** (edges/obj pinned
+  ~6.4 while s1 DROPS to 1.7 as it accumulates cheap leaves). Runtime measurement
+  → immune to the inline-vs-typed-fn confound that makes raw counts uncomparable
+  (TS 332 incr / 240384 `___drop`-CALLS through typed fns; yo-self 9628 incr /
+  34387 INLINE decr). dispose_fn histogram @1M shows a SIMILAR type distribution
+  (dominant = `ArrayList(bigTypeKindEnum)`, 484K s1 / 619K s2; `(none)` leaves
+  ~270K both) → the excess is out-DEGREE (live refs held), not object count.
+- **ROOT: yo-self STUBS the reference-minimizing optimizations TS has** —
+  `collect_dup_calls_conservatively` (`begin.yo:109`) returns empty;
+  `OPTIMIZE_DUP_AND_DROP_PAIRS` block (`begin.yo` ~1080) is a no-op;
+  `optimizeLoopTraversalBorrowChain` is a no-op. yo-self therefore emits EVERY dup
+  - EVERY drop with NO elision, where TS cancels matched dup/drop pairs (borrows
+    instead). Consequences: (1) ~2x RC traffic = the "54% `__yo_decr_rc`" profile
+    (#65) = the 48min emit; (2) an un-elided dup holds a reference until scope end →
+    object freed LATER → higher peak (26G vs s1 10G).
+
+### The fix (faithful port) — feasible; infra already present
+
+`deferred_dup_expressions` exists (`yo-self/expr_info.yo:350`);
+`set_expr_as_needs_to_call_dup` (`utils.yo:577`) is real. Port surface in TS
+`src/evaluator/exprs/begin.ts`: `searchRecursively`+helpers (≈380-627),
+`collectDupCallsConservatively` (630), `optimizeLoopTraversalBorrowChain` (704),
+`removeDupCallsFromExpr` (652), and the `OPTIMIZE_DUP_AND_DROP_PAIRS` block inside
+`evaluateBeginExpression` (≈1787-2062). ~500 lines, HOTTEST eval path,
+UAF/leak-risk — the frontier's DECL_RE attempt tripped a latent bug HERE and was
+reverted (324087cdf). **Infra gap:** TS marks dups with expando props
+(`__isEarlyReturnDup`, `__branchGroup`, `__useSiteToken`) which yo-self's
+`ref(enum)` AstExpr cannot carry — needs an ExprInfo field or side-table.
+GATE: corpus 118/DIFF0 + check 303/303; REVERT on regression. Never `.clone()` AstExpr.
+
+### Cheap validation loop (no 26G emit; ~9min)
+
+edit `begin.yo` → rebuild s1 `--release` → s1 emits `stage2.c` →
+`python3 scratchpad/patch_gc3.py /tmp/stage2.c /tmp/s2_e.c && clang -std=c11
+-fno-strict-aliasing -fwrapv -w -O2 /tmp/s2_e.c -o /tmp/s2_e` →
+`/tmp/s2_e check yo-self/main.yo 2>log` → **edges/obj at 1M should drop from 6.2
+toward s1's 3.2.** (s1 baseline binary: `/tmp/s1_e`.) NOTE: a `clock_gettime`
+patch crashes s2 under -O2 (SIGTRAP) — use the edges-only patch.
+
+### Hardware limit
+
+This box = **16GB RAM**; the 26G emit thrashes → item-3 byte-exact
+`diff stage2.c stage3.c` cannot complete here until the port bounds memory <16G
+(or run on a >32G box). s1 `check` peaks ~5.2GB and completes in ~78s.
+
+---
+
 ## UPDATE (2026-07-13) — escape-path drop leak FIXED via block-scope-aware scope stack
 
 The dominant escape-path leak is **fixed**. s2 compiling `main.yo` no longer
