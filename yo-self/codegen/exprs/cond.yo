@@ -23,7 +23,7 @@ open(import("std/string"));
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
-{ generate_dup_code_for_value, generate_deferred_dup_expressions } :: import("./drop_dup.yo");
+{ generate_dup_code_for_value, generate_deferred_dup_expressions, generate_deferred_drop_expressions } :: import("./drop_dup.yo");
 { get_type_string, get_variable_name_for_codegen } :: import("../utils/index.yo");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
@@ -380,6 +380,16 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
       .None => ()
     );
   });
+  // Emit the arm begin-block's own scope-end drops at its NORMAL completion
+  // (fall-through). Mirrors TS cond.ts:401-403
+  // (`generateDeferredDropExpressions(value, ...)`). Without this, an owning
+  // local declared inside a `cond`/`if` arm (e.g. `bucket := (data_ptr &+ i).*`
+  // in HashMap._find_bucket) was pushed onto pending_deferred_drops (for nested
+  // early returns) but NEVER dropped on the arm's fall-through path, leaking the
+  // value-struct's RC field on every non-matching probe. (On an early-return
+  // path the return emits it from pending; any emission here after a
+  // control-flow tail is unreachable dead code, matching TS.)
+  generate_deferred_drop_expressions(value, value_indent.clone(), context);
   context.pending_deferred_drops = prev_pending;
   context.consumed_var_pending_drops = prev_consumed;
 });
