@@ -91,12 +91,37 @@ specialization dedup) so s2 re-creates objects s1 reuses; or a loop/recursion th
 iterates more in s2. The escape-path leak fix (`b73ddfcc7`) bounded the earlier
 56-73GB leak and is correct+unrelated.
 
-**NEXT:** reach ~30M objects (past where s1 finished, ~20 min) and `sample` s2 —
-the top stack there is doing work s1 never does; that function is the runaway.
-Cross-check by counting, in s1 vs s2, how many times key evaluator entry points
-(evaluate_function_call, specialization, comptime-fn cache lookups) fire for the
-same compile. Fix = restore the cache/dedup/termination that s2 is missing so its
-object count matches s1's ~16M. Then the fixpoint completes (scans are fine).
+**RUNAWAY STACK (sampled past scan #17, i.e. past where s1 finishes):** the deep
+recursion is the normal evaluator loop `yo_id_297551 ↔ yo_id_296713`
+(evaluate_expression ↔ evaluate_function_call), with `yo_id_20437` (new_variable)
+allocating at the bottom. Notable frames resolved from their C signatures:
+
+- `yo_id_403478(argv, io, exn)` — top-level CLI compile driver (from \_\_yo_user_main).
+- `yo_id_402974(path : String) -> __yo_t170*` — a **path→pointer module loader**,
+  appearing DEEP inside the eval recursion (via `yo_id_274001(expr,env,ctx,exn)`,
+  an eval pass). It returns a raw pointer (NOT `LoadModuleResult`), so it is the
+  read+parse+eval path (`_load_module_at_abs`/`parse`), i.e. a module being
+  RE-loaded/RE-evaluated during eval — not the cache-guarded `demand_load_module`.
+- `yo_id_265082(expr, env, given_type, given_value, ctx, exn)` = evaluate_expression;
+  `yo_id_236741`/`yo_id_274001(expr,env,ctx,exn)` = eval passes.
+
+yo-self HAS a module cache (`g_module_cache_keys/vals/types`, module_loader.yo:83;
+`demand_load_module` returns cached on `module_cache_has(path)`), but the lookup
+`_module_cache_index` is a LINEAR scan and keys are absolute `file://…` paths.
+Leading hypothesis: a **module-cache MISS** (path-key form mismatch — the known
+`file:///…` vs `./…` divergence, cf. [[yo-self-stage2-comptime-list-dup]]) makes
+some module RE-read+RE-parse+RE-eval on each reference during def-time body eval,
+multiplying live objects 4×+. Alternatively a non-terminating eval loop specific
+to s2's emitted code (the [[yo-self-p3-perf-and-runaway]] `_patch_self_shell`
+runaway).
+
+**NEXT (confirm + fix):** instrument the module loader (`_load_module_at_abs` /
+the yo_id_402974 path) to `eprintln` the path on each load; run s2 to ~30M objects
+(~20 min) and check if the SAME path loads many times (→ cache-key bug: normalize
+the key / dedup) or many DISTINCT paths (→ a genuine re-eval loop). Cross-check
+the same counts in s1. Fix = restore the cache-hit / termination that s2 misses so
+its object count matches s1's ~16M; then the fixpoint completes (scans are fine).
+The escape-path leak fix (`b73ddfcc7`) remains correct+committed.
 
 ## (DISPROVEN) ROOT LOCALIZED (2026-07-14) — s2's `tracked_objects` GC list goes CYCLIC at ~8M objects (infinite loop in the full-scan list walk)
 
