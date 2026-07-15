@@ -466,3 +466,20 @@ parser.yo's small object population the direct-mapped table may finally hold
 filter REMOVED... note op7's oplog still carries the t65 traverse filter —
 rebuild without it for this). Repro commands are in this section; builds:
 /tmp/s2r4 (-O2), /tmp/s2r4lop7 (-O0 libc + freelog + tombstone).
+
+Round-5 addendum: the unfiltered murmur-hashed oplog STILL collides on the
+victim even with the parser.yo repro (tens of millions of RC ops; the
+direct-mapped table cannot pin a specific object). Next session, prefer:
+(1) targeted lldb at the trap: `frame select 1`, print `((__yo_t59*)ptr)->value`,
+`->ty`, `->env`, `->origin_type`, `->converted_runtime_type` and compare each
+against the faulting address to learn WHICH field dangles (the full struct
+dump truncates before the interesting fields — print them individually);
+then print the ExprInfo's env->module*path / the dangling value's tag to
+identify the AST node it belongs to.
+(2) a header ALLOC-SERIAL patch: stamp a global counter into a spare header
+field (e.g. reuse gc_prev while untracked) at \_\_yo_new*\* time, print it at
+the trap, re-run with a conditional abort when that serial's object is
+decr'd — deterministic cross-run identity without tables (serials are stable
+because the eval is deterministic).
+Repro: `/tmp/s2r4 compile yo-self/parser.yo --release --emit-c
+--skip-c-compiler -o /tmp/x` (rc=139, seconds, requires -O2 + GC-on).
