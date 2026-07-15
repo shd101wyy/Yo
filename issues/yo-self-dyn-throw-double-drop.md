@@ -579,3 +579,23 @@ deferred dup like TS: set_expr_as_needs_to_call_dup on the deref result at
 the binding, or emit the struct \_\_\_dup at the copy in init_assignment.yo)
 and let the existing drops stand. Fix gate: `s2 compile yo-self/main.yo`
 rc=0, then the fixpoint diff (task #3).
+
+### Round-6 FIXED (2026-07-16 night): deref-copy dup-at-copy landed
+
+Fix (codegen/exprs/init_assignment.yo): for a scalar `:=` whose RHS is a
+raw-pointer deref (2-arg `.` with `*` property) of an RC-carrying type and
+carries NO deferred-dup mark, emit `generate_dup_code_for_value(<name>)`
+right after the declaration — TS's dup-at-copy. Verified in the emission:
+stage2_r6.c's \_find_bucket now dups key payload + value immediately after
+the bucket copy (lines 34236-46).
+
+Gates: all fast gates + corpus ×5 unchanged (hmap tracked=2 — no
+over-count); stage-2 emit rc=0, clang 0, s2 check ×3 rc=0, s2 compile
+parser.yo rc=0, and **`s2 compile yo-self/main.yo` NO LONGER CRASHES** —
+it now exits rc=1 with a controlled compile ERROR after ~7GB of full-run
+work (the memory-corruption era is over; what remains is a behavioral
+self-hosting gap). Next: capture the error message (rerun in flight) and
+fix the divergence; then the fixpoint diff.
+
+Separate finding filed: issues/yo-self-ctor-arg-move-vs-dup.md (ctor RC
+arg: TS moves, yo-self dups — a +1 leak class, not a UAF).

@@ -1,0 +1,57 @@
+// Regression (round 6 of the stage-2 double-free hunt): `x := <ptr>.*` — an
+// init-assignment whose RHS is a raw-pointer DEREF copying an RC-carrying
+// struct — must dup the copy's RC fields at the copy site (TS emits
+// `temp2 = Bucket___dup(temp);` right after the deref). yo-self emitted the
+// local's scope/early-return drops WITHOUT the dup, so HashMap._find_bucket's
+// `bucket := (data_ptr &+ probe_index).*` stole the map's own key+value
+// references on every successful probe — the `s2 compile yo-self/main.yo`
+// String-eq UAF inside the closure-capture traversal's contains_key (round
+// 6; see issues/yo-self-dyn-throw-double-drop.md). Fixed in
+// codegen/exprs/init_assignment.yo (deref-RHS dup-at-copy when no deferred
+// dup was marked). NOTE: this small shape does NOT discriminate pre/post
+// fix (the eval mark survives in simple contexts; the bug needed the real
+// multi-pass HashMap specialization) — kept as shape coverage. The "2"
+// baseline (TS prints "1 1 1") is a SEPARATE ctor-arg move-vs-dup
+// divergence (issues/yo-self-ctor-arg-move-vs-dup.md). Expected output:
+// "2 2 2 done".
+pragma(Pragma.AllowUnsafe);
+open(import("std/fmt"));
+open(import("std/string"));
+{ GlobalAllocator } :: import("std/allocator");
+
+Krate :: ref(
+  struct(
+    v : i32
+  )
+);
+
+Bucket :: struct(k : Krate, n : i32);
+
+// Repeatedly deref-copy a bucket out of a malloc'd buffer (the
+// HashMap._find_bucket shape) — each copy must +1 the RC field so the
+// local's scope drop cannot steal the buffer's reference.
+probe :: (fn(data_ptr : *(Bucket), i : usize) -> i32)({
+  bucket := (data_ptr &+ i).*;
+  bucket.n
+});
+
+main :: (fn() -> unit)({
+  kk := Krate(v : 7);
+  m := unsafe(GlobalAllocator.calloc(usize(2), sizeof(Bucket)));
+  pv := match(m,.Some(p2) => p2,.None => __yo_panic("alloc failed"));
+  data_ptr := unsafe((*(Bucket))(pv));
+  (data_ptr &+ usize(0)).* = Bucket(k : kk, n : 1);
+  print(rc(kk));
+  print(" ");
+  (j : i32) = i32(0);
+  while(j < i32(10), {
+    _r := probe(data_ptr, usize(0));
+    j = (j + i32(1));
+  });
+  print(rc(kk));
+  print(" ");
+  _r2 := probe(data_ptr, usize(0));
+  println(`${rc(kk)} done`);
+});
+
+export(main);

@@ -15,14 +15,15 @@
 //! gated dead (in_async_state_machine = .None for the corpus).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, BK_COMPTIME, BK_ARRAY_VAL } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, BK_COMPTIME, BK_ARRAY_VAL, BF_DOT } :: import("../../expr.yo");
 { RuntimeDestructuring } :: import("../../expr_info.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ emit_deferred_dup_or_code } :: import("./drop_dup.yo");
+{ emit_deferred_dup_or_code, generate_dup_code_for_value } :: import("./drop_dup.yo");
+{ type_contains_rc_type } :: import("../../types/utils.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier } :: import("../utils/index.yo");
 /// True if `s` is all ASCII digits (non-empty).
 _all_digits :: (fn(s : String) -> bool)({
@@ -254,6 +255,17 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
         ),
         .None => _call_generate_expr(rhs, indent.clone(), context)
       );
+      // Raw-pointer-deref RHS (`(p &+ i).*` / `p.*`) of an RC-carrying type:
+      // TS dups the copy AT THE DEREF SITE (stage1-ref.c: `temp2 =
+      // Bucket___dup(temp);`) so the local's scope/early-return drops are
+      // balanced. yo-self's eval dup mark for this shape is pass-fragile
+      // (`.*` PA branches can re-set the table entry without re-marking), so
+      // when NO deferred dup exists on the RHS, apply the struct dup to the
+      // fresh copy after the declaration below (HashMap._find_bucket stole
+      // the map's own key+value on every probe hit — the round-6
+      // `s2 compile main.yo` UAF; see issues/yo-self-dyn-throw-double-drop.md).
+      rhs_is_deref := (ast_expr_is_fn_call_of(rhs, BF_DOT, Option(usize).Some(usize(2))) && match(rhs,.FnCall(_, _, dargs, _, _) => match(dargs.get(usize(1)),.Some(pe) => ast_expr_is_atom_of(pe, "*"),.None => false),.Atom(_, _) => false));
+      rhs_has_dup := match(context.base.get_expr_info(rhs),.Some(r2) => match(r2.deferred_dup_expressions,.Some(d2) => (d2.len() > usize(0)),.None => false),.None => false);
       if(!(is_unit_type(lhs_type)), {
         // get_variable_type_string (not get_type_string + manual name append)
         // so the scalar binding's C name is REGISTERED in declared_c_var_names
@@ -269,6 +281,12 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
         line.push_string(rhs_code);
         line.push_str(";");
         em.emit_string_line(line);
+        if((rhs_is_deref && type_contains_rc_type(lhs_type)) && !(rhs_has_dup), {
+          dup_line := indent.clone();
+          dup_line.push_string(generate_dup_code_for_value(sanitized_var_name.clone(), lhs_type, context));
+          dup_line.push_str(";");
+          em.emit_string_line(dup_line);
+        });
       });
     });
     return(Option(String).Some(String.from("")));
