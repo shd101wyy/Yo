@@ -323,11 +323,11 @@ class as rounds 1-2 (the compiler source is full of them).
 
 Hunt method (probe placement matters — the "Frame level N has different
 number of values for different cases" executing-evaluator quirk kills
-eprintln probes in begin.yo / property_access.yo / drop_dup.yo helpers, but
+eprintln probes in begin.yo / property*access.yo / drop_dup.yo helpers, but
 tolerates them in utils.yo, and C-comment probes via the emitter always
 work): SETDUP exit-tagged probes in set_expr_as_needs_to_call_dup + ATTACH
 own_req probes in attach_temp_variable_to_expr (both utils.yo, tok/row
-tagged) + /_ RETPROBE _/ + /_ DUPX GATED _/ C-comment probes in codegen.
+tagged) + /* RETPROBE _/ + /_ DUPX GATED \_/ C-comment probes in codegen.
 
 Two distinct root causes, both fixed:
 
@@ -357,3 +357,55 @@ Two distinct root causes, both fixed:
 Verified: battery 7/7 == TS; corpus test borrowed_field_return.yo ("2 3
 done" both compilers); cond_begin_arm_borrowed_tail.yo still "2 3 3 done";
 r4/r5/r6, dd tracked=0, hmap tracked=2 all green.
+
+### Round 4 FIXED + Round 5 OPEN (2026-07-16): s2 `check` GREEN; `compile` heap corruption remains
+
+Round 4 (committed 5f1af3622 + test 2da414512): the assignment save-old-value
+temp was dropped on ESCAPE paths in addition to the local's scope drop
+(`rhs = evaluate(rhs)` in evaluate_initialization_assignment; victim
+`v :: variants.get(vi)` prelude:6608 comptime-fold). Fix:
+`FunctionGenerationContext.current_assignment_save_temp` — set while
+generating an assignment's RHS, checked in `_keep_pending_drop`. With it,
+**`s2 check empty_main.yo` rc=0 ×3 — first fully-clean stage-2 run.**
+
+Round 5 (OPEN): `s2 compile yo-self/main.yo` (the fixpoint input) still dies
+— malloc freelist assert at -O2; under Guard Malloc the CYCLE-GC mark-gray
+traversal reads a freed EvalValue still referenced by a live ExprInfo
+(trap: `__yo_traverse___yo_t59` → `__yo_gc_mark_gray_visitor`, fault on a
+freed `.value` Option payload). The final decr (freelog ra) is
+evaluate_future_type's fn-end drop of the `elem_info.value` match-scrutinee
+temp — but that site is BALANCED (dup at read + one drop per path; audited
+in both stage2_p8.c and stage2_r4l_op.c) — the deficit is introduced
+EARLIER on the same shared payload by some other site; the balanced drop
+just happens to hit zero. The check-vs-compile difference is INPUT SIZE
+(compile main.yo evaluates the whole compiler; check empty_main only the
+prelude).
+
+Tooling state (scratchpad/oplog_patch.py):
+
+- freelog: append-only (freed ptr, dropper ra) ring at every RC-layer
+  \_\_yo_free — collision-proof last-free attribution. WORKS.
+- oplog (per-object op history): direct-mapped table gets clobbered under
+  Guard Malloc even at 4M slots with murmur mixing; a traverse_fn identity
+  filter (only log \_\_yo_t65) missed because specialized enum instantiations
+  carry per-instantiation traverse symbols. Do NOT trust "1 op" dumps —
+  they are collision resets.
+- GC-off (YO_GC_THRESHOLD=0) + Guard Malloc OOM-kills on the main.yo
+  compile; GC-off without gmalloc is the next best repro shape (direct
+  reader trap instead of traversal trap, at the cost of address reuse).
+
+NEXT (round 5): (a) rerun the freelog build WITHOUT Guard Malloc but with
+YO_GC_THRESHOLD=0 and libc malloc: the first direct-read trap gives a real
+reader bt, and \_\_freelog_find on the faulting address gives the last
+dropper; (b) audit candidates: `ExprInfo.value` payload sharing across
+expr_info_table_set overwrites (a fresh out_info REPLACING a table entry
+whose old .value payload is still shared elsewhere — check the table-set
+protocol vs TS), and the ctx save/restore field-swap protocol
+(`old = ctx->expected_type; ctx->expected_type = X; ...; ctx->expected_type
+= old;` — the restore/drop accounting); (c) probe rules learned: eprintln
+probes build ONLY in utils.yo (inline `if(gate, eprintln((A + B)))`, no new
+decls in match arms); a helper FN in utils.yo called from begin.yo works;
+direct eprintln in begin.yo / property_access.yo / drop_dup.yo trips the
+"Frame level N has different number of values" evaluator quirk; C-comment
+probes via em.emit_string_line work anywhere in codegen; token row/col
+tagging identifies AST nodes across eval passes (rows are 0-indexed).
