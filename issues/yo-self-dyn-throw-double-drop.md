@@ -503,3 +503,26 @@ and applied it to the begin branch's final expression too. Repro battery
 tests/codegen-bootstrap/match_arm_begin_tail_borrowed.yo ("2 2 done" both
 compilers). Gates: all fast gates + stage-2 emit rc=0 + clang 0 errors +
 s2 check ×3 rc=0 + **s2 compile yo-self/parser.yo rc=0** (was 139).
+
+### Round 6 OPEN (2026-07-16): main.yo-compile early corruption (dyn-Fn traversal)
+
+With round 5 fixed (`s2 compile parser.yo` green), `s2 compile
+yo-self/main.yo` STILL dies at ~0.8s (-O2, rc=133, malloc freelist assert;
+same with GC off — this was the "possibly-separate signature" flagged
+earlier, now confirmed separate). The -O2 bt: a deeply recursive
+`yo_id_250328` (an AST-traversal fn taking a `dyn(Fn(AstExpr) -> ...)`
+callback — expr_traversal.yo territory) calling
+`__yo_wrap___yo_t335___yo_t334_call` (the dyn-Fn closure wrapper) whose
+malloc trips the corrupted freelist. Suspects: the dyn-Fn wrapper
+allocation/ownership per call in a hot recursion, or a corruption earlier
+in parse/startup.
+
+The 0.8s timing on -O2 = BEFORE prelude eval completes → parse/startup of
+the many main.yo modules or the first traversal over them. Input bisect
+idea for the next cycle: `s2 compile` a file that IMPORTS several evaluator
+modules (parser.yo alone is green; main.yo is not — bisect the import list
+of main.yo by commenting imports, or try evaluator/\_expr-importing files).
+
+In-flight: task btbv195t5 builds the fresh libc+freelog emission from
+/tmp/yo-self-r5 and runs the gmalloc trap on the main.yo compile — read its
+output first (expect the precise UAF/double-free site + freelog dropper).
