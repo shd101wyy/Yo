@@ -132,3 +132,28 @@ node(s) a later pass re-reads. Compare with TS `synthesizeFunctionTypeFromTokens
 (no drops — GC) and find which yo-self eval path drops an arg node it only
 borrows. Crash fires during PRELUDE eval → forall/using-heavy signatures;
 build the repro from a forall+using fn signature shape.
+
+### Round-2 REPRO CAPTURED (2026-07-15 evening, seconds-fast)
+
+`/tmp/r3.yo` (30 lines): an OWNING local reassigned from a match-arm payload —
+the exact aliasing shape of `evaluate_function_parameter`
+(evaluator/types/function.yo:740 `expr_mut = match(lhs_expr, .Some(e) => e, …)`):
+
+```rust
+probe :: (fn(parent : Node) -> i32)({
+  (cur : Node) = parent;
+  opt := cur.kids;
+  match(opt, .Some(child) => { cur = child; }, .None => ());
+  cur.tag
+});
+```
+
+TS-compiled: `done acc=60 k=2 tracked=2` rc=0. yo-self-compiled: **rc=134**
+(abort — double-free): the assignment `cur = child;` emits no dup for the
+borrowed match-arm payload, so `cur`'s scope-end drop steals the parent
+`kids` field's reference → the child is freed while the tree still holds it —
+the s2 `args.get(1)` freed-AstExpr UAF. Next step: diff the emitted C for
+`probe` (TS vs yo-self), then fix yo-self's assignment codegen/evaluator to
+match TS (deferred-dup on reassignment from a borrowed payload — see TS
+generateAssignment / setExprAsNeedsToCallDup usage for `=`). Then the standard
+gates + s2 health ×3 + the fixpoint chain.
