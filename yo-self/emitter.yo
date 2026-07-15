@@ -41,84 +41,54 @@ _emitter_is_minted_temp :: (fn(cn : String) -> bool)({
     }
   )
 });
-/// True iff `b` can END a C type in a declaration: an identifier byte, `>`,
-/// `*`, or `]` (mirrors the TS Emitter DECL_RE class `[\w>*\]]`).
-_emitter_is_type_end_byte :: (fn(b : u8) -> bool)(
-  _emitter_is_ident_byte(b) || ((b == u8(62)) || ((b == u8(42)) || (b == u8(93))))
-);
-/// The C variable name DECLARED by `line`, if any: the first occurrence of
-/// `<type-end-byte> <ws…> <identifier> [ws…] ( '=' (not '==') | ';' )`.
-/// Faithful port of the TS Emitter's DECL_RE (src/emitter.ts): matches an
-/// initialized declaration (`T x = …`) AND an uninitialized one (`T x;` — a
-/// branch-assigned temp or named local), but NOT an assignment (`x = …`: no
-/// type before the name), a field store (`s.f = …`: `.` is not a type-end
-/// byte), or a `___drop`/call argument use (`…((cast)(x))`: name wrapped in
-/// parens). Byte-indexed throughout (bytes_len/byte_at — a multibyte string
-/// constant earlier in the line must not truncate or shift the scan);
-/// identifier bytes are ASCII, so the name is rebuilt with push_byte.
-_emitter_decl_name :: (fn(line : String) -> Option(String))({
-  n := line.bytes_len();
-  (p : usize) = usize(0);
-  while((p + usize(2)) < n, {
-    if(_emitter_is_type_end_byte(line.byte_at(p)), {
-      (q : usize) = (p + usize(1));
-      ws_start := q;
-      while((q < n) && ((line.byte_at(q) == u8(32)) || (line.byte_at(q) == u8(9))), {
-        q = (q + usize(1));
-      });
-      id_start := q;
-      if((q > ws_start) && (q < n), {
-        first := line.byte_at(q);
-        first_is_id_start := ((((first >= u8(65)) && (first <= u8(90))) || ((first >= u8(97)) && (first <= u8(122)))) || (first == u8(95)));
-        if(first_is_id_start, {
-          while((q < n) && _emitter_is_ident_byte(line.byte_at(q)), {
-            q = (q + usize(1));
-          });
-          id_end := q;
-          while((q < n) && ((line.byte_at(q) == u8(32)) || (line.byte_at(q) == u8(9))), {
-            q = (q + usize(1));
-          });
-          if(q < n, {
-            c := line.byte_at(q);
-            is_decl := ((c == u8(59)) || ((c == u8(61)) && (((q + usize(1)) >= n) || (line.byte_at(q + usize(1)) != u8(61)))));
-            if(is_decl, {
-              name := String.new();
-              (bi : usize) = id_start;
-              while(bi < id_end, {
-                name.push_byte(line.byte_at(bi));
-                bi = (bi + usize(1));
-              });
-              return(Option(String).Some(name));
-            });
-          });
-        });
-      });
-    });
-    p = (p + usize(1));
-  });
-  Option(String).None
-});
-/// When a line declares a minted temp (`<type> <temp> = …` or `<type> <temp>;`),
-/// record its C name in `set`. Mirrors the TS Emitter's declaredCVarNames
-/// capture: the drop-emission gate skips a `___drop` for any minted temp NOT in
-/// declared_c_var_names, and the many temp-decl paths that build the declaration
-/// via get_type_string (not get_variable_type_string) otherwise leave their
-/// temps untracked → the gate wrongly skips their (live-RC) drops → LEAK.
-/// Recorded in C-emission order so forward-ref protection holds; a
-/// `___drop((cast)(temp))` use has the temp inside parens (not in declaration
-/// position), so genuine never-declared phantoms are never recorded. See
-/// issues/yo-self-fixpoint-eval-phase-leak.md.
+/// When a line declares a minted temp (`<type> <temp> = …`), record its C name
+/// in `set`. Mirrors the TS Emitter's declaredCVarNames capture: the drop-emission
+/// gate skips a `___drop` for any minted temp NOT in declared_c_var_names, and the
+/// many temp-decl paths that build the declaration via get_type_string (not
+/// get_variable_type_string) otherwise leave their temps untracked → the gate
+/// wrongly skips their (live-RC) drops → LEAK. Recorded in C-emission order so
+/// forward-ref protection holds; a `___drop((cast)(temp))` use has the temp inside
+/// parens (not in `<type> <name> =` position), so genuine never-declared phantoms
+/// are never recorded. See issues/yo-self-fixpoint-eval-phase-leak.md.
 _emitter_record_declared_temp :: (fn(set : HashSet(String), line : String) -> unit)({
   if(!(line.contains(String.from("_temp_"))), {
     return(());
   });
+  eq_opt := line.index_of(String.from(" = "));
   match(
-    _emitter_decl_name(line),
-    .Some(name) => if(_emitter_is_minted_temp(name.clone()), {
-      _r := set.add(name);
-    }),
-    .None => ()
-  );
+    eq_opt,
+    .None => (),
+    .Some(eq) => {
+      if(eq == usize(0), {
+        return(());
+      });
+      // Walk back over the identifier immediately preceding " = ".
+      (ns : usize) = eq;
+      while((ns > usize(0)) && _emitter_is_ident_byte(line.byte_at(ns - usize(1))), {
+        ns = (ns - usize(1));
+      });
+      if(ns == eq, {
+        return(());
+      });
+      // Declaration position: the identifier must be preceded by `<type> ` — i.e.
+      // a space (ns-1) that is itself preceded by a non-space type char (ns-2).
+      // An assignment `<temp> = …` has the identifier at line start (only indent
+      // before it) → skip (it declares nothing new).
+      if(ns < usize(2), {
+        return(());
+      });
+      if(line.byte_at(ns - usize(1)) != u8(32), {
+        return(());
+      });
+      if(line.byte_at(ns - usize(2)) == u8(32), {
+        return(());
+      });
+      name := line.substring(ns, eq);
+      if(_emitter_is_minted_temp(name.clone()), {
+        _r := set.add(name);
+      });
+    }
+  )
 });
 /// Pop the block-scope stack back through (and including) the most recent `"{"`
 /// sentinel — i.e. close one C block, discarding the names it declared.
@@ -136,21 +106,42 @@ _emitter_pop_block :: (fn(stack : ArrayList(String)) -> unit)({
     );
   });
 });
-/// If `line` DECLARES a C var (`<type> <name> = …` or `<type> <name>;` — see
-/// `_emitter_decl_name`), push that name onto the top scope frame. Assignments
-/// (`<name> = …`, no type before the name) and field initializers (`.field = …`)
-/// declare nothing and are skipped. Called BEFORE brace scanning so a
+/// If `line` DECLARES a C var (`<type> <name> = …`, name preceded by `<type> `),
+/// push that name onto the top scope frame. Assignments (`<name> = …`, name at
+/// line start after indent) and field initializers (`.field = …`, name preceded
+/// by `.`) declare nothing and are skipped. Called BEFORE brace scanning so a
 /// compound-literal decl (`Type name = { … }`) records `name` in the enclosing
 /// frame, above the `{` its initializer opens.
-_emitter_record_scope_decl :: (fn(stack : ArrayList(String), line : String) -> unit)(
+_emitter_record_scope_decl :: (fn(stack : ArrayList(String), line : String) -> unit)({
+  eq_opt := line.index_of(String.from(" = "));
   match(
-    _emitter_decl_name(line),
-    .Some(name) => {
+    eq_opt,
+    .None => (),
+    .Some(eq) => {
+      if(eq == usize(0), {
+        return(());
+      });
+      (ns : usize) = eq;
+      while((ns > usize(0)) && _emitter_is_ident_byte(line.byte_at(ns - usize(1))), {
+        ns = (ns - usize(1));
+      });
+      if(ns == eq, {
+        return(());
+      });
+      if(ns < usize(2), {
+        return(());
+      });
+      if(line.byte_at(ns - usize(1)) != u8(32), {
+        return(());
+      });
+      if(line.byte_at(ns - usize(2)) == u8(32), {
+        return(());
+      });
+      name := line.substring(ns, eq);
       _ra := stack.push(name);
-    },
-    .None => ()
+    }
   )
-);
+});
 /// Maintain the C block-scope stack for the escape-gate liveness signal, encoded
 /// as a flat `ArrayList(String)` of declared C var names with `"{"` sentinels
 /// marking block boundaries (a real C identifier can never equal `"{"`, so the
@@ -174,10 +165,7 @@ _emitter_record_scope_decl :: (fn(stack : ArrayList(String), line : String) -> u
 /// issues/yo-self-fixpoint-eval-phase-leak.md.
 _emitter_track_scope :: (fn(stack : ArrayList(String), line : String) -> unit)({
   _emitter_record_scope_decl(stack, line.clone());
-  // bytes_len, NOT len(): byte_at is byte-indexed while String.len() counts
-  // CHARACTERS — a multibyte string constant in the line would otherwise
-  // truncate the scan and miss trailing braces (stale scope frames).
-  n := line.bytes_len();
+  n := line.len();
   (i : usize) = usize(0);
   (in_str : bool) = false;
   (in_chr : bool) = false;

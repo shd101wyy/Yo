@@ -1,13 +1,50 @@
 # yo-self self-hosting — HANDOFF PLAN (fresh-agent entry point)
 
-_Last updated 2026-07-15 (after the constructor-materialization + cond-arm-drop
-fixes and the OOM root-cause session). Tree clean on `feat/bootstrap-codegen`
-(HEAD `7d6b0385a`); corpus now 119 files. Only `src/tests/fixme.yo` (scratch) is
-dirty — no restore needed._
+_Last updated 2026-07-15 EVENING (after the OOM-fix + double-free-hunt session;
+HEAD `993b4162c` + uncommitted follow-ups being committed). Corpus 120 files._
 
 ---
 
-## ⇒ START HERE (2026-07-15): the ONE remaining blocker is the stage-2 self-compile OOM
+## ⇒ START HERE (2026-07-15 EVENING): the OOM leak is FIXED; the blocker is a
+
+## SERIES of pre-existing RC double-free divergences (round 2 in progress)
+
+**What landed this session (all deterministic gates green — hmap `tracked=2`,
+stage-2 self-emit clang 0, corpus PASS/DIFF 0, checks 303+153, double-emit
+byte-identical):**
+
+1. **The OOM leak fix** (commit `993b4162c` + follow-ups): scalar `:=`
+   registration one-liner + scope-stack drop gates (loop-exit `atom.yo`,
+   early-return env path `return.yo`) — the 84 out-of-scope-drop clang errors
+   fixed; `HashMap._find_bucket` overwrite leak `101→2` (== TS).
+2. **GcTracer visit body/signature consistency** (`codegen/exprs/gc.yo`): the
+   3 `.key.tag on size_t` clang errors fixed deterministically (walk the type
+   the enclosing fn's C signature resolves to). Full analysis:
+   `issues/yo-self-specialization-signature-type-identity.md` (incl. why the
+   instantiation-precise specialization split was REVERTED — helper.yo /
+   type_key.yo — and what to re-evaluate later).
+3. **Round-1 double-free fix** (`evaluator/values/dyn.yo`): `dyn(payload)`
+   must consume its payload — port of TS `setExprAsNeedsToCallDup`
+   (dyn.ts:321). Repro `tests/codegen-bootstrap/dyn_throw_double_drop.yo`.
+   Full analysis + THE HUNT METHOD: `issues/yo-self-dyn-throw-double-drop.md`.
+
+**THE BIG DISCOVERY (read `issues/yo-self-dyn-throw-double-drop.md` first):**
+the old premise "s2 runs but OOMs" is FALSE today — a clean `7d6b0385a`
+baseline s2 CRASHES on `s2 check tests/codegen-bootstrap/empty_main.yo`
+(rc 139/133/124, allocator-layout-dependent). The cause is a SERIES of
+pre-existing RC divergences (missing consumption/dup marks) that corrupt the
+heap during prelude eval; they present as heisenbugs where any emission change
+appears to "cause" the crash. Round 1 (dyn payload) is fixed; **round 2 is
+open**: Guard Malloc traps `__yo_incr_rc` on a freed page in
+`ArrayList.get` ← `evaluate_function_parameter` ← param loop ←
+`synthesize_function_type_from_tokens`. Use the documented hunt method
+(Guard Malloc bt → TS oracle diff at the same site → seconds-fast standalone
+repro → evaluator fix). `s2 check empty_main.yo` health ×3 is the round gate;
+the fixpoint (below) is the finish line.
+
+---
+
+## (HISTORICAL — superseded by the section above) 2026-07-15 morning entry point
 
 Everything up to the byte-exact fixpoint (`diff stage2.c stage3.c`) is done EXCEPT
 that `s2` (the self-compiled yo-self binary) uses too much memory compiling

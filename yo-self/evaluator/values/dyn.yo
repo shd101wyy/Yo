@@ -29,7 +29,7 @@ open(import("std/string"));
 { format_error_message } :: import("../../error.yo");
 { evaluate_comptime_fn_call } :: import("../calls/comptime_fn.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
-{ attach_temp_variable_to_expr } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup } :: import("../utils.yo");
 { get_type_trait_methods_for_type, type_id_or_empty, get_trait_default } :: import("./type_trait_methods.yo");
 { Exception } :: import("std/error");
 /// Build the ordered TraitVal evidence for a DynType over a concrete value
@@ -460,6 +460,15 @@ evaluate_dyn_value :: (
         .None => ()
       );
     });
+    // The dyn takes OWNERSHIP of its payload: mark the inner value's owning
+    // temp CONSUMED (or schedule a deferred dup for a borrowed source).
+    // Without this the payload temp keeps its scope-end/escape drop AND the
+    // dyn's own `.data` drop also fires — a double-drop of the same object on
+    // every `exn.throw(dyn(format_error_message(...)))` (the pre-existing
+    // stage-2 startup heap corruption; see
+    // issues/yo-self-dyn-throw-double-drop.md; repro /tmp/dd.yo). Mirrors TS
+    // `setExprAsNeedsToCallDup(finalValueExpr)` (values/dyn.ts:321).
+    set_expr_as_needs_to_call_dup(ne_final_expr, ctx, exn);
     rt_args_ne := ArrayList(AstExpr).new();
     rt_args_ne.push(ne_final_expr);
     out_info.runtime_arg_exprs_in_order =.Some(rt_args_ne);
@@ -501,6 +510,7 @@ evaluate_dyn_value :: (
   // Auto-box non-object, non-dyn values (mirrors TypeScript lines 251-310).
   // Note: Future-implementing SomeType check (typeImplementsFuture) is omitted
   // in Phase 3 — all non-object, non-dyn values are wrapped in box().
+  (final_value_expr_ex : AstExpr) = eval_inner;
   if(!(is_reference_struct_type(value_type)) && !(is_dyn_type(value_type)), {
     box_tok := synthetic_token(String.from("box"), cur_env.module_path);
     box_atom := AstExpr.Atom(usize(0), box_tok);
@@ -517,6 +527,7 @@ evaluate_dyn_value :: (
         args(usize(0)) = boxed_expr;
         final_value_type = bi.ty;
         cur_env = bi.env;
+        final_value_expr_ex = boxed_expr;
       },
       .None => {
         exn.throw(
@@ -532,6 +543,9 @@ evaluate_dyn_value :: (
       }
     );
   });
+  // Same ownership-transfer consumption as the non-executing path above
+  // (mirrors TS setExprAsNeedsToCallDup(finalValueExpr), values/dyn.ts:321).
+  set_expr_as_needs_to_call_dup(final_value_expr_ex, ctx, exn);
   // Determine the expected DynType:
   //   1. From context.expected_type when it is already a DynT.
   //   2. From final_value_type when it is a DynT.

@@ -4,6 +4,7 @@ open(import("std/string"));
 { AstExpr } :: import("../../expr.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_pointer_type } :: import("../../types/guards.yo");
+{ type_key } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _traverse_value, set_traverse_visit_expr } :: import("../functions/constructors.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -39,6 +40,49 @@ generate_yo_gc_trace_child :: (fn(expr : AstExpr, indent : String, context : Fun
             return(String.from("// Error: __yo_gc_trace_child slot must be a pointer"));
           });
           pointee := match(slot_ty,.Pointer(p) => p, _ => TypeValue.Unit);
+          // DIVERGENCE (deliberate): traverse the type the enclosing
+          // function's C SIGNATURE resolves to — NOT the slot expr's own
+          // ExprInfo type. The two are different TypeValue COPIES of the same
+          // logical instantiation: the visit fn's declared param carries a
+          // cfid-EMPTY Bucket copy (type_key → the shared merged key →
+          // whichever instantiation registered that key FIRST), while the
+          // slot expr's ExprInfo carries a cfid-CARRYING copy (type_key → the
+          // precise `gs_…` key → a DIFFERENT C type). Walking the ExprInfo
+          // copy emits field accesses that don't exist on the signature's C
+          // struct whenever the merged-key winner has another layout (the
+          // stage-2 `.key.tag on size_t` clang errors — registration-order-
+          // dependent). So: take the pointee from the enclosing function
+          // type's LAST param (visit's `slot : *(T)`), resolve it through the
+          // type registry, and walk THAT — body ≡ signature deterministically.
+          // TS needs none of this: its numeric `type.id` keys are
+          // instantiation-precise, so each instantiation gets its own C type
+          // AND its own visit specialization. Making yo-self equally precise
+          // (splitting the specializations) materializes per-instantiation
+          // bodies that expose a latent codegen bug — the stage-2 binary
+          // corrupts its heap at startup (bisected 2026-07-15); see
+          // issues/yo-self-specialization-signature-type-identity.md.
+          sig_pointee := match(
+            context.current_function_type,
+            .Some(ft) => match(
+              ft,
+              .Func({ param_types : pts }) => if(
+                pts.len() > usize(0),
+                match(
+                  pts.get(pts.len() - usize(1)),
+                  .Some(pt) => match(pt,.Pointer(p2) => p2, _ => pointee),
+                  .None => pointee
+                ),
+                pointee
+              ),
+              _ => pointee
+            ),
+            .None => pointee
+          );
+          walk_ty := match(
+            context.base.types.get(type_key(sig_pointee)),
+            .Some(entry) => entry.ty,
+            .None => sig_pointee
+          );
           tracer_code := _call_generate_expr(tracer_arg, indent.clone(), context);
           slot_code := _call_generate_expr(slot_arg, indent.clone(), context);
           deref := String.from("(*(");
@@ -48,7 +92,7 @@ generate_yo_gc_trace_child :: (fn(expr : AstExpr, indent : String, context : Fun
           // in constructors.yo — hoisted out of a param to sidestep a codegen
           // RC-lifetime bug, task #54).
           set_traverse_visit_expr(tracer_code);
-          _traverse_value(deref, pointee, context);
+          _traverse_value(deref, walk_ty, context);
           String.from("((void)0)")
         },
         .None => String.from("// Error: __yo_gc_trace_child slot missing type information")
