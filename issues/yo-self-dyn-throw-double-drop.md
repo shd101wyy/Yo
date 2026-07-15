@@ -599,3 +599,22 @@ fix the divergence; then the fixpoint diff.
 
 Separate finding filed: issues/yo-self-ctor-arg-move-vs-dup.md (ctor RC
 arg: TS moves, yo-self dups — a +1 leak class, not a UAF).
+
+### Round-7 RESOLVED AS: NOT a bug — jetsam OOM (rc=137) in the codegen phase
+
+The post-round-6 "rc=1 controlled error" was `/usr/bin/time` masking an
+abnormal termination. Established facts: `s2 check yo-self/main.yo` PASSES
+(rc=0 — full evaluation clean); the exn handler never ran (eprintln writes
+an unconditional \n to unbuffered stderr; all logs 0 bytes); C main returns
+0; no other exit(1) is reachable. A clean detached run gives the true
+**rc=137 = SIGKILL = jetsam OOM** — s2's CODEGEN phase outgrows the 16 GB
+box (s1 completes the same compile at ~9-10 GB).
+
+So the memory-corruption era is fully closed and what remains is the OLD
+footprint-gap class: s2 under-frees vs s1. PRIME SUSPECT (filed):
+issues/yo-self-ctor-arg-move-vs-dup.md — yo-self dups struct-ctor RC args
+where TS moves them (+1 leak per construction; compiler workloads construct
+millions). Mitigation for the fixpoint NOW: `YO_GC_FULL_PCT=130` bounds
+peak memory at the cost of time (per the 2026-07-13 notes) — a bounded run
+was launched at handoff (poll /tmp/s2main3.rc + /tmp/s2main3.log; started
+02:02). Real fix: port TS's ctor-arg consumption (move) semantics.
