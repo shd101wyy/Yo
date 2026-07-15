@@ -1,13 +1,50 @@
 # yo-self self-hosting — HANDOFF PLAN (fresh-agent entry point)
 
-_Last updated 2026-07-15 EVENING (after the OOM-fix + double-free-hunt session;
-HEAD `993b4162c` + uncommitted follow-ups being committed). Corpus 120 files._
+_Last updated 2026-07-16 (double-free hunt rounds 1-4 FIXED; HEAD `6017608ea`).
+Corpus 122 files._
 
 ---
 
-## ⇒ START HERE (2026-07-15 EVENING): the OOM leak is FIXED; the blocker is a
+## ⇒ START HERE (2026-07-16): `s2 check` is GREEN — first clean stage-2 run.
 
-## SERIES of pre-existing RC double-free divergences (round 2 in progress)
+## Remaining blocker: ROUND 5 (compile-path UAF; blocks the fixpoint).
+
+**Milestone: the stage-2 binary (s1-emitted, clang -O2) runs
+`check tests/codegen-bootstrap/empty_main.yo` with rc=0 ×3.** Four RC
+divergence rounds are root-caused, fixed, committed, and regression-tested:
+
+1. Round 1 — `dyn(payload)` consumption (dyn.yo; test
+   dyn_throw_double_drop.yo).
+2. Round 2 — cond BEGIN-ARM final-expr deferred dup omitted in
+   `_emit_begin_arm` (commit 8377998c1; test cond_begin_arm_borrowed_tail.yo).
+3. Round 3 — borrowed FIELD returns (commit 1f5c56b88; test
+   borrowed_field_return.yo): (a) generate_return ran the dup emitter before
+   declaring the arg temp (undeclared-temp gate suppressed the +1) — ported
+   return.ts:556-598; (b) wrap_body_in_begin skipped bare 2-arg `.` bodies so
+   the begin-tail ownership pass never ran; plus the begin-tail nrv==0
+   fallback to set_expr_as_needs_to_call_dup.
+4. Round 4 — assignment save-old-value temp dropped on ESCAPE paths in
+   addition to the local's scope drop (commit 5f1af3622; test
+   assign_rhs_escape_double_drop.yo):
+   FunctionGenerationContext.current_assignment_save_temp.
+
+**ROUND 5 (OPEN — read `issues/yo-self-dyn-throw-double-drop.md` "Round 4
+FIXED + Round 5 OPEN" for the full state, tooling recipes, and next steps):**
+`s2 compile yo-self/main.yo` (the fixpoint input) still corrupts the heap —
+under Guard Malloc the cycle-GC mark-gray traversal reads a freed EvalValue
+still referenced by a live ExprInfo. The final decr is a BALANCED site
+(evaluate_future_type); the deficit is introduced earlier on the shared
+payload. Task list #7 tracks it; #3 (fixpoint) is blocked on it.
+
+**Hunt method that cracked all four rounds (reuse it):** rc()-assertion
+battery repros (TS-vs-self behavior diff, seconds per cycle) + freelog
+(append-only freed-ptr+ra ring, scratchpad/oplog_patch.py) + TS oracle
+comparison (/tmp/stage1-ref.c) + quirk-safe probes (eprintln ONLY in
+utils.yo; C-comment probes anywhere in codegen; token row tagging).
+
+---
+
+## Previous session notes (2026-07-15 evening)
 
 **What landed this session (all deterministic gates green — hmap `tracked=2`,
 stage-2 self-emit clang 0, corpus PASS/DIFF 0, checks 303+153, double-emit
