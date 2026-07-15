@@ -116,6 +116,20 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
     },
     .None => ()
   );
+  // While generating the RHS, mark the save-old-value temp so escape drops
+  // inside the RHS skip it: ownership of the old value transfers to the temp
+  // only when the assignment completes — on an escape the LOCAL still owns it
+  // and its own scope drop covers it; dropping both double-freed the old value
+  // (the round-4 `rhs = evaluate(rhs)` escape UAF; TS's point-in-time envs
+  // exclude the not-yet-defined temp naturally). Save/restore for nesting.
+  prev_save_temp := context.current_assignment_save_temp;
+  match(
+    ei.variable_name,
+    .Some(stn) => {
+      context.current_assignment_save_temp = Option(String).Some(stn.clone());
+    },
+    .None => ()
+  );
   // Array assignment uses direct struct copy; everything else is scalar.
   if(is_array_type(lhs_type), {
     rhs_code := emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context);
@@ -152,6 +166,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       em.emit_string_line(line);
     });
   });
+  context.current_assignment_save_temp = prev_save_temp;
   match(ei.variable_name,.Some(v) => v,.None => String.from(""))
 });
 export(generate_assignment);

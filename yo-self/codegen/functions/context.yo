@@ -242,7 +242,14 @@ FunctionGenerationContext :: ref(
     current_evidence_params : Option(HashMap(String, EvidenceParameter)),
     /// Async blocks deferred to after all regular functions are generated. Mirrors
     /// `deferredAsyncBlocks`.
-    deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock))
+    deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock)),
+    /// Raw name of the enclosing assignment's save-old-value temp while its
+    /// RHS is being generated. The temp receives ownership of the old value
+    /// only AFTER the assignment completes, so escape-path pending drops
+    /// emitted inside the RHS must skip it (the local still owns the value;
+    /// dropping both double-frees). TS needs no flag — its per-expr
+    /// point-in-time envs simply don't contain the not-yet-defined temp.
+    current_assignment_save_temp : Option(String)
   )
 );
 impl(
@@ -281,7 +288,8 @@ impl(
       async_cond_branch_info : Option(HashMap(usize, AsyncCondBranchInfo)).None,
       async_body_return_expr : Option(AstExpr).None,
       current_evidence_params : Option(HashMap(String, EvidenceParameter)).None,
-      deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock)).None
+      deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock)).None,
+      current_assignment_save_temp : Option(String).None
     )
   )
 );

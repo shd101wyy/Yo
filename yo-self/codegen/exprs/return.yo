@@ -164,6 +164,16 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
   if(is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures), {
     return(false);
   });
+  // The enclosing assignment's save-old-value temp receives ownership only
+  // AFTER the assignment completes; while its RHS is being generated an
+  // escape here must NOT drop it — the local variable still owns the value
+  // and its own scope drop covers it (dropping both double-frees the old
+  // value: the round-4 `rhs = evaluate(rhs)` escape UAF in
+  // evaluate_initialization_assignment; TS's eval-time env excludes the
+  // not-yet-defined temp naturally — its escape lists drop only the local).
+  if(match(context.current_assignment_save_temp,.Some(sv) => (sv == var_name),.None => false), {
+    return(false);
+  });
   if(already.contains(var_name.clone()), {
     return(false);
   });
