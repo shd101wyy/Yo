@@ -116,3 +116,19 @@ distinctive string constants) → build a seconds-fast standalone repro
 (TS-compiled vs yo-self-compiled behavior diff) → find the missing
 consumption/dup in the yo-self evaluator → fix → re-run
 dd.yo + hmap + clang-0 + s2-health gates.
+
+### Round-2 site detail (for the next session)
+
+The freed object is an **AstExpr node**: `evaluate_function_parameter`
+(evaluator/types/function.yo; C site stage2l.c:131855) does
+`_fn_call_args(expr_mut).get(1)` — reading the param expr's TYPE sub-expression
+(`label : Type` → args[1]) — and `ArrayList.get`'s element dup
+(`__yo_incr_rc`) traps: the CHILD NODE is already freed while its parent
+`expr_mut` still references it. So something over-dropped an AST subtree that
+is revisited later — prime suspect: `synthesize_function_type_from_tokens`
+makes MULTIPLE passes over the same `param_exprs` (pass 1 forall, pass 2
+implicit/using, where-clause pass), and an earlier pass's evaluation drops
+node(s) a later pass re-reads. Compare with TS `synthesizeFunctionTypeFromTokens`
+(no drops — GC) and find which yo-self eval path drops an arg node it only
+borrows. Crash fires during PRELUDE eval → forall/using-heavy signatures;
+build the repro from a forall+using fn signature shape.
