@@ -705,7 +705,16 @@ sanitize_for_sig :: (fn(s : String) -> String)({
 value_to_signature_string :: (fn(value : EvalValue) -> String)(
   match(
     value,
-    .TypeVal(t) => type_to_string(t),
+    // Mirror TS `${valueToString(value)}_id${type.id}` (helper.ts:2103): the
+    // human-readable type string ALONE is not instantiation-precise — an
+    // anonymous generic instantiation renders `<struct:yo_id_N>` where N is
+    // the shared DECLARATION id, so every Bucket(K,V) instantiation produced
+    // the SAME specialization signature and collapsed onto one specialized
+    // function (one GcTracer visit fn walked 36 different Bucket layouts; TS
+    // emits one per instantiation — the stage-2 `.key.tag on size_t` clang
+    // errors). yo-self has no numeric `type.id`; `type_key` is its
+    // instantiation-precise identity (structural for shared-id generics).
+    .TypeVal(t) => `${type_to_string(t)}_id_${type_key(t)}`,
     .FuncVal(__fvd2, _) => `fn_${__fvd2.*.func_id}`,
     _ => value_to_string(value)
   )

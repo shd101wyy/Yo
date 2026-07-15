@@ -255,11 +255,16 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
         .None => _call_generate_expr(rhs, indent.clone(), context)
       );
       if(!(is_unit_type(lhs_type)), {
-        c_type_string := get_type_string(lhs_type, context.base);
+        // get_variable_type_string (not get_type_string + manual name append)
+        // so the scalar binding's C name is REGISTERED in declared_c_var_names
+        // — _keep_pending_drop (return.yo) rejects a drop whose target was
+        // never recorded, which leaked every scalar `:=` local on early-return
+        // paths (the HashMap._find_bucket same-key-overwrite leak). The name is
+        // already the codegen name (get_variable_name_for_codegen above);
+        // sanitize_for_c_identifier is idempotent, so emission is unchanged.
+        var_type_and_name := get_variable_type_string(lhs_type, sanitized_var_name.clone(), context.base);
         line := indent.clone();
-        line.push_string(c_type_string);
-        line.push_str(" ");
-        line.push_string(sanitized_var_name);
+        line.push_string(var_type_and_name);
         line.push_str(" = ");
         line.push_string(rhs_code);
         line.push_str(";");

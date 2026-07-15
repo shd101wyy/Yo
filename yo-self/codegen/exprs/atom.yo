@@ -21,7 +21,8 @@ open(import("std/string"));
 { check_variable_is_closure_captured } :: import("./closures.yo");
 {
   get_variable_name_for_codegen,
-  get_deferred_drop_target_atom_name
+  get_deferred_drop_target_atom_name,
+  scope_stack_contains
 } :: import("../utils/index.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
@@ -44,22 +45,28 @@ _emit_loop_body_drops_before_exit :: (fn(context : FunctionGenerationContext, in
           match(
             drops.get(i),
             .Some(drop_expr) => {
-              // Skip a drop whose target C variable has not been DECLARED yet at
-              // this emission point. `x := match(...)`/`cond(...)` bindings emit
+              // Skip a drop whose target C variable is not IN SCOPE at this
+              // emission point. `x := match(...)`/`cond(...)` bindings emit
               // their C declaration AFTER the RHS switch, so a `continue`/`break`
               // inside the RHS precedes the declaration — the env-liveness check
               // below (source order) sees the binding as live, but the C var
               // doesn't exist yet → "use of undeclared identifier". Ground truth
-              // is C-emission order: `declared_c_var_names` (reset per function,
-              // grown as each declaration emits). Safe by construction: no C value
-              // is bound, so skipping the drop can't double-free or leak. Same fix
-              // as `_keep_pending_drop` (return.yo) for the early-return path.
+              // is the emitter-maintained block-scope stack (declared_scopes):
+              // the target's C declaration was emitted AND its enclosing C block
+              // is still open. The flat declared_c_var_names set is NOT enough —
+              // it is monotonic, so a same-named local declared in an earlier,
+              // already-CLOSED sibling loop/arm keeps the name in the set and
+              // the drop would reference an out-of-scope identifier (the stage-2
+              // self-emit `fp`/`res`/`gt` clang-error class). Safe by
+              // construction: a target absent from the stack holds no C value
+              // here, so skipping the drop can't double-free or leak. Same
+              // signal as `_keep_pending_drop` (return.yo).
               skip := match(
                 get_deferred_drop_target_atom_name(drop_expr),
                 .Some(var_name) => {
                   c_name := get_variable_name_for_codegen(var_name.clone(), exit_env_opt);
                   (sk : bool) = false;
-                  if(!(context.base.declared_c_var_names.contains(c_name)), {
+                  if(!(scope_stack_contains(context.base.declared_scopes, c_name)), {
                     sk = true;
                   }, {
                     // env-liveness: skip drops for variables not yet in

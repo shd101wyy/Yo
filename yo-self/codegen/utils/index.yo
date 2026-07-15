@@ -868,6 +868,33 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
     }
   )
 );
+/// True iff `cn` appears in the emitter-maintained block-scope stack
+/// (`CodeGenContext.declared_scopes`) — i.e. its C variable was declared before
+/// this emission point AND its enclosing C block is still open (a closed
+/// block's names are popped; see `_emitter_track_scope`, emitter.yo). This is
+/// the C-emission-order liveness signal every pending-drop gate must use:
+/// yo-self's recorded envs are END-of-scope (TS envs are persistent
+/// point-in-time snapshots), and the flat `declared_c_var_names` set is
+/// monotonic — a same-named local declared in an earlier, already-closed
+/// sibling block keeps its name in the set forever, so a set-only gate emits
+/// `__yo_decr_rc(x)` for an out-of-scope `x`. The `"{"` block sentinels never
+/// match a real C name.
+scope_stack_contains :: (fn(stack : ArrayList(String), cn : String) -> bool)({
+  n := stack.len();
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < n) && !(found), {
+    match(
+      stack.get(i),
+      .Some(nm) => if(nm == cn.clone(), {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
 /// C type string for a variable declaration (`<type> <name>`), sanitizing the
 /// variable name to avoid C reserved words/macros. Mirrors `getVariableTypeString`.
 get_variable_type_string :: (
@@ -1120,6 +1147,7 @@ export(
   get_variable_type_string,
   get_enum_variant_c_name,
   sanitize_for_c_identifier,
+  scope_stack_contains,
   should_avoid_const,
   is_function_value_with_only_builtin_yo_inline_function_call,
   can_optimize_as_nullable_pointer,

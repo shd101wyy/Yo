@@ -27,7 +27,7 @@ open(import("std/string"));
 { t_unit } :: import("../../types/creators.yo");
 { generate_atom } :: import("./atom.yo");
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("./drop_dup.yo");
-{ get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains } :: import("../utils/index.yo");
 /// The atom a `___drop(x)` / `x.___drop()` drop expression targets.
 _drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
   match(
@@ -158,26 +158,6 @@ _variable_initialized_after_cleanup_point :: (fn(init_token : Token, cleanup_exp
   cleanup_point := _get_last_comparable_token_in_expr(cleanup_expr, init_token);
   !(_token_is_at_or_before(init_token, cleanup_point))
 });
-/// True iff `cn` appears in the block-scope stack — i.e. its C variable was
-/// declared before this point AND its enclosing C block is still open (closed
-/// blocks' names are popped). The escape-path liveness signal (see
-/// `_emitter_track_scope`). The `"{"` block sentinels never match a real C name.
-_scope_stack_contains :: (fn(stack : ArrayList(String), cn : String) -> bool)({
-  n := stack.len();
-  (i : usize) = usize(0);
-  (found : bool) = false;
-  while((i < n) && !(found), {
-    match(
-      stack.get(i),
-      .Some(nm) => if(nm == cn.clone(), {
-        found = true;
-      }),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  found
-});
 /// Whether a pending drop should be emitted at this return's cleanup point.
 _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet(String), additional_skip : Option(HashSet(String)), use_env : bool, context : FunctionGenerationContext) -> bool)({
   var_name := match(get_deferred_drop_target_atom_name(drop_expr),.Some(vn) => vn,.None => return(false));
@@ -229,7 +209,7 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
       },
       .None => ()
     );
-    return(_scope_stack_contains(context.base.declared_scopes, guard_cn.clone()));
+    return(scope_stack_contains(context.base.declared_scopes, guard_cn.clone()));
   });
   env := match(context.base.get_expr_info(expr),.Some(ei) => ei.env,.None => return(true));
   variables := get_variables_from_env(env, var_name);
@@ -254,15 +234,19 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
   // cannot see that a `x := match(...)` / `cond(...)` binding emits its C
   // declaration AFTER the RHS's switch — so a `throw` inside the RHS precedes x's
   // declaration in C, and dropping x here references an undeclared identifier.
-  // TS avoids this because each expr carries a point-in-time env where the
+  // TS avoids this because each expr carries a point-in-time env (persistent —
+  // defineVariable/pushEnvFrame return NEW Environment objects) where the
   // not-yet-completed binding's `initializedAtToken` is still unset; yo-self's
-  // recorded env is the END-of-scope env, so we use declared_c_var_names (reset
-  // per function + seeded with params in generate_function, grown as each
-  // declaration is emitted via get_variable_type_string) as the C-emission-order
-  // ground truth. A target whose C name has not been declared yet holds no value
-  // in C, so skipping its drop cannot double-free or leak.
+  // recorded env is the END-of-scope env, so we use the emitter-maintained
+  // block-scope stack as the C-emission-order ground truth: the drop target's
+  // C declaration must have been emitted AND its enclosing C block must still
+  // be open at this exact point. The flat declared_c_var_names set is NOT
+  // enough — it is monotonic, so a same-named local declared in an earlier,
+  // already-CLOSED sibling block keeps the name in the set and the drop would
+  // reference an out-of-scope identifier. A target absent from the stack holds
+  // no C value here, so skipping its drop cannot double-free or leak.
   c_name := sanitize_for_c_identifier(var_name, false);
-  if(!(context.base.declared_c_var_names.contains(c_name)), {
+  if(!(scope_stack_contains(context.base.declared_scopes, c_name)), {
     return(false);
   });
   match(

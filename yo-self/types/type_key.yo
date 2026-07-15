@@ -350,6 +350,19 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
       });
       key
     },
+    // Pointer: recurse into the pointee so `*(anon-generic-instantiation)`
+    // inherits the struct machinery's instantiation-precise key. The plain
+    // `_ => type_to_string` fallback rendered `*(<struct:yo_id_N>)` — N being
+    // the shared DECLARATION id — so pointers to different Bucket(K,V)
+    // instantiations produced identical keys and collided (the shared GcTracer
+    // visit specialization / stage-2 `.key.tag on size_t` clang errors; TS
+    // keys every type by its unique numeric `type.id`).
+    .Pointer(pointee) => {
+      key := String.from("*(");
+      key.push_string(recur(pointee, depth + usize(1)));
+      key.push_str(")");
+      key
+    },
     _ => type_to_string(t)
   )
 );
