@@ -894,13 +894,19 @@ export(alloc_global_expr_id, clone_expr_fresh_ids);
 /// close an import cycle), so the wrap happens here at the AST level; a
 /// curly body is already a begin call and passes through untouched.
 wrap_body_in_begin :: (fn(body : AstExpr) -> AstExpr)({
-  // Narrow to bare-ATOM bodies: a FnCall body already routes through the
-  // dispatcher's own handling (a curly body IS a begin; a call body's
-  // result flows through the call's ExprInfo), and wrapping closure call
-  // bodies perturbed the async closure result-refine pipeline (io_async
-  // corpus). Only an atom tail (e.g. `(...)(self)`) misses the begin-tail
-  // ownership pass without the wrap.
-  if(!(ast_expr_is_atom(body)), {
+  // Narrow to bare-ATOM and bare FIELD-ACCESS (2-arg `.`) bodies: a curly
+  // body IS a begin; a general call body's result flows through the call's
+  // ExprInfo, and wrapping closure call bodies perturbed the async closure
+  // result-refine pipeline (io_async corpus). But an atom tail
+  // (`(...)(self)`) AND a bare field-access tail (`(fn(p : Pair) ->
+  // Krate)(p.inner)`) both return a BORROWED value and miss the begin-tail
+  // ownership pass without the wrap — the field case emitted no balancing
+  // ___dup, so the caller's scope drop over-dropped the field (round-3
+  // borrowed-field-tail UAF; TS anonymous-function.ts:829 always routes
+  // through evaluateBeginExpression). Method-call bodies (`x.f()`) are NOT
+  // 2-arg dot calls (their func is the dot) and stay unwrapped.
+  is_bare_field_access := ast_expr_is_fn_call_of(body, BF_DOT, Option(usize).Some(usize(2)));
+  if(!(ast_expr_is_atom(body) || is_bare_field_access), {
     return(body);
   });
   tok := ast_expr_token(body);

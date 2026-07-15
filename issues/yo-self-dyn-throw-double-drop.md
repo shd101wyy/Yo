@@ -309,4 +309,51 @@ Fix: ported the TS begin-arm final-expr deferred-dup block into
 `_emit_begin_arm` (declare the eval temp unless inout-atom/self-named →
 `generate_deferred_dup_expressions(final_expr)` → assign dup-result temp when
 the dup call carries one, else assign the generated value). `if(c,a,b)`
-lowers through the same cond emitter, so both are covered.
+lowers through the same cond emitter, so both are covered. Committed
+8377998c1 + corpus test cond_begin_arm_borrowed_tail.yo. s2 crash MOVED past
+prelude param synthesis into function-body eval → round 3.
+
+### Round 3 (2026-07-15/16): borrowed FIELD return — two more missing-dup paths
+
+Repro discovered via an rc()-assertion battery (/tmp/borrow_battery.yo, 7
+borrowed-return shapes TS-vs-self): `return(p.inner)` and bare-tail
+`(fn(p : Pair) -> Krate)(p.inner)` both emitted NO dup (TS rc 2/3, yo-self
+1/1) — every borrowed-field-returning helper under-counts by one, the same
+class as rounds 1-2 (the compiler source is full of them).
+
+Hunt method (probe placement matters — the "Frame level N has different
+number of values for different cases" executing-evaluator quirk kills
+eprintln probes in begin.yo / property_access.yo / drop_dup.yo helpers, but
+tolerates them in utils.yo, and C-comment probes via the emitter always
+work): SETDUP exit-tagged probes in set_expr_as_needs_to_call_dup + ATTACH
+own_req probes in attach_temp_variable_to_expr (both utils.yo, tok/row
+tagged) + /_ RETPROBE _/ + /_ DUPX GATED _/ C-comment probes in codegen.
+
+Two distinct root causes, both fixed:
+
+1. EXPLICIT `return(p.inner)`: eval stored the dup mark (SETDUP stored,
+   RETPROBE has_dup=1) but codegen's generate_return called
+   generate_deferred_dup_expressions BEFORE emitting the arg temp's
+   declaration — the dup emitter's undeclared-temp gate (drop_dup.yo:786+)
+   silently suppressed the incr (`/* DUPX GATED tgt=temp */`). Fix: port of
+   return.ts:556-598 — when the return arg carries BOTH variable_name and
+   deferred dups, materialize `T argTemp = raw;` FIRST and register it in
+   declared_c_var_names, then emit the dup. Same declared-name registration
+   added to handle_func_call_deferred_dup (the implicit-return fn-call path).
+
+2. BARE TAIL `(fn ...)(p.inner)`: the eval NEVER scheduled the dup —
+   `wrap_body_in_begin` (expr.yo) narrowed the begin-wrap to bare-ATOM
+   bodies only, so a bare field-access body skipped the begin-tail ownership
+   pass entirely (probe: zero tail-block entries for the row). TS
+   anonymous-function.ts:829 always routes bodies through
+   evaluateBeginExpression. Fix: also wrap bare 2-arg `.` bodies (method
+   calls are NOT 2-arg dots — untouched, preserving the io_async
+   result-refine behavior that motivated the original narrowing). Plus: the
+   begin-tail block now falls back to set_expr_as_needs_to_call_dup when the
+   tail's recorded temp name is not visible in the live begin env (nrv==0 —
+   snapshot-env threading can drop the registration; set_expr re-checks
+   ownership against the recorded ei.env, so owning temps still consume).
+
+Verified: battery 7/7 == TS; corpus test borrowed_field_return.yo ("2 3
+done" both compilers); cond_begin_arm_borrowed_tail.yo still "2 3 3 done";
+r4/r5/r6, dd tracked=0, hmap tracked=2 all green.

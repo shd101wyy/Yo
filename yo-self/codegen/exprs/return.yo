@@ -484,6 +484,10 @@ handle_func_call_deferred_dup :: (fn(expr : AstExpr, indent : String, context : 
             line.push_string(raw_code);
             line.push_str(";");
             em.emit_string_line(line);
+            // Register the declared temp BEFORE the dup pass below — the dup
+            // emitter's undeclared-temp gate silently suppresses the +1 for
+            // names not yet in declared_c_var_names (round-3 field-tail UAF).
+            _hd := context.base.declared_c_var_names.add(expr_temp_var.clone());
           });
         },
         .None => {
@@ -516,8 +520,62 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
       });
       arg_ei_opt := context.base.get_expr_info(arg);
       arg_has_dup := match(arg_ei_opt,.Some(aei) => match(aei.deferred_dup_expressions,.Some(d) => (d.len() > usize(0)),.None => false),.None => false);
-      // Compute argCode (deferred-dup-with-temp block is Phase 4; empty for corpus).
-      (arg_code : String) = _call_generate_expr(arg, indent.clone(), context);
+      // Deferred-dup-with-temp materialization (port of return.ts:556-598):
+      // when the arg has BOTH a variableName and deferred `___dup`s (returning
+      // a borrowed FIELD, e.g. `return(p.inner)`), declare the arg's eval temp
+      // BEFORE emitting the dup — the dup names that temp, and the dup
+      // emitter's undeclared-temp gate silently suppressed the +1 when the
+      // declaration had not been emitted yet (`T temp = p->inner;` was emitted
+      // AFTER the dup pass by the return-temp block below). The caller's scope
+      // drop then over-dropped the field (the round-3 borrowed-field UAF).
+      (arg_code : String) = String.from("");
+      arg_vn_with_dup := if(
+        arg_has_dup,
+        match(arg_ei_opt,.Some(aei) => aei.variable_name,.None => Option(String).None),
+        Option(String).None
+      );
+      match(
+        arg_vn_with_dup,
+        .Some(avn) => {
+          aei2 := match(arg_ei_opt,.Some(a) => a,.None => return(String.from("// unreachable: arg_vn_with_dup implies Some")));
+          aei2.variable_name = Option(String).None;
+          raw_arg_code := _call_generate_expr(arg, indent.clone(), context);
+          aei2.variable_name = Option(String).Some(avn.clone());
+          arg_temp_var := get_variable_name_for_codegen(avn.clone(), Option(Environment).Some(aei2.env));
+          // Skip the temp declaration when the arg is a ref-param atom —
+          // `T name = (*name);` would shadow the pointer parameter
+          // (return.ts:576-586, issues/inout-multi-stmt-body-shadow.md).
+          (is_inout_arg_atom : bool) = false;
+          if(ast_expr_is_atom(arg), {
+            ia_vars := get_variables_from_env(aei2.env, avn.clone());
+            if(ia_vars.len() > usize(0), {
+              match(
+                ia_vars.get(ia_vars.len() - usize(1)),
+                .Some(iav) => if(iav.is_ref, {
+                  is_inout_arg_atom = true;
+                }),
+                .None => ()
+              );
+            });
+          });
+          if((!(is_inout_arg_atom)) && (!(arg_temp_var == raw_arg_code)), {
+            dline := indent.clone();
+            dline.push_string(get_type_string(aei2.ty, context.base));
+            dline.push_str(" ");
+            dline.push_string(arg_temp_var.clone());
+            dline.push_str(" = ");
+            dline.push_string(raw_arg_code.clone());
+            dline.push_str(";");
+            em2 := context.base.emitter;
+            em2.emit_string_line(dline);
+            _ad := context.base.declared_c_var_names.add(arg_temp_var.clone());
+          });
+          arg_code = if(is_inout_arg_atom, raw_arg_code, arg_temp_var);
+        },
+        .None => {
+          arg_code = _call_generate_expr(arg, indent.clone(), context);
+        }
+      );
       (handled_deferred_dup : bool) = false;
       if(arg_has_dup, {
         generate_deferred_dup_expressions(arg, indent.clone(), context);

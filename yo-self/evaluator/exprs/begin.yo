@@ -1139,6 +1139,18 @@ evaluate_begin_expression :: (
     .Some(rv_name) => {
       rv_vars := get_variables_from_env(env, rv_name);
       nrv := rv_vars.len();
+      if(nrv == usize(0), {
+        // The tail's recorded temp name is NOT visible in the live begin env
+        // (snapshot env threading can drop an inline field-read's temp
+        // registration on a bare-expression body — e.g. `(fn(p : Pair) ->
+        // Krate)(p.inner)`). TS's persistent env always finds it and takes
+        // the non-owning → dup branch. Delegate to set_expr_as_needs_to_call_dup,
+        // which re-checks ownership/consumption against the RECORDED ei.env
+        // (where the temp does exist): owning temps still consume, non-RC and
+        // inlinable-concrete values still decline — only the borrowed case
+        // gains its balancing +1 (the round-3 borrowed-field-tail UAF).
+        set_expr_as_needs_to_call_dup(return_value_expr, ctx, exn);
+      });
       if(nrv > usize(0), {
         match(
           rv_vars.get(nrv - usize(1)),
