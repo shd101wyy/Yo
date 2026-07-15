@@ -66,74 +66,48 @@ anything RC-related.
 
 ---
 
-## (A) NEXT TASK: the rc=1 compile error on `s2 compile yo-self/main.yo`
+## (A) RESOLVED at handoff: the "rc=1 error" was a jetsam OOM in disguise
 
-With round 6 fixed, `s2 compile yo-self/main.yo --release --emit-c
---skip-c-compiler -o /tmp/stage3` no longer crashes — it runs the FULL
-compile (~7 GB peak, several minutes) and exits **rc=1 with a controlled
-compile error**. This is normal-bug territory now (an evaluator/codegen
-behavioral divergence from TS on some construct in the compiler's own
-source), NOT memory corruption — no Guard Malloc / freelog tooling needed.
+**Round-7 outcome (2026-07-16, commit b2a3eccdb):** the post-round-6 failure
+on `s2 compile yo-self/main.yo` is **NOT a bug** — it is **rc=137 = SIGKILL
+= jetsam OOM** during the CODEGEN phase on this 16 GB box. The earlier
+"rc=1" readings were `/usr/bin/time` and pipe artifacts masking the signal.
+Established facts (do not re-derive):
 
-Step 1 — capture the error message. CAVEAT observed at handoff time: two
-capture attempts produced EMPTY output (a `/usr/bin/time`-wrapped run showed
-only rc=1; a piped rerun exited 0 with no lines, yet `/tmp/stage3.c` was
-never produced — so the compile genuinely fails but its final stderr may be
-lost on the failure path, possibly an `exit(1)` after buffered output or an
-error printed through a path that dies silently). A third rerun with plain
-file redirection was in flight at handoff (`/tmp/s2main_err.log`). If it is
-also empty: run under lldb (`lldb -b -o "env YO_MAIN_STACK_MB=4096" -o run
--k "bt 8" -k quit /tmp/s2r6 -- compile yo-self/main.yo --release --emit-c
---skip-c-compiler -o /tmp/stage3`) to see whether it exits via
-exit()/abort() and from where; also try `s2 check yo-self/main.yo` (the
-check path prints progress lines) to see how far evaluation gets, and the
-input-bisect below to find WHICH module triggers it:
+- `s2 check yo-self/main.yo` PASSES rc=0 — the full EVALUATION of the
+  compiler through s2 is clean.
+- The top-level exn handler never ran (its eprintln writes an unconditional
+  `\n` to unbuffered stderr; every captured log is 0 bytes); the emitted C
+  `main` returns 0; the only reachable `exit(1)` sites are the exn handler
+  and the fmt-check path. So no error path fired — the process was killed.
+- s1 completes the identical compile at ~9-10 GB; s2's codegen phase grows
+  past the box limit → the remaining gap is the OLD footprint class (s2
+  under-frees vs s1), NOT corruption.
 
-```bash
-YO_MAIN_STACK_MB=4096 /tmp/s2r6 compile yo-self/main.yo --release \
-  --emit-c --skip-c-compiler -o /tmp/stage3 2>&1 | tail -30
-```
+**What to do (two tracks, both valuable):**
 
-Step 2 — classify and fix with the faithful-port discipline (below):
-
-- The error names a file:line in yo-self/std source. First confirm s1
-  (TS-built, same HEAD) accepts that construct — it does (s1 self-compiles
-  clean), so this is an s2-only behavioral divergence: some evaluator
-  fix-of-record behaves differently when COMPILED BY YO-SELF than by TS,
-  or an eval path yields a different verdict under s2.
-- Likely classes, in order of prior probability: (i) a latent divergence in
-  the six fixes' vicinity that only changes BEHAVIOR (not memory) — e.g. an
-  extra/missing dup changing an `rc()`/uniqueness check or map contents;
-  (ii) a pre-existing coverage gap in a rarely-hit evaluator path that
-  corrupted memory before it could ERROR previously; (iii) type-identity
-  (`type_key` cfid) divergence — see
-  issues/yo-self-specialization-signature-type-identity.md.
-- Use the input-bisect trick that cracked rounds 5-6: `s2 compile` narrower
-  module subsets (evaluator/\*.yo files individually, or a scratch main
-  importing subsets) to find a small input that reproduces the ERROR, then
-  iterate in seconds.
-
-Step 3 — gates after the fix (the standard cascade):
-
-```bash
-./yo-cli compile yo-self/main.yo --release -o /tmp/yo-self-bin   # rebuild s1 (~6 min)
-# fast gates (~2 min): battery + corpus + leak oracles
-/tmp/yo-self-bin compile /tmp/borrow_battery.yo --release -o /tmp/bb && /tmp/bb      # 2 3 2 3 2 4 2
-/tmp/yo-self-bin compile /tmp/arm_tail_battery.yo --release -o /tmp/atb && /tmp/atb  # 2 2 3
-for t in dyn_throw_double_drop cond_begin_arm_borrowed_tail borrowed_field_return \
-         assign_rhs_escape_double_drop match_arm_begin_tail_borrowed \
-         ptr_deref_copy_rc_struct; do
-  /tmp/yo-self-bin compile tests/codegen-bootstrap/$t.yo --release -o /tmp/t && /tmp/t
-done
-# hmap leak oracle (build /tmp/hmap.yo from the recipe further below): want tracked=2
-# big gates (~20 min):
-YO_MAIN_STACK_MB=4096 /tmp/yo-self-bin compile yo-self/main.yo --release --emit-c --skip-c-compiler -o /tmp/stage2
-clang -O2 -Wno-everything -o /tmp/s2 /tmp/stage2.c -lpthread    # 0 errors
-YO_MAIN_STACK_MB=4096 /tmp/s2 check tests/codegen-bootstrap/empty_main.yo   # ×3, rc=0
-YO_MAIN_STACK_MB=4096 /tmp/s2 compile yo-self/parser.yo --release --emit-c --skip-c-compiler -o /tmp/x  # rc=0
-# THE gate: the full self-compile
-YO_MAIN_STACK_MB=4096 /tmp/s2 compile yo-self/main.yo --release --emit-c --skip-c-compiler -o /tmp/stage3  # rc=0
-```
+1. **Unblock the fixpoint NOW (mitigation):** run the emission with bounded
+   GC — `YO_MAIN_STACK_MB=4096 YO_GC_FULL_PCT=130 /tmp/s2r6 compile
+yo-self/main.yo --release --emit-c --skip-c-compiler -o /tmp/stage3`
+   (slower but memory-capped per the 2026-07-13 notes; expect a long run).
+   A detached run was IN FLIGHT at handoff — poll `/tmp/s2main3.rc` +
+   `/tmp/s2main3.log` (started 02:02 07-16). If it completed rc=0 → go
+   straight to (B). If it OOMs even at 130: try `YO_GC_THRESHOLD=200000`,
+   or a bigger box (any 32 GB machine completes per the old notes).
+2. **Close the footprint gap (the real fix):** the PRIME suspect is
+   **`issues/yo-self-ctor-arg-move-vs-dup.md`** — yo-self dups struct-ctor
+   RC args where TS MOVES (consumes) them: +1 per construction, and the
+   compiler constructs millions of ExprInfo/Variable/TypeValue nodes.
+   Fast repro exists (/tmp/deref_battery.yo: TS rc=1 vs self rc=2).
+   Fix = port TS's ctor-arg consumption (`setExprAsConsumed` on owning
+   args; dup only for borrowed) — see the fv_p_owning block in
+   evaluator/calls/function.yo (the move machinery already exists for
+   SOME paths) and TS function.ts constructor arms. CAUTION: this is an
+   RC-semantics change — over-drop risk; run the FULL gate cascade
+   (hmap tracked=2 is the over/under oracle) and the corpus before
+   trusting it. Secondary suspects if that's not enough: the historical
+   under-drop notes in the OOM section far below (normal-path drop gap,
+   `issues/yo-self-fixpoint-eval-phase-leak.md`).
 
 ## (B) THE FIXPOINT (task #3) — once (A) exits rc=0
 
