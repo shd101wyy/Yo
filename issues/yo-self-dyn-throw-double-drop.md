@@ -436,3 +436,33 @@ tagging identifies AST nodes across eval passes (rows are 0-indexed).
   (the check path evaluates the same prelude but crashes nowhere: the
   difference must be compile-only eval work, e.g. main-module-mode flags,
   executing-mode CTFE of main(), or codegen-phase table reads).
+
+### Round-5 SMALL REPRO FOUND (2026-07-16): `s2 compile yo-self/parser.yo`
+
+Input bisect result (all with /tmp/s2r4 = -O2 stage2 at HEAD):
+
+- `s2 compile` of empty_main / borrow_battery / dd / token.yo / lexer.yo /
+  expr.yo → rc=0.
+- **`s2 compile yo-self/parser.yo` → rc=139, in seconds.** Matrix: -O2+GC-on
+  CRASHES; -O2+GC-off clean; -O0 clean with GC on AND off. So the dangling
+  ref (deficit) is only ever TOUCHED by the cycle collector's trial-deletion
+  traversal, and only the -O2 allocation pattern makes the collector run at
+  the fatal moment on this input. (The main.yo GC-off rc=133 at 0.8s is a
+  possibly-separate signature — recheck after this one is fixed.)
+- Guard Malloc trap on parser.yo (op7 build, GC-on): identical to the main.yo
+  trap — `__yo_traverse___yo_t59` (ExprInfo) visits a freed payload; freelog
+  final dropper = evaluate_future_type's fn-end drop of the
+  `elem_info.value` match-scrutinee temp (stage2_r4l_op7.c:615098,
+  yo_id_282416) — a site AUDITED BALANCED (dup at read + one drop per path).
+  The deficit is introduced upstream on the same shared Some(TypeVal)
+  payload of that ExprInfo's `.value`.
+
+NEXT (fast iteration now possible): at the gmalloc trap, dump the dangling
+ExprInfo (`p *(__yo_t59*)<frame1 ptr>`) to learn WHICH field dangles and the
+ExprInfo's identity (env/module_path/ty); instrument create_type_value /
+expr_info_table_set flows for that node; or oplog the victim — with
+parser.yo's small object population the direct-mapped table may finally hold
+(re-try `__oplog_dump(ptr)` at the trap; op7 has the murmur hash + t65
+filter REMOVED... note op7's oplog still carries the t65 traverse filter —
+rebuild without it for this). Repro commands are in this section; builds:
+/tmp/s2r4 (-O2), /tmp/s2r4lop7 (-O0 libc + freelog + tombstone).
