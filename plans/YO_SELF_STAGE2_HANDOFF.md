@@ -90,10 +90,14 @@ Established facts (do not re-derive):
    GC — `YO_MAIN_STACK_MB=4096 YO_GC_FULL_PCT=130 /tmp/s2r6 compile
 yo-self/main.yo --release --emit-c --skip-c-compiler -o /tmp/stage3`
    (slower but memory-capped per the 2026-07-13 notes; expect a long run).
-   A detached run was IN FLIGHT at handoff — poll `/tmp/s2main3.rc` +
-   `/tmp/s2main3.log` (started 02:02 07-16). If it completed rc=0 → go
-   straight to (B). If it OOMs even at 130: try `YO_GC_THRESHOLD=200000`,
-   or a bigger box (any 32 GB machine completes per the old notes).
+   OUTCOME at handoff: the `YO_GC_FULL_PCT=130` run ALSO died rc=137 after
+   ~30 min — the 16 GB box cannot hold s2's codegen-phase footprint even
+   GC-bounded. Remaining options, in order: (i) fix the ctor-arg leak
+   (track 2 below) and retry — the structural fix, likely closes most of
+   the gap; (ii) try `YO_GC_THRESHOLD=200000` (more aggressive incremental
+   collection; untested here); (iii) run the emission once on any ≥32 GB
+   machine (the 2026-07-13 notes confirm the chain completes there) just to
+   bank the fixpoint diff while track 2 proceeds.
 2. **Close the footprint gap (the real fix):** the PRIME suspect is
    **`issues/yo-self-ctor-arg-move-vs-dup.md`** — yo-self dups struct-ctor
    RC args where TS MOVES (consumes) them: +1 per construction, and the
