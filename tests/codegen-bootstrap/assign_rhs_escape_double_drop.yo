@@ -1,0 +1,49 @@
+// Regression (round 4 of the stage-2 double-free hunt): in a reassignment
+// `x = f(x)` whose RHS can escape (exn.throw → unwind), the emitted escape
+// block must NOT drop the save-old-value temp — the temp is a plain alias
+// that receives ownership of the old value only when the assignment
+// completes; on escape the LOCAL still owns it and its scope drop covers it.
+// yo-self's codegen dropped BOTH (the local via the scope list AND the save
+// temp via the pending list), over-dropping the old value once per throw —
+// the deterministic `s2 check` rc=138/139 UAF (comptime-fold iterations of
+// `v :: variants.get(vi)` in the derive machinery accumulated the deficit
+// until the AST node freed). TS's escape lists drop only the local. Fixed
+// via FunctionGenerationContext.current_assignment_save_temp. See
+// issues/yo-self-dyn-throw-double-drop.md. Expected output: "done tracked=0".
+open(import("std/fmt"));
+open(import("std/string"));
+open(import("std/error"));
+Gc :: import("std/gc");
+// A cyclable ref struct so Gc.tracked_count() observes it.
+Node :: ref(struct(v : i32, next : Option(Self)));
+make_node :: (fn(v : i32) -> Node)(
+  Node(v : v, next :.None)
+);
+// Throws before producing a value — the caller's reassignment never
+// completes, so the old value must be dropped exactly once (the local's
+// scope drop), not also via the save temp.
+replace_or_throw :: (fn(old : Node, exn : Exception) -> Node)({
+  exn.throw(dyn(String.from("no replacement available")));
+  old
+});
+run_once :: (fn(i : i32) -> unit)({
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(());
+      }
+    )
+  );
+  (cur : Node) = make_node(i);
+  cur = replace_or_throw(cur, exn);
+  cur;
+});
+main :: (fn() -> unit)({
+  (j : i32) = i32(0);
+  while(j < i32(50), {
+    run_once(j);
+    j = (j + i32(1));
+  });
+  println(`done tracked=${Gc.tracked_count()}`);
+});
+export(main);
