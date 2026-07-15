@@ -10,12 +10,13 @@
 //! arm values are address-of wrapped (`&(...)`) — sound because flowability
 //! already verified the arm roots back to a ref-bound parameter.
 //!
-//! DEFERRED (documented, not hit by the no-RC corpus): deferred-dup rewrite of
-//! arm / begin-final values and the begin block's own deferred-drop emission
-//! (Phase 4). The corpus has none, so arm values are assigned directly.
+//! Deferred-dup rewrite of arm values (cond.ts:409-470) and of begin-arm FINAL
+//! expressions (cond.ts:293-365) are both ported — see _emit_value_arm and
+//! _emit_begin_arm. The begin block's own deferred drops are emitted on arm
+//! fall-through (cond.ts:401-403).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call_of, BK_BEGIN, BK_RETURN } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, BK_BEGIN, BK_RETURN } :: import("../../expr.yo");
 { ExprInfo, has_any_control_flow } :: import("../../expr_info.yo");
 { EvalValue } :: import("../../value.yo");
 { is_unit_type, is_pointer_type } :: import("../../types/guards.yo");
@@ -352,28 +353,129 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
       begin_args.get(n - usize(1)),
       .Some(final_expr) => match(
         context.base.get_expr_info(final_expr),
-        .Some(_) => {
-          final_code := _call_generate_expr(final_expr, value_indent.clone(), context);
-          if(
-            final_code.len() > usize(0),
-            if(_is_cf_code(final_expr, final_code.clone(), context), {
-              line := value_indent.clone();
-              line.push_string(final_code.clone());
-              line.push_str(";");
-              em.emit_string_line(line);
-            }, match(
-              temp_var_opt,
-              .Some(tv) => if(!(is_unit), {
+        .Some(fei) => {
+          // Final expr carrying deferred `___dup`s (returning a borrowed value
+          // out of the arm — e.g. evaluate_raw_pointer_call's `{ ...; expr }`):
+          // declare the eval temp, emit the balancing dup, then assign the
+          // result to the cond temp. Port of cond.ts:293-365. Without this the
+          // arm result aliased the borrowed value while the caller's scope end
+          // dropped its own handle — the round-2 stage-2 `*(T)` param-type UAF.
+          has_final_dups := match(fei.deferred_dup_expressions,.Some(d) => (d.len() > usize(0)),.None => false);
+          if(has_final_dups, {
+            match(
+              fei.variable_name,
+              .Some(fvn) => {
+                fei.variable_name = Option(String).None;
+                raw_code := _call_generate_expr(final_expr, value_indent.clone(), context);
+                fei.variable_name = Option(String).Some(fvn.clone());
+                ftv := get_variable_name_for_codegen(fvn.clone(), Option(Environment).Some(fei.env));
+                // Skip the temp-var declaration when final_expr is an inout-param
+                // atom — `T name = (*name);` would shadow the pointer parameter
+                // (cond.ts:318-328, issues/inout-multi-stmt-body-shadow.md).
+                (is_inout_atom : bool) = false;
+                if(ast_expr_is_atom(final_expr), {
+                  fv_vars := get_variables_from_env(fei.env, fvn.clone());
+                  if(fv_vars.len() > usize(0), {
+                    match(
+                      fv_vars.get(fv_vars.len() - usize(1)),
+                      .Some(fv) => if(fv.is_ref, {
+                        is_inout_atom = true;
+                      }),
+                      .None => ()
+                    );
+                  });
+                });
+                if((!(is_inout_atom)) && (!(ftv == raw_code)), {
+                  dline := value_indent.clone();
+                  dline.push_string(get_type_string(fei.ty, context.base));
+                  dline.push_str(" ");
+                  dline.push_string(ftv.clone());
+                  dline.push_str(" = ");
+                  dline.push_string(raw_code.clone());
+                  dline.push_str(";");
+                  em.emit_string_line(dline);
+                  _fd := context.base.declared_c_var_names.add(ftv.clone());
+                });
+              },
+              .None => ()
+            );
+            generate_deferred_dup_expressions(final_expr, value_indent.clone(), context);
+            // Use the dup result temp when the dup call carries one
+            // (cond.ts:341-353); else assign the generated final expr.
+            (dup_result_used : bool) = false;
+            f_dup_list := match(fei.deferred_dup_expressions,.Some(d) => d,.None => ArrayList(AstExpr).new());
+            match(
+              f_dup_list.get(usize(0)),
+              .Some(fdup0) => if(
+                ast_expr_is_fn_call(fdup0),
+                match(
+                  context.base.get_expr_info(fdup0),
+                  .Some(fdup_info) => match(
+                    fdup_info.variable_name,
+                    .Some(fdvn) => {
+                      fdtv := get_variable_name_for_codegen(fdvn.clone(), Option(Environment).Some(fdup_info.env));
+                      match(
+                        temp_var_opt,
+                        .Some(tv) => if(!(is_unit), {
+                          tline := value_indent.clone();
+                          tline.push_string(tv.clone());
+                          tline.push_str(" = ");
+                          tline.push_string(fdtv.clone());
+                          tline.push_str(";");
+                          em.emit_string_line(tline);
+                        }),
+                        .None => ()
+                      );
+                      dup_result_used = true;
+                    },
+                    .None => ()
+                  ),
+                  .None => ()
+                )
+              ),
+              .None => ()
+            );
+            if(!(dup_result_used), {
+              final_code2 := _call_generate_expr(final_expr, value_indent.clone(), context);
+              if(
+                final_code2.len() > usize(0),
+                match(
+                  temp_var_opt,
+                  .Some(tv) => if(!(is_unit), {
+                    line := value_indent.clone();
+                    line.push_string(tv.clone());
+                    line.push_str(" = ");
+                    line.push_string(_maybe_address_of(final_expr, final_code2.clone(), cond_outer_is_ptr, context));
+                    line.push_str(";");
+                    em.emit_string_line(line);
+                  }),
+                  .None => ()
+                )
+              );
+            });
+          }, {
+            final_code := _call_generate_expr(final_expr, value_indent.clone(), context);
+            if(
+              final_code.len() > usize(0),
+              if(_is_cf_code(final_expr, final_code.clone(), context), {
                 line := value_indent.clone();
-                line.push_string(tv.clone());
-                line.push_str(" = ");
-                line.push_string(_maybe_address_of(final_expr, final_code.clone(), cond_outer_is_ptr, context));
+                line.push_string(final_code.clone());
                 line.push_str(";");
                 em.emit_string_line(line);
-              }),
-              .None => ()
-            ))
-          );
+              }, match(
+                temp_var_opt,
+                .Some(tv) => if(!(is_unit), {
+                  line := value_indent.clone();
+                  line.push_string(tv.clone());
+                  line.push_str(" = ");
+                  line.push_string(_maybe_address_of(final_expr, final_code.clone(), cond_outer_is_ptr, context));
+                  line.push_str(";");
+                  em.emit_string_line(line);
+                }),
+                .None => ()
+              ))
+            );
+          });
         },
         .None => ()
       ),

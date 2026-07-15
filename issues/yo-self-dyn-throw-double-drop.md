@@ -268,3 +268,45 @@ temp it declares); or make eval not mint an undeclared result temp for these.
 Status: value-gate fix committed (78bc87464) and kept. Probes removed from
 utils.yo / return.yo / generation.yo after each cycle. 210 missing dups =
 ~ the eval-dispatch under-count that kills AST children (round-2 UAF).
+
+### Round-2 ROOT CAUSE FOUND + FIXED (2026-07-15, cycle 4): cond BEGIN-ARM final-expr dup omitted
+
+The probe-cycle-3 conclusion ("210 dups suppressed inside
+generate_deferred_dup_expressions") was WRONG — a 40-line-window audit
+artifact. A C-comment probe (`/* DUPX len=… tgt=… */` emitted at every dup
+site — much better than eprintln: lands exactly at the site, survives in the
+.c, and dodges an evaluator "Frame level N has different number of values"
+quirk that killed every eprintln-probe build) proved the dup emitter emits
+ALL 5035 dups it is handed (0 empty, 1 legitimately gated). All 7
+`return expr;` sites in evaluate_identifier_and_operator carry the incr; the
+whole eval-dispatch chain (evaluate_identifier_and_operator →
+\_evaluate_expression cond arm → \_evaluate_expression_raw_wrapper →
+fn-pointer dispatch) transfers ownership correctly.
+
+The REAL victim (fresh oplog on the current stage2, Guard Malloc +
+`expr (void)__oplog_dump(ptr)` at the trap, atos-resolved):
+`*(Array(T, N))` — the type expr of `comptime(self) : *(Array(T, N))` in
+`__yo_comptime_array_index`'s extern signature (std/prelude.yo:310:52,
+identified by reading the live parent expr's token row/col in lldb). NOT an
+identifier atom — a `*` pointer-type FN CALL.
+
+History: [0] + args.get(1) elem dup (evaluate_function_parameter) — matched
+by [6] - \_evaluate_function_parameters tail drop; [1]-[4] balanced
+(extract_comptime_parameter_info); [5] - `evaluated` scope drop in
+\_eval_and_update_env — UNMATCHED → parent's ref stolen → next param pass
+reads the freed node (the deterministic rc=139).
+
+Root cause: `evaluate_raw_pointer_call` (evaluator/calls/pointer.yo) returns
+the borrowed param `expr` as the tail of a cond BEGIN-BLOCK arm
+(`is_type_value(...) => { …; expr }`). The evaluator marks the dup, but
+codegen's `_emit_begin_arm` (codegen/exprs/cond.yo) emitted the final expr
+with NO deferred-dup handling — `temp = expr;` bare — while `_emit_value_arm`
+(non-begin arms) had the full port. TS cond.ts:293-365 has the dup block in
+BOTH paths. Emitted C (pre-fix): `_file____User_temp_453581 = expr;` with
+zero incr in the whole function.
+
+Fix: ported the TS begin-arm final-expr deferred-dup block into
+`_emit_begin_arm` (declare the eval temp unless inout-atom/self-named →
+`generate_deferred_dup_expressions(final_expr)` → assign dup-result temp when
+the dup call carries one, else assign the generated value). `if(c,a,b)`
+lowers through the same cond emitter, so both are covered.
