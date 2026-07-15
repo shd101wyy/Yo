@@ -1,8 +1,38 @@
 # yo-self self-hosting — HANDOFF PLAN (fresh-agent entry point)
 
-_Last updated 2026-07-10 (after the assert/panic repair + RC-protocol +
-stage-2-clang-0 sessions; tree clean, all fixes committed on
-`feat/bootstrap-codegen`; corpus now 111 files)._
+_Last updated 2026-07-15 (after the constructor-materialization + cond-arm-drop
+fixes and the OOM root-cause session). Tree clean on `feat/bootstrap-codegen`
+(HEAD `7d6b0385a`); corpus now 119 files. Only `src/tests/fixme.yo` (scratch) is
+dirty — no restore needed._
+
+---
+
+## ⇒ START HERE (2026-07-15): the ONE remaining blocker is the stage-2 self-compile OOM
+
+Everything up to the byte-exact fixpoint (`diff stage2.c stage3.c`) is done EXCEPT
+that `s2` (the self-compiled yo-self binary) uses too much memory compiling
+`yo-self/main.yo` to complete on this 16 GB box. This session **root-caused that OOM
+to a single, precisely-located leak with a PROVEN one-line fix** — but that fix
+unmasks a latent codegen-liveness bug that must be fixed alongside it. Read
+**"REMAINING WORK — the OOM, in full detail"** below; it is the whole job. Tasks
+**#69/#70** are gated on it.
+
+**Committed green this session (both self-emit clang-clean, corpus 119/DIFF 0, check ./yo-self 303/303):**
+
+- `875f99e21` — struct/enum/union **constructor result materialization**: the three
+  constructor arms of `evaluate_function_call` (`yo-self/evaluator/calls/function.yo`
+  — `.Struct`/`.EnumT`/`.Union`) now call `attach_temp_variable_to_expr(expr,true,ctx)`
+  like TS (`src/evaluator/calls/function.ts:2461/2527/2567`), so a DISCARDED constructor
+  result (`Foo(x:1);`, a ref arg to a borrowed param) is dropped. Repro 82 MB→1.5 MB.
+  Added regression `tests/codegen-bootstrap/constructor_result_drop.yo`.
+- `7d6b0385a` — **cond/if arm scope-end drops on fall-through**: `_emit_begin_arm`
+  (`yo-self/codegen/exprs/cond.yo`) now emits the arm begin-block's
+  `deferred_drop_expressions` at normal completion (faithful to TS cond.ts:401-403).
+  Owning locals in a cond/if arm are dropped on the fall-through path.
+
+Neither of those, alone, is enough to make the full-`main.yo` emit fit in 16 GB — see below.
+
+---
 
 **Goal:** make yo-self compile itself **correctly**:
 
@@ -29,7 +59,20 @@ stage-2-clang-0 sessions; tree clean, all fixes committed on
    - `___dup(evaluated_callee)`). Corpus diff-test PASS / DIFF 0, `check ./std`
      clean.
 3. Verify the **self-hosting fixpoint** (required, see below).
-   **← STATE (2026-07-13, LATEST — escape-path leak FIXED, commit `b73ddfcc7`):**
+   **← STATE (2026-07-15, LATEST — OOM ROOT-CAUSED; one-line fix proven but blocked
+   by a liveness-tracking bug. This supersedes all older sub-states in this item.):**
+   See **"REMAINING WORK — the OOM, in full detail"** immediately after the
+   faithful-port note. Short version: the full-`main.yo` fixpoint is blocked ONLY by
+   s2's memory. The dominant leak is `HashMap.set` same-key overwrite leaking the
+   replaced value (proven with a 10-line repro: TS `tracked=2`, yo-self `tracked=101`);
+   root = `_find_bucket`'s `bucket := (data_ptr &+ i).*` value-struct local not dropped
+   on its early-`return` path, because the scalar `:=` codegen didn't register its C
+   name. The one-line fix (`init_assignment.yo`: `get_type_string` →
+   `get_variable_type_string`) makes the repro `101→2` (== TS) but unmasks ~20
+   out-of-scope `__yo_decr_rc` clang errors on self-emit (a branch-blind liveness
+   signal). Fixing BOTH together is the job.
+
+   **(older 2026-07-13 state — escape-path leak FIXED, commit `b73ddfcc7`):**
    The ~60GB eval-phase RC leak that OOM-killed s2 compiling `main.yo` is FIXED.
    s2's memory is now **bounded** (1.3GB at the default GC threshold; ~8GB at
    `YO_GC_THRESHOLD=5000000`) — no more 56-73GB jetsam kill. Root+fix: on the
@@ -156,6 +199,173 @@ also wrong, fix TS first, then port. NO workarounds, NO stubs.
 
 ---
 
+## REMAINING WORK — the OOM, in full detail (2026-07-15) ⇐ THE WHOLE JOB
+
+**Definition of done:** `s2` (self-compiled yo-self) emits `stage3.c` from
+`yo-self/main.yo` within ~10 GB, `diff stage2.c stage3.c` is byte-identical
+(after temp-id normalization) = FIXPOINT-OK, corpus stays 118/DIFF 0, `check
+./yo-self` 303/303, and the self-emitted `stage2.c` clang-compiles with 0 errors.
+Then do tasks #69/#70.
+
+### What the OOM actually is (verified this session, don't re-derive)
+
+- `s1` = yo-self compiled by TS (`./yo-cli compile yo-self/main.yo --release`).
+  `s2` = clang(`s1`-emitted `stage2.c`). BOTH are native RC binaries — the only
+  difference is which CODEGEN emitted their C (TS vs yo-self). So `s1`-vs-`s2`
+  differences isolate **yo-self codegen bugs**, never RC-vs-GC.
+- `s1` compiles `main.yo` in ~80 s / ~10 GB and COMPLETES. `s2` balloons (≥97 GB
+  footprint) and jetsam-kills on this 16 GB box. Measured freed-fraction (patch
+  `__yo_gc_register` to print cumulative allocs at each GC scan — see
+  `scratchpad/patch_alloc.py`): at 524 K live objects, `s1` had already freed ~90 %
+  of allocations, `s2` only ~12 %. So `s2` under-frees ~9×.
+- **Dominant leaked type = `Variable`** (histogram by `dispose_fn` at matched
+  alloc count: `scratchpad/patch_alloc_hist.py`), then `Environment`, `ExprInfo`
+  (an ExprInfo pins an env → frames → Variables). These are the compiler's
+  per-eval structures.
+- **Reduced to a 10-line behavioral repro** (`/tmp/hmap.yo`):
+  ```rust
+  { println } :: import("std/fmt");
+  Gc :: import("std/gc");
+  { HashMap } :: import("std/collections/hash_map");
+  Node :: ref(struct(x : i32, next : Option(Self)));   // cyclable → tracked_count sees it
+  main :: (fn() -> unit)({
+    m := HashMap(i32, Node).new();
+    (j : i32) = i32(0);
+    while(j < i32(100), { m.set(i32(7), Node(x : j, next :.None)); j = (j + i32(1)); });
+    println(`same-key-overwrite tracked=${Gc.tracked_count()}`);
+  });
+  export(main);
+  ```
+  **TS-compiled → `tracked=2`. yo-self-compiled → `tracked=101`** (every overwrite
+  leaks the replaced Node). NOTE: `Node` must be cyclable (the `Option(Self)`) —
+  `Gc.tracked_count()` is BLIND to acyclic types, and the GC also masks the leak
+  once the count crosses its auto-collect threshold, so keep the count small.
+  `main.yo` hits this via `expr_info_table_set` → `HashMap.set` overwriting the same
+  expr-ids millions of times during def-time re-eval.
+
+### The exact root (verified via per-Node RC trace + emitted-C reading)
+
+Runtime trace (`scratchpad/patch_node_rc.py` patches incr/decr on the Node's
+dispose_fn; run the 3-iteration `/tmp/hm3.yo`): the replaced Node gets **4 incr /
+4 decr → stays rc=1** (should reach 0); TS does **2 incr / 3 decr → 0**.
+
+Source: `std/collections/hash_map.yo` `_find_bucket` (L171-197):
+`bucket := (data_ptr &+ probe_index).*` reads the whole `Bucket` value-struct
+(which holds the RC `Node`), uses only `bucket.key`, then
+`(bucket.key == key) => return(.Some(probe_index))`. **yo-self never drops
+`bucket`** — not on the early `return` (key match, the hmap case), not on
+loop-continuation fall-through. TS emits `bucket = ___dup(...)` AND
+`___drop(bucket)` before the early return.
+
+There are TWO independent codegen gaps behind this:
+
+1. **Fall-through drop — FIXED & COMMITTED (`7d6b0385a`).** `_emit_begin_arm`
+   didn't emit an arm's own `deferred_drop_expressions` at normal completion.
+   Fixed. `_find_bucket` now drops `bucket` on the fall-through path. (Doesn't fix
+   the hmap repro, which always takes the key-MATCH early-return.)
+
+2. **Early-return drop — ROOT FOUND, one-line fix PROVEN, NOT landable alone.**
+   Debug-traced `_keep_pending_drop` (return.yo): at the `return .Some(idx)`,
+   `bucket` was in the env, not consumed, but
+   `declared_c_var_names.contains("bucket") == false` → the C-emission-order guard
+   (return.yo:265) rejected the drop. Cause: the **non-array scalar `:=` codegen
+   path** (`yo-self/codegen/exprs/init_assignment.yo`, ~L258) built its C
+   declaration with `get_type_string(ty)` + manual name append instead of
+   `get_variable_type_string(ty, name, ctx)` — and only `get_variable_type_string`
+   REGISTERS the C name in `declared_c_var_names` (`codegen/utils/index.yo`, the
+   `add` at ~L881). This diverges from TS (`generateInitializationAssignment` uses
+   `getVariableTypeString`). **The one-line fix** (use `get_variable_type_string`,
+   matching the array path a few lines up at ~L219) → `declared_c=true` → drop
+   emitted → **hmap repro `101→2`, hm3 `2,3,4 → 2,3,3`, both == TS. THE LEAK IS
+   GONE.** Verified this session.
+
+### Why the one-liner isn't committed yet (the part that needs solving)
+
+Registering the scalar `:=` C names unmasks a LATENT return/escape-path bug:
+**~20 `__yo_decr_rc((void*)(X))` for undeclared identifiers** on self-emit
+(`base`, `arg0`, `t`, `exp` [collides with libc `exp`], `ft`, `pt`, `res`, `gt`,
+`et`, `giv`, `exp_id`, …). These are pending scope-end drops for scalar `:=`
+locals that are **not in C scope at that return/escape site** — the drop is
+emitted for a var whose C block already closed. Corpus is BLIND to this (small
+programs miss it; a leak/undeclared-drop needs specific control-flow shapes only
+`main.yo` has), so **the gate for this fix is: self-emit `stage2.c` clang errors == 0.**
+
+Root of the cascade: yo-self does NOT have TS's point-in-time per-expr `env`
+snapshot (TS: `expr.$.env`, where a not-yet-completed binding's
+`initializedAtToken` is unset). yo-self records an END-of-scope env and
+approximates "is this var live here" with:
+
+- `declared_c_var_names` — a **monotonic per-function** name set (never shrinks;
+  can't tell a still-open local from a closed-block one), and
+- `_emitter_track_scope` (`yo-self/emitter.yo`) — a **flat `ArrayList(String)`
+  scope-stack** with `"{"` sentinels, char-scanning each emitted line, pushing
+  decls and popping on `}`.
+
+The scope-stack is **branch-blind / brace-imperfect** for yo-self's emitted
+`switch`/`case` + inline-enum-drop structure: a var declared in a prior sibling
+loop/arm that already closed still reads as "in an open block". Confirmed by
+reading the emitted C (e.g. `exp` declared in a `gj < n_giv` loop, dropped in a
+later `eei < n_exp_effects` loop where it's out of scope).
+
+**Three fixes were tried this session and REVERTED (all fail the clang-0 gate — do
+not simply repeat them):**
+
+- (a) Add `_scope_stack_contains` to `_keep_pending_drop`'s use_env path → fixed
+  `base`/`arg0` (use_env drops) but NOT the escape-path drops (`t`/`exp`/…), which
+  already use the scope-stack → **the scope-stack itself is wrong for them.**
+- (b) `_emitter_track_scope`: change the `//`-comment skip from `i=n` (end of
+  string) to skip-to-next-newline → **no change** (emit_string_line lines are
+  effectively single-line; multi-line-`//` wasn't the miscount cause).
+- (c) The value-struct-dup-result capture in `emit_deferred_dup_or_code`
+  (`drop_dup.yo` ~L865, the note's old drafted fix) → made `bucket` own the dup
+  but the leak stayed 101 (the missing DROP, not the dup, is the issue).
+
+### The task: land the one-liner + a branch-accurate liveness signal
+
+Two viable strategies (prefer the more faithful one you can validate):
+
+- **Strategy A (bounded, recommended first): make the liveness signal
+  branch/brace-accurate.** Land the `init_assignment.yo` one-liner, then fix
+  `_emitter_track_scope` + `_keep_pending_drop` so a pending drop is emitted
+  **iff** its target's C declaration was emitted AND its enclosing C block is still
+  open at this exact emission point. Ideas: track per-Variable "C-decl-emitted &
+  block-open" state keyed by the decl's exact site (not a flat name set); or make
+  the scope-stack robustly model `switch`/`case`/`if`/`else` + inline-drop braces.
+  The clang-0 self-emit gate + the corpus catch regressions; `main.yo`'s own
+  self-emit is the only test that exercises the failing shapes.
+- **Strategy B (most faithful, larger): give each `AstExpr` a point-in-time `env`
+  snapshot like TS `expr.$`.** This is the node-attached-ExprInfo refactor
+  described in the (historical) item-3 notes below — it also fixes the never-pruned
+  `expr_info_table` memory. Bigger and must land atomically; only do this if
+  Strategy A proves intractable.
+
+### Reproduce / validate (fast loop, ~4 min/iteration)
+
+```bash
+# rebuild s1 with your yo-self edit (ALWAYS --release):
+./yo-cli compile yo-self/main.yo --release -o /tmp/yo-self-bin
+# 1) leak gone?  (built /tmp/hmap.yo above)
+/tmp/yo-self-bin compile /tmp/hmap.yo --release -o /tmp/hm && /tmp/hm     # want tracked=2
+# 2) self-emit clang-clean?  (THE gate for the cascade)
+/tmp/yo-self-bin compile yo-self/main.yo --release --emit-c --skip-c-compiler -o /tmp/stage2
+clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/stage2.c -o /tmp/s2 2>&1 | grep -c 'error:'   # want 0
+# 3) corpus + check (non-negotiable):
+YO_SELF_BIN=/tmp/yo-self-bin scripts/diff-test.sh tests/codegen-bootstrap --parallel 4 --release   # 119 PASS, DIFF 0
+./yo-cli check ./yo-self          # 303/303
+# 4) when 1+2+3 all pass, run the full fixpoint (needs the emit to fit in RAM):
+clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/stage2.c -o /tmp/s2
+YO_MAIN_STACK_MB=4096 /tmp/s2 compile yo-self/main.yo --release --emit-c --skip-c-compiler -o /tmp/stage3
+diff /tmp/stage2.c /tmp/stage3.c && echo FIXPOINT-OK   # (temp-id-normalize if only _temp_/yo_id_ numbers differ)
+```
+
+Tooling left in place: `/tmp/hmap.yo`, `/tmp/hm3.yo` (3-iter),
+`scratchpad/patch_node_rc.py` (per-Node RC trace), `scratchpad/patch_alloc.py`
+(freed-fraction), `scratchpad/patch_alloc_hist.py` (leaked-type histogram).
+Full analysis + the ruled-out attempts: agent memory note
+`yo-self-fixpoint-gen2-frontier` and `issues/yo-self-fixpoint-eval-phase-leak.md`.
+
+---
+
 ## PREVIOUS ENTRY POINT (SURPASSED 2026-07-10 — kept for the repro recipe)
 
 ```bash
@@ -264,9 +474,13 @@ are compiled FAITHFULLY — they run on missing data.
 tail -1 /tmp/build.txt    # must be "Successfully compiled ..."
 
 # Gates (non-negotiable; REVERT on any regression):
-YO_SELF_BIN=/tmp/yo-self-bin bash scripts/diff-test.sh tests/codegen-bootstrap/ --parallel 4
-#   → must be 107/107, DIFF 0 (this is also the RC double-free/leak oracle)
-/tmp/yo-self-bin check ./std          # → must be 152/152
+YO_SELF_BIN=/tmp/yo-self-bin bash scripts/diff-test.sh tests/codegen-bootstrap/ --parallel 4 --release
+#   → must be 119/119, DIFF 0 (this is also the RC double-free/leak oracle)
+./yo-cli check ./yo-self              # → must be 303/303
+./yo-cli check ./std                  # → must be 153/153
+# For any change touching drop/liveness emission, ALSO gate on self-emit clang 0:
+/tmp/yo-self-bin compile yo-self/main.yo --release --emit-c --skip-c-compiler -o /tmp/stage2
+clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/stage2.c -o /dev/null 2>&1 | grep -c 'error:'  # expect 0
 
 # Stage-2 chain when relevant (~5 min):
 /tmp/yo-self-bin compile yo-self/main.yo --emit-c --skip-c-compiler -o /tmp/stage2
