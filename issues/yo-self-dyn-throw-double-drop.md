@@ -133,27 +133,29 @@ node(s) a later pass re-reads. Compare with TS `synthesizeFunctionTypeFromTokens
 borrows. Crash fires during PRELUDE eval → forall/using-heavy signatures;
 build the repro from a forall+using fn signature shape.
 
-### Round-2 REPRO CAPTURED (2026-07-15 evening, seconds-fast)
+### Round-2 repro attempt — CORRECTION (2026-07-15 late)
 
-`/tmp/r3.yo` (30 lines): an OWNING local reassigned from a match-arm payload —
-the exact aliasing shape of `evaluate_function_parameter`
-(evaluator/types/function.yo:740 `expr_mut = match(lhs_expr, .Some(e) => e, …)`):
+The earlier "REPRO CAPTURED rc=134" claim was MISATTRIBUTED: the rc=134 was
+**s1 itself aborting while COMPILING** the file (the `compile && run; echo rc`
+chain made the compile's exit code look like the program's — s1 produced NO
+binary). Two real findings from the attempt:
 
-```rust
-probe :: (fn(parent : Node) -> i32)({
-  (cur : Node) = parent;
-  opt := cur.kids;
-  match(opt, .Some(child) => { cur = child; }, .None => ());
-  cur.tag
-});
-```
+1. The match-arm-payload reassignment shape (`(cur : Node) = parent;
+match(opt, .Some(child) => { cur = child; })`) is emitted CORRECTLY by
+   yo-self (manual RC accounting balanced; runs clean incl. under Guard
+   Malloc). That hypothesis for round 2 is DEAD.
+2. NEW, separate bug: s1 ABORTS (SIGABRT, silent, after "prelude OK") while
+   compiling a match arm containing `(-(i32(1)))` (unary negation of a call
+   result in arm position; `i32(-1)` in the same position works, though TS
+   REJECTS `i32(-1)` — a frontend divergence — and accepts `(-(i32(1)))`).
+   Repro: /tmp/r3.yo with `.None => (-(i32(1)))`. Also: the emitted C for a
+   negation helper types its temp `void*` (`void* t = (-(self)); return t;`,
+   int↔ptr conversion — clang hard-errors at default settings, builds only
+   under the driver's flags). File under a separate hunt; NOT the round-2
+   blocker (s1 compiles yo-self/main.yo fine — the shape is corner-case).
 
-TS-compiled: `done acc=60 k=2 tracked=2` rc=0. yo-self-compiled: **rc=134**
-(abort — double-free): the assignment `cur = child;` emits no dup for the
-borrowed match-arm payload, so `cur`'s scope-end drop steals the parent
-`kids` field's reference → the child is freed while the tree still holds it —
-the s2 `args.get(1)` freed-AstExpr UAF. Next step: diff the emitted C for
-`probe` (TS vs yo-self), then fix yo-self's assignment codegen/evaluator to
-match TS (deferred-dup on reassignment from a borrowed payload — see TS
-generateAssignment / setExprAsNeedsToCallDup usage for `=`). Then the standard
-gates + s2 health ×3 + the fixpoint chain.
+Round 2 therefore returns to the direct lead: the s2 Guard Malloc stack
+(freed AstExpr child read via `args.get(1)` in `evaluate_function_parameter`
+during s2's PRELUDE eval). Next move: MallocStackLogging + Guard Malloc on
+/tmp/s2l, and at the trap run `malloc_history <pid> <freed addr>` — the FREE
+stack names the over-dropping site directly (the reader stack alone cannot).
