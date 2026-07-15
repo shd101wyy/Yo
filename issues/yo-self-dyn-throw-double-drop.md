@@ -483,3 +483,23 @@ decr'd — deterministic cross-run identity without tables (serials are stable
 because the eval is deterministic).
 Repro: `/tmp/s2r4 compile yo-self/parser.yo --release --emit-c
 --skip-c-compiler -o /tmp/x` (rc=139, seconds, requires -O2 + GC-on).
+
+### Round-5 FIXED (2026-07-16): match-arm BEGIN-body final-expr dup
+
+Root cause: `generate_case_body`'s BEGIN branch emitted the arm's final
+expression bare while the non-begin branch carried the full deferred-dup
+port (match.ts:105-150) — the exact mirror of round-2's `_emit_begin_arm`
+gap, in the match emitter. `_resolve_effect_arg`'s `{ ...; info.env }` /
+`{ throw; env }` arms (future_trait.yo) returned the Environment at net -1
+per call; the freed env was still referenced by live ExprInfos, and the GC
+mark-gray traversal read it (found via per-field lldb at the trap: the
+dangling ExprInfo field was `.env`, and the freelog ra pointed one line
+AFTER the real dropper — `decr(env_mut)` — a return-address off-by-one to
+remember when reading atos output).
+
+Fix: extracted `_arm_value_with_dups` (the non-begin branch's dup block)
+and applied it to the begin branch's final expression too. Repro battery
+/tmp/arm_tail_battery.yo went 1/1/2 → 2/2/3 (== TS); corpus test
+tests/codegen-bootstrap/match_arm_begin_tail_borrowed.yo ("2 2 done" both
+compilers). Gates: all fast gates + stage-2 emit rc=0 + clang 0 errors +
+s2 check ×3 rc=0 + **s2 compile yo-self/parser.yo rc=0** (was 139).

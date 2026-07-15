@@ -196,6 +196,90 @@ _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayLi
 /// Generate a match/cond case body (begin blocks inline their statements and
 /// yield the final expression). Mirrors `generateCaseBody`. (The begin-final
 /// deferred-dup rewrite is Phase 4 — empty for the no-RC corpus.)
+/// Arm-value deferred-dup rewrite (mirror of match.ts:105-150): when `e`
+/// carries deferred `___dup`s (a borrowed value leaving the arm), declare the
+/// eval temp, emit the balancing dup, and return `.Some(<result C name>)`.
+/// `.None` when `e` has no dups (caller emits it plainly). Used for BOTH the
+/// non-begin arm value and a begin arm's FINAL expression — the begin path
+/// originally emitted the final expr bare, dropping the borrowed +1
+/// (`_resolve_effect_arg`'s `.Some(info) => { ...; info.env }` /
+/// `.None => { throw; env }` arms returned the Environment at net -1 — the
+/// round-5 stage-2 `s2 compile parser.yo` ExprInfo-env UAF).
+_arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))({
+  bei := match(context.base.get_expr_info(body_expr),.Some(b) => b,.None => return(Option(String).None));
+  bdups := match(bei.deferred_dup_expressions,.Some(d) => d,.None => return(Option(String).None));
+  if(bdups.len() == usize(0), {
+    return(Option(String).None);
+  });
+  raw_code := _call_generate_expr(body_expr, indent.clone(), context);
+  (final_code : String) = raw_code.clone();
+  match(
+    bei.variable_name,
+    .Some(bvn) => {
+      btv := get_variable_name_for_codegen(bvn.clone(), Option(Environment).Some(bei.env));
+      if(!(btv == raw_code), {
+        bem := context.base.emitter;
+        bline := indent.clone();
+        bline.push_string(get_type_string(bei.ty, context.base));
+        bline.push_str(" ");
+        bline.push_string(btv.clone());
+        bline.push_str(" = ");
+        bline.push_string(raw_code.clone());
+        bline.push_str(";");
+        bem.emit_string_line(bline);
+        _bd := context.base.declared_c_var_names.add(btv.clone());
+      });
+      final_code = btv;
+    },
+    .None => ()
+  );
+  // Emit the dup ONCE: named dup temp when available (match.ts:143-150),
+  // else the drift-safe escape hatch (dup the generated value directly).
+  (dup_named : bool) = false;
+  match(
+    bdups.get(usize(0)),
+    .Some(bdup0) => match(
+      context.base.get_expr_info(bdup0),
+      .Some(bdup_info) => match(
+        bdup_info.variable_name,
+        .Some(dvn) => {
+          dtv := get_variable_name_for_codegen(dvn.clone(), Option(Environment).Some(bdup_info.env));
+          dem := context.base.emitter;
+          dline := indent.clone();
+          dline.push_string(get_type_string(bei.ty, context.base));
+          dline.push_str(" ");
+          dline.push_string(dtv.clone());
+          dline.push_str(" = ");
+          dline.push_string(generate_dup_code_for_value(final_code.clone(), bei.ty, context));
+          dline.push_str(";");
+          dem.emit_string_line(dline);
+          _dd := context.base.declared_c_var_names.add(dtv.clone());
+          final_code = dtv;
+          dup_named = true;
+        },
+        .None => ()
+      ),
+      .None => ()
+    ),
+    .None => ()
+  );
+  if(!(dup_named), {
+    match(
+      bei.variable_name,
+      .Some(_) => {
+        fdem := context.base.emitter;
+        fdline := indent.clone();
+        fdline.push_string(generate_dup_code_for_value(final_code.clone(), bei.ty, context));
+        fdline.push_str(";");
+        fdem.emit_string_line(fdline);
+      },
+      .None => {
+        generate_deferred_dup_expressions(body_expr, indent.clone(), context);
+      }
+    );
+  });
+  Option(String).Some(final_code)
+});
 generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
   if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), {
     em := context.base.emitter;
@@ -236,8 +320,9 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
         j = (j + usize(1));
       });
     });
-    // Final expression.
-    final_code := if(n > usize(0), match(begin_args.get(n - usize(1)),.Some(final_expr) => _call_generate_expr(final_expr, indent.clone(), context),.None => String.from("")), String.from(""));
+    // Final expression — deferred-dup rewrite first (a borrowed value leaving
+    // the arm needs its balancing +1; the bare emission was the round-5 UAF).
+    final_code := if(n > usize(0), match(begin_args.get(n - usize(1)),.Some(final_expr) => match(_arm_value_with_dups(final_expr, indent.clone(), context),.Some(fc) => fc,.None => _call_generate_expr(final_expr, indent.clone(), context)),.None => String.from("")), String.from(""));
     generate_deferred_drop_expressions(body_expr, indent.clone(), context);
     context.pending_deferred_drops = prev_pending;
     context.consumed_var_pending_drops = prev_consumed;
@@ -245,103 +330,12 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
   }, {
     // Non-begin. When the arm value carries deferred `___dup`s (returning a
     // borrowed value out of the arm — e.g. `.Some(e) => e.ty`), mirror
-    // match.ts:105-150 exactly:
-    //   1. generate the RAW expression code,
-    //   2. DECLARE the expr's eval temp (`T <variableName> = <raw>;`) — the
-    //      dup references that temp, and without the declaration codegen
-    //      emitted `__yo_incr_rc(<undeclared temp>)`,
-    //   3. emit the deferred dups,
-    //   4. the arm result is the DUP temp's C name.
+    // match.ts:105-150 exactly (see _arm_value_with_dups).
     match(
-      context.base.get_expr_info(body_expr),
-      .Some(bei) => match(
-        bei.deferred_dup_expressions,
-        .Some(bdups) => if(bdups.len() > usize(0), {
-          raw_code := _call_generate_expr(body_expr, indent.clone(), context);
-          (final_code : String) = raw_code.clone();
-          match(
-            bei.variable_name,
-            .Some(bvn) => {
-              btv := get_variable_name_for_codegen(bvn.clone(), Option(Environment).Some(bei.env));
-              if(!(btv == raw_code), {
-                bem := context.base.emitter;
-                bline := indent.clone();
-                bline.push_string(get_type_string(bei.ty, context.base));
-                bline.push_str(" ");
-                bline.push_string(btv.clone());
-                bline.push_str(" = ");
-                bline.push_string(raw_code.clone());
-                bline.push_str(";");
-                bem.emit_string_line(bline);
-                _bd := context.base.declared_c_var_names.add(btv.clone());
-              });
-              final_code = btv;
-            },
-            .None => ()
-          );
-          // Emit the dup ONCE: declare the dup temp and initialize it with
-          // the dup of the (now declared) body value — TS's
-          // `T tmpN = fn___dup(tmpM);` shape. The arm result is the dup temp
-          // (match.ts:143-150). When the dup carries no temp name, fall back
-          // to the plain deferred-dup emission (the body temp is declared,
-          // so the undeclared-temp gate passes).
-          (dup_named : bool) = false;
-          match(
-            bdups.get(usize(0)),
-            .Some(bdup0) => match(
-              context.base.get_expr_info(bdup0),
-              .Some(bdup_info) => match(
-                bdup_info.variable_name,
-                .Some(dvn) => {
-                  dtv := get_variable_name_for_codegen(dvn.clone(), Option(Environment).Some(bdup_info.env));
-                  dem := context.base.emitter;
-                  dline := indent.clone();
-                  dline.push_string(get_type_string(bei.ty, context.base));
-                  dline.push_str(" ");
-                  dline.push_string(dtv.clone());
-                  dline.push_str(" = ");
-                  dline.push_string(generate_dup_code_for_value(final_code.clone(), bei.ty, context));
-                  dline.push_str(";");
-                  dem.emit_string_line(dline);
-                  _dd := context.base.declared_c_var_names.add(dtv.clone());
-                  final_code = dtv;
-                  dup_named = true;
-                },
-                .None => ()
-              ),
-              .None => ()
-            ),
-            .None => ()
-          );
-          if(!(dup_named), {
-            // No usable dup-temp name. The recorded dup expr may reference a
-            // STALE eval temp (re-evaluation drift: a later pass re-attached a
-            // fresh temp to the arm body, but the deferred ___dup built by an
-            // earlier pass still names the old one) — emitting it would either
-            // reference an undeclared C identifier or be suppressed by the
-            // undeclared-temp gate, silently LOSING the arm's balancing +1
-            // (evaluate_function_call's `.Some(ci) => ci.env` arm then stored
-            // callee_env at net -1: the stage-2 t1.yo ExprInfo-env UAF). When
-            // the body value is a DECLARED temp, apply the dup to the
-            // GENERATED value directly — the gate comment's escape hatch.
-            match(
-              bei.variable_name,
-              .Some(_) => {
-                fdem := context.base.emitter;
-                fdline := indent.clone();
-                fdline.push_string(generate_dup_code_for_value(final_code.clone(), bei.ty, context));
-                fdline.push_str(";");
-                fdem.emit_string_line(fdline);
-              },
-              .None => {
-                generate_deferred_dup_expressions(body_expr, indent.clone(), context);
-              }
-            );
-          });
-          return(final_code);
-        }),
-        .None => ()
-      ),
+      _arm_value_with_dups(body_expr, indent.clone(), context),
+      .Some(fc) => {
+        return(fc);
+      },
       .None => ()
     );
     generate_deferred_dup_expressions(body_expr, indent.clone(), context);
