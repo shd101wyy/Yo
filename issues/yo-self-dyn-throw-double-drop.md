@@ -409,3 +409,30 @@ direct eprintln in begin.yo / property_access.yo / drop_dup.yo trips the
 "Frame level N has different number of values" evaluator quirk; C-comment
 probes via em.emit_string_line work anywhere in codegen; token row/col
 tagging identifies AST nodes across eval passes (rows are 0-indexed).
+
+### Round-5 progress (2026-07-16 late): NOT GC-only; tombstone negative
+
+- `YO_GC_THRESHOLD=0` (cycle collector fully off) still crashes the compile
+  path (malloc freelist assert, rc=133, ~0.8s in at -O2; same at -O0) — the
+  corruption is NOT merely a dangling ref that only the GC traversal reads;
+  something double-frees or writes freed memory on the direct path too.
+- Tombstone detector (stamp `ref_count = 0xDDDDDDDD` before every RC-layer
+  `__yo_free(ptr)`; trap any incr/decr seeing the stamp — built into
+  scratchpad/oplog_patch.py, binary /tmp/s2r4lop7): NO HIT before the malloc
+  assert. Either the chunk is reused before the second RC touch, or the
+  double-free is NOT via the 8 instrumented RC-layer `__yo_free(ptr)`
+  statements — note dispose fns free BUFFERS (`__yo_free(self->_ptr)` etc.)
+  which are NOT instrumented; an ArrayList/HashMap buffer double-free would
+  bypass both the tombstone and the freelog.
+- NEXT session: (1) instrument ALL `__yo_free(` calls (any argument shape)
+  with the freelog + a page-quarantine or scribble; (2) alternatively run
+  gmalloc + GC-ON and iterate the traversal traps one by one — each trap's
+  dangling ExprInfo field is a real deficit; fixing them in sequence (freelog
+  gives each final dropper) converges like rounds 1-4 did; (3) or bisect the
+  INPUT: `s2 compile` of progressively larger slices of yo-self (single
+  modules with stubbed imports) to find a small crashing input, then the
+  battery method applies. The -O2 crash at 0.8s means the corrupting site
+  runs EARLY in the main.yo compile — likely during std/prelude eval already
+  (the check path evaluates the same prelude but crashes nowhere: the
+  difference must be compile-only eval work, e.g. main-module-mode flags,
+  executing-mode CTFE of main(), or codegen-phase table reads).
