@@ -526,3 +526,18 @@ of main.yo by commenting imports, or try evaluator/\_expr-importing files).
 In-flight: task btbv195t5 builds the fresh libc+freelog emission from
 /tmp/yo-self-r5 and runs the gmalloc trap on the main.yo compile — read its
 output first (expect the precise UAF/double-free site + freelog dropper).
+
+Round-6 diagnosis state (end of 2026-07-16 session): gmalloc OOMs before the
+site (parse-phase allocation volume of the full main.yo module tree); plain
+libc at -O0 reproduces the freelist assert (innocent frame:
+`__yo_new___yo_t60` Environment ctor inside snapshot_env/yo_id_222791) with
+NO RC-tombstone hit → the corrupting free/write is OUTSIDE the 8 RC-layer
+`__yo_free(ptr)` statements — a dispose-freed BUFFER (`__yo_free(self->_ptr)`
+shapes) double-free, or a write-through-dangling-pointer. Next tools, in
+order: (1) extend oplog_patch.py to wrap EVERY `__yo_free(<arg>);` (any
+argument) with the freelog + a small quarantine (delay reuse: hold the last
+64K freed ptrs in a ring, free them 64K frees later — double-free then trips
+libc deterministically at the SECOND free with a clean bt); (2)
+MallocStackLogging=1 + `malloc_history` at the assert; (3) input-bisect
+main.yo's import list (parser.yo alone is green — add evaluator/codegen
+module imports one group at a time in a scratch main until rc!=0).
