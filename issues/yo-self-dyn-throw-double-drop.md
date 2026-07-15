@@ -159,3 +159,53 @@ Round 2 therefore returns to the direct lead: the s2 Guard Malloc stack
 during s2's PRELUDE eval). Next move: MallocStackLogging + Guard Malloc on
 /tmp/s2l, and at the trap run `malloc_history <pid> <freed addr>` — the FREE
 stack names the over-dropping site directly (the reader stack alone cannot).
+
+### Round-2 BREAKTHROUGH: complete RC op history of the victim (2026-07-15 night)
+
+Tooling that cracked it (reusable; scripts inline below): patch stage2l.c's
+`__yo_incr_rc`/`__yo_decr_rc` to record a per-object ring of
+`(op, __builtin_return_address(0))` pairs (direct-mapped 1M-entry table,
+~270 MB BSS, near-zero overhead at -O0 since incr/decr are real calls), plus a
+`__free_log` ring at the final-decr sites; build `-O0 -g` from the
+`--allocator libc` emission; run under Guard Malloc in lldb; at the UAF trap
+call `expr (void)__oplog_dump((void*)<fault addr>)`; resolve `ra` values with
+`atos -o <bin>`. Patched build: /tmp/s2lp2 (from /tmp/stage2l_p2.c).
+
+Victim = an identifier ATOM type-expr (args[1] of a `label : Type` param).
+Full history (born rc=1, parent AST owns):
+
+```
+[0] + evaluate_function_parameter args.get(1) elem dup   (561605)  rc=2
+[1] + extract_comptime_parameter_info get(0) dup         (282358)  rc=3
+[2] + extract_comptime_parameter_info get(1) dup         (282541)  rc=4
+[3] - extract early-return/scope drop                    (282558)  rc=3
+[4] - extract early-return/scope drop                    (282563)  rc=2   [1-4 balanced]
+[5] - `evaluated` scope drop in yo_id_246393             (313225)  rc=1   ← THE THEFT
+[6] - pass-3 ct_info.type_expr tail drop                 (507885)  rc=0 → freed
+[7] + (the UAF trap: pass-5 evaluate_function_parameter re-reads args[1])
+```
+
+The unmatched decr is [5]: `evaluated := evaluate_expression_raw(expr, …)`
+followed by `evaluated`'s scope-end drop (yo_id_246393 =
+`_get_expr_type`/`_eval_and_update_env`, evaluator/types/function.yo:464/511)
+— but the eval-dispatch RETURN CHAIN contributed **no `+`** for this node
+(no incr with an evaluator-return `ra` appears in the history). For an
+identifier atom, evaluation returns the INPUT node (borrowed param) through:
+`evaluate_identifier_and_operator` → `_evaluate_expression` (cond arm,
+exprs/\_expr.yo:384+) → `_evaluate_expression_raw_wrapper` (returns local) →
+fn-pointer dispatch `evaluate_expression_raw` (match-arm tail call). This is
+the **borrowed-tail-return-dup class (commit 5a5d28d15) with a missed path**:
+somewhere in that chain a borrowed-param return escapes without the +1 dup,
+so every `evaluated := evaluate_expression_raw(...)` + scope-drop pair
+over-drops the node by one. The same shape likely fires constantly; which
+node DIES first depends on how many compensating dups surround it — this
+victim had few.
+
+NEXT SESSION: inspect the emitted C of `evaluate_identifier_and_operator`'s
+return paths (and each hop up the chain) in /tmp/stage2l_p2.c for the missing
+`__yo_incr_rc` before `return expr`-shaped tails; compare with a KNOWN-dup'd
+sibling (e.g. a fn the 5a5d28d15 fix demonstrably covers); fix the missed
+shape in yo-self codegen's return handling (return.yo deferred-dup /
+borrowed-return detection — likely the fn-POINTER-dispatch tail or the
+cond-arm tail is the uncovered shape); then gates (hmap=2, dd=0, clang-0,
+s2 check ×3) + fixpoint chain.
