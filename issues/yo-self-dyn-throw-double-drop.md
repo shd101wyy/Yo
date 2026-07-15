@@ -541,3 +541,41 @@ libc deterministically at the SECOND free with a clean bt); (2)
 MallocStackLogging=1 + `malloc_history` at the assert; (3) input-bisect
 main.yo's import list (parser.yo alone is green — add evaluator/codegen
 module imports one group at a time in a scratch main until rc!=0).
+
+### Round-6 ROOT CAUSE PINNED (2026-07-16 late): HashMap bucket deref-copy dropped without dup
+
+Quarantine tool (all-286-site `__yo_free` wrap + 64K-delay ring + RC
+tombstone, oplog_patch.py) + slide-independent ra offsets (print
+`ra - &__freelog_find`, symbolicate as `nm freelog_find + off` → atos)
+delivered the full chain on `s2 compile main.yo`:
+
+- UAF reader: String-eq (yo_id_4111) inside HashMap find-bucket ←
+  contains_key ← the closure-capture traversal (yo_id_250328).
+- Victim's final dropper: **`_find_bucket`'s own early-return drop**
+  (stage2_r5l_op10.c:193886): `bucket = (*(data_ptr + probe_index));`
+  copies the bucket OUT of the map's buffer with NO dup, then the hit path
+  drops `bucket.key` + `bucket.value` — stealing the MAP'S OWN references
+  on every successful probe. The map's key is freed while still stored →
+  the next lookup's String-eq incrs a tombstoned object.
+- TS ORACLE (stage1-ref.c:682684-687): `temp = (*(data_ptr+i));
+temp2 = Bucket___dup(temp); bucket = temp2;` — TS DUPS THE DEREF COPY at
+  the copy site; its early-return `Bucket___drop(bucket)` is balanced.
+
+So the divergence: yo-self's `bucket := (data_ptr &+ i).*` (init-assignment
+with a raw-pointer-DEREF RHS on an RC-field struct) emits the scope/early
+drops for the local but NOT the dup-on-store that TS emits. Note the
+history in cond.yo's comments: an earlier session REMOVED a compound-
+literal/dup-on-store pair as "over-counting" and later ADDED the
+fall-through drops — the current state is drops-without-dup for exactly
+this shape.
+
+Repro attempt /tmp/deref_battery.yo (`bucket := p.*` on `&(local)`) does
+NOT reproduce (and exposed a separate +1 ctor-arg divergence: TS rc=1 vs
+self rc=2 after `b := B(k : kk, n : 1)` — file separately). The buggy path
+needs the HashMap shape: malloc'd buffer + `(data_ptr &+ i).*` — next
+session: repro with an unsafe malloc'd array of RC-field structs, or fix
+directly in the eval/codegen for deref-RHS init-assignments (mark the
+deferred dup like TS: set_expr_as_needs_to_call_dup on the deref result at
+the binding, or emit the struct \_\_\_dup at the copy in init_assignment.yo)
+and let the existing drops stand. Fix gate: `s2 compile yo-self/main.yo`
+rc=0, then the fixpoint diff (task #3).
