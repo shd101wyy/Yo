@@ -1,46 +1,267 @@
 # yo-self self-hosting — HANDOFF PLAN (fresh-agent entry point)
 
-_Last updated 2026-07-16 (double-free hunt rounds 1-4 FIXED; HEAD `6017608ea`).
-Corpus 122 files._
+_Last updated 2026-07-17 (memory-corruption era CLOSED: double-free rounds 1-6
+all fixed; HEAD `41fdb38bb`). Corpus 125 files._
 
 ---
 
-## ⇒ START HERE (2026-07-16): `s2 check` is GREEN — first clean stage-2 run.
+## ⇒ START HERE (2026-07-17): all six RC-corruption rounds are FIXED.
 
-## Remaining blocker: ROUND 5 (compile-path UAF; blocks the fixpoint).
+## The stage-2 binary now runs `check` AND compiles real modules cleanly.
 
-**Milestone: the stage-2 binary (s1-emitted, clang -O2) runs
-`check tests/codegen-bootstrap/empty_main.yo` with rc=0 ×3.** Four RC
-divergence rounds are root-caused, fixed, committed, and regression-tested:
+## Remaining work, in order: (A) one behavioral compile ERROR on the full
 
-1. Round 1 — `dyn(payload)` consumption (dyn.yo; test
-   dyn_throw_double_drop.yo).
-2. Round 2 — cond BEGIN-ARM final-expr deferred dup omitted in
-   `_emit_begin_arm` (commit 8377998c1; test cond_begin_arm_borrowed_tail.yo).
-3. Round 3 — borrowed FIELD returns (commit 1f5c56b88; test
-   borrowed_field_return.yo): (a) generate_return ran the dup emitter before
-   declaring the arg temp (undeclared-temp gate suppressed the +1) — ported
-   return.ts:556-598; (b) wrap_body_in_begin skipped bare 2-arg `.` bodies so
-   the begin-tail ownership pass never ran; plus the begin-tail nrv==0
-   fallback to set_expr_as_needs_to_call_dup.
-4. Round 4 — assignment save-old-value temp dropped on ESCAPE paths in
-   addition to the local's scope drop (commit 5f1af3622; test
-   assign_rhs_escape_double_drop.yo):
-   FunctionGenerationContext.current_assignment_save_temp.
+## self-compile → (B) the fixpoint diff → (C) tasks #69/#70.
 
-**ROUND 5 (OPEN — read `issues/yo-self-dyn-throw-double-drop.md` "Round 4
-FIXED + Round 5 OPEN" for the full state, tooling recipes, and next steps):**
-`s2 compile yo-self/main.yo` (the fixpoint input) still corrupts the heap —
-under Guard Malloc the cycle-GC mark-gray traversal reads a freed EvalValue
-still referenced by a live ExprInfo. The final decr is a BALANCED site
-(evaluate_future_type); the deficit is introduced earlier on the shared
-payload. Task list #7 tracks it; #3 (fixpoint) is blocked on it.
+### Current verified state (all committed, tree clean)
 
-**Hunt method that cracked all four rounds (reuse it):** rc()-assertion
-battery repros (TS-vs-self behavior diff, seconds per cycle) + freelog
-(append-only freed-ptr+ra ring, scratchpad/oplog_patch.py) + TS oracle
-comparison (/tmp/stage1-ref.c) + quirk-safe probes (eprintln ONLY in
-utils.yo; C-comment probes anywhere in codegen; token row tagging).
+| Gate                                                     | Status             |
+| -------------------------------------------------------- | ------------------ |
+| `s2 check tests/codegen-bootstrap/empty_main.yo` ×3      | rc=0 ✓             |
+| `s2 compile yo-self/parser.yo` (emit-c)                  | rc=0 ✓             |
+| `s2 compile yo-self/{token,lexer,expr}.yo`               | rc=0 ✓             |
+| stage-2 self-emit clang errors                           | 0 ✓                |
+| corpus regression tests (5 new this era) + dd/hmap/r4-r6 | all exact ✓        |
+| rc()-battery repros (borrow, arm-tail) vs TS             | 7/7 + 3/3 match ✓  |
+| **`s2 compile yo-self/main.yo`** (the fixpoint input)    | **rc=1 — see (A)** |
+
+`s1` = TS-compiled yo-self (`./yo-cli compile yo-self/main.yo --release`).
+`s2` = clang -O2 of s1's emitted `stage2.c`. Builds from the last session (in
+/tmp; regenerate with the loop below if gone): `/tmp/yo-self-r6` (s1 at HEAD),
+`/tmp/stage2_r6.c`, `/tmp/s2r6` (s2 at HEAD).
+
+### The six fixed rounds (context for what "this era" was)
+
+A clean baseline s2 used to CRASH on `check empty_main.yo` (rc 139/133/124,
+allocator-layout-dependent) — a SERIES of RC divergences, each corrupting the
+heap. Every round: root-caused → fixed faithfully against the TS oracle →
+regression-tested → committed:
+
+1. `dyn(payload)` consumption (dyn.yo; test dyn_throw_double_drop.yo).
+2. cond BEGIN-ARM final-expr deferred dup missing in `_emit_begin_arm`
+   (8377998c1; test cond_begin_arm_borrowed_tail.yo).
+3. Borrowed FIELD returns — generate_return ran the dup emitter before
+   declaring the arg temp (undeclared-temp gate ate the +1; port of
+   return.ts:556-598) + `wrap_body_in_begin` skipped bare 2-arg `.` bodies +
+   the begin-tail nrv==0 fallback (1f5c56b88; test borrowed_field_return.yo).
+4. Assignment save-old-value temp dropped on ESCAPE paths in addition to the
+   local's scope drop — `current_assignment_save_temp` threaded through the
+   codegen context (5f1af3622; test assign_rhs_escape_double_drop.yo).
+5. MATCH-arm begin-body final-expr dup missing in `generate_case_body`'s
+   begin branch (extracted `_arm_value_with_dups`, applied to both branches;
+   f44728cca; test match_arm_begin_tail_borrowed.yo). This was the
+   `s2 compile parser.yo` UAF (`_resolve_effect_arg` returned Environments
+   at net −1 per call).
+6. Raw-pointer DEREF-COPY of an RC-carrying struct (`bucket := (data_ptr &+
+i).*`) got scope/early-return drops but no dup — TS dups AT THE COPY
+   (`Bucket___dup(temp)`). Fixed in codegen/exprs/init_assignment.yo
+   (41fdb38bb; shape test ptr_deref_copy_rc_struct.yo). This was the
+   `s2 compile main.yo` freelist corruption (HashMap.\_find_bucket stole the
+   map's own key+value on every probe hit; the String-eq UAF in the
+   closure-capture traversal).
+
+Full forensic log of all six rounds, every dead end, and every tool:
+**`issues/yo-self-dyn-throw-double-drop.md`** — read it before touching
+anything RC-related.
+
+---
+
+## (A) NEXT TASK: the rc=1 compile error on `s2 compile yo-self/main.yo`
+
+With round 6 fixed, `s2 compile yo-self/main.yo --release --emit-c
+--skip-c-compiler -o /tmp/stage3` no longer crashes — it runs the FULL
+compile (~7 GB peak, several minutes) and exits **rc=1 with a controlled
+compile error**. This is normal-bug territory now (an evaluator/codegen
+behavioral divergence from TS on some construct in the compiler's own
+source), NOT memory corruption — no Guard Malloc / freelog tooling needed.
+
+Step 1 — capture the error message. CAVEAT observed at handoff time: two
+capture attempts produced EMPTY output (a `/usr/bin/time`-wrapped run showed
+only rc=1; a piped rerun exited 0 with no lines, yet `/tmp/stage3.c` was
+never produced — so the compile genuinely fails but its final stderr may be
+lost on the failure path, possibly an `exit(1)` after buffered output or an
+error printed through a path that dies silently). A third rerun with plain
+file redirection was in flight at handoff (`/tmp/s2main_err.log`). If it is
+also empty: run under lldb (`lldb -b -o "env YO_MAIN_STACK_MB=4096" -o run
+-k "bt 8" -k quit /tmp/s2r6 -- compile yo-self/main.yo --release --emit-c
+--skip-c-compiler -o /tmp/stage3`) to see whether it exits via
+exit()/abort() and from where; also try `s2 check yo-self/main.yo` (the
+check path prints progress lines) to see how far evaluation gets, and the
+input-bisect below to find WHICH module triggers it:
+
+```bash
+YO_MAIN_STACK_MB=4096 /tmp/s2r6 compile yo-self/main.yo --release \
+  --emit-c --skip-c-compiler -o /tmp/stage3 2>&1 | tail -30
+```
+
+Step 2 — classify and fix with the faithful-port discipline (below):
+
+- The error names a file:line in yo-self/std source. First confirm s1
+  (TS-built, same HEAD) accepts that construct — it does (s1 self-compiles
+  clean), so this is an s2-only behavioral divergence: some evaluator
+  fix-of-record behaves differently when COMPILED BY YO-SELF than by TS,
+  or an eval path yields a different verdict under s2.
+- Likely classes, in order of prior probability: (i) a latent divergence in
+  the six fixes' vicinity that only changes BEHAVIOR (not memory) — e.g. an
+  extra/missing dup changing an `rc()`/uniqueness check or map contents;
+  (ii) a pre-existing coverage gap in a rarely-hit evaluator path that
+  corrupted memory before it could ERROR previously; (iii) type-identity
+  (`type_key` cfid) divergence — see
+  issues/yo-self-specialization-signature-type-identity.md.
+- Use the input-bisect trick that cracked rounds 5-6: `s2 compile` narrower
+  module subsets (evaluator/\*.yo files individually, or a scratch main
+  importing subsets) to find a small input that reproduces the ERROR, then
+  iterate in seconds.
+
+Step 3 — gates after the fix (the standard cascade):
+
+```bash
+./yo-cli compile yo-self/main.yo --release -o /tmp/yo-self-bin   # rebuild s1 (~6 min)
+# fast gates (~2 min): battery + corpus + leak oracles
+/tmp/yo-self-bin compile /tmp/borrow_battery.yo --release -o /tmp/bb && /tmp/bb      # 2 3 2 3 2 4 2
+/tmp/yo-self-bin compile /tmp/arm_tail_battery.yo --release -o /tmp/atb && /tmp/atb  # 2 2 3
+for t in dyn_throw_double_drop cond_begin_arm_borrowed_tail borrowed_field_return \
+         assign_rhs_escape_double_drop match_arm_begin_tail_borrowed \
+         ptr_deref_copy_rc_struct; do
+  /tmp/yo-self-bin compile tests/codegen-bootstrap/$t.yo --release -o /tmp/t && /tmp/t
+done
+# hmap leak oracle (build /tmp/hmap.yo from the recipe further below): want tracked=2
+# big gates (~20 min):
+YO_MAIN_STACK_MB=4096 /tmp/yo-self-bin compile yo-self/main.yo --release --emit-c --skip-c-compiler -o /tmp/stage2
+clang -O2 -Wno-everything -o /tmp/s2 /tmp/stage2.c -lpthread    # 0 errors
+YO_MAIN_STACK_MB=4096 /tmp/s2 check tests/codegen-bootstrap/empty_main.yo   # ×3, rc=0
+YO_MAIN_STACK_MB=4096 /tmp/s2 compile yo-self/parser.yo --release --emit-c --skip-c-compiler -o /tmp/x  # rc=0
+# THE gate: the full self-compile
+YO_MAIN_STACK_MB=4096 /tmp/s2 compile yo-self/main.yo --release --emit-c --skip-c-compiler -o /tmp/stage3  # rc=0
+```
+
+## (B) THE FIXPOINT (task #3) — once (A) exits rc=0
+
+`/tmp/stage3.c` exists → normalize temp identifiers in BOTH files and diff:
+
+```python
+# normalize: map each match of these patterns to sequential per-file ids in
+# first-occurrence order, then compare:
+#   _file____\w*_temp_\d+     temp_dup_\w+_yo_id_\d+   __yo_sc_yo_id_\d+
+#   loop_yo_id_\d+             continue_[a-z0-9]+         __yo_ref_spill_\d+
+#   i_[a-z0-9]{6,}              temp_array_[a-z0-9]+       temp_dup_[a-z0-9]+
+```
+
+Byte-identical after normalization → **FIXPOINT-OK** (the mini-fixpoint on
+small programs already passes byte-identically). If diffs remain: sample the
+first few divergence sites and classify — iteration-order nondeterminism
+(HashMap ordering feeding emission order) is the expected benign class; a
+REAL divergence means s2 evaluated something differently → treat as (A)-class
+bug. Two s1 emits are already byte-identical (determinism holds on s1), so
+any nondeterminism is s2-specific state.
+
+Practical notes: the emission needs ~7-10 GB and minutes at -O2; ALWAYS
+`YO_MAIN_STACK_MB=4096`; never let two emits write the same .c concurrently.
+
+## (C) AFTER THE FIXPOINT: tasks #69 / #70
+
+1. **#69:** `/tmp/s2 test ./tests --parallel 8` should pass what
+   `./yo-cli test ./tests` passes (~30 min under TS). Start with a
+   representative subset (e.g. `test tests/algebraic_effects.test.yo
+--parallel 1`) before the full run.
+2. **#70:** `/tmp/s2 test ./yo-self/tests` likewise
+   (eval_basics/eval_tail_1/eval_tail_2 are known-heavy — validate via
+   check + sweeps per `yo-self/README.md`).
+
+## Filed follow-ups (not blockers, do after A/B or when touched)
+
+- **`issues/yo-self-ctor-arg-move-vs-dup.md`** — struct-ctor RC arg: TS
+  MOVES (consumes), yo-self DUPS (+1) → a systematic leak class (inflated
+  Gc counts), found via /tmp/deref_battery.yo (TS rc=1 vs self rc=2). Not a
+  UAF; fix by porting TS's ctor-arg consumption.
+- s1 SIGABRT compiling `(-(i32(1)))` in a match arm + `void* t = (-(self));`
+  int/ptr miscompile (corner case; s1 compiles main.yo fine).
+- Re-evaluate the REVERTED specialization-signature split (helper.yo `_id_`,
+  type_key.yo Pointer branch, emitter DECL_RE refactor) on their own merits —
+  their old crash verdicts were invalidated (baseline crashed identically);
+  see issues/yo-self-specialization-signature-type-identity.md.
+- Evaluator perf parity for cumulative `check ./yo-self` (runaway after
+  ~166 files — registry growth; see the perf section far below).
+
+---
+
+## THE HUNT METHOD + TOOLING (proved out over rounds 1-6 — reuse, don't reinvent)
+
+**Faithful-port discipline (non-negotiable):** for every bug — (1) confirm
+the TypeScript compiler (`./yo-cli`) behaves correctly on the same input;
+(2) find the yo-self DIVERGENCE from `src/`; (3) fix yo-self to match
+`src/`. If TS is also wrong, fix TS first, then port. NO workarounds.
+
+**The iteration ladder (cheapest first):**
+
+1. **rc()-assertion battery** (seconds): a small .yo file exercising the
+   suspect shape with `rc(x)` / `Gc.tracked_count()` prints; compile with
+   BOTH `./yo-cli` and the current s1; diff outputs. Existing batteries:
+   /tmp/borrow_battery.yo, /tmp/arm_tail_battery.yo (recreate from the
+   corpus tests if gone). Caveat: small shapes don't always reproduce —
+   marks can survive in simple contexts and only die in the multi-pass /
+   specialization context of the real compiler source.
+2. **Input bisect** (seconds-minutes): `s2 compile` on yo-self modules
+   individually (token → lexer → expr → parser → …) or a scratch main
+   importing subsets. This turned a 10-min repro into seconds twice.
+3. **Emitted-C audit** (minutes): find the function in the .c via a
+   distinctive string literal, read the RC ops around the suspect site, and
+   compare with the TS oracle emission `/tmp/stage1-ref.c` (regenerate:
+   `./yo-cli compile yo-self/main.yo --release --emit-c --skip-c-compiler
+-o /tmp/stage1-ref`). The emitted C is GROUND TRUTH.
+4. **Memory forensics** (only if corruption returns) — all in
+   `scratchpad/oplog_patch.py` (patch a `--allocator libc` emission, clang
+   -O0 -g):
+   - **freelog**: append-only (freed ptr, dropper ra) ring at every RC free
+     — collision-proof last-free attribution.
+   - **quarantine**: ALL `__yo_free` sites wrapped; 64K-delay reuse ring +
+     hash set → deterministic DOUBLE-FREE trap with both ra values.
+   - **RC tombstone**: freed headers stamped 0xDDDDDDDD; incr/decr on a
+     stamped object aborts with the second-toucher ra.
+   - **slide-independent ra reporting**: prints `ra − &__freelog_find`;
+     symbolicate as `nm binary | grep __freelog_find` + offset → `atos -o
+binary <hex>`. **atos ra values point ONE LINE AFTER the real call.**
+   - Guard Malloc (`DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib`, lldb
+     `-k` crash commands) traps the first UAF read exactly, but OOMs on
+     large inputs (page-per-alloc) — use the bisected small input.
+   - oplog (per-object op-history table): direct-mapped — COLLIDES under
+     real load; don't trust a 1-op dump. Prefer freelog+tombstone.
+5. **Probe placement rules** (the "Frame level N has different number of
+   values for different cases" evaluator quirk kills builds):
+   - eprintln probes build ONLY in `evaluator/utils.yo` — inline
+     `if(gate, eprintln((A + B)))` chains, no new decls in match arms.
+   - A helper FN defined in utils.yo and CALLED from begin.yo works.
+   - Direct eprintln in begin.yo / property_access.yo / drop_dup.yo TRIPS
+     the quirk.
+   - C-comment probes via `em.emit_string_line("/* ... */")` work ANYWHERE
+     in codegen and land exactly at the emission site — often the best tool.
+   - Tag probes with `ast_expr_token(e).value` + `.row` (0-indexed) to
+     identify AST nodes across eval passes.
+6. **lldb one-shot recipes**: `lldb -b -o "env ..." -o run -k "bt 12" -k
+"expr (void)__freelog_find(ptr)" -k quit BIN -- args…`; read struct
+   fields at the trap with `p ((__yo_t59*)ptr)->env` etc. (print fields
+   INDIVIDUALLY — full dumps truncate). ExprInfo=**yo_t59, Environment=
+   **yo_t60, AstExpr=**yo_t26, String=**yo_t2 in recent emissions (verify
+   per emission).
+
+**Known pitfalls that cost rounds (don't repeat):**
+
+- A 40-line-window grep audit of "dups near returns" produced a FALSE
+  verdict (round-2 detour) — long drop blocks push the dup out of any fixed
+  window; audit per-function with brace-aware extraction instead.
+- Eval marks (`deferred_dup_expressions`, `variable_name`) are PASS-FRAGILE:
+  later passes `expr_info_table_set` fresh ExprInfos and can lose marks.
+  Codegen paths must tolerate mark-less shapes (see round 6's fix pattern).
+- yo-self's TWO liveness proxies — the recorded END-of-scope env and the
+  C-declaration-order set (`declared_c_var_names` + emitter scope stack) —
+  each fail for specific shapes (declared-early/eval-late, eval-early/
+  declared-late). TS needs neither: its per-expr point-in-time envs are the
+  gold standard. When they disagree, mirror TS's OBSERVABLE emission.
+- `/usr/bin/time` + output redirection can swallow the program's own stderr
+  tail on abnormal exit; rerun plainly to capture error messages.
+- The `hmap` leak oracle (`/tmp/hmap.yo`, recipe in the OOM section below)
+  must stay `tracked=2`; dd stays `tracked=0`; any drift = over/under-count
+  regression.
 
 ---
 
