@@ -209,3 +209,35 @@ shape in yo-self codegen's return handling (return.yo deferred-dup /
 borrowed-return detection — likely the fn-POINTER-dispatch tail or the
 cond-arm tail is the uncovered shape); then gates (hmap=2, dd=0, clang-0,
 s2 check ×3) + fixpoint chain.
+
+### Round-2 continued (2026-07-15 late night): eval marks, C still bare — the loss is between
+
+RVPROBE2 (begin.yo tail-ownership block, since removed): all 520 firings for
+return-arg atoms named `expr` during the main.yo emit report `ty_ok=1 own=0`
+→ the DUP branch (`set_expr_as_needs_to_call_dup`) is TAKEN at eval. A
+value-gate flaw was found and fixed in `set_expr_as_needs_to_call_dup`
+(evaluator/utils.yo): `has_concrete_value` now also requires
+`!type_contains_rc_type(ei.ty)` — a concrete-but-NOT-inlinable value
+(AstExprVal in def-time passes) previously declined the dup while codegen
+still emitted the variable name (committed; correct in principle; all repros
+
+- clang-0 stay green). BUT the emission still contains 404 bare
+  `return expr;` sites (53 dup'd) and s2 still crashes rc=139 ×3 — the dup mark
+  is being made and then LOST (or declined on another path):
+
+Candidates for the NEXT probe round (in order):
+
+1. Probe INSIDE set_expr_as_needs_to_call_dup: log for return-arg atoms named
+   "expr" which exit is taken (concrete-value return / non-RC return /
+   temp-consume return / dup-stored) + the expr id — confirm the mark is
+   stored on the FINAL pass.
+2. Probe generate_return (codegen/exprs/return.yo:518): log arg_has_dup per
+   site — if false where eval stored, the table entry was OVERWRITTEN by a
+   later eval pass whose tail-ownership did NOT re-mark (check whether the
+   final def-time pass routes through a begin path that skips the
+   tail-ownership block — e.g. control-flow-carrying arms).
+3. Diff one site end-to-end: pick type_fns.yo:114's return(expr), log its
+   ast_expr_id at eval-mark time and dump the table entry at codegen time.
+
+Reusable tooling: RVPROBE pattern (begin.yo, removed after use), the oplog
+patch (issues section above), Guard Malloc + lldb -k recipe.

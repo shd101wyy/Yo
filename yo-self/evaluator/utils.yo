@@ -607,9 +607,23 @@ set_expr_as_needs_to_call_dup :: (
       // `(*target_ptr) = value` then specialized with NO element retain in
       // exactly those specializations — the stage-2 t1.yo impl-method-registry
       // UAF (one EvalValue push retained, its twin didn't).
+      // ...AND the value must be one codegen actually INLINES into C (the
+      // gate's premise: "compile-time values are inlined, so no C variable
+      // exists for the dup to reference"). A concrete value of an RC-BEARING
+      // type (AstExprVal in a def-time trial pass, a comptime StructVal…) is
+      // NOT inlinable — codegen falls back to the variable NAME, so the C
+      // variable DOES exist and skipping the dup here loses the borrowed-
+      // return +1 (every `return(expr)` of a borrowed AstExpr param emitted
+      // bare while TS dups — the round-2 stage-2 UAF: the eval-dispatch chain
+      // under-counts each evaluated node by one, killing AST children read
+      // back later, e.g. evaluate_function_parameter's args.get(1); see
+      // issues/yo-self-dyn-throw-double-drop.md). TS's textual gate is the
+      // same (`if (expr.$.value)`), but its last-before-codegen pass carries
+      // no concrete values for runtime params; yo-self's def-time trial
+      // passes do, so the gate must also require inlinability.
       has_concrete_value := match(
         ei.value,
-        .Some(cv) => !(is_unknown_val(cv)),
+        .Some(cv) => (!(is_unknown_val(cv)) && !(type_contains_rc_type(ei.ty))),
         .None => false
       );
       if(has_concrete_value, {
