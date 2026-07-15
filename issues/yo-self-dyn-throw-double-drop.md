@@ -241,3 +241,30 @@ Candidates for the NEXT probe round (in order):
 
 Reusable tooling: RVPROBE pattern (begin.yo, removed after use), the oplog
 patch (issues section above), Guard Malloc + lldb -k recipe.
+
+### Round-2, probe cycle 3 (2026-07-15 night): the loss is in the DUP EMITTER
+
+Correlated probes (DUPSTORE at set_expr_as_needs_to_call_dup's store; RETDUP
+at generate_return's arg_has_dup; TAILDUP at generation.yo's body-tail gate)
+during the main.yo emit: **every probed site has the mark and enters the dup
+path** (RETDUP 335/335 has=1; TAILDUP 123/123 has=1; DUPSTORE 539). Yet a
+40-line-window audit of the emission still shows **210 of 457** `return expr;`
+sites with NO `__yo_incr_rc((void*)(expr))` anywhere nearby (247 are fine —
+the first 4-line audit was a window artifact). Since the emitters call
+`generate_deferred_dup_expressions(arg/last_expr)` on all these sites, the
+suppression is INSIDE the dup emitter chain (codegen/exprs/drop_dup.yo:766+):
+either (a) the undeclared-minted-temp gate fires because the EVALUATED
+`___dup(expr)` call's `get_deferred_dup_target_atom_name` resolves to an
+eval-minted RESULT temp that was never declared in C (rather than to the
+source atom "expr"), or (b) `_call_generate_expr(dup_expr)` returns an empty
+string on some path. NEXT PROBE (single 13-min cycle): in
+generate_deferred_dup_expressions log, for each dup_expr, the target-atom
+name, the gate verdict, and `code.len()` — during the main.yo emit, filtered
+to targets containing "expr". Then fix: when the gate suppresses but the dup's
+UNDERLYING source is a declared name / an inline-incr-able ref handle, emit
+the dup against the source (mirroring TS, which always dups via the source
+temp it declares); or make eval not mint an undeclared result temp for these.
+
+Status: value-gate fix committed (78bc87464) and kept. Probes removed from
+utils.yo / return.yo / generation.yo after each cycle. 210 missing dups =
+~ the eval-dispatch under-count that kills AST children (round-2 UAF).
