@@ -3,6 +3,64 @@
 Status: runner LANDED and working (see commit); these three block full-suite parity.
 Date: 2026-07-16 late
 
+## UPDATE (2026-07-16 night): Bugs 1 and 2 FIXED; new frontier found
+
+**Bug 1 FIXED** — two halves, both faithful ports of TS's single-path
+default handling (checkIfFunctionParameterMatchesArgument runs for omitted
+defaults too; helper.ts:323-344 merges into the shared post-processing):
+
+1. `helper.yo` `try_to_call_function_with_arguments` Step 7: the omitted
+   branch now routes the cloned default expr through
+   `check_if_function_parameter_matches_argument` (evaluated in the CALLEE
+   env, caller env not written back, move-ownership off) instead of a
+   hand-rolled bind that skipped forall synthesis.
+2. `function.yo` FuncVal arm (the second call path): omitted-default SPLICE —
+   after the supplied-arg loop, clone + evaluate each omitted trailing
+   param's default expr (same expected-type policy as supplied args), splice
+   the results into `evaled_arg_infos`/`runtime_arg_exprs` at the
+   regular/evidence boundary, bump `n_supplied_reg`. Defaults now flow into
+   forall inference, param binding, the emitted C args, and specialization.
+
+Regression test: `tests/codegen-bootstrap/default_arg_generic_specialization.yo`
+(pre-fix s1 rc=134 with 6 undeclared-fn errors; TS + fixed s1 run identically).
+`s1 test tests/short_circuit_str_literal_arg.test.yo` → 1/1 passed.
+
+**Bug 2 root-caused & FIXED** — not a malformed switch: the batch's
+non-test line `comptime_expect_error((escaped_handler : ctl(msg:String)…) =
+(msg -> …unwind…))` evaluates its arg under propagate mode; the EXPECTED
+error unwinds out of `evaluate_anonymous_function_implementation` PAST the
+param-frame restore, leaving the handler's `msg` frame PUSHED on the module
+env. Every later `->` handler in the file then resolved its own params into
+the stale frame → "cannot capture outer runtime variables: msg" → whole-body
+FTT → clang "expected expression". (TS is immune: persistent envs +
+spread-copied contexts — a throw can't strand state.) Fix:
+`comptime_expect_error.yo` snapshots/restores env frame depth + all EvalContext
+mode fields around the arg eval. Diagnosed with the [TTERR] swallow
+instrumentation (function_type.yo:218 + anonymous_function.yo:282 + std/fmt
+imports; REVERTED after use).
+
+Regression test: `tests/codegen-bootstrap/comptime_expect_error_env_restore.yo`
+(pre-fix s1 rc=134 "expected expression"; TS + fixed s1 run identically).
+
+Gates after both fixes: corpus PASS 129 / DIFF 2 (both pre-existing:
+constructor_result_drop flaky-139, ptr_deref_copy_rc_struct print diff),
+`check ./std` 153/153, fixpoint re-verify (in progress at write time).
+
+**NEW frontier (same file): effect-polymorphism forall inference.** With
+bugs 1+2 fixed, `s1 test tests/algebraic_effects.test.yo` still fails: batch
+cond-arms 19/20 ("Test effect polymorphism with using spread(/and unwind)").
+`run :: fn(forall(T : Type, E : Type.Struct), f : (fn(e : E) -> T), e : E) -> T`
+called as `run(might_fail, raise)` fails to infer T/E from the FUNCTION-typed
+arg: arm 19 → `result := run(...)` types UNIT → `assert(result == i32(42), …)`
+specializes with `void flag` + `if ()` (clang error); arm 20 → `run`'s
+specialization keyed on unresolved return SomeT (`…_ret_1972`) is called but
+never emitted (undeclared function). Pre-fix these arms were SILENTLY FTT'd
+wholesale (rc=0 no-op binary), so this is exposed, not regressed. Bisection
+method: `scratchpad/make_subset.py` extracts cond-arm subsets from the saved
+batch (`batch_ae_full.yo`); probe = `grep -c 'void flag'` on the emitted C.
+
+**Bug 3 (exit-after-spawn cleanup abort) — unchanged, still open.**
+
 The `test` command is now implemented in yo-self (main.yo run_test — port of
 src/test-runner.ts's BATCHED strategy: parse + split test()/non-test content,
 synthesize one program whose main dispatches on YO_TEST_INDEX over inlined

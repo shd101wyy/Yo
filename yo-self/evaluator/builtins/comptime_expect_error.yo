@@ -84,9 +84,82 @@ evaluate_comptime_expect_error :: (
   // the catch below and `comptime_expect_error` wrongly reports success. The flag
   // is cleared unconditionally on return (the helper's local-unwinding exn returns
   // control here), so no other def-time eval is affected.
+  // Snapshot the mutable evaluation state the EXPECTED throw will strand.
+  // TS needs no restore here: its envs are persistent (addVariableToEnv
+  // returns a new env) and its contexts are spread-copied per call, so a
+  // thrown-through eval cannot leave either dirty. yo-self's single mutable
+  // Environment/EvalContext use push/mutate + restore-on-return, and the
+  // propagating throw UNWINDS PAST those restores — e.g. the expected-error
+  // handler's parameter frame stayed pushed on the module env, so a LATER
+  // `->` handler in the same module resolved its own params into the stale
+  // frame and was rejected with "cannot capture outer runtime variables"
+  // (the algebraic_effects batch FTT). Restore env frame depth + the ctx
+  // mode fields after the arg eval, success or throw.
+  saved_frames_len := env.frames.len();
+  saved_is_executing := ctx.is_executing;
+  saved_is_validating := ctx.is_validating_function_definition;
+  saved_expected := ctx.expected_type;
+  saved_fb_ctx := ctx.is_evaluating_function_body_or_async_block;
+  saved_impl_block := ctx.is_inside_impl_block;
+  saved_caps := ctx.captured_variables;
+  saved_own_caps := ctx.own_consumed_captures;
+  saved_loop_ctx := ctx.is_evaluating_loop_body;
+  saved_self_type := ctx.self_type;
+  saved_self_trait := ctx.self_trait_type;
+  saved_self_module := ctx.self_module_type;
+  saved_receiver := ctx.receiver_type;
+  saved_eval_fn_type := ctx.is_evaluating_function_type;
+  saved_unsafe_fn_type := ctx.is_unsafe_function_type;
+  saved_unsafe_ctx := ctx.unsafe_context;
+  saved_ctl_fn_type := ctx.is_control_function_type;
+  saved_enclosing_ret := ctx.enclosing_function_return_type;
+  saved_ctl_implicits := ctx.has_control_function_implicit_params;
+  saved_where := ctx.is_inside_where_clause;
+  saved_lhs := ctx.is_lhs_of_assignment;
+  saved_ret_impl := ctx.function_return_impl_concrete_type;
+  saved_force_ct := ctx.force_compile_time_bindings;
+  saved_ctfe_cap := ctx.is_analyzing_ctfe_capability;
+  saved_checking := ctx.is_in_function_call_checking_phase;
+  saved_io_async := ctx.is_inside_io_async_call;
+  saved_given := ctx.is_inside_given_handler;
+  saved_gen_impl := ctx.is_evaluating_generic_impl_specialization;
+  saved_spec := ctx.currently_specializing_function;
+  saved_spec_stack := ctx.currently_specializing_function_stack;
   set_propagate_def_time_errors(true);
   arg_threw := _comptime_expect_error_arg_threw(arg_expr.clone(), env, ctx);
   set_propagate_def_time_errors(false);
+  ctx.is_executing = saved_is_executing;
+  ctx.is_validating_function_definition = saved_is_validating;
+  ctx.expected_type = saved_expected;
+  ctx.is_evaluating_function_body_or_async_block = saved_fb_ctx;
+  ctx.is_inside_impl_block = saved_impl_block;
+  ctx.captured_variables = saved_caps;
+  ctx.own_consumed_captures = saved_own_caps;
+  ctx.is_evaluating_loop_body = saved_loop_ctx;
+  ctx.self_type = saved_self_type;
+  ctx.self_trait_type = saved_self_trait;
+  ctx.self_module_type = saved_self_module;
+  ctx.receiver_type = saved_receiver;
+  ctx.is_evaluating_function_type = saved_eval_fn_type;
+  ctx.is_unsafe_function_type = saved_unsafe_fn_type;
+  ctx.unsafe_context = saved_unsafe_ctx;
+  ctx.is_control_function_type = saved_ctl_fn_type;
+  ctx.enclosing_function_return_type = saved_enclosing_ret;
+  ctx.has_control_function_implicit_params = saved_ctl_implicits;
+  ctx.is_inside_where_clause = saved_where;
+  ctx.is_lhs_of_assignment = saved_lhs;
+  ctx.function_return_impl_concrete_type = saved_ret_impl;
+  ctx.force_compile_time_bindings = saved_force_ct;
+  ctx.is_analyzing_ctfe_capability = saved_ctfe_cap;
+  ctx.is_in_function_call_checking_phase = saved_checking;
+  ctx.is_inside_io_async_call = saved_io_async;
+  ctx.is_inside_given_handler = saved_given;
+  ctx.is_evaluating_generic_impl_specialization = saved_gen_impl;
+  ctx.currently_specializing_function = saved_spec;
+  ctx.currently_specializing_function_stack = saved_spec_stack;
+  while(env.frames.len() > saved_frames_len, {
+    env.pop_frame();
+  });
   if(arg_threw, {
     out_unit := new_expr_info(env, t_unit());
     out_unit.value = Option(EvalValue).Some(EvalValue.UnitVal);
