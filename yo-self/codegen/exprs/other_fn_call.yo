@@ -704,9 +704,19 @@ _generate_runtime_enum_construct :: (
 _func_val_id :: (fn(v : EvalValue) -> String)(match(v,.FuncVal(__fvd2, _) => __fvd2.*.func_id, _ => String.new()));
 /// Whether a call to this callee might trigger an effect escape (it directly is
 /// a control/effect-record fn, its resolved type is `ctl(...)`, it has a
-/// fn-typed / ctl-bound param a handler may be threaded through, or its body has
-/// effects). Mirrors the `callMayUnwind` computation in other-fn-call.ts:1205.
-_call_may_unwind :: (fn(func_ei_value : Option(EvalValue), function_type : TypeValue, param_types : ArrayList(TypeValue), context : FunctionGenerationContext) -> bool)({
+/// fn-typed / ctl-bound param a handler may be threaded through, its body has
+/// effects, or — TS's final fallback — it is a DIRECT call through an atom
+/// whose type is a function type). Mirrors the `callMayUnwind` computation in
+/// other-fn-call.ts:1205-1236 INCLUDING the atom fallback
+/// (`isFunctionType(functionType) && exprIsAtom(expr.func)`). That fallback is
+/// LOAD-BEARING for behavior parity with the TS-compiled compiler: TS brackets
+/// every such call with `__yo_effect_escaped = 0; call; if (escaped) ...`, and
+/// inside a ctl handler's `unwind(<call>)` argument the pre-call reset CLOBBERS
+/// the just-set unwind flag — so the reference compiler RESUMES past swallowed
+/// throws (`unwind(<literal>)` has no call and really unwinds). The evaluator's
+/// def-time trial-eval swallow-and-continue behavior depends on reproducing
+/// this exactly (issues/yo-self-stage2-dyn-closure-divergence.md).
+_call_may_unwind :: (fn(func_ei_value : Option(EvalValue), function_type : TypeValue, param_types : ArrayList(TypeValue), callee_is_atom : bool, context : FunctionGenerationContext) -> bool)({
   fid_is_control := match(func_ei_value,.Some(v) => if(is_func_val(v), is_control_fn(_func_val_id(v)), false),.None => false);
   fid_is_effect_member := match(func_ei_value,.Some(v) => if(is_func_val(v), is_effect_record_member(_func_val_id(v)), false),.None => false);
   ft_is_control := match(function_type,.Func({ meta : __fm2 }) => __fm2.*.is_control, _ => false);
@@ -728,7 +738,8 @@ _call_may_unwind :: (fn(func_ei_value : Option(EvalValue), function_type : TypeV
     );
     pi = (pi + usize(1));
   });
-  (((fid_is_control || fid_is_effect_member) || ft_is_control) || body_has_effects) || param_fn_or_ctl
+  ((((fid_is_control || fid_is_effect_member) || ft_is_control) || body_has_effects) || param_fn_or_ctl)
+  || (is_function_type(function_type) && callee_is_atom)
 });
 /// Whether the call site is the handler-installation point (where the unwound
 /// value is extracted, vs merely propagated). Mirrors the `callIsHandlerInstallation`
@@ -1107,7 +1118,9 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             // issues/yo-self-stage2-unwind-check-coverage.md).
             cm_mft := match(method_fv,.Some(mv) => get_func_type(_func_val_id(mv)),.None => TypeValue.Unit);
             cm_ptypes := match(cm_mft,.Func({ param_types : cpt }) => cpt, _ => ArrayList(TypeValue).new());
-            cm_may_unwind := _call_may_unwind(method_fv, cm_mft, cm_ptypes, context);
+            // Method dispatch: the callee is a property access, not an atom —
+            // TS's exprIsAtom(expr.func) fallback is false here.
+            cm_may_unwind := _call_may_unwind(method_fv, cm_mft, cm_ptypes, false, context);
             cm_install_ei := new_expr_info(ei.env, cm_mft);
             cm_install_ei.value = method_fv;
             cm_is_install := _call_is_handler_installation(cm_install_ei, cm_mft, cm_ptypes, dm_runtime, context);
@@ -1430,7 +1443,8 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   // callIsHandlerInstallation). When a call may unwind, an
   // `emit_effect_unwind_check` is emitted after it: at the install frame the
   // unwound value is extracted + returned; elsewhere the escape propagates.
-  ou_may_unwind := _call_may_unwind(func_ei.value, function_type, param_types, context);
+  ou_callee_atom := match(expr,.FnCall(_, __ouf, _, _, _) => ast_expr_is_atom(__ouf), _ => false);
+  ou_may_unwind := _call_may_unwind(func_ei.value, function_type, param_types, ou_callee_atom, context);
   ou_is_install := if(ou_may_unwind, _call_is_handler_installation(func_ei, function_type, param_types, runtime_args, context), false);
   // Registered (named) function call.
   match(
