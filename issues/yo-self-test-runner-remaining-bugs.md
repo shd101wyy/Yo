@@ -1,0 +1,57 @@
+# yo-self `test` command: 3 remaining bugs after the runner port (tasks #69/#70)
+
+Status: runner LANDED and working (see commit); these three block full-suite parity.
+Date: 2026-07-16 late
+
+The `test` command is now implemented in yo-self (main.yo run_test — port of
+src/test-runner.ts's BATCHED strategy: parse + split test()/non-test content,
+synthesize one program whose main dispatches on YO_TEST_INDEX over inlined
+bodies, compile once via run_compile, spawn per test with parent setenv —
+the spawn runtime passes environ through when envp is NULL). Verified: a
+3-test mini file reports `✓ ✓ ✗`, correct Test Summary, pass-only run exits 0.
+
+## Bug 1 — std/assert one-arg failure path: unemitted generic specialization
+
+`assert(flag)` (single-arg) compiles to
+`yo_id_5002_unit_rtparam0_bool_ret_unit` whose else-branch calls
+`yo_id_5001_T____ToString__rtparam0_1920_ret_unit((void*)("Assertion failed."))`
+— a specialization of the generic `println(forall(T <: ToString), v)` keyed by
+a BARE unresolved SomeT id (`rtparam0_1920`) that is never
+instantiated/emitted → clang "call to undeclared function". Hit by ANY test
+file using bare `assert(x)` → blocks most of tests/ and yo-self/tests/.
+Repro: `s1 test tests/short_circuit_str_literal_arg.test.yo` (1 clang error).
+Class: specialization-at-unresolved-SomeT (the def-time str-literal arg does
+not bind T) — cf. memory yo-self-specialization-sig-typeargs.
+
+## Bug 2 — malformed switch emission in the algebraic_effects batch
+
+`s1 test tests/algebraic_effects.test.yo` → additional clang error:
+`/tmp/.yo_selftest_batch_1.bin.c:2397: expected expression` — a
+`switch ((*(slot)).tag) {` region emitted with a syntax hole (effects/unwind
+constructs inlined into the batched main's cond arms). Needs the emitted-C
+inspection of that region.
+
+## Bug 3 — exit()-after-spawn aborts in cleanup (fail-case rc=134, want 1)
+
+After the runner has spawned/awaited child processes, `exit(1)` (even from
+the top-level throw handler, whose exit works pre-spawn — the old stub exited
+rc=1 cleanly) aborts: atexit `__yo_process_cleanup` → `__yo_cleanup_thread_gc`
+→ malloc "POINTER BEING FREED WAS NOT ALLOCATED". A tracked-object-list
+corruption exposed at teardown, present in the TS-COMPILED binary too (s1) —
+i.e. an RC imbalance in yo-self/std source on the spawn/await path, only
+surfacing at cleanup. Effect: failing suites exit 134 instead of 1 (still
+nonzero); passing suites exit 0 correctly. ALSO NOTE: `run_check`'s failure
+exit appears broken separately (bad file → rc=0 — the throw/exit path is
+never reached; unrelated pre-existing issue worth checking).
+
+## Next steps
+
+1. Bug 1 first (unblocks most files): find why the `assert` default-message
+   println specialization keys on the unresolved SomeT; likely fix at
+   specialization-signature/type-binding time (helper.yo) or emit the
+   fallback instantiation. Differential: TS compiles the same synthesized
+   batch fine.
+2. Then bug 2 (algebraic effects batch), then bug 3 (cleanup corruption —
+   use the RC-quarantine/patch_rcsite tooling from the leak hunts).
+3. Full #69/#70 sweeps after: `s2 test ./tests --parallel 8` vs TS, then
+   `s2 test ./yo-self/tests` (eval trio known-heavy).

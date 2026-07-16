@@ -21,9 +21,9 @@ open(import("std/fmt"));
 { metadata } :: import("std/fs/metadata");
 { read_dir, FileType } :: import("std/fs/dir");
 { Command } :: import("std/process/command");
-{ exit, getenv } :: import("std/libc/stdlib");
+{ exit, getenv, setenv } :: import("std/libc/stdlib");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, BK_OPEN, BK_IMPORT } :: import("./expr.yo");
+{ AstExpr, BK_OPEN, BK_IMPORT, BK_TEST, ast_expr_is_fn_call_of, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
 { ExprInfoTable, expr_info_table_new } :: import("./expr_info.yo");
 { TokenKind } :: import("./token.yo");
 { parse } :: import("./parser.yo");
@@ -1257,6 +1257,44 @@ run_compile :: (
     exn.throw(dyn(`compile: C compiler failed (exit ${st.raw.to_string()}) on ${c_path}`));
   });
 });
+/// Recursively collect `*.test.yo` files under `path_str` (or `[path_str]`
+/// for a file). Mirrors `findTestFiles` in src/test-runner.ts (reuses the
+/// check walker, then filters to `.test.yo`).
+_collect_test_files :: (
+  fn(
+    path_str : String,
+    io : Io,
+    exn : Exception
+  ) -> ArrayList(String)
+)({
+  all := collect_check_files(path_str, ArrayList(String).new(), io, exn);
+  out := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < all.len(), {
+    match(
+      all.get(i),
+      .Some(f) => if(f.ends_with(String.from(".test.yo")), {
+        out.push(f.clone());
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// One extracted `test("name", { body })` declaration (source-string form).
+TestDecl :: struct(name : String, body_src : String);
+/// Run `*.test.yo` files with the self-hosted pipeline. Port of the TS
+/// test runner's BATCHED strategy (src/test-runner.ts): per file, parse and
+/// split `test(name, body)` declarations from the non-test content, synthesize
+/// ONE program whose `main` dispatches on the `YO_TEST_INDEX` env var over the
+/// inlined test bodies (generateBatchedTestProgram, test-runner.ts:340),
+/// compile it ONCE through the normal compile driver, then run the binary once
+/// per test (the spawn runtime passes the parent environment through, so a
+/// parent `setenv` reaches the child). v1 scope: sequential execution
+/// (--parallel accepted for CLI compatibility), --bail and
+/// --test-name-pattern honored; per-test ✓/✗ lines + the Test Summary
+/// footer mirror the TS output (without durations/colors).
 run_test :: (
   fn(
     argv : ArrayList(String),
@@ -1264,8 +1302,168 @@ run_test :: (
     exn : Exception
   ) -> unit
 )({
-  // Test execution requires the C codegen — removed with yo-self/codegen/.
-  exn.throw(dyn(`test: the self-hosted codegen was removed pending the codegen port (plans/BOOTSTRAPPING_CODEGEN.md). Use 'check' for evaluator validation or the TypeScript yo-cli to run tests.`));
+  if(argv.len() < usize(3), {
+    exn.throw(dyn(`test: missing path. Usage: yo-self test <path> [--bail] [--test-name-pattern P] [--parallel N]`));
+  });
+  (target_path : String) = String.from("");
+  (bail : bool) = false;
+  (name_pattern : String) = String.from("");
+  (ai : usize) = usize(2);
+  while(ai < argv.len(), {
+    a := argv(ai);
+    cond(
+      (a == "--bail") => {
+        bail = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--test-name-pattern") => {
+        name_pattern = _arg_val(argv, ai);
+        ai = (ai + usize(2));
+      },
+      (a == "--parallel") => {
+        // Accepted for CLI compatibility; v1 runs sequentially.
+        ai = (ai + usize(2));
+      },
+      ((a == "-v") || (a == "--verbose")) => {
+        ai = (ai + usize(1));
+      },
+      true => {
+        target_path = a.clone();
+        ai = (ai + usize(1));
+      }
+    );
+  });
+  files := _collect_test_files(target_path, io, exn);
+  if(files.len() == usize(0), {
+    println(String.from("No test files found."));
+    return(());
+  });
+  (passed : usize) = usize(0);
+  (failed : usize) = usize(0);
+  (bailed : bool) = false;
+  (fi : usize) = usize(0);
+  while((fi < files.len()) && !(bailed), {
+    file := match(files.get(fi),.Some(f) => f,.None => String.from(""));
+    fi = (fi + usize(1));
+    println(``);
+    println(`${file}`);
+    src_bytes := io.await(read_file(Path.new(file.clone()), io), IoExn(io : io, exn : exn));
+    src := String.from_bytes(src_bytes);
+    prog := parse(src, file.clone(), exn);
+    tests := ArrayList(TestDecl).new();
+    non_test := ArrayList(String).new();
+    (pi : usize) = usize(0);
+    while(pi < prog.len(), {
+      e := match(prog.get(pi),.Some(x) => x,.None => make_err_expr());
+      pi = (pi + usize(1));
+      if(ast_expr_is_fn_call_of(e, BK_TEST,.None), {
+        targs := match(e,.FnCall(_, _, a2, _, _) => a2, _ => ArrayList(AstExpr).new());
+        if(targs.len() >= usize(2), {
+          tname := match(targs.get(usize(0)),.Some(ne) => match(ne,.Atom(_, ntok) => ntok.value, _ => String.from("unnamed_test")),.None => String.from("unnamed_test"));
+          tbody := match(targs.get(usize(1)),.Some(b) => b,.None => make_err_expr());
+          keep := if(name_pattern.len() > usize(0), tname.contains(name_pattern.clone()), true);
+          if(keep, {
+            tests.push(TestDecl(name : tname, body_src : ast_expr_to_string(tbody)));
+          });
+        });
+      }, {
+        non_test.push(ast_expr_to_string(e));
+      });
+    });
+    if(tests.len() == usize(0), {
+      println(String.from("  (no tests)"));
+    }, {
+      // Synthesize the batched program (mirror generateBatchedTestProgram).
+      prog_src := String.new();
+      (ni : usize) = usize(0);
+      while(ni < non_test.len(), {
+        match(
+          non_test.get(ni),
+          .Some(l) => {
+            prog_src.push_string(l.clone());
+            prog_src.push_str(";\n");
+          },
+          .None => ()
+        );
+        ni = (ni + usize(1));
+      });
+      prog_src.push_str("__yo_batch_env :: import(\"std/env\");\n");
+      prog_src.push_str("main :: (fn() -> unit)({\n");
+      prog_src.push_str("  io :: __yo_builtin_io;\n");
+      prog_src.push_str("  match(__yo_batch_env.env.get(`YO_TEST_INDEX`),\n");
+      prog_src.push_str("    .Some(__yo_test_idx) => cond(\n");
+      (ti : usize) = usize(0);
+      while(ti < tests.len(), {
+        t := match(tests.get(ti),.Some(x) => x,.None => TestDecl(name : String.from(""), body_src : String.from("()")));
+        prog_src.push_str("      (__yo_test_idx == `");
+        prog_src.push_string(ti.to_string());
+        prog_src.push_str("`) => { ");
+        prog_src.push_string(t.body_src.clone());
+        prog_src.push_str("; },\n");
+        ti = (ti + usize(1));
+      });
+      prog_src.push_str("      true => ()\n");
+      prog_src.push_str("    ),\n");
+      prog_src.push_str("    .None => ()\n");
+      prog_src.push_str("  );\n");
+      prog_src.push_str("});\n");
+      prog_src.push_str("export(main);\n");
+      tmp_yo := `/tmp/.yo_selftest_batch_${fi.to_string()}.yo`;
+      tmp_bin := `/tmp/.yo_selftest_batch_${fi.to_string()}.bin`;
+      io.await(write_file(Path.new(tmp_yo.clone()), prog_src.clone(), io), IoExn(io : io, exn : exn));
+      // Compile through the normal driver (synthetic argv).
+      cargv := ArrayList(String).new();
+      cargv.push(String.from("yo-self"));
+      cargv.push(String.from("compile"));
+      cargv.push(tmp_yo.clone());
+      cargv.push(String.from("-o"));
+      cargv.push(tmp_bin.clone());
+      run_compile(cargv, io, exn);
+      // Run each test: YO_TEST_INDEX in the PARENT env (the spawn runtime
+      // passes environ through when envp is NULL).
+      (ri : usize) = usize(0);
+      while((ri < tests.len()) && !(bailed), {
+        t := match(tests.get(ri),.Some(x) => x,.None => TestDecl(name : String.from(""), body_src : String.from("()")));
+        idx_cstr := String.from("YO_TEST_INDEX").to_cstr().ptr().unwrap();
+        val_cstr := ri.to_string().to_cstr().ptr().unwrap();
+        _sv := unsafe(setenv(*(char)(idx_cstr), *(char)(val_cstr), int(1)));
+        tcmd := Command.new(tmp_bin.clone());
+        st := io.await(tcmd.status(io), IoExn(io : io, exn : exn));
+        if(st.success(), {
+          passed = (passed + usize(1));
+          println(`  ✓ ${t.name}`);
+        }, {
+          failed = (failed + usize(1));
+          println(`  ✗ ${t.name}`);
+          if(bail, {
+            bailed = true;
+          });
+        });
+        ri = (ri + usize(1));
+      });
+    });
+  });
+  if(bailed, {
+    println(``);
+    println(String.from("Bailing out early due to test failure (--bail)"));
+  });
+  println(``);
+  println(String.from("Test Summary"));
+  println(String.from("─────────────────────────────────"));
+  if(passed > usize(0), {
+    println(`${passed.to_string()} passed`);
+  });
+  if(failed > usize(0), {
+    println(`${failed.to_string()} failed`);
+  });
+  println(`${(passed + failed).to_string()} total`);
+  if(failed > usize(0), {
+    // Route the nonzero exit through the top-level throw handler (its
+    // `unsafe(exit(int(1)))` runs in the ctl-handler context, which exits
+    // cleanly); a plain exit() here on the normal path aborts under the
+    // self-compiled runtime (SIGABRT in teardown).
+    exn.throw(dyn(`${failed.to_string()} test(s) failed`));
+  });
 });
 run_fmt :: (
   fn(
