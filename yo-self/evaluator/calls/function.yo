@@ -124,6 +124,7 @@ _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
 { format_error_message } :: import("../../error.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places } :: import("../../types/flowability.yo");
 { Exception } :: import("std/error");
+{ SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
 { assert, panic } :: import("std/assert");
 // ---------------------------------------------------------------------------
 // ReceiverMethodResult — carries the resolved method info when a property-
@@ -881,6 +882,26 @@ _func_type_has_closure_param :: (fn(ft : TypeValue) -> bool)(
 /// evaluate_function_call's -O0 frame on the deep recursion path. Fills
 /// fa_bound_names/fa_bound_types + binds forall type params into fresh_env. Pure
 /// code motion.
+/// Best-effort structural synthesis for forall inference: synthesize one
+/// declared param type against its arg type into `scratch_env`, SWALLOWING
+/// any synthesis failure (a capture-free `->` exn — inference here is
+/// best-effort, mirroring the name-match arms around it). The bindings land
+/// in `scratch_env` keyed by SomeT name (the synthesizer adds/updates them
+/// via `_bind_some_type`).
+_funcval_try_synthesize_param :: (
+  fn(
+    declared_pt : TypeValue,
+    scratch_env : Environment,
+    arg_ty : TypeValue,
+    arg_env : Environment
+  ) -> unit
+)({
+  local_exn := Exception(throw : ((_err) -> unwind(())));
+  checked := ArrayList(TypePair).new();
+  (synth_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
+  _r := synthesize_types(declared_pt, scratch_env, arg_ty, arg_env, checked, synth_opts, local_exn);
+  ()
+});
 _funcval_bind_foralls :: (
   fn(
     forall_names : ArrayList(String),
@@ -894,9 +915,13 @@ _funcval_bind_foralls :: (
     n_forall : usize,
     fa_bound_names : ArrayList(String),
     fa_bound_types : ArrayList(TypeValue),
-    expected_param_types : ArrayList(TypeValue)
+    expected_param_types : ArrayList(TypeValue),
+    declared_param_types : ArrayList(TypeValue)
   ) -> unit
 )({
+  // Structural-inference scratch env, built LAZILY on the first forall the
+  // name-match loop cannot bind, then shared by the rest.
+  (fa_synth_env : Option(Environment)) = Option(Environment).None;
   (fa_i : usize) = usize(0);
   while(fa_i < n_forall, {
     fa_name := match(forall_names.get(fa_i),.Some(n) => n,.None => String.from(""));
@@ -948,6 +973,75 @@ _funcval_bind_foralls :: (
         fa_bound = true;
       });
       ptn_i = (ptn_i + usize(1));
+    });
+    // STRUCTURAL fallback: the name-match above only binds a forall used as
+    // a WHOLE param type (`v : T`). A forall inside a composite param type —
+    // `f : (fn(e : E) -> T)` in the effect-polymorphism `run(forall(T, E :
+    // Type.Struct), f, e)` — never matches by name, so T/E stayed unbound:
+    // `result := run(might_fail, raise)` typed UNIT (assert emitted `void
+    // flag` + `if ()`) and the specialization keyed on the unresolved return
+    // SomeT was called but never emitted. TS infers these via
+    // `synthesizeTypes(parameterType, argType)` running per-param in
+    // checkIfFunctionParameterMatchesArgument (helper.ts:623-637), which
+    // descends into Func types structurally. Synthesize every declared param
+    // type against its arg type into a lazy scratch env (swallowing
+    // mismatches — best-effort like the arms around this) and bind the
+    // forall from that env when the inference is CONCRETE.
+    if(!(fa_bound), {
+      se := match(
+        fa_synth_env,
+        .Some(e) => e,
+        .None => {
+          se_new := Environment.new(env.module_path);
+          n_dp := declared_param_types.len();
+          (sp_i : usize) = usize(0);
+          while(sp_i < n_dp, {
+            dpt := match(declared_param_types.get(sp_i),.Some(t) => t,.None => t_unit());
+            sp_info := match(
+              evaled_arg_infos.get(sp_i),
+              .Some(i) => i,
+              .None => new_expr_info(env, t_unit())
+            );
+            _funcval_try_synthesize_param(dpt, se_new, sp_info.ty, env);
+            sp_i = (sp_i + usize(1));
+          });
+          fa_synth_env = Option(Environment).Some(se_new);
+          se_new
+        }
+      );
+      se_vars := get_variables_from_env(se, fa_name);
+      if(se_vars.len() > usize(0), {
+        match(
+          se_vars.get(se_vars.len() - usize(1)),
+          .Some(se_var) => match(
+            se_var.value,
+            .Some(se_val) => match(
+              se_val,
+              .TypeVal(se_tb) => {
+                if(!(is_some_type(se_tb)), {
+                  fa_bound_names.push(fa_name.clone());
+                  fa_bound_types.push(se_tb.clone());
+                  _add_forall_sy := add_variable_to_env(
+                    fresh_env,
+                    fa_name,
+                    TypeValue.TypeUni(usize(0)),
+                    Option(EvalValue).Some(EvalValue.TypeVal(se_tb.clone())),
+                    true,
+                    false,
+                    false,
+                    false,
+                    synthetic_token(fa_name, env.module_path)
+                  );
+                  fa_bound = true;
+                });
+              },
+              _ => ()
+            ),
+            .None => ()
+          ),
+          .None => ()
+        );
+      });
     });
     // Fallback: bind the i-th forall param from the receiver's i-th type
     // argument when it could not be inferred from call arguments.
@@ -2939,7 +3033,8 @@ Fix: wrap the call:
           n_forall,
           fa_bound_names,
           fa_bound_types,
-          if(rpt_from_expected, resolved_param_types, ArrayList(TypeValue).new())
+          if(rpt_from_expected, resolved_param_types, ArrayList(TypeValue).new()),
+          fv_param_types
         );
         // v4.1: validate the PLACES bound to ref parameters (after argument
         // evaluation so the chain types are resolved). Mirrors TS
