@@ -38,7 +38,13 @@ open(import("std/string"));
   expr_info_table_set,
   record_module_level_init_expr
 } :: import("../../expr_info.yo");
+{ HashSet } :: import("std/collections/hash_set");
 { Environment, get_variables_from_env } :: import("../../env.yo");
+/// Names of recorded module-level runtime statics — lets a later bare-atom
+/// `name = value;` top-level REASSIGNMENT be collected into the module init
+/// (mirrors TS's `variable.isModuleLevel` gate, which is unreliable for
+/// imported modules under yo-self's loader-frame evaluation).
+(g_module_level_static_names : HashSet(String)) = HashSet(String).new();
 { TypeValue } :: import("../../types/definitions.yo");
 { is_module_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -539,11 +545,24 @@ evaluate_anonymous_module_begin_exprs :: (
           );
           // Collect module-level init expressions for codegen (mirrors TS
           // anonymous-module.ts:383-417). These become file-scope `static`
-          // declarations, initialized in the main wrapper. Two shapes:
+          // declarations, initialized in the main wrapper. Three shapes:
           //   x := value;         — `:=` with an atom LHS that has a runtime
           //                         type but no compile-time value.
-          //   (x : T) = value;    — `=` where the assigned variable is
-          //                         module-level.
+          //   (x : T) = value;    — `=` where the LHS is a `:` binding
+          //                         (a new module-level runtime global).
+          //   x = value;          — `=` REASSIGNING an already-recorded
+          //                         module-level static (bare-atom LHS). TS
+          //                         collects this via `variable.isModuleLevel`
+          //                         (anonymous-module.ts:395-413); that flag is
+          //                         unreliable here for IMPORTED modules (their
+          //                         body evaluates inside a loader function
+          //                         frame), so gate on the name having been
+          //                         recorded as a module-level static instead.
+          //                         Dropping these lost e.g. types/utils.yo's
+          //                         `g_size_of_type_fn = Some(get_size_of_type)`
+          //                         slot wiring from the self-compiled binary's
+          //                         module init — every sizeof() fold then
+          //                         failed (the stage2/stage3 fixpoint residue).
           if(ast_expr_is_fn_call(evaluated), {
             if(ast_expr_is_fn_call_of(evaluated, ":=", Option(usize).Some(usize(2))), {
               init_args := match(evaluated,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
@@ -554,6 +573,7 @@ evaluate_anonymous_module_begin_exprs :: (
                   lhs_info_opt,
                   .Some(li) => if(li.value.is_none(), {
                     record_module_level_init_expr(evaluated);
+                    _r1 := g_module_level_static_names.add(ast_expr_token(init_lhs).value);
                   }),
                   .None => ()
                 );
@@ -563,17 +583,20 @@ evaluate_anonymous_module_begin_exprs :: (
                 assign_args := match(evaluated,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
                 assign_lhs := match(assign_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
                 // A `(x : T) = v` binding at module-begin scope is a module-level
-                // runtime global by construction — the LHS is a `:` binding (NOT
-                // a bare-atom reassignment of an existing var, which needs no new
-                // static). TS gates this on `variable.isModuleLevel`, but that
-                // flag is false here for IMPORTED modules (their body evaluates
-                // inside a loader function frame → is_inside_fn_body), so the
-                // shape check is the reliable signal for both compilers.
+                // runtime global by construction — the LHS is a `:` binding.
                 if(ast_expr_is_fn_call_of(assign_lhs, ":", Option(usize).Some(usize(2))), {
                   binding_args := match(assign_lhs,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
                   binding_lhs := match(binding_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
                   if(ast_expr_is_atom(binding_lhs), {
                     record_module_level_init_expr(evaluated);
+                    _r2 := g_module_level_static_names.add(ast_expr_token(binding_lhs).value);
+                  });
+                }, {
+                  // Bare-atom reassignment of a previously recorded static.
+                  if(ast_expr_is_atom(assign_lhs), {
+                    if(g_module_level_static_names.contains(ast_expr_token(assign_lhs).value), {
+                      record_module_level_init_expr(evaluated);
+                    });
                   });
                 });
               });

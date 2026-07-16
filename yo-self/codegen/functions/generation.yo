@@ -613,12 +613,26 @@ emit_module_level_variable_declarations :: (
           .Some(vi) => {
             var_name := match(vi.variable_name,.Some(vn) => vn,.None => ast_expr_token(var_atom).value);
             c_var_name := get_variable_name_for_codegen(var_name, Option(Environment).Some(vi.env));
-            if(!(seen.contains(c_var_name.clone())), {
-              _s := seen.add(c_var_name.clone());
-              c_type_str := get_type_string(vi.ty, context.base);
-              em.emit_declaration_string_line(
-                `static ${c_type_str} ${c_var_name}; // module-level mutable variable`
-              );
+            // Dedup key includes the SOURCE TOKEN: the evaluator's multiple
+            // passes record the same source init under several clone ids
+            // (collapse those), but a genuine second top-level assignment to
+            // the same global (e.g. types/utils.yo's
+            // `g_size_of_type_fn = Some(get_size_of_type)` slot wiring after
+            // the `= None` declaration) is a DISTINCT source statement and
+            // must keep its init entry — TS emits every entry with no dedup
+            // at all (generation.ts:782). Keying by name alone dropped the
+            // slot wiring from the module init (the self-compiled binary's
+            // sizeof() folds all failed — the stage2/stage3 fixpoint residue).
+            dedup_key := `${c_var_name}#${ast_expr_token(init_expr).character.to_string()}`;
+            if(!(seen.contains(dedup_key.clone())), {
+              _s := seen.add(dedup_key.clone());
+              if(!(seen.contains(c_var_name.clone())), {
+                _s2 := seen.add(c_var_name.clone());
+                c_type_str := get_type_string(vi.ty, context.base);
+                em.emit_declaration_string_line(
+                  `static ${c_type_str} ${c_var_name}; // module-level mutable variable`
+                );
+              });
               rhs := match(_args(init_expr).get(usize(1)),.Some(e) => e,.None => make_err_expr());
               _p := result.push(ModuleLevelVarEntry(c_var_name : c_var_name, rhs : rhs));
             });
