@@ -49,10 +49,37 @@ get_dup_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationC
   _method_c_name(type, BF_DUP, context)
 );
 /// The C name of `type`'s `___dispose` function, if any. Used by the
-/// object-constructor emitter to stamp the dispose type tag onto the RC header.
-get_dispose_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationContext) -> Option(String))(
-  _method_c_name(type, "___dispose", context)
-);
+/// object-constructor emitter to stamp the dispose function onto the RC header.
+/// Keyed by `type_key(type)` (instantiation-precise), NOT the raw struct id: a
+/// generic struct shares one eval struct id across instantiations, so a struct-id
+/// lookup would return ONE ___dispose (built for whichever V was synthesized first)
+/// for EVERY instantiation — e.g. HashMap(usize, bool) resolving the
+/// HashMap(usize, EvalValue) dispose and dropping its `bool` slot as a reference-
+/// counted value (`__yo_decr_rc(0x1)` crash). `_synthesize_and_register_dispose`
+/// registers under type_key to match; mirrors `get_trace_function_for_type`.
+get_dispose_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationContext) -> Option(String))({
+  if(!(is_struct_type(type) || (is_enum_type(type) || (is_dyn_type(type) || (is_some_type(type) || is_iso_type(type))))), {
+    return(Option(String).None);
+  });
+  methods := get_type_trait_methods_by_name(type_key(type), String.from("___dispose"));
+  match(
+    methods.get(usize(0)),
+    .Some(entry) => match(
+      entry.value,
+      .Some(v) => match(
+        v,
+        .FuncVal(__dfvd3, _) => match(
+          context.base.get_function_entry(__dfvd3.*.func_id),
+          .Some(e) => Option(String).Some(e.c_name),
+          .None => Option(String).None
+        ),
+        _ => Option(String).None
+      ),
+      .None => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+});
 /// The C name of `type`'s monomorphized `trace` method (the Trace trait), if any.
 /// Used by the cycle-GC traversal generators: a container whose elements live in a
 /// malloc'd buffer (which the auto-derived field walk can't reach) carries an

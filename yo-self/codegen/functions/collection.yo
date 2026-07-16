@@ -1017,7 +1017,14 @@ _eval_and_register_rc_method :: (
             find_function_calls_in_expr(fbody, base, info);
           });
           register_type_trait_method(
-            type_id_or_empty(ct),
+            // Key by type_key (instantiation-precise), NOT the shared struct id:
+            // generic structs share one eval id across instantiations, so a
+            // struct-id key would collapse all instantiations onto one ___dispose
+            // (built for the first-seen V) — the HashMap(usize,bool) vs
+            // HashMap(usize,EvalValue) crash. Mirrors get_dispose_function_for_type's
+            // type_key lookup + the Trace path. This fn is ___dispose-only (see its
+            // sole caller), so ___drop/___dup keying is unaffected.
+            type_key(ct),
             MethodEntry(
               label : method_label.clone(),
               ty : get_func_type(fid.clone()),
@@ -1045,10 +1052,37 @@ _eval_and_register_rc_method :: (
 _synthesize_and_register_dispose :: (
   fn(base : CodeGenContext, ctx : EvalContext, module_env : Environment, info : ExprInfoTable, exn : Exception, ct : TypeValue) -> unit
 )({
-  // Skip if a ___dispose is already registered (user Dispose impl or a prior pass).
-  if(get_type_trait_methods_by_name(type_id_or_empty(ct), String.from("___dispose")).len() > usize(0), {
+  // Skip if a ___dispose is already registered for THIS instantiation (a prior
+  // pass). KEY BY type_key (instantiation-precise), NOT the raw struct id: generic
+  // structs share one eval struct id across instantiations (e.g. every HashMap(K,V)
+  // shares one id), so keying the dispose by the shared id would register ONE
+  // dispose (specialized for the first-seen V) and make every other instantiation
+  // reuse it — dropping a `bool` map's slot value as if it were the first V's
+  // reference-counted value → `__yo_decr_rc(0x1)` crash. type_key gives each
+  // instantiation its own dispose. Mirrors the Trace path (register/lookup under
+  // type_key — see _specialize_and_register_trace + get_trace_function_for_type)
+  // and the #30 fix. See issues/yo-self-container-dispose-not-wired.md.
+  if(get_type_trait_methods_by_name(type_key(ct), String.from("___dispose")).len() > usize(0), {
     return(());
   });
+  // Does this type carry a user `impl Dispose` (its RAII destructor)? Containers
+  // like ArrayList/HashMap keep their elements in a malloc'd BUFFER the field-walk
+  // below cannot reach, and drop them via a `Dispose` impl (a generic impl such as
+  // `impl(forall(T), ArrayList(T), Dispose(...))`, or a direct impl). Without wiring
+  // that into the type's ___dispose, freeing such a container TRANSITIVELY (as an RC
+  // field of another object whose dispose merely `decr_rc`s it) leaks ALL its
+  // elements — the dominant self-compile leak (Environment→frames→variables). Mirror
+  // TS: `collectDisposeMethodsFromGenericImpls` (collection.ts:650) +
+  // `findUserDisposeMethodForType` emitting a call at the top of ___dispose
+  // (generation.ts:1433-1473). The `self.dispose()` call in the synthesized body IS
+  // that call site: evaluating it lazily specializes the user dispose for `ct` (so a
+  // `bool`-valued map correctly skips the element drop via its own
+  // `Type.contains_rc_type(V)` comptime guard), and `_eval_and_register_rc_method`'s
+  // `find_function_calls_in_expr` collects it for emission.
+  has_user_dispose := (
+    (find_methods_from_generic_impls(ct, String.from("dispose"), module_env).len() > usize(0))
+    || (get_type_trait_methods_by_name(type_id_or_empty(ct), String.from("dispose")).len() > usize(0))
+  );
   flabels := match(ct,.Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
   ftypes := match(ct,.Struct({ field_types : ftys }) => ftys, _ => ArrayList(TypeValue).new());
   // Destructuring + `___drop` calls over the RC-containing fields.
@@ -1077,11 +1111,25 @@ _synthesize_and_register_dispose :: (
     });
     fi = (fi + usize(1));
   });
-  if(!(any), {
+  // Nothing to drop AND no user destructor → no ___dispose needed.
+  if(!(any) && !(has_user_dispose), {
     return(());
   });
+  // Synthesize the ___dispose body: call the user destructor first (if any — mirrors
+  // TS emitting it at the top of the ___dispose body), then drop the RC fields.
+  body := String.from("");
+  if(has_user_dispose, {
+    body.push_str("self.dispose(); ");
+  });
+  if(any, {
+    body.push_str("{ ");
+    body.push_string(destructs);
+    body.push_str(" } := self; ");
+    body.push_string(calls);
+  });
+  body.push_str("()");
   // Synthesize + evaluate the dispose function with `Self` bound to `ct`.
-  code := `(fn(self : Self) -> unit)({ { ${destructs} } := self; ${calls}() })`;
+  code := `(fn(self : Self) -> unit)({ ${body} })`;
   _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, code, String.from("___dispose"));
 });
 /// Codegen pass: auto-derive + register the `___dispose` method for every concrete RC

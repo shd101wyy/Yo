@@ -1,0 +1,22 @@
+{ println } :: import("std/fmt");
+Gc :: import("std/gc");
+{ ArrayList } :: import("std/collections/array_list");
+
+// cyclable (Option(Self)) so Gc.tracked_count() sees it
+Inner :: ref(struct(x : i32, cyc : Option(Self)));
+// Outer holds an ArrayList(Inner) as an RC field. Dropping Outer transitively
+// frees the list, which must drop each Inner.
+Outer :: ref(struct(items : ArrayList(Inner)));
+
+main :: (fn() -> unit)({
+  (i : i32) = i32(0);
+  while(i < i32(50), {
+    o := Outer(items : ArrayList(Inner).new());
+    o.items.push(Inner(x : i, cyc :.None));
+    o.items.push(Inner(x : i, cyc :.None));
+    // `o` goes out of scope here → drop Outer → drop items list → drop each Inner
+    i = (i + i32(1));
+  });
+  println(`transitive-list-drop tracked=${Gc.tracked_count()}`);
+});
+export(main);
