@@ -967,7 +967,19 @@ evaluate_assignment :: (
     is_owning_the_same_rc_value_as : Option(Box(Variable)).None,
     is_reassignable : updated_variable.is_reassignable,
     token : updated_variable.token,
-    initialized_at_token : Option(Token).Some(ast_expr_token(lhs_resolved)),
+    // First initialization stamps the token; a REASSIGNMENT must preserve it.
+    // TS also writes `initializedAtToken: lhs.token` here, but its persistent
+    // env means exprs BEFORE the reassignment keep a snapshot with the original
+    // token. yo-self shares one mutable Variable (END-of-scope env), so moving
+    // the token forward makes _keep_pending_drop's forward-reference guard
+    // (codegen/exprs/return.yo) treat the local as not-yet-declared at every
+    // EARLIER return and skip its drop — the ee/ge Environment leak in
+    // _synthesize_types_impl's anti-circularity early return.
+    initialized_at_token : if(
+      is_mutating_defined_variable,
+      updated_variable.initialized_at_token,
+      Option(Token).Some(ast_expr_token(lhs_resolved))
+    ),
     consumed_at_token : Option(Box(Token)).None,
     is_implicit : updated_variable.is_implicit,
     is_created_from_destructuring_atom_variable : updated_variable.is_created_from_destructuring_atom_variable,
