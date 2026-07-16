@@ -39,7 +39,8 @@ open(import("std/string"));
 } :: import("../../value.yo");
 {
   CapturedVarInfo,
-  CaptureUsage
+  CaptureUsage,
+  EvalContext
 } :: import("../context.yo");
 {
   TypeField
@@ -48,6 +49,10 @@ open(import("std/string"));
   register_struct_fields
 } :: import("../types/field.yo");
 { random_id } :: import("../../utils.yo");
+{ type_contains_rc_type } :: import("../../types/utils.yo");
+{ generate_expr_from_code } :: import("../../parser.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ Exception } :: import("std/error");
 { auto_derive_traits_for_struct_type } :: import("../types/utils.yo");
 // ---------------------------------------------------------------------------
 // FuncCapturedVarInfo
@@ -387,23 +392,58 @@ CapturedVarDupResult :: struct(
   dup_exprs : Option(ArrayList(AstExpr)),
   env : Environment
 );
-/// Generate `___dup()` expressions for captured ARC variables.
-///
-/// Phase 3 stub: no ARC support yet — always returns None.
+/// Generate `___dup()` expressions for captured ARC variables — one evaluated
+/// `___dup(name)` per captured variable whose type contains an RC-managed
+/// type. Codegen (generate_closure_construction) emits these as the capture
+/// struct's field initializers, so the capture holds its OWN reference; the
+/// constructing scope's local can then be dropped without freeing the value
+/// under the closure (the Command.status spawn-storage UAF —
+/// issues/yo-self-async-capture-missing-dup.md).
 ///
 /// Mirrors `generateCapturedVariableDupExpressions` from
-/// `src/evaluator/utils/closure.ts`.
+/// `src/evaluator/utils/closure.ts:393` (TS threads env updates through the
+/// evaluated exprs; yo-self's env is mutated in place, so no threading needed
+/// — same as the `___drop` builder in exprs/begin.yo).
 generate_captured_variable_dup_expressions :: (
   fn(
-    _captured_vars_with_values : Option(HashMap(String, FuncCapturedVarInfo)),
-    env : Environment
+    captured_vars_with_values : Option(HashMap(String, FuncCapturedVarInfo)),
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
   ) -> CapturedVarDupResult
-)(
+)({
+  dup_exprs := ArrayList(AstExpr).new();
+  match(
+    captured_vars_with_values,
+    .Some(cvwv) => if(cvwv.len() > usize(0), {
+      key_iter := cvwv.keys();
+      (done : bool) = false;
+      while(!(done), {
+        match(
+          key_iter.next(),
+          .Some(var_name) => match(
+            cvwv.get(var_name.clone()),
+            .Some(ci) => if(type_contains_rc_type(ci.ty), {
+              dup_code := `___dup(${var_name})`;
+              dup_expr := generate_expr_from_code(dup_code, exn);
+              evaluated := evaluate_expression_raw(dup_expr, env, ctx, exn);
+              dup_exprs.push(evaluated);
+            }),
+            .None => ()
+          ),
+          .None => {
+            done = true;
+          }
+        );
+      });
+    }),
+    .None => ()
+  );
   CapturedVarDupResult(
-    dup_exprs : Option(ArrayList(AstExpr)).None,
+    dup_exprs : if(dup_exprs.len() > usize(0), Option(ArrayList(AstExpr)).Some(dup_exprs), Option(ArrayList(AstExpr)).None),
     env : env
   )
-);
+});
 export(FuncCapturedVarInfo);
 export(CaptureTypeAndValueResult);
 export(CapturedVarDupResult);

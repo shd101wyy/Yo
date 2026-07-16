@@ -15,7 +15,8 @@ open(import("std/string"));
 { is_some_type, is_dyn_type, is_function_type } :: import("../../types/guards.yo");
 { type_implements_fn, extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
-{ type_key, get_variable_name_for_codegen, ImplClosureCallInfo, get_type_string } :: import("../utils/index.yo");
+{ type_key, get_variable_name_for_codegen, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name } :: import("../utils/index.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { is_closure_fn, get_closure_capture_info } :: import("../../function_value.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
@@ -132,7 +133,13 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
     // collision). TS looks up by struct id because TS ids are per-instantiation
     // AND are the registry key; type_key is yo-self's equivalent identity.
     capture_c_name := match(context.base.get_type_c_name(type_key(capture_ty)),.Some(n) => n,.None => return(String.from("// Error: Capture type not found for closure")));
-    // Build `(captureCName){ .label = <constructing-scope var>, ... }`.
+    // Build `(captureCName){ .label = <value>, ... }`. An RC-typed capture
+    // field uses the evaluator's deferred `___dup(name)` expr as its
+    // initializer (matched by dup TARGET name), so the capture struct holds
+    // its OWN reference — without it, dropping the constructing scope's local
+    // freed the value under the still-pending closure (the Command.status
+    // spawn-storage UAF). Mirrors TS `allocateClosureCapture`
+    // (closures.ts:99-170).
     data := String.from("(");
     data.push_string(capture_c_name.clone());
     data.push_str("){ ");
@@ -145,7 +152,35 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
       data.push_str(".");
       data.push_string(label.clone());
       data.push_str(" = ");
-      data.push_string(get_variable_name_for_codegen(label.clone(), Option(Environment).Some(ei.env)));
+      (field_code : Option(String)) = Option(String).None;
+      match(
+        ei.deferred_dup_expressions,
+        .Some(dups) => {
+          (di : usize) = usize(0);
+          while((di < dups.len()) && field_code.is_none(), {
+            match(
+              dups.get(di),
+              .Some(de) => match(
+                get_deferred_dup_target_atom_name(de),
+                .Some(tn) => if(tn == label, {
+                  field_code = Option(String).Some(_call_generate_expr(de, indent.clone(), context));
+                }),
+                .None => ()
+              ),
+              .None => ()
+            );
+            di = (di + usize(1));
+          });
+        },
+        .None => ()
+      );
+      data.push_string(
+        match(
+          field_code,
+          .Some(fc) => fc,
+          .None => get_variable_name_for_codegen(label.clone(), Option(Environment).Some(ei.env))
+        )
+      );
       fi = (fi + usize(1));
     });
     data.push_str(" }");
