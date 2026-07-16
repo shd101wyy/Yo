@@ -207,3 +207,29 @@ Also file (separately, fix in BOTH compilers together, later):
 2. Box-ctor compat gap — `are_types_compatible(concrete, unconstrained SomeT
 V)` rejects where it should accept (or the box call should bind V before
    the ctor check); currently masked by (1).
+
+## FIXED (2026-07-16 night, commit 546a5a25d) + the residual frontier
+
+The fix: port TS callMayUnwind's atom-callee fallback into `_call_may_unwind`
+(yo-self/codegen/exprs/other_fn_call.yo) — a direct call through an atom with a
+function type is may-unwind → bracketed → the unwind-resume clobber behavior
+now matches the TS-compiled compiler exactly.
+
+Validated (clean tree, all probes reverted):
+
+- repro: s2 dyn-error markers 1 → **0**; the four box(closure) sites produce
+  byte-matching good nodes.
+- corpus PASS 126 / DIFF 2 (both known pre-existing); check ./std 153/153;
+  self-emit clang 0. stage2.c grew 36.7 → 59.1MB (every atom call bracketed —
+  TS-shaped). stage3 emit peak RSS 10.1G → **7.4G**.
+- **Fixpoint: stage2 vs stage3 normalized diff 194,267 → 184 lines** (raw 817
+  bytes), ONE residual pattern: `sizeof` comptime-folding — s1's run folds
+  `sizeof(Bucket(K,V))`-style sizes to constants (`24ULL`, `bucket_size`
+  inlined) at ~46 std-collection allocation sites during the main.yo compile;
+  s2's run leaves them symbolic (`sizeof(__yo_tN)` / runtime `bucket_size`).
+  Semantically equivalent C, not byte-exact. Small-file compiles fold
+  IDENTICALLY in both (verified) — the divergence needs main.yo context, same
+  hunt class as before (an evaluator comptime value present in s1's run,
+  Unknown in s2's). Next: locate the sizeof/size_of eval path, probe the
+  failing instantiations (e.g. the compiler's own HashMap Bucket types) with
+  the established 13-min cycle.
