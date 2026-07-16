@@ -5,6 +5,22 @@ all fixed; HEAD `41fdb38bb`). Corpus 125 files._
 
 ---
 
+## ⇒⇒ 2026-07-16 NIGHT: **THE FIXPOINT IS REACHED** — stage2.c ≡ stage3.c RAW BYTE-IDENTICAL
+
+`s1 emit stage2.c` and `s2 emit stage3.c` (s2 = clang -O2 of stage2.c) are
+**byte-identical: 59,154,253 bytes, no ID normalization needed** — verified on
+the 16 GB box (stage3 emit peak 9.3 GB, ~3 min). Handoff item (B) is DONE.
+Five fixes landed this day (commits 4de16f446, de6cdd4bd, 546a5a25d,
+1017e7ffd + docs): container-dispose + type_key keying; reassignment
+initialized_at_token preservation; TS callMayUnwind atom-callee fallback
+(unwind-resume parity); module-top-level bare-atom reassignment
+collection+emission (sizeof slot wiring). Remaining after (B): item (C) —
+tasks #69/#70, gated on the separate async clang-link-driver unwrap-None bug
+(`s2 compile X -o bin` rc=134; `--emit-c` + manual clang works). Reproduce the
+fixpoint with: build s1 (`./yo-cli compile yo-self/main.yo --release`), s1
+emits stage2 (`--emit-c`, note `-o X` writes `X.c`), clang -O2 → s2, s2 emits
+stage3, `cmp`.
+
 ## ⇒⇒ SESSION 2026-07-16-pm — two dead-ends KILLED + a 16GB-friendly proxy FOUND
 
 **Read this before touching (A) or (B).** Three empirical results this session:
