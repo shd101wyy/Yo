@@ -54,7 +54,7 @@ test("TypeUni(2) → TypeUni(3)", {
 // Compound types
 // ---------------------------------------------------------------------------
 test("Pointer → TypeUni(0)", {
-  result := type_of_type(TypeValue.Pointer(Box(TypeValue)(TypeValue.Unit)));
+  result := type_of_type(TypeValue.Pointer(TypeValue.Unit));
   assert(match(result,.TypeUni(lvl) => (lvl == usize(0)), _ => false), "Pointer should be TypeUni(0)");
 });
 test("str → TypeUni(0)", {
@@ -62,11 +62,11 @@ test("str → TypeUni(0)", {
   assert(match(result,.TypeUni(lvl) => (lvl == usize(0)), _ => false), "str should be TypeUni(0)");
 });
 test("Array of i32 → TypeUni(0)", {
-  result := type_of_type(TypeValue.Array(Box(TypeValue)(t_i32()), usize(4), String.from("")));
+  result := type_of_type(TypeValue.Array(t_i32(), usize(4), String.from("")));
   assert(match(result,.TypeUni(lvl) => (lvl == usize(0)), _ => false), "Array(i32) should be TypeUni(0)");
 });
 test("Array of TypeUni(0) → TypeUni(1)", {
-  result := type_of_type(TypeValue.Array(Box(TypeValue)(TypeValue.TypeUni(usize(0))), usize(4), String.from("")));
+  result := type_of_type(TypeValue.Array(TypeValue.TypeUni(usize(0)), usize(4), String.from("")));
   assert(match(result,.TypeUni(lvl) => (lvl == usize(1)), _ => false), "Array(TypeUni(0)) should give TypeUni(1)");
 });
 // ---------------------------------------------------------------------------
@@ -140,7 +140,7 @@ test("TraitT → TypeUni(1)", {
       ArrayList(String).new(),
       ArrayList(TypeValue).new(),
       String.from(""),
-      Option(Box(TypeValue)).None,
+      Option(TypeValue).None,
       ArrayList(TypeValue).new(),
       ArrayList(TypeValue).new()
     )

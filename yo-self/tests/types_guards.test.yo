@@ -4,7 +4,7 @@
 //! Phase 2b stubs (returning false) are tested to confirm they return false —
 //! so a future implementation landing out of order gets caught.
 open(import("std/string"));
-{ TypeValue } :: import("../types/definitions.yo");
+{ TypeValue, FuncMeta } :: import("../types/definitions.yo");
 { t_unit, t_bool, t_void, t_i32, t_u8, t_i8, t_u16, t_i16, t_u32, t_u64, t_i64, t_f32, t_f64, t_usize, t_isize, t_comptime_int, t_comptime_float, t_comptime_string, t_ptr, t_array, t_func_simple, t_trait_simple, t_module_simple, t_some_t, t_expr_t, t_comptime_list, t_effects_row, t_iso, t_dyn_simple, t_fn_trait_simple, t_future_trait_simple } :: import("../types/creators.yo");
 { is_int_type, is_float_type } :: import("../types/guards.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -337,23 +337,27 @@ test("is_function_type_generic: forall func is generic", {
   fl.push(String.from("T"));
   ft.push(TypeValue.TypeUni(usize(0)));
   f := TypeValue.Func(
-    fl,
     ft,
-    ArrayList(String).new(),
     ArrayList(TypeValue).new(),
-    ArrayList(String).new(),
     ArrayList(TypeValue).new(),
-    ArrayList(bool).new(),
     ArrayList(TypeValue).new(),
-    box(t_unit()),
-    false,
-    ArrayList(bool).new(),
-    ArrayList(bool).new(),
-    false,
-    false,
-    Option(String).None,
-    Option(String).None,
-    false
+    t_unit(),
+    box(
+      FuncMeta(
+        forall_labels : fl,
+        param_labels : ArrayList(String).new(),
+        implicit_labels : ArrayList(String).new(),
+        implicit_spreads : ArrayList(bool).new(),
+        result_is_comptime_only : false,
+        param_is_ref : ArrayList(bool).new(),
+        param_is_owning : ArrayList(bool).new(),
+        result_is_ref : false,
+        has_variadic : false,
+        is_extern : Option(String).None,
+        extern_name : Option(String).None,
+        is_control : false
+      )
+    )
   );
   assert(is_function_type_generic(f), "forall func generic");
   assert(is_function_type_hard_generic(f), "forall func hard generic");
@@ -367,23 +371,27 @@ test("is_function_type_generic: implicit params make generic (but not hard)", {
   it_.push(t_module_simple(String.from("Io")));
   is_.push(false);
   f := TypeValue.Func(
-    ArrayList(String).new(),
     ArrayList(TypeValue).new(),
-    ArrayList(String).new(),
     ArrayList(TypeValue).new(),
-    il,
     it_,
-    is_,
     ArrayList(TypeValue).new(),
-    box(t_unit()),
-    false,
-    ArrayList(bool).new(),
-    ArrayList(bool).new(),
-    false,
-    false,
-    Option(String).None,
-    Option(String).None,
-    false
+    t_unit(),
+    box(
+      FuncMeta(
+        forall_labels : ArrayList(String).new(),
+        param_labels : ArrayList(String).new(),
+        implicit_labels : il,
+        implicit_spreads : is_,
+        result_is_comptime_only : false,
+        param_is_ref : ArrayList(bool).new(),
+        param_is_owning : ArrayList(bool).new(),
+        result_is_ref : false,
+        has_variadic : false,
+        is_extern : Option(String).None,
+        extern_name : Option(String).None,
+        is_control : false
+      )
+    )
   );
   assert(is_function_type_generic(f), "implicit func generic");
   assert(!(is_function_type_hard_generic(f)), "implicit func NOT hard generic");
@@ -517,14 +525,14 @@ test("is_rc_type: SomeT with Future trait constraint is RC", {
     String.from("id3"),
     String.from("T"),
     usize(0),
-    box(TypeValue.TypeUni(usize(0))),
+    TypeValue.TypeUni(usize(0)),
     req,
     ArrayList(usize).new(),
     ArrayList(TypeValue).new(),
     ArrayList(usize).new(),
     false,
-    Option(Box(TypeValue)).None,
-    Option(Box(TypeValue)).None
+    Option(TypeValue).None,
+    Option(TypeValue).None
   );
   assert(is_rc_type(some_ty), "SomeT with Future → true");
 });

@@ -1115,7 +1115,7 @@ test("evaluate_module_body: enum type definition binds in module env", {
                 v,
                 .TypeVal(tyb) =>
                   match(
-                    tyb.*,
+                    tyb,
                     .EnumT(_, _, vnames, _, _, _, _, _, _) => {
                       assert(vnames.len() == usize(3), "3 variants");
                       match(vnames.get(usize(0)),.Some(n) => assert(n == "Red", "Red"),.None => assert(false, "no variant 0"));
@@ -1164,7 +1164,7 @@ test("evaluate_module_body: struct type definition binds in module env", {
                 v,
                 .TypeVal(tyb) =>
                   match(
-                    tyb.*,
+                    tyb,
                     .Struct(_, _, labels, _, _, _, _) => {
                       assert(labels.len() == usize(2), "2 fields");
                       match(labels.get(usize(0)),.Some(l) => assert(l == "x", "x field"),.None => assert(false, "no label 0"));
@@ -1210,7 +1210,7 @@ test("evaluate_module_body: generic comptime function MyOption(i32) returns Enum
                 v,
                 .TypeVal(tyb) =>
                   match(
-                    tyb.*,
+                    tyb,
                     .EnumT(_, _, vnames, _, _, _, _, _, _) => {
                       assert(vnames.len() == usize(2), "2 variants");
                       match(vnames.get(usize(0)),.Some(n) => assert(n == "None", "None"),.None => assert(false, "no v0"));
@@ -3702,7 +3702,7 @@ test("Phase 5s: for loop with early return(exits iteration)", {
                 v,
                 .ReturnVal(inner, _) =>
                   match(
-                    inner.*,
+                    inner,
                     .IntLit(raw) => assert(raw == "20", "return(value should be 20)"),
                     _ => assert(false, "expected IntLit inside ReturnVal")
                   ),

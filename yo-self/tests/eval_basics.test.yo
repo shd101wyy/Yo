@@ -2185,7 +2185,7 @@ test("evaluate: type identifier i32 resolves to TypeVal", {
         r.value,
         .TypeVal(ty) =>
           match(
-            ty.*,
+            ty,
             .Int(bits, signed) => {
               assert(bits == u8(32), "i32 must have 32 bits");
               assert(signed, "i32 must be signed");
@@ -2221,7 +2221,7 @@ test("evaluate: type identifier bool resolves to TypeVal", {
         r.value,
         .TypeVal(ty) =>
           match(
-            ty.*,
+            ty,
             .BoolT => (),
             _ => {
               assert(false, "TypeVal ty must be BoolT");
@@ -2245,7 +2245,7 @@ test("evaluate: type identifier usize resolves to TypeVal", {
         r.value,
         .TypeVal(ty) =>
           match(
-            ty.*,
+            ty,
             .Usize => (),
             _ => {
               assert(false, "TypeVal ty must be Usize");
@@ -2394,7 +2394,7 @@ test("evaluate: forall TypeVal is bound inside fn body", {
         .TypeVal(ty) =>
           // arg was IntLit → type is ComptimeInt
           match(
-            ty.*,
+            ty,
             .ComptimeInt => (),
             _ => {
               assert(false, "A should be TypeVal(ComptimeInt) when called with int");
@@ -2429,7 +2429,7 @@ test("evaluate: two forall params both inferred correctly", {
         r.value,
         .TypeVal(ty) =>
           match(
-            ty.*,
+            ty,
             .ComptimeInt => (),
             _ => {
               assert(false, "A should be ComptimeInt");
@@ -3004,7 +3004,7 @@ test("evaluate: enum(None, Some(value: T)) creates EnumT TypeVal", {
         r.value,
         .TypeVal(tyb) =>
           match(
-            tyb.*,
+            tyb,
             .EnumT(_, _, vnames, vfields_all, _, _, _, _, _) => {
               assert(vnames.len() == usize(2), "should have 2 variants");
               match(vnames.get(usize(0)),.Some(n) => assert(n == "None", "first variant is None"),.None => assert(false, "no variant 0"));
@@ -3037,7 +3037,7 @@ test("evaluate: enum(Red, Green, Blue) plain fieldless variants", {
         r.value,
         .TypeVal(tyb) =>
           match(
-            tyb.*,
+            tyb,
             .EnumT(_, _, vnames, _, _, _, vdiscs, _, _) => {
               assert(vnames.len() == usize(3), "3 variants");
               assert(vdiscs.len() == usize(3), "3 discriminants");
@@ -3069,7 +3069,7 @@ test("evaluate: struct(x: i32, y: bool) creates Struct TypeVal", {
         r.value,
         .TypeVal(tyb) =>
           match(
-            tyb.*,
+            tyb,
             .Struct(_, _, labels, types, is_ref_sem, _, is_newtype) => {
               assert(labels.len() == usize(2), "2 fields");
               assert(!(is_ref_sem), "not ref sem");
@@ -3105,7 +3105,7 @@ test("evaluate: ref(struct(x: i32)) creates Struct with is_reference_semantics=t
         r.value,
         .TypeVal(tyb) =>
           match(
-            tyb.*,
+            tyb,
             .Struct(_, _, _, _, is_ref_sem, _, is_newtype) => {
               assert(is_ref_sem, "ref(struct) has reference semantics");
               assert(!(is_newtype), "not newtype");
@@ -3132,7 +3132,7 @@ test("evaluate: newtype(i32) creates Struct with is_newtype=true", {
         r.value,
         .TypeVal(tyb) =>
           match(
-            tyb.*,
+            tyb,
             .Struct(_, _, labels, types, is_ref_sem, _, is_newtype) => {
               assert(!(is_ref_sem), "newtype is not ref sem");
               assert(is_newtype, "is_newtype is true");
@@ -3164,7 +3164,7 @@ test("evaluate: union(x: i32, y: bool) creates Union TypeVal", {
         r.value,
         .TypeVal(tyb) =>
           match(
-            tyb.*,
+            tyb,
             .Union(_, labels, types) => {
               assert(labels.len() == usize(2), "2 union fields");
               match(labels.get(usize(0)),.Some(l) => assert(l == "x", "label x"),.None => assert(false, "no label 0"));
@@ -3192,7 +3192,7 @@ test("evaluate: trait() stub creates TraitT TypeVal", {
         r.value,
         .TypeVal(tyb) =>
           match(
-            tyb.*,
+            tyb,
             .TraitT(_, _, _, _, _, _, _, _) => (),
             _ => assert(false, "not TraitT")
           ),

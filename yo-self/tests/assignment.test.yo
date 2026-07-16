@@ -213,7 +213,7 @@ test("evaluate_assignment: atom LHS — ExprInfo set with unit type", {
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(result));
   assert(match(info_opt,.Some(_) => true,.None => false), "ExprInfo should be set on assignment expr");
 });
-test("evaluate_assignment: atom LHS — ExprInfo has UnitVal", {
+test("evaluate_assignment: atom LHS reassignment — ExprInfo carries old value/type", {
   set_evaluate_expression_fn(stub_eval_bool);
   set_evaluate_expression_raw_fn(stub_eval_bool_raw);
   exn := Exception(
@@ -244,17 +244,22 @@ test("evaluate_assignment: atom LHS — ExprInfo has UnitVal", {
   expr := mk_assign(usize(20), lhs, rhs);
   result := evaluate_assignment(expr, env, ctx, exn);
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(result));
+  // Real REASSIGNMENT (x already defined): mirrors assignment.ts:759-800 —
+  // the expr info carries the OLD value and the variable's type (so codegen
+  // saves/drops the old value), NOT UnitVal (that's the initialization /
+  // consumed-by-RHS arm). x has no compile-time value here → value is None.
   match(
     info_opt,
-    .Some(info) => match(
-      info.value,
-      .Some(v) => match(
-        v,
-        .UnitVal => (),
-        _ => assert(false, "expected UnitVal")
-      ),
-      .None => assert(false, "expected Some value in ExprInfo")
-    ),
+    .Some(info) => {
+      assert(
+        match(info.value,.Some(_) => false,.None => true),
+        "reassignment info carries the (absent) old value, not UnitVal"
+      );
+      assert(
+        match(info.ty,.BoolT => true, _ => false),
+        "reassignment info type is the variable's type"
+      );
+    },
     .None => assert(false, "ExprInfo not set")
   );
 });
