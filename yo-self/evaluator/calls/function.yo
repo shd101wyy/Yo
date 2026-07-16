@@ -50,7 +50,7 @@ open(import("std/fmt"));
   get_type_trait_methods_by_name_from_env
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ get_func_param_defaults, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_variadic_param } :: import("../types/function.yo");
+{ get_func_param_defaults, get_func_param_default_exprs, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_variadic_param } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
@@ -2437,6 +2437,11 @@ Fix: wrap the call:
         // evaluator/types/function.yo). `fv_param_types` carries the
         // declared regular-param types for the omitted-binding fallback.
         fv_defaults := get_func_param_defaults(func_id_fv.clone());
+        // Parallel default-value EXPRESSIONS: the omitted-default splice
+        // below (after the arg loop) clones + evaluates these so an omitted
+        // default flows through the call EXACTLY like a supplied argument
+        // (forall inference, param binding, runtime C args, specialization).
+        fv_default_exprs := get_func_param_default_exprs(func_id_fv.clone());
         fv_param_types := match(
           callee_info_opt,
           .Some(ci) => match(
@@ -2530,7 +2535,9 @@ Fix: wrap the call:
         });
         // Number of regular args actually supplied (the rest of `n_a` are
         // evidence args, which follow the regulars in `evaled_arg_infos`).
-        n_supplied_reg := if(n_a >= n_ev, n_a - n_ev, n_a);
+        // Mutable: the omitted-default splice after the arg loop bumps it so
+        // evaluated defaults count as supplied regular args downstream.
+        (n_supplied_reg : usize) = if(n_a >= n_ev, n_a - n_ev, n_a);
         // Macro-call detection (quoted params / unquote return), looked up
         // from the macro registry keyed by this FuncVal's id (registered at
         // fn-type evaluation, re-keyed by
@@ -2707,6 +2714,149 @@ Fix: wrap the call:
           ai = (ai + usize(1));
         });
         ctx.is_inside_io_async_call = prev_io_async_ctx;
+        // ----------------------------------------------------------------
+        // Omitted-default splice: clone + evaluate the default-value
+        // EXPRESSION of each omitted trailing regular param and splice the
+        // results in as if the caller had supplied them — into
+        // `evaled_arg_infos`/`runtime_arg_exprs` at the regular/evidence
+        // boundary, bumping `n_supplied_reg`. TS has ONE call path where
+        // checkIfFunctionParameterMatchesArgument runs for defaults too
+        // (helper.ts:323-344 merges into the shared post-processing), so the
+        // default participates in forall inference, binds under the same
+        // coercions as a supplied arg, is EMITTED as a C argument, and lands
+        // in the specialization args. Without this, bare `assert(x)` bound
+        // `msg` at the unresolved forall SomeT and the body's `panic(msg)`
+        // specialized (and was called) at an UNEMITTED SomeT-keyed C fn.
+        // Splices only the contiguous prefix of omitted params with a
+        // recorded default expr; the rest keep the value-binding fallback in
+        // the param loop below.
+        if(n_supplied_reg < n_p, {
+          def_infos := ArrayList(ExprInfo).new();
+          def_rt_exprs := ArrayList(AstExpr).new();
+          (dpi : usize) = n_supplied_reg;
+          (def_stop : bool) = false;
+          while((dpi < n_p) && !(def_stop), {
+            (def_expr : Option(AstExpr)) = Option(AstExpr).None;
+            match(
+              fv_default_exprs.get(dpi),
+              .Some(de_opt) => {
+                def_expr = de_opt;
+              },
+              .None => ()
+            );
+            match(
+              def_expr,
+              .Some(de) => {
+                cloned_de := clone_expr_fresh_ids(de);
+                // Same expected-type policy as the supplied-arg loop above.
+                def_saved_expected := ctx.expected_type;
+                ctx.expected_type = match(
+                  resolved_param_types.get(dpi),
+                  .Some(apt) => cond(
+                    is_type_hierarchy_type(apt) => Option(ExpectedTypeCtx).None,
+                    is_some_type(apt) => match(
+                      extract_fn_trait_from_type(apt),
+                      .Some(_) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : env)),
+                      .None => Option(ExpectedTypeCtx).None
+                    ),
+                    true => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : env))
+                  ),
+                  .None => Option(ExpectedTypeCtx).None
+                );
+                evaled_de := evaluate_expression_raw(cloned_de, env, ctx, exn);
+                ctx.expected_type = def_saved_expected;
+                de_info := match(
+                  expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_de)),
+                  .Some(i) => i,
+                  .None => new_expr_info(env, t_unit())
+                );
+                def_infos.push(de_info);
+                def_rt_exprs.push(evaled_de);
+              },
+              .None => {
+                def_stop = true;
+              }
+            );
+            if(!(def_stop), {
+              dpi = (dpi + usize(1));
+            });
+          });
+          n_spliced := def_infos.len();
+          if(n_spliced > usize(0), {
+            // Pop the evidence tails, push the defaults, re-push the tails.
+            // `evaled_arg_infos` has one entry per supplied arg (quoted args
+            // included), so its evidence tail starts at n_supplied_reg;
+            // `runtime_arg_exprs` skips quoted regular args, so its evidence
+            // tail is the last (n_a - n_supplied_reg) entries.
+            n_ev_tail := (n_a - n_supplied_reg);
+            ev_tail_infos := ArrayList(ExprInfo).new();
+            (eti : usize) = usize(0);
+            while(eti < n_ev_tail, {
+              match(
+                evaled_arg_infos.pop(),
+                .Some(ti) => {
+                  ev_tail_infos.push(ti);
+                },
+                .None => ()
+              );
+              eti = (eti + usize(1));
+            });
+            ev_tail_rt := ArrayList(AstExpr).new();
+            (etr : usize) = usize(0);
+            while(etr < n_ev_tail, {
+              match(
+                runtime_arg_exprs.pop(),
+                .Some(te) => {
+                  ev_tail_rt.push(te);
+                },
+                .None => ()
+              );
+              etr = (etr + usize(1));
+            });
+            (dsi : usize) = usize(0);
+            while(dsi < n_spliced, {
+              match(
+                def_infos.get(dsi),
+                .Some(i) => {
+                  evaled_arg_infos.push(i);
+                },
+                .None => ()
+              );
+              match(
+                def_rt_exprs.get(dsi),
+                .Some(e) => {
+                  runtime_arg_exprs.push(e);
+                },
+                .None => ()
+              );
+              dsi = (dsi + usize(1));
+            });
+            // Re-push the evidence tails (popped in reverse order).
+            (rti : usize) = ev_tail_infos.len();
+            while(rti > usize(0), {
+              rti = (rti - usize(1));
+              match(
+                ev_tail_infos.get(rti),
+                .Some(i) => {
+                  evaled_arg_infos.push(i);
+                },
+                .None => ()
+              );
+            });
+            (rtr : usize) = ev_tail_rt.len();
+            while(rtr > usize(0), {
+              rtr = (rtr - usize(1));
+              match(
+                ev_tail_rt.get(rtr),
+                .Some(e) => {
+                  runtime_arg_exprs.push(e);
+                },
+                .None => ()
+              );
+            });
+            n_supplied_reg = (n_supplied_reg + n_spliced);
+          });
+        });
         // Build a fresh environment for the function body.
         fresh_env := Environment.new(env.module_path);
         // Bind captures.

@@ -2731,62 +2731,92 @@ try_to_call_function_with_arguments :: (
         plabel := match(pl.get(pi),.Some(l) => l,.None => String.from(""));
         ptype := match(pt.get(pi),.Some(t) => t,.None => t_unit());
         p_owning := match(pio.get(pi),.Some(o) => o,.None => false);
-        // Omitted optional parameter (no corresponding argument): bind it
-        // to its recorded default value (falling back to an `UnknownVal`
-        // of its declared type if, defensively, no default is recorded).
+        // Omitted optional parameter (no corresponding argument): clone the
+        // recorded default VALUE EXPRESSION and route it through the SAME
+        // matching flow as an explicit argument. In TS the omitted branch
+        // (helper.ts:323-344) merges into the shared post-processing after
+        // evaluating the default — comptime→runtime conversion, forall
+        // synthesis into callee_env, compatibility check, and the param
+        // binding all run for defaults too. Skipping them left the forall
+        // type param UNBOUND for calls relying on the default (e.g. bare
+        // `assert(x)`: `panic(msg)` then specialized at an unresolved SomeT
+        // → unemitted C fn → clang undeclared-function). Differences from an
+        // explicit arg, mirroring TS: the default is evaluated in the CALLEE
+        // env (helper.ts:330-336), the caller env is NOT updated from the
+        // match result, and the move-ownership step never runs (TS runs it
+        // only in the explicit-arg branch) — pass param_is_owning=false.
         if(pi >= n_args, {
-          (omitted_val : EvalValue) = create_unknown_val(ptype);
-          match(
-            call_param_defaults.get(pi),
-            .Some(d) => match(
-              d,
-              .Some(dv) => {
-                omitted_val = dv;
-              },
-              .None => ()
-            ),
-            .None => ()
-          );
-          add_variable_to_env(
-            callee_env_m,
-            plabel,
-            ptype,
-            Option(EvalValue).Some(omitted_val),
-            false,
-            false,
-            false,
-            false,
-            synthetic_token(plabel, callee_env_m.module_path)
-          );
-          arg_vals.push(
-            ArgEntry(
-              value : Option(EvalValue).Some(omitted_val),
-              parameter_type : ptype,
-              arg_type : ptype
-            )
-          );
-          // Emit the omitted default as a C argument: clone + evaluate the
-          // default VALUE EXPRESSION (param type as the expected hint) and push
-          // the evaluated expr to the runtime arg list so codegen renders it.
-          // Without this, codegen emits FEWER args than the C function declares
-          // ("too few arguments to function call"). Mirrors TS helper.ts:328-344
-          // (evaluate `parameter.exprs.defaultValueExpr`, push to
-          // `runtimeArgExprsInOrder`). No-op when no default expr is recorded.
+          (default_expr : Option(AstExpr)) = Option(AstExpr).None;
           match(
             call_param_default_exprs.get(pi),
-            .Some(de_opt) => match(
-              de_opt,
-              .Some(de) => {
-                cloned_de := clone_expr_fresh_ids(de);
-                def_saved_exp := ctx.expected_type;
-                ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : ptype, env : callee_env_m));
-                evaled_de := evaluate_expression_raw(cloned_de, callee_env_m, ctx, exn);
-                ctx.expected_type = def_saved_exp;
-                rt_args.push(evaled_de);
-              },
-              .None => ()
-            ),
+            .Some(de_opt) => {
+              default_expr = de_opt;
+            },
             .None => ()
+          );
+          match(
+            default_expr,
+            .Some(de) => {
+              cloned_de := clone_expr_fresh_ids(de);
+              dpr := check_if_function_parameter_matches_argument(
+                plabel,
+                ptype,
+                false,
+                // param_is_owning: TS never runs move-ownership for defaults
+                false,
+                match(pref.get(pi),.Some(b) => b,.None => false),
+                false,
+                cloned_de,
+                callee_env_m,
+                callee_env_m,
+                ctx,
+                rt_args,
+                exn
+              );
+              callee_env_m = dpr.callee_env;
+              arg_vals.push(
+                ArgEntry(
+                  value : dpr.arg_value,
+                  parameter_type : dpr.resolved_param_type,
+                  arg_type : dpr.arg_type
+                )
+              );
+            },
+            .None => {
+              // Defensive fallback when no default expr is recorded: bind the
+              // recorded default VALUE (or an `UnknownVal` of the declared
+              // type) so the callee body still sees the parameter.
+              (omitted_val : EvalValue) = create_unknown_val(ptype);
+              match(
+                call_param_defaults.get(pi),
+                .Some(d) => match(
+                  d,
+                  .Some(dv) => {
+                    omitted_val = dv;
+                  },
+                  .None => ()
+                ),
+                .None => ()
+              );
+              add_variable_to_env(
+                callee_env_m,
+                plabel,
+                ptype,
+                Option(EvalValue).Some(omitted_val),
+                false,
+                false,
+                false,
+                false,
+                synthetic_token(plabel, callee_env_m.module_path)
+              );
+              arg_vals.push(
+                ArgEntry(
+                  value : Option(EvalValue).Some(omitted_val),
+                  parameter_type : ptype,
+                  arg_type : ptype
+                )
+              );
+            }
           );
           pi = (pi + usize(1));
           continue;
