@@ -138,18 +138,35 @@ yo-self/parser.yo --release --emit-c` peak RSS — **s1=477 MB, s2=1633 MB**
    difference): **s2's evaluator fails `dyn(closure)` inside the SPECIALIZED
    `analyze_await_points`** (yo-self/evaluator/async/await*analysis.yo:397-400)
    — both `SuspensionPointDetector` dyn-field closures emit
-   `/* Error: dyn() requires an object type */` in s2's output where s1 builds
+   `/* Error: dyn() requires an object type _/`in s2's output where s1 builds
    the capture-struct-boxed wrappers. Everything else in the 194K-line
-   normalized diff (±2 function registrations, the `__yo_t` id cascade, the
-   displaced `R#gs_yo_id_2794*\*`interns) is downstream of this ONE site.
+   normalized diff (±2 function registrations, the`\_\_yo_t`id cascade, the
+   displaced`R#gs_yo_id_2794_\*`interns) is downstream of this ONE site.
 **FAST REPRO (~1 min):`compile yo-self/evaluator/values/anonymous_function.yo
    --emit-c`— s1 emits 0`dyn() requires an object type`markers, s2 emits 1
 (both args, same line).** Compiling await_analysis.yo ALONE is clean in both
 (needs the specialization). Full analysis + next probes:`issues/yo-self-stage2-dyn-closure-divergence.md`.
 
-   Binaries: `/tmp/yo-self-fix4` (fixed s1), `/tmp/s2_fix4` (fixed s2),
-   `/tmp/stage2_fix4.c.c` + `/tmp/stage3_fix4.c.c` (the pair to diff).
-   Both RC fixes UNCOMMITTED in the working tree.
+   **FIXED (commit 546a5a25d): TS callMayUnwind's atom-callee fallback ported**
+   into `_call_may_unwind` (other_fn_call.yo). Root: TS brackets every direct
+   atom-callee call with `__yo_effect_escaped = 0; call; if (escaped)`; inside a
+   ctl handler's `unwind(<call>)` argument that pre-call reset CLOBBERS the
+   unwind flag → the TS-compiled compiler RESUMES past swallowed throws (the
+   def-time trial-eval swallow ecosystem depends on it). yo-self omitted the
+   fallback → really unwound → the dyn(closure) failures. After the fix:
+   repro 0 markers; corpus 126/DIFF 2 (pre-existing); std 153/153; self-emit
+   clang 0; stage2.c 36.7→59.1MB (TS-shaped); stage3 emit peak 7.4GB.
+   **Fixpoint diff: 194,267 → 184 lines (raw 817 bytes).**
+
+   **RESIDUAL (the new frontier): sizeof comptime-folding** — ~46
+   std-collection allocation sites where s1's main.yo run folds
+   `sizeof(Bucket(K,V))`-class sizes to constants (`24ULL`; `bucket_size`
+   inlined) and s2's leaves them symbolic. Semantically equivalent C. Small
+   files fold identically in both (verified) — needs main.yo context. Same
+   hunt class: a comptime value present in s1's run is Unknown in s2's.
+   Binaries: `/tmp/s1_final`, `/tmp/s2_final`, `/tmp/stage2_final.c.c` +
+   `/tmp/stage3_final.c.c` (the 184-line pair), normalizer in the issue doc.
+   All three fixes COMMITTED (4de16f446, de6cdd4bd, 546a5a25d).
 
 ---
 
