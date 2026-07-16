@@ -5,6 +5,154 @@ all fixed; HEAD `41fdb38bb`). Corpus 125 files._
 
 ---
 
+## ⇒⇒ SESSION 2026-07-16-pm — two dead-ends KILLED + a 16GB-friendly proxy FOUND
+
+**Read this before touching (A) or (B).** Three empirical results this session:
+
+1. **The fixpoint CANNOT run on a 16 GB box via ANY GC tuning (decisively
+   confirmed).** `s2 compile yo-self/main.yo --emit-c` with the tightest
+   full-scan trigger `YO_GC_FULL_PCT=110` balloons to **~31 G total footprint
+   (18 G resident + 13 G compressed) within 90 seconds**, still in the early
+   phase, and keeps climbing → jetsam-killed. `YO_GC_THRESHOLD=100000` (LAZIER
+   incremental — wrong direction) OOMs even faster (~3 min, at the eval→codegen
+   transition). The GC-irreducible retained set exceeds physical RAM; no knob
+   fits it in 16 GB. Track-1 "GC-bounded fixpoint now" is a DEAD END on 16 GB.
+
+2. **The ctor-arg move-vs-dup (`issues/yo-self-ctor-arg-move-vs-dup.md`) is
+   BALANCED — NOT a leak. It is NOT the footprint lever.** Verified: yo-self
+   emits an extra `__yo_incr_rc(kk)` for an owning-local ctor arg where TS
+   moves (elides the dup: TS's evaluator DOES build the deferred dup, but a
+   later eval pass rebuilds `$` without re-marking → codegen sees
+   `hasDefDup=false` → move; yo-self keeps the mark → over-dup). BUT the extra
+   dup is matched by an extra drop: `/tmp/ctor_leak.yo` (200× `B(k:kk,n:i)` in
+   a fn) prints `tracked=0` under BOTH TS and yo-self even with GC disabled.
+   So fixing it reduces RC TRAFFIC/peak-rc, not the retained set. The frontier
+   memory note independently corroborates: the dominant retained type is
+   `Variable` PINNED transitively via the never-pruned `expr_info_table`
+   (reachable → neither RC nor GC frees it), not an RC over-dup. Track-2
+   "ctor-arg fix closes the gap" is ALSO a dead end for memory (still worth
+   doing later as a faithful-port correctness/traffic fix, low priority).
+
+3. **ROOT CAUSE of the s2 memory blowup FOUND + CONFIRMED (the real drop-parity
+   bug):** `issues/yo-self-container-dispose-not-wired.md`. yo-self does NOT wire
+   a user `impl Dispose` (e.g. ArrayList's element-freeing RAII destructor,
+   `std/collections/array_list.yo:555`) into a type's `dispose_fn`. So any RC
+   container freed TRANSITIVELY (as an RC field of another object whose dispose
+   just `decr_rc`s the field) leaks ALL its elements + buffer. This is the
+   dominant compiler leak: Environment → `frames` → each Frame's `variables`
+   (`ArrayList(Variable)`) → **2.67 M Variables leaked** compiling parser.yo
+   (vs 360 K in s1). Minimal repro (15 lines, saved as
+   `tests/codegen-bootstrap/transitive_list_drop.yo`): **TS `tracked=0`,
+   yo-self `tracked=100`**. Corpus misses it (it drops small structures at
+   EXPLICIT sites where inline element-drop works; the leak needs transitive
+   frees only the compiler's deep nesting exercises). **Fix (faithful port, 3
+   parts, mirror the EXISTING `collect_trace_methods_from_generic_impls`
+   machinery):** (a) port TS `collectDisposeMethodsFromGenericImpls`
+   (collection.ts:650) to specialize+register the user `dispose` from generic
+   impls; (b) wire that user-dispose call into `_synthesize_and_register_dispose`
+   (collection.yo:1045) — don't early-return when field-walk is empty; mirror TS
+   generation.ts:1433-1473 `findUserDisposeMethodForType`; (c) then
+   `get_dispose_function_for_type` resolves → constructor stamps non-NULL
+   `dispose_fn`. Full plan + tooling in the issue doc.
+
+   **FIXED (both parts landed, all gates green, 2026-07-16 pm) — uncommitted in the
+   working tree.** Two coupled fixes were required (the second unmasked by the
+   first): (1) wire the user `impl Dispose` into the synthesized `___dispose`
+   (`_synthesize_and_register_dispose`, collection.yo); (2) key the `___dispose` by
+   `type_key` (instantiation-precise), NOT the shared struct id — HashMap(K,V)
+   instantiations share one eval id, so struct-id keying collapsed all HashMap
+   disposes onto the first-seen V's, making `HashMap(usize,bool)` run the
+   `HashMap(usize,EvalValue)` dispose → `__yo_decr_rc(0x1)` SIGSEGV. Mirrors the
+   Trace path (register/lookup under `type_key`): collection.yo
+   `_eval_and_register_rc_method` + guard, drop_dup.yo
+   `get_dispose_function_for_type`. Gates: repro `tracked 100→0`, corpus PASS 126 /
+   DIFF 1 (the ctor-arg one) / 0 crashes, checks 303/153, self-emit clang 0,
+   **`s2 check empty_main` rc=0** (SIGSEGV gone). Files: yo-self/codegen/exprs/
+   drop_dup.yo + yo-self/codegen/functions/collection.yo. Full writeup:
+   `issues/yo-self-container-dispose-not-wired.md`.
+
+   **Impact + what REMAINS:** parser.yo proxy improved (live tracked 3.17M→2.43M;
+   s2 peak RSS ~2.4G→~1.66G; Variable 2.67M→1.99M) but did NOT close the s2-vs-s1
+   gap (s1=478MB/360K Variables). A SEPARATE deeper leak remains: ~1.6M Variables
+   still leak because the Environments/Frames that own them don't reach rc 0 (or
+   Frames are popped from `env.frames` without being dropped) — an env-lifecycle RC
+   gap, distinct from container dispose. NEXT lever toward the 16GB fixpoint; see
+   the issue doc "REMAINING (separate) leak" (candidate sites: ArrayList(Frame) pop
+   on scope exit, callee-env teardown, expr_info_table ExprInfo.env retention).
+
+   **16GB-friendly proxy loop (validated):** measure `s2 compile
+yo-self/parser.yo --release --emit-c` peak RSS — **s1=477 MB, s2=1633 MB**
+   today; target → 477 MB after the fix. No full main.yo fixpoint needed to
+   iterate (that remains the FINAL gate, needs ONE run on a ≥32 GB box). Gate
+   cascade for the fix: repro `tracked 100→0`, corpus 119/DIFF 0 (over/under-drop
+   oracle), check ./yo-self 303, check ./std 153, self-emit clang 0.
+   Tooling: `scratchpad/patch_hist.py` (live-object histogram by dispose_fn via
+   dladdr). Prereq #30 (`issues/fixed/yo-self-gc-traverse-value-struct-field.md`)
+   is ALREADY FIXED (commit f4caf9a3f) — verified this session, doc moved to fixed/.
+   The ctor-arg move-vs-dup is a NON-leak (balanced) — deprioritized.
+
+4. **THE REMAINING ~1.6M-Variable LEAK FOUND + FIXED (2026-07-16 pm, later) —
+   drop-parity with s1 REACHED; the GC-thrash source is GONE.**
+   `issues/yo-self-reassign-initialized-token-early-return-leak.md`.
+
+   Root: the reassignment path (`yo-self/evaluator/exprs/assignment.yo`) rebuilt
+   the Variable with `initialized_at_token = <reassignment site>`. TS writes the
+   same token (assignment.ts:619-633) but its persistent envs mean expressions
+   BEFORE the reassignment keep a snapshot with the ORIGINAL token; yo-self's
+   single mutable Variable made the update retroactive, so codegen's
+   `_keep_pending_drop` forward-reference guard (return.yo) judged the local
+   "declared after this point" at every EARLIER `return` and skipped its drop.
+   Trigger (all 3 required): owning local + used in an early-return's value +
+   reassigned later. Real site: `_synthesize_types_impl`'s anti-circularity
+   `return(SynthesizeResult(expected_env : ee, given_env : ge))` (ee/ge
+   reassigned later) → +1 on BOTH envs per `_has_type_pair` hit → over-counted
+   envs look externally referenced to the cycle GC → pinned Frame→Variable
+   chains AND ~119K envs reclaimable only by the FULL collector (the thrash).
+   Found via `scratchpad/patch_rcsite.py` (per-type per-site RC tracing s1-vs-s2;
+   deterministic evaluation ⇒ any per-function count delta = emission diff;
+   attribution is one frame UP due to inlined incr).
+
+   Fix: preserve the FIRST `initialized_at_token` on reassignment (one
+   conditional in assignment.yo). Regression test:
+   `tests/codegen-bootstrap/reassign_early_return_drop.yo` (TS 0 / pre-fix 100).
+
+   **Proxy result (s2 compile parser.yo):** live tracked 2.43M→**776K** (s1
+   899K — now BELOW s1); Variable 1.99M→425K (s1 360K); Frame 35K→11.5K (s1
+   10.2K); peak RSS 1656→**808 MB** (s1 477); wall minutes→**4.9 s**. Gates:
+   corpus PASS 126/DIFF 2 — both verified PRE-EXISTING (ptr_deref RC-count
+   print diff; constructor_result_drop ts_rc=139 was flaky under parallel-6,
+   8/8 clean solo); check ./std 153/153; self-emit stage2.c clang **0 errors**.
+   CAUTION: `check ./yo-self` currently stalls ~50 min in
+   `yo-self/tests/expr_traversal.test.yo` then jetsams — PRE-EXISTING (pre-fix
+   binary stalls identically; raced both). Don't use it as a gate; don't burn
+   the hour.
+
+   **Consequence — (B) fixpoint EMIT now COMPLETES ON 16 GB (previously
+   hard-blocked at 26-31 G / jetsam):** `/tmp/s2_fix4 compile yo-self/main.yo
+--release --emit-c` → rc=0, **peak RSS 10.1 GB, ~4 min**, stage3.c =
+   36,674,731 bytes (NOTE: yo-self `-o` appends `.c` → `/tmp/stage3_fix4.c.c`).
+
+   **Byte-exactness NOT yet reached — ROOT LOCALIZED to ONE behavioral
+   divergence** (chased 2026-07-16 pm via INTERN/REGFN sequence logs; both
+   emits are individually byte-deterministic, so it is a stable s1-vs-s2
+   difference): **s2's evaluator fails `dyn(closure)` inside the SPECIALIZED
+   `analyze_await_points`** (yo-self/evaluator/async/await*analysis.yo:397-400)
+   — both `SuspensionPointDetector` dyn-field closures emit
+   `/* Error: dyn() requires an object type */` in s2's output where s1 builds
+   the capture-struct-boxed wrappers. Everything else in the 194K-line
+   normalized diff (±2 function registrations, the `__yo_t` id cascade, the
+   displaced `R#gs_yo_id_2794*\*`interns) is downstream of this ONE site.
+**FAST REPRO (~1 min):`compile yo-self/evaluator/values/anonymous_function.yo
+   --emit-c`— s1 emits 0`dyn() requires an object type`markers, s2 emits 1
+(both args, same line).** Compiling await_analysis.yo ALONE is clean in both
+(needs the specialization). Full analysis + next probes:`issues/yo-self-stage2-dyn-closure-divergence.md`.
+
+   Binaries: `/tmp/yo-self-fix4` (fixed s1), `/tmp/s2_fix4` (fixed s2),
+   `/tmp/stage2_fix4.c.c` + `/tmp/stage3_fix4.c.c` (the pair to diff).
+   Both RC fixes UNCOMMITTED in the working tree.
+
+---
+
 ## ⇒ START HERE (2026-07-17): all six RC-corruption rounds are FIXED.
 
 ## The stage-2 binary now runs `check` AND compiles real modules cleanly.
