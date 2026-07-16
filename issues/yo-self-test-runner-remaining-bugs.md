@@ -61,6 +61,23 @@ batch (`batch_ae_full.yo`); probe = `grep -c 'void flag'` on the emitted C.
 
 **Bug 3 (exit-after-spawn cleanup abort) — unchanged, still open.**
 
+## UPDATE 2 (2026-07-16 late night): effect-polymorphism frontier FIXED too
+
+`_funcval_bind_foralls` (function.yo) gained a STRUCTURAL fallback (commit
+702de11c9): after the name-match misses, synthesize every declared param type
+against its arg type into a lazily-built scratch env (best-effort, mismatches
+swallowed) and bind composite-embedded foralls (`f : (fn(e : E) -> T)`) from
+it when concrete. Order: name-match → structural → receiver-type-args →
+captures. Mirrors TS synthesizeTypes running per-param in
+checkIfFunctionParameterMatchesArgument (helper.ts:623-637).
+
+**Result: `s1 test tests/algebraic_effects.test.yo` → 72/72 PASSED.**
+Regression: tests/codegen-bootstrap/effect_polymorphism_forall_infer.yo
+(pre-fix rc=134). Gates: corpus 130/2-known, std 153/153, fixpoint
+byte-identical.
+
+Remaining for #69/#70: the full `test ./tests` sweep scoping + Bug 3.
+
 The `test` command is now implemented in yo-self (main.yo run_test — port of
 src/test-runner.ts's BATCHED strategy: parse + split test()/non-test content,
 synthesize one program whose main dispatches on YO_TEST_INDEX over inlined
