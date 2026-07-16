@@ -233,3 +233,16 @@ Validated (clean tree, all probes reverted):
   Unknown in s2's). Next: locate the sizeof/size_of eval path, probe the
   failing instantiations (e.g. the compiler's own HashMap Bucket types) with
   the established 13-min cycle.
+
+## FIXPOINT REACHED (2026-07-16 night, commit 1017e7ffd)
+
+The sizeof-folding residual root: yo-self dropped module-TOP-LEVEL bare-atom
+reassignments (`g_size_of_type_fn = Some(get_size_of_type)` in types/utils.yo)
+from the emitted module init — two coupled gaps (collector shape + emitter
+name-dedup), both fixed. The self-compiled binary's size/alignment slots were
+never wired → every sizeof() fold failed in s2's evaluation.
+
+**stage2.c ≡ stage3.c — RAW BYTE-IDENTICAL, 59,154,253 bytes, no
+normalization** — on the 16GB box (stage3 emit peak 9.3GB, ~3 min).
+Gates: corpus PASS 126/DIFF 2 (both known pre-existing), check ./std 153/153,
+self-emit clang 0. Handoff item (B) is DONE.
