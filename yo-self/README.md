@@ -33,8 +33,8 @@ TypeScript `yo-cli`. They fall into three tiers:
 
 1. **Fast unit tests** (seconds–1 min each): lexer, parser, token/env/value,
    `types_*` (tags, guards, utils, compound, string-compat, value),
-   expr_info / expr_traversal, naming_checker, target, logger, error,
-   doc pipeline (`doc_*`), and the CLI modules (cache, fetch, init,
+   expr*info / expr_traversal, naming_checker, target, logger, error,
+   doc pipeline (`doc*\*`), and the CLI modules (cache, fetch, init,
    install_command, lock_file, pkg_config, version).
 2. **Evaluator seam + registry tests** (1–10 min each — every file that
    imports evaluator internals pays a large Yo-compile cost): assignment,
@@ -44,7 +44,7 @@ TypeScript `yo-cli`. They fall into three tiers:
    `phase6*` (macro + reflection, end-to-end through `Evaluator.new`).
 3. **End-to-end evaluator tests** — `eval_basics.test.yo` (123 tests),
    `eval_tail_1.test.yo` (107), `eval_tail_2.test.yo` (107). Each batch
-   compiles the *entire* self-hosted evaluator and currently **exceeds the
+   compiles the _entire_ self-hosted evaluator and currently **exceeds the
    test runner's 1800 s isolated-process limit**, so these three are
    known-heavy and excluded from routine runs. They still `./yo-cli check`
    clean (evaluator OK), and the same code paths are exercised continuously
@@ -52,9 +52,9 @@ TypeScript `yo-cli`. They fall into three tiers:
 
 Tests that need macro **dispatch** (executing macro bodies at expansion
 time) are gated on `MACRO_DISPATCH_ENABLED` in
-`yo-self/evaluator/calls/function.yo` — dispatch is disabled in committed
-builds (heap corruption, `issues/yo-self-macro-dispatch-corruption.md`).
-They pass vacuously today and re-arm automatically when the flag flips.
+`yo-self/evaluator/calls/function.yo`. The flag is **`true`** (dispatch was
+re-enabled 2026-06-11 after the heap-corruption fix — see `issues/fixed/`),
+so the `phase6c/6d/6f` macro tests run for real.
 
 The strongest evaluator gate is not the unit suite but the self-hosted
 binary itself:
