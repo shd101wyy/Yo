@@ -61,6 +61,25 @@ the established loop (saved batch → both compilers → minimize → fix →
 gates). **Remaining for #70:** run `s2 test` per-file over yo-self/tests
 (setsid runner) vs the green baseline; then Step 3 cleanup below.
 
+**Later 2026-07-17 update:** the reverted instantiation-precise
+specialization signatures were RE-APPLIED (the revert's crash verdicts
+were from an invalidated bisect; the corruption was the since-fixed RC/GC
+bugs) — gates + fixpoint green, tk2 Bucket repro emits per-instantiation
+visit fns again. **Open frontier with a 17-line repro** (this exact
+fixme.yo shape): two fns each declaring a LOCAL `Counter :: struct(count :
+i32)` and calling a generic `ident(forall(T), v)` — TS emits TWO C types +
+TWO specializations (keyed `idstruct_<file>_id_25/60`); s1 emits TWO C
+types (t10/t11) but ONE specialization whose param is t10 and RETURN is
+t11 (clang error). Even with the `_id_` suffix, BOTH locals render type_key
+`struct_yo_id_5009_i32` — i.e. the two struct evaluations either share one
+sid or the signature-time key predates the second registration
+(`g_struct_cfid_keys` evolution — the concern the old revert NOTE raised).
+Next probe: print sid at `evaluator/types/struct.yo:74` creation +
+type_key at signature time for this repro; then decide whether the sid
+source or the key-evolution ordering is the divergence vs TS's unique
+`type.id`. Round-3 sweep of the 92 divergent files with all fixes:
+`/tmp/s2_sweep_r3/` (list `/tmp/s2_r2_list.txt`).
+
 ---
 
 ## WHERE WE ARE (verified, all committed, fixpoint holding)
