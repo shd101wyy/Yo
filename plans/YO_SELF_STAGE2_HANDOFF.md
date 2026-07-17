@@ -182,7 +182,49 @@ declaration-stable-id direction is therefore THE central fix — debug its
 tk2 regression (trace Bucket id flow under the swap) instead of
 abandoning it; secondary mirror fix: TS's Path-2 bundle-field expansion
 for struct-typed effect closure params (which would make IoExn's C type
-unnecessary here regardless). NOTE (user
+unnecessary here regardless).
+
+**MECHANISM CAUGHT IN THE ACT (imm_sorted_set batch C, 2026-07-17):**
+
+```c
+typedef enum { __YO_T29_NONE = 0, __YO_T29_SOME = 1 } __yo_t25_tag;  // ← t25's TAG enum uses T29 prefixes!
+struct __yo_t25_struct { // : <enum:enum_yo_id_7428>
+...later...
+typedef enum { __YO_T29_NONE = 0, ... } __yo_t29_tag;                 // ← real t29 → enumerator REDEFINITION
+struct __yo_t29_struct { // : <enum:enum_yo_id_7428>                  // ← SAME enum id!
+```
+
+Plus `__yo_t15` and `__yo_t16` both `<struct:struct_yo_id_7245>`. So:
+ONE type (enum_yo_id_7428 = an Option instantiation) was COLLECTED TWICE
+under two type_key renders (the key EVOLVES with `g_struct_cfid_keys`
+first-registration/poison transitions between the two collect_type
+calls), and the enum-decl emitter computes the ENUMERATOR prefix by
+RE-KEYING the type at emission time (get_type_c_name(type_key(t)) → the
+EVOLVED key's name) instead of using its own passed c_name. This single
+mechanism explains: enumerator/typeid redefinitions, duplicate struct
+decls, `passing __yo_tA to __yo_tB` / `initializing` mismatches, and
+undeclared-specialization errors (emitted under one key render, called
+under another) — i.e., MOST of both remaining tails.
+
+**Fix design (start here next):** in `collect_type` (codegen/types/
+collection.yo), dedup by a STABLE structural identity, not the evolving
+type*key: implement `stable_type_identity(t)` = `_type_key_at` WITHOUT
+the gs*/cfid/poison branches (pure recursive render: sid + field/variant
+renders, cycle-guarded — stable because it never consults mutable
+registries; precise because distinct instantiations differ in field
+renders). Keep a registry `stable_identity → first type_key/c_name`; on
+a second collect under an EVOLVED key, ALIAS the new key to the existing
+C name (context.set_type_c_name(new_key, existing)) instead of adding a
+second entry — emission stays single, body lookups by either render hit.
+ALSO fix the enum-decl emitter to derive enumerator/tag prefixes from its
+PASSED c_name, never by re-keying. Do NOT dedup by bare id (generic
+instantiations share ids) and do NOT use type_to_string (anonymous
+instantiations render as bare `<struct:yo_id_N>` — imprecise). Gates:
+imm_sorted_set/recursive_enum/imm_string batches (enumerator class),
+hash_map/arc batches (mismatch class), tk2, Counter repro, corpus, std,
+fixpoint, then re-sweep `/tmp/s2_r4_list.txt` + `/tmp/s2_yoself_list.txt`
+divergents. (The struct-decl-memo attempt in evaluator/types/struct.yo
+was REVERTED — no sweep delta; keep the evaluator side untouched.) NOTE (user
 directive): user Yo code must always take `io : Io` in main's signature —
 `io :: __yo_builtin_io` is internal to the runner's synthesized batches;
 keep any repro of this class explicitly labeled as the runner shape.
