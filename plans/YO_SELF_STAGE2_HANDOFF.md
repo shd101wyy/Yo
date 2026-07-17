@@ -206,7 +206,22 @@ decls, `passing __yo_tA to __yo_tB` / `initializing` mismatches, and
 undeclared-specialization errors (emitted under one key render, called
 under another) — i.e., MOST of both remaining tails.
 
-**Fix design (start here next):** in `collect_type` (codegen/types/
+**IMPLEMENTED (commit after this note): the stable-identity alias fix
+landed** — `stable_type_identity` in types/type_key.yo, the collect_type
+alias dedup, `type_key_aliases` on CodeGenContext (get_type_entry/
+get_type_c_name follow one level), and `_emit_enum_tags` prefixes from
+the passed c_name. Validation: recursive_enum 4/4 GREEN (was rc=-11),
+imm_sorted_set/imm_string past the enumerator class into the
+`'void' must be the first and only parameter` (unresolved-SomeT emission)
+layer; arc/hash_map still on struct-mismatch layers (t42/t49 — likely a
+capture-struct or spec-signature identity split not covered by the
+collect_type alias; async.yo:1497/1915/1952 + declarations.yo:536/550
+register future→SM aliases OUTSIDE the stable dedup — probably fine, but
+check if the mismatch persists). Gates + fixpoint green. Round-5 sweep
+over all 94 remaining divergents (74 tests/ + 20 yo-self):
+`/tmp/s2_sweep_r5/`, list `/tmp/s2_r5_list.txt`.
+
+**Original fix design (kept for reference):** in `collect_type` (codegen/types/
 collection.yo), dedup by a STABLE structural identity, not the evolving
 type*key: implement `stable_type_identity(t)` = `_type_key_at` WITHOUT
 the gs*/cfid/poison branches (pure recursive render: sid + field/variant
