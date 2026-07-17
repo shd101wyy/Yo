@@ -122,9 +122,23 @@ registry misses). The next attempt must trace where tk2's Bucket ids come
 from under the swap before re-trying. The rc=-6 crash family
 (control_fn_as_regular_call, iso, iso_api_surface, rc, sys/timer, thread,
 thread_safety, worker) predates this session's fixes (present in round 1
-as 134/-6) and needs its own hunt — likely the batched-runner compile of
-those files SIGABRTs inside s2 itself (grab the surviving batch from the
-tests dir and run `s2 compile` on it directly under lldb).
+as 134/-6). **ROOT SYMPTOM ISOLATED (2026-07-17):** the batch compile
+panics in yo-self codegen with `get_type_string: no C type name found for
+IoExn (type not collected before lowering)`. The 22-line saved batch
+(`scratchpad/cfrc_batch.yo`, from tests/control_fn_as_regular_call) TS-
+compiles fine; arm 0 ALONE reproduces under s1 (rc=134). The SAME code
+with a proper `main :: (fn(io : Io) -> unit)` signature is GREEN under
+both compilers — the divergence is specific to the RUNNER-SYNTHESIZED
+batch shape (`main :: fn() -> unit` + `io :: __yo_builtin_io` comptime
+binding + an effectful fn using Exception + `io.await(yield(io), io)`),
+which the TS runner also generates and TS codegen handles. Fix hunt:
+compare TS codegen's type-collection of effect-bundle types (IoExn) when
+io flows through a comptime binding instead of an evidence param
+(src/codegen/.../collection.ts) with yo-self's collection pass; the
+yo-self side skips collecting IoExn before lowering. NOTE (user
+directive): user Yo code must always take `io : Io` in main's signature —
+`io :: __yo_builtin_io` is internal to the runner's synthesized batches;
+keep any repro of this class explicitly labeled as the runner shape.
 
 ---
 

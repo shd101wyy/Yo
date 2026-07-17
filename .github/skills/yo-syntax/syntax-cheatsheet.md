@@ -525,6 +525,10 @@ test("Async test", {
 
 - `test("description", { body })` defines a test — `io : Io` is automatically available
 - All tests can use `io.async(...)`, `io.await(...)`, etc. without a `using` clause
+- In a standalone program, get `io` by declaring it in `main`'s SIGNATURE —
+  `main :: (fn(io : Io) -> unit)({ ... })` — codegen injects it automatically.
+  Do NOT write `io :: __yo_builtin_io` inside a fn body; that form is an
+  internal mechanism of the batched test runner's synthesized programs only.
 - `assert(condition, "message")` — runtime assertion; requires `{ assert } :: import("std/assert");` at the top of the test file
 - `comptime_assert(condition)` — compile-time assertion (builtin, no import)
 - `comptime_expect_error(expr)` — verify code produces a compile error
