@@ -106,6 +106,26 @@ stored fn-type expr under a pushed frame binding Self + forall names),
 or investigate why the substituted return type still miscompiles (check
 what the 6 errors are before designing further).
 
+## TS-shape analysis (impl.ts:91-175 reEvaluateFunctionType)
+
+TS re-evaluates each param/return TYPE EXPRESSION in (fn-type definition
+env + substitution frame) with **SelfType passed via CONTEXT** — `Self`
+resolves through `context.SelfType`, not through a substitution map.
+yo-self's `Func` meta does not retain the type exprs, so a literal mirror
+isn't a drop-in; the equivalent lever is `ctx.self_type` AT CALL TIME.
+And there's the likely real gap: `create_specialized_function_inline`
+sets `ctx.self_type` from the RECEIVER ARGUMENT — `params[0] == "self"`
+— which STATIC calls like `.new()` don't have, so the body's `Self(...)`
+ctor and the `-> Self` return stay abstract exactly on the static route.
+`_static_dot_receiver_self_type` (calls/function.yo) exists for this but
+may not run on the property-access-stamped candidate route. NEXT PROBE:
+log `ctx.self_type.is_some()` at create_specialized_function_inline entry
+for the inner `SortedMap(T,bool).new()` call, and whether
+`_static_dot_receiver_self_type` fires for it; if not, thread the
+receiver TypeVal's inner type into ctx.self_type for statically-stamped
+dot-callees (the TS `context.SelfType = dereferencedReceiverType`
+equivalent).
+
 ## Hunt plan
 
 Probe `find_methods_from_generic_impls`' candidate for `is_empty` on
