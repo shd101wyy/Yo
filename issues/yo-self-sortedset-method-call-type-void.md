@@ -245,6 +245,38 @@ fixpoint, then re-sweep. This single port should unblock the imm\_\*/
 collections/derive tails (all bottom out in unspecialized generic-impl
 method calls).
 
+## Port attempt #1 (2026-07-17, reverted on gate regression — CLOSE)
+
+The resolution-time specialization WAS implemented end-to-end
+(_try_resolution_time_specialize + ctx stash `set_impl_spec_ctx` wired at
+the 5 driver sites + Evaluator.new + memo/in-progress cycle guard keyed
+`fid|receiver-id+type-arg-ids`) and PROVEN working: 18 `\_rspec_`
+specialized functions emitted in the repro's C; no more unbounded
+recursion after the guard; tk2 + Counter + std 153/153 all green. TWO
+remaining problems forced the revert per the gates rule:
+
+1. corpus regression: 4 SELF-FAILs — arraylist_self_cycle,
+   closure_param_capture, deque_self_cycle, hashmap_self_cycle — the
+   SELF-CYCLE family: specializing during lookup when the receiver is a
+   still-in-definition recursive type (self-shell present) evaluates a
+   body against an incomplete receiver. Next iteration: GATE the
+   specialization off when the receiver (or any type_argument,
+   recursively) is an unresolved self-shell / mid-definition type — or
+   defer via the in-progress registry that struct/enum definition
+   already maintains (resolve_struct_shell(receiver) != receiver?).
+2. SortedSet(i32).new STILL FTTs even with its specialization created —
+   the CALL SITE consumption for that specific chain needs one more
+   probe (which candidate the failing call consumed — is the def-time
+   FTT-stamped node id blocking re-evaluation?).
+
+The full diff of the attempt is reproducible from this issue's history +
+the description above (impl.yo: stash + memo + guard + _rspec_receiver_
+key + _spec_eval_body_swallow + \_try_resolution_time_specialize +
+candidate-site wiring gated on is_function_type && !type_contains_some_
+type; main.yo/index.yo: set_impl_spec_ctx after each eval_context_new).
+Note: do NOT import types/type_key.yo or types/string.yo into impl.yo
+(init-order hazard) — hence the local receiver key.
+
 ## Hunt plan
 
 Probe `find_methods_from_generic_impls`' candidate for `is_empty` on
