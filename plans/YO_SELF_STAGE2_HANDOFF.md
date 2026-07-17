@@ -140,6 +140,20 @@ directive): user Yo code must always take `io : Io` in main's signature —
 `io :: __yo_builtin_io` is internal to the runner's synthesized batches;
 keep any repro of this class explicitly labeled as the runner shape.
 
+**First #70 sweep (in progress at write time, `/tmp/s2_sweep_yoself/`):
+~26/39 files green so far** — much healthier than #69's tail. Failing
+classes are the SAME type-identity families as #69: `redefinition of
+__yo_typeid___yo_tN` (one C name registered twice — an INTERN-side
+type_key collision, distinct from the fixed CACHE-side one), field
+designator mismatches, plus `env_lookup`/`env_find_variable_frame_level`
+dying rc=-11 (SIGSEGV — a separate class, possibly deep recursion or a
+real crash; run those two solo under lldb). CONSOLIDATED VIEW: the
+remaining #69+#70 tails look dominated by ONE family — "one Yo type ↔
+multiple C types / registry entries" in its intern, cache, typeid, and
+closure-capture guises. The declaration-stable-id direction (above,
+first attempt failed on tk2) is probably still the unlock; trace the tk2
+Bucket id flow under the swap first.
+
 ---
 
 ## WHERE WE ARE (verified, all committed, fixpoint holding)
