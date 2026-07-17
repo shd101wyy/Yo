@@ -1,7 +1,19 @@
 # yo-self `test` command: 3 remaining bugs after the runner port (tasks #69/#70)
 
-Status: runner LANDED and working (see commit); these three block full-suite parity.
-Date: 2026-07-16 late
+Status: ALL THREE FIXED. Bugs 1–2 + the effect-polymorphism frontier fixed
+2026-07-16 (see UPDATE sections). **Bug 3 root-caused & fixed 2026-07-17**:
+NOT an RC imbalance in yo-self source — an upstream TS-emitted-runtime bug
+(`__yo_cleanup_thread_gc` force-dispose walk double-frees tracked objects
+whose last ref is dropped by another object's dispose_fn mid-walk; 13-line
+repro). Fixed in `src/codegen/functions/generation.ts` + the yo-self mirror
+`yo-self/codegen/functions/gc_runtime.yo` by setting `__yo_gc_collecting = 1`
+during the walk (the same protection `__yo_gc_collect` uses). Full record:
+`issues/fixed/gc-cleanup-thread-force-dispose-double-free.md`. Regression
+test `tests/gc_cleanup_exit.test.yo`. Verified: failing `s1/s2 check` and
+`test` runs now exit rc=1 (was rc=134); fixpoint re-verified byte-identical;
+corpus 130/2-known; std 153/153. The `run_check` "failure exit broken" note
+below was the same bug — the throw path WAS reached, the exit itself aborted.
+Date: 2026-07-16 late (Bug 3 update 2026-07-17)
 
 ## UPDATE (2026-07-16 night): Bugs 1 and 2 FIXED; new frontier found
 
