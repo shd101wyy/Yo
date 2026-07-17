@@ -222,21 +222,29 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
     // which reached 200 KB+ for recursive types → ~10× C bloat).
     tk := type_key(type);
     stable := stable_type_identity(type);
+    (aliased : bool) = false;
     match(
       g_stable_to_key.get(stable.clone()),
       .Some(prev_key) => if(!(prev_key == tk), {
         // Same type, EVOLVED key render: alias to the first registration
-        // instead of adding (and later emitting) a second entry. Field
-        // recursion already happened on the first collection.
+        // instead of adding (and later emitting) a second entry. Do NOT skip
+        // the field recursion below: this arrival may embed DIFFERENT inner
+        // instances than the first one (two memo renditions of the same
+        // constructor chain — e.g. SortedMap's `_root` holding the
+        // pattern-era `Option` instance while the first-collected rendition
+        // held the concrete-era one). Emission walks THIS rendition's actual
+        // embedded instances, so each must be collected (or aliased) too.
         context.register_type_alias(tk, prev_key.clone());
-        return(());
+        aliased = true;
       }),
       .None => {
         g_stable_to_key.set(stable.clone(), tk.clone());
       }
     );
-    c_name := _intern_type_c_name(tk.clone());
-    context.register_type(tk, type, c_name, Option(String).None);
+    if(!(aliased), {
+      c_name := _intern_type_c_name(tk.clone());
+      context.register_type(tk, type, c_name, Option(String).None);
+    });
     // Struct fields (skip function-typed fields — emitted inline at call sites).
     match(
       type,

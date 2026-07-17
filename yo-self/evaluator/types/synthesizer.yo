@@ -30,7 +30,7 @@ open(import("std/string"));
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ register_some_resolved_concrete } :: import("../../expr_info.yo");
+{ register_some_resolved_concrete, lookup_struct_ctor_fid } :: import("../../expr_info.yo");
 { type_value_tag, t_effects_row, t_usize, resolve_enum_shell } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_pointer_type } :: import("../../types/guards.yo");
 { TypeTag } :: import("../../types/tags.yo");
@@ -1390,7 +1390,34 @@ _synthesize_types_impl :: (
     // comparing `functionValue.funcId`.
     exp_cfid3 := match(expected_ty,.Struct({ constructor_func_id : cfid }) => cfid, _ => ``);
     giv_cfid3 := match(given_ty,.Struct({ constructor_func_id : cfid }) => cfid, _ => ``);
-    same_constructor3 := ((exp_cfid3.len() > usize(0)) && (exp_cfid3 == giv_cfid3));
+    // An empty carried cfid may predate the constructor stamp (a self-recursive
+    // shell, or a memoized instantiation that embedded one) — recover it from
+    // the id-keyed stamp table, the value-semantics stand-in for TS mutating
+    // the shared type object (see expr_info.yo g_struct_ctor_fids). Without
+    // this, `SortedSet(T)` vs `SortedSet(i32)` FAILED to unify: the top-level
+    // pair matched by cfid but the `_inner : SortedMap(...)` FIELD instances
+    // carried pre-stamp empty cfids and threw here.
+    (exp_eff_cfid : String) = exp_cfid3;
+    (giv_eff_cfid : String) = giv_cfid3;
+    if(exp_eff_cfid.len() == usize(0), {
+      match(
+        lookup_struct_ctor_fid(exp_id3),
+        .Some(rec_cfid) => {
+          exp_eff_cfid = rec_cfid;
+        },
+        .None => ()
+      );
+    });
+    if(giv_eff_cfid.len() == usize(0), {
+      match(
+        lookup_struct_ctor_fid(giv_id3),
+        .Some(rec_cfid2) => {
+          giv_eff_cfid = rec_cfid2;
+        },
+        .None => ()
+      );
+    });
+    same_constructor3 := ((exp_eff_cfid.len() > usize(0)) && (exp_eff_cfid == giv_eff_cfid));
     if((exp_id3 != giv_id3) && !(same_constructor3), {
       exn.throw(
         dyn(

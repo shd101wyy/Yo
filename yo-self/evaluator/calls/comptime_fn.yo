@@ -18,8 +18,8 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get } :: import("../../expr_info.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, clone_expr_fresh_ids } :: import("../../expr.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid } :: import("../../expr_info.yo");
 { Variable, Environment } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t } :: import("../../types/creators.yo");
@@ -90,7 +90,22 @@ _ctfe_args_equal :: (
         bty := bty_b;
         a_is_some := is_some_type(aty);
         b_is_some := is_some_type(bty);
+        // TS compares cached type args with the SAME type OBJECT memo-hitting
+        // trivially (object identity). yo-self type values are copies, but a
+        // struct/enum ID is unique per definition and SHARED between a
+        // mid-definition self-shell and its final (struct.yo mints one id for
+        // both) — so same-id means same type object. Without this, a
+        // self-recursive constructor's `Option(Self)` (arg = fieldless shell)
+        // and the post-definition `Option(RBNode(K, V))` (arg = stamped final)
+        // land in SEPARATE memo entries, splitting one TS type object into two
+        // enum instances.
+        a_struct_id := match(aty,.Struct({ id : as_id }) => as_id, _ => String.from(""));
+        b_struct_id := match(bty,.Struct({ id : bs_id }) => bs_id, _ => String.from(""));
+        a_enum_id := match(aty,.EnumT(ae_id, _, _, _, _, _, _, _, _) => ae_id, _ => String.from(""));
+        b_enum_id := match(bty,.EnumT(be_id, _, _, _, _, _, _, _, _) => be_id, _ => String.from(""));
         cond(
+          ((a_struct_id.len() > usize(0)) && (a_struct_id == b_struct_id)) => true,
+          ((a_enum_id.len() > usize(0)) && (a_enum_id == b_enum_id)) => true,
           // Both bare SomeT: must be the exact same id
           (a_is_some && b_is_some) => (
             match(aty,.SomeT(id : aid) => aid, _ => String.from("")) ==
@@ -729,8 +744,14 @@ evaluate_comptime_fn_call :: (
     ArrayList(ImplConcreteTypeInfo).new()
   );
   ctx.force_compile_time_bindings = true;
-  // Evaluate the function body.
-  body_expr := body_box;
+  // Evaluate a FRESH-ID CLONE of the function body — TS evaluates
+  // `cloneExpr(functionBodyExpr)` per call (comptime-fn.ts:199), and its
+  // per-NODE `expr.$` info makes each execution's annotations private.
+  // yo-self's ExprInfo table is keyed by expr id, so executing the ORIGINAL
+  // tree makes every call overwrite the same ids: `SortedSet(i32)`'s body
+  // then read the T-era `SortedMap(T, bool)` instances annotated by the
+  // impl-registration call — splitting one TS type identity into two chains.
+  body_expr := clone_expr_fresh_ids(body_box);
   evaled_body := evaluate_begin_expression(
     body_expr,
     callee_env,
@@ -870,6 +891,9 @@ evaluate_comptime_fn_call :: (
     .TypeVal(rv_tb) => match(
       rv_tb,
       .Struct({ id : sid, name : sname, field_labels : slabels, field_types : stypes, is_reference_semantics : sref, is_atomic_rc : satomic, is_newtype : snt, constructor_func_id : scfid }) => if(scfid.len() == usize(0), {
+        // Mirror TS's shared-object stamp for copies that predate this one
+        // (self-recursive shells, memoized embedders) — see expr_info.yo.
+        register_struct_ctor_fid(sid.clone(), func_id_str.clone());
         stamped_name := if((sname.len() == usize(0)) && (ctfe_box_name.len() > usize(0)), ctfe_box_name.clone(), sname.clone());
         EvalValue.TypeVal(
           TypeValue.Struct(sid, stamped_name, slabels, stypes, sref, satomic, snt, func_id_str, inst_type_args, false)

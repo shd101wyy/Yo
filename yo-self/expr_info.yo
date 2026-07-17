@@ -565,6 +565,30 @@ register_some_resolved_concrete :: (fn(some_id : String, ty : TypeValue) -> unit
 lookup_some_resolved_concrete :: (fn(some_id : String) -> Option(TypeValue))(
   g_some_resolved_concrete.get(some_id)
 );
+// Constructor-funcId stamp side-table, keyed by STRUCT ID. TS stamps
+// `returnedType.functionValue = functionValue` by MUTATING the shared type
+// object when a comptime type-constructor returns (comptime-fn.ts:270-277),
+// so every reference — including the pre-stamp SHELL copies a self-recursive
+// body embeds via `Option(Self)`, and the memoized instantiations that
+// captured those shells — observes the stamp. yo-self TypeValues are copies:
+// the stamp applied to the ctfe RETURN value never reaches copies made
+// earlier (e.g. `SortedMap`'s `_root : Option(RBNode(K, V))` holds the
+// `Option(Self)` instance cached DURING RBNode's own body eval, embedding the
+// fieldless pre-stamp shell). Since a shell shares its final's struct id, the
+// id is the object-identity surrogate: keying the stamp by id lets any
+// holder — the synthesizer's same-constructor unification in particular —
+// recover the constructor fid exactly as TS's mutated object would show it.
+// (Same durable-global pattern as g_some_resolved_concrete above.)
+(g_struct_ctor_fids : HashMap(String, String)) = HashMap(String, String).new();
+/// Record the constructor funcId stamped onto the struct with `struct_id`.
+register_struct_ctor_fid :: (fn(struct_id : String, ctor_fid : String) -> unit)({
+  g_struct_ctor_fids.set(struct_id, ctor_fid);
+  ()
+});
+/// The constructor funcId stamped for `struct_id`, if any.
+lookup_struct_ctor_fid :: (fn(struct_id : String) -> Option(String))(
+  g_struct_ctor_fids.get(struct_id)
+);
 // Macro-expansion side-table: a macro CALL's expanded form (e.g. `if(c, t, e)` →
 // its `cond(...)`), keyed by the call's expr id. yo-self codegen lowers a macro
 // call ONLY via `ExprInfo.macro_expansion` (generation.yo) — but that per-pass
@@ -629,5 +653,6 @@ export(record_method_callee_type, lookup_method_callee_type);
 export(record_method_callee_value, lookup_method_callee_value);
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_type);
 export(register_some_resolved_concrete, lookup_some_resolved_concrete);
+export(register_struct_ctor_fid, lookup_struct_ctor_fid);
 export(record_macro_expansion, lookup_macro_expansion);
 export(record_module_level_init_expr, get_module_level_init_exprs);
