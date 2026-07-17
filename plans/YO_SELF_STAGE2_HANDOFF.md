@@ -167,7 +167,22 @@ declares an IoExn C type; yo-self's closure-declaration path keeps the
 bundle as a real struct param under the comptime-io call shape. Fix
 locus: yo-self's async/closure declaration+collection port (find where
 TS decides Path 2 for struct-typed effect params and mirror it for
-closures reached via the comptime-io specialization). NOTE (user
+closures reached via the comptime-io specialization). **SYNTHESIS (read
+the panic KEY closely):** the missing IoExn is `struct_yo_id_5017` with
+an `Io = struct_yo_id_2965` first field — id 5017 was minted DURING the
+batch compile (user-program range), i.e. std's IoExn got RE-EVALUATED
+under the comptime-io call shape and the fresh copy's structural type_key
+(ids are EMBEDDED in keys) no longer matches the canonical collected
+instance. So the -6 family is ALSO the type-identity-churn family. This
+unifies nearly the whole remaining #69+#70 tail under ONE core
+divergence: yo-self type identity is not stable across re-evaluations
+(TS's object identity is), leaking into intern keys, spec caches, typeid
+emission, closure captures, and effect-bundle params. The
+declaration-stable-id direction is therefore THE central fix — debug its
+tk2 regression (trace Bucket id flow under the swap) instead of
+abandoning it; secondary mirror fix: TS's Path-2 bundle-field expansion
+for struct-typed effect closure params (which would make IoExn's C type
+unnecessary here regardless). NOTE (user
 directive): user Yo code must always take `io : Io` in main's signature —
 `io :: __yo_builtin_io` is internal to the runner's synthesized batches;
 keep any repro of this class explicitly labeled as the runner shape.
