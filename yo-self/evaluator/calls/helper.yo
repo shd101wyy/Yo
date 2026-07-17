@@ -705,7 +705,20 @@ sanitize_for_sig :: (fn(s : String) -> String)({
 value_to_signature_string :: (fn(value : EvalValue) -> String)(
   match(
     value,
-    .TypeVal(t) => type_to_string(t),
+    // Mirror TS `${valueToString(value)}_id${type.id}` (helper.ts:2103): the
+    // human-readable type string ALONE is not instantiation-precise — an
+    // anonymous generic instantiation renders `<struct:yo_id_N>` where N is
+    // the shared DECLARATION id, so every same-named local struct / generic
+    // instantiation produced the SAME specialization signature and collapsed
+    // onto one specialized function (param typed from one instantiation,
+    // return from another — arc.test.yo's per-test `Counter :: struct(...)`;
+    // previously also the shared-GcTracer-visit Bucket class). yo-self has no
+    // numeric `type.id`; `type_key` is its instantiation-precise identity.
+    // (Re-applied 2026-07-17: the 2026-07-15 revert's crash verdicts came
+    // from an invalidated bisect — the startup corruption was the since-fixed
+    // RC/GC-teardown bugs. See
+    // issues/yo-self-specialization-signature-type-identity.md.)
+    .TypeVal(t) => `${type_to_string(t)}_id_${type_key(t)}`,
     .FuncVal(__fvd2, _) => `fn_${__fvd2.*.func_id}`,
     _ => value_to_string(value)
   )

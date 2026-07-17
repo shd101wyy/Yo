@@ -350,21 +350,22 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
       });
       key
     },
-    // NOTE deliberately NO `.Pointer` branch: pointers key via the stable
-    // `type_to_string` fallback (`*(<struct:yo_id_N>)`). Recursing into the
-    // pointee LOOKED more precise, but the struct branch's key for a given
-    // type EVOLVES with `g_struct_cfid_keys` state (first-registration /
-    // poison transitions), so the same pointer type keyed at eval time vs
-    // codegen time rendered DIFFERENTLY → one Yo type registered as two C
-    // types → the stage-2 binary corrupted its heap at startup (bisected
-    // 2026-07-15). More broadly, ANY instantiation-precise specialization
-    // signature (state-free structural renders included) materializes
-    // per-instantiation specialized bodies that expose a latent codegen bug
-    // (same s2 startup corruption) — so shared-decl-id generic instantiations
-    // stay MERGED for now, and the GcTracer visit body/signature mismatch is
-    // fixed by consistency instead (codegen/exprs/gc.yo walks the
-    // registry-resolved type). Full analysis:
+    // Pointer: recurse into the pointee so `*(anon-generic-instantiation)`
+    // inherits the struct machinery's instantiation-precise key. The plain
+    // `_ => type_to_string` fallback rendered `*(<struct:yo_id_N>)` — N being
+    // the shared DECLARATION id — so pointers to different instantiations
+    // produced identical keys and collided (the shared GcTracer visit
+    // specialization class; TS keys every type by its unique numeric
+    // `type.id`). Re-applied 2026-07-17: the 2026-07-15 revert's "stage-2
+    // startup heap corruption" verdict came from an invalidated bisect — the
+    // corruption was the since-fixed RC leak + GC-teardown double-free. See
     // issues/yo-self-specialization-signature-type-identity.md.
+    .Pointer(pointee) => {
+      key := String.from("*(");
+      key.push_string(recur(pointee, depth + usize(1)));
+      key.push_str(")");
+      key
+    },
     _ => type_to_string(t)
   )
 );
