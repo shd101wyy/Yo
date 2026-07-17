@@ -40,12 +40,54 @@ open(import("std/error"));
 { Token, TokenKind } :: import("../token.yo");
 { Parser } :: import("../parser.yo");
 { AstExpr } :: import("../expr.yo");
-{ Environment } :: import("../env.yo");
+{ Environment, build_prelude_var_cache } :: import("../env.yo");
 { TypeValue } :: import("../types/definitions.yo");
 { EvalValue } :: import("../value.yo");
-{ evaluate_module_body, set_module_loader } :: import("./eval.yo");
+{ set_module_loader } :: import("./eval.yo");
 { register_evaluate_expression } :: import("./exprs/_expr.yo");
 { pre_scan_for_skip_prelude } :: import("./builtins/pragma.yo");
+{ eval_context_new, LoadModuleResult } :: import("./context.yo");
+{ evaluate_anonymous_module_begin_exprs } :: import("./values/anonymous_module.yo");
+// ---------------------------------------------------------------------------
+// Context module loader bridge
+// ---------------------------------------------------------------------------
+// `EvalContext.load_module` has a fixed `(path) -> LoadModuleResult`
+// signature, so the user-supplied `(path) -> Option(EvalValue)` loader is
+// stashed here and adapted by `_evaluator_ctx_load_module` (same pattern as
+// main.yo's `g_demand_loader`).
+(g_evaluator_load_fn : Option((fn(path : String) -> Option(EvalValue)))) =.None;
+_evaluator_ctx_load_module :: (fn(path : String) -> LoadModuleResult)(
+  match(
+    g_evaluator_load_fn,
+    .Some(f) =>
+      match(
+        f(path.clone()),
+        .Some(v) => LoadModuleResult(
+          module_value : v,
+          module_type : TypeValue.Unit,
+          module_error : Option(String).None
+        ),
+        .None => LoadModuleResult(
+          module_value : EvalValue.UnitVal,
+          module_type : TypeValue.Unit,
+          module_error : Option(String).Some(`Module not found: ${path}`)
+        )
+      ),
+    .None => LoadModuleResult(
+      module_value : EvalValue.UnitVal,
+      module_type : TypeValue.Unit,
+      module_error : Option(String).Some(String.from("No module loader registered"))
+    )
+  )
+);
+(g_evaluator_ctx_loader : Option((fn(path : String) -> LoadModuleResult))) =.None;
+// Wire the slot (mirrors main.yo's `_demand_loader_init`).
+_evaluator_loader_init := (fn() -> bool)({
+  g_evaluator_ctx_loader = Option((fn(path : String) -> LoadModuleResult)).Some(
+    _evaluator_ctx_load_module
+  );
+  true
+})();
 // ---------------------------------------------------------------------------
 // Comment-attribute check
 // ---------------------------------------------------------------------------
@@ -188,9 +230,37 @@ impl(
     // dispatches through the correct function slot even without a test stub.
     register_evaluate_expression();
     // Clone program so the stored `program` field remains valid after
-    // `evaluate_module_body` consumes its copy.
+    // evaluation consumes its copy.
     program_for_eval := program.clone();
-    module_value := evaluate_module_body(program_for_eval, env);
+    // Mirror TS `Evaluator.evaluateProgram`: drive the REAL module evaluator
+    // (`evaluateAnonymousModuleBeginExprs`) with an EXECUTING context — not
+    // the legacy `evaluate_module_body` flat walker, whose non-executing walk
+    // diverges from TS (e.g. macro bodies evaluated without `is_executing`
+    // lose comptime values; issues/yo-self-expr-eq-macro-body-false.md).
+    (module_value : Option(EvalValue)) =.None;
+    (final_env : Option(Environment)) =.Some(env);
+    if(module_error.is_none(), {
+      g_evaluator_load_fn =.Some(load_module_fn);
+      ctx := eval_context_new(std_path.clone(), module_path.clone());
+      ctx.is_executing = true;
+      ctx.load_module = g_evaluator_ctx_loader;
+      result := evaluate_anonymous_module_begin_exprs(
+        program_for_eval,
+        env,
+        ctx,
+        false,
+        true,
+        exn
+      );
+      module_value = Option(EvalValue).Some(result.module_value);
+      module_error = result.partial_module_error;
+      final_env = Option(Environment).Some(result.env);
+      // Mirror TS: build the O(1) prelude variable cache after evaluating
+      // the prelude itself.
+      if(module_path.ends_with(String.from("prelude.yo")), {
+        build_prelude_var_cache(result.env);
+      });
+    });
     Evaluator(
       input_string : input_string,
       module_path : module_path,
@@ -198,7 +268,7 @@ impl(
       tokens : toks,
       module_value : module_value,
       module_error : module_error,
-      env :.Some(env)
+      env : final_env
     )
   }),
   get_program : (fn(self : Self) -> ArrayList(AstExpr))(self.program),

@@ -12,15 +12,11 @@ noop_loader :: (fn(_path : String) -> Option(EvalValue))(
   Option(EvalValue).None
 );
 test("Phase6f: ExprVal Atom equality via __yo_expr_eq", {
-  // SKIPPED — REAL yo-self divergence, verified 2026-07-16:
-  // `__yo_expr_eq(quote(x), quote(x))` inside a macro body returns FALSE in
-  // yo-self's proper Evaluator but TRUE under the TS evaluator (negative
-  // control quote(x)/quote(y) correctly false there). eval_value_eq's Atom
-  // equality itself is correct; the loss is upstream in the macro-body
-  // arg-eval path. Full differential + probes:
-  // issues/yo-self-expr-eq-macro-body-false.md. Re-enable the body below
-  // (`if(false, ...)` → `if(MACRO_DISPATCH_ENABLED, ...)`) when fixed.
-  if(false, {
+  // Was skipped on issues/yo-self-expr-eq-macro-body-false.md (macro-body
+  // `__yo_expr_eq(quote(x), quote(x))` FALSE); fixed by the 2026-07-16
+  // env/ctx restore fixes — the check-path differential passes with a
+  // correct negative control (re-verified 2026-07-17).
+  if(MACRO_DISPATCH_ENABLED, {
     exn := Exception(
       throw : (
         (err) -> {
@@ -101,7 +97,12 @@ test("Phase6f: gensym produces fresh atoms", {
         }
       )
     );
-    src := String.from("pragma(Pragma.SkipPrelude);\nmake_pair :: (fn() -> unquote(Expr))({ a :: gensym(\"u\"); b :: gensym(\"v\"); quote({ unquote(a) := 3; unquote(b) := 4; (unquote(a) + unquote(b)) }) });\nv :: make_pair();\nexport(v);\n");
+    // Comptime `::` bindings, no operators — `+`/`==` need the prelude and
+    // TS rejects the old `:=`-based source outright (the real module
+    // evaluator matches TS; the legacy walker never truly evaluated this).
+    // Freshness is still what's under test: both gensym'd bindings coexist
+    // in one block, and `v` picks the second (4).
+    src := String.from("pragma(Pragma.SkipPrelude);\nmake_pair :: (fn() -> unquote(Expr))({ a :: gensym(\"u\"); b :: gensym(\"v\"); quote({ unquote(a) :: 3; unquote(b) :: 4; unquote(b) }) });\nv :: make_pair();\nexport(v);\n");
     eval := Evaluator.new(String.from("<phase6f2>"), String.from("<no-std>"), noop_loader, src, exn);
     match(
       eval.get_module_error(),
@@ -146,7 +147,7 @@ test("Phase6f: gensym produces fresh atoms", {
               },
               .Some(rv) => match(
                 rv,
-                .IntLit(s) => assert(s == "7", "expected 7"),
+                .IntLit(s) => assert(s == "4", "expected 4"),
                 _ => {
                   assert(false, "v not IntLit");
                 }
@@ -173,7 +174,11 @@ test("Phase6f: .cdr on ComptimeListVal", {
         }
       )
     );
-    src := String.from("pragma(Pragma.SkipPrelude);\ncdr_len :: (fn(quote(e) : Expr) -> unquote(Expr))(cond((e.get_args().cdr().len() == 1) => quote(1), true => quote(0)));\nv :: cdr_len((3 + 4));\nexport(v);\n");
+    // Raw builtins — the `.get_args()/.cdr()/.len()` method sugar and `==`
+    // need the prelude, and TS rejects the old source under SkipPrelude (the
+    // real module evaluator matches TS). car(cdr(args((3 + 4)))) = 4 still
+    // exercises .cdr semantics (drops the first arg).
+    src := String.from("pragma(Pragma.SkipPrelude);\ncdr_first :: (fn(quote(e) : Expr) -> unquote(Expr))(__yo_comptime_list_car(__yo_comptime_list_cdr(__yo_expr_get_args(e))));\nv :: cdr_first((3 + 4));\nexport(v);\n");
     eval := Evaluator.new(String.from("<phase6f3>"), String.from("<no-std>"), noop_loader, src, exn);
     match(
       eval.get_module_error(),
@@ -218,7 +223,7 @@ test("Phase6f: .cdr on ComptimeListVal", {
               },
               .Some(rv) => match(
                 rv,
-                .IntLit(s) => assert(s == "1", "expected 1"),
+                .IntLit(s) => assert(s == "4", "expected 4"),
                 _ => {
                   assert(false, "v not IntLit");
                 }

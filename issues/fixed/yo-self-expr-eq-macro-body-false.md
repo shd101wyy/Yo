@@ -1,9 +1,22 @@
 # yo-self: `__yo_expr_eq(quote(x), quote(x))` is FALSE inside a macro body (TS: true)
 
-Status: OPEN (verified differential 2026-07-16). Does not block #69/#70 —
-no test suite depends on it; `yo-self/tests/phase6f_macro_helpers.test.yo`
-test 1 is skipped on it (`if(false, ...)` — flip back to
-`if(MACRO_DISPATCH_ENABLED, ...)` when fixed).
+Status: FIXED (2026-07-17). Root cause was NOT in the expr_eq/quote path at
+all: `yo-self/evaluator/index.yo`'s `Evaluator.new` evaluated modules through
+the LEGACY `evaluate_module_body` flat walker (eval.yo) with no EvalContext —
+TS's `Evaluator.evaluateProgram` drives the real
+`evaluateAnonymousModuleBeginExprs` with `isExecuting: true`. Under the
+legacy walker the macro-body `cond` condition never even reached the
+`__yo_expr_eq` builtin dispatch (probe in `evaluate_yo_expr_eq` never fired),
+so the else arm was taken. Fix: rewrite `Evaluator.new` to mirror TS —
+`eval_context_new` + `is_executing = true` + `ctx.load_module` bridged to the
+user loader (g_demand_loader pattern) + `evaluate_anonymous_module_begin_exprs`;
+`module_value`/`module_error`/`env` now come from its `AnonModuleResult`.
+This also fixed the second oddity recorded below (module-level variant's
+`get_module_value()` returning None). `phase6f_macro_helpers.test.yo` test 1
+re-enabled (`if(MACRO_DISPATCH_ENABLED, ...)`); standalone differential gives
+`v = IntLit(1)` with both args ExprVal.
+
+_(historical record below)_
 
 ## Differential (the TS oracle)
 

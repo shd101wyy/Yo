@@ -110,7 +110,12 @@ test("Phase6c verify: two-arg macro builds sum AST", {
         }
       )
     );
-    src := String.from("pragma(Pragma.SkipPrelude);\nadd_macro :: (fn(quote(a) : Expr, quote(b) : Expr) -> unquote(Expr))(quote((unquote(a) + unquote(b))));\nz :: add_macro(3, 4);\nexport(z);\n");
+    // The macro still BUILDS the sum AST, but the test asserts on its
+    // STRUCTURE (__yo_expr_eq against quote((3 + 4))) instead of evaluating
+    // it — `+` needs the prelude, and TS rejects evaluating the old
+    // `unquote(Expr)` expansion under SkipPrelude (the real module evaluator
+    // matches TS; the legacy walker never truly evaluated it).
+    src := String.from("pragma(Pragma.SkipPrelude);\nadd_macro :: (fn(quote(a) : Expr, quote(b) : Expr) -> comptime(Expr))(quote((unquote(a) + unquote(b))));\nz :: __yo_expr_eq(add_macro(3, 4), quote((3 + 4)));\nexport(z);\n");
     eval := Evaluator.new(
       String.from("<phase6c2>"),
       String.from("<no-std>"),
@@ -161,9 +166,9 @@ test("Phase6c verify: two-arg macro builds sum AST", {
               },
               .Some(zv) => match(
                 zv,
-                .IntLit(s) => assert(s == "7", "z is not 7"),
+                .BoolVal(b) => assert(b, "add_macro AST != quote((3 + 4))"),
                 _ => {
-                  assert(false, "z is not an IntLit");
+                  assert(false, "z is not a BoolVal");
                 }
               )
             )

@@ -149,7 +149,10 @@ test("Evaluator.new: simple binding with skip_prelude", {
       }
     )
   );
-  src := String.from("pragma(Pragma.SkipPrelude);\nx := 42;\nexport(x);\n");
+  // `x :: 42` (comptime) — TS rejects exporting a runtime `:=` binding
+  // ("not a compile-time variable"), and the Evaluator now evaluates through
+  // the real module evaluator, matching that semantics.
+  src := String.from("pragma(Pragma.SkipPrelude);\nx :: 42;\nexport(x);\n");
   eval := Evaluator.new(
     String.from("<test>"),
     String.from("<no-std>"),
@@ -247,7 +250,8 @@ test("Evaluator.new: module_value contains exported name", {
       }
     )
   );
-  src := String.from("pragma(Pragma.SkipPrelude);\nmsg := 99;\nexport(msg);\n");
+  // `msg :: 99` (comptime) — TS rejects exporting a runtime `:=` binding.
+  src := String.from("pragma(Pragma.SkipPrelude);\nmsg :: 99;\nexport(msg);\n");
   eval := Evaluator.new(
     String.from("<test>"),
     String.from("<no-std>"),

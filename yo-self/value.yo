@@ -10,7 +10,7 @@ open(import("std/string"));
 { TypeValue } :: import("./types/definitions.yo");
 { t_unit, t_bool, t_comptime_int, t_comptime_float, t_comptime_string, t_type, t_some_t } :: import("./types/creators.yo");
 { is_type_0 } :: import("./types/guards.yo");
-{ AstExpr } :: import("./expr.yo");
+{ AstExpr, exprs_are_equal } :: import("./expr.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("./types/compatibility.yo");
 /// Non-`Self`-referencing fields of `EvalValue.FuncVal`, factored out and stored
 /// behind a `Box` (P2 memory). These reference only `String`/`AstExpr`/`TypeValue`
@@ -509,18 +509,11 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
           ),
         _ => false
       ),
-    // ExprVal: structural equality on Atom token values; FnCall not yet supported.
+    // ExprVal: full structural equality — Atoms by token value, FnCalls by
+    // callee + args recursively (mirrors TS areValuesEqual → exprsAreEqual).
     .ExprVal(a_ex) => match(
       b,
-      .ExprVal(b_ex) => match(
-        a_ex,
-        .Atom(_, atok) => match(
-          b_ex,
-          .Atom(_, btok) => (atok.value == btok.value),
-          _ => false
-        ),
-        _ => false
-      ),
+      .ExprVal(b_ex) => exprs_are_equal(a_ex, b_ex),
       _ => false
     ),
     // UnknownVal: two unknowns are equal if they represent the same type.
