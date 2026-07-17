@@ -41,6 +41,19 @@ SortedSet(T), is_empty : (fn(self : Self) -> bool)(...))`
   async_await already showed void-param leftovers), but files now reach
   it after the earlier layers were fixed.
 
+## Probe result (2026-07-17, [RMETH] in \_try_find_receiver_method)
+
+`is_empty hits=1 is_fn_ty=true has_val=true` printed TWICE (def-trial +
+executing) — resolution SUCCEEDS with a function-typed candidate carrying
+a value. And the INNER `self._inner.is_empty()` (SortedMap) lookup never
+fires — the method-body specialization dies BEFORE reaching it, swallowed
+by the def-eval wall; the call expr then has no ExprInfo type → codegen
+FTTs the assert flag to void. Next hop: probe the FuncVal-arm call path
+(evaluate_function_call → try_to_call_function_with_arguments) for what
+throws when calling the SortedSet(i32).is_empty candidate — likely the
+`Self`-bound param unification or the impl forall-capture injection
+(`_inject_forall_captures`) for the where-clause pattern impl.
+
 ## Hunt plan
 
 Probe `find_methods_from_generic_impls`' candidate for `is_empty` on
