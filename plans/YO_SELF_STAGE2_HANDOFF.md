@@ -644,6 +644,31 @@ collection alias-with-field-recursion, and the fresh-id ctfe body clone.
 Re-land them SEPARATELY from the spec port, each with the full gate set
 including the new env-check gate.
 
+## 2026-07-18 RE-LAND (mainline 27400e882) — the four type-identity fixes are IN
+
+The B/C/D/F fixes from attempt #6 re-landed on `feat/bootstrap-codegen`
+WITHOUT the spec port and passed the COMPLETE gate set including the two
+new ones: `s2 check std/env.yo` OK and **fixpoint BYTE-IDENTICAL**.
+std check is now 154 files OK (was 153). The SortedSet 9-line repro went
+2 FTTs → 1: `is_empty` now transpiles; only `new`'s unspecialized body
+remains (`Self(_inner : SortedMap(T, bool).new())`).
+
+A quick attempt to close that last FTT by extending the runtime-path
+for-codegen specialization trigger to impl-generic methods (TypeVal-capture
+scan, then an injected-forall-names side table) did NOT converge: the
+capture scan over-fired on every module function (module types are ordinary
+TypeVal captures), and the narrowed injected-names lookup missed at the call
+site (the fid at dispatch differs from the fid recorded at injection —
+find the re-mint between `_inject_forall_captures` and
+`_evaluate_funcval_runtime_call`; `fv_for_recur` random_id re-mint and the
+method-callee-value tables are the suspects). Both attempts REVERTED; the
+injected-names design is likely right once keyed by the fid the CALL SITE
+actually sees.
+
+Round-6 sweeps over /tmp/s2_r5_list.txt (92) + /tmp/s2_yoself_list.txt (61,
+19 divergent) launched with the new s2 (logs: /tmp/s2_sweep_r6/,
+/tmp/s2_sweep_yoself_r6/).
+
 ## Recent commits (this era, newest first)
 
 ```
