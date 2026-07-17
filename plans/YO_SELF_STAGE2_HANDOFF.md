@@ -156,7 +156,18 @@ should have been erased/expanded to fn pointers) and then asks
 get_type_string for it. Hunt: make the type-declaration emitter print the
 OWNER struct's key when a FIELD lookup panics (the current_function-empty
 panic is the decl phase), then compare that owner against TS's emission
-of the same construct to see what TS erased. NOTE (user
+of the same construct to see what TS erased. **OWNER FOUND (prototype
+emitter now stamps `<proto:NAME>` into current_function_name):** the
+panic fires declaring `<proto:closure_yo_id_5021>` — a CLOSURE prototype
+whose parameter is the raw `IoExn` struct. That's std/async's
+`(e : IoExn) =>`-style future-callback closure: TS lowers a struct-typed
+effect param via bundle-FIELD expansion (src/codegen/exprs/async.ts:441
+"Path 2: struct-typed effect ... fields live in the capture") and never
+declares an IoExn C type; yo-self's closure-declaration path keeps the
+bundle as a real struct param under the comptime-io call shape. Fix
+locus: yo-self's async/closure declaration+collection port (find where
+TS decides Path 2 for struct-typed effect params and mirror it for
+closures reached via the comptime-io specialization). NOTE (user
 directive): user Yo code must always take `io : Io` in main's signature —
 `io :: __yo_builtin_io` is internal to the runner's synthesized batches;
 keep any repro of this class explicitly labeled as the runner shape.

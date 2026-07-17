@@ -134,6 +134,11 @@ generate_function_prototype :: (
       param_labels := __fm1.*.param_labels;
       param_is_ref := __fm1.*.param_is_ref;
       result_is_ref := __fm1.*.result_is_ref;
+      // Diagnostic context for _lookup_named_c_type panics during PROTOTYPE
+      // emission (current_function_name is otherwise only set during body
+      // generation) — a decl-phase missing-type panic then names its owner.
+      prev_cfn := context.current_function_name;
+      context.current_function_name = `<proto:${c_function_name}>`;
       return_type_str := match(
         override_return_type,
         .Some(s) => s,
@@ -206,6 +211,7 @@ generate_function_prototype :: (
       });
       out.push_string(params);
       out.push_str(")");
+      context.current_function_name = prev_cfn;
       out
     },
     _ => {
