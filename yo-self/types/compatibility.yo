@@ -573,6 +573,20 @@ _compat_impl :: (
         // comptime-fn CTFE cache, collapsing HashMap(_, CodegenTypeEntry).values()
         // and HashMap(_, CodegenExternFnEntry).values() to one instantiation.
         ((((aname.len() != usize(0)) && (ename.len() != usize(0))) && (aname != ename)) && ((!(type_contains_some_type(actual))) && (!(type_contains_some_type(expected))))) => false,
+        // SAME-NAMED DISTINCT DECLARATIONS (mirrors TS requireExactMatch's
+        // strict type-ID comparison, helper.ts:2288-2292): reaching here means
+        // aid != eid (the id-equality arm above returned true otherwise). Two
+        // structs with the SAME non-empty stamped name, different ids, no
+        // SomeT on either side and NO type_arguments are DISTINCT
+        // declarations — e.g. per-test local `Counter :: struct(...)` in a
+        // batched test file. Falling through to the structural tail collided
+        // the specialization cache: ONE `ident(T)` spec served both Counters,
+        // its param C type from the first and its return from the second
+        // (arc.test.yo class). Generic instantiations/copies are untouched:
+        // instantiations carry type_arguments, and cfid-empty copies SHARE
+        // their original's id (caught by the id-equality arm). See
+        // issues/yo-self-same-name-local-struct-spec-cache-collision.md.
+        (((aname.len() != usize(0)) && (aname == ename)) && (((ata.len() == usize(0)) && (eta.len() == usize(0))) && ((!(type_contains_some_type(actual))) && (!(type_contains_some_type(expected)))))) => false,
         (alabels.len() != elabels.len()) => false,
         true => {
           vkey := ((aid.clone() + String.from("=>")) + eid);

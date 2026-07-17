@@ -1,8 +1,13 @@
 # yo-self: same-named LOCAL structs collide the specialization cache (one spec, param t10 / return t11)
 
-Status: OPEN — root-caused 2026-07-17 with probes; fix not yet designed to
-safety. Blocks a large #69 class (arc.test.yo and every batched test file
-whose tests each declare a local `Counter :: struct(...)`-style type).
+Status: FIXED (2026-07-17, same day). The exact-struct arm of
+`_compat_impl` (types/compatibility.yo) gained a SAME-NAMED-distinct-
+declarations rule: same non-empty name + different ids + no SomeT + no
+type_arguments → DISTINCT under require_exact (reaching that point in the
+cond chain already implies aid != eid). Generic instantiations carry
+type_arguments and cfid-empty copies share ids, so both stay structural.
+Verified: repro prints 10/20 (== TS), tk2 3-HashMap repro intact, corpus
+130/2-known, std 153/153, fixpoint byte-identical.
 
 ## 17-line repro (src/tests/fixme.yo shape; TS prints 10/20, s1 clang-fails)
 
