@@ -669,6 +669,26 @@ Round-6 sweeps over /tmp/s2_r5_list.txt (92) + /tmp/s2_yoself_list.txt (61,
 19 divergent) launched with the new s2 (logs: /tmp/s2_sweep_r6/,
 /tmp/s2_sweep_yoself_r6/).
 
+## 2026-07-18 GAP-6 CLOSED (mainline ef8344537) — SortedSet family green
+
+The flagship SortedSet repro is FULLY GREEN (compiles + runs, 0 FTTs).
+The winning path was NOT the resolution-time spec port (attempts #1-#6,
+abandoned — see issues/fixed/yo-self-sortedset-method-call-type-void.md):
+
+- `27400e882` type-identity fixes made the impl-match unify and the type
+  graph coherent (2 FTTs → 1).
+- `ef8344537` supersession: the existing call-site specialization ALREADY
+  produced a perfect spec + consumption for `new`/`is_empty` — the compile
+  broke only on the DEAD abstract original also being emitted. Supersession
+  counters + a post-emission abort() stub for superseded+FTT bodies fixed it.
+
+Full gates green including `s2 check std/env.yo` and fixpoint
+BYTE-IDENTICAL. Canonical /tmp/s1 & /tmp/s2 updated to ef8344537.
+
+Round-6 sweeps ran against the PRE-supersession s2 (results partially
+stale); round 6b over both divergent lists with the ef8344537 s2 is the
+next action — expect the imm\_\*/collections tail to shrink substantially.
+
 ## Recent commits (this era, newest first)
 
 ```
