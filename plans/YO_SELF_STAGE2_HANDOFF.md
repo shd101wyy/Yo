@@ -254,7 +254,13 @@ specialization on every lookup hit side-effects the registries thousands
 of times during the self-compile. NEXT ITERATION: make it LAZY — record
 the specialization REQUEST (memo key) at resolution and evaluate the body
 only when the candidate is SELECTED at an actual call site; also fix the
-remaining SortedSet consumption gap while there. Original note:
+remaining SortedSet consumption gap while there. **LAZY ITERATION STARTED
+(3rd WIP commit, BROKEN — labeled 'do not build on'):** pend-fid
+recording + call-site run_pending_rspec compiles clean but regresses the
+whole battery (tk2 rc=1, Counter/SortedSet segv, cpc 134) — the pend-fid
+indirection breaks call processing. Debug from the WIP commit message's
+suspect list; attempt #5 (previous WIP commit) remains the gate-clean
+eager reference. Original note:
 (superseded)
 (commit 0446a6ed3): the full TS shouldCreateSpecializedValue mirror —
 proven emitting 18 `\_rspec*`specializations — reverted from mainline on
