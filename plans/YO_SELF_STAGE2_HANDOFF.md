@@ -146,17 +146,24 @@ fixes; no complete sweep result exists yet.
 commits `25761e121` + the follow-up suite-repair commit). Read
 `issues/yo-self-tests-ts-baseline.md` — it has the full record.** Summary:
 
-- The suite had ~24 stale tests (predating the ref-enum reference-semantics
-  and FuncMeta refactors: `box(...)`/`Box(TypeValue)(...)` wrappers, `x.*`
-  match derefs, flat 17-field `TypeValue.Func` constructions, a
-  mid-test-body `std/assert` import, one pre-port behavioral assert). ALL
-  repaired and solo-verified green; three NEW test files added (type_key,
-  synthesizer, formatter). No TS-compiler bugs were found by the baseline.
-- **Effective baseline: every file passes fully under TS except
-  eval_basics/eval_tail_1/eval_tail_2**, which exceed the runner's 1800s
-  isolated-process limit (documented known-heavy; they `check` clean —
-  validate via `check` + s2 compile sweeps, don't count them as failures
-  on either side).
+- The suite had extensive staleness predating the ref-enum
+  reference-semantics and FuncMeta refactors: `box(...)`/
+  `Box(TypeValue)(...)` wrappers, `x.*` match derefs, flat `TypeValue.Func`
+  constructions, `ModuleVal` (removed in `4fc9c673e` — modules are
+  `StructVal` now), flat 9-field `.FuncVal(...)` patterns, ~2500 str
+  literals against `String` params, a mid-test-body `std/assert` import,
+  a couple of pre-port behavioral asserts. ALL repaired and verified
+  green; three NEW test files added (type_key, synthesizer, formatter).
+  No TS-compiler bugs were found by the baseline.
+- **The eval trio's "known-heavy, exceeds 1800s" reputation is DEAD**: the
+  timeouts were bisection storms over stale tests (every batch failed →
+  the runner's bisect-on-compile-failure recompiled the whole-evaluator
+  import graph dozens of times), never inherent cost. Post-migration:
+  eval_basics 123/123 in 89s, eval_tail_1 107/107 in 87s, eval_tail_2
+  107/107 in 88s. If they ever slow down drastically again, suspect NEW
+  stale tests re-triggering bisection, not file size.
+- **Effective baseline: EVERY file in yo-self/tests passes fully under
+  TS.** The #70 comparison is exact — no exclusions.
 - One real yo-self divergence was found and filed while re-enabling a
   skipped test: `issues/yo-self-expr-eq-macro-body-false.md`
   (`__yo_expr_eq` false inside macro bodies; phase6f test 1 is

@@ -44,11 +44,13 @@ TypeScript `yo-cli`. They fall into three tiers:
    `phase6*` (macro + reflection, end-to-end through `Evaluator.new`).
 3. **End-to-end evaluator tests** — `eval_basics.test.yo` (123 tests),
    `eval_tail_1.test.yo` (107), `eval_tail_2.test.yo` (107). Each batch
-   compiles the _entire_ self-hosted evaluator and currently **exceeds the
-   test runner's 1800 s isolated-process limit**, so these three are
-   known-heavy and excluded from routine runs. They still `./yo-cli check`
-   clean (evaluator OK), and the same code paths are exercised continuously
-   by the self-hosted binary sweeps below.
+   compiles the _entire_ self-hosted evaluator, so a batch compile costs
+   ~1 min — but the files run green in **~90 s each** (337/337 total).
+   (They previously blew the runner's 1800 s limit; that was never inherent
+   cost — hundreds of stale-API tests made every batch fail and the
+   runner's bisection-on-failure recompiled the whole evaluator dozens of
+   times. Migrated 2026-07-17; if these files ever slow down drastically
+   again, suspect NEW stale tests triggering bisection storms, not size.)
 
 Tests that need macro **dispatch** (executing macro bodies at expansion
 time) are gated on `MACRO_DISPATCH_ENABLED` in

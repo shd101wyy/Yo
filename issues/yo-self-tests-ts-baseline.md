@@ -90,5 +90,24 @@ Final solo-verified numbers for every repaired/new file:
 | synthesizer.test.yo (NEW)     | 3/3                          |
 | formatter.test.yo (NEW)       | 5/5                          |
 
-eval_basics / eval_tail_1 also received the `.*`-deref staleness fixes
-(16 sites) and `check` clean; they remain runner-excluded (timeout).
+## UPDATE 2026-07-17: the eval trio is MIGRATED and GREEN — no exclusion needed
+
+The trio's timeouts were never inherent cost. Root cause (measured):
+extraction is 23 s and one batch compile ~21-60 s — a healthy full file is
+**~90 s**. The >1800 s walls came from ~2500 stale-API sites (str literals
+to `String` params incl. `src :=` strings and `BK_*` constants; flat
+9-field `.FuncVal(...)` patterns → `FuncVal(Box(FuncValData), cap_vals)`;
+`ModuleVal` → module `StructVal` [removed in `4fc9c673e`]; 7-positional
+`.Struct(...)` patterns → curly destructuring; one obsolete-semantics test
+[comptime `a.*` deref — TS rejects it too; migrated to the runtime
+`box(42)` form with shape asserts]) — every batch failed to compile, and
+the runner's bisection-on-failure recompiled the whole-evaluator import
+graph dozens of times until the 1800 s kill.
+
+Also fixed en route: `check` never surfaces any of this (the def-eval wall
+swallows body errors by design), which is WHY the staleness accumulated
+invisibly. Compile-and-run is the only real gate for test bodies.
+
+**Final: eval_basics 123/123 (89 s), eval_tail_1 107/107 (87 s),
+eval_tail_2 107/107 (88 s).** The #70 TS baseline is now simply: EVERY
+file in yo-self/tests passes.
