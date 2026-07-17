@@ -80,6 +80,19 @@ source or the key-evolution ordering is the divergence vs TS's unique
 `type.id`. Round-3 sweep of the 92 divergent files with all fixes:
 `/tmp/s2_sweep_r3/` (list `/tmp/s2_r2_list.txt`).
 
+**RESOLVED (same session, commit 1a2c2e444):** the local-struct frontier
+was NOT a sid problem (sids were distinct — 5009/5014); the specialization
+CACHE hit before any signature was computed because
+`are_types_compatible_exact`'s exact-struct arm fell through to structural
+equality for same-named distinct declarations. Fixed with a same-named-
+distinct-declarations rule in `types/compatibility.yo` (see
+`issues/fixed/yo-self-same-name-local-struct-spec-cache-collision.md`).
+Round-3 result: 92 → 74 divergent. Round-4 (`/tmp/s2_sweep_r4/`, list
+`/tmp/s2_r4_list.txt`) + the FIRST #70 sweep (`/tmp/s2_sweep_yoself/`,
+list `/tmp/s2_yoself_list.txt`) launched with the fixed s2. Compare #70
+against `/tmp/ts_yoself_baseline_parsed.json` (1163/1163 green) with
+`scratchpad/compare_sweep.py`.
+
 ---
 
 ## WHERE WE ARE (verified, all committed, fixpoint holding)
