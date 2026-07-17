@@ -179,6 +179,27 @@ main's body got registered vs evaluated (evaluate module-level fn
 binding → FuncVal body field vs the def-time trial clone vs the exec
 walk).
 
+## FINAL LOCALIZATION (2026-07-17, id probes)
+
+12 [STAMPID] prints, ZERO [FTTID] at the missing-info site — the info IS
+stamped; the FTT comes from generation.yo's SECOND site (:591):
+`generate_other_function_call(...)` returned `.None` for the call. This
+is the KNOWN Gap-6 remainder, called out verbatim in
+`_evaluate_funcval_runtime_call`'s specialization block comment
+("Method-chain generics ... still hit the upstream soft-fallback-to-unit
+inside create_specialized — that's the deeper Gap-6 evaluator work"):
+the codegen-time monomorphization of the generic-impl method
+(`create_specialized_function_inline` on SortedSet(T).new with T=i32)
+soft-fails while evaluating the specialized BODY — the def-time
+`Type mismatch for type member "_inner": Got unit` TTERR is THAT body
+eval failing on the nested `SortedMap(T, bool).new()` (static call,
+no `self` arg → `spec_self_set` stays false → Self/nested resolution
+degrades). SCOPE: this is the deep Gap-6 specialization work — a
+dedicated session on create_specialized_function_inline's static-method
+self/forall threading and its nested-call recursion, not a spot fix.
+All shallower routes (resolution, candidate typing, runtime-path return
+resolution, ExprInfo identity) are now PROBED HEALTHY and eliminated.
+
 ## Hunt plan
 
 Probe `find_methods_from_generic_impls`' candidate for `is_empty` on
