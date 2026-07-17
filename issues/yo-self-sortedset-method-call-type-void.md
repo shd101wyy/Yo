@@ -66,6 +66,24 @@ TypeVal-receiver branch for member `new` on an instantiated generic
 (what info/value it stamps), then compare with TS property-access static
 member resolution (src/evaluator/exprs/property-access.ts).
 
+## Sharpened hypothesis (read property_access fallthrough + TTERR chain)
+
+The OUTER `SortedSet(i32).new()` resolves and its body RUNS (the `_inner`
+member-mismatch TTERR is thrown from inside it at exec time). The INNER
+`SortedMap(T, bool).new()` evaluates to unit WITHOUT reaching
+`_try_find_receiver_method` (no [SNEW] print even for a hits=0 miss) and
+without the property-access static branch stamping anything (its
+fallthrough returns unstamped). Prime suspect: **stale def-time trial
+ExprInfo** — yo-self keys ExprInfo by ast_expr_id (TS uses per-object
+`expr.$`), so if the impl-method BODY is trial-evaluated at def time
+WITHOUT `clone_expr_fresh_ids` and the trial stamps the inner call node
+with a unit/failed info, the EXEC-phase specialization (if it reuses the
+same node ids) reads the stale unit info from the table and never
+re-dispatches. Check: does the specialization path that evaluates
+SortedSet's impl `new` body clone with fresh ids
+(create_specialized_function_inline / \_trial_eval_fn_body callers)? Then
+probe expr_info_table_get on the inner call node id at exec time.
+
 ## Hunt plan
 
 Probe `find_methods_from_generic_impls`' candidate for `is_empty` on
