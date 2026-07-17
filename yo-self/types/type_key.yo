@@ -374,4 +374,119 @@ type_key :: (fn(t : TypeValue) -> String)({
   g_tk_visited = ArrayList(String).new();
   _type_key_at(t, usize(0))
 });
-export(type_key);
+// ---------------------------------------------------------------------------
+// stable_type_identity — a PURE structural identity render.
+// ---------------------------------------------------------------------------
+// Like `type_key` but consulting NO mutable key registries (the
+// g_struct_cfid_keys first-registration/poison transitions make `type_key`'s
+// render of one type EVOLVE over a compile): this render never changes.
+// `collect_type` uses it to detect "same type re-collected under an EVOLVED
+// type_key" — the duplicate-C-declaration family (enumerator/typeid
+// redefinitions, one struct split across two C types). It is NOT a type_key
+// replacement: instantiation COPIES that type_key deliberately merges may
+// render distinctly here (by their own sid), which only means a missed
+// alias — never a wrong merge, since equal renders imply equal structure.
+(g_sti_visited : ArrayList(String)) = ArrayList(String).new();
+_sti_seen :: (fn(id : String) -> bool)({
+  n := g_sti_visited.len();
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < n) && !(found), {
+    match(
+      g_sti_visited.get(i),
+      .Some(v) => if(v == id, {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+_stable_identity_at :: (fn(t : TypeValue, depth : usize) -> String)(
+  match(
+    t,
+    .Struct({ id, field_labels : fls, field_types : fts, is_reference_semantics : t_is_ref }) => {
+      st := resolve_struct_shell(t);
+      (sid, sfls, sfts, s_is_ref) := match(
+        st,
+        .Struct({ id : rid, field_labels : rfls, field_types : rfts, is_reference_semantics : rirs }) => (rid, rfls, rfts, rirs),
+        _ => (id, fls, fts, t_is_ref)
+      );
+      pfx := if(s_is_ref, String.from("R#"), String.from(""));
+      if((sid.len() > usize(0)) && _sti_seen(sid), {
+        out_cyc := pfx.clone();
+        out_cyc.push_string(sid.clone());
+        return(out_cyc);
+      });
+      if(sid.len() > usize(0), {
+        g_sti_visited.push(sid.clone());
+      });
+      out := pfx;
+      out.push_string(sid.clone());
+      (i : usize) = usize(0);
+      while(i < sfts.len(), {
+        ft := match(sfts.get(i),.Some(x) => x,.None => TypeValue.Unit);
+        fl := match(sfls.get(i),.Some(x) => x,.None => String.from(""));
+        out.push_str("_");
+        out.push_string(fl);
+        out.push_str(":");
+        out.push_string(recur(ft, depth + usize(1)));
+        i = (i + usize(1));
+      });
+      out
+    },
+    .EnumT({ id, variant_names : vns0, variant_fields : vfs0, is_reference_semantics : e_is_ref0 }) => {
+      rs := resolve_enum_shell(t);
+      eid := match(rs,.EnumT({ id : rid }) => rid, _ => id.clone());
+      evns := match(rs,.EnumT({ variant_names : rvns }) => rvns, _ => vns0);
+      evfs := match(rs,.EnumT({ variant_fields : rvfs }) => rvfs, _ => vfs0);
+      e_is_ref := match(rs,.EnumT({ is_reference_semantics : rirs }) => rirs, _ => e_is_ref0);
+      pfx := if(e_is_ref, String.from("R#"), String.from(""));
+      if((eid.len() > usize(0)) && _sti_seen(eid), {
+        out_cyc := pfx.clone();
+        out_cyc.push_string(eid.clone());
+        return(out_cyc);
+      });
+      if(eid.len() > usize(0), {
+        g_sti_visited.push(eid.clone());
+      });
+      out := pfx;
+      out.push_string(eid.clone());
+      (vi : usize) = usize(0);
+      while(vi < evfs.len(), {
+        vn := match(evns.get(vi),.Some(x) => x,.None => String.from(""));
+        out.push_str("_");
+        out.push_string(vn);
+        match(
+          evfs.get(vi),
+          .Some(fields) => {
+            (fi : usize) = usize(0);
+            while(fi < fields.len(), {
+              ft := match(fields.get(fi),.Some(x) => x,.None => TypeValue.Unit);
+              out.push_str(":");
+              out.push_string(recur(ft, depth + usize(1)));
+              fi = (fi + usize(1));
+            });
+          },
+          .None => ()
+        );
+        vi = (vi + usize(1));
+      });
+      out
+    },
+    .Pointer(pointee) => {
+      out := String.from("*(");
+      out.push_string(recur(pointee, depth + usize(1)));
+      out.push_str(")");
+      out
+    },
+    _ => type_to_string(t)
+  )
+);
+/// Entry point — fresh cycle-guard per top-level render.
+stable_type_identity :: (fn(t : TypeValue) -> String)({
+  g_sti_visited = ArrayList(String).new();
+  _stable_identity_at(t, usize(0))
+});
+export(type_key, stable_type_identity);

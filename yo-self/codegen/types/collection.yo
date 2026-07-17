@@ -41,6 +41,7 @@ open(import("std/string"));
 } :: import("../../types/guards.yo");
 { type_contains_some_type } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
+{ stable_type_identity } :: import("../../types/type_key.yo");
 {
   CodeGenContext,
   type_key,
@@ -155,6 +156,14 @@ _enum_some_type_is_only_in_function_fields :: (
 /// Collect a single type if it's a user-defined / structural type, registering
 /// it in `context.types` and recursing into its component types. Mirrors
 /// `collectType` (TYPE-structural portion; see header for deferred branches).
+// stable_type_identity → the FIRST type_key a type registered under. A
+// type_key render EVOLVES over a compile (g_struct_cfid_keys
+// first-registration/poison transitions), so one type can reach
+// collect_type twice under two keys — registering twice emits DUPLICATE C
+// declarations (enumerator/typeid redefinitions) and splits value sites
+// across two C types (passing/initializing mismatches). The stable render
+// never changes, so a second arrival is detected and ALIASED instead.
+(g_stable_to_key : HashMap(String, String)) = HashMap(String, String).new();
 collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
   // Resolve a leaked recursive-enum SELF-SHELL to its final BEFORE collecting, so
   // recursion descends into the FINAL's variant fields (the shell has none) and
@@ -212,6 +221,20 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
     // this only shrinks the EMITTED identifier (was `__yo_<full type_key>`,
     // which reached 200 KB+ for recursive types → ~10× C bloat).
     tk := type_key(type);
+    stable := stable_type_identity(type);
+    match(
+      g_stable_to_key.get(stable.clone()),
+      .Some(prev_key) => if(!(prev_key == tk), {
+        // Same type, EVOLVED key render: alias to the first registration
+        // instead of adding (and later emitting) a second entry. Field
+        // recursion already happened on the first collection.
+        context.register_type_alias(tk, prev_key.clone());
+        return(());
+      }),
+      .None => {
+        g_stable_to_key.set(stable.clone(), tk.clone());
+      }
+    );
     c_name := _intern_type_c_name(tk.clone());
     context.register_type(tk, type, c_name, Option(String).None);
     // Struct fields (skip function-typed fields — emitted inline at call sites).

@@ -189,7 +189,12 @@ CodeGenContext :: ref(
     /// Resolved concrete capture-struct type id → its generated closure impl fn.
     /// Populated at closure construction; read at closure call sites to emit
     /// `fn(&(cb), args)`. Mirrors CodeGenContext.implClosureCallMap (utils/index.ts:139).
-    impl_closure_call_map : HashMap(String, ImplClosureCallInfo)
+    impl_closure_call_map : HashMap(String, ImplClosureCallInfo),
+    // type_key ALIASES: an EVOLVED type_key render of an already-collected
+    // type maps to the FIRST registration's key (collect_type's stable-identity
+    // dedup). Consulted by get_type_entry/get_type_c_name on a primary miss so
+    // value sites keyed under either render resolve to ONE C type.
+    type_key_aliases : HashMap(String, String)
   )
 );
 impl(
@@ -236,7 +241,8 @@ impl(
       next_dispose_type_id : usize(1),
       declared_c_var_names : HashSet(String).new(),
       declared_scopes : ArrayList(String).new(),
-      impl_closure_call_map : HashMap(String, ImplClosureCallInfo).new()
+      impl_closure_call_map : HashMap(String, ImplClosureCallInfo).new(),
+      type_key_aliases : HashMap(String, String).new()
     )
   ),
   /// Allocate (or reuse) the type-tag id for a dispose function's C name.
@@ -260,9 +266,24 @@ impl(
     _r := self.types.set(id, CodegenTypeEntry(ty : ty, c_name : c_name, c_include : c_include));
     ()
   }),
-  /// Look up a registered type entry by id.
+  /// Alias an EVOLVED type_key render to an already-registered key (the
+  /// stable-identity dedup in collect_type). One level only — the target is
+  /// always a PRIMARY registered key.
+  register_type_alias : (fn(self : Self, alias_id : String, target_id : String) -> unit)({
+    _r := self.type_key_aliases.set(alias_id, target_id);
+    ()
+  }),
+  /// Look up a registered type entry by id (following one alias level).
   get_type_entry : (fn(self : Self, id : String) -> Option(CodegenTypeEntry))(
-    self.types.get(id)
+    match(
+      self.types.get(id.clone()),
+      .Some(e) =>.Some(e),
+      .None => match(
+        self.type_key_aliases.get(id),
+        .Some(target) => self.types.get(target),
+        .None => Option(CodegenTypeEntry).None
+      )
+    )
   ),
   /// Look up a registered type's C name by id.
   get_type_c_name : (fn(self : Self, id : String) -> Option(String))(
@@ -275,7 +296,7 @@ impl(
     // `(__yo_enum_yo_id_N _file____tmp__temp_M)`). TS strings are immutable, so
     // this aliasing hazard does not exist there; cloning here restores that
     // contract. See issues/fixed/codegen-runtime-enum-sibling-cname-pollution.md.
-    match(self.types.get(id),.Some(entry) =>.Some(entry.c_name.clone()),.None =>.None)
+    match(self.get_type_entry(id),.Some(entry) =>.Some(entry.c_name.clone()),.None =>.None)
   ),
   /// The per-expression evaluation metadata for `expr` (TS `expr.$`), or
   /// `.None` if the node was never evaluated.

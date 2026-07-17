@@ -21,7 +21,6 @@ open(import("std/string"));
   RuntimeStructField,
   get_type_string,
   get_runtime_struct_fields,
-  get_enum_variant_c_name,
   sanitize_for_c_identifier,
   can_optimize_as_nullable_pointer,
   can_optimize_as_simple_enum,
@@ -184,12 +183,22 @@ generate_union_declaration :: (fn(union_type : TypeValue, c_name : String, conte
   )
 );
 /// Emit one `  <tag> = <discriminant><comma>` line per variant.
-_emit_enum_tags :: (fn(enum_type : TypeValue, variant_names : ArrayList(String), variant_discriminants : ArrayList(i64), context : CodeGenContext) -> unit)({
+_emit_enum_tags :: (fn(c_name : String, variant_names : ArrayList(String), variant_discriminants : ArrayList(i64), context : CodeGenContext) -> unit)({
+  // Enumerator prefixes derive from the PASSED c_name, never by re-keying the
+  // enum type (get_enum_variant_c_name → get_type_c_name(type_key(t))): the
+  // type_key render can EVOLVE between this entry's registration and its
+  // emission, so a re-key here resolved to a DIFFERENT entry's C name and this
+  // declaration emitted another type's enumerator names (the
+  // redefinition-of-enumerator class — one Option instantiation's tag enum
+  // carrying a later duplicate's prefix).
   n := variant_names.len();
   (i : usize) = usize(0);
   while(i < n, {
     vname := match(variant_names.get(i),.Some(v) => v,.None => String.from(""));
-    tag := get_enum_variant_c_name(enum_type, vname, context);
+    clean := if(vname.starts_with("."), vname.substring(usize(1), vname.len()), vname.clone());
+    tag := c_name.to_uppercase();
+    tag.push_str("_");
+    tag.push_string(clean.to_uppercase());
     comma := if(i < (n - usize(1)), ",", "");
     disc := match(variant_discriminants.get(i),.Some(d) => d,.None => i64(i));
     context.emitter.emit_declaration_string_line(`  ${tag} = ${disc.to_string()}${comma}`);
@@ -216,7 +225,7 @@ generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context
       // Simple C enum (all variants fieldless).
       if(can_optimize_as_simple_enum(enum_type), {
         context.emitter.emit_declaration_string_line(`typedef enum { // ${name} : ${type_to_string(enum_type)} (optimized as simple enum)`);
-        _emit_enum_tags(enum_type, variant_names, variant_discriminants, context);
+        _emit_enum_tags(c_name, variant_names, variant_discriminants, context);
         context.emitter.emit_declaration_string_line(`} ${c_name};`);
         context.emitter.emit_declaration_line("");
         return(());
@@ -226,7 +235,7 @@ generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context
       tag_enum_name.push_string(c_name.clone());
       tag_enum_name.push_str("_tag");
       context.emitter.emit_declaration_line("typedef enum {");
-      _emit_enum_tags(enum_type, variant_names, variant_discriminants, context);
+      _emit_enum_tags(c_name, variant_names, variant_discriminants, context);
       context.emitter.emit_declaration_string_line(`} ${tag_enum_name};`);
       context.emitter.emit_declaration_line("");
       // Data union (struct per variant with non-unit fields).
