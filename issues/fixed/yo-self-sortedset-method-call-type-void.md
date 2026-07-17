@@ -290,3 +290,35 @@ type` — the known reconstruction gap), leaving the call expr's ExprInfo
 type unit. Then compare with TS `findMethodsFromGenericImpls`'
 `shouldCreateSpecializedValue` / type-only-specialization flow
 (impl.ts:1337-1392) for where the type is preserved.
+
+## RESOLVED (2026-07-18) — repro fully green on mainline
+
+Two mainline commits close the flagship repro (compiles AND runs, 0 FTTs):
+
+1. `27400e882` — four TS-mutation-mirror type-identity fixes (ctor-fid stamp
+   table + synthesizer fallback; ctfe memo id fast-path; collection
+   alias-with-field-recursion; fresh-id ctfe body clone). These fixed the
+   impl-match unification and type-graph splits; the repro went 2 FTTs → 1.
+2. `ef8344537` — call-site specialization SUPERSESSION: the runtime call
+   path was ALREADY specializing `SortedSet.new` (its FuncVal carries the
+   impl forall — nf=1 — so the existing `forall_names.len() > 0` trigger
+   fires; no new trigger was needed, contrary to the "call-site consumption
+   gap" hypothesis). The emitted spec body and call-site consumption were
+   PERFECT all along — the compile failed only because the DEAD abstract
+   original was also emitted with its un-specializable body. Supersession
+   counters (expr_info.yo) + a post-emission abort() stub for
+   superseded+FTT bodies fixed it without touching working originals
+   (a plain skip broke thread_spawn — non-dispatch references need the
+   symbol).
+
+The eager resolution-time spec port (attempts #1-#6) was therefore
+UNNECESSARY for this family — the existing call-site machinery sufficed
+once the type-identity layer was sound. Attempt #6's stage2-invalid
+verdict stands as a warning for anyone re-attempting resolution-time
+specialization for OTHER reasons.
+
+Full gate set green on ef8344537: corpus PASS 130/DIFF 2 exact, std 154 OK,
+battery, `s2 check std/env.yo` OK, fixpoint BYTE-IDENTICAL.
+
+Remaining: re-sweep the imm\_\*/collections divergence tail with the new s2
+to confirm how much of it this closes.
