@@ -93,6 +93,31 @@ list `/tmp/s2_yoself_list.txt`) launched with the fixed s2. Compare #70
 against `/tmp/ts_yoself_baseline_parsed.json` (1163/1163 green) with
 `scratchpad/compare_sweep.py`.
 
+**Round-4 outcome: 74/74 still failing — same histogram** (undeclared
+identifier 9, rc=-6 crash family 8, enumerator redefinition 6, expected
+expression 6, conflicting types 6, redefinitions 5, undeclared fn 5, …).
+The hard tail's remaining roots, per the arc.test.yo layer now exposed
+(`*_thread_closure_data = cb` assigning `__yo_t43` to `__yo_t44`) and the
+enum-redefinition class, look like MORE guises of "one Yo type → two C
+types / one cache entry served two types". IMPORTANT ANALYSIS for the
+enum classes: the struct same-name fix CANNOT be replicated for enums —
+yo-self enums all carry EMPTY names (compatibility.yo EnumT arm comment),
+so same-named-distinct-declaration gating has nothing to key on. The
+likely proper fix is the DECLARATION-STABLE id direction from
+issues/fixed/yo-self-same-name-local-struct-spec-cache-collision.md
+option 1 (derive struct/enum eval ids from the declaration's
+`ast_expr_id` instead of `random_id`, making `aid == eid` a real identity
+that survives re-evaluation, then tighten the exact arms to id identity
+like TS's requireExactMatch) — bigger surgery over struct.yo + enum.yo +
+the type_key poison machinery + both exact arms; gate on: the 17-line
+Counter repro (10/20), a local-ENUM analog repro, tk2, corpus, std,
+fixpoint, then re-sweep `/tmp/s2_r4_list.txt`. The rc=-6 crash family
+(control_fn_as_regular_call, iso, iso_api_surface, rc, sys/timer, thread,
+thread_safety, worker) predates this session's fixes (present in round 1
+as 134/-6) and needs its own hunt — likely the batched-runner compile of
+those files SIGABRTs inside s2 itself (grab the surviving batch from the
+tests dir and run `s2 compile` on it directly under lldb).
+
 ---
 
 ## WHERE WE ARE (verified, all committed, fixpoint holding)
