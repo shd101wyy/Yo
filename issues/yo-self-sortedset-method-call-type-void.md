@@ -54,6 +54,18 @@ throws when calling the SortedSet(i32).is_empty candidate — likely the
 `Self`-bound param unification or the impl forall-capture injection
 (`_inject_forall_captures`) for the where-clause pattern impl.
 
+## Second probe result ([SNEW] in \_try_find_receiver_method, static branch)
+
+ZERO prints for `new` — `SortedSet(i32).new()` / `SortedMap(T,bool).new()`
+do NOT resolve through `_try_find_receiver_method` at all. The static
+`Type.new` member resolves in the PROPERTY-ACCESS path
+(evaluator/exprs/property_access.yo — the TypeVal-receiver / registry
+branches around :213 and :899, or a helper it calls), and the unit-typed
+result comes from there. Next hop: probe evaluate_property_access's
+TypeVal-receiver branch for member `new` on an instantiated generic
+(what info/value it stamps), then compare with TS property-access static
+member resolution (src/evaluator/exprs/property-access.ts).
+
 ## Hunt plan
 
 Probe `find_methods_from_generic_impls`' candidate for `is_empty` on
