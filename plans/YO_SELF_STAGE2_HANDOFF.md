@@ -619,6 +619,31 @@ Memory notes (agent memory dir): `yo-self-fixpoint-16gb-blocked` is the
 running ledger for this whole era; `yo-self-stage2-*`, `yo-string-len-chars-vs-bytes`,
 `yo-no-underscore-assign-discard` for the recurring gotchas.
 
+## 2026-07-18 UPDATE — Gap-6 attempt #6 verdict (read before touching the spec port)
+
+Attempt #6 (eager resolution-time specialization with DETERMINISTIC fids,
+`wip/resolution-time-spec` @ 60bb5a54f) passed corpus (130/2 exact), std
+(154 OK) and the battery, kept stage2.c at 58.2 MB — and is nevertheless
+**INVALID**: the resulting stage2 BINARY aborts on `s2 check std/env.yo`
+("HashMap ctrl pointer is null"). Bisect proved the spec MECHANISM itself
+emits wrong bodies for yo-self's own HashMap-internals generics — fid
+identity is NOT the cause (random fids crash too). Full bisect log + three
+salvage directions: issues/yo-self-sortedset-method-call-type-void.md
+("Attempt #6 STAGE2 VERDICT").
+
+**NEW MANDATORY GATE**: any spec-port iteration must ALSO pass
+`s2 check std/env.yo` (build stage2, run the check — the check itself is
+seconds). The corpus cannot see this failure class.
+
+Also on that wip commit, four TS-mutation-mirror fixes that are likely
+KEEPABLE independent of the spec port (they fixed real divergences —
+SortedSet impl-match unification etc. — and survived corpus+std; they were
+only reverted during the bisect): the `g_struct_ctor_fids` stamp table +
+synthesizer same-constructor fallback, the `_ctfe_args_equal` id fast-path,
+collection alias-with-field-recursion, and the fresh-id ctfe body clone.
+Re-land them SEPARATELY from the spec port, each with the full gate set
+including the new env-check gate.
+
 ## Recent commits (this era, newest first)
 
 ```
