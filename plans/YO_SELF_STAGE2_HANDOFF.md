@@ -135,7 +135,17 @@ which the TS runner also generates and TS codegen handles. Fix hunt:
 compare TS codegen's type-collection of effect-bundle types (IoExn) when
 io flows through a comptime binding instead of an evidence param
 (src/codegen/.../collection.ts) with yo-self's collection pass; the
-yo-self side skips collecting IoExn before lowering. NOTE (user
+yo-self side skips collecting IoExn before lowering. NEW EVIDENCE (the
+`_lookup_named_c_type` panic now prints `current_function` + key):
+`current_function=` is EMPTY at panic — the miss happens during the
+TYPE-DECLARATION emission phase, i.e. an already-collected type's FIELD
+references IoExn (most plausibly the yield/await SM capture struct or the
+Future's effect-bundle slot) but IoExn itself never went through
+collectType. Next: find which collected type carries an IoExn field in
+the TS-emitted C of `scratchpad/batch_sub.yo` (TS compiles it), then
+diff yo-self's `codegen/types/collection.yo` recursion for that shape
+(TS `collectType` recurses into struct fields — find the branch yo-self
+skips when the owner type arrives via the comptime-io specialization). NOTE (user
 directive): user Yo code must always take `io : Io` in main's signature —
 `io :: __yo_builtin_io` is internal to the runner's synthesized batches;
 keep any repro of this class explicitly labeled as the runner shape.

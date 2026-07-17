@@ -665,7 +665,7 @@ _lookup_named_c_type :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
     .Some(c_name) => c_name,
     .None => {
       // panic requires a `str`; the dynamic type name goes to stderr.
-      eprintln(`get_type_string: no C type name found for ${type_to_string(t)} (type not collected before lowering)`);
+      eprintln(`get_type_string: no C type name found for ${type_to_string(t)} (type not collected before lowering; current_function=${context.current_function_name}, key=${type_key(t)})`);
       __yo_panic("get_type_string: type not registered in context.types (see stderr)")
     }
   )
