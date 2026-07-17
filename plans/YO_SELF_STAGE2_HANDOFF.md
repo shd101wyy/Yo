@@ -243,6 +243,16 @@ re-sweep. Secondary items unchanged: IoExn Path-2 erasure mirror (rc=-6
 ×8), thread-closure capture identity (arc/worker), the two compile-stall
 files, and the failed-compile teardown segv (rc=-11 masking).
 
+**Gap-6 port attempt #1 PRESERVED on branch `wip/resolution-time-spec`**
+(commit 0446a6ed3): the full TS shouldCreateSpecializedValue mirror —
+proven emitting 18 `_rspec_` specializations — reverted from mainline on
+4 self-cycle corpus SELF-FAILs. Continue THERE: add the shell-receiver
+gate (skip specialization when the receiver or any type_argument is a
+mid-definition self-shell — `resolve_struct_shell(receiver)` differs, or
+enum `__self_shell` ids), clear the memo between compiles if the drivers
+reuse a process, then chase the remaining SortedSet call-site consumption
+gap. Full narrative: issues/yo-self-sortedset-method-call-type-void.md.
+
 **Original fix design (kept for reference):** in `collect_type` (codegen/types/
 collection.yo), dedup by a STABLE structural identity, not the evolving
 type*key: implement `stable_type_identity(t)` = `_type_key_at` WITHOUT
