@@ -221,6 +221,28 @@ check if the mismatch persists). Gates + fixpoint green. Round-5 sweep
 over all 94 remaining divergents (74 tests/ + 20 yo-self):
 `/tmp/s2_sweep_r5/`, list `/tmp/s2_r5_list.txt`.
 
+**ROUND-5 COMPLETE: 2 flips** (tests/recursive*enum,
+yo-self/tests/context — the alias fix works on both suites' typeid
+class). **Scoreboard: #69 = 107/180, #70 = 42/61; 92 divergent files
+remain.** Final histogram: expected-token 12, undeclared identifier 11,
+misc 10, rc=-6 IoExn family 8, redefinitions 6, expected-expression 6,
+conflicting types 6, passing 4, parameter-declarator 4, undeclared fn 4,
+initializing 3, unexpected type name 2, TIMEOUT stalls
+(btree_map/imm_threading) 2. **The SortedSet/void-flag investigation is
+CLOSED into a single work item** (issues/yo-self-sortedset-method-call-
+type-void.md): every shallow route was probed healthy; the failure is the
+documented Gap-6 soft-fail in `create_specialized_function_inline` when
+a generic-impl method body contains a NESTED static generic-impl call
+(`SortedSet(T).new` → `SortedMap(T,bool).new()`), the exact class the
+code's own comment defers as "the deeper Gap-6 evaluator work". Since
+imm*\*/collections/derive files bottom out in that same shape, **Gap-6 is
+now THE dominant blocker for both tails** — plan a dedicated session on
+create_specialized_function_inline (static-method Self threading +
+nested-call recursion), gating on the 9-line SortedSet repro, then
+re-sweep. Secondary items unchanged: IoExn Path-2 erasure mirror (rc=-6
+×8), thread-closure capture identity (arc/worker), the two compile-stall
+files, and the failed-compile teardown segv (rc=-11 masking).
+
 **Original fix design (kept for reference):** in `collect_type` (codegen/types/
 collection.yo), dedup by a STABLE structural identity, not the evolving
 type*key: implement `stable_type_identity(t)` = `_type_key_at` WITHOUT
