@@ -1,15 +1,16 @@
 # yo-self self-hosting — HANDOFF (fresh-agent entry point)
 
-_Last rewritten 2026-07-16 late night. Everything before the test-runner era
-was deleted; git history of this file has the full archaeology if you ever
-need it (you won't — do not re-litigate fixed bugs; `git log yo-self/` and
-`issues/fixed/` are the record)._
+_Last updated 2026-07-17 (handover-ready). Everything before the test-runner
+era was deleted; git history of this file has the full archaeology if you
+ever need it (you won't — do not re-litigate fixed bugs; `git log yo-self/`
+and `issues/fixed/` are the record)._
 
 ---
 
 ## WHERE WE ARE (verified, all committed, fixpoint holding)
 
-The self-hosting bootstrap is functionally COMPLETE through the fixpoint:
+The self-hosting bootstrap is functionally COMPLETE through the fixpoint,
+and the TS-side baselines are fully prepared for the two remaining sweeps:
 
 | Milestone                                                            | Status                                                                         |
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
@@ -22,6 +23,7 @@ The self-hosting bootstrap is functionally COMPLETE through the fixpoint:
 | `comptime_expect_error` state stranding                              | FIXED (`6928dc81f`)                                                            |
 | Structural forall inference (effect polymorphism)                    | FIXED (`702de11c9`)                                                            |
 | `s1 test tests/algebraic_effects.test.yo`                            | **72/72 PASSED**                                                               |
+| **yo-self/tests suite audited + repaired under TS (#70 baseline)**   | **100% GREEN — every file, incl. the eval trio (337/337, ~90 s/file)**         |
 | Corpus differential (`scripts/diff-test.sh tests/codegen-bootstrap`) | PASS 130 / DIFF 2 — both DIFFs pre-existing & known (see "Known-noise gates")  |
 | `check ./std` under s1                                               | 153/153                                                                        |
 
@@ -223,6 +225,18 @@ What remains for #70:
 (2) find the yo-self divergence from `src/`; (3) fix yo-self to match. No
 yo-self-only mechanisms. If TS is wrong too, fix TS first, then port.
 
+**Diagnosing a "mysteriously slow / timing-out" test file:** it is almost
+never inherent cost. The runner bisects any batch that fails to compile —
+each split RECOMPILES the file's whole import graph — so densely-stale test
+files degenerate into 30+ min compile storms with zero visible results
+(that was the eval trio). Measure first: a `--test-name-pattern` single-test
+run gives you extraction + one batch compile in isolation (~30-60 s for even
+the heaviest files). If the full file takes 10× that, you have failing
+tests triggering bisection, and the timeout is EATING their reports — run
+small patterns to surface them. Also remember `check` can NEVER validate
+test bodies (the def-eval wall swallows body errors by design) — green
+check ≠ runnable tests; compile-and-run is the only gate.
+
 **Iteration ladder (cheapest first):**
 
 1. Standalone .yo repro compiled by BOTH compilers (seconds-minutes). Use
@@ -288,8 +302,10 @@ now snapshots/restores everything (`6928dc81f`) — use it as the template.
 | `yo-self/evaluator/types/synthesizer.yo`              | synthesize_types (structural SomeT binding)                                                                                     |
 | `yo-self/evaluator/types/function.yo`                 | default-args/default-exprs/where/variadic side tables (func_id-keyed)                                                           |
 | `scripts/diff-test.sh`                                | the corpus differential harness (`YO_SELF_BIN=... --parallel 4`)                                                                |
-| `src/test-runner.ts`                                  | the TS batched runner (reference for run_test)                                                                                  |
+| `src/test-runner.ts`                                  | the TS batched runner (reference for run_test; bisect-on-compile-failure logic ~l.1270)                                         |
 | `issues/yo-self-test-runner-remaining-bugs.md`        | this era's bug ledger (Bugs 1-2 + eff-poly fixed; Bug 3 open)                                                                   |
+| `issues/yo-self-tests-ts-baseline.md`                 | the #70 TS baseline + full suite-audit record (staleness classes, per-file numbers)                                             |
+| `issues/yo-self-expr-eq-macro-body-false.md`          | open yo-self divergence: `__yo_expr_eq` false in macro bodies (phase6f test 1 gated on it)                                      |
 
 Memory notes (agent memory dir): `yo-self-fixpoint-16gb-blocked` is the
 running ledger for this whole era; `yo-self-stage2-*`, `yo-string-len-chars-vs-bytes`,
@@ -298,6 +314,9 @@ running ledger for this whole era; `yo-self-stage2-*`, `yo-string-len-chars-vs-b
 ## Recent commits (this era, newest first)
 
 ```
+2ad3fba4a test(yo-self): migrate the eval trio — 337/337 green in ~90s/file (was 3× 1800s timeouts)
+a91ee6230 test(yo-self): repair all remaining stale tests — full suite green under TS
+25761e121 test(yo-self): audit + refresh the yo-self/tests suite
 702de11c9 fix(yo-self): infer forall params structurally from composite arg types
 6928dc81f fix(yo-self): comptime_expect_error restores env/ctx stranded by the expected throw
 9100cc135 fix(yo-self): omitted default args flow through calls like supplied args
@@ -307,3 +326,16 @@ b2b80c097 fix(yo-self): dup RC-typed closure captures into the capture struct
 546a5a25d fix(yo-self): TS callMayUnwind atom-callee fallback (unwind-resume parity)
 de6cdd4bd fix(yo-self): preserve first initialized_at_token on reassignment (the 1.6M-Variable leak)
 ```
+
+## TL;DR for the fresh agent
+
+Start with Step 1 (#69): build s1 + s2 (commands above), generate the TS
+baseline of `tests/`, run the s2 sweep, and triage per-file divergences with
+the triage loop — you will hit Bug 3 (exit-after-spawn rc=134) early; fix it
+via the RC tooling. Then Step 2 (#70): the TS baseline is exact and 100%
+green — run `s2 test ./yo-self/tests` and close the divergences the same
+way. Never run two test invocations on one directory concurrently. Fixpoint
+
+- corpus + std are your gates after every change; revert on regression.
+  When both sweeps match TS, the codegen bootstrap is DONE — do Step 3's
+  cleanup and declare victory.
