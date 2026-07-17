@@ -158,6 +158,27 @@ each gated on the callee being a dot-call whose member is `new` — run the
 9-line repro, read which routes fire and in what order. Reverted;
 attempts so far each disprove one route.
 
+## Route census results + the REAL question (2026-07-17 late)
+
+- [ROUTE]: all 12 `.new` dot-calls take `_evaluate_funcval_runtime_call`.
+- ret_somes=[] and static_recv=true — the declared return has NO SomeTs.
+- [STAMP]: the property-access candidate's Func result is NOT unit and
+  IS a function type — i.e., THE TYPE FLOW IS HEALTHY at both phases.
+- Yet codegen emits FTT because `get_expr_info(call node)` is `.None`
+  (codegen/exprs/generation.yo:407-414) — the runtime path DID stamp
+  `expr` (function.yo `out_rt` → expr_info_table_set on the call node).
+
+So the remaining question is an ExprInfo TABLE-IDENTITY mismatch: the
+node ids codegen walks (from main's registered FuncVal body) differ from
+the ids the successful evaluation stamped — a def-time-trial vs exec-eval
+vs registration cloning mismatch (yo-self's id-keyed table vs TS's
+per-object expr.$ again). NEXT PROBE: at the codegen FTT site, print the
+missing node's ast_expr_id; at the runtime-call stamp site, print
+ast_expr_id(expr) for `.new` calls; compare. Then find which copy of
+main's body got registered vs evaluated (evaluate module-level fn
+binding → FuncVal body field vs the def-time trial clone vs the exec
+walk).
+
 ## Hunt plan
 
 Probe `find_methods_from_generic_impls`' candidate for `is_empty` on
