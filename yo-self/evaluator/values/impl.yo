@@ -15,7 +15,6 @@
 //!   - Methods are added to env with qualified names (ReceiverType.method_name).
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
-open(import("std/fmt")); // TEMP-PROBE
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 {
@@ -989,19 +988,10 @@ find_methods_from_generic_impls :: (
                 );
                 sb_i = (sb_i + usize(1));
               });
-              injected_val := _inject_forall_captures(fvalue, entry.forall_names, match_bindings);
-              if((fname == "new") || (fname == "is_empty"), {
-                inj_fid := match(
-                  injected_val,
-                  .Some(ivp) => match(ivp,.FuncVal(__fvpr, _) => __fvpr.*.func_id, _ => String.from("-")),
-                  .None => String.from("-")
-                );
-                eprintln(`INJECT m=${fname} fid=${inj_fid} nfa=${entry.forall_names.len()}`); // TEMP-PROBE
-              });
               results.push(
                 MethodCandidate(
                   method_type : substitute(spec_s, ftype),
-                  method_value : injected_val,
+                  method_value : _inject_forall_captures(fvalue, entry.forall_names, match_bindings),
                   source_trait_id : entry.trait_key.clone()
                 )
               );
