@@ -126,6 +126,20 @@ receiver TypeVal's inner type into ctx.self_type for statically-stamped
 dot-callees (the TS `context.SelfType = dereferencedReceiverType`
 equivalent).
 
+## Implementation plan for the fix (next cycle)
+
+Mirror the CTFE-route Self binding (calls/function.yo:3330-3346 — saves
+ctx.self_type, sets it from `_static_dot_receiver_self_type(func_expr,
+ctx)`, restores after) on the RUNTIME FuncVal-arm call path: the arm
+already computes `recv_type_args` from the same helper (:3006-3016) but
+never SETS ctx.self_type, so a static `.new()`'s body/spec evaluation
+(create_specialized_function_inline sets self_type only from a `self`
+ARGUMENT, which static calls lack) runs with Self abstract. Insertion:
+wrap the arm's body-eval/`create_specialized_function_inline` invocation
+(after the where-constraint validation at ~:3227) with the same
+save/set/restore. Gate on the 9-line SortedSet repro + tk2 + Counter +
+corpus + std + fixpoint.
+
 ## Hunt plan
 
 Probe `find_methods_from_generic_impls`' candidate for `is_empty` on
