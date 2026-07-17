@@ -5,6 +5,62 @@ era was deleted; git history of this file has the full archaeology if you
 ever need it (you won't — do not re-litigate fixed bugs; `git log yo-self/`
 and `issues/fixed/` are the record)._
 
+## 2026-07-17 SESSION LOG (#69/#70 campaign in progress — READ FIRST)
+
+State as of this session (all committed, fixpoint re-verified after each):
+
+- **Bug 3 FIXED** (`issues/fixed/gc-cleanup-thread-force-dispose-double-free.md`)
+  — was an upstream TS runtime bug (`__yo_cleanup_thread_gc` force-dispose
+  double-free), NOT a yo-self RC imbalance. Failing s1/s2 runs now exit rc=1.
+  Regression: `tests/gc_cleanup_exit.test.yo`.
+- **tests/ TS baseline is 2624/2624 GREEN in ~285 s** (was 75 min + 75
+  failing files: every SUBDIRECTORY test file was missing the std/assert
+  import that 4355dd1dd only added to top-level files; commit 697e86930).
+  Parsed baseline: `/tmp/ts_baseline2_parsed.json` (regen via the python
+  in this session's history or rerun the suite).
+- **yo-self/tests TS baseline (#70) is 1163/1163 GREEN in ~23 min**
+  (`/tmp/ts_yoself_baseline.txt`). Includes the Evaluator.new faithful-port
+  rewrite (real module evaluator + is_executing; commit 1e9c95cbc), the
+  ExprVal structural-equality fix, and TS-oracle-validated repairs of the
+  stale phase6c/6d/6f + evaluator_index harness tests
+  (`issues/fixed/yo-self-expr-eq-macro-body-false.md`).
+- **#69 sweep round 1 DONE** (`/tmp/s2_sweep_tests/*.done`, per-file logs):
+  88 OK / 92 divergent. Three fixes landed off it (commit ec1cb0399):
+  concrete-receiver generic-impl fallback (env.yo), base-name prefilter
+  (impl.yo `_root_shapes_could_match` — was rejecting every
+  `Box(T)`-vs-`Box(i32)` style match), batch placement next to the test file
+  (main.yo run_test — relative imports + TS cleanup parity).
+- **Round 2 sweep over the 92 divergent files running**
+  (`/tmp/s2_sweep_r2/`, list `/tmp/s2_r2_list.txt`). Early results: files
+  get further but several distinct emission classes remain — struct-arg
+  type mismatch (`passing __yo_t51 ... __yo_t34`), `used type __yo_tN where
+arithmetic or pointer type is required` (arc), void-param leftovers
+  (async_await), enumerator redefinitions (type-key collision class).
+
+**CRITICAL session gotchas (cost hours):**
+
+- `tests/sys/signal.test.yo` (and any signal-sending test) run via `s2 test`
+  KILLS the invoking shell session and every background task in the process
+  group — run sweeps through `python3 ... preexec_fn=os.setsid` (see
+  scratchpad `s2_sweep_setsid.py` pattern). This explains ALL mysterious
+  "background task killed" events this session.
+- Never put probe calls INSIDE a `->` ctl handler: under the bug-compatible
+  unwind-clobber emission, the probe call resets `__yo_effect_escaped` and
+  breaks every swallow in the compiler (fatal std/fmt cast errors at
+  startup).
+- Do not add `types/string.yo` imports into `evaluator/values/impl.yo`
+  (init-order/cycle breakage) — probe with shape classes/names, not
+  type_to_string.
+- The failing batch .yo/.bin.c now SURVIVE in the test file's directory
+  after a compile failure (cleanup only runs on success) — grab them for
+  the TS-vs-s2 differential before the next file in the SAME directory
+  overwrites them.
+
+**Remaining for #69:** triage round-2 divergent files class by class with
+the established loop (saved batch → both compilers → minimize → fix →
+gates). **Remaining for #70:** run `s2 test` per-file over yo-self/tests
+(setsid runner) vs the green baseline; then Step 3 cleanup below.
+
 ---
 
 ## WHERE WE ARE (verified, all committed, fixpoint holding)

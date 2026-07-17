@@ -1,6 +1,17 @@
 # yo-self GC traverse_fn treats a value-struct field as a pointer (`if(struct)`)
 
-## Status: OPEN (latent; exposed by type-resolution reordering, not yet triggered on the committed corpus)
+## Status: FIXED — commit `f4caf9a3f` ("#30 type_key ref-semantics; main.yo self-emit 0 errs").
+
+The fix landed exactly where the "ROOT CAUSE CORRECTED" section below recommended:
+`yo-self/types/type_key.yo` now prefixes reference-semantics struct keys with `R#`
+(`ref_pfx`, ~L100), and that prefix propagates through the recursive per-field /
+per-type-argument keying — so a `Bucket(K,V)` whose `value` field is `ref(V)` and one
+whose `value` field is a value struct get DISTINCT C type ids, keeping each struct
+layout consistent with its own GC traverse fn. Verified in HEAD (f4caf9a3f is an
+ancestor); main.yo self-emit is clang-clean and the corpus is green. Kept for the
+forensic history below.
+
+_(historical: OPEN, latent — exposed by type-resolution reordering)_
 
 ## Symptom
 
