@@ -140,6 +140,24 @@ wrap the arm's body-eval/`create_specialized_function_inline` invocation
 save/set/restore. Gate on the 9-line SortedSet repro + tk2 + Counter +
 corpus + std + fixpoint.
 
+## Second fix attempt failed (static-Self in \_evaluate_funcval_runtime_call)
+
+Adding Self-substitution (via \_static_dot_receiver_self_type) to the
+runtime-return path's resolved_ret did NOT change the repro (2 FTTs
+persist) — so the failing call does NOT flow through
+`_evaluate_funcval_runtime_call` at all. Combined with the `_inner`
+member-mismatch TTERR firing from BODY evaluation (the runtime path never
+executes bodies), the call must route through a body-evaluating path:
+either the CTFE gate (`is_type_hierarchy_type(ret)` — no — or
+`callee_result_is_comptime`), or a def-time body validation
+(check_deferred_generic_return_type / the def-eval trial of the
+specialized candidate). NEXT PROBE (route census): print a marker in (a)
+\_evaluate_funcval_runtime_call entry, (b) the CTFE-route entry, (c) the
+FuncVal-arm inline body eval, (d) check_deferred_generic_return_type —
+each gated on the callee being a dot-call whose member is `new` — run the
+9-line repro, read which routes fire and in what order. Reverted;
+attempts so far each disprove one route.
+
 ## Hunt plan
 
 Probe `find_methods_from_generic_impls`' candidate for `is_empty` on
