@@ -421,6 +421,15 @@ _root_shape_name :: (fn(t : TypeValue) -> String)(
     _ => String.from("")
   )
 );
+/// The base identifier of a (possibly generic-suffixed) type name:
+/// `Box(i32)` → `Box`, `HashMap(K, V)` → `HashMap`, `Foo` → `Foo`.
+_root_shape_base_name :: (fn(name : String) -> String)(
+  match(
+    name.index_of(`(`),
+    .Some(pidx) => name.substring(usize(0), pidx),
+    .None => name
+  )
+);
 _root_shapes_could_match :: (fn(pattern : TypeValue, concrete : TypeValue) -> bool)({
   pc := _root_shape_class(pattern);
   cc := _root_shape_class(concrete);
@@ -431,10 +440,16 @@ _root_shapes_could_match :: (fn(pattern : TypeValue, concrete : TypeValue) -> bo
   if(pc != cc, {
     return(false);
   });
-  // Same concrete class — extra exactness for the cheap cases.
+  // Same concrete class — extra exactness for the cheap cases. Compare BASE
+  // names only (the segment before a type-argument suffix): a generic
+  // pattern's struct is named after its instantiation site — `Box(T)` — while
+  // a concrete receiver is `Box(i32)`; exact equality would reject every
+  // specific-generic-pattern impl before synthesis ever ran (TS has no
+  // prefilter — synthesis is the real match — so base-name comparison keeps
+  // this a pure PRE-filter).
   if((pc == i32(1)) || (pc == i32(2)), {
-    pn := _root_shape_name(pattern);
-    cn := _root_shape_name(concrete);
+    pn := _root_shape_base_name(_root_shape_name(pattern));
+    cn := _root_shape_base_name(_root_shape_name(concrete));
     return(pn == cn);
   });
   if(pc == i32(7), {

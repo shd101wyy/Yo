@@ -19,7 +19,7 @@ open(import("std/fmt"));
 { Path } :: import("std/path");
 { read_file, write_file, exists } :: import("std/fs/file");
 { metadata } :: import("std/fs/metadata");
-{ read_dir, FileType } :: import("std/fs/dir");
+{ read_dir, FileType, remove_file } :: import("std/fs/dir");
 { Command } :: import("std/process/command");
 { exit, getenv, setenv } :: import("std/libc/stdlib");
 { ArrayList } :: import("std/collections/array_list");
@@ -1408,8 +1408,17 @@ run_test :: (
       prog_src.push_str("  );\n");
       prog_src.push_str("});\n");
       prog_src.push_str("export(main);\n");
-      tmp_yo := `/tmp/.yo_selftest_batch_${fi.to_string()}.yo`;
-      tmp_bin := `/tmp/.yo_selftest_batch_${fi.to_string()}.bin`;
+      // Write the batch program NEXT TO the test file (mirrors TS
+      // compileBatchedBinary: path.join(path.dirname(filePath), baseName)) —
+      // the batch must inherit the test file's relative-import base, so a
+      // /tmp placement breaks every `import("./...")` in non-test content.
+      batch_dir := match(
+        file.last_index_of(`/`),
+        .Some(sidx) => file.substring(usize(0), sidx),
+        .None => String.from(".")
+      );
+      tmp_yo := `${batch_dir}/.yo_selftest_batch_${fi.to_string()}.yo`;
+      tmp_bin := `${batch_dir}/.yo_selftest_batch_${fi.to_string()}.bin`;
       io.await(write_file(Path.new(tmp_yo.clone()), prog_src.clone(), io), IoExn(io : io, exn : exn));
       // Compile through the normal driver (synthetic argv).
       cargv := ArrayList(String).new();
@@ -1441,6 +1450,11 @@ run_test :: (
         });
         ri = (ri + usize(1));
       });
+      // Clean up the batch artifacts (mirrors TS cleanup()) — they live in
+      // the test file's directory now, not /tmp.
+      io.await(remove_file(Path.new(tmp_yo.clone()), io), IoExn(io : io, exn : exn));
+      io.await(remove_file(Path.new(tmp_bin.clone()), io), IoExn(io : io, exn : exn));
+      io.await(remove_file(Path.new(`${tmp_bin}.c`), io), IoExn(io : io, exn : exn));
     });
   });
   if(bailed, {
