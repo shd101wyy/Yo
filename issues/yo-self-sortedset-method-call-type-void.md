@@ -214,6 +214,37 @@ should trace ONE level at a time with a depth-tagged probe
 (`[SPEC depth=N] receiver=..., self_type set=...`) through the
 SortedSet→SortedMap→List recursion of the 9-line repro.
 
+## BREAKTHROUGH — the real Gap-6 shape (depth-probe run)
+
+[SPEC] depth probes on the 9-line repro: every specialized-body eval
+COMPLETES (all starts balanced by dones) and NO [SPEC] line exists for
+any sorted_set/sorted_map/list method fid — **the SortedSet methods are
+never specialized at all**. Why: a generic-IMPL method (`new : fn() ->
+Self` under `impl(forall(T), where(...), SortedSet(T), ...)`) carries NO
+forall parameters of its own — the impl's foralls are injected as
+CAPTURES (`_inject_forall_captures`) — and after `substitute(spec_s,
+ftype)` its TYPE is concrete, so `_evaluate_funcval_runtime_call`'s
+specialization guard (`is_function_type_generic(...)`) sees a concrete
+non-forall fn and never monomorphizes. Codegen then receives the
+ORIGINAL generic body (T/Self abstract inside) and
+`generate_other_function_call` returns None → FTT.
+
+**TS mirror that yo-self is missing**: TS specializes AT RESOLUTION time
+— `findMethodsFromGenericImpls`' `shouldCreateSpecializedValue`
+(impl.ts:1337-1392: has substitutions, no unknown types, no unresolved
+type params, no missing foralls, no unresolved inner foralls) followed by
+creating the specialized FunctionValue right there; yo-self's
+`find_methods_from_generic_impls` only injects captures and returns the
+ORIGINAL FuncVal. THE FIX: port shouldCreateSpecializedValue + the
+resolution-time specialization into yo-self's candidate construction
+(evaluator/values/impl.yo, results.push site) — i.e. call
+`create_specialized_function_inline` (or the type-only path when gates
+fail) with the match bindings as compile-time args, mirroring
+impl.ts:1394-1500. Gate on: the 9-line repro, tk2, Counter, corpus, std,
+fixpoint, then re-sweep. This single port should unblock the imm\_\*/
+collections/derive tails (all bottom out in unspecialized generic-impl
+method calls).
+
 ## Hunt plan
 
 Probe `find_methods_from_generic_impls`' candidate for `is_empty` on
