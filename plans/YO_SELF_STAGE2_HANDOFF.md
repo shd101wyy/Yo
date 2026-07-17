@@ -109,9 +109,17 @@ option 1 (derive struct/enum eval ids from the declaration's
 `ast_expr_id` instead of `random_id`, making `aid == eid` a real identity
 that survives re-evaluation, then tighten the exact arms to id identity
 like TS's requireExactMatch) — bigger surgery over struct.yo + enum.yo +
-the type_key poison machinery + both exact arms; gate on: the 17-line
+the type*key poison machinery + both exact arms; gate on: the 17-line
 Counter repro (10/20), a local-ENUM analog repro, tk2, corpus, std,
-fixpoint, then re-sweep `/tmp/s2_r4_list.txt`. The rc=-6 crash family
+fixpoint, then re-sweep `/tmp/s2_r4_list.txt`. **FIRST ATTEMPT FAILED
+(2026-07-17, reverted uncommitted):** the naive swap (`struct_decl*/
+enum*decl*${ast*expr_id(expr)}`in struct.yo:74 + enum.yo:203, nothing
+else) keeps the Counter repro green but BREAKS tk2 —`bucket_size`undeclared +`void` vars, i.e. the sizeof-fold / poison-slot machinery
+assumes eval-fresh ids somewhere (likely: instantiation copies now
+colliding into one gs*/cfid slot that used to be disambiguated by fresh
+eval ids, so `g_struct_cfid_keys` poisons differently and the size
+registry misses). The next attempt must trace where tk2's Bucket ids come
+from under the swap before re-trying. The rc=-6 crash family
 (control_fn_as_regular_call, iso, iso_api_surface, rc, sys/timer, thread,
 thread_safety, worker) predates this session's fixes (present in round 1
 as 134/-6) and needs its own hunt — likely the batched-runner compile of
