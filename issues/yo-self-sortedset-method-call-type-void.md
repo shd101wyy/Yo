@@ -200,6 +200,20 @@ self/forall threading and its nested-call recursion, not a spot fix.
 All shallower routes (resolution, candidate typing, runtime-path return
 resolution, ExprInfo identity) are now PROBED HEALTHY and eliminated.
 
+## Machinery inventory (final note for the Gap-6 session)
+
+The runtime path's for-codegen specialization block ALREADY threads the
+static receiver: function.yo ~:1233-1321 saves ctx.self_type, sets it
+from `_static_dot_receiver_self_type(func_expr, ctx)`, calls
+`create_specialized_function_inline`, restores. So the top-level
+machinery is in place and the failure is in the NESTED re-entry: when
+the specialized body's `SortedMap(T, bool).new()` re-enters the same
+machinery (property-access candidate → runtime path → spec block), some
+level's receiver/Self/forall resolution yields unit. The Gap-6 session
+should trace ONE level at a time with a depth-tagged probe
+(`[SPEC depth=N] receiver=..., self_type set=...`) through the
+SortedSet→SortedMap→List recursion of the 9-line repro.
+
 ## Hunt plan
 
 Probe `find_methods_from_generic_impls`' candidate for `is_empty` on
