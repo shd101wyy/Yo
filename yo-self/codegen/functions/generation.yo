@@ -25,7 +25,7 @@ open(import("std/string"));
 { Environment } :: import("../../env.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ has_any_control_flow, get_module_level_init_exprs } :: import("../../expr_info.yo");
+{ has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized } :: import("../../expr_info.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { is_target_posix, is_target_linux } :: import("../../target.yo");
@@ -343,6 +343,9 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       open := linkage;
       open.push_string(prototype);
       open.push_str(" {");
+      // Mark the code position so a SUPERSEDED original whose body fails to
+      // transpile can be stubbed post-emission (see the check after the body).
+      stub_mark := em.code.len();
       em.emit_string_line(open);
       // Forward-shell thunk: if this func_id is a shell that was redirected to a
       // real method (a forward-ref/recursive impl method, e.g. parser.yo's
@@ -460,6 +463,25 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       context.override_return_type_str = prev_override;
       context.is_effect_record_member_function = prev_is_erm;
       em.emit_string_line(String.from("}"));
+      // SUPERSEDED-original stub: when EVERY runtime call of this fid produced
+      // a call-site specialization (expr_info.yo counters — the callee infos
+      // all point at spec fids), the original is dispatch-dead; if its emitted
+      // body ALSO failed to transpile (a generic-impl body with unbound
+      // foralls, e.g. `SortedSet.new`'s `Self(_inner : SortedMap(T,
+      // bool).new())`), the broken C would fail the WHOLE compile for dead
+      // code TS never emits (TS's resolution replaces the value on the shared
+      // node, so the abstract original never reaches its emitter). Replace
+      // just this function's body with an abort() stub — non-dispatch
+      // references (fn pointers) stay linkable, and a reachable stub aborting
+      // at runtime is a visible bug, not a silent one. Emittable originals
+      // (thread_spawn's) are left exactly as emitted.
+      emitted_fn := em.code.substring(stub_mark, em.code.len());
+      if(emitted_fn.contains("// Failed to transpile") && fid_fully_specialized(func_id.clone()), {
+        em.code = em.code.substring(usize(0), stub_mark);
+        em.emit_string_line(open.clone());
+        em.emit_string_line(String.from("  abort(); /* superseded generic original: all call sites dispatch a specialization */"));
+        em.emit_string_line(String.from("}"));
+      });
     },
     _ => ()
   )

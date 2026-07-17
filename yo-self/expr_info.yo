@@ -589,6 +589,38 @@ register_struct_ctor_fid :: (fn(struct_id : String, ctor_fid : String) -> unit)(
 lookup_struct_ctor_fid :: (fn(struct_id : String) -> Option(String))(
   g_struct_ctor_fids.get(struct_id)
 );
+// Call-site specialization supersession counters. The runtime call path
+// (calls/function.yo) specializes a generic/impl-generic callee PER CALL SITE
+// and stamps the SPEC onto the callee's ExprInfo — but the ABSTRACT original
+// FuncVal still sits in other id-keyed infos (candidate resolutions, earlier
+// passes), so codegen's function collection registers and emits it: a dead
+// function whose un-specializable body breaks the C ("Failed to transpile"
+// inside `SortedSet(i32).new`'s emitted original). TS never emits it — its
+// resolution replaces the value ON the shared node. Mirror by counting: a fid
+// whose every runtime call produced a spec is SUPERSEDED and skipped by
+// should_skip_function_codegen. A fid with any unspecialized call keeps its
+// emission (status quo).
+(g_fid_rtcalls : HashMap(String, usize)) = HashMap(String, usize).new();
+(g_fid_specs : HashMap(String, usize)) = HashMap(String, usize).new();
+/// Count a runtime call dispatch for `fid`.
+record_fid_rtcall :: (fn(fid : String) -> unit)({
+  n := match(g_fid_rtcalls.get(fid.clone()),.Some(v) => v,.None => usize(0));
+  g_fid_rtcalls.set(fid, n + usize(1));
+  ()
+});
+/// Count a successful call-site specialization of `fid`.
+record_fid_spec :: (fn(fid : String) -> unit)({
+  n := match(g_fid_specs.get(fid.clone()),.Some(v) => v,.None => usize(0));
+  g_fid_specs.set(fid, n + usize(1));
+  ()
+});
+/// True when every counted runtime call of `fid` was specialized (and at
+/// least one was) — the original body is dead and must not be emitted.
+fid_fully_specialized :: (fn(fid : String) -> bool)({
+  specs := match(g_fid_specs.get(fid.clone()),.Some(v) => v,.None => usize(0));
+  calls := match(g_fid_rtcalls.get(fid.clone()),.Some(v) => v,.None => usize(0));
+  (specs > usize(0)) && (specs >= calls)
+});
 // Macro-expansion side-table: a macro CALL's expanded form (e.g. `if(c, t, e)` →
 // its `cond(...)`), keyed by the call's expr id. yo-self codegen lowers a macro
 // call ONLY via `ExprInfo.macro_expansion` (generation.yo) — but that per-pass
@@ -654,5 +686,6 @@ export(record_method_callee_value, lookup_method_callee_value);
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_type);
 export(register_some_resolved_concrete, lookup_some_resolved_concrete);
 export(register_struct_ctor_fid, lookup_struct_ctor_fid);
+export(record_fid_rtcall, record_fid_spec, fid_fully_specialized);
 export(record_macro_expansion, lookup_macro_expansion);
 export(record_module_level_init_expr, get_module_level_init_exprs);

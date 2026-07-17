@@ -37,7 +37,9 @@ open(import("std/fmt"));
   record_method_callee_value,
   register_some_resolved_concrete,
   lookup_some_resolved_concrete,
-  record_macro_expansion
+  record_macro_expansion,
+  record_fid_rtcall,
+  record_fid_spec
 } :: import("../../expr_info.yo");
 {
   Variable,
@@ -1222,6 +1224,8 @@ _evaluate_funcval_runtime_call :: (
   // (ctl/effect-handler) functions are excluded — the effect system handles
   // them.
   ou_spec_soft_generic := match(callee_func_type_opt,.Some(spec_ft) => ((is_function_type_generic(spec_ft) && !(is_control_fn(func_id_fv.clone()))) && _func_type_has_closure_param(spec_ft)),.None => false);
+  // Supersession counting — see expr_info.yo g_fid_rtcalls/g_fid_specs.
+  record_fid_rtcall(func_id_fv.clone());
   if((forall_names.len() > usize(0)) || ou_spec_soft_generic, {
     // Bind `Self` to the concrete static dot-receiver around the
     // specialization so a STATIC generic-impl method's body (e.g.
@@ -1318,6 +1322,9 @@ _evaluate_funcval_runtime_call :: (
     spec_callee_info := new_expr_info(env, spec_ty_fixed);
     spec_callee_info.value = Option(EvalValue).Some(spec_fv);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(func_expr), spec_callee_info);
+    if((spec_fid.len() > usize(0)) && !(spec_fid == func_id_fv), {
+      record_fid_spec(func_id_fv.clone());
+    });
     ctx.self_type = spec_self_saved;
   });
   expr
