@@ -161,8 +161,13 @@ directive): user Yo code must always take `io : Io` in main's signature —
 `io :: __yo_builtin_io` is internal to the runner's synthesized batches;
 keep any repro of this class explicitly labeled as the runner shape.
 
-**First #70 sweep (in progress at write time, `/tmp/s2_sweep_yoself/`):
-~26/39 files green so far** — much healthier than #69's tail. Failing
+**First #70 sweep COMPLETE (`/tmp/s2_sweep_yoself/`): 41/61 files green,
+each green file matching the TS baseline's per-test counts exactly
+(compare_sweep: OK 41 / DIVERGENT 20 / MISSING 0). The 20 divergent are
+ALL whole-file batch-compile failures** (18 rc=1 + env_lookup/
+env_find_variable_frame_level rc=-11, which is a compile failure whose
+exit path then segfaults). Campaign scoreboard: #69 106/180 green, #70
+41/61 green. Failing
 classes are the SAME type-identity families as #69: `redefinition of
 __yo_typeid___yo_tN` (one C name registered twice — an INTERN-side
 type_key collision, distinct from the fixed CACHE-side one), field
