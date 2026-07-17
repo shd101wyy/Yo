@@ -84,6 +84,28 @@ SortedSet's impl `new` body clone with fresh ids
 (create_specialized_function_inline / \_trial_eval_fn_body callers)? Then
 probe expr_info_table_get on the inner call node id at exec time.
 
+## Route CONFIRMED + first fix attempt failed (2026-07-17)
+
+[PAENT]/[PANEW] probes: property access RUNS on `.new` (20×) but the
+assoc-type helper branches never fire — the resolution happens in the
+struct-TypeVal branch (property_access.yo:817+): field-label miss →
+`find_methods_from_generic_impls(type_val_inner, "new", env)` → exactly-1
+candidate → stamps `method_type`/`method_value` and returns. The
+candidate's `fn() -> Self` keeps `Self` ABSTRACT (the substitution map
+carries only the impl foralls), so the call records unit — the confirmed
+root of the whole chain. FIRST FIX ATTEMPT (reverted): appending
+`_substitute_self_in_method_ty(substitute(spec_s, ftype), resolved)` in
+the candidate construction (helpers moved above MethodCandidate — Yo has
+no forward refs). Result: 9-line repro DETERMINISTICALLY still fails (6
+clang errors, exit segv 139) — plain substitution of Self with the
+recursive concrete receiver is not equivalent to TS's
+`reEvaluateFunctionType` (impl.ts:1484 region), which RE-EVALUATES the
+method's fn-type expression in an env where Self/foralls are BOUND.
+Next attempt should mirror reEvaluateFunctionType properly (evaluate the
+stored fn-type expr under a pushed frame binding Self + forall names),
+or investigate why the substituted return type still miscompiles (check
+what the 6 errors are before designing further).
+
 ## Hunt plan
 
 Probe `find_methods_from_generic_impls`' candidate for `is_empty` on
