@@ -1166,6 +1166,21 @@ stay eval-fresh — the tk2/Bucket hazard of the old unconditional swap is
 structurally dodged, and tk2/ne/counter verified green). Full gates incl.
 fixpoint + double-emit held even with every module-level type id renamed.
 
+SLICE 2b RE-PROBED UNDER 2a (the arg population shifted as predicted): the
+shell-arg memo entry now carries the STABLE declaration id
+(`enum_decl_<ast>_<module>__self_shell` — 2a verified working end-to-end),
+while the five `some:1584/1586/1588/1590/1594` entries persist: five
+near-consecutive SomeT mints = five evaluation contexts where the enum
+declaration's field types are evaluated with **ctx.self_type bound to a
+FRESH SomeT instead of the shell** (validation/abstraction passes —
+is_validating_function_definition / def-eval generations). 2b's first
+question is now: WHO evaluates the enum-decl body with SomeT-Self, and
+should those contexts (a) reuse ONE declaration-scoped Self-SomeT (stable
+id at ctfe_depth 0, the 2a treatment applied to generate_some_type_id for
+declaration Self), or (b) skip Box-instantiation memoization entirely under
+SomeT args (TS's checking-phase behavior)? Note the module-path id embeds
+`file://` verbatim — cosmetically long; sanitize when convenient.
+
 SLICE 2b (the remaining frontier): the 4-variant recursive-enum repro's ctfe
 memo splits are keyed by BARE SOMET CLONE ARGS from analysis contexts
 (Box's forall V bound to per-generation Self-SomeTs: some:1584/…/1594) —
