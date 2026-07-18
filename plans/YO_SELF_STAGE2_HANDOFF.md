@@ -1157,6 +1157,25 @@ of the remaining families — likely 30+ of the 64 red files. Execute it
 FIRST next session (plan + conversion list: issues/yo-self-dyn-fn-field.md
 CONVERGED DIAGNOSIS; the resolved_concrete field exists since bca8eccc5).
 
+## SOMET SURGERY — SLICES 1 + 2a LANDED; 2b IS THE FRONTIER
+
+Slice 2a (b3e187b04) is IN: module-level struct/enum declarations mint
+DECLARATION-STABLE ids (`{struct,enum}_decl_<ast id>_<module>`) gated by the
+new EvalContext.ctfe_depth (0 = module level; inside CTFE, instantiation ids
+stay eval-fresh — the tk2/Bucket hazard of the old unconditional swap is
+structurally dodged, and tk2/ne/counter verified green). Full gates incl.
+fixpoint + double-emit held even with every module-level type id renamed.
+
+SLICE 2b (the remaining frontier): the 4-variant recursive-enum repro's ctfe
+memo splits are keyed by BARE SOMET CLONE ARGS from analysis contexts
+(Box's forall V bound to per-generation Self-SomeTs: some:1584/…/1594) —
+enum/struct id stability doesn't reach them. Options: stabilize
+generate_some_type_id for DECLARATION-scoped SomeTs the same way (ast-id
+derived at ctfe_depth 0), or make the memo's bare-SomeT rule
+lineage/cell-aware. The five-SomeT probe recipe is in this doc's earlier
+sections; re-run it under the slice-2a binary first — the arg population may
+have SHIFTED now that Self resolves against stable shells.
+
 ## SOMET SURGERY — SLICE 1 LANDED (549c03820), SLICE 2 IS THE FRONTIER
 
 Slice 1 (the lineage cell) is IN: resolved_concrete is now an
