@@ -117,7 +117,18 @@ SpecializingFunctionInfo :: ref(
     /// The return type of the specialization in progress.
     specialized_return_type : TypeValue,
     /// The original (pre-specialization) function value.
-    original_func_value : EvalValue
+    original_func_value : EvalValue,
+    /// Signature of the impl forall bindings injected as `TypeVal` captures on
+    /// the method value (`_inject_forall_captures`). TS gives each generic-impl
+    /// method instantiation a UNIQUE funcId embedding its substitutions
+    /// (impl.ts:1551), so its recursion guard never fires across
+    /// instantiations; yo-self keeps ONE shared func_id and injects the
+    /// bindings as captures instead — this field carries those bindings so the
+    /// guard can distinguish `Eq(ArrayList(i32)).==` in progress from a nested
+    /// call to `Eq(i32).==` (same func_id, different instantiation). Empty for
+    /// plain generic functions — their guard stays bare-func_id (TS-faithful,
+    /// including for polymorphic recursion).
+    impl_bindings_sig : String
   )
 );
 // ---------------------------------------------------------------------------

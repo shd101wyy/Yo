@@ -321,3 +321,23 @@ declaration-assignment when `value_code != tv` — exactly the orphaned-adoption
 case; the healthy case (tv == value_code, TS-identical self-assign) is
 byte-unchanged. Zero evaluator changes → deterministic. Corpus regression:
 tests/codegen-bootstrap/cond_comptime_arm_match_temp.yo.
+
+## phase6_verify round-10 one-off — suspected GC-corruption flake (2026-07-18 night)
+
+`s2e test yo-self/tests/phase6_verify.test.yo` passed 3/3 in the combined
+gate battery, then FAILED in the round-10 sweep ~45 min later with the SAME
+binary (byte-copied pin): the ~1M-line whole-compiler batch C came out with
+2 errors (`use of undeclared identifier 'result'` at 365802, `expected
+expression` at 1063147). Same source, same binary, different output across
+two runs. The GC trigger is allocation-count-based (deterministic), but a
+latent traverse bug freeing LIVE memory corrupts in an ADDRESS-dependent —
+i.e. per-run — way, and phase6_verify's batch has the largest heap of any
+test file (the gc-traverse family, cf.
+issues/fixed/yo-self-gc-traverse-value-struct-field.md).
+
+PROBE (once no sweep owns yo-self/tests): run the file 3x under the pinned
+binary with YO*KEEP_BATCH=1, diff the batch .c across runs; also 2x under
+/tmp/s2t18 (pre-today) to test whether the flake predates today's fixes.
+Failures that move/vanish across runs = GC/heap corruption class (audit
+\_\_yo_traverse*\* for the missed-field class); identical stable errors =
+deterministic emission divergence (re-triage).

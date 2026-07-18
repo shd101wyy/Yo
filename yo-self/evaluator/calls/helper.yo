@@ -989,6 +989,49 @@ _store_specialization_cache :: (
     );
   });
 });
+/// Render the impl-forall bindings a generic-impl method carries as `TypeVal`
+/// captures (`_inject_forall_captures`, evaluator/values/impl.yo) into a
+/// deterministic signature string. TS never needs this: each generic-impl
+/// method INSTANTIATION gets a unique funcId embedding its substitutions
+/// (impl.ts:1551), so identity comparisons distinguish `Eq(ArrayList(i32)).==`
+/// from `Eq(ArrayList(ArrayList(i32))).==` for free. yo-self keeps the shared
+/// original func_id and injects the bindings as captures — so recursion
+/// guards must compare THIS alongside the func_id, or a nested call to the
+/// same trait method at a SMALLER instantiation (ArrayList(ArrayList(i32))'s
+/// `==` comparing elements via ArrayList(i32)'s `==`) is misread as direct
+/// self-recursion, skips specialization, and the call site emits the BARE
+/// generic fid ("call to undeclared function 'yo_id_NNNN'" — the collections
+/// batch residual). Empty for plain generic functions and non-FuncVals.
+_impl_type_captures_sig :: (fn(fv : EvalValue) -> String)({
+  out := String.new();
+  match(
+    fv,
+    .FuncVal(__fvs1, cvs) => {
+      cns := __fvs1.*.cap_names;
+      n := cvs.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          cvs.get(i),
+          .Some(cv) => match(
+            cv,
+            .TypeVal(tv) => {
+              out.push_string(match(cns.get(i),.Some(nm) => nm,.None => String.from("_")));
+              out.push_str("=");
+              out.push_string(sanitize_for_sig(value_to_signature_string(EvalValue.TypeVal(tv))));
+              out.push_str(";");
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+  out
+});
 /// Find the in-progress specialization for `fid` on the FULL specializing stack,
 /// used for the MUTUAL-recursion forward-reference. Returns None when `fid` is the
 /// innermost (top-slot) specialization — that DIRECT case is handled by yo-self's
@@ -996,12 +1039,14 @@ _store_specialization_cache :: (
 /// the single slot has been overwritten by an inner sibling, needs it). Mirrors the
 /// stack `.find` in TS helper.ts:1993. The returned info carries only the id/type
 /// fields (EvalValue has no clone; `original_func_value` is unused here).
+/// `bindings_sig` (see `_impl_type_captures_sig`) must ALSO match: a stack hit
+/// for the same func_id at a DIFFERENT impl instantiation is not recursion.
 _find_mutual_specializing_info :: (
-  fn(ctx : EvalContext, fid : String) -> Option(SpecializingFunctionInfo)
+  fn(ctx : EvalContext, fid : String, bindings_sig : String) -> Option(SpecializingFunctionInfo)
 )({
   top_is_fid := match(
     ctx.currently_specializing_function,
-    .Some(si) => (si.original_func_id == fid),
+    .Some(si) => ((si.original_func_id == fid) && (si.impl_bindings_sig == bindings_sig)),
     .None => false
   );
   if(
@@ -1015,13 +1060,14 @@ _find_mutual_specializing_info :: (
         while(i < stk.len(), {
           match(
             stk.get(i),
-            .Some(si) => if((si.original_func_id == fid) && found.is_none(), {
+            .Some(si) => if(((si.original_func_id == fid) && (si.impl_bindings_sig == bindings_sig)) && found.is_none(), {
               found = Option(SpecializingFunctionInfo).Some(
                 SpecializingFunctionInfo(
                   original_func_id : si.original_func_id.clone(),
                   specialized_func_id : si.specialized_func_id.clone(),
                   specialized_return_type : si.specialized_return_type.clone(),
-                  original_func_value : EvalValue.UnitVal
+                  original_func_value : EvalValue.UnitVal,
+                  impl_bindings_sig : si.impl_bindings_sig.clone()
                 )
               );
             }),
@@ -1259,12 +1305,19 @@ create_specialized_function_inline :: (
             .Some(s) => s,
             .None => ArrayList(SpecializingFunctionInfo).new()
           );
+          // The impl-binding signature travels on BOTH the stack entry and the
+          // top slot so the recursion guards can tell "same trait method, same
+          // instantiation" (true recursion) from "same trait method, DIFFERENT
+          // instantiation" (a nested call that must mint its own spec) — see
+          // _impl_type_captures_sig.
+          push_bindings_sig := _impl_type_captures_sig(original_func_val);
           spec_stack.push(
             SpecializingFunctionInfo(
               original_func_id : func_id.clone(),
               specialized_func_id : specialized_func_id.clone(),
               specialized_return_type : spec_ret_ty.clone(),
-              original_func_value : EvalValue.UnitVal
+              original_func_value : EvalValue.UnitVal,
+              impl_bindings_sig : push_bindings_sig.clone()
             )
           );
           ctx.currently_specializing_function_stack = Option(ArrayList(SpecializingFunctionInfo)).Some(spec_stack);
@@ -1273,7 +1326,8 @@ create_specialized_function_inline :: (
               original_func_id : func_id,
               specialized_func_id : specialized_func_id,
               specialized_return_type : spec_ret_ty.clone(),
-              original_func_value : original_func_val
+              original_func_value : original_func_val,
+              impl_bindings_sig : push_bindings_sig
             )
           );
           // Build a function-body evaluation context so explicit `return(...)`
@@ -3311,18 +3365,32 @@ try_to_call_function_with_arguments :: (
           .Some(fv) => match(fv,.FuncVal(__fvd14, _) => __fvd14.*.func_id, _ => String.from("")),
           .None => String.from("")
         );
-        // Direct self-recursion (callee is the innermost specialization): left to the
-        // existing skip + `recur` machinery (unchanged behavior).
+        // The callee's impl-instantiation identity: TS distinguishes generic-impl
+        // method instantiations by funcId (impl.ts:1551 embeds the substitutions);
+        // yo-self shares one func_id and injects the bindings as TypeVal captures,
+        // so both recursion guards below compare this signature TOO. Without it,
+        // `Eq(ArrayList(ArrayList(i32))).==` specializing and calling
+        // `Eq(ArrayList(i32)).==` on its elements was misread as self-recursion:
+        // the inner call skipped specialization and emitted the BARE generic fid
+        // ("call to undeclared function" — the collections batch residual).
+        callee_bindings_sig := match(
+          func_val,
+          .Some(fv_bs) => _impl_type_captures_sig(fv_bs),
+          .None => String.new()
+        );
+        // Direct self-recursion (callee is the innermost specialization, SAME
+        // instantiation): left to the existing skip + `recur` machinery
+        // (unchanged behavior).
         is_recursive_spec := match(
           ctx.currently_specializing_function,
-          .Some(spec_info) => (spec_info.original_func_id == callee_fid_g),
+          .Some(spec_info) => ((spec_info.original_func_id == callee_fid_g) && (spec_info.impl_bindings_sig == callee_bindings_sig)),
           .None => false
         );
         // MUTUAL recursion (callee is being specialized higher up, not innermost):
         // forward-reference the in-progress specialization instead of re-specializing
         // it (which never terminates and overflows the stack in the unified stage-2
         // self-compile — Phase 6). Mirrors TS helper.ts:1985-2010.
-        mutual_info := _find_mutual_specializing_info(ctx, callee_fid_g);
+        mutual_info := _find_mutual_specializing_info(ctx, callee_fid_g, callee_bindings_sig.clone());
         mutual_is_some := mutual_info.is_some();
         is_concrete_fv := match(
           func_val,

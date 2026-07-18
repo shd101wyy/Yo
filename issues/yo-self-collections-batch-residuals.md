@@ -34,3 +34,49 @@ SomeTs — same identity family as everything else).
 Also seen: `call to undeclared function 'yo_id_5621'` (bare fid — the
 original was skipped as hard-generic while a call site still references
 it).
+
+## 2026-07-18 (night): signature 1 ROOT-CAUSED AND FIXED — recursion guard vs impl instantiations
+
+`call to undeclared function 'yo_id_3230'` (ArrayList `==`): the call-site
+specialization guard compared BARE func_ids, so while specializing
+`Eq(ArrayList(ArrayList(i32))).==` its element compare — a call to the SAME
+generic method at the SMALLER instantiation `Eq(ArrayList(i32)).==` — was
+misread as direct self-recursion, skipped specialization, and emitted the
+bare generic fid. TS never hits this: each generic-impl method instantiation
+gets a UNIQUE funcId embedding its substitutions (impl.ts:1551); yo-self
+keeps one shared func_id and injects the bindings as `TypeVal` captures
+(`_inject_forall_captures`). FIX: `SpecializingFunctionInfo.impl_bindings_sig`
+(rendered from those captures) compared by BOTH recursion guards (direct +
+mutual) alongside the func_id. Plain generic functions carry an empty sig →
+bare-fid behavior preserved (TS-faithful, incl. polymorphic recursion).
+15-line repro (nested `ArrayList(ArrayList(i32))` equality): s1 previously
+"call to undeclared 'yo_id_3230'", now prints `true`.
+
+## 2026-07-18 (night): the REMAINING array_list residual — wrong-spec pick (Box(T) vs T)
+
+With the guard fixed, tests/collections/array_list.test.yo now fails 3
+type-mismatch errors: `passing __yo_t32 to parameter of type __yo_t25` where
+BOTH are `<enum:enum_yo_id_3135>` (Option) — `pop()` on
+`ArrayList(Box(i32))` returns `Option(Box(i32))` (t32) but the `is_some`
+callee chosen is the `Option(i32)` spec (`yo_id_2458_rtparam0_enum_yo_id_3135_i32`).
+NOT a Box-unwrap fallthrough — the second site shows `Option(String).is_some()`
+ALSO picking the `Option(i32)` spec (`yo_id_2458_rtparam0_enum_yo_id_3135_i32`),
+and t9 is `Option(String)` (struct_yo_id_3273 = String), not Result. EVERY
+`popped.is_some()` in the batch collapses onto the FIRST-minted Option(i32)
+spec regardless of payload.
+
+WORKING HYPOTHESIS (next session's entry point): `is_some`'s declared return
+is `bool` (concrete), so the resolved-return cache-key segment
+(helper.yo:~1195 ret_sig_ty gate, added for the HashMap.with_capacity class)
+does not fire; and the receiver's `arg_type` recorded in
+`runtime_param_tys` at the CALL SITE is the UNRESOLVED `Option(T)` (the
+SomeT-parameterized method self type — identical shape at every call site),
+so `_find_specialization_cache`'s `are_types_compatible_exact(cached,
+current)` compares Option(T-SomeT) against Option(T-SomeT) and HITS the
+first entry, while the SIGNATURE at mint time resolved T=i32 via the
+callee_env forall lookup. Probe: print cached_ty/current_ty type_keys at
+helper.yo:921 for fid yo_id_2458 in the array_list batch. Fix direction:
+resolve the receiver/self arg_type before the cache compare (mirror however
+TS's per-instantiation FunctionValue objects keep these caches separate —
+TS caches hang off EACH instantiation's own object, cf. the helper.yo:1185
+comment). Saved batch: /tmp/al_batch_s1f.c (11413/12535/13241).

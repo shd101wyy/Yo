@@ -1,0 +1,23 @@
+open(import("std/fmt"));
+
+// Regression: a generic-impl trait method specializing and calling ITSELF at
+// a SMALLER instantiation (Eq(ArrayList(ArrayList(i32))).== comparing elements
+// via Eq(ArrayList(i32)).==). The specialization recursion guard must compare
+// the impl-binding signature alongside the func_id (TS embeds substitutions
+// in per-instantiation funcIds, impl.ts:1551) or the inner call is misread as
+// self-recursion, skips specialization, and emits the BARE generic fid
+// ("call to undeclared function") — issues/yo-self-collections-batch-residuals.md.
+{ ArrayList } :: import("std/collections/array_list");
+
+main :: (fn() -> unit)({
+  a := ArrayList(ArrayList(i32)).new();
+  inner1 := ArrayList(i32).new();
+  inner1.push(i32(1));
+  a.push(inner1);
+  b := ArrayList(ArrayList(i32)).new();
+  inner2 := ArrayList(i32).new();
+  inner2.push(i32(1));
+  b.push(inner2);
+  println(`${a == b}`);
+});
+export(main);
