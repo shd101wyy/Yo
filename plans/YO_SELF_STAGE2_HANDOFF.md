@@ -1017,6 +1017,22 @@ recursive_enum, ref_enum, string/string, thread_safety, url/url. **#69 =
 - 4x `X must be the first and only parameter if specified` (NEW signature —
   untriaged; likely one emitter bug across 4 files)
 
+## 2026-07-19 (cont.) — degenerate-spec refusal: env.test.yo green, the void-param family defused
+
+`894641e10`: create_specialized_function_inline refuses to mint when a
+runtime arg's type collapsed to UNIT against a concrete non-unit declared
+param (degenerate analysis pass; the good pass re-stamps the call site), and
+prefers the resolved DECLARED param type when building the registered spec
+type. The bisect chain (arm-deletion -> keep-only -> feature/import whittle
+over the saved env batch) pinned the trigger to `open(import("std/env"))`.
+tests/env.test.yo flips green (13 passed). RESIDUAL (open): when the
+degenerate pass is the ONLY pass (8-line repro
+issues/repros/void-param-assert-open-env.yo), the open-member resolution
+itself returns non-Func under analysis (try_to_call soft fallback -> t_unit)
+— fix locus is the identifier/member resolution through `open`s.
+async_await/sync_mutex/prelude stay red on OTHER families. Round-13 sweep
+launched under /tmp/s2_r13pin.
+
 Priorities for the next session: (1) the identity-split surgery (biggest
 combined family: conflicting-types/initializing/passing/redefinition ≈ 16
 files all point at one-type-two-sids); (2) the rc=-6 IoExn family (7 files,
