@@ -195,3 +195,25 @@ resolution against the closure's params + inner bindings), which is what
 TS's per-object env identity gives it for free. Blast radius: ALL closure
 capture tracking — gate the change on the full corpus + the repro + the
 non-Impl(Fn) variants (dyncap2/dyncap3 shapes, both currently green).
+
+### Capture residual — final probe data (2026-07-18)
+
+IDREF/CAPTRK2 probes during the repro compile:
+
+```
+8× IDREF name fb=true caps=true  spec=false   (def-time evals — tracked)
+4× IDREF name fb=true caps=true  spec=true    (a spec eval WITH a map — tracked, fl=1)
+2× IDREF name fb=true caps=false spec=true    (a spec eval with NO map — tracker skipped)
+```
+
+So THREE eval generations touch the closure body; at least one
+spec-generation eval DOES track `name` (caps=true spec=true), yet the
+EMITTED closure fid's capture struct lacks it — either that eval's struct
+build was swallowed before registration, it registered under a fid that is
+not the emitted one, or the mapless (caps=false) eval is the one whose
+FuncVal/fid codegen ultimately consumes. NEXT: log fid at the
+anonymous*function struct-build (closure_capture_type registration) and at
+the FuncVal mint, correlate with the emitted `closure_yo_id*\*` — one
+rebuild answers which generation owns the emitted fid; then either route
+that generation's eval through a map (the deferred-path map gap at
+anonymous_function.yo:961-979) or reuse the tracked generation's struct.
