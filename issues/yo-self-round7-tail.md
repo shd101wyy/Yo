@@ -178,3 +178,20 @@ currently rc=1 with "undeclared identifier 'name'/'flag'"). TS mirror:
 helper.ts:1911-1929 + closure-type.ts (records the concrete capture struct
 at specialization; TS creation sites resolve through the SomeType's
 resolvedConcreteType so both sides agree).
+
+### Capture-loss — DEFINITIVE localization (tracker gate, not enrichment)
+
+Relaxing enrich_captured_variables' `fl < n_frames` drop did NOT fix the
+repro (reverted) — the params are dropped EARLIER, at the tracking gate:
+`identifer_and_operator.yo:216` `variable.frame_level <
+closure_frame_level` compares the variable's frame_level (stamped in the
+env generation where the ENCLOSING fn was CALLED — deep) against the
+closure's def-eval env frame count (shallow) — params stamped deeper than
+the closure's frame count are never tracked at all, while the enclosing
+fn's LOCALS (stamped in the def-eval generation) pass. The fix must
+normalize the comparison across env generations — e.g. track when the
+variable is NOT bound within the closure's own frames (name-based
+resolution against the closure's params + inner bindings), which is what
+TS's per-object env identity gives it for free. Blast radius: ALL closure
+capture tracking — gate the change on the full corpus + the repro + the
+non-Impl(Fn) variants (dyncap2/dyncap3 shapes, both currently green).
