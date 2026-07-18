@@ -75,7 +75,8 @@ open(import("std/string"));
   mark_as_closure_fn,
   ClosureCaptureInfo,
   register_closure_capture_info,
-  get_closure_capture_info
+  get_closure_capture_info,
+  register_closure_fid_source
 } :: import("../../function_value.yo");
 {
   enrich_captured_variables,
@@ -833,6 +834,12 @@ evaluate_anonymous_function_implementation :: (
     is_creating_closure => (String.from("closure_") + random_id(env.module_path)),
     true => (String.from("fn_") + random_id(env.module_path))
   );
+  // Source-position identity: every re-eval generation of this source
+  // closure registers under the same key so capture info can merge across
+  // generations (see function_value.yo g_closure_fid_source).
+  if(is_creating_closure, {
+    register_closure_fid_source(func_id.clone(), `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`);
+  });
   // Clone taken BEFORE `body_expr` below moves the body into the
   // FuncVal; the definition-time body evaluation further down needs it.
   body_for_def_eval := body_expr.clone();

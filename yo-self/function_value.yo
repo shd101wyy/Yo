@@ -81,6 +81,22 @@ is_closure_fn :: (fn(func_id : String) -> bool)(
 ClosureCaptureInfo :: ref(struct(capture_type : TypeValue, frame_level : usize));
 (g_closure_capture_info : HashMap(String, ClosureCaptureInfo)) = HashMap(String, ClosureCaptureInfo).new();
 /// Record a closure's capture-struct type + defining frame level, by func_id.
+// Source-position identity for closures: every re-eval of the SAME source
+// closure (def-time trial, enclosing-fn specialization, deferred completion)
+// mints a FRESH fid via clone_expr_fresh_ids, so fid-keyed capture info can
+// never merge across generations — the emitted generation may carry a SUBSET
+// capture struct while an earlier generation built the complete one
+// (issues/repros/dyn-closure-implfn-capture-loss.yo: nf=4 built under two
+// early fids, nf=2 emitted). The source token (module:row:col) is stable
+// across clones; keying capture info by it lets get_closure_capture_info
+// return the LARGEST struct any generation recorded for that source closure.
+(g_closure_fid_source : HashMap(String, String)) = HashMap(String, String).new();
+(g_closure_capture_by_source : HashMap(String, ClosureCaptureInfo)) = HashMap(String, ClosureCaptureInfo).new();
+/// Record the source key for a closure fid (at FuncVal mint).
+register_closure_fid_source :: (fn(func_id : String, src_key : String) -> unit)({
+  g_closure_fid_source.set(func_id, src_key);
+  ()
+});
 _capture_struct_field_count :: (fn(t : TypeValue) -> usize)(
   match(t,.Struct({ field_labels : cfl }) => cfl.len(), _ => usize(0))
 );
@@ -100,12 +116,46 @@ register_closure_capture_info :: (fn(func_id : String, info : ClosureCaptureInfo
     }),
     .None => ()
   );
+  // Source-keyed keep-larger (cross-generation merge — see the note above).
+  match(
+    g_closure_fid_source.get(func_id.clone()),
+    .Some(src_key1) => {
+      (src_do_set : bool) = true;
+      match(
+        g_closure_capture_by_source.get(src_key1.clone()),
+        .Some(prev_src) => if(_capture_struct_field_count(prev_src.capture_type) > _capture_struct_field_count(info.capture_type), {
+          src_do_set = false;
+        }),
+        .None => ()
+      );
+      if(src_do_set, {
+        g_closure_capture_by_source.set(src_key1.clone(), ClosureCaptureInfo(capture_type : info.capture_type, frame_level : info.frame_level));
+      });
+    },
+    .None => ()
+  );
   g_closure_capture_info.set(func_id.clone(), info);
 });
 /// The recorded capture info for `func_id`, if any.
-get_closure_capture_info :: (fn(func_id : String) -> Option(ClosureCaptureInfo))(
-  g_closure_capture_info.get(func_id.clone())
-);
+get_closure_capture_info :: (fn(func_id : String) -> Option(ClosureCaptureInfo))({
+  fid_info := g_closure_capture_info.get(func_id.clone());
+  // Cross-generation fallback: prefer the LARGEST capture struct any
+  // generation of this SOURCE closure recorded (see g_closure_capture_by_source).
+  src_info := match(
+    g_closure_fid_source.get(func_id.clone()),
+    .Some(sk) => g_closure_capture_by_source.get(sk),
+    .None => Option(ClosureCaptureInfo).None
+  );
+  match(
+    src_info,
+    .Some(si) => match(
+      fid_info,
+      .Some(fi) => if(_capture_struct_field_count(si.capture_type) > _capture_struct_field_count(fi.capture_type), Option(ClosureCaptureInfo).Some(si), Option(ClosureCaptureInfo).Some(fi)),
+      .None => Option(ClosureCaptureInfo).Some(si)
+    ),
+    .None => fid_info
+  )
+});
 // ---------------------------------------------------------------------------
 // isEffectRecordMember side-table (codegen)
 // ---------------------------------------------------------------------------
@@ -227,5 +277,6 @@ export(
   register_func_type,
   get_func_type,
   register_func_parameters_frame,
-  get_func_parameters_frame
+  get_func_parameters_frame,
+  register_closure_fid_source
 );
