@@ -314,7 +314,19 @@ impl(
   ),
   /// Look up a registered function entry by func_id.
   get_function_entry : (fn(self : Self, func_id : String) -> Option(CodegenFunctionEntry))(
-    self.functions.get(func_id)
+    // Return an entry whose c_name is a CLONE, never the registry's own
+    // String — yo-self String is reference-semantics, so handing out the
+    // stored buffer lets any consumer that builds on it (e.g. the index-call
+    // `${e.c_name}(recv, idx)` path) MUTATE the canonical C name in place;
+    // the function DEFINITION then emits the polluted name while call sites
+    // used the clean one (the phase6 batch "expected parameter declarator" —
+    // a def named `fn_x(&(*frame_ptr)->variables, j)`). Same hardening as
+    // get_type_c_name above (the enum sibling-cname pollution).
+    match(
+      self.functions.get(func_id),
+      .Some(fe) => Option(CodegenFunctionEntry).Some(CodegenFunctionEntry(value : fe.value, c_name : fe.c_name.clone())),
+      .None => Option(CodegenFunctionEntry).None
+    )
   ),
   /// True if any registered function already uses this C name (collision check
   /// for plain-name exports). Mirrors `Object.values(...).some(f => f.cName === …)`.

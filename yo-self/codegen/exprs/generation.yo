@@ -324,7 +324,7 @@ _index_method_call_by_name :: (fn(method_value : EvalValue, recv_arg : String, i
   fid := match(method_value,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => return(String.from("/* Error: Index method not a FuncVal */")));
   match(
     context.base.get_function_entry(fid),
-    .Some(e) => `${e.c_name}(${recv_arg}, ${index_code})`,
+    .Some(e) => `${e.c_name.clone()}(${recv_arg}, ${index_code})`,
     .None => String.from("/* Error: Index method not found in function registry */")
   )
 });
