@@ -713,6 +713,27 @@ SortedSet+multibyte, env-check, fixpoint BYTE-IDENTICAL). Canonical
 binary-MIXED (mid-sweep fixes) — round-7 (clean, settled binary) is the
 authoritative scoreboard: /tmp/s2_sweep_r7/ + /tmp/s2_sweep_yoself_r7/.
 
+## 2026-07-18 (latest) — registry-mutation fix: #70 at 55/61
+
+`1d6e782cc`: get_function_entry now returns a c_name CLONE (the function-
+registry twin of the type-registry get_type_c_name hardening). Inside the
+stage-2 binary, the index-call emitter's `${e.c_name}(recv, idx)` template
+had been mutating the canonical C name in place — one Index-method
+DEFINITION emitted with call-arg text fused into its name, failing the
+whole phase6 batch ("expected parameter declarator"). All four phase6
+files flip green: **#70 = 55/61**. Remaining six: lexer (typeid
+redefinition), cache (undeclared temp), effect_analysis (undeclared
+effect_parameter_name), suspension_analysis, evaluator_index,
+install_command.
+
+Verified NOT the same root: collections' `call to undeclared function
+'yo_id_3230'` persists under the fixed s2 (plus a t32-vs-t25 param type
+mismatch — the identity-split family). See
+issues/yo-self-collections-batch-residuals.md.
+
+Versioned binaries: /tmp/s1_v2 and /tmp/s2_v2 (1d6e782cc). Do NOT cp over
+/tmp/s1//tmp/s2 while sweeps run.
+
 ## 2026-07-18 ROUND-7 FINAL SCOREBOARD
 
 **#70 (yo-self/tests): 51/61 files** (from 42). **#69 (tests/): 108/180
