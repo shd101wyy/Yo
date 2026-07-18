@@ -714,11 +714,18 @@ generate_implicit_return_statement :: (fn(expr : AstExpr, indent : String, conte
       em.emit_string_line(line);
     }, {
       final_code := handle_func_call_deferred_dup(expr, indent.clone(), context);
-      line := indent.clone();
-      line.push_str("return ");
-      line.push_string(final_code);
-      line.push_str(";");
-      em.emit_string_line(line);
+      // An EMPTY tail render means the expression emitted as STATEMENTS whose
+      // every path already returned (e.g. a tail `match` with returning arms)
+      // — a bare `return ;` here is a C constraint violation in a non-void fn
+      // ("non-void function should return a value", the install_command
+      // batch). Emit nothing: control cannot reach past the statement form.
+      if(final_code.trim().len() > usize(0), {
+        line := indent.clone();
+        line.push_str("return ");
+        line.push_string(final_code);
+        line.push_str(";");
+        em.emit_string_line(line);
+      });
     })
   )
 });
