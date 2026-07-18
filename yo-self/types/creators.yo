@@ -226,9 +226,16 @@ t_some_t :: (fn(name : String, frame_level : usize) -> TypeValue)(
     ArrayList(usize).new(),
     false,
     Option(TypeValue).None,
-    Option(TypeValue).None
+    ArrayList(TypeValue).new()
   )
 );
+/// Build a resolved-concrete CELL seeded with `t` (see definitions.yo SomeT:
+/// a one-element ArrayList used as a shared mutable box).
+t_resolved_cell :: (fn(t : TypeValue) -> ArrayList(TypeValue))({
+  cell := ArrayList(TypeValue).new();
+  cell.push(t);
+  cell
+});
 /// Create a SomeType with a `kind_function_type` set — represents a
 /// higher-kinded type variable like `F : (fn(T : Type) -> Type)`.
 /// `kind` must be a `Func` TypeValue. Mirrors TS's `SomeType.kindFunctionType`
@@ -246,7 +253,7 @@ t_some_t_with_kind :: (fn(name : String, frame_level : usize, kind : TypeValue) 
     ArrayList(usize).new(),
     false,
     Option(TypeValue).Some(kind),
-    Option(TypeValue).None
+    ArrayList(TypeValue).new()
   )
 );
 // ---------------------------------------------------------------------------
@@ -593,6 +600,7 @@ resolve_struct_shell :: (fn(t : TypeValue) -> TypeValue)(
 export(register_enum_final, resolve_enum_shell, _patch_self_shell);
 export(register_struct_final, resolve_struct_shell);
 export(
+  t_resolved_cell,
   generate_some_type_id,
   t_unit,
   t_str,

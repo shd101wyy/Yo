@@ -292,7 +292,7 @@ _variable_can_need_drop_ignoring_consumed :: (fn(v : Variable) -> bool)({
   });
   some_undroppable := match(
     v.ty,
-    .SomeT({ required_trait_types : s_rtt, resolved_concrete : s_rc }) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
+    .SomeT({ required_trait_types : s_rtt, resolved_concrete : s_rc }) => ((s_rc.len() == usize(0)) && (s_rtt.len() == usize(0))),
     _ => false
   );
   !(some_undroppable)
@@ -491,7 +491,7 @@ _schedule_scope_end_drops :: (
         // TS getVariablesNeedingDrop's resolvedConcreteType/requiredTraits check.
         some_undroppable := match(
           v.ty,
-          .SomeT({ required_trait_types : s_rtt, resolved_concrete : s_rc }) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
+          .SomeT({ required_trait_types : s_rtt, resolved_concrete : s_rc }) => ((s_rc.len() == usize(0)) && (s_rtt.len() == usize(0))),
           _ => false
         );
         e4 := (e3 && (!(some_undroppable)));

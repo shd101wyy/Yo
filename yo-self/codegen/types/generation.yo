@@ -814,7 +814,7 @@ _walk_by_value_dep :: (fn(deps_set : HashSet(String), ft : TypeValue, self_type_
     is_some_type(ft) => match(
       ft,
       .SomeT({ id : w_sid, resolved_concrete : wrc }) => match(
-        wrc,
+        wrc.get(usize(0)),
         .Some(wrct) => recur(deps_set, wrct, self_type_id, guard_nullable, cname_to_typeid, context),
         // No per-object resolution: fall back to the GLOBAL registry, exactly
         // like get_type_string's SomeT arm (utils/index.yo) — a closure-param

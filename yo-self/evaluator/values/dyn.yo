@@ -24,7 +24,7 @@ open(import("std/string"));
 { get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
 { create_specialized_function_inline } :: import("../calls/helper.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_type, generate_some_type_id } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_resolved_cell, generate_some_type_id } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_reference_struct_type, is_boxed_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_comptime_fn_call } :: import("../calls/comptime_fn.yo");
@@ -343,7 +343,7 @@ evaluate_dyn_value :: (
               ntl,
               false,
               Option(TypeValue).None,
-              Option(TypeValue).None
+              ArrayList(TypeValue).new()
             ),
             env : et.env
           )
@@ -420,7 +420,7 @@ evaluate_dyn_value :: (
                     bx_ntl,
                     bx_ier,
                     bx_kft,
-                    Option(TypeValue).Some(cci.capture_type)
+                    t_resolved_cell(cci.capture_type)
                   );
                 },
                 _ => ()

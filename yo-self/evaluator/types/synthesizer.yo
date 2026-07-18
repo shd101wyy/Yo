@@ -1260,6 +1260,21 @@ _synthesize_types_impl :: (
       // FSM codegen). Inert until the FSM readers land.
       if(match(opts,.Some(o) => o.set_resolved_concrete_type,.None => false), {
         register_some_resolved_concrete(exp_id2, given_ty);
+        // ALSO stamp the SHARED per-lineage CELL (definitions.yo SomeT
+        // resolved_concrete): every clone of this SomeT — including copies
+        // already stored in func types and registries — sees the resolution,
+        // the value-semantics equivalent of TS mutating resolvedConcreteType
+        // on the shared object (synthesizer.ts:463). Last-wins like TS.
+        match(
+          expected_ty,
+          .SomeT({ resolved_concrete : exp_cell }) => {
+            if(exp_cell.len() > usize(0), {
+              exp_cell.remove(usize(0), exp_cell.len());
+            });
+            exp_cell.push(given_ty);
+          },
+          _ => ()
+        );
       });
       // Recursively synthesize required trait type parameters
       n_et := exp_traits.len();
@@ -1334,6 +1349,17 @@ _synthesize_types_impl :: (
       // `setResolvedConcreteType`). Keyed by the given SomeT's id.
       if(match(opts,.Some(o) => o.set_resolved_concrete_type,.None => false), {
         register_some_resolved_concrete(giv_id2, expected_ty);
+        // Symmetric per-lineage CELL stamp — see the expected-side site above.
+        match(
+          given_ty,
+          .SomeT({ resolved_concrete : giv_cell }) => {
+            if(giv_cell.len() > usize(0), {
+              giv_cell.remove(usize(0), giv_cell.len());
+            });
+            giv_cell.push(expected_ty);
+          },
+          _ => ()
+        );
       });
     });
     return(SynthesizeResult(expected_env : ee, given_env : ge));
