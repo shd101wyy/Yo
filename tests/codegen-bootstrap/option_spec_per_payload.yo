@@ -1,0 +1,23 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+
+// Regression: is_some() on Option(i32) THEN Option(String) — the second call
+// must NOT cache-hit the first instantiation's specialization. yo-self
+// generic-enum instantiations share the declaration's eval id, and the enum
+// exact-compare's `aid == eid -> true` fast-accept declared Option(i32) and
+// Option(String) exact-equal, so the spec cache served the FIRST payload's
+// spec to every receiver ("passing __yo_t16 to parameter of __yo_t9" across
+// the collections batches). TS only ever id-compares as an early REJECT;
+// acceptance always structurally compares variant field types
+// (compatibility.ts:354-389). See issues/yo-self-collections-batch-residuals.md.
+main :: (fn() -> unit)({
+  a := ArrayList(i32).new();
+  a.push(i32(7));
+  pa := a.pop();
+  b := ArrayList(String).new();
+  b.push(String.from("x"));
+  pb := b.pop();
+  println(`${pa.is_some()} ${pb.is_some()}`);
+});
+export(main);

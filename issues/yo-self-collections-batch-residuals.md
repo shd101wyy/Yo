@@ -65,6 +65,31 @@ and t9 is `Option(String)` (struct_yo_id_3273 = String), not Result. EVERY
 `popped.is_some()` in the batch collapses onto the FIRST-minted Option(i32)
 spec regardless of payload.
 
+**ROOT-CAUSED AND FIXED (2026-07-18 night):** probe at the spec-cache HIT
+site showed `rt=[Option(String)] cached=[Option(i32)]` — HIT anyway:
+`are_types_compatible_exact(Option(i32), Option(String))` returned TRUE. The
+enum exact arm had an `aid == eid → true` fast-ACCEPT, and yo-self
+generic-enum INSTANTIATIONS share the declaration's eval id (both render
+`enum_yo_id_3135_...`), so same-declaration instantiations compared
+exact-equal with no payload check. TS only uses ids as an early REJECT;
+acceptance always structurally compares variant field types
+(compatibility.ts:354-389). FIX: drop the fast-accept — equal ids fall
+through to the structural compare (shells are pre-resolved by
+resolve_enum_shell, and the vkey cycle guard protects recursion).
+tests/collections/array_list.test.yo flips WHOLE-FILE GREEN (87 passed).
+Corpus regression: tests/codegen-bootstrap/option_spec_per_payload.yo.
+
+**REMAINING (deque/hash_map/imm_map — the identity-SPLIT family):** with the
+enum fix in, deque fails `passing __yo_t33 to parameter of __yo_t30` where
+t30 = struct_yo_id_7146 and t33 = struct_yo_id_7237 — DIFFERENT sids for the
+SAME logical type (both render `gs_yo_id_5031_i32`, Deque(i32)-internal):
+one Yo type minted TWICE (a CTFE/instantiation cache false-MISS), spec
+emitted against one sid while call sites hold the other. This is the
+declaration-stable-id direction (plans/YO_SELF_STAGE2_HANDOFF.md) — the
+inverse failure of the enum fast-accept (false HIT). hash_map shows the same
+shape (t65/t69/t72/t75 vs t65). Batch: kept per YO_KEEP_BATCH=1 runs of
+deque under /tmp/s1g-era binaries.
+
 WORKING HYPOTHESIS (next session's entry point): `is_some`'s declared return
 is `bool` (concrete), so the resolved-return cache-key segment
 (helper.yo:~1195 ret_sig_ty gate, added for the HashMap.with_capacity class)

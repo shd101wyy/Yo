@@ -627,12 +627,22 @@ _compat_impl :: (
         // Struct arm: all yo-self enums carry an empty name, so e.g. the
         // CTFE cache key `Option(JsonValue)` matched a stale `Option(T)`
         // entry and returned `Option(Option(T))` (std/encoding/json.yo).
-        // Mirror TS compatibility.ts:344-399: equal ids → true; otherwise
-        // compare variant names, field labels, and field types exactly,
-        // with the same cycle guard as the Struct arm.
+        // Mirror TS compatibility.ts:344-399: compare variant names, field
+        // labels, and field types exactly, with the same cycle guard as the
+        // Struct arm. NO id fast-ACCEPT: yo-self generic-enum INSTANTIATIONS
+        // share the declaration's eval id (both Option(i32) and
+        // Option(String) carry enum_yo_id_3135), so `aid == eid → true`
+        // declared different instantiations exact-equal — the spec cache
+        // then served the FIRST payload's specialization to every receiver
+        // (`Option(String).is_some()` called the Option(i32) spec:
+        // "passing __yo_t16 to parameter of type __yo_t9", the collections
+        // batch residual). TS's only id use here is object identity /
+        // an early REJECT — acceptance always runs the structural compare
+        // (compatibility.ts:354-389). Shells are already resolved above
+        // (resolve_enum_shell), so the shell-identity case the id compare
+        // once served compares structurally on the finalized forms.
         .EnumT(eid, ename, evns, evfs, _, evls, _, _, _) => cond(
           !(require_exact) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
-          (aid == eid) => true,
           (avns.len() != evns.len()) => false,
           true => {
             vkey := ((aid.clone() + String.from("=>")) + eid);
