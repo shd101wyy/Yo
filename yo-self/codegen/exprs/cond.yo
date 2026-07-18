@@ -57,16 +57,48 @@ _inside_c_string_literal :: (fn(s : String, idx : usize) -> bool)({
   });
   in_str
 });
+/// Byte-based find of `word` in `s` starting at byte `from` — `index_of`
+/// returns RUNE indices, which cannot feed the byte_at reads below when the
+/// scanned C code contains multibyte string literals (see other_fn_call.yo's
+/// splitter fix).
+_byte_index_of :: (fn(s : String, word : String, from : usize) -> Option(usize))({
+  sb := s.as_bytes();
+  wb := word.as_bytes();
+  n := sb.len();
+  m := wb.len();
+  if((m == usize(0)) || (n < m), {
+    return(Option(usize).None);
+  });
+  (i : usize) = from;
+  while((i + m) <= n, {
+    (j : usize) = usize(0);
+    (hit : bool) = true;
+    while((j < m) && hit, {
+      a := match(sb.get(i + j),.Some(x) => x,.None => u8(0));
+      b := match(wb.get(j),.Some(x) => x,.None => u8(1));
+      if(!(a == b), {
+        hit = false;
+      });
+      j = (j + usize(1));
+    });
+    if(hit, {
+      return(Option(usize).Some(i));
+    });
+    i = (i + usize(1));
+  });
+  Option(usize).None
+});
 /// Whether `s` contains "return" as a whole word (mirrors the TS `\breturn\b`
 /// regex — avoids matching identifiers like `return_flag`).
 _contains_word_return :: (fn(s : String) -> bool)({
   word := String.from("return");
   wlen := usize(6);
-  slen := s.len();
+  // BYTE length + byte-based find — see _byte_index_of.
+  slen := s.as_bytes().len();
   (from : usize) = usize(0);
   while(true, {
     match(
-      s.index_of(word.clone(), from),
+      _byte_index_of(s, word.clone(), from),
       .Some(idx) => {
         before_ok := if(idx == usize(0), true, !(_is_word_byte(s.byte_at(idx - usize(1)))));
         after_idx := (idx + wlen);

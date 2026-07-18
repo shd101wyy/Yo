@@ -1,0 +1,24 @@
+// Regression: multibyte UTF-8 content in string literals must survive C
+// emission intact. yo-self codegen scanners walked byte_at with RUNE-counted
+// bounds (String.len()), truncating emitted fragments by (bytes − runes) —
+// an assert message containing "→" chopped its compound literal's closing
+// brace and failed the whole batch C compile.
+// See issues/fixed/yo-self-codegen-rune-byte-truncation.md.
+{ assert } :: import("std/assert");
+open(import("std/string"));
+open(import("std/fmt"));
+
+test("multibyte assert message emits valid C", {
+  assert(true, "absent name → None");
+  assert(!(false), "em-dash — and arrow → in one message");
+});
+
+test("multibyte strings as call arguments", {
+  describe :: (fn(flag : bool, msg : String) -> String)(
+    if(flag, msg.clone(), String.from("no"))
+  );
+  out := describe(true, String.from("π ≈ 3.14159 → ok"));
+  assert(out == "π ≈ 3.14159 → ok", "multibyte string arg roundtrip");
+  assert(out.len() == usize(16), "rune length of multibyte string");
+  assert(out.as_bytes().len() == usize(21), "byte length of multibyte string");
+});

@@ -27,7 +27,9 @@ open(import("std/string"));
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier } :: import("../utils/index.yo");
 /// True if `s` is all ASCII digits (non-empty).
 _all_digits :: (fn(s : String) -> bool)({
-  n := s.len();
+  // BYTE count — the loop reads byte_at; String.len() counts RUNES
+  // (multibyte content under-walks; see other_fn_call.yo's splitter fix).
+  n := s.as_bytes().len();
   if(n == usize(0), false, {
     (i : usize) = usize(0);
     (ok : bool) = true;

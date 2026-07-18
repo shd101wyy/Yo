@@ -30,7 +30,9 @@ open(import("std/string"));
 { generate_comptime_value } :: import("./comptime_value.yo");
 /// True if `s` is all ASCII digits (non-empty).
 _all_digits :: (fn(s : String) -> bool)({
-  n := s.len();
+  // BYTE count — the loop reads byte_at; String.len() counts RUNES
+  // (multibyte content under-walks; see other_fn_call.yo's splitter fix).
+  n := s.as_bytes().len();
   if(n == usize(0), false, {
     (i : usize) = usize(0);
     (ok : bool) = true;

@@ -955,7 +955,9 @@ collect_trace_methods_from_generic_impls :: (
 /// newtype/box `*` field) must be paren-aliased — `{ (*) : a } := self` — rather
 /// than written bare — `{ * : a } := self` — which fails to parse.
 _is_valid_yo_identifier :: (fn(s : String) -> bool)({
-  n := s.len();
+  // BYTE count — the loop reads byte_at; String.len() counts RUNES
+  // (multibyte content under-walks; see other_fn_call.yo's splitter fix).
+  n := s.as_bytes().len();
   if(n == usize(0), {
     return(false);
   });

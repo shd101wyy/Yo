@@ -1244,3 +1244,22 @@ total := sums.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));
 **`&&` in `cond` conditions inside `while` body**: Crashes. Avoid by restructuring (e.g., start loop at 1 instead of 0 to eliminate the `&& (i > 0)` guard).
 
 **Test API format**: Use `evaluate_module_body(exprs, &(env))` (reference syntax, returns `Option`). Match with function-style `match(result, .None => ..., .Some(m) => ...)`. Do NOT use block-style `match(result) { ... }` — it causes a parse error ("Paren-less function and operator calls are not supported").
+
+**String indexing: `len()`/`substring`/`index_of` are RUNE-based; `byte_at`/`as_bytes` are BYTE-based — never mix.** `String.from("a→b").len()` is `3` (runes) while `.as_bytes().len()` is `5`. A loop `while(i < s.len(), { b := s.byte_at(i); ... })` UNDER-WALKS multibyte content by `bytes − runes` (this truncated emitted C in yo-self codegen: an `assert(_, "… → …")` message chopped the compound literal's closing `}`). `index_of` returns a RUNE index — never feed it to `byte_at`, and never feed a byte index to `substring`. Rules:
+
+```
+// ✅ byte loop: byte bound
+n := s.as_bytes().len();
+while(i < n, { b := s.byte_at(i); ... });
+
+// ✅ byte-exact slicing: rebuild from bytes (substring is rune-indexed)
+bytes := s.as_bytes();
+inner := ArrayList(u8).new();
+// push bytes[from..to), then:
+String.from_bytes(inner)
+
+// ❌ WRONG — rune bound, byte reads
+while(i < s.len(), { b := s.byte_at(i); ... });
+// ❌ WRONG — rune index from index_of fed to byte_at
+match(s.index_of(w, from), .Some(idx) => s.byte_at(idx - usize(1)), ...);
+```

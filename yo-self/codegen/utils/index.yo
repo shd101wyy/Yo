@@ -497,7 +497,9 @@ _is_c_identifier_byte :: (fn(b : u8) -> bool)(
 /// prefixed with `__yo_c_reserved_`. Mirrors `sanitizeForCIdentifier`.
 sanitize_for_c_identifier :: (fn(s : String, is_extern_c : bool) -> String)({
   sanitized := String.new();
-  n := s.len();
+  // BYTE count — the loop reads byte_at; String.len() counts RUNES
+  // (multibyte content under-walks; see other_fn_call.yo's splitter fix).
+  n := s.as_bytes().len();
   (i : usize) = usize(0);
   while(i < n, {
     b := s.byte_at(i);
