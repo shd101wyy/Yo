@@ -200,3 +200,16 @@ resolve the receiver/self arg_type before the cache compare (mirror however
 TS's per-instantiation FunctionValue objects keep these caches separate —
 TS caches hang off EACH instantiation's own object, cf. the helper.yo:1185
 comment). Saved batch: /tmp/al_batch_s1f.c (11413/12535/13241).
+
+## 2026-07-19: imm_string residual — split SURVIVES the cfid rule
+
+tests/imm_string.test.yo (round-14, cfid rule active): `initializing
+__yo_t25 with an expression of incompatible type __yo_t33` — the same
+identical-layout split shape but between copies the cfid rule does NOT
+separate/merge, i.e. most plausibly the SAME declaration minted twice with
+one copy CFID-EMPTY (gs-key vs sid-key C types again, the deque mechanism
+one level deeper). Next lever: either find the copy path that drops
+constructor_func_id (probe type creation for the imm_string internal
+struct), or the reverse-map adoption (register layout-sig -> gs-key at
+gs-registration; a cfid-empty copy with a UNIQUE layout match adopts the
+gs C type). Kept round-14 log: /tmp/s2_sweep_r14/tests_imm_string.test.yo.done.
