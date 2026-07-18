@@ -713,6 +713,24 @@ SortedSet+multibyte, env-check, fixpoint BYTE-IDENTICAL). Canonical
 binary-MIXED (mid-sweep fixes) — round-7 (clean, settled binary) is the
 authoritative scoreboard: /tmp/s2_sweep_r7/ + /tmp/s2_sweep_yoself_r7/.
 
+## 2026-07-18 (continued) — install_command green, suspension_analysis compiling: #70 = 60/61
+
+- `24f2def20`: skip the bare tail `return ;` when every path already
+  returned (the statement-form tail whose render is empty) —
+  **install_command flips green → #70 = 60/61.**
+- `8b9cce48a`: dyn-box fixes — resolve SomeT concretes before keying box
+  names + late-registration typedef emission via the shared
+  `dyn_box_typedefs` set. suspension_analysis goes from whole-batch C
+  failure to COMPILING with 3 runtime failures: the `detect_all` dyn
+  detector returns 0 suspension points (tests "fncall body — detect_all
+  detector → 1 point", "nested fncall — detects outer + inner",
+  "suspension point index is sequential"). NEXT: runtime dyn-dispatch /
+  capture-value semantics of the detector closure — compare the emitted
+  detect wrapper + capture initializers against the passing "noop
+  detector" sibling test in the same batch (YO_KEEP_BATCH=1).
+- Remaining #70 (2): suspension_analysis (runtime, above) and cache
+  (undeclared `_file____User_temp_NNNN` — temp-scoping emission).
+
 ## 2026-07-18 ROUND-9 RESULT — the tests/ tail is orthogonal to the capture fix
 
 Round-9 (capture-fix binary, 300s caps): tests/ divergent list 2/71 pass
