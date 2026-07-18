@@ -115,6 +115,23 @@ remain the CACHE KEY only); optionally also gate emission on
 no-unit-runtime-params as a backstop. Bisect artifacts: /tmp/bw_only1.yo,
 /tmp/wv_nomatch.yo, /tmp/w2_no_openenv.yo.
 
+**FIX LANDED (2026-07-19): degenerate-mint refusal + declared-param preference.**
+create_specialized_function_inline now (1) REFUSES to mint when a runtime
+arg's type collapsed to unit against a concrete non-unit declared param
+(returns the original value; the non-degenerate pass mints the good spec
+and re-stamps the call site), and (2) prefers the resolved DECLARED param
+type over a unit-degenerate arg type when building the registered spec type.
+tests/env.test.yo FLIPS GREEN (13 passed). RESIDUAL (still open): shapes
+where the degenerate pass IS the only/executed pass (the 8-line repro and
+the standalone 20-line batch-wrapper shape) still emit a void local + a
+bare `yo_id_5002` call — the ROOT is the open-module member resolution
+under analysis: `(env.get)(...)` with `open(import("std/env"))` resolves
+through try_to_call's non-Func SOFT FALLBACK (helper.yo ~3456, returns
+t_unit) instead of the member FuncVal. Fix locus: the identifier/member
+resolution through `open`s (why the member's type isn't Func in that pass);
+TS resolves the same member fine. async_await/sync_mutex/prelude remain
+red on OTHER families in their batches.
+
 **REMAINING (deque/hash_map/imm_map — the identity-SPLIT family):** with the
 enum fix in, deque fails `passing __yo_t33 to parameter of __yo_t30` where
 t30 = struct_yo_id_7146 and t33 = struct_yo_id_7237 — DIFFERENT sids for the

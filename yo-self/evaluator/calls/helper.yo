@@ -1218,6 +1218,38 @@ create_specialized_function_inline :: (
         );
         ai = (ai + usize(1));
       });
+      // Refuse to mint a specialization from a DEGENERATE analysis pass: a
+      // runtime arg whose type collapsed to UNIT against a concrete non-unit
+      // DECLARED param only arises when an upstream resolution soft-failed
+      // (e.g. an `open`-module member read under analysis → UnknownVal →
+      // unit-typed chain). The minted spec carries unit params/locals and an
+      // empty condition render (`void flag`, `if ()` — the assert spec from
+      // issues/repros/void-param-assert-open-env.yo), nothing ever calls it,
+      // and its mere emission breaks the whole batch C. TS's checking-phase
+      // gates never register such a spec. Return the ORIGINAL value
+      // unspecialized — the later non-degenerate pass mints the good spec and
+      // re-stamps the call site.
+      {
+        (degenerate_unit_arg : bool) = false;
+        match(
+          func_type,
+          .Func({ param_types : dg_pt }) => {
+            (dgi : usize) = usize(0);
+            while((dgi < runtime_param_tys.len()) && !(degenerate_unit_arg), {
+              rpt_d := match(runtime_param_tys.get(dgi),.Some(t) => t,.None => t_unit());
+              decl_d := match(dg_pt.get(dgi),.Some(t) => t,.None => t_unit());
+              if((is_unit_type(rpt_d) && !(is_unit_type(decl_d))) && !(type_contains_some_type(decl_d)), {
+                degenerate_unit_arg = true;
+              });
+              dgi = (dgi + usize(1));
+            });
+          },
+          _ => ()
+        );
+        if(degenerate_unit_arg, {
+          return(original_func_val);
+        });
+      };
       // Distinguish specializations by the RESOLVED RETURN TYPE when the
       // declared result mentions a SomeT. A generic type-constructor's
       // struct-internal static method (HashMap(K,V).with_capacity /
@@ -1681,6 +1713,7 @@ create_specialized_function_inline :: (
           match(
             func_type,
             .Func({
+              param_types : sp_pt,
               implicit_types : sp_it,
               where_types : sp_wt,
               result : sp_res_b,
@@ -1701,8 +1734,25 @@ create_specialized_function_inline :: (
               (spi : usize) = usize(0);
               while(spi < runtime_param_tys.len(), {
                 rpt := match(runtime_param_tys.get(spi),.Some(t) => t,.None => t_unit());
+                // Prefer the RESOLVED DECLARED param type when it is concrete
+                // and the ARG type degenerated to unit: TS's specializedType
+                // params come from the declared parameters (+ substitutions),
+                // never from arg types, so a degenerate analysis-pass arg
+                // (open-module member soft-fail → UnknownVal → unit) cannot
+                // poison the registered spec type. yo-self keeps the arg type
+                // as the general source (Phase 3 design: it carries the
+                // call-site concretization for generic params) and falls back
+                // to the declared type ONLY for the poisoned shape — a
+                // unit-typed arg against a concrete non-unit declared param
+                // (`assert(flag : bool, ...)` emitted `void flag`;
+                // issues/repros/void-param-assert-open-env.yo).
+                declared_pt := match(sp_pt.get(spi),.Some(t) => t,.None => t_unit());
+                use_ty := if(is_unit_type(rpt) && !(is_unit_type(declared_pt)), {
+                  resolved_decl := evaluate_function_parameter_type_again(declared_pt, callee_env, ctx);
+                  if(type_contains_some_type(resolved_decl) || is_unit_type(resolved_decl), rpt, resolved_decl)
+                }, rpt);
                 spec_param_types.push(
-                  convert_comptime_type_to_runtime_type_with_expected(rpt, Option(TypeValue).None, callee_env)
+                  convert_comptime_type_to_runtime_type_with_expected(use_ty, Option(TypeValue).None, callee_env)
                 );
                 spi = (spi + usize(1));
               });
