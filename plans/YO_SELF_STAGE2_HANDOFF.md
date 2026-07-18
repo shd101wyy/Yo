@@ -332,7 +332,7 @@ and the TS-side baselines are fully prepared for the two remaining sweeps:
 | Structural forall inference (effect polymorphism)                    | FIXED (`702de11c9`)                                                            |
 | `s1 test tests/algebraic_effects.test.yo`                            | **72/72 PASSED**                                                               |
 | **yo-self/tests suite audited + repaired under TS (#70 baseline)**   | **100% GREEN — every file, incl. the eval trio (337/337, ~90 s/file)**         |
-| Corpus differential (`scripts/diff-test.sh tests/codegen-bootstrap`) | PASS 130 / DIFF 2 — both DIFFs pre-existing & known (see "Known-noise gates")  |
+| Corpus differential (`scripts/diff-test.sh tests/codegen-bootstrap`) | PASS 132 / DIFF 2 — both DIFFs pre-existing & known (see "Known-noise gates")  |
 | `check ./std` under s1                                               | 153/153                                                                        |
 
 Terminology: **s1** = TS-compiled yo-self binary. **s2** = clang -O2 of
@@ -377,7 +377,8 @@ cmp /tmp/stage2.c /tmp/stage3.c && echo "FIXPOINT HOLDS"
 
 ```bash
 YO_SELF_BIN=/tmp/s1 scripts/diff-test.sh tests/codegen-bootstrap --parallel 4
-#   → PASS 130 / DIFF 2 (only the two known-noise DIFFs below)
+#   → PASS 132 / DIFF 2 (only the two known-noise DIFFs below; 132 incl. the
+#     cond_comptime_arm_match_temp + dyn_fn_same_sig_closures regressions)
 /tmp/s1 check ./std                       # → 153/153
 # For emission-affecting changes, ALSO re-run the fixpoint chain above
 # (byte-identical or you broke determinism/parity).
@@ -898,6 +899,54 @@ tests/ round-7 still sweeping (imm region at last check). Collections
 residual signatures ledgered in
 issues/yo-self-collections-batch-residuals.md (skip-vs-callsite undeclared
 fn; Index-call mislowering; unresolved-SomeT specs consumed).
+
+## 2026-07-18 (night) — cache + suspension_analysis ROOT-CAUSED AND FIXED
+
+Two independent root causes, both in the "TS per-object identity vs yo-self
+shared-id" family, both with 30-line deterministic corpus repros:
+
+1. **cache.test.yo (undeclared `_file____User_temp_NNNN`)** — NOT a decl-gate
+   bug (a begin.yo gate widening was tried and reverted; no effect). The
+   missing temp is the COND's result temp on the comptime-degenerate path:
+   in `cond(comptime-false => ..., true => match(<runtime Option>...))` as a
+   match-arm body (cache.yo:44-62 `get_global_cache_dir` exactly), the cond
+   ADOPTS its body's temp (evaluator cond.yo, TS cond.ts:269-276), but
+   yo-self's begin finale then stamped a FRESH out_info + minted a FRESH temp
+   onto the SHARED node id (begin.yo shared-id single-expression case),
+   destroying the adopted binding. TS mints onto the SEPARATE begin wrapper
+   node (begin.ts:1016-1045 rewrite+clone) so the inner's variableName always
+   survives wrapping. Probe-verified stamp order ([ATTACH]/[COND-ADOPT]).
+   FIX (consumer-side): cond codegen's collapse-to-direct path emits a TYPED
+   declaration-assignment when the body's result name differs from the
+   adopted temp (only the broken-invariant case; the healthy TS-identical
+   self-assign is byte-unchanged). An eval-side variable_name CARRY across
+   the shared-id begin finale was tried FIRST and REVERTED: it passed every
+   behavior gate (corpus/std/battery/cache/flips) but broke the fixpoint —
+   and the double-emit test showed SAME-BINARY NONDETERMINISM (the attach
+   `.Some`-branch var bookkeeping makes downstream comptime decisions
+   sensitive to per-run-random variable ids; ~1.4M-line \_\_yo_tN renumber
+   cascade + differing Option-instantiation populations). **NEW GATE RULE:
+   any eval-side change touching attach_temp_variable_to_expr / env var
+   bookkeeping needs a same-binary DOUBLE-EMIT determinism check, not just
+   one fixpoint compare.**
+   Corpus repro: tests/codegen-bootstrap/cond_comptime_arm_match_temp.yo
+   (fails on pre-fix s2 with the exact 2 undeclared errors).
+2. **suspension_analysis 3 runtime failures (detect_all → 0 points)** — the
+   dyn impl KEY was derived from the UNRESOLVED `Impl(Fn)` SomeT (one shape
+   id per SIGNATURE): both same-signature detector closures registered under
+   ONE key → one wrapper → every dyn box dispatched the first-emitted
+   closure's body with its own capture data. TS resolves
+   `resolvedConcreteType` BEFORE the key (dyn.ts:70-74) → per-closure
+   capture-struct keys (verified in TS emission of the same batch source).
+   FIX: resolve_some_type_to_concrete for the impl KEY in generate_dyn_call
+   (entry still stores the raw type, like TS). Corpus repro:
+   tests/codegen-bootstrap/dyn_fn_same_sig_closures.yo (pre-fix prints 714 —
+   shared wrapper × own captures; fixed prints 814). suspension_analysis:
+   **9/9 green** under the fixed s1.
+
+Corpus baseline is now **132 PASS / DIFF 2** (two new regression files).
+Full gates re-run for both fixes (corpus, std 153/153, battery ×5, fixpoint
+chain + env-check, cache + suspension under the new s2, prior-flip holds).
 
 **OPERATIONAL: never `cp` over /tmp/s1 / /tmp/s2 while a sweep runs** —
 macOS SIGKILLs children whose backing binary is replaced (an rc=-9 block
