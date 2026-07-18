@@ -973,6 +973,32 @@ chain + env-check, cache + suspension under the new s2, prior-flip holds).
     signature resolves T from callee_env). Round-10 tests/ partials (39 files,
     OLD pin — the "before" column): /tmp/s2_sweep_r10/tests*\*.done.
 
+## 2026-07-19 — enum exact-compare fix: array_list flips whole-file green
+
+- `21e9fc71a`: the WRONG-SPEC PICK root cause was NOT the receiver arg_type
+  (probe showed `rt=[Option(String)] cached=[Option(i32)]` and the compare
+  HIT anyway): the enum exact arm's `aid == eid → true` fast-ACCEPT declared
+  same-declaration instantiations exact-equal (yo-self generic-enum
+  instantiations SHARE the declaration eval id — both Option(i32) and
+  Option(String) carry enum_yo_id_3135). TS only id-compares as an early
+  REJECT; acceptance always structurally compares variant field types
+  (compatibility.ts:354-389). Fix: drop the fast-accept. Combined with the
+  `85f44b843` recursion-guard fix, tests/collections/array_list.test.yo goes
+  0 → 87 passed (whole file). Corpus regression:
+  option_spec_per_payload.yo (corpus baseline now **134 PASS / DIFF 2**).
+- **Round-12 sweep** launched over the r4 list under /tmp/s2_r12pin
+  (= post-21e9fc71a s2, full gates green incl. fixpoint + determinism).
+  Results land in /tmp/s2_sweep_r12/.
+- **The remaining collections class is the identity SPLIT** (inverse of the
+  fixed false-HIT): deque fails `passing __yo_t33 to __yo_t30` where BOTH
+  render `gs_yo_id_5031_i32` but carry DIFFERENT sids (7146 vs 7237) — one
+  Yo type minted TWICE (CTFE/instantiation cache false-MISS), the spec
+  emitted against one sid while call sites hold the other. hash_map/imm_map
+  same shape. This is the declaration-stable-id surgery (see the earlier
+  FIRST-ATTEMPT-FAILED note before re-attempting the naive swap; the fix
+  must make the instantiation CACHE hit, or make sids declaration-derived).
+  Evidence + batches: issues/yo-self-collections-batch-residuals.md.
+
 **OPERATIONAL: never `cp` over /tmp/s1 / /tmp/s2 while a sweep runs** —
 macOS SIGKILLs children whose backing binary is replaced (an rc=-9 block
 mid-sweep = invalid results, re-run those files). Pin sweeps to a versioned
