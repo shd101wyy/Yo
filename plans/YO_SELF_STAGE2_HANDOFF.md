@@ -1137,6 +1137,20 @@ io/exn slots). FIX LOCUS: the async action-closure PARAM emission
 action-closure signature for scratchpad/cfrc_batch.yo (22 lines, TS-green)
 and mirror the erasure. This is the 7-file rc=-6 family's single root.
 
+**expected-expression cluster TRIAGED (2026-07-19): the convergence is now
+FOUR-WAY.** closure*capture_rc_leak's site decodes to a fold closure emitted
+as `closure_yo_id_6215(void* closure_context, __yo_t22* acc, void* item)`
+whose BODY references the un-renamed `x`, with `rtparam1_1730` (a bare
+unresolved-SomeT id) in the called spec's name — the closure param's SomeT
+never resolved in the generation the emission read. Same disease class in
+async_await/derive/dyn/flowability/fs*\* sites (param or temp types
+degenerating to void/unresolved at spec/closure boundaries). Together with
+(a) dyn-fn-field, (b) imm_string cfid-drop, (c) recursive-enum Box-variant
+splits, the SomeT-identity-across-generations surgery now underwrites FOUR
+of the remaining families — likely 30+ of the 64 red files. Execute it
+FIRST next session (plan + conversion list: issues/yo-self-dyn-fn-field.md
+CONVERGED DIAGNOSIS; the resolved_concrete field exists since bca8eccc5).
+
 Priorities for the next session: (1) the identity-split surgery (biggest
 combined family: conflicting-types/initializing/passing/redefinition ≈ 16
 files all point at one-type-two-sids); (2) the rc=-6 IoExn family (7 files,
