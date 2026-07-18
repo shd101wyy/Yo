@@ -143,6 +143,19 @@ inverse failure of the enum fast-accept (false HIT). hash_map shows the same
 shape (t65/t69/t72/t75 vs t65). Batch: kept per YO_KEEP_BATCH=1 runs of
 deque under /tmp/s1g-era binaries.
 
+**DDMIN RESULT (2026-07-19): the deque split needs EXACTLY 2 arms** —
+`into_iter` + `iter`-with-ref-mutation (batch arms 34+37). 19-line
+deterministic repro: issues/repros/deque-identity-split-2arm.yo (s1 rc=1
+`passing __yo_t32 to __yo_t28`, TS rc=0). A hand-translated NON-batch
+version of the same two bodies is GREEN — the batch dispatch shape
+(analysis-mode `{ begin(...) }` arms under the runtime `cond`) is required,
+i.e. the two ITERATOR instantiation chains (DequeIter via into_iter vs iter)
+each materialize the Deque(i32)-internal struct under a different sid ONLY
+when both arms are analysis-evaluated in one pass. Next: statement-level
+ddmin inside the two arms (drop push_backs/asserts) to find the minimal
+statement pair, then probe the two sid mints (struct creation in
+evaluator/types/struct.yo) for their creation contexts.
+
 WORKING HYPOTHESIS (next session's entry point): `is_some`'s declared return
 is `bool` (concrete), so the resolved-return cache-key segment
 (helper.yo:~1195 ret_sig_ty gate, added for the HashMap.with_capacity class)
