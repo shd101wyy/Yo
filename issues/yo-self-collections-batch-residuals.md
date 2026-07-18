@@ -172,6 +172,19 @@ gs*-key/C name as 6174. Find the instantiation path that skips the hint
 stamp (ctfe vs non-ctfe struct materialization in the for-loop lowering),
 or make type_key for generic-struct instantiations sid-free directly.
 
+**ATTEMPT NOTE (2026-07-19, reverted):** a LAYOUT-ONLY structural key (drop
+the sid prefix, add field labels) did NOT flip the repro: the two copies
+take DIFFERENT key paths entirely — arm 34's copy carries constructor_func_id
+(keys `gs_yo_id_5031_i32`) while arm 37's copy is cfid-EMPTY under a fresh
+sid (keys structurally/bare) — no structural-key shape can reach the gs key.
+THE ROOT: the `iter`-chain instantiation LOSES constructor_func_id on the
+wrapper type copy (the into_iter-chain keeps it). NEXT: probe where arm 37's
+wrapper Struct copy is built (for-loop lowering / iterator-adapter synthesis
+/ substitution) and thread cfid through — the same one-field-dropped-on-copy
+class as runtime_arg_exprs_in_order etc. Alternative: a reverse map
+layout-sig -> gs-key registered at gs-registration, adopted by cfid-empty
+copies with a UNIQUE match.
+
 WORKING HYPOTHESIS (next session's entry point): `is_some`'s declared return
 is `bool` (concrete), so the resolved-return cache-key segment
 (helper.yo:~1195 ret_sig_ty gate, added for the HashMap.with_capacity class)
