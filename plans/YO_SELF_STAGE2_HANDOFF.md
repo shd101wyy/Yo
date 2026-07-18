@@ -689,6 +689,30 @@ Round-6 sweeps ran against the PRE-supersession s2 (results partially
 stale); round 6b over both divergent lists with the ef8344537 s2 is the
 next action — expect the imm\_\*/collections tail to shrink substantially.
 
+## 2026-07-18 (later) — two more root-cause fixes landed; round-7 measuring
+
+- `db6cef988` **rune/byte scanner fix**: String.len() counts RUNES while
+  byte_at reads BYTES; several codegen scanners under-walked multibyte
+  content, truncating emitted C (an assert message with "→" chopped its
+  compound literal's closing brace — the yo-self/tests env_lookup/env_find/
+  expr_traversal "expected '}'" family). All byte_at sites audited; rune/byte
+  rules added to the syntax cheatsheet; regression test
+  tests/string_multibyte_literal.test.yo.
+- `88d9f3fbb` **generic-impl trait-default fill**: `a != b` on a generic-impl
+  Eq receiver (ArrayList(i32) and every collections/\* batch) dispatched the
+  trait's RAW default `!=` (no impl foralls → the for-codegen spec trigger
+  never fired → FTT + a `void self` C param from the inner `not` spec).
+  Generic-impl registration now fills unprovided trait defaults with the impl
+  foralls stamped, mirroring both the concrete-impl fill and TS
+  trait-type.ts:418-489. Regression test
+  tests/generic_impl_trait_default_ne.test.yo.
+
+Both passed the FULL gate set (corpus exact, std 154, battery incl.
+SortedSet+multibyte, env-check, fixpoint BYTE-IDENTICAL). Canonical
+/tmp/s1 & /tmp/s2 are at 88d9f3fbb. Round-6b sweep numbers are
+binary-MIXED (mid-sweep fixes) — round-7 (clean, settled binary) is the
+authoritative scoreboard: /tmp/s2_sweep_r7/ + /tmp/s2_sweep_yoself_r7/.
+
 ## Recent commits (this era, newest first)
 
 ```
