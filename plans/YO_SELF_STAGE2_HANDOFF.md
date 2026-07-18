@@ -713,6 +713,18 @@ SortedSet+multibyte, env-check, fixpoint BYTE-IDENTICAL). Canonical
 binary-MIXED (mid-sweep fixes) — round-7 (clean, settled binary) is the
 authoritative scoreboard: /tmp/s2_sweep_r7/ + /tmp/s2_sweep_yoself_r7/.
 
+## 2026-07-18 ROUND-9 RESULT — the tests/ tail is orthogonal to the capture fix
+
+Round-9 (capture-fix binary, 300s caps): tests/ divergent list 2/71 pass
+(ref_enum, thread_safety — unchanged). The tests/ tail is fully in the
+OTHER classes: identity splits (t31-vs-t23 call-boundary mismatches — the
+LARGEST class and the highest-leverage remaining fix), skip-vs-callsite
+undeclared fns, Index-call mislowering, downcast FTT, IoExn rc=-6, and one
+STALL. Per-class fix loci: issues/yo-self-collections-batch-residuals.md +
+this handoff. FINAL scoreboard this session: **#70 = 59/61 (from 42),
+#69 = 108/180 (from ~106), 14 gated fix commits, fixpoint byte-identical
+throughout.**
+
 ## 2026-07-18 CAPTURE FIX LANDED — #70 = 59/61
 
 `ecbe5f08e` — source-position capture-info merge: closures register a
