@@ -152,3 +152,29 @@ anonymous_function.yo:1140-1162).
 
 This class covers effect_analysis and plausibly cache (undeclared temp) —
 2 of #70's remaining 4.
+
+### Capture-loss fix design (final analysis — implement next session)
+
+`create_specialized_function_inline` (calls/helper.yo:1326) CLEARS
+`ctx.captured_variables` around the spec body eval (correct for regular
+fns, per its comment). For a DEFERRED closure this must instead:
+
+1. Set a FRESH capture map (detect: the original fid has
+   closure-capture info / `is_closure_fn`), so the spec body eval records
+   the closure's real captures via the identifer_and_operator.yo tracker.
+2. Post-eval, run the anonymous_function.yo:1140-1162 sequence
+   (enrich_captured_variables → generate_captured_variable_dup_expressions
+   → create_capture_type_and_value → register_closure_capture_info) for
+   the SPECIALIZED fid.
+3. BILATERAL: the closure CREATION site's capture-struct VALUE emission
+   reads the def-time `ExprInfo.capture_type` (empty for deferred) — the
+   creation-site info must be updated to the spec-time capture struct too
+   (or codegen's closure-creation resolves capture info by the spec fid).
+   Without (3), the fn side reads `__capture->name` while the creation
+   site builds an empty struct.
+
+Repro gate: issues/repros/dyn-closure-implfn-capture-loss.yo (s1 compile;
+currently rc=1 with "undeclared identifier 'name'/'flag'"). TS mirror:
+helper.ts:1911-1929 + closure-type.ts (records the concrete capture struct
+at specialization; TS creation sites resolve through the SomeType's
+resolvedConcreteType so both sides agree).
