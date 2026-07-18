@@ -1074,6 +1074,19 @@ for imm_sorted_map/set/threading TIMEOUTs. Entry point: instrument the spec
 cache hit/miss ratio per fid during a btree batch compile and find the
 missing key dimension.
 
+**MECHANICAL BISECTION PLAYBOOK (proved decisive 3x on 2026-07-19 — use it
+before hand-crafting repros):** batch failures rarely reproduce hand-rolled
+(analysis-mode arm evaluation is part of the trigger). Instead: (1) run the
+failing file with YO_KEEP_BATCH=1 and SAVE the batch .yo; (2) arm-deletion
+pass (minus-arm-k) — if one arm's removal clears it, that arm is the
+producer; (3) keep-only-arm-k — single sufficient arms shrink the repro to
+~15 lines; (4) if no single arm suffices, ddmin over arm subsets (the deque
+split needed exactly 2 of 38 arms; ~9 compiles); (5) feature/import whittle
+on the reduced file (the void-param trigger was ONE import form:
+open(std/env) vs destructure). Scripts: scratchpad
+bisect_void.py / bisect_void2.py / ddmin_deque.py / whittle\*.py — copy and
+retarget (oracle = a grep over the emitted C or the compile stderr).
+
 Priorities for the next session: (1) the identity-split surgery (biggest
 combined family: conflicting-types/initializing/passing/redefinition ≈ 16
 files all point at one-type-two-sids); (2) the rc=-6 IoExn family (7 files,
