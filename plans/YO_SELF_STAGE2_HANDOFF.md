@@ -1101,6 +1101,30 @@ next probe in issues/yo-self-collections-batch-residuals.md). Remaining
 cfid-drop variant, rc=-6 IoExn, stalls [now profiled], expected-expression,
 conflicting-types, open-member residual).
 
+## 2026-07-19 (cont. 4) — recursive-enum heap corruption root-caused; ninth fix lands
+
+`bdccc272e`: enum self-shell ids carry a `__self_shell` SUFFIX, so the ctfe
+memo's same-id rule (struct-shaped) never merged ArrayList(Self)-in-
+declaration with ArrayList(Final) — two instantiations, two C types, and
+their traverse/drop cross-corrupted the heap. A 14-line enum mixing
+Box(Self) + ArrayList(Self) crashed construct+drop under EVERY yo-self
+build (pre-existing; the recursive_enum round-15 "regression" and its
+pass/fail coin-flips were this corruption's address-dependence, NOT the
+cfid rule). Fix: strip the suffix in \_ctfe_args_equal. Crash frequency
+drops (3-variant repro mostly clean) but NOT to zero — FIVE Box memo
+entries with DISTINCT per-generation SomeT-clone args remain
+(some:1584/…/1594 probe), so no corpus test yet (flaky = corpus poison);
+repro at issues/repros/recursive-enum-box-plus-arraylist-self.yo.
+
+**THE CONVERGENCE IS NOW THREE-WAY:** the SomeT/instantiation identity
+across eval generations (declaration-stable ids + per-object
+resolved_concrete) is the single root under (a) the dyn-fn-field ledger's
+CONVERGED DIAGNOSIS, (b) imm_string's cfid-drop split, and (c) the
+recursive-enum Box-variant splits. It is the highest-value remaining fix
+for #69 by a wide margin — a dedicated session per the refactor plan in
+issues/yo-self-dyn-fn-field.md (field added at bca8eccc5; write/read-site
+conversion list there).
+
 Priorities for the next session: (1) the identity-split surgery (biggest
 combined family: conflicting-types/initializing/passing/redefinition ≈ 16
 files all point at one-type-two-sids); (2) the rc=-6 IoExn family (7 files,
