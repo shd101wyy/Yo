@@ -713,6 +713,29 @@ SortedSet+multibyte, env-check, fixpoint BYTE-IDENTICAL). Canonical
 binary-MIXED (mid-sweep fixes) — round-7 (clean, settled binary) is the
 authoritative scoreboard: /tmp/s2_sweep_r7/ + /tmp/s2_sweep_yoself_r7/.
 
+## 2026-07-18 ROUND-7 SCOREBOARD (yo-self complete; tests/ in flight)
+
+**#70 (yo-self/tests): 51/61 files green** — up from 42/61 before today.
+The rune/byte fix flipped the whole types\_\*/value/unwind/typeof/synthesizer
+tail. The 10 remaining divergents:
+
+- `phase6_verify`, `phase6c_macro`, `phase6d_reflection`,
+  `phase6f_macro_helpers` — the macro/reflection family (likely one cause).
+- `suspension_analysis`, `evaluator_index`, `install_command`, `lexer`,
+  `cache`, `effect_analysis` — assorted (cache = undeclared temp
+  identifier; effect_analysis = undeclared `effect_parameter_name`;
+  others untriaged).
+
+tests/ round-7 still sweeping (imm region at last check). Collections
+residual signatures ledgered in
+issues/yo-self-collections-batch-residuals.md (skip-vs-callsite undeclared
+fn; Index-call mislowering; unresolved-SomeT specs consumed).
+
+**OPERATIONAL: never `cp` over /tmp/s1 / /tmp/s2 while a sweep runs** —
+macOS SIGKILLs children whose backing binary is replaced (an rc=-9 block
+mid-sweep = invalid results, re-run those files). Pin sweeps to a versioned
+copy (e.g. /tmp/s2_r7pin) instead.
+
 ## Recent commits (this era, newest first)
 
 ```
