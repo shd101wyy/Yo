@@ -243,3 +243,22 @@ THE FIX (two coordinated pieces, both sides now fully specified):
 Verify with the in-repo repro + dyncap2/3/5 controls + full gates. This
 closes effect_analysis + cache (and the collections files sharing the
 class) once landed.
+
+### cache.test.yo — auto-declare attempt REVERTED (2026-07-18)
+
+An emitter-level auto-declare (`__typeof__(rhs) temp = rhs;` for
+assignments to temps missing from declared_c_var_names) BROKE the stage-2
+binary (env-check abort): the declared-names set does not cover every
+declaration shape (params, named locals, decls emitted before the
+declared_ref recording attaches), so the transform REDECLARED live
+variables and shadowed them. Reverted cleanly.
+
+The principled fix remains: find why the MIDDLE nested cond/match level's
+result-temp declaration is skipped while its arm assignments are emitted
+(batch evidence: `__yo_t10 _file____User_temp_7019;` and `..._7021;`
+declared, `_7020` assigned in an arm chain `7020 = 7019; 7021 = 7020;`
+with no decl anywhere). The decl gate (match.yo:1089 / cond.yo:589) skips
+only on is_unit or a missing ei.variable_name — instrument WHICH of the
+two held for 7020's node (per-pass ExprInfo overwrite suspected: the decl
+moment read a different info generation than the arm emission). Use the
+kept batch + YO_KEEP_BATCH=1.
