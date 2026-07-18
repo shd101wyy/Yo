@@ -79,6 +79,25 @@ resolve_enum_shell, and the vkey cycle guard protects recursion).
 tests/collections/array_list.test.yo flips WHOLE-FILE GREEN (87 passed).
 Corpus regression: tests/codegen-bootstrap/option_spec_per_payload.yo.
 
+## 2026-07-19: the "void must be first and only parameter" family (4 files) — SCOPED
+
+env/async*await/sync_mutex/prelude batches emit
+`static inline void yo_id_5002*...\_str_id_str_rtparam1_comptime_str_ret_unit(void flag, \_\_yo_str msg)`— an assert spec whose param0 (flag : bool) TYPED AS VOID, its rtparam0
+segment MISSING from the spec name, and its body containing an EMPTY`if () {`. The spec has ZERO call sites in the batch (a good spec handles
+the real calls) — an analysis-pass mint with a unit-typed condition arg
+that still gets EMITTED. Producer shape: `assert(x.is_none())` with the msg
+OMITTED (tests/env.test.yo:14 — the omitted-default machinery 9100cc135 is
+implicated: the DEFAULT msg keeps rtparam1 while the SUPPLIED flag's entry
+degenerates). MINIMAL BARE REPRO IS GREEN — the batch context (batched
+YO_TEST_INDEX program / analysis re-eval) is required. BISECT RECIPE: the
+failing batch SOURCE is saved at /tmp/env_batch_r12.yo — compile it directly
+with the current s1 (`s1 compile /tmp/env_batch_r12.yo --release -o /dev/null`),
+then delete test fns until the `void flag` spec disappears; the surviving
+test is the producer. Fix angles: (a) skip EMISSION of a spec with a
+unit-typed runtime param (nothing calls it; TS never creates it), and/or
+(b) type spec C params from the RESOLVED DECLARED param type (bool) instead
+of the arg's degenerate type — check TS's spec param typing first.
+
 **REMAINING (deque/hash_map/imm_map — the identity-SPLIT family):** with the
 enum fix in, deque fails `passing __yo_t33 to parameter of __yo_t30` where
 t30 = struct_yo_id_7146 and t33 = struct_yo_id_7237 — DIFFERENT sids for the
