@@ -1,0 +1,22 @@
+// Regression: trait `?=` DEFAULT methods on GENERIC-impl receivers.
+// `a != b` on ArrayList(i32) dispatches Eq's default `!=` — the generic-impl
+// registration must fill unprovided defaults into the registry entry with the
+// impl foralls stamped (like provided methods), or the abstract default body
+// (`not(Self.(==)(lhs, rhs))`) reaches codegen unspecialized: the `!=` FTTs
+// and its inner `not` specializes against the CONSTRAINT trait, emitting a C
+// `void self` param that fails the whole batch compile.
+// See issues/yo-self-void-param-logicalnot-spec.md.
+{ assert } :: import("std/assert");
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+
+test("!= via Eq default on a generic-impl receiver", {
+  a := ArrayList(i32).new();
+  b := ArrayList(i32).new();
+  assert(a == b, "empty == empty");
+  assert(!(a != b), "!(empty != empty)");
+  a.push(i32(1));
+  b.push(i32(2));
+  assert(a != b, "different contents !=");
+});

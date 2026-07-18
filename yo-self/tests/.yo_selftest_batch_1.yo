@@ -1,0 +1,24 @@
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/error"));
+_(ArrayList : ArrayList) :: import("std/collections/array_list");
+_(Token : Token, TokenKind : TokenKind) :: import("../token.yo");
+_(EvalValue : EvalValue) :: import("../value.yo");
+_(has_comment_attribute : has_comment_attribute, Evaluator : Evaluator) :: import("../evaluator/index.yo");
+_(MACRO_DISPATCH_ENABLED : MACRO_DISPATCH_ENABLED) :: import("../evaluator/calls/function.yo");
+_(assert : assert, panic : panic) :: import("std/assert");
+noop_loader :: (fn(_path : String) -> Option(EvalValue))((Option(EvalValue).None));
+();
+__yo_batch_env :: import("std/env");
+main :: (fn() -> unit)({
+  io :: __yo_builtin_io;
+  match(__yo_batch_env.env.get(`YO_TEST_INDEX`),
+    .Some(__yo_test_idx) => cond(
+      (__yo_test_idx == `0`) => { begin(if(MACRO_DISPATCH_ENABLED, begin(exn := Exception(throw : (err -> begin(assert(false, "unexpected error"), unwind(()), ()))), src := (String.from)("pragma(Pragma.SkipPrelude);\nid_macro :: (fn(quote(e) : Expr) -> unquote(Expr))(quote(unquote(e)));\ny :: id_macro(42);\nexport(y);\n"), eval := (Evaluator.new)((String.from)("<phase6c1>"), (String.from)("<no-std>"), noop_loader, src, exn), match((eval.get_module_error)(), .Some(_) => begin(assert(false, "module_error on identity macro"), ()), .None => ()), match((eval.get_module_value)(), .None => begin(assert(false, "no module value produced"), ()), .Some(mv) => match(mv, .StructVal(_, names, values) => begin((found_idx : Option(usize)) = .None, (i : usize) = usize(0), n := (names.len)(), while(i < n, begin(match((names.get)(i), .Some(nm) => cond((nm == "y") => begin(found_idx = .Some(i), ()), true => ()), .None => ()), i = (i + usize(1)), ())), match(found_idx, .None => begin(assert(false, "y not in module exports"), ()), .Some(idx) => match((values.get)(idx), .None => begin(assert(false, "y index missing in values"), ()), .Some(yv) => match(yv, .IntLit(s) => assert(s == "42", "y is not 42"), _ => begin(assert(false, "y is not an IntLit"), ())))), ()), _ => begin(assert(false, "module value is not ModuleVal"), ()))), ())), ()); },
+      (__yo_test_idx == `1`) => { begin(if(MACRO_DISPATCH_ENABLED, begin(exn := Exception(throw : (err -> begin(assert(false, "unexpected error"), unwind(()), ()))), src := (String.from)("pragma(Pragma.SkipPrelude);\nadd_macro :: (fn(quote(a) : Expr, quote(b) : Expr) -> comptime(Expr))(quote((unquote(a) + unquote(b))));\nz :: __yo_expr_eq(add_macro(3, 4), quote((3 + 4)));\nexport(z);\n"), eval := (Evaluator.new)((String.from)("<phase6c2>"), (String.from)("<no-std>"), noop_loader, src, exn), match((eval.get_module_error)(), .Some(_) => begin(assert(false, "module_error on add_macro"), ()), .None => ()), match((eval.get_module_value)(), .None => begin(assert(false, "no module value produced"), ()), .Some(mv) => match(mv, .StructVal(_, names, values) => begin((found_idx : Option(usize)) = .None, (i : usize) = usize(0), n := (names.len)(), while(i < n, begin(match((names.get)(i), .Some(nm) => cond((nm == "z") => begin(found_idx = .Some(i), ()), true => ()), .None => ()), i = (i + usize(1)), ())), match(found_idx, .None => begin(assert(false, "z not in module exports"), ()), .Some(idx) => match((values.get)(idx), .None => begin(assert(false, "z index missing in values"), ()), .Some(zv) => match(zv, .BoolVal(b) => assert(b, "add_macro AST != quote((3 + 4))"), _ => begin(assert(false, "z is not a BoolVal"), ())))), ()), _ => begin(assert(false, "module value is not ModuleVal"), ()))), ())), ()); },
+      true => ()
+    ),
+    .None => ()
+  );
+});
+export(main);

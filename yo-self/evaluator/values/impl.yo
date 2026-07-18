@@ -1810,6 +1810,48 @@ evaluate_module_value :: (
         });
         ctx.current_impl_trait_field_labels = old_wt_labels;
         ctx.current_impl_trait_field_types = old_wt_values;
+        // Fill trait `?=` DEFAULT methods the impl did not override — the
+        // GENERIC-impl counterpart of the concrete-impl fill below (and of TS
+        // trait-type.ts:418-489). Without it, `a != b` on a generic-impl Eq
+        // receiver (ArrayList(i32)) resolves the TRAIT's raw default FuncVal,
+        // which carries no impl foralls — the runtime-call for-codegen
+        // specialization trigger then never fires, the abstract default body
+        // (`not(Self.(==)(lhs, rhs))`) cannot transpile, and its inner `not`
+        // call specializes against the CONSTRAINT trait (the C
+        // `void self` param that failed the collections batches). Stamping
+        // the impl foralls onto the default (same as provided methods, line
+        // above) restores the nf>0 trigger and per-receiver specialization.
+        match(
+          g_trait_ty,
+          .TraitT({ field_labels : gd_labels, field_types : gd_types, id : gd_trait_id }) => {
+            (gdi : usize) = usize(0);
+            while(gdi < gd_labels.len(), {
+              gd_label := match(gd_labels.get(gdi),.Some(l) => l,.None => String.from(""));
+              gd_ty := match(gd_types.get(gdi),.Some(t) => t,.None => TypeValue.Unit);
+              (gd_provided : bool) = false;
+              (gpi : usize) = usize(0);
+              while((gpi < g_method_names.len()) && !(gd_provided), {
+                if(match(g_method_names.get(gpi),.Some(n) => (n == gd_label),.None => false), {
+                  gd_provided = true;
+                });
+                gpi = (gpi + usize(1));
+              });
+              if((!(gd_provided)) && is_function_type(gd_ty), {
+                match(
+                  get_trait_default(gd_trait_id.clone(), gd_label.clone()),
+                  .Some(gd_val) => {
+                    g_method_names.push(gd_label.clone());
+                    g_method_types.push(_substitute_self_in_method_ty(gd_ty, receiver_type_pattern));
+                    g_method_values.push(_stamp_impl_forall_on_method(gd_val, forall_names));
+                  },
+                  .None => ()
+                );
+              });
+              gdi = (gdi + usize(1));
+            });
+          },
+          _ => ()
+        );
         g_entry := GenericImplEntry(
           get_trait_key(g_trait_ty),
           // 1. trait_key — the trait's own key, NOT the inherent "" key
