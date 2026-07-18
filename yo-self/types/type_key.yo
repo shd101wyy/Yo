@@ -403,7 +403,27 @@ _sti_seen :: (fn(id : String) -> bool)({
   });
   found
 });
-_stable_identity_at :: (fn(t : TypeValue, depth : usize) -> String)(
+_stable_identity_at :: (fn(t : TypeValue, depth : usize) -> String)({
+  // DEPTH CAP: the id-based cycle guard below cuts CYCLES, but a memoized
+  // instantiation CHAIN (Option(RBNode(Option(RBNode(…)))) where every level
+  // is a DISTINCT instance with a fresh id) is an infinite NON-cyclic graph —
+  // the guard never fires and the render recursed forever (the imm_sorted_set
+  // / btree_map batch compile STALL: 100% CPU in this walker). Render a
+  // cut marker that keeps the node's own identity (id or tag) so two types
+  // differing at the cut still render distinctly — a false MERGE here would
+  // collapse different layouts onto one C type.
+  if(depth > usize(32), {
+    cut := String.from("d#");
+    cut.push_string(
+      match(
+        t,
+        .Struct({ id : cut_sid }) => cut_sid.clone(),
+        .EnumT(cut_eid, _, _, _, _, _, _, _, _) => cut_eid.clone(),
+        _ => type_to_string(t)
+      )
+    );
+    return(cut);
+  });
   match(
     t,
     .Struct({ id, field_labels : fls, field_types : fts, is_reference_semantics : t_is_ref }) => {
@@ -483,8 +503,7 @@ _stable_identity_at :: (fn(t : TypeValue, depth : usize) -> String)(
     },
     _ => type_to_string(t)
   )
-);
-/// Entry point — fresh cycle-guard per top-level render.
+});
 stable_type_identity :: (fn(t : TypeValue) -> String)({
   g_sti_visited = ArrayList(String).new();
   _stable_identity_at(t, usize(0))
