@@ -1125,6 +1125,18 @@ for #69 by a wide margin — a dedicated session per the refactor plan in
 issues/yo-self-dyn-fn-field.md (field added at bca8eccc5; write/read-site
 conversion list there).
 
+**IoExn rc=-6 BREADCRUMB (2026-07-19):** the missing-C-type panic fires
+while emitting `<proto:closure_yo_id_5022>` — the `io.async((e : IoExn) =>
+...)` ACTION CLOSURE's prototype keeps a real IoExn-typed param, and the
+panic key renders the effect-bundle struct itself (Io fields +
+struct_yo_id_5014 + the forall(ResumeType) throw fn). TS emits ZERO IoExn
+references for the same program — its async lowering erases the action
+closure's `e : IoExn` param (the state machine materializes it from its own
+io/exn slots). FIX LOCUS: the async action-closure PARAM emission
+(codegen/exprs/async.yo / the SM prototype builder) — compare TS's emitted
+action-closure signature for scratchpad/cfrc_batch.yo (22 lines, TS-green)
+and mirror the erasure. This is the 7-file rc=-6 family's single root.
+
 Priorities for the next session: (1) the identity-split surgery (biggest
 combined family: conflicting-types/initializing/passing/redefinition ≈ 16
 files all point at one-type-two-sids); (2) the rc=-6 IoExn family (7 files,
