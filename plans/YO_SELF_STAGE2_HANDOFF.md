@@ -999,6 +999,31 @@ chain + env-check, cache + suspension under the new s2, prior-flip holds).
   must make the instantiation CACHE hit, or make sids declaration-derived).
   Evidence + batches: issues/yo-self-collections-batch-residuals.md.
 
+## 2026-07-19 ROUND-12 SCOREBOARD — #69 = 112/180
+
+Round-12 sweep (all 74 r4-list divergents, /tmp/s2_r12pin, 600s caps)
+COMPLETED: **6 flips** — array_list (87/87 through the SELF-COMPILED stage),
+recursive_enum, ref_enum, string/string, thread_safety, url/url. **#69 =
+112/180** (was 108). The 68-file tail histogram (grep of
+/tmp/s2_sweep_r12/\*.done):
+
+- 8x `use of undeclared identifier` + 3x `call to undeclared function`
+- 8x `expected expression`
+- 7x `conflicting types` + 2x `redefinition` + 2x `unexpected type name`
+- 7x rc=-6 (the IoExn effect-bundle erasure family, analysis in this doc)
+- 5x TIMEOUT (compile-stall class: btree_map, imm_sorted_map/set, threading)
+- 5x yo-self-level errors (no clang stage)
+- 4x `initializing` mismatch + 3x `passing` mismatch (identity-SPLIT family)
+- 4x `X must be the first and only parameter if specified` (NEW signature —
+  untriaged; likely one emitter bug across 4 files)
+
+Priorities for the next session: (1) the identity-split surgery (biggest
+combined family: conflicting-types/initializing/passing/redefinition ≈ 16
+files all point at one-type-two-sids); (2) the rc=-6 IoExn family (7 files,
+analysis already in this doc); (3) the new "first and only parameter"
+signature (4 files, probably shallow); (4) stalls last (profile with
+sample(1) per the TS-timing policy).
+
 **OPERATIONAL: never `cp` over /tmp/s1 / /tmp/s2 while a sweep runs** —
 macOS SIGKILLs children whose backing binary is replaced (an rc=-9 block
 mid-sweep = invalid results, re-run those files). Pin sweeps to a versioned
