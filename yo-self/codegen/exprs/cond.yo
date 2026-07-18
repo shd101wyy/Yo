@@ -618,6 +618,27 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
                 is_cf := _is_cf_code(value, value_code.clone(), context);
                 if((value_code.len() > usize(0)) && !(is_cf), {
                   line := indent.clone();
+                  // The collapse-to-direct path skips this cond's own temp
+                  // declaration because the evaluator ADOPTS the arm body's
+                  // temp (cond eval / TS cond.ts:269-276): normally
+                  // `tv == value_code` and this line is a self-assign of a
+                  // temp the body's own emitter declared (TS emits the same
+                  // bare self-assign, cond.ts:141). But yo-self's shared-id
+                  // begin finale re-mints the wrapped node's temp AFTER the
+                  // adoption (begin.yo:1323-1325 stamps a fresh out_info +
+                  // attach — TS mints on the SEPARATE wrapper node,
+                  // begin.ts:1016-1045), so `tv` can be a name NO emitter
+                  // declares while the body's value sits in `value_code`.
+                  // Recover locally: emit a typed declaration-assignment for
+                  // that case only. (An eval-side variable_name carry was
+                  // tried first and REVERTED — it perturbed var bookkeeping
+                  // enough to break the stage2≡stage3 fixpoint. See
+                  // issues/yo-self-round7-tail.md, cache.test.yo.)
+                  if(!(value_code == tv), {
+                    line.push_string(get_type_string(value_type, context.base));
+                    line.push_str(" ");
+                    _dc := context.base.declared_c_var_names.add(tv.clone());
+                  });
                   line.push_string(tv.clone());
                   line.push_str(" = ");
                   line.push_string(value_code.clone());

@@ -262,3 +262,62 @@ only on is_unit or a missing ei.variable_name — instrument WHICH of the
 two held for 7020's node (per-pass ExprInfo overwrite suspected: the decl
 moment read a different info generation than the arm emission). Use the
 kept batch + YO_KEEP_BATCH=1.
+
+### cache.test.yo — ROOT CAUSE FOUND: cond comptime-degenerate + begin-wrapper identity (2026-07-18)
+
+A begin.yo decl-gate widening (declare whenever `!(is_unit)`) did NOT fix it
+(same undeclared temp in the s2t20 retest) — reverted. The missing temp is
+NOT a begin temp: it is the **cond's result temp on the comptime-degenerate
+path**. Minimal 37-line repro (deterministic, byte-identical under s1t20 AND
+s2t20 — `src/tests/fixme.yo` snapshot below): a match arm whose body is
+`cond((platform == Platform.Windows) => ..., true => match(home_dir(), ...))`
+— yo-self/cache.yo:44-62's exact shape (`get_global_cache_dir`).
+
+Mechanism (TS vs yo-self):
+
+- TS `evaluateBeginExpression` (begin.ts:1016-1045) on a NON-begin body
+  builds `begin(cloneExpr(inner))` and **rewrites the node in place**
+  (`replaceFuncCallExprWithFuncCallExpr`) — the cond's arm slot IS a begin
+  node afterwards, holding its own temp; the inner match is a separate clone
+  with its own temp. TS cond eval (cond.ts:269-276) adopts the begin's temp;
+  TS cond codegen (cond.ts:107-158) skips the decl on canOptimizeToDirect
+  and calls generateExpr(value) → generateBegin DECLARES the adopted temp,
+  returns it, cond emits a harmless self-assign. Verified in TS emission:
+  `decl 43926; { // begin block ... 43926 = 43922; } 43926 = 43926;`.
+- yo-self `evaluate_begin_expression` (begin.yo:555-564) wraps a non-begin
+  body in a synthetic 1-element ARG LIST ONLY — no AST rewrite. One node id
+  serves as both "begin result" and "inner match"; the begin finale stamps a
+  fresh out*info onto that shared id (begin.yo:1323) and attaches a fresh
+  temp (6480), which the cond adopts — while codegen's walk of the arm body
+  hits generate_match, which emits with the match-generation temp (6479).
+  The adopted 6480 is declared by NO emitter → `6480 = 6479; 6481 = 6480;`
+  with 6480 undeclared. (Same class as the documented shared-id clobbers at
+  begin.yo:1273-1322 — runtime_arg_exprs_in_order / index*\* / deferred-dup
+  carries — but for variable_name the clobber goes the OTHER way.)
+
+Probe run (ATTACH/COND-ADOPT/CG-COND/CG-MATCH eprintln probes) CONFIRMED the
+stamp order: `[ATTACH match=6479] → [COND-ADOPT adopted=6479] →
+[ATTACH cond=6480]` — the adoption works; the OUTER match's arm-body
+begin-wrapping then re-mints a fresh temp over the COND's shared-id info,
+orphaning the adopted name.
+
+**Fix attempt 1 (REVERTED — fixpoint breaker):** carrying `variable_name`
+across the shared-id begin finale (out_info.variable_name =
+last_info.variable_name, carry_runtime_args-gated) fixed cache (6/6) and all
+behavior gates (corpus 130/2, std 153/153, battery 5/5, env-check, prior
+flips) but **broke the stage2≡stage3 fixpoint** — and the double-emit test
+showed the same binary emitting DIFFERENT bytes on identical input
+(S1FIX_NONDETERMINISTIC, first divergence at the same byte as the fixpoint
+break; ~1.4M diff lines of wholesale \_\_yo_tN renumbering + differing
+Option-instantiation populations). The attach `.Some`-branch update path
+(get_variables_from_env + in-place var update / re-home) makes downstream
+comptime decisions sensitive to per-run-random variable-id state. LESSON:
+**any eval-side change touching attach/env var bookkeeping must pass a
+same-binary DOUBLE-EMIT determinism check, not just one fixpoint compare.**
+
+**Fix landed (consumer-side):** cond codegen's collapse-to-direct path
+(codegen/exprs/cond.yo, direct-value branch) now emits a TYPED
+declaration-assignment when `value_code != tv` — exactly the orphaned-adoption
+case; the healthy case (tv == value_code, TS-identical self-assign) is
+byte-unchanged. Zero evaluator changes → deterministic. Corpus regression:
+tests/codegen-bootstrap/cond_comptime_arm_match_temp.yo.

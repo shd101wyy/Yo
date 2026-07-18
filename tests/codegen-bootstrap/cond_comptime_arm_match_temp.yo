@@ -1,0 +1,36 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ args } :: import("std/env");
+{ platform, Platform } :: import("std/process");
+
+// Regression: a match arm whose body is a cond with a comptime-false first
+// arm and a comptime-true second arm whose body is itself a match on a
+// RUNTIME Option. The cond ADOPTS the inner body's result temp (TS evaluator
+// cond.ts:269-276); yo-self's begin finale used to mint a FRESH temp over the
+// shared-id info (destroying the adopted binding), and cond codegen's
+// collapse-to-direct path — which skips its own declaration because "the
+// inner declares that temp" — then assigned to an undeclared C identifier.
+// (issues/yo-self-round7-tail.md, cache.test.yo / get_global_cache_dir.)
+resolve_dir :: (fn() -> String)({
+  // Runtime Options (argc-based so the taken branches are deterministic).
+  primary := if(args().len() > usize(99), Option(String).Some(String.from("P")), Option(String).None);
+  fallback := if(args().len() > usize(99), Option(String).Some(String.from("F")), Option(String).None);
+  match(
+    primary,
+    .Some(d) => d.concat(String.from("/yo")),
+    .None =>
+      cond(
+        (platform == Platform.Windows) => String.from("win"),
+        true => match(
+          fallback,
+          .Some(h) => h.concat(String.from("/.cache/yo")),
+          .None => String.from("~/.cache/yo")
+        )
+      )
+  )
+});
+
+main :: (fn() -> unit)({
+  println(resolve_dir());
+});
+export(main);
