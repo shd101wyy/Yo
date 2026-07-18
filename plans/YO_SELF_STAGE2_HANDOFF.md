@@ -1125,25 +1125,31 @@ for #69 by a wide margin — a dedicated session per the refactor plan in
 issues/yo-self-dyn-fn-field.md (field added at bca8eccc5; write/read-site
 conversion list there).
 
-**IoExn rc=-6 BREADCRUMB (2026-07-19):** the missing-C-type panic fires
-while emitting `<proto:closure_yo_id_5022>` — the `io.async((e : IoExn) =>
-...)` ACTION CLOSURE's prototype keeps a real IoExn-typed param, and the
-panic key renders the effect-bundle struct itself (Io fields +
-struct_yo_id_5014 + the forall(ResumeType) throw fn). TS emits ZERO IoExn
-references for the same program — its async lowering erases the action
-closure's `e : IoExn` param (the state machine materializes it from its own
-io/exn slots). FIX LOCUS: the async action-closure PARAM emission
-(codegen/exprs/async.yo / the SM prototype builder) — compare TS's emitted
-action-closure signature for scratchpad/cfrc_batch.yo (22 lines, TS-green)
-and mirror the erasure. This is the 7-file rc=-6 family's single root.
+**IoExn rc=-6 — TWO FIX ATTEMPTS RULED OUT, verdict sharpened (2026-07-19):**
+the missing-C-type panic fires at `<proto:closure_yo_id_5023>` — the
+async/await plumbing's action closure keeps its IoExn bundle param. TWO
+collection-side fixes were tried and REVERTED as insufficient: (1)
+signature-type collection at the ei.closure_function_value registration
+site, (2) a post-collection sweep over ALL registered entries'
+signatures (codegen_c.yo pipeline). Neither reaches this closure — AND the
+deeper reading of the panic key shows collection can NEVER fix it: the
+IoExn bundle's fields are FORALL FN TYPES (`fn(forall(T,E) action ...)`,
+`fn(forall(ResumeType) error ...)`) — the type is inherently
+unmaterializable as a C struct. TS emits ZERO IoExn because its async
+lowering ABSORBS the action closure into the state machine (no standalone
+closure, no bundle param). THE ONLY FIX SHAPE: yo-self's async lowering
+must do the same absorption/erasure for the standalone-kept action closure
+(codegen/exprs/async.yo + the SM step emitter) — mirror TS's emitted SM for
+scratchpad/cfrc_batch.yo (22 lines, TS-green; TS's closures there take
+`(void* ctx, Io io)`, never the bundle). Subsystem-scale; the 7-file family
+hangs entirely on it.
 
 **expected-expression cluster TRIAGED (2026-07-19): the convergence is now
 FOUR-WAY.** closure*capture_rc_leak's site decodes to a fold closure emitted
-as `closure_yo_id_6215(void* closure_context, __yo_t22* acc, void* item)`
-whose BODY references the un-renamed `x`, with `rtparam1_1730` (a bare
+as `closure_yo_id_6215(void* closure_context, \_\_yo_t22* acc, void* item)`whose BODY references the un-renamed`x`, with `rtparam1_1730` (a bare
 unresolved-SomeT id) in the called spec's name — the closure param's SomeT
 never resolved in the generation the emission read. Same disease class in
-async_await/derive/dyn/flowability/fs*\* sites (param or temp types
+async_await/derive/dyn/flowability/fs\*\* sites (param or temp types
 degenerating to void/unresolved at spec/closure boundaries). Together with
 (a) dyn-fn-field, (b) imm_string cfid-drop, (c) recursive-enum Box-variant
 splits, the SomeT-identity-across-generations surgery now underwrites FOUR
