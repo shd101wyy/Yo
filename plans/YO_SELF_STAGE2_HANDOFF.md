@@ -332,7 +332,7 @@ and the TS-side baselines are fully prepared for the two remaining sweeps:
 | Structural forall inference (effect polymorphism)                    | FIXED (`702de11c9`)                                                            |
 | `s1 test tests/algebraic_effects.test.yo`                            | **72/72 PASSED**                                                               |
 | **yo-self/tests suite audited + repaired under TS (#70 baseline)**   | **100% GREEN — every file, incl. the eval trio (337/337, ~90 s/file)**         |
-| Corpus differential (`scripts/diff-test.sh tests/codegen-bootstrap`) | PASS 132 / DIFF 2 — both DIFFs pre-existing & known (see "Known-noise gates")  |
+| Corpus differential (`scripts/diff-test.sh tests/codegen-bootstrap`) | PASS 133 / DIFF 2 — both DIFFs pre-existing & known (see "Known-noise gates")  |
 | `check ./std` under s1                                               | 153/153                                                                        |
 
 Terminology: **s1** = TS-compiled yo-self binary. **s2** = clang -O2 of
@@ -377,8 +377,9 @@ cmp /tmp/stage2.c /tmp/stage3.c && echo "FIXPOINT HOLDS"
 
 ```bash
 YO_SELF_BIN=/tmp/s1 scripts/diff-test.sh tests/codegen-bootstrap --parallel 4
-#   → PASS 132 / DIFF 2 (only the two known-noise DIFFs below; 132 incl. the
-#     cond_comptime_arm_match_temp + dyn_fn_same_sig_closures regressions)
+#   → PASS 133 / DIFF 2 (only the two known-noise DIFFs below; 133 incl. the
+#     cond_comptime_arm_match_temp + dyn_fn_same_sig_closures +
+#     nested_generic_trait_eq regressions)
 /tmp/s1 check ./std                       # → 153/153
 # For emission-affecting changes, ALSO re-run the fixpoint chain above
 # (byte-identical or you broke determinism/parity).
@@ -944,9 +945,33 @@ shared-id" family, both with 30-line deterministic corpus repros:
    shared wrapper × own captures; fixed prints 814). suspension_analysis:
    **9/9 green** under the fixed s1.
 
-Corpus baseline is now **132 PASS / DIFF 2** (two new regression files).
+Corpus baseline is now **133 PASS / DIFF 2** (three new regression files).
 Full gates re-run for both fixes (corpus, std 153/153, battery ×5, fixpoint
 chain + env-check, cache + suspension under the new s2, prior-flip holds).
+
+## 2026-07-18 (round 10) — #70 = 61/61; recursion-guard fix lands; #69 next
+
+- **#70 COMPLETE: 61/61** `s2 test` green over yo-self/tests (round-10 sweep
+  under the committed binary). phase6_verify flaked rc=1 ONCE in the sweep
+  and then passed 5/5 across two gate batteries + a 3x probe with
+  byte-identical batch C — environmental flake under peak RAM pressure, not
+  compiler logic (issues/yo-self-round7-tail.md, PROBE VERDICT). The eval
+  trio runs fine under the 1800s cap.
+- `85f44b843`: the specialization recursion guards now compare
+  `impl_bindings_sig` (the impl forall bindings injected as TypeVal captures)
+  alongside the func_id — a generic-impl trait method specializing and
+  calling ITSELF at a SMALLER instantiation (nested ArrayList equality) was
+  misread as self-recursion and emitted the bare generic fid (the collections
+  "call to undeclared 'yo_id_3230'" residual). TS-parity via impl.ts:1551's
+  per-instantiation funcIds. Corpus regression: nested_generic_trait_eq.yo.
+  Full gates green incl. fixpoint + double-emit determinism.
+- **#69 marching orders:** re-sweep the r4 divergent list with the r11 pin
+  (all of today's fixes). The next root-caused class is the WRONG-SPEC PICK:
+  `Option(String).is_some()` cache-hits the `Option(i32)` spec — hypothesis
+  - probe site in issues/yo-self-collections-batch-residuals.md (receiver
+    arg*type unresolved `Option(T)` at the cache compare while the mint-time
+    signature resolves T from callee_env). Round-10 tests/ partials (39 files,
+    OLD pin — the "before" column): /tmp/s2_sweep_r10/tests*\*.done.
 
 **OPERATIONAL: never `cp` over /tmp/s1 / /tmp/s2 while a sweep runs** —
 macOS SIGKILLs children whose backing binary is replaced (an rc=-9 block

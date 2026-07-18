@@ -341,3 +341,13 @@ binary with YO*KEEP_BATCH=1, diff the batch .c across runs; also 2x under
 Failures that move/vanish across runs = GC/heap corruption class (audit
 \_\_yo_traverse*\* for the missed-field class); identical stable errors =
 deterministic emission divergence (re-triage).
+
+**PROBE VERDICT (2026-07-18 night): FLAKE CONFIRMED.** 3/3 probe passes with
+byte-identical batch C (same md5 across runs), on top of 2/2 gate-battery
+passes — 5 passes vs the single sweep failure under the same binary. The
+failing sweep run overlapped peak memory pressure (a concurrent clang -O2 of
+a fresh s1 + an array_list probe); the failure shape ("expected expression"
+near EOF + one missing-identifier hole mid-file) is consistent with a
+truncated/dropped write chunk under pressure rather than an emission-logic
+bug. Counted GREEN for #70 (**#70 = 61/61**). If it recurs WITHOUT load,
+re-open as the GC-traverse class.
