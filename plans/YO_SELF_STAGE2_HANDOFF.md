@@ -1157,6 +1157,21 @@ of the remaining families — likely 30+ of the 64 red files. Execute it
 FIRST next session (plan + conversion list: issues/yo-self-dyn-fn-field.md
 CONVERGED DIAGNOSIS; the resolved_concrete field exists since bca8eccc5).
 
+## SOMET SURGERY — ALL THREE SLICES LANDED (549c03820, b3e187b04, d0ba222e1)
+
+Slice 2b (d0ba222e1) closed the arc: ctfe results whose TYPE args still
+contain unresolved SomeTs are no longer cached (TS checking-phase parity) —
+the `Box(V)` placeholder instantiation that reached codegen as a second C
+type (the recursive-enum heap corruption's poison) is out of the consumable
+memo. **tests/recursive_enum.test.yo flips whole-file green (4 passed)**,
+retiring the round-15 regression AND the coin-flip class. Full gates green
+on every slice (corpus 135/2-known, std, battery, double-emit determinism,
+fixpoint). Residual (narrow, ledgered): the standalone 14-line extraction
+still crashes — a SINGLE-PASS shape whose only evaluation consumes a
+transient placeholder (no good re-stamp pass exists); it does not affect
+any batch-shaped test file. Re-sweep (round 16) measures the surgery's full
+#69 effect.
+
 ## SOMET SURGERY — SLICES 1 + 2a LANDED; 2b IS THE FRONTIER
 
 Slice 2a (b3e187b04) is IN: module-level struct/enum declarations mint
