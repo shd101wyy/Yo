@@ -465,12 +465,35 @@ collect_module_deps :: (
 // so the loader is wired through this slot (set in the init IIFE below).
 (g_demand_loader : Option((fn(path : String) -> LoadModuleResult))) =
   Option((fn(path : String) -> LoadModuleResult)).None;
+/// Message slot for a module-eval error captured inside
+/// `_eval_module_exprs_capturing_error`'s handler. Handlers cannot
+/// reference outer runtime variables, but they CAN call module-level
+/// FUNCTIONS — so the handler stashes the message here and the loader
+/// takes it after the unwind, surfacing it as `LoadModuleResult.
+/// module_error`. That routes a failed `import("…")` back through the
+/// CALLER's exn at the import site (evaluate_import rethrows
+/// module_error), where `comptime_expect_error` can catch it — TS
+/// parity: a module whose top-level eval throws inside
+/// `comptime_expect_error(import("…"))` is an EXPECTED error, not a
+/// driver-fatal one (tests/circular_import.test.yo's circular_error
+/// fixture).
+(g_load_module_error : Option(String)) = Option(String).None;
+_stash_load_error :: (fn(msg : String) -> unit)({
+  g_load_module_error = Option(String).Some(msg);
+});
+_take_load_error :: (fn() -> Option(String))({
+  r := g_load_module_error;
+  g_load_module_error = Option(String).None;
+  r
+});
 /// Evaluate a module's top-level exprs, catching any evaluator error
 /// locally so the caller can unregister the currently-loading entry
 /// before re-throwing. Success: pushes the module value to `out`.
 /// Failure: the handler PRINTS the error (handlers cannot capture
 /// outer runtime vars, and an unwound String loses its Rc storage)
-/// and unwinds — `out` stays empty, which is the caller's signal.
+/// and unwinds — `out` stays empty, which is the caller's signal. The
+/// message is also stashed via `_stash_load_error` (a fn call — legal
+/// in handlers) so the loader can return it as `module_error`.
 _eval_module_exprs_capturing_error :: (
   fn(
     mod_exprs : ArrayList(AstExpr),
@@ -488,6 +511,7 @@ _eval_module_exprs_capturing_error :: (
   local_exn := Exception(
     throw : (
       (err) -> {
+        _stash_load_error(err.to_string());
         eprintln(`check: error in: ${err.to_string()}`);
         unwind(false)
       }
@@ -501,17 +525,21 @@ _eval_module_exprs_capturing_error :: (
 /// Read + parse + evaluate the module at resolved abs `file://` path `abs` and
 /// register its exports. Registers it as "loading" (with its live env) BEFORE
 /// evaluating, so a circular import resolves to its partial exports. Uses the
-/// loader io / std_path / exn stashed by `check_single_file`.
-_load_module_at_abs :: (fn(abs : String) -> unit)({
+/// loader io / std_path / exn stashed by `check_single_file`. Returns
+/// `.Some(error)` when the module's top-level evaluation failed — the caller
+/// (demand_load_module) surfaces it as `LoadModuleResult.module_error` so the
+/// error rethrows through the IMPORT SITE's exn (catchable by
+/// `comptime_expect_error`), instead of unwinding the stashed driver exn.
+_load_module_at_abs :: (fn(abs : String) -> Option(String))({
   if(abs.ends_with(String.from("prelude.yo")), {
-    return(());
+    return(Option(String).None);
   });
   if(module_cache_has(abs.clone()), {
-    return(());
+    return(Option(String).None);
   });
-  io := match(g_loader_io,.Some(i) => i,.None => return(()));
+  io := match(g_loader_io,.Some(i) => i,.None => return(Option(String).None));
   std_path := match(g_loader_std_path,.Some(s) => s,.None => String.from(""));
-  exn := match(g_loader_exn,.Some(e) => e,.None => return(()));
+  exn := match(g_loader_exn,.Some(e) => e,.None => return(Option(String).None));
   fs_path := abs.replace(String.from("file://"), String.from(""));
   src_bytes := io.await(read_file(Path.new(fs_path.clone()), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
@@ -545,12 +573,20 @@ _load_module_at_abs :: (fn(abs : String) -> unit)({
     .Some(mv) => {
       reg_ty := match(out_tys.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
       register_module(abs.clone(), mv, reg_ty);
+      Option(String).None
     },
-    .None => {
-      // Root-cause detail printed by the helper's handler.
-      exn.throw(dyn(`Failed to evaluate module "${abs}"`));
-    }
-  );
+    // Root-cause detail printed by the helper's handler (and stashed).
+    // RETURN the error instead of throwing the stashed driver exn: the
+    // import site rethrows it through its own exn, so an import inside
+    // `comptime_expect_error` is caught as the EXPECTED error.
+    .None => Option(String).Some(
+      match(
+        _take_load_error(),
+        .Some(m) => m,
+        .None => `Failed to evaluate module "${abs}"`
+      )
+    )
+  )
 });
 /// Demand-driven `ctx.load_module`. `path` is the resolved `file://` abs path
 /// computed by `evaluate_import`. Cache hit -> cached exports; currently-loading
@@ -572,7 +608,19 @@ demand_load_module :: (fn(path : String) -> LoadModuleResult)({
     },
     .None => ()
   );
-  _load_module_at_abs(path.clone());
+  match(
+    _load_module_at_abs(path.clone()),
+    .Some(load_err) => {
+      return(
+        LoadModuleResult(
+          module_value : EvalValue.UnitVal,
+          module_type : TypeValue.Unit,
+          module_error : Option(String).Some(load_err)
+        )
+      );
+    },
+    .None => ()
+  );
   load_module_from_cache(path)
 });
 // Wire the slot (breaks the mutual-recursion forward ref).
