@@ -200,7 +200,21 @@ evaluate_enum_type :: (
       )
     );
   });
-  enum_id := `enum_${random_id(env.module_path)}`;
+  // DECLARATION-STABLE id at module level (ctfe_depth == 0): every
+  // re-evaluation GENERATION of the same declaration node shares one enum
+  // identity, so shells/finals/instantiation memo entries unify across
+  // generations (SomeT surgery slice 2 — the cross-generation split minted a
+  // fresh enum id per generation, splitting Box(Self)/ArrayList(Self)
+  // instantiations into per-generation C types; the recursive-enum
+  // construct+drop heap corruption). Inside CTFE (generic constructor
+  // instantiation), ids stay eval-fresh: Option(i32) vs Option(String)
+  // evaluate the same enum body and must NOT share identity (the recorded
+  // tk2/Bucket failure of the unconditional ast-id swap).
+  enum_id := if(
+    ctx.ctfe_depth == usize(0),
+    `enum_decl_${ast_expr_id(expr).to_string()}_${env.module_path.replace(String.from("/"), String.from("_")).replace(String.from("."), String.from("_")).replace(String.from(":"), String.from("_"))}`,
+    `enum_${random_id(env.module_path)}`
+  );
   // Preliminary EnumT (empty variants) used as SelfType during field evaluation
   // so self-referential variants like `Some(Self)` work. The shell carries a
   // DISTINCT id: sharing the final's id made EXACT type comparison — the

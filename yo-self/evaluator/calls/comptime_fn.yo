@@ -762,6 +762,12 @@ evaluate_comptime_fn_call :: (
   // then read the T-era `SortedMap(T, bool)` instances annotated by the
   // impl-registration call — splitting one TS type identity into two chains.
   body_expr := clone_expr_fresh_ids(body_box);
+  // Track CTFE depth around the body eval: struct/enum declaration eval mints
+  // DECLARATION-STABLE ids only at depth 0 (module level) — inside a comptime
+  // constructor call (generic INSTANTIATION), ids stay eval-fresh so
+  // Option(i32)/Option(String) never share identity (SomeT surgery slice 2;
+  // see context.yo ctfe_depth).
+  ctx.ctfe_depth = (ctx.ctfe_depth + usize(1));
   evaled_body := evaluate_begin_expression(
     body_expr,
     callee_env,
@@ -770,6 +776,7 @@ evaluate_comptime_fn_call :: (
     true,
     exn
   );
+  ctx.ctfe_depth = (ctx.ctfe_depth - usize(1));
   // Restore context.
   ctx.is_evaluating_function_body_or_async_block = old_fn_ctx;
   ctx.is_evaluating_loop_body = old_loop_ctx;
