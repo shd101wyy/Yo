@@ -713,6 +713,22 @@ SortedSet+multibyte, env-check, fixpoint BYTE-IDENTICAL). Canonical
 binary-MIXED (mid-sweep fixes) — round-7 (clean, settled binary) is the
 authoritative scoreboard: /tmp/s2_sweep_r7/ + /tmp/s2_sweep_yoself_r7/.
 
+## 2026-07-18 (later still) — typeid dedup, Option label parity, dyn stubs: #70 at 58/61
+
+- `ecdee47db`: (1) typeid statics dedup by C NAME via the shared
+  `type_id_static_names` set (two aliased keys emitted one static twice);
+  (2) `create_option_type` labels its Some payload `value` matching prelude
+  Option — a `val`-labelled synthesized rendition could win the C-type
+  dedup and break the downcast/await emitters' hardcoded `.value`
+  designator. lexer + evaluator_index flip green → **#70 = 58/61**.
+- `(next commit)`: dyn wrappers emit an abort() stub when their impl
+  method's definition was skipped — removes the "call to undeclared
+  function fn*yo_id*\*" batch breaker (tests/dyn.test.yo advances to a
+  downcast FTT residual).
+
+#70 remaining (4): cache (undeclared temp), effect_analysis (undeclared
+effect_parameter_name), suspension_analysis, install_command.
+
 ## 2026-07-18 (latest) — registry-mutation fix: #70 at 55/61
 
 `1d6e782cc`: get_function_entry now returns a c_name CLONE (the function-
