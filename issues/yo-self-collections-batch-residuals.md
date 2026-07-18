@@ -213,3 +213,21 @@ constructor_func_id (probe type creation for the imm_string internal
 struct), or the reverse-map adoption (register layout-sig -> gs-key at
 gs-registration; a cfid-empty copy with a UNIQUE layout match adopts the
 gs C type). Kept round-14 log: /tmp/s2_sweep_r14/tests_imm_string.test.yo.done.
+
+## 2026-07-19: cfid-rule fallout — recursive_enum regression DECODED (Range vs RangeInclusive)
+
+Round-15 net: +4 files from the cfid rule (deque/hash_map/hash_set + the
+repro class), -1 regression: tests/recursive_enum.test.yo's "ArrayList(Self)
+variant" test now FAILS AT RUNTIME (wrong sum). Probes pinned the newly
+rejected compare pair: **Range (yo_id_20) vs RangeInclusive (yo_id_23)** —
+identical `{start, end}` layouts, different prelude constructors. The cfid
+rule making them DISTINCT is CORRECT and TS-faithful — the regression means
+some std/evaluator path RELIED on the old structural unification (a
+spec/cache lookup keyed with one range type resolving against the other —
+plausibly the range-iteration machinery inside the ArrayList(Self) eval
+loop). NEXT: find the consumer that now misses — instrument the spec-cache
+MISS for fids whose runtime_param_tys contain struct cfid yo_id_20/23 during
+the recursive_enum batch, and check what the pre-rule shared spec actually
+computed (an inclusive-vs-exclusive bound bug may have been LATENT under the
+old sharing). The cfid rule STAYS (3 whole files + TS parity); this consumer
+is a separate pre-existing confusion it surfaced.
