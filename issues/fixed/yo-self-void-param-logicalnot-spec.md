@@ -99,3 +99,29 @@ Watch the gates: corpus has derived-Eq `!=` on concrete types passing via
 OTHER routes — find the passing route first (e.g. tests/codegen-bootstrap's
 eq tests) and compare its dispatch to the ArrayList one before changing the
 trigger.
+
+## FIXED (2026-07-18, 88d9f3fbb) + the two residuals it exposed
+
+The generic-impl trait-default fill closed the void-param family (0 "void
+self" in the round-7 array_list batch; the 13-line != repro green). The
+array_list batch now fails on two NEW, more specific signatures (round-7,
+settled binary):
+
+1. `call to undeclared function 'yo_id_3230'` — a callee emitted at a call
+   site whose function was dropped by the prototype/body skip
+   (should_skip_function_codegen) — the skip-vs-callsite mismatch class
+   (same shape as the earlier thread_spawn incident, different trigger).
+   NOTE: NOT the supersession stub (that never removes declarations; the
+   supersession skip in should_skip was reverted).
+2. `called object type 'int32_t *' is not a function or function pointer`
+   at a `list(usize(0))`-style INDEX call — the Index-trait call lowering
+   picked a direct call on the element pointer instead of the index-method
+   dispatch, under the batch shape.
+
+Extract each from the batch: run the failing test standalone (compile-only
+repro from the test body), find which fid 3230 is (std fn — grep the TS
+build's emitted C for the same program to see what TS names/emits), and for
+the index one compare generate_index_trait emission under batch vs
+standalone. Both are pre-existing divergences newly VISIBLE now that the
+void-param and multibyte blockers are gone (whole-batch C failures masked
+them).
