@@ -1061,6 +1061,19 @@ passed). Full gates green (corpus 135/2-known incl. the new
 iter_structs_identical_layout regression, fixpoint + determinism hold).
 Round-15 sweep running under /tmp/s2_r15pin (8 fixes).
 
+**Compile-stall class PROFILED (2026-07-19, sample of the live btree_map
+stall — /tmp/btree_sample.txt):** the hot stack is a deep RECURSIVE
+EVALUATION cycle, not a tight loop: evaluate_expression (yo_id_227751/
+298926/298088 in the r15 pin) -> per-node handlers (match yo_id_271410 /
+cond yo_id_269273 / call yo_id_237117) -> evaluate_begin_expression
+(yo_id_254050, identified by its (expr, env, ctx, variables_to_add,
+is_fn_body, exn) signature) -> recurse. The evaluator grinds an enormous
+derivation — the exponential re-evaluation class (specialization cache not
+hitting for btree's deeply generic recursive bodies). Same class expected
+for imm_sorted_map/set/threading TIMEOUTs. Entry point: instrument the spec
+cache hit/miss ratio per fid during a btree batch compile and find the
+missing key dimension.
+
 Priorities for the next session: (1) the identity-split surgery (biggest
 combined family: conflicting-types/initializing/passing/redefinition ≈ 16
 files all point at one-type-two-sids); (2) the rc=-6 IoExn family (7 files,
