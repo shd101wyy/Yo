@@ -1157,6 +1157,27 @@ of the remaining families — likely 30+ of the 64 red files. Execute it
 FIRST next session (plan + conversion list: issues/yo-self-dyn-fn-field.md
 CONVERGED DIAGNOSIS; the resolved_concrete field exists since bca8eccc5).
 
+## SOMET SURGERY — SLICE 1 LANDED (549c03820), SLICE 2 IS THE FRONTIER
+
+Slice 1 (the lineage cell) is IN: resolved_concrete is now an
+ArrayList(Self) shared mutable cell; both synthesizer stamp sites write it
+(last-wins, TS synthesizer.ts:463/595 parity) alongside the legacy global;
+all 20+ touchpoints converted; t_resolved_cell seeds fresh cells at the
+per-call rebuild sites (ctl-throw, dyn box) per the ResumeType hazard rule.
+FULL GATES GREEN incl. double-emit determinism and fixpoint.
+
+Verified post-landing: the CROSS-GENERATION residuals persist as predicted
+(4-variant recursive-enum repro still 137, imm_string still red) — those are
+slice 2: unify SomeT lineages ACROSS re-evaluation generations. Design
+options analyzed this session (see the design section below): (a) memoize
+SomeT creation per declaration ast id (one object/lineage per declaration —
+TS's model — but yo-self re-evals then share cells across DIFFERENT
+instantiation contexts: the last-wins hazard needs the spec machinery to
+consume resolutions IMMEDIATELY per call like TS, or per-context snapshots);
+(b) TS-shaped structural substitution at spec time so codegen never needs
+cross-generation stamps. Start by instrumenting WHICH generation's SomeT
+copies reach codegen for the 4-variant repro's five Box memo entries.
+
 ## SOMET SURGERY — EXECUTABLE DESIGN (slice 1: the lineage cell)
 
 The blocking question ("how can a per-object stamp propagate under value
