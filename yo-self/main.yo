@@ -16,6 +16,7 @@ open(import("std/string"));
 open(import("std/error"));
 open(import("std/fmt"));
 { args } :: import("std/env");
+_(env : proc_env) :: import("std/env");
 { Path } :: import("std/path");
 { read_file, write_file, exists } :: import("std/fs/file");
 { metadata } :: import("std/fs/metadata");
@@ -1451,10 +1452,15 @@ run_test :: (
         ri = (ri + usize(1));
       });
       // Clean up the batch artifacts (mirrors TS cleanup()) — they live in
-      // the test file's directory now, not /tmp.
-      io.await(remove_file(Path.new(tmp_yo.clone()), io), IoExn(io : io, exn : exn));
-      io.await(remove_file(Path.new(tmp_bin.clone()), io), IoExn(io : io, exn : exn));
-      io.await(remove_file(Path.new(`${tmp_bin}.c`), io), IoExn(io : io, exn : exn));
+      // the test file's directory now, not /tmp. Debug affordance (yo-self
+      // only, no TS counterpart): YO_KEEP_BATCH=1 skips the cleanup so a
+      // failing batch's .yo/.c can be inspected — batch-only miscompiles
+      // (the collections residuals) are unreproducible otherwise.
+      if(proc_env.get(`YO_KEEP_BATCH`).is_none(), {
+        io.await(remove_file(Path.new(tmp_yo.clone()), io), IoExn(io : io, exn : exn));
+        io.await(remove_file(Path.new(tmp_bin.clone()), io), IoExn(io : io, exn : exn));
+        io.await(remove_file(Path.new(`${tmp_bin}.c`), io), IoExn(io : io, exn : exn));
+      });
     });
   });
   if(bailed, {
