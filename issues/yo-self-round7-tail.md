@@ -75,3 +75,30 @@ render — or key the stable render with variant names uncut. NOTE this
 implicates the 2026-07-18 alias-recursion change's PREMISE ("same type,
 evolved render") — an alias between genuinely different types is the
 failure mode to rule out for cache.test.yo's undeclared-temp too.
+
+## effect_analysis RESOLVED ANALYSIS (2026-07-18, final)
+
+The "false merge" suspicion was WRONG — retract it. `String` IS
+`newtype(_bytes : Option(ArrayList(u8)))` (std/string/string.yo:19), so the
+GC traverse walking a String field as an Option is CORRECT BY DESIGN, and
+the old "field designator 'value'" error was the (already fixed,
+ecdee47db) create_option_type label bug.
+
+The CURRENT effect_analysis failure is a MISSING CLOSURE CAPTURE:
+
+```c
+static inline void closure_yo_id_241719(void* closure_context, ...) {
+  __yo_t129* effect_extras = ((__yo_t315*)closure_context)->effect_extras;
+  __yo_t10 _t = yo_id_4570((&(effect_parameter_name)));   // ← never captured
+```
+
+The closure's capture struct carries ONLY `effect_extras`; the body also
+references outer `effect_parameter_name`, `effect_field_path`, and
+`include_transitive_calls` — all emitted as bare undeclared identifiers.
+Fix locus: the capture ANALYSIS (evaluator anonymous-function capture
+collection) missing these under the batch shape — find which yo-self
+source closure this is (a lambda in evaluator/effects/effect_analysis.yo
+taking (expr, parent_expr, points)), then diff TS's capturedVariables for
+the same lambda. cache.test.yo's "undeclared \_file\_\_\_\_User_temp_NNNN" is
+plausibly the same capture-miss class (a temp belonging to the outer fn
+referenced from a closure body).
