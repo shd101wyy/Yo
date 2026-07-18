@@ -7,9 +7,10 @@
 //! so both the Dyn wrapper's drop and the scope-exit drop can each decrement RC.
 //!
 //! DEFERRED (documented, not hit by the no-RC/no-async corpus): Box-type unwrap
-//! (is_boxed_type ≡ false — Box not modeled); SomeType.resolvedConcreteType
-//! (Gap 6 — use the concrete type as-is); state-machine `sm->var_N` field
+//! (is_boxed_type ≡ false — Box not modeled); state-machine `sm->var_N` field
 //! routing (Phase 5, gated on in_async_state_machine = .Some).
+//! SomeType.resolvedConcreteType (Gap 6) is now PORTED for the impl KEY: see
+//! the resolve_some_type_to_concrete call in generate_dyn_call.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
@@ -25,6 +26,7 @@ open(import("std/string"));
 { type_key, get_variable_type_string, get_variable_name_for_codegen } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
+{ resolve_some_type_to_concrete } :: import("./closures.yo");
 /// For a BOXED dyn payload (`Box(Sq)`), the impl concrete type is the UNDERLYING
 /// type (`Sq`, the box's single `*` field) while the runtime data type stays
 /// `Box(Sq)`. Mirrors TS `dyn.ts:66` (`concreteType = isBoxedType(v) ?
@@ -104,8 +106,19 @@ generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   // Unwrap a boxed payload: impl concrete type = underlying (`Sq`), runtime data
   // type = `Box(Sq)`. Mirrors TS dyn.ts:66 / :95-96.
   concrete_type := _unwrap_box_concrete(value_type);
+  // Resolve a SomeType (`Impl(Fn(...))` for a boxed closure) to its concrete
+  // type BEFORE deriving the impl KEY — TS dyn.ts:70-74 (resolvedConcreteType).
+  // The key is the wrapper/vtable dedup unit: unresolved, every same-signature
+  // closure keys on the SHARED Fn-shape (`unknown_<shape id>`), the last
+  // register_dyn_impl wins, and every dyn box dispatches into the single
+  // surviving closure's wrapper (suspension_analysis: the detect_all detector
+  // silently ran the noop detector's body → 0 suspension points). The ENTRY
+  // still stores the raw concrete_type, exactly like TS (dyn.ts:95) — the
+  // box-ctor/typedef passes do their own resolution (functions/dyn.yo:121,
+  // types/generation.yo:1068).
+  resolved_concrete_type := resolve_some_type_to_concrete(concrete_type.clone());
   dyn_type_c_name := _dyn_c_name(dyn_type, context);
-  concrete_type_c_name := _concrete_c_name(concrete_type, context);
+  concrete_type_c_name := _concrete_c_name(resolved_concrete_type, context);
   impl_key := concrete_type_c_name.clone();
   impl_key.push_str("_");
   impl_key.push_string(dyn_type_c_name.clone());

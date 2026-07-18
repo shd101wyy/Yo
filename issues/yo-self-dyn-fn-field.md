@@ -257,16 +257,41 @@ distinguish SomeTs by (id + has-resolved-concrete identity) or bypass the
 cache for the dyn box path. Also still pending: capture-free closure box-ARG
 emits a fn-ptr cast instead of the capture value.
 
+## FINAL LAYER (2026-07-18): impl-KEY dedup collision — same-signature closures share one wrapper
+
+With construction + dispatch machinery long green (suspension_analysis
+COMPILES and runs), 3 runtime failures remained: the detect_all detector
+returned 0 points while the noop detector "passed". Root cause read directly
+from the kept batch C: only TWO dyn wrappers exist for FOUR closures — the
+vtable key is `impl(unknown_2312, <dyn>)`, i.e. the impl key was derived from
+the UNRESOLVED `Impl(Fn(...))` SomeT (one shape id per SIGNATURE, shared by
+every closure of that signature). Both detect closures registered under ONE
+key; the map write is last-wins but the wrapper bound the FIRST-emitted
+closure (the noop one) — so `detector.detect(...)` dispatched into the noop
+body for BOTH detectors → 0 suspension points, exactly the 3 failing tests.
+
+TS reference (same batch source through `yo-cli compile --emit-c`): FOUR
+wrappers, keyed per closure capture struct
+(`__yo_wrap___yo_struct_yoa8ab9440_id_50___yo_dyn_8ee8856529_call` etc.) —
+because dyn.ts:70-74 resolves `concreteType.resolvedConcreteType` BEFORE
+deriving the key. yo-self's generate_dyn_call skipped that step (the header
+even listed it as DEFERRED Gap-6).
+
+FIX (codegen/exprs/dyn.yo): resolve_some_type_to_concrete on the concrete
+type for the KEY derivation only; the DynImplEntry still stores the raw
+concrete_type exactly like TS (dyn.ts:95) — the box-ctor/typedef passes do
+their own resolution (functions/dyn.yo:121, types/generation.yo:1068).
+
 ## Follow-on family: ctl throw ResumeType (4 stage-2 errors, OPEN)
 
 `IoError.check`-style `exn.throw(...)` (plain Exception, per-call
 forall(ResumeType)) merge-assigned to a concrete local emits a `void*`
-temp/cast. Two eval-side fixes landed (ctl-inline path + try_to_call Step 9 —
+temp/cast. Two eval-side fixes landed (ctl-inline path + try*to_call Step 9 —
 resolve from expected/enclosing-return onto the result SomeT's
 resolved_concrete) but were INERT for these sites: the emitted ExprInfo comes
 from a third path. A [CTLC] probe at other_fn_call's fn-ptr cast
 (ret_str=="void*" && func_code.contains("throw")) fired ZERO times despite
-976 `void* (_)`casts in the emit and the C literally containing`((void_ (\*)(\_\_yo_t65))exn.throw)(...)` — either the cast is emitted by a
+976 `void* (*)`casts in the emit and the C literally containing`((void\_ (\*)(\_\_yo_t65))exn.throw)(...)` — either the cast is emitted by a
 different (unfound) builder, or func_code differs at probe time, or the
 build didn't include the probe. NEXT: verify the probe actually ran
 (add an unconditional counter print), then trace the cast origin. Remaining
