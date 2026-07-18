@@ -74,7 +74,8 @@ open(import("std/string"));
   register_func_type,
   mark_as_closure_fn,
   ClosureCaptureInfo,
-  register_closure_capture_info
+  register_closure_capture_info,
+  get_closure_capture_info
 } :: import("../../function_value.yo");
 {
   enrich_captured_variables,
@@ -1152,6 +1153,25 @@ evaluate_anonymous_function_implementation :: (
     closure_capture_dups = dup_res.dup_exprs;
     cap_res := create_capture_type_and_value(Option(TypeValue).None, cvwv, env, tok);
     closure_capture_type = cap_res.capture_type;
+    // Prefer an already-REGISTERED (larger) capture struct for this fid — see
+    // register_closure_capture_info's keep-larger note: a re-eval that tracked
+    // fewer captures must not shrink the struct the emitted body was (or will
+    // be) rewritten against.
+    match(
+      get_closure_capture_info(func_id.clone()),
+      .Some(prev_cci2) => {
+        prev_nf2 := match(prev_cci2.capture_type,.Struct({ field_labels : pfl2 }) => pfl2.len(), _ => usize(0));
+        cur_nf2 := match(
+          closure_capture_type,
+          .Some(cur_ct2) => match(cur_ct2,.Struct({ field_labels : cfl2 }) => cfl2.len(), _ => usize(0)),
+          .None => usize(0)
+        );
+        if(prev_nf2 > cur_nf2, {
+          closure_capture_type = Option(TypeValue).Some(prev_cci2.capture_type);
+        });
+      },
+      .None => ()
+    );
     // Record the capture struct type + defining frame level (n_cap_fr, the outer
     // frame count before the param frame was pushed) by func_id, so generate_function
     // can set the closure-capture codegen context (capture-access rewriting).

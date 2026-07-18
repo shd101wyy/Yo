@@ -81,7 +81,25 @@ is_closure_fn :: (fn(func_id : String) -> bool)(
 ClosureCaptureInfo :: ref(struct(capture_type : TypeValue, frame_level : usize));
 (g_closure_capture_info : HashMap(String, ClosureCaptureInfo)) = HashMap(String, ClosureCaptureInfo).new();
 /// Record a closure's capture-struct type + defining frame level, by func_id.
+_capture_struct_field_count :: (fn(t : TypeValue) -> usize)(
+  match(t,.Struct({ field_labels : cfl }) => cfl.len(), _ => usize(0))
+);
 register_closure_capture_info :: (fn(func_id : String, info : ClosureCaptureInfo) -> unit)({
+  // KEEP-LARGER: a closure definition can be re-evaluated (def-time trial,
+  // enclosing-fn specialization, deferred-generic completion) and each eval
+  // re-registers its own capture struct — but the capture TRACKER records an
+  // inconsistent subset per eval generation (an enclosing-fn spec re-eval
+  // missed its rebound params: issues/repros/dyn-closure-implfn-capture-loss
+  // .yo emitted `name`/`flag` as bare undeclared identifiers while the
+  // def-time eval HAD captured them). Last-writer-wins let the smaller set
+  // clobber the complete one; keep the registration with MORE fields.
+  match(
+    g_closure_capture_info.get(func_id.clone()),
+    .Some(prev_cci) => if(_capture_struct_field_count(prev_cci.capture_type) > _capture_struct_field_count(info.capture_type), {
+      return(());
+    }),
+    .None => ()
+  );
   g_closure_capture_info.set(func_id.clone(), info);
 });
 /// The recorded capture info for `func_id`, if any.

@@ -213,10 +213,63 @@ evaluate_identifier_and_operator :: (
             ctx.captured_variables,
             .Some(_) => {
               closure_frame_level := sub_ctx.eval_env.frame_count();
-              if(variable.frame_level < closure_frame_level, {
+              // Generation-safe INNER test: `variable.frame_level` is stamped
+              // at the variable's CREATION env — for the enclosing fn's
+              // PARAMS that is a DEEP call-time generation, so comparing it
+              // against THIS eval's shallow frame count wrongly classified
+              // them as inner and never tracked them (the dyn+Impl(Fn)
+              // capture loss, issues/repros/dyn-closure-implfn-capture-loss
+              // .yo: params dropped, same-generation locals kept). A
+              // variable is inner iff its NAME is bound within the closure's
+              // OWN frames (frames at/above closure_frame_level in the
+              // CURRENT env — same generation by construction: the
+              // FunctionBody ctx is created with the very env the body
+              // evaluates in). Names not bound there are outer → captured.
+              (cap_is_inner : bool) = false;
+              (cap_fi : usize) = closure_frame_level;
+              n_cap_frames := env.frames.len();
+              while((cap_fi < n_cap_frames) && !(cap_is_inner), {
+                match(
+                  env.frames.get(cap_fi),
+                  .Some(cap_fr) => {
+                    n_cfv := cap_fr.variables.len();
+                    (cfv_i : usize) = usize(0);
+                    while((cfv_i < n_cfv) && !(cap_is_inner), {
+                      match(
+                        cap_fr.variables.get(cfv_i),
+                        .Some(cfv) => if(cfv.name == variable.name, {
+                          cap_is_inner = true;
+                        }),
+                        .None => ()
+                      );
+                      cfv_i = (cfv_i + usize(1));
+                    });
+                  },
+                  .None => ()
+                );
+                cap_fi = (cap_fi + usize(1));
+              });
+              if(!(cap_is_inner) && (variable.frame_level < closure_frame_level), {
                 track_variable_usage(
                   variable.name,
                   variable.frame_level,
+                  CaptureUsage.Own,
+                  token,
+                  ctx
+                );
+              });
+              if(!(cap_is_inner) && (variable.frame_level >= closure_frame_level), {
+                // Cross-generation outer variable (stamped deeper than this
+                // eval's frames): record it with a level INSIDE the current
+                // generation so the enrichment/access-rewriting math stays
+                // in range.
+                (cap_rec_level : usize) = usize(0);
+                if(closure_frame_level > usize(0), {
+                  cap_rec_level = (closure_frame_level - usize(1));
+                });
+                track_variable_usage(
+                  variable.name,
+                  cap_rec_level,
                   CaptureUsage.Own,
                   token,
                   ctx
