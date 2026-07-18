@@ -1047,6 +1047,20 @@ flip: deque 38/38, hash_map 61/61, hash_set 63/63. imm_map/linked_list
 advance from compile-fail to a runtime layer (rc=138/139 — next). Corpus
 regression: iter_structs_identical_layout.yo (pre-fix red, TS+fixed green).
 
+## 2026-07-19 (cont. 3) — loader error channel: circular_import green
+
+`8eff2c24e`: a module whose top-level eval failed unwound the STASHED driver
+exn from \_load_module_at_abs, aborting the whole check even when the import
+sat inside `comptime_expect_error(import(...))` (the circular_error fixture
+EXPECTS the cycle error). Now the capturing handler stashes the message via
+a module-level fn, \_load_module_at_abs RETURNS Option(String), and
+demand_load_module surfaces it as LoadModuleResult.module_error — which
+evaluate_import rethrows through the IMPORT SITE's exn, where the expect
+catches it (TS parity). tests/circular_import.test.yo flips green (6
+passed). Full gates green (corpus 135/2-known incl. the new
+iter_structs_identical_layout regression, fixpoint + determinism hold).
+Round-15 sweep running under /tmp/s2_r15pin (8 fixes).
+
 Priorities for the next session: (1) the identity-split surgery (biggest
 combined family: conflicting-types/initializing/passing/redefinition ≈ 16
 files all point at one-type-two-sids); (2) the rc=-6 IoExn family (7 files,
