@@ -118,3 +118,37 @@ rather than used in expressions; (b) an `Impl(Fn(...))` evidence-ish param
 that flows through `analyze_suspension_points`. The real lambda is
 closure_yo_id_241719 in the effect_analysis batch (keep with
 YO_KEEP_BATCH=1).
+
+### CAPTURE-MISS REPRO CAPTURED (45 lines, deterministic)
+
+`issues/repros/dyn-closure-implfn-capture-loss.yo` — a dyn closure whose
+captures include an `Impl(Fn(...))` PARAM of the enclosing fn loses its
+OTHER captured params:
+
+```
+error: use of undeclared identifier 'name'
+error: use of undeclared identifier 'flag'
+```
+
+Remove the `probe : Impl(Fn(v : i32) -> i32)` param (and its use) and the
+same program is green — the Impl(Fn) capture flips the closure onto the
+DEFERRED-generic path (anonymous*function.yo:1128 "a deferred generic
+closure has none → empty struct"), and the call-site specialization that
+later evaluates the body does not rebuild/attach the capture struct with
+the params it references. The recorder itself is
+identifer_and_operator.yo:203-227 (`variable.frame_level <
+closure_frame_level` gate) — check what frame_level the enclosing fn's
+params carry inside the SPEC re-eval env (create_specialized_function*
+inline builds a fresh env; the params likely land at >= the closure's
+frame count and are never tracked).
+
+Fix expectation: TS's soft-generic closure path (helper.ts:1911-1929 +
+closure-type.ts) records the concrete capture struct at the call-site
+specialization — mirror that: after the spec body eval, feed the
+spec-eval's captured_variables through enrich_captured_variables +
+create_capture_type_and_value and register the closure capture info for
+the SPEC fid (the same post-eval sequence the non-deferred path runs at
+anonymous_function.yo:1140-1162).
+
+This class covers effect_analysis and plausibly cache (undeclared temp) —
+2 of #70's remaining 4.
