@@ -102,3 +102,19 @@ taking (expr, parent_expr, points)), then diff TS's capturedVariables for
 the same lambda. cache.test.yo's "undeclared \_file\_\_\_\_User_temp_NNNN" is
 plausibly the same capture-miss class (a temp belonging to the outer fn
 referenced from a closure body).
+
+### effect_analysis capture-miss — narrowed (repro-negative note)
+
+The three uncaptured variables are all PARAMETERS of the enclosing
+`analyze_effect_call_points` (effect*analysis.yo:781-817); the LOCAL
+`effect_extras` was captured. But a minimal param-in-dyn-closure repro
+(param used only inside a `dyn((x) => ...)` stored in a struct field) is
+GREEN under s1 — the miss needs more of the real shape. Distinguishing
+candidates to add one at a time: (a) the captured params are passed as
+CALL ARGUMENTS (`detect_effect_expr*(…, effect_parameter_name.clone(), …)`)
+rather than used in expressions; (b) an `Impl(Fn(...))` evidence-ish param
+(`get_info`) is also captured; (c) the closure sits alongside a second
+`dyn` field (`should_skip_body`); (d) the enclosing fn returns a struct
+that flows through `analyze_suspension_points`. The real lambda is
+closure_yo_id_241719 in the effect_analysis batch (keep with
+YO_KEEP_BATCH=1).
