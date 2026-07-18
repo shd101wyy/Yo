@@ -1157,6 +1157,43 @@ of the remaining families — likely 30+ of the 64 red files. Execute it
 FIRST next session (plan + conversion list: issues/yo-self-dyn-fn-field.md
 CONVERGED DIAGNOSIS; the resolved_concrete field exists since bca8eccc5).
 
+## SOMET SURGERY — EXECUTABLE DESIGN (slice 1: the lineage cell)
+
+The blocking question ("how can a per-object stamp propagate under value
+semantics?") is ANSWERED: TypeValue's SomeT can carry a **shared mutable
+cell as `ArrayList(Self)`** — ArrayList is a REF type already usable inside
+TypeValue (`required_trait_types : ArrayList(Self)` precedent), so no
+mutual-declaration problem (the reason a dedicated Cell type is impossible:
+Yo has no forward refs). Every CLONE/substitute of a SomeT copies the
+ArrayList HANDLE — one lineage, one cell — so a write at ANY site is seen by
+every copy in that lineage, including ones already stored in func types and
+registries. Convert `resolved_concrete : Option(Self)` (definitions.yo:278)
+to `resolved_concrete : ArrayList(Self)` (empty = unresolved, [x] =
+resolved; write = clear+push).
+
+- Touchpoints: 24 non-comment sites (impl.yo x5, dyn.yo:403,
+  function.yo:3679/3985, helper.yo:3169/3487, generic_impl_registry.yo x3,
+  types/utils.yo:406/859, substitution.yo:197, begin.yo:295/494,
+  guards.yo:48/564, intern.yo:424, codegen dyn.yo:281-282,
+  other_fn_call.yo:1459, collection.yo:299) + every SomeT constructor
+  (creators.yo t_some_t and any positional SomeT(...) construction — grep
+  `TypeValue.SomeT(`) + yo-self/tests/type_trait_methods.test.yo fixtures.
+- **ResumeType HAZARD (verified in-code)**: the prelude ResumeType SomeT is
+  ONE declaration cloned per ctl call — ONE LINEAGE — so the ctl-throw site
+  must KEEP its current rebuild-a-fresh-SomeT approach (helper.yo:3487
+  constructs a new SomeT; under the cell model that means a FRESH cell
+  seeded call-locally — safe). Do NOT convert that site to cell-mutation or
+  cross-call collisions return (the IoError.check family).
+- What this slice fixes: the WITHIN-LINEAGE propagation class — Round-5's
+  Box bridge (`void* _u42_` box payloads), same-generation closure-param
+  resolution copies, dyn-box keying leftovers. What it does NOT fix:
+  CROSS-GENERATION splits (five Self clones from five re-evaluations are
+  five lineages) — that needs slice 2 (memoize SomeT creation per
+  declaration ast id, with the last-write-wins analysis from this session's
+  notes), or TS-shaped structural substitution at spec time.
+- Gates: full battery + double-emit determinism (cell mutation order is
+  eval-order — deterministic) + fixpoint; expect corpus/std byte-stable.
+
 Priorities for the next session: (1) the identity-split surgery (biggest
 combined family: conflicting-types/initializing/passing/redefinition ≈ 16
 files all point at one-type-two-sids); (2) the rc=-6 IoExn family (7 files,
