@@ -156,6 +156,22 @@ ddmin inside the two arms (drop push_backs/asserts) to find the minimal
 statement pair, then probe the two sid mints (struct creation in
 evaluator/types/struct.yo) for their creation contexts.
 
+**DECODED (2026-07-19, from the 19-line repro's C):** the failing call is
+`yo_id_2928_rtparam0_gs_yo_id_5031_i32_ret_gs_yo_id_5031_i32(iter_tmp)` — the
+for-loop's iterator-adapter fn. Its SPEC NAME is sid-FREE
+(`gs_yo_id_5031_i32` = declaration 5031 + payload i32) so the second arm
+CACHE-HITS the first arm's spec — but the C TYPES are SID-KEYED: arm 34's
+Wrapper(i32) mint got sid 6174 (t28, baked into the spec's param), arm 37's
+OWN mint of the SAME logical type got sid 6209 (t32, at the call site) →
+`passing __yo_t32 to __yo_t28`. So the spec/cache layer already treats the
+two mints as one type; only the C-type registry splits them. FIX LOCUS: the
+gs-key alias machinery (`register_struct_cfid_key_hint(sid, cfid,
+type_args)`, types/type*key.yo) — the SECOND mint (analysis-arm context,
+`iter`-chain) isn't getting the hint that would alias sid 6209 onto the same
+gs*-key/C name as 6174. Find the instantiation path that skips the hint
+stamp (ctfe vs non-ctfe struct materialization in the for-loop lowering),
+or make type_key for generic-struct instantiations sid-free directly.
+
 WORKING HYPOTHESIS (next session's entry point): `is_some`'s declared return
 is `bool` (concrete), so the resolved-return cache-key segment
 (helper.yo:~1195 ret_sig_ty gate, added for the HashMap.with_capacity class)
