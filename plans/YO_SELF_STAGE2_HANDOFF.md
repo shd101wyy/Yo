@@ -713,6 +713,37 @@ SortedSet+multibyte, env-check, fixpoint BYTE-IDENTICAL). Canonical
 binary-MIXED (mid-sweep fixes) — round-7 (clean, settled binary) is the
 authoritative scoreboard: /tmp/s2_sweep_r7/ + /tmp/s2_sweep_yoself_r7/.
 
+## 2026-07-18 SESSION CLOSE — state and marching orders
+
+**Scoreboard: #70 = 58/61 (from 42). #69 = 108/180 (from ~106).**
+Eleven fix commits this session, every one with the full gate set
+(corpus 130/2 exact, std 154, battery, `s2 check std/env.yo`, fixpoint
+BYTE-IDENTICAL): type-identity quartet, supersession, rune/byte scanners,
+generic-impl trait-default fill, keep-batch flag, function-registry c_name
+clone, typeid name-dedup + Option label parity, dyn wrapper stubs,
+stable-identity depth cap.
+
+**SWEEP POLICY (user directive): use the TS runner's per-file time as the
+reference — a yo-self run at ≫ TS time IS the divergence (STALL class).
+Sweep children get ~300s caps (never 1800s); classify TIMEOUT as STALL and
+triage by SAMPLING the compile** (`sample <pid>` — this session's sample of
+the imm_sorted_set stall showed 100% CPU in a deep self-recursing type
+walker, /tmp/stall_sample.txt; the sti depth cap landed but the stall
+PERSISTS — re-identify the hot fid against the CURRENT binary: grep the fid
+in the current stage2.c, match its signature/strings to a yo-self walker).
+
+**#70's remaining 3-4**: cache (undeclared temp), effect_analysis (traverse
+walks an Option layout for a String field — the suspected FALSE-MERGE in
+stable-identity aliasing, analysis in issues/yo-self-round7-tail.md — CHECK
+THIS FIRST, it may implicate the alias premise), suspension_analysis,
+install_command.
+
+**#69's 72-file tail** — every file has one+ of the ledgered classes:
+identity splits (t32-vs-t23 param mismatches), skip-vs-callsite undeclared
+fns, Index-call mislowering, downcast FTT, IoExn rc=-6, STALLs. The
+per-class fix loci are in issues/yo-self-collections-batch-residuals.md and
+this handoff's earlier sections. Use `YO_KEEP_BATCH=1` for every triage.
+
 ## 2026-07-18 (later still) — typeid dedup, Option label parity, dyn stubs: #70 at 58/61
 
 - `ecdee47db`: (1) typeid statics dedup by C NAME via the shared
