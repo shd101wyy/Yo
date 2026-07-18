@@ -621,7 +621,36 @@ evaluate_comptime_fn_call :: (
       ok2
     }
   );
-  should_cache := ((is_type_hierarchy_type(return_type) || func_result_is_comptime) || all_args_are_types);
+  (should_cache : bool) = ((is_type_hierarchy_type(return_type) || func_result_is_comptime) || all_args_are_types);
+  // TS checking-phase parity (SomeT surgery slice 2b): a ctfe call whose TYPE
+  // args still CONTAIN unresolved SomeTs (analysis/validation generations
+  // evaluating a declaration with `Self` bound to a fresh SomeT — the
+  // `Box(V)` placeholder instantiations) must NOT create durable memo
+  // entries: the placeholder result (payload = unresolved SomeT -> void*)
+  // otherwise gets served to later real calls and its instantiation struct
+  // reaches codegen as a SECOND C type for the logical Box(T) — the
+  // recursive-enum construct+drop heap corruption
+  // (issues/repros/recursive-enum-box-plus-arraylist-self.yo: emitted C
+  // carried `Box(V)` + `Box(shell)` and NO `Box(final)`).
+  // type_contains_some_type carves out resolved/Fn/Future SomeTs, so
+  // concrete-at-codegen args keep caching exactly as before.
+  if(should_cache, {
+    (sc_i : usize) = usize(0);
+    while((sc_i < all_arg_vals.len()) && should_cache, {
+      match(
+        all_arg_vals.get(sc_i),
+        .Some(sc_v) => match(
+          sc_v,
+          .TypeVal(sc_t) => if(type_contains_some_type(sc_t), {
+            should_cache = false;
+          }),
+          _ => ()
+        ),
+        .None => ()
+      );
+      sc_i = (sc_i + usize(1));
+    });
+  });
   // Find or create the cache bucket for this func_id in g_comptime_fn_caches.
   (entry_idx_opt : Option(usize)) = Option(usize).None;
   {
