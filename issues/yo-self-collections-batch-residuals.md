@@ -98,6 +98,23 @@ unit-typed runtime param (nothing calls it; TS never creates it), and/or
 (b) type spec C params from the RESOLVED DECLARED param type (bool) instead
 of the arg's degenerate type — check TS's spec param typing first.
 
+**MINIMIZED (2026-07-19, 8 lines — issues/repros/void-param-assert-open-env.yo):**
+arm-deletion + keep-only + feature-whittle bisects over the saved batch pinned
+the trigger to `open(import("std/env"))`: with env OPENED (vs `{ env } ::`
+destructured — GREEN), `env.get(...)` + `assert(x.is_none())` emits the
+void-param assert spec (decl+def, zero call sites). TS compiles AND runs the
+same 8 lines clean. Mechanism: an analysis pass where the open-resolved
+`env.get` soft-fails (UnknownVal -> unit-typed result -> unit-typed is_none)
+mints an assert spec whose REGISTERED param type comes from the degenerate
+ARG type; TS's createSpecializedFunctionInline types spec params from the
+DECLARED/substituted parameter types (assert's flag is declared bool, not
+generic), so a degenerate TS pass cannot produce a void param. FIX: in
+create_specialized_function_inline's registered-spec-type construction
+(helper.yo), take param types from the resolved DECLARED params (arg types
+remain the CACHE KEY only); optionally also gate emission on
+no-unit-runtime-params as a backstop. Bisect artifacts: /tmp/bw_only1.yo,
+/tmp/wv_nomatch.yo, /tmp/w2_no_openenv.yo.
+
 **REMAINING (deque/hash_map/imm_map — the identity-SPLIT family):** with the
 enum fix in, deque fails `passing __yo_t33 to parameter of __yo_t30` where
 t30 = struct_yo_id_7146 and t33 = struct_yo_id_7237 — DIFFERENT sids for the
