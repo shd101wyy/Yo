@@ -217,3 +217,29 @@ the FuncVal mint, correlate with the emitted `closure_yo_id*\*` — one
 rebuild answers which generation owns the emitted fid; then either route
 that generation's eval through a map (the deferred-path map gap at
 anonymous_function.yo:961-979) or reuse the tracked generation's struct.
+
+### Capture residual — SOLVED ANALYTICALLY (fid ownership answered)
+
+CAPBUILD probe: the repro's closure is evaluated in ~10 generations; two
+early generations build the COMPLETE capture struct (nf=4:
+name+flag+extras+probe — fids closure_yo_id_5451/5462), but codegen emits
+the fid of the LAST spec-generation FuncVal (closure_yo_id_5498, nf=2).
+Fresh fids per generation defeat every fid-keyed merge.
+
+THE FIX (two coordinated pieces, both sides now fully specified):
+
+1. **Source-token-keyed fid sharing**: at the FuncVal mint in
+   anonymous_function.yo, key a registry by the closure's SOURCE position
+   (token file/row/col — stable across clone_expr_fresh_ids) and reuse the
+   first-minted fid for every re-eval of the same source closure. With one
+   fid, the existing keep-larger registration (5d69b2b7f) makes the nf=4
+   struct win for the capture-access rewriting.
+2. **Capture-MAP union for the value side**: register the ENRICHED map
+   (not just the struct type) per fid, unioned by name across generations;
+   the closure-creation emission must initialize the full field set from
+   the unioned map (a struct field without a recorded initializer would
+   zero-fill — silently wrong at runtime).
+
+Verify with the in-repo repro + dyncap2/3/5 controls + full gates. This
+closes effect_analysis + cache (and the collections files sharing the
+class) once landed.
