@@ -713,7 +713,28 @@ SortedSet+multibyte, env-check, fixpoint BYTE-IDENTICAL). Canonical
 binary-MIXED (mid-sweep fixes) — round-7 (clean, settled binary) is the
 authoritative scoreboard: /tmp/s2_sweep_r7/ + /tmp/s2_sweep_yoself_r7/.
 
-## 2026-07-18 ROUND-7 SCOREBOARD (yo-self complete; tests/ in flight)
+## 2026-07-18 ROUND-7 FINAL SCOREBOARD
+
+**#70 (yo-self/tests): 51/61 files** (from 42). **#69 (tests/): 108/180
+files** (from ~106) — the day's fixes landed mostly on the yo-self side
+(their strings/multibyte + trait-default shapes); the tests/ divergents are
+BIG batches (50–300 tests each) where per-file residuals keep rc=1:
+
+- collections/\*: undeclared-fn (skip-vs-callsite) + Index-call mislowering
+  - unresolved-SomeT specs (issues/yo-self-collections-batch-residuals.md).
+- imm_sorted_set / imm_sorted_map / btree_map: batch compile TIMEOUT (the
+  compile-stall class) — NOTE the SortedSet 9-line repro itself is green;
+  the stall is a different layer exposed behind it.
+- control_fn_as_regular_call: rc=-6 (the IoExn effect-bundle erasure
+  family, analysis in this handoff).
+- derive_clone_complex: rc=-11 segv; fs/\* + async/effects + derive/dyn:
+  rc=1 untriaged batches.
+
+tests/ flips today: ref*enum, thread_safety. The yo-self flips: the whole
+types*_ family + value/unwind/typeof/synthesizer/runtime/pkg*config/target/
+version/lock_file/doc*_ (the rune/byte fix).
+
+## (superseded in-flight notes)
 
 **#70 (yo-self/tests): 51/61 files green** — up from 42/61 before today.
 The rune/byte fix flipped the whole types\_\*/value/unwind/typeof/synthesizer
