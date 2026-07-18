@@ -14,6 +14,7 @@ open(import("std/string"));
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../../types/definitions.yo");
 { Emitter } :: import("../../emitter.yo");
+{ should_skip_function_codegen } :: import("./declarations.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
 { get_func_type } :: import("../../function_value.yo");
 { is_boxed_type, is_fn_trait_type, is_function_type, is_void_type, is_pointer_type } :: import("../../types/guards.yo");
@@ -382,7 +383,17 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                                     em.emit_declaration_string_line(`  ${concrete_str} concrete_value = (${concrete_str})self_ptr;`);
                                     first_arg = if(pbp, String.from("&concrete_value"), String.from("concrete_value"));
                                   });
-                                  _emit_wrapper_call(em, impl_cname, first_arg, param_types.len(), is_void_type(result));
+                                  // A method whose DEFINITION the generic/comptime skip drops
+                                  // (a degraded registered type — the identity family) must not
+                                  // be CALLED from the wrapper: the C would reference an
+                                  // undeclared function and fail the whole batch. Emit a
+                                  // visible runtime trap instead — every other test in the
+                                  // batch compiles; only dispatching THIS method aborts.
+                                  if(should_skip_function_codegen(func_id.clone(), entry.c_name.clone(), entry.value, context.base), {
+                                    em.emit_declaration_string_line(`  abort(); /* dyn method unavailable: impl fn skipped (degraded type) */`);
+                                  }, {
+                                    _emit_wrapper_call(em, impl_cname, first_arg, param_types.len(), is_void_type(result));
+                                  });
                                   em.emit_declaration_line("}");
                                   em.emit_declaration_line("");
                                 },
