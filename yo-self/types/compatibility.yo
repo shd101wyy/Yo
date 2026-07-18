@@ -562,6 +562,21 @@ _compat_impl :: (
         // `Type.impls(RegularPoint, Send)` over `object(x:i32,y:i32)` share a cache
         // entry, so the second query returns the first's result.
         (((aref != eref) || (aatomic != eatomic)) || (anew != enew)) => false,
+        // NOMINAL distinctness by CONSTRUCTOR (mirrors TS compatibility.ts's
+        // `functionValue.funcId` check, the same signal the non-exact arm above
+        // already uses): two instantiations stamped with DIFFERENT non-empty
+        // constructor_func_ids come from DIFFERENT generic declarations and are
+        // DISTINCT under exact match even when their FIELD LAYOUTS are identical
+        // and their names are empty (instantiation copies don't stamp names).
+        // Without this, `DequeIterPtr(i32)` compared exact-equal to
+        // `DequeIter(i32)` (same `{_deque,_pos,_remaining}` layout, same
+        // type_arguments [i32]) and the shared Iterator-trait DEFAULT
+        // `into_iter : Self -> Self` served ONE spec for both — the second
+        // receiver passed its own C type into the first's param type
+        // ("passing __yo_t32 to __yo_t28", the collections identity-split;
+        // issues/repros/deque-identity-split-2arm.yo). SomeT-bearing sides and
+        // cfid-empty copies fall through exactly as before.
+        (((((acfid.len() != usize(0)) && (ecfid.len() != usize(0))) && (acfid != ecfid)) && (!(type_contains_some_type(actual)))) && (!(type_contains_some_type(expected)))) => false,
         // NOMINAL distinctness (mirrors TS compatibility.ts:288-306): two structs
         // with DIFFERENT non-empty names are DISTINCT types under exact match,
         // UNLESS either contains a SomeT (a specialization placeholder). yo-self's

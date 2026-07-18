@@ -1033,6 +1033,20 @@ itself returns non-Func under analysis (try_to_call soft fallback -> t_unit)
 async_await/sync_mutex/prelude stay red on OTHER families. Round-13 sweep
 launched under /tmp/s2_r13pin.
 
+## 2026-07-19 (cont. 2) — cfid nominal rule: the identity-split family falls
+
+The collections identity-split was NOT a one-type-two-sids CTFE miss after
+all: ddmin (38 arms -> 2) + C decoding showed TWO DIFFERENT declarations
+with IDENTICAL layouts (DequeIter vs DequeIterPtr) comparing exact-EQUAL
+(empty names, fresh sids, equal type_arguments), so the shared
+Iterator-trait DEFAULT `into_iter : Self -> Self` served ONE spec for both
+receivers. FIX: the exact struct compare gains the missing NOMINAL rule —
+different non-empty constructor_func_ids => DISTINCT (TS's
+functionValue.funcId check; the non-exact arm already used it). Whole files
+flip: deque 38/38, hash_map 61/61, hash_set 63/63. imm_map/linked_list
+advance from compile-fail to a runtime layer (rc=138/139 — next). Corpus
+regression: iter_structs_identical_layout.yo (pre-fix red, TS+fixed green).
+
 Priorities for the next session: (1) the identity-split surgery (biggest
 combined family: conflicting-types/initializing/passing/redefinition ≈ 16
 files all point at one-type-two-sids); (2) the rc=-6 IoExn family (7 files,
