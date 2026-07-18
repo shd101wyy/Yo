@@ -1087,6 +1087,20 @@ open(std/env) vs destructure). Scripts: scratchpad
 bisect_void.py / bisect_void2.py / ddmin_deque.py / whittle\*.py — copy and
 retarget (oracle = a grep over the emitted C or the compile stderr).
 
+## 2026-07-19 ROUND-15 FINAL — #69 = 116/180
+
+Round-15 (74-file r4 list, /tmp/s2_r15pin = all 8 fixes): **10 green** —
+array_list, deque, hash_map, hash_set, env, circular_import, ref_enum,
+string/string, thread_safety, url/url. **#69 = 116/180** (106 base + 10).
+ONE regression inside the round: recursive_enum (green in r12) — the cfid
+rule made Range/RangeInclusive nominally distinct (CORRECT; identical
+{start,end} layouts) and a consumer relying on their structural unification
+now misses (runtime wrong-sum in the ArrayList(Self) test; full decode +
+next probe in issues/yo-self-collections-batch-residuals.md). Remaining
+64-file tail families unchanged from the round-12 histogram (identity-split
+cfid-drop variant, rc=-6 IoExn, stalls [now profiled], expected-expression,
+conflicting-types, open-member residual).
+
 Priorities for the next session: (1) the identity-split surgery (biggest
 combined family: conflicting-types/initializing/passing/redefinition ≈ 16
 files all point at one-type-two-sids); (2) the rc=-6 IoExn family (7 files,
