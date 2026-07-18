@@ -44,3 +44,34 @@ different layout).
 
 All are batch-shape findable: `YO_KEEP_BATCH=1 /tmp/s2 test <file>` keeps
 the synthesized .yo/.c for inspection (ff97e1ffc).
+
+## effect_analysis ROOT ANALYSIS (2026-07-18, batch captured)
+
+`__yo_traverse___yo_t169` (EffectHandlerInfo) walks
+`obj->effect_parameter_name.tag / .data.Some.value` — an OPTION walk — while
+the emitted `struct __yo_t169_struct` declares that field as `__yo_t10`
+(String). Both the decl emitter and the traversal generator consume the
+SAME registry entry (`entry.ty` — constructors.yo:354-365), so the split
+means: entry.ty's field IS an Option-typed rendition (the evolved copy)
+while `get_type_string(field.ty)` mapped it to t10/String via a type_key
+ALIAS. PRIME SUSPECT: a FALSE MERGE in the stable-identity dedup
+(`g_stable_to_key` / `stable_type_identity`) — if an Option instance's
+stable render collides with String's (both enum-backed; check the
+`g_sti_visited` cycle-guard rendering both to the same cut string), the
+second arrival aliases onto the first's C name and every consumer that
+walks the VALUE (the traversal, the field designators) diverges from every
+consumer that renders via the KEY (the decl).
+
+VERIFY FIRST: dump `stable_type_identity` for the two types in a probe
+build (the batch is kept: yo-self/tests/.yo_selftest_batch_1.{yo,c} at this
+commit's HEAD state; sources of the field: EffectHandlerInfo in
+yo-self/evaluator/effects/effect_analysis_types.yo:88/114 — declared
+`effect_parameter_name : String`, so the Option-fielded entry.ty rendition
+is itself an artifact worth tracing).
+
+If the false-merge confirms, the alias must require FULL structural
+equality (variant names + labels included) rather than the depth-cut
+render — or key the stable render with variant names uncut. NOTE this
+implicates the 2026-07-18 alias-recursion change's PREMISE ("same type,
+evolved render") — an alias between genuinely different types is the
+failure mode to rule out for cache.test.yo's undeclared-temp too.
