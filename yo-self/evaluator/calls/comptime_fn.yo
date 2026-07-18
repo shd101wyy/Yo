@@ -101,8 +101,18 @@ _ctfe_args_equal :: (
         // enum instances.
         a_struct_id := match(aty,.Struct({ id : as_id }) => as_id, _ => String.from(""));
         b_struct_id := match(bty,.Struct({ id : bs_id }) => bs_id, _ => String.from(""));
-        a_enum_id := match(aty,.EnumT(ae_id, _, _, _, _, _, _, _, _) => ae_id, _ => String.from(""));
-        b_enum_id := match(bty,.EnumT(be_id, _, _, _, _, _, _, _, _) => be_id, _ => String.from(""));
+        // ENUM self-shells carry a `__self_shell` id SUFFIX (unlike struct
+        // shells, which share the final's id exactly — see the comment
+        // above). Strip it so `ArrayList(Self)` inside a recursive enum's
+        // OWN declaration (arg = the suffixed shell) memo-hits the
+        // post-definition `ArrayList(MyExpr)` (arg = the final): without
+        // this the two calls landed in SEPARATE memo entries, minting TWO
+        // ArrayList(MyExpr) instantiations -> two C types whose
+        // traverse/drop machinery cross-corrupted the heap (the
+        // recursive-enum Box(Self)+ArrayList(Self) OOM/segv,
+        // issues/repros/recursive-enum-box-plus-arraylist-self.yo).
+        a_enum_id := match(aty,.EnumT(ae_id, _, _, _, _, _, _, _, _) => ae_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
+        b_enum_id := match(bty,.EnumT(be_id, _, _, _, _, _, _, _, _) => be_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
         cond(
           ((a_struct_id.len() > usize(0)) && (a_struct_id == b_struct_id)) => true,
           ((a_enum_id.len() > usize(0)) && (a_enum_id == b_enum_id)) => true,

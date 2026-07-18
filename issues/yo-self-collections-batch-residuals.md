@@ -231,3 +231,25 @@ the recursive_enum batch, and check what the pre-rule shared spec actually
 computed (an inclusive-vs-exclusive bound bug may have been LATENT under the
 old sharing). The cfid rule STAYS (3 whole files + TS parity); this consumer
 is a separate pre-existing confusion it surfaced.
+
+## 2026-07-19: recursive-enum crash ROOT-CAUSED — enum shell-id suffix breaks the ctfe memo
+
+The recursive_enum "regression"/flake was a PRE-EXISTING memory corruption
+(all yo-self builds, incl. pre-cfid s1i; TS fine): a 14-line enum mixing
+Box(Self) + ArrayList(Self) variants crashes on construct+drop
+(issues/repros/recursive-enum-box-plus-arraylist-self.yo). Root: enum
+self-shell ids carry a `__self_shell` suffix, so \_ctfe_args_equal's same-id
+memo rule (struct-shaped) never fired for enums — ArrayList(shell) and
+ArrayList(final) split into two memo entries -> two instantiations -> TWO C
+types for one logical ArrayList(MyExpr) (t0/t15 in the emitted C) whose
+traverse/drop cross-corrupt. FIXED by stripping the suffix in the id
+compare: the 3-variant repro (one Box variant) runs clean.
+
+RESIDUAL: with TWO Box(Self)-bearing variants (Add + Mul), FIVE Box memo
+entries appear with DISTINCT per-generation SomeT-clone args
+(some:1584/1586/1588/1590/1594) — each def-time/analysis generation
+re-evaluates the field types with fresh SomeT clones and the memo's
+same-SomeT-id rule splits them. This is the SomeT-identity-across-
+generations class = the declaration-stable-id / per-object resolved_concrete
+CONVERGED DIAGNOSIS (issues/yo-self-dyn-fn-field.md). The 4-variant repro
+(re_v6/re_asan scratchpad copies) still crashes until that lands.

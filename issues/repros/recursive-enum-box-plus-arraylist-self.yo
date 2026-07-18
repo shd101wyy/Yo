@@ -1,0 +1,17 @@
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/collections/array_list"));
+
+MyExpr :: enum(
+  Lit(value : i32),
+  Add(lhs : Box(Self), rhs : Box(Self)),
+  List(items : ArrayList(Self))
+);
+main :: (fn() -> unit)({
+  items := ArrayList(MyExpr).new();
+  items.push(MyExpr.Lit(i32(10)));
+  e := MyExpr.List(items);
+  e;
+  println(`OK`);
+});
+export(main);
