@@ -713,6 +713,30 @@ SortedSet+multibyte, env-check, fixpoint BYTE-IDENTICAL). Canonical
 binary-MIXED (mid-sweep fixes) — round-7 (clean, settled binary) is the
 authoritative scoreboard: /tmp/s2_sweep_r7/ + /tmp/s2_sweep_yoself_r7/.
 
+## 2026-07-18 (final) — capture hardening trio landed; the residual is pinned
+
+`5d69b2b7f` lands three gate-verified capture fixes (generation-safe
+tracker, closure-spec fresh-map recording + post-eval struct registration,
+keep-larger structs). The in-repo repro STILL fails — the residual is now
+pinned to ONE eval: when the ENCLOSING fn gets specialized (its Impl(Fn)
+arg forces it through create_specialized_function_inline), the closure DEF
+inside its body is re-evaluated with FRESH ids (a new fid — defeating
+fid-keyed keep-larger) and THAT eval's tracker map lacks the enclosing
+spec's rebound params (probes: def-time evals enrich `name`/`flag` fine;
+the spec-generation eval's map has only `extras`+`probe`; the emitted
+closure fid belongs to the spec eval). NEXT MOVE (one of):
+
+- make the closure-def re-eval inside a spec REUSE the original closure
+  fid (stop fresh-id cloning the closure DEF node specifically), so
+  keep-larger merges the def-time struct in; or
+- track WHY the spec-generation tracker misses the rebound params (probe
+  CAPTRK inside the spec eval: are the references even reaching
+  evaluate_identifier, or are param lookups short-circuited to comptime
+  values by the UnknownVal rebinds?).
+
+Scoreboard unchanged: #70 = 58/61, #69 = 108/180. Thirteen fix commits
+total this session, all fixpoint-byte-identical.
+
 ## 2026-07-18 SESSION CLOSE — state and marching orders
 
 **Scoreboard: #70 = 58/61 (from 42). #69 = 108/180 (from ~106).**
