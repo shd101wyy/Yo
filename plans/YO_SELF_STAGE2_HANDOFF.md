@@ -713,6 +713,31 @@ SortedSet+multibyte, env-check, fixpoint BYTE-IDENTICAL). Canonical
 binary-MIXED (mid-sweep fixes) — round-7 (clean, settled binary) is the
 authoritative scoreboard: /tmp/s2_sweep_r7/ + /tmp/s2_sweep_yoself_r7/.
 
+## 2026-07-18 CAPTURE FIX LANDED — #70 = 59/61
+
+`ecbe5f08e` — source-position capture-info merge: closures register a
+token-position key at FuncVal mint (stable across fresh-id clones);
+capture info keep-largers by source; get_closure_capture_info returns the
+larger of fid/source entries. The dyn+Impl(Fn) repro compiles AND runs
+green (values verified by asserts); **effect_analysis flips → 59/61**.
+
+The LAST THREE #70 divergents, each with a distinct signature (batch logs
+/tmp/g70\_\*.txt at this commit; use YO_KEEP_BATCH=1 to reproduce):
+
+1. `cache.test.yo` — `use of undeclared identifier _file____User_temp_7020`
+   (a minted temp declared in one emitted scope, referenced in another —
+   temp-scoping emission).
+2. `suspension_analysis.test.yo` — `unknown type name
+'__yo_dyn_box_unknown_2312'` (a dyn-BOX C type never registered; the
+   "unknown\_<key>" fallback leaked into emission — the boxed-dyn type
+   resolution path).
+3. `install_command.test.yo` — `non-void function 'yo_id_3595' should
+return a value` (a return-path dropped during body emission).
+
+#69 unchanged at 108/180 pending a fresh sweep with this binary (the
+capture fix likely flips collections files sharing the class — re-run the
+r8 list against a NEW pinned copy).
+
 ## 2026-07-18 (final) — capture hardening trio landed; the residual is pinned
 
 `5d69b2b7f` lands three gate-verified capture fixes (generation-safe
