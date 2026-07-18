@@ -33,7 +33,14 @@ create_option_type :: (fn(inner_type : TypeValue) -> TypeValue)({
   variant_fields.push(some_fields);
   none_labels := ArrayList(String).new();
   some_labels := ArrayList(String).new();
-  some_labels.push(String.from("val"));
+  // "value" — MUST match prelude Option's `Some(value : T)` label: TS's
+  // createOptionType calls the real env Option constructor, so its label is
+  // always "value". The enum-signature dedup collapses this synthesized
+  // rendition with real Option instances into ONE C type (labels are not in
+  // the sig), and the downcast/await emitters hardcode `.Some = { .value =`
+  // — a "val"-labelled winner made the field designator miss (the lexer
+  // batch "field designator 'value' does not refer to any field").
+  some_labels.push(String.from("value"));
   variant_field_labels := ArrayList(ArrayList(String)).new();
   variant_field_labels.push(none_labels);
   variant_field_labels.push(some_labels);

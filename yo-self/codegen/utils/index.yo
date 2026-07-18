@@ -154,6 +154,12 @@ CodeGenContext :: ref(
     /// typeid static declarations: type id → the C static variable name whose
     /// address is the type's runtime id. Mirrors CodeGenContext.typeIdStatics.
     type_id_statics : HashMap(String, String),
+    /// C NAMES of already-emitted `__yo_typeid_*` statics. The dedup must key
+    /// on the NAME, not the type_key: two evolved keys ALIAS onto one C name
+    /// (register_type_alias), so key-based dedup emits the SAME static twice
+    /// ("redefinition of __yo_typeid___yo_tN" — the lexer batch). Shared by
+    /// the typeid/downcast expression emitters and the Dyn vtable pass.
+    type_id_static_names : HashSet(String),
     /// dyn() usages → box types / vtables / wrappers (keyed by a
     /// "<concrete_id>_<dyn_id>" string, fixed up to C names post type-gen).
     dyn_impls : HashMap(String, DynImplEntry),
@@ -234,6 +240,7 @@ impl(
       current_continue_label : Option(String).None,
       inside_match : false,
       type_id_statics : HashMap(String, String).new(),
+      type_id_static_names : HashSet(String).new(),
       dyn_impls : HashMap(String, DynImplEntry).new(),
       current_module_id : Option(String).None,
       exported_function_labels : HashMap(String, String).new(),

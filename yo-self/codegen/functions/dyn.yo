@@ -439,10 +439,15 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
       .Some(impl_entry) => {
         concrete_cname := match(context.base.get_type_c_name(type_key(impl_entry.concrete_type.clone())),.Some(cn) => cn,.None => `unknown_${type_key(impl_entry.concrete_type.clone())}`);
         typeid_name := `__yo_typeid_${concrete_cname}`;
-        if(!(generated.contains(typeid_name.clone())), {
+        if(!(generated.contains(typeid_name.clone())) && !(context.base.type_id_static_names.contains(typeid_name.clone())), {
           _g := generated.add(typeid_name.clone());
+          _n := context.base.type_id_static_names.add(typeid_name.clone());
           _s := context.base.type_id_statics.set(type_key(impl_entry.concrete_type.clone()), typeid_name.clone());
           em.emit_declaration_string_line(`static const char ${typeid_name} = 0; // TypeId for ${concrete_cname}`);
+        }, {
+          // Name already emitted by the typeid/downcast expression emitters —
+          // still record the key mapping so vtables reference the shared static.
+          _s2 := context.base.type_id_statics.set(type_key(impl_entry.concrete_type.clone()), typeid_name.clone());
         });
       },
       .None => ()
