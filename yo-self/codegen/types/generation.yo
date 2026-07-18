@@ -7,6 +7,7 @@
 //! thread-sync macros, __yo_ref_header_t, future types — then the type-walk),
 //! the Iso/closure/future declarations, and the dyn re-exports are pending.
 open(import("std/string"));
+{ resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
@@ -1057,11 +1058,19 @@ generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
         // resolvedConcreteType: a SomeT with a resolved concrete falls through
         // to that concrete (codegen-side yo-self has no resolvedConcreteType,
         // so the concrete_type is used directly).
-        concrete := impl_entry.concrete_type;
+        // Resolve a SomeT concrete through the resolved-concrete side-table
+        // BEFORE keying: `get_type_c_name(type_key(SomeT))` misses (the key is
+        // the SomeT id) while `get_type_string` resolves — the ctor then
+        // referenced `__yo_dyn_box_unknown_<id>` with no typedef (the
+        // suspension_analysis batch "unknown type name"). Mirrors TS
+        // resolvedConcreteType (the stale "yo-self has no resolvedConcreteType"
+        // note predates the expr_info side-table).
+        concrete := resolve_some_type_to_concrete(impl_entry.concrete_type);
         concrete_c_name := match(context.get_type_c_name(type_key(concrete)),.Some(cn) => cn,.None => `unknown_${type_key(concrete)}`);
         box_name := `__yo_dyn_box_${concrete_c_name}`;
         if(!(generated.contains(box_name.clone())), {
           _g := generated.add(box_name.clone());
+          _g2 := context.dyn_box_typedefs.add(box_name.clone());
           value_str := get_type_string(concrete, context);
           em.emit_declaration_line("typedef struct {");
           em.emit_declaration_line("  __yo_ref_header_t header;");

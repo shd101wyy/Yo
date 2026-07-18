@@ -10,6 +10,7 @@
 //! closure-discovery optimization (implClosureCallMap, absent here) is replaced
 //! by the general `box->field.call(...)` fat-pointer path for the Fn slot.
 open(import("std/string"));
+{ resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -114,12 +115,30 @@ generate_dyn_box_functions :: (fn(context : FunctionGenerationContext) -> unit)(
     match(
       context.base.dyn_impls.get(key.clone()),
       .Some(impl_entry) => {
-        concrete_key := type_key(impl_entry.concrete_type.clone());
+        // Resolve SomeT concretes before keying — see types/generation.yo's
+        // box-typedef note (the same miss emitted an undeclared
+        // `__yo_dyn_box_unknown_<id>` ctor).
+        dyn_concrete_res := resolve_some_type_to_concrete(impl_entry.concrete_type.clone());
+        concrete_key := type_key(dyn_concrete_res.clone());
         concrete_c := match(context.base.get_type_c_name(concrete_key.clone()),.Some(cn) => cn,.None => `unknown_${concrete_key}`);
         box_name := `__yo_dyn_box_${concrete_c}`;
         if(!(generated.contains(box_name.clone())), {
           _g := generated.add(box_name.clone());
-          value_str := get_type_string(impl_entry.concrete_type.clone(), context.base);
+          value_str := get_type_string(dyn_concrete_res.clone(), context.base);
+          // Late-registered dyn impl (registered during body generation, after
+          // the type-decl phase's box pass): emit the missing typedef into the
+          // DECLARATIONS section now — see CodeGenContext.dyn_box_typedefs.
+          if(!(context.base.dyn_box_typedefs.contains(box_name.clone())), {
+            _g3 := context.base.dyn_box_typedefs.add(box_name.clone());
+            em.emit_declaration_line("typedef struct {");
+            em.emit_declaration_line("  __yo_ref_header_t header;");
+            em.emit_declaration_string_line(`  ${value_str} value;`);
+            em.emit_declaration_string_line(`} ${box_name};`);
+            em.emit_declaration_line("");
+            em.emit_declaration_string_line(`static ${box_name}* __yo_new_${box_name}(${value_str} value);`);
+            em.emit_declaration_string_line(`static void __yo_dispose_${box_name}(void* ptr);`);
+            em.emit_declaration_line("");
+          });
           em.emit_string_line(`static ${box_name}* __yo_new_${box_name}(${value_str} value) {`);
           em.emit_string_line(`  ${box_name}* box = (${box_name}*)__yo_malloc(sizeof(${box_name}));`);
           em.emit_line("  box->header.ref_count = 1;");

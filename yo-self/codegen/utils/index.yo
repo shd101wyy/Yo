@@ -160,6 +160,13 @@ CodeGenContext :: ref(
     /// ("redefinition of __yo_typeid___yo_tN" — the lexer batch). Shared by
     /// the typeid/downcast expression emitters and the Dyn vtable pass.
     type_id_static_names : HashSet(String),
+    /// __yo_dyn_box_* typedefs already emitted. Shared between the type-decl
+    /// phase's box pass and the function phase's ctor pass: dyn impls register
+    /// LAZILY (at use sites during body generation), so a box first seen by
+    /// the ctor pass needs its typedef emitted THERE (into the declarations
+    /// section — still assembled before code) or the ctor references an
+    /// unknown type (the suspension_analysis batch).
+    dyn_box_typedefs : HashSet(String),
     /// dyn() usages → box types / vtables / wrappers (keyed by a
     /// "<concrete_id>_<dyn_id>" string, fixed up to C names post type-gen).
     dyn_impls : HashMap(String, DynImplEntry),
@@ -241,6 +248,7 @@ impl(
       inside_match : false,
       type_id_statics : HashMap(String, String).new(),
       type_id_static_names : HashSet(String).new(),
+      dyn_box_typedefs : HashSet(String).new(),
       dyn_impls : HashMap(String, DynImplEntry).new(),
       current_module_id : Option(String).None,
       exported_function_labels : HashMap(String, String).new(),
