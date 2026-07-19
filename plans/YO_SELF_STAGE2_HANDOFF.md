@@ -53,6 +53,19 @@ anything about those families.
   ⇒ The spec-identity cluster IS largely true Gap-6; the biggest tractable leverage
   is the dispose family (~7 files, one collectDisposeMethodsFromGenericImpls-style
   specialize+register port, mirroring`\_specialize_and_register_trace`).
+- **DISPOSE FAMILY refined (~7 files, biggest leverage — NOT a mirror-trace port):**
+  `get_dispose_function_for_type` (drop_dup.yo:60) already keys by `type_key` +
+  `"___dispose"` (like trace), and `collect_dispose_methods` (codegen_c.yo:245) DOES
+  run `_synthesize_and_register_dispose` for every RC struct incl. Mutex, and
+  `_eval_and_register_rc_method` both registers the trait method AND
+  `base.register_function` + `find_function_calls`. YET Mutex's \_\_\_dispose
+  (`yo_id_6143`) is FOUND by get_dispose_function_for_type but is NOT in
+  base.functions (undeclared). So the synthesis→register→collect chain has a subtle
+  gap for Mutex — likely fid churn between synthesis and codegen, OR the synthesis
+  soft-fails mid-body (fv_opt None) yet a stale registry entry survives. NEXT-SESSION
+  PROBE: eprintln in `_eval_and_register_rc_method` (did it run for Mutex? what fid?
+  did register_function fire?) + compare the fid to the constructor's referenced id.
+  A dedicated arc, not one-shot.
 - Remaining iso: iso.test layer 3c (`^` op `(temp_type <: Isolation).can_isolate(x)`
   emits `Type.can_isolate` type-name-as-value — a static-trait-method dispatch,
   prelude.yo:7461); rc layer 4 (`Array_Array_*` nested-array decl, not collected —
