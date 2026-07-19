@@ -90,11 +90,23 @@ phase (the ExprInfo-table store-without-dup / UAF class — the pre-pass mutates
 `ei`then`expr_info_table_set`s it, but a later eval/collect pass overwrites
 the table entry), or (b) the async-block condition at async.yo:1897 is not met
 for the fs/* `File.open`-delegate shape (so the pre-pass never sets it). PROBE
-(one debug build): at declarations.yo:520 print `ei.async_state_machine_struct_name`
-    - `ast_expr_id`, and at async.yo:1915 print the same id + name — compare ids to
-      see if it's a different ExprInfo (→ persistence fix) or never-set (→ path fix).
+(one debug build): at declarations.yo:520 print `ei.async_state_machine_struct_name`    -`ast_expr_id`, and at async.yo:1915 print the same id + name — compare ids to
+    see if it's a different ExprInfo (→ persistence fix) or never-set (→ path fix).
+  - **async-future is likely the DELEGATE case** (declarations.yo:690-696
+    comment): fs/\* `File.open` RETURNS `File.open_with(...)`'s future (no direct
+    async block of its own), so the forward-decl's `find_returned_async_block`
+    returns `.None`. The 2-round `_async_override_return_type` loop (699) is meant
+    to resolve callee-before-caller, but iterates `functions.keys()` in HASHMAP
+    order → if `File.open` sorts before `File.open_with`, round 1 can't resolve
+    and 2 rounds don't cover deeper/misordered chains. **CROSS-CLUSTER LINK:**
+    making the 699 loop iterate INSERTION order (callee registered before caller)
+    is exactly the determinism fix's declarations.yo:699 change — so the
+    determinism fix (function_order) may fix the async-future cluster (5 files)
+    AND the s1-vs-s2 fixpoint together. Try that first for async-future.
   - Determinism (host-independent fixpoint): `issues/determinism-fix-
-function_order.patch` (function half) + type_order still needed.
+function_order.patch` (function half) + type_order still needed. Its
+    declarations.yo:699 insertion-order change is also the async-future lead
+    above — highest-leverage single change to try next.
 
 ## TL;DR — where things stand
 
