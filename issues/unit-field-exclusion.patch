@@ -1,0 +1,31 @@
+diff --git a/yo-self/codegen/utils/index.yo b/yo-self/codegen/utils/index.yo
+index efbf0e9ea..7c8293dab 100644
+--- a/yo-self/codegen/utils/index.yo
++++ b/yo-self/codegen/utils/index.yo
+@@ -33,7 +33,8 @@ open(import("std/string"));
+   is_pointer_type,
+   is_struct_type,
+   is_enum_type,
+-  is_extern_type_name
++  is_extern_type_name,
++  is_unit_type
+ } :: import("../../types/guards.yo");
+ { type_to_string } :: import("../../types/string.yo");
+ { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
+@@ -451,7 +452,15 @@ get_runtime_struct_fields :: (fn(struct_type : TypeValue) -> ArrayList(RuntimeSt
+         if(!(is_comptime), {
+           label := match(field_labels.get(fi),.Some(l) => l,.None => String.from(""));
+           ty := match(field_types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+-          result.push(RuntimeStructField(label : label, ty : ty));
++          // Skip zero-sized unit-typed fields: C has no `void` field, so a `unit`
++          // value field (e.g. `Box(unit)`) would emit an invalid `void _u42_;`.
++          // Unit holds no runtime data, so excluding it is runtime-equivalent —
++          // the constructor uses this SAME field list, so struct decl and ctor
++          // stay coordinated, and unit-field access is a no-op. (TS never reaches
++          // Box(unit) emission; yo-self over-collects it — this is the safe fix.)
++          if(!(is_unit_type(ty)), {
++            result.push(RuntimeStructField(label : label, ty : ty));
++          });
+         });
+         fi = (fi + usize(1));
+       });
