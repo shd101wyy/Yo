@@ -1157,6 +1157,21 @@ of the remaining families — likely 30+ of the 64 red files. Execute it
 FIRST next session (plan + conversion list: issues/yo-self-dyn-fn-field.md
 CONVERGED DIAGNOSIS; the resolved_concrete field exists since bca8eccc5).
 
+## ASYNC ENDGAME LANDED (8df4fb266): tests/async_await.test.yo WHOLE-FILE GREEN — #69 = 126/180
+
+The fourteen-probe arc concludes: the constraint-gated Step-2 skip
+(io.async action params use the per-call freshened type directly ONLY
+when no Future-carrying expected exists — WITH a constraint, Step-6b's
+call-local pre-binds ride Step-2's re-evaluation, which the un-annotated
+bundle actions require) + the scope-aware sync-future capture literal
+(enclosing-context reads with in-scope-C-name precedence). Full battery
+green INCLUDING both corpus files every earlier candidate broke. The
+three structural commits that made the skip safe: per-call whole-callee
+freshening (25f5f9e89), call-scoped forall rebinds (67acb7390), lineage-
+identity slot gate (92b27f68b). Round-19 sweep pending for the
+definitive count + any collateral async-family flips (worker/timer/
+thread re-test).
+
 ## ASYNC ENDGAME: async_await 116-GREEN PROVEN — two refinements from landing
 
 The v11 candidate pair (Step-2 param re-eval skip for io.async +
