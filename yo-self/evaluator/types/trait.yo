@@ -768,7 +768,12 @@ _evaluate_trait_field :: (
       old_self_trait_type := ctx.self_trait_type;
       ctx.self_type =.Some(self_type);
       ctx.self_trait_type =.Some(trait_ty);
-      evaluated_te := evaluate_expression(type_expr, env_mut, ctx);
+      // RAW (propagating) eval, like the sibling field-type paths at 313/458:
+      // a trait method's function TYPE can throw a compile error (e.g. the
+      // `-> inout(T)` inout-return ban in evaluate_function_type). The
+      // swallowing non-raw form ate that throw, so `comptime_expect_error` on a
+      // `trait(... m : (fn(...) -> inout(T)))` saw success (tests/ref_return_ban).
+      evaluated_te := evaluate_expression_raw(type_expr, env_mut, ctx, exn);
       ctx.expected_type = old_expected_type;
       ctx.self_type = old_self_type;
       ctx.self_trait_type = old_self_trait_type;
