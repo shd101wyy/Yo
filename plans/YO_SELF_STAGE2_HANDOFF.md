@@ -9,12 +9,28 @@ reverted candidate of the async/dispose/spec families) lives in
 `issues/yo-self-async-emission-cluster.md` — consult it before re-deriving
 anything about those families.
 
-## SESSION UPDATE 2026-07-19 (post-round-19) — READ FIRST
+## SESSION UPDATE 2026-07-20 — READ FIRST
 
-- **#69 now 128/180** (was 126). Landed: `ccd90b91e` (P1 `\u` decode → str.test
-  3/3), `845e4e68e` (FloatLit exponent-form → time/duration 12/12). Both fully
-  gated (corpus PASS 135, std 153/153, str+duration flips, prior flips hold,
-  **STRICT_FIXPOINT=HOLDS**).
+- **#69 now ~131/180.** Flips this session (all gated: corpus 135/2/0, std 153/153,
+  STRICT_FIXPOINT=HOLDS, prior flips hold): `\u` decode (str 3/3), FloatLit exponent
+  (duration 12/12), **ref_return_ban 2/2** (`cfc76fcf1`, call-time is_ref),
+  **forward_ref_self_method 2/2** (`473ddb78b`, static Self.method collection),
+  **iso_api_surface 2/2** (`ec1e99822`, tid-less method dispatch). Plus iso port
+  layers 1–3a (`83af97e4e`/`294d6b6e1`/`dadabe775`) and the determinism/fixpoint fix
+  (`ebdd27ca8`). User directive: **ALWAYS build --release (-O2), never -O0.**
+- **⚠️ ASSESSMENT CORRECTION (important): the "~26 Gap-6 files" count is OVERSTATED.**
+  iso L3b looked like Gap-6 (per-call return-spec) but PROBING it revealed a tractable
+  **dispatch gate** (`other_fn_call.yo:997` gated on `tid.len()>0`; Iso has no registry
+  type-id, so the expr-id-keyed side-table lookup was wrongly skipped — `ec1e99822`).
+  LESSON: **PROBE each "Gap-6" file before assuming it's blocked** — several may be
+  dispatch/collection gaps in disguise (has_ei=true + FTT via the general path ⇒ a
+  dispatch gap, not Gap-6). Probe technique: eprintln at the FTT branches +
+  `lookup_method_callee_value`/`get_type_trait_methods_by_name`/`type_id_or_empty`.
+- Remaining iso: iso.test layer 3c (`^` op `(temp_type <: Isolation).can_isolate(x)`
+  emits `Type.can_isolate` type-name-as-value — a static-trait-method dispatch,
+  prelude.yo:7461); rc layer 4 (`Array_Array_*` nested-array decl, not collected —
+  collect_types_from_expr skips BK_TEST at collection.yo:578). Both NOT Gap-6. See
+  `issues/yo-self-iso-runtime-port.md`.
 - **FIXPOINT: FRAGILITY FIXED (`ebdd27ca8`).** The strict stage2≡stage3 gate is
   the s1(TS) vs s2(self) 3-stage comparison; it was marginally host-dependent
   (HashMap bucket-order emission — a fresh clean rebuild broke it, though the
@@ -115,13 +131,13 @@ i32(7)))`) — closure-as-fn-pointer-field codegen. iso.test's "expected
     call-site FTT — iso, iso_api_surface; likely eval Option(T)-vs-Phase-H-T
     mismatch) + L4 (`Array_Array**` nested-array decl — rc) remain.\*\* The stale
     text below is superseded by the issue doc. —
-    get*type*string's `.IsoT` arm was a panic stub; ported it (name build +
+    get*type\*string's `.IsoT` arm was a panic stub; ported it (name build +
     `iso_types` registration, mirrors TS getTypeString Iso case). iso.test now
     advances past the panic to `unknown type 'Iso\**'`/ undeclared`\__yo_create_iso_\_`. **LAYER 2/3 OPEN:** `generate_iso_type_declarations`(generation.yo:1097) is still a NO-OP stub — port the full 176-line TS`generateIsoTypeDeclarations`(generation.ts:1047): Iso struct + create/extract/
-dispose decls & impls. All deps EXIST (needs_cycle_gc, dispose_type_ids,
-___drop registry lookup, register_iso_type). Mechanical template translation.
-**Complete spec in`issues/yo-self-iso-runtime-port.md`.\*_ (Supersedes the
-    earlier ".extract()/Array*Array*_ decl" guess.) PORT work, NOT Gap-6.
+    dispose decls & impls. All deps EXIST (needs_cycle_gc, dispose_type_ids,
+    _\_\_drop registry lookup, register_iso_type). Mechanical template translation.
+    \*\*Complete spec in`issues/yo-self-iso-runtime-port.md`.\*_ (Supersedes the
+    earlier ".extract()/Array*Array*\_ decl" guess.) PORT work, NOT Gap-6.
   - **async-future cluster (5 files — best files/cycle) PRECISE scoping:** SM
     struct name = `` `${async_block_id}_state_t` `` where async*block_id =
     `ei.variable_name` (async.yo ~1490/1914), set via `_set_async_sm_struct_name`
