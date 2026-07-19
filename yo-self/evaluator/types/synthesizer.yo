@@ -259,7 +259,19 @@ _bind_some_type :: (
       ()
     },
     true => {
-      // Update the last binding
+      // Update the last binding — but ONLY when it lives in the CURRENT top
+      // frame (the call's own placeholder frame). An in-place update of an
+      // OUTER frame's binding is a DURABLE write-through in yo-self's mutable
+      // env model: a NESTED call's forall resolution (`T := unit` from
+      // yield's io.async inside every task body) persisted across def-eval
+      // generations and poisoned sibling closures' expected types (the
+      // async_await void-closure residual — the [REBIND] topology probe shows
+      // updates landing frames BELOW the top). TS's persistent env chains
+      // scope such updates automatically (updateExistingVariable produces a
+      // new chain visible only downstream); the yo-self equivalent is
+      // SHADOWING: for an outer-frame match, ADD a call-local binding in the
+      // top frame instead — it pops with the frame, and every read inside the
+      // call sees it (innermost-wins).
       last_idx := (n - usize(1));
       old_var := match(
         vars.get(last_idx),
@@ -268,6 +280,24 @@ _bind_some_type :: (
           return(());
         }
       );
+      if((env.frames.len() > usize(0)) && (old_var.frame_level != (env.frames.len() - usize(1))), {
+        add_variable_to_env(
+          env,
+          name,
+          ty,
+          Option(EvalValue).Some(val),
+          true,
+          // is_compile_time_only
+          false,
+          // is_reassignable
+          false,
+          // is_owning_the_rc_value
+          false,
+          // is_implicit
+          token
+        );
+        return(());
+      });
       new_var := Variable(
         id : old_var.id,
         name : old_var.name,
