@@ -26,6 +26,25 @@ anything about those families.
   dispatch/collection gaps in disguise (has_ei=true + FTT via the general path ⇒ a
   dispatch gap, not Gap-6). Probe technique: eprintln at the FTT branches +
   `lookup_method_callee_value`/`get_type_trait_methods_by_name`/`type_id_or_empty`.
+- **RED-FILE SWEEP categorization (2026-07-20, under s2disp — triage by error
+  signature to apply the probe-don't-assume lesson):**
+  - _true Gap-6_ (`incompatible type __yo_tX` / `initializing __yo_tX with __yo_tY`):
+    arc, error, cli/arg_parser, imm_list (and by pattern imm_map/set/string,
+    collections/\*, thread) — per-call type identity, the genuinely HARD core.
+  - _collection gaps_ (`undeclared yo_id_N`): sync/mutex (`yo_id_6143` = the
+    `dispose_fn` — the generic user-dispose from `find_methods_from_generic_impls`
+    is NOT specialized+collected the way `trace` is via
+    `_specialize_and_register_trace`; yo-self relies on a lazy `self.dispose()` call
+    in `_synthesize_and_register_dispose` that doesn't reach it — INTRICATE, but a
+    port not Gap-6; ~7 dispose files share it), closure_capture_rc_leak
+    (`yo_id_2938__unknown__Type`).
+  - _type-name-as-value codegen_: module_struct_unification (`__yo_t32` closure-fn
+    field), derive (`...#(match_branches)` macro splice).
+  - _other_: dyn (rc=1 but **5 passed** — near), derive_clone_complex (`incomplete
+  type void` unit-field), ref_field_borrow (borrow-check not enforced in eval).
+    ⇒ The spec-identity cluster IS largely true Gap-6; the biggest tractable leverage
+    is the dispose family (~7 files, one collectDisposeMethodsFromGenericImpls-style
+    specialize+register port, mirroring `_specialize_and_register_trace`).
 - Remaining iso: iso.test layer 3c (`^` op `(temp_type <: Isolation).can_isolate(x)`
   emits `Type.can_isolate` type-name-as-value — a static-trait-method dispatch,
   prelude.yo:7461); rc layer 4 (`Array_Array_*` nested-array decl, not collected —
@@ -134,9 +153,9 @@ i32(7)))`) — closure-as-fn-pointer-field codegen. iso.test's "expected
     get*type\*string's `.IsoT` arm was a panic stub; ported it (name build +
     `iso_types` registration, mirrors TS getTypeString Iso case). iso.test now
     advances past the panic to `unknown type 'Iso\**'`/ undeclared`\__yo_create_iso_\_`. **LAYER 2/3 OPEN:** `generate_iso_type_declarations`(generation.yo:1097) is still a NO-OP stub — port the full 176-line TS`generateIsoTypeDeclarations`(generation.ts:1047): Iso struct + create/extract/
-    dispose decls & impls. All deps EXIST (needs_cycle_gc, dispose_type_ids,
-    _\_\_drop registry lookup, register_iso_type). Mechanical template translation.
-    \*\*Complete spec in`issues/yo-self-iso-runtime-port.md`.\*_ (Supersedes the
+    dispose decls & impls. All deps EXIST (needs*cycle_gc, dispose_type_ids,
+    *\_\_drop registry lookup, register*iso_type). Mechanical template translation.
+    \*\*Complete spec in`issues/yo-self-iso-runtime-port.md`.\** (Supersedes the
     earlier ".extract()/Array*Array*\_ decl" guess.) PORT work, NOT Gap-6.
   - **async-future cluster (5 files — best files/cycle) PRECISE scoping:** SM
     struct name = `` `${async_block_id}_state_t` `` where async*block_id =
