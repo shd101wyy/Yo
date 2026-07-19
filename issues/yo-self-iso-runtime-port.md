@@ -1,8 +1,26 @@
-# yo-self: Iso lowering port — layer 1 DONE, runtime decls/impls remain
+# yo-self: Iso lowering port — layers 1+2 DONE, .extract()/Array layers remain
 
-**Status:** LAYER 1 DONE (get_type_string `.IsoT` arm). LAYER 2/3 (runtime) OPEN.
+**Status:** LAYER 1 (get_type_string `.IsoT` arm) + LAYER 2 (runtime decls/impls)
+BOTH DONE. iso is a 4-layer feature; layers 3-4 remain.
 **Targets:** `tests/iso.test.yo`, `tests/rc.test.yo`, `tests/iso_api_surface.test.yo` (3 files).
 **Class:** PORT (deterministic — mirror TS), NOT Gap-6 / not a bug hunt.
+
+## After layers 1+2 — the files advance to these NEXT layers
+
+- **Layer 3 — `.extract()` call site (iso, iso_api_surface):** `iso.extract()` (prelude
+  `extract : (fn(self)->T)(__yo_iso_extract(self))`, std/prelude.yo:7422) emits
+  `unexpected type name '__yo_t23': expected expression` + `use of undeclared
+identifier 'e1'`. So the `__yo_iso_extract(self)` call isn't lowering to
+  `__yo_iso_extract_Iso_X(self)` at the CALL site — the child type name leaks in as
+  a value. codegen `generate_yo_iso_extract` (iso.yo) exists; eval
+  `evaluate_yo_iso_extract` (rc_fns.yo:258) exists BUT its header comment says
+  "1-arg -> Option(T)" while prelude extract is Phase-H `-> T` ("returns T directly,
+  panics on failure") — likely an eval return-type / dispatch mismatch feeding
+  codegen a bad shape. Start there.
+- **Layer 4 — `Array_Array_*` decl (rc):** `unknown type name
+'Array_Array___yo_t25_u42__1_1'` + `initializing '__yo_t25 *' with ...
+Array_Array_...`. A nested-array (Array of Array) C type isn't declared —
+  independent of iso (it's rc.test's own array-of-arrays usage). Separate arc.
 
 ## Layer 1 (DONE this session)
 
@@ -14,11 +32,15 @@ turn `*`→`_u42_`). Result: iso.test advances from the panic (rc=134) to
 `unknown type name 'Iso___yo_t23'` / `undeclared __yo_create_iso_*` — because
 `generate_iso_type_declarations` is still a NO-OP stub.
 
-## Layer 2/3 (OPEN) — port `generate_iso_type_declarations`
+## Layer 2 (DONE this session) — `generate_iso_type_declarations`
 
-`yo-self/codegen/types/generation.yo:1097` is `fn(context) -> unit)(())` — a stub.
-Port the full TS `generateIsoTypeDeclarations` (`src/codegen/types/generation.ts:1047`
-— **176 lines**). It iterates `context.iso_types` in these passes:
+Ported the full TS `generateIsoTypeDeclarations` (`src/codegen/types/
+generation.ts:1047`) into `generation.yo` (was a `()` stub): 6 passes over
+`iso_types` emitting the Iso struct + create/extract/dispose decls & impls. Added
+the `struct_generated`/`create_generated`/`extract_generated`/`dispose_generated`
+flags to `IsoTypeInfo`. Inner-value drop = `__yo_decr_rc` (every Iso child is an RC
+value). All 3 files now compile past the struct-decl layer. Reference (what was
+ported): `context.iso_types` passes —
 
 1. **Struct decl + create decl** (skip if `struct_generated`):
    ```

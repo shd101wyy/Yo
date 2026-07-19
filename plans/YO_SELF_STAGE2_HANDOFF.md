@@ -107,10 +107,17 @@ i32(7)))`) — closure-as-fn-pointer-field codegen. iso.test's "expected
     and isn't — a macro-expansion gap (cf. [[recur codegen]] side-table). Deep;
     likely shared with `dyn` (also derived-match). A multi-cycle macro arc, not a
     quick flip.
-  - `iso`/`rc`/`iso_api_surface` (3 files): **LAYER 1 DONE this session** —
-    get*type_string's `.IsoT` arm was a panic stub; ported it (name build +
+  - `iso`/`rc`/`iso_api_surface` (3 files): **LAYERS 1+2 DONE this session; layers
+    3-4 remain (see `issues/yo-self-iso-runtime-port.md`).** L1: get*type_string
+    `.IsoT` arm (name+registration). L2: `generate_iso_type_declarations` full
+    runtime port (struct + create/extract/dispose decls & impls + IsoTypeInfo
+    flags) — all 3 files now compile past the struct-decl layer. \*\*L3 (`.extract()`
+    call-site FTT — iso, iso_api_surface; likely eval Option(T)-vs-Phase-H-T
+    mismatch) + L4 (`Array_Array**` nested-array decl — rc) remain.\*\* The stale
+    text below is superseded by the issue doc. —
+    get*type*string's `.IsoT` arm was a panic stub; ported it (name build +
     `iso_types` registration, mirrors TS getTypeString Iso case). iso.test now
-    advances past the panic to `unknown type 'Iso*_'`/ undeclared`\_*yo_create_iso*_`. **LAYER 2/3 OPEN:** `generate_iso_type_declarations`(generation.yo:1097) is still a NO-OP stub — port the full 176-line TS`generateIsoTypeDeclarations`(generation.ts:1047): Iso struct + create/extract/
+    advances past the panic to `unknown type 'Iso\**'`/ undeclared`\__yo_create_iso_\_`. **LAYER 2/3 OPEN:** `generate_iso_type_declarations`(generation.yo:1097) is still a NO-OP stub — port the full 176-line TS`generateIsoTypeDeclarations`(generation.ts:1047): Iso struct + create/extract/
 dispose decls & impls. All deps EXIST (needs_cycle_gc, dispose_type_ids,
 ___drop registry lookup, register_iso_type). Mechanical template translation.
 **Complete spec in`issues/yo-self-iso-runtime-port.md`.\*_ (Supersedes the

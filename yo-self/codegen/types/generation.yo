@@ -1094,9 +1094,166 @@ generate_future_trait_declaration :: (fn(type : TypeValue, c_name : String, cont
 );
 /// Generate Iso struct types + constructor declarations. DEFERRED (Phase-3 iso,
 /// generateIsoTypeDeclarations) — no iso types in the corpus.
-generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)(
-  ()
-);
+/// Emit Iso struct type declarations + create/extract/dispose helper decls and
+/// impls. Mirrors TS `generateIsoTypeDeclarations` (src/codegen/types/
+/// generation.ts:1047). `iso_types` is populated during collect_required_types
+/// (collection.yo:324 get_type_string side-effect), so it is filled by the time
+/// this runs at the end of the declaration phase. The inner-value drop is
+/// `__yo_decr_rc` — every Iso child is a reference-counted value, so decrementing
+/// its RC (which disposes at 0) is the correct release for all children.
+generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
+  em := context.emitter;
+  // Pass 1: Iso struct type + constructor declaration.
+  k1 := context.iso_types.keys();
+  (g1 : bool) = true;
+  while(g1, {
+    match(
+      k1.next(),
+      .Some(iso_name) => match(
+        context.iso_types.get(iso_name.clone()),
+        .Some(info) => if(!(info.struct_generated), {
+          child := info.child_type_c_name.clone();
+          em.emit_declaration_string_line(String.from("typedef struct { // Iso wrapper struct"));
+          em.emit_declaration_string_line(String.from("  __yo_ref_header_t header; // Atomic RC header"));
+          em.emit_declaration_string_line(String.from("  _Atomic bool extracted; // Extraction flag"));
+          em.emit_declaration_string_line(`  ${child.clone()} value; // Inner value`);
+          em.emit_declaration_string_line(`} ${iso_name.clone()}_struct;`);
+          em.emit_declaration_string_line(`typedef ${iso_name.clone()}_struct* ${iso_name.clone()};`);
+          em.emit_declaration_string_line(`${iso_name.clone()} __yo_create_iso_${iso_name.clone()}(${child.clone()} value);`);
+          info.struct_generated = true;
+        }),
+        .None => ()
+      ),
+      .None => {
+        g1 = false;
+      }
+    );
+  });
+  // Pass 2: extract function declarations.
+  k2 := context.iso_types.keys();
+  (g2 : bool) = true;
+  while(g2, {
+    match(
+      k2.next(),
+      .Some(iso_name) => match(
+        context.iso_types.get(iso_name.clone()),
+        .Some(info) => if(!(info.extract_generated), {
+          em.emit_declaration_string_line(`${info.child_type_c_name.clone()} __yo_iso_extract_${iso_name.clone()}(${iso_name.clone()} iso);`);
+        }),
+        .None => ()
+      ),
+      .None => {
+        g2 = false;
+      }
+    );
+  });
+  // Pass 3: dispose function declarations.
+  k3 := context.iso_types.keys();
+  (g3 : bool) = true;
+  while(g3, {
+    match(
+      k3.next(),
+      .Some(iso_name) => match(
+        context.iso_types.get(iso_name.clone()),
+        .Some(info) => if(info.struct_generated, {
+          em.emit_declaration_string_line(`void __yo_iso_dispose_${iso_name.clone()}(${iso_name.clone()} iso);`);
+          em.emit_declaration_string_line(`static void __yo_dispose_iso_${iso_name.clone()}(void* ptr);`);
+        }),
+        .None => ()
+      ),
+      .None => {
+        g3 = false;
+      }
+    );
+  });
+  // Pass 4: constructor implementations.
+  k4 := context.iso_types.keys();
+  (g4 : bool) = true;
+  while(g4, {
+    match(
+      k4.next(),
+      .Some(iso_name) => match(
+        context.iso_types.get(iso_name.clone()),
+        .Some(info) => if(!(info.create_generated), {
+          child := info.child_type_c_name.clone();
+          em.emit_string_line(`${iso_name.clone()} __yo_create_iso_${iso_name.clone()}(${child.clone()} value) {`);
+          em.emit_string_line(`  ${iso_name.clone()} iso = (${iso_name.clone()})__yo_malloc(sizeof(${iso_name.clone()}_struct));`);
+          em.emit_string_line(String.from("  iso->header.ref_count = 1;"));
+          em.emit_string_line(String.from("  iso->header.borrow_count = 0;"));
+          if(context.needs_cycle_gc, {
+            em.emit_string_line(String.from("  iso->header.gc_mark = __YO_GC_UNMARKED;"));
+            em.emit_string_line(String.from("  iso->header.gc_flags = 0;"));
+            em.emit_string_line(`  iso->header.dispose_fn = (void(*)(void*))__yo_dispose_iso_${iso_name.clone()};`);
+          }, {
+            tid := context.dispose_type_id_for(`__yo_dispose_iso_${iso_name.clone()}`);
+            em.emit_string_line(`  iso->header.type_id = ${tid.to_string()};`);
+          });
+          em.emit_string_line(String.from("  atomic_store(&iso->extracted, false);"));
+          em.emit_string_line(String.from("  iso->value = value;"));
+          em.emit_string_line(String.from("  return iso;"));
+          em.emit_string_line(String.from("}"));
+          info.create_generated = true;
+        }),
+        .None => ()
+      ),
+      .None => {
+        g4 = false;
+      }
+    );
+  });
+  // Pass 5: dispose implementations (public + internal wrapper).
+  k5 := context.iso_types.keys();
+  (g5 : bool) = true;
+  while(g5, {
+    match(
+      k5.next(),
+      .Some(iso_name) => match(
+        context.iso_types.get(iso_name.clone()),
+        .Some(info) => if(info.create_generated && !(info.dispose_generated), {
+          em.emit_string_line(`void __yo_iso_dispose_${iso_name.clone()}(${iso_name.clone()} iso) {`);
+          em.emit_string_line(String.from("  if (!atomic_load(&iso->extracted)) {"));
+          em.emit_string_line(String.from("    __yo_decr_rc((void*)iso->value);"));
+          em.emit_string_line(String.from("  }"));
+          em.emit_string_line(String.from("}"));
+          em.emit_string_line(`static void __yo_dispose_iso_${iso_name.clone()}(void* ptr) {`);
+          em.emit_string_line(`  __yo_iso_dispose_${iso_name.clone()}((${iso_name.clone()})ptr);`);
+          em.emit_string_line(String.from("}"));
+          info.dispose_generated = true;
+        }),
+        .None => ()
+      ),
+      .None => {
+        g5 = false;
+      }
+    );
+  });
+  // Pass 6: extract implementations.
+  k6 := context.iso_types.keys();
+  (g6 : bool) = true;
+  while(g6, {
+    match(
+      k6.next(),
+      .Some(iso_name) => match(
+        context.iso_types.get(iso_name.clone()),
+        .Some(info) => if(!(info.extract_generated), {
+          em.emit_string_line(`${info.child_type_c_name.clone()} __yo_iso_extract_${iso_name.clone()}(${iso_name.clone()} iso) {`);
+          em.emit_string_line(String.from("  bool was_extracted = atomic_exchange(&iso->extracted, true);"));
+          em.emit_string_line(String.from("  if (was_extracted) {"));
+          em.emit_string_line(`    fprintf(stderr, "panic: Iso::extract() called on already-extracted Iso\\n");`);
+          em.emit_string_line(String.from("    abort();"));
+          em.emit_string_line(String.from("  }"));
+          em.emit_string_line(String.from("  return iso->value;"));
+          em.emit_string_line(String.from("}"));
+          info.extract_generated = true;
+        }),
+        .None => ()
+      ),
+      .None => {
+        g6 = false;
+      }
+    );
+  });
+});
 /// Emit all C type declarations: runtime preamble, forward declarations, then the
 /// types in dependency (topological) order, then nullable-pointer enums and the
 /// dyn/union/future pass. Mirrors `generateTypeDeclarations` (src 90-968).

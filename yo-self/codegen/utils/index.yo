@@ -93,7 +93,18 @@ ImplClosureCallInfo :: ref(
   )
 );
 ArrayStructInfo :: ref(struct(child_type : String, length : i64));
-IsoTypeInfo :: ref(struct(child_type_c_name : String, iso_type : TypeValue));
+IsoTypeInfo :: ref(
+  struct(
+    child_type_c_name : String,
+    iso_type : TypeValue,
+    // Per-pass "already emitted" guards (mirrors TS isoInfo.*Generated), mutated
+    // in place by generate_iso_type_declarations.
+    struct_generated : bool,
+    create_generated : bool,
+    extract_generated : bool,
+    dispose_generated : bool
+  )
+);
 /// A `dyn()` usage: a concrete type used with a specific dyn trait. `dyn_type`
 /// is the DynT; `concrete_type` is the user type; `data_type` is what is
 /// stored in Dyn.data (object/Box); `trait_values` are the TraitVal evidence
@@ -406,7 +417,17 @@ impl(
   register_iso_type : (
     fn(self : Self, c_name : String, child_type_c_name : String, iso_type : TypeValue) -> unit
   )({
-    _r := self.iso_types.set(c_name, IsoTypeInfo(child_type_c_name : child_type_c_name, iso_type : iso_type));
+    _r := self.iso_types.set(
+      c_name,
+      IsoTypeInfo(
+        child_type_c_name : child_type_c_name,
+        iso_type : iso_type,
+        struct_generated : false,
+        create_generated : false,
+        extract_generated : false,
+        dispose_generated : false
+      )
+    );
     ()
   }),
   /// True if an Iso struct type with this C name is registered.
