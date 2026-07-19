@@ -1157,6 +1157,25 @@ of the remaining families — likely 30+ of the 64 red files. Execute it
 FIRST next session (plan + conversion list: issues/yo-self-dyn-fn-field.md
 CONVERGED DIAGNOSIS; the resolved_concrete field exists since bca8eccc5).
 
+## ROUND 17 (post-IoExn-commit pin): #69 = 125/180
+
+The five-fix IoExn commit (c33b6be04) flipped EIGHT files — the entire
+`(e : IoExn) =>` closure family: control_fn_as_regular_call,
+gc_cleanup_exit, net/dns, net/tcp, net/udp, option_result_combinators,
+process/command, sys/time. 106 stable + 19 of the 74-file divergent list
+= **125/180**. Remaining red classes: 46 rc=1, 5 TIMEOUT (stall class),
+3 rc=-6, 1 rc=-11.
+
+In flight at update time: gates for two more TS-parity emitter ports
+(generation.ts:1687 unit-tail statement rule — verified on the repro —
+and SomeT-resolved void-ness agreement), then two queued faithful ports:
+the io.await result-type resolution order (TS await.ts:82-95: per-call
+type first, never the cross-call-poisoned sid global — the
+`int32_t r0 = ;` class) and the binding emitter's unit-guard resolution
+(the `void x = ;` class). The closure GENERATION-identity split theory
+was REFUTED by instrumentation ([REFINE] shows every generation typed
+correctly); the real defects are these consumer-side resolution orders.
+
 ## ROUND 16 (definitive, surgery pin): #69 = 117/180. IoExn family FIXED (pending gates)
 
 Round-16 sweep over the 74-file r4-divergent list under /tmp/s2_r16pin
