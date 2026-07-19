@@ -445,3 +445,24 @@ WITH that scoping, the v11 pair becomes safe to re-land:
   went WHOLE-FILE GREEN — 116 passed, zero C errors — so the endgame for
   this file is fully de-risked; only the two refinements above separate it
   from a gate-clean landing.
+
+### v14: identity-gated rebinds — regression-clean, async_await surface persists
+
+The identity gate (found slot's stored SomeT id must match the lineage
+being resolved; mismatch → shadow) holds the repro + both bundle corpus
+files, but the async_await swallows persist: the poisoning update's slot
+holds a RESOLVED (non-SomeT) value at update time — no id to compare —
+and lands in an AMBIENT top frame the frame-check treats as legitimate.
+Remaining routes, in order of preference:
+
+1. Frame MARKER (`is_call_placeholder : bool` on Frame, set by
+   try_to_call's placeholder push): in-place updates allowed ONLY inside
+   marked frames; ambient tops always shadow. Invasive (env.yo + push
+   sites) but principled — models TS's per-call scope exactly.
+2. Narrowed Step-2 skip: understand first WHY bundle-field actions need
+   the param re-evaluation even though their `(e : IoExn)` annotation
+   should resolve E via the annotation pass (probe: compare the
+   annotation-pass result for bundle actions with and without the
+   re-eval; the v11 rc=139 says something else in the re-eval matters).
+   The v14 identity gate itself is sound hardening (prevents cross-lineage
+   in-place updates whenever ids ARE visible) — gated for standalone commit.
