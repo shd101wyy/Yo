@@ -362,3 +362,40 @@ constructs a NEW FnTraitT whose result defaults/resolves to unit when
 `T` binds a placeholder). If SomeT there → the [CONCEXP]-firing evals
 are NOT the param-matching arg evals at all, and the driver is a
 statement-position replay reading a stored concrete type.
+
+### Flag-parity port (helper.ts:1314) REVERTED — S1E_NONDETERMINISTIC
+
+Setting `is_inside_io_async_call` in the UnknownVal arms (v9 candidate)
+failed the same-binary double-emit determinism gate: the flag routes
+every builtin action closure through the await-analysis/capture-info
+machinery, whose registration bookkeeping is emission-order-sensitive
+(the same nondeterminism class as the reverted eval-side variable_name
+carry). The parity port is still CORRECT per TS — it needs a
+determinism-safe landing: first find which flag-gated registration
+diverges between two emits of one binary (suspects: closure capture-info
+keep-larger merges keyed by hash order; sticky codegen marking consuming
+random_id differently per pass), fix THAT ordering, then re-land the
+flag.
+
+### THE COMPLETE RESIDUAL MECHANISM (settled by elimination + Step-2 read)
+
+check_if_function_parameter_matches_argument Step 2
+(`evaluate_function_parameter_type_again(param_type, callee_env)`,
+helper.yo:457) re-evaluates the param type BY NAME in the callee env.
+Every task body awaits `yield(io)`, whose NESTED io.async call rebinds
+the ambient `T` in the shared mutable env chain to UNIT (yield's action
+returns unit) — the outer call's Step-2 re-evaluation then reads `T` →
+unit and constructs a CONCRETE `Fn(e : Io) -> unit` expected for the
+outer action closure. Uniform unit across the batch (every body yields),
+i32 closures swallow, unit closures pass by luck — every probe datum
+fits. TS is immune because its env chains are persistent/immutable and
+its per-call parameter clones resolve without name lookups.
+
+FIX (designed): io.async's param types SKIP the Step-2 name-based
+re-evaluation — they are already per-call instantiated by
+\_freshen_io_builtin_callee. Plumb an explicit
+`use_param_type_directly : bool` through
+check_if_function_parameter_matches_argument (the caller loop already
+computes is_io_async_call(expr)); do NOT key on
+ctx.is_inside_io_async_call (it stays set through nested arg evals whose
+own params DO need re-evaluation... and it is reverted anyway).
