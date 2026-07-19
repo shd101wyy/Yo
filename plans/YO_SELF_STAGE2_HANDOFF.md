@@ -1157,6 +1157,16 @@ of the remaining families — likely 30+ of the 64 red files. Execute it
 FIRST next session (plan + conversion list: issues/yo-self-dyn-fn-field.md
 CONVERGED DIAGNOSIS; the resolved_concrete field exists since bca8eccc5).
 
+## ROUND 18: #69 = 125/180 (holds; failure modes soften)
+
+Same 19 greens as round 17 — the three async identity commits (5b8e82bbe,
+78000440a, 25f5f9e89) fixed C-level classes without whole-file flips
+(their files carry further failures). Histogram: 47 rc=1, 5 TIMEOUT,
+3 rc=-6 (was 7 pre-IoExn; the r17 rc=-11 softened to rc=1). Frontier:
+the nested-eval attribution probe (async_await class root, designed in
+issues/yo-self-async-emission-cluster.md), then the stall class, Iso
+port, Gap-6 salvage.
+
 ## ASYNC EVAL-SIDE IDENTITY ARC — THREE MORE GATED COMMITS (5b8e82bbe, 78000440a, 25f5f9e89)
 
 - 5b8e82bbe: unit-result tails emit as statements (generation.ts:1687
