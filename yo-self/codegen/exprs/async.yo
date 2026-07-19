@@ -67,7 +67,8 @@ open(import("std/string"));
   type_key,
   get_type_string,
   can_optimize_as_nullable_pointer,
-  get_variable_type_string
+  get_variable_type_string,
+  scope_stack_contains
 } :: import("../utils/index.yo");
 {
   FunctionGenerationContext,
@@ -2337,7 +2338,30 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
       lit.push_str(".");
       lit.push_string(lbl.clone());
       lit.push_str(" = ");
-      lit.push_string(lbl);
+      // A captured field is normally the same-named variable in scope at the
+      // io.async call site. When the call sits INSIDE another closure whose
+      // OWN captures hold the name, it is only reachable through the enclosing
+      // capture context (`((<cap>*)closure_context)->name`) — nested async
+      // blocks emitted `.total = total` as an undeclared identifier. PRECEDENCE
+      // (the v11 lesson, issues/yo-self-async-emission-cluster.md): an
+      // IN-SCOPE C local/param wins — the captures side-table can hold names
+      // that are REAL C parameters of the current fn (the SM bundle param
+      // `e`), and rewriting those referenced a nonexistent capture field.
+      lbl_in_scope := scope_stack_contains(context.base.declared_scopes, lbl.clone());
+      lbl_read := cond(
+        lbl_in_scope => lbl.clone(),
+        match(
+          context.current_closure_captures,
+          .Some(caps9) => caps9.contains(lbl.clone()),
+          .None => false
+        ) => match(
+          context.current_closure_capture_type_c_name,
+          .Some(ecap9) => `((${ecap9}*)closure_context)->${lbl.clone()}`,
+          .None => `closure_context->${lbl.clone()}`
+        ),
+        true => lbl.clone()
+      );
+      lit.push_string(lbl_read);
       cli = (cli + usize(1));
     });
     lit.push_str(" }");

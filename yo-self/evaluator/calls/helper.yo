@@ -434,6 +434,7 @@ check_if_function_parameter_matches_argument :: (
     param_is_owning : bool,
     param_is_ref : bool,
     skip_expected_type : bool,
+    use_param_type_directly : bool,
     arg_expr_raw : AstExpr,
     callee_env : Environment,
     caller_env : Environment,
@@ -453,8 +454,23 @@ check_if_function_parameter_matches_argument :: (
     );
   });
   // Step 2: Evaluate param type in callee_env.
+  //
+  // io.async's params SKIP this name-based re-evaluation
+  // (`use_param_type_directly`): they are already per-call instantiated by
+  // _freshen_io_builtin_callee, and the re-evaluation reads `T`/`E` BY NAME
+  // from the shared mutable env chain, concretizing the action closure's
+  // expected with a SIBLING call's resolution (the [DRIVER]-probe-confirmed
+  // poison path: 126x `Fn(e : Io) -> unit` expecteds under the batch main's
+  // body eval — full chain in issues/yo-self-async-emission-cluster.md).
+  // The two bundle-shape corpus files this skip regressed pre-v13 were
+  // victims of the SAME stale-binding persistence, since fixed by the
+  // call-scoped rebinds (67acb7390) + lineage-identity gate (92b27f68b).
   (callee_env_r : Environment) = callee_env;
-  resolved_pt := evaluate_function_parameter_type_again(param_type, callee_env_r, ctx);
+  resolved_pt := if(
+    use_param_type_directly,
+    param_type.clone(),
+    evaluate_function_parameter_type_again(param_type, callee_env_r, ctx)
+  );
   // Step 3: Evaluate arg with param type as expected-type hint.
   //
   // For io.await/io.state/io.spawn/JoinHandle.await args (`skip_expected_type`),
@@ -2890,6 +2906,26 @@ try_to_call_function_with_arguments :: (
       // type (TS helper.ts:378-384 `functionType.ioBuiltin` skip). yo-self has no
       // `ioBuiltin` marker, so detect the call structurally here (once).
       io_builtin_skip_expected := (((is_io_await_call(expr) || is_io_state_call(expr)) || is_io_spawn_call(expr)) || is_join_handle_await_call(expr));
+      // io.async params use the (per-call freshened) declared type DIRECTLY —
+      // but ONLY when the call has NO Future-carrying expected type. WITH a
+      // return constraint, Step-6b above pre-bound `E` (and a concrete `T`)
+      // into THIS call's placeholder frame, and Step-2's re-evaluation is the
+      // delivery mechanism for those call-local bindings (the un-annotated
+      // `(e) => e.io…` bundle actions depend on it —
+      // tests/codegen-bootstrap/io_async_bundle_field.yo documents the flow).
+      // WITHOUT a constraint, the re-evaluation can only read AMBIENT
+      // same-named bindings — a sibling call's leaked resolution (the
+      // [DRIVER]-probe-confirmed `Fn(e : Io) -> unit` poison, 126x per
+      // async_await batch). See the Step-2 note in
+      // check_if_function_parameter_matches_argument.
+      io_async_has_ret_constraint := (
+        is_io_async_call(expr) && match(
+          ctx.expected_type,
+          .Some(io_exp0) => extract_future_trait_from_type(io_exp0.ty).is_some(),
+          .None => false
+        )
+      );
+      io_async_param_direct := (is_io_async_call(expr) && !(io_async_has_ret_constraint));
       (pi : usize) = usize(0);
       while(pi < n_params, {
         plabel := match(pl.get(pi),.Some(l) => l,.None => String.from(""));
@@ -2930,6 +2966,7 @@ try_to_call_function_with_arguments :: (
                 false,
                 match(pref.get(pi),.Some(b) => b,.None => false),
                 false,
+                io_async_param_direct,
                 cloned_de,
                 callee_env_m,
                 callee_env_m,
@@ -2994,6 +3031,7 @@ try_to_call_function_with_arguments :: (
           p_owning,
           match(pref.get(pi),.Some(b) => b,.None => false),
           io_builtin_skip_expected,
+          io_async_param_direct,
           parg,
           callee_env_m,
           caller_env_m,
