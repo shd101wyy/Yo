@@ -509,3 +509,23 @@ be making the driver evaluate the cloned io.async ARG with the DECLARED
 (freshened) param expected — i.e. routing the clone's arg eval through
 the same per-call machinery as gen-1 — rather than a leaked
 sibling-resolved Fn type.
+
+## 8. Generic-impl dispose family (std/sync + ordered_map/imm_map) — GAP-6-BLOCKED
+
+`collectDisposeMethodsFromGenericImpls` (TS collection.ts:650) was never
+ported — but the port is NOT the direct-registration TS shape: yo-self's
+find_methods_from_generic_impls returns a GENERIC (hard-generic,
+emission-skipped) FuncVal, so the constructor's
+`header.dispose_fn = <fid>` renders an undeclared identifier
+(yo_id_6143 = Mutex's Dispose impl, the whole sync family + 2
+collections files). Three-stage fix attempted (trace-sibling-shaped
+monomorphizer via create_specialized_function_inline + emittable-entry
+resolver preference in get_dispose_function_for_type): regression-clean
+(async_await 116 + bundles hold) but the spec never lands — the Mutex
+dispose body trips create_specialized_function_inline's documented
+weaknesses (the Gap-6 class; it also dragged an uncollected constructor
+**yo*new***yo_t22 into the batch). REVERTED (uncommitted); the family
+rides with the Gap-6 dedicated arc (wip/resolution-time-spec, attempt #6
+salvage plan). All three edit shapes are in this ledger's history for
+re-application once create_specialized_function_inline handles
+static/nested generic-impl bodies.
