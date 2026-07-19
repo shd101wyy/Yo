@@ -248,10 +248,20 @@ another's — the same mechanism attempt #6 recorded as "calls overwrite
 each other's annotations"). The 2× swallow per closure = two id-aliased
 re-eval generations.
 
-NEXT (fresh session): instrument ast_expr_id ranges at clone sites vs
-parser output (print the clone-counter base), confirm the overlap, then
-fix the ID SPACE separation (clone ids must come from a disjoint range —
-e.g. prefix/offset the clone counter above the parser's max, or key
-clone stamps in a separate table). This likely ALSO explains ledger item
-"standalone single-pass placeholder consumption" and parts of the
-conflicting-types cluster — id aliasing corrupts any id-keyed side state.
+ID-COLLISION HYPOTHESIS REFUTED (static check): parser and
+clone_expr_fresh_ids share ONE global counter (expr.yo:314
+`alloc_global_expr_id`; parser.yo:150 calls the same fn) — "parser nodes
+and synthesized nodes share the sequence". No aliasing is possible.
+
+The cross-wiring is therefore at the BODY/FUNCVAL FETCH level: gen-2's
+trial eval receives a body TREE belonging to a different closure
+(arm-0's eval saw `return((bb.(*)))` — the i32 task's expr). NEXT (fresh
+session, one probe build): at evaluate_anonymous_function_implementation
+entry, print `ast_expr_id(body_expr)` + the body's FIRST-token position
+alongside [SWALLOW]/[CONCEXP]; then trace where the re-eval driver got
+that body (the io.async arg's ExprInfo.value FuncVal? the deferred-eval
+queue? closure_type.yo's arg extraction?) — whichever registry handed
+gen-2 the wrong FuncVal is the fix site. Note the alternative reading:
+the begin THROWING the mismatch may be a NESTED eval inside the body
+(the check fires against the INNERMOST FunctionBody fctx) — the body-id
+print disambiguates this for free.
