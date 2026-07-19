@@ -414,3 +414,34 @@ REFINED FIX: in-scope names win — check`scope_stack_contains(context.base.decl
 read), only then the captures rewrite (same precedence as the atom
 emitter). Bisect build s1v12 (Step-2 skip alone) in flight to confirm
 the skip is gate-clean solo.
+
+### v12 bisect verdict: the Step-2 skip is TOO BROAD — revert both; the refined design
+
+Step-2-skip-only (s1v12) still SELF-FAILS closure_capture_rc_dup (rc=1)
+and io_async_bundle_field (rc=139): the name-based re-evaluation is
+LOAD-BEARING for effect-bundle param shapes (it resolves `E` to the
+enclosing row). Both v11 changes are reverted; the tree returns to
+25f5f9e89-committed state.
+
+THE PRECISE ROOT (ordering fact): within ONE call, Step 2 runs BEFORE
+the arg eval (so the nested-yield rebind cannot poison the SAME call's
+expected). The poisoned generation is the SECOND def-eval pass — the
+nested call's `T` rebind PERSISTED in the shared env chain across
+generations (the rebind wrote through to an outer/module frame instead
+of the call's own placeholder frame). THE ROOT FIX (next session): the
+forall REBIND during synthesis/param-matching must be scoped to the
+call's OWN placeholder frame (frame-level check at the rebind site in
+try_to_call_function_with_arguments/synthesize) so nothing persists
+after the call pops — TS equivalence via persistent env chains.
+
+WITH that scoping, the v11 pair becomes safe to re-land:
+
+- the Step-2 re-evaluation reads clean bindings (no skip needed at all —
+  drop `use_param_type_directly` entirely), and
+- the capture-literal rewrite needs the scope-stack precedence refinement
+  (in-scope C params win over the captures side-table) since the `e`
+  bundle param regression is independent of the env story.
+  PROOF OF VALUE: with the (buggy) v11 pair, tests/async_await.test.yo
+  went WHOLE-FILE GREEN — 116 passed, zero C errors — so the endgame for
+  this file is fully de-risked; only the two refinements above separate it
+  from a gate-clean landing.
