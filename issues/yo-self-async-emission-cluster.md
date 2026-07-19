@@ -399,3 +399,18 @@ check_if_function_parameter_matches_argument (the caller loop already
 computes is_io_async_call(expr)); do NOT key on
 ctx.is_inside_io_async_call (it stays set through nested arg evals whose
 own params DO need re-evaluation... and it is reverted anyway).
+
+### v11 gate failure bisect (capture-read rewrite)
+
+The v11 pair (Step-2 skip + capture-context read) SELF-FAILED
+closure_capture_rc_dup + io_async_bundle_field and broke the stage2 C
+compile (`__yo_t113 __yo_eff_bundle = e` — initializing a bundle struct
+from `e`, the closure's void* C PARAM). Root: the capture-literal
+rewrite keyed ONLY on `current_closure_captures.contains(name)` — but
+the captures side-table can contain names that are REAL C parameters of
+the current fn (the SM bundle param `e`), and rewriting those to
+`((cap*)closure_context)->e`references a nonexistent capture field.
+REFINED FIX: in-scope names win — check`scope_stack_contains(context.base.declared_scopes, lbl)` FIRST (bare
+read), only then the captures rewrite (same precedence as the atom
+emitter). Bisect build s1v12 (Step-2 skip alone) in flight to confirm
+the skip is gate-clean solo.
