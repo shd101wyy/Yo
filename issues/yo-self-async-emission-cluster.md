@@ -340,3 +340,25 @@ resolve_param_types_from_expected in an arm without freshening).
   at the synthesizer cell-stamp sites (synthesizer.yo:1262/:1351) print
   registrations whose given/expected is unit with the SomeT id — match
   the ids to name the exact stamping unification.
+
+### Stamp probe result: ZERO `T := unit` cell registrations
+
+The synthesizer stamp sites (synthesizer.yo:1262/:1351) NEVER register
+T:=unit in the whole async_await batch — the cells/global are NOT the
+unit vector. types/substitution.yo recurses FnTraitT.call_result and
+FutureTraitT.output correctly, so the freshened wrapper carries fresh-T
+inside its FnTraitT. Therefore the swallowing eval's expected — a
+CONCRETE `fn(e : Io) -> unit` (FnTrait labels!) — was CONSTRUCTED
+concrete somewhere between the freshened callee and the closure eval.
+NEXT PROBE (the narrowest yet): in helper.yo's
+check_if_function_parameter_matches_argument (the arg-eval that sets
+expectedType = the declared param, helper.ts:330 mirror), print the
+EXPECTED it passes for io.async action args (render + whether the
+FnTrait result is SomeT/concrete). If concrete there → the param type
+was re-built/re-evaluated between freshening and arg-eval (suspect:
+`evaluate_function_return_type_again`-style re-evaluation of
+`Impl(Fn(e : E) -> T)` in the callee env, where the AST re-eval
+constructs a NEW FnTraitT whose result defaults/resolves to unit when
+`T` binds a placeholder). If SomeT there → the [CONCEXP]-firing evals
+are NOT the param-matching arg evals at all, and the driver is a
+statement-position replay reading a stored concrete type.
