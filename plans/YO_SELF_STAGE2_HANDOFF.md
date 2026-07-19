@@ -1157,6 +1157,35 @@ of the remaining families — likely 30+ of the 64 red files. Execute it
 FIRST next session (plan + conversion list: issues/yo-self-dyn-fn-field.md
 CONVERGED DIAGNOSIS; the resolved_concrete field exists since bca8eccc5).
 
+## ASYNC ENDGAME: async_await 116-GREEN PROVEN — two refinements from landing
+
+The v11 candidate pair (Step-2 param re-eval skip for io.async +
+capture-literal context rewrite) took tests/async_await.test.yo
+WHOLE-FILE GREEN (116 passed, zero C errors) — but SELF-FAILED two
+corpus files (closure_capture_rc_dup, io_async_bundle_field) and broke
+the stage2 C compile; bisect (v12) showed the Step-2 skip alone still
+breaks both (the re-evaluation is LOAD-BEARING for bundle-param
+resolution). Both reverted; tree at the committed state.
+
+THE ROOT (nine-probe chain, all in issues/yo-self-async-emission-
+cluster.md): nested io.async calls' forall rebinds PERSIST in the shared
+mutable env chain across def-eval generations — synthesizer.yo
+`_bind_some_type`'s update arm mutates the innermost NAME-match in place
+(durable), where TS's persistent env chains scope it. Gen-2 of every
+sibling closure then reads the stale `T := unit`.
+
+LANDING SEQUENCE (next session):
+
+1. Probe \_bind_some_type updates of `T` (name/frame_level/env-len) to
+   map the frame topology; scope the update to the call's own
+   placeholder frame.
+2. Re-land the capture-literal rewrite WITH scope-stack precedence
+   (in-scope C params win — the `e` bundle-param regression).
+3. Drop the Step-2 skip entirely (unneeded once rebinds are scoped).
+4. Full gates; expect async_await + possibly worker/thread movement.
+   Also ledgered: the helper.ts:1314 flag port (reverted
+   S1E_NONDETERMINISTIC — needs a determinism-safe landing).
+
 ## ROUND 18: #69 = 125/180 (holds; failure modes soften)
 
 Same 19 greens as round 17 — the three async identity commits (5b8e82bbe,
