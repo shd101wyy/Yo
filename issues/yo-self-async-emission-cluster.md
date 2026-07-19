@@ -143,3 +143,53 @@ refinement registers under the source key too, and the codegen-side
 get_func_type consumer prefers a source-merged CONCRETE-result
 registration over a fid-keyed unresolved/unit one; alternatively fix the
 collection to reference the LAST evaluated generation.
+
+## 7. THE EVAL-SIDE ROOT (supersedes item 6's codegen-side view)
+
+Swallow-instrumentation with last-expr diagnostics (s1dbg5) proved the
+async_await class is EVAL-side: every failing closure's def-eval throws
+begin.yo:1041 "Return type mismatch. Expected unit, got i32" (or vice
+versa) because the RE-EVAL generation's expected `Fn(E) -> T` carries a
+T CONCRETIZED FROM A SIBLING CALL. Mechanism: TS clones the callee's
+function type PER CALL (specializeFunctionType deep-copy), so
+`resolvedConcreteType` stamps are per-call-isolated for free; yo-self
+deliberately PRESERVES the io.async OUTPUT SomeT id across calls
+(function.yo ~3678: "the io.await resolution keys on the output id") and
+resolves eval-side awaits via `lookup_some_resolved_concrete(tid)` — a
+GLOBAL keyed by that shared id (function.yo:3683/:3989). First call
+resolves T:=unit → global + shared lineage cell poisoned → an
+i32-bodied sibling's re-eval sees expected unit → throws → trial
+swallowed → no result refinement → stale registration → the 8×
+"void function should not return a value" + downstream `void x = ;`.
+
+FAITHFUL REWORK (restores TS's per-call identity at the call boundary):
+
+1. function.yo io.async return-type minting: rebuild the FutureTraitT
+   OUTPUT SomeT per call — fresh id, same name, FRESH empty cell (the
+   t_resolved_cell discipline) — so the synthesizer's slice-1 cell
+   mutation lands on THIS call's lineage only.
+2. Eval-side await result resolution (:3683/:3989): read the FUTURE
+   ARG's type → FutureTraitT output → per-call CELL first; the tid
+   global becomes the last-resort fallback (mirrors the v6 codegen-side
+   await fix, 78000440a).
+3. Codegen await/spawn/state consumers already prefer per-call data
+   after 78000440a.
+
+### Item 7 probe results (per-call freshening, s1dbg6)
+
+The uniform "expected unit/got i32" swallow class is GONE (the per-call
+fresh output id + cell isolates sibling io.async calls as designed). The
+batch surfaces the NEXT two layers:
+
+- 8× `returning 'int32_t' from a function with result type '__yo_t36 *'`
+  — some closures' PROTOTYPES now render the FUTURE STRUCT POINTER as
+  their result: an unrefined registered result SomeT resolving (cell or
+  fresh-id global) to a WRAPPER future type. Suspect: the
+  `register_some_resolved_concrete(oid, rr)` bridge writing a
+  future-typed rr (a DELEGATE closure's registered result) under an oid
+  that a non-delegate closure's result render reads. Needs the oid/rr
+  trace (next probe).
+- Residual swallows (13, varied): `Expected type "Output", got unit` on
+  bare-`return` bodies (test 8's early-return closure) — the expected
+  renders "Output" yet passed the `!is_some_type` gate; ekey diagnostic
+  added (s1dbg7) to reveal the actual variant.
