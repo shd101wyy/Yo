@@ -16,6 +16,23 @@ open(import("std/fmt"));
 { t_comptime_string } :: import("../../types/creators.yo");
 { Exception } :: import("std/error");
 { format_error_message } :: import("../../error.yo");
+/// Hex-digit value of a rune (`0`-`9`, `a`-`f`, `A`-`F`); `0` for non-hex.
+_hex_digit_val :: (fn(r : rune) -> u32)({
+  c := r.char;
+  cond(
+    ((c >= u32(0x30)) && (c <= u32(0x39))) => (c - u32(0x30)),
+    ((c >= u32(0x41)) && (c <= u32(0x46))) => ((c - u32(0x41)) + u32(10)),
+    ((c >= u32(0x61)) && (c <= u32(0x66))) => ((c - u32(0x61)) + u32(10)),
+    true => u32(0)
+  )
+});
+/// Combine four hex-digit runes into a 16-bit code unit (`\uXXXX` payload).
+_hex4 :: (fn(a : rune, b : rune, c : rune, d : rune) -> u32)(
+  (
+    ((_hex_digit_val(a) * u32(4096)) + (_hex_digit_val(b) * u32(256)))
+    + (_hex_digit_val(c) * u32(16))
+  ) + _hex_digit_val(d)
+);
 /// Decode escape sequences in a raw string-literal token value, preserving the
 /// surrounding `"` delimiters (yo-self's `StrLit` convention keeps the quotes).
 ///
@@ -85,6 +102,49 @@ decode_str_lit_escapes :: (fn(raw : String) -> String)({
         (nck.char == u32(0x76)) => {
           sb.write_rune(rune(u32(0x0B)));
           k = (k + usize(2));
+        },
+        // \uXXXX — Unicode escape (JSON.parse semantics: exactly four hex
+        // digits, with surrogate-pair combining for astral code points). The
+        // decoded code point is UTF-8 encoded by write_rune, so `é`
+        // becomes the real two-byte `é` (not the literal `é` bytes).
+        (nck.char == u32(0x75)) => {
+          h1 := chars.get(k + usize(2)).unwrap_or(null_rune);
+          h2 := chars.get(k + usize(3)).unwrap_or(null_rune);
+          h3 := chars.get(k + usize(4)).unwrap_or(null_rune);
+          h4 := chars.get(k + usize(5)).unwrap_or(null_rune);
+          cp := _hex4(h1, h2, h3, h4);
+          cond(
+            ((cp >= u32(0xD800)) && (cp <= u32(0xDBFF))) => {
+              bs := chars.get(k + usize(6)).unwrap_or(null_rune);
+              uu := chars.get(k + usize(7)).unwrap_or(null_rune);
+              l1 := chars.get(k + usize(8)).unwrap_or(null_rune);
+              l2 := chars.get(k + usize(9)).unwrap_or(null_rune);
+              l3 := chars.get(k + usize(10)).unwrap_or(null_rune);
+              l4 := chars.get(k + usize(11)).unwrap_or(null_rune);
+              lo := _hex4(l1, l2, l3, l4);
+              cond(
+                (
+                  ((bs.char == u32(0x5C)) && (uu.char == u32(0x75)))
+                  && ((lo >= u32(0xDC00)) && (lo <= u32(0xDFFF)))
+                ) => {
+                  combined := (
+                    u32(0x10000)
+                    + (((cp - u32(0xD800)) * u32(1024)) + (lo - u32(0xDC00)))
+                  );
+                  sb.write_rune(rune(combined));
+                  k = (k + usize(12));
+                },
+                true => {
+                  sb.write_rune(rune(cp));
+                  k = (k + usize(6));
+                }
+              );
+            },
+            true => {
+              sb.write_rune(rune(cp));
+              k = (k + usize(6));
+            }
+          );
         },
         true => {
           sb.write_rune(ck);
