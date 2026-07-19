@@ -376,27 +376,48 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   expr_type := expr_ei.ty;
   future_code := _call_generate_expr(future_arg, indent.clone(), context);
   future_type_name := get_type_string(future_type, context.base);
-  // Result type (resolve SomeType to concrete).
+  // Result type (resolve SomeType to concrete). Mirrors await.ts:82-95: TS
+  // reads the PER-CALL cloned SomeT's `resolvedConcreteType`, then the await
+  // expr's own recorded type, then that type's resolution — never a global.
+  // yo-self's resolution cell is per-LINEAGE (the declaration's clones share
+  // the handle, so a sibling io.async call site can re-resolve it — the
+  // cross-call poisoning family, issues/yo-self-async-emission-cluster.md
+  // item 6), and the bare-sid global has the same cross-call hazard. The
+  // await EXPR's ExprInfo type is therefore the faithful per-call stand-in
+  // and must win; cells, then the legacy sid globals, are fallbacks only.
+  // (The poisoned-global order emitted `int32_t r0 = ;` — the await returned
+  // "" as unit while the binding knew i32.)
   (result_type : TypeValue) = match(future_trait_type,.FutureTraitT({ output : o }) => o.clone(), _ => future_type);
   if(is_some_type(result_type), {
     rsid := match(result_type,.SomeT({ id : i }) => i, _ => String.from(""));
-    match(
-      lookup_some_resolved_concrete(rsid),
-      .Some(rct) => {
-        result_type = rct;
-      },
-      .None => if(!(is_some_type(expr_type)), {
+    own_cell := match(result_type,.SomeT({ resolved_concrete : orc }) => orc.get(usize(0)), _ => Option(TypeValue).None);
+    cond(
+      !(is_some_type(expr_type)) => {
         result_type = expr_type;
-      }, {
+      },
+      true => {
+        expr_cell := match(expr_type,.SomeT({ resolved_concrete : erc }) => erc.get(usize(0)), _ => Option(TypeValue).None);
         esid := match(expr_type,.SomeT({ id : i }) => i, _ => String.from(""));
         match(
-          lookup_some_resolved_concrete(esid),
-          .Some(r) => {
-            result_type = r;
+          match(
+            expr_cell,
+            .Some(ec) => Option(TypeValue).Some(ec),
+            .None => match(
+              own_cell,
+              .Some(oc) => Option(TypeValue).Some(oc),
+              .None => match(
+                lookup_some_resolved_concrete(rsid),
+                .Some(rg) => Option(TypeValue).Some(rg),
+                .None => lookup_some_resolved_concrete(esid)
+              )
+            )
+          ),
+          .Some(rt) => {
+            result_type = rt;
           },
           .None => ()
         );
-      })
+      }
     );
   });
   em := context.base.emitter;
