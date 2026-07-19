@@ -778,6 +778,22 @@ _some_t_requires_future :: (fn(t : TypeValue) -> bool)(
   )
 );
 
+/// Remove all `*` bytes from a C type string. Mirrors TS `childTypeCName
+/// .replace(/\*/g, "")` used to build the clean Iso type name (a by-value C
+/// identifier can't contain `*`; sanitize would otherwise turn it into `_u42_`).
+_strip_stars :: (fn(s : String) -> String)({
+  out := String.from("");
+  n := s.as_bytes().len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    b := s.byte_at(i);
+    if(b != u8(42), {
+      out.push_byte(b);
+    });
+    i = (i + usize(1));
+  });
+  out
+});
 get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
   match(
     t,
@@ -913,7 +929,20 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
         )
       )
     ),
-    .IsoT({}) => __yo_panic("get_type_string: Iso lowering is Phase 3 — not yet ported"),
+    // Iso type (reference-counted isolated value). Mirrors getTypeString's
+    // TypeTag.Iso case (utils/index.ts:788): the C name is `Iso_<cleanChild>`
+    // and the type is registered (idempotent) so its struct + runtime helpers
+    // (__yo_create_iso_*, __yo_iso_extract_*, __yo_iso_dispose_*) get emitted.
+    .IsoT(c) => {
+      child_c_name := recur(c, context);
+      clean := _strip_stars(child_c_name.clone()).trim();
+      iso_name := String.from("Iso_");
+      iso_name.push_string(sanitize_for_c_identifier(clean, false));
+      if(!(context.has_iso_type(iso_name.clone())), {
+        context.register_iso_type(iso_name.clone(), child_c_name.clone(), t);
+      });
+      iso_name
+    },
     // Dynamic dispatch type — a value struct { data ptr, vtable ptr } passed
     // by value. Mirrors getTypeString's TypeTag.Dyn case (utils/index.ts:547):
     // return the registered fat-pointer C type name (keyed by type_key here,

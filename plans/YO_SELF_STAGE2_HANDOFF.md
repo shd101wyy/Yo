@@ -107,9 +107,14 @@ i32(7)))`) — closure-as-fn-pointer-field codegen. iso.test's "expected
     and isn't — a macro-expansion gap (cf. [[recur codegen]] side-table). Deep;
     likely shared with `dyn` (also derived-match). A multi-cycle macro arc, not a
     quick flip.
-  - `iso`/`rc`/`iso_api_surface`: type-decl port done (patch
-    `issues/iso-type-decl-port.patch`); remaining = evaluator `.extract()` →
-    `__yo_iso_extract` resolution + `Array_Array_*` decl.
+  - `iso`/`rc`/`iso_api_surface` (3 files): **LAYER 1 DONE this session** —
+    get*type_string's `.IsoT` arm was a panic stub; ported it (name build +
+    `iso_types` registration, mirrors TS getTypeString Iso case). iso.test now
+    advances past the panic to `unknown type 'Iso*_'`/ undeclared`\_*yo_create_iso*_`. **LAYER 2/3 OPEN:** `generate_iso_type_declarations`(generation.yo:1097) is still a NO-OP stub — port the full 176-line TS`generateIsoTypeDeclarations`(generation.ts:1047): Iso struct + create/extract/
+dispose decls & impls. All deps EXIST (needs_cycle_gc, dispose_type_ids,
+___drop registry lookup, register_iso_type). Mechanical template translation.
+**Complete spec in`issues/yo-self-iso-runtime-port.md`.\*_ (Supersedes the
+    earlier ".extract()/Array*Array*_ decl" guess.) PORT work, NOT Gap-6.
   - **async-future cluster (5 files — best files/cycle) PRECISE scoping:** SM
     struct name = `` `${async_block_id}_state_t` `` where async*block_id =
     `ei.variable_name` (async.yo ~1490/1914), set via `_set_async_sm_struct_name`
