@@ -279,3 +279,39 @@ under the ambient FunctionBody context — the fix is making that driver
 carry its own recorded context (or scope the check to the IMMEDIATE
 body). The 2x-per-closure swallow repetition and the exact C-error
 count (8) vs swallow count (9) are consistency checks for the fix.
+
+### Arg-census ground truth (s1dbg14) — the frontier, precisely
+
+The mismatching begin IS the i32-returning closure's own coherent body
+(census: printf/assert/Box/increment/await/printf/assert/`return((bb.(*)))`,
+9 args, all tokens consecutive — earlier cross-line archaeology was
+misled by REGENERATED batch files shifting arm→line mappings; only
+same-run probes are trustworthy). The defect: this closure's def-eval
+runs under expected `fn(e : Io) -> unit` — E:=Io AND T:=unit BOTH
+resolved in the FnTrait the expected wrapper carries, though THIS call's
+fresh T should be unresolved (or i32). The `e` label proves the type
+came through `_func_from_fn_trait(extract_fn_trait_from_type(wrapper))`.
+
+TWO additional facts from [CONCEXP]:
+
+1. EVERY closure eval in the batch reports `ioasync=n` — the UnknownVal-
+   callee arms (where builtin io.async calls actually land) NEVER set
+   `ctx.is_inside_io_async_call`; only the FuncVal arm does. TS sets
+   `isInsideIoAsyncCall` keyed on `functionType.ioBuiltin` REGARDLESS of
+   the callee-value shape (helper.ts:1314). This is an independent
+   faithful-port defect: the flag drives await-analysis attachment and
+   the sticky closure-codegen marking — fix by setting/restoring the
+   flag around try*to_call_function_with_arguments in BOTH `*` arms
+   (mirror of the :2770 FuncVal-arm block). It may or may not be the
+   T:=unit vector — fix it first, re-probe.
+2. The swallowing evals are all `fb=fnbody` — the enclosing fn's
+   def-time body eval — i.e. gen-1 IS the swallowing generation (there
+   are no successful earlier generations for these fids; the refinement
+   never runs for them).
+
+NEXT SESSION SEQUENCE: (a) port the missing is_inside_io_async_call
+flag in both UnknownVal arms; (b) re-probe [CONCEXP]/[MISMATCH] — if
+T:=unit persists, instrument extract_fn_trait_from_type to print where
+the wrapper's FnTraitT result got its resolution (the remaining
+candidates: the trait-checking extraction resolving through a cell, or
+resolve_param_types_from_expected in an arm without freshening).
