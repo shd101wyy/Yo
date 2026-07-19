@@ -1,0 +1,183 @@
+diff --git a/yo-self/codegen/types/generation.yo b/yo-self/codegen/types/generation.yo
+index bef09a5a8..5b37eda2b 100644
+--- a/yo-self/codegen/types/generation.yo
++++ b/yo-self/codegen/types/generation.yo
+@@ -1092,11 +1092,148 @@ generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
+ generate_future_trait_declaration :: (fn(type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
+   ()
+ );
+-/// Generate Iso struct types + constructor declarations. DEFERRED (Phase-3 iso,
+-/// generateIsoTypeDeclarations) — no iso types in the corpus.
+-generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)(
+-  ()
+-);
++/// Generate Iso struct types, constructor/extract/dispose decls + impls.
++/// Mirrors `generateIsoTypeDeclarations` (types/generation.ts). Iso is an atomic
++/// reference-counted isolated wrapper `{ header; _Atomic bool extracted; T value }`.
++/// yo-self's IsoTypeInfo carries no per-section "generated" flags (this runs
++/// once, so each section emits for every iso type). DIVERGENCE: the child-drop
++/// resolution (TS's `childType.trait.fields.find(___drop)` branch) is folded into
++/// the `__yo_decr_rc` default — Iso wraps reference-semantics owners (e.g.
++/// `Iso(Box(i32))`), whose rc-drop cascade IS the child drop.
++generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
++  em := context.emitter;
++  names := ArrayList(String).new();
++  kit := context.iso_types.keys();
++  (kdone : bool) = false;
++  while(!(kdone), {
++    match(
++      kit.next(),
++      .Some(k) => {
++        _kp := names.push(k);
++      },
++      .None => {
++        kdone = true;
++      }
++    );
++  });
++  n := names.len();
++  // Struct type + constructor declaration.
++  (i1 : usize) = usize(0);
++  while(i1 < n, {
++    iso_name := match(names.get(i1),.Some(k) => k,.None => String.from(""));
++    match(
++      context.iso_types.get(iso_name.clone()),
++      .Some(info) => {
++        child := info.child_type_c_name.clone();
++        em.emit_declaration_line("typedef struct { // Iso wrapper struct");
++        em.emit_declaration_line("  __yo_ref_header_t header; // Atomic RC header");
++        em.emit_declaration_line("  _Atomic bool extracted; // Extraction flag");
++        em.emit_declaration_string_line(`  ${child} value; // Inner value`);
++        em.emit_declaration_string_line(`} ${iso_name}_struct;`);
++        em.emit_declaration_string_line(`typedef ${iso_name}_struct* ${iso_name};`);
++        em.emit_declaration_line("");
++        em.emit_declaration_string_line(`${iso_name} __yo_create_iso_${iso_name}(${child} value);`);
++        em.emit_declaration_line("");
++      },
++      .None => ()
++    );
++    i1 = (i1 + usize(1));
++  });
++  // Extract function declaration.
++  (i2 : usize) = usize(0);
++  while(i2 < n, {
++    iso_name := match(names.get(i2),.Some(k) => k,.None => String.from(""));
++    match(
++      context.iso_types.get(iso_name.clone()),
++      .Some(info) => {
++        em.emit_declaration_string_line(`${info.child_type_c_name} __yo_iso_extract_${iso_name}(${iso_name} iso);`);
++      },
++      .None => ()
++    );
++    i2 = (i2 + usize(1));
++  });
++  // Dispose function declarations.
++  (i3 : usize) = usize(0);
++  while(i3 < n, {
++    iso_name := match(names.get(i3),.Some(k) => k,.None => String.from(""));
++    em.emit_declaration_string_line(`void __yo_iso_dispose_${iso_name}(${iso_name} iso);`);
++    em.emit_declaration_string_line(`static void __yo_dispose_iso_${iso_name}(void* ptr);`);
++    i3 = (i3 + usize(1));
++  });
++  // Constructor implementation.
++  (i4 : usize) = usize(0);
++  while(i4 < n, {
++    iso_name := match(names.get(i4),.Some(k) => k,.None => String.from(""));
++    match(
++      context.iso_types.get(iso_name.clone()),
++      .Some(info) => {
++        child := info.child_type_c_name.clone();
++        dispose_name := `__yo_dispose_iso_${iso_name}`;
++        dispose_assign := cond(
++          context.needs_cycle_gc => `  iso->header.dispose_fn = ${dispose_name};`,
++          true => `  iso->header.type_id = ${context.dispose_type_id_for(dispose_name.clone()).to_string()};`
++        );
++        gc_init := cond(
++          context.needs_cycle_gc => String.from("\n  iso->header.gc_mark = __YO_GC_UNMARKED;\n  iso->header.gc_flags = 0;"),
++          true => String.from("")
++        );
++        em.emit_string_line(
++          `${iso_name} __yo_create_iso_${iso_name}(${child} value) {
++  ${iso_name} iso = (${iso_name})__yo_malloc(sizeof(${iso_name}_struct));
++  iso->header.ref_count = 1;
++  iso->header.borrow_count = 0;${gc_init}
++${dispose_assign}
++  atomic_store(&iso->extracted, false);
++  iso->value = value;
++  return iso;
++}`
++        );
++      },
++      .None => ()
++    );
++    i4 = (i4 + usize(1));
++  });
++  // Dispose implementation (drop inner unless extracted).
++  (i5 : usize) = usize(0);
++  while(i5 < n, {
++    iso_name := match(names.get(i5),.Some(k) => k,.None => String.from(""));
++    em.emit_string_line(
++      `void __yo_iso_dispose_${iso_name}(${iso_name} iso) {
++  if (!atomic_load(&iso->extracted)) {
++    __yo_decr_rc((void*)iso->value);
++  }
++}`
++    );
++    em.emit_string_line(
++      `static void __yo_dispose_iso_${iso_name}(void* ptr) {
++  __yo_iso_dispose_${iso_name}((${iso_name})ptr);
++}`
++    );
++    i5 = (i5 + usize(1));
++  });
++  // Extract implementation (atomic check-and-set; panic on double-extract).
++  (i6 : usize) = usize(0);
++  while(i6 < n, {
++    iso_name := match(names.get(i6),.Some(k) => k,.None => String.from(""));
++    match(
++      context.iso_types.get(iso_name.clone()),
++      .Some(info) => {
++        em.emit_string_line(
++          `${info.child_type_c_name} __yo_iso_extract_${iso_name}(${iso_name} iso) {
++  bool was_extracted = atomic_exchange(&iso->extracted, true);
++  if (was_extracted) {
++    fprintf(stderr, "panic: Iso::extract() called on already-extracted Iso\\n");
++    abort();
++  }
++  return iso->value;
++}`
++        );
++      },
++      .None => ()
++    );
++    i6 = (i6 + usize(1));
++  });
++});
+ /// Emit all C type declarations: runtime preamble, forward declarations, then the
+ /// types in dependency (topological) order, then nullable-pointer enums and the
+ /// dyn/union/future pass. Mirrors `generateTypeDeclarations` (src 90-968).
+diff --git a/yo-self/codegen/utils/index.yo b/yo-self/codegen/utils/index.yo
+index 866569746..288e24c51 100644
+--- a/yo-self/codegen/utils/index.yo
++++ b/yo-self/codegen/utils/index.yo
+@@ -898,7 +898,19 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
+         )
+       )
+     ),
+-    .IsoT({}) => __yo_panic("get_type_string: Iso lowering is Phase 3 — not yet ported"),
++    // Iso type (atomic reference-counted isolated value). Mirrors getTypeString's
++    // TypeTag.Iso case (utils/index.ts:788): a clean child C name (pointer stars
++    // stripped) → `Iso_<sanitized>`, registered for generate_iso_type_declarations
++    // to emit. Iso types are reference-counted pointers.
++    .IsoT(child) => {
++      child_c := recur(child.clone(), context);
++      clean := child_c.clone().replace_all(String.from("*"), String.from("")).trim();
++      iso_name := `Iso_${sanitize_for_c_identifier(clean, false)}`;
++      if(!(context.iso_types.contains_key(iso_name.clone())), {
++        context.register_iso_type(iso_name.clone(), child_c.clone(),.IsoT(child.clone()));
++      });
++      iso_name
++    },
+     // Dynamic dispatch type — a value struct { data ptr, vtable ptr } passed
+     // by value. Mirrors getTypeString's TypeTag.Dyn case (utils/index.ts:547):
+     // return the registered fat-pointer C type name (keyed by type_key here,
