@@ -193,3 +193,25 @@ batch surfaces the NEXT two layers:
   bare-`return` bodies (test 8's early-return closure) — the expected
   renders "Output" yet passed the `!is_some_type` gate; ekey diagnostic
   added (s1dbg7) to reveal the actual variant.
+
+### Item 7, layer 2 (s1dbg8 probe): the ACTION-PARAM T shares the declaration id
+
+`__yo_t36` = std/process's `Output` STRUCT (not a future). The remaining
+8× wrong prototypes render `Output*` because the CLOSURE's registered
+type carries the ACTION PARAM's `T` (from `action : Impl(Fn(E) -> T)`),
+whose id is the DECLARATION's — shared by every io.async call. During
+std eval, command.yo's `io.async(...) -> declared Impl(Future(Output,
+IoExn))` unification registers that shared id → process::Output
+(synthesizer stamp), poisoning every later closure's result render.
+The return-side-only freshening (item 7 layer 1) split T's identity:
+param-side T old/shared, return-side T fresh — the closure-body
+unification (T := body) no longer reaches the future's output either.
+
+CORRECT SHAPE (= TS specializeFunctionType): freshen the WHOLE callee
+Func per io.async call at CALL ENTRY — one name→fresh-SomeT mapping
+applied consistently to the action param's `Fn(E) -> T` AND the return's
+`Future(T, E)` — so the per-call lineage is closed end-to-end (closure
+registers fresh-T; body unification seeds fresh cell; await reads it).
+The residual "Expected Output" def-eval swallows in the batch are
+command.yo's OWN closures' std-eval noise (pre-existing swallow
+philosophy), NOT the async_await failure.
