@@ -9,15 +9,62 @@ reverted candidate of the async/dispose/spec families) lives in
 `issues/yo-self-async-emission-cluster.md` — consult it before re-deriving
 anything about those families.
 
+## SESSION UPDATE 2026-07-19 (post-round-19) — READ FIRST
+
+- **#69 now 128/180** (was 126). Landed: `ccd90b91e` (P1 `\u` decode → str.test
+  3/3), `845e4e68e` (FloatLit exponent-form → time/duration 12/12). Both fully
+  gated (corpus PASS 135, std 153/153, str+duration flips, prior flips hold,
+  **STRICT_FIXPOINT=HOLDS**).
+- **FIXPOINT clarified (was a scare):** the strict stage2≡stage3 gate is the
+  s1(TS)-compiled vs s2(self)-compiled 3-stage comparison. It is MARGINALLY
+  host-dependent (HashMap bucket-order emission): a fresh clean rebuild broke it
+  once, but the committed compiler is SELF-STABLE (r19 self-check: stageA≡stageB)
+  and P1+duration HOLD it. Bootstrap IS sound. Full robustness = the deferred
+  determinism fix (`issues/yo-self-emission-order-nondeterminism.md` +
+  `issues/determinism-fix-function_order.patch`: function_order/type_order
+  insertion-order emission, mirrors TS `for..in`). Gate on functional criteria
+  - strict fixpoint; if a future change breaks strict fixpoint benignly, verify
+    s2 SELF-STABILITY (stage3 vs stage4) instead.
+- **Full clustering of the 52 remaining red files (this session's sweeps,
+  s2_r19pin/s2_p1d):**
+  - _Spec type-identity_ (~14): `incompatible type __yo_tX vs __yo_tY` /
+    undeclared `yo_id_N`/`**unknown**Type`/`gs_` specs — arc, imm_list/map/set/
+    string, thread, error, impl, cli/arg_parser, collections/linked_list/
+    ordered_map, closure_capture_rc_leak, forward_ref_self_method. Per-call
+    type identity (Gap-6 family). HARD.
+  - _"expected expression" codegen_ (~5): derive, dyn, flowability_comprehensive,
+    forward_ref_impl_block, module_struct_unification. Emitter puts a type name
+    where C wants a value (msu: `.next = __yo_t32` — closure/fn-typed struct
+    field emits the struct type name). LIKELY MULTIPLE ROOTS (diverse features).
+  - _Async-future_ (5): fs/dir/file/fs*convenience/walker, sys/bufio —
+    forward-decl emits `__yo_io_future_t*` but def emits `*...\_sync_fut_t\*`
+    ("conflicting types"). The io.async block's SM struct name (ei.
+    async_state_machine_struct_name) is computed during BODY emission, too late
+    for the decl phase (699/725). Needs a pre-pass. Async-arc.
+  - _Dispose_ (6): sync/atomic/channel/mutex/once/rwlock/waitgroup +
+    ordered_map — `undeclared yo_id_N` (Mutex=6143). collectDisposeMethods-
+    FromGenericImpls, Gap-6-blocked (ledger item 8).
+  - _incomplete-void_ (2): derive_clone_complex, worker (`incomplete type void`).
+  - _check-error_ (2): ref_field_borrow, ref_return_ban — `Expected compile
+error but evaluated successfully` (borrow check not enforced in yo-self eval).
+  - _Iso port_ (3): iso, rc, iso_api_surface — get_type_string .IsoT panic +
+    generate_iso_type_declarations is a NO-OP stub (P4). IN PROGRESS.
+  - _behavioral_: cycle_collector (15/1 — "Garbage cycle collected while live
+    objects survive"), encoding/json (24/11), http/http (7/2), sys/timer (1 —
+    io.async FSM transform, dedicated arc).
+  - TIMEOUT (5): collections/btree_map/priority_queue, imm_sorted_map/set,
+    imm_threading — exponential re-eval (spec family).
+- Scratchpad: `clusters.md`, `red_root.txt`/`red_subdir.txt`, `diag_sweep.sh`,
+  `gates_p1d.sh` (functional gate template — macOS has no `setsid`, use
+  `timeout -s KILL` alone).
+
 ## TL;DR — where things stand
 
 - **#70 (`s2 test ./yo-self/tests`): DONE — 61/61** files match the TS baseline.
-- **#69 (`s2 test ./tests`): 126/180** files match (round-19 sweep, definitive,
-  under the fixpoint-verified stage-2 binary). 54 remain; every remaining
-  family has a documented mechanism, repro, or ranked next step (below).
-- Tree is CLEAN at `2d742bcc4`. The fixpoint holds (stage2.c ≡ stage3.c).
-  ~30 gated fix commits landed across the campaign; the async arc alone
-  landed 8 (see `git log --oneline` for the era).
+- **#69 (`s2 test ./tests`): 128/180** files match. 52 remain; see SESSION
+  UPDATE above for the full current clustering (supersedes the round-19 red list
+  at the bottom for triage purposes).
+- ~32 gated fix commits landed across the campaign.
 
 ## Definitions
 
