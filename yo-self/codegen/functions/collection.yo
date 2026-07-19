@@ -505,7 +505,15 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
         cdot_args := match(callee,.FnCall(_, _, da, _, _) => da,.Atom(_, _) => ArrayList(AstExpr).new());
         recv_ty := match(cdot_args.get(usize(0)),.Some(r) => match(expr_info_table_get(info, ast_expr_id(r)),.Some(ri) => ri.ty,.None => TypeValue.Unit),.None => TypeValue.Unit);
         cmname := match(cdot_args.get(usize(1)),.Some(m) => if(ast_expr_is_atom(m), ast_expr_token(m).value, String.from("")),.None => String.from(""));
-        ctid := type_id_or_empty(recv_ty);
+        // A STATIC receiver (`Self.method` / `P.method`, no instance — e.g. a
+        // forward-referenced `Self.callee`) evaluates to a TypeValue, so recv_ty
+        // is the metatype `Type`, not the receiver type P — `type_id_or_empty`
+        // on it misses P's static methods in the registry, leaving the callee
+        // uncollected ("call to undeclared function"). Prefer the WRAPPED type's
+        // id from the receiver's TypeVal value. Mirrors TS collecting the type
+        // directly on `isTypeValue(value)` (collection.ts:615).
+        recv_static_id := match(cdot_args.get(usize(0)),.Some(r) => match(expr_info_table_get(info, ast_expr_id(r)),.Some(ri) => match(ri.value,.Some(rv) => match(rv,.TypeVal(t) => type_id_or_empty(t), _ => String.from("")),.None => String.from("")),.None => String.from("")),.None => String.from(""));
+        ctid := if(recv_static_id.len() > usize(0), recv_static_id, type_id_or_empty(recv_ty));
         if((ctid.len() > usize(0)) && (cmname.len() > usize(0)), {
           ments := get_type_trait_methods_by_name(ctid, cmname);
           nme := ments.len();

@@ -82,6 +82,16 @@ nvars=1` in the spec fn vs `true` in the original) → nvars=1 ruled out the
     rebind loop, pointing to the initial binding. See
     `issues/yo-self-spec-inout-isref-dropped.md`. This is is_ref (deref), NOT
     Gap-6 — most remaining spec files are still Gap-6.
+  - `forward_ref_self_method` (1 file): **FIXED — GREEN (2/2).** A forward-ref
+    static `Self.callee` (caller before callee in the impl) emitted `yo_id_N(n)`
+    with NO definition ("call to undeclared function"). The collection walker
+    (`find_function_calls_in_expr`, collection.yo ~504) resolves a method call via
+    the type-trait-methods registry keyed by `type_id_or_empty(recv_ty)` — but a
+    STATIC receiver evaluates to a TypeValue, so `recv_ty` is the metatype `Type`,
+    not `P`, and the lookup missed P's static methods. FIX: derive `ctid` from the
+    receiver's `TypeVal` wrapped type (falling back to `recv_ty`); mirrors TS
+    `isTypeValue(value) → collectType` (collection.ts:615). Additive, TypeVal-only.
+    See `issues/yo-self-forward-ref-static-method-collection.md`. NOT Gap-6.
   - `module_struct_unification` + the "expected expression" cluster: NOT one
     root. msu is a closure/fn-typed struct field emitting the struct TYPE name
     (`(__yo_t32){ .next = __yo_t32 }` for `Counter(next : (() -> i32(7)))`) —
