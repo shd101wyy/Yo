@@ -466,3 +466,26 @@ Remaining routes, in order of preference:
    re-eval; the v11 rc=139 says something else in the re-eval matters).
    The v14 identity gate itself is sound hardening (prevents cross-lineage
    in-place updates whenever ids ARE visible) — gated for standalone commit.
+
+### Scoping-mechanism elimination complete — the write is NOT in \_bind_some_type
+
+Four scoping mechanisms tried at the synthesis slot-update site:
+
+1. frame check (67acb7390, LANDED — real write-through class fixed),
+2. lineage-identity gate (92b27f68b, LANDED — placeholder repaints fixed),
+3. call-placeholder frame markers (probed OUT: ~475 ambient-top `T`
+   updates per file are LEGITIMATE — no frame-level separation exists),
+4. resolution provenance (var-id → source-SomeT-id; regression-clean but
+   async_await-neutral).
+   Conclusion: the unit-expected poison does not flow through
+   \_bind_some_type's update arm. NEXT DECISIVE PROBE: at the swallowing
+   closure eval, print whether a PRIOR ExprInfo exists for the closure expr
+   and render its STAMPED ei.ty — if the stamp already carries `-> unit`,
+   the poison was baked in at gen-1 completion by the call machinery's
+   post-match write-back of the substituted param type onto the arg's
+   ExprInfo (check_if_function_parameter_matches_argument's post-match
+   section — UNEXAMINED so far), and the fix is scoping THAT write-back
+   (per-call type, not the memo/interned shared instance). Also check
+   `_freshen_io_builtin_callee`'s intern_type interaction: post-resolution
+   `Fn(Io) -> unit` instances are structurally equal across calls and
+   intern-shared — verify no consumer mutates through the shared instance.
