@@ -40,11 +40,19 @@ anything about those families.
     (`yo_id_2938__unknown__Type`).
   - _type-name-as-value codegen_: module_struct_unification (`__yo_t32` closure-fn
     field), derive (`...#(match_branches)` macro splice).
-  - _other_: dyn (rc=1 but **5 passed** — near), derive_clone_complex (`incomplete
-  type void` unit-field), ref_field_borrow (borrow-check not enforced in eval).
-    ⇒ The spec-identity cluster IS largely true Gap-6; the biggest tractable leverage
-    is the dispose family (~7 files, one collectDisposeMethodsFromGenericImpls-style
-    specialize+register port, mirroring `_specialize_and_register_trace`).
+  - _other_: dyn (rc=1, **5 passed / 3 failed** — the 3 fails are box/Box(T) dynamic
+    dispatch at RUNTIME, not a compile error — deeper); derive*clone_complex — NOT a
+    simple unit-field: the C has `__yo_t54` = `Box(unit)` (`void \_u42*`) yet the
+  ACCESS sites do `obj->_u42_.tag`/`.data.Branch`(a Box(TreeEnum)) — i.e. a Box
+  **type-identity collision** (Box(unit) & Box(enum) both → __yo_t54) = Gap-6, not
+  a unit-field exclusion; ref_field_borrow (borrow-check not enforced in eval).
+⇒ PROBE CONCLUSION: after iso L3b (the tractable exception, fixed), the remaining
+  probed candidates (dyn runtime, derive_clone_complex Box-collision, dispose
+  id-consistency, spec-identity incompatible-type) are ALL Gap-6/type-identity or
+  intricate — no more one-shot dispatch/gate wins. The hard core is genuine.
+  ⇒ The spec-identity cluster IS largely true Gap-6; the biggest tractable leverage
+  is the dispose family (~7 files, one collectDisposeMethodsFromGenericImpls-style
+  specialize+register port, mirroring`\_specialize_and_register_trace`).
 - Remaining iso: iso.test layer 3c (`^` op `(temp_type <: Isolation).can_isolate(x)`
   emits `Type.can_isolate` type-name-as-value — a static-trait-method dispatch,
   prelude.yo:7461); rc layer 4 (`Array_Array_*` nested-array decl, not collected —
@@ -154,9 +162,9 @@ i32(7)))`) — closure-as-fn-pointer-field codegen. iso.test's "expected
     `iso_types` registration, mirrors TS getTypeString Iso case). iso.test now
     advances past the panic to `unknown type 'Iso\**'`/ undeclared`\__yo_create_iso_\_`. **LAYER 2/3 OPEN:** `generate_iso_type_declarations`(generation.yo:1097) is still a NO-OP stub — port the full 176-line TS`generateIsoTypeDeclarations`(generation.ts:1047): Iso struct + create/extract/
     dispose decls & impls. All deps EXIST (needs*cycle_gc, dispose_type_ids,
-    *\_\_drop registry lookup, register*iso_type). Mechanical template translation.
+    *\_\_drop registry lookup, register\*iso_type). Mechanical template translation.
     \*\*Complete spec in`issues/yo-self-iso-runtime-port.md`.\** (Supersedes the
-    earlier ".extract()/Array*Array*\_ decl" guess.) PORT work, NOT Gap-6.
+    earlier ".extract()/Array*Array\*\_ decl" guess.) PORT work, NOT Gap-6.
   - **async-future cluster (5 files — best files/cycle) PRECISE scoping:** SM
     struct name = `` `${async_block_id}_state_t` `` where async*block_id =
     `ei.variable_name` (async.yo ~1490/1914), set via `_set_async_sm_struct_name`
