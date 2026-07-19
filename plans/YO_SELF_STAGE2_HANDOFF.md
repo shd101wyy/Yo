@@ -93,10 +93,20 @@ nvars=1` in the spec fn vs `true` in the original) → nvars=1 ruled out the
     `isTypeValue(value) → collectType` (collection.ts:615). Additive, TypeVal-only.
     See `issues/yo-self-forward-ref-static-method-collection.md`. NOT Gap-6.
   - `module_struct_unification` + the "expected expression" cluster: NOT one
-    root. msu is a closure/fn-typed struct field emitting the struct TYPE name
-    (`(__yo_t32){ .next = __yo_t32 }` for `Counter(next : (() -> i32(7)))`) —
-    closure-as-fn-pointer-field codegen. iso.test's "expected expression" is a
-    DIFFERENT root (FTT of `.extract()` — see iso patch commit 90fd8ece1).
+    root (CONFIRMED multiple). msu is a closure/fn-typed struct field emitting the
+    struct TYPE name (`(__yo_t32){ .next = __yo_t32 }` for `Counter(next : (() ->
+i32(7)))`) — closure-as-fn-pointer-field codegen. iso.test's "expected
+    expression" is a DIFFERENT root (FTT of `.extract()` — see iso patch commit
+    90fd8ece1). **`derive` root (found this session):** derived enum-`Eq` emits
+    `return // Failed to transpile match(self, ...#(match_branches), ...);` — the
+    derived match's arms are an UNEXPANDED macro splice `...#(match_branches)`
+    (appears 3x, one per variant group). Codegen FTTs the whole match into a `//`
+    comment, so `return ` has no expr → "expected expression". No `...#` splice
+    handling exists in yo-self codegen (grep-empty) and `match_branches` is not in
+    source (macro-generated), so the splice must be expanded during derive EVAL
+    and isn't — a macro-expansion gap (cf. [[recur codegen]] side-table). Deep;
+    likely shared with `dyn` (also derived-match). A multi-cycle macro arc, not a
+    quick flip.
   - `iso`/`rc`/`iso_api_surface`: type-decl port done (patch
     `issues/iso-type-decl-port.patch`); remaining = evaluator `.extract()` →
     `__yo_iso_extract` resolution + `Array_Array_*` decl.
