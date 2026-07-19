@@ -75,6 +75,20 @@ error but evaluated successfully` (borrow check not enforced in yo-self eval).
   - `iso`/`rc`/`iso_api_surface`: type-decl port done (patch
     `issues/iso-type-decl-port.patch`); remaining = evaluator `.extract()` →
     `__yo_iso_extract` resolution + `Array_Array_*` decl.
+  - **async-future cluster (5 files — best files/cycle) PRECISE scoping:** SM
+    struct name = `` `${async_block_id}_state_t` `` where async*block_id =
+    `ei.variable_name` (async.yo ~1490/1914), set via `_set_async_sm_struct_name`
+    (async.yo:1864 → `ei.async_state_machine_struct_name`). Forward-decl reads it
+    at declarations.yo:520 (`_async_override_return_type`) but finds `.None` →
+    `__yo_io_future_t*` fallback → "conflicting types" vs the def's
+    `*...\_sync_fut_t\*`. yo-self HAS the pre-pass (`preregister_async_block_types`,
+codegen_c.yo:265, runs before declarations) — so the bug is that the pre-pass
+does NOT set `async_state_machine_struct_name`with the SAME name the body
+uses (likely`ei.variable_name`is unset at pre-pass time → fallback name ≠
+body name). FIX (probe first): in the pre-pass, set`ei.async_state_machine_struct_name = ${variable_name}\_state_t` using the
+    EXACT same name derivation as the body (mirror TS async.ts:1687-1693, which
+    sets it in the pre-registration walk). Correctness gate: fwd-decl name must
+    equal def name byte-for-byte.
   - Determinism (host-independent fixpoint): `issues/determinism-fix-
 function_order.patch` (function half) + type_order still needed.
 
