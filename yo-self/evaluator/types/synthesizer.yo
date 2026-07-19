@@ -229,6 +229,7 @@ _bind_some_type :: (
   fn(
     env : Environment,
     name : String,
+    source_some_id : String,
     val : EvalValue,
     ty : TypeValue,
     tok : Option(Token),
@@ -280,7 +281,20 @@ _bind_some_type :: (
           return(());
         }
       );
-      if((env.frames.len() > usize(0)) && (old_var.frame_level != (env.frames.len() - usize(1))), {
+      // IDENTITY gate (sharper than the frame check): a placeholder slot
+      // self-binds `TypeVal(<the signature SomeT>)`. When the found binding
+      // still holds a SomeT whose id differs from the SomeT being resolved,
+      // it belongs to a DIFFERENT call's lineage (same NAME `T`, ambient
+      // frame) — never update it; shadow call-locally instead. Resolved slots
+      // (non-SomeT values) carry no id, so they fall through to the frame
+      // check below.
+      found_slot_someid := match(
+        old_var.value,
+        .Some(ov) => match(ov,.TypeVal(ovt) => match(ovt,.SomeT({ id : ovid }) => ovid, _ => String.from("")), _ => String.from("")),
+        .None => String.from("")
+      );
+      identity_mismatch := ((source_some_id.len() > usize(0)) && ((found_slot_someid.len() > usize(0)) && (found_slot_someid != source_some_id)));
+      if(identity_mismatch || ((env.frames.len() > usize(0)) && (old_var.frame_level != (env.frames.len() - usize(1)))), {
         add_variable_to_env(
           env,
           name,
@@ -988,7 +1002,7 @@ _synthesize_implicit_params :: (
           });
           effects_row := t_effects_row(remaining_labels, remaining_types);
           type_val := EvalValue.TypeVal(effects_row);
-          _bind_some_type(expected_env, sname, type_val, TypeValue.TypeUni(usize(1)), opts_token(opts, expected_env), exn);
+          _bind_some_type(expected_env, sname, String.from(""), type_val, TypeValue.TypeUni(usize(1)), opts_token(opts, expected_env), exn);
         });
       },
       _ => ()
@@ -1163,21 +1177,21 @@ _synthesize_types_impl :: (
       !(exp_bound_is_some) => {
         // Expected is bound — use its value to bind given
         val := EvalValue.TypeVal(expected_bound);
-        _bind_some_type(ge, match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), val, expected_bound, tok, exn);
+        _bind_some_type(ge, match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), match(given_ty,.SomeT(gid9, _, _, _, _, _, _, _, _, _, _) => gid9, _ => ``), val, expected_bound, tok, exn);
       },
       !(giv_bound_is_some) => {
         // Given is bound — use its value to bind expected
         val := EvalValue.TypeVal(given_bound);
-        _bind_some_type(ee, match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), val, given_bound, tok, exn);
+        _bind_some_type(ee, match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), match(expected_ty,.SomeT(eid9, _, _, _, _, _, _, _, _, _, _) => eid9, _ => ``), val, given_bound, tok, exn);
       },
       (exp_some_id == giv_some_id) => (),
       // Same SomeType — nothing to do
       true => {
         // Both unbound — bind expected to given.type (given is the unification target)
         val := EvalValue.TypeVal(given_ty);
-        _bind_some_type(ee, match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), val, given_ty, tok, exn);
+        _bind_some_type(ee, match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), match(expected_ty,.SomeT(eid8, _, _, _, _, _, _, _, _, _, _) => eid8, _ => ``), val, given_ty, tok, exn);
         val2 := EvalValue.TypeVal(given_ty);
-        _bind_some_type(ge, match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), val2, given_ty, tok, exn);
+        _bind_some_type(ge, match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), match(given_ty,.SomeT(gid8, _, _, _, _, _, _, _, _, _, _) => gid8, _ => ``), val2, given_ty, tok, exn);
       }
     );
     // After unifying, recursively synthesize required trait type parameters
@@ -1281,7 +1295,7 @@ _synthesize_types_impl :: (
         });
       };
       val := EvalValue.TypeVal(given_ty);
-      _bind_some_type(ee, exp_name, val, given_ty, tok, exn);
+      _bind_some_type(ee, exp_name, exp_id2, val, given_ty, tok, exn);
       // Phase 5: record the resolved CONCRETE type for this SomeT (keyed by id)
       // in the side-table when the caller asked for it. Mirrors
       // synthesizer.ts:463 (`expected.type.resolvedConcreteType = given.type` when
@@ -1372,7 +1386,7 @@ _synthesize_types_impl :: (
         });
       };
       val := EvalValue.TypeVal(expected_ty);
-      _bind_some_type(ge, giv_name, val, expected_ty, tok, exn);
+      _bind_some_type(ge, giv_name, giv_id2, val, expected_ty, tok, exn);
       // Phase 5 (symmetric set-site): record the given SomeT's resolved concrete
       // type (the expected concrete) in the side-table. Mirrors synthesizer.ts:595
       // (`given.type.resolvedConcreteType = expected.type` under
