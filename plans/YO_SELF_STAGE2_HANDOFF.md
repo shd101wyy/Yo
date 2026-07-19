@@ -80,15 +80,19 @@ error but evaluated successfully` (borrow check not enforced in yo-self eval).
     `ei.variable_name` (async.yo ~1490/1914), set via `_set_async_sm_struct_name`
     (async.yo:1864 → `ei.async_state_machine_struct_name`). Forward-decl reads it
     at declarations.yo:520 (`_async_override_return_type`) but finds `.None` →
-    `__yo_io_future_t*` fallback → "conflicting types" vs the def's
-    `*...\_sync_fut_t\*`. yo-self HAS the pre-pass (`preregister_async_block_types`,
-codegen_c.yo:265, runs before declarations) — so the bug is that the pre-pass
-does NOT set `async_state_machine_struct_name`with the SAME name the body
-uses (likely`ei.variable_name`is unset at pre-pass time → fallback name ≠
-body name). FIX (probe first): in the pre-pass, set`ei.async_state_machine_struct_name = ${variable_name}\_state_t` using the
-    EXACT same name derivation as the body (mirror TS async.ts:1687-1693, which
-    sets it in the pre-registration walk). Correctness gate: fwd-decl name must
-    equal def name byte-for-byte.
+    `\_\_yo_io_future_t*`fallback (the`.None` branch, NOT a wrong name) →
+"conflicting types" vs the def. CRUCIAL: the pre-pass
+(`preregister_async_blocks_in_expr`, async.yo:1893, called via
+`preregister_async_block_types`at codegen_c.yo:265 BEFORE declarations)
+ALREADY computes`${async_block_id}\_state_t`and calls`\_set_async_sm_struct_name`(async.yo:1914-1915) — yet the forward-decl reads`.None`. So the bug is NOT "missing pre-pass"; it is either (a) the setting is
+LOST — the async-block ExprInfo is REPLACED between the pre-pass and the decl
+phase (the ExprInfo-table store-without-dup / UAF class — the pre-pass mutates
+`ei`then`expr_info_table_set`s it, but a later eval/collect pass overwrites
+the table entry), or (b) the async-block condition at async.yo:1897 is not met
+for the fs/* `File.open`-delegate shape (so the pre-pass never sets it). PROBE
+(one debug build): at declarations.yo:520 print `ei.async_state_machine_struct_name`
+    - `ast_expr_id`, and at async.yo:1915 print the same id + name — compare ids to
+      see if it's a different ExprInfo (→ persistence fix) or never-set (→ path fix).
   - Determinism (host-independent fixpoint): `issues/determinism-fix-
 function_order.patch` (function half) + type_order still needed.
 
