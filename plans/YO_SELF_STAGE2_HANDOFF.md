@@ -37,7 +37,7 @@ anything about those families.
     where C wants a value (msu: `.next = __yo_t32` — closure/fn-typed struct
     field emits the struct type name). LIKELY MULTIPLE ROOTS (diverse features).
   - _Async-future_ (5): fs/dir/file/fs*convenience/walker, sys/bufio —
-    forward-decl emits `__yo_io_future_t*` but def emits `*...\_sync_fut_t\*`
+    forward-decl emits `\_\_yo_io_future_t*`but def emits`\*...\_sync_fut_t\*`
     ("conflicting types"). The io.async block's SM struct name (ei.
     async_state_machine_struct_name) is computed during BODY emission, too late
     for the decl phase (699/725). Needs a pre-pass. Async-arc.
@@ -57,6 +57,26 @@ error but evaluated successfully` (borrow check not enforced in yo-self eval).
 - Scratchpad: `clusters.md`, `red_root.txt`/`red_subdir.txt`, `diag_sweep.sh`,
   `gates_p1d.sh` (functional gate template — macOS has no `setsid`, use
   `timeout -s KILL` alone).
+- **Scoped roots (this session's deep-dives — start here for these files):**
+  - `ref_return_ban` (1 file): the ONLY failing form is a TRAIT-METHOD
+    `-> inout(Self.Element)`. yo-self's inout-return ban (SYNTACTIC, function.yo
+    ~3470 in `evaluate_function_type`) fires for standalone fns; the trait field
+    type IS evaluated via `evaluate_expression` (trait.yo `_evaluate_trait_field`
+    ~772) which routes `fn(...)` → `evaluate_function_type` — yet the ban does
+    not fire. Needs a probe (why the ban is skipped for the trait-method
+    function-type expr; likely a gated/alternate path). TS bans both
+    returnLabelExpr AND returnTypeExpr (function.ts:2411); yo-self only checks
+    return_type_expr.
+  - `module_struct_unification` + the "expected expression" cluster: NOT one
+    root. msu is a closure/fn-typed struct field emitting the struct TYPE name
+    (`(__yo_t32){ .next = __yo_t32 }` for `Counter(next : (() -> i32(7)))`) —
+    closure-as-fn-pointer-field codegen. iso.test's "expected expression" is a
+    DIFFERENT root (FTT of `.extract()` — see iso patch commit 90fd8ece1).
+  - `iso`/`rc`/`iso_api_surface`: type-decl port done (patch
+    `issues/iso-type-decl-port.patch`); remaining = evaluator `.extract()` →
+    `__yo_iso_extract` resolution + `Array_Array_*` decl.
+  - Determinism (host-independent fixpoint): `issues/determinism-fix-
+function_order.patch` (function half) + type_order still needed.
 
 ## TL;DR — where things stand
 
