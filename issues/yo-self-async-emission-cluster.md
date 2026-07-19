@@ -529,3 +529,17 @@ rides with the Gap-6 dedicated arc (wip/resolution-time-spec, attempt #6
 salvage plan). All three edit shapes are in this ledger's history for
 re-application once create_specialized_function_inline handles
 static/nested generic-impl bodies.
+
+## 9. `\u` escape decode gap (tests/str.test.yo, likely encoding_json too)
+
+`String.from("café").raw_bytes().len == 5` fails self-compiled: TS
+decodes escapes at parse (JSON.parse — the stored VALUE holds the real
+2-byte é), while yo-self's StrLit keeps RAW token text and decodes at
+consumption — its decoder handles the basics (\n/\t/\"/\\ work
+throughout the suite) but NOT `\uXXXX`, and \_c_string_literal's
+backslash escaping then turns the un-decoded `é` into a LITERAL
+9-byte C string. FIX: add `\uXXXX` (and `\u{...}` if the TS lexer
+supports it) → UTF-8 encoding to yo-self's escape decoder (find it by
+grepping the byte-92 handling shared by the \n path); check
+encoding_json's failure for the same root. Quick win — one decoder, two
+candidate file flips.
