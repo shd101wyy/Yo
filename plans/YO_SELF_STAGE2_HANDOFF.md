@@ -1157,6 +1157,12 @@ of the remaining families — likely 30+ of the 64 red files. Execute it
 FIRST next session (plan + conversion list: issues/yo-self-dyn-fn-field.md
 CONVERGED DIAGNOSIS; the resolved_concrete field exists since bca8eccc5).
 
+## ROUND 19 (definitive, endgame pin): #69 = 126/180
+
+async_await confirmed green under the fixpoint-verified s2 binary.
+Remaining 54: 46 rc=1, 5 TIMEOUT (stall class), 3 rc=-6 (Iso port pair +
+one). Fresh rc=1 histogram below picks the next family.
+
 ## ASYNC ENDGAME LANDED (8df4fb266): tests/async_await.test.yo WHOLE-FILE GREEN — #69 = 126/180
 
 The fourteen-probe arc concludes: the constraint-gated Step-2 skip
