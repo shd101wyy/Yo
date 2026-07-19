@@ -60,19 +60,28 @@ error but evaluated successfully` (borrow check not enforced in yo-self eval).
   `gates_p1d.sh` (functional gate template — macOS has no `setsid`, use
   `timeout -s KILL` alone).
 - **Scoped roots (this session's deep-dives — start here for these files):**
-  - `ref_return_ban` (1 file): LAYER 1 FIXED (`e746531c2`) — the trait-method
-    `-> inout(Self.Element)` ban was swallowed because `_evaluate_trait_field`
-    (trait.yo:771) evaluated the field TYPE via the non-raw (swallowing)
-    `evaluate_expression`, unlike its sibling paths (313/458) which use
-    `evaluate_expression_raw`. Now uses raw + passes exn → the ban propagates to
-    `comptime_expect_error`. LAYER 2 (now the blocker): with eval proceeding to
-    codegen, a PRE-EXISTING `.`-vs-`->` bug surfaces — `int32_t x = p.x;` where
-    `p` is an `inout(Point)` param (`__yo_t22*`, a pointer) → C error "member
-    reference type '\_\_yo_tN *' is a pointer; did you mean to use '->'". Field
-    access on an inout/pointer param isn't deref'd. Find the plain FIELD-access
-    emitter (NOT the index-method path at generation.yo:342-395) and apply the
-    param is_ref deref (`(*p).x`/`p->x`), mirroring the `(\*self)->field`
-    handling. May affect other inout-param files too.
+  - `ref_return_ban` (1 file): **BOTH LAYERS FIXED — file GREEN (2/2).** LAYER 1
+    (`e746531c2`): the trait-method `-> inout(Self.Element)` ban was swallowed
+    because `_evaluate_trait_field` (trait.yo:771) evaluated the field TYPE via
+    the non-raw (swallowing) `evaluate_expression`, unlike its sibling paths
+    (313/458) which use `evaluate_expression_raw`. Now uses raw + passes exn →
+    the ban propagates to `comptime_expect_error`. LAYER 2 (real root — NOT the
+    "plain field-access emitter" earlier guessed): the specialized `with_x`
+    emitted `p.x` on a pointer param (`__yo_tN* p`) instead of `(*p).x`. Root:
+    the **call-time runtime param binding** at `function.yo:3239` bound params
+    via `add_variable_to_env`, which HARDCODES `is_ref=false` (env.yo:836) — the
+    computed `p_is_ref` only set `is_reassignable`, so codegen's `_var_read_code`
+    (atom.yo:118) saw `is_ref=false` and skipped the deref. The def-time body
+    eval binds via `add_parameter_to_env` (function_type.yo:362, sets is_ref) —
+    which is why the NON-specialized copy was correct. FIX: bind via
+    `add_parameter_to_env` with `is_ref=p_is_ref, is_parameter=true` (mirrors TS
+    helper.ts:584). Method/index-trait calls all route through this same site, so
+    one fix covers the call-time path. Probe technique that found it:
+    `_var_read_code` eprintln of `is_ref`/`nvars` for the failing var (`is_ref=false
+nvars=1` in the spec fn vs `true` in the original) → nvars=1 ruled out the
+    rebind loop, pointing to the initial binding. See
+    `issues/yo-self-spec-inout-isref-dropped.md`. This is is_ref (deref), NOT
+    Gap-6 — most remaining spec files are still Gap-6.
   - `module_struct_unification` + the "expected expression" cluster: NOT one
     root. msu is a closure/fn-typed struct field emitting the struct TYPE name
     (`(__yo_t32){ .next = __yo_t32 }` for `Counter(next : (() -> i32(7)))`) —

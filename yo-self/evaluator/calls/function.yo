@@ -45,6 +45,7 @@ open(import("std/fmt"));
   Variable,
   Environment,
   add_variable_to_env,
+  add_parameter_to_env,
   synthetic_token,
   get_variables_from_env,
   make_err_variable,
@@ -3236,7 +3237,18 @@ Fix: wrap the call:
             is_ct = false;
           });
           p_is_ref := match(fv_param_is_ref.get(pi),.Some(b) => b,.None => false);
-          var_opt := add_variable_to_env(
+          // Bind via add_parameter_to_env (NOT add_variable_to_env, which
+          // hardcodes is_ref=false) so an `inout(name) : T` param carries
+          // is_ref onto the binding — codegen then dereferences reads as
+          // `(*name)`. The old add_variable_to_env call passed p_is_ref only
+          // as is_reassignable and silently dropped is_ref, so a SPECIALIZED
+          // callee's body emitted `p.x` on a pointer param (`__yo_tN* p`)
+          // instead of `(*p).x`; the def-time body eval (function_type.yo:362)
+          // already binds params this way, which is why the non-specialized
+          // function was correct. Mirrors TS helper.ts:584-585
+          // (`isRef: parameter.isRef, isReassignable: parameter.isRef,
+          // isParameter: true`).
+          var_opt := add_parameter_to_env(
             fresh_env,
             pname,
             bind_ty,
@@ -3245,6 +3257,8 @@ Fix: wrap the call:
             p_is_ref,
             false,
             false,
+            p_is_ref,
+            true,
             synthetic_token(pname, env.module_path)
           );
           match(
