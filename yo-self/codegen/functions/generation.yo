@@ -35,6 +35,7 @@ open(import("std/string"));
 { FunctionGenerationContext } :: import("./context.yo");
 { generate_function_prototype, should_skip_function_codegen, _async_override_return_type } :: import("./declarations.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
+{ resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
 { generate_implicit_return_statement } :: import("../exprs/return.yo");
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("../exprs/drop_dup.yo");
 { t_unit } :: import("../../types/creators.yo");
@@ -80,7 +81,14 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
   em := context.base.emitter;
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
   context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
-  result_is_unit := match(function_type,.Func({ result : r }) => is_unit_type(r), _ => true);
+  // Resolve a SomeT result through its concrete resolution BEFORE the unit
+  // check, so this agrees with what the PROTOTYPE renders (get_type_string
+  // resolves SomeT via the cell/global). A closure registered with the
+  // expected `T` (SomeT) whose resolution is unit rendered a `void` C
+  // signature while `is_unit_type(SomeT)=false` sent the body down the
+  // value-returning tail path — "void function should not return a value"
+  // (the async_await/worker void-closure class).
+  result_is_unit := match(function_type,.Func({ result : r }) => is_unit_type(resolve_some_type_to_concrete(r.clone())), _ => true);
   if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), {
     match(
       context.base.get_expr_info(body_expr),
@@ -140,6 +148,26 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
         match(
           args.get(n - usize(1)),
           .Some(last_expr) => {
+            // Unit-result function: the tail emits as a plain STATEMENT, never
+            // `return <value>;` — mirrors generation.ts:1687-1694 (`else if
+            // (lastExpr && isUnitType(functionType.return.type))`). Without
+            // this, a non-unit-typed tail (e.g. a trailing assignment, whose
+            // expression value is the OLD lhs value) emitted `return <temp>;`
+            // inside a `void` C function — clang "void function should not
+            // return a value" (the async_await/worker void-closure class,
+            // issues/yo-self-async-emission-cluster.md item 3).
+            if(result_is_unit, {
+              u_code := _call_generate_expr(last_expr, indent.clone(), context);
+              u_skip_temp := match(context.base.get_expr_info(last_expr),.Some(uei) => is_temp_variable_name(uei.env.module_path.clone(), u_code.clone()),.None => false);
+              if((u_code.len() > usize(0)) && !(u_skip_temp), {
+                u_line := indent.clone();
+                u_line.push_string(u_code);
+                u_line.push_str(";");
+                em.emit_string_line(u_line);
+              });
+              generate_deferred_drop_expressions(body_expr, indent.clone(), context);
+              return(());
+            });
             // Deferred-dup handling for the tail expression BEFORE the plain
             // return paths — a borrowed tail (e.g. `self.program` field access:
             // the evaluator attached a non-owning temp + ___dup) must return
@@ -356,7 +384,9 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
         .Some(real_fid) => {
           real_cname := sanitize_for_c_identifier(real_fid.clone(), false);
           fwd := _thunk_forward_args(function_type);
-          ret_unit := match(function_type,.Func({ result : r }) => is_unit_type(r), _ => true);
+          // Same SomeT-result resolution as result_is_unit above: the wrapper
+          // and its callee prototype must agree on void-ness.
+          ret_unit := match(function_type,.Func({ result : r }) => is_unit_type(resolve_some_type_to_concrete(r.clone())), _ => true);
           if(ret_unit, {
             em.emit_string_line(`  ${real_cname}(${fwd});`);
           }, {
