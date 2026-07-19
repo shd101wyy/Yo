@@ -7,16 +7,21 @@ BOTH DONE. iso is a 4-layer feature; layers 3-4 remain.
 
 ## After layers 1+2 — the files advance to these NEXT layers
 
-- **Layer 3 — `.extract()` call site (iso, iso_api_surface):** `iso.extract()` (prelude
-  `extract : (fn(self)->T)(__yo_iso_extract(self))`, std/prelude.yo:7422) emits
-  `unexpected type name '__yo_t23': expected expression` + `use of undeclared
-identifier 'e1'`. So the `__yo_iso_extract(self)` call isn't lowering to
-  `__yo_iso_extract_Iso_X(self)` at the CALL site — the child type name leaks in as
-  a value. codegen `generate_yo_iso_extract` (iso.yo) exists; eval
-  `evaluate_yo_iso_extract` (rc_fns.yo:258) exists BUT its header comment says
-  "1-arg -> Option(T)" while prelude extract is Phase-H `-> T` ("returns T directly,
-  panics on failure") — likely an eval return-type / dispatch mismatch feeding
-  codegen a bad shape. Start there.
+- **Layer 3a — `evaluate_yo_iso_extract` Phase-H type (DONE this session):** eval set
+  the `__yo_iso_extract(self)` expr type to `Option(T)` (stale) while the prelude
+  `extract` method is Phase-H `-> T`. Fixed to the inner `T` (mirrors TS
+  evaluateYoIsoExtract "Phase H: returns T directly, no Option", rc-fns.ts:562).
+  The extract method now emits `yo_id_..._ret_R_gs_...(Iso_X self){ return
+__yo_iso_extract_Iso_X(self); }` returning `__yo_t23*` (=T). NOT sufficient alone.
+- **Layer 3b — `.extract()` CALL SITE has NO ExprInfo (OPEN, Gap-6-adjacent):** the
+  outer method call `(i2.extract)()` FTTs at `generate_func_call` (generation.yo:598)
+  because `get_expr_info(expr)` is `.None` — the call expr never got an ExprInfo
+  during eval (verified: the no-ExprInfo FTT branch, NOT a type issue; the extract
+  METHOD itself is collected + emitted fine). extract is a GENERIC method returning
+  an `R_gs_` generic return spec resolved per-call to `__yo_t23*` in the specialized
+  fn signature, but the CALL SITE's ExprInfo/return-type isn't set = the per-call
+  generic-return-spec resolution class = **Gap-6**. So iso's final flip is
+  Gap-6-blocked, like most of the campaign. (Same for iso_api_surface.)
 - **Layer 4 — `Array_Array_*` decl (rc):** `unknown type name
 'Array_Array___yo_t25_u42__1_1'` + `initializing '__yo_t25 *' with ...
 Array_Array_...`. A nested-array (Array of Array) C type isn't declared —

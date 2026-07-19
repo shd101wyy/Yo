@@ -279,9 +279,15 @@ evaluate_yo_iso_extract :: (
       )
     );
   });
+  // Phase H (mirrors TS evaluateYoIsoExtract): extract() returns T DIRECTLY (it
+  // panics at runtime on failure), NOT Option(T). The prelude method is
+  // `extract : (fn(self) -> T)(__yo_iso_extract(self))`, so wrapping the builtin's
+  // result in Option(T) here made the method body's type (Option(T)) mismatch its
+  // declared return (T) → the `(iso.extract)()` call failed to transpile. Set the
+  // expr type to the inner T; value stays `.None` (a runtime value, not a comptime
+  // Option).
   inner_type := match(arg_type,.IsoT(child_box) => child_box, _ => t_unit());
-  option_type := create_option_type(inner_type);
-  out := new_expr_info(info.env, option_type);
+  out := new_expr_info(info.env, inner_type);
   out.value =.None;
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
   expr
