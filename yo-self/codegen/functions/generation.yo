@@ -551,11 +551,16 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   generate_ref_struct_constructor_functions(context);
   generate_ref_enum_constructor_functions(context);
   generate_closure_constructor_functions(context);
-  it := context.base.functions.keys();
-  (go : bool) = true;
-  while(go, {
+  // Iterate in INSERTION order (function_order), NOT HashMap bucket order, so
+  // body emission — and the specializations created during it — are ordered
+  // deterministically across the TS-compiled s1 and self-compiled s2. Index by
+  // position and re-read len() each pass so specs registered mid-emission are
+  // still emitted. Mirrors TS `for (funcId in context.functions)` (insertion
+  // order). See issues/yo-self-emission-order-nondeterminism.md.
+  (fi : usize) = usize(0);
+  while(fi < context.base.function_order.len(), {
     match(
-      it.next(),
+      context.base.function_order.get(fi),
       .Some(fid) => match(
         context.base.get_function_entry(fid),
         .Some(entry) => {
@@ -571,10 +576,9 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
         },
         .None => ()
       ),
-      .None => {
-        go = false;
-      }
+      .None => ()
     );
+    fi = (fi + usize(1));
   });
 });
 /// The C argument list for the `__yo_user_main` call: each runtime parameter

@@ -696,11 +696,14 @@ generate_function_declarations :: (fn(context : CodeGenContext) -> unit)({
   // depth 2 (the fallback registration above cascades one hop per round).
   (aro_round : usize) = usize(0);
   while(aro_round < usize(2), {
-    aro_keys := context.functions.keys();
-    (aro_go : bool) = true;
-    while(aro_go, {
+    // INSERTION order (function_order), not HashMap bucket order: the callee's
+    // return-type resolution must be deterministic across s1/s2 and reach the
+    // delegate before its caller. Index + re-read len() so specs registered
+    // mid-loop are covered.
+    (aro_fi : usize) = usize(0);
+    while(aro_fi < context.function_order.len(), {
       match(
-        aro_keys.next(),
+        context.function_order.get(aro_fi),
         .Some(aro_fid) => match(
           context.get_function_entry(aro_fid.clone()),
           .Some(aro_entry) => {
@@ -713,20 +716,22 @@ generate_function_declarations :: (fn(context : CodeGenContext) -> unit)({
           },
           .None => ()
         ),
-        .None => {
-          aro_go = false;
-        }
+        .None => ()
       );
+      aro_fi = (aro_fi + usize(1));
     });
     aro_round = (aro_round + usize(1));
   });
   // Iterate functions by id so the exported-linkage predicate (keyed by func_id)
-  // matches generate_function exactly.
-  keys := context.functions.keys();
-  (go : bool) = true;
-  while(go, {
+  // matches generate_function exactly. INSERTION order (function_order), NOT
+  // HashMap bucket order, so the prototype loop agrees with the body loop
+  // (generation.yo) AND is deterministic across s1/s2. Index + re-read len()
+  // so specs registered mid-loop are declared. See
+  // issues/yo-self-emission-order-nondeterminism.md.
+  (fi : usize) = usize(0);
+  while(fi < context.function_order.len(), {
     match(
-      keys.next(),
+      context.function_order.get(fi),
       .Some(func_id) => match(
         context.get_function_entry(func_id.clone()),
         .Some(entry) => {
@@ -744,10 +749,9 @@ generate_function_declarations :: (fn(context : CodeGenContext) -> unit)({
         },
         .None => ()
       ),
-      .None => {
-        go = false;
-      }
+      .None => ()
     );
+    fi = (fi + usize(1));
   });
   em.emit_declaration_line("/// Closure vtable instances");
   generate_closure_vtable_declarations(context);

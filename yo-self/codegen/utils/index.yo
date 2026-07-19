@@ -113,6 +113,14 @@ CodeGenContext :: ref(
     types : HashMap(String, CodegenTypeEntry),
     /// Collected functions that need to be generated (keyed by func_id).
     functions : HashMap(String, CodegenFunctionEntry),
+    /// Insertion order of func_ids registered into `functions`. Codegen emits
+    /// functions by iterating THIS list, mirroring TS's
+    /// `for (funcId in context.functions)` (JS objects iterate in insertion
+    /// order). yo-self's HashMap iterates in bucket order, which is unstable
+    /// across the TS-compiled s1 and the self-compiled s2 when the function
+    /// set changes — breaking the stage2≡stage3 fixpoint. See
+    /// issues/yo-self-emission-order-nondeterminism.md.
+    function_order : ArrayList(String),
     /// Extern functions (keyed by TypeId string).
     extern_functions : HashMap(String, CodegenExternFnEntry),
     /// Array struct types that need to be generated (keyed by C name).
@@ -228,6 +236,7 @@ impl(
     Self(
       types : HashMap(String, CodegenTypeEntry).new(),
       functions : HashMap(String, CodegenFunctionEntry).new(),
+      function_order : ArrayList(String).new(),
       extern_functions : HashMap(String, CodegenExternFnEntry).new(),
       array_struct_types : HashMap(String, ArrayStructInfo).new(),
       iso_types : HashMap(String, IsoTypeInfo).new(),
@@ -320,6 +329,12 @@ impl(
   ),
   /// Register a reachable function to be generated (idempotent on func_id).
   register_function : (fn(self : Self, func_id : String, value : EvalValue, c_name : String) -> unit)({
+    // Record first-registration order (insertion order) so codegen emits
+    // functions deterministically, mirroring TS `for..in` semantics rather
+    // than HashMap bucket order. Re-registration keeps the original position.
+    if(!(self.functions.contains_key(func_id.clone())), {
+      _o := self.function_order.push(func_id.clone());
+    });
     _r := self.functions.set(func_id, CodegenFunctionEntry(value : value, c_name : c_name));
     ()
   }),
