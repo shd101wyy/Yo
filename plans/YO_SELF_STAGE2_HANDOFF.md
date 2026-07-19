@@ -60,15 +60,19 @@ error but evaluated successfully` (borrow check not enforced in yo-self eval).
   `gates_p1d.sh` (functional gate template — macOS has no `setsid`, use
   `timeout -s KILL` alone).
 - **Scoped roots (this session's deep-dives — start here for these files):**
-  - `ref_return_ban` (1 file): the ONLY failing form is a TRAIT-METHOD
-    `-> inout(Self.Element)`. yo-self's inout-return ban (SYNTACTIC, function.yo
-    ~3470 in `evaluate_function_type`) fires for standalone fns; the trait field
-    type IS evaluated via `evaluate_expression` (trait.yo `_evaluate_trait_field`
-    ~772) which routes `fn(...)` → `evaluate_function_type` — yet the ban does
-    not fire. Needs a probe (why the ban is skipped for the trait-method
-    function-type expr; likely a gated/alternate path). TS bans both
-    returnLabelExpr AND returnTypeExpr (function.ts:2411); yo-self only checks
-    return_type_expr.
+  - `ref_return_ban` (1 file): LAYER 1 FIXED (`e746531c2`) — the trait-method
+    `-> inout(Self.Element)` ban was swallowed because `_evaluate_trait_field`
+    (trait.yo:771) evaluated the field TYPE via the non-raw (swallowing)
+    `evaluate_expression`, unlike its sibling paths (313/458) which use
+    `evaluate_expression_raw`. Now uses raw + passes exn → the ban propagates to
+    `comptime_expect_error`. LAYER 2 (now the blocker): with eval proceeding to
+    codegen, a PRE-EXISTING `.`-vs-`->` bug surfaces — `int32_t x = p.x;` where
+    `p` is an `inout(Point)` param (`__yo_t22*`, a pointer) → C error "member
+    reference type '\_\_yo_tN *' is a pointer; did you mean to use '->'". Field
+    access on an inout/pointer param isn't deref'd. Find the plain FIELD-access
+    emitter (NOT the index-method path at generation.yo:342-395) and apply the
+    param is_ref deref (`(*p).x`/`p->x`), mirroring the `(\*self)->field`
+    handling. May affect other inout-param files too.
   - `module_struct_unification` + the "expected expression" cluster: NOT one
     root. msu is a closure/fn-typed struct field emitting the struct TYPE name
     (`(__yo_t32){ .next = __yo_t32 }` for `Counter(next : (() -> i32(7)))`) —
