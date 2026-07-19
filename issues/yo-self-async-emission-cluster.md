@@ -215,3 +215,20 @@ registers fresh-T; body unification seeds fresh cell; await reads it).
 The residual "Expected Output" def-eval swallows in the batch are
 command.yo's OWN closures' std-eval noise (pre-existing swallow
 philosophy), NOT the async_await failure.
+
+### Residual-class probe (s1dbg10, [CONCEXP])
+
+~150 closure evals per async_await batch arrive with a CONCRETE
+(non-SomeT) expected RESULT — all under `fb=fnbody`, `ioasync=n`: these
+are the ENCLOSING fn's def-time body evals re-evaluating each io.async
+call after its unification resolved the per-call T (TS does the same;
+they mostly succeed). Distribution: 126× unit, 16× i32, plus
+Output/ExitStatus/struct singles. The 9 swallowing closures are the
+mis-paired minority: an i32-bodied closure receiving expected UNIT.
+NEXT correlation (2-line patch, one build): re-add the [SWALLOW] print
+alongside [CONCEXP] and match positions/fids — then trace WHICH call's
+resolved-T the mis-paired expected came from (suspects: the
+`register_some_resolved_concrete(oid, rr)` bridge pairing rr from the
+WRONG action fid when a test has multiple io.async calls in one
+statement list, or gen-1 body_ty mis-derivation for `return(v)`-tailed
+bodies).
