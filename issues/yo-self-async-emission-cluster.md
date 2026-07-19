@@ -261,7 +261,21 @@ entry, print `ast_expr_id(body_expr)` + the body's FIRST-token position
 alongside [SWALLOW]/[CONCEXP]; then trace where the re-eval driver got
 that body (the io.async arg's ExprInfo.value FuncVal? the deferred-eval
 queue? closure_type.yo's arg extraction?) — whichever registry handed
-gen-2 the wrong FuncVal is the fix site. Note the alternative reading:
-the begin THROWING the mismatch may be a NESTED eval inside the body
-(the check fires against the INNERMOST FunctionBody fctx) — the body-id
-print disambiguates this for free.
+gen-2 the wrong FuncVal is the fix site.
+
+**DISAMBIGUATED (s1dbg12 [BODY] probe): the NESTED-eval reading is
+correct.** Every swallowing closure's trial receives its OWN body
+(`closure@15:88 body@15:91` — adjacent positions, correct arg
+extraction). The "Return type mismatch (unit vs i32)" is thrown by a
+NESTED evaluation somewhere INSIDE the trial (the capture-free swallow
+wall catches every nested throw, mis-attributing it to the outer
+closure), and the s1dbg5 `last=return((bb.(*)))` names the nested
+begin's last expr — an expr tree that does not belong to arm 0's source.
+NEXT SESSION: instrument begin.yo's :1041 throw with the ACTIVE
+fctx.func_type render + the begin expr's OWN id/position, run the batch,
+and identify which nested eval (yield's def-eval? a deferred completion
+queue? an effect-dispatch re-eval?) executes foreign expression trees
+under the ambient FunctionBody context — the fix is making that driver
+carry its own recorded context (or scope the check to the IMMEDIATE
+body). The 2x-per-closure swallow repetition and the exact C-error
+count (8) vs swallow count (9) are consistency checks for the fix.
