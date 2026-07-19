@@ -315,3 +315,28 @@ T:=unit persists, instrument extract_fn_trait_from_type to print where
 the wrapper's FnTraitT result got its resolution (the remaining
 candidates: the trait-checking extraction resolving through a cell, or
 resolve_param_types_from_expected in an arm without freshening).
+
+### Step-(b) trace state (static, post flag-parity)
+
+- `extract_fn_trait_from_type` does NO resolution — it returns the
+  FnTraitT AS STORED in the wrapper (trait_checking.yo:1149). The
+  expected wrapper reaching the swallowing eval is ALREADY concretized
+  (`Fn(e : Io) -> unit`).
+- `resolve_param_types_from_expected` (helper.ts:1283 mirror) is
+  EXONERATED: called only from the FuncVal-callee arm and gated on
+  `ctx.expected_type.is_some()` — the binding-RHS io.async calls have
+  no expected and take the UnknownVal arm.
+- REMAINING CANDIDATE (one): gen-2's expected derives from the
+  closure's gen-1-STAMPED ExprInfo type (corrected_func_type), whose
+  result is the per-call fresh T — the SAME SomeT instance (shared
+  slice-1 cell) as the call's T. Between generations the call machinery
+  resolves that T (synthesizer cell-stamp) — to UNIT for these i32
+  closures, i.e. the call-side resolution itself is wrong (suspect: a
+  unification of the closure/future type against a unit context, e.g.
+  the enclosing statement/arm merge, or are_types_compatible resolving
+  T := unit during the gen-1 SWALLOWED eval's partial body run).
+  DECISIVE PROBE (one build): at the [CONCEXP] site print the expected
+  wrapper's FutureTraitT-output/FnTrait-result SomeT ID + cell content;
+  at the synthesizer cell-stamp sites (synthesizer.yo:1262/:1351) print
+  registrations whose given/expected is unit with the SomeT id — match
+  the ids to name the exact stamping unification.
