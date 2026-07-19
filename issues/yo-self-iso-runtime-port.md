@@ -1,9 +1,11 @@
-# yo-self: Iso lowering port — layers 1+2 DONE, .extract()/Array layers remain
+# yo-self: Iso lowering port — iso_api_surface GREEN; iso.test/rc have further layers
 
-**Status:** LAYER 1 (get_type_string `.IsoT` arm) + LAYER 2 (runtime decls/impls)
-BOTH DONE. iso is a 4-layer feature; layers 3-4 remain.
-**Targets:** `tests/iso.test.yo`, `tests/rc.test.yo`, `tests/iso_api_surface.test.yo` (3 files).
-**Class:** PORT (deterministic — mirror TS), NOT Gap-6 / not a bug hunt.
+**Status:** LAYERS 1, 2, 3a, 3b all DONE. **`iso_api_surface` FLIPS 2/2.** iso.test
+needs layer 3c (`^` operator `can_isolate` type-name-as-value); rc needs layer 4
+(`Array_Array_*` nested-array decl). NONE of it is Gap-6 (my earlier 3b Gap-6 read
+was wrong — see 3b below).
+**Targets:** `tests/iso.test.yo` (3c), `tests/rc.test.yo` (4), `tests/iso_api_surface.test.yo` (GREEN).
+**Class:** PORT / codegen dispatch (deterministic — mirror TS), NOT Gap-6.
 
 ## After layers 1+2 — the files advance to these NEXT layers
 
@@ -13,19 +15,27 @@ BOTH DONE. iso is a 4-layer feature; layers 3-4 remain.
   evaluateYoIsoExtract "Phase H: returns T directly, no Option", rc-fns.ts:562).
   The extract method now emits `yo_id_..._ret_R_gs_...(Iso_X self){ return
 __yo_iso_extract_Iso_X(self); }` returning `__yo_t23*` (=T). NOT sufficient alone.
-- **Layer 3b — `.extract()` CALL SITE has NO ExprInfo (OPEN, Gap-6-adjacent):** the
-  outer method call `(i2.extract)()` FTTs at `generate_func_call` (generation.yo:598)
-  because `get_expr_info(expr)` is `.None` — the call expr never got an ExprInfo
-  during eval (verified: the no-ExprInfo FTT branch, NOT a type issue; the extract
-  METHOD itself is collected + emitted fine). extract is a GENERIC method returning
-  an `R_gs_` generic return spec resolved per-call to `__yo_t23*` in the specialized
-  fn signature, but the CALL SITE's ExprInfo/return-type isn't set = the per-call
-  generic-return-spec resolution class = **Gap-6**. So iso's final flip is
-  Gap-6-blocked, like most of the campaign. (Same for iso_api_surface.)
+- **Layer 3b — `.extract()` CALL SITE dispatch gate (FIXED this session; NOT Gap-6 —
+  my earlier read was wrong):** the outer method call `(i2.extract)()` FTT'd through
+  the general path. PROBE (has_ei=true; PROBE-MC `tid=[]`, `st_funcval=true`) showed
+  the concrete method-dispatch (other_fn_call.yo:997) was gated on
+  `if(tid.len() > 0)`, and `type_id_or_empty(Iso(...))` is EMPTY (Iso lives only in
+  `iso_types`, not the registry `types` map) — so the whole dispatch, INCLUDING the
+  expr-id-keyed method-callee side-table lookup (which HAD the resolved extract and
+  needs no tid), was skipped. FIX: also enter the dispatch when
+  `lookup_method_callee_value(expr_id).is_some()`. Flips **iso_api_surface (2/2)**.
+  General fix — helps any method call on a tid-less receiver.
+- **Layer 3c — iso.test `^` operator `can_isolate` (OPEN):** after 3b, iso.test hits
+  `use of undeclared identifier '__yo_t29'` at `((bool (*)(void*))__yo_t29.can_isolate)(x)`
+  — the `^(x)` Iso-construct emits the TYPE name `__yo_t29` where a value/fn is wanted
+  (the "type-name-as-value" / msu class). Only iso.test uses `^`; iso_api_surface
+  doesn't, so it's already green.
 - **Layer 4 — `Array_Array_*` decl (rc):** `unknown type name
 'Array_Array___yo_t25_u42__1_1'` + `initializing '__yo_t25 *' with ...
-Array_Array_...`. A nested-array (Array of Array) C type isn't declared —
-  independent of iso (it's rc.test's own array-of-arrays usage). Separate arc.
+Array_Array_...`. A nested-array (Array of Array) C type isn't declared — reached
+  only lazily during body codegen (collect_types_from_expr skips BK_TEST at :578),
+  not during the collection pass. rc.test is not Gap-6-blocked (no `.extract()`), so
+  this is rc's remaining root. Separate arc.
 
 ## Layer 1 (DONE this session)
 
