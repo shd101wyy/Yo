@@ -15,16 +15,18 @@ anything about those families.
   3/3), `845e4e68e` (FloatLit exponent-form → time/duration 12/12). Both fully
   gated (corpus PASS 135, std 153/153, str+duration flips, prior flips hold,
   **STRICT_FIXPOINT=HOLDS**).
-- **FIXPOINT clarified (was a scare):** the strict stage2≡stage3 gate is the
-  s1(TS)-compiled vs s2(self)-compiled 3-stage comparison. It is MARGINALLY
-  host-dependent (HashMap bucket-order emission): a fresh clean rebuild broke it
-  once, but the committed compiler is SELF-STABLE (r19 self-check: stageA≡stageB)
-  and P1+duration HOLD it. Bootstrap IS sound. Full robustness = the deferred
-  determinism fix (`issues/yo-self-emission-order-nondeterminism.md` +
-  `issues/determinism-fix-function_order.patch`: function_order/type_order
-  insertion-order emission, mirrors TS `for..in`). Gate on functional criteria
-  - strict fixpoint; if a future change breaks strict fixpoint benignly, verify
-    s2 SELF-STABILITY (stage3 vs stage4) instead.
+- **FIXPOINT: FRAGILITY FIXED (`ebdd27ca8`).** The strict stage2≡stage3 gate is
+  the s1(TS) vs s2(self) 3-stage comparison; it was marginally host-dependent
+  (HashMap bucket-order emission — a fresh clean rebuild broke it, though the
+  committed compiler was self-stable). The **determinism fix LANDED**: function
+  emission now iterates a `function_order` insertion-order list (mirrors TS
+  `for..in`) instead of `functions.keys()` bucket order. Result:
+  **STRICT_FIXPOINT=HOLDS robustly**, regression-free (corpus PASS 135, std
+  153/153, prior flips hold). The function half ALONE sufficed (type_order NOT
+  needed — spec/type ids are assigned during now-deterministic function
+  emission). Bootstrap fixpoint is now robust; future function-adding fixes
+  won't destabilize it. (`issues/yo-self-emission-order-nondeterminism.md` has
+  the full analysis.)
 - **Full clustering of the 52 remaining red files (this session's sweeps,
   s2_r19pin/s2_p1d):**
   - _Spec type-identity_ (~14): `incompatible type __yo_tX vs __yo_tY` /
@@ -100,13 +102,22 @@ for the fs/* `File.open`-delegate shape (so the pre-pass never sets it). PROBE
     order → if `File.open` sorts before `File.open_with`, round 1 can't resolve
     and 2 rounds don't cover deeper/misordered chains. **CROSS-CLUSTER LINK:**
     making the 699 loop iterate INSERTION order (callee registered before caller)
-    is exactly the determinism fix's declarations.yo:699 change — so the
-    determinism fix (function_order) may fix the async-future cluster (5 files)
-    AND the s1-vs-s2 fixpoint together. Try that first for async-future.
-  - Determinism (host-independent fixpoint): `issues/determinism-fix-
-function_order.patch` (function half) + type_order still needed. Its
-    declarations.yo:699 insertion-order change is also the async-future lead
-    above — highest-leverage single change to try next.
+    is exactly the determinism fix's declarations.yo:699 change. **OUTCOME
+    (`ebdd27ca8`):** the determinism fix DID advance all 5 fs/_ files —
+    forward-decl "conflicting types" is GONE. NEXT LAYER (now the only fs/_
+    blocker): the AWAIT site `future_type_name := get_type_string(future_type)`
+    (await.yo:378) still returns the generic `__yo_io_future_t*` fallback, but
+    the poll loop (await.yo:439) accesses the SPECIFIC SM field `->__yo_resume_fn`
+    → "no member named **yo_resume_fn in struct **yo_io_future_t". FIX: at the
+    await site, resolve `future_type` (a Future SomeType) to its concrete SM
+    struct — TS reads the per-call SomeT's `resolvedConcreteType` (await.ts:82-95);
+    yo-self lacks that (Gap-6). Lead: read the awaited future's async block's
+    `async_state_machine_struct_name` (as the forward-decl now does), or register
+    `type_key(future_type) → SM struct` so get_type_string resolves it. Fixes 5
+    files.
+  - Determinism (host-independent fixpoint): **LANDED `ebdd27ca8`** —
+    STRICT_FIXPOINT=HOLDS robustly with the function_order half alone. Bootstrap
+    fixpoint no longer fragile.
 
 ## TL;DR — where things stand
 

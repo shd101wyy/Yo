@@ -1,11 +1,14 @@
 # yo-self: function/type emission order is HashMap-bucket order, not insertion order
 
-**Status:** ROOT-CAUSED 2026-07-19. **NOT a soundness emergency** (see the
-r19 self-check below). Fix designed (below), preserved in
-`issues/determinism-fix-function_order.patch` (function half only). Discovered
-while landing P1 (`\u` escape decode): adding two small top-level helper
-functions to `string.yo` appeared to "break" the stage2≡stage3 gate — but the
-break is PRE-EXISTING (the clean tree breaks it too) and BENIGN.
+**Status:** FIXED 2026-07-19 (`ebdd27ca8`). The `function_order` insertion-order
+emission (function half) LANDED and makes **STRICT_FIXPOINT=HOLDS robustly**,
+regression-free (corpus PASS 135, std 153/153, prior flips hold). The function
+half ALONE sufficed — `type_order` was NOT needed (spec/anonymous-type ids are
+assigned during the now-deterministic function emission). Also advanced the
+async-future cluster (fs/\*): the declarations.yo:699 insertion-order change
+resolved the delegate forward-decl. Below is the original root-cause analysis
+(kept for the record; the "scare" framing was resolved — the committed compiler
+was always self-stable, and this fix makes the strict s1-vs-s2 gate robust too).
 
 ## The r19 self-check — the meaningful fixpoint HOLDS
 
