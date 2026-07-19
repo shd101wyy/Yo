@@ -232,3 +232,26 @@ resolved-T the mis-paired expected came from (suspects: the
 WRONG action fid when a test has multiple io.async calls in one
 statement list, or gen-1 body_ty mis-derivation for `return(v)`-tailed
 bodies).
+
+### RESIDUAL CLASS ROOT IDENTIFIED (s1dbg11 correlation + s1dbg5 DBG chain)
+
+Paired [CONCEXP]/[SWALLOW] proves each swallowing closure receives the
+CORRECT expected (arm 0's task is genuinely unit) — the BODY mis-types
+i32. The s1dbg5 last-expr diagnostic showed WHY: gen-2 of the closure at
+batch 15:88 (arm 0, body = printf/Box/assign/await/assert/()) evaluated
+a begin whose LAST expr was `return((bb.(*)))` — an expression from a
+DIFFERENT test's closure (source line 46, the i32-returning task). The
+re-eval generation is reading CROSS-WIRED expression state: the
+ast-expr-id collision class (clone_expr_fresh_ids ids vs parser ids in
+one id space; the id-keyed ExprInfo table lets one tree's stamps alias
+another's — the same mechanism attempt #6 recorded as "calls overwrite
+each other's annotations"). The 2× swallow per closure = two id-aliased
+re-eval generations.
+
+NEXT (fresh session): instrument ast_expr_id ranges at clone sites vs
+parser output (print the clone-counter base), confirm the overlap, then
+fix the ID SPACE separation (clone ids must come from a disjoint range —
+e.g. prefix/offset the clone counter above the parser's max, or key
+clone stamps in a separate table). This likely ALSO explains ledger item
+"standalone single-pass placeholder consumption" and parts of the
+conflicting-types cluster — id aliasing corrupts any id-keyed side state.
