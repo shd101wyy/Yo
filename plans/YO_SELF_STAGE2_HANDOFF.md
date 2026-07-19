@@ -66,6 +66,16 @@ anything about those families.
   PROBE: eprintln in `_eval_and_register_rc_method` (did it run for Mutex? what fid?
   did register_function fire?) + compare the fid to the constructor's referenced id.
   A dedicated arc, not one-shot.
+  **PROBE RAN (2026-07-20): dispose family is Gap-6-BLOCKED, NOT a clean flip.** The
+  probe showed `_eval_and_register_rc_method` DOES run for Mutex, synthesizes the
+  **\_dispose (fv=FuncVal), and register_function DOES fire (`fid=yo_id_6143 had=false`)
+  — collect_dispose_methods (codegen_c.yo:245) runs before generate_all_functions
+  (274), so it's registered in time. Yet yo_id_6143 is still undeclared at use, AND
+  sync/mutex ALSO has spec-identity errors on top:
+  `yo_id_5024**unknown**Type**…R*gs*…`(a specialized method with UNRESOLVED types),`yo_id_4992`undeclared,`expected expression`. So the dispose files are
+  MULTI-ERROR (dispose-emission + Gap-6 spec-identity) — fixing dispose alone won't
+  flip them. This retracts the earlier "biggest tractable leverage" claim: the
+  dispose family is genuinely Gap-6-blocked, as the original round-19 note said.
 - Remaining iso: iso.test layer 3c (`^` op `(temp_type <: Isolation).can_isolate(x)`
   emits `Type.can_isolate` type-name-as-value — a static-trait-method dispatch,
   prelude.yo:7461); rc layer 4 (`Array_Array_*` nested-array decl, not collected —
