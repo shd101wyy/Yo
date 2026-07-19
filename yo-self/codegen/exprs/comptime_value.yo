@@ -181,7 +181,17 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
       out
     },
     .FloatLit(raw) => {
-      base := if(raw.contains("."), raw.clone(), {
+      // A C floating constant is already float-typed if it has a radix point
+      // (`.`) OR an exponent (`e`/`E`). yo-self float raws come from f64
+      // `.to_string()` (C `%g`), which renders large magnitudes in exponent
+      // form (`1e+09`) — unlike TS's JS `Number.toString()` (`1000000000`).
+      // The `.`-only check (mirroring comptime-value.ts:60) then appended
+      // `.0` to an exponent form, producing invalid C like `1e+09.0`. Treat
+      // `e`/`E` as a float marker too so only bare integer-form raws get `.0`.
+      has_float_marker := (
+        (raw.contains(".") || raw.contains("e")) || raw.contains("E")
+      );
+      base := if(has_float_marker, raw.clone(), {
         r := raw.clone();
         r.push_str(".0");
         r
