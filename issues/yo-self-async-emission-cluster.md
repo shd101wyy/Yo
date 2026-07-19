@@ -489,3 +489,23 @@ Four scoping mechanisms tried at the synthesis slot-update site:
    `_freshen_io_builtin_callee`'s intern_type interaction: post-resolution
    `Fn(Io) -> unit` instances are structurally equal across calls and
    intern-shared — verify no consumer mutates through the shared instance.
+
+### Write-back probe: prior=NO universally — the driver passes the poison
+
+Every concrete-unit-expected closure eval (130/batch) has NO prior
+ExprInfo stamp: these are FIRST evaluations of fresh-id CLONE trees, and
+the concretized `fn(e : Io) -> unit` expected arrives through
+`ctx.expected_type` from the DRIVER that initiates the clone eval — not
+through stamps, cells, globals, or \_bind_some_type (all eliminated).
+PRIME SUSPECT (matches the file's own "codegen-read closure is a CLONE
+with fresh expr-ids, evaluated WITHOUT is_inside_io_async_call" note):
+create_specialized_function_inline's body re-eval — it clones the
+enclosing fn body and sets ctx.expected_type around statement evaluation
+(helper.yo:1432 region). NEXT PROBE (one build): print at the [WBACK]
+site the ctx.is_evaluating_function_body fn NAME/type + whether a spec
+re-eval is active (ctx flag), and at helper.yo:1432 print what expected
+is being set when the enclosing fn contains io.async calls. The fix will
+be making the driver evaluate the cloned io.async ARG with the DECLARED
+(freshened) param expected — i.e. routing the clone's arg eval through
+the same per-call machinery as gen-1 — rather than a leaked
+sibling-resolved Fn type.
