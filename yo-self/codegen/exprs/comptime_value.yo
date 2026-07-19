@@ -140,6 +140,36 @@ _enum_variant_index :: (fn(enum_ty : TypeValue, name : String) -> Option(usize))
     _ => Option(usize).None
   )
 );
+/// True iff `t` is one of the extern("Yo") io-builtin fn types (TS's
+/// `Func.ioBuiltin` marker set: io.async / io.await / io.state / io.spawn and
+/// JoinHandle.await). These are markers with no C body — every call site is
+/// inlined into direct runtime calls — so a struct-literal field of one of
+/// these types lowers to a NULL fn pointer.
+_is_io_builtin_fn_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Func({ meta : __ibm1 }) => match(
+      __ibm1.*.is_extern,
+      .Some(lang) => if(
+        lang == String.from("yo"),
+        match(
+          __ibm1.*.extern_name,
+          .Some(en) => (
+            (
+              ((en == String.from("__yo_io_async")) || (en == String.from("__yo_io_await"))) ||
+                ((en == String.from("__yo_io_state")) || (en == String.from("__yo_io_spawn")))
+            ) ||
+              (en == String.from("__yo_join_handle_await"))
+          ),
+          .None => false
+        ),
+        false
+      ),
+      .None => false
+    ),
+    _ => false
+  )
+);
 /// Generate the C literal/initializer for a compile-time value of type `ty`.
 /// Mirrors `generateComptimeValue`. Self-recursion via recur.
 generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : CodeGenContext) -> String)(
@@ -405,7 +435,19 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
         c
       }
     ),
-    _ => String.from("/* skip generating value */")
+    // An io-builtin fn field (Io / JoinHandle struct literal) arrives as an
+    // UnknownVal carrying the extern("Yo") fn type (extern decls bind
+    // `create_unknown_val_with_name(field_ty_with_extern, …)`) — emit a NULL
+    // fn pointer so the initializer is valid C. Mirrors comptime-value.ts:
+    // 304-314 (`UnknownValue` whose own `type.ioBuiltin` is set → "NULL");
+    // the extern("Yo") name on the CARRIED type is yo-self's detection (the
+    // declared field type on the Io struct is a plain unmarked Func).
+    .UnknownVal(unk_ty) => if(
+      _is_io_builtin_fn_type(unk_ty) || _is_io_builtin_fn_type(ty),
+      String.from("NULL"),
+      String.from("/* skip generating value */")
+    ),
+    _ => if(_is_io_builtin_fn_type(ty), String.from("NULL"), String.from("/* skip generating value */"))
   )
 );
 export(generate_comptime_value, _c_string_literal);

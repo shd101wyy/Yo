@@ -291,8 +291,15 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   expr_ei := context.base.get_expr_info(expr);
   join_handle_type_name := match(expr_ei,.Some(ei) => Option(String).Some(get_type_string(ei.ty, context.base)),.None => Option(String).None);
   name_suffix := match(expr_ei,.Some(ei) => match(ei.variable_name,.Some(n) => n,.None => String.from("")),.None => String.from(""));
-  spawn_var := if(name_suffix.len() > usize(0), `__spawn_future_${name_suffix.clone()}`, String.from("__spawn_future"));
-  spawn_state_var := if(name_suffix.len() > usize(0), `__spawn_state_${name_suffix.clone()}`, String.from("__spawn_state"));
+  // Statement-level spawns (no bound variable) still need UNIQUE temp names:
+  // two unbound `io.spawn(...)` statements in one C scope redefine
+  // `__spawn_future`. TS never hits this (its evaluator attaches a temp
+  // variableName to every spawn); yo-self's variable_name is absent there, so
+  // fall back to the deterministic ast expr id
+  // (issues/yo-self-async-emission-cluster.md item 1).
+  spawn_suffix := if(name_suffix.len() > usize(0), name_suffix.clone(), `expr_${ast_expr_id(expr).to_string()}`);
+  spawn_var := `__spawn_future_${spawn_suffix.clone()}`;
+  spawn_state_var := `__spawn_state_${spawn_suffix.clone()}`;
   em.emit_string_line(`${indent.clone()}// io.spawn — start cold Future, return JoinHandle`);
   em.emit_string_line(`${indent.clone()}${future_type_name} ${spawn_var.clone()} = ${future_code};`);
   em.emit_string_line(`${indent.clone()}int ${spawn_state_var.clone()} = ${spawn_var.clone()}->state;`);

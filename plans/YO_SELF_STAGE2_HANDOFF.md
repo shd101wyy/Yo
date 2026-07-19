@@ -1157,6 +1157,47 @@ of the remaining families — likely 30+ of the 64 red files. Execute it
 FIRST next session (plan + conversion list: issues/yo-self-dyn-fn-field.md
 CONVERGED DIAGNOSIS; the resolved_concrete field exists since bca8eccc5).
 
+## ROUND 16 (definitive, surgery pin): #69 = 117/180. IoExn family FIXED (pending gates)
+
+Round-16 sweep over the 74-file r4-divergent list under /tmp/s2_r16pin
+(= all three surgery slices): 11 green (circular_import, array_list,
+deque, hash_map, hash_set, env, recursive_enum, ref_enum, string,
+thread_safety, url) + 106 stable outside the list = **117/180**. Red
+classes: 48 rc=1, 7 rc=-6, 6 TIMEOUT, 1 rc=-11, 1 rc=-10.
+
+**The rc=-6 IoExn family is fixed** (five fixes, one commit — the two
+erasure ports below plus three emission fixes the first gate run
+exposed: `_materialize_arg` scope-guard [io_async_fsm_multi's old corpus
+"PASS" had never emitted its awaits — placeholder comments returning 42
+by luck — the annotation fix made them emit for real and collide],
+:1314 actual_param_labels, statement-spawn expr-id suffix):
+
+1. anonymous_function.yo — lambda-annotation-driven forall resolution
+   (TS anonymous-function.ts:416-490) + the wrapper-branch
+   substituteSomeTypesFromEnv (ts:249). The yield action's registered
+   closure type froze `E := Io` from its `(io : Io)` annotation instead
+   of keeping the live shared SomeT whose lineage cell
+   std/process/command.yo later re-resolves to IoExn (declared
+   `Impl(Future(…, IoExn))` returns) — the poisoned prototype render hit
+   the never-collected IoExn (TS erases it) → abort. Hunt method:
+   [REGFN] registration tracing proved yo-self registers EXACTLY TS's
+   closure set (no over-collection); the panic closure was
+   std/async.yo:4:21 (yield's action).
+2. codegen/exprs/comptime_value.yo — io-builtin struct fields lower to
+   NULL fn pointers (TS comptime-value.ts:300/314 `type.ioBuiltin` →
+   "NULL"). Io/JoinHandle literal fields arrive as UnknownVal CARRYING
+   the extern("Yo") fn type; name-set detection
+   {**yo_io_async/await/state/spawn, **yo_join_handle_await}. NOTE:
+   extern language tags normalize to LOWERCASE ("yo") — compare "yo",
+   not "Yo" (evaluator/exprs/extern.yo:131-140).
+
+Verified: cfrc_batch.yo emit→compile→3 arms rc=0;
+**tests/control_fn_as_regular_call.test.yo flips whole-file green (3
+passed)** → #69 = 118/180 once gates land. worker/thread/sys_timer/
+iso_api_surface move rc=-6 → rc=1 on four SMALL isolated emission bugs;
+iso/rc are blocked on the UNPORTED Iso lowering. All five items with fix
+shapes + TS references: issues/yo-self-async-emission-cluster.md.
+
 ## SOMET SURGERY — ALL THREE SLICES LANDED (549c03820, b3e187b04, d0ba222e1)
 
 Slice 2b (d0ba222e1) closed the arc: ctfe results whose TYPE args still

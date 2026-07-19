@@ -26,7 +26,7 @@ open(import("std/string"));
 { Environment, get_variables_from_env, find_innermost_frame_with_given_variable, Variable } :: import("../../env.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo } :: import("../utils/index.yo");
+{ get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { generate_comptime_value } :: import("./comptime_value.yo");
@@ -440,8 +440,18 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
           d
         };
         is_deref_read := (arg_code == deref_form);
+        // Do not RE-declare a name already alive in an open scope: two
+        // effectful calls in one body can each materialize the SAME
+        // capture-read (`yield(io)` twice stamps `io` as the arg's
+        // variable_name both times) → C "redefinition of 'io'". It also
+        // covers the name being the closure's own C PARAMETER (seeded into
+        // the scope stack at function entry). The scope stack is the
+        // liveness signal (declared_c_var_names is monotonic across closed
+        // sibling blocks — see scope_stack_contains); the in-scope
+        // local/param holds the same value, so reuse it.
+        already_in_scope := scope_stack_contains(context.base.declared_scopes, vname.clone());
         (emitted : bool) = false;
-        if((((!(arg_code == vname) && !(is_comptime_only)) && !(is_sm)) && !(param_is_ref)) && !(is_deref_read), {
+        if(((((!(arg_code == vname) && !(is_comptime_only)) && !(is_sm)) && !(param_is_ref)) && !(is_deref_read)) && !(already_in_scope), {
           if(!(arg_code == sanitized), {
             line := indent.clone();
             line.push_string(get_variable_type_string(arg_ei.ty, vname.clone(), context.base));
@@ -453,7 +463,7 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
             emitted = true;
           });
         });
-        final_name := if(emitted, vname, arg_code.clone());
+        final_name := if(emitted || already_in_scope, vname, arg_code.clone());
         // dup-on-store for an owned param: emit the arg's deferred `___dup` (set by
         // helper.yo's move-ownership branch) before the call uses it. Only in the
         // value-pass case — ref/`inout`/comptime/sm/deref args transfer no ownership.
