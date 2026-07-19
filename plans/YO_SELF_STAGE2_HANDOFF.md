@@ -1157,6 +1157,31 @@ of the remaining families — likely 30+ of the 64 red files. Execute it
 FIRST next session (plan + conversion list: issues/yo-self-dyn-fn-field.md
 CONVERGED DIAGNOSIS; the resolved_concrete field exists since bca8eccc5).
 
+## ASYNC EVAL-SIDE IDENTITY ARC — THREE MORE GATED COMMITS (5b8e82bbe, 78000440a, 25f5f9e89)
+
+- 5b8e82bbe: unit-result tails emit as statements (generation.ts:1687
+  port) + prototype/body void-ness agreement.
+- 78000440a: io.await result type resolves PER-CALL first (await.ts:82-95
+  order — expr's own recorded type before any global); binding lhs types
+  resolve through resolve_some_type_to_concrete (`void x = ;` class).
+- 25f5f9e89: per-call WHOLE-CALLEE freshening for io.async
+  (\_freshen_io_builtin_callee — TS specializeFunctionType parity): fresh
+  forall SomeT ids + cells substituted consistently through param AND
+  return, killing BOTH probed poison classes (sibling-unit cross-
+  resolution swallows; the trait-associated-name collision that bound
+  Future's `Output` to std/process's `Output` struct → `Output*`
+  prototypes). The annotation substitution is now ALLOW-LISTED to its own
+  bound names, and the unproven ts:249 wrapper-branch call is removed.
+
+RESIDUAL (async_await, ONE class): 9 uniform "expected unit, got i32"
+def-eval swallows on i32-returning closures — ekey-traced to a CONCRETE
+unit expected arriving from an outer re-eval context (not the shared-T
+poison; that is fixed). Hunt continues at the re-eval initiation sites
+(function_type.yo def-time path / create_specialized_function_inline):
+find which driver passes a unit-result Fn expected to a second-generation
+closure eval. All probes and method in
+issues/yo-self-async-emission-cluster.md item 7.
+
 ## ROUND 17 (post-IoExn-commit pin): #69 = 125/180
 
 The five-fix IoExn commit (c33b6be04) flipped EIGHT files — the entire
