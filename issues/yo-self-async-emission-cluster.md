@@ -95,3 +95,35 @@ the awaits emit for real).
   unit await-result declaration).
 - thread / iso_api_surface: rc=1 (untriaged tail of the same batch).
 - iso / rc: rc=134 — blocked on the UNPORTED Iso lowering (item 5).
+
+## 6. io.async result-T cell cross-poisoning (the remaining void-closure root)
+
+20-line repro (scratchpad/void_closure_batch.yo): TWO io.async tasks in one
+batch main — t0's action returns `i32(42)`, task1's action returns unit
+(trailing assignment). Under the unit-tail-guard build:
+
+- task1's closure emits CORRECTLY (tail as statement, `void` signature) —
+  the generation.ts:1687 unit-tail port works.
+- t0's closure emits an EMPTY body (`{ return; }`) under a `void`
+  signature, and the await result read collapses (`int32_t r0 = ;`).
+
+Mechanism (the ResumeType/IoExn-E class again, now for T): io.async's
+declared `Fn(E) -> T` T is ONE declaration SomeT; per-call clones SHARE
+the slice-1 resolution cell. Whichever call resolves first stamps the
+cell; the other call's closure registration/prototype then renders the
+WRONG resolution (unit-poisoned i32 task → empty body + void signature;
+in the full async_await batch the mixed population yields the 8×
+"void function should not return a value").
+
+FIX SHAPE (established discipline, helper.yo ctl sites): the per-call
+resolution must REBUILD a fresh SomeT + seeded cell (`t_resolved_cell`)
+for the registered/ExprInfo type instead of mutating the shared cell —
+i.e. the yo-self mirror of TS anonymous-function.ts:963-988
+(`functionType.return.type.resolvedConcreteType = runtimeType` on TS's
+per-call CLONED type object) must not write through the shared handle.
+Locate where the closure's result SomeT gets its resolution stamped after
+body eval (or add the missing stamp) and apply the fresh-cell rebuild.
+
+Note: `_materialize_arg`'s empty-await-result sibling (`int32_t r0 = ;`)
+is the same poisoning seen from the CONSUMER side (the future's T renders
+against the poisoned cell) — expect one fix to close both.
