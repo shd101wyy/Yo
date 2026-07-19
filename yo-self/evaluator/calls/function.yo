@@ -837,6 +837,89 @@ _future_output_some_id :: (fn(t : TypeValue) -> Option(String))(
     _ => Option(String).None
   )
 );
+/// Freshen an io.async call's result type PER CALL SITE: rebuild the wrapper
+/// `Impl(Future(T, E))` SomeT AND the FutureTraitT OUTPUT `T` SomeT with
+/// fresh ids and FRESH resolution cells. TS clones the callee's function type
+/// per call (specializeFunctionType), so `resolvedConcreteType` stamps are
+/// per-call-isolated for free; yo-self previously preserved the output id
+/// across calls and resolved awaits through the GLOBAL registry keyed on it —
+/// the first call's resolution then poisoned every sibling io.async call
+/// (def-eval re-runs saw a wrong CONCRETE expected result — "expected unit,
+/// got i32" — threw, and the trial swallow left stale registrations: the
+/// async_await void-closure class, issues/yo-self-async-emission-cluster.md
+/// item 7). With per-call fresh ids the SAME registry becomes per-call-
+/// correct: the await's `T` instance arrives via the future ARG's carried
+/// type, which shares the fresh id.
+_freshen_io_async_result :: (fn(t : TypeValue) -> TypeValue)(
+  match(
+    t,
+    .SomeT({ name : sn, frame_level : sfl, parent_type : spt, required_trait_types : srtt, required_trait_levels : srtl, negative_trait_types : sntt, negative_trait_levels : sntl, is_effects_row : sier, kind_function_type : skft }) => TypeValue.SomeT(
+      generate_some_type_id(),
+      sn.clone(),
+      sfl,
+      spt.clone(),
+      srtt.clone(),
+      srtl.clone(),
+      sntt.clone(),
+      sntl.clone(),
+      sier,
+      skft.clone(),
+      ArrayList(TypeValue).new()
+    ),
+    _ => t
+  )
+);
+/// Per-call whole-callee freshening for io.async (TS specializeFunctionType
+/// parity): rebuild each FORALL SomeT (`T`, `E`) with a fresh id + FRESH
+/// resolution cell and substitute it CONSISTENTLY through the callee's param
+/// AND return types. This closes the per-call lineage end-to-end: the action
+/// param's `T` the closure registers IS the future output's `T` the await
+/// reads, and a sibling call — e.g. command.yo's declared
+/// `Impl(Future(Output, IoExn))` during std eval — can no longer poison the
+/// shared declaration ids (the `Output*`-prototype class,
+/// issues/yo-self-async-emission-cluster.md item 7 layer 2).
+_freshen_io_builtin_callee :: (fn(ft : TypeValue) -> TypeValue)(
+  match(
+    ft,
+    .Func({ forall_types : ffts }) => {
+      fbs := subst_new();
+      (fb_i : usize) = usize(0);
+      while(fb_i < ffts.len(), {
+        match(
+          ffts.get(fb_i),
+          .Some(fbt) => match(
+            fbt,
+            .SomeT({ name : fbn, frame_level : fbl, parent_type : fbpt, required_trait_types : fbrtt, required_trait_levels : fbrtl, negative_trait_types : fbntt, negative_trait_levels : fbntl, is_effects_row : fbier, kind_function_type : fbkft }) => {
+              subst_add(
+                fbs,
+                fbn.clone(),
+                fbl,
+                TypeValue.SomeT(
+                  generate_some_type_id(),
+                  fbn.clone(),
+                  fbl,
+                  fbpt.clone(),
+                  fbrtt.clone(),
+                  fbrtl.clone(),
+                  fbntt.clone(),
+                  fbntl.clone(),
+                  fbier,
+                  fbkft.clone(),
+                  ArrayList(TypeValue).new()
+                )
+              );
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+        fb_i = (fb_i + usize(1));
+      });
+      substitute(fbs, ft.clone())
+    },
+    _ => ft
+  )
+);
 /// True if this function type has a regular parameter that is a SomeType
 /// wrapping an Fn trait (a closure param, e.g. `cb : Impl(Fn(...), Send)`).
 /// Used to NARROW the non-forall specialization trigger: only closure-param
@@ -3609,9 +3692,15 @@ Fix: wrap the call:
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx_rt);
           return(expr);
         });
+        // Per-call whole-callee freshening for io.async — see
+        // _freshen_io_builtin_callee.
+        (callee_ty_call_rt : TypeValue) = callee_ty;
+        if(is_io_async_call(expr), {
+          callee_ty_call_rt = _freshen_io_builtin_callee(callee_ty_call_rt);
+        });
         call_result_rt := try_to_call_function_with_arguments(
           Option(EvalValue).None,
-          callee_ty,
+          callee_ty_call_rt,
           expr,
           func_expr,
           args,
@@ -3639,6 +3728,16 @@ Fix: wrap the call:
         // `p.field` / `result.unwrap()` get ExprInfo.
         // `lookup_some_resolved_concrete` has no other evaluator reader.
         if(is_io_async_call(expr), {
+          // Freshen the io.async RESULT type per call site — wrapper SomeT id,
+          // OUTPUT SomeT id, and BOTH resolution cells (see
+          // _freshen_io_async_result). Distinct wrapper ids keep per-call
+          // state-machine struct registrations from colliding at codegen
+          // (issues/yo-self-multi-async-block-metadata-collision.md); the
+          // fresh OUTPUT id + cell make the closure-result registration below
+          // and the io.await resolution PER-CALL (previously the preserved
+          // shared id cross-poisoned sibling calls — item 7 of
+          // issues/yo-self-async-emission-cluster.md).
+          ret_type_rt = _freshen_io_async_result(ret_type_rt);
           match(
             _future_output_some_id(ret_type_rt),
             .Some(oid) => match(
@@ -3665,19 +3764,6 @@ Fix: wrap the call:
               .None => ()
             ),
             .None => ()
-          );
-          // Freshen the io.async RESULT type's wrapper SomeType id per call site.
-          // Two io.async calls returning the SAME future type otherwise share a
-          // type_key, so their per-call state-machine struct registrations collide
-          // at codegen (the second overwrites the first; the binding picks up the
-          // wrong struct). A distinct wrapper id per call gives distinct type_keys.
-          // The OUTPUT SomeType id (inside required_trait_types) is PRESERVED, so
-          // the io.await resolution above (which keys on the output id) still
-          // matches. See issues/yo-self-multi-async-block-metadata-collision.md.
-          ret_type_rt = match(
-            ret_type_rt,
-            .SomeT({ name : sn, frame_level : sfl, parent_type : spt, required_trait_types : srtt, required_trait_levels : srtl, negative_trait_types : sntt, negative_trait_levels : sntl, is_effects_row : sier, kind_function_type : skft, resolved_concrete : srcp }) => TypeValue.SomeT(generate_some_type_id(), sn, sfl, spt, srtt, srtl, sntt, sntl, sier, skft, srcp),
-            _ => ret_type_rt
           );
         });
         if(is_io_await_call(expr), {
@@ -3930,9 +4016,15 @@ Fix: wrap the call:
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx);
             return(expr);
           });
+          // Per-call whole-callee freshening for io.async — see
+          // _freshen_io_builtin_callee.
+          (callee_ty_call_none : TypeValue) = callee_ty_none;
+          if(is_io_async_call(expr), {
+            callee_ty_call_none = _freshen_io_builtin_callee(callee_ty_call_none);
+          });
           call_result_none := try_to_call_function_with_arguments(
             Option(EvalValue).None,
-            callee_ty_none,
+            callee_ty_call_none,
             expr,
             func_expr,
             args,
@@ -3953,6 +4045,10 @@ Fix: wrap the call:
           // helper.ts:379/1314); yo-self keys on the call SHAPE, which is
           // equally value-independent, so the refinement must run here too.
           if(is_io_async_call(expr), {
+            // Same per-call freshening + registration order as the FuncVal-
+            // callee branch above (fresh output id + cell FIRST, then register
+            // the closure's concrete result under the fresh id).
+            ret_type_none = _freshen_io_async_result(ret_type_none);
             match(
               _future_output_some_id(ret_type_none),
               .Some(oid_n) => match(
@@ -3979,11 +4075,6 @@ Fix: wrap the call:
                 .None => ()
               ),
               .None => ()
-            );
-            ret_type_none = match(
-              ret_type_none,
-              .SomeT({ name : snn, frame_level : sfln, parent_type : sptn, required_trait_types : srttn, required_trait_levels : srtln, negative_trait_types : snttn, negative_trait_levels : sntln, is_effects_row : siern, kind_function_type : skftn, resolved_concrete : srcpn }) => TypeValue.SomeT(generate_some_type_id(), snn, sfln, sptn, srttn, srtln, snttn, sntln, siern, skftn, srcpn),
-              _ => ret_type_none
             );
           });
           if(is_io_await_call(expr), {

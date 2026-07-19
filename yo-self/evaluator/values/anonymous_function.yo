@@ -271,57 +271,74 @@ _func_from_fn_trait :: (fn(ftt : TypeValue) -> TypeValue)(
 );
 /// Substitute forall SomeTypes (by name, from `env2` bindings) throughout a
 /// type. Faithful port of TS `substituteSomeTypesFromEnv`
-/// (anonymous-function.ts:110): a SomeT becomes its resolved concrete type or
-/// the env's non-SomeT TypeVal binding (innermost frame wins); Pointer/Array
-/// recurse into the child; Func substitutes param + result types only
-/// (forall/implicit/where lists and meta are preserved); every other node is
-/// returned unchanged. yo-self stands in `!is_some_type(bound)` for TS's
-/// `bound !== type` identity guard (same convention as the per-param
-/// substitution loop in evaluate_anonymous_function_implementation).
-_subst_some_types_from_env :: (fn(ty : TypeValue, env2 : Environment) -> TypeValue)(
+/// (anonymous-function.ts:110): a SomeT becomes the env's non-SomeT TypeVal
+/// binding (innermost frame wins); Pointer/Array recurse into the child;
+/// Func substitutes param + result types only (forall/implicit/where lists
+/// and meta are preserved); every other node is returned unchanged. yo-self
+/// stands in `!is_some_type(bound)` for TS's `bound !== type` identity guard
+/// (same convention as the per-param substitution loop in
+/// evaluate_anonymous_function_implementation).
+///
+/// DIVERGENCE (deliberate): TS's step 1 resolves through the SomeT's own
+/// `resolvedConcreteType` — a PER-CALL-CLONE field, always this call's
+/// truth. yo-self's resolution cell is per-LINEAGE (the declaration's
+/// clones share the handle), so by the time a later io.async call site's
+/// lambda evaluates, the shared `T` cell can hold a SIBLING call's
+/// resolution — substituting through it concretized the expected type with
+/// the WRONG type (e.g. unit for an i32-bodied task), the body's
+/// return-type check threw, the def-time trial swallowed, and the closure
+/// never reached the result refinement (the async_await 8× void-closure
+/// class). Only ENV BINDINGS (the per-lambda annotation frame + the callee
+/// env) drive this substitution.
+_subst_some_types_from_env :: (fn(ty : TypeValue, env2 : Environment, allow : ArrayList(String)) -> TypeValue)(
   match(
     ty,
-    .SomeT({ name : ssn, resolved_concrete : ssrc }) => match(
-      ssrc.get(usize(0)),
-      // Already resolved to a concrete type — prefer that.
-      .Some(rc0) => recur(rc0, env2),
-      .None => {
-        ss_found := get_variables_from_env(env2, ssn.clone());
-        (ss_bound : Option(TypeValue)) = Option(TypeValue).None;
-        (ss_bi : usize) = ss_found.len();
-        while(ss_bi > usize(0), {
-          ss_bi = (ss_bi - usize(1));
-          match(
-            ss_found.get(ss_bi),
-            .Some(sv) => match(
-              sv.value,
-              .Some(sval) => match(
-                sval,
-                .TypeVal(stv) => if(!(is_some_type(stv)), {
-                  ss_bound = Option(TypeValue).Some(stv);
-                  ss_bi = usize(0);
-                }),
-                _ => ()
-              ),
-              .None => ()
+    .SomeT({ name : ssn }) => {
+      // ALLOW-LIST gate: only substitute forall names THIS pass itself bound
+      // (the per-lambda annotation frame). A bare name-based env walk is
+      // collision-prone for trait-associated type names — the Future trait's
+      // `Output` matched std/process/command.yo's `Output` STRUCT through the
+      // import chain, concretizing the closure's expected result with a
+      // process struct ("Expected type \"Output\"" def-eval swallows, ekey
+      // probe in issues/yo-self-async-emission-cluster.md item 7).
+      if(!(allow.contains(ssn.clone())), {
+        return(ty);
+      });
+      ss_found := get_variables_from_env(env2, ssn.clone());
+      (ss_bound : Option(TypeValue)) = Option(TypeValue).None;
+      (ss_bi : usize) = ss_found.len();
+      while(ss_bi > usize(0), {
+        ss_bi = (ss_bi - usize(1));
+        match(
+          ss_found.get(ss_bi),
+          .Some(sv) => match(
+            sv.value,
+            .Some(sval) => match(
+              sval,
+              .TypeVal(stv) => if(!(is_some_type(stv)), {
+                ss_bound = Option(TypeValue).Some(stv);
+                ss_bi = usize(0);
+              }),
+              _ => ()
             ),
             .None => ()
-          );
-        });
-        match(ss_bound,.Some(bt) => recur(bt, env2),.None => ty)
-      }
-    ),
-    .Pointer(ss_in) =>.Pointer(recur(ss_in, env2)),
-    .Array(ss_ain, ss_alen, ss_alv) =>.Array(recur(ss_ain, env2), ss_alen, ss_alv),
+          ),
+          .None => ()
+        );
+      });
+      match(ss_bound,.Some(bt) => recur(bt, env2, allow.clone()),.None => ty)
+    },
+    .Pointer(ss_in) =>.Pointer(recur(ss_in, env2, allow.clone())),
+    .Array(ss_ain, ss_alen, ss_alv) =>.Array(recur(ss_ain, env2, allow.clone()), ss_alen, ss_alv),
     .Func({ forall_types : ss_fts, param_types : ss_pts, implicit_types : ss_its, where_types : ss_wts, result : ss_ret, meta : ss_fm }) => {
       ss_new_pts := ArrayList(TypeValue).new();
       (ss_pi : usize) = usize(0);
       while(ss_pi < ss_pts.len(), {
         ss_elem := match(ss_pts.get(ss_pi),.Some(t) => t,.None => TypeValue.Unit);
-        ss_new_pts.push(recur(ss_elem, env2));
+        ss_new_pts.push(recur(ss_elem, env2, allow.clone()));
         ss_pi = (ss_pi + usize(1));
       });
-      TypeValue.Func(ss_fts.clone(), ss_new_pts, ss_its.clone(), ss_wts.clone(), recur(ss_ret, env2), box(ss_fm.*.clone()))
+      TypeValue.Func(ss_fts.clone(), ss_new_pts, ss_its.clone(), ss_wts.clone(), recur(ss_ret, env2, allow.clone()), box(ss_fm.*.clone()))
     },
     _ => ty
   )
@@ -576,16 +593,12 @@ evaluate_anonymous_function_implementation :: (
       fn_trait_opt := extract_fn_trait_from_type(expected_ty);
       match(
         fn_trait_opt,
-        // Substitute forall SomeTypes (e.g. `E` from io.async's `Fn(E) -> T`)
-        // with their concrete bindings from the callee env, so the closure's
-        // registered type carries the CALL-SITE resolution (E := Io for
-        // `yield`), not a live shared SomeT whose lineage cell a LATER call
-        // site (E := IoExn in std/process/command.yo) re-resolves — the
-        // prototype emitter would then render the poisoned concrete and panic
-        // on the never-collected IoExn. Mirrors TS anonymous-function.ts:249
-        // (`functionType = substituteSomeTypesFromEnv(functionType,
-        // expectedTypeEnv)` in the Impl(Fn(...)) wrapper branch only).
-        .Some(ftt) => Option(TypeValue).Some(_subst_some_types_from_env(_func_from_fn_trait(ftt), expected_type_env)),
+        // NOTE: TS anonymous-function.ts:249 also substitutes here from
+        // expectedTypeEnv; the yo-self port of that call proved both
+        // unnecessary (the annotation-driven pass below is what resolves
+        // io.async's `E := Io`) and collision-prone (name-based lookup), so
+        // only the allow-listed annotation-driven substitution remains.
+        .Some(ftt) => Option(TypeValue).Some(_func_from_fn_trait(ftt)),
         .None => Option(TypeValue).None
       )
     },
@@ -751,6 +764,7 @@ evaluate_anonymous_function_implementation :: (
   if(is_creating_closure, {
     (ann_subst_needed : bool) = false;
     (ann_frame_pushed : bool) = false;
+    ann_bound_names := ArrayList(String).new();
     (ann_i : usize) = usize(0);
     while(ann_i < n_regular, {
       ann_pe := match(regular_param_exprs.get(ann_i),.Some(a) => a,.None => make_err_expr());
@@ -818,6 +832,7 @@ evaluate_anonymous_function_implementation :: (
                   false,
                   ann_tok
                 );
+                ann_bound_names.push(ann_nm.clone());
                 ann_subst_needed = true;
               });
             },
@@ -829,7 +844,7 @@ evaluate_anonymous_function_implementation :: (
       ann_i = (ann_i + usize(1));
     });
     if(ann_subst_needed, {
-      function_type = _subst_some_types_from_env(function_type, env);
+      function_type = _subst_some_types_from_env(function_type, env, ann_bound_names);
       param_types = match(
         function_type,
         .Func({ param_types : ann_pt }) => ann_pt,
