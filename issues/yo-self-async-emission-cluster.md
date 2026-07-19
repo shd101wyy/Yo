@@ -127,3 +127,19 @@ body eval (or add the missing stamp) and apply the fresh-cell rebuild.
 Note: `_materialize_arg`'s empty-await-result sibling (`int32_t r0 = ;`)
 is the same poisoning seen from the CONSUMER side (the future's T renders
 against the poisoned cell) — expect one fix to close both.
+
+**SHARPENED (REFINE-instrumented probe of the repro):** t0's action
+evaluates TWICE — gen A (`closure_yo_id_5001`) refines with body_ty=UNIT
+(mis-typed eval) and gen B (`closure_yo_id_5007`) with body_ty=i32
+(correct) — and CODEGEN consumes gen A: collected fid = 5001, emitted
+body = EMPTY (its stored body tree carries no evaluated ExprInfos — the
+"codegen-read closure is a CLONE with fresh expr-ids" identity split),
+signature void. So the T-poisoning presents as a GENERATION-IDENTITY
+problem: the io.async call's ExprInfo.closure_function_value points at
+the stale generation. Fix direction: extend the SOURCE-key
+cross-generation merge (already done for capture info via
+g_closure_fid_source / keep-larger) to the FUNC-TYPE registration — the
+refinement registers under the source key too, and the codegen-side
+get_func_type consumer prefers a source-merged CONCRETE-result
+registration over a fid-keyed unresolved/unit one; alternatively fix the
+collection to reference the LAST evaluated generation.
