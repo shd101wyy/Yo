@@ -659,3 +659,27 @@ caller's awaited future across the fn boundary — i.e. definition-time `resolve
 carried on the return type (function-type.ts:613-631, unported) + preserved through the
 call. No call-site / await-site / freshening-local shortcut exists; all were tested and
 falsified with probe data this session. This is the dedicated Gap-6 pass.
+
+### 2026-07-20 (cont.) — CONCLUSIVE: SM structs are generated GENERIC-result; no codegen bridge possible
+
+Third probe angle (fs/metadata, `_future_output_key` at register + await-miss sites):
+
+```
+REGISTERED SM-struct output-keys: ALL 48 = "1763"  (one shared UNRESOLVED output SomeT)
+AWAIT-site   output-keys:  concrete — "bool","unit","i32","R#…struct_decl_100693…", …
+                           (zero overlap with 1763)
+```
+
+So the async blocks (read_file etc., in std) are codegen'd ONCE each with a SHARED
+UNRESOLVED output SomeT (id 1763) → their `_sync_fut_t` structs have a GENERIC `result`
+field (renders `int32_t`, matching the original error `__sync_future->result` int32_t vs
+concrete). The awaits need CONCRETE-result structs. This kills the structural-key bridge
+(and every codegen-side fallback): there is no correctly-typed struct to resolve TO — the
+registered structs are the wrong (generic) shape.
+
+⇒ THREE independent angles now converge on the same root: the fix must resolve each async
+block's output to its concrete per-call type and generate/select a concrete-result SM
+struct — i.e. per-call async monomorphization driven by definition-time
+`resolvedConcreteType` (function-type.ts:613-631, unported) carried across the call. This
+is squarely the type-identity Gap-6; no codegen-only or freshening-local fix exists (all
+falsified with probe data 2026-07-20).
