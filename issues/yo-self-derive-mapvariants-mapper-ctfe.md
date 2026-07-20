@@ -120,6 +120,17 @@ concrete-return path (1352) or an UnknownVal path (1038/1107/1364), OR whether
 `.len()` on the field-accessed `ComptimeList` fails to CTFE (it WORKS on a direct
 `Type.get_struct_fields(T).len()`, so compare field-accessed vs direct list).
 
+7. Binding `f :: v.fields; cond(f.len()==0 …)` (temp before `.len()`) → still
+   **NOTEXPR**. So it is the FIELD ACCESS `v.fields` that yields UnknownVal, NOT
+   the `.len()` chaining — even though the VariantInfo StructVal holds the concrete
+   `ComptimeListVal` at that index and property_access.yo:1352 returns
+   `sflds_l.get(fi_lbl)`. So `v.fields` must take a DIFFERENT property-access path
+   (one returning `create_unknown_val`, e.g. 1038/1107/1364) or `fi_lbl`/`sflds_l`
+   mis-map for the compound field. NEXT (needs a rebuild): instrument
+   property_access at the comptime-StructVal `.field` retrieval to print, for
+   `v.fields`, the path taken + `fi_lbl` + `sflds_l.len()` + the retrieved value's
+   kind — vs the working `v.name` (index 0) / `v._variant_index` (index 3).
+
 ## Why it's deep (a dedicated arc, not a context-tail fix)
 
 The chain is `map_variants → mapper comptime-fn CTFE → cond → VariantInfo
