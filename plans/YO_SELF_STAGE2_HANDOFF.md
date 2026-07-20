@@ -9,6 +9,23 @@ reverted candidate of the async/dispose/spec families) lives in
 `issues/yo-self-async-emission-cluster.md` — consult it before re-deriving
 anything about those families.
 
+## SESSION UPDATE 2026-07-20 (evening) — comptime.test.yo FLIPPED (#69 +1)
+
+- **comptime.test.yo GREEN (28/28, matches TS)** via THREE stacked faithful
+  fixes, each full-battery-validated + STRICT_FIXPOINT byte-identical:
+  `dbe5b4f77` (generate_return: void\* return-temp → fn return type),
+  `660f98312` (per-param comptime modifier port: runtime `Negate` overload arg
+  conversion, replacing the unfaithful `!is_some_type` proxy with TS's
+  `!parameter.isCompileTimeOnly`), `d43fb4a73` (should_skip drops a spec whose
+  RESOLVED RESULT is comptime_int/float/string — the dead `comptime_neg`
+  overload spec). A 4-layer multi-error file cracked end-to-end — **proof a
+  multi-error Gap-6 file flips by stacking targeted faithful fixes.** Full
+  breakdown + the probe cascade ([RICO]/[SKIPCF]/[CVT], emit-c-only, that
+  cracked the `Call :: (neg, comptime_neg)` overload func_id/type threading) in
+  `issues/yo-self-return-temp-void-someT.md`. LESSON: the operator func_id is
+  SHARED across runtime+comptime specs — no per-func_id comptime flag; the
+  per-call resolved RESULT type is the reliable comptime signal.
+
 ## SESSION UPDATE 2026-07-20 — READ FIRST
 
 - **#69 now ~131/180.** Flips this session (all gated: corpus 135/2/0, std 153/153,
@@ -32,11 +49,11 @@ anything about those families.
   - _async-future_ (7): fs/{dir,file,temp,metadata,walker,fs*convenience}, sys/bufio —
     `no member __yo_resume_fn in struct __yo_io_future_t`. **CONFIRMED Gap-6** (not a
     tractable classification fix). Attempted `is_io_future || future_type_name ==
-"__yo_io_future_t*"` at await.yo:437 — peeled the resume_fn layer but exposed the
-    REAL root: `__sync_future->result` is `int32_t` (generic io-future field) where the
+    "\_\_yo_io_future_t*"`at await.yo:437 — peeled the resume_fn layer but exposed the
+    REAL root:`**sync_future->result`is`int32_t`(generic io-future field) where the
     result type is specific. These are STATE-MACHINE futures whose SomeT
-    `resolved_concrete` isn't populated → get_type_string falls back to generic
-    `__yo_io_future_t*` instead of the specialized `*...\_sync_fut_t\*`. TS reads
+   `resolved_concrete`isn't populated → get_type_string falls back to generic
+   `**yo_io_future_t*`instead of the specialized`*...\_sync_fut_t\*`. TS reads
 `resolvedConcreteType`(await.ts:82-95; isIoFutureType branch-1). REVERTED — the fix
 is resolved-concrete population, the Gap-6 core.`is_io_future_type` branch-1 gap
     (state_machine.yo:42-48) is a downstream symptom, not the root.
