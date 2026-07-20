@@ -9,6 +9,50 @@ reverted candidate of the async/dispose/spec families) lives in
 `issues/yo-self-async-emission-cluster.md` — consult it before re-deriving
 anything about those families.
 
+## SESSION UPDATE 2026-07-20 (late) — forward_ref_impl_block FLIPPED (#69 +1); tractable single-root flips EXHAUSTED
+
+- **forward_ref_impl_block.test.yo GREEN (5/5)** via `12c3109ff`, full battery +
+  STRICT_FIXPOINT byte-identical, zero regression. ONE-LINE codegen fix
+  (`collection.yo`): deref a POINTER receiver to its pointee before the
+  method-call registry lookup. Root: yo-self models a forward-ref/recursive impl
+  method as a THUNK (`register_shell_redirect` + generation.yo thunk), NOT TS's
+  in-place shell merge; the thunk's real func must be collected separately, but
+  `type_id_or_empty` has NO Pointer case → returns "" for `self : *(Self)`,
+  skipping the registry lookup that's the ONLY collection path for a method
+  called EXCLUSIVELY via forward-ref. Value-receiver forward refs already worked.
+  Full write-up: `issues/yo-self-forward-ref-impl-pointer-receiver-uncollected.md`.
+  **GENERAL landmine: `type_id_or_empty` silently returns "" for Pointer (and any
+  compound type) — any registry-keyed dispatch/collection on a pointer receiver
+  no-ops.**
+
+- **FRESH GROUND-TRUTH RE-SWEEP (s2 = HEAD+fix, /tmp/s2fri).** Confirmed the
+  tractable single-root flips are EXHAUSTED — forward_ref_impl_block was the last
+  one in the current batch. Every other red file is deep multi-error Gap-6:
+
+  - **P3 per-call type identity (~12 — THE dominant lever):** arc, thread, worker
+    (`passing/assigning '__yo_tN'` mismatch), collections/linked*list (8 errs,
+    `__yo_t23`≠`__yo_t33`≠`__yo_t35` for one logical type), imm_list, imm_string
+    (`initializing '__yo_tN'`), sync/\* + imm_map + ordered_map (15-21 errs each;
+    `call to undeclared function 'yo_id*..**unknown**Type\_\_..rtparam..'`— the
+specialized name carries an UNRESOLVED type). type_key.yo ALREADY dedups
+structs aggressively (cfid+type_args + structural fallback +`!AMBIG` poison);
+    the divergence is UPSTREAM — create_specialized feeds structurally-divergent
+    struct instances for one logical type. Codegen cannot fix it soundly → P3.
+  - **Deep behavioral Gap-6 (compile-green, 1-2 runtime fails):** cycle_collector
+    15/16 ("Garbage cycle collected while live objects survive" — GC trace/dispose
+    correctness), sys/timer ("Test Io timer" — async), http/http 7/9. Gap-6 at
+    runtime = same P3 root manifesting as wrong behavior, not a compile crash.
+  - **Other specific-but-multi-root:** sys/bufio (16× `no member` — async struct
+    type), flowability_comprehensive (unexpected-type-name + undeclared),
+    closure_capture_rc_leak (11× undeclared), impl (`conflicting types` void\*),
+    derive/derive_clone_complex, module_struct_unification.
+
+- **NEXT ARC = P3 (`create_specialized_function_inline`).** Unblocks ~12 files at
+  once. Highest lever, highest risk (broke stage2 fixpoint 6× at self-compile
+  scale; salvage plan on branch `wip/resolution-time-spec`). Deserves a dedicated,
+  fully-gated session — NOT a context-tail rush. Cheap extra gate for all spec
+  work: build stage2 + `s2 check std/env.yo` before any sweep.
+
 ## SESSION UPDATE 2026-07-20 (evening) — comptime.test.yo + error.test.yo FLIPPED (#69 +2)
 
 - **error.test.yo GREEN (8/8, matches TS)** via two faithful fixes, full-battery
