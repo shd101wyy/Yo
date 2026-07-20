@@ -80,12 +80,36 @@ FOLD; TS does not emit a runtime `comptime_float` neg.
 specialization for codegen). `should_skip_function_codegen`
 (codegen/functions/declarations.yo:462) skips `_func_result_is_comptime_only`,
 but this specialization's declared result is the SomeT `_Self`, not a
-comptime-marked type, so it is not skipped. A faithful fix must either (a) not
-register the comptime specialization for codegen at the call site (function.yo
-specialization guard), or (b) skip functions whose body is only a comptime-only
-builtin call (extend `is_function_value_with_only_builtin_yo_inline_function_call`
-/ `should_skip_function_codegen` to the `__yo_comptime_*` family). NOT attempted
-here — needs its own probe + faithful-port check against TS collection.
+comptime-marked type, so it is not skipped.
+
+**Attempted + REVERTED (2026-07-20): a `should_skip` param-comptime check.**
+Added `_func_has_comptime_only_param` (skip if any param is
+`.ComptimeInt/.ComptimeFloat/.ComptimeString`). It did NOT fire — a `[SKIPCP]`
+probe in `should_skip` showed the DESYNC:
+
+```
+[SKIPCP] cname=yo_id_124_comptime_float_id_comptime_float_rtparam0_comptime_float_ret_216
+         fid=<same> params=f64 | has_cp=false skip1=false
+```
+
+`get_func_type(fid)` returns param **`f64`** (renders `double self`), but the
+c_name AND the body are `comptime_float` (`self.neg()` dispatched to
+`ComptimeNegate.neg` = `__yo_comptime_float_neg` = the undeclared `fn_yo_id_199`).
+So the function is a HYBRID: an **f64 ABI** with a **comptime_float body/c_name**.
+The param-comptime signal can't catch it (param is f64); a c_name string-match
+would catch it but is an unfaithful band-aid with fixpoint risk.
+
+The REAL root is one layer deeper: for an f64-ABI specialization, the body's
+`self.neg()` method dispatch resolved to the COMPTIME `ComptimeNegate` impl
+(`__yo_comptime_float_neg`) instead of the runtime `Negate` impl (`__yo_op_neg`,
+which inlines to `-(self)` and compiles — cf. the f32 case above). Equivalently,
+the comptime specialization should never have been created/collected for codegen
+(TS folds the comptime call). A faithful fix must either (a) suppress the
+comptime specialization at the call site (function.yo:1313 specialization guard,
+gate off comptime-typed receiver/args), or (b) make the f64-ABI body dispatch
+`neg` to the runtime `Negate` impl. Both need a probe of where the
+comptime-vs-runtime dispatch splits and a faithful-port check against TS. NOT a
+tail-of-session change.
 
 ## Landscape note (why 0 files flip from the void\* work)
 
