@@ -18,6 +18,61 @@ anything about those families.
   **iso_api_surface 2/2** (`ec1e99822`, tid-less method dispatch). Plus iso port
   layers 1–3a (`83af97e4e`/`294d6b6e1`/`dadabe775`) and the determinism/fixpoint fix
   (`ebdd27ca8`). User directive: **ALWAYS build --release (-O2), never -O0.**
+
+### CONTINUATION 2026-07-20 (later session) — accurate re-triage, 2 attempts reverted
+
+- **⚠️ METHODOLOGY (cost me ~1h): REBUILD `/tmp/s1rel` from HEAD before ANY sweep.**
+  A stale `s1rel` (predating this session's 5 commits) reported iso_api_surface /
+  forward_ref_self_method as RED (false failures). Rebuild:
+  `./yo-cli compile yo-self/main.yo --release -o /tmp/s1rel` (~1.6 min). Then the 3
+  flips + time/duration all verify GREEN (**#69 is ~132, not 131** — time/duration
+  already flipped via the FloatLit workaround). Sweep with the fresh binary; the old
+  `clusters.md` was stale.
+- **ACCURATE current red clusters (fresh-binary sweep, 36 files):**
+  - _async-future_ (7): fs/{dir,file,temp,metadata,walker,fs*convenience}, sys/bufio —
+    `no member __yo_resume_fn in struct __yo_io_future_t`. **CONFIRMED Gap-6** (not a
+    tractable classification fix). Attempted `is_io_future || future_type_name ==
+"__yo_io_future_t*"` at await.yo:437 — peeled the resume_fn layer but exposed the
+    REAL root: `__sync_future->result` is `int32_t` (generic io-future field) where the
+    result type is specific. These are STATE-MACHINE futures whose SomeT
+    `resolved_concrete` isn't populated → get_type_string falls back to generic
+    `__yo_io_future_t*` instead of the specialized `*...\_sync_fut_t\*`. TS reads
+`resolvedConcreteType`(await.ts:82-95; isIoFutureType branch-1). REVERTED — the fix
+is resolved-concrete population, the Gap-6 core.`is_io_future_type` branch-1 gap
+    (state_machine.yo:42-48) is a downstream symptom, not the root.
+  - _dispose_ (6): ordered_map, sync/{channel,mutex,once,rwlock,waitgroup} —
+    `undeclared yo_id_N` (collectDisposeMethodsFromGenericImpls). Gap-6-blocked.
+  - _spec-identity Gap-6_: impl, arc, error, cli/arg_parser, linked_list,
+    impl_fn_field_rejection, ref_closure_capture, derive_clone_complex.
+  - _type-name-as-value_: module_struct_unification (`.next = __yo_t32`), flowability
+    (`__yo_str w` cascade — see below), iso 3c (`__yo_t29.can_isolate`).
+  - _behavioral_ (compile-green, some tests fail): json (24/35), http (7/9),
+    dyn (5/8), cycle_collector (15/16), sys/timer.
+- **flowability_comprehensive — PRECISELY diagnosed, faithful fix is a hot-path change:**
+  root is `v(a..b)` (String/str range-slice) emitting `// Failed to transpile v(a..b)`
+  (the FTT comment eats the `;` → cascade of "unexpected type name" errors). The eval
+  rewrite `_try_rewrite_range_index_to_slice_copy` (function.yo:757) EXISTS, IS reached,
+  and finds `slice_copy` (probe: found=1) — it rewrites `v(a..b)` → `v.slice_copy(a..b)`
+  and records a macro_expansion. **But codegen still FTTs** because of a NODE-IDENTITY
+  mismatch: the eval instance the rewrite fires on and the AST node codegen walks have
+  DIFFERENT ids (probe: record id 56261 vs codegen lookup id 56259, a consistent +2
+  offset). TS mutates `expr.func` IN PLACE (function.ts:833); yo-self's `AstExpr` is a
+  `ref(enum)` whose variant fields can't be reassigned (no in-place AST mutation exists
+  anywhere in yo-self — all rewrites go through `record_macro_expansion` keyed by id),
+  so the side-table lookup misses when the two instances' ids diverge. The rewrite is
+  also only wired into 2 evaluate_function_call arms (function.yo:3672/3996); TS runs it
+  PRE-DISPATCH (function.ts:768, + a `recvHasComptimeSliceValue` guard yo-self omits).
+  Faithful fix candidates: (a) hoist the rewrite pre-dispatch AND port the comptime
+  guard, OR (b) eliminate the intermediate AST clone so eval/codegen ids align. Both are
+  hot-path eval changes with fixpoint risk — NOT an end-of-session change. ~1 file
+  direct; `..` appears in ~11 test files (index/array/for_macro_borrow/async_await/…).
+- **float formatter faithfulness (latent):** yo-self's FloatLit raw comes from f64
+  `.to_string()` = C `%g` (std/fmt/to_string.yo:139,151) → `1e+09` for large magnitudes
+  and DEFAULT-6-SIG-DIGIT PRECISION LOSS; TS uses JS `Number.toString()` (`1000000000`,
+  full precision). The e/E workaround (comptime_value.yo:191-193) only prevents invalid
+  C (`1e+09.0`), not the divergence/precision loss. time/duration passes (low-precision
+  literals); a high-precision float literal in a test would fail at runtime. Fix =
+  round-trippable decimal formatting; flips 0 files today (deferred, documented).
 - **⚠️ ASSESSMENT CORRECTION (important): the "~26 Gap-6 files" count is OVERSTATED.**
   iso L3b looked like Gap-6 (per-call return-spec) but PROBING it revealed a tractable
   **dispatch gate** (`other_fn_call.yo:997` gated on `tid.len()>0`; Iso has no registry
