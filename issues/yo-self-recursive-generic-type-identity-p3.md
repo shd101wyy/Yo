@@ -130,17 +130,31 @@ what TS does (memoized instantiation + id-keyed codegen registry,
 collection.ts:805). The codegen-only angle is a dead end while the evaluator
 mints 6-7 Nodes per instantiation.
 
-## Suggested next-session entry point
+## Suggested next-session entry point (UPSTREAM — the codegen angle is disproven)
 
-Write `_enum_cycle_token(rs)` = variant names + discriminants + injective
-one-level `_shallow_tag(field)` for every field (named→tag+id, primitive→tag,
-Pointer/Array/Tuple/Func→tag + one-level shallow of children — NO bare markers).
-Swap the enum guard (type*key.yo:233-238) to push/check this token instead of
-`eid`; keep the `key := eid + field_part` full key (line 295) so
-`_lookup_or_register_enum_sig` still merges by the now-eid-free sig. Leave the
-STRUCT arm on ids (Node is stable; only touch it if the gate shows a value-struct
-recursion needs it). Gate HARD: differential corpus (135/2/0) + `check ./std` +
-stage2 clang + `s2 check std/env.yo` + STRICT_FIXPOINT + a targeted linked_list
-& arc emit-c diff, BEFORE trusting it — a wrong-merge can pass the corpus yet
-collapse self-compile. Expect the whole collection cluster (linked_list, arc,
-imm*_, sync/_, ordered_map — ~12 files) to unblock at once IF sound + complete.
+Kill the divergence at CONSTRUCTION: memoize generic type instantiations so
+`LinkedList(i32)` (and its `Node` / `Option(Node)`) is built ONCE and reused,
+matching TS (memoized instantiation + id-keyed codegen registry, creators.ts /
+collection.ts:805). Steps:
+
+1. Find where a generic struct/enum is instantiated for concrete args — the
+   `substitute` path (types/substitution.yo, already wrapped in `intern_type`)
+   and/or the specialization/`TypeApp` evaluator. Instrument with an eprintln at
+   Node/`LinkedList` construction to count how many instances one
+   `LinkedList(i32)` program mints and WHERE (the repro mints 6-7 Nodes).
+2. Add a generic-instantiation memo keyed by (generic-type-id or
+   constructor_func_id, type-args) that returns the SAME instance for repeat
+   instantiations — with SHELL knot-tying so the recursive `Node ↔ Option(Node)`
+   self-references resolve to the memoized instance (not a fresh shell). This is
+   the "tie the knot once" that `intern_type` can't do because its key embeds the
+   eid (so recursively-built instances never collide).
+3. Gate HARD (this touches type construction → large blast radius, and is the
+   exact zone that broke the 6 `wip/resolution-time-spec` attempts at
+   self-compile scale): differential corpus (135/2/0) + `check ./std` + stage2
+   clang + `s2 check std/env.yo` + STRICT*FIXPOINT + linked_list/arc emit-c diff.
+   Build stage2 + `s2 check std/env.yo` FIRST (cheap early signal) before the
+   full sweep. Expect the whole collection cluster (linked_list, arc, imm*_,
+   sync/_, ordered_map — ~12 files) to unblock at once if instantiations unify.
+
+Do NOT retry the codegen-only enum/struct cycle-token approach — proven
+insufficient above (divergence is at every recursion level).
