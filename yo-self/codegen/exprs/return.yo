@@ -618,7 +618,34 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
           .None => ()
         );
       });
-      return_type := get_type_string(ei.ty, context.base);
+      // The return statement yields the FUNCTION's value, so the return temp's
+      // C type is the function's (specialized) return type. When the return
+      // expression's OWN recorded type is an unresolved SomeT that lowers to
+      // `void*` — e.g. a generic operator's declared `_Self` return, which
+      // specialization concretizes only in the FUNCTION TYPE (used by the
+      // prototype), leaving the body's return-expr node at the abstract SomeT
+      // (comptime.test.yo `-(f32)`: `void* r = (-(self)); return r;` inside a
+      // `float` fn) — resolve it through the function's concrete return type.
+      // Mirrors the deferred-dup / scope-ret tail paths (generation.yo:196,265),
+      // which already type the tail temp from `function_type.Func.result`.
+      return_type := {
+        raw_rt := get_type_string(ei.ty, context.base);
+        cond(
+          (raw_rt == String.from("void*")) => match(
+            context.current_function_type,
+            .Some(ft) => match(
+              ft,
+              .Func({ result : r }) => {
+                fr := get_type_string(r, context.base);
+                cond((fr == String.from("void*")) => raw_rt, true => fr)
+              },
+              _ => raw_rt
+            ),
+            .None => raw_rt
+          ),
+          true => raw_rt
+        )
+      };
       return_temp_var := match(ei.variable_name,.Some(vn) => Option(String).Some(get_variable_name_for_codegen(vn, Option(Environment).Some(ei.env))),.None => Option(String).None);
       match(
         return_temp_var,
