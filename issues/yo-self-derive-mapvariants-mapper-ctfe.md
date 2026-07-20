@@ -76,6 +76,22 @@ accessors) yielding UnknownVal. Next session: probe `variant.name` /
 VariantInfo) — the FieldInfo accessors (struct path) work, so diff FieldInfo vs
 VariantInfo reflection.
 
+## FURTHER NARROWING: VariantInfo.name is concrete → suspect the cond-CTFE
+
+`format_variant_info_call` (type_fns.yo:679) constructs
+`VariantInfo("North", <field_list>, <enum_ty>, usize(idx))` — the name is a
+STRING LITERAL, so `variant.name` folds concretely. Eliminate `variant.name` as
+the suspect. The enum mapper body is `cond(variant.fields.len()==0 => quote(...),
+true => quote(...))` (a COND whose branches are quotes) — vs the struct mapper's
+BARE `quote(...)`. So the remaining suspect is the comptime evaluation of a
+`cond` that RETURNS a quote inside a comptime mapper: either `variant.fields.len()`
+doesn't fold (check `_ti_bind_type_field_list`, type_fns.yo:815, for the
+empty-field-list case) or the `cond` doesn't propagate the selected branch's
+`ExprVal` at CTFE. Next-session probe: instrument map_variants right after the
+mapper call (type_fns.yo:1764) to print `call_info.value`'s kind, AND separately
+CTFE-evaluate `variant.fields.len()` in the mapper env to see if the cond
+condition is concrete.
+
 ## Why it's deep (a dedicated arc, not a context-tail fix)
 
 The chain is `map_variants → mapper comptime-fn CTFE → cond → VariantInfo
