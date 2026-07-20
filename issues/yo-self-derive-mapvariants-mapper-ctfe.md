@@ -196,3 +196,68 @@ reflection (variant.fields)`. Each layer must produce a concrete comptime value;
 one unknown poisons the whole quote. Same class as P3 — needs a focused
 reflection/CTFE session, full-battery gated (touches comptime-fn evaluation +
 reflection builtins). Standalone repro + `[SPLICE]` probe recipe recorded above.
+
+## SESSION 2026-07-20 (late) — TWO bugs isolated + FOUR fixes disproven (8 s1 builds). SUPERSEDES the ExprInfo-timing theory above.
+
+The prior "nested-receiver `.len()` reads a `v`-unbound-pass ExprInfo" theory is
+WRONG. A `[LEN]` probe in `_try_find_receiver_method` (printing the receiver's
+cached value + a re-eval) proved that in the (post-fix) fresh mapper calls
+`variant.fields` resolves **CONC** (`cached=CONC reeval=CONC recv=(variant.fields)`,
+3×). Property access is fine. There are **two independent bugs**:
+
+**BUG 1 — over-caching (evaluator/calls/comptime_fn.yo:624).** `should_cache` =
+`is_type_hierarchy_type(return_type) || func_result_is_comptime || all_args_are_types`.
+TS (comptime-fn.ts:91) is ONLY `isTypeHierarchyType(returnType)` — it explicitly
+does NOT cache non-Type returns. The mapper returns `comptime(Expr)`, so
+`func_result_is_comptime` memoizes it; called per-variant with a `VariantInfo`
+VALUE arg (`all_args_are_types` = false), all 3 calls collide on ONE poisoned
+entry. A `[MV]` probe (in `evaluate_type_map_variants` after the mapper call)
+CONFIRMED: with the buggy cache the mapper body's `.len()` evaluates ONCE; after
+removing `func_result_is_comptime` the mapper runs 3× fresh (`[MV] vi=0/1/2`).
+Fix = drop `func_result_is_comptime` (keep `all_args_are_types` — type
+constructors are called with type args, so identity is preserved). NECESSARY but
+not sufficient; flips nothing alone (derive is the only map_variants test file).
+
+**BUG 2 — comptime `.len()` self-param bound to UnknownVal
+(evaluator/calls/function.yo, the `.None`-branch method CTFE, block ~3934).**
+`variant.fields.len()` reaches the `.None` branch (callee has no comptime value)
+→ `_try_find_receiver_method` finds `ComptimeList.len()` (declared
+`comptime(self):Self -> comptime(usize)`, prelude.yo:5790) → block 3934
+CTFE-executes it via `evaluate_comptime_fn_call`, which evaluates the body in the
+pre-built `m_env`. The self param is bound from `call_result_m.arg_values.args[0]`,
+but `try_to_call_function_with_arguments` (line ~3892) binds COMPTIME params to
+UNKNOWNS during its type-check pass → self = UnknownVal → `__yo_comptime_list_length(unknown)`
+→ Unknown → `== usize(0)` unknown → `cond` can't fold → mapper UnknownVal.
+
+FREE minimal-repro tests (reusing one s1 build, editing only the mapper body in
+`src/tests/fixme.yo`) pinned BUG 2 exactly:
+
+- bare `quote(_ => true)` mapper → **EXPR**
+- `cond(true => quote, true => quote)` (constant cond) → **EXPR**
+- `cond(variant._variant_index == 0 => …)` (SCALAR field) → **EXPR**
+- `cond(variant.fields.len() == 0 => …)` (ComptimeList field + comptime `.len()`) → **NONEXPR**
+  So: cond is fine, quote is fine, scalar reflection is fine; ONLY the comptime
+  `.len()` on the `ComptimeList`-typed field fails to fold. (Scalar fields fold via
+  property access; `.len()` is a comptime METHOD whose self goes through the CTFE.)
+
+**FOUR fixes tried and DISPROVEN (all full s1 rebuilds, all still NONEXPR):**
+
+1. Re-eval a value-less receiver in the CURRENT env inside `_try_find_receiver_method`
+   (`.Some(ri)` value-less → re-eval). No effect — the receiver already resolves later.
+2. Re-eval the receiver in the ORIGINAL call `env` (added `orig_env` param). No effect
+   — no available env has `variant` at that dispatch point.
+3. BUG-1 cache fix alone. Mapper now runs 3× fresh, but each still returns NONEXPR.
+4. BUG-1 + bind self in `m_env` (block 3934) from the receiver's ExprInfo, then from a
+   RE-EVAL of the receiver in `callee_env`. Still NONEXPR — `try_to_call` (run just
+   before block 3934) has clobbered the receiver ExprInfo to Unknown AND `callee_env`
+   no longer resolves `variant` (the `[LEN]` reeval=CONC held BEFORE try_to_call, not
+   after).
+
+**REAL FIX (next dedicated session):** capture the CONCRETE receiver value at
+resolution time — inside `_try_find_receiver_method`, where `variant.fields` is
+proven CONC — and thread it (e.g. on `ReceiverMethodResult`) to the block-3934
+self-param binding, instead of relying on `arg_values`/a post-`try_to_call` re-eval.
+Combine with BUG 1. Full battery (corpus 135/2/0, std 153/153, STRICT_FIXPOINT
+byte-identical) + revert-on-regression. Blast radius: the `.None`-branch comptime
+method CTFE (all value-instance comptime methods with a value receiver) — MUST be
+gate-validated, not committed on a repro flip alone.
