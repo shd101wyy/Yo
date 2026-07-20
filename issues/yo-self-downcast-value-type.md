@@ -55,6 +55,27 @@ the binding `(err : AnyError) = dyn(\`hello\`)`— a bare`err := dyn(\`hello\`)`
 creation needs the AnyError trait context; a separate concern). So the next
 session has a ready standalone repro (no batch needed, unlike msu).
 
+## DEEPER (2026-07-20) — the box machinery is INCONSISTENT (confirms Box-model port)
+
+The value IS boxed at dyn creation: `dyn(\`hello\`)`first boxes the String via a
+box constructor`yo*id_2747_String*…(String) -> **yo_t27\*`, where the box is
+`struct **yo*t27_struct { **yo_ref_header_t header; **yo_t10 \_u42*; }` (RC header
+
+- the String in `_u42_`), then `.data = <__yo_t27*>`. So the CORRECT downcast
+  extraction is `((__yo_t27*)err.data)->_u42_` (+ dup), exactly TS's `wasBoxed`
+  `((BoxCName*)dyn.data)->field`.
+
+BUT the surrounding machinery is inconsistent because `is_boxed_type≡false`:
+`_unwrap_box_concrete(__yo_t27)` (dyn.yo:35) is a NO-OP, so the dyn_impl records
+`concrete_type = __yo_t27` (the BOX), not String — and the vtable typeid is built
+for the box while `downcast(err, String)` checks `&__yo_typeid___yo_t0` (String).
+So it's not just the extraction: the box/concrete/typeid path all assume the box
+is the object. A targeted downcast-only patch is NOT enough; the fix is to model
+Box consistently (recognize `__yo_t27` as `Box(String)`: `is_boxed_type`,
+`_unwrap_box_concrete` → String for concrete_type + typeid, and the box-extract
+in downcast). This is the genuine deferred feature, higher-risk (touches dyn
+creation + typeid + downcast + dispose). Standalone repro above; a dedicated arc.
+
 ## Fix (a dedicated port — needs the dyn value-boxing model)
 
 Port the `wasBoxed` value-extraction branch (downcast.ts:111-150). It requires:
