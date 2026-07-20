@@ -170,6 +170,25 @@ retrieval, find why obj_val_main is None specifically when `ft_lbl` is a
 `ComptimeList` (vs concrete for scalar `ft_lbl`) — likely a receiver re-eval /
 materialization triggered only for compound field types.
 
+## MECHANISM: nested-receiver `.len()` dispatch reads a None-pass ExprInfo for `v.fields`
+
+`v.fields.len()` is a method call whose RECEIVER `v.fields` is a NESTED access.
+`_try_find_receiver_method` (function.yo:189) reads the receiver's ExprInfo
+(line 231) — or re-evaluates it via `_try_eval_receiver_node` (182) on a miss.
+The `[PA]` probe showed `v.fields` is evaluated in ≥2 passes (concrete `CLIST/0`
+AND a `v`-unbound `None` pass); the ExprInfo the `.len()` dispatch ends up reading
+carries the None-pass value, so `.len()`'s receiver has no value → the method
+CTFE yields UnknownVal → the `cond` can't fold → the mapper returns UnknownVal
+→ the quote-splice gets non-Expr elements → "Failed to transpile". A scalar field
+`v._variant_index` in the SAME cond folds because `==` is an operator (no
+nested-receiver method dispatch / ExprInfo re-read), and `get_struct_fields(T).len()`
+works because its receiver is a direct call (single eval, concrete ExprInfo).
+FIX DIRECTION (dedicated session): ensure the nested-receiver `.len()` dispatch
+uses the CONCRETE receiver evaluation (don't let a `v`-unbound re-eval overwrite
+the concrete `v.fields` ExprInfo, or make `_try_eval_receiver_node` evaluate in the
+env where `v` is bound). This is comptime method-dispatch + ExprInfo-table timing —
+pervasive, so full-battery-gated.
+
 ## Why it's deep (a dedicated arc, not a context-tail fix)
 
 The chain is `map_variants → mapper comptime-fn CTFE → cond → VariantInfo
