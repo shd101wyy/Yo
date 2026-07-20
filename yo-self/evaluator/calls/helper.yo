@@ -116,6 +116,7 @@ open(import("std/string"));
   evaluate_function_return_type_again,
   get_func_param_defaults,
   get_func_param_default_exprs,
+  get_func_param_comptime,
   get_func_where_constraints,
   WhereConstraintEntry,
   collect_wrapper_trait_somes
@@ -518,17 +519,25 @@ check_if_function_parameter_matches_argument :: (
   // and `synthesize_types` rejected the `str` vs `comptime_str` tag
   // mismatch before any coercion could run. `convert_…` returns the type
   // unchanged for non-comptime inputs, so this is a no-op for normal args.
-  // GUARD: only coerce against a genuine RUNTIME concrete parameter type —
-  // never a `SomeT` type variable, and never a comptime parameter type.
-  // `convert_…` lowers comptime_int→i32 / comptime_float→f64
-  // UNCONDITIONALLY, so coercing against a comptime parameter would break
-  // the (correct) comptime-to-comptime match.
+  // GUARD: coerce when the PARAMETER is a runtime param (not comptime-only) and
+  // the parameter TYPE is not itself a comptime type. Mirrors TS
+  // `!parameter.isCompileTimeOnly && isComptimeOnlyType(argType)`
+  // (helper.ts:508). `is_ct_only` (the `comptime(...)` param modifier, from the
+  // per-param comptime side-table) REPLACES the earlier `!is_some_type`
+  // PROXY, which wrongly skipped a runtime param typed as a SomeT — e.g. the
+  // operator `neg`'s `self : _Self`, leaving a `comptime_float` arg unlowered
+  // so the specialized body dispatched to the COMPTIME `__yo_comptime_float_neg`
+  // (undeclared) instead of the runtime `Negate` impl (comptime.test.yo).
+  // `convert_…` lowers comptime_int→i32 / comptime_float→f64 UNCONDITIONALLY
+  // (comptime_string honours the expected type), so the `!pt_is_comptime` half
+  // still protects the (correct) comptime-to-comptime match for a comptime
+  // parameter type (e.g. the `fn(comptime_int,comptime_int)->bool` overload).
   (arg_type : TypeValue) = arg_info.ty;
   pt_is_comptime := (
     (is_comptime_int_type(resolved_pt) || is_comptime_float_type(resolved_pt))
     || is_comptime_string_type(resolved_pt)
   );
-  if((!(is_some_type(resolved_pt))) && (!(pt_is_comptime)), {
+  if((!(is_ct_only)) && (!(pt_is_comptime)), {
     arg_was_comptime := (
       (is_comptime_int_type(arg_info.ty) || is_comptime_float_type(arg_info.ty))
       || is_comptime_string_type(arg_info.ty)
@@ -2496,6 +2505,18 @@ try_to_call_function_with_arguments :: (
         ),
         .None => ArrayList(Option(AstExpr)).new()
       );
+      // Parallel to call_param_defaults: per-param `is_compile_time_only` flags,
+      // so the comptime→runtime argument-type conversion (Step 4) can gate on
+      // the parameter's comptime modifier exactly as TS does (helper.ts:508).
+      call_param_comptime := match(
+        func_val,
+        .Some(fvv3) => match(
+          fvv3,
+          .FuncVal(__fvd13, _) => get_func_param_comptime(__fvd13.*.func_id.clone()),
+          _ => ArrayList(bool).new()
+        ),
+        .None => ArrayList(bool).new()
+      );
       (n_required : usize) = n_params;
       if(call_param_defaults.len() == n_params, {
         (nr : usize) = usize(0);
@@ -2961,7 +2982,9 @@ try_to_call_function_with_arguments :: (
               dpr := check_if_function_parameter_matches_argument(
                 plabel,
                 ptype,
-                false,
+                // is_ct_only: honour the param's comptime modifier here too, so
+                // a comptime param's default keeps its raw comptime type.
+                match(call_param_comptime.get(pi),.Some(f) => f,.None => false),
                 // param_is_owning: TS never runs move-ownership for defaults
                 false,
                 match(pref.get(pi),.Some(b) => b,.None => false),
@@ -3026,8 +3049,11 @@ try_to_call_function_with_arguments :: (
         pr := check_if_function_parameter_matches_argument(
           plabel,
           ptype,
-          false,
-          // is_ct_only: Phase 3 treats all regular params as runtime
+          // is_ct_only: the parameter's `comptime(...)` modifier (from the
+          // per-param comptime side-table). A comptime param keeps its raw
+          // comptime arg type; a runtime param lowers a comptime-only arg to
+          // its runtime type (mirrors TS `!parameter.isCompileTimeOnly`).
+          match(call_param_comptime.get(pi),.Some(f) => f,.None => false),
           p_owning,
           match(pref.get(pi),.Some(b) => b,.None => false),
           io_builtin_skip_expected,

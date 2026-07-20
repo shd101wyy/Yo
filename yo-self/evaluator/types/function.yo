@@ -266,6 +266,43 @@ get_func_param_defaults :: (fn(func_id : String) -> ArrayList(Option(EvalValue))
     .None => ArrayList(Option(EvalValue)).new()
   )
 );
+// Per-parameter `is_compile_time_only` flags (the `comptime(name) : T` param
+// modifier). `TypeValue.Func`/`FuncMeta` do NOT carry a per-param comptime bit
+// (only `param_is_ref`/`param_is_owning`), so — like the defaults above — it
+// rides a func-id-keyed side table. The call site (helper.yo) reads it to
+// replicate TS's `!parameter.isCompileTimeOnly` guard on the comptime→runtime
+// argument-type conversion (helper.ts:508): a RUNTIME parameter that receives a
+// comptime-only argument (e.g. the operator `neg`'s `self : _Self` given
+// `comptime_float`) must lower the arg to its runtime type, or the specialized
+// body dispatches to the COMPTIME impl (`__yo_comptime_float_neg`, undeclared).
+// Keyed/copied like the defaults (fn-type-expr id → FuncVal id).
+(g_func_param_comptime : HashMap(String, ArrayList(bool))) = HashMap(String, ArrayList(bool)).new();
+register_func_param_comptime :: (fn(func_id : String, flags : ArrayList(bool)) -> unit)({
+  // Keep the table sparse — only register when at least one param is comptime.
+  (any_ct : bool) = false;
+  (i : usize) = usize(0);
+  while((i < flags.len()) && !(any_ct), {
+    match(flags.get(i),.Some(f) => if(f, {
+      any_ct = true;
+    }),.None => ());
+    i = (i + usize(1));
+  });
+  if(any_ct, {
+    g_func_param_comptime.set(func_id.clone(), flags);
+  });
+});
+copy_func_param_comptime :: (fn(from_id : String, to_id : String) -> unit)({
+  match(
+    g_func_param_comptime.get(from_id.clone()),
+    .Some(flags) => {
+      g_func_param_comptime.set(to_id.clone(), flags);
+    },
+    .None => ()
+  );
+});
+get_func_param_comptime :: (fn(func_id : String) -> ArrayList(bool))(
+  match(g_func_param_comptime.get(func_id.clone()),.Some(f) => f,.None => ArrayList(bool).new())
+);
 // Parallel side-table: per-parameter default-value EXPRESSIONS (the `?= EXPR`
 // AST). The value table above suffices for the call-site count check and the
 // def-time binding, but CODEGEN must EMIT an omitted default as a C argument —
@@ -3657,6 +3694,7 @@ evaluate_function_type :: (
   (ppi : usize) = usize(0);
   param_defaults := ArrayList(Option(EvalValue)).new();
   param_default_exprs := ArrayList(Option(AstExpr)).new();
+  param_comptime_flags := ArrayList(bool).new();
   quoted_param_indices := ArrayList(usize).new();
   while(ppi < params_result.params.len(), {
     pp := match(
@@ -3673,6 +3711,7 @@ evaluate_function_type :: (
     param_is_owning.push(pp.is_owning_rc_value);
     param_defaults.push(pp.default_value);
     param_default_exprs.push(pp.default_value_expr);
+    param_comptime_flags.push(pp.is_compile_time_only);
     if(pp.is_quote, {
       quoted_param_indices.push(ppi);
     });
@@ -3683,6 +3722,9 @@ evaluate_function_type :: (
   // re-keys them under the FuncVal id so call-site arg matching can treat
   // trailing defaulted params as optional. (See the side-table above.)
   register_func_param_defaults(ast_expr_id(expr).to_string(), param_defaults);
+  // Per-param comptime flags (same two-step re-keying as the defaults) so the
+  // call site can lower comptime-only args passed to RUNTIME params.
+  register_func_param_comptime(ast_expr_id(expr).to_string(), param_comptime_flags);
   // Register the per-parameter default-value EXPRESSIONS (parallel to the
   // values above) so codegen can EMIT an omitted default as a C argument.
   register_func_param_default_exprs(ast_expr_id(expr).to_string(), param_default_exprs);
@@ -4099,6 +4141,9 @@ export(
   register_func_param_defaults,
   copy_func_param_defaults,
   get_func_param_defaults,
+  register_func_param_comptime,
+  copy_func_param_comptime,
+  get_func_param_comptime,
   register_func_param_default_exprs,
   copy_func_param_default_exprs,
   get_func_param_default_exprs,
