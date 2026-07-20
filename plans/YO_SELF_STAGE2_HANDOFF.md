@@ -9,7 +9,24 @@ reverted candidate of the async/dispose/spec families) lives in
 `issues/yo-self-async-emission-cluster.md` — consult it before re-deriving
 anything about those families.
 
-## SESSION UPDATE 2026-07-20 (late) — forward_ref_impl_block FLIPPED (#69 +1); tractable single-root flips EXHAUSTED
+## SESSION UPDATE 2026-07-20 (late) — forward_ref_impl_block + flowability_comprehensive FLIPPED (#69 +2)
+
+- **flowability_comprehensive.test.yo GREEN (3/3)** via `e3622aa57`, full battery +
+  STRICT_FIXPOINT byte-identical, zero regression. A TWO-gap str/ArrayList
+  range-window slice chain, cracked by stacking two codegen fixes:
+  (Gap 2, evaluator) the operator-CTFE set `runtime_arg_exprs_in_order`
+  UNCONDITIONALLY, so a comptime-folded STRUCT/ENUM operator result (a constant
+  `Range` from `usize(6)..usize(11)`) looked like a runtime CONSTRUCTOR
+  (`is_runtime_ctor`) and skipped generate_comptime_value → "// Failed to
+  transpile"; gate it to the runtime case so folded operators take the
+  concrete-value short-cut. (Gap 1, codegen) `v(range)` is rewritten to
+  `v.slice_copy(range)` reusing the call id + recording the method-callee, but
+  collection AND emission gated that lookup on a DOT callee (the source callee is
+  the bare `v`); hoist collection out of the dot block + add a non-dot
+  value-call emission branch (same family as forward_ref). Full write-up:
+  `issues/yo-self-str-range-slice-codegen.md`. LESSON: a comptime-folded operator
+  returning a struct/enum must NOT carry runtime_arg_exprs; and the method-callee
+  side-table must be consulted for non-dot value-calls, not just dot methods.
 
 - **forward_ref_impl_block.test.yo GREEN (5/5)** via `12c3109ff`, full battery +
   STRICT_FIXPOINT byte-identical, zero regression. ONE-LINE codegen fix
