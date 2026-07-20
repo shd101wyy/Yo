@@ -153,6 +153,23 @@ than a regular call that leaves the comptime param value-less; compare to
 join_fields (works) — the difference is likely the mapper FuncVal or the arg
 (VariantInfo StructVal) binding, NOT the call code (which is identical).
 
+## THE DISCRIMINANT: field TYPE (ComptimeList vs scalar), same cond structure
+
+`cond(v._variant_index == usize(0) => …)` (usize scalar field) → **EXPR**.
+`cond(v.fields.len() == usize(0) => …)` (ComptimeList field) → **NOTEXPR**.
+IDENTICAL cond structure — the ONLY difference is the accessed field's TYPE. So
+the bug is specifically **comptime property-access of a ComptimeList (compound)
+field**: for it, the receiver `v` is seen value-less (obj_val_main=None, per the
+`[PA]` probe) in the captured eval pass, so the field yields UnknownVal; a scalar
+field (`_variant_index : usize`, `name : comptime_str`) reads the concrete value.
+The fix is in property_access.yo's comptime-StructVal `.field` handling for a
+compound/ComptimeList-typed field (it must not re-evaluate the receiver in a
+value-less context) — a targeted property-access change, but property-access is
+pervasive so it needs the full battery. NEXT: at the comptime-StructVal field
+retrieval, find why obj_val_main is None specifically when `ft_lbl` is a
+`ComptimeList` (vs concrete for scalar `ft_lbl`) — likely a receiver re-eval /
+materialization triggered only for compound field types.
+
 ## Why it's deep (a dedicated arc, not a context-tail fix)
 
 The chain is `map_variants → mapper comptime-fn CTFE → cond → VariantInfo
