@@ -582,3 +582,37 @@ the mechanism is now PRECISE and points at a specific un-ported TS block:
   canaries (io_async_bundle_field, closure_capture_rc_dup, io-async-result-t-cell-poisoning)
   are mandatory; the wrapper resolved-concrete must be PER-CALL-fresh (the
   `_freshen_io_async_result` lineage) or sibling awaits cross-poison (item 7 above).
+
+### 2026-07-20 (cont.) — VERIFIED: async-future gap is a type_key MISMATCH (probe data)
+
+Followed the wrapper-resolved-concrete lead to ground truth. The SM struct IS registered
+by codegen: `async.yo:1498` (`_state_t` path) and `async.yo:1953` (`_sync_fut_t` path)
+both do `context.base.register_type(type_key(future), future, "<block>_..._t*", …)`. And
+`get_type_string`'s SomeT branch (utils/index.yo:932) DOES consult
+`context.get_type_c_name(type_key(t))` before the `__yo_io_future_t*` fallback. So the
+mechanism is wired end-to-end — the await just looks up a key that was never registered.
+
+Probe (fs/metadata, `PROBE-REG` at both register sites, `PROBE-AWAIT-MISS` at the
+get_type_string io-future fallback):
+
+```
+REGISTERED  keys: 2005, 2025, 2034, 2036, 2039, 2041, 2048, 2051, 2055, 2059, ...
+AWAIT-MISS  keys: 1983, 2003, 2007, 2008, 2009, 2024, 2050, 2052, 2053, 2054, ...
+```
+
+Two disjoint, interleaved sets — NO constant offset, NO simple normalization. The await's
+future carries a DIFFERENT `type_key` than the async block registered under. Root: the
+per-call `_freshen_io_async_result` (function.yo:3754) mints per-call-distinct future
+SomeTs (deliberately, to stop sibling awaits cross-poisoning — item 7), and yo-self's
+`type_key` for these futures is instance-distinct, so the freshened await instance's key ≠
+the async-block instance's key. Each PROBE-REG key ALSO registers BOTH `_state_t` and
+`_sync_fut_t` for the same key (last-write-wins) — a second latent hazard.
+
+⇒ This is the type-identity Gap-6 (the recurring theme), manifest at the `type_key` layer
+for async. A safe fix must make the await-site future and the async-block future agree on
+`type_key` WITHOUT re-introducing the sibling cross-poison the freshening prevents — e.g.
+resolve the await's future through its originating async block's id (the SM-struct-name
+side-table `_set_async_sm_struct_name`/`_get_async_sm_struct_name`, async.yo:1952) rather
+than through `type_key`, OR register the SM struct under the freshened await key too. Both
+touch the core async type-identity path → full battery + STRICT_FIXPOINT mandatory. NOT a
+tail-of-session change; this is the dedicated Gap-6 pass.
