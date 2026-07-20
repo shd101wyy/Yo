@@ -147,6 +147,16 @@ ReceiverMethodResult :: struct(
   // compatible value — the call site must wrap the receiver in `&(...)`.
   // Mirrors TS function.ts:335 `method.needsPointerConversion`.
   needs_pointer_conversion : bool,
+  // The receiver's concrete VALUE captured at RESOLUTION time (the ExprInfo
+  // read in step 2 below). `try_to_call_function_with_arguments` binds
+  // comptime params to UNKNOWNS in its type-checking pass and clobbers the
+  // receiver's ExprInfo, so by the time the call site CTFEs a
+  // comptime-returning instance method the self arg has lost its value —
+  // `evaluate_comptime_fn_call`'s unknown-arg gate then refuses to execute
+  // (e.g. `variant.fields.len()` in a derive mapper never folded). TS keeps
+  // evaluated arg values through its checking pass (`receiverArg.$?.value`,
+  // function.ts:290); this field restores that parity for the CTFE arm.
+  receiver_value : Option(EvalValue),
   // ALL candidate method entries with this name (in registration order), for
   // overload resolution at the call site. `method_val_opt`/`method_ty`/
   // `needs_pointer_conversion` above are the FIRST hit (the common single-hit
@@ -312,6 +322,7 @@ _try_find_receiver_method :: (
       receiver_expr : receiver_expr_r,
       is_static : is_static,
       needs_pointer_conversion : first.needs_pointer_conversion,
+      receiver_value : receiver_value,
       all_hits : hits
     )
   )
@@ -516,6 +527,7 @@ _select_matching_overload :: (
                 receiver_expr : base.receiver_expr.clone(),
                 is_static : base.is_static,
                 needs_pointer_conversion : cand.needs_pointer_conversion,
+                receiver_value : base.receiver_value,
                 all_hits : base.all_hits
               )
             );
@@ -3934,6 +3946,36 @@ Fix: wrap the call:
               .None => ()
             );
             m_fv := match(method_info.method_val_opt,.Some(v) => v,.None => EvalValue.UnitVal);
+            // Restore the self arg's concrete value for the CTFE. `try_to_call`
+            // binds comptime params to UNKNOWNS in its type-checking pass, so
+            // an instance method with `comptime(self)` (e.g. ComptimeList.len)
+            // reaches here with `arg_values.args[0].value` unknown — and
+            // `evaluate_comptime_fn_call` refuses to execute when ANY arg is
+            // unknown, so the mapper body never folds. The receiver's concrete
+            // value was captured at resolution time on `ReceiverMethodResult`
+            // (see the field comment); patch it back in (ArgEntry is a ref —
+            // in-place) so both the unknown-arg gate and the m_env param
+            // binding below see it. Skip static calls (args[0] is not self)
+            // and pointer-converted receivers (the arg is `&(recv)`, not the
+            // bare value). TS parity: TS arg values survive its checking pass.
+            if(!(method_info.is_static) && !(method_info.needs_pointer_conversion), {
+              match(
+                method_info.receiver_value,
+                .Some(rcv_val) => if(!(is_unknown_val(rcv_val)), {
+                  match(
+                    call_result_m.arg_values.args.get(usize(0)),
+                    .Some(self_ae) => {
+                      self_needs_value := match(self_ae.value,.Some(sv) => is_unknown_val(sv),.None => true);
+                      if(self_needs_value, {
+                        self_ae.value = Option(EvalValue).Some(rcv_val);
+                      });
+                    },
+                    .None => ()
+                  );
+                }),
+                .None => ()
+              );
+            });
             // Build a body env binding the method's CAPTURES + its params to
             // the CONCRETE evaluated arg values. `try_to_call`'s callee_env
             // binds comptime params to UNKNOWNS (it is a type-checking pass,

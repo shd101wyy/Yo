@@ -9,6 +9,31 @@ reverted candidate of the async/dispose/spec families) lives in
 `issues/yo-self-async-emission-cluster.md` — consult it before re-deriving
 anything about those families.
 
+## SESSION UPDATE 2026-07-21 — derive.test.yo FLIPPED (#69 +1, ~133/180)
+
+- **derive.test.yo GREEN (30/30)** via THREE stacked faithful-port fixes, full
+  battery + STRICT_FIXPOINT byte-identical, zero regression (corpus 135/2/0,
+  std 153/153, all prior flips hold; `tests/impl` red is the pre-existing
+  void\* `conflicting types` signature, unchanged). The prior session's
+  two-bug model was necessary but incomplete — a THIRD layer was the real
+  `.len()` root:
+  1. `comptime_fn.yo` `should_cache`: dropped `result_is_comptime_only`
+     (TS caches ONLY `isTypeHierarchyType`); the per-variant mapper was
+     memoized and every variant got variant 1's Expr.
+  2. `function.yo`: `ReceiverMethodResult.receiver_value` captures the
+     receiver's concrete value at resolution time; the method-CTFE arm patches
+     it into the self ArgEntry (try_to_call binds comptime params to Unknowns
+     → `evaluate_comptime_fn_call`'s unknown-arg gate refused to execute).
+  3. `type_fns.yo` (the enabler): `map_variants`/`join_fields` bound mapper
+     params with `type_of_eval_value(value)` — which has NO ComptimeListVal
+     case (→ `unit`), so `variant.fields` lost its ComptimeList type and
+     `.len()` dispatched on `unit` (hits=0). Now bind the DECLARED
+     `VariantInfo`/`FieldInfo` struct type (TS `value.type` parity).
+     Full write-up + probe methodology:
+     `issues/fixed/yo-self-derive-mapvariants-mapper-ctfe.md`. LANDMINE: any
+     `type_of_eval_value` on a value with ComptimeListVal fields silently
+     degrades them to `unit` — thread the declared/evaluated type instead.
+
 ## SESSION UPDATE 2026-07-20 (late) — forward_ref_impl_block + flowability_comprehensive + module_struct_unification FLIPPED (#69 +3)
 
 - **module_struct_unification.test.yo GREEN (10/10)** via `2cba96414`, full

@@ -1488,6 +1488,15 @@ evaluate_type_join_fields :: (
     );
   });
   // For each field, build FieldInfo and call mapper.
+  // Resolve the DECLARED `FieldInfo` struct type once for the temp-var
+  // bindings — same TS `value.type` parity (and same lossy
+  // `type_of_eval_value` pitfall) as the `VariantInfo` resolution in
+  // `evaluate_type_map_variants` below.
+  fi_declared_ty_opt := match(
+    _ti_eval_code(local_env, String.from("FieldInfo"), ctx, exn),
+    .Some(fi_tv) => match(fi_tv,.TypeVal(fi_tb) => Option(TypeValue).Some(fi_tb), _ => Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  );
   result_exprs := ArrayList(AstExpr).new();
   (si : usize) = usize(0);
   while(si < n_fields, {
@@ -1499,7 +1508,7 @@ evaluate_type_join_fields :: (
     fi_code := ((((String.from("FieldInfo(\"") + escaped_label) + String.from("\", ")) + ft_name) + String.from(")"));
     fi_val_opt := _ti_eval_code(local_env, fi_code, ctx, exn);
     fi_val := match(fi_val_opt,.Some(v) => v,.None => EvalValue.UnitVal);
-    fi_type := type_of_eval_value(fi_val);
+    fi_type := match(fi_declared_ty_opt,.Some(dt) => dt,.None => type_of_eval_value(fi_val));
     // Bind FieldInfo to temp var, then call mapper(fi_name).
     fi_name := `__da_${random_id(local_env.module_path)}`;
     _add_fi := add_variable_to_env(
@@ -1722,6 +1731,21 @@ evaluate_type_map_variants :: (
   variant_names := match(target_type,.EnumT(_, _, vn, _, _, _, _, _, _) => vn, _ => ArrayList(String).new());
   variant_fields := match(target_type,.EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
   variant_field_labels := match(target_type,.EnumT(_, _, _, _, _, vfl, _, _, _) => vfl, _ => ArrayList(ArrayList(String)).new());
+  // Resolve the DECLARED `VariantInfo` struct type from the env once — the
+  // type each per-variant temp var is bound with. Mirrors TS `argType:
+  // variantInfoValue.type` (type-fns.ts callMapperWithArg): TS values carry
+  // their evaluated type. yo-self values don't, and the
+  // `type_of_eval_value(vi_val)` stand-in reconstructs field types from field
+  // VALUES — lossy for `ComptimeListVal` fields (no case → `unit`), so the
+  // mapper param's `fields` slot lost its ComptimeList type and
+  // `variant.fields.len()` found no method (dispatch on `unit` → 0 hits) —
+  // the derive-enum mapper never folded. Fall back to the old reconstruction
+  // if the name is not resolvable here.
+  vi_declared_ty_opt := match(
+    _ti_eval_code(local_env, String.from("VariantInfo"), ctx, exn),
+    .Some(vi_tv) => match(vi_tv,.TypeVal(vi_tb) => Option(TypeValue).Some(vi_tb), _ => Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  );
   result_vals := ArrayList(EvalValue).new();
   (vi : usize) = usize(0);
   n_variants := variant_names.len();
@@ -1731,7 +1755,7 @@ evaluate_type_map_variants :: (
     v_field_labels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
     // Build VariantInfo value.
     vi_val := _ti_build_variant_info(local_env, v_name, v_field_labels, v_fields, target_type, vi, ctx, exn);
-    vi_type := type_of_eval_value(vi_val);
+    vi_type := match(vi_declared_ty_opt,.Some(dt) => dt,.None => type_of_eval_value(vi_val));
     // Bind VariantInfo to temp var, then call mapper(vi_var_name).
     vi_name := `__dvi_${random_id(local_env.module_path)}`;
     _add_vi := add_variable_to_env(

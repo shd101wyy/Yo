@@ -588,14 +588,13 @@ evaluate_comptime_fn_call :: (
   // Pure type-constructor functions like Box(T), Vec(T) etc. are safe to cache.
   // Functions returning runtime values may have side effects and must not be cached.
   // Cache type-returning calls. `is_type_hierarchy_type` catches bare-`Type`
-  // returns; `result_is_comptime_only` (the function's declared
-  // comptime-only return, mirroring TS `return.isCompileTimeOnly`) also
-  // catches comptime constructors whose return resolved to a concrete struct.
-  func_result_is_comptime := match(
-    function_type,
-    .Func({ meta : __fm3 }) => __fm3.*.result_is_comptime_only,
-    _ => false
-  );
+  // returns — and ONLY that, mirroring TS (comptime-fn.ts:91 caches solely on
+  // `isTypeHierarchyType(returnType)`). Do NOT widen to
+  // `result_is_comptime_only`: a comptime-VALUE-returning fn (e.g. a
+  // `Type.map_variants` mapper `-> comptime(Expr)`) is not identified by its
+  // non-type args here — all N per-variant calls collided on one memo entry
+  // and every variant received the FIRST variant's Expr
+  // (issues/yo-self-derive-mapvariants-mapper-ctfe.md).
   // A call whose arguments are ALL compile-time type VALUES is a
   // type-constructor instantiation; cache it (keyed by func_id + type args) so
   // every instantiation is one stable-id TypeValue (terminates the
@@ -621,7 +620,7 @@ evaluate_comptime_fn_call :: (
       ok2
     }
   );
-  (should_cache : bool) = ((is_type_hierarchy_type(return_type) || func_result_is_comptime) || all_args_are_types);
+  (should_cache : bool) = (is_type_hierarchy_type(return_type) || all_args_are_types);
   // TS checking-phase parity (SomeT surgery slice 2b): a ctfe call whose TYPE
   // args still CONTAIN unresolved SomeTs (analysis/validation generations
   // evaluating a declaration with `Self` bound to a fresh SomeT — the

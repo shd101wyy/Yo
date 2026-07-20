@@ -261,3 +261,68 @@ Combine with BUG 1. Full battery (corpus 135/2/0, std 153/153, STRICT_FIXPOINT
 byte-identical) + revert-on-regression. Blast radius: the `.None`-branch comptime
 method CTFE (all value-instance comptime methods with a value receiver) — MUST be
 gate-validated, not committed on a repro flip alone.
+
+---
+
+## SESSION 2026-07-21 — FIXED (derive.test.yo 30/30 GREEN, #69 flip)
+
+The two-bug model above was NECESSARY but INCOMPLETE. Landing BUG-1 + the
+"REAL FIX" (receiver-value threading) made the receiver patch work wherever
+resolution saw a concrete receiver (19 folds incl. the whole DRPoint
+`join_fields` path), but the enum mapper STILL returned NONEXPR. Five more
+probe builds isolated a THIRD layer — the actual root of the `.len()` failure:
+
+**BUG 3 (the real `.len()` root): `type_of_eval_value` has NO `ComptimeListVal`
+case** (`yo-self/value.yo` — falls through to `t_unit()`), and
+`evaluate_type_map_variants` bound each per-variant temp var with
+`vi_type := type_of_eval_value(vi_val)` (type_fns.yo). The reconstructed
+VariantInfo struct type therefore carried `fields : unit`, so inside the mapper
+body `variant.fields` was stamped with type `unit`, and `.len()` receiver-method
+lookup got **hits=0** (dispatch on `unit`) → fell through to `try_to_call` →
+UnknownVal → cond unfoldable → NONEXPR → 3× literal splice. TS is immune
+because TS **values carry their evaluated type** (`argType:
+variantInfoValue.type` in type-fns.ts `callMapperWithArg`); `type_of_eval_value`
+is the yo-self stand-in and it is LOSSY for ComptimeListVal (unrecoverable for
+EMPTY lists — exactly the fieldless-variant `fields` value, which is why
+non-empty `get_struct_fields(T)` receivers always worked).
+
+Probe chain that found it (all under ONE probe build per step, free repro
+edits between): `[MV]`/`[DVM]`/`[CF]`/`[CFB]` brackets proved the mapper CTFE
+executes with concrete args and all gates clean (analyzing/validating/chk all
+false — the ctx-flag-leak theory was DISPROVEN); `[EFC]` proved the `.len()`
+dot-callee reaches the call evaluator UNSTAMPED; `[TFRMb/c/d]` path probes
+nailed `hits=0 cl=false` — receiver typed non-ComptimeList at lookup.
+
+**THREE fixes landed (one commit), all faithful ports:**
+
+1. `evaluator/calls/comptime_fn.yo` — `should_cache` narrowed to
+   `is_type_hierarchy_type(return_type) || all_args_are_types` (drop
+   `result_is_comptime_only`; TS comptime-fn.ts:91). Kills the mapper
+   cache collision (BUG 1).
+2. `evaluator/calls/function.yo` — `ReceiverMethodResult.receiver_value`
+   captures the receiver's concrete value at resolution time;
+   the `.None`-branch method-CTFE arm patches it into the self ArgEntry
+   (ref, in-place) when the try_to_call pass left it unknown. Restores TS's
+   "arg values survive the checking pass" (`receiverArg.$?.value`) for the
+   comptime CTFE arm (BUG 2). Gated: instance calls, no pointer conversion,
+   concrete captured value, self currently unknown.
+3. `evaluator/builtins/type_fns.yo` — `map_variants` + `join_fields` bind the
+   mapper-param temp vars with the DECLARED `VariantInfo`/`FieldInfo` struct
+   type resolved from the env (TS `value.type` parity), falling back to the
+   old reconstruction only if unresolvable (BUG 3 — the enabling fix).
+
+**Gates (all green):** repro FTT=0 + runs `ok`; corpus 135/2/0 (exact
+baseline); `check ./std` 153/153; STRICT_FIXPOINT=HOLDS (stage2.c ≡ stage3.c);
+**derive.test.yo 30/30 under s2**; prior flips hold (str 3, comptime 28,
+error 8, module_struct_unification 10, flowability_comprehensive 3,
+forward_ref_impl_block 5, duration 12, lexer 34, parser 49); `tests/impl`
+rc=1 is the PRE-EXISTING documented red (`conflicting types` void\*, handoff
+line 78) — signature unchanged.
+
+**Class landmine for future sessions:** any yo-self site that derives a type
+from a concrete value via `type_of_eval_value` silently degrades
+ComptimeListVal (and any other missing case) to `unit`. `_ti_bind_comptime_list`
+elem-type inference (type_fns.yo:756) has the same exposure for
+struct-elements-with-list-fields (e.g. `TypeInfo.variants` element types).
+Prefer threading the DECLARED/evaluated type (TS `value.type`) wherever the
+constructor result's ExprInfo is available.
