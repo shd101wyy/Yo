@@ -138,6 +138,64 @@ every generic call). Do NOT remove `!is_some_type` alone — that over-converts
 comptime-generic SomeT params (breaks `comptime(x) : T` and, without the
 `param_is_comptime` distinction, cannot tell them apart from `neg`'s `self`).
 
+### LANDED (660f98312): the per-param comptime port + conversion fix
+
+The above faithful fix is now IMPLEMENTED and committed: a `g_func_param_comptime`
+func-id-keyed side-table (types/function.yo, built from `FuncParam.is_compile_time_only`,
+re-keyed to the FuncVal id at try_to_implement), read at helper.yo:3029 into
+`is_ct_only`, guard changed to `!is_ct_only && !pt_is_comptime`. A `CVT` probe
+confirmed it: the runtime `Negate` overload now converts `comptime_float → f64`;
+the comptime `ComptimeNegate` overload (`is_ct_only=true`) keeps it raw. Full
+battery green incl. STRICT_FIXPOINT byte-identical.
+
+### comptime STILL does not flip — the FINAL layer (ComptimeNegate overload spec)
+
+`-(f32(50.75))` at a `::` binding resolves BOTH neg overloads (`Negate` and
+`ComptimeNegate`, prelude.yo:585/594, unified via `Call :: (neg, comptime_neg)`).
+TS selects only the comptime overload and FOLDS it; yo-self specializes+collects
+BOTH. The `comptime_neg` overload (`fn(comptime(self) : _Self) -> comptime(_Self)`
+— a FULLY-comptime fn) is emitted as a DEAD (uncalled) runtime function
+`yo_id_124_comptime_float_...` whose body calls the undeclared comptime builtin
+`__yo_comptime_float_neg` (`fn_yo_id_199`).
+
+Root of the emission: `create_specialized_function_inline` (helper.yo:1780)
+converts the spec PARAM type to f64 UNCONDITIONALLY
+(`convert_comptime_type_to_runtime_type_with_expected(use_ty, None, …)`), so
+`get_func_type(spec)` shows `f64` param — but the body eval (helper.yo:1598)
+keeps `self` at `comptime_float` (a comptime param is not converted), so the body
+dispatches `ComptimeNegate`. f64 signature + comptime body = the desync. And the
+`result_is_comptime_only` flag is NOT preserved as `true` through the spec
+(`spec_result = evaluate_function_return_type_again(comptime(_Self))` drops it),
+so `should_skip`'s existing `_func_result_is_comptime_only` (skip1) misses it.
+
+**Remaining fix — ATTEMPTED + REVERTED (2026-07-20), instructive failure:**
+Tried (1) copy the comptime side-table to the spec id in create_specialized
+(helper.yo:~1808, `copy_func_param_comptime(func_id, specialized_func_id)`);
+(2) `should_skip_function_codegen` skips a fully-comptime spec via a new
+`_func_all_params_comptime(func_id)` over `get_func_param_comptime`;
+(3) import `get_func_param_comptime` into codegen/functions/declarations.yo —
+**no import cycle** (`check` clean), so that concern is settled.
+
+But a `[SKIPCF]` probe in `should_skip` showed **`nflags=0 all_ct=false`** for
+`yo_id_124_comptime_float_...` — the side-table did NOT reach the spec id. The
+copy at helper.yo:1808 is a no-op for it: the `func_id` create_specialized holds
+(`original_func_val`'s FuncVal id) is NOT the id the per-param comptime side-table
+was registered under. The `Call :: (neg, comptime_neg)` OVERLOAD indirection means
+the FuncVal specialized here differs from the resolved overload member whose
+side-table the CALL site reads (the CVT probe DID see `is_ct_only=true` via
+`__fvd13.*.func_id` at helper.yo:2515 — a DIFFERENT id than create_specialized's
+`__fvm2.*.func_id`). So the next attempt must first PROBE which func_id the
+comptime_neg overload's side-table lives under and copy from THAT, or thread the
+overload member's id into create_specialized.
+
+**Cleaner alternative to try first:** preserve `result_is_comptime_only = true`
+through the spec type (helper.yo:1797 already copies `sp_rico`, but skip1 misses
+it → so either `comptime(_Self)` does not set the flag at function-type eval, or
+the overload's func_type handed to create_specialized is not comptime_neg's).
+Probe `sp_rico` at helper.yo:1808 for this spec. If it can be made `true`, the
+EXISTING skip1 (`_func_result_is_comptime_only`) drops the spec with NO new
+codegen import and NO side-table threading. This is the recommended entry point.
+
 ## Landscape note (why 0 files flip from the void\* work)
 
 The remaining #69 red files are ALL deep multi-error Gap-6. The void\* SomeT
