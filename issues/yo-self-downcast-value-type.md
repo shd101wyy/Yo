@@ -1,6 +1,23 @@
 # yo-self: `downcast(dyn, T)` to a VALUE/newtype type emits an invalid struct cast
 
-_2026-07-20. Diagnosis (not fixed) — blocks `tests/error.test.yo`._
+_2026-07-20. **FIXED — tests/error.test.yo FLIPS 8/8 (#69 +1).** Two commits:
+`24a165d9f` (downcast box-extraction) + `0e6dca6ea` (empty-id enum structural
+type_key). Full battery green incl. STRICT_FIXPOINT byte-identical. Below is the
+original diagnosis + the two-layer breakdown that led to the fix._
+
+## RESOLUTION (both layers)
+
+- **Layer 1 (`24a165d9f`)**: `generate_downcast` now extracts a boxed value
+  target via `((Box*)dyn.data)->valueField` + dup (the `wasBoxed` branch), instead
+  of the invalid `(struct)ptr` cast. yo-self boxes value types into dyns; the
+  dyn_impl records concrete=<value>, data=Box(<value>).
+- **Layer 2 (`0e6dca6ea`)**: `create_option_type` synthesizes `Option` with id=""
+  and type_key keyed an empty-id enum by NAME (`type_to_string`="Option"),
+  collapsing every `Option(T)` to one C type. Fixed by keying empty-id enums
+  structurally (sig). This is what distinguishes the downcast's `Option(String)`
+  from `Option(MathError)`.
+
+--- original diagnosis follows ---
 
 ## Symptom
 

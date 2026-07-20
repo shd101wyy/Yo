@@ -9,7 +9,18 @@ reverted candidate of the async/dispose/spec families) lives in
 `issues/yo-self-async-emission-cluster.md` — consult it before re-deriving
 anything about those families.
 
-## SESSION UPDATE 2026-07-20 (evening) — comptime.test.yo FLIPPED (#69 +1)
+## SESSION UPDATE 2026-07-20 (evening) — comptime.test.yo + error.test.yo FLIPPED (#69 +2)
+
+- **error.test.yo GREEN (8/8, matches TS)** via two faithful fixes, full-battery
+  validated + STRICT*FIXPOINT byte-identical: `24a165d9f` (downcast to a
+  VALUE/newtype target extracts from the Box `((Box\*)dyn.data)->\_u42*`+ dup —
+the`wasBoxed`branch the file header wrongly called unreachable; yo-self DOES
+box value types into dyns) +`0e6dca6ea`(type_key: an EMPTY-id enum
+—`create_option_type`'s synthesized `Option`, id="" — was keyed by NAME
+via `type_to_string`, collapsing every `Option(T)`to one C type; now keyed
+structurally so`Option(String)`≠`Option(MathError)`). LESSON: an empty-id
+synthetic enum needs the structural-sig key, not the name-only shortcut. Full
+breakdown in `issues/yo-self-downcast-value-type.md`.
 
 - **comptime.test.yo GREEN (28/28, matches TS)** via THREE stacked faithful
   fixes, each full-battery-validated + STRICT_FIXPOINT byte-identical:
