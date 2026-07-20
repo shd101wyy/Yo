@@ -158,3 +158,73 @@ collection.ts:805). Steps:
 
 Do NOT retry the codegen-only enum/struct cycle-token approach — proven
 insufficient above (divergence is at every recursion level).
+
+---
+
+## SESSION 2026-07-21 — MECHANISM FULLY TRACED (census probes); FIX DESIGN
+
+Instantiation census (probe in `evaluate_comptime_fn_call` at the cache-hit +
+fresh-return sites, logging kind/eid/fid/should_cache/gates/arg-kind) on the
+linked_list repro:
+
+- **Node ctor (`fid=yo_id_4932`): 22 executions — 21 `a0=Tsomet sc=false`**
+  (placeholder instantiations: def-time per-method trial evals bind a FRESH
+  SomeT for `T` per method — function_type.yo `_build_def_time_body_env`; the
+  SomeT cache-gate correctly refuses to cache them) **+ exactly 1
+  `a0=Tconc sc=true`** (the real `Node(i32)`, eid 5184 — cached).
+- **84 distinct Option instantiations** minted for one small program. The three
+  that reach the failing C (`__yo_t1`=5186, `__yo_t12`=4956, `__yo_t14`=4962)
+  are ALL `sc=true` (CACHED!) from the same Option ctor `fid=yo_id_2435` —
+  three separate cache ENTRIES because their ARGS are three DIFFERENT
+  concrete Node instances.
+
+**The missing link — `substitute` mints concrete types with placeholder eids:**
+`substitute` (types/substitution.yo Struct/EnumT arms) PRESERVES ids. When
+specialization/type-resolution substitutes `T→i32` into a method's def-time
+placeholder `Node@eid_M`, the result is a CONCRETE `Node(i32)` value that
+RETAINS `eid_M` — no cache consultation. Then `Option(Node@eid_M)` (now a
+fully-concrete arg) instantiates a fresh CACHED Option entry per `eid_M`
+(`_ctfe_args_equal` distinguishes the Node instances by id). Per-method
+lineages never converge; the C emits one struct per lineage.
+
+TS never hits this: its `substituteType` (helper.ts:3037) only swaps the
+forall SomeT at signature level, and every deep concrete type is produced by
+RE-EVALUating the (cloned) body through the comptime-fn cache
+(helper.ts:3014) — so all methods converge on the ONE memoized `Node(i32)`.
+yo-self's spec ALSO re-evaluates the cloned body (helper.yo:1558/1607), but
+type positions that arrive via structural `substitute` (annotations, receiver
+field types baked into struct instances, resolved signatures) bypass the
+cache.
+
+### FIX DESIGN — canonicalize at substitute (cache-mediated)
+
+In `substitute`'s Struct and EnumT arms: after building the substituted
+instance, IF the result is fully concrete (`!type_contains_some_type`) AND the
+type carries constructor identity (`Struct.constructor_func_id`; enums via
+`lookup_enum_cfid`), consult the comptime-fn cache for
+`(cfid, substituted type_arguments)`:
+
+- HIT → return the CACHED instance (the canonical eid) instead of the rebuilt
+  one. This converges every substituted `Node(i32)` on eid 5184, which
+  converges the downstream `Option(Node)` cache keys, which unifies the C.
+- MISS → keep the rebuilt instance (first-use; optionally register it as the
+  canonical entry so later ctor calls converge on IT).
+
+Plumbing: `g_comptime_fn_caches` lives in evaluator/calls/comptime_fn.yo,
+which (transitively) imports types/substitution.yo — a direct import is a
+cycle. Use the `g_enum_cfids` pattern (value.yo — "leaf both import, no
+cycle"): a leaf-module side-table `(cfid, type_args_key) → TypeValue`
+registered by `evaluate_comptime_fn_call` when it caches a type-returning
+call, consulted by `substitute`. (Simplest: register in the same place the
+cfid stamping happens, comptime_fn.yo ~line 867.)
+
+RISKS (the 6×-fixpoint-breaking zone): (a) eid swap mid-flight — anything
+keyed by the placeholder eid (trait-method registry entries, shell redirects)
+must still resolve; TS-equivalence says the canonical instance has its own
+registrations, but VERIFY. (b) enum variant*fields substitution must compare
+by the same args key. (c) `type_arguments` on the substituted instance must be
+the SUBSTITUTED args (they are — the arm substitutes `tyargs` too).
+GATES: stage2 + `s2 check std/env.yo` FIRST (cheap early signal), then full
+battery (corpus 135/2/0, std 153/153, STRICT_FIXPOINT, prior flips, and the
+collection cluster sweep: linked_list arc imm*_ sync/_ ordered_map thread
+worker).
