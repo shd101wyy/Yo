@@ -3,7 +3,7 @@
 _2026-07-20. Deep root trace of the `tests/collections/linked_list.test.yo` C
 failure (`initializing/passing/assigning '__yo_tN' with incompatible '__yo_tM'`).
 Refines the P3 "create_specialized per-call type identity" framing: for the
-COLLECTION cluster (linked_list, arc, imm__, sync/_, ordered*map) the failing
+COLLECTION cluster (linked_list, arc, imm\_\_, sync/_, ordered*map) the failing
 axis is RECURSIVE GENERIC TYPE-INSTANCE identity, not (only) method
 specialization. NOT fixed — a careful equirecursive-canonicalization design is
 required; documented here so the next P3 session starts from the exact root.*
@@ -103,6 +103,32 @@ shell mechanism; only the value-enum `Option` diverges). Risk: the shallow tag
 must be injective across ALL ~25 TypeValue variants (a compound like
 `Pointer(A)` rendered as a bare `"P"` WOULD wrong-merge `Pointer(A)` vs
 `Pointer(B)` fields) — get every arm right or it's unsound.
+
+## TRIED + REVERTED (2026-07-20): enum-only cycle token is INSUFFICIENT
+
+Implemented an eid-free `_enum_cycle_token` (variant names + discriminants +
+`type_intern_key` of each variant field) swapped into the type_key ENUM cycle
+guard for value enums (ref enums kept the eid path; the big compiler enums
+TypeValue/AstExpr/EvalValue are all `ref(enum)` so they were untouched). Built
+s1, emitted the repro: **the 7 `__yo_tN` mismatches persisted UNCHANGED.**
+Reverted.
+
+WHY it failed — the divergence is at EVERY level, not just the outer enum. The
+repro's single `LinkedList(i32)` emits **6-7 distinct `Node` struct eids**
+(struct_yo_id 4940/4946/4952/4954/4960/5182/5184) and **8 distinct Option enum
+eids**. So `type_intern_key(Node)` — which the enum token embeds — is ITSELF
+eid-divergent (Node has many eids, each with a divergent inner Option). A token
+built from field intern keys inherits the whole-tree divergence; it can only
+canonicalize when the sub-tree below is already stable, which it is NOT here.
+
+LESSON: the fix cannot live in the enum cycle guard alone. It must be a genuine
+eid-free canonical form applied UNIFORMLY to structs AND enums (the whole
+recursive tree), OR — more promising — the divergence must be killed UPSTREAM so
+one `LinkedList(i32)` instantiation reuses ONE `Node`/`Option(Node)` (generic
+instantiation memoization / knot-tying at substitute time), which is closer to
+what TS does (memoized instantiation + id-keyed codegen registry,
+collection.ts:805). The codegen-only angle is a dead end while the evaluator
+mints 6-7 Nodes per instantiation.
 
 ## Suggested next-session entry point
 
