@@ -168,6 +168,21 @@ dispatches `ComptimeNegate`. f64 signature + comptime body = the desync. And the
 (`spec_result = evaluate_function_return_type_again(comptime(_Self))` drops it),
 so `should_skip`'s existing `_func_result_is_comptime_only` (skip1) misses it.
 
+### comptime.test.yo FLIPPED (d43fb4a73) — skip on the RESULT type
+
+`should_skip_function_codegen` now drops a spec whose RESOLVED RESULT type is
+`comptime_int/float/string`. A `[RICO]` probe pinned why the earlier attempts
+missed: the operator func_id (`yo_id_124`) is SHARED across the runtime AND
+comptime specializations (`result_is_comptime_only=false` on it; no per-func_id
+flag distinguishes them), and the spec PARAM was already lowered to f64
+(helper.yo:1780) — but the per-call resolved RETURN type re-evaluates to
+`comptime_float`. So the RESULT is the reliable signal. The dead `comptime_neg`
+spec is skipped; **comptime.test.yo = 28/28 (matches TS), full battery green
+incl. STRICT_FIXPOINT byte-identical (#69 +1).** Complements the per-param
+comptime port (660f98312, the runtime `Negate` overload's arg conversion).
+
+--- historical (the two earlier attempts that led here) ---
+
 **Remaining fix — ATTEMPTED + REVERTED (2026-07-20), instructive failure:**
 Tried (1) copy the comptime side-table to the spec id in create_specialized
 (helper.yo:~1808, `copy_func_param_comptime(func_id, specialized_func_id)`);
