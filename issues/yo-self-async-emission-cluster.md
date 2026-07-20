@@ -643,3 +643,19 @@ Each candidate fix hits a sub-gap:
 ⇒ The safe fix must reconcile all three identities across the fn boundary — TS does it with
 `resolvedConcreteType` set at definition (function-type.ts:613-631, unported) + preserved
 through cloning. This is the dedicated Gap-6 pass; no additive/fallback shortcut lands it.
+
+### 2026-07-20 (cont.) — CORRECTION: freshening is NOT the cause; futures are distinct instances
+
+Probed `_freshen_io_async_result` input id vs registered vs await-miss keys (fs/metadata):
+`freshen-input = 1766` (single), `registered = {2005,2025,2034,…}`, `await-miss =
+{1983,2007,2008,…}` — all THREE disjoint. So the freshening (my prior note's suspect) is
+NOT what splits the async-block future from the awaited future; those two are simply
+DISTINCT SomeT instances created at different points and never unified (they interleave:
+2005 registered, 2007 awaited). Kills the narrow "seed the freshened cell with the
+original" candidate (1766 ∉ registered set → recursing there still misses).
+
+⇒ Confirms the ONLY fix is unifying the callee's async-block future identity with the
+caller's awaited future across the fn boundary — i.e. definition-time `resolvedConcreteType`
+carried on the return type (function-type.ts:613-631, unported) + preserved through the
+call. No call-site / await-site / freshening-local shortcut exists; all were tested and
+falsified with probe data this session. This is the dedicated Gap-6 pass.
