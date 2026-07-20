@@ -1,11 +1,12 @@
 # yo-self: `v(range)` str/ArrayList slice codegen — a TWO-gap chain (flowability_comprehensive)
 
-_2026-07-20. Investigated `tests/flowability_comprehensive.test.yo`
-(`unexpected type name '__yo_str'` + cascading `use of undeclared identifier`).
-NOT flipped — it needs TWO independent codegen fixes. Gap 1 (slice_copy dispatch)
-was implemented + verified working, then REVERTED (flips nothing without Gap 2).
-Gap 2 (comptime-range emission) is a separate, deeper evaluator issue. Both
-precisely characterized below; the Gap-1 recipe is ready to re-apply._
+_2026-07-20. **FIXED — tests/flowability_comprehensive.test.yo FLIPS 3/3 (#69
++1).** Two coordinated codegen fixes for a TWO-gap chain. Full battery green:
+flowability 3/3 (s1+s2), corpus PASS 135 DIFF 2 SELF-FAIL 0, std 153/153,
+STRICT_FIXPOINT byte-identical, env=0, all prior flips hold, no regression (impl
+red is pre-existing — identical `conflicting types 'yo_id_6061'` @4909:21).
+Gap 2 (comptime-range) was the real blocker; Gap 1 (slice_copy dispatch) was
+needed too. Original diagnosis + the confirmed fixes below._
 
 ## The failing construct
 

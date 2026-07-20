@@ -1208,6 +1208,90 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     });
   });
   func_ei := match(context.base.get_expr_info(func_expr),.Some(e) => e,.None => return(Option(String).None));
+  // REWRITTEN value-call `v(range)` → slice_copy/slice_copy_inclusive METHOD
+  // dispatch (a str/ArrayList range window). The evaluator rewrites the range
+  // index to a `.slice_copy(range)` method call reusing THIS call's id, and
+  // records the resolved method FuncVal in the method-callee side-table (keyed by
+  // the call id). But the SOURCE callee is still the bare receiver `v` (a non-dot
+  // atom), so the dot-method dispatch above never runs and the value-call tail
+  // below emits "// Failed to transpile" (an undeclared identifier). TS mutates
+  // `expr.func` in place so its codegen sees the method call; yo-self reads the
+  // recorded method here. Emit `<mcn>(<runtime args = recv, range>)`. Only fires
+  // for a NON-dot callee with a recorded method (dot calls are handled above; a
+  // normal function call never populates the method-callee side-table).
+  if(!(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2)))), {
+    match(
+      lookup_method_callee_value(ast_expr_id(expr)),
+      .Some(rmv) => if(is_func_val(rmv), {
+        rm_fid := match(rmv,.FuncVal(__fvdrm, _) => __fvdrm.*.func_id, _ => String.from(""));
+        match(
+          _c_func_name(rm_fid.clone(), context),
+          .Some(rmcn) => {
+            rm_runtime := match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => ArrayList(AstExpr).new());
+            rm_pir := match(get_func_type(rm_fid.clone()),.Func({ meta : __fmrm }) => __fmrm.*.param_is_ref, _ => ArrayList(bool).new());
+            rm_args := ArrayList(String).new();
+            rm_n := rm_runtime.len();
+            (rmi : usize) = usize(0);
+            while(rmi < rm_n, {
+              match(
+                rm_runtime.get(rmi),
+                .Some(a) => {
+                  _rmp := rm_args.push(_call_generate_expr(a, indent.clone(), context));
+                },
+                .None => ()
+              );
+              rmi = (rmi + usize(1));
+            });
+            rm_args = _apply_ref_amp(rm_args, rm_pir, rm_runtime, indent.clone(), context);
+            rm_call := rmcn.clone();
+            rm_call.push_str("(");
+            rm_call.push_string(_join_args(rm_args));
+            rm_call.push_str(")");
+            rm_mft := get_func_type(rm_fid.clone());
+            rm_ptypes := match(rm_mft,.Func({ param_types : cpt }) => cpt, _ => ArrayList(TypeValue).new());
+            rm_may_unwind := _call_may_unwind(Option(EvalValue).Some(rmv), rm_mft, rm_ptypes, false, context);
+            rm_install_ei := new_expr_info(ei.env, rm_mft);
+            rm_install_ei.value = Option(EvalValue).Some(rmv);
+            rm_is_install := _call_is_handler_installation(rm_install_ei, rm_mft, rm_ptypes, rm_runtime, context);
+            if(is_unit_type(ei.ty), {
+              rm_em := context.base.emitter;
+              if(rm_may_unwind, {
+                rm_em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+              });
+              rml := indent.clone();
+              rml.push_string(rm_call);
+              rml.push_str(";");
+              rm_em.emit_string_line(rml);
+              generate_deferred_drop_expressions(expr, indent.clone(), context);
+              if(rm_may_unwind, emit_effect_unwind_check(indent.clone(), context, rm_is_install, expr));
+              return(Option(String).Some(String.from("")));
+            });
+            match(
+              ei.variable_name,
+              .Some(tv) => {
+                rm_em2 := context.base.emitter;
+                if(rm_may_unwind, {
+                  rm_em2.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+                });
+                rmd := indent.clone();
+                rmd.push_string(get_variable_type_string(ei.ty, tv.clone(), context.base));
+                rmd.push_str(" = ");
+                rmd.push_string(rm_call);
+                rmd.push_str(";");
+                rm_em2.emit_string_line(rmd);
+                generate_deferred_drop_expressions(expr, indent.clone(), context);
+                if(rm_may_unwind, emit_effect_unwind_check(indent.clone(), context, rm_is_install, expr));
+                return(Option(String).Some(tv));
+              },
+              .None => return(Option(String).Some(rm_call))
+            );
+          },
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+  });
   // Normalize a closure-trait callee type (`Impl(Fn(...))` SomeT / FnTraitT) to
   // its Func signature so the `.Func`-keyed param/result extraction + the
   // is_function_type guard below treat `cb(x)` as a function call. (Piece C's

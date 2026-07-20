@@ -549,23 +549,28 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
             mmi = (mmi + usize(1));
           });
         });
-        // Generic-impl fallback: the registry misses generic-impl methods. The
-        // evaluator stashed the resolved/specialized method FuncVal in the
-        // method-callee VALUE side-table keyed by this call's expr id — collect it
-        // (+ recurse its body) so its prototype/body are emitted and codegen's
-        // dispatch (which reads the same side-table) resolves to a real C function.
-        match(
-          lookup_method_callee_value(ast_expr_id(expr)),
-          .Some(scv) => if(is_func_val(scv), {
-            sfid := _func_val_id(scv);
-            if(!(context.has_function(sfid.clone())), {
-              context.register_function(sfid.clone(), scv, sanitize_for_c_identifier(sfid.clone(), false));
-              recur(_func_val_body(scv), context, info);
-            });
-          }),
-          .None => ()
-        );
       });
+      // Generic-impl fallback + REWRITTEN value-calls (`v(range)` → slice_copy):
+      // the registry misses generic-impl methods, AND a range-index value-call
+      // the evaluator rewrote to a slice_copy/slice_copy_inclusive METHOD
+      // dispatch keeps its ORIGINAL non-dot callee `v` in the source AST, so
+      // neither the dot-registry path above nor the callee-ExprInfo path below
+      // collects the resolved method. The evaluator stashed the resolved method
+      // FuncVal in the method-callee VALUE side-table keyed by this call's expr
+      // id — collect it (+ recurse its body) for EVERY FnCall (dot or not) so its
+      // prototype/body are emitted and codegen's dispatch (same side-table)
+      // resolves to a real C function. Idempotent (has_function-guarded).
+      match(
+        lookup_method_callee_value(ast_expr_id(expr)),
+        .Some(scv) => if(is_func_val(scv), {
+          sfid := _func_val_id(scv);
+          if(!(context.has_function(sfid.clone())), {
+            context.register_function(sfid.clone(), scv, sanitize_for_c_identifier(sfid.clone(), false));
+            recur(_func_val_body(scv), context, info);
+          });
+        }),
+        .None => ()
+      );
       match(
         expr_info_table_get(info, ast_expr_id(callee)),
         .Some(cei) => if(is_function_type(cei.ty), {
