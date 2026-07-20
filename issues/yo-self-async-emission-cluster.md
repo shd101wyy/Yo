@@ -616,3 +616,30 @@ side-table `_set_async_sm_struct_name`/`_get_async_sm_struct_name`, async.yo:195
 than through `type_key`, OR register the SM struct under the freshened await key too. Both
 touch the core async type-identity path → full battery + STRICT_FIXPOINT mandatory. NOT a
 tail-of-session change; this is the dedicated Gap-6 pass.
+
+### 2026-07-20 (cont.) — EXACT root line + why each fix has a sub-gap
+
+`type_key`'s SomeT arm is **id-based, not structural** (`types/type_key.yo:315`):
+`.SomeT({ id }) => if(id.len() > 0, id.clone(), type_to_string(t))`. So a future's
+type_key IS its SomeT id. `_freshen_io_async_result` (`function.yo:854`) rebuilds the
+future with `generate_some_type_id()` + an EMPTY resolution cell and records NO old→new
+lineage. Net: three fragmented identities that never reconcile —
+
+1. the async-block future id the SM struct is registered under (codegen, `async.yo:1953`),
+2. the per-call freshened await id (`function.yo:3754`), and
+3. read_file's return-annotation SomeT id.
+
+Each candidate fix hits a sub-gap:
+
+- **Structural type_key for futures** (change line 315): would align 1&2 but risks
+  colliding distinct futures and re-poisoning the sibling-await OUTPUT registrations that
+  the freshening exists to isolate (item 7). Broad blast radius.
+- **Lineage map in freshening** (record new→old, resolve at await): the recorded "old" is
+  read_file's return-annotation id (#3), which is NOT the async-block registration key
+  (#1) — so the fallback still misses.
+- **Scope the freshening** (freshen call-site async blocks but not returned-future calls):
+  correct in principle, but distinguishing the two at the call site is itself unsolved.
+
+⇒ The safe fix must reconcile all three identities across the fn boundary — TS does it with
+`resolvedConcreteType` set at definition (function-type.ts:613-631, unported) + preserved
+through cloning. This is the dedicated Gap-6 pass; no additive/fallback shortcut lands it.
