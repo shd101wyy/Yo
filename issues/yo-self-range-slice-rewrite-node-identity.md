@@ -113,3 +113,20 @@ macro_expansion when the node is duplicated, or reuse the eval instance's id), O
 range-index `recv(a..b)` directly in CODEGEN (emit the `slice_copy` dispatch there, using
 the resolved method from the type/registry) so it never depends on the eval-time rewrite
 reaching the codegen node. Both are deeper than a rewrite-placement change.
+
+## UPDATE 2026-07-20 (c603475c6) — in-place mutation now WORKS but is insufficient; clone is the sole blocker
+
+`ref(enum)` parameter variant-field assignment was fixed (c603475c6), so the FAITHFUL
+port — `expr.func = method_access` in place (TS function.ts:833) — now COMPILES and the
+mutation TAKES EFFECT. Tested: rewrote `_try_rewrite_range_index_to_slice_copy` to
+`expr.func = method_access; Some(expr)` (dropping the new-node/side-table workaround).
+Result: **still FTTs** (`v(a..b)` unmutated in the emitted C, count 2).
+
+⇒ DEFINITIVE: eval mutates the node it holds (56261) but codegen walks a SEPARATE cloned
+node (56259). `clone_expr_fresh_ids` makes distinct `ref` objects, so in-place mutation of
+one cannot reach the other — the two blockers were (1) no ref(enum) mutation [FIXED] and
+(2) the eval/codegen node-identity clone [REMAINS]. The clone is the sole remaining
+blocker; the faithful fix is now purely "make eval process the SAME node codegen walks",
+i.e. eliminate/rework the def-time-body-eval / trial `clone_expr_fresh_ids(body)` so the
+real eval mutates the parser-original body. That is load-bearing (pollution-avoidance)
+machinery — a focused fresh-session investigation, but the mutation half is done.
