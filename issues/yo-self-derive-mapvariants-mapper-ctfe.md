@@ -92,6 +92,34 @@ mapper call (type_fns.yo:1764) to print `call_info.value`'s kind, AND separately
 CTFE-evaluate `variant.fields.len()` in the mapper env to see if the cond
 condition is concrete.
 
+## DEFINITIVE ISOLATION (2026-07-20, via `[MV]` probe + fast emit-probes) — root = `v.fields.len()`
+
+A `[MV]` probe in `evaluate_type_map_variants` (after the mapper call, type_fns.yo
+~1781) printing the mapper result kind + type, run against a series of minimal
+`map_variants(EnumT, mapper)` repros (all reusing ONE s1 build), isolated the
+root step-by-step:
+
+1. Real MyEq enum mapper → `result=NOTEXPR ty=Expr` (resolved return TYPE Expr,
+   VALUE unknown → the mapper body did not CTFE).
+2. Bare-quote mapper `(v) -> quote(_ => false)` → **EXPR** (map_variants fine).
+3. Constant-cond mapper `cond(true => quote, true => quote)` → **EXPR** (cond fine).
+4. `cond(v.fields.len()==0 => quote, true => quote)` → **NOTEXPR** (the CONDITION).
+5. `quote(#(v.name.to_expr()))` → **EXPR**; `cond(v._variant_index==0 …)` → **EXPR**
+   (SCALAR field accesses on the comptime VariantInfo param fold fine).
+6. `cond(v.fields.len()==0 …)` on a WITH-FIELDS enum → still **NOTEXPR** (not the
+   empty-list case).
+
+**ROOT: comptime access of the COMPOUND field `v.fields`
+(`ComptimeList(TypeFieldInfo)`) — or `.len()` on it — yields UnknownVal, while
+scalar fields (`name : comptime_str`, `_variant_index : usize`) fold concretely.**
+`_ti_bind_comptime_list` (type_fns.yo:746) binds a concrete `ComptimeListVal`, and
+the comptime StructVal field-value retrieval (property_access.yo:1352,
+`sflds_l.get(fi_lbl)`) SHOULD return it — so the ONE remaining probe for next
+session: instrument property_access to see whether `v.fields` reaches the
+concrete-return path (1352) or an UnknownVal path (1038/1107/1364), OR whether
+`.len()` on the field-accessed `ComptimeList` fails to CTFE (it WORKS on a direct
+`Type.get_struct_fields(T).len()`, so compare field-accessed vs direct list).
+
 ## Why it's deep (a dedicated arc, not a context-tail fix)
 
 The chain is `map_variants → mapper comptime-fn CTFE → cond → VariantInfo
