@@ -131,6 +131,28 @@ concrete-return path (1352) or an UnknownVal path (1038/1107/1364), OR whether
    `v.fields`, the path taken + `fi_lbl` + `sflds_l.len()` + the retrieved value's
    kind — vs the working `v.name` (index 0) / `v._variant_index` (index 3).
 
+8. `[PA]` probe in property_access (comptime StructVal `.field` retrieval), on the
+   minimal `map_variants(Direction, cond(v.fields.len()==0 …))` repro, printed TWO
+   results for the SINGLE `v.fields` access: `fi_lbl=1 sflds[fi]=CLIST/0` (obj_val
+   is a concrete 4-field VariantInfo StructVal; `.fields` = concrete empty
+   `ComptimeListVal`) AND `objval=NONE` (obj_val_main is None — `v` has NO value).
+   So the mapper is evaluated in ≥2 PASSES: one with `v` concrete (→ CLIST/0, would
+   give `.len()==0` → true), one with `v` UNBOUND (→ field access unknown → cond
+   unknown → mapper UnknownVal). **map_variants captures the v=None pass** (matches
+   `[MV]=NOTEXPR`).
+
+**FINAL ROOT (isolated): the mapper's param `v` has NO comptime value in the eval
+pass whose result map_variants keeps** — so `v.fields` (and any field access) is
+unknown, the `cond` can't fold, and the quote is never produced. This is a
+comptime-fn eval-pass / param-value-binding issue: the synthetic `mapper(vi_name)`
+call (type_fns.yo:1748, with `force_compile_time_bindings=true`) must evaluate the
+mapper body with `v` BOUND to the concrete `vi_val` — currently the captured pass
+sees `v` unbound. NEXT: at type_fns.yo:1748-1780, verify the mapper call routes
+through `evaluate_comptime_fn_call` (CTFE, which binds params to arg VALUES) rather
+than a regular call that leaves the comptime param value-less; compare to
+join_fields (works) — the difference is likely the mapper FuncVal or the arg
+(VariantInfo StructVal) binding, NOT the call code (which is identical).
+
 ## Why it's deep (a dedicated arc, not a context-tail fix)
 
 The chain is `map_variants → mapper comptime-fn CTFE → cond → VariantInfo
