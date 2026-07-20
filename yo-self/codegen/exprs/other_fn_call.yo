@@ -1393,9 +1393,19 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         // :2235-2420 (the newtype + value-struct branches).
         if(is_struct_type(wrapped) && !(is_reference_struct_type(wrapped)), {
           vs_cname := match(context.base.get_type_c_name(type_key(wrapped.clone())),.Some(cn) => cn,.None => String.from("__yo_unknown_struct"));
-          vs_args := match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => ArrayList(AstExpr).new());
           vs_is_newtype := match(wrapped,.Struct({ is_newtype : nt }) => nt, _ => false);
           rt_fields := get_runtime_struct_fields(wrapped.clone());
+          vs_args_raw := match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => ArrayList(AstExpr).new());
+          // `runtime_arg_exprs_in_order` records a slot for EVERY field, including
+          // COMPTIME-ONLY ones (`tag :: "..."`); for a struct with a comptime field
+          // it has MORE entries than the runtime-field list, so the per-runtime-
+          // field loop below misaligns — a comptime slot (e.g. a struct-type expr)
+          // pairs with a runtime field and emits a C TYPE NAME as its value
+          // ("unexpected type name '__yo_tN'"). When the counts disagree, re-derive
+          // the runtime-field values by matching the ctor call's labeled args to the
+          // runtime fields by name (the same matcher as the empty-args fallback).
+          vs_fncall_args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+          vs_args := if(vs_args_raw.len() == rt_fields.len(), vs_args_raw, _ctor_args_from_labeled(wrapped.clone(), vs_fncall_args));
           vs_value := cond(
             (vs_is_newtype && ((rt_fields.len() == usize(1)) && (vs_args.len() == usize(1)))) => {
               inner := match(vs_args.get(usize(0)),.Some(a) => _call_generate_expr(a, indent.clone(), context),.None => String.from(""));
