@@ -59,6 +59,23 @@ VariantInfo is concrete, and whether the mapper's comptime-fn call routes throug
 `evaluate_comptime_fn_call` (CTFE) vs the regular call path (which fabricates
 UnknownVal for a comptime-return fn).
 
+## NARROWED: the mapper-CALL mechanism is NOT the culprit (VariantInfo reflection is)
+
+`evaluate_type_join_fields` (type_fns.yo:1274, the STRUCT path that WORKS) calls
+its mapper with the IDENTICAL mechanism map_variants uses — `call_code =
+mapper(fi_name)`, `generate_expr_from_code`, `force_compile_time_bindings=true`,
+`evaluate_expression` (join_fields lines 243-249 vs map_variants 1748-1780). So
+the comptime-fn CTFE call itself is fine. The divergence is the ARG the enum
+mapper reads: a `VariantInfo` (built by `_ti_build_variant_info`) whose
+`variant.fields.len()` / `variant.name.to_expr()` must fold to concrete comptime
+values inside the mapper body. For a FIELDLESS variant `_ti_build_variant_info`
+gets empty field lists, so `.fields.len()==0` SHOULD be concrete — so the prime
+remaining suspect is `variant.name.to_expr()` (or the `VariantInfo` field
+accessors) yielding UnknownVal. Next session: probe `variant.name` /
+`variant.fields` concreteness INSIDE the enum mapper (not just the built
+VariantInfo) — the FieldInfo accessors (struct path) work, so diff FieldInfo vs
+VariantInfo reflection.
+
 ## Why it's deep (a dedicated arc, not a context-tail fix)
 
 The chain is `map_variants → mapper comptime-fn CTFE → cond → VariantInfo
