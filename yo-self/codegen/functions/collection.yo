@@ -513,7 +513,19 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
         // id from the receiver's TypeVal value. Mirrors TS collecting the type
         // directly on `isTypeValue(value)` (collection.ts:615).
         recv_static_id := match(cdot_args.get(usize(0)),.Some(r) => match(expr_info_table_get(info, ast_expr_id(r)),.Some(ri) => match(ri.value,.Some(rv) => match(rv,.TypeVal(t) => type_id_or_empty(t), _ => String.from("")),.None => String.from("")),.None => String.from("")),.None => String.from(""));
-        ctid := if(recv_static_id.len() > usize(0), recv_static_id, type_id_or_empty(recv_ty));
+        // A POINTER receiver (`self : *(Self)`) carries its methods on the
+        // POINTEE type. `type_id_or_empty` has no Pointer case, so it returns ""
+        // for `*(P)`, skipping the registry lookup below. That lookup is the ONLY
+        // path that collects a method reachable EXCLUSIVELY through a forward-ref
+        // shell thunk (a forward-ref/recursive impl method called only via
+        // `self.m()`): emission dispatches `self.m()` to the SHELL func id (from
+        // the method-callee side-table) and emits it as a thunk forwarding to the
+        // REAL evaluated func id, but the real func lives only in the registry
+        // entry (updated in place at impl.yo:2322) and is never otherwise
+        // collected → "call to undeclared function". Deref to the pointee for the
+        // id. Mirrors the match.yo:1153 / property_access.yo:524 deref idiom.
+        recv_ty_for_id := match(recv_ty,.Pointer(inner) => inner, _ => recv_ty);
+        ctid := if(recv_static_id.len() > usize(0), recv_static_id, type_id_or_empty(recv_ty_for_id));
         if((ctid.len() > usize(0)) && (cmname.len() > usize(0)), {
           ments := get_type_trait_methods_by_name(ctid, cmname);
           nme := ments.len();
