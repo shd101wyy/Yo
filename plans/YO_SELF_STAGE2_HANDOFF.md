@@ -9,7 +9,21 @@ reverted candidate of the async/dispose/spec families) lives in
 `issues/yo-self-async-emission-cluster.md` — consult it before re-deriving
 anything about those families.
 
-## SESSION UPDATE 2026-07-20 (late) — forward_ref_impl_block + flowability_comprehensive FLIPPED (#69 +2)
+## SESSION UPDATE 2026-07-20 (late) — forward_ref_impl_block + flowability_comprehensive + module_struct_unification FLIPPED (#69 +3)
+
+- **module_struct_unification.test.yo GREEN (10/10)** via `2cba96414`, full
+  battery + STRICT_FIXPOINT byte-identical, zero regression. A value-struct
+  constructor for a struct with a COMPTIME-ONLY field (`tag :: "..."`) emitted a
+  field value as a C TYPE NAME ("unexpected type name '\_\_yo_tN'"): the value-struct
+  ctor branch (other_fn_call.yo) paired RUNTIME fields (comptime-erased) with
+  `runtime_arg_exprs_in_order` (a slot per EVERY field, incl. comptime) BY INDEX,
+  so the runtime field got the comptime field's slot (a TypeVal → type name) and
+  the real value was dropped. FIX: when the counts disagree, re-derive via
+  `_ctor_args_from_labeled` (match runtime field → labeled ctor arg by name) — the
+  matcher the object-ctor path already used. Full write-up:
+  `issues/yo-self-comptime-field-struct-ctor.md`. LESSON: `runtime_arg_exprs_in_order`
+  is NOT runtime-field-aligned when a struct has comptime-only fields — match by
+  field/label, never by raw index.
 
 - **flowability_comprehensive.test.yo GREEN (3/3)** via `e3622aa57`, full battery +
   STRICT_FIXPOINT byte-identical, zero regression. A TWO-gap str/ArrayList
