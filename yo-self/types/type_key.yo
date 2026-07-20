@@ -236,7 +236,19 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
       if(eid.len() > usize(0), {
         g_tk_visited.push(eid.clone());
       });
-      if((eid.len() == usize(0)) || (depth > usize(4)), if(eid.len() > usize(0), eid.clone(), type_to_string(rs)), {
+      // An EMPTY-id enum must still be keyed STRUCTURALLY (via the sig path
+      // below), not by `type_to_string` — the name alone drops the payload, so
+      // `create_option_type`'s synthesized `Option` (id="", name="Option", used
+      // by downcast/await/rc) collapsed EVERY instantiation to one C type
+      // `Option`, giving e.g. `downcast(err, MathError)` a result whose Some
+      // field was typed `String` ("initializing __yo_t30 with __yo_t10",
+      // tests/error.test.yo). The sig (variant names + discriminants +
+      // field types) distinguishes `Option(String)` from `Option(MathError)`
+      // AND still collapses the synthetic rendition with real `Option(T)`
+      // instances (same sig). Only the DEPTH guard keeps the name-only shortcut
+      // (recursion bound); empty-id enums are leaf-shaped here (no id-keyed
+      // cycle guard), so the depth bound suffices.
+      if(depth > usize(4), if(eid.len() > usize(0), eid.clone(), type_to_string(rs)), {
         // Build the per-field structural suffix ONCE (used in both the full key
         // and the structural signature).
         field_part := String.new();
