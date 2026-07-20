@@ -231,9 +231,18 @@ nvars=1` in the spec fn vs `true` in the original) → nvars=1 ruled out the
     `isTypeValue(value) → collectType` (collection.ts:615). Additive, TypeVal-only.
     See `issues/yo-self-forward-ref-static-method-collection.md`. NOT Gap-6.
   - `module_struct_unification` + the "expected expression" cluster: NOT one
-    root (CONFIRMED multiple). msu is a closure/fn-typed struct field emitting the
+    root (CONFIRMED multiple). msu emits a closure/fn-typed struct field as the
     struct TYPE name (`(__yo_t32){ .next = __yo_t32 }` for `Counter(next : (() ->
-i32(7)))`) — closure-as-fn-pointer-field codegen. iso.test's "expected
+i32(7)))`). **CORRECTION (2026-07-20 evening): this is CONTEXT-SPECIFIC, NOT a
+    general closure-field codegen bug.** A minimal standalone repro
+    (`make_counter :: (fn() -> Counter)(Counter(next : (() -> i32(7))))`) emits
+    CORRECTLY in BOTH TS and s2 (`.next = fn_yo_id_N`, a real fn pointer). The
+    `.next = __yo_t32` bug only appears in the FULL test's batch/test-block +
+    `while`-loop + `Box(i32)` context (the failing test is "given(struct) inside
+    a while-loop"). So the closure-field emitter is fine; the bug is a
+    context interaction (closure construction inside a loop body / batch main).
+    Next session: reproduce via `YO_KEEP_BATCH=1` (the batch main), not a
+    standalone `fn`, and diff the closure arg's ExprInfo in-loop vs isolated. iso.test's "expected
     expression" is a DIFFERENT root (FTT of `.extract()` — see iso patch commit
     90fd8ece1). **`derive` root (found this session):** derived enum-`Eq` emits
     `return // Failed to transpile match(self, ...#(match_branches), ...);` — the
