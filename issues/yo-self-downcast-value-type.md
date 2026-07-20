@@ -38,6 +38,23 @@ So `dyn(String)` stores the String's representation in `.data` (dyn.yo:193,
 `.data = value_code`), and the downcast must RECONSTRUCT the value type from that
 pointer — not cast a pointer to a struct.
 
+## ISOLATED REPRO (2026-07-20 evening) — the bug reproduces standalone
+
+```rust
+{ AnyError } :: import("std/error");
+open(import("std/string"));
+check :: (fn(err : AnyError) -> bool)(match(downcast(err, String),.Some(_) => true,.None => false));
+main :: (fn(io : Io) -> unit)({ (err : AnyError) = dyn(`hello`); b := check(err); () });
+export(main);
+```
+
+`s2 compile … --emit-c` then `clang -fsyntax-only` reproduces
+`used type '__yo_t0' (aka 'struct __yo_t1_struct') where arithmetic or pointer
+type is required` at `((__yo_t0)__yo_incr_rc((void*)err.data))`. NOTE: annotate
+the binding `(err : AnyError) = dyn(\`hello\`)`— a bare`err := dyn(\`hello\`)`additionally emits`/_ Error: dyn() call missing trait values _/` (the dyn
+creation needs the AnyError trait context; a separate concern). So the next
+session has a ready standalone repro (no batch needed, unlike msu).
+
 ## Fix (a dedicated port — needs the dyn value-boxing model)
 
 Port the `wasBoxed` value-extraction branch (downcast.ts:111-150). It requires:
