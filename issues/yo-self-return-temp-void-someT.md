@@ -99,17 +99,44 @@ So the function is a HYBRID: an **f64 ABI** with a **comptime_float body/c_name*
 The param-comptime signal can't catch it (param is f64); a c_name string-match
 would catch it but is an unfaithful band-aid with fixpoint risk.
 
-The REAL root is one layer deeper: for an f64-ABI specialization, the body's
-`self.neg()` method dispatch resolved to the COMPTIME `ComptimeNegate` impl
-(`__yo_comptime_float_neg`) instead of the runtime `Negate` impl (`__yo_op_neg`,
-which inlines to `-(self)` and compiles — cf. the f32 case above). Equivalently,
-the comptime specialization should never have been created/collected for codegen
-(TS folds the comptime call). A faithful fix must either (a) suppress the
-comptime specialization at the call site (function.yo:1313 specialization guard,
-gate off comptime-typed receiver/args), or (b) make the f64-ABI body dispatch
-`neg` to the runtime `Negate` impl. Both need a probe of where the
-comptime-vs-runtime dispatch splits and a faithful-port check against TS. NOT a
-tail-of-session change.
+### DEFINITIVE ROOT (2026-07-20, traced to the exact unported feature)
+
+The body's `self.neg()` dispatched to the COMPTIME `ComptimeNegate` impl
+(`__yo_comptime_float_neg`) because the arg stayed typed `comptime_float` into
+the specialized body eval. TS AVOIDS this at `helper.ts:508-524`: when a param
+is NOT comptime-only (`!parameter.isCompileTimeOnly`) and the arg is a
+comptime-only type, it calls `convertComptimeTypeToRuntimeType` (comptime_float
+→ f64) BEFORE synthesis + body eval — so `self` binds f64 and `neg` dispatches
+to the runtime `Negate` impl (`__yo_op_neg`, which inlines to `-(self)` and
+compiles, cf. the f32 case above).
+
+yo-self's port of that conversion is `helper.yo:531`, but its guard is
+`(!is_some_type(resolved_pt)) && (!pt_is_comptime)` — it uses `!is_some_type` as
+a PROXY for TS's `!parameter.isCompileTimeOnly`, and that proxy WRONGLY skips the
+conversion for a **runtime param typed as a SomeT** — exactly the operator
+`neg`'s `self : _Self`. So the comptime_float arg is never lowered to f64.
+
+Why the proxy: **yo-self does not track the per-param comptime modifier.**
+`is_ct_only` is hardcoded `false` at the call site (helper.yo:3029, "Phase 3
+treats all regular params as runtime"), and `FuncMeta`
+(types/definitions.yo:33) has `param_labels` / `param_is_ref` /
+`param_is_owning` but **NO `param_is_comptime`**. The `!is_some_type` guard was
+added as a workaround (protects comptime-generic SomeT params like a
+`comptime(x) : T` from over-conversion — and the sibling `!pt_is_comptime`
+protects the `fn(comptime_int,comptime_int)` overload for `3 > 4`), but it also
+catches runtime-generic SomeT params it shouldn't.
+
+**Faithful fix (a dedicated port, NOT a tail change):** track the per-param
+comptime modifier and thread it to `is_ct_only`, then change the `helper.yo:531`
+guard to TS's shape (`!is_ct_only && is_comptime_only_type(arg)`). To avoid the
+`_patch_self_shell` exponential-walk hazard of adding a field to the hot
+`FuncMeta`, store it in a func-id-keyed side-table (the established pattern —
+cf. the default-args side-table). Populate it during function-type evaluation
+(where the `comptime(x)` param modifier is parsed) and read it at helper.yo:3029.
+Full battery + STRICT_FIXPOINT mandatory (this is the arg-binding hot path for
+every generic call). Do NOT remove `!is_some_type` alone — that over-converts
+comptime-generic SomeT params (breaks `comptime(x) : T` and, without the
+`param_is_comptime` distinction, cannot tell them apart from `neg`'s `self`).
 
 ## Landscape note (why 0 files flip from the void\* work)
 
