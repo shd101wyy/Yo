@@ -228,3 +228,48 @@ GATES: stage2 + `s2 check std/env.yo` FIRST (cheap early signal), then full
 battery (corpus 135/2/0, std 153/153, STRICT_FIXPOINT, prior flips, and the
 collection cluster sweep: linked_list arc imm*_ sync/_ ordered_map thread
 worker).
+
+---
+
+## TRIED + REVERTED (2026-07-21): substitute-side cache-canonicalization (v1-v3)
+
+Implemented the fix design above — canonical-instantiation registry in
+types/intern.yo (struct key: cfid + arg intern-keys; enum key: cfid via
+g_enum_cfids + eid-free structural render), registered at
+evaluate_comptime_fn_call's should_cache finalize, consulted in substitute's
+Struct + EnumT arms (gate-free: a placeholder's key contains SomeT tokens and
+never matches a concrete registration).
+
+**What it PROVED:** the mechanism converges constructor-level identity — the
+census showed Node ctor calls cache-HITTING the canonical eid 5184 where 21
+fresh placeholder mints happened at baseline. Generic-light programs
+(ArrayList/HashMap/Option) compile and run fine.
+
+**Why it FAILED anyway — the def-time-stamp leak:** linked_list crashed in
+codegen (`get_enum_variant_c_name: no C type name found for enum 5131`).
+Enum 5131 = a CACHED `Option(Node@placeholder)` instantiation stamped into
+def-time ExprInfo. Such stamps NEVER flow through `substitute`, so no
+substitution-side canonicalization can reach them — but the canonicalization
+CHANGED which trees the C-type collection walks, leaving the def-time stamp
+referenced-but-unregistered. Partial canonicalization creates NEW
+inconsistencies between collection and emission. Measured damage: **corpus
+129/6/2 vs baseline 135/2/0** (6 DIFF + 2 SELF-FAIL regressions), zero cluster
+improvement (arc/thread/mutex/imm_list/ordered_map unchanged). REVERTED.
+
+**Sharpened conclusion:** identity convergence cannot be grafted onto ONE
+flow (substitution) while def-time-stamped ExprInfo reaches emission by other
+flows. TS is consistent because emission consumes ONLY cache-converged
+re-evaluated bodies — def-time placeholder stamps never reach codegen. The
+complete fix is the `wip/resolution-time-spec` direction: make specialized
+(re-evaluated) bodies the SOLE source of emitted ExprInfo, so every concrete
+type reaching codegen went through the comptime-fn cache. The census probes
+(P3HIT/P3MISS in comptime_fn.yo, see git history of this session) are the
+right instrument to verify convergence when that lands.
+
+**Census facts to reuse (linked_list repro):** Node ctor fid=yo_id_4932 — 22
+executions: 21 `a0=Tsomet sc=false` (def-time per-method placeholder mints;
+`_build_def_time_body_env` binds a FRESH SomeT per method) + 1
+`a0=Tconc sc=true` (the real Node(i32), eid 5184). Option ctor fid=yo_id_2435:
+84 distinct instantiations; the 3 reaching the failing C are all CACHED, keyed
+by 3 different Node-instance args (the cascade). `substitute` PRESERVES ids —
+the concrete-with-placeholder-eid instances are substitution products.
