@@ -543,3 +543,42 @@ supports it) → UTF-8 encoding to yo-self's escape decoder (find it by
 grepping the byte-92 handling shared by the \n path); check
 encoding_json's failure for the same root. Quick win — one decoder, two
 candidate file flips.
+
+---
+
+## 2026-07-20 — async-future WRAPPER resolved-concrete is the gap (NEW, un-attempted)
+
+Fresh-binary re-triage confirmed the 7 async-future files (fs/{dir,file,temp,metadata,
+walker,fs_convenience}, sys/bufio) all fail the SAME way and it is genuinely Gap-6, but
+the mechanism is now PRECISE and points at a specific un-ported TS block:
+
+- Symptom (sync-await path, await.yo:434-443): the `__sync_future` var is declared
+  `__yo_io_future_t*` (generic) and then `->__yo_resume_fn` / `->__yo_set_effect_fn` are
+  accessed (which that generic struct lacks), AND `__sync_future->result` is `int32_t`
+  where the awaited result type is specific. A specialized `_..._sync_fut_t*` struct DOES
+  get emitted elsewhere — the await site just isn't using it.
+- Reason: `get_type_string(future_type)` falls back to `__yo_io_future_t*` because the
+  FUTURE (wrapper `Impl(Future(T,E))` SomeT) has no `resolved_concrete`. A symptom-level
+  patch (`is_io_future || future_type_name == "__yo_io_future_t*"` at await.yo:437) peels
+  the resume_fn layer but then the result-type mismatch surfaces — proving the fix must be
+  the RENDERING (specialized struct), not the classification. Reverted.
+- **The precise gap:** yo-self registers the **OUTPUT** SomeT's resolved-concrete
+  (`function.yo:3768`, `register_some_resolved_concrete(oid, rr)` where `oid` =
+  `_future_output_some_id` and `rr` = the async closure's result type) — i.e. the `T` in
+  `Future(T,E)` — but NEVER the **future WRAPPER** SomeT's resolved-concrete. TS sets the
+  function RETURN type's `resolvedConcreteType = functionBodyReturnType`
+  (**function-type.ts:613-631**), and for an io.async fn the return type IS the wrapper
+  `Impl(Future(T,E))`. That whole block (the body-return-type check at 595-611 AND the
+  613-631 resolved-concrete population) is **ABSENT from yo-self's `function_type.yo`**
+  (713 lines, no `is_some_type` return handling, no body-return check). await.ts:82-95
+  reads the wrapper's `resolvedConcreteType`; yo-self's await.yo:60-73 reads it too — but
+  it is never populated for the wrapper, so the read always misses → generic fallback.
+- **Next experiment (async cluster, ~7 files):** port function-type.ts:613-631 into the
+  point where yo-self computes an io.async fn's body return type (NOT necessarily
+  function_type.yo — yo-self does def-time body eval elsewhere; find where the async
+  closure's concrete result/SM type is known and register it as the WRAPPER SomeT's
+  resolved-concrete, alongside the existing OUTPUT registration at function.yo:3768).
+  CAUTION: yo-self itself uses io.async — full battery incl. STRICT_FIXPOINT + the async
+  canaries (io_async_bundle_field, closure_capture_rc_dup, io-async-result-t-cell-poisoning)
+  are mandatory; the wrapper resolved-concrete must be PER-CALL-fresh (the
+  `_freshen_io_async_result` lineage) or sibling awaits cross-poison (item 7 above).
