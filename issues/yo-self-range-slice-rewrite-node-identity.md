@@ -90,3 +90,26 @@ export(main);
 Then the full battery (corpus diff-test, `check ./std`, stage2/stage3 STRICT_FIXPOINT)
 
 - flowability_comprehensive + the other `..` files + prior flips.
+
+## UPDATE 2026-07-20 — candidate (a) HOIST is RULED OUT (probe)
+
+Probe at `evaluate_function_call` entry (gated to range-index args), printing
+`ast_expr_id(expr)`: only the EVAL instances enter it —
+
+```
+PROBE-EFC id=56261   (x2)   <- the instance the rewrite already fires on
+PROBE-EFC id=56286   (x2)
+```
+
+The codegen-visible instances (56259 / 56284) **never reach `evaluate_function_call`**,
+so hoisting the rewrite anywhere inside it cannot record a macro_expansion on the id
+codegen looks up. Candidate (a) is dead.
+
+⇒ The two instances are distinct nodes: the codegen node (56259) is created WITHOUT
+going through `evaluate_function_call`, yet it carries ExprInfo (type `__yo_str`) — so its
+ExprInfo is COPIED/materialized from the eval instance (56261) by some collection /
+runtime-arg-materialization pass. The real fix is at THAT site (propagate the
+macro_expansion when the node is duplicated, or reuse the eval instance's id), OR handle
+range-index `recv(a..b)` directly in CODEGEN (emit the `slice_copy` dispatch there, using
+the resolved method from the type/registry) so it never depends on the eval-time rewrite
+reaching the codegen node. Both are deeper than a rewrite-placement change.
