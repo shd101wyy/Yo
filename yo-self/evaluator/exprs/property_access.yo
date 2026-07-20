@@ -1591,7 +1591,76 @@ Raw pointer operations may dereference invalid memory.`,
                 .None => ()
               );
             },
-            .None => () // No selected variant — fall through.
+            .None => {
+              // No selected variant — the enum isn't narrowed to a variant
+              // (e.g. a bare `fn(e : E)` parameter, whose runtime variant is
+              // not statically known). Resolve the property against the variant
+              // that declares it, when exactly one does, so `e.field` /
+              // `e.field = x` works like struct-field access — a `ref(struct)`
+              // parameter already supports in-place field mutation; a
+              // `ref(enum)` parameter must too (reference semantics). The
+              // programmer asserts the active variant; codegen emits the
+              // unchecked field access. Mirrors the TS fix in
+              // property-access.ts (`declaringVariants`).
+              (n_dv : usize) = usize(0);
+              (dv_idx : usize) = usize(0);
+              (dv_i : usize) = usize(0);
+              while(dv_i < ev_vflabels.len(), {
+                dv_fl := match(ev_vflabels.get(dv_i),.Some(fl) => fl,.None => ArrayList(String).new());
+                match(
+                  find_first_field_index(dv_fl, prop_name_ev.clone()),
+                  .Some(_) => {
+                    n_dv = (n_dv + usize(1));
+                    dv_idx = dv_i;
+                  },
+                  .None => ()
+                );
+                dv_i = (dv_i + usize(1));
+              });
+              if(n_dv == usize(1), {
+                dv_vfl := match(ev_vflabels.get(dv_idx),.Some(fl) => fl,.None => ArrayList(String).new());
+                dv_vft := match(ev_vfields.get(dv_idx),.Some(ft) => ft,.None => ArrayList(TypeValue).new());
+                dv_pfi := match(find_first_field_index(dv_vfl, prop_name_ev.clone()),.Some(i) => i,.None => usize(0));
+                dv_ft := match(dv_vft.get(dv_pfi),.Some(t) => t,.None => t_unit());
+                dv_pc := ArrayList(ArrayList(String)).new();
+                dv_path := ArrayList(String).new();
+                dv_obj_vname := match(
+                  obj_info_opt,
+                  .Some(oi) => match(oi.variable_name,.Some(n) => n,.None => String.from("?")),
+                  .None => String.from("?")
+                );
+                dv_path.push(dv_obj_vname);
+                dv_path.push(prop_name_ev);
+                dv_pc.push(dv_path);
+                dv_out := new_expr_info(env, dv_ft);
+                dv_out.path_collection = dv_pc;
+                dv_out.is_accessing_property = Option(bool).Some(true);
+                expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), dv_out);
+                expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), dv_out);
+                match(
+                  obj_val_main,
+                  .Some(eov) => match(
+                    eov,
+                    .EnumVal(ev_vn, ev_flds) => {
+                      dv_name := match(ev_vnames.get(dv_idx),.Some(nm) => nm,.None => String.from(""));
+                      dv_dot_sel := `.${ dv_name }`;
+                      if(ev_vn == dv_dot_sel, {
+                        match(
+                          ev_flds.get(dv_pfi),
+                          .Some(efv) => {
+                            dv_out.value = Option(EvalValue).Some(efv);
+                          },
+                          .None => ()
+                        );
+                      });
+                    },
+                    _ => ()
+                  ),
+                  .None => ()
+                );
+                return(expr);
+              });
+            }
           );
         },
         _ => ()

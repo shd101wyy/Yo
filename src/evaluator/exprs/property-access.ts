@@ -1260,7 +1260,46 @@ Raw pointer operations may dereference invalid memory.`,
 
         return expr;
       } else {
-        // It could be enum method call, so we ignore here.
+        // No `selectedVariantName` — the enum isn't narrowed to a variant (e.g.
+        // a bare `fn(e : E)` parameter, whose runtime variant isn't statically
+        // known). Resolve the property against the variant that declares it,
+        // when exactly one does, so `e.field` / `e.field = x` works the same as
+        // struct-field access (a `ref(struct)` parameter already supports
+        // in-place field mutation; a `ref(enum)` parameter must too — reference
+        // semantics). The programmer asserts the active variant; codegen emits
+        // the unchecked `->data.<Variant>.<field>` access. Ambiguous field
+        // names or non-field property names fall through, preserving the
+        // enum-method-call path below.
+        const declaringVariants = objectType.variants.filter((v) =>
+          (v.fields ?? []).some((f) => f.label === propertyName)
+        );
+        if (declaringVariants.length === 1) {
+          const variant = declaringVariants[0]!;
+          const fieldIndex = (variant.fields ?? []).findIndex(
+            (f) => f.label === propertyName
+          );
+          const field = (variant.fields ?? [])[fieldIndex]!;
+          expr.$ = {
+            env,
+            type: field.type,
+            value: undefined,
+            pathCollection: [
+              [objectExpr.$!.variableName ?? "?", propertyExpr.token.value],
+            ],
+            isAccessingProperty: true,
+          };
+          const variantValue = objectExpr.$?.value;
+          if (
+            variantValue &&
+            isEnumValue(variantValue) &&
+            variantValue.variantName === variant.name
+          ) {
+            expr.$.value = variantValue.fields[fieldIndex];
+          }
+          propertyExpr.$ = expr.$;
+          return expr;
+        }
+        // Otherwise it could be an enum method call, so we ignore here.
       }
     }
   }

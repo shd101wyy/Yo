@@ -152,3 +152,48 @@ test("value-enum holding a recursive ref(enum) field (RC-cycle analysis)", {
     .Plain(_) => ()
   );
 });
+
+// -----------------------------------------------------------------------------
+// Reference-semantics field access/mutation through a `ref(enum)` VALUE whose
+// variant is not statically narrowed (e.g. a bare `fn(c : Counter)` parameter).
+// A `ref(struct)` parameter already supports `s.field = x`; a `ref(enum)`
+// parameter must too — the field resolves against the sole variant that
+// declares it (the caller asserts the active variant; codegen emits an
+// unchecked access). Regression guard for the "Failed to evaluate left-hand
+// side of assignment: (c.count)" bug (property-access enum-field resolution
+// only handled a narrowed `selectedVariantName`).
+// -----------------------------------------------------------------------------
+Counter :: ref(enum(Zero, Active(count : i32, step : i32)));
+
+// `c.count` here exercises BOTH the field READ (RHS) and field WRITE (LHS) on a
+// `ref(enum)` parameter — neither resolved before the fix.
+_bump_counter :: (fn(c : Counter) -> unit)({
+  c.count = (c.count + i32(10));
+});
+
+_read_counter :: (fn(c : Counter) -> i32)(c.count);
+
+test("ref(enum) parameter field mutation propagates via reference semantics", {
+  c := Counter.Active(count : i32(5), step : i32(1));
+  _bump_counter(c);
+  match(
+    c,
+    .Active({ count }) => assert(count == i32(15), "param field mutation propagates to caller"),
+    .Zero => assert(false, "unexpected Zero variant")
+  );
+});
+
+test("ref(enum) parameter field read (unnarrowed variant)", {
+  c := Counter.Active(count : i32(42), step : i32(1));
+  assert(_read_counter(c) == i32(42), "param field read resolves the declaring variant");
+});
+
+test("ref(enum) field mutation via an immutable local binding", {
+  c := Counter.Active(count : i32(3), step : i32(2));
+  c.count = i32(99);
+  match(
+    c,
+    .Active({ count }) => assert(count == i32(99), "immutable-local field mutation"),
+    .Zero => assert(false, "unexpected Zero variant")
+  );
+});
