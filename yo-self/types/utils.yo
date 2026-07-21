@@ -299,7 +299,16 @@ type_implements_runtime :: (fn(ty : TypeValue) -> bool)(
 /// Mirrors `typeContainsRcType` in `src/types/utils.ts`.
 /// Uses a depth limit instead of a checkedTypes set to prevent infinite
 /// recursion on self-referential types (e.g. recursive enums).
-_type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
+_type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
+  // Resolve recursive-type SHELLS to their registered finals first — same
+  // reasoning as get_size_of_type (fifth shell-consumption site). An empty
+  // shell walks to `false`, and a specialization whose T binding is the
+  // recursive-Self shell (e.g. ArrayList(JsonValue).push's `value` param)
+  // then SKIPS set_expr_as_needs_to_call_dup's element retain — the pushed
+  // element's payload is freed when the caller's Result temp drops (the
+  // json `["abc"]` / `{"k": "v"}` value-loss). The depth cap already guards
+  // the recursive descent the resolution re-opens.
+  ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   cond(
     // Depth limit — conservative: return false at max depth
     (depth > u32(8)) => false,
@@ -414,7 +423,7 @@ _type_contains_rc_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       _ => false
     )
   )
-);
+});
 /// Return `true` if the type contains an RC-managed type (object/Dyn/Iso).
 ///
 /// Recursively checks compound types (Array, Tuple, Union, Struct, Enum).

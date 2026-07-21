@@ -25,7 +25,7 @@ open(import("std/string"));
 // drop. The eval marks the RHS via set_expr_as_needs_to_call_dup (assignment.yo
 // eval :388); this emits it. Mirrors src/codegen/exprs/assignment.ts.
 { emit_deferred_dup_or_code } :: import("./drop_dup.yo");
-{ get_type_string, get_variable_type_string, get_variable_name_for_codegen } :: import("../utils/index.yo");
+{ get_type_string, get_variable_type_string } :: import("../utils/index.yo");
 /// The last binding for `name` is a module-level global.
 _last_is_module_level :: (fn(env : Environment, name : String) -> bool)({
   vars := get_variables_from_env(env, name);
@@ -37,49 +37,6 @@ _last_is_compile_time_only :: (fn(env : Environment, name : String) -> bool)({
   vars := get_variables_from_env(env, name);
   m := vars.len();
   if(m == usize(0), false, match(vars.get(m - usize(1)),.Some(v) => v.is_compile_time_only,.None => false))
-});
-/// Generate the RHS code, first materializing the RHS into its own temp when
-/// it carries deferred dups (mirrors TS assignment.ts:184-199 "If RHS has a
-/// variable name, we need to declare it first"). Without the declaration the
-/// dup targets a never-declared temp and generate_deferred_dup_expressions'
-/// undeclared-temp gate silently suppresses it — e.g. the index-trait element
-/// store `resp.body = lines(i)` lost its +1 (the http.test.yo UAF).
-_rhs_code_with_deferred_dups :: (fn(rhs : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  rhs_code := _call_generate_expr(rhs, indent.clone(), context);
-  match(
-    context.base.get_expr_info(rhs),
-    .Some(info) => {
-      // TS skips closure constructions (rhsIsClosureConstruction).
-      is_closure_ctor := info.closure_function_value.is_some();
-      has_dups := match(info.deferred_dup_expressions,.Some(d) => (d.len() > usize(0)),.None => false);
-      if(!(is_closure_ctor) && has_dups, {
-        match(
-          info.variable_name,
-          .Some(vn) => {
-            rhs_var_name := get_variable_name_for_codegen(vn, Option(Environment).Some(info.env));
-            if(rhs_var_name != rhs_code.trim(), {
-              // Use converted_runtime_type when available (comptime_str -> str),
-              // and declare via get_variable_type_string — the choke-point that
-              // records the C name in declared_c_var_names so the deferred dup
-              // is not suppressed as undeclared.
-              eff_ty := match(info.converted_runtime_type,.Some(crt) => crt,.None => info.ty);
-              decl := indent.clone();
-              decl.push_string(get_variable_type_string(eff_ty, rhs_var_name.clone(), context.base));
-              decl.push_str(" = ");
-              decl.push_string(rhs_code.clone());
-              decl.push_str(";");
-              em0 := context.base.emitter;
-              em0.emit_string_line(decl);
-            });
-            return(emit_deferred_dup_or_code(rhs, rhs_var_name, indent.clone(), context));
-          },
-          .None => ()
-        );
-      });
-      emit_deferred_dup_or_code(rhs, rhs_code, indent.clone(), context)
-    },
-    .None => rhs_code
-  )
 });
 /// Generate an assignment / initialization. Mirrors `generateAssignment`.
 generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
@@ -175,7 +132,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
   );
   // Array assignment uses direct struct copy; everything else is scalar.
   if(is_array_type(lhs_type), {
-    rhs_code := _rhs_code_with_deferred_dups(rhs, indent.clone(), context);
+    rhs_code := emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context);
     if(is_init, {
       vt := get_variable_type_string(lhs_type, _call_generate_expr(lhs, indent.clone(), context), context.base);
       line := indent.clone();
@@ -193,7 +150,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       em.emit_string_line(line);
     });
   }, {
-    rhs_code := _rhs_code_with_deferred_dups(rhs, indent.clone(), context);
+    rhs_code := emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context);
     if(!(is_unit_type(lhs_type)), {
       c_type_string := get_type_string(lhs_type, context.base);
       is_sm_var := match(context.in_async_state_machine,.Some(_) => lhs_code.starts_with("sm->"),.None => false);

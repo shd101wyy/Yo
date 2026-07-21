@@ -28,6 +28,7 @@ open(import("std/string"));
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key } :: import("../utils/index.yo");
+{ resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { Environment } :: import("../../env.yo");
 /// The registered C name of the first `method_name` entry for `type`, if it is
 /// a function value registered in the codegen function table.
@@ -156,7 +157,12 @@ resolve_some_type_param_type :: (fn(value_arg : AstExpr, value_type : TypeValue,
 /// Mirrors `generateDropCodeForValue`. Note: emits at column 0 (no indent),
 /// faithful to the TS emitLine calls.
 generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue, context : FunctionGenerationContext) -> String)({
-  concrete_type := value_type;
+  // Resolve recursive-type SHELLS to their registered finals first (same
+  // convention as type_key / get_size_of_type): a shell enum has EMPTY
+  // variant lists, so the per-variant RC walk below emits a switch with NO
+  // arms — a silent no-op drop/dup for any recursive enum value (the json
+  // element-loss family).
+  concrete_type := resolve_enum_shell(resolve_struct_shell(value_type));
   if(!(type_contains_rc_type(concrete_type)), {
     return(String.from(""));
   });
@@ -397,7 +403,8 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
 /// Generate dup code for a value of any type (recursive for arrays/tuples).
 /// Mirrors `generateDupCodeForValue`.
 generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, context : FunctionGenerationContext) -> String)({
-  concrete_type := value_type;
+  // Resolve recursive-type SHELLS first — see generate_drop_code_for_value.
+  concrete_type := resolve_enum_shell(resolve_struct_shell(value_type));
   em := context.base.emitter;
   cond(
     is_array_type(concrete_type) => match(
@@ -850,6 +857,41 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
       ei.deferred_dup_expressions,
       .Some(dups) => if(dups.len() > usize(0), {
         em := context.base.emitter;
+        // TS declare-first (assignment.ts:184-199, other-fn-call.ts:2277-2292):
+        // when the SOURCE expr carries its own temp variable name that the
+        // fallback code did not already declare (e.g. an index-trait element
+        // `xs(i)` whose C form is the raw `(*index(...))` call), declare
+        // `T <temp> = <fallback>;` first — via get_variable_type_string, the
+        // declared_c_var_names choke-point — so the deferred dup references a
+        // real local instead of being suppressed by the undeclared-temp gate
+        // (`.Some(values(i))` returned an element with NO +1 — the json
+        // object-parse UAF). Closure constructions are excluded (their
+        // deferred dups are capture dups emitted by the closure emitters;
+        // TS's rhsIsClosureConstruction guard).
+        src_is_closure_ctor := (
+          ei.closure_function_value.is_some() ||
+            (match(ei.is_anonymous_function_definition,.Some(b) => b,.None => false) && ei.capture_type.is_some())
+        );
+        (fallback_code_2 : String) = fallback_code.clone();
+        if(!(src_is_closure_ctor), {
+          match(
+            ei.variable_name,
+            .Some(src_vn) => {
+              src_c_name := get_variable_name_for_codegen(src_vn, Option(Environment).Some(ei.env));
+              if(src_c_name != fallback_code.trim(), {
+                eff_ty := match(ei.converted_runtime_type,.Some(crt) => crt,.None => ei.ty);
+                decl0 := indent.clone();
+                decl0.push_string(get_variable_type_string(eff_ty, src_c_name.clone(), context.base));
+                decl0.push_str(" = ");
+                decl0.push_string(fallback_code.clone());
+                decl0.push_str(";");
+                em.emit_string_line(decl0);
+              });
+              fallback_code_2 = src_c_name;
+            },
+            .None => ()
+          );
+        });
         // The dup result's C variable name: Some for value-type dups (their inline form
         // materializes a result temp), None for ref-handle dups (which lower to
         // `incr_rc(arg)` with no result temp — the caller keeps using the raw value).
@@ -886,7 +928,7 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
         // `Some(bucket.value)`), the temp is a never-declared phantom → materialize.
         needs_materialize := match(
           dup_result_name,
-          .None => ((ast_expr_is_fn_call_of(expr, BF_DOT, Option(usize).Some(usize(2))) && dup_target.is_some()) && (fallback_code != t_name)),
+          .None => ((ast_expr_is_fn_call_of(expr, BF_DOT, Option(usize).Some(usize(2))) && dup_target.is_some()) && (fallback_code_2 != t_name)),
           .Some(_) => false
         );
         cond(
@@ -898,7 +940,7 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
             // exists to enable (ArrayList(ref-struct).get() lost its element +1).
             decl := get_variable_type_string(ei.ty, t_name.clone(), context.base);
             decl.push_str(" = ");
-            decl.push_string(fallback_code.clone());
+            decl.push_string(fallback_code_2.clone());
             decl.push_str(";");
             em.emit_string_line(decl);
             generate_deferred_dup_expressions(expr, indent.clone(), context);
@@ -906,7 +948,7 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
           },
           true => {
             generate_deferred_dup_expressions(expr, indent.clone(), context);
-            match(dup_result_name,.Some(n) => n,.None => fallback_code)
+            match(dup_result_name,.Some(n) => n,.None => fallback_code_2)
           }
         )
       }, fallback_code),

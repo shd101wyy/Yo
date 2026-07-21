@@ -9,6 +9,41 @@ reverted candidate of the async/dispose/spec families) lives in
 `issues/yo-self-async-emission-cluster.md` — consult it before re-deriving
 anything about those families.
 
+## SESSION UPDATE 2026-07-21 (late-3) — json FLIPPED 35/35 (#69 +1, 141/183) — recursive-enum element retain, 3 stacked shell/dup gaps
+
+- **encoding/json GREEN 35/35** via three stacked fixes (write-up:
+  `issues/yo-self-recursive-enum-element-retain.md`; corpus guard:
+  `tests/codegen-bootstrap/recursive_enum_element_retain.yo`):
+  1. `emit_deferred_dup_or_code` gained TS's declare-first step
+     (assignment.ts:184-199 / other-fn-call.ts:2277-2292) — a ctor arg's
+     deferred dup was suppressed as undeclared (`return(.Some(values(i)))`,
+     the object `.get` rc=137 UAF). Subsumes+removes the previous commit's
+     assignment-local helper.
+  2. `type_contains_rc_type` resolves recursive-Self SHELLS (fifth site) —
+     the specialized `ArrayList(JV).push` param type was the empty shell →
+     contains-rc=false → the eval marker skipped the element retain
+     ("one EvalValue push retained, its twin didn't" — SOLVED).
+  3. `generate_dup/drop_code_for_value` resolve shells (sixth site) — with
+     (2) fixed, the dup emitted as `switch(tag){ default: break; }` — ZERO
+     arms (walked the shell's empty variant list): a silent no-op +1.
+- **THE SHELL PATTERN (6 sites now):** any consumer walking struct fields /
+  enum variants may receive a value-copied recursive-`Self` SHELL and
+  silently compute "nothing here". New walkers MUST
+  `resolve_enum_shell(resolve_struct_shell(ty))` first.
+- **DEBUG LEDGER METHOD that cracked it:** instrument a /tmp COPY of the std
+  module (fix relative imports to absolute), probe PRE-PUSH/POST-PUSH — value
+  intact through push, dies at the recur-Result temp drop ⇒ missing retain,
+  not an over-drop. Then diff the SPECIALIZED push bodies: T=String had 8
+  dup ops, T=JsonValue (recursive enum) had 0.
+- **regex m2 NARROWED to a 2-test minimal repro** (saved /tmp/re_j2.test.yo):
+  "Chinese alternation" + "flag i: basic case insensitive" in one batch → 7
+  `undeclared m2` C errors. Trigger needs BOTH m1 AND m2 flowing through
+  `assert(mX.unwrap().value() == <MULTIBYTE>)` in the FIRST test; ASCII-ized
+  passes; dropping the last multibyte compare passes. Mechanism: the poison
+  block leaks its m1/m2 bindings into later blocks' envs (drop lists in the
+  VICTIM's early-return blocks reference the poison's m2 — undeclared in C).
+  Env-leak family (swallowed eval abort mid-block?). Not yet fixed.
+
 ## SESSION UPDATE 2026-07-21 (late-2) — recursive-enum sizeof=0 heap corruption FIXED (json + recursive_enum roots)
 
 - **THE json `[1, 2]` CRASH ROOT (and recursive_enum's ArrayList(Self) fail):**
