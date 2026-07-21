@@ -303,3 +303,29 @@ resolution-time-spec architecture. All localized fixes ruled out with gated
 evidence: codegen structural-merge (this, 135/137 regress), codegen cfid-recovery
 (wip: eval fixed but codegen crash/miscompile), eval substitute-side canon
 (mainline prior: corpus 129/6/2 regress). No clean localized fix exists.
+
+### Hard-data confirmation (2026-07-21, TK-STRUCT probe on the LL repro)
+
+Instrumented `_type_key_at`'s Struct arm to dump (sid, first-field-label, cfid
+HAS/EMPTY, type_args count) for every 3-field ref-struct reaching type_key.
+Node(i32) (l0=value) proliferates into >=5 DISTINCT struct ids:
+sid 4940: 40x cfid=EMPTY + 2x cfid=HAS(tas=1)
+sid 4946: 37x EMPTY + 1x HAS
+sid 4954: 43x EMPTY (never HAS)
+sid 4960: 86x EMPTY (never HAS)
+sid 5184: 56x EMPTY + 14x HAS
+LinkedList (l0=head): sids 4952/5025/5182 (cfid=HAS) + decl-shell 56459 (EMPTY).
+
+So the SAME logical Node(i32) is minted as many struct instances. Where a sid
+ever arrives cfid=HAS (4940/4946/5184), the g_struct_cfid_keys recovery dedups
+its EMPTY copies. But 4954/4960 arrive ONLY cfid=EMPTY with their own unique
+sids -> structural fallback keys them by their distinct sid -> distinct C types
+-> the **yo_t14/**yo_t1 (Option(Node)) mismatch + FTT.
+
+CONCLUSION (data-backed, not asserted): the fix is eval-side canonicalization so
+`Node(i32)` returns ONE canonical instance (one sid, cfid-stamped) from the
+comptime-fn cache across ALL call sites incl. the recursive `Self` placeholder.
+This is precisely the resolution-time-spec / instantiation-canonicalization
+direction that feat/bootstrap-codegen's HEAD (ae10e6844) tried substitute-side
+and reverted (corpus 129/6/2). No safe codegen-local dedup exists (structural
+merge regresses same-signature closures: 137->135). Multi-session architectural.
