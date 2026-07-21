@@ -133,7 +133,17 @@ attach_temp_variable_to_expr :: (
       // Only mark as owning if the effective type actually contains RC.
       _is_owning_rc := (is_owning_the_rc_value && type_contains_rc_type(effective_ty));
       // Compute compile-time-only flag and value: owning RC vars are always runtime.
-      is_ctonly := cond(_is_owning_rc => false, true => match(info.value,.Some(_) => true,.None => false));
+      // yo-self runtime results are `Some(UnknownVal)` where TS uses `undefined`
+      // (same convention note as set_expr_as_needs_to_call_dup) — TS
+      // `isCompileTimeOnly: Boolean(value)` must therefore read UnknownVal as
+      // NO value, or a non-owning runtime temp (e.g. the index-trait element)
+      // gets marked compile-time-only and codegen never declares it.
+      has_inlinable_value := match(
+        info.value,
+        .Some(iv) => !(is_unknown_val(iv)),
+        .None => false
+      );
+      is_ctonly := cond(_is_owning_rc => false, true => has_inlinable_value);
       var_value := cond(_is_owning_rc => Option(EvalValue).None, true => info.value);
       expr_tok := ast_expr_token(expr);
       match(

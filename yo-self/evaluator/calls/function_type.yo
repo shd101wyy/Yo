@@ -265,7 +265,22 @@ _build_def_time_body_env :: (
                 // ARE reassignable from fn bodies; rebinding them read-only
                 // made std/log.yo's `_global_level = level` def-eval fail
                 // "Cannot reassign".
-                add_variable_to_env(fresh_env, cv.name, cv.ty, cap_value, is_ct, cv.is_reassignable, false, false, synthetic_token(cv.name, module_path));
+                copied_var_opt := add_variable_to_env(fresh_env, cv.name, cv.ty, cap_value, is_ct, cv.is_reassignable, false, false, synthetic_token(cv.name, module_path));
+                // Carry `is_module_level` — TS REUSES the definition env's
+                // Variable objects for def-time body eval (function-type.ts:499),
+                // so every flag survives there. This flattening copy loses
+                // fields add_variable_to_env can't take; the flowability gate
+                // (`require_valid_ref_argument_places`) reads is_module_level
+                // to reject `inout` borrows into module-level roots — without
+                // this the copy reads false and the rejection silently never
+                // fires (tests/ref_field_borrow.test.yo:82).
+                match(
+                  copied_var_opt,
+                  .Some(copied_var) => {
+                    copied_var.is_module_level = cv.is_module_level;
+                  },
+                  .None => ()
+                );
               });
             },
             .None => ()

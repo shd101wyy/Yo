@@ -773,7 +773,20 @@ _reject_if_container_reachable :: (
       could_reach := match(
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(other)),
         .Some(oi) => {
-          is_closure := match(oi.closure_function_value,.Some(_) => true,.None => false);
+          // TS: `otherExpr.$?.closureFunctionValue !== undefined`. yo-self's
+          // anonymous-fn eval does NOT set closure_function_value (documented
+          // Phase-3 convention in anonymous_function.yo — downstream must fall
+          // back). TS stamps captureType and closureFunctionValue under the
+          // SAME isCreatingClosure gate, so on an anon-fn ExprInfo
+          // capture_type-is-set is the faithful equivalent.
+          is_closure := match(
+            oi.closure_function_value,
+            .Some(_) => true,
+            .None => (
+              match(oi.is_anonymous_function_definition,.Some(b) => b,.None => false) &&
+                oi.capture_type.is_some()
+            )
+          );
           (is_closure || type_contains_rc_type(oi.ty)) || type_representation_contains_raw_ptr(oi.ty)
         },
         .None => false

@@ -3726,6 +3726,14 @@ Fix: wrap the call:
           out_idx_rt.index_method_type = match(idx_result_rt.index_method_type,.Some(imt) => Option(TypeValue).Some(imt),.None => Option(TypeValue).None);
           out_idx_rt.index_method_value = idx_result_rt.index_method_value;
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx_rt);
+          // Attach a NON-owning temp to the index result (TS function.ts:2810
+          // `attachTempVariableToExpr(expr, false)`): the element is a borrow
+          // into the container's buffer, so a store of it must go through
+          // set_expr_as_needs_to_call_dup's non-owning-temp dup. Without the
+          // temp, the ExprInfo has no variable_name and the dup marker
+          // no-ops — `resp.field = xs(i)` then stores WITHOUT the +1 and the
+          // container drop frees the element (the http.test.yo UAF).
+          attach_temp_variable_to_expr(expr, false, ctx);
           return(expr);
         });
         // Per-call whole-callee freshening for io.async — see
@@ -4080,6 +4088,9 @@ Fix: wrap the call:
             out_idx.index_method_type = match(idx_result.index_method_type,.Some(imt) => Option(TypeValue).Some(imt),.None => Option(TypeValue).None);
             out_idx.index_method_value = idx_result.index_method_value;
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx);
+            // Attach a NON-owning temp (TS function.ts:2810) — see the
+            // FuncVal-callee index arm above for the full rationale.
+            attach_temp_variable_to_expr(expr, false, ctx);
             return(expr);
           });
           // Per-call whole-callee freshening for io.async — see

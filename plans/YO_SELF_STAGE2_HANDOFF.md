@@ -9,6 +9,54 @@ reverted candidate of the async/dispose/spec families) lives in
 `issues/yo-self-async-emission-cluster.md` — consult it before re-deriving
 anything about those families.
 
+## SESSION UPDATE 2026-07-21 (late) — http + ref_field_borrow FLIPPED (#69 +2, 139/183)
+
+- **FRESH-HEAD FULL SWEEP (183 files, not 180): 137 GREEN / 46 RED** before
+  this session's fixes; `/tmp/sweep69/results.txt` had the full list. After:
+  **139/183**. All gates: codegen-bootstrap diff-test `PASS 135 DIFF 2`
+  (both DIFFs — constructor_result_drop, ptr_deref_copy_rc_struct — verified
+  PRE-EXISTING with the pre-fix binary), std 153/153, prior-green spot set
+  holds (index 48, hash_map 61, algebraic_effects 72, derive 30, …).
+- **http.test.yo GREEN (9/9)** — the index-trait element store UAF. THREE
+  stacked faithful-port fixes (full write-up:
+  `issues/yo-self-index-deref-store-missing-dup.md`):
+  1. `evaluator/calls/function.yo` — BOTH index arms now end with
+     `attach_temp_variable_to_expr(expr, false, ctx)` (TS function.ts:2810);
+     without the temp the RHS has no variable_name and
+     `set_expr_as_needs_to_call_dup` no-ops.
+  2. `evaluator/utils.yo` `attach_temp_variable_to_expr` — UnknownVal ≠ a
+     value for `isCompileTimeOnly: Boolean(value)` (the recurring
+     `Some(UnknownVal)`-vs-`undefined` convention gap).
+  3. `codegen/exprs/assignment.yo` — port TS assignment.ts:184-199: declare
+     the RHS temp FIRST (via get_variable_type_string, the
+     declared_c_var_names choke-point), then emit the deferred dup —
+     otherwise generate_deferred_dup_expressions' undeclared-temp gate
+     silently suppresses the dup. New corpus guard:
+     `tests/codegen-bootstrap/index_element_field_store.yo`.
+- **ref_field_borrow.test.yo GREEN (11/11)** + ref_return_ban stays green —
+  THREE stacked fixes (write-up:
+  `issues/yo-self-borrow-gate-module-level-flag-loss.md`):
+  1. `evaluator/calls/function_type.yo` — the def-time body-eval env FLATTEN
+     loses `is_module_level` (add_variable_to_env can't carry it; TS shares
+     Variable objects, function-type.ts:499) → patch it onto the copy.
+     LANDMINE: the flatten drops EVERY field the add signature lacks.
+  2. `types/flowability.yo` — closure-arg reachability: yo-self never sets
+     `closure_function_value` on anon fns (documented Phase-3 convention) →
+     fall back to `is_anonymous_function_definition && capture_type.is_some()`
+     (TS stamps captureType under the same isCreatingClosure gate).
+  3. `evaluator/values/tuple.yo` — `all_known` must read `Some(UnknownVal)`
+     elements as NOT known (TS `tupleValues.some(v => !v)`) or a module-level
+     tuple with an RC element emits `._0 = /* skip generating value */`.
+- **METHODOLOGY:** `check` STOPS at the first failed comptime_expect_error —
+  a file with N failing gates surfaces them ONE AT A TIME; each fix exposes
+  the next. Don't assume one failure per file.
+- **json.test.yo (24/11) is NOT the http root** — `json_parse("[1, 2]")`
+  (TWO elements; `[1]` is fine) corrupts the heap in the s1-compiled binary
+  (SIGTRAP in a LATER malloc; lldb bt = mfm_alloc). Still red; repro
+  `/tmp/json_repro4.yo`; simple recursive-enum push loop does NOT repro —
+  needs the recursive parser shape. NEXT: ASan the repro
+  (`--sanitize address --allocator libc`) for the first-fault site.
+
 ## SESSION UPDATE 2026-07-21 — derive.test.yo FLIPPED (#69 +1, ~133/180)
 
 - **derive.test.yo GREEN (30/30)** via THREE stacked faithful-port fixes, full
