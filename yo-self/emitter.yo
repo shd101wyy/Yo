@@ -165,7 +165,16 @@ _emitter_record_scope_decl :: (fn(stack : ArrayList(String), line : String) -> u
 /// issues/yo-self-fixpoint-eval-phase-leak.md.
 _emitter_track_scope :: (fn(stack : ArrayList(String), line : String) -> unit)({
   _emitter_record_scope_decl(stack, line.clone());
-  n := line.len();
+  // BYTE count, not len() (chars): the loop indexes with byte_at. Bounding by
+  // char count under-scans any line containing multibyte text — a closing
+  // `}`/`"` in the lost tail is missed, a compound-literal `{` becomes a
+  // phantom open sentinel, and the enclosing block's REAL close pops the
+  // phantom instead — its declared names then stay "in scope" forever and the
+  // escape gate emits drops for same-named locals of later sibling blocks
+  // before their C declaration (the regex.test.yo `undeclared m2` cluster).
+  // ASCII structural bytes cannot occur inside UTF-8 continuation sequences,
+  // so a plain byte scan is exact. See issues/yo-self-emitter-scope-scan-chars-vs-bytes.md.
+  n := line.bytes_len();
   (i : usize) = usize(0);
   (in_str : bool) = false;
   (in_chr : bool) = false;
