@@ -38,7 +38,7 @@ open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("./definitions.yo");
-{ type_value_tag } :: import("./creators.yo");
+{ type_value_tag, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
 { TypeTag } :: import("./tags.yo");
 {
   is_integer_type,
@@ -1105,7 +1105,11 @@ _aggregate_size :: (fn(fts : ArrayList(TypeValue)) -> Option(usize))({
 /// Return the alignment of `ty` in bytes, or `.None` if not statically known.
 /// Mirrors `getAlignmentOfType` in `src/types/utils.ts`. Recurses into itself
 /// via `recur` and into the field helpers defined just above.
-get_alignment_of_type :: (fn(ty : TypeValue) -> Option(usize))(
+get_alignment_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
+  // Resolve recursive-type SHELLS to their registered finals first — same
+  // reasoning as get_size_of_type below (an empty shell walks to alignment 1,
+  // mis-laying out any aggregate that embeds the recursive type).
+  ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   match(
     ty,
     // comptime-only types have minimal alignment
@@ -1183,10 +1187,18 @@ get_alignment_of_type :: (fn(ty : TypeValue) -> Option(usize))(
     ),
     _ =>.None
   )
-);
+});
 /// Return the size of `ty` in bits, or `.None` if not statically known.
 /// Mirrors `getSizeOfType` in `src/types/utils.ts`.
-get_size_of_type :: (fn(ty : TypeValue) -> Option(usize))(
+get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
+  // A recursive struct/enum reference inside a type graph is a value-copied
+  // SHELL (empty fields/variant names) under yo-self's value semantics — TS
+  // never sees one here because its type objects are shared by identity. An
+  // empty shell walks to size 0, so `sizeof(T)` on a recursive enum folded to
+  // 0 and ArrayList.push allocated `0 * new_capacity` bytes → heap
+  // corruption (the recursive_enum / encoding/json crashes). Resolve to the
+  // registered final first — same convention as type_key.yo.
+  ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   match(
     ty,
     // comptime-only / zero-size types
@@ -1309,7 +1321,7 @@ get_size_of_type :: (fn(ty : TypeValue) -> Option(usize))(
     ),
     _ =>.None
   )
-);
+});
 // Wire the function-pointer slots now that both functions are defined. Assigned
 // at module top level (not inside a closure) per the captured-global rule.
 g_size_of_type_fn = Option(SizeFn).Some(get_size_of_type);

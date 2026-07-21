@@ -9,6 +9,30 @@ reverted candidate of the async/dispose/spec families) lives in
 `issues/yo-self-async-emission-cluster.md` — consult it before re-deriving
 anything about those families.
 
+## SESSION UPDATE 2026-07-21 (late-2) — recursive-enum sizeof=0 heap corruption FIXED (json + recursive_enum roots)
+
+- **THE json `[1, 2]` CRASH ROOT (and recursive_enum's ArrayList(Self) fail):**
+  `sizeof(T)` inside the SPECIALIZED ArrayList.push grow folded to **0** for a
+  recursive enum — the C emitted `__yo_realloc(old, (0ULL) * new_capacity)`,
+  push wrote a full 24-byte enum into the 0-byte buffer, and the corruption
+  surfaced as SIGTRAP in a LATER malloc (lldb bt = mfm_alloc; looked like an
+  RC bug for hours). Root: `get_size_of_type` walked the recursive-`Self`
+  SHELL (value-copied, EMPTY variant fields → aggregate math = exactly 0). TS
+  never sees shells (type objects shared by identity). FIX
+  (`types/utils.yo`): resolve `resolve_enum_shell(resolve_struct_shell(ty))`
+  at the entry of BOTH get_size_of_type and get_alignment_of_type — the
+  type_key.yo convention; FOURTH shell-consumption site. Corpus guard:
+  `tests/codegen-bootstrap/recursive_enum_arraylist_sizeof.yo` (pre-fix
+  rc=137; guard must NOT call sizeof(MyExpr) directly first — CTFE cache
+  priming masks the bug). Write-up:
+  `issues/yo-self-recursive-enum-sizeof-zero.md`.
+- **DEBUGGING LESSONS:** (1) a crash INSIDE malloc (`mfm_alloc`) = earlier
+  heap corruption, and a 0-size allocation is a prime suspect — grep the
+  emitted C for `(0ULL) *` BEFORE chasing RC pairing. (2) The crashing binary
+  ran FINE under lldb (env/layout sensitivity) — don't trust "works under
+  debugger" as evidence. (3) ASan-compiled yo binaries HANG at startup
+  (worker-stack interaction, unresolved) — not a usable tool here yet.
+
 ## SESSION UPDATE 2026-07-21 (late) — http + ref_field_borrow FLIPPED (#69 +2, 139/183)
 
 - **FRESH-HEAD FULL SWEEP (183 files, not 180): 137 GREEN / 46 RED** before
