@@ -273,3 +273,33 @@ executions: 21 `a0=Tsomet sc=false` (def-time per-method placeholder mints;
 84 distinct instantiations; the 3 reaching the failing C are all CACHED, keyed
 by 3 different Node-instance args (the cascade). `substitute` PRESERVES ids —
 the concrete-with-placeholder-eid instances are substitution products.
+
+## 2026-07-21 — MAINLINE (feat/bootstrap-codegen) codegen structural-dedup attempt: REVERTED, decisive
+
+Attempted on feat/bootstrap-codegen (per user directive, no wip branch): made
+`stable_type_identity` (type_key.yo) render by STRUCTURE (positional cycle
+markers, no nominal instance id) so same-layout recursive-generic instantiations
+merge to one C type. GATED (.c/clang):
+
+- codegen-bootstrap REGRESSED 137→135 (false-merged `dyn_fn_same_sig_closures`,
+  segfault `io_async_two_await_struct`) — structural-only merge is UNSAFE
+  (same-signature closures must stay distinct; confirms the type_key.yo comment
+  warning). check ./std 153/153.
+- LL repro UNCHANGED (5 FTT / 8 clang) — didn't even fix the target.
+  Reverted.
+
+ROOT (now conclusive): the PRIMARY `type_key` already does structural enum dedup
+(`g_enum_sig_keys`) + struct cfid-keying + shell resolution + cycle guards, but
+the recursive `Node(i32)` (`ref(struct(value, next:Option(Self), prev:Option(Self)))`)
+has an UNSTABLE key — empty `constructor_func_id` on the recursive occurrence →
+id-fallback → duplicate Node C-types (`__yo_t2`/`__yo_t13`) → duplicate
+`Option(Node)` (`__yo_t14`/`__yo_t1`, enum ids 4962/5186) → LinkedList assignment
+mismatch + FTT. The enum structural sig includes Node's key, so Node's instability
+propagates up.
+
+FIX SCOPE (empirically confirmed, not asserted): needs EVAL-SIDE stable identity
+for recursive generic instantiations (stamp Node's cfid consistently) = the
+resolution-time-spec architecture. All localized fixes ruled out with gated
+evidence: codegen structural-merge (this, 135/137 regress), codegen cfid-recovery
+(wip: eval fixed but codegen crash/miscompile), eval substitute-side canon
+(mainline prior: corpus 129/6/2 regress). No clean localized fix exists.
