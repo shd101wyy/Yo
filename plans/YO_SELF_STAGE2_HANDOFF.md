@@ -24,11 +24,18 @@ anything about those families.
   pointer-receiver methods.** Write-up:
   `issues/yo-self-dyn-pointer-self-subst.md`. Probe methodology: eprintln at
   the vtable skip decision printing `get_func_type(fid)` — one build cycle.
-- **cycle_collector 15/16 root SCOPED** (not fixed): "Garbage cycle collected
-  while live objects survive" — s1 log shows `live` (value 1) DISPOSED during
-  Gc.collect(): the field-assignment save-old-value temp's +1 on the old
-  `.Some(live)` payload is not held until scope end (dropped early or never
-  transferred). Drop-TIMING parity on assignment old-value temps vs TS.
+- **cycle_collector 15/16 root SCOPED PRECISELY** (not fixed — RC-ownership
+  semantics arc, HIGH regression risk): repro `/tmp/gc_repro.yo` — s1's
+  mid-scope `Gc.collect()` frees NOTHING (`tracked=3`; TS collects the a↔b
+  cycle → 1). Emitted-C diff: s1 adds `incr_rc(<local>)` (deferred
+  ref-handle dup) before EVERY `.Some(<owned local>)` ENUM-CTOR arg — the
+  locals keep +1, the cycle has external refs, never garbage until scope
+  end. TS emits NO dup AND NO scope-end drops for those locals — ctor args
+  transfer/share ownership (TS shared-ownership model:
+  `findRcValueOwnerRelationship` / `isOwningTheSameRcValueAs`; NOT the
+  own()-param move path — enum ctor params aren't `own()`). Fix = find the
+  yo-self eval site attaching the deferred dup to enum-ctor atom args and
+  port the ownership-sharing decision. Full battery mandatory (RC semantics).
 
 ## SESSION UPDATE 2026-07-21 (late-3) — json FLIPPED 35/35 (#69 +1, 141/183) — recursive-enum element retain, 3 stacked shell/dup gaps
 
