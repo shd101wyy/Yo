@@ -1150,6 +1150,21 @@ _find_self_level_in_method_ty :: (
                 found = Option(usize).Some(lvl);
               });
             },
+            // `self : *(Self)` — the pointer-receiver form every by-ref trait
+            // method uses. Without this case the finder returns `.None`, no
+            // substitution happens, the impl method registers as
+            // `fn(self : *(Self))` (hard-generic), and the dyn vtable
+            // generator stubs its wrapper with abort() ("impl fn skipped").
+            // Same landmine family as type_id_or_empty's missing Pointer case.
+            .Pointer(pointee) => match(
+              pointee,
+              .SomeT(_, pn, plvl, _, _, _, _, _, _, _, _) => {
+                if(pn == "Self", {
+                  found = Option(usize).Some(plvl);
+                });
+              },
+              _ => ()
+            ),
             _ => ()
           ),
           .None => ()
@@ -1164,6 +1179,15 @@ _find_self_level_in_method_ty :: (
               found = Option(usize).Some(lvl);
             });
           },
+          .Pointer(rpointee) => match(
+            rpointee,
+            .SomeT(_, rn, rlvl, _, _, _, _, _, _, _, _) => {
+              if(rn == "Self", {
+                found = Option(usize).Some(rlvl);
+              });
+            },
+            _ => ()
+          ),
           _ => ()
         );
       });

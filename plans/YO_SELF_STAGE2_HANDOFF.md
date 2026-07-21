@@ -9,6 +9,27 @@ reverted candidate of the async/dispose/spec families) lives in
 `issues/yo-self-async-emission-cluster.md` — consult it before re-deriving
 anything about those families.
 
+## SESSION UPDATE 2026-07-21 (late-4) — dyn FLIPPED 8/8 (#69 +1, 142/183) — `*(Self)` missed by the Self-level finder
+
+- **dyn.test.yo GREEN 8/8** — every `dyn(box(<value>))` dispatch aborted
+  (rc=134): ALL vtable wrappers were `abort()` stubs because
+  `should_skip_function_codegen` saw the impl methods as hard-generic — their
+  REGISTERED func type was still `fn(self : *(Self))`.
+  `_find_self_level_in_method_ty` (evaluator/values/impl.yo) scanned only
+  TOP-LEVEL SomeT params/return — `*(Self)` is `Pointer(SomeT)` and fell
+  through → no substitution at impl registration. FIX: Pointer cases in the
+  finder (substitute() already walks pointers once the level is known).
+  **Same landmine family as type_id_or_empty's missing Pointer case — any
+  type-shape dispatch without a Pointer arm silently no-ops for
+  pointer-receiver methods.** Write-up:
+  `issues/yo-self-dyn-pointer-self-subst.md`. Probe methodology: eprintln at
+  the vtable skip decision printing `get_func_type(fid)` — one build cycle.
+- **cycle_collector 15/16 root SCOPED** (not fixed): "Garbage cycle collected
+  while live objects survive" — s1 log shows `live` (value 1) DISPOSED during
+  Gc.collect(): the field-assignment save-old-value temp's +1 on the old
+  `.Some(live)` payload is not held until scope end (dropped early or never
+  transferred). Drop-TIMING parity on assignment old-value temps vs TS.
+
 ## SESSION UPDATE 2026-07-21 (late-3) — json FLIPPED 35/35 (#69 +1, 141/183) — recursive-enum element retain, 3 stacked shell/dup gaps
 
 - **encoding/json GREEN 35/35** via three stacked fixes (write-up:
