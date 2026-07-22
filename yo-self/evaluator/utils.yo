@@ -583,6 +583,15 @@ set_expr_as_consumed :: (
 /// `exn` is threaded because yo-self's `generate_expr_from_code` /
 /// `evaluate_expression_raw` require an explicit exception handler (TS throws).
 ///
+/// Side-table: evaluated `___dup` call expr id → the USE SITE's source token
+/// (the token of the rhs whose dup it is). Mirrors TS's ad-hoc `__useSiteToken`
+/// property (expr.ts:2571-2579): the dup expr itself is built from generated
+/// code (auto-generated token, not comparable with source tokens); the begin
+/// block's dup/drop pair optimizer needs the real source position of the
+/// ownership transfer to record an accurate consumed_at_token (early returns
+/// AFTER the transfer must not re-drop the moved value).
+(g_dup_use_site_tokens : HashMap(usize, Token)) = HashMap(usize, Token).new();
+get_dup_use_site_token :: (fn(id : usize) -> Option(Token))(g_dup_use_site_tokens.get(id));
 /// Mirrors `setExprAsNeedsToCallDup` in `src/expr.ts`.
 set_expr_as_needs_to_call_dup :: (
   fn(
@@ -706,6 +715,9 @@ set_expr_as_needs_to_call_dup :: (
           });
         }
       );
+      // Stamp the USE SITE's source token for the dup/drop pair optimizer
+      // (mirrors TS `__useSiteToken`, expr.ts:2577-2579).
+      g_dup_use_site_tokens.set(ast_expr_id(evaluated_dup), ast_expr_token(rhs));
       // Stash the deferred dup expression on the rhs's ExprInfo (codegen emits it).
       dup_list := ArrayList(AstExpr).new();
       dup_list.push(evaluated_dup);
@@ -1482,6 +1494,7 @@ export(
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
 export(set_expr_as_needs_to_call_dup);
+export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);
 export(doc_comment_lookup_key_from_token);
 export(consume_case_body_temp_var, merge_and_check_envs);

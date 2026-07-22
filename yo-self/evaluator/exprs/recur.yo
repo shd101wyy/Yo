@@ -36,7 +36,7 @@ open(import("std/fmt"));
   expr_info_table_get,
   expr_info_table_set
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 {
   EvalContext,
   FuncOrAsyncBlockKind,
@@ -91,7 +91,7 @@ evaluate_recur :: (
       kind : FuncOrAsyncBlockKind.FunctionBody,
       func_type : Option(TypeValue).None,
       func_value : Option(EvalValue).None,
-      eval_env : env
+      eval_env : snapshot_env(env)
     )
   );
   // ------------------------------------------------------------------

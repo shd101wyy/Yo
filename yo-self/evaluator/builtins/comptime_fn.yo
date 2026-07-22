@@ -22,7 +22,8 @@ open(import("std/string"));
   Variable,
   Environment,
   add_variable_to_env,
-  synthetic_token
+  synthetic_token,
+  snapshot_env
 } :: import("../../env.yo");
 {
   EvalContext,
@@ -162,7 +163,7 @@ _analyze_ctfe_capability :: (
       kind : FuncOrAsyncBlockKind.FunctionBody,
       func_type : Option(TypeValue).None,
       func_value : Option(EvalValue).Some(func_value),
-      eval_env : ctfe_env
+      eval_env : snapshot_env(ctfe_env)
     )
   );
   body_expr := body_box;

@@ -41,6 +41,7 @@ open(import("std/string"));
   update_existing_variable,
   synthetic_token,
   clone_env,
+  snapshot_env,
   make_err_variable
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args (TS helper.ts:411-451). utils.yo
@@ -1435,7 +1436,16 @@ create_specialized_function_inline :: (
               kind : FuncOrAsyncBlockKind.FunctionBody,
               func_type : Option(TypeValue).Some(fb_func_type),
               func_value : Option(EvalValue).Some(original_func_val),
-              eval_env : callee_env
+              // SNAPSHOT the entry env (frames-list copy, shared Frame refs):
+              // TS's evaluationEnv is a persistent env whose frames.length is
+              // frozen at body entry, so trackVariableUsage's outer-scope gate
+              // (frameLevel >= evaluationEnv.frames.length) never counts the
+              // body's OWN begin frame. yo-self's live env grows when
+              // evaluate_begin pushes that frame, so body locals (frame_level
+              // == entry count) looked "outer" and polluted captured_variables
+              // (killing the dup/drop pair optimizer's captured gate — the
+              // cycle_collector mid-scope collect failure).
+              eval_env : snapshot_env(callee_env)
             )
           );
           // For a CLOSURE being specialized, record captures with a FRESH map
@@ -2040,7 +2050,8 @@ evaluate_ctl_function_body_inline :: (
     kind : FuncOrAsyncBlockKind.FunctionBody,
     func_type : Option(TypeValue).Some(func_type),
     func_value : Option(EvalValue).Some(original_func_val),
-    eval_env : specialized_env
+    // Snapshot: freeze the entry frame count (see the spec-path ctx above).
+    eval_env : snapshot_env(specialized_env)
   );
   prev_expected_type := ctx.expected_type;
   prev_is_eval_fb := ctx.is_evaluating_function_body_or_async_block;

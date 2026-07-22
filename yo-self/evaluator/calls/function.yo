@@ -50,7 +50,8 @@ open(import("std/fmt"));
   get_variables_from_env,
   make_err_variable,
   get_receiver_methods_by_name_from_env,
-  get_type_trait_methods_by_name_from_env
+  get_type_trait_methods_by_name_from_env,
+  snapshot_env
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_variadic_param } :: import("../types/function.yo");
@@ -3619,7 +3620,7 @@ Fix: wrap the call:
           kind :.FunctionBody,
           func_type : callee_func_type_opt,
           func_value : callee_value,
-          eval_env : fresh_env
+          eval_env : snapshot_env(fresh_env)
         );
         ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(fn_ctx);
         ctx.enclosing_function_return_type = Option(TypeValue).Some(ret_type);

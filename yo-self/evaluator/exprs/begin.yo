@@ -29,6 +29,7 @@ open(import("std/string"));
   BK_BEGIN,
   BK_TUPLE,
   BK_RETURN,
+  BF_DUP,
   BF_UNWIND,
   BK_ASSIGN,
   BK_INIT_ASSIGN,
@@ -58,7 +59,10 @@ open(import("std/string"));
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ is_some_type } :: import("../../types/guards.yo");
+{ is_some_type, is_reference_struct_type } :: import("../../types/guards.yo");
+{ HashSet } :: import("std/collections/hash_set");
+{ is_io_async_call } :: import("../async/await_analysis.yo");
+{ expr_tree_contains_return } :: import("../../expr_traversal.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_flowable_expr, flow_options_default, FlowOptions }
@@ -72,22 +76,32 @@ open(import("std/string"));
   attach_temp_variable_to_expr,
   throw_expr_is_implicit_variable_error,
   consume_case_body_temp_var,
-  set_expr_as_needs_to_call_dup
+  set_expr_as_needs_to_call_dup,
+  get_dup_use_site_token
 } :: import("../utils.yo");
 { Token } :: import("../../token.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
-// DupCallsResult — stub result type for collectDupCallsConservatively.
-//
-// The full implementation traverses the AST for `___dup(...)` calls and is
-// deferred to Phase 3.  Both lists are always empty in Phase 2aa.
+// DupCallsResult — result type for collect_dup_calls_conservatively.
+// Mirrors TS `DupCallsResult` (begin.ts:343-346).
 // ---------------------------------------------------------------------------
 DupCallsResult :: ref(
   struct(
-    /// Maps base-variable id → list of `___dup(...)` call expressions.
+    /// Maps variable id → list of `___dup(...)` call expressions.
     dup_calls : HashMap(String, ArrayList(AstExpr)),
     /// Variable ids that have dups in some branches but not all (conservative).
-    vars_with_partial_branch_dups : ArrayList(String)
+    vars_with_partial_branch_dups : ArrayList(String),
+    /// Insertion-ordered key list for `dup_calls` (yo-self addition: avoids
+    /// HashMap key iteration at the branch-merge and application sites; TS
+    /// iterates Map.keys() directly).
+    dup_call_var_ids : ArrayList(String)
+  )
+);
+_new_dup_calls_result :: (fn() -> DupCallsResult)(
+  DupCallsResult(
+    dup_calls : HashMap(String, ArrayList(AstExpr)).new(),
+    vars_with_partial_branch_dups : ArrayList(String).new(),
+    dup_call_var_ids : ArrayList(String).new()
   )
 );
 // ---------------------------------------------------------------------------
@@ -100,18 +114,403 @@ DupCallsResult :: ref(
 is_unit_value_expression :: (fn(expr : AstExpr) -> bool)(
   ast_expr_is_fn_call_of(expr, BK_TUPLE,.Some(usize(0)))
 );
-// ---------------------------------------------------------------------------
-// collect_dup_calls_conservatively — stub
-// ---------------------------------------------------------------------------
-/// Stub. The real implementation traverses `expr` recursively to collect all
-/// `___dup(...)` calls, keyed by the base-variable id they dup.
-/// Deferred to Phase 3.
-collect_dup_calls_conservatively :: (fn(_expr : AstExpr) -> DupCallsResult)(
-  DupCallsResult(
-    dup_calls : HashMap(String, ArrayList(AstExpr)).new(),
-    vars_with_partial_branch_dups : ArrayList(String).new()
+/// Side-table: dup expr ids marked as EARLY-RETURN dups (a branch dup paired
+/// with that branch's early return: an independent dup+drop pair that does NOT
+/// count toward the end-of-scope runtime dup count). Mirrors TS's ad-hoc
+/// `__isEarlyReturnDup` expression property (begin.ts:551-560, 1957-1960).
+(g_early_return_dup_ids : HashSet(usize)) = HashSet(usize).new();
+_ids_list_contains :: (fn(lst : ArrayList(String), s : String) -> bool)({
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < lst.len()) && (!(found)), {
+    match(
+      lst.get(i),
+      .Some(x) => if(x == s, {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// If `e` is an evaluated `___dup` call, return the duped variable's NAME.
+/// Matches BOTH shapes: the method-resolved `(x.___dup)()` (the shape TS
+/// detects, begin.ts:377-404) and the bare `___dup(x)` builtin call (the shape
+/// set_expr_as_needs_to_call_dup mints via generate_expr_from_code).
+_dup_call_target_name :: (fn(e : AstExpr) -> Option(String))(
+  match(
+    e,
+    .FnCall(_, f, eargs, _, _) => {
+      if((eargs.len() == usize(0)) && ast_expr_is_fn_call_of(f, ".", Option(usize).Some(usize(2))), {
+        match(
+          f,
+          .FnCall(_, _, fargs, _, _) => {
+            a0 := match(
+              fargs.get(usize(0)),
+              .Some(x) => x,
+              .None => return(Option(String).None)
+            );
+            a1 := match(
+              fargs.get(usize(1)),
+              .Some(x) => x,
+              .None => return(Option(String).None)
+            );
+            if((ast_expr_is_atom(a0) && ast_expr_is_atom(a1)) && ast_expr_is_atom_of(a1, BF_DUP), {
+              return(Option(String).Some(ast_expr_token(a0).value));
+            });
+          },
+          .Atom(_, _) => ()
+        );
+      });
+      if(ast_expr_is_fn_call_of(e, BF_DUP, Option(usize).Some(usize(1))), {
+        match(
+          eargs.get(usize(0)),
+          .Some(arg0) => if(ast_expr_is_atom(arg0), {
+            return(Option(String).Some(ast_expr_token(arg0).value));
+          }),
+          .None => ()
+        );
+      });
+      Option(String).None
+    },
+    .Atom(_, _) => Option(String).None
   )
 );
+/// Record a dup call for `var_id`, deduplicating by expr id (mirrors the
+/// `existingDups.includes(dupExpr)` guard, begin.ts:1850).
+_push_dup_call :: (fn(res : DupCallsResult, var_id : String, e : AstExpr) -> unit)({
+  match(
+    res.dup_calls.get(var_id.clone()),
+    .Some(lst) => {
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while((i < lst.len()) && (!(found)), {
+        match(
+          lst.get(i),
+          .Some(x) => if(ast_expr_id(x) == ast_expr_id(e), {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      if(!(found), {
+        lst.push(e);
+      });
+    },
+    .None => {
+      nl := ArrayList(AstExpr).new();
+      nl.push(e);
+      res.dup_calls.set(var_id.clone(), nl);
+      res.dup_call_var_ids.push(var_id);
+    }
+  );
+});
+/// A branch body ends in control flow (return/break/continue/unwind) — its
+/// dups pair with the early exit's own drops, not the end-of-scope drop.
+/// Mirrors `branchHasControlFlow` (begin.ts:422-451).
+_branch_has_control_flow :: (fn(body : AstExpr, ctx : EvalContext) -> bool)({
+  has_cf := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(body)),
+    .Some(ei) => has_any_control_flow(ei.control_flow),
+    .None => false
+  );
+  if(has_cf, {
+    return(true);
+  });
+  if(ast_expr_is_fn_call_of(body, BK_BEGIN, Option(usize).None), {
+    match(
+      body,
+      .FnCall(_, _, bargs, _, _) => {
+        if(bargs.len() > usize(0), {
+          last_arg := match(
+            bargs.get(bargs.len() - usize(1)),
+            .Some(a) => a,
+            .None => return(false)
+          );
+          la_cf := match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(last_arg)),
+            .Some(lei) => has_any_control_flow(lei.control_flow),
+            .None => false
+          );
+          if(la_cf || ast_expr_is_fn_call_of(last_arg, BK_RETURN, Option(usize).None), {
+            return(true);
+          });
+        });
+      },
+      .Atom(_, _) => ()
+    );
+  });
+  ast_expr_is_fn_call_of(body, BK_RETURN, Option(usize).None)
+});
+/// Recursive dup-call search with conservative cross-branch analysis.
+/// Mirrors `searchRecursively` + its nested `handleBranchingExpression`
+/// (begin.ts:348-627). The branching arm is inlined (branch bodies recurse via
+/// `recur` into FRESH result containers — exactly TS's
+/// `collectDupCallsConservatively(branchBody)`). Deliberately does NOT recurse
+/// into recorded `macro_expansion`s: TS's searchRecursively never looks inside
+/// `$.macroExpansion` either, so dups attached to expansion-internal nodes
+/// (e.g. inside an `if(...)` macro arm — CONDITIONAL execution) stay invisible
+/// and keep their dup+drop pair. Recursing found them as plain unconditional
+/// dups and wrongly cancelled them (the stage-2 self-compile `undeclared
+/// result`/`temp_var_name` C errors).
+_search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext) -> unit)({
+  // Skip io.async captures entirely (begin.ts:358-369): the SM path needs BOTH
+  // the dup and the scope-exit drop; cancelling them would leak.
+  if(ast_expr_is_fn_call(expr) && is_io_async_call(expr), {
+    return(());
+  });
+  ei_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr));
+  // Attached deferred dups first (begin.ts:371-375).
+  match(
+    ei_opt,
+    .Some(ei) => {
+      match(
+        ei.deferred_dup_expressions,
+        .Some(dl) => {
+          (ddi : usize) = usize(0);
+          while(ddi < dl.len(), {
+            match(
+              dl.get(ddi),
+              .Some(d) => recur(d, res, ctx),
+              .None => ()
+            );
+            ddi = (ddi + usize(1));
+          });
+        },
+        .None => ()
+      );
+    },
+    .None => ()
+  );
+  // The node itself is a dup call (begin.ts:377-404)?
+  match(
+    _dup_call_target_name(expr),
+    .Some(vn) => {
+      match(
+        ei_opt,
+        .Some(ei2) => {
+          dvars := get_variables_from_env(ei2.env, vn);
+          if(dvars.len() > usize(0), {
+            match(
+              dvars.get(dvars.len() - usize(1)),
+              .Some(dv) => _push_dup_call(res, dv.id.clone(), expr),
+              .None => ()
+            );
+          });
+        },
+        .None => ()
+      );
+      return(());
+    },
+    .None => ()
+  );
+  // While loops execute multiple times — never optimize across them
+  // (begin.ts:406-414).
+  if(ast_expr_is_fn_call_of(expr, "while", Option(usize).None), {
+    return(());
+  });
+  is_cond := ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None);
+  is_match := ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None);
+  if(is_cond || is_match, {
+    cargs := match(
+      expr,
+      .FnCall(_, _, xs, _, _) => xs,
+      .Atom(_, _) => ArrayList(AstExpr).new()
+    );
+    // match: search the scrutinee first (begin.ts:611-614).
+    start_idx := if(is_match, {
+      match(
+        cargs.get(usize(0)),
+        .Some(scrut) => recur(scrut, res, ctx),
+        .None => ()
+      );
+      usize(1)
+    }, usize(0));
+    // Per-branch collection (begin.ts:492-505).
+    branch_results := ArrayList(DupCallsResult).new();
+    branch_has_ret := ArrayList(bool).new();
+    (bi : usize) = start_idx;
+    while(bi < cargs.len(), {
+      match(
+        cargs.get(bi),
+        .Some(stmt) => if(ast_expr_is_fn_call_of(stmt, "=>", Option(usize).Some(usize(2))), {
+          match(
+            stmt,
+            .FnCall(_, _, sargs, _, _) => match(
+              sargs.get(usize(1)),
+              .Some(body) => {
+                bres := _new_dup_calls_result();
+                recur(body, bres, ctx);
+                branch_results.push(bres);
+                branch_has_ret.push(_branch_has_control_flow(body, ctx));
+              },
+              .None => ()
+            ),
+            .Atom(_, _) => ()
+          );
+        }),
+        .None => ()
+      );
+      bi = (bi + usize(1));
+    });
+    // Union of var ids with dups in ANY branch; merge nested partials
+    // (begin.ts:507-517).
+    all_vars := ArrayList(String).new();
+    (bri : usize) = usize(0);
+    while(bri < branch_results.len(), {
+      match(
+        branch_results.get(bri),
+        .Some(br) => {
+          (ki : usize) = usize(0);
+          while(ki < br.dup_call_var_ids.len(), {
+            match(
+              br.dup_call_var_ids.get(ki),
+              .Some(vid) => if(!(_ids_list_contains(all_vars, vid.clone())), {
+                all_vars.push(vid);
+              }),
+              .None => ()
+            );
+            ki = (ki + usize(1));
+          });
+          (pi : usize) = usize(0);
+          while(pi < br.vars_with_partial_branch_dups.len(), {
+            match(
+              br.vars_with_partial_branch_dups.get(pi),
+              .Some(pv) => if(!(_ids_list_contains(res.vars_with_partial_branch_dups, pv.clone())), {
+                res.vars_with_partial_branch_dups.push(pv);
+              }),
+              .None => ()
+            );
+            pi = (pi + usize(1));
+          });
+        },
+        .None => ()
+      );
+      bri = (bri + usize(1));
+    });
+    // Per-variable branch categorization (begin.ts:519-593).
+    (avi : usize) = usize(0);
+    while(avi < all_vars.len(), {
+      vid_opt := all_vars.get(avi);
+      match(
+        vid_opt,
+        .Some(vid) => {
+          early_dups := ArrayList(AstExpr).new();
+          fallthrough_dups := ArrayList(AstExpr).new();
+          (fallthrough_count : usize) = usize(0);
+          (fallthrough_with_dup : usize) = usize(0);
+          (bci : usize) = usize(0);
+          while(bci < branch_results.len(), {
+            has_ret := match(
+              branch_has_ret.get(bci),
+              .Some(r) => r,
+              .None => false
+            );
+            match(
+              branch_results.get(bci),
+              .Some(br2) => {
+                dups_opt := br2.dup_calls.get(vid.clone());
+                if(!(has_ret), {
+                  fallthrough_count = (fallthrough_count + usize(1));
+                  if(dups_opt.is_some(), {
+                    fallthrough_with_dup = (fallthrough_with_dup + usize(1));
+                  });
+                });
+                match(
+                  dups_opt,
+                  .Some(bdups) => {
+                    (bdi : usize) = usize(0);
+                    while(bdi < bdups.len(), {
+                      match(
+                        bdups.get(bdi),
+                        .Some(bd) => if(has_ret, {
+                          early_dups.push(bd);
+                        }, {
+                          fallthrough_dups.push(bd);
+                        }),
+                        .None => ()
+                      );
+                      bdi = (bdi + usize(1));
+                    });
+                  },
+                  .None => ()
+                );
+              },
+              .None => ()
+            );
+            bci = (bci + usize(1));
+          });
+          // Early-return branch dups: independent pairs, always optimizable
+          // (begin.ts:549-561).
+          (edi : usize) = usize(0);
+          while(edi < early_dups.len(), {
+            match(
+              early_dups.get(edi),
+              .Some(ed) => {
+                g_early_return_dup_ids.add(ast_expr_id(ed));
+                _push_dup_call(res, vid.clone(), ed);
+              },
+              .None => ()
+            );
+            edi = (edi + usize(1));
+          });
+          // Fallthrough dups share ONE end-of-scope drop: optimizable only when
+          // ALL fallthrough branches have the dup (begin.ts:563-592).
+          if(fallthrough_dups.len() > usize(0), {
+            if(fallthrough_with_dup == fallthrough_count, {
+              (fdi : usize) = usize(0);
+              while(fdi < fallthrough_dups.len(), {
+                match(
+                  fallthrough_dups.get(fdi),
+                  .Some(fd) => _push_dup_call(res, vid.clone(), fd),
+                  .None => ()
+                );
+                fdi = (fdi + usize(1));
+              });
+            }, {
+              if(!(_ids_list_contains(res.vars_with_partial_branch_dups, vid.clone())), {
+                res.vars_with_partial_branch_dups.push(vid.clone());
+              });
+            });
+          });
+        },
+        .None => ()
+      );
+      avi = (avi + usize(1));
+    });
+    return(());
+  });
+  // Generic recursion (begin.ts:620-626).
+  match(
+    expr,
+    .FnCall(_, f2, fargs2, _, _) => {
+      recur(f2, res, ctx);
+      (ai : usize) = usize(0);
+      while(ai < fargs2.len(), {
+        match(
+          fargs2.get(ai),
+          .Some(a) => recur(a, res, ctx),
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  );
+});
+// ---------------------------------------------------------------------------
+// collect_dup_calls_conservatively
+// ---------------------------------------------------------------------------
+/// Traverses `expr` recursively to collect all `___dup(...)` calls, keyed by
+/// the variable id they dup, with conservative cross-branch analysis.
+/// Mirrors `collectDupCallsConservatively` (begin.ts:630-636).
+collect_dup_calls_conservatively :: (fn(expr : AstExpr, ctx : EvalContext) -> DupCallsResult)({
+  res := _new_dup_calls_result();
+  _search_dup_calls(expr, res, ctx);
+  res
+});
 // ---------------------------------------------------------------------------
 // _check_keyword_position
 // ---------------------------------------------------------------------------
@@ -435,6 +834,390 @@ _attach_early_return_only_drop_to_returns :: (fn(expr : AstExpr, variable : Vari
     },
     .Atom(_, _) => ()
   )
+});
+/// Macro-aware `expr_tree_contains_return` for the optimizer's earliest-return
+/// detection. TS's `exprTreeContainsReturn` (expr-traversal.ts:311-330) checks
+/// `expr.$.macroExpansion`; yo-self's expr_traversal.yo baseline cannot (no
+/// ctx). An `if(cond, { ... return(...) })` statement hides its return in the
+/// recorded expansion — missing it left `earliest_ret` unset, the
+/// return-before-dup guard never fired, and a later child's dup+drop pair was
+/// wrongly cancelled while the if's early return still needed the scope-exit
+/// drop (the stage-2 `undeclared result` C error).
+_contains_return_for_opt :: (fn(e : AstExpr, ctx : EvalContext) -> bool)({
+  if(expr_tree_contains_return(e), {
+    return(true);
+  });
+  match(
+    e,
+    .FnCall(_, f, fargs, _, _) => {
+      match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)),
+        .Some(ei) => match(
+          ei.macro_expansion,
+          .Some(mx) => if(recur(mx, ctx), {
+            return(true);
+          }),
+          .None => ()
+        ),
+        .None => ()
+      );
+      if(recur(f, ctx), {
+        return(true);
+      });
+      (ai : usize) = usize(0);
+      (found : bool) = false;
+      while((ai < fargs.len()) && (!(found)), {
+        match(
+          fargs.get(ai),
+          .Some(a) => if(recur(a, ctx), {
+            found = true;
+          }),
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+      found
+    },
+    .Atom(_, _) => false
+  )
+});
+/// Strip cancelled dup calls from every `deferred_dup_expressions` list in the
+/// tree. Mirrors `removeDupCallsFromExpr` (begin.ts:652-671) — raw tree only,
+/// like the collector.
+_remove_dup_calls_from_tree :: (fn(expr : AstExpr, remove_ids : HashSet(usize), ctx : EvalContext) -> unit)({
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
+    .Some(ei) => {
+      match(
+        ei.deferred_dup_expressions,
+        .Some(dl) => {
+          kept := ArrayList(AstExpr).new();
+          (i : usize) = usize(0);
+          while(i < dl.len(), {
+            match(
+              dl.get(i),
+              .Some(d) => if(!(remove_ids.contains(ast_expr_id(d))), {
+                kept.push(d);
+              }),
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          ei.deferred_dup_expressions = if(
+            kept.len() == usize(0),
+            Option(ArrayList(AstExpr)).None,
+            Option(ArrayList(AstExpr)).Some(kept)
+          );
+        },
+        .None => ()
+      );
+    },
+    .None => ()
+  );
+  match(
+    expr,
+    .FnCall(_, f, fargs, _, _) => {
+      recur(f, remove_ids, ctx);
+      (ai : usize) = usize(0);
+      while(ai < fargs.len(), {
+        match(
+          fargs.get(ai),
+          .Some(a) => recur(a, remove_ids, ctx),
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  );
+});
+/// OPTIMIZE_DUP_AND_DROP_PAIRS (port of begin.ts:1787-2062): cancel a
+/// candidate local's single runtime dup against its scope-end drop — a MOVE.
+/// Marks each winner CONSUMED (at the dup's use-site token when unambiguous)
+/// and strips its dups from the tree. Runs BEFORE _schedule_scope_end_drops,
+/// whose e5 consumed-gate then skips the winner's drop; the M3 driver in
+/// evaluate_begin_expression attaches early-return-only drops for the
+/// [init, consume) window automatically (TS does the same at 2068-2122).
+_optimize_dup_drop_pairs :: (
+  fn(
+    frame : Frame,
+    begin_args : ArrayList(AstExpr),
+    result_var_name : Option(String),
+    last_expr : AstExpr,
+    ctx : EvalContext
+  ) -> unit
+)({
+  tail_atom_name := if(
+    ast_expr_is_atom(last_expr),
+    Option(String).Some(ast_expr_token(last_expr).value),
+    Option(String).None
+  );
+  // 1. Collect dup calls per begin child; record each dup's child index and
+  //    the earliest child containing a return (begin.ts:1826-1861).
+  merged := _new_dup_calls_result();
+  dup_child_idx := HashMap(usize, usize).new();
+  (earliest_ret : Option(usize)) = Option(usize).None;
+  (ci : usize) = usize(0);
+  while(ci < begin_args.len(), {
+    match(
+      begin_args.get(ci),
+      .Some(child) => {
+        if(earliest_ret.is_none() && _contains_return_for_opt(child, ctx), {
+          earliest_ret = Option(usize).Some(ci);
+        });
+        cres := collect_dup_calls_conservatively(child, ctx);
+        (ki : usize) = usize(0);
+        while(ki < cres.dup_call_var_ids.len(), {
+          match(
+            cres.dup_call_var_ids.get(ki),
+            .Some(vid) => match(
+              cres.dup_calls.get(vid.clone()),
+              .Some(dups) => {
+                (di : usize) = usize(0);
+                while(di < dups.len(), {
+                  match(
+                    dups.get(di),
+                    .Some(d) => {
+                      _push_dup_call(merged, vid.clone(), d);
+                      if(dup_child_idx.get(ast_expr_id(d)).is_none(), {
+                        dup_child_idx.set(ast_expr_id(d), ci);
+                      });
+                    },
+                    .None => ()
+                  );
+                  di = (di + usize(1));
+                });
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+          ki = (ki + usize(1));
+        });
+        (pi : usize) = usize(0);
+        while(pi < cres.vars_with_partial_branch_dups.len(), {
+          match(
+            cres.vars_with_partial_branch_dups.get(pi),
+            .Some(pv) => if(!(_ids_list_contains(merged.vars_with_partial_branch_dups, pv.clone())), {
+              merged.vars_with_partial_branch_dups.push(pv);
+            }),
+            .None => ()
+          );
+          pi = (pi + usize(1));
+        });
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  if(merged.dup_call_var_ids.len() == usize(0), {
+    return(());
+  });
+  // 2. Consumed DERIVED variable count per base (begin.ts:1866-1889): a
+  //    derived copy consumed by an `own` param means its dup was transferred
+  //    to the callee and cannot pair with the base's scope-end drop.
+  consumed_derived := HashMap(String, usize).new();
+  fvars := frame.variables;
+  (cdi : usize) = usize(0);
+  while(cdi < fvars.len(), {
+    match(
+      fvars.get(cdi),
+      .Some(cv) => {
+        if((cv.consumed_at_token.is_some() && cv.is_owning_the_same_rc_value_as.is_some()) && type_contains_rc_type(cv.ty), {
+          (cbase : Variable) = cv;
+          (cwalking : bool) = true;
+          while(cwalking, {
+            match(
+              cbase.is_owning_the_same_rc_value_as,
+              .Some(b) => {
+                cbase = b.*;
+              },
+              .None => {
+                cwalking = false;
+              }
+            );
+          });
+          cur := match(
+            consumed_derived.get(cbase.id.clone()),
+            .Some(c) => c,
+            .None => usize(0)
+          );
+          consumed_derived.set(cbase.id.clone(), cur + usize(1));
+        });
+      },
+      .None => ()
+    );
+    cdi = (cdi + usize(1));
+  });
+  // 3. Pair each drop-eligible frame local with its collected dups
+  //    (begin.ts:1891-2054). Eligibility mirrors _schedule_scope_end_drops'
+  //    e1-e7 gates plus the captured filter (begin.ts:1802-1804) so only
+  //    variables the scheduler WOULD drop are optimized.
+  remove_ids := HashSet(usize).new();
+  (vi : usize) = usize(0);
+  while(vi < fvars.len(), {
+    match(
+      fvars.get(vi),
+      .Some(v) => {
+        e1 := (v.is_owning_the_rc_value && type_contains_rc_type(v.ty));
+        e2 := (e1 && (!(v.is_module_level)));
+        e3 := (e2 && (!(v.is_ref)));
+        some_undroppable := match(
+          v.ty,
+          .SomeT({ required_trait_types : s_rtt, resolved_concrete : s_rc }) => ((s_rc.len() == usize(0)) && (s_rtt.len() == usize(0))),
+          _ => false
+        );
+        e4 := (e3 && (!(some_undroppable)));
+        e5 := (e4 && v.consumed_at_token.is_none());
+        e6 := (e5 && (!(_name_matches_opt(v.name.clone(), result_var_name))));
+        e7 := (e6 && (!(_name_matches_opt(v.name.clone(), tail_atom_name))));
+        e8 := (e7 && (!(_variable_is_captured_by_current_function(v, ctx))));
+        if(e8, {
+          // Follow the ownership-alias chain to the root base variable
+          // (begin.ts:1892-1897).
+          (base : Variable) = v;
+          (walking : bool) = true;
+          while(walking, {
+            match(
+              base.is_owning_the_same_rc_value_as,
+              .Some(b) => {
+                base = b.*;
+              },
+              .None => {
+                walking = false;
+              }
+            );
+          });
+          base_id := base.id.clone();
+          match(
+            merged.dup_calls.get(base_id.clone()),
+            .Some(dups) => if(dups.len() > usize(0), {
+              // Value types with RC fields: `y = temp` is a C memcpy; both
+              // copies need their own drop — never cancel (begin.ts:1900-1909).
+              value_type_with_rc := ((!(is_reference_struct_type(base.ty))) && type_contains_rc_type(base.ty));
+              partial := _ids_list_contains(merged.vars_with_partial_branch_dups, base_id.clone());
+              // A main-path dup in a child AFTER an early-return child: the
+              // early return never executes the dup, so the value is still
+              // live and needs the scope-exit drop (begin.ts:1919-1935).
+              (ret_before_dup : bool) = false;
+              match(
+                earliest_ret,
+                .Some(er) => {
+                  (rdi : usize) = usize(0);
+                  while(rdi < dups.len(), {
+                    match(
+                      dups.get(rdi),
+                      .Some(d) => if(!(g_early_return_dup_ids.contains(ast_expr_id(d))), {
+                        match(
+                          dup_child_idx.get(ast_expr_id(d)),
+                          .Some(dci) => if(dci > er, {
+                            ret_before_dup = true;
+                          }),
+                          .None => ()
+                        );
+                      }),
+                      .None => ()
+                    );
+                    rdi = (rdi + usize(1));
+                  });
+                },
+                .None => ()
+              );
+              consumed_dups := match(
+                consumed_derived.get(base_id.clone()),
+                .Some(c) => c,
+                .None => usize(0)
+              );
+              // Base variable itself consumed while `v` is a derived copy:
+              // the dup is essential for COW correctness (begin.ts:1979-1991).
+              (base_consumed : bool) = false;
+              if(!(base.id == v.id), {
+                (bci2 : usize) = usize(0);
+                while(bci2 < fvars.len(), {
+                  match(
+                    fvars.get(bci2),
+                    .Some(fv) => if((fv.id == base_id) && fv.consumed_at_token.is_some(), {
+                      base_consumed = true;
+                    }),
+                    .None => ()
+                  );
+                  bci2 = (bci2 + usize(1));
+                });
+              });
+              gates_ok := ((!(value_type_with_rc)) && ((!(partial)) && ((!(ret_before_dup)) && ((consumed_dups == usize(0)) && (!(base_consumed))))));
+              if(gates_ok, {
+                // Count RUNTIME dups (early-return dups are independent
+                // pairs and do not count — begin.ts:1945-1970).
+                (runtime_count : usize) = usize(0);
+                (single_regular : Option(AstExpr)) = Option(AstExpr).None;
+                (rci : usize) = usize(0);
+                while(rci < dups.len(), {
+                  match(
+                    dups.get(rci),
+                    .Some(d2) => if(!(g_early_return_dup_ids.contains(ast_expr_id(d2))), {
+                      runtime_count = (runtime_count + usize(1));
+                      single_regular = Option(AstExpr).Some(d2);
+                    }),
+                    .None => ()
+                  );
+                  rci = (rci + usize(1));
+                });
+                if(runtime_count <= usize(1), {
+                  // Cancel: remove ALL dups (incl. early-return ones) and mark
+                  // the variable consumed (begin.ts:1998-2044).
+                  (rmi : usize) = usize(0);
+                  while(rmi < dups.len(), {
+                    match(
+                      dups.get(rmi),
+                      .Some(d3) => {
+                        remove_ids.add(ast_expr_id(d3));
+                      },
+                      .None => ()
+                    );
+                    rmi = (rmi + usize(1));
+                  });
+                  // Consume at the dup's USE SITE when there is exactly one
+                  // runtime dup (begin.ts:2019-2040): early returns AFTER the
+                  // transfer must not re-drop the moved value; ones BEFORE it
+                  // stay inside the [init, consume) window and keep theirs.
+                  (consume_tok : Token) = ast_expr_token(last_expr);
+                  if(runtime_count == usize(1), {
+                    match(
+                      single_regular,
+                      .Some(sr) => match(
+                        get_dup_use_site_token(ast_expr_id(sr)),
+                        .Some(ut) => {
+                          consume_tok = ut;
+                        },
+                        .None => ()
+                      ),
+                      .None => ()
+                    );
+                  });
+                  v.consumed_at_token = Option(Box(Token)).Some(box(consume_tok));
+                });
+              });
+            }),
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    vi = (vi + usize(1));
+  });
+  // 4. Strip the cancelled dups from the tree (begin.ts:2056-2061).
+  if(remove_ids.len() > usize(0), {
+    (ri : usize) = usize(0);
+    while(ri < begin_args.len(), {
+      match(
+        begin_args.get(ri),
+        .Some(c) => _remove_dup_calls_from_tree(c, remove_ids, ctx),
+        .None => ()
+      );
+      ri = (ri + usize(1));
+    });
+  });
 });
 _schedule_scope_end_drops :: (
   fn(
@@ -1212,6 +1995,15 @@ evaluate_begin_expression :: (
         );
       });
     }
+  );
+  // OPTIMIZE_DUP_AND_DROP_PAIRS (begin.ts:1787-2062): cancel each candidate
+  // local's single runtime dup against its scope-end drop — a MOVE. Winners
+  // are marked consumed HERE so the scheduler's e5 gate skips their drop and
+  // the M3 driver below attaches their early-return-only drops.
+  match(
+    current_frame_opt,
+    .Some(opt_fr) => _optimize_dup_drop_pairs(opt_fr, begin_args, last_info.variable_name, last_expr, ctx),
+    .None => ()
   );
   // M1: schedule scope-end RC drops for this frame's owning named locals BEFORE the
   // frame is popped (the `___drop(name)` exprs are evaluated against `env` while the

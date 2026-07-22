@@ -34,7 +34,8 @@ open(import("std/string"));
   Environment,
   Variable,
   get_variables_from_env,
-  add_variable_to_env
+  add_variable_to_env,
+  snapshot_env
 } :: import("../../env.yo");
 {
   EvalContext,
@@ -269,7 +270,9 @@ evaluate_test :: (
       kind : FuncOrAsyncBlockKind.TestBlock,
       func_type : Option(TypeValue).None,
       func_value : Option(EvalValue).None,
-      eval_env : env
+      // Snapshot: freeze the entry frame count (mirrors TS's persistent env;
+      // see the spec-path ctx in calls/helper.yo).
+      eval_env : snapshot_env(env)
     )
   );
   // Trial-evaluate the body (best effort; errors are swallowed — see the

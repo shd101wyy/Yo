@@ -426,13 +426,24 @@ generate_early_return_only_deferred_drop_expressions :: (fn(expr : AstExpr, inde
           match(
             early_drops.get(i),
             .Some(drop_expr) => if(!(is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures)), {
-              // Gate: skip a minted TEMP whose C declaration has not been emitted at
-              // this return point (declared_c_var_names = C-emission-order ground truth).
+              // Gate: the drop target's C declaration must have been emitted AND
+              // its enclosing C block must still be open at this exact point
+              // (block-scope stack — same authoritative C-emission-order signal
+              // as _keep_pending_drop; params are seeded at function entry).
+              // Source-token gates at attach time cannot see C decl-emission
+              // order: a `x := match(...)` binding emits its C declaration
+              // AFTER the switch, so a `return` inside an arm precedes it in C
+              // while FOLLOWING x's init token in source — with the dup/drop
+              // pair optimizer consuming such bindings, the M3-attached drop
+              // referenced an undeclared identifier (stage-2 `result` /
+              // `temp_var_name`). A target absent from the stack holds no C
+              // value here, so skipping cannot double-free or leak. Subsumes
+              // the former minted-TEMP declared_c_var_names check.
               skip_undeclared := match(
                 get_deferred_drop_target_atom_name(drop_expr),
                 .Some(vn) => {
                   cn := sanitize_for_c_identifier(vn, false);
-                  cn.contains(String.from("_temp_")) && !(context.base.declared_c_var_names.contains(cn))
+                  !(scope_stack_contains(context.base.declared_scopes, cn))
                 },
                 .None => false
               );
