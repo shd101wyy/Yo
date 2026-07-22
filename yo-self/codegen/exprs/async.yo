@@ -1462,15 +1462,26 @@ io_async_await_analysis :: (fn(expr : AstExpr, context : FunctionGenerationConte
 /// vars re-kinded Outer, mirrors TS function.ts:2192-2218); and
 /// extract_target_variable_id resolving through the LHS atom's pre-binding
 /// env (now the `:=` node's own env first) so await results actually copy
-/// out of the future. REMAINING before the real flip: sys/bufio emits bare
-/// `_file____User_temp_N;` statements (undeclared temps, 11 errors —
-/// /tmp/fsmon_bufio_batch.c), and fs/file writes an await result to
-/// `sm->var_<id>` for a target with NO SM struct field (single-segment
-/// await target not in cross-boundary set — /tmp/fsmon_fsfile_batch.c).
-/// Fix those, full flag-on battery + fixpoint, then flip for real and
-/// DELETE this flag. All io.async meanwhile lower through
-/// `generate_io_async_sync_call` (eager sync-future + blocking awaits) —
-/// the de-facto path that passes the full corpus.
+/// out of the future. ROUND 4 (2026-07-23): ALL flag-on C-COMPILE ERRORS
+/// CLEARED — fixed the Phase-5 SM-return stubs in return.yo (tail/early
+/// `return(x)` emitted nothing: no result store, no completion), the
+/// async-block result type resolving to the FUTURE itself for
+/// `return(x)`-tailed bodies (closure fid registry → get_func_type result,
+/// future-guarded fallbacks), await-target SM fields dropped by segment
+/// counting under re-stamped variable ids (name-unification in
+/// collect_variable_refs_in_expr), the suspension analysis missing `:=`
+/// binding targets (pre-binding LHS atom envs), and bare eval-temp
+/// statements in SM loop/match bodies (is_temp_variable_name skip in
+/// while_loop.yo + match.yo). Flag-on: sys/timer 1/1, async_await 116/116;
+/// fs/file 2/13 and sys/bufio 3/22 fail BEHAVIORALLY — consistent with the
+/// PHASE3_CAPTURE_PENDING hole (std-internal io.async captures like
+/// read_file's `.io` field emit `0`: yo-self capture-struct fields carry no
+/// per-field capture expressions; TS builds them from the field exprs,
+/// async.ts:330). NEXT: port that capture-expression machinery, re-run the
+/// flag-on battery + fixpoint, then flip for real and DELETE this flag.
+/// All io.async meanwhile lower through `generate_io_async_sync_call`
+/// (eager sync-future + blocking awaits) — the de-facto path that passes
+/// the full corpus.
 IO_ASYNC_FSM_ENABLED :: false;
 /// Extract the io.async(closure) body for the state-machine path: the closure
 /// FuncVal's body, read from the runtime-arg's ExprInfo — `closure_function_value`
@@ -1653,26 +1664,51 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
         result_type = rct;
       },
       .None => if(is_io_async, {
-        // Closure body type fallback (TS walks closureFnValue return / body type).
+        // TS walks closureFnValue's RETURN type first (async.ts result
+        // resolution), then the body type. The closure fid registry gives us
+        // the same source: a concrete non-future Func result wins. This is
+        // load-bearing for `return(x)`-tailed bodies, whose body ExprInfo
+        // type is the FUTURE itself — taking it made the SM's result field
+        // (and the return temp) the SM struct pointer instead of the output
+        // (fs/file read_string: `__yo_t17* result`).
+        (resolved_via_fn_ret : bool) = false;
         match(
-          context.base.get_expr_info(body_expr),
-          .Some(bei) => {
-            bt := bei.ty;
-            if(is_some_type(bt), {
-              bsid := match(bt,.SomeT({ id : i }) => i, _ => String.from(""));
-              match(
-                lookup_some_resolved_concrete(bsid),
-                .Some(r) => {
-                  result_type = r;
-                },
-                .None => ()
-              );
-            }, {
-              result_type = bt;
-            });
-          },
+          lookup_io_async_closure_fid(ast_expr_id(expr).to_string()),
+          .Some(res_fid) => match(
+            get_func_type(res_fid.clone()),
+            .Func({ result : frr }) => if(!(is_some_type(frr)) && !(type_implements_future(frr)), {
+              result_type = frr.clone();
+              resolved_via_fn_ret = true;
+            }),
+            _ => ()
+          ),
           .None => ()
         );
+        // Closure body type fallback — guarded against the future-typed
+        // `return(...)` tail for the same reason.
+        if(!(resolved_via_fn_ret), {
+          match(
+            context.base.get_expr_info(body_expr),
+            .Some(bei) => {
+              bt := bei.ty;
+              if(is_some_type(bt), {
+                bsid := match(bt,.SomeT({ id : i }) => i, _ => String.from(""));
+                match(
+                  lookup_some_resolved_concrete(bsid),
+                  .Some(r) => {
+                    result_type = r;
+                  },
+                  .None => ()
+                );
+              }, {
+                if(!(type_implements_future(bt)), {
+                  result_type = bt;
+                });
+              });
+            },
+            .None => ()
+          );
+        });
       })
     );
   });

@@ -126,6 +126,49 @@ match/cond arm frames (the batch shape). Same root cause as round 2's
 TS-correct answer under shadowing), keeping the atom env as fallback. NOTE:
 this helper is shared with effect_analysis.yo, so the change is live flag-off.
 
+## Round 4 (same campaign, next flag-on layer — all C-compile errors cleared)
+
+Continuing flag-on, fs/file + sys/bufio moved from C-compile failures to
+behavioral failures via five more fixes:
+
+1. **SM tail/early `return(x)` emitted NOTHING** (return.yo:679/722 were
+   Phase-5 stubs returning `""`): the machine never stored `sm->result`, never
+   set state -1, never spawned the continuation (fs/file read_string's empty
+   final state). Ported TS return.ts:653-683 + 740-756 (completion via
+   emit_async_future_completion; unit-early-return completes with a zeroed
+   result). The SM return temp is typed from the ARG's resolved type — the
+   return expr's own recorded type is the FUTURE, whose C name is the SM
+   struct pointer.
+2. **Async-block result type resolved to the future itself** for
+   `return(x)`-tailed bodies (the body-ExprInfo fallback blindly took the
+   body's type): generate_async_block now consults
+   `get_func_type(lookup_io_async_closure_fid(...)).result` first (TS walks
+   closureFnValue's return type) and guards both fallbacks with
+   `type_implements_future`.
+3. **Await-target SM fields dropped by segment counting** (fs/file `content`):
+   later eval passes re-stamp ExprInfos with fresh variable ids (or record
+   envs that miss the name), so codegen-side refs resolved to ids the
+   suspension analysis never saw — the captured id counted 1 segment and its
+   field was filtered out. `collect_variable_refs_in_expr` now ALSO counts the
+   same-name captured id (name-unification map built from
+   analysis.captured_variables), unconditionally for identifier atoms and `:=`
+   targets.
+4. **Suspension analysis misses `:=` binding targets** (suspension_analysis.yo):
+   the Atom walk resolves through the LHS atom's pre-binding env; added a `:=`
+   case resolving through the node's own env (factored the capture cascade
+   into `_capture_env_variable`). Live flag-off (shared with effect analysis).
+5. **Bare eval-temp statements in SM bodies** (`_file____User_temp_N;`
+   undeclared — the bufio 11-error class): statements that emit their own C
+   lines return only their eval temp name; `generate_loop_body` (while_loop.yo)
+   and match.yo's arm-statement loop + unassigned-final fallthrough lacked the
+   `is_temp_variable_name` skip that generate_state_segment_code already has.
+
+Flag-on status after round 4: **zero C-compile errors** across the battery;
+sys/timer 1/1, async_await 116/116 (pre-round-4), fs/file 2/13 behavioral,
+sys/bufio 3/22 behavioral ("unexpected error: file or directory not found" —
+consistent with the PHASE3_CAPTURE_PENDING `.io = 0` capture hole feeding NULL
+io records into std-internal SMs).
+
 ## Remaining (flag-on) before the real flip
 
 - **sys/bufio:** 11 C errors — bare `_file____User_temp_N;` statements

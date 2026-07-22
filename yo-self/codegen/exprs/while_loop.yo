@@ -140,10 +140,24 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
           .Some(arg) => {
             code := _call_generate_expr(arg, indent.clone(), context);
             if(code.len() > usize(0), {
-              line := indent.clone();
-              line.push_string(code);
-              line.push_str(";");
-              em.emit_string_line(line);
+              // Bare-temp-name skip (same gate as generate_state_segment_code,
+              // state_code_gen.yo): a statement whose generation already
+              // emitted its C lines returns just its eval temp name — for a
+              // unit/inline-emitted statement the temp was never DECLARED, so
+              // emitting `temp;` here is an undeclared-identifier C error
+              // (the SM loop-body `i = i + 1` tail class, fs/file + bufio
+              // flag-on).
+              is_bare_temp := match(
+                context.base.get_expr_info(arg),
+                .Some(aei) => is_temp_variable_name(aei.env.module_path.clone(), code.clone()),
+                .None => false
+              );
+              if(!(is_bare_temp), {
+                line := indent.clone();
+                line.push_string(code);
+                line.push_str(";");
+                em.emit_string_line(line);
+              });
             });
           },
           .None => ()

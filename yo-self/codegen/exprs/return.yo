@@ -19,11 +19,13 @@ open(import("std/string"));
 { AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BF_DROP, BF_DOT, BF_UNWIND, BK_RETURN } :: import("../../expr.yo");
 { Token } :: import("../../token.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
-{ is_unit_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_some_type } :: import("../../types/guards.yo");
+{ lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ emit_async_future_escape } :: import("./async_completion.yo");
+{ emit_async_future_escape, emit_async_future_completion } :: import("./async_completion.yo");
+{ extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { t_unit } :: import("../../types/creators.yo");
 { generate_atom } :: import("./atom.yo");
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("./drop_dup.yo");
@@ -640,21 +642,60 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
       // Mirrors the deferred-dup / scope-ret tail paths (generation.yo:196,265),
       // which already type the tail temp from `function_type.Func.result`.
       return_type := {
-        raw_rt := get_type_string(ei.ty, context.base);
-        cond(
-          (raw_rt == String.from("void*")) => match(
-            context.current_function_type,
-            .Some(ft) => match(
-              ft,
-              .Func({ result : r }) => {
-                fr := get_type_string(r, context.base);
-                cond((fr == String.from("void*")) => raw_rt, true => fr)
-              },
-              _ => raw_rt
-            ),
-            .None => raw_rt
+        // Async SM: the return temp holds the FUTURE OUTPUT value (what
+        // `sm->result` stores) — but the return expr's recorded type here is
+        // the future itself, whose C name is the SM struct pointer (TS types
+        // this temp by the closure's own return type, which IS the output).
+        // The output value's concrete type is the ARG's type (resolved
+        // through the some-registry when abstract).
+        (sm_output_rt : Option(String)) = Option(String).None;
+        match(
+          context.in_async_state_machine,
+          .Some(_) => match(
+            arg_ei_opt,
+            .Some(aei_t) => {
+              at := aei_t.ty;
+              if(!(is_some_type(at)), {
+                sm_output_rt = Option(String).Some(get_type_string(at, context.base));
+              }, {
+                match(
+                  at,
+                  .SomeT({ id : aid_t }) => match(
+                    lookup_some_resolved_concrete(aid_t),
+                    .Some(act) => {
+                      sm_output_rt = Option(String).Some(get_type_string(act, context.base));
+                    },
+                    .None => ()
+                  ),
+                  _ => ()
+                );
+              });
+            },
+            .None => ()
           ),
-          true => raw_rt
+          .None => ()
+        );
+        match(
+          sm_output_rt,
+          .Some(srt) => srt,
+          .None => {
+            raw_rt := get_type_string(ei.ty, context.base);
+            cond(
+              (raw_rt == String.from("void*")) => match(
+                context.current_function_type,
+                .Some(ft) => match(
+                  ft,
+                  .Func({ result : r }) => {
+                    fr := get_type_string(r, context.base);
+                    cond((fr == String.from("void*")) => raw_rt, true => fr)
+                  },
+                  _ => raw_rt
+                ),
+                .None => raw_rt
+              ),
+              true => raw_rt
+            )
+          }
         )
       };
       return_temp_var := match(ei.variable_name,.Some(vn) => Option(String).Some(get_variable_name_for_codegen(vn, Option(Environment).Some(ei.env))),.None => Option(String).None);
@@ -675,8 +716,33 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
       );
       generate_deferred_drop_expressions(expr, indent.clone(), context);
       generate_early_return_only_deferred_drop_expressions(expr, indent.clone(), context);
-      // (async state-machine completion is Phase 5 — gated dead for the corpus.)
-      match(context.in_async_state_machine,.Some(_) => return(String.from("")),.None => ());
+      // Async state-machine return: complete the Future instead of emitting a
+      // C `return <value>` (return.ts:653-683) — store the result on the SM,
+      // set state -1, spawn the continuation. Without this the closure's tail
+      // `return(x)` emitted NOTHING (the old Phase-5 stub returned "") and the
+      // machine never completed (fs/file read_string: empty final state).
+      match(
+        context.in_async_state_machine,
+        .Some(iasm) => {
+          child_ty := match(
+            extract_future_trait_from_type(iasm.future_type),
+            .Some(ftt) => match(ftt,.FutureTraitT({ output : o }) => o.clone(), _ => t_unit()),
+            .None => t_unit()
+          );
+          is_unit_result := is_unit_type(child_ty);
+          generate_pending_deferred_drops(indent.clone(), context, expr, true, false, false, Option(HashSet(String)).None);
+          em_sm := context.base.emitter;
+          em_sm.emit_string_line(`${indent.clone()}// Final state - complete the result Future`);
+          result_code := if(
+            is_unit_result,
+            Option(String).None,
+            Option(String).Some(match(return_temp_var,.Some(rtv2) => rtv2,.None => arg_code.clone()))
+          );
+          emit_async_future_completion(em_sm, indent.clone(), result_code, Option(String).Some(context.base.current_function_name.clone()));
+          return(String.from(""));
+        },
+        .None => ()
+      );
       // Returning a directly-consumed own parameter: skip its pending drop.
       returned_own := if(
         ast_expr_is_atom(arg) && !(arg_has_dup),
@@ -719,7 +785,31 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
       // Unit return (no argument).
       generate_deferred_drop_expressions(expr, indent.clone(), context);
       generate_early_return_only_deferred_drop_expressions(expr, indent.clone(), context);
-      match(context.in_async_state_machine,.Some(_) => return(String.from("")),.None => ());
+      // Async state-machine early unit return: complete the Future
+      // (return.ts:740-756). A non-unit future output completes with a
+      // zeroed result.
+      match(
+        context.in_async_state_machine,
+        .Some(iasm_u) => {
+          child_ty_u := match(
+            extract_future_trait_from_type(iasm_u.future_type),
+            .Some(ftt_u) => match(ftt_u,.FutureTraitT({ output : ou }) => ou.clone(), _ => t_unit()),
+            .None => t_unit()
+          );
+          is_unit_result_u := is_unit_type(child_ty_u);
+          generate_pending_deferred_drops(indent.clone(), context, expr, true, false, false, Option(HashSet(String)).None);
+          em_smu := context.base.emitter;
+          em_smu.emit_string_line(`${indent.clone()}// Final state - complete the result Future (early unit return)`);
+          result_code_u := if(
+            is_unit_result_u,
+            Option(String).None,
+            Option(String).Some(`(${get_type_string(child_ty_u, context.base)}){0}`)
+          );
+          emit_async_future_completion(em_smu, indent.clone(), result_code_u, Option(String).Some(context.base.current_function_name.clone()));
+          return(String.from(""));
+        },
+        .None => ()
+      );
       generate_pending_deferred_drops(indent.clone(), context, expr, false, false, false, Option(HashSet(String)).None);
       String.from("return")
     }

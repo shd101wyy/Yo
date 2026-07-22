@@ -150,6 +150,7 @@ collect_variable_refs_in_expr :: (
     expr : AstExpr,
     refs : HashSet(String),
     variable_id_remapping : HashMap(String, String),
+    captured_name_ids : HashMap(String, String),
     context : FunctionGenerationContext
   ) -> unit
 )({
@@ -158,6 +159,20 @@ collect_variable_refs_in_expr :: (
   if(ast_expr_is_atom(expr), {
     tok := ast_expr_token(expr);
     if(tok.kind == TokenKind.Identifier, {
+      // Name-unification with the ANALYSIS's captured set, UNCONDITIONAL:
+      // later eval passes re-stamp ExprInfos with fresh variable ids (or
+      // record envs that miss the name entirely), so the env resolution
+      // below can fail or resolve to an id the suspension analysis never
+      // saw — the captured id then counts too few segments and its SM
+      // field is dropped (fs/file `content`: := ref in seg N, return-atom
+      // env miss in seg N+1). Count the same-name captured id here too.
+      match(
+        captured_name_ids.get(tok.value),
+        .Some(cap_id) => {
+          refs.add(cap_id);
+        },
+        .None => ()
+      );
       match(
         ei_opt,
         .Some(ei) => {
@@ -182,7 +197,7 @@ collect_variable_refs_in_expr :: (
                 .Some(ob) => ob.*.id.clone(),
                 .None => canonical_id
               );
-              refs.add(owner_id);
+              refs.add(owner_id.clone());
             });
           });
         },
@@ -207,6 +222,14 @@ collect_variable_refs_in_expr :: (
       .Some(lhs) => if(ast_expr_is_atom(lhs), {
         lhs_tok := ast_expr_token(lhs);
         if(lhs_tok.kind == TokenKind.Identifier, {
+          // Same unconditional name-unification as the atom case above.
+          match(
+            captured_name_ids.get(lhs_tok.value),
+            .Some(cap_id_b) => {
+              refs.add(cap_id_b);
+            },
+            .None => ()
+          );
           match(
             ei_opt,
             .Some(bind_ei) => {
@@ -228,7 +251,7 @@ collect_variable_refs_in_expr :: (
                     .Some(ob) => ob.*.id.clone(),
                     .None => bind_canonical
                   );
-                  refs.add(bind_owner);
+                  refs.add(bind_owner.clone());
                 });
               });
             },
@@ -254,7 +277,7 @@ collect_variable_refs_in_expr :: (
               match(
                 dups.get(di),
                 .Some(d) => {
-                  recur(d, refs, variable_id_remapping, context);
+                  recur(d, refs, variable_id_remapping, captured_name_ids, context);
                 },
                 .None => ()
               );
@@ -268,14 +291,14 @@ collect_variable_refs_in_expr :: (
       return();
     });
     func_expr := match(expr,.FnCall(_, fb, _, _, _) => fb, _ => expr);
-    recur(func_expr, refs, variable_id_remapping, context);
+    recur(func_expr, refs, variable_id_remapping, captured_name_ids, context);
     args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     (ai : usize) = usize(0);
     while(ai < args.len(), {
       match(
         args.get(ai),
         .Some(a) => {
-          recur(a, refs, variable_id_remapping, context);
+          recur(a, refs, variable_id_remapping, captured_name_ids, context);
         },
         .None => ()
       );
@@ -293,7 +316,7 @@ collect_variable_refs_in_expr :: (
               match(
                 drops.get(dri),
                 .Some(d) => {
-                  recur(d, refs, variable_id_remapping, context);
+                  recur(d, refs, variable_id_remapping, captured_name_ids, context);
                 },
                 .None => ()
               );
@@ -310,7 +333,7 @@ collect_variable_refs_in_expr :: (
               match(
                 dups2.get(dui),
                 .Some(d) => {
-                  recur(d, refs, variable_id_remapping, context);
+                  recur(d, refs, variable_id_remapping, captured_name_ids, context);
                 },
                 .None => ()
               );
@@ -395,6 +418,23 @@ compute_cross_boundary_variables :: (
     );
     sgi = (sgi + usize(1));
   });
+  // Name → captured id, for unifying re-stamped variable ids with the
+  // analysis's captured set (see collect_variable_refs_in_expr).
+  captured_name_ids := HashMap(String, String).new();
+  (cni : usize) = usize(0);
+  cn_cvs := analysis.captured_variables;
+  while(cni < cn_cvs.len(), {
+    match(
+      cn_cvs.get(cni),
+      .Some(cv) => {
+        if(!(captured_name_ids.contains_key(cv.base.name.clone())), {
+          _r := captured_name_ids.set(cv.base.name.clone(), cv.base.id.clone());
+        });
+      },
+      .None => ()
+    );
+    cni = (cni + usize(1));
+  });
   // For each segment, collect referenced variable ids and record the segment.
   variable_segments := HashMap(String, HashSet(usize)).new();
   (sgj : usize) = usize(0);
@@ -408,7 +448,7 @@ compute_cross_boundary_variables :: (
           match(
             seg.expressions.get(ei),
             .Some(e) => {
-              collect_variable_refs_in_expr(e, refs, variable_id_remapping, context);
+              collect_variable_refs_in_expr(e, refs, variable_id_remapping, captured_name_ids, context);
             },
             .None => ()
           );
@@ -445,7 +485,7 @@ compute_cross_boundary_variables :: (
           match(
             body_drops.get(bi),
             .Some(d) => {
-              collect_variable_refs_in_expr(d, body_drop_refs, variable_id_remapping, context);
+              collect_variable_refs_in_expr(d, body_drop_refs, variable_id_remapping, captured_name_ids, context);
             },
             .None => ()
           );

@@ -333,7 +333,17 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
           begin_args.get(j),
           .Some(arg) => {
             arg_code := _call_generate_expr(arg, indent.clone(), context);
-            if(arg_code.len() > usize(0), {
+            // Bare-temp-name skip (same gate as generate_state_segment_code /
+            // generate_loop_body): a statement that emitted its own C lines
+            // returns just its eval temp name; when that temp was never
+            // declared (unit/inline-emitted statement), `temp;` is an
+            // undeclared-identifier C error (SM cond-branch arm class).
+            arm_bare_temp := match(
+              context.base.get_expr_info(arg),
+              .Some(aei0) => is_temp_variable_name(aei0.env.module_path.clone(), arg_code.clone()),
+              .None => false
+            );
+            if((arg_code.len() > usize(0)) && !(arm_bare_temp), {
               line := indent.clone();
               line.push_string(arg_code);
               line.push_str(";");
@@ -393,10 +403,21 @@ _emit_case_body_and_break :: (fn(case_body : AstExpr, indent : String, body_inde
     .None => false
   );
   if(!(assigned) && (body_code.len() > usize(0)), {
-    line := body_indent.clone();
-    line.push_string(body_code);
-    line.push_str(";");
-    em.emit_string_line(line);
+    // Same bare-temp-name skip as generate_case_body's statement loop: a
+    // unit arm whose final statement emitted itself returns only its eval
+    // temp name — emitting `temp;` here referenced an undeclared identifier
+    // (the SM cond-branch `sm->var = ...; temp;` class, sys/bufio flag-on).
+    fb_bare_temp := match(
+      context.base.get_expr_info(case_body),
+      .Some(cbei) => is_temp_variable_name(cbei.env.module_path.clone(), body_code.clone()),
+      .None => false
+    );
+    if(!(fb_bare_temp), {
+      line := body_indent.clone();
+      line.push_string(body_code);
+      line.push_str(";");
+      em.emit_string_line(line);
+    });
   });
   brk := body_indent.clone();
   brk.push_str("break;");
