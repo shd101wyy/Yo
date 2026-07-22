@@ -13,7 +13,7 @@ open(import("std/string"));
 { type_contains_some_type_for_codegen_param, type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { AstExpr } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
-{ get_func_type, is_effect_record_member, is_closure_fn } :: import("../../function_value.yo");
+{ get_func_type, is_effect_record_member, is_closure_fn, is_io_async_sm_closure } :: import("../../function_value.yo");
 { CodeGenContext, get_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField, is_function_value_with_only_builtin_yo_inline_function_call, find_returned_async_block, type_key } :: import("../utils/index.yo");
 /// One evidence parameter threaded into a function that uses effect-record
 /// evidence passing. Mirrors the `EvidenceParameter` interface.
@@ -462,6 +462,14 @@ _body_is_effectful :: (fn(body : Option(AstExpr), context : CodeGenContext) -> b
 should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : EvalValue, context : CodeGenContext) -> bool)({
   function_type := get_func_type(func_id.clone());
   is_user_main := (c_name == String.from("__yo_user_main"));
+  // Io async state-machine closures are generated via the deferred async
+  // block system, not as standalone functions (their body would otherwise be
+  // emitted TWICE — see mark_io_async_sm_closure). Mirrors TS
+  // declarations.ts:172 / generation.ts:690; the registry is populated only
+  // on the FSM path, so this is inert while IO_ASYNC_FSM_ENABLED is false.
+  if(!(is_user_main) && is_io_async_sm_closure(func_id.clone()), {
+    return(true);
+  });
   body := _func_value_body(value);
   is_effectful := _body_is_effectful(body, context);
   is_erm := is_effect_record_member(func_id.clone());

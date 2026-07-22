@@ -195,6 +195,59 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
       return(Option(String).Some(String.from("")));
     });
     em := context.base.emitter;
+    // State-machine variable binding: a local captured in the SM struct is
+    // ASSIGNED to its `sm->` field, never declared locally (a local decl in
+    // one state's C block is invisible to later states — the FSM `a := 20`
+    // class). Mirrors initialization-assignment.ts:175-201 + the
+    // isStateMachineVar assignment branch. The lookup goes through the `:=`
+    // node's OWN recorded env (`ei.env`, stamped post-binding) — the LHS
+    // atom's env predates the binding in yo-self and misses the variable.
+    if(context.in_async_state_machine.is_some() && context.state_machine_variables.is_some(), {
+      sm_bind_vars := get_variables_from_env(ei.env, var_name.clone());
+      if(sm_bind_vars.len() > usize(0), {
+        match(
+          sm_bind_vars.get(sm_bind_vars.len() - usize(1)),
+          .Some(sm_bind_var) => {
+            (sm_bind_id : String) = match(
+              sm_bind_var.is_owning_the_same_rc_value_as,
+              .Some(ob) => ob.*.id.clone(),
+              .None => sm_bind_var.id.clone()
+            );
+            match(
+              context.variable_id_remapping,
+              .Some(rm) => match(
+                rm.get(sm_bind_id.clone()),
+                .Some(mapped) => {
+                  sm_bind_id = mapped;
+                },
+                .None => ()
+              ),
+              .None => ()
+            );
+            sm_has := match(
+              context.state_machine_variables,
+              .Some(smv) => smv.get(sm_bind_id.clone()).is_some(),
+              .None => false
+            );
+            if(sm_has, {
+              sm_field := match(
+                context.state_machine_field_aliases,
+                .Some(al) => match(
+                  al.get(sm_bind_id.clone()),
+                  .Some(af) => af,
+                  .None => `var_${sm_bind_id.clone()}`
+                ),
+                .None => `var_${sm_bind_id.clone()}`
+              );
+              sm_rhs := _call_generate_expr(rhs, indent.clone(), context);
+              em.emit_string_line(`${indent.clone()}sm->${sm_field.clone()} = ${sm_rhs.clone()};`);
+              return(Option(String).Some(String.from("")));
+            });
+          },
+          .None => ()
+        );
+      });
+    });
     if(is_array_type(lhs_type), {
       // Array initialization (literal or struct copy — copy spills an Rc/temp
       // RHS into its temp variable first).

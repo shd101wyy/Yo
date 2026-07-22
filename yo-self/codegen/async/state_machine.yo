@@ -191,6 +191,55 @@ collect_variable_refs_in_expr :: (
     });
     return();
   });
+  // Binding target: `x := rhs` must record `x` as referenced in THIS segment.
+  // The LHS atom's recorded env predates the binding (yo-self stamps the atom
+  // during LHS evaluation, before add_variable_to_env), so the atom walk above
+  // finds nothing for it — a variable declared in one state segment and used
+  // in a later one then counted only ONE segment and was dropped from the SM
+  // struct (`int32_t a = 20;` in state 1, undeclared `a` in state 2 — the
+  // io_async_fsm_multi class). Resolve the target through the `:=` node's OWN
+  // recorded env, which is stamped post-binding. (TS reaches the same effect
+  // through its per-object point-in-time envs.)
+  if(ast_expr_is_fn_call_of(expr, ":=", Option(usize).Some(usize(2))), {
+    bind_args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    match(
+      bind_args.get(usize(0)),
+      .Some(lhs) => if(ast_expr_is_atom(lhs), {
+        lhs_tok := ast_expr_token(lhs);
+        if(lhs_tok.kind == TokenKind.Identifier, {
+          match(
+            ei_opt,
+            .Some(bind_ei) => {
+              bind_vars := get_variables_from_env(bind_ei.env, lhs_tok.value);
+              if(bind_vars.len() > usize(0), {
+                bind_var := match(
+                  bind_vars.get(bind_vars.len() - usize(1)),
+                  .Some(v) => v,
+                  .None => return()
+                );
+                if(!(bind_var.is_compile_time_only), {
+                  bind_canonical := match(
+                    variable_id_remapping.get(bind_var.id.clone()),
+                    .Some(c) => c,
+                    .None => bind_var.id.clone()
+                  );
+                  bind_owner := match(
+                    bind_var.is_owning_the_same_rc_value_as,
+                    .Some(ob) => ob.*.id.clone(),
+                    .None => bind_canonical
+                  );
+                  refs.add(bind_owner);
+                });
+              });
+            },
+            .None => ()
+          );
+        });
+      }),
+      .None => ()
+    );
+    // fall through to the FnCall walk below (RHS refs still collected).
+  });
   // FnCall case.
   if(ast_expr_is_fn_call(expr), {
     if(is_io_async_call(expr), {

@@ -53,7 +53,7 @@ open(import("std/string"));
   is_io_spawn_call,
   get_closure_await_analysis
 } :: import("../../evaluator/async/await_analysis.yo");
-{ get_func_type } :: import("../../function_value.yo");
+{ get_func_type, mark_io_async_sm_closure } :: import("../../function_value.yo");
 { ExprInfo, lookup_some_resolved_concrete, register_some_resolved_concrete, expr_info_table_set } :: import("../../expr_info.yo");
 {
   extract_future_trait_from_type,
@@ -1404,7 +1404,24 @@ io_async_await_analysis :: (fn(expr : AstExpr, context : FunctionGenerationConte
   );
   match(
     fv,
-    .Some(f) => match(f,.FuncVal(__fvd1, _) => get_closure_await_analysis(__fvd1.*.func_id), _ => Option(AwaitAnalysisResult).None),
+    .Some(f) => match(
+      f,
+      .FuncVal(__fvd1, _) => {
+        aa := get_closure_await_analysis(__fvd1.*.func_id);
+        // FSM-routed closure: its body is emitted by the SM resume function —
+        // mark it so the standalone closure emission is skipped (else the
+        // body exists twice and the resume references temps declared only in
+        // the standalone copy). Mirrors TS setting
+        // `isIoAsyncStateMachineClosure` when the closure has await analysis
+        // (function.ts:2222). This fn is only reached behind
+        // IO_ASYNC_FSM_ENABLED, so the registry stays empty on the sync path.
+        if(aa.is_some(), {
+          mark_io_async_sm_closure(__fvd1.*.func_id.clone());
+        });
+        aa
+      },
+      _ => Option(AwaitAnalysisResult).None
+    ),
     .None => Option(AwaitAnalysisResult).None
   )
 });
@@ -1421,10 +1438,17 @@ io_async_await_analysis :: (fn(expr : AstExpr, context : FunctionGenerationConte
 /// await analysis through (destructive-move re-read fix). With the flag
 /// flipped experimentally, yo-self + all test batches COMPILE — but the
 /// emitted machines mis-execute (sys/timer rc=139, fs/walker hangs): the
-/// remaining gaps are in the RESUME-BODY emitters (state_code_gen.yo /
-/// state_machine.yo — never exercised until now). Next session: diff one
-/// small FSM batch's emitted C against TS's (io_async_fsm_multi corpus file
-/// is the smallest two-await case), fix the resume emission, re-flip.
+/// remaining gaps are in the RESUME-BODY emitters. PROGRESS (round 2, same
+/// day): io_async_fsm_multi now COMPILES AND RUNS CORRECTLY (42) flag-on —
+/// fixed: SM-closure double emission (mark_io_async_sm_closure skip),
+/// cross-boundary refs missing `:=` binding TARGETS (collect_variable_refs_
+/// in_expr, state_machine.yo — the LHS atom's recorded env predates the
+/// binding), and SM-var bindings declaring locals instead of assigning
+/// `sm->` fields (init_assignment.yo). NEXT LAYER (sys/timer batch):
+/// `async_block_..._state_t* task1 = async_result;` — `async_result`
+/// undeclared: the async-block RESULT materialization for a BOUND io.async
+/// (`task1 := io.async(...)`) in the FSM path. Fix that, re-run timer/walker,
+/// then full battery + fixpoint before flipping for real.
 /// All io.async meanwhile lower through `generate_io_async_sync_call`
 /// (eager sync-future + blocking awaits) — the de-facto path that passes
 /// the full corpus.

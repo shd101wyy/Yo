@@ -169,6 +169,31 @@ get_closure_capture_info :: (fn(func_id : String) -> Option(ClosureCaptureInfo))
 mark_as_effect_record_member :: (fn(func_id : String) -> unit)({
   g_effect_record_member_registry.set(func_id.clone(), true);
 });
+// ---------------------------------------------------------------------------
+// isIoAsyncStateMachineClosure side-table (codegen)
+// ---------------------------------------------------------------------------
+/// Global map from `func_id` → `true` for io.async closures whose body is
+/// emitted by the STATE-MACHINE resume function (the deferred async block
+/// system) — their standalone C closure fn must NOT also be emitted, or the
+/// body exists twice and the SM resume references temps declared only in the
+/// standalone copy. Mirrors `closureFnValue.isIoAsyncStateMachineClosure`
+/// (TS function.ts:2222 set site; declarations.ts:172 / generation.ts:690
+/// skips). Populated only on the FSM path (io_async_await_analysis hit),
+/// so it stays empty — and the skips inert — while IO_ASYNC_FSM_ENABLED is
+/// false.
+(g_io_async_sm_closure_registry : HashMap(String, bool)) = HashMap(String, bool).new();
+/// Mark a closure (by func_id) as an io.async state-machine closure. Idempotent.
+mark_io_async_sm_closure :: (fn(func_id : String) -> unit)({
+  g_io_async_sm_closure_registry.set(func_id.clone(), true);
+});
+/// Returns true if `func_id` is an io.async state-machine closure.
+is_io_async_sm_closure :: (fn(func_id : String) -> bool)(
+  match(
+    g_io_async_sm_closure_registry.get(func_id.clone()),
+    .Some(_) => true,
+    .None => false
+  )
+);
 /// Returns true if the function identified by `func_id` is an effect-record member.
 is_effect_record_member :: (fn(func_id : String) -> bool)(
   match(
@@ -271,6 +296,8 @@ export(
   register_closure_capture_info,
   get_closure_capture_info,
   mark_as_effect_record_member,
+  mark_io_async_sm_closure,
+  is_io_async_sm_closure,
   is_effect_record_member,
   register_definition_site_return,
   get_definition_site_return,
