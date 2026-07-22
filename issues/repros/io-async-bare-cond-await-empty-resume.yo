@@ -1,0 +1,30 @@
+pragma(Pragma.AllowUnsafe);
+{ sleep } :: import("std/sys/timer");
+open(import("std/libc/stdio"));
+__yo_batch_env :: import("std/env");
+my_task :: (fn(io : Io) -> Impl(Future(unit, Io)))(
+  io.async(
+    (io : Io) => cond(
+      true => {
+        r := io.await(sleep(u64(5)), io);
+        unsafe(printf("r=%d\n", r));
+      },
+      true => ()
+    )
+  )
+);
+main :: (fn() -> unit)({
+  io :: __yo_builtin_io;
+  match(
+    __yo_batch_env.env.get(`YO_TEST_INDEX`),
+    .Some(__yo_test_idx) => cond(
+      (__yo_test_idx == `0`) => {
+        io.await(my_task(io), io);
+        unsafe(printf("done\n"));
+      },
+      true => ()
+    ),
+    .None => ()
+  );
+});
+export(main);
