@@ -26,6 +26,7 @@ open(import("std/string"));
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { t_unit, t_some_t } :: import("../../types/creators.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
+{ register_extern_type_name } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
@@ -244,7 +245,17 @@ User code should normally call stdlib wrappers (e.g. functions in
     (field_val : EvalValue) = match(
       result.field_type,
       .TypeUni(level) => cond(
-        (level == usize(0)) =>.TypeVal(t_some_t(result.label.clone(), usize(0))),
+        (level == usize(0)) => {
+          // A `c_include` type declaration (`pid_t : Type`) is an extern-C
+          // OPAQUE type exactly like `extern("Yo", X : Type)` — record the
+          // name so extern-aware checks see it (TS marks the SomeType with
+          // `isExtern = "c"`; yo-self's SomeT has no field, the guards.yo
+          // name registry stands in — same as extern.yo:269). Without this,
+          // `i32(unsafe(getpid()))` failed is_convertible_numeric_type's
+          // extern clause and FTT'd (the sys/signal red).
+          register_extern_type_name(result.label.clone());
+          EvalValue.TypeVal(t_some_t(result.label.clone(), usize(0)))
+        },
         true => create_unknown_val_with_name(result.field_type, result.label.clone())
       ),
       _ => create_unknown_val_with_name(field_ty_with_extern, result.label.clone())

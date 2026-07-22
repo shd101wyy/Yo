@@ -128,10 +128,17 @@ scope gate`), then run a fresh full 183-file sweep
 - Sanity repro any time: `/tmp/gcr.yo` (in git? no — recreate from the issue
   doc; needs `open(import("std/fmt"))`) must print `3 → 1 → 0` matching TS.
 
-## REMAINING #69 WORK after cycle_collector lands (39 files)
+## REMAINING #69 WORK (32 files — fresh sweep 2026-07-22, 151/183 GREEN)
 
-Red list from the fresh 183-sweep at 142/183 (`/tmp/sweep69_final/results.txt`,
-regenerate with `scratchpad/sweep69.sh`), minus regex+cycle_collector:
+Fresh full 183-sweep with the fixpoint-verified 150/183 binary
+(`/tmp/sweep69_rc3/results.txt`, runner `scratchpad/sweep69.sh`,
+env-overridable `S1=... OUT=...`): **151 GREEN** — `impl.test.yo` flipped
+beyond the committed set (bonus from the async/dup-drop commits; verify its
+count on the next commit's sweep). Red = the 29-file Gap-6 family (section A
+below; imm_vec now times out at 900s rather than erroring), fs/walker +
+sys/timer (section B), sys/signal (section C).
+
+Old baseline (142/183) for archaeology:
 
 ### A. Gap-6 spec-identity / collection core (~29 files — THE blocker)
 
@@ -166,12 +173,18 @@ spec-identity core.
 RESOLVED 2026-07-22 for fs/{dir, file, fs_convenience, metadata, temp} +
 sys/bufio (see LANDED above). Remaining:
 
-- fs/walker — now COMPILES; 5/6 behavioral failures at runtime ("walk
-  nonexistent returns error" etc.) — next-layer triage, log at
-  `/tmp/rc3_test_fs_walker.log` shape.
+- fs/walker — now COMPILES; 5/6 behavioral failures (wrong entry counts).
+  TRIAGED 2026-07-22: `walk_with` (std/fs/walker.yo:65) is an io.async
+  closure with `e.io.await(read_dir(...))` INSIDE a while loop — the same
+  multi-await-in-closure class as sys/timer. NOT a separate bug.
 - sys/timer — 1 assertion failure: awaits inside the io.async closure lower
   as BLOCKING sync-await poll loops; needs the multi-await resumable-FSM
-  lowering port (io.async closure FSM transform, codegen/async/).
+  lowering port (io.async closure FSM transform, codegen/async/). fs/walker
+  rides with this port.
+- sys/signal — FIXED 2026-07-22 (152/183): extern-C opaque types
+  (c_include `pid_t : Type`) now register in the extern-type-name registry
+  and `is_convertible_numeric_type` accepts them
+  (`issues/fixed/yo-self-sys-signal-i32-extern-cast-ftt.md`).
 
 ### C. Untriaged (1 file)
 

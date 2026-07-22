@@ -1,6 +1,13 @@
 # yo-self: `i32(<extern-C call>)` fails to transpile — sys/signal red
 
-**Status: TRIAGED 2026-07-22** (root isolated to a 9-line repro; fix pending).
+**Status: FIXED 2026-07-22** (this commit) — flips sys/signal 1/1 (#69 +1,
+152/183). Two-part fix: `is_convertible_numeric_type` gains the TS
+`isExtern === "c" && isSomeType` clause (evaluator/calls/numeric_type.yo),
+and `c_include` type declarations (`pid_t : Type`) now
+`register_extern_type_name` like `extern(...)` blocks do
+(evaluator/exprs/c_include.yo) — the registry was empty for c_include
+opaque types, so the new clause (and every other extern-aware check) never
+saw them.
 
 ## Symptom
 
