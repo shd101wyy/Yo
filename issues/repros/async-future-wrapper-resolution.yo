@@ -1,0 +1,22 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ assert } :: import("std/assert");
+{ Path } :: import("std/path");
+{ Error, AnyError, Exception, IoExn } :: import("std/error");
+fs_file :: import("std/fs/file");
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  fpath := Path.new(String.from("/tmp/yo_async_repro.txt"));
+  io.await(fs_file.write_file(fpath, String.from("hello"), io), IoExn(io : io, exn : exn));
+  bytes := io.await(fs_file.read_file(fpath, io), IoExn(io : io, exn : exn));
+  assert(bytes.len() == usize(5), "expected 5 bytes");
+  println(`ok ${bytes.len()}`);
+});
+export(main);

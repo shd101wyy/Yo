@@ -1,0 +1,13 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ assert } :: import("std/assert");
+{ List } :: import("std/imm/list");
+main :: (fn() -> unit)({
+  xs := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3));
+  assert(xs.len() == usize(3), "length should be 3");
+  assert(xs.head().unwrap() == i32(3), "head should be 3");
+  ys := xs.tail();
+  assert(ys.len() == usize(2), "tail length should be 2");
+  println(`ok ${xs.len()}`);
+});
+export(main);
