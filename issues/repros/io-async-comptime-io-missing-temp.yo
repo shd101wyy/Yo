@@ -1,0 +1,31 @@
+open(import("std/libc/stdio"));
+pragma(Pragma.AllowUnsafe);
+{ yield } :: import("std/async");
+__yo_batch_env :: import("std/env");
+main :: (fn() -> unit)({
+  io :: __yo_builtin_io;
+  match(
+    __yo_batch_env.env.get(`YO_TEST_INDEX`),
+    .Some(__yo_test_idx) => cond(
+      (__yo_test_idx == `0`) => {
+        value := Box(i32)(0);
+        task1 := io.async((io : Io) => {
+          value.* = (value.* + 1);
+          io.await(yield(io), io);
+          value.* = (value.* + 1);
+        });
+        task2 := io.async((io : Io) => {
+          value.* = (value.* + 10);
+        });
+        io.spawn(task1, io);
+        io.spawn(task2, io);
+        io.await(task1, io);
+        io.await(task2, io);
+        unsafe(printf("v=%d\n", value.*));
+      },
+      true => ()
+    ),
+    .None => ()
+  );
+});
+export(main);

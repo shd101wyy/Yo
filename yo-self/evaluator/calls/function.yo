@@ -3899,6 +3899,16 @@ Fix: wrap the call:
         out_rt.value = Option(EvalValue).Some(_call_result_unknown(ret_type_rt, env));
         out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_rt.runtime_arg_exprs_in_order);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);
+        // Same temp attachment as the method + valueless-callee arms (TS
+        // function.ts:2263 attaches for EVERY runtime call). Without it, an
+        // io.async call whose callee has a comptime-known Io value (the test
+        // runner's batch `io :: __yo_builtin_io` shape) reaches codegen with
+        // no variable_name — preregister_async_blocks_in_expr and
+        // generate_async_block then each mint a DIFFERENT random fallback
+        // name, so the FSM struct typedef the code references is never
+        // declared (sys/timer flag-on: `unknown type name
+        // 'async_block_yo_id_6035_state_t'`).
+        attach_temp_variable_to_expr(expr, true, ctx);
         return(expr);
       }
     ),

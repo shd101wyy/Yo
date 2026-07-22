@@ -131,6 +131,34 @@ extract_target_variable_id :: (
     return(Option(String).None);
   });
   var_name := tok.value;
+  // Resolve through the `:=` node's OWN recorded env FIRST: it is stamped
+  // post-binding, so it always contains the freshly-bound target (and under
+  // shadowing resolves to the NEW binding, matching TS where the LHS atom's
+  // env is stamped after the binding). yo-self's LHS atom env PREDATES the
+  // binding — it only sees the target through retroactive shared-Frame
+  // mutation, which breaks across match/cond arm frames (the sys/timer FSM
+  // `result := io.await(...)` extracted no target and the await result was
+  // never copied out of the future). Same root cause as the `:=`
+  // binding-target case in collect_variable_refs_in_expr (state_machine.yo).
+  match(
+    get_info(pe.clone()),
+    .Some(pinfo) => {
+      pvars := get_variables_from_env(pinfo.env, var_name.clone());
+      pn := pvars.len();
+      if(pn > usize(0), {
+        match(
+          pvars.get(pn - usize(1)),
+          .Some(pv) => {
+            return(Option(String).Some(pv.id.clone()));
+          },
+          .None => ()
+        );
+      });
+    },
+    .None => ()
+  );
+  // Fallback: the LHS atom's env (works when the recorded Frame is shared
+  // with the binding scope).
   match(
     get_info(var_expr.clone()),
     .None => Option(String).None,

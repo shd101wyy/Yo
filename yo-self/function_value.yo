@@ -194,6 +194,24 @@ is_io_async_sm_closure :: (fn(func_id : String) -> bool)(
     .None => false
   )
 );
+/// Global map from an io.async call EXPR id → its closure argument's func_id.
+/// The closure FuncVal lives in Option fields of the arg's ExprInfo whose reads
+/// are DESTRUCTIVE moves, and the FSM path reads it more than twice (preregister
+/// analysis probe, dispatcher routing, slot collection) — this registry, filled
+/// on the FIRST successful extraction (io_async_await_analysis), makes the later
+/// reads idempotent. TS reads `closureArg.$.closureFunctionValue` freely
+/// (non-destructive JS object reads); this is the port-fidelity bridge.
+/// Populated only on the FSM path, so it stays empty while
+/// IO_ASYNC_FSM_ENABLED is false.
+(g_io_async_closure_fid_by_expr : HashMap(String, String)) = HashMap(String, String).new();
+/// Record the io.async call expr (by AST id, stringified) → closure func_id.
+register_io_async_closure_fid :: (fn(expr_id : String, func_id : String) -> unit)({
+  g_io_async_closure_fid_by_expr.set(expr_id.clone(), func_id.clone());
+});
+/// Look up the closure func_id recorded for an io.async call expr.
+lookup_io_async_closure_fid :: (fn(expr_id : String) -> Option(String))(
+  g_io_async_closure_fid_by_expr.get(expr_id.clone())
+);
 /// Returns true if the function identified by `func_id` is an effect-record member.
 is_effect_record_member :: (fn(func_id : String) -> bool)(
   match(
@@ -298,6 +316,8 @@ export(
   mark_as_effect_record_member,
   mark_io_async_sm_closure,
   is_io_async_sm_closure,
+  register_io_async_closure_fid,
+  lookup_io_async_closure_fid,
   is_effect_record_member,
   register_definition_site_return,
   get_definition_site_return,

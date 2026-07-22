@@ -53,7 +53,7 @@ open(import("std/string"));
   is_io_spawn_call,
   get_closure_await_analysis
 } :: import("../../evaluator/async/await_analysis.yo");
-{ get_func_type, mark_io_async_sm_closure } :: import("../../function_value.yo");
+{ get_func_type, mark_io_async_sm_closure, register_io_async_closure_fid, lookup_io_async_closure_fid } :: import("../../function_value.yo");
 { ExprInfo, lookup_some_resolved_concrete, register_some_resolved_concrete, expr_info_table_set } :: import("../../expr_info.yo");
 {
   extract_future_trait_from_type,
@@ -1307,12 +1307,11 @@ _dup_expr_var_name :: (fn(dup_expr : AstExpr) -> Option(String))({
 /// field reaching the fallback emits a loud marker (it is never hit by capture-free
 /// async blocks, including the BASELINE fixture).
 _build_async_capture_struct_literal :: (
-  fn(expr : AstExpr, ei : ExprInfo, capture_type : TypeValue, capture_struct_name : String, indent : String, context : FunctionGenerationContext) -> String
+  fn(expr : AstExpr, dup_exprs : ArrayList(AstExpr), capture_type : TypeValue, capture_struct_name : String, indent : String, context : FunctionGenerationContext) -> String
 )({
   in_special_context := (match(context.current_closure_captures,.Some(_) => true,.None => false) || match(context.in_async_state_machine,.Some(_) => true,.None => false));
   struct_id := match(capture_type,.Struct({ id : sid }) => sid, _ => String.from(""));
   fields := match(get_struct_fields(struct_id),.Some(fs) => fs, _ => ArrayList(TypeField).new());
-  dup_exprs := match(ei.deferred_dup_expressions,.Some(d) => d, _ => ArrayList(AstExpr).new());
   (used_deferred_dups : bool) = false;
   parts := ArrayList(String).new();
   (i : usize) = usize(0);
@@ -1407,6 +1406,11 @@ io_async_await_analysis :: (fn(expr : AstExpr, context : FunctionGenerationConte
     .Some(f) => match(
       f,
       .FuncVal(__fvd1, _) => {
+        // The FuncVal reads above are DESTRUCTIVE moves — record the func_id
+        // under the CALL expr id so later readers (a re-entrant analysis
+        // probe, closure-param slot collection) stay idempotent after the
+        // ExprInfo fields are consumed.
+        register_io_async_closure_fid(ast_expr_id(expr).to_string(), __fvd1.*.func_id.clone());
         aa := get_closure_await_analysis(__fvd1.*.func_id);
         // FSM-routed closure: its body is emitted by the SM resume function —
         // mark it so the standalone closure emission is skipped (else the
@@ -1422,7 +1426,19 @@ io_async_await_analysis :: (fn(expr : AstExpr, context : FunctionGenerationConte
       },
       _ => Option(AwaitAnalysisResult).None
     ),
-    .None => Option(AwaitAnalysisResult).None
+    // FuncVal already consumed from the arg's ExprInfo (an earlier analysis
+    // read moved it out) — resolve through the expr→func_id registry instead.
+    .None => match(
+      lookup_io_async_closure_fid(ast_expr_id(expr).to_string()),
+      .Some(reg_fid) => {
+        aa2 := get_closure_await_analysis(reg_fid.clone());
+        if(aa2.is_some(), {
+          mark_io_async_sm_closure(reg_fid.clone());
+        });
+        aa2
+      },
+      .None => Option(AwaitAnalysisResult).None
+    )
   )
 });
 /// Generate the io.async block: registers the SM struct as the future's concrete
@@ -1431,27 +1447,30 @@ io_async_await_analysis :: (fn(expr : AstExpr, context : FunctionGenerationConte
 /// constructor call. Returns the C expression for the resulting (cold) future.
 /// Faithful port of `generateAsyncBlock` (async.ts:63).
 /// Whether the io.async STATE-MACHINE (FSM) codegen path is enabled. Still
-/// OFF — but the blocker moved DOWN a layer (2026-07-22): `generate_atom`'s
-/// SM resolution (`sm->var_<id>` / `sm->__capture.<name>` mapping + SM
-/// continue/break/early-return completion, TS atom.ts:110-460) is now fully
-/// ported (the Phase-5 panic stubs are gone), and the dispatcher passes the
-/// await analysis through (destructive-move re-read fix). With the flag
-/// flipped experimentally, yo-self + all test batches COMPILE — but the
-/// emitted machines mis-execute (sys/timer rc=139, fs/walker hangs): the
-/// remaining gaps are in the RESUME-BODY emitters. PROGRESS (round 2, same
-/// day): io_async_fsm_multi now COMPILES AND RUNS CORRECTLY (42) flag-on —
-/// fixed: SM-closure double emission (mark_io_async_sm_closure skip),
-/// cross-boundary refs missing `:=` binding TARGETS (collect_variable_refs_
-/// in_expr, state_machine.yo — the LHS atom's recorded env predates the
-/// binding), and SM-var bindings declaring locals instead of assigning
-/// `sm->` fields (init_assignment.yo). NEXT LAYER (sys/timer batch):
-/// `async_block_..._state_t* task1 = async_result;` — `async_result`
-/// undeclared: the async-block RESULT materialization for a BOUND io.async
-/// (`task1 := io.async(...)`) in the FSM path. Fix that, re-run timer/walker,
-/// then full battery + fixpoint before flipping for real.
-/// All io.async meanwhile lower through `generate_io_async_sync_call`
-/// (eager sync-future + blocking awaits) — the de-facto path that passes
-/// the full corpus.
+/// OFF. PROGRESS (round 3, 2026-07-22): flag-on, sys/timer PASSES 1/1,
+/// async_await 116/116, cycle_collector 16/16, and fs/walker matches its
+/// flag-off profile (1/6 — its 5 failures are pre-existing behavioral bugs,
+/// not FSM-specific). Fixed this round: io.async calls with a comptime-Io
+/// callee losing their temp name (attach_temp_variable_to_expr in the
+/// UnknownVal-callee arm, evaluator function.yo — the batch runner's
+/// `io :: __yo_builtin_io` shape minted mismatched random SM names);
+/// closure-param slots labeled from the DECLARED `Fn(e : E)` signature
+/// instead of the closure literal's own labels (expr→func_id registry +
+/// get_func_type, mirrors TS closureFnValue.type.parameters); the FSM
+/// constructor taking no capture because capture_type/dups live on the
+/// CLOSURE ARG's ExprInfo, never the call expr (resolved + capture-field
+/// vars re-kinded Outer, mirrors TS function.ts:2192-2218); and
+/// extract_target_variable_id resolving through the LHS atom's pre-binding
+/// env (now the `:=` node's own env first) so await results actually copy
+/// out of the future. REMAINING before the real flip: sys/bufio emits bare
+/// `_file____User_temp_N;` statements (undeclared temps, 11 errors —
+/// /tmp/fsmon_bufio_batch.c), and fs/file writes an await result to
+/// `sm->var_<id>` for a target with NO SM struct field (single-segment
+/// await target not in cross-boundary set — /tmp/fsmon_fsfile_batch.c).
+/// Fix those, full flag-on battery + fixpoint, then flip for real and
+/// DELETE this flag. All io.async meanwhile lower through
+/// `generate_io_async_sync_call` (eager sync-future + blocking awaits) —
+/// the de-facto path that passes the full corpus.
 IO_ASYNC_FSM_ENABLED :: false;
 /// Extract the io.async(closure) body for the state-machine path: the closure
 /// FuncVal's body, read from the runtime-arg's ExprInfo — `closure_function_value`
@@ -1534,6 +1553,90 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
     .Some(a) => a,
     .None => match(io_async_await_analysis(expr, context),.Some(a2) => a2,.None => __yo_panic("Missing await analysis for async block. This should have been computed during evaluation."))
   );
+  // io.async: the capture struct + its deferred dups live on the CLOSURE ARG's
+  // ExprInfo (anonymous_function.yo stamps them there); TS propagates both to
+  // the CALL expr in the evaluator (`expr.$.captureType =
+  // closureArg.$?.captureType`, function.ts:2194-2195) and clears the arg's
+  // dups so the optimizer can't collect them twice (2198-2200). yo-self never
+  // stamps the call expr, so resolve here — without this the FSM constructor
+  // takes no capture and every outer variable field reads NULL (the batch
+  // repro's rc=139 on `sm->var_<id>-><field>`).
+  (fsm_capture_type : Option(TypeValue)) = ei.capture_type;
+  (fsm_capture_dups : Option(ArrayList(AstExpr))) = ei.deferred_dup_expressions;
+  if(is_io_async, {
+    match(
+      ei.runtime_arg_exprs_in_order,
+      .Some(rargs) => match(
+        rargs.get(usize(0)),
+        .Some(carg) => match(
+          context.base.get_expr_info(carg),
+          .Some(cei) => {
+            if(fsm_capture_type.is_none(), {
+              fsm_capture_type = cei.capture_type;
+            });
+            if(fsm_capture_dups.is_none(), {
+              taken := cei.deferred_dup_expressions;
+              if(taken.is_some(), {
+                fsm_capture_dups = taken;
+                cei.deferred_dup_expressions = Option(ArrayList(AstExpr)).None;
+                expr_info_table_set(context.base.info_table, ast_expr_id(carg), cei);
+              });
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+  // Re-kind captured variables that live in the capture struct as OUTER (TS
+  // function.ts:2205-2218): they are accessed as `sm->__capture.<name>`, not
+  // materialized as `var_<id>` SM fields (which nothing would initialize).
+  (analysis_kinded : AwaitAnalysisResult) = analysis;
+  match(
+    fsm_capture_type,
+    .Some(ct) => {
+      cap_labels := match(ct,.Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
+      remapped_cvs := ArrayList(CapturedVariable).new();
+      src_kcvs := analysis_kinded.captured_variables;
+      (ki : usize) = usize(0);
+      while(ki < src_kcvs.len(), {
+        match(
+          src_kcvs.get(ki),
+          .Some(v) => {
+            (in_capture : bool) = false;
+            (li : usize) = usize(0);
+            while(li < cap_labels.len(), {
+              match(
+                cap_labels.get(li),
+                .Some(lbl) => if(lbl == v.base.name, {
+                  in_capture = true;
+                  li = cap_labels.len();
+                }),
+                .None => ()
+              );
+              li = (li + usize(1));
+            });
+            if(in_capture, {
+              remapped_cvs.push(CapturedVariable(base : v.base, kind : CapturedVariableKind.Outer, is_owning_the_same_rc_value_as : v.is_owning_the_same_rc_value_as));
+            }, {
+              remapped_cvs.push(v);
+            });
+          },
+          .None => ()
+        );
+        ki = (ki + usize(1));
+      });
+      analysis_kinded = AwaitAnalysisResult(
+        await_points : analysis_kinded.await_points,
+        captured_variables : remapped_cvs,
+        has_awaits : analysis_kinded.has_awaits,
+        variable_id_remapping : analysis_kinded.variable_id_remapping
+      );
+    },
+    .None => ()
+  );
   // Result type (T in Future(T)); resolve an unresolved SomeType output.
   (result_type : TypeValue) = match(future_trait_type,.FutureTraitT({ output : o }) => o.clone(), _ => future_type);
   // Per-closure composite key for some-resolved-concrete: append the unique
@@ -1588,7 +1691,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
   em.emit_declaration_string_line(`void ${set_effect_function_name.clone()}(void* ptr, const char* field, void* value);`);
   em.emit_declaration_line("");
   match(
-    ei.capture_type,
+    fsm_capture_type,
     .Some(cap_ty) => {
       capture_struct_name := _find_capture_type_c_name(cap_ty, context);
       em.emit_declaration_string_line(`${struct_name.clone()}* ${constructor_name.clone()}(${capture_struct_name} __capture);`);
@@ -1597,35 +1700,33 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
   );
   em.emit_declaration_line("");
   // Collect closure parameter slots (io.async closures take a bundle param; the
-  // value flows in at io.await time via set_effect). yo-self's Func.param_types
-  // already excludes compile-time-only params, so the TS isCompileTimeOnly skip is
-  // a no-op here.
+  // value flows in at io.await time via set_effect). Sourced from the closure
+  // FuncVal's OWN type (via the expr→func_id registry + get_func_type), like TS
+  // `closureFnValue.type.parameters` (async.ts:211-223) — NOT from the arg
+  // ExprInfo's type: that is the DECLARED `Fn(e : E) -> T` signature from the
+  // Io record, whose label "e" breaks atom.yo's name-based slot resolution when
+  // the closure literal names the param differently (`(io : Io) => ...` emitted
+  // a bare `io` in the resume — the sys/timer "undeclared identifier 'io'"
+  // class). yo-self's Func.param_types already excludes compile-time-only
+  // params, so the TS isCompileTimeOnly skip is a no-op here.
   closure_param_slots := ArrayList(ClosureParamSlot).new();
   if(is_io_async, {
     match(
-      ei.runtime_arg_exprs_in_order,
-      .Some(rargs) => match(
-        rargs.get(usize(0)),
-        .Some(carg) => match(
-          context.base.get_expr_info(carg),
-          .Some(cei) => match(
-            cei.ty,
-            .Func({ param_types : pts, meta : __fm1 }) => {
-              pls := __fm1.*.param_labels;
-              (i : usize) = usize(0);
-              while(i < pts.len(), {
-                pt := match(pts.get(i),.Some(t) => t,.None => TypeValue.Unit);
-                ctype := get_type_string(pt, context.base);
-                pname := match(pls.get(i),.Some(l) => if(l.len() > usize(0), l, `param_${i.to_string()}`),.None => `param_${i.to_string()}`);
-                closure_param_slots.push(ClosureParamSlot(field_name : `__yo_param_${i.to_string()}`, c_type : ctype, param_name : pname, param_type : pt));
-                i = (i + usize(1));
-              });
-            },
-            _ => ()
-          ),
-          .None => ()
-        ),
-        .None => ()
+      lookup_io_async_closure_fid(ast_expr_id(expr).to_string()),
+      .Some(closure_fid) => match(
+        get_func_type(closure_fid.clone()),
+        .Func({ param_types : pts, meta : __fm1 }) => {
+          pls := __fm1.*.param_labels;
+          (i : usize) = usize(0);
+          while(i < pts.len(), {
+            pt := match(pts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            ctype := get_type_string(pt, context.base);
+            pname := match(pls.get(i),.Some(l) => if(l.len() > usize(0), l, `param_${i.to_string()}`),.None => `param_${i.to_string()}`);
+            closure_param_slots.push(ClosureParamSlot(field_name : `__yo_param_${i.to_string()}`, c_type : ctype, param_name : pname, param_type : pt));
+            i = (i + usize(1));
+          });
+        },
+        _ => ()
       ),
       .None => ()
     );
@@ -1644,8 +1745,8 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
     future_trait_type : future_trait_type,
     result_type : result_type,
     result_type_c_name : result_type_c_name.clone(),
-    capture_type : ei.capture_type,
-    analysis : analysis,
+    capture_type : fsm_capture_type,
+    analysis : analysis_kinded,
     closure_param_slots : closure_param_slots_opt
   );
   match(
@@ -1662,10 +1763,11 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
   // Emit the constructor call (lazy: the future stays cold until await/spawn).
   result_var := match(ei.variable_name,.Some(n) => n,.None => String.from("async_result"));
   constructor_call := match(
-    ei.capture_type,
+    fsm_capture_type,
     .Some(cap_ty) => {
       capture_struct_name := _find_capture_type_c_name(cap_ty, context);
-      literal := _build_async_capture_struct_literal(expr, ei, cap_ty, capture_struct_name, indent.clone(), context);
+      literal_dups := match(fsm_capture_dups,.Some(d) => d,.None => ArrayList(AstExpr).new());
+      literal := _build_async_capture_struct_literal(expr, literal_dups, cap_ty, capture_struct_name, indent.clone(), context);
       `${constructor_name.clone()}(${literal})`
     },
     .None => `${constructor_name.clone()}()`
