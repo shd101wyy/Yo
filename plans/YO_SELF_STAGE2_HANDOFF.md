@@ -177,25 +177,30 @@ sys/bufio (see LANDED above). Remaining:
   TRIAGED 2026-07-22: `walk_with` (std/fs/walker.yo:65) is an io.async
   closure with `e.io.await(read_dir(...))` INSIDE a while loop — the same
   multi-await-in-closure class as sys/timer. NOT a separate bug.
-- sys/timer — 1 assertion failure: awaits inside the io.async closure lower
-  as BLOCKING sync-await poll loops; needs the multi-await resumable-FSM
-  lowering port (io.async closure FSM transform, codegen/async/). fs/walker
-  rides with this port. GROUNDWORK LANDED 2026-07-22 (gated, flag still
-  off): atom.yo's 4 SM panic stubs are fully ported (atom.ts:110-460 — SM
-  variable resolution incl. SSA remap/aliases/closure-param coordination,
-  SM continue/break, early-return future completion; all needed
-  FunctionGenerationContext fields already existed), the dispatcher passes
-  the await analysis through generate_async_block (destructive-move re-read
-  panic fixed), and two `\n`-vs-`\\n` escape bugs in the resume emitter's
-  ASYNC_DEBUG lines are fixed. FLAG-ON TRIAL RESULT: everything COMPILES
-  (the old SIGABRT class is gone) but the machines mis-execute — sys/timer
-  rc=139, fs/walker hangs. NEXT: emit `tests/codegen-bootstrap/
-io_async_fsm_multi.yo` with a flag-on build, diff its resume C against
-  TS's (`./yo-cli compile … --emit-c`), fix state_code_gen.yo /
-  state_machine.yo divergences, re-flip. When the FSM path passes the full
-  battery + fixpoint, DELETE `IO_ASYNC_FSM_ENABLED` entirely — TS has no
-  such flag (the sync-future lowering is only for closures WITHOUT await
-  analysis), so the end state is the unconditional TS routing.
+- sys/timer — FSM PORT ROUNDS 2-4 LANDED (commits 7c8b85fab, 7415e7d2c,
+  6d4a22047 — 2026-07-22/23, flag still off, every round full-gated incl.
+  STRICT_FIXPOINT). Flag-on status after round 4: **sys/timer PASSES 1/1,
+  async_await 116/116, cycle_collector 16/16, zero C-compile errors across
+  the battery**; fs/file 2/13 + sys/bufio 3/22 fail BEHAVIORALLY only, and
+  fs/walker matches its flag-off profile (its 5 failures are a separate
+  pre-existing walk-exn behavioral bug, NOT FSM-specific). The complete
+  gap ledger (9 fixes across the rounds: temp-attach for comptime-Io
+  callees, closure-fid registry + slot labels, capture propagation + outer
+  re-kind, := target extraction, SM return-completion stubs, result-type
+  future-guard, segment-count name-unification, suspension := capture,
+  bare-temp statement skips) lives in
+  `issues/yo-self-io-async-missing-temp-comptime-io-callee.md` — READ IT
+  FIRST. REMAINING before the flip: the PHASE3_CAPTURE_PENDING hole —
+  std-internal io.async captures (read_file's `.path`/`.io`) emit `0`
+  because yo-self capture-struct fields carry no per-field capture exprs
+  (TS async.ts:330-335 generates the recorded atom). Round-5 attempt #1
+  (by-name call-site read + whole-struct dup) SIGBUS'd the flag-on batch
+  compiles (rc=138, likely dup-generator recursion through effect-record
+  capture types) and was REVERTED — see the ledger's Round-5 section for
+  the two attempt-#2 directions (dup-cycle guard vs is_effect_param
+  marking for io-typed capture fields). When the FSM path passes the full
+  flag-on battery + fixpoint, DELETE `IO_ASYNC_FSM_ENABLED` entirely — TS
+  has no such flag, so the end state is the unconditional TS routing.
 - sys/signal — FIXED 2026-07-22 (152/183): extern-C opaque types
   (c_include `pid_t : Type`) now register in the extern-type-name registry
   and `is_convertible_numeric_type` accepts them
