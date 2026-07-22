@@ -188,3 +188,24 @@ io records into std-internal SMs).
 - fs/walker's 5 failures reproduce identically flag-off — a separate
   pre-existing behavioral bug (`unexpected exception` from the walk exn
   wiring), tracked as its own campaign item.
+
+## Round 5 attempt #1 (REVERTED — do not re-apply as-is)
+
+Replacing the `PHASE3_CAPTURE_PENDING 0` fallback in
+`_build_async_capture_struct_literal` with a by-name call-site variable read
+(`.path = path, .io = io` — the TS async.ts:330-335 equivalent, whole-struct
+dup for RC balance) made the fs/file and sys/bufio BATCH COMPILES crash with
+rc=138 (SIGBUS — consistent with unbounded recursion / stack overflow inside
+the flag-on compiler, plausibly `get_dup_function_for_type` recursing through
+a capture struct that contains an Io/effect record whose type graph reaches
+back into the SM struct). The diff was reverted to keep the tree at the gated
+round-4 state. Next attempt needs:
+
+1. a repro of the dup-generation recursion in isolation
+   (compile `tests/fs/.yo_selftest_batch_1.yo` flag-on — rc=138 within ~2 min,
+   vs the pre-fallback attE binary which compiled it fine), and
+2. either a cycle guard in the dup-function generator or skipping the dup wrap
+   for effect-record-typed fields (TS marks them `isEffectParam` → `.field =
+NULL` and injects at set_effect time — check whether read_file's `io`
+   capture field SHOULD have been is_effect_param=true in yo-self's capture
+   builder; that would sidestep the dup entirely and match the sync path).
