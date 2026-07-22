@@ -180,7 +180,15 @@ sys/bufio (see LANDED above). Remaining:
 - sys/timer — 1 assertion failure: awaits inside the io.async closure lower
   as BLOCKING sync-await poll loops; needs the multi-await resumable-FSM
   lowering port (io.async closure FSM transform, codegen/async/). fs/walker
-  rides with this port.
+  rides with this port. SCOPED 2026-07-22: the machinery exists behind
+  `IO_ASYNC_FSM_ENABLED :: false` (codegen/exprs/async.yo:1426 — read its
+  comment); the named blocker is atom.yo's 4 SM panic stubs mirroring TS
+  atom.ts:258-460 (SM variable resolution: env-ID lookup + SSA
+  `variableIdRemapping` + `stateMachineFieldAliases` + closure-param
+  coordination + `sm->var_<id>` / `sm->__capture.<name>` fallbacks — the
+  two remapping tables likely need adding to FunctionGenerationContext
+  first). Flipping the flag routes ALL io.async through the FSM path, so
+  expect two-directional flips: full battery + fresh sweep mandatory.
 - sys/signal — FIXED 2026-07-22 (152/183): extern-C opaque types
   (c_include `pid_t : Type`) now register in the extern-type-name registry
   and `is_convertible_numeric_type` accepts them
