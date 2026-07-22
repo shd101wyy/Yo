@@ -148,13 +148,17 @@ sync/{atomic, channel, mutex, once, rwlock, waitgroup}, thread, worker.
 (The timeouts — btree_map/priority_queue/imm_sorted*\*/imm_threading — are the
 same family: exponential re-eval through spec dispatch.)
 
-State: attempts #1–#6 preserved on branch `wip/resolution-time-spec`; the
-last near-miss (eval-side empty-cfid recovery, batch FTT 36→1) was reverted
-because it exposed a CODEGEN layer (type collection + C-identity for
-recursive-generic specs) — see memory + `issues/yo-self-sortedset-method-call-type-void.md`
-for the salvage plan. This is a dedicated multi-session architectural arc:
-budget accordingly, gate with `s2 check std/env.yo` before any sweep, and
-expect the dispose family (`sync/*`, ordered_map) to land only after the
+State: attempts #1–#6 preserved on branch `wip/resolution-time-spec`.
+**Attempt #7 (2026-07-22, REVERTED): ctor-memo reconciliation at signature
+re-resolution — got the 12-line imm_list flagship repro FULLY GREEN but
+broke the dyn corpus (box/typeid identity correlation) and surfaced a
+multi-canonical memo anomaly. Full mechanism map + attempt-#8 directions
+(receiver-instance Self via ctx.self_type; memo comparator dedup; the
+slice-2b cache-gate divergence) in
+`issues/yo-self-gap6-ctor-memo-reconciliation-attempt7.md` — read it FIRST.**
+This is a dedicated multi-session architectural arc: budget accordingly,
+gate with the dyn corpus canaries + `s2 check std/env.yo` before any sweep,
+and expect the dispose family (`sync/*`, ordered_map) to land only after the
 spec-identity core.
 
 ### B. async-future family (2 files left of 8)
