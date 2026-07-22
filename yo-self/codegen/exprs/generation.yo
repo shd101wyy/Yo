@@ -482,15 +482,18 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
     // state machine (its SM struct would be forward-declared but never
     // defined → stage-2 incomplete-type cascade). Route those to the
     // sync-future path, which emits valid blocking awaits.
-    if(IO_ASYNC_FSM_ENABLED && io_async_await_analysis(expr, context).is_some(), {
-      // Extract the closure body ONCE (Option(EvalValue) field reads are
-      // destructive moves — a second read inside generate_async_block would
-      // find the value consumed) and pass it through; when it is not
-      // extractable, fall through to the sync path rather than emitting a
-      // broken FSM body whose SM struct is never defined.
-      io_async_body := io_async_closure_body(expr, context);
-      if(io_async_body.is_some(), {
-        return(generate_async_block(expr, io_async_body, indent.clone(), context));
+    if(IO_ASYNC_FSM_ENABLED, {
+      // Read the analysis AND the closure body ONCE (Option(EvalValue) field
+      // reads are destructive moves — a re-read inside generate_async_block
+      // would find the value consumed) and pass both through; when either is
+      // missing, fall through to the sync path rather than emitting a broken
+      // FSM body whose SM struct is never defined.
+      io_async_analysis := io_async_await_analysis(expr, context);
+      if(io_async_analysis.is_some(), {
+        io_async_body := io_async_closure_body(expr, context);
+        if(io_async_body.is_some(), {
+          return(generate_async_block(expr, io_async_body, io_async_analysis, indent.clone(), context));
+        });
       });
     });
     return(generate_io_async_sync_call(expr, indent.clone(), context));

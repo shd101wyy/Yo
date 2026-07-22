@@ -2415,7 +2415,7 @@ generate_async_block_resume_function :: (
   );
   em.emit_string_line(`// Resume function for async block ${async_block_id}`);
   em.emit_string_line(`void ${resume_function_name}(${struct_name}* sm) {`);
-  em.emit_string_line(`  ASYNC_DEBUG("${async_block_id}_resume: state=%d\n", sm->state);`);
+  em.emit_string_line(`  ASYNC_DEBUG("${async_block_id}_resume: state=%d\\n", sm->state);`);
   em.emit_string_line(`  int __yo_inline_budget = 32;  // bounded inline fast-path for sync-completed awaits`);
   em.emit_string_line(`  switch (sm->state) {`);
   local_var_drop_codes := ArrayList(String).new();
@@ -2431,7 +2431,7 @@ generate_async_block_resume_function :: (
     state_${sn_s}:`
         );
         em.emit_string_line(`    case ${sn_s}: { // State ${sn_s}`);
-        em.emit_string_line(`      ASYNC_DEBUG("${async_block_id}: Entering state ${sn_s}\n");`);
+        em.emit_string_line(`      ASYNC_DEBUG("${async_block_id}: Entering state ${sn_s}\\n");`);
         if(segment.state_number > usize(0), {
           match(
             analysis.await_points.get(segment.state_number - usize(1)),

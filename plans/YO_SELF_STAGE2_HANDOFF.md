@@ -180,15 +180,22 @@ sys/bufio (see LANDED above). Remaining:
 - sys/timer — 1 assertion failure: awaits inside the io.async closure lower
   as BLOCKING sync-await poll loops; needs the multi-await resumable-FSM
   lowering port (io.async closure FSM transform, codegen/async/). fs/walker
-  rides with this port. SCOPED 2026-07-22: the machinery exists behind
-  `IO_ASYNC_FSM_ENABLED :: false` (codegen/exprs/async.yo:1426 — read its
-  comment); the named blocker is atom.yo's 4 SM panic stubs mirroring TS
-  atom.ts:258-460 (SM variable resolution: env-ID lookup + SSA
-  `variableIdRemapping` + `stateMachineFieldAliases` + closure-param
-  coordination + `sm->var_<id>` / `sm->__capture.<name>` fallbacks — the
-  two remapping tables likely need adding to FunctionGenerationContext
-  first). Flipping the flag routes ALL io.async through the FSM path, so
-  expect two-directional flips: full battery + fresh sweep mandatory.
+  rides with this port. GROUNDWORK LANDED 2026-07-22 (gated, flag still
+  off): atom.yo's 4 SM panic stubs are fully ported (atom.ts:110-460 — SM
+  variable resolution incl. SSA remap/aliases/closure-param coordination,
+  SM continue/break, early-return future completion; all needed
+  FunctionGenerationContext fields already existed), the dispatcher passes
+  the await analysis through generate_async_block (destructive-move re-read
+  panic fixed), and two `\n`-vs-`\\n` escape bugs in the resume emitter's
+  ASYNC_DEBUG lines are fixed. FLAG-ON TRIAL RESULT: everything COMPILES
+  (the old SIGABRT class is gone) but the machines mis-execute — sys/timer
+  rc=139, fs/walker hangs. NEXT: emit `tests/codegen-bootstrap/
+io_async_fsm_multi.yo` with a flag-on build, diff its resume C against
+  TS's (`./yo-cli compile … --emit-c`), fix state_code_gen.yo /
+  state_machine.yo divergences, re-flip. When the FSM path passes the full
+  battery + fixpoint, DELETE `IO_ASYNC_FSM_ENABLED` entirely — TS has no
+  such flag (the sync-future lowering is only for closures WITHOUT await
+  analysis), so the end state is the unconditional TS routing.
 - sys/signal — FIXED 2026-07-22 (152/183): extern-C opaque types
   (c_include `pid_t : Type`) now register in the extern-type-name registry
   and `is_convertible_numeric_type` accepts them

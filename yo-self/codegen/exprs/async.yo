@@ -1413,16 +1413,21 @@ io_async_await_analysis :: (fn(expr : AstExpr, context : FunctionGenerationConte
 /// /constructor/dispose emitted after all regular functions), and emits the cold
 /// constructor call. Returns the C expression for the resulting (cold) future.
 /// Faithful port of `generateAsyncBlock` (async.ts:63).
-/// Whether the io.async STATE-MACHINE (FSM) codegen path is enabled. Currently
-/// OFF: the FSM resume-body emission is incomplete — `generate_atom`'s
-/// state-machine variable resolution (atom.yo, the `sm->var_<id>` /
-/// `sm->__capture.<name>` mapping ported from TS atom.ts:258-460) is a Phase-5
-/// panic stub, so any io.async routed to `generate_async_block` ABORTS the
-/// compile (SIGABRT) as soon as its resume body references a variable. All
-/// io.async lower through `generate_io_async_sync_call` (eager sync-future +
-/// blocking awaits) — the de-facto path that passes the full corpus incl. the
-/// io_async_fsm_* tests. Flip to true once the atom.yo SM-variable resolution
-/// is ported.
+/// Whether the io.async STATE-MACHINE (FSM) codegen path is enabled. Still
+/// OFF — but the blocker moved DOWN a layer (2026-07-22): `generate_atom`'s
+/// SM resolution (`sm->var_<id>` / `sm->__capture.<name>` mapping + SM
+/// continue/break/early-return completion, TS atom.ts:110-460) is now fully
+/// ported (the Phase-5 panic stubs are gone), and the dispatcher passes the
+/// await analysis through (destructive-move re-read fix). With the flag
+/// flipped experimentally, yo-self + all test batches COMPILE — but the
+/// emitted machines mis-execute (sys/timer rc=139, fs/walker hangs): the
+/// remaining gaps are in the RESUME-BODY emitters (state_code_gen.yo /
+/// state_machine.yo — never exercised until now). Next session: diff one
+/// small FSM batch's emitted C against TS's (io_async_fsm_multi corpus file
+/// is the smallest two-await case), fix the resume emission, re-flip.
+/// All io.async meanwhile lower through `generate_io_async_sync_call`
+/// (eager sync-future + blocking awaits) — the de-facto path that passes
+/// the full corpus.
 IO_ASYNC_FSM_ENABLED :: false;
 /// Extract the io.async(closure) body for the state-machine path: the closure
 /// FuncVal's body, read from the runtime-arg's ExprInfo — `closure_function_value`
@@ -1458,7 +1463,7 @@ io_async_closure_body :: (fn(expr : AstExpr, context : FunctionGenerationContext
     .None => Option(AstExpr).None
   )
 });
-generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), indent : String, context : FunctionGenerationContext) -> String)({
+generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), analysis_in : Option(AwaitAnalysisResult), indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("/* Error: async block missing ExprInfo */")));
   // The io.async closure body is extracted ONCE by the dispatcher (via
   // io_async_closure_body) and passed in — reading `cei.value` is a DESTRUCTIVE
@@ -1496,8 +1501,15 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ind
   // Keyed by type_key(future_type) so get_type_c_name resolves it (yo-self keys the
   // type registry by type_key; TS keyed by the SomeType's unique id).
   context.base.register_type(type_key(future_type), future_type, `${struct_name.clone()}*`, Option(String).None);
-  // Await analysis computed during evaluation.
-  analysis := match(io_async_await_analysis(expr, context),.Some(a) => a,.None => __yo_panic("Missing await analysis for async block. This should have been computed during evaluation."));
+  // Await analysis computed during evaluation. Passed in by the dispatcher
+  // (which already read it for its routing gate) — the closure-value reads
+  // inside io_async_await_analysis are DESTRUCTIVE moves, so a re-read here
+  // would find the value consumed and spuriously panic.
+  analysis := match(
+    analysis_in,
+    .Some(a) => a,
+    .None => match(io_async_await_analysis(expr, context),.Some(a2) => a2,.None => __yo_panic("Missing await analysis for async block. This should have been computed during evaluation."))
+  );
   // Result type (T in Future(T)); resolve an unresolved SomeType output.
   (result_type : TypeValue) = match(future_trait_type,.FutureTraitT({ output : o }) => o.clone(), _ => future_type);
   // Per-closure composite key for some-resolved-concrete: append the unique
