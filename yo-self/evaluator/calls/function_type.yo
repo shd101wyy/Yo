@@ -27,12 +27,15 @@ open(import("std/string"));
 {
   ExprInfo,
   new_expr_info,
-  expr_info_table_set
+  expr_info_table_set,
+  expr_info_table_get,
+  register_some_resolved_concrete,
+  lookup_some_resolved_concrete
 } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, add_parameter_to_env, synthetic_token, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr } :: import("../../types/creators.yo");
-{ is_type_0 } :: import("../../types/guards.yo");
+{ is_type_0, is_some_type } :: import("../../types/guards.yo");
 { EvalValue, FuncValData, create_unknown_val, create_type_value } :: import("../../value.yo");
 { type_contains_some_type_for_codegen_param } :: import("../trait_checking.yo");
 {
@@ -704,6 +707,58 @@ try_to_implement_function_by_function_type :: (
               );
             });
           });
+          // Port of function-type.ts:613-631: when the declared return type
+          // is a SomeType (Impl(...)) without a resolved concrete type and
+          // the def-time-evaluated body has a concrete type, stamp the
+          // return SomeT's resolution — the lineage cell (TS mutates the
+          // declaration's type object here; the cell is that object's
+          // value-semantics surrogate) plus the id-keyed eval→codegen
+          // bridge. For a body that is itself a resolved SomeT (delegation
+          // wrappers, e.g. write_file_cstr → write_file, both returning
+          // Impl(Future(...))), propagate its resolution instead.
+          match(
+            result_box,
+            .SomeT({ id : dts_rid, resolved_concrete : dts_rcell }) => if(
+              (dts_rcell.len() == usize(0)) && lookup_some_resolved_concrete(dts_rid).is_none(),
+              match(
+                flow_out.get(usize(0)),
+                .Some(dts_body) => match(
+                  expr_info_table_get(ctx.expr_info_table, ast_expr_id(dts_body)),
+                  .Some(dts_binfo) => {
+                    dts_bty := dts_binfo.ty;
+                    if(!(is_some_type(dts_bty)), {
+                      dts_rcell.push(dts_bty.clone());
+                      register_some_resolved_concrete(dts_rid.clone(), dts_bty);
+                    }, {
+                      match(
+                        dts_bty,
+                        .SomeT({ id : dts_bid, resolved_concrete : dts_bcell }) => {
+                          dts_prop := match(
+                            dts_bcell.get(usize(0)),
+                            .Some(x) => Option(TypeValue).Some(x),
+                            .None => lookup_some_resolved_concrete(dts_bid)
+                          );
+                          match(
+                            dts_prop,
+                            .Some(dts_p) => {
+                              dts_rcell.push(dts_p.clone());
+                              register_some_resolved_concrete(dts_rid.clone(), dts_p);
+                            },
+                            .None => ()
+                          );
+                        },
+                        _ => ()
+                      );
+                    });
+                  },
+                  .None => ()
+                ),
+                .None => ()
+              ),
+              ()
+            ),
+            _ => ()
+          );
         },
         .None => ()
       );

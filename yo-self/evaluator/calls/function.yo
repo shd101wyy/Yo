@@ -883,6 +883,35 @@ _freshen_io_async_result :: (fn(t : TypeValue) -> TypeValue)(
     _ => t
   )
 );
+/// Rebuild a SomeT with the SAME identity but a FRESH resolution cell seeded
+/// with `concrete` — the value-semantics mirror of TS's per-call clone
+/// `{ ...returnType, resolvedConcreteType: concreteType }` (function.ts:2095).
+/// The caller's stamped result type carries the resolution WITHOUT mutating
+/// the declaration's shared lineage cell (per-call isolation — see the HAZARD
+/// note on `resolved_concrete` in types/definitions.yo).
+_with_resolved_concrete :: (fn(t : TypeValue, concrete : TypeValue) -> TypeValue)(
+  match(
+    t,
+    .SomeT({ id : wrc_id, name : wrc_nm, frame_level : wrc_fl, parent_type : wrc_pt, required_trait_types : wrc_rtt, required_trait_levels : wrc_rtl, negative_trait_types : wrc_ntt, negative_trait_levels : wrc_ntl, is_effects_row : wrc_ier, kind_function_type : wrc_kft }) => {
+      seeded := ArrayList(TypeValue).new();
+      seeded.push(concrete);
+      TypeValue.SomeT(
+        wrc_id.clone(),
+        wrc_nm.clone(),
+        wrc_fl,
+        wrc_pt.clone(),
+        wrc_rtt.clone(),
+        wrc_rtl.clone(),
+        wrc_ntt.clone(),
+        wrc_ntl.clone(),
+        wrc_ier,
+        wrc_kft.clone(),
+        seeded
+      )
+    },
+    _ => t
+  )
+);
 /// Per-call whole-callee freshening for io.async (TS specializeFunctionType
 /// parity): rebuild each FORALL SomeT (`T`, `E`) with a fresh id + FRESH
 /// resolution cell and substitute it CONSISTENTLY through the callee's param
@@ -1289,6 +1318,48 @@ _evaluate_funcval_runtime_call :: (
   // inline FuncVal arm is yo-self's second call path and needs
   // the same resolution.
   resolved_ret = evaluate_function_return_type_again(resolved_ret, fresh_env, ctx);
+  // For functions returning a plain Impl(...) (SomeType), stamp the call
+  // result's resolved-concrete from the callee BODY's def-time-evaluated
+  // type — faithful port of function.ts:2080-2100 (`finalReturnType =
+  // { ...returnType, resolvedConcreteType: concreteType }`). This is the
+  // bridge that lets a caller's await/dispatch site see through the
+  // returned wrapper to the callee's async block: the SM struct is
+  // registered under the async-block future's identity, which only the
+  // body's stamped ExprInfo carries (the async-future family root,
+  // issues/yo-self-async-emission-cluster.md 2026-07-20 convergence).
+  // One SomeT-with-resolution level of the body type is unwrapped first,
+  // exactly as TS does for async delegation wrappers.
+  if(is_some_type(resolved_ret), {
+    match(
+      cv,
+      .FuncVal(rc_fvd, _) => match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(rc_fvd.*.body)),
+        .Some(rc_binfo) => {
+          (rc_conc : TypeValue) = rc_binfo.ty;
+          match(
+            rc_conc,
+            .SomeT({ id : rc_bid, resolved_concrete : rc_bcell }) => match(
+              rc_bcell.get(usize(0)),
+              .Some(rc_inner) => {
+                rc_conc = rc_inner;
+              },
+              .None => match(
+                lookup_some_resolved_concrete(rc_bid),
+                .Some(rc_g) => {
+                  rc_conc = rc_g;
+                },
+                .None => ()
+              )
+            ),
+            _ => ()
+          );
+          resolved_ret = _with_resolved_concrete(resolved_ret, rc_conc);
+        },
+        .None => ()
+      ),
+      _ => ()
+    );
+  });
   out_rt := new_expr_info(env, resolved_ret);
   out_rt.value = Option(EvalValue).Some(_call_result_unknown(resolved_ret, env));
   // Runtime arg exprs for codegen (this is the runtime-call / no-CTFE

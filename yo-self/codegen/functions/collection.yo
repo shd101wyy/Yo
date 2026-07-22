@@ -193,17 +193,32 @@ expr_contains_unknown_value :: (fn(expr : AstExpr, info : ExprInfoTable) -> bool
 /// Recursively collect function values from a struct namespace (and nested
 /// records), marking them effect-record members so they compile standalone.
 /// Mirrors `collectEffectRecordMembers`.
+///
+/// MODULE-NAMESPACE records are excluded from the fn-field marking: in TS the
+/// module record's fn fields are the SAME FunctionValue objects the regular
+/// collection already registered, so the `!context.functions[funcId]` guard
+/// makes the walk a no-op for them — module fns are NEVER effect-record
+/// members in TS. yo-self re-evaluation mints per-reference FuncVal
+/// GENERATIONS with fresh func_ids, so the id-keyed guard misses and every
+/// module fn referenced through a `mod.member(...)` receiver atom was wrongly
+/// marked (its body then stripped at declaration time → generic
+/// `__yo_io_future_t*` prototype vs concrete SM-struct definition: the fs/*
+/// "conflicting types" class). Skip fn fields of `source_namespace_*` records
+/// (import.yo:230 names every module namespace that way) but STILL recurse
+/// into nested StructVal fields — a module-level effect-handler record
+/// (`h :: Exception(throw : ...)`) must keep getting marked.
 collect_effect_record_members :: (fn(mv : EvalValue, context : CodeGenContext, info : ExprInfoTable) -> unit)(
   match(
     mv,
-    .StructVal(_, _, field_values) => {
+    .StructVal(cerm_ty_name, _, field_values) => {
+      is_module_namespace := cerm_ty_name.clone().starts_with(String.from("source_namespace_"));
       n := field_values.len();
       (i : usize) = usize(0);
       while(i < n, {
         match(
           field_values.get(i),
           .Some(fv) => cond(
-            is_func_val(fv) => {
+            (is_func_val(fv) && !(is_module_namespace)) => {
               func_id := match(fv,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
               if(!(context.has_function(func_id.clone())), {
                 mark_as_effect_record_member(func_id.clone());
@@ -548,6 +563,51 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
             );
             mmi = (mmi + usize(1));
           });
+        });
+        // Module-namespace member call `mod.fn(args)`: yo-self's dot-access
+        // callee node has no ExprInfo (TS registers the callee from the
+        // property-access node's `$.value` at this point in the walk), so a
+        // module-member callee stays unregistered here — and when the walk
+        // then descends into the RECEIVER atom, collect_effect_record_members
+        // sees the module's StructVal and wrongly marks the member an
+        // effect-record member (its body is then stripped at declaration
+        // time → generic `__yo_io_future_t*` prototype vs concrete SM-struct
+        // definition: the fs/* "conflicting types" class). Resolve the member
+        // FuncVal from the receiver's module StructVal by label and register
+        // it as a REGULAR function first, restoring TS's registration order.
+        if(cmname.len() > usize(0), {
+          recv_mod_val := match(cdot_args.get(usize(0)),.Some(r) => match(expr_info_table_get(info, ast_expr_id(r)),.Some(ri) => ri.value,.None => Option(EvalValue).None),.None => Option(EvalValue).None);
+          match(
+            recv_mod_val,
+            .Some(rmv) => match(
+              rmv,
+              .StructVal(_, rm_names, rm_vals) => {
+                n_rm := rm_names.len();
+                (rmi : usize) = usize(0);
+                while(rmi < n_rm, {
+                  rm_hit := match(rm_names.get(rmi),.Some(nm) => (nm == cmname),.None => false);
+                  if(rm_hit, {
+                    match(
+                      rm_vals.get(rmi),
+                      .Some(rmv2) => if(is_func_val(rmv2) && !(_is_generic_unspecialized_func(rmv2)), {
+                        rm_fid := _func_val_id(rmv2);
+                        if((!(context.has_function(rm_fid.clone()))) && !(is_control_fn(rm_fid.clone())), {
+                          context.register_function(rm_fid.clone(), rmv2, sanitize_for_c_identifier(rm_fid.clone(), false));
+                          recur(_func_val_body(rmv2), context, info);
+                        });
+                      }),
+                      .None => ()
+                    );
+                    rmi = n_rm;
+                  }, {
+                    rmi = (rmi + usize(1));
+                  });
+                });
+              },
+              _ => ()
+            ),
+            .None => ()
+          );
         });
       });
       // Generic-impl fallback + REWRITTEN value-calls (`v(range)` → slice_copy):

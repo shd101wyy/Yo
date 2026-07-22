@@ -7,11 +7,12 @@ bugs._
 ## Where things stand
 
 - **#70 (`s2 test ./yo-self/tests`): DONE — 61/61.**
-- **#69 (`s2 test ./tests`): 143/183 committed** at HEAD `6fd6b5d53`.
-  Session flips 2026-07-21/22 (all fully gated): http 9/9, ref_field_borrow
-  11/11, recursive_enum 4/4, encoding/json 35/35, dyn 8/8, regex 140/140.
-- **144th flip (cycle_collector 16/16) is SITTING UNCOMMITTED in the working
-  tree — finish it first. See "IN-FLIGHT WORK" below.**
+- **#69 (`s2 test ./tests`): 150/183 committed.** 2026-07-22 flips (all
+  fully gated incl. STRICT_FIXPOINT): cycle_collector 16/16
+  (OPTIMIZE_DUP_AND_DROP_PAIRS port, `eeb6e00b9`), then the async-future
+  six — fs/file 13, fs/dir 12, fs/metadata 6, fs/temp 7, fs_convenience 9,
+  sys/bufio 22 (wrapper-resolution chain,
+  `issues/yo-self-async-future-wrapper-resolution.md`).
 - Goal (session `/goal`): make all #69 tests pass; fix bugs/issues along the
   way.
 
@@ -25,7 +26,27 @@ bugs._
 - A test file "matches" when `<bin> test <file>` rc==0 with the same pass
   count as `./yo-cli test <file>`.
 
-## IN-FLIGHT WORK (uncommitted, gates A–D green, fixpoint UNVERIFIED)
+## LANDED 2026-07-22 (this session)
+
+1. **cycle_collector 16/16** (`eeb6e00b9`) — the dup/drop optimizer port
+   below, STRICT_FIXPOINT verified. NOTE: stage2/stage3 emits now take
+   ~50-55 min each (the "~10-12 min" estimate below is stale).
+2. **async-future six** — three stacked fixes, all TS-faithful:
+   - call-time return rCT stamp (function.ts:2080 → calls/function.yo
+     `_with_resolved_concrete`, per-call fresh-cell rebuild);
+   - def-time return rCT stamp (function-type.ts:613 →
+     calls/function_type.yo, lineage cell + id-keyed registry);
+   - module-namespace records excluded from
+     `collect_effect_record_members` marking + module-member dot-callee
+     registered REGULAR from the receiver record
+     (codegen/functions/collection.yo) — yo-self FuncVal generation churn
+     defeated TS's object-identity guard, so module fns were wrongly
+     isEffectRecordMember → declaration-time body strip → generic
+     `__yo_io_future_t*` prototypes vs concrete `_sync_fut_t*` definitions.
+     Full analysis + probe ledger:
+     `issues/yo-self-async-future-wrapper-resolution.md`.
+
+## ARCHIVED — the dup/drop optimizer port write-up (landed as `eeb6e00b9`)
 
 The working tree contains the complete **OPTIMIZE_DUP_AND_DROP_PAIRS port**
 (the cycle_collector flip). Full write-up incl. both regression rounds:
@@ -136,14 +157,17 @@ budget accordingly, gate with `s2 check std/env.yo` before any sweep, and
 expect the dispose family (`sync/*`, ordered_map) to land only after the
 spec-identity core.
 
-### B. async-future family (8 files)
+### B. async-future family (2 files left of 8)
 
-fs/{dir, file, fs_convenience, metadata, temp, walker}, sys/bufio, sys/timer —
-`no member __yo_resume_fn in __yo_io_future_t` + the io.async FSM transform.
-Root: awaited future's SomeT `resolved_concrete` not populated (TS reads
-`resolvedConcreteType`, await.ts:82-95) — Gap-6-adjacent; a prior targeted fix
-was reverted (details in `issues/yo-self-async-emission-cluster.md`).
-sys/timer additionally needs the multi-await resumable-FSM lowering port.
+RESOLVED 2026-07-22 for fs/{dir, file, fs_convenience, metadata, temp} +
+sys/bufio (see LANDED above). Remaining:
+
+- fs/walker — now COMPILES; 5/6 behavioral failures at runtime ("walk
+  nonexistent returns error" etc.) — next-layer triage, log at
+  `/tmp/rc3_test_fs_walker.log` shape.
+- sys/timer — 1 assertion failure: awaits inside the io.async closure lower
+  as BLOCKING sync-await poll loops; needs the multi-await resumable-FSM
+  lowering port (io.async closure FSM transform, codegen/async/).
 
 ### C. Untriaged (1 file)
 
