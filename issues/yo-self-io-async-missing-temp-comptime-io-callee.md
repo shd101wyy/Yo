@@ -349,3 +349,34 @@ TS: closures WITH await analysis get the resumable state machine; closures
 without it (or with an unextractable body) get the lazy sync future. The
 full gate chain for the flipped tree (battery + corpus + std + fixpoint) is
 the final validation.
+
+## Round 7 (OPEN — post-flip sweep re-baseline)
+
+Post-flip 183-sweep (/tmp/sweep69_flip): **152/183** — sys/timer flipped
+GREEN (+1), **fs/temp regressed** (6/7, -1; it was not in the flag-on
+battery). Net count unchanged; the tree is strictly closer to TS (flag
+deleted), so this is being fixed FORWARD, not reverted.
+
+**fs/temp "TempFile.new creates a file":** `exists(tf.path())` stays true
+after `tf.remove(io)`. TempFile.remove is an io.async whose body is a BARE
+COND with **two sequential awaits in one branch** (`close` then
+`remove_file`, std/fs/temp.yo) — the multi-await cond-arm chaining path that
+round 5's empty-resume fix newly enabled. The second await's work is lost.
+
+**Minimal repro:** `issues/repros/io-async-bare-cond-two-awaits.yo` — two
+awaits + a capture mutation in one bare-cond arm. Under the flipped compiler
+it fails to even C-compile: the cond-arm continuation emits
+`sm->var_N = ;` (EMPTY RHS) — the chained-branch remaining-code emitter
+(`_chain_additional_remaining` / `_emit_cond_branch_remaining`,
+state_machine.yo) mis-emits for non-begin cond bodies with sequential
+suspensions. Fix there; TempFile.remove's runtime-silent variant is the same
+class.
+
+Note: `exists→remove_file→exists` standalone works
+(/tmp/exists_probe.test.yo passed) — the bug needs the two-award cond arm.
+
+Also note for repro authors: the hand-written `main + io :: __yo_builtin_io +
+match(env.get(...))` wrapper used in earlier probes is ILL-TYPED (TS rejects
+`String` vs `str` on the ==) — yo-self accepts it and silently skips the arm.
+Write probes as real `test(...)` files under /tmp instead (run with
+`<bin> test /tmp/x.test.yo`).
