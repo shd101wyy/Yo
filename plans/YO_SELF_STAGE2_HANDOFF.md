@@ -177,30 +177,28 @@ sys/bufio (see LANDED above). Remaining:
   TRIAGED 2026-07-22: `walk_with` (std/fs/walker.yo:65) is an io.async
   closure with `e.io.await(read_dir(...))` INSIDE a while loop — the same
   multi-await-in-closure class as sys/timer. NOT a separate bug.
-- sys/timer — FSM PORT ROUNDS 2-4 LANDED (commits 7c8b85fab, 7415e7d2c,
-  6d4a22047 — 2026-07-22/23, flag still off, every round full-gated incl.
-  STRICT_FIXPOINT). Flag-on status after round 4: **sys/timer PASSES 1/1,
-  async_await 116/116, cycle_collector 16/16, zero C-compile errors across
-  the battery**; fs/file 2/13 + sys/bufio 3/22 fail BEHAVIORALLY only, and
-  fs/walker matches its flag-off profile (its 5 failures are a separate
-  pre-existing walk-exn behavioral bug, NOT FSM-specific). The complete
-  gap ledger (9 fixes across the rounds: temp-attach for comptime-Io
-  callees, closure-fid registry + slot labels, capture propagation + outer
-  re-kind, := target extraction, SM return-completion stubs, result-type
-  future-guard, segment-count name-unification, suspension := capture,
-  bare-temp statement skips) lives in
-  `issues/yo-self-io-async-missing-temp-comptime-io-callee.md` — READ IT
-  FIRST. REMAINING before the flip: the PHASE3_CAPTURE_PENDING hole —
-  std-internal io.async captures (read_file's `.path`/`.io`) emit `0`
-  because yo-self capture-struct fields carry no per-field capture exprs
-  (TS async.ts:330-335 generates the recorded atom). Round-5 attempt #1
-  (by-name call-site read + whole-struct dup) SIGBUS'd the flag-on batch
-  compiles (rc=138, likely dup-generator recursion through effect-record
-  capture types) and was REVERTED — see the ledger's Round-5 section for
-  the two attempt-#2 directions (dup-cycle guard vs is_effect_param
-  marking for io-typed capture fields). When the FSM path passes the full
-  flag-on battery + fixpoint, DELETE `IO_ASYNC_FSM_ENABLED` entirely — TS
-  has no such flag, so the end state is the unconditional TS routing.
+- sys/timer — **FSM PORT COMPLETE + FLIPPED 2026-07-23** (rounds 2-6:
+  commits 7c8b85fab, 7415e7d2c, 6d4a22047, 704502374, 328787962).
+  `IO_ASYNC_FSM_ENABLED` is DELETED — io.async routes unconditionally like
+  TS (closures WITH await analysis → resumable state machine; without →
+  lazy sync future). The flipped tree passed the full gate chain (battery
+  async_await 116 / bufio 22 / fs-file 13 / signal 1 / cycle 16 / basic 33;
+  corpus PASS 140 / DIFF 0; std 153/153; STRICT_FIXPOINT). The complete
+  9-round gap ledger (temp-attach, fid registry, capture propagation,
+  := target extraction, SM return-completion stubs, result-type
+  future-guards, segment name-unification, empty-resume early-return
+  TS-compiler bug workaround, by-name capture fallback, decl-site variable
+  identity) lives in
+  `issues/yo-self-io-async-missing-temp-comptime-io-callee.md`. A
+  183-file sweep with the flipped s2 re-baselines the red list
+  (/tmp/sweep69_flip). OPEN SIDE ISSUE: the TS compiler frees an RC
+  container early-returned from a nested if-block
+  (`issues/ts-early-return-nested-block-rc-drop.md` — needs a TS-level
+  repro + fix + test; yo-self carries a restructuring workaround in
+  codegen/shared/suspension_codegen.yo).
+- fs/walker — 5/6 behavioral failures, FLAG-INDEPENDENT (identical before
+  and after the flip): "unexpected exception" from the walk exn wiring.
+  Triage fresh; this is now the only async-family red file.
 - sys/signal — FIXED 2026-07-22 (152/183): extern-C opaque types
   (c_include `pid_t : Type`) now register in the extern-type-name registry
   and `is_convertible_numeric_type` accepts them
