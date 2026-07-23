@@ -1,0 +1,82 @@
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ BufReader } :: import("std/sys/bufio/buf_reader");
+fs_file :: import("std/fs/file");
+fs_dir :: import("std/fs/dir");
+{ File } :: import("std/fs/file");
+{ Path } :: import("std/path");
+{ temp_dir, path_join } :: import("../../tests/helper");
+{ Error, AnyError, Exception, IoExn } :: import("std/error");
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc, free } :: GlobalAllocator;
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/libc/stdio"));
+__yo_batch_env :: import("std/env");
+main :: (fn() -> unit)({
+  io :: __yo_builtin_io;
+  match(
+    __yo_batch_env.env.get(`YO_TEST_INDEX`),
+    .Some(__yo_test_idx) => cond(
+      (__yo_test_idx == `0`) => {
+        exn := Exception(
+          throw : (
+            (err) -> {
+              println(`  unexpected error: ${err}`);
+              assert(false, "unexpected exception");
+              unwind(());
+            }
+          )
+        );
+        tmp := temp_dir();
+        fpath := Path.new(path_join(tmp, `yo_bufio_read_partial.txt`));
+        io.await(fs_file.write_file(fpath, String.from("hello world"), io), IoExn(io : io, exn : exn));
+        f := io.await(File.open(fpath,.Read, io), IoExn(io : io, exn : exn));
+        fd := f.fd();
+        reader := BufReader.new(fd);
+        buf := *(u8)(malloc(usize(20)).unwrap());
+        r1 := io.await(reader.read(buf, u32(5), io), io);
+        match(
+          r1,
+          .Ok(n) => {
+            unsafe(printf("  first read: %d bytes: ", n));
+            (di : usize) = usize(0);
+            while(di < usize(5), {
+              unsafe(printf("%c", i32((buf &+ di).*)));
+              di = (di + usize(1));
+            });
+            unsafe(printf("\n"));
+            assert(n == i32(5), "should read 5 bytes");
+          },
+          .Err(e) => assert(false, "first read failed")
+        );
+        buffered := reader.buffered();
+        unsafe(printf("  buffered after first read: %zu\n", buffered));
+        assert(buffered > usize(0), "should have buffered data");
+        r2 := io.await(reader.read(buf, u32(6), io), io);
+        match(
+          r2,
+          .Ok(n) => {
+            unsafe(printf("  second read: %d bytes: ", n));
+            (dj : usize) = usize(0);
+            while(dj < usize(6), {
+              unsafe(printf("[%d]", i32((buf &+ dj).*)));
+              dj = (dj + usize(1));
+            });
+            unsafe(printf("\n"));
+            assert(n == i32(6), "should read remaining 6 bytes");
+            assert((buf &+ usize(0)).* == u8(32), "first byte should be space");
+            assert((buf &+ usize(5)).* == u8(100), "last byte should be 'd'");
+          },
+          .Err(e) => assert(false, "second read failed")
+        );
+        free(.Some(*(void)(buf)));
+        io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+        unsafe(printf("ok\n"));
+      },
+      true => ()
+    ),
+    .None => ()
+  );
+});
+export(main);

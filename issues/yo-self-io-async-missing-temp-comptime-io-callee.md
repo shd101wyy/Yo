@@ -221,3 +221,60 @@ identically flag-off; separate pre-existing walk-exn bug).
    `sm->__capture.self`) misbehaves flag-on. Round-6 target.
 2. fs/walker's 5 pre-existing behavioral failures (flag-independent) — decide
    whether they gate the flip (they should not: identical flag-off).
+
+## Round 6 (diagnosed, fix pending — the LAST flip blocker)
+
+**sys/bufio "BufReader read partial then remaining"** (flag-on, 21/22):
+the second `read` returns the FIRST read's bytes (`hello\0` instead of
+`" world"`). Repro (standalone, batch-shaped):
+`issues/repros/io-async-bufio-read-partial-slot-alias.yo` — run flag-on,
+prints the wrong second-read bytes, rc=134.
+
+**Exact mechanism (from the emitted C, resume `_file____User_temp_5861`):**
+the buffer-serve branch in state 0 emits
+
+```c
+sm->slot_0 = (self->_filled - self->_pos);   // available := ...
+...
+sm->var_1224835 = 0ULL;                       // i := 0  → writes a THIRD field
+while (!(sm->slot_0 < sm->var_1224834)) ...   // i < to_copy → reads slot_0 (= available = 6)
+```
+
+`available` and `i` are ALIASED onto the same overlapping-storage slot
+(`slot_0`) while simultaneously live, and `i`'s init writes yet another field
+— so the serve loop's condition is `6 < 6`, the loop never runs, and the
+caller's buffer keeps its previous contents (counts and `buffered()` stay
+correct, which is why only the byte-content assertion fails).
+
+**Root cause chain:**
+
+1. Both variables are legitimately SM fields (their single segment contains a
+   BRANCHING await → the branching-segment rule keeps them in the struct).
+2. The captured-variables list holds a DUPLICATE entry for `i`: the Atom-walk
+   capture (env id B) AND round-4's `:=`-env capture (env id C=1224835) —
+   re-stamped envs give the same source variable different ids, and the
+   walker's SSA dedup (name:frame key) missed because the two envs report
+   different frame levels.
+3. `compute_overlapping_slots` sees the ref-less duplicate as conflict-free
+   and packs `available`(A) and `i`(B) onto one slot; reads of `i` resolve
+   through atom.yo's name-fallback to the ALIASED entry (slot_0) while the
+   `:=` init resolves id C → its own `var_C` field.
+
+**Fix directions (attempt next session, in order):**
+
+1. Dedupe in `_capture_env_variable` (suspension_analysis.yo): when a
+   same-NAME capture already exists (ignore frame level, or at least for the
+   `:=`-capture path), record a `variable_id_remapping` entry instead of a
+   second capture — mirrors the existing SSA case 1.
+2. If duplicates can still arise, harden `compute_overlapping_slots`: treat
+   same-NAME captured variables as conflicting (never pack them together),
+   and/or treat "no refs found" as conflicting-with-everything rather than
+   free.
+3. Re-verify: this repro (expect " world"), fs/file 13/13, bufio 22/22,
+   timer 1/1, async_await 116 — then full flag-off gates, commit, FLIP the
+   flag (delete IO_ASYNC_FSM_ENABLED), and re-run the full 183-file sweep.
+
+NOTE: a "failure-only" restriction of the round-4 name-unification in
+`collect_variable_refs_in_expr` was tried and did NOT change this bug's
+emission (the aliasing comes from the packer, not ref counting); it was
+reverted to keep the tree at the gated round-5 state.
