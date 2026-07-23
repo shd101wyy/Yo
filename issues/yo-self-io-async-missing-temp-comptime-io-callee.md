@@ -278,3 +278,46 @@ NOTE: a "failure-only" restriction of the round-4 name-unification in
 `collect_variable_refs_in_expr` was tried and did NOT change this bug's
 emission (the aliasing comes from the packer, not ref counting); it was
 reverted to keep the tree at the gated round-5 state.
+
+### Round 6 — refined diagnosis after two failed attempts (2026-07-23)
+
+Two attempts did NOT change the emission and were reverted (tree is at the
+gated round-5 commit):
+
+1. Name-only dedupe in the walker's `:=` capture — WORSE (first read returned
+   0 bytes): name-blind remapping conflates legitimately distinct same-named
+   variables (`n`/`i` across branches).
+2. Changing the SSA dedupe key from `name:frame_level` to
+   `name@module:row:col` (declaration site) — no effect on this bug's
+   emission.
+
+**Refined mechanism:** the serve-branch loop's `i` READ resolves through
+atom.yo's step-2 NAME fallback (its re-stamped env id misses
+state_machine_variables) and picks the WRONG same-named entry — the FILL
+branch's `i`, which is legitimately slot-packed with `available` (their
+segment ranges {0} vs {1} are disjoint, so the packer is correct). Meanwhile
+the serve-`i`'s `:=` init resolves id-first to its own entry (`var_1224835`).
+Split-brain: init writes `var_1224835`, reads go to `slot_0`.
+
+**Attempt #3 (the principled fix):** make same-name disambiguation
+DECLARATION-SITE-aware end to end:
+
+- Extend `SuspensionCapturedVariable` (suspension_analysis_types.yo) with a
+  `decl_site : String` (`module:row:col` from `Variable.token`), populated in
+  `_capture_env_variable` (and the closure-param/capture-field synthesizers
+  can use empty strings).
+- In `_generate_sm_atom`'s name fallback (atom.yo step 2) and every other
+  name-based smv scan (the closure-param coordination, init_assignment's SM
+  branch if it gains a name fallback): when the env resolution produced a
+  Variable (so its token is known), match name AND decl_site; fall back to
+  name-only ONLY when no site is available.
+- Same for `collect_variable_refs_in_expr`'s name-unification map
+  (state_machine.yo): key by name+site instead of bare name.
+
+This keeps the two `i`s separate at read time, the packer's disjoint-range
+sharing stays legal, and re-stamped ids still bridge to the right capture.
+
+Verify with `issues/repros/io-async-bufio-read-partial-slot-alias.yo`
+(expect second read = " world"), then fs/file 13/13, bufio 22/22, timer,
+async_await 116, walker profile unchanged — then full flag-off gates, commit,
+FLIP (delete IO_ASYNC_FSM_ENABLED), and re-run the 183-file sweep.
