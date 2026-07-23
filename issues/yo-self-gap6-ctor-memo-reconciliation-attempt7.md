@@ -294,3 +294,22 @@ type.id].cName`, utils/index.ts:535) — its ids converge via object
 4. **imm_set/imm_map:** un-specialized GENERIC called at runtime with Type
    args (`yo_id_5435` undeclared, `(// Unknown type: Type)` args) — the
    SortedMap-family specialization/supersession class; un-triaged.
+
+### rc layers 2-3, refined (2026-07-24, post array-order fix 2319ccfc6)
+
+Emitted-C evidence from the rc.test batch (`/tmp/.yo_selftest_batch_1.bin.c`):
+
+- **Layer 2 — tuple key RENDER divergence, not an instance split.**
+  `__yo_t51 = Tuple(0 : Box(V))` (keyed with the UNRESOLVED `V` render) vs
+  `__yo_t47 = Tuple(0 : Box(i32))` — and both have the IDENTICAL C layout
+  (`__yo_t18* _0`, the SAME Box instance!). The tuple type_key embedded the
+  evaluator render of a not-yet-resolved tyarg. FIX DIRECTION: key tuples by
+  the RESOLVED C identity of their field types (both fields render
+  `__yo_t18*` → one key → one C type) — layout-identical tuples must share
+  the C type; never embed a SomeT name in a tuple key. (type_key.yo has NO
+  Tuple arm — find the fallback it routes through.)
+- **Layer 3 — a TYPE C-name in VALUE position.**
+  `((bool (*)(void*))__yo_t28.can_isolate)(x)` — Iso `can_isolate` vtable
+  access emitted `__yo_t28` (a type's C name, never declared as a value)
+  where a vtable GLOBAL identifier belongs. Iso/dyn vtable emission path;
+  affects rc/iso/arc.
