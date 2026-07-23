@@ -99,7 +99,8 @@ open(import("std/string"));
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
-  register_some_resolved_concrete
+  register_some_resolved_concrete,
+  adopt_receiver_struct_instance
 } :: import("../../expr_info.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 {
@@ -645,11 +646,27 @@ check_if_function_parameter_matches_argument :: (
     );
   });
   // Step 9: Bind param variable in callee_env.
+  // Gap-6 attempt #8(a), the body-side half: when the DECLARED param type
+  // re-evaluates to a PATTERN-ERA instance of the arg's constructor (a
+  // `self : Self` on an impl method — its unresolved T#N lives only in
+  // type_arguments), bind the param with the ARG's concrete instance
+  // instead. TS binds params so signature- and body-side converge on the
+  // same type object; without this every `self.field` in a specialized
+  // body types (and emits C) in the pattern lineage while the call site
+  // and ctor memo use the concrete one (the imm_*/collections t1-vs-t7).
+  (bind_pt : TypeValue) = final_pt;
+  match(
+    adopt_receiver_struct_instance(final_pt, arg_type),
+    .Some(bind_adopted) => {
+      bind_pt = bind_adopted;
+    },
+    .None => ()
+  );
   param_tok := synthetic_token(param_label, callee_env_r.module_path);
   bound_param_opt := add_variable_to_env(
     callee_env_r,
     param_label,
-    final_pt,
+    bind_pt,
     arg_value,
     is_ct_only,
     false,
@@ -1791,7 +1808,49 @@ create_specialized_function_inline :: (
                 );
                 spi = (spi + usize(1));
               });
-              spec_result := evaluate_function_return_type_again(sp_res_b, callee_env, ctx);
+              (spec_result : TypeValue) = evaluate_function_return_type_again(sp_res_b, callee_env, ctx);
+              // Gap-6 attempt #8(a): a declared-`Self` return resolves through
+              // callee_env to the impl's PATTERN-ERA instance (unresolved T#N
+              // only in type_arguments — no resolution path concretizes it,
+              // issues/yo-self-gap6-ctor-memo-reconciliation-attempt7.md).
+              // The RECEIVER ARGUMENT of an instance method carries the
+              // call's real concrete instance — adopt it when the ctor
+              // matches (TS: SelfType = dereferencedReceiverType makes the
+              // signature receiver-canonical natively).
+              (sr_recv_ty : Option(TypeValue)) = Option(TypeValue).None;
+              sr_is_self_first := match(params.get(usize(0)),.Some(l) => (l == "self"),.None => false);
+              if(sr_is_self_first, {
+                match(
+                  arg_values.args.get(usize(0)),
+                  .Some(sr_rcv) => {
+                    sr_recv_ty = Option(TypeValue).Some(sr_rcv.arg_type);
+                  },
+                  .None => ()
+                );
+              }, {
+                // Static method (no `self` param): the dispatcher set
+                // ctx.self_type to the concrete static-dot receiver before
+                // this specialization (function.yo) — that IS the receiver
+                // instance (restored above, so read it directly).
+                match(
+                  ctx.self_type,
+                  .Some(sr_ctx_st) => {
+                    sr_recv_ty = Option(TypeValue).Some(sr_ctx_st);
+                  },
+                  .None => ()
+                );
+              });
+              match(
+                sr_recv_ty,
+                .Some(sr_rty) => match(
+                  adopt_receiver_struct_instance(spec_result, sr_rty),
+                  .Some(sr_adopted) => {
+                    spec_result = sr_adopted;
+                  },
+                  .None => ()
+                ),
+                .None => ()
+              );
               spec_type := TypeValue.Func(
                 ArrayList(TypeValue).new(),
                 spec_param_types,

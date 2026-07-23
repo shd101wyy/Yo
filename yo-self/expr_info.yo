@@ -31,6 +31,9 @@ open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("./types/definitions.yo");
+{ get_all_some_types } :: import("./types/utils.yo");
+{ is_some_type } :: import("./types/guards.yo");
+{ type_to_string } :: import("./types/string.yo");
 { EvalValue } :: import("./value.yo");
 {
   AstExpr,
@@ -589,6 +592,105 @@ register_struct_ctor_fid :: (fn(struct_id : String, ctor_fid : String) -> unit)(
 lookup_struct_ctor_fid :: (fn(struct_id : String) -> Option(String))(
   g_struct_ctor_fids.get(struct_id)
 );
+/// Effective constructor func_id of a struct type: the carried
+/// `constructor_func_id`, falling back to the id-keyed stamp table (a
+/// self-recursive shell or memoized instantiation may predate the ctor
+/// stamp — the same recovery the synthesizer's struct-struct unify uses).
+struct_effective_ctor_fid :: (fn(ty : TypeValue) -> String)(
+  match(
+    ty,
+    .Struct({ id : ec_sid, constructor_func_id : ec_cfid }) => cond(
+      (ec_cfid.len() > usize(0)) => ec_cfid,
+      true => match(lookup_struct_ctor_fid(ec_sid),.Some(rec) => rec,.None => String.new())
+    ),
+    _ => String.new()
+  )
+);
+/// True when a ctor-stamped struct instance is FULLY concrete: no walkable
+/// SomeTs, and none hiding in `type_arguments` (which `get_all_some_types`
+/// does NOT walk — the pattern-era instances of the Gap-6 split carry their
+/// unresolved `T#N` ONLY there).
+struct_fully_concrete_instance :: (fn(ty : TypeValue) -> bool)({
+  if(get_all_some_types(ty).len() > usize(0), {
+    return(false);
+  });
+  match(
+    ty,
+    .Struct({ type_arguments : fc_tas }) => {
+      (fci : usize) = usize(0);
+      while(fci < fc_tas.len(), {
+        ta := match(fc_tas.get(fci),.Some(t) => t,.None => TypeValue.Unit);
+        if(is_some_type(ta) || (get_all_some_types(ta).len() > usize(0)), {
+          return(false);
+        });
+        fci = (fci + usize(1));
+      });
+      true
+    },
+    _ => true
+  )
+});
+/// Swap a PATTERN-ERA method return instance for the call's concrete receiver
+/// instance: same constructor, different ids, receiver fully concrete. The
+/// per-call, receiver-derived canonicalization of Gap-6 attempt #8(a) — TS
+/// gets this for free from `context.SelfType = dereferencedReceiverType`.
+/// `.None` when no swap applies (keep the original).
+adopt_receiver_struct_instance :: (
+  fn(ret : TypeValue, recv : TypeValue) -> Option(TypeValue)
+)({
+  ret_cfid := struct_effective_ctor_fid(ret);
+  if(ret_cfid.len() == usize(0), {
+    return(Option(TypeValue).None);
+  });
+  recv_cfid := struct_effective_ctor_fid(recv);
+  if(!(ret_cfid == recv_cfid), {
+    return(Option(TypeValue).None);
+  });
+  ret_id := match(ret,.Struct({ id : ai_rid }) => ai_rid, _ => String.new());
+  recv_id := match(recv,.Struct({ id : ai_vid }) => ai_vid, _ => String.new());
+  if((ret_id.len() == usize(0)) || ((ret_id == recv_id) || !(struct_fully_concrete_instance(recv))), {
+    return(Option(TypeValue).None);
+  });
+  // Type-argument compatibility gate: adopting is only sound when the return
+  // instance IS the receiver's instantiation. An UNRESOLVED ret tyarg (the
+  // pattern-era `T#N`, after trying its own resolved-concrete cell) is a
+  // wildcard; a RESOLVED/concrete ret tyarg must match the receiver's
+  // positionally (compared by rendered type). Without this a stale
+  // ctx.self_type of the SAME ctor but a DIFFERENT instantiation
+  // (List(u8) vs List(i32)) would mis-adopt.
+  ret_tas := match(ret,.Struct({ type_arguments : ai_rtas }) => ai_rtas, _ => ArrayList(TypeValue).new());
+  recv_tas := match(recv,.Struct({ type_arguments : ai_vtas }) => ai_vtas, _ => ArrayList(TypeValue).new());
+  if((ret_tas.len() > usize(0)) && (recv_tas.len() > usize(0)), {
+    if(ret_tas.len() != recv_tas.len(), {
+      return(Option(TypeValue).None);
+    });
+    (ai_ti : usize) = usize(0);
+    while(ai_ti < ret_tas.len(), {
+      (rta : TypeValue) = match(ret_tas.get(ai_ti),.Some(t) => t,.None => TypeValue.Unit);
+      vta := match(recv_tas.get(ai_ti),.Some(t) => t,.None => TypeValue.Unit);
+      if(is_some_type(rta), {
+        match(
+          rta,
+          .SomeT({ resolved_concrete : ai_cell }) => match(
+            ai_cell.get(usize(0)),
+            .Some(ai_conc) => {
+              rta = ai_conc;
+            },
+            .None => ()
+          ),
+          _ => ()
+        );
+      });
+      if(!(is_some_type(rta)), {
+        if(type_to_string(rta) != type_to_string(vta), {
+          return(Option(TypeValue).None);
+        });
+      });
+      ai_ti = (ai_ti + usize(1));
+    });
+  });
+  Option(TypeValue).Some(recv)
+});
 // Call-site specialization supersession counters. The runtime call path
 // (calls/function.yo) specializes a generic/impl-generic callee PER CALL SITE
 // and stamps the SPEC onto the callee's ExprInfo — but the ABSTRACT original
@@ -685,7 +787,7 @@ export(record_method_callee_type, lookup_method_callee_type);
 export(record_method_callee_value, lookup_method_callee_value);
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_type);
 export(register_some_resolved_concrete, lookup_some_resolved_concrete);
-export(register_struct_ctor_fid, lookup_struct_ctor_fid);
+export(register_struct_ctor_fid, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance);
 export(record_fid_rtcall, record_fid_spec, fid_fully_specialized);
 export(record_macro_expansion, lookup_macro_expansion);
 export(record_module_level_init_expr, get_module_level_init_exprs);

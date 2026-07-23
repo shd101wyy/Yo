@@ -34,7 +34,7 @@ open(import("std/fmt"));
   BK_TUPLE
 }
 :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_some_resolved_concrete, register_some_resolved_concrete } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_some_resolved_concrete, register_some_resolved_concrete, adopt_receiver_struct_instance } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
@@ -282,9 +282,13 @@ register_func_param_comptime :: (fn(func_id : String, flags : ArrayList(bool)) -
   (any_ct : bool) = false;
   (i : usize) = usize(0);
   while((i < flags.len()) && !(any_ct), {
-    match(flags.get(i),.Some(f) => if(f, {
-      any_ct = true;
-    }),.None => ());
+    match(
+      flags.get(i),
+      .Some(f) => if(f, {
+        any_ct = true;
+      }),
+      .None => ()
+    );
     i = (i + usize(1));
   });
   if(any_ct, {
@@ -4114,9 +4118,25 @@ evaluate_function_return_type_again :: (
     callee_env : Environment,
     _ctx : EvalContext
   ) -> TypeValue
-)(
-  _resolve_some_types_deep(return_type, callee_env)
-);
+)({
+  resolved := _resolve_some_types_deep(return_type, callee_env);
+  // Gap-6 attempt #8(a): a declared-`Self` return resolves through the env to
+  // the impl's PATTERN-ERA instance (its unresolved `T#N` lives ONLY in
+  // type_arguments, which no resolution path walks). The dispatcher put the
+  // call's CONCRETE receiver instance in ctx.self_type — adopt it whenever
+  // the resolved return is a same-ctor, tyarg-compatible sibling (TS gets
+  // this natively from `context.SelfType = dereferencedReceiverType`). This
+  // is the CENTRAL exit every spec-signature/return stamping funnels through.
+  match(
+    _ctx.self_type,
+    .Some(rr_recv) => match(
+      adopt_receiver_struct_instance(resolved, rr_recv),
+      .Some(rr_adopted) => rr_adopted,
+      .None => resolved
+    ),
+    .None => resolved
+  )
+});
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------

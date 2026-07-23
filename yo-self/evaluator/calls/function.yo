@@ -39,7 +39,11 @@ open(import("std/fmt"));
   lookup_some_resolved_concrete,
   record_macro_expansion,
   record_fid_rtcall,
-  record_fid_spec
+  record_fid_spec,
+  lookup_struct_ctor_fid,
+  struct_effective_ctor_fid,
+  struct_fully_concrete_instance,
+  adopt_receiver_struct_instance
 } :: import("../../expr_info.yo");
 {
   Variable,
@@ -368,6 +372,61 @@ _static_dot_receiver_self_type :: (
       .None => Option(TypeValue).None
     ),
     .None => Option(TypeValue).None
+  )
+});
+/// Instance-method counterpart of `_static_dot_receiver_self_type`: when the
+/// callee is `value.method` (a 2-arg `.` whose receiver evaluated to a VALUE,
+/// not a TypeVal), return the receiver's TYPE when it is a fully-concrete
+/// ctor-stamped struct — the `Self` for the method (TS: `context.SelfType =
+/// dereferencedReceiverType`). The Gap-6 attempt-8(a) creation-side fix:
+/// spec signatures derived from this receiver are canonical natively, instead
+/// of leaking the impl's pattern-era `substitute(pattern-instance)` Self
+/// (whose unresolved `T#N` lives only in type_arguments metadata, unreachable
+/// by every resolution path — issues/yo-self-gap6-ctor-memo-reconciliation-
+/// attempt7.md). Returns `.None` for non-dot callees, TypeVal receivers
+/// (static — handled by the static helper), non-struct receivers, ctor-less
+/// structs, and pattern-era (non-concrete) receivers.
+_instance_dot_receiver_self_type :: (
+  fn(callee : AstExpr, ctx : EvalContext) -> Option(TypeValue)
+)({
+  if(!(ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2)))), {
+    return(Option(TypeValue).None);
+  });
+  pargs := match(
+    callee,
+    .FnCall(_, _, a, _, _) => a,
+    _ => {
+      return(Option(TypeValue).None);
+    }
+  );
+  recv := match(
+    pargs.get(usize(0)),
+    .Some(r) => r,
+    .None => {
+      return(Option(TypeValue).None);
+    }
+  );
+  ri := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(recv)),
+    .Some(i) => i,
+    .None => {
+      return(Option(TypeValue).None);
+    }
+  );
+  // A TypeVal receiver is a STATIC call — the static helper's territory.
+  is_static_recv := match(
+    ri.value,
+    .Some(rv) => match(rv,.TypeVal(_) => true, _ => false),
+    .None => false
+  );
+  if(is_static_recv, {
+    return(Option(TypeValue).None);
+  });
+  recv_ty := ri.ty;
+  is_ctor_struct := (struct_effective_ctor_fid(recv_ty).len() > usize(0));
+  cond(
+    (is_ctor_struct && struct_fully_concrete_instance(recv_ty)) => Option(TypeValue).Some(recv_ty),
+    true => Option(TypeValue).None
   )
 });
 /// Resolve unresolved Array `length_var`s in `ty` by structurally matching it
@@ -1360,6 +1419,28 @@ _evaluate_funcval_runtime_call :: (
       _ => ()
     );
   });
+  // Gap-6 attempt #8(a), non-specializing path: methods WITHOUT foralls
+  // (`new`, `prepend` — the impl's T lives on the ctor) never reach the
+  // specialization arm below, yet their declared-`Self` return resolves to
+  // the impl's PATTERN-ERA instance all the same. Detect the call's receiver
+  // (static TypeVal dot-receiver or instance receiver) and adopt its concrete
+  // instance BEFORE the call result ExprInfo is stamped.
+  rt_recv_self := match(
+    _static_dot_receiver_self_type(func_expr, ctx),
+    .Some(rt_st) => Option(TypeValue).Some(rt_st),
+    .None => _instance_dot_receiver_self_type(func_expr, ctx)
+  );
+  match(
+    rt_recv_self,
+    .Some(rt_recv) => match(
+      adopt_receiver_struct_instance(resolved_ret, rt_recv),
+      .Some(rt_adopted) => {
+        resolved_ret = rt_adopted;
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
   out_rt := new_expr_info(env, resolved_ret);
   out_rt.value = Option(EvalValue).Some(_call_result_unknown(resolved_ret, env));
   // Runtime arg exprs for codegen (this is the runtime-call / no-CTFE
@@ -1416,10 +1497,48 @@ _evaluate_funcval_runtime_call :: (
         // concrete returns are untouched.
         if(is_some_type(resolved_ret), {
           resolved_ret = spec_st.clone();
+        }, {
+          // Gap-6 attempt-8(a): a PATTERN-ERA `Self` return instance (baked
+          // at impl def-eval; unresolved `T#N` only in type_arguments) is
+          // swapped for the concrete receiver instance — the receiver IS the
+          // canonical `Self` (TS: context.SelfType = receiver). E.g.
+          // `List(i32).new()` declared `-> Self` returned the def-time
+          // List(T#N) instance; its C type then disagreed with the body's
+          // memoized concrete lineage (the imm_*/collections t1-vs-t7 clang
+          // errors).
+          match(
+            adopt_receiver_struct_instance(resolved_ret, spec_st.clone()),
+            .Some(adopted_st) => {
+              resolved_ret = adopted_st;
+              out_rt.ty = resolved_ret;
+              out_rt.value = Option(EvalValue).Some(_call_result_unknown(resolved_ret, env));
+            },
+            .None => ()
+          );
         });
         ctx.self_type = Option(TypeValue).Some(spec_st);
       },
-      .None => ()
+      .None => match(
+        _instance_dot_receiver_self_type(func_expr, ctx),
+        .Some(spec_ist) => {
+          // Instance-method twin: `xs.prepend(...)` whose declared return is
+          // `Self` carries the pattern-era instance; adopt the receiver's
+          // concrete type. `ctx.self_type` is set for the specialization so
+          // body-side `Self(...)` constructions build the receiver instance
+          // too (same convergence TS gets from SelfType = receiver).
+          match(
+            adopt_receiver_struct_instance(resolved_ret, spec_ist.clone()),
+            .Some(adopted_ist) => {
+              resolved_ret = adopted_ist;
+              out_rt.ty = resolved_ret;
+              out_rt.value = Option(EvalValue).Some(_call_result_unknown(resolved_ret, env));
+            },
+            .None => ()
+          );
+          ctx.self_type = Option(TypeValue).Some(spec_ist);
+        },
+        .None => ()
+      )
     );
     spec_ct := match(callee_func_type_opt,.Some(t) => t,.None => t_unit());
     spec_forall_args := ArrayList(ArgEntry).new();
@@ -3637,10 +3756,31 @@ Fix: wrap the call:
           // return type's Array length-vars structurally against the concrete
           // receiver. (`ctx.self_type` was reset after the CTFE body eval, so
           // re-fetch the receiver type directly.)
-          resolved_ret_ct := match(
+          (resolved_ret_ct : TypeValue) = match(
             _static_dot_receiver_self_type(func_expr, ctx),
             .Some(recv_self) => _resolve_array_length_vars_from_self(ret_type, recv_self),
             .None => ret_type
+          );
+          // Gap-6 attempt #8(a), CTFE route: this arm stamps the call result
+          // for comptime-executed calls (`List(i32).new()` lands here) — the
+          // declared-`Self` return is the impl's PATTERN-ERA instance here
+          // too. Adopt the concrete receiver instance (static or instance),
+          // exactly as the runtime arm does before its out_rt stamping.
+          ct_recv_self := match(
+            _static_dot_receiver_self_type(func_expr, ctx),
+            .Some(ct_st) => Option(TypeValue).Some(ct_st),
+            .None => _instance_dot_receiver_self_type(func_expr, ctx)
+          );
+          match(
+            ct_recv_self,
+            .Some(ct_recv) => match(
+              adopt_receiver_struct_instance(resolved_ret_ct, ct_recv),
+              .Some(ct_adopted) => {
+                resolved_ret_ct = ct_adopted;
+              },
+              .None => ()
+            ),
+            .None => ()
           );
           out_ct := new_expr_info(ct_result.caller_env, resolved_ret_ct);
           out_ct.value = Option(EvalValue).Some(ct_result.value);
@@ -4111,7 +4251,28 @@ Fix: wrap the call:
             ctx.self_type = m_self_ty_saved;
             Option(EvalValue).Some(m_ctfe.value)
           }, Option(EvalValue).Some(_call_result_unknown(call_result_m.return_type, callee_env)));
-          out_m := new_expr_info(call_result_m.caller_env, call_result_m.return_type);
+          // Gap-6 attempt #8(a), method-dispatch arm: THE stamping that types
+          // chained method results (`...prepend(3)` → the := RHS). Adopt the
+          // call's concrete receiver instance over a pattern-era declared-Self
+          // return, mirroring the runtime/CTFE arms.
+          (m_out_ty : TypeValue) = call_result_m.return_type;
+          m_recv_self := match(
+            _static_dot_receiver_self_type(func_expr, ctx),
+            .Some(m_rst) => Option(TypeValue).Some(m_rst),
+            .None => _instance_dot_receiver_self_type(func_expr, ctx)
+          );
+          match(
+            m_recv_self,
+            .Some(m_recv) => match(
+              adopt_receiver_struct_instance(m_out_ty, m_recv),
+              .Some(m_adopted) => {
+                m_out_ty = m_adopted;
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+          out_m := new_expr_info(call_result_m.caller_env, m_out_ty);
           out_m.value = m_result_val;
           out_m.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_m.runtime_arg_exprs_in_order);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_m);
