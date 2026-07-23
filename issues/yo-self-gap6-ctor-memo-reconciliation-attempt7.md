@@ -313,3 +313,23 @@ Emitted-C evidence from the rc.test batch (`/tmp/.yo_selftest_batch_1.bin.c`):
   access emitted `__yo_t28` (a type's C name, never declared as a value)
   where a vtable GLOBAL identifier belongs. Iso/dyn vtable emission path;
   affects rc/iso/arc.
+
+### Tuple-key fix ON DISK (2026-07-24, gates pending)
+
+`yo-self/types/type_key.yo`: explicit `.Tuple` arm in `_type_key_at` —
+per-field RECURSED keys (labels included) instead of the
+`_ => type_to_string` fallback that embedded the evaluator's tyarg spelling.
+Verified: rc.test error count 3 → 2, the `__yo_t47`/`__yo_t51` tuple
+assignment error is GONE. Run the full gate chain and commit (pattern:
+scratchpad/gates_g9.sh with a fresh S1; /tmp/g10_s1 is the current tree's
+s1 already built).
+
+**rc layer 3 (last rc blocker), lead:** `((bool (*)(void*))
+__yo_t28.can_isolate)(x)` — the trait-witness expression
+`(T <: Isolation).can_isolate(x)` (prelude cycle-collector macro,
+std/prelude.yo:7461) emits the witness VALUE as the type's C name. TS
+resolves witness member access in evaluator values/impl.ts:2030 and codegen
+emits a DIRECT call to the resolved impl method — find yo-self's
+property-access/dot-callee path for a `<:` witness receiver and mirror the
+direct-call resolution (yo-self evaluator counterpart:
+evaluator/values/impl.yo:1400 area).

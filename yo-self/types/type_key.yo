@@ -378,6 +378,39 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
       key.push_str(")");
       key
     },
+    // Tuple: key by the RECURSED keys of the field types (labels included for
+    // record-tuples), NOT by `type_to_string`. Tuples are structural — the
+    // render fallback embedded the EVALUATOR's type-argument spelling, so
+    // `Tuple(0 : Box(V))` (a signature rendered before `V` resolved) and
+    // `Tuple(0 : Box(i32))` minted TWO C types for one layout (both fields
+    // `__yo_t18*` — the SAME Box instance) and `z._0 = (…){…}` failed to
+    // C-compile (tests/rc.test.yo "Rc in different data structures", rc
+    // layer 2 in the Gap-6 ledger). Per-field recursion inherits the struct
+    // arm's instantiation merging, so layout-identical tuples share one key.
+    .Tuple(tk_labels, tk_fts) => {
+      key := String.from("tup");
+      (ti : usize) = usize(0);
+      while(ti < tk_fts.len(), {
+        key.push_str("_");
+        match(
+          tk_labels.get(ti),
+          .Some(tl) => if(tl.len() > usize(0), {
+            key.push_string(tl.clone());
+            key.push_str(":");
+          }),
+          .None => ()
+        );
+        match(
+          tk_fts.get(ti),
+          .Some(ft) => {
+            key.push_string(recur(ft, depth + usize(1)));
+          },
+          .None => ()
+        );
+        ti = (ti + usize(1));
+      });
+      key
+    },
     _ => type_to_string(t)
   )
 );
