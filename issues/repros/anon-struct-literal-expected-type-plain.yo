@@ -1,0 +1,18 @@
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+_plain :: (fn(root_s : String) -> usize)({
+  stack := ArrayList(struct(path : String, depth : u32)).new();
+  stack.push({ path : root_s, depth : u32(0) });
+  (n : usize) = usize(0);
+  while(runtime(stack.len() > usize(0)), {
+    item := stack.pop().unwrap();
+    cur_path := item.path;
+    n = (n + cur_path.len());
+  });
+  n
+});
+main :: (fn() -> unit)({
+  n := _plain(String.from("hello"));
+  ();
+});
+export(main);

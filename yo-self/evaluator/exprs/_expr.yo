@@ -197,6 +197,8 @@ open(import("std/fmt"));
 { format_error_message } :: import("../../error.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
+{ type_of_type } :: import("../../types/hierarchy.yo");
+{ is_some_type } :: import("../../types/guards.yo");
 { EvalValue } :: import("../../value.yo");
 { expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
 { set_evaluate_expression_fn, set_evaluate_expression_raw_fn } :: import("./expr.yo");
@@ -496,8 +498,44 @@ _evaluate_expression :: (
           evaluate_match(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BK_TUPLE,.None) =>
           evaluate_tuple_value(expr, env, ctx, exn),
-        ast_expr_is_fn_call_of(expr, BK_ANON_STRUCT,.None) =>
-          evaluate_anonymous_struct_value(expr, env, ctx, exn),
+        // `_(...)` literal with an expected ANONYMOUS struct type is a
+        // constructor call OF THAT TYPE — no fresh anonymous struct id is
+        // minted, so the value unifies (and C-types) as the expected struct.
+        // Mirrors TS function.ts:418-439 (`_` callee with concrete
+        // expectedType: `functions = [{type: typeOfType(expected), value:
+        // createTypeValue(expected)}]`); yo-self passes the TypeVal callee via
+        // `given_value` (the same shortcut evaluate_recur uses). Without this,
+        // `list.push({ ... })` against `ArrayList(struct(...))` minted a fresh
+        // struct id and the struct-struct unify threw — swallowed into
+        // "0 entries" under io.async closures (std/fs/walker) and a C-level
+        // undeclared-identifier bail in plain fns.
+        //
+        // SCOPE: gated to UNNAMED expected structs — narrower than TS, which
+        // reroutes for EVERY concrete expected type. The broad rule changes
+        // the emitted construction of every named-struct literal site in
+        // yo-self itself (e.g. types/utils.yo IntRange `{min,max}`), and the
+        // stage-2 self-emission of that path currently miscompiles (s2
+        // SIGSEGV in the dup/drop optimizer at prelude eval — see
+        // issues/yo-self-anon-struct-literal-expected-type-ctor.md). Named
+        // expecteds keep the anonymous-struct path until that downstream gap
+        // is fixed.
+        ast_expr_is_fn_call_of(expr, BK_ANON_STRUCT,.None) => match(
+          ctx.expected_type,
+          .Some(et) => {
+            et_ty := et.ty;
+            expected_is_anon_struct := match(
+              et_ty,
+              .Struct({ name : et_sname, is_source_namespace : et_sns }) => ((et_sname.len() == usize(0)) && !(et_sns)),
+              _ => false
+            );
+            if(
+              expected_is_anon_struct && !(is_some_type(et_ty)),
+              evaluate_function_call(expr, env, type_of_type(et_ty), Option(EvalValue).Some(EvalValue.TypeVal(et_ty)), ctx, exn),
+              evaluate_anonymous_struct_value(expr, env, ctx, exn)
+            )
+          },
+          .None => evaluate_anonymous_struct_value(expr, env, ctx, exn)
+        ),
         ast_expr_is_fn_call_of(expr, BK_ARRAY_VAL,.None) =>
           evaluate_array_value(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BK_COMPTIME_LIST_VAL,.None) =>
