@@ -28,8 +28,31 @@ open(import("std/string"));
   type_key
 } :: import("../utils/index.yo");
 { BF_DUP, BF_DROP } :: import("../../expr.yo");
+/// True when array-wrapper name `a` must be emitted before `b`: shorter
+/// names first (an OUTER wrapper's name is `Array_<child>_<len>` — strictly
+/// longer than its child's name, so length-ascending is dependency order),
+/// lexicographic within a length for determinism. Plain lexicographic would
+/// be WRONG ('A' < '_' puts deeper `Array_Array_…` names before their
+/// children).
+_array_wrapper_name_lt :: (fn(a : String, b : String) -> bool)(
+  cond(
+    (a.len() < b.len()) => true,
+    (a.len() > b.len()) => false,
+    true => (a < b)
+  )
+);
 /// Generate the array-wrapper struct typedefs collected during type lowering.
-/// Mirrors `generateArrayStructDeclarations`.
+/// Mirrors `generateArrayStructDeclarations`. TS iterates an
+/// insertion-ordered Map whose lazy registration recurses into the element
+/// FIRST (utils/index.ts:599), so inner wrappers always precede the outer
+/// ones that embed them by value. yo-self's `array_struct_types` is a
+/// HashMap — key iteration is HASH order — so a nested wrapper could be
+/// emitted before its child's typedef (`n := [m,]` over 4 levels: the
+/// 4-level wrapper referenced the 3-level type above its definition —
+/// tests/rc.test.yo "Rc in different data structures",
+/// issues/repros/nested-array-wrapper-order.yo). Emit in (length, lex)
+/// order instead: dependency-correct AND deterministic regardless of hash
+/// order (which STRICT_FIXPOINT wants anyway).
 generate_array_struct_declarations :: (fn(context : CodeGenContext) -> unit)({
   keys := ArrayList(String).new();
   kit := context.array_struct_types.keys();
@@ -45,6 +68,25 @@ generate_array_struct_declarations :: (fn(context : CodeGenContext) -> unit)({
       }
     );
   });
+  // Selection sort by (length, lexicographic) into a fresh list (ArrayList
+  // has no element assignment; the registry is small).
+  sorted_keys := ArrayList(String).new();
+  while(keys.len() > usize(0), {
+    (min_i : usize) = usize(0);
+    (ci : usize) = usize(1);
+    while(ci < keys.len(), {
+      cand := match(keys.get(ci),.Some(s) => s,.None => String.new());
+      cur_min := match(keys.get(min_i),.Some(s) => s,.None => String.new());
+      if(_array_wrapper_name_lt(cand, cur_min), {
+        min_i = ci;
+      });
+      ci = (ci + usize(1));
+    });
+    picked := match(keys.get(min_i),.Some(s) => s,.None => String.new());
+    sorted_keys.push(picked);
+    keys.remove(min_i, usize(1));
+  });
+  keys = sorted_keys;
   n := keys.len();
   (i : usize) = usize(0);
   while(i < n, {

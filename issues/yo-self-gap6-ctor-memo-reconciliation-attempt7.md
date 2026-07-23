@@ -261,3 +261,36 @@ STAGE3 all rc=0, **FIXPOINT_HOLDS**. The probe residue was then stripped
 (comptime_fn.yo + initialization_assignment.yo reverted to HEAD, helper.yo
 unused fmt open removed) and the WHOLE chain re-run on the exact commit tree
 before landing.
+
+### Post-attempt-8 sub-class map (2026-07-24, attempt #8 = commit 09cb5fd14)
+
+Direct probes with the attempt-8 s1 against the remaining red families:
+
+1. **Nested fixed-array wrapper ORDER (rc/arc/iso layer 1) — FIX ON DISK,
+   gates pending.** `generate_array_struct_declarations` iterated
+   `array_struct_types.keys()` — a HashMap, HASH order — while TS's Map is
+   insertion-ordered with inner-first lazy registration (utils/index.ts:599),
+   so a 4-level `[[[[Box(i32)]]]]` wrapper could be emitted before the
+   3-level typedef it embeds by value ("unknown type name Array*Array*…").
+   Fix: emit in (length, lex) order — dependency-correct and deterministic.
+   Repro: issues/repros/nested-array-wrapper-order.yo (14 lines; TS green,
+   pre-fix s1 red, post-fix s1 compiles AND runs). yo-self/codegen/types/
+   generation.yo, uncommitted pending gates (sweep owns ./tests).
+2. **Tuple instance split (rc layer 2).** After the array fix, rc.test still
+   fails on `z._0 = (__yo_t51){…}` vs field type `__yo_t47` — the TUPLE twin
+   of the anon-struct/receiver identity class: `z.0 = (box(10),)` mints a
+   fresh tuple instance whose C id differs from the declared field's. Both
+   synthesizers unify tuples structurally (no id check), so eval passes and
+   only the C keying splits. TS also keys tuples BY ID (`context.types[
+type.id].cName`, utils/index.ts:535) — its ids converge via object
+   identity; yo-self's cannot. RECOMMENDED DIRECTION: key TUPLES structurally
+   in yo-self's `type_key`/`stable_type_identity` (same field types ⇒ same C
+   struct — tuples are structural types by definition), NOT another
+   literal-adoption reroute (the round-8 broad-rule lesson: expected-type
+   adoption at scale broke stage-2 self-emission; structural keying is
+   value-semantics-native and cannot desynchronize).
+3. **Undeclared `__yo_t28` (rc layer 3).** A C type referenced but never
+   declared — a collection gap distinct from ordering; un-triaged.
+4. **imm_set/imm_map:** un-specialized GENERIC called at runtime with Type
+   args (`yo_id_5435` undeclared, `(// Unknown type: Type)` args) — the
+   SortedMap-family specialization/supersession class; un-triaged.
