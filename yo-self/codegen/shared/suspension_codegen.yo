@@ -184,6 +184,32 @@ split_body_at_suspension_points :: (
       true => match(points.get(usize(0)),.Some(p) => Option(SuspensionPoint).Some(p),.None => Option(SuspensionPoint).None)
     );
     segments.push(SuspensionSegment(state_number : usize(0), expressions : single_exprs, suspension_point : sp));
+    // Sequential suspensions in the single body expression: one empty segment
+    // per additional contained suspension, carrying THAT point. TS never hits
+    // this path for closures (its single-expression closure bodies are
+    // begin-wrapped, so the begin path's handleSequentialSuspensions covers
+    // them); yo-self closure bodies arrive as the BARE expression. Without
+    // this, a bare-cond body with TWO awaits in one branch produced only one
+    // await boundary — the continuation's `has_additional` gate (the segment
+    // await point's is_inside_cond) stayed false and the second await
+    // statement emitted as a plain expression: empty code in SM context, so
+    // `sm->var_N = ;` (C error) or a silently dropped await
+    // (TempFile.remove's close+remove_file — the post-flip fs/temp
+    // regression). Repro: issues/repros/io-async-bare-cond-two-awaits.yo.
+    if(handle_sequential_suspensions, {
+      (extra_nb : usize) = usize(1);
+      (go_nb : bool) = true;
+      while((extra_nb < points.len()) && go_nb, {
+        ex_expr_nb := match(points.get(extra_nb),.Some(p) => p.expr,.None => body);
+        if(contains_suspension_expr(body, ex_expr_nb, should_skip_body), {
+          sp_nb := match(points.get(extra_nb),.Some(p) => Option(SuspensionPoint).Some(p),.None => Option(SuspensionPoint).None);
+          segments.push(SuspensionSegment(state_number : segments.len(), expressions : ArrayList(AstExpr).new(), suspension_point : sp_nb));
+        }, {
+          go_nb = false;
+        });
+        extra_nb = (extra_nb + usize(1));
+      });
+    });
   }, {
     _split_begin_body_into(segments, body, points, should_skip_body, handle_return_statements, handle_sequential_suspensions);
   });

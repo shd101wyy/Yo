@@ -350,7 +350,7 @@ without it (or with an unextractable body) get the lazy sync future. The
 full gate chain for the flipped tree (battery + corpus + std + fixpoint) is
 the final validation.
 
-## Round 7 (OPEN — post-flip sweep re-baseline)
+## Round 7 (RESOLVED — non-begin sequential suspensions; fs/temp GREEN)
 
 Post-flip 183-sweep (/tmp/sweep69_flip): **152/183** — sys/timer flipped
 GREEN (+1), **fs/temp regressed** (6/7, -1; it was not in the flag-on
@@ -401,3 +401,35 @@ callback in evaluator/async/await_analysis.yo — find where the SECOND point
 of the same branch is dropped (dedup by branch? by parent :=? by index?).
 Verify with the repro: the SM struct must gain `await_future_1` + a third
 state, and `marker=42` must print.
+
+### Round 7 — RESOLVED (2026-07-23)
+
+The pinpoint above was half right: the second await point WAS registered by
+the analysis (both `is_inside_cond`), but the **splitter** dropped it. TS
+never splits a bare (non-begin) closure body — its single-expression closure
+bodies are begin-wrapped, so `handleSequentialSuspensions` in the begin path
+emits one empty segment per extra suspension contained in the same
+expression, each carrying its own point. yo-self closure bodies arrive as
+the BARE expression and took `split_body_at_suspension_points`' non-begin
+path, which emitted exactly ONE segment carrying only `points[0]` — the
+second await never got a state, so the cond-arm continuation's
+`has_additional` gate stayed false and the second await statement emitted as
+empty code (`sm->var_N = ;`, or a silently dropped await in
+TempFile.remove).
+
+**Fix** (yo-self/codegen/shared/suspension_codegen.yo, non-begin path):
+after pushing the single body segment, when `handle_sequential_suspensions`
+is set, push one empty segment per additional point still contained in the
+body — mirroring the begin path's sequential-suspension handling, each
+empty segment carrying its own point.
+
+Repro note: `issues/repros/io-async-bare-cond-two-awaits.yo` was Box-ified
+(`marker := Box(i32)(0)`, `marker.*` writes) — scalar i32 captures into SMs
+are COPIES (TS-identical), so the original plain-i32 marker could never
+observe the mutation, independent of this bug.
+
+**Gates (all green):** repro prints `marker=42`; fs/temp 7/7 (regression
+fixed); battery async_await 116 / file 13 / signal 1 / cycle_collector 16 /
+basic 33; bufio segfaulted in-battery but 22/22 on direct retry (transient
+machine kill, verified twice); corpus diff-test PASS 140 / DIFF 0;
+`check ./std` 153/153; **STRICT_FIXPOINT HOLDS** (stage2.c ≡ stage3.c).
