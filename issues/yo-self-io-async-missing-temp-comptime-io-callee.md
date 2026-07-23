@@ -380,3 +380,24 @@ match(env.get(...))` wrapper used in earlier probes is ILL-TYPED (TS rejects
 `String` vs `str` on the ==) — yo-self accepts it and silently skips the arm.
 Write probes as real `test(...)` files under /tmp instead (run with
 `<bin> test /tmp/x.test.yo`).
+
+### Round 7 — pinpointed (2026-07-23)
+
+The C evidence for the repro: the resume has ONLY `await_future_0` /
+`await_result_0` and two states; the cond-branch continuation emits the
+second await statement as `sm->var_N = ;` because `has_additional`
+(= `segment.await_point.is_inside_cond`) is false in the trailing segment —
+and that condition is TS-IDENTICAL (state-machine.ts:796-797). The
+divergence is UPSTREAM: **yo-self's await analysis registered only ONE await
+point for the two-await cond branch** (TS registers both, both
+`isInsideCond`; the splitter's sequential-suspension empties then give the
+second await its own state and the chained-branch machinery hooks it).
+
+Next hunt: the per-branch suspension-point collection/merge for cond/match
+arms — walk*expr*'s `is_cond_or_match` arm in
+evaluator/shared/suspension_analysis.yo (per-branch `points` collection,
+`branch_pts`, and the branch-merge that follows) and/or the async detect
+callback in evaluator/async/await_analysis.yo — find where the SECOND point
+of the same branch is dropped (dedup by branch? by parent :=? by index?).
+Verify with the repro: the SM struct must gain `await_future_1` + a third
+state, and `marker=42` must print.
