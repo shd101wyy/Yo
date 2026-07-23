@@ -1432,8 +1432,7 @@ io_async_await_analysis :: (fn(expr : AstExpr, context : FunctionGenerationConte
         // body exists twice and the resume references temps declared only in
         // the standalone copy). Mirrors TS setting
         // `isIoAsyncStateMachineClosure` when the closure has await analysis
-        // (function.ts:2222). This fn is only reached behind
-        // IO_ASYNC_FSM_ENABLED, so the registry stays empty on the sync path.
+        // (function.ts:2222).
         if(aa.is_some(), {
           mark_io_async_sm_closure(__fvd1.*.func_id.clone());
         });
@@ -1461,43 +1460,6 @@ io_async_await_analysis :: (fn(expr : AstExpr, context : FunctionGenerationConte
 /// /constructor/dispose emitted after all regular functions), and emits the cold
 /// constructor call. Returns the C expression for the resulting (cold) future.
 /// Faithful port of `generateAsyncBlock` (async.ts:63).
-/// Whether the io.async STATE-MACHINE (FSM) codegen path is enabled. Still
-/// OFF. PROGRESS (round 3, 2026-07-22): flag-on, sys/timer PASSES 1/1,
-/// async_await 116/116, cycle_collector 16/16, and fs/walker matches its
-/// flag-off profile (1/6 — its 5 failures are pre-existing behavioral bugs,
-/// not FSM-specific). Fixed this round: io.async calls with a comptime-Io
-/// callee losing their temp name (attach_temp_variable_to_expr in the
-/// UnknownVal-callee arm, evaluator function.yo — the batch runner's
-/// `io :: __yo_builtin_io` shape minted mismatched random SM names);
-/// closure-param slots labeled from the DECLARED `Fn(e : E)` signature
-/// instead of the closure literal's own labels (expr→func_id registry +
-/// get_func_type, mirrors TS closureFnValue.type.parameters); the FSM
-/// constructor taking no capture because capture_type/dups live on the
-/// CLOSURE ARG's ExprInfo, never the call expr (resolved + capture-field
-/// vars re-kinded Outer, mirrors TS function.ts:2192-2218); and
-/// extract_target_variable_id resolving through the LHS atom's pre-binding
-/// env (now the `:=` node's own env first) so await results actually copy
-/// out of the future. ROUND 4 (2026-07-23): ALL flag-on C-COMPILE ERRORS
-/// CLEARED — fixed the Phase-5 SM-return stubs in return.yo (tail/early
-/// `return(x)` emitted nothing: no result store, no completion), the
-/// async-block result type resolving to the FUTURE itself for
-/// `return(x)`-tailed bodies (closure fid registry → get_func_type result,
-/// future-guarded fallbacks), await-target SM fields dropped by segment
-/// counting under re-stamped variable ids (name-unification in
-/// collect_variable_refs_in_expr), the suspension analysis missing `:=`
-/// binding targets (pre-binding LHS atom envs), and bare eval-temp
-/// statements in SM loop/match bodies (is_temp_variable_name skip in
-/// while_loop.yo + match.yo). Flag-on: sys/timer 1/1, async_await 116/116;
-/// fs/file 2/13 and sys/bufio 3/22 fail BEHAVIORALLY — consistent with the
-/// PHASE3_CAPTURE_PENDING hole (std-internal io.async captures like
-/// read_file's `.io` field emit `0`: yo-self capture-struct fields carry no
-/// per-field capture expressions; TS builds them from the field exprs,
-/// async.ts:330). NEXT: port that capture-expression machinery, re-run the
-/// flag-on battery + fixpoint, then flip for real and DELETE this flag.
-/// All io.async meanwhile lower through `generate_io_async_sync_call`
-/// (eager sync-future + blocking awaits) — the de-facto path that passes
-/// the full corpus.
-IO_ASYNC_FSM_ENABLED :: false;
 /// Extract the io.async(closure) body for the state-machine path: the closure
 /// FuncVal's body, read from the runtime-arg's ExprInfo — `closure_function_value`
 /// first, falling back to `cei.value` when it is None (evaluate_anonymous_function
@@ -1834,7 +1796,8 @@ _make_sm_captured_variable :: (fn(id : String, name : String, ty : TypeValue, ki
       id : id,
       name : name,
       ty : ty,
-      is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).None
+      is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).None,
+      decl_site : String.from("")
     ),
     kind : kind,
     is_owning_the_same_rc_value_as : Option(Box(CapturedVariable)).None
@@ -2135,7 +2098,7 @@ preregister_async_blocks_in_expr :: (fn(expr : AstExpr, context : FunctionGenera
             // (preregister says _state_t, body emits _sync_fut_t) makes every
             // declaration-time return-type lookup miss or point at a struct
             // that is never defined.
-            has_await_analysis := (IO_ASYNC_FSM_ENABLED && (io_async_await_analysis(expr, context).is_some()));
+            has_await_analysis := io_async_await_analysis(expr, context).is_some();
             struct_name := if(has_await_analysis, `${async_block_id}_state_t`, `${async_block_id}_sync_fut_t`);
             kind_label := if(has_await_analysis, String.from("state machine"), String.from("sync future"));
             _set_async_sm_struct_name(expr, struct_name.clone(), context);
@@ -2582,7 +2545,6 @@ export(
   generate_async_block_constructor,
   generate_async_block,
   io_async_closure_body,
-  IO_ASYNC_FSM_ENABLED,
   generate_deferred_async_blocks,
   preregister_async_blocks_in_expr,
   preregister_async_block_types,

@@ -159,20 +159,16 @@ collect_variable_refs_in_expr :: (
   if(ast_expr_is_atom(expr), {
     tok := ast_expr_token(expr);
     if(tok.kind == TokenKind.Identifier, {
-      // Name-unification with the ANALYSIS's captured set, UNCONDITIONAL:
-      // later eval passes re-stamp ExprInfos with fresh variable ids (or
-      // record envs that miss the name entirely), so the env resolution
-      // below can fail or resolve to an id the suspension analysis never
-      // saw — the captured id then counts too few segments and its SM
-      // field is dropped (fs/file `content`: := ref in seg N, return-atom
-      // env miss in seg N+1). Count the same-name captured id here too.
-      match(
-        captured_name_ids.get(tok.value),
-        .Some(cap_id) => {
-          refs.add(cap_id);
-        },
-        .None => ()
-      );
+      // Name-unification with the ANALYSIS's captured set: later eval
+      // passes re-stamp ExprInfos with fresh variable ids (or record envs
+      // that miss the name entirely), so the env resolution below can fail
+      // or resolve to an id the suspension analysis never saw — the
+      // captured id then counts too few segments and its SM field is
+      // dropped (fs/file `content`). When the env RESOLVES, unify through
+      // the DECLARATION-SITE-qualified key only (a bare-name match may be a
+      // DIFFERENT same-named variable — the bufio two-`i`s class); the
+      // bare-name key is the env-failure fallback.
+      (env_resolved : bool) = false;
       match(
         ei_opt,
         .Some(ei) => {
@@ -185,6 +181,7 @@ collect_variable_refs_in_expr :: (
               .Some(v) => v,
               .None => return()
             );
+            env_resolved = true;
             if(!(variable.is_compile_time_only), {
               // Resolve SSA remapping, then RC owner.
               canonical_id := match(
@@ -198,11 +195,28 @@ collect_variable_refs_in_expr :: (
                 .None => canonical_id
               );
               refs.add(owner_id.clone());
+              site_key_a := `${var_name}@${variable.token.module_path}:${variable.token.row.to_string()}:${variable.token.column.to_string()}`;
+              match(
+                captured_name_ids.get(site_key_a),
+                .Some(site_id) => if(!(site_id == owner_id), {
+                  refs.add(site_id);
+                }),
+                .None => ()
+              );
             });
           });
         },
         .None => ()
       );
+      if(!(env_resolved), {
+        match(
+          captured_name_ids.get(tok.value),
+          .Some(cap_id) => {
+            refs.add(cap_id);
+          },
+          .None => ()
+        );
+      });
     });
     return();
   });
@@ -222,14 +236,8 @@ collect_variable_refs_in_expr :: (
       .Some(lhs) => if(ast_expr_is_atom(lhs), {
         lhs_tok := ast_expr_token(lhs);
         if(lhs_tok.kind == TokenKind.Identifier, {
-          // Same unconditional name-unification as the atom case above.
-          match(
-            captured_name_ids.get(lhs_tok.value),
-            .Some(cap_id_b) => {
-              refs.add(cap_id_b);
-            },
-            .None => ()
-          );
+          // Same site-qualified unification as the atom case above.
+          (bind_env_resolved : bool) = false;
           match(
             ei_opt,
             .Some(bind_ei) => {
@@ -240,6 +248,7 @@ collect_variable_refs_in_expr :: (
                   .Some(v) => v,
                   .None => return()
                 );
+                bind_env_resolved = true;
                 if(!(bind_var.is_compile_time_only), {
                   bind_canonical := match(
                     variable_id_remapping.get(bind_var.id.clone()),
@@ -252,11 +261,28 @@ collect_variable_refs_in_expr :: (
                     .None => bind_canonical
                   );
                   refs.add(bind_owner.clone());
+                  site_key_b := `${lhs_tok.value}@${bind_var.token.module_path}:${bind_var.token.row.to_string()}:${bind_var.token.column.to_string()}`;
+                  match(
+                    captured_name_ids.get(site_key_b),
+                    .Some(site_id_b) => if(!(site_id_b == bind_owner), {
+                      refs.add(site_id_b);
+                    }),
+                    .None => ()
+                  );
                 });
               });
             },
             .None => ()
           );
+          if(!(bind_env_resolved), {
+            match(
+              captured_name_ids.get(lhs_tok.value),
+              .Some(cap_id_b) => {
+                refs.add(cap_id_b);
+              },
+              .None => ()
+            );
+          });
         });
       }),
       .None => ()
@@ -419,7 +445,12 @@ compute_cross_boundary_variables :: (
     sgi = (sgi + usize(1));
   });
   // Name → captured id, for unifying re-stamped variable ids with the
-  // analysis's captured set (see collect_variable_refs_in_expr).
+  // analysis's captured set (see collect_variable_refs_in_expr). Two key
+  // forms: `name@module:row:col` (declaration-site-qualified — used when the
+  // reading site's env resolution produced a Variable, so the site is known)
+  // and bare `name` (used only when the env resolution failed entirely).
+  // Site-qualification keeps same-named DISTINCT variables separate (the
+  // bufio two-`i`s class).
   captured_name_ids := HashMap(String, String).new();
   (cni : usize) = usize(0);
   cn_cvs := analysis.captured_variables;
@@ -429,6 +460,12 @@ compute_cross_boundary_variables :: (
       .Some(cv) => {
         if(!(captured_name_ids.contains_key(cv.base.name.clone())), {
           _r := captured_name_ids.set(cv.base.name.clone(), cv.base.id.clone());
+        });
+        if(cv.base.decl_site.len() > usize(0), {
+          site_key := `${cv.base.name.clone()}@${cv.base.decl_site.clone()}`;
+          if(!(captured_name_ids.contains_key(site_key.clone())), {
+            _r2 := captured_name_ids.set(site_key, cv.base.id.clone());
+          });
         });
       },
       .None => ()
@@ -1068,7 +1105,8 @@ _build_combined_sm_variables :: (
             id : lbl.clone(),
             name : lbl.clone(),
             ty : ty,
-            is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).None
+            is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).None,
+            decl_site : String.from("")
           ),
           kind : CapturedVariableKind.Outer,
           is_owning_the_same_rc_value_as : Option(Box(CapturedVariable)).None

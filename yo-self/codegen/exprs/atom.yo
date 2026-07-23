@@ -114,6 +114,11 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
                 );
                 // Closure-param coordination: prefer a SAME-NAME entry that
                 // HAS an alias (the synthetic slot set_effect writes into).
+                // Restricted to SYNTHETIC entries (empty decl_site — the
+                // closure-param slots this exists for): a same-name entry
+                // from a DIFFERENT declaration site is another variable, and
+                // redirecting to its alias cross-wired two branch-local `i`s
+                // (the bufio slot-alias class).
                 match(
                   context.state_machine_field_aliases,
                   .Some(aliases2) => {
@@ -124,7 +129,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
                         it.next(),
                         .Some(e) => {
                           if(!(e.key == var_id), {
-                            if(e.value.base.name == var_name, {
+                            if((e.value.base.name == var_name) && (e.value.base.decl_site.len() == usize(0)), {
                               match(
                                 aliases2.get(e.key.clone()),
                                 .Some(other_alias) => return(Option(String).Some(`sm->${other_alias.clone()}`)),
@@ -158,9 +163,32 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
     },
     .None => ()
   );
-  // 2) Name-based fallback (no env info / no id match): prefer aliased
-  //    entries, then the first name match.
+  // 2) Name-based fallback (no env info / no id match): DECLARATION-SITE
+  //    aware. When the env resolved a Variable (so its decl token is known),
+  //    a same-name entry must ALSO match the site — same-named DISTINCT
+  //    variables (two branch-local `i`s) otherwise cross-resolve: a
+  //    re-stamped read of one picked the OTHER's entry, which was
+  //    legitimately slot-packed with a live variable (the bufio
+  //    "read partial then remaining" wrong-bytes bug). Site-matching pass
+  //    first; the name-only pass runs ONLY when no site is known.
   {
+    (read_site : Option(String)) = Option(String).None;
+    match(
+      ei_opt,
+      .Some(ei_s) => {
+        svars := get_variables_from_env(ei_s.env, var_name.clone());
+        if(svars.len() > usize(0), {
+          match(
+            svars.get(svars.len() - usize(1)),
+            .Some(sv) => {
+              read_site = Option(String).Some(`${sv.token.module_path}:${sv.token.row.to_string()}:${sv.token.column.to_string()}`);
+            },
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
     (fallback_key : String) = String.from("");
     (fallback_found : bool) = false;
     it2 := smv.into_iter();
@@ -169,7 +197,13 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
       match(
         it2.next(),
         .Some(e) => {
-          if(e.value.base.name == var_name, {
+          name_hit := (e.value.base.name == var_name);
+          site_ok := match(
+            read_site,
+            .Some(rs) => ((e.value.base.decl_site == rs) || (e.value.base.decl_site.len() == usize(0))),
+            .None => true
+          );
+          if(name_hit && site_ok, {
             match(
               context.state_machine_field_aliases,
               .Some(al) => match(

@@ -321,3 +321,31 @@ Verify with `issues/repros/io-async-bufio-read-partial-slot-alias.yo`
 (expect second read = " world"), then fs/file 13/13, bufio 22/22, timer,
 async_await 116, walker profile unchanged — then full flag-off gates, commit,
 FLIP (delete IO_ASYNC_FSM_ENABLED), and re-run the 183-file sweep.
+
+### Round 6 — RESOLVED via attempt #3 (decl-site disambiguation); THE FLIP
+
+Attempt #3 landed exactly as planned and fixed the bufio split-brain:
+
+- `SuspensionCapturedVariable` gained `decl_site : String`
+  (`module:row:col` from `Variable.token`; empty for synthesized
+  closure-param/capture-field entries). Populated in `_capture_env_variable`
+  and await_analysis.yo's deferred-drop capture site.
+- atom.yo's step-2 name fallback is now site-aware (when the reading site's
+  env resolution produced a Variable, a same-name entry must also match the
+  site; empty-site entries still match anything), and the step-1
+  closure-param coordination scan is restricted to empty-site (synthetic)
+  entries.
+- `collect_variable_refs_in_expr`'s unification map is keyed by
+  `name@site` when the site is known; the bare-name key remains only as the
+  env-failure fallback.
+
+Verification flag-on: the bufio repro prints `" world"` (rc=0); full battery
+**bufio 22/22, fs/file 13/13, sys/timer 1/1, async_await 116/116,
+cycle_collector 16/16, basic 33/33, sys/signal 1/1** — walker unchanged at
+1/6 (pre-existing, flag-independent).
+
+**IO_ASYNC_FSM_ENABLED DELETED** — io.async now routes unconditionally like
+TS: closures WITH await analysis get the resumable state machine; closures
+without it (or with an unextractable body) get the lazy sync future. The
+full gate chain for the flipped tree (battery + corpus + std + fixpoint) is
+the final validation.

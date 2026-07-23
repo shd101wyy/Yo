@@ -68,7 +68,16 @@ SuspensionCapturedVariable :: ref(
     id : String,
     name : String,
     ty : TypeValue,
-    is_owning_the_same_rc_value_as : Option(Box(Self))
+    is_owning_the_same_rc_value_as : Option(Box(Self)),
+    /// Declaration site (`module:row:col` from the Variable's decl token) —
+    /// yo-self-only identity that survives env re-stamping. Name-based SM
+    /// lookups (atom.yo's fallback, the ref-collector's unification map) use
+    /// it to disambiguate DISTINCT same-named variables: without it, a
+    /// re-stamped read of one `i` name-fell back to ANOTHER branch's `i`
+    /// that was legitimately slot-packed with a live variable (the bufio
+    /// "read partial then remaining" wrong-bytes bug). Empty when unknown
+    /// (synthesized closure-param / capture-field entries).
+    decl_site : String
   )
 );
 // ---------------------------------------------------------------------------
