@@ -76,34 +76,18 @@ find_suspension_in_expr :: (
   });
   Option(usize).None
 });
-/// Splits a function body at suspension points into sequential segments. For a
-/// `begin(e1, ..., eN)` block, partitions the expressions into segments; each
-/// segment's expressions run in one state and the suspension at the end triggers
-/// a state transition. Non-begin bodies return a single segment. Mirrors
-/// `splitBodyAtSuspensionPoints` (the `SplitOptions` bundle is passed as explicit
-/// params: `handle_return_statements` async-only; `handle_sequential_suspensions`
-/// async-only).
-split_body_at_suspension_points :: (
+/// The begin-block splitting body of `split_body_at_suspension_points`,
+/// appending into the caller's `segments` (see the early-return note above).
+_split_begin_body_into :: (
   fn(
+    segments : ArrayList(SuspensionSegment),
     body : AstExpr,
     points : ArrayList(SuspensionPoint),
     should_skip_body : Impl(Fn(e : AstExpr) -> bool),
     handle_return_statements : bool,
     handle_sequential_suspensions : bool
-  ) -> ArrayList(SuspensionSegment)
+  ) -> unit
 )({
-  segments := ArrayList(SuspensionSegment).new();
-  // Non-begin body: return as a single segment.
-  if(!(ast_expr_is_fn_call_of(body, "begin",.None)), {
-    single_exprs := ArrayList(AstExpr).new();
-    single_exprs.push(body);
-    sp := cond(
-      (points.len() == usize(0)) => Option(SuspensionPoint).None,
-      true => match(points.get(usize(0)),.Some(p) => Option(SuspensionPoint).Some(p),.None => Option(SuspensionPoint).None)
-    );
-    segments.push(SuspensionSegment(state_number : usize(0), expressions : single_exprs, suspension_point : sp));
-    return(segments);
-  });
   // Begin block — split at suspension-point boundaries.
   expressions := match(body,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
   segment_expressions := ArrayList(ArrayList(AstExpr)).new();
@@ -163,6 +147,45 @@ split_body_at_suspension_points :: (
     );
     segments.push(SuspensionSegment(state_number : si2, expressions : exprs, suspension_point : sp2));
     si2 = (si2 + usize(1));
+  });
+});
+/// Splits a function body at suspension points into sequential segments. For a
+/// `begin(e1, ..., eN)` block, partitions the expressions into segments; each
+/// segment's expressions run in one state and the suspension at the end triggers
+/// a state transition. Non-begin bodies return a single segment. Mirrors
+/// `splitBodyAtSuspensionPoints` (the `SplitOptions` bundle is passed as explicit
+/// params: `handle_return_statements` async-only; `handle_sequential_suspensions`
+/// async-only).
+split_body_at_suspension_points :: (
+  fn(
+    body : AstExpr,
+    points : ArrayList(SuspensionPoint),
+    should_skip_body : Impl(Fn(e : AstExpr) -> bool),
+    handle_return_statements : bool,
+    handle_sequential_suspensions : bool
+  ) -> ArrayList(SuspensionSegment)
+)({
+  segments := ArrayList(SuspensionSegment).new();
+  // Non-begin body: return as a single segment. NOTE: this MUST NOT
+  // early-`return(segments)` from inside the if-block — the fn-scope list's
+  // deferred drop ran on the nested-block escape path and freed the buffer
+  // that was just returned, so every caller received a length-0 (or, on
+  // later reads of the reused memory, garbage-length) list. That emitted
+  // EMPTY resume functions (`switch (sm->state) { }`) for every io.async
+  // closure whose body is a bare non-begin expr — the File.close
+  // cond-with-await shape — and the machine never completed (fs/file
+  // flag-on hang; repro:
+  // issues/repros/io-async-bare-cond-await-empty-resume.yo).
+  if(!(ast_expr_is_fn_call_of(body, "begin",.None)), {
+    single_exprs := ArrayList(AstExpr).new();
+    single_exprs.push(body);
+    sp := cond(
+      (points.len() == usize(0)) => Option(SuspensionPoint).None,
+      true => match(points.get(usize(0)),.Some(p) => Option(SuspensionPoint).Some(p),.None => Option(SuspensionPoint).None)
+    );
+    segments.push(SuspensionSegment(state_number : usize(0), expressions : single_exprs, suspension_point : sp));
+  }, {
+    _split_begin_body_into(segments, body, points, should_skip_body, handle_return_statements, handle_sequential_suspensions);
   });
   segments
 });

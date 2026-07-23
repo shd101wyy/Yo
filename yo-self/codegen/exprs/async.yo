@@ -68,8 +68,10 @@ open(import("std/string"));
   get_type_string,
   can_optimize_as_nullable_pointer,
   get_variable_type_string,
+  get_variable_name_for_codegen,
   scope_stack_contains
 } :: import("../utils/index.yo");
+{ Environment } :: import("../../env.yo");
 {
   FunctionGenerationContext,
   ClosureParamSlot,
@@ -1362,8 +1364,21 @@ _build_async_capture_struct_literal :: (
               );
             },
             .None => {
-              // Capture-expression fallback: pending Phase-3 capture machinery.
-              parts.push(`.${label} = /* PHASE3_CAPTURE_PENDING */ 0`);
+              // Capture-expression fallback: read the captured variable BY
+              // NAME in the call-site scope. TS generates the capture field's
+              // RECORDED atom expr here (async.ts:330-335); yo-self
+              // capture-struct fields carry no per-field exprs, so the C name
+              // of the same-named variable at the io.async call site is the
+              // faithful equivalent for the std-internal shapes (read_file's
+              // `.path = path, .io = io` — enclosing-fn params). The RC +1
+              // for the whole struct comes from the dup wrap below
+              // (used_deferred_dups stays false), mirroring TS's
+              // !usedDeferredDups path. Previously this emitted
+              // `/* PHASE3_CAPTURE_PENDING */ 0`, feeding NULL captures into
+              // every std-internal FSM.
+              cap_env := match(context.base.get_expr_info(expr),.Some(cei_f) => Option(Environment).Some(cei_f.env),.None => Option(Environment).None);
+              cname := get_variable_name_for_codegen(label.clone(), cap_env);
+              parts.push(`.${label} = ${cname}`);
             }
           );
         });

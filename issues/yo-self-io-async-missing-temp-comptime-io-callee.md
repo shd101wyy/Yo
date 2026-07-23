@@ -189,60 +189,35 @@ io records into std-internal SMs).
   pre-existing behavioral bug (`unexpected exception` from the walk exn
   wiring), tracked as its own campaign item.
 
-## Round 5 (in flight, uncommitted — tree reverted to round-4 state)
+## Round 5 (fixes applied, gating in flight)
 
-**Attempt #1 correction:** the rc=138 SIGBUS previously blamed on the capture
-fallback was TRANSIENT (this machine kills long jobs) — the same binary
-compiles the same batch cleanly on re-run and under lldb. **The by-name
-capture fallback is sound** (re-apply it as-is: in
-`_build_async_capture_struct_literal`, replace the PHASE3_CAPTURE_PENDING `0`
-with `get_variable_name_for_codegen(label, call-site env)`; needs
-`get_variable_name_for_codegen` + `Environment` imports in async.yo). With it,
-captures materialize correctly (`.path = path, .io = io` — verified in the
-emitted C).
+**Fix 1 — capture fallback (sound; the earlier rc=138 was a transient machine
+kill, not the fallback):** `_build_async_capture_struct_literal`'s
+PHASE3_CAPTURE_PENDING `0` replaced with a by-name call-site variable read
+(`get_variable_name_for_codegen(label, call-site env)` — the TS async.ts:330-335
+equivalent; whole-struct dup balances RC).
 
-**The REAL round-5 blocker — bare-cond-await closures get an EMPTY resume:**
-fs/file test 0 hangs because `File.close`'s SM
-(`(e) => cond(self._is_closed => (), true => { ...await... })` — a single
-NON-begin cond body, std/fs/file.yo:202) emits
-`switch (sm->state) { }` — ZERO state segments. The machine never completes;
-the awaiting parent (read_string state 2) suspends forever. This bug PREDATES
-the capture fallback (confirmed in the round-4-era batch C) — it was masked by
-the earlier compile errors and NULL-capture crashes.
+**Fix 2 — the REAL hang: bare-cond-await closures got EMPTY resumes.**
+`File.close`'s SM (`(e) => cond(...)` — a single NON-begin body,
+std/fs/file.yo:202) emitted `switch (sm->state) { }` — zero segments — so the
+machine never completed and every awaiting parent hung. Root cause: the
+early `return(segments)` from inside `split_body_at_suspension_points`'s
+non-begin if-block frees the returned list (a TS-compiler drop bug on the
+nested-block escape path — callers read len 0, later reads garbage; see
+issues/ts-early-return-nested-block-rc-drop.md). Workaround: restructured to
+if/else with the begin path in `_split_begin_body_into` — single tail return.
+Repro: `issues/repros/io-async-bare-cond-await-empty-resume.yo` (25 lines,
+was segments=0 + rc=124 hang; now runs correctly).
 
-**Minimal repro (25 lines):**
-`issues/repros/io-async-bare-cond-await-empty-resume.yo` — an io.async whose
-closure body is a bare `cond` with an await inside a branch. Flag-on:
-`[SEGPROBE] segments=0 awaits=1 begin=N` and the binary hangs (rc=124).
-Closures with `{...}` (begin) bodies split fine (segments=2..4).
+**Flag-on battery after both fixes:** fs/file **13/13** (was 2), sys/bufio
+**21/22** (was 3), sys/timer 1/1, async_await 116/116, cycle 16/16, basic
+33/33, signal 1/1, walker 1/6 (unchanged — its 5 failures reproduce
+identically flag-off; separate pre-existing walk-exn bug).
 
-**Forensic state (probe findings, all reproducible):**
+**Remaining flip blockers:**
 
-- `split_into_state_segments(body, analysis.await_points)` returns **0**
-  segments for the cond body with 1 await — impossible from the source: the
-  shared splitter's non-begin path unconditionally returns 1 segment, and a
-  probe INSIDE `split_body_at_suspension_points` confirms it takes the
-  non-begin path (`points=1 is_begin=0`).
-- Calling `split_body_at_suspension_points` DIRECTLY right after (same
-  body_expr, points rebuilt from the same analysis) returned **22** segments —
-  consecutive reads of the same body/analysis give wildly different results.
-- Conclusion: the analysis/body reaches this code CORRUPTED for cond-shaped
-  bodies — the destructive-move read class (Option/ref field reads consume
-  shared objects). Something in the cond-await preprocessing (the
-  `is_inside_cond` / async_cond_branch_info machinery, or
-  compute_cross_boundary's earlier split) consumes fields of the await point
-  or body that the begin-shaped path doesn't touch.
-- A `printf` probe added to codegen/shared/suspension_codegen.yo worked, but
-  the same in async/state_code_gen.yo made the built compiler segfault at
-  startup (rc=139, empty output) — revert that file if found modified.
-
-**Next session's plan:**
-
-1. Re-apply the capture fallback (sound).
-2. Chase the cond-body corruption with the 25-line repro: instrument
-   `split_into_state_segments`'s CONVERSION loop (shared→StateSegment) and the
-   `points` build (`ap.base` reads) — suspect a destructive `.base` /
-   `.suspension_point` / `.expressions` read consuming the shared analysis;
-   fix by cloning at the read sites (the established `expr.clone()` pattern).
-3. Then flag-on fs/file + bufio behavioral re-run, full battery, fixpoint,
-   flip, DELETE the flag.
+1. sys/bufio "BufReader read partial then remaining" — the buffered-read
+   closure (io.await inside cond branches, buffer state through
+   `sm->__capture.self`) misbehaves flag-on. Round-6 target.
+2. fs/walker's 5 pre-existing behavioral failures (flag-independent) — decide
+   whether they gate the flip (they should not: identical flag-off).
