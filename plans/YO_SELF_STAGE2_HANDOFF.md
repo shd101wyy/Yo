@@ -6,9 +6,13 @@ per-bug details live in `issues/*.md` — do not re-litigate fixed bugs._
 ## Status
 
 - **#70 (`s2 test ./yo-self/tests`): DONE — 61/61.**
-- **#69 (`s2 test ./tests`): 161/183 committed** (`4bf8cb418`
-  comptime_int forall fix — prelude GREEN; full gates incl.
-  STRICT_FIXPOINT; verification sweep at /tmp/sweep69_r3).
+- **#69 (`s2 test ./tests`): 161/183 committed** (`4bf8cb418` +
+  `2764b90cf` comptime_int forall fix — prelude GREEN, comptime
+  regression caught by the r3 sweep and fixed the same day; full gates
+  incl. STRICT_FIXPOINT; verification sweep at /tmp/sweep69_r6).
+  LESSON now in THE METHOD: verification sweeps catch what the battery
+  misses — never skip the post-commit sweep, and grow the battery with
+  every near-miss (comptime.test is now permanent).
 - Recent commits (each fully gated incl. STRICT_FIXPOINT):
   `99ba71265` capture-split (arc GREEN), `7823007ba` rc layer 4
   (rc GREEN), `7fe90d289` witness resolution (iso GREEN), `0bca00991`
