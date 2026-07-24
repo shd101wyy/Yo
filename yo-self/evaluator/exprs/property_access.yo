@@ -55,7 +55,7 @@ open(import("std/string"));
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 { TokenKind } :: import("../../token.yo");
 { Exception } :: import("std/error");
-{ find_methods_from_generic_impls, MethodCandidate }
+{ find_methods_from_generic_impls, MethodCandidate, get_trait_key }
 :: import("../values/impl.yo");
 { get_type_trait_methods_by_name, type_id_or_empty }
 :: import("../values/type_trait_methods.yo");
@@ -997,6 +997,54 @@ Raw pointer operations may dereference invalid memory.`,
         return(expr);
       });
       prop_name_tt := ast_expr_token(property_expr).value;
+      // `<:` WITNESS member access (the previously Phase-3-skipped
+      // receiverType block, TS property-access.ts:651-900, minimal form):
+      // a TraitT whose `is_concrete` carries the receiver type — e.g.
+      // `(Box(i32) <: Isolation).can_isolate` — resolves the method against
+      // the generic impl registry (trait-filtered) and stamps the RESOLVED
+      // method type + VALUE. Without this the arm below returned the trait
+      // FIELD's declared type with no value, so codegen fell back to a
+      // record-member call through the witness's TYPE C name (`(bool(*)(
+      // void*))__yo_tN.can_isolate)(x)` — undeclared identifier; rc layer 3,
+      // repro issues/repros/iso-witness-member-call.yo). TS also scans
+      // CONCRETE impls first (ts:651-849) — not yet needed by any red test;
+      // add if a concrete-impl witness shape surfaces.
+      tt_recv_opt := match(
+        type_val_inner,
+        .TraitT(_, _, _, _, _, ic, _, _) => ic,
+        _ => Option(TypeValue).None
+      );
+      match(
+        tt_recv_opt,
+        .Some(tt_recv_ty) => {
+          tt_trait_key := get_trait_key(type_val_inner);
+          tt_cands := find_methods_from_generic_impls(tt_recv_ty, prop_name_tt.clone(), env);
+          (tt_ci : usize) = usize(0);
+          while(tt_ci < tt_cands.len(), {
+            tt_cand := match(
+              tt_cands.get(tt_ci),
+              .Some(c) => c,
+              .None => {
+                tt_ci = (tt_ci + usize(1));
+                continue;
+              }
+            );
+            // Trait-filtered (TS findMethodFromGenericImplForTrait looks up
+            // ONLY the trait's registry bucket): a same-named method on an
+            // unrelated trait must not match this witness.
+            if(tt_cand.source_trait_id == tt_trait_key, {
+              out_w := new_expr_info(env, tt_cand.method_type);
+              out_w.value = tt_cand.method_value;
+              out_w.is_accessing_property = Option(bool).Some(true);
+              expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_w);
+              expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_w);
+              return(expr);
+            });
+            tt_ci = (tt_ci + usize(1));
+          });
+        },
+        .None => ()
+      );
       tt_labels := match(
         type_val_inner,
         .TraitT(_, _, labels, _, _, _, _, _) => labels,

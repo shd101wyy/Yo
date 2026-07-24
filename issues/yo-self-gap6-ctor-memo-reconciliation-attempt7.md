@@ -333,3 +333,33 @@ emits a DIRECT call to the resolved impl method — find yo-self's
 property-access/dot-callee path for a `<:` witness receiver and mirror the
 direct-call resolution (yo-self evaluator counterpart:
 evaluator/values/impl.yo:1400 area).
+
+### rc layer 3 FIXED (witness member resolution) + layer 4 discovered (2026-07-24)
+
+**Layer 3 fix ON DISK, gates running:** `(T <: Isolation).can_isolate`
+witness member access — the previously Phase-3-skipped receiverType block.
+`yo-self/evaluator/exprs/property_access.yo` TraitT arm now: when the
+witness TraitT carries a receiver in `is_concrete`, resolve the method via
+impl.yo's `find_methods_from_generic_impls` (the rich wrapper WITH
+`_inject_forall_captures`) filtered by `candidate.source_trait_id ==
+get_trait_key(trait)`, and stamp the resolved method type + VALUE (mirrors
+TS property-access.ts:850 → findMethodFromGenericImplForTrait). NOTE: a
+first attempt added a plain finder to generic_impl_registry.yo and imported
+it directly from property_access — the TS compiler then emitted
+`g_impl_registry_entry_lists` TWICE with different ArrayList instantiation
+ids (redefinition; the TS compiler's own cross-module dup class!). Route
+witness resolution through impl.yo's re-export layer like every other
+caller. Repro: issues/repros/iso-witness-member-call.yo (11 lines).
+Results: iso.test 3/3 GREEN (was red); rc.test now C-COMPILES and runs
+14/15.
+
+**Layer 4 (new, pre-existing behavior finally exposed):** rc.test "Test Rc
+in different data structures" fails silently; probe (/tmp/rc_ds_probe.yo,
+4 sub-blocks with printfs) shows under s1: the ANON-STRUCT block's prints
+(a1/a2) never appear, nested-boxes (b1) + array chain (c1) print correctly,
+then HEAP CORRUPTION (SIGBUS in malloc, EXC_BAD_ACCESS 0x4000...) at the
+TUPLE block (d1). TS prints all four. So: anon-struct Rc-field block
+miscompiles (silent skip + heap damage), tuple Rc chain crashes on the
+damaged heap. This layer was NEVER exercised before (compile errors always
+blocked it). arc/prelude still have their own C errors (t37/t39-vs-t3
+passing mismatches — likely another instance-split family).
