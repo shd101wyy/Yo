@@ -504,3 +504,104 @@ Extra probes with the same s1:
   forall segments; call-site/spec name divergence.
 - imm_sorted_map / imm_vec / imm_threading: rc=137 at the 900s sweep
   timeout (STALL class) — re-check after the spec-gate broadening.
+
+### Round-2 correction: gate broadening alone produces HOLLOW greens (2026-07-24)
+
+The cf4 chain's early flips were partly VACUOUS: probe binaries compiled
+rc=0 but their C contained `// Failed to transpile m = (m.insert)(...)`
+for every main-body statement (sorted_map probes: 3 markers; imm_map
+probes: 4) — bodies silently skipped, asserts never executed. Loud
+"undeclared function" failures became silent hollow ones. TS emits ZERO
+such markers for the same probes. GATE HYGIENE (all future rounds):
+repro gates must diff the emitted C's "Failed to transpile"/"Unknown
+type:" marker counts against the TS emit, and battery flips must be
+spot-verified non-vacuous.
+
+Real root (TS ground truth, /tmp/imm*map_ts.c): TS splits parameters by
+isCompileTimeOnly — a comptime positional arg's VALUE becomes a leading
+sig segment (`\_node_insert_i32_idi32_i32_idi32_rtparam0*...`) and joins
+the compile-time cache key; the spec's C signature, registered type, and
+every call site carry ONLY the 5 runtime params; direct SELF-recursion
+inside the spec body re-targets the spec via the forward-ref
+(helper.ts:1856→1999). yo-self's "Phase 3 simplification" pushes ALL
+regular args into runtime_param_tys — so comptime Type args poison the
+spec type (emission skipped as generic / "Unknown type: Type" C params),
+the folded-const rebind DESTROYS the body's K/V TypeVal bindings
+(rebound to UnknownVal), and direct self-recursion is skipped rather
+than forward-referenced (bare fid at the recursive call). Fix plan (the
+REAL round 2, on the tree copy first):
+(a) create_specialized_function_inline: get_func_param_comptime flags →
+comptime args' values into compile_time_args; runtime_param_tys
+runtime-only; (b) compute_compile_time_signature: add TS's
+compile-time-regular-params block (helper.ts:2155); (c) binding loop
+skips comptime params (keeps try_to_call's TypeVal bindings) with a
+separate runtime index; (d) spec type: filtered param_types/labels/
+is_ref/is_owning masks; (e) inline arm + call sites: runtime args
+exclude comptime args; (f) direct self-recursion → forward-ref like
+TS. Gate broadening itself is KEPT (it is TS's guard) — it just
+needs (a)-(f) underneath it.
+
+### Round-2 REAL implementation landed in tree (2026-07-24 evening)
+
+All of (a)-(f) from the plan above, in calls/helper.yo + calls/function.yo:
+compile-time-regular-params sig block (new param_ct_flags arg on
+compute_compile_time_signature); flag-split arg loop in
+create_specialized_function_inline (comptime values → compile_time_args,
+runtime_param_tys runtime-only); decl_runtime_pts for the degenerate
+check + spec-type param sources; rebind loop skips comptime params
+(preserving try_to_call's TypeVal bindings — the folded-const rebind was
+DESTROYING them) with a separate runtime cursor; spec type registers
+runtime-only param_types/labels/is_ref/is_owning; inline arm's
+runtime_arg_exprs excludes comptime args (evaled_arg_infos stays
+positional-complete); DIRECT self-recursion now forward-refs the
+in-progress spec like the mutual case (TS helper.ts:1850-1856/1999) —
+explicit self-calls no longer emit the bare generic fid. Probe harness
+scratchpad/probe_cf5.sh enforces markers==0 (no hollow greens).
+
+### Round-2 outcome: REVERTED from tree; full diagnosis preserved (2026-07-24 night)
+
+The complete round-2 stack (gate broadening + faithful comptime-param
+model (a)-(f) + comptime-generic gates in ou_spec/is_func_generic/
+\_is_generic_unspecialized_func + record-overwrite guard) was probed
+through eight instrumented s1 builds (cf5-cf16) and REVERTED per THE
+METHOD: it converts the imm-family failures from loud C errors into a
+SILENT-ABORT class rather than fixing them end-to-end. The tree is back
+at the capture-split commit (99ba71265, gated green, 160/183 expected
+with arc). The full WIP diff is saved at
+scratchpad/round2_param_model_wip.patch (707 lines, apply with
+`git apply`).
+
+Probe-established facts for the re-approach (all with the WIP tree):
+
+1. `m.insert(...)` on Map(i32,i32): property access intentionally defers
+   methods to the call; `_try_find_receiver_method` FINDS insert
+   (hits=1, instance dispatch, recv=<struct:struct_yo_id_6052>); its
+   param matching SUCCEEDS (key/value declared=resolved=i32); the
+   failure is DEEPER — during the specialized body eval — after which
+   the ENTIRE remaining main-body eval silently stops (no further
+   evaluate_function_call entries; every later statement emits
+   `// Failed to transpile ...`) while compile exits rc=0.
+2. `check` mode on the same file prints the real class then reports
+   "evaluator OK": `Expected: <struct:struct_yo_id_5582> / Given: unit`
+   (call result degenerated to unit) and `Expected:
+*(<struct:struct_yo_id_5369>) / Actual: *(<struct:struct_yo_id_6062>)`
+   — a POINTER-typed pattern-era-vs-concrete instance mismatch: the
+   Gap-6 spec-identity family INSIDE the newly-activated specialized
+   bodies. This — not the parameter model — is the blocking layer.
+3. The parameter model itself verified sound on its own paths: with it
+   (cf5/cf6), arc + rc repros stay green (markers=0) and raw generic
+   originals stop being emitted once \_is_generic_unspecialized_func
+   knows about comptime params (cf6 imm_map compiles; cf5's "invalid
+   storage class specifier" gone).
+4. Gate hygiene tooling added: scratchpad/probe_cf5.sh (markers==0
+   enforcement); the marker-count-vs-TS-emit comparison is mandatory —
+   TS emits ZERO markers for all these probes.
+
+Re-approach order for round 2': (i) fix the pattern-era instance leak
+that the specialized bodies hit (the _(<5369>)-vs-_(<6062>) unify — the
+receiver-instance adoption machinery (attempt #8) does not yet cover
+POINTER-wrapped Self in spec bodies); (ii) fix the silent-abort so this
+class can never produce rc=0 hollow C (the main-body eval stop with no
+propagated error is its own bug — probably an effect-handler unwind
+being caught at the statement loop); (iii) re-apply the WIP patch;
+(iv) full gates.

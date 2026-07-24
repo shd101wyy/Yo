@@ -1,0 +1,27 @@
+//! Repro: comptime-Type-param helper left unspecialized (imm_map family).
+//!
+//! `Map.insert`'s spec body calls `_node_insert(K, V, root, shift, hash,
+//! k, v)` — a module-level helper with `comptime(K/V) : Type` params and
+//! SomeT runtime params, NO foralls, NO closure param. The inline-FuncVal
+//! arm's codegen-specialization gate required a CLOSURE param (a
+//! narrowing TS's isFunctionTypeGeneric guard does not have —
+//! helper.ts:1911, guards.ts:457), so the call emitted the BARE generic
+//! fid with the Types as runtime C args:
+//!   error: call to undeclared function 'yo_id_5430'
+//!   yo_id_5430((// Unknown type: Type)(...), ...)
+//! Fix (round 2, WIP — scratchpad/round2_param_model_wip.patch): drop the
+//! closure-param narrowing + the faithful comptime-param model. BLOCKED on
+//! a deeper pattern-era instance leak inside the activated spec bodies —
+//! see the "Round-2 outcome" ledger entry
+//! (issues/yo-self-gap6-ctor-memo-reconciliation-attempt7.md).
+//! Expected when fixed: compiles and runs clean with ZERO
+//! "Failed to transpile" markers in the emitted C (TS emits zero).
+{ assert } :: import("std/assert");
+{ Map } :: import("std/imm/map");
+main :: (fn(io : Io) -> unit)({
+  m := Map(i32, bool).new();
+  m2 := m.insert(i32(3), true);
+  assert(m2.len() == usize(1));
+  assert(m2.get(i32(3)) == Option(bool).Some(true));
+});
+export(main);
