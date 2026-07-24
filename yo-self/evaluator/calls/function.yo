@@ -58,7 +58,7 @@ open(import("std/fmt"));
   snapshot_env
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ get_func_param_defaults, get_func_param_default_exprs, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_variadic_param } :: import("../types/function.yo");
+{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_variadic_param } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
@@ -1104,7 +1104,8 @@ _funcval_bind_foralls :: (
     fa_bound_names : ArrayList(String),
     fa_bound_types : ArrayList(TypeValue),
     expected_param_types : ArrayList(TypeValue),
-    declared_param_types : ArrayList(TypeValue)
+    declared_param_types : ArrayList(TypeValue),
+    param_ct_flags : ArrayList(bool)
   ) -> unit
 )({
   // Structural-inference scratch env, built LAZILY on the first forall the
@@ -1154,7 +1155,13 @@ _funcval_bind_foralls :: (
           // `R_gs_..._comptime_int`). Mirrors the comptime_str arm above;
           // convert_… lowers comptime_int→i32 / comptime_float→f64. Repro:
           // issues/repros/box-eq-comptime-int-forall-leak.yo.
-          (is_comptime_int_type(arg_info.ty) || is_comptime_float_type(arg_info.ty)) =>
+          // GATED on the matched param being RUNTIME (mirrors TS
+          // helper.ts:508 `!parameter.isCompileTimeOnly`): a
+          // `comptime(v) : T` param must bind T to the RAW comptime type —
+          // lowering there broke ComptimeOrd/ComptimeEq dispatch inside
+          // comptime-fn bodies (tests/comptime.test.yo regression, r3
+          // sweep 2026-07-25).
+          ((!(match(param_ct_flags.get(ptn_i),.Some(f) => f,.None => false))) && (is_comptime_int_type(arg_info.ty) || is_comptime_float_type(arg_info.ty))) =>
             convert_comptime_type_to_runtime_type(arg_info.ty, env),
           (((is_function_type(arg_info.ty) || is_fn_trait_type(arg_info.ty)) || is_unit_type(arg_info.ty)) && is_some_type(exp_pt)) => exp_pt,
           true => arg_info.ty
@@ -1570,6 +1577,8 @@ _evaluate_funcval_runtime_call :: (
       sfa_i = (sfa_i + usize(1));
     });
     spec_reg_args := ArrayList(ArgEntry).new();
+    // Per-param comptime flags for the Step-4-mirror coercion below.
+    rt_param_ct := get_func_param_comptime(func_id_fv.clone());
     (sra_i : usize) = usize(0);
     while(sra_i < n_supplied_reg, {
       ainfo := match(evaled_arg_infos.get(sra_i),.Some(i) => i,.None => new_expr_info(env, t_unit()));
@@ -1580,7 +1589,26 @@ _evaluate_funcval_runtime_call :: (
       // Send)`) lowers to its concrete capture struct in the specialized C
       // function — the same concretion TS achieves via the SomeType's
       // resolvedConcreteType (helper.ts:2245-2252).
-      arg_ty_spec := match(ainfo.capture_type,.Some(ct) => ct,.None => ainfo.ty);
+      (arg_ty_spec : TypeValue) = match(ainfo.capture_type,.Some(ct) => ct,.None => ainfo.ty);
+      // Lower a comptime-only ARG type (comptime_int/float/str) to its
+      // runtime equivalent when the param is a RUNTIME param — the inline
+      // arm's mirror of check_if_function_parameter_matches_argument's
+      // Step-4 coercion (helper.yo, TS helper.ts:508). Without it the
+      // specialized fn's runtime param type stays comptime — e.g. `-(x)`
+      // on an f64: the forall T lowered to f64 but rtparam0 stayed
+      // comptime_float, so the spec BODY bound `self : comptime_float`
+      // and dispatched ComptimeNeg's `__yo_comptime_float_neg` (never
+      // emitted — the r3-sweep comptime.test regression, "call to
+      // undeclared function 'fn_yo_id_199'").
+      // comptime_int/float ONLY — comptime_str spec args are ESTABLISHED
+      // green-baseline behavior (`..._rtparam1_comptime_str...` specs like
+      // assert's are everywhere) and str's conversion needs the expected
+      // type (`*(char)` vs `__yo_str`); blanket-converting them crashed
+      // fs/walker at startup (r5 round).
+      sra_is_ct := match(rt_param_ct.get(sra_i),.Some(f) => f,.None => false);
+      if(!(sra_is_ct) && (is_comptime_int_type(arg_ty_spec) || is_comptime_float_type(arg_ty_spec)), {
+        arg_ty_spec = convert_comptime_type_to_runtime_type(arg_ty_spec, env);
+      });
       _sra := spec_reg_args.push(
         ArgEntry(value : ainfo.value, parameter_type : ainfo.ty, arg_type : arg_ty_spec)
       );
@@ -2911,6 +2939,10 @@ Fix: wrap the call:
           ),
           .None => ArrayList(bool).new()
         );
+        // Per-param `comptime(...)` flags (side table by fid) — the forall
+        // inference must NOT lower comptime_int/float args matched against a
+        // COMPTIME param (TS helper.ts:508 `!parameter.isCompileTimeOnly`).
+        fv_param_ct := get_func_param_comptime(func_id_fv.clone());
         (n_required_reg : usize) = n_p;
         if(fv_defaults.len() == n_p, {
           (nrr : usize) = usize(0);
@@ -3366,7 +3398,8 @@ Fix: wrap the call:
           fa_bound_names,
           fa_bound_types,
           if(rpt_from_expected, resolved_param_types, ArrayList(TypeValue).new()),
-          fv_param_types
+          fv_param_types,
+          fv_param_ct
         );
         // v4.1: validate the PLACES bound to ref parameters (after argument
         // evaluation so the chain types are resolved). Mirrors TS
