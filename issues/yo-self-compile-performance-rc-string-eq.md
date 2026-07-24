@@ -127,3 +127,31 @@ Full file: /tmp/r3_stage3_profile.txt. Notes vs the 07-23 profile:
    O(key length) per lookup); key by interned short ids instead.
 4. Identifier lookup: lower the frame-index threshold / measure
    small-frame scan share.
+
+## Negative result 2026-07-25: String `==` pointer fast path — NO WIN
+
+Tried: `(self_ptr &== other_ptr) ||` before the memcmp (std/string/
+string.yo Eq impl). Measured on `check ./std` back-to-back under equal
+load: baseline r3_s1 user 79.57s vs patched p1_s1 user 79.84s —
+identical. REVERTED (behavior probes all green, but a no-benefit change
+is not worth a gate cycle).
+
+Why it can't help: the hot `String ==` calls are REJECTS on different
+strings (env-lookup name compares) — the len check + first-byte memcmp
+already reject cheaply. The 20-27% profile share is the PER-CALL
+OVERHEAD: each `==` performs ~6-10 nested operations (two
+`match(_bytes)` Option unwraps, `.len()` / `.ptr()` METHOD calls, each
+with RC dup/drop pairs on the Option/ArrayList handles emitted by
+codegen). The Yo-source body is already minimal — the cost is the RC
+codegen around field reads and method receivers.
+
+CONCLUSION: there is no cheap std-level lever. The perf work IS the
+codegen borrow-elision arc (lever 1): teach the emitter (BOTH
+src/codegen TS and yo-self/codegen, in lockstep for corpus DIFF 0 +
+fixpoint) to pass borrowed reads to pure/borrowing callees without
+dup/drop pairs — String `==`/len/hash arguments, match scrutinee field
+reads, env-lookup Variable handle reads. That attacks the 60% decr_rc
+AND the 20% String== simultaneously (they are the same traffic). Plan
+it as its own multi-round arc with the full gate battery per round;
+start from `_optimize_dup_drop_pairs`' existing begin-block machinery
+(evaluator/exprs/begin.yo) and TS's equivalent.
