@@ -6,9 +6,9 @@ per-bug details live in `issues/*.md` — do not re-litigate fixed bugs._
 ## Status
 
 - **#70 (`s2 test ./yo-self/tests`): DONE — 61/61.**
-- **#69 (`s2 test ./tests`): 160/183 committed**, 161 expected once the
-  in-flight round-3 gates finish (comptime_int forall fix → prelude
-  flips; battery/corpus/std already green, fixpoint pending).
+- **#69 (`s2 test ./tests`): 161/183 committed** (`4bf8cb418`
+  comptime_int forall fix — prelude GREEN; full gates incl.
+  STRICT_FIXPOINT; verification sweep at /tmp/sweep69_r3).
 - Recent commits (each fully gated incl. STRICT_FIXPOINT):
   `99ba71265` capture-split (arc GREEN), `7823007ba` rc layer 4
   (rc GREEN), `7fe90d289` witness resolution (iso GREEN), `0bca00991`
