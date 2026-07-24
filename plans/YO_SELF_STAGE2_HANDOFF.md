@@ -6,35 +6,35 @@ per-bug details live in `issues/*.md` — do not re-litigate fixed bugs._
 ## Where things stand
 
 - **#70 (`s2 test ./yo-self/tests`): DONE — 61/61.**
-- **#69 (`s2 test ./tests`): 157/183 committed** (sweep-verified 2026-07-24,
-  `/tmp/sweep69_g8/results.txt`, S1=/tmp/g8c_s2 — attempt #8 also flipped
-  collections/linked_list as a bonus; ZERO new reds vs the flip baseline). 2026-07-23/24 flips, all fully gated
-  incl. STRICT_FIXPOINT:
+- **#69 (`s2 test ./tests`): 159/183 committed** (g11 sweep verified 158
+  with iso; rc landed after — fresh sweep running at /tmp/sweep69_g14).
+  2026-07-23/24 flips, all fully gated incl. STRICT_FIXPOINT:
   - io.async FSM round 7 (`b75fdb281`) — fs/temp 7/7 back (non-begin
     sequential awaits in `split_body_at_suspension_points`).
   - fs/walker 6/6 (`832fc672f`) — `_(...)` literal adopts an expected
     ANONYMOUS struct type (TS function.ts:418-439; scoped narrow — the
     broad rule miscompiles stage-2 self-emission, see task/issue).
+  - rc/arc/iso layer series (2026-07-24): array-wrapper order
+    (`2319ccfc6`), tuple structural keys (`0bca00991`), trait-witness
+    member resolution (`7fe90d289`, iso 3/3 GREEN), array/tuple RC
+    element dups (`7823007ba`, **rc 15/15 GREEN**). Sub-class maps and
+    next hunts at the END of the Gap-6 ledger.
   - **Gap-6 attempt #8 (`09cb5fd14`) — imm_list 16/16 + imm_string 28/28.**
     Receiver-instance `Self` adoption at every call-result stamping site +
     param binding; flagship `List(i32)` repro compiles AND runs; all dyn
     corpus canaries pass (what killed attempt #7). Ledger:
     `issues/yo-self-gap6-ctor-memo-reconciliation-attempt7.md` (attempt-8
     sections are the current map).
-- **ON DISK, uncommitted, gates pending** (sweep owns ./tests): nested
-  fixed-array wrapper emission order fix
-  (`yo-self/codegen/types/generation.yo` — HashMap hash-order vs TS's
-  insertion-ordered Map; repro
-  `issues/repros/nested-array-wrapper-order.yo` verified green). Run the
-  full gate chain (scratchpad/gates_g8c.sh pattern) when the sweep
-  finishes, then commit; it peels layer 1 of rc/arc/iso.
-- Remaining red families (post-attempt-8 sub-class map at the END of the
-  Gap-6 ledger): tuple instance split (rc layer 2), undeclared-`__yo_t28`
-  collection gap (rc layer 3), imm*set/imm_map un-specialized generic
-  (SortedMap family), sync/*, thread, worker, prelude, cli/arg_parser,
-  collections/*, closure_capture_rc_leak, derive_clone_complex,
-  impl_fn_field_rejection, ref_closure_capture, imm_sorted*\*/imm_vec/
-  imm_threading (rc=137 900s timeouts — likely same splits, STALL class).
+- Remaining red families (~24; sub-class maps at the END of the Gap-6
+  ledger): **arc/prelude = closure-capture spec split** (one soft-generic
+  specialization reused across closures with different capture structs —
+  diagnosed with C evidence, next hunt is the spec-cache keying in
+  calls/helper.yo), imm*set/imm_map un-specialized generic (SortedMap
+  family), sync/*, thread, worker, cli/arg_parser, collections/*,
+  closure_capture_rc_leak, derive_clone_complex, impl_fn_field_rejection,
+  ref_closure_capture, imm_sorted*\*/imm_vec/imm_threading/btree_map/
+  priority_queue (rc=137 900s timeouts — likely the same splits, STALL
+  class).
 - **Perf note:** self-compile is 5× slower than TS — 91% of CPU is RC churn
   - String == (profile-verified,
     `issues/yo-self-compile-performance-rc-string-eq.md`). Fix AFTER the
