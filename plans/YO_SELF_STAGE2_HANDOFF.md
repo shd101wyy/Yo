@@ -43,16 +43,19 @@ per-bug details live in `issues/*.md` — do not re-litigate fixed bugs._
     corpus canaries pass (what killed attempt #7). Ledger:
     `issues/yo-self-gap6-ctor-memo-reconciliation-attempt7.md` (attempt-8
     sections are the current map).
-- Remaining red families (~24; sub-class maps at the END of the Gap-6
-  ledger): **arc/prelude = closure-capture spec split** (one soft-generic
-  specialization reused across closures with different capture structs —
-  diagnosed with C evidence, next hunt is the spec-cache keying in
-  calls/helper.yo), imm*set/imm_map un-specialized generic (SortedMap
-  family), sync/*, thread, worker, cli/arg_parser, collections/_,
-  closure_capture_rc_leak, derive_clone_complex, impl_fn_field_rejection,
-  ref_closure_capture, imm_sorted_\*/imm_vec/imm_threading/btree_map/
-  priority_queue (rc=137 900s timeouts — likely the same splits, STALL
-  class).
+- Remaining red families (~23; sub-class maps at the END of the Gap-6
+  ledger): **imm*set/imm_map/sorted*\* = comptime-param spec model**
+  (round 2' — WIP patch + staged plan, see above); **prelude =
+  comptime_int forall-inference leak** (issue doc + repro committed);
+  **thread/worker = async-SM layer** (`sm->var_NNN` / void-variable C
+  errors, post-capture-split); **sync/\*** (once = stored-closure capture
+  identity; atomic = missing ctor emission), ref*closure_capture (closure
+  return identity), closure_capture_rc_leak ("unknown" forall sig
+  segments), cli/arg_parser, ordered_map/btree_map/priority_queue
+  (whole-body transpile failure + missing dispose_fn — third class),
+  derive_clone_complex, impl_fn_field_rejection,
+  imm_sorted*\*/imm_vec/imm_threading (rc=137 STALL — re-check after
+  round 2').
 - **Perf note:** self-compile is 5× slower than TS — 91% of CPU is RC churn
   - String == (profile-verified,
     `issues/yo-self-compile-performance-rc-string-eq.md`). Fix AFTER the
