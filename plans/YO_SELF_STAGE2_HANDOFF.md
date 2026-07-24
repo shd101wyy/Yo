@@ -6,9 +6,27 @@ per-bug details live in `issues/*.md` — do not re-litigate fixed bugs._
 ## Where things stand
 
 - **#70 (`s2 test ./yo-self/tests`): DONE — 61/61.**
-- **#69 (`s2 test ./tests`): 159/183 committed** (g11 sweep verified 158
-  with iso; rc landed after — fresh sweep running at /tmp/sweep69_g14).
-  2026-07-23/24 flips, all fully gated incl. STRICT_FIXPOINT:
+- **#69 (`s2 test ./tests`): 160/183 committed** (g14 sweep verified the
+  159 baseline exactly, zero regressions; the capture-split fix
+  (`99ba71265`, full gates incl. STRICT_FIXPOINT) then flipped
+  **arc 15/15 GREEN** — verification sweep with its s2 at
+  /tmp/sweep69_cf2).
+  - **Capture-split (`99ba71265`)**: specializations keyed by closure
+    identity (clfid cache-key extras + `_cl<i>_<fid>` sig segment,
+    mirroring TS's unique closure-type `.id`), dot-callee specs recorded
+    in the method-callee side-table, and closure params bound to a
+    PER-SPEC SomeT rebuild (fresh id + own resolved cell) instead of
+    last-write registration on the shared declared SomeT. thread/worker
+    advance from capture mismatches to an async-SM layer; prelude's sole
+    failure is the comptime_int forall-inference leak
+    (issues/yo-self-comptime-int-forall-inference.md + repro).
+  - **Round 2 (imm/collections comptime-param model): diagnosed, WIP
+    reverted** — see the "Round-2 outcome" ledger entry and
+    scratchpad/round2_param_model_wip.patch; blocked on a pattern-era
+    pointer-Self leak + a silent-abort bug (rc=0 hollow C — gate
+    hygiene: always diff "Failed to transpile" marker counts vs the TS
+    emit).
+    2026-07-23/24 flips, all fully gated incl. STRICT_FIXPOINT:
   - io.async FSM round 7 (`b75fdb281`) — fs/temp 7/7 back (non-begin
     sequential awaits in `split_body_at_suspension_points`).
   - fs/walker 6/6 (`832fc672f`) — `_(...)` literal adopts an expected
@@ -30,9 +48,9 @@ per-bug details live in `issues/*.md` — do not re-litigate fixed bugs._
   specialization reused across closures with different capture structs —
   diagnosed with C evidence, next hunt is the spec-cache keying in
   calls/helper.yo), imm*set/imm_map un-specialized generic (SortedMap
-  family), sync/*, thread, worker, cli/arg_parser, collections/*,
+  family), sync/*, thread, worker, cli/arg_parser, collections/_,
   closure_capture_rc_leak, derive_clone_complex, impl_fn_field_rejection,
-  ref_closure_capture, imm_sorted*\*/imm_vec/imm_threading/btree_map/
+  ref_closure_capture, imm_sorted_\*/imm_vec/imm_threading/btree_map/
   priority_queue (rc=137 900s timeouts — likely the same splits, STALL
   class).
 - **Perf note:** self-compile is 5× slower than TS — 91% of CPU is RC churn
