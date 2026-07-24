@@ -1,0 +1,38 @@
+//! Repro: closure-capture specialization split (arc/prelude batch).
+//!
+//! Two same-signature closures passed to the SAME generic fn
+//! (Thread.spawn) must mint DISTINCT specializations — each closure has
+//! its own capture struct. TS distinguishes them because every closure
+//! literal's FunctionType is a fresh object with a unique `.id` (folded
+//! into the spec signature, and the cache lookup compares with strict
+//! type-ID matching — helper.ts:2176/2290). yo-self's FnTraitT compares
+//! structurally, so both calls hit ONE cached spec and the second call
+//! site passed its capture struct (__yo_t15) to a body compiled for the
+//! first's (__yo_t14):
+//!   error: passing '__yo_t15' to parameter of incompatible type '__yo_t14'
+//! Fix: fold each closure arg's func_id into the compile-time cache key
+//! and the specialized-func-id signature (evaluator/calls/helper.yo).
+//! Expected: prints "p1 42" then "p2 7".
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+{ assert } :: import("std/assert");
+{ Thread } :: import("std/thread");
+main :: (fn(io : Io) -> unit)({
+  {
+    shared := arc(i32(42));
+    t := Thread.spawn((io) => {
+      assert(shared.* == 42);
+    });
+    t.join();
+    unsafe(printf("p1 %d\n", shared.*));
+  };
+  {
+    shared := arc(i32(7));
+    t := Thread.spawn((io) => {
+      assert(shared.* == 7);
+    });
+    t.join();
+    unsafe(printf("p2 %d\n", shared.*));
+  };
+});
+export(main);

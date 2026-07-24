@@ -1324,6 +1324,48 @@ create_specialized_function_inline :: (
         ret_sig_ty = Option(TypeValue).Some(ret_probe);
         compile_time_args.push(EvalValue.TypeVal(ret_probe));
       };
+      // Closure-identity cache keys. TS folds `_id${paramType.id}` into the
+      // signature and compares cached runtime types with STRICT type-ID
+      // matching (helper.ts:2176, 2290): every closure LITERAL's FunctionType
+      // is a fresh object with a unique id, so two same-signature closures
+      // never share a specialization there. yo-self's FnTraitT compares
+      // structurally, so `Thread.spawn(c1)` / `Thread.spawn(c2)` collided on
+      // ONE cached spec — the second call site passed its own capture struct
+      // to a body compiled for the first's ("passing '__yo_t15' to parameter
+      // of incompatible type '__yo_t14'"; arc/prelude, repro
+      // issues/repros/arc-spawn-capture-split.yo). A closure's func_id is the
+      // yo-self equivalent of TS's type identity: fold it into the
+      // compile-time cache key (+ the sig segment below, same gate as
+      // ret_sig_ty) — NOT into runtime_param_tys (appending there changed C
+      // call arity and regressed massively; see the warning above).
+      (closure_fid_sig : String) = String.new();
+      {
+        (cfi : usize) = usize(0);
+        n_cfa := arg_values.args.len();
+        while(cfi < n_cfa, {
+          match(
+            arg_values.args.get(cfi),
+            .Some(cf_ae) => match(
+              cf_ae.value,
+              .Some(cf_v) => match(
+                cf_v,
+                .FuncVal(cf_fvd, _) => {
+                  cf_fid := cf_fvd.*.func_id;
+                  compile_time_args.push(EvalValue.StrLit(`clfid${cfi.to_string()}_${cf_fid}`));
+                  closure_fid_sig.push_str("_cl");
+                  closure_fid_sig.push_string(cfi.to_string());
+                  closure_fid_sig.push_str("_");
+                  closure_fid_sig.push_string(sanitize_for_sig(cf_fid.clone()));
+                },
+                _ => ()
+              ),
+              .None => ()
+            ),
+            .None => ()
+          );
+          cfi = (cfi + usize(1));
+        });
+      };
       // ------------------------------------------------------------------
       // Cache lookup
       // ------------------------------------------------------------------
@@ -1354,6 +1396,10 @@ create_specialized_function_inline :: (
             },
             .None => ()
           );
+          // Closure-identity segment — varies exactly with the clfid
+          // cache-key extras above (same gate), so distinct closures get
+          // distinct emitted func_ids.
+          sig.push_string(closure_fid_sig.clone());
           specialized_func_id := if(
             sig.len() > usize(0),
             `${func_id}_${sig}`,
@@ -1537,12 +1583,67 @@ create_specialized_function_inline :: (
             );
             is_closure_param := (closure_some_id.len() > usize(0));
             if(is_closure_param, {
-              match(runtime_param_tys.get(rbp_i),.Some(cap_ty) => register_some_resolved_concrete(closure_some_id.clone(), cap_ty),.None => ());
+              // Bind the param to a PER-SPEC REBUILD of the declared SomeT
+              // (fresh id + own resolved cell seeded with THIS spec's capture
+              // struct) — never the shared declared SomeT. The declared SomeT
+              // is ONE lineage across every specialization of this function
+              // (the HAZARD note on SomeT.resolved_concrete): registering the
+              // capture on the SHARED id let the LAST specialization win
+              // globally, so an EARLIER spec's emitted body resolved `cb` to
+              // the wrong capture — spec-1 of Thread.spawn malloc'd closure-2's
+              // capture struct and its spawn wrapper called closure-2 (the
+              // arc/prelude capture-split repro,
+              // issues/repros/arc-spawn-capture-split.yo). The rebuild keeps
+              // the fn-trait constraints so the body's `cb(x)` stays CALLABLE.
+              // The shared-id registration is kept too (last-write, as before)
+              // for consumers that resolve the DECLARED param type rather than
+              // the bound variable's.
+              (bind_pt_cl : TypeValue) = decl_pt.clone();
+              match(
+                runtime_param_tys.get(rbp_i),
+                .Some(cap_ty) => {
+                  fresh_some_id := `${closure_some_id}_capbind_${type_key(cap_ty)}`;
+                  match(
+                    decl_pt,
+                    .SomeT(
+                      _,
+                      sp_nm_c,
+                      sp_fl_c,
+                      sp_pt_c,
+                      sp_rtt_c,
+                      sp_rtl_c,
+                      sp_ntt_c,
+                      sp_ntl_c,
+                      sp_ier_c,
+                      sp_kft_c,
+                      _
+                    ) => {
+                      bind_pt_cl = TypeValue.SomeT(
+                        fresh_some_id.clone(),
+                        sp_nm_c,
+                        sp_fl_c,
+                        sp_pt_c,
+                        sp_rtt_c,
+                        sp_rtl_c,
+                        sp_ntt_c,
+                        sp_ntl_c,
+                        sp_ier_c,
+                        sp_kft_c,
+                        t_resolved_cell(cap_ty)
+                      );
+                    },
+                    _ => ()
+                  );
+                  register_some_resolved_concrete(fresh_some_id.clone(), cap_ty);
+                  register_some_resolved_concrete(closure_some_id.clone(), cap_ty);
+                },
+                .None => ()
+              );
               _rbc := add_variable_to_env(
                 callee_env,
                 p_label,
-                decl_pt.clone(),
-                Option(EvalValue).Some(create_unknown_val(decl_pt)),
+                bind_pt_cl.clone(),
+                Option(EvalValue).Some(create_unknown_val(bind_pt_cl)),
                 false,
                 false,
                 false,

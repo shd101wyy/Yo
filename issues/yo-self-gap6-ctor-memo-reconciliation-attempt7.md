@@ -408,3 +408,99 @@ supersession keying in calls/helper.yo (`SpecializedFunctionCacheEntry`,
 `arg_ty_spec := ainfo.capture_type` is used for the spec ARG type but
 apparently not for the CACHE key) — TS specializes per closure because each
 closure's type is a distinct object. Likely also prelude.test's class.
+
+### arc/prelude capture-split FIX (2026-07-24, gates pending)
+
+Minimal repro pinned first (issues/repros/arc-spawn-capture-split.yo, 23
+lines): two blocks each `arc(N)` + `Thread.spawn((io) => assert(shared.*
+== N))` — TS prints p1/p2, s1 dies at clang with `passing '__yo_t15' to
+parameter of incompatible type '__yo_t14'`.
+
+Root cause (TS diff): TS's computeCompileTimeSignature includes
+`_id${paramType.id}` for every runtime param with a type id
+(helper.ts:2176), and its cache lookup compares runtime types with STRICT
+type-ID matching (helper.ts:2290). Each closure LITERAL's FunctionType is
+a fresh object with a unique `.id` — so two same-signature closures can
+never share a specialization in TS. yo-self's FnTraitT has no ids and
+compares structurally: `are_types_compatible_exact` said "equal", the
+first closure's spec was reused, and each call site still typed its own
+capture struct.
+
+Fix (calls/helper.yo, main spec path only — the `_ctl_` path keys by
+concrete type already): a closure arg's `func_id` is the yo-self
+equivalent of TS's type identity. For every arg whose VALUE is a FuncVal,
+fold `clfid<i>_<func_id>` into the compile-time cache key (the same
+extra-key pattern as ret*sig_ty — `compile_time_args` extras are
+cache-key-only) and append `\_cl<i>*<fid>` to the specialization sig so
+distinct closures also get DISTINCT emitted func_ids. Deliberately NOT
+touching runtime_param_tys (appending there changed C call arity and
+regressed massively — warning at the degenerate-unit gate). Same-literal
+re-calls share a fid → still cache-hit; two different literals split —
+exactly TS's behavior.
+
+**Round 2 (same day): cache split alone was NOT enough — repro now GREEN
+with three layers.** With only the clfid keying, the repro C flipped its
+error direction (t14-into-t15): two correctly-typed specs were minted but
+(a) BOTH call sites still emitted the bare `yo_id_4934` — codegen's
+method dispatch reads the method-callee VALUE side-table and falls back
+to the type*trait_methods registry FIRST-HIT (the original generic); the
+inline-FuncVal arm only stamped func_expr's ExprInfo, which that dispatch
+never reads — and (b) spec-1's emitted BODY malloc'd closure-2's capture
+and all three spawn wrappers called closure-2: the closure-param rebind
+registered each spec's capture on the SHARED declared-SomeT id
+(register_some_resolved_concrete last-write), exactly the HAZARD the
+SomeT.resolved_concrete doc warns about. Fixes: (2) function.yo's spec
+block now records the specialized FuncVal in the method-callee side-table
+for DOT-callee calls (mirrors TS lowering calls to the RESOLVED
+FunctionValue); (3) helper.yo's closure-param rebind binds the param to a
+PER-SPEC REBUILD of the SomeT (fresh `<sid>\_capbind*<capture type_key>`
+id + own resolved cell), keeping the shared-id registration for legacy
+consumers. Repro prints p1 42/p2 7 — byte-identical to TS. Gates part A
+(std + stage2/3 fixpoint) running; battery + corpus queued behind the g14
+sweep.
+
+### Next round staged: inline-arm spec gate broadening (probe-validated)
+
+The imm*set/imm_map/sorted*\* class root cause: `Map.insert`'s spec body
+calls `_node_insert(K, V, ...)` — a module-level helper with
+`comptime(K/V) : Type` params and SomeT runtime params, NO foralls, NO
+closure param. The inline-FuncVal arm's spec gate
+(function.yo `ou_spec_soft_generic`) requires
+`_func_type_has_closure_param` — a narrowing TS does NOT have
+(helper.ts:1911 gates on `isFunctionTypeGeneric` alone, guards.ts:457) —
+so the call emitted the BARE generic fid with Type args as runtime C args
+("call to undeclared function 'yo_id_5430'",
+`(// Unknown type: Type)(...)`). Dropping the closure-param requirement
+on a TREE COPY (/tmp/yoself_gatecopy → /tmp/cf3probe_s1):
+imm_map probe GREEN (8-line repro /tmp/imm_map_probe.yo), sorted_map
+probe GREEN, arc capture-split repro still GREEN, `check ./std` 153/153.
+Apply to the real tree AFTER the capture-split round commits (tree locked
+by its stage2/3 emits until then).
+
+ordered_map is a DIFFERENT class (unchanged by the broadening): main body
+"Failed to transpile m := (OrderedMap(String, i32).new)()" + a
+`dispose_fn = yo_id_5459` referencing a never-emitted drop method —
+ref-struct with HashMap/ArrayList fields; next-next round.
+
+### Residual-red classification vs capture-split s1 (2026-07-24)
+
+Gates part B: arc FLIPPED (15/15); prelude unchanged (its sole failure is
+the comptime_int forall-inference leak —
+issues/yo-self-comptime-int-forall-inference.md); thread/worker ADVANCED
+a layer (baseline t20-t23-vs-t29 capture mismatches → now async-SM
+`sm->var_NNN` / `void` variable errors); zero regressions (16/16
+baseline-green battery files pass, corpus 140/0). g14 sweep confirmed
+the committed baseline 159/183.
+
+Extra probes with the same s1:
+
+- sync/atomic: `__yo_new___yo_t14` undeclared (ctor never emitted).
+- sync/once: capture-type mismatch remains — stored-closure path
+  (Once callback held in a field?) not covered by the call-arg split.
+- ref_closure_capture: returning t22 from incompatible-result fn
+  (closure return identity).
+- closure_capture_rc_leak: call to
+  `yo_id_2889__unknown__Type__fn_item...` — sig built with "unknown"
+  forall segments; call-site/spec name divergence.
+- imm_sorted_map / imm_vec / imm_threading: rc=137 at the 900s sweep
+  timeout (STALL class) — re-check after the spec-gate broadening.

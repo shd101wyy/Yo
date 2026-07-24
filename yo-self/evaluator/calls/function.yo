@@ -1609,6 +1609,19 @@ _evaluate_funcval_runtime_call :: (
     spec_callee_info := new_expr_info(env, spec_ty_fixed);
     spec_callee_info.value = Option(EvalValue).Some(spec_fv);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(func_expr), spec_callee_info);
+    // For a DOT-callee call, codegen's method dispatch resolves the callee
+    // through the method-callee VALUE side-table (other_fn_call.yo) and, when
+    // the table has no entry, falls back to the type_trait_methods registry
+    // FIRST-HIT — the ORIGINAL generic FuncVal. This inline-FuncVal arm only
+    // stamped func_expr's ExprInfo (which that dispatch never reads), so the
+    // BARE generic fid reached the C call site (`yo_id_NNNN(capture)` — the
+    // arc/prelude capture-split repro,
+    // issues/repros/arc-spawn-capture-split.yo). Record the specialized
+    // FuncVal under this call's id, mirroring TS lowering a call to the
+    // RESOLVED FunctionValue (codegen never re-resolves by name).
+    if((spec_fid.len() > usize(0)) && ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
+      record_method_callee_value(ast_expr_id(expr), spec_fv);
+    });
     if((spec_fid.len() > usize(0)) && !(spec_fid == func_id_fv), {
       record_fid_spec(func_id_fv.clone());
     });
