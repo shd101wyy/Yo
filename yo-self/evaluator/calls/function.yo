@@ -80,6 +80,7 @@ open(import("std/fmt"));
   VarArgEntry
 } :: import("../context.yo");
 { is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_fn_trait_type, is_unit_type } :: import("../../types/guards.yo");
+{ convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { is_control_fn } :: import("../types/control_fn_registry.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -1141,6 +1142,20 @@ _funcval_bind_foralls :: (
         exp_pt := match(expected_param_types.get(ptn_i),.Some(t) => t,.None => t_unit());
         fa_infer_ty := cond(
           is_comptime_string_type(arg_info.ty) => TypeValue.Str,
+          // Same lowering for comptime_int/float literal args: `box(1)` must
+          // infer `T = i32`, not `T = comptime_int` — the C mapping hides the
+          // difference (int32_t either way) until a trait dispatch inside the
+          // instantiated impl differs: Box(comptime_int)'s `Eq` `==` on
+          // `lhs.* == rhs.*` resolved to ComptimeEq(comptime_int).== —
+          // `__yo_comptime_int_eq`, a comptime-only builtin that can never be
+          // emitted ("call to undeclared function 'fn_yo_id_173'", the
+          // prelude Box test). TS's inference sees the CONVERTED runtime type
+          // (its spec keys say `box_i32_idi32`; yo-self's said
+          // `R_gs_..._comptime_int`). Mirrors the comptime_str arm above;
+          // convert_… lowers comptime_int→i32 / comptime_float→f64. Repro:
+          // issues/repros/box-eq-comptime-int-forall-leak.yo.
+          (is_comptime_int_type(arg_info.ty) || is_comptime_float_type(arg_info.ty)) =>
+            convert_comptime_type_to_runtime_type(arg_info.ty, env),
           (((is_function_type(arg_info.ty) || is_fn_trait_type(arg_info.ty)) || is_unit_type(arg_info.ty)) && is_some_type(exp_pt)) => exp_pt,
           true => arg_info.ty
         );

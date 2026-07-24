@@ -87,3 +87,43 @@ they touch the exact machinery (identity, RC) the Gap-6 campaign is
 stabilizing. Do them AFTER the campaign lands, one lever per commit. The
 prize is real: cutting the emit from 55 → ~15 min would cut every future
 gate chain from ~2.5 h to ~1 h.
+
+## Fresh profile 2026-07-25 (live stage3 emit, r3_s2, 10s sample)
+
+Worker thread top-of-stack (~8000 samples): `__yo_decr_rc` 4772 (~60%),
+`yo_id_4050` = String `==` 1612 (~20%), `yo_id_279014` =
+evaluate_identifier_and_operator 991 (~12%), `_tlv_get_addr` 472 (~6%).
+Full file: /tmp/r3_stage3_profile.txt. Notes vs the 07-23 profile:
+
+- The env-frame lazy name index (env.yo `g_frame_indexes`, frames >= 64
+  vars) ALREADY EXISTS and is included in this baseline — the remaining
+  identifier-lookup cost is small-frame linear scans + the String
+  traffic they drive.
+- `_tlv_get_addr` at 6% says something in the hot path goes through
+  thread-local storage — check whether `__yo_decr_rc` is an
+  OUT-OF-LINE runtime call (not static inline) and/or uses TLS; making
+  the incr/decr fast path `static inline` in the C runtime template is
+  a mechanical, behavior-identical change (must be applied to BOTH the
+  TS and yo-self copies of the template to keep corpus DIFF 0 and the
+  fixpoint).
+
+## Working order for task #10 (one lever per commit, full gates each)
+
+1. String `==` fast path (std/string/string.yo): pointer-equality
+   shortcut on shared byte buffers (pass-by-value String copies share
+   the ArrayList handle) + fewer owned temporaries in the body (each
+   `match(self._bytes, ...)` costs Option/handle RC pairs).
+2. RC-op COUNT reduction — the real 60% lever. `__yo_decr_rc` is
+   ALREADY `static inline` with an untracked-object fast path that
+   avoids TLS (a prior round; see the comment in the runtime template).
+   The remaining cost is the NUMBER of calls on TRACKED (cyclic-capable)
+   evaluator objects (TypeValue/AstExpr/Environment), each paying the
+   `__yo_gc_collecting` TLS read — hence \_tlv_get_addr's 6%. Attack
+   via borrow elision on call arguments of pure/borrowing callees
+   (lever 1 of the original list; paired TS src/codegen +
+   yo-self/codegen change), NOT via runtime-template tweaks.
+3. Registry keys: `g_stable_to_key` & friends are HashMaps keyed by
+   FULL type_key strings (100s of KB for recursive types — hashing is
+   O(key length) per lookup); key by interned short ids instead.
+4. Identifier lookup: lower the frame-index threshold / measure
+   small-frame scan share.
