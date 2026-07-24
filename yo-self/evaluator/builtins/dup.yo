@@ -2,12 +2,13 @@
 //!
 //! 1:1 port of `src/evaluator/builtins/dup.ts`.
 //!
-//! NOTE: The RC-owning paths (tuple dup, array dup, struct ___dup()) require
-//! `type_contains_rc_type` to return true and `generate_expr_from_code` to exist.
-//! Since `type_contains_rc_type` is currently a stub returning `false`, those
-//! paths are unreachable and only the simple (non-RC) path is implemented here.
+//! Tuple/array RC-owning paths ARE ported (per-element
+//! `__yo_dup_tuple_element` / `__yo_dup_array_element` expansion — rc
+//! layer 4). The struct `.___dup()` branch is deliberately NOT ported:
+//! yo-self synthesizes no evaluator-side ___dup methods (ref-struct RC is
+//! lowered directly in codegen) — see the DIVERGENCE note in the body.
 open(import("std/string"));
-{ AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, BF_YO_DUP_TUPLE_ELEMENT, BF_YO_DUP_ARRAY_ELEMENT } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -18,6 +19,10 @@ open(import("std/string"));
 { EvalContext } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
+{ is_some_type, is_tuple_type, is_array_type } :: import("../../types/guards.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ generate_expr_from_code } :: import("../../parser.yo");
+{ ArrayList } :: import("std/collections/array_list");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
@@ -70,13 +75,99 @@ evaluate_dup :: (
   );
   (cur_env : Environment) = arg_info.env;
   arg_type := arg_info.ty;
-  // NOTE: When type_contains_rc_type is fully implemented, we need to handle:
-  //   - tuple types: generateTupleDupCall → evaluate generated code
-  //   - array types: generateArrayDupCall → evaluate generated code
-  //   - SomeType (non-Future): return unit (just note the dup)
-  //   - struct types: call .___dup() method
-  // For now, type_contains_rc_type() always returns false, so we always take
-  // the simple path: return the arg type with no compile-time value.
+  // Resolve a SomeT with a filled resolved-concrete cell (mirrors TS
+  // `argType.resolvedConcreteType ?? argType`).
+  (concrete_type : TypeValue) = arg_type;
+  if(is_some_type(concrete_type), {
+    match(
+      concrete_type,
+      .SomeT({ resolved_concrete : dup_rc_cell }) => match(
+        dup_rc_cell.get(usize(0)),
+        .Some(dup_rc_inner) => {
+          concrete_type = dup_rc_inner;
+        },
+        .None => ()
+      ),
+      _ => ()
+    );
+  });
+  // Tuple/array values containing Rc fields expand to per-element dup calls
+  // (`__yo_dup_tuple_element` / `__yo_dup_array_element`) — the builtins the
+  // codegen side (codegen/exprs/rc_fns.yo) already renders as incr loops.
+  // Mirrors evaluateDup's tuple/array branches (dup.ts:106-250). This was a
+  // Phase-3 stub (`type_contains_rc_type` was itself a stub then): with the
+  // expansion missing, `___dup(y)` on an array/tuple of Boxes was a NO-OP —
+  // every enclosing literal aliased ONE refcount and the scope-end drops
+  // over-released (double free; tests/rc.test.yo "Rc in different data
+  // structures", rc layer 4; repro issues/repros/rc-array-tuple-dup-elision.yo).
+  //
+  // DIVERGENCE from TS: the struct `.___dup()` branch is NOT ported —
+  // yo-self synthesizes no evaluator-side ___dup methods (ref-struct RC is
+  // lowered directly in codegen, see evaluator/types/struct.yo) — structs
+  // keep the simple path below.
+  if(type_contains_rc_type(concrete_type), {
+    dup_var_name := match(arg_info.variable_name,.Some(n) => n,.None => String.new());
+    if(dup_var_name.len() > usize(0), {
+      (dup_calls : ArrayList(String)) = ArrayList(String).new();
+      if(is_tuple_type(concrete_type), {
+        tup_fts := match(concrete_type,.Tuple(_, fts) => fts, _ => ArrayList(TypeValue).new());
+        (dti : usize) = usize(0);
+        while(dti < tup_fts.len(), {
+          ft := match(tup_fts.get(dti),.Some(t) => t,.None => TypeValue.Unit);
+          if(type_contains_rc_type(ft), {
+            dup_calls.push(`${BF_YO_DUP_TUPLE_ELEMENT}(${dup_var_name}, ${dti.to_string()})`);
+          });
+          dti = (dti + usize(1));
+        });
+      });
+      if(is_array_type(concrete_type), {
+        (arr_elem, arr_len, arr_lvar) := match(
+          concrete_type,
+          .Array(e, l, lv) => (e, l, lv),
+          _ => (TypeValue.Unit, usize(0), String.new())
+        );
+        // Only compile-time-known lengths (TS: isNumberValue(length)); a
+        // pattern-era `length_var` means the length is not concrete — skip.
+        if(type_contains_rc_type(arr_elem) && (arr_lvar.len() == usize(0)), {
+          (dai : usize) = usize(0);
+          while(dai < arr_len, {
+            dup_calls.push(`${BF_YO_DUP_ARRAY_ELEMENT}(${dup_var_name}, ${dai.to_string()})`);
+            dai = (dai + usize(1));
+          });
+        });
+      });
+      if(dup_calls.len() > usize(0), {
+        (dup_code : String) = String.from("begin(");
+        (dci : usize) = usize(0);
+        while(dci < dup_calls.len(), {
+          if(dci > usize(0), {
+            dup_code.push_str(", ");
+          });
+          match(
+            dup_calls.get(dci),
+            .Some(c) => dup_code.push_string(c),
+            .None => ()
+          );
+          dci = (dci + usize(1));
+        });
+        dup_code.push_str(")");
+        gen_expr := generate_expr_from_code(dup_code, exn);
+        evaluated_gen := evaluate_expression(gen_expr, cur_env, ctx);
+        // Stamp the ORIGINAL `___dup(...)` node with the generated node's
+        // info too (TS mutates the node in place via
+        // replaceFuncCallExprWithFuncCallExpr; yo-self returns the new node —
+        // stamping both keeps id-keyed readers of the original consistent).
+        match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_gen)),
+          .Some(gen_info) => {
+            expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), gen_info);
+          },
+          .None => ()
+        );
+        return(evaluated_gen);
+      });
+    });
+  });
   out_info := new_expr_info(cur_env, arg_type);
   // value is None (runtime) — mirrors `value: undefined` in TS
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);

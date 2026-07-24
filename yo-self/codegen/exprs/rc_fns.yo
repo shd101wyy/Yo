@@ -249,7 +249,19 @@ generate_yo_dup_array_element :: (fn(expr : AstExpr, indent : String, context : 
       out.push_str("])");
       out
     },
-    .None => String.from("// No dup function for array element type")
+    .None => {
+      // No trait ___dup function — yo-self synthesizes none for ref structs
+      // (RC is lowered directly in codegen, unlike TS's
+      // addRcFunctionSignaturesToStructType). Fall back to the direct
+      // lowering (`(cast)__yo_incr_rc(x)` for ref types), the same helper
+      // the nested-array branch above uses for its children.
+      direct_ref := String.from("(");
+      direct_ref.push_string(array_code);
+      direct_ref.push_str(").data[");
+      direct_ref.push_string(index_code);
+      direct_ref.push_str("]");
+      generate_dup_code_for_value(direct_ref, element_type, context)
+    }
   )
 });
 /// `__yo_drop_tuple_element(<tuple>, <index>)`. Mirrors `generateYoDropTupleElement`.
@@ -322,7 +334,11 @@ generate_yo_dup_tuple_element :: (fn(expr : AstExpr, indent : String, context : 
         out.push_str(")");
         out
       },
-      .None => String.from("// No dup function for tuple element type")
+      // No trait ___dup function — fall back to the direct RC lowering
+      // (`(cast)__yo_incr_rc(x)` for ref types); yo-self synthesizes no
+      // evaluator-side ___dup methods for ref structs (see
+      // generate_yo_dup_array_element's twin fallback).
+      .None => generate_dup_code_for_value(access.clone(), element_type, context)
     )
   )
 });

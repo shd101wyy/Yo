@@ -363,3 +363,48 @@ miscompiles (silent skip + heap damage), tuple Rc chain crashes on the
 damaged heap. This layer was NEVER exercised before (compile errors always
 blocked it). arc/prelude still have their own C errors (t37/t39-vs-t3
 passing mismatches — likely another instance-split family).
+
+### rc layer 4 FIXED — rc.test 15/15 (2026-07-24, gates running)
+
+Three stacked pieces, all Phase-3/4 "DEFERRED" stubs finally hit by real
+Rc-bearing tests (the 4-block probe /tmp/rc_ds_probe.yo →
+issues/repros/rc-array-tuple-dup-elision.yo):
+
+1. **evaluator/builtins/dup.yo** — evaluate_dup's tuple/array RC branches
+   were stubbed ("type_contains_rc_type is a stub" — long false). Ported:
+   per-element `__yo_dup_tuple_element` / `__yo_dup_array_element` expansion
+   via generate_expr_from_code + evaluate, stamping BOTH the original
+   `___dup` node and returning the generated node (TS mutates in place).
+   Struct `.___dup()` branch deliberately NOT ported (yo-self lowers
+   ref-struct RC directly in codegen — documented divergence).
+2. **evaluator/values/tuple.yo** — set_expr_as_needs_to_call_dup for field
+   values was a stub comment; wired (mirrors tuple.ts:107).
+3. **codegen/exprs/array_fns.yo + tuple_fn.yo** — the literal emitters now
+   consume per-element deferred_dup_expressions (emit the dups, reference
+   the dup-result temp in the literal — mirrors array-fns.ts:36-50 /
+   tuple-fn.ts:36-48). **codegen/exprs/rc_fns.yo** — both element-dup
+   emitters' `.None` fallback now calls generate_dup_code_for_value (direct
+   `__yo_incr_rc` lowering) instead of emitting a `// No dup function`
+   comment into expression position: yo-self has no synthesized \_\_\_dup
+   trait methods for ref structs, so TS's getDupFunctionForType-style
+   lookup can't ever find one there.
+
+Verified: all five block-pair combos + the full 4-block probe print
+byte-identical to TS; **rc.test 15/15** (was 14/15 with heap corruption).
+arc/prelude keep their own separate C-error layers. g11 sweep (witness fix):
+**158/183**, zero regressions (only iso flipped vs g8).
+
+### arc/prelude class identified: closure-capture spec split (2026-07-24)
+
+arc.test C errors are CLOSURE CAPTURE mismatches: the call site builds
+`__yo_t37 __capture_closure_yo_id_6105_0 = {.shared = shared}` (capture
+instance capture_yo_id_6109) and passes it to `yo_id_4934(...)` whose param
+is capture_yo_id_6125 — one soft-generic specialization (Thread.spawn-like,
+`cb : Impl(Fn(...))`) is REUSED across four different closures (6109/6125/
+6139/6146 all `{shared}`-shaped): the specialization cache keys by the Fn
+signature and ignores the capture struct, while codegen types each call
+site's capture with its own closure's instance. Next hunt: the spec cache /
+supersession keying in calls/helper.yo (`SpecializedFunctionCacheEntry`,
+`arg_ty_spec := ainfo.capture_type` is used for the spec ARG type but
+apparently not for the CACHE key) — TS specializes per closure because each
+closure's type is a distinct object. Likely also prelude.test's class.

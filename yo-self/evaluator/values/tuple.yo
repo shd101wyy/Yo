@@ -13,7 +13,7 @@
 //!     onto the call expression's ExprInfo.
 //!
 //! Phase 3 stubs preserved as no-ops:
-//!   * `set_expr_as_needs_to_call_dup` — RC tracking is not yet ported.
+//!   (set_expr_as_needs_to_call_dup for field values IS wired — rc layer 4.)
 //!   * `attach_temp_variable_to_expr` — temp-variable assignment is not yet ported.
 open(import("std/string"));
 open(import("std/fmt"));
@@ -45,6 +45,7 @@ open(import("std/fmt"));
   is_comptime_list_type
 } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
+{ set_expr_as_needs_to_call_dup } :: import("../utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -164,8 +165,11 @@ evaluate_tuple_element_value :: (
   );
   evaluated_rhs := evaluate_expression(expr, env, ctx);
   ctx.expected_type = saved_expected;
-  // setExprAsNeedsToCallDup — Phase 3 stub.
-  // (No-op; preserved as a comment to mirror the TS call site.)
+  // Mark the field value copy-semantics: a named RC value moved into the
+  // tuple literal gets a deferred `___dup` (mirrors tuple.ts:107 — was a
+  // Phase-3 stub; without it the literal aliased the element's refcount and
+  // scope-end drops over-released, rc layer 4).
+  set_expr_as_needs_to_call_dup(evaluated_rhs, ctx, exn);
   // Look up the resulting ExprInfo for the rhs.
   rhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_rhs));
   rhs_info := match(

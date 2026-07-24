@@ -3,15 +3,17 @@
 //! Emits `(<cName>){ ._0 = a, ._1 = b, ... }` for a `tuple(...)` call. If the
 //! tuple has a result variable name, emits it into a named temp and returns
 //! the temp; otherwise returns the C compound-literal inline. A zero-arg tuple
-//! is the unit value — optimized away (returns ""). DEFERRED (documented, not
-//! hit by the no-RC corpus): per-field deferred-dup emission for moved RC
-//! fields (Phase 4).
+//! is the unit value — optimized away (returns ""). Per-field deferred-dup
+//! emission for moved RC fields IS ported (rc layer 4 — without it the tuple
+//! literal aliased its field's refcount and scope-end drops over-released).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_fn_call } :: import("../../expr.yo");
+{ Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ type_key, get_variable_type_string } :: import("../utils/index.yo");
+{ type_key, get_variable_type_string, get_variable_name_for_codegen } :: import("../utils/index.yo");
+{ generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
   match(e,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new())
@@ -33,7 +35,43 @@ _build_tuple :: (fn(arg_exprs : ArrayList(AstExpr), c_name : String, expr : AstE
         args_list.push_str("._");
         args_list.push_string(i.to_string());
         args_list.push_str(" = ");
-        args_list.push_string(_call_generate_expr(arg, indent.clone(), context));
+        arg_code := _call_generate_expr(arg, indent.clone(), context);
+        // Deferred dup for a moved RC field (mirrors tuple-fn.ts:36-48):
+        // emit the field's deferred `___dup` expressions and reference the
+        // DUP RESULT temp — the literal owns its own +1 per field.
+        (used_dup_temp : bool) = false;
+        match(
+          context.base.get_expr_info(arg),
+          .Some(arg_ei) => match(
+            arg_ei.deferred_dup_expressions,
+            .Some(arg_dups) => if(arg_dups.len() > usize(0), {
+              generate_deferred_dup_expressions(arg, indent.clone(), context);
+              match(
+                arg_dups.get(usize(0)),
+                .Some(dup_expr) => if(ast_expr_is_fn_call(dup_expr), {
+                  match(
+                    context.base.get_expr_info(dup_expr),
+                    .Some(dup_ei) => match(
+                      dup_ei.variable_name,
+                      .Some(dup_vn) => {
+                        args_list.push_string(get_variable_name_for_codegen(dup_vn.clone(), Option(Environment).Some(dup_ei.env)));
+                        used_dup_temp = true;
+                      },
+                      .None => ()
+                    ),
+                    .None => ()
+                  );
+                }),
+                .None => ()
+              );
+            }),
+            .None => ()
+          ),
+          .None => ()
+        );
+        if(!(used_dup_temp), {
+          args_list.push_string(arg_code);
+        });
       },
       .None => ()
     );

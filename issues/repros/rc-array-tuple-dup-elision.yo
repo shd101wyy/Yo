@@ -1,0 +1,42 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+{ assert } :: import("std/assert");
+main :: (fn() -> unit)({
+  // Anonymous struct
+  {
+    x := Box(i32)(3);
+    y := { x };
+    z := { y };
+    unsafe(printf("a1 %d %d %d\n", x.*, y.x.*, z.y.x.*));
+    y.x = Box(i32)(4);
+    unsafe(printf("a2 %d %d\n", y.x.*, z.y.x.*));
+  };
+  // Nested boxes
+  {
+    x := box(3);
+    y := box(x);
+    z := box(y);
+    z.* = box(box(10));
+    unsafe(printf("b1 ok\n"));
+  };
+  // Array containing Rc
+  {
+    x := Box(i32)(3);
+    y := [x,];
+    z := [y,];
+    m := [z,];
+    n := [m,];
+    unsafe(printf("c1 %d %d %d %d %d\n", x.*, y(0).*, z(0)(0).*, m(0)(0)(0).*, n(0)(0)(0)(0).*));
+  };
+  // Tuple containing Rc
+  {
+    x := Box(i32)(3);
+    y := (x,);
+    z := (y,);
+    m := (z,);
+    n := (m,);
+    z.0 = (box(10),);
+    unsafe(printf("d1 %d %d %d %d %d\n", x.*, y.0.*, z.0.0.*, m.0.0.0.*, n.0.0.0.0.*));
+  };
+});
+export(main);

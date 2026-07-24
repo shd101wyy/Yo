@@ -1,18 +1,21 @@
 //! Anonymous-array + `__yo_array_fill` emitters — mirrors
 //! `src/codegen/exprs/array-fns.ts`.
 //!
-//! DEFERRED (documented, not hit by the no-RC corpus): per-element deferred-dup
-//! emission for moved RC elements (Phase 4). The TS `Date.now()` fallback temp
-//! name is replaced by `random_id` (both only need uniqueness).
+//! Per-element deferred-dup emission for moved RC elements IS ported (rc
+//! layer 4 — without it every enclosing array literal aliased its element's
+//! refcount and scope-end drops over-released). The TS `Date.now()` fallback
+//! temp name is replaced by `random_id` (both only need uniqueness).
 open(import("std/string"));
-{ AstExpr } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_fn_call } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_array_type } :: import("../../types/guards.yo");
 { random_id } :: import("../../utils.yo");
+{ Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, get_variable_type_string } :: import("../utils/index.yo");
+{ get_type_string, get_variable_type_string, get_variable_name_for_codegen } :: import("../utils/index.yo");
+{ generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 /// `array(1, 2, 3)` → `(<arrayType>){ .data = { 1, 2, 3 } }`, into a named temp
 /// when the array has a result variable name. Returns `.None` when the node is
 /// not a typed array call (fall-through). Mirrors `generateAnonymousArray`.
@@ -32,7 +35,44 @@ generate_anonymous_array :: (fn(expr : AstExpr, indent : String, context : Funct
             if(i > usize(0), {
               args_list.push_str(", ");
             });
-            args_list.push_string(_call_generate_expr(arg, indent.clone(), context));
+            arg_code := _call_generate_expr(arg, indent.clone(), context);
+            // Deferred dup for a moved RC element (mirrors array-fns.ts:36-50):
+            // emit the element's deferred `___dup` expressions, then reference
+            // the DUP RESULT temp in the literal instead of the original —
+            // the literal now owns its own +1 per element.
+            (used_dup_temp : bool) = false;
+            match(
+              context.base.get_expr_info(arg),
+              .Some(arg_ei) => match(
+                arg_ei.deferred_dup_expressions,
+                .Some(arg_dups) => if(arg_dups.len() > usize(0), {
+                  generate_deferred_dup_expressions(arg, indent.clone(), context);
+                  match(
+                    arg_dups.get(usize(0)),
+                    .Some(dup_expr) => if(ast_expr_is_fn_call(dup_expr), {
+                      match(
+                        context.base.get_expr_info(dup_expr),
+                        .Some(dup_ei) => match(
+                          dup_ei.variable_name,
+                          .Some(dup_vn) => {
+                            args_list.push_string(get_variable_name_for_codegen(dup_vn.clone(), Option(Environment).Some(dup_ei.env)));
+                            used_dup_temp = true;
+                          },
+                          .None => ()
+                        ),
+                        .None => ()
+                      );
+                    }),
+                    .None => ()
+                  );
+                }),
+                .None => ()
+              ),
+              .None => ()
+            );
+            if(!(used_dup_temp), {
+              args_list.push_string(arg_code);
+            });
           },
           .None => ()
         );
