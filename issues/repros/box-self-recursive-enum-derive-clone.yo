@@ -129,6 +129,31 @@
 //!       instantiation); or
 //!   (b) stop emitting the generic original of an impl method that has a
 //!       concrete instantiation.
+//!
+//! SECOND PROBE — the creation CONTEXT, which pins the fix location.
+//! Instrumenting the single `create_specialized_function_inline` call site
+//! (evaluator/calls/function.yo:1623) to print the spec fid plus
+//! `ctx.currently_specializing_function`:
+//!
+//!   fid=yo_id_2747_TreeNode_id_… (CORRECT)  inside=<none>
+//!   fid=yo_id_2747_V_id_1598_…   (BOGUS)    inside=fn_yo_id_2767
+//!
+//! `fn_yo_id_2767` is TreeNode.clone's own specialization. So the correct
+//! `box` spec comes from main's explicit `box(...)` calls, while the bogus one
+//! is created WHILE SPECIALIZING TreeNode.clone.
+//!
+//! Causal chain, fully measured:
+//!   TreeNode.clone spec evaluates `__v_left.clone()` on a `Box(Self)` field
+//!     -> calls Box.clone, but does NOT specialize it at V = TreeNode; its body
+//!        is evaluated with V still UNRESOLVED
+//!     -> the nested `box(self.*.clone())` therefore specializes with V bound
+//!        to V itself  =>  `void` parameter + generic Box(V)
+//!
+//! So the defect is that `Self -> TreeNode` substitution does not reach the
+//! CALLEE METHOD'S forall binding when the receiver is a `Box(Self)` FIELD.
+//! Fix there — not in the recursion guards (proven uninvolved: zero hits), not
+//! in derive, not in return-type inference, and not in the forward-ref
+//! captures.
 open(import("std/fmt"));
 
 TreeNode :: enum(Leaf(value : i32), Branch(left : Box(Self), right : Box(Self)));
