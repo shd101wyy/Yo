@@ -31,32 +31,36 @@
 //! This is the minimal form of tests/derive_clone_complex.test.yo's failure
 //! (same two error classes; that file's TreeNode is the same shape).
 //!
-//! FULL ROOT-CAUSE CHAIN (traced to std source):
+//! FINDINGS (two of my earlier hypotheses were DISPROVEN — recorded so they
+//! are not re-tried):
 //!
-//!   box  :: (fn(forall(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
-//!   Box's Clone impl (std/prelude.yo ~7400):
-//!            clone : ((self) -> box(self.*.clone()))
+//!   1. NOT derive-specific. Writing the same impl BY HAND —
+//!        impl(TreeNode, Clone(clone : ((self) -> match(self,
+//!          .Leaf(v) => .Leaf(v.clone()),
+//!          .Branch(l, r) => .Branch(l.clone(), r.clone())))))
+//!      fails IDENTICALLY. So `__derive_clone` is not implicated; it just
+//!      happens to generate this shape.
 //!
-//! The failing specialization IS `box`. Its `forall(V)` was inferred as UNIT,
-//! which is why the parameter lowered to `void` and the body built Box(V).
+//!   2. NOT return-type inference. I hypothesised that the untyped lambda
+//!      `clone : ((self) -> …)` left the return type unknown during the
+//!      recursion, collapsing it to unit. Writing an EXPLICIT signature —
+//!        clone : (fn(self : Self) -> Self)(match(…))
+//!      fails IDENTICALLY too. So the inferred return type is not the cause.
 //!
-//! Why V infers to unit: the derived `TreeNode.clone` calls `Box.clone`, which
-//! calls `box(self.*.clone())`, which calls `TreeNode.clone` again — a RECURSION
-//! through the derive. `__derive_clone` emits an UNTYPED lambda,
-//! `clone : ((self) -> #(match_body.to_expr()))`, so the method's return type is
-//! INFERRED FROM ITS BODY. While that body is still being evaluated the inner
-//! `.clone()` has no known return type yet, yields unit, and `box`'s forall V
-//! unifies with unit.
+//! WHAT IS IMPLICATED: `Self` inside the FIELD type. `Box(i32)` clones fine
+//! (a struct with a `Box(i32)` field and derive(Clone) compiles and runs), and
+//! only `Box(Self)` fails. So `self.*` on a `Box(Self)` field appears to yield
+//! an unresolved `Self` rather than TreeNode, whereupon `.clone()` on it gives
+//! unit and `box`'s `forall(V)` unifies with unit — producing the `void`
+//! parameter and the generic `Box(V)`.
 //!
-//! That also explains the odd split noted above — the return type
-//! (`-> Box(V)`, written explicitly on `box`) substitutes fine, while the
-//! parameter (`value : V`, dependent on the inferred argument) does not.
+//! For reference, the chain the failure runs through (std/prelude.yo):
+//!   box :: (fn(forall(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
+//!   Box's Clone:  clone : ((self) -> box(self.*.clone()))
 //!
-//! So the fix belongs in yo-self's handling of a SELF-RECURSIVE derive-generated
-//! method's return type: TS resolves it (the same std code works there), yo-self
-//! collapses it to unit. A declared-return-type placeholder / recursion guard
-//! for derive-generated methods is the shape to look for. This is NOT fixable in
-//! std — the rule is shared and TS evaluates it correctly.
+//! This looks like a MINIMAL INSTANCE of the handoff's Round-2' blocker (i),
+//! the "pattern-era pointer-Self leak" — and unlike that one, it reproduces
+//! WITHOUT applying the WIP patch, so it is a much cheaper way in.
 open(import("std/fmt"));
 
 TreeNode :: enum(Leaf(value : i32), Branch(left : Box(Self), right : Box(Self)));
