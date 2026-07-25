@@ -199,6 +199,83 @@
 //! one-liner — gate it on its own. It does not explain by itself why
 //! `Box(i32)` works and `Box(Self)` does not, so PROBE that difference first:
 //! print `resolved` and the entry's forall bindings for both cases.
+//!
+//! ^^^ THAT STRUCTURAL LEAD WAS WRONG — it named a DEAD DUPLICATE.
+//! `generic_impl_registry.yo` also defines `find_methods_from_generic_impls`
+//! (the "simplified port, no specialization" one), but NOTHING imports it:
+//! every consumer (env.yo's callback, property_access.yo,
+//! codegen/functions/collection.yo) imports the FULL version in
+//! `evaluator/values/impl.yo:880`, which DOES compute the bindings and inject
+//! them via `_inject_forall_captures`. Probing the registry copy would have
+//! printed zero hits. Read both definitions before trusting a grep hit.
+//!
+//! THE ACTUAL ANSWER (measured; supersedes every hypothesis above).
+//!
+//! Probing the REAL `find_methods_from_generic_impls` with both shapes in one
+//! file (working `Box(i32)` + failing `Box(Self)`) printed:
+//!
+//!   recv=Box(i32)                        pat=Box(T) binds=i32          <- OK
+//!   recv=Box(<enum:…_yo__self_shell>)    pat=Box(T) binds=<enum:…_yo>  <- BAD
+//!
+//! Two things are now pinned:
+//!
+//!   1. The generic-impl match is NOT at fault — `binds=` is the FINALIZED
+//!      `TreeNode` in both cases, so the capture injected into the method
+//!      value already carries the correct `T`.
+//!   2. The RECEIVER is `Box(<TreeNode__self_shell>)` — the empty
+//!      `${enum}__self_shell` placeholder that recursive-type declaration
+//!      creates (evaluator/types/enum.yo:224) is still sitting inside the
+//!      generic's `type_arguments`.
+//!
+//! Why the shell survives: shells are BY DESIGN resolved lazily at use sites
+//! through the finals registries (`resolve_enum_shell` / `resolve_struct_shell`,
+//! types/creators.yo:529/574) — but every existing call resolves only the
+//! TOP-LEVEL type (function.yo:278, property_access.yo:1199). A shell nested in
+//! a generic instantiation's `type_arguments` matches no top-level arm and is
+//! never resolved. `Box(i32)` has no shell, which is the whole `Box(i32)` vs
+//! `Box(Self)` split.
+//!
+//! Why that breaks the call: in `_funcval_bind_foralls`
+//! (evaluator/calls/function.yo) the argument-driven synthesis binds `Box`'s
+//! forall from the arg type, and a shell is a concrete-looking `EnumT`, so it
+//! passes the `!is_some_type(...)` guard, binds `V := <shell>`, and sets
+//! `fa_bound` — which PREEMPTS the capture fallback holding the correct
+//! `V := TreeNode`. Hence a specialization over the empty placeholder.
+//!
+//! SEVENTH DISPROVEN HYPOTHESIS — resolving the shell at the forall-binding
+//! use sites does NOT fix this. Implemented it (both the synthesis arm and the
+//! receiver-`type_arguments` arm of `_funcval_bind_foralls`, via
+//! `resolve_enum_shell(resolve_struct_shell(...))`), rebuilt s1, and the emitted
+//! C is UNCHANGED — byte-identical error signature, same bogus spec. REVERTED.
+//!
+//! Why it was the wrong link: the bogus spec's forall segment is
+//! `yo_id_2747_V_id_1598` — `V` bound to its OWN SomeT (id 1598), NOT to the
+//! shell. So `V` is not mis-bound to the placeholder; it is NEVER BOUND AT ALL,
+//! and lowers to a `void` parameter. Note the split inside that one name: the
+//! `ret_…` segment IS fully substituted to TreeNode, so the RETURN type
+//! resolved while the PARAMETER did not.
+//!
+//! The shell leak is REAL and still worth recording (a shell nested in a
+//! generic's `type_arguments` is never resolved, because every existing
+//! `resolve_enum_shell`/`resolve_struct_shell` call is top-level only) — it is
+//! simply not what breaks this repro.
+//!
+//! WHAT IS NOW EXCLUDED, with evidence, on the path from the candidate to the
+//! emit — do not re-check these:
+//!   * the generic-impl MATCH: `binds=` is the finalized TreeNode (probe).
+//!   * the CANDIDATE's value: `find_methods_from_generic_impls` returns exactly
+//!     ONE candidate for `clone` on `Box(<shell>)`, so property_access.yo:845
+//!     (`len() == 1`) installs `method_value` — the capture-injected one — as
+//!     the property's value.
+//! So the correct `T := TreeNode` capture IS produced AND IS installed, and is
+//! then lost between there and the evaluation of `Box.clone`'s body.
+//!
+//! NEXT PROBE (the narrowest remaining gap): instrument the point where
+//! `Box.clone`'s BODY is specialized/evaluated and print the captures actually
+//! in scope (`cap_names` / `cap_vals`) plus the resolved type of `self.*`.
+//! Expect `T` to be absent or unresolved there. Compare against `Box(i32)` in
+//! the same run — scratchpad/probe_box_dual.yo holds both shapes in one file
+//! precisely so a single build yields both traces.
 open(import("std/fmt"));
 
 TreeNode :: enum(Leaf(value : i32), Branch(left : Box(Self), right : Box(Self)));
