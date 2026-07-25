@@ -282,9 +282,15 @@
 //! NEXT PROBE (the narrowest remaining gap): instrument the point where
 //! `Box.clone`'s BODY is specialized/evaluated and print the captures actually
 //! in scope (`cap_names` / `cap_vals`) plus the resolved type of `self.*`.
-//! Expect `T` to be absent or unresolved there. Compare against `Box(i32)` in
-//! the same run — scratchpad/probe_box_dual.yo holds both shapes in one file
-//! precisely so a single build yields both traces.
+//! Compare against `Box(i32)` in the same run — put a
+//! `struct(inner : Box(i32)) + derive(Clone)` beside the recursive type in ONE
+//! file, so a single build yields both traces.
+//!
+//! DONE, AND ITS EXPECTATION WAS WRONG. That probe predicted `T` would be
+//! "absent or unresolved" in the spec body. It is NOT: `self` binds as
+//! `Box(<concrete>)` and the concrete `T` capture is present. See PROBE 4 in
+//! issues/repros/box-self-struct-field-derive-clone.yo, which supersedes this
+//! whole paragraph and reframes the question.
 open(import("std/fmt"));
 
 TreeNode :: enum(Leaf(value : i32), Branch(left : Box(Self), right : Box(Self)));
