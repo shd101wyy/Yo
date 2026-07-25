@@ -69,6 +69,27 @@
 //! this removed one layer and another remains beneath it. Landed as a
 //! faithfulness + perf fix (affected user programs now get the lightweight RC
 //! runtime instead of full Bacon-Rajan), not as a test flip.
+//!
+//! UPSTREAM FIX ATTEMPTED AND REVERTED (2026-07-25) — the warning above is
+//! EMPIRICALLY CONFIRMED, do not retry it as-is.
+//!
+//! yo-self's `collect_required_types` skip guard (codegen/types/collection.yo,
+//! the `if(type_contains_some_type(type), …)` at ~line 190, plus the two
+//! `_*_some_type_is_only_in_function_fields` field guards) uses the TOP-LEVEL
+//! predicate where TS's collection.ts:403 uses the RECURSIVE one. Swapping all
+//! three to `type_contains_some_type_deep` builds clean (hollow markers
+//! unchanged) and DOES flip `sync/channel` GREEN at 24/24 — exact TS parity.
+//!
+//! But it REGRESSES `tests/imm_list.test.yo` from GREEN (16 passed) to a hard
+//! SIGABRT (rc=134, non-empty log, so not a phantom kill). Net zero files, at
+//! the cost of breaking a working one — reverted per THE METHOD.
+//!
+//! Interpretation: skipping a type from COLLECTION also removes its typedef and
+//! constructor, so anything still referencing it breaks. TS gets away with the
+//! strict guard because it monomorphizes thoroughly enough never to reference
+//! the skipped generics; yo-self does not yet. So the collection guard is a
+//! CONSEQUENCE of incomplete monomorphization, not the root — fix the
+//! specialization gap first, then this guard can be tightened to match TS.
 open(import("std/fmt"));
 { Mutex } :: import("std/sync/mutex");
 
