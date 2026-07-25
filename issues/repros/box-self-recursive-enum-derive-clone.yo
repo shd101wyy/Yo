@@ -1,0 +1,46 @@
+//! Repro: `derive(Clone)` on a RECURSIVE enum with `Box(Self)` fields emits a
+//! `Box.new` specialization whose type parameter V was bound to UNIT.
+//!
+//!   TS      -> prints "cloned"
+//!   yo-self -> C compile fails:
+//!                error: argument may not have 'void' type
+//!                error: call to undeclared function '__yo_new___yo_t3'
+//!
+//! The emitted specialization (from /tmp/tn_s1.c):
+//!
+//!   static inline __yo_t1* yo_id_2747_V_id_1598_ret_R_gs_yo_id_2743_
+//!     enum_decl_56319_…_i32_R_struct_yo_id_4932_R_struct_yo_id_4932(void value) {
+//!     __yo_t3* _tmp = __yo_new___yo_t3();     // __yo_t3 = GENERIC Box(V)
+//!     return _tmp;
+//!   }
+//!   struct __yo_t3_struct { // Box(V) : Box(V) (reference counted)
+//!     __yo_ref_header_t header; void* _u42_; };
+//!
+//! Note the split: the RETURN type WAS substituted (`ret_…enum_decl_56319…` is
+//! Box(TreeNode)), but the PARAMETER lowered to `void` — i.e. V bound to UNIT,
+//! since get_type_string gives "void" for unit and "void*" for an unresolved
+//! SomeT — and the body constructs the GENERIC `Box(V)`.
+//!
+//! ISOLATION: `derive(Clone)` is required. The same recursive enum with
+//! `Box(Self)` fields, constructed and matched WITHOUT derive, compiles clean
+//! (rc=0). So the loss happens while evaluating the derive rule
+//! (`__derive_clone`, std/prelude.yo:6688-6784) — which is SHARED std code that
+//! TS evaluates correctly, so the divergence is in yo-self's comptime
+//! evaluation of it, not in std.
+//!
+//! This is the minimal form of tests/derive_clone_complex.test.yo's failure
+//! (same two error classes; that file's TreeNode is the same shape).
+open(import("std/fmt"));
+
+TreeNode :: enum(Leaf(value : i32), Branch(left : Box(Self), right : Box(Self)));
+derive(TreeNode, Clone);
+
+main :: (fn() -> unit)({
+  leaf_a := TreeNode.Leaf(i32(1));
+  leaf_b := TreeNode.Leaf(i32(2));
+  tree := TreeNode.Branch(box(leaf_a), box(leaf_b));
+  t2 := tree.clone();
+  println(`cloned`);
+});
+
+export(main);
