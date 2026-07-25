@@ -74,3 +74,18 @@ Still red in that family, different root causes (see the handoff):
 `sync/once` (stored-closure capture identity), `sync/mutex` and
 `sync/channel` (a specialized fn emitted with `__unknown__Type__` in its
 name).
+
+## Audit: are there OTHER missing extern carve-outs? — NO (checked)
+
+TS reads `isExtern` in four places in `src/types/utils.ts`. Checked each
+against its yo-self port so nobody repeats this:
+
+| TS site                                    | yo-self                                                                                                                                              | verdict                      |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| :499 `typeContainsSomeType`                | `types/utils.yo type_contains_some_type`                                                                                                             | **WAS THE BUG — fixed here** |
+| :703 `typeContainsSomeTypeForCodegenParam` | `evaluator/trait_checking.yo:1265` — already uses `is_extern_type_name`                                                                              | OK                           |
+| :145 `typeContainsRcType`                  | `types/utils.yo _type_contains_rc_inner` — has NO `.SomeT` arm, so a SomeT falls through to `false`, which is what TS's extern early-return produces | OK (equivalent)              |
+| :604 `typeContainsUnboundSomeType`         | not ported (unused in yo-self)                                                                                                                       | N/A                          |
+
+So the extern-vs-generic gap existed in exactly ONE place. The port is
+otherwise consistent on this axis.
