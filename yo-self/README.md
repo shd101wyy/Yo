@@ -4,6 +4,17 @@ This directory holds the **Yo-in-Yo** port of the compiler. The goal is to repla
 the TypeScript implementation in `src/` with a Yo implementation that compiles to
 a single C file, which can be redistributed as `yo.c` plus a small driver.
 
+## Current status (2026-07-25)
+
+- **`s2 test ./yo-self/tests`: 61/61.**
+- **`s2 test ./tests`: 164/183**, sweep-verified with zero regressions.
+- Self-compile: stage2 emit **~36 min** (was ~55-65), `check ./std` **~30 s**
+  (was ~87 s) after the 2026-07-25 perf arc.
+- The 19 remaining reds and the active work queue live in
+  **[`../plans/YO_SELF_STAGE2_HANDOFF.md`](../plans/YO_SELF_STAGE2_HANDOFF.md)** —
+  read that first; it carries THE METHOD (gate battery, hollow-green hygiene,
+  phantom-kill protocol) and the measured dead ends not worth repeating.
+
 See **[`../plans/BOOTSTRAPPING.md`](../plans/BOOTSTRAPPING.md)** for:
 
 - Current status and test counts per phase
