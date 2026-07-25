@@ -64,7 +64,7 @@ open(import("std/string"));
 { t_unit, t_type, t_some_t } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type } :: import("../../types/guards.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
+{ subst_new, subst_add, subst_set_self, substitute } :: import("../../types/substitution.yo");
 { random_id } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
 { EvalValue, FuncValData, create_type_value } :: import("../../value.yo");
@@ -988,6 +988,16 @@ find_methods_from_generic_impls :: (
                 );
                 sb_i = (sb_i + usize(1));
               });
+              // Bind `Self` to the CONCRETE RECEIVER — port of TS
+              // `substitutions.set("Self", concreteType)` (impl.ts:2474),
+              // consumed by `reEvaluateFunctionType(..., SelfType)`
+              // (impl.ts:1494-1498). Pass the pattern UN-SUBSTITUTED: `Self`
+              // was baked into `ftype` as the receiver pattern verbatim
+              // (impl.yo:1643) and the walk tests each node BEFORE
+              // substituting it, so substituting the key first makes the
+              // exact-equality test compare EnumT(id, Some(T)) against
+              // EnumT(id, Some(Node)) and silently never fire.
+              subst_set_self(spec_s, entry.receiver_type_pattern, resolved);
               results.push(
                 MethodCandidate(
                   method_type : substitute(spec_s, ftype),

@@ -13,6 +13,7 @@ open(import("std/string"));
 // cycle guard (now fixed + guarded, issues/patch-self-shell-exponential-walk.md);
 // interning was exonerated. Measured win: −1.45 M TypeValues / −0.28 GB.
 { intern_type } :: import("./intern.yo");
+{ are_types_compatible_exact } :: import("./compatibility.yo");
 // ---------------------------------------------------------------------------
 // Substitution map — parallel arrays for (name, level) → TypeValue.
 // ---------------------------------------------------------------------------
@@ -28,7 +29,11 @@ Substitution :: ref(
     // top-level `substitute` (created by `subst_new`); once a trait id is
     // recorded, `substitute` returns that TraitT unchanged rather than
     // re-descending into its (already-bound) method types.
-    visited_trait_ids : ArrayList(String)
+    visited_trait_ids : ArrayList(String),
+    /// TS `substitutions.set("Self", concreteType)` (impl.ts:2474), applied by
+    /// this same walk. 0 or 1 element each; empty = no Self binding.
+    self_from : ArrayList(TypeValue),
+    self_to : ArrayList(TypeValue)
   )
 );
 /// Create an empty substitution.
@@ -37,9 +42,26 @@ subst_new :: (fn() -> Substitution)(
     names : ArrayList(String).new(),
     levels : ArrayList(usize).new(),
     types : ArrayList(TypeValue).new(),
-    visited_trait_ids : ArrayList(String).new()
+    visited_trait_ids : ArrayList(String).new(),
+    self_from : ArrayList(TypeValue).new(),
+    self_to : ArrayList(TypeValue).new()
   )
 );
+/// Bind `Self` — port of TS `substitutions.set("Self", concreteType)`
+/// (src/evaluator/values/impl.ts:2474), consumed by
+/// `reEvaluateFunctionType(..., SelfType)` (impl.ts:1494-1498). TS re-evaluates
+/// the stored type EXPRESSIONS; yo-self's `TypeValue.Func` stores none
+/// (types/definitions.yo:135-146), so the binding is applied as a type-level
+/// replacement keyed on EXACT identity with the impl's own receiver pattern —
+/// i.e. literally `Self`. Without it `substitute` maps only the forall params
+/// and a `fn(self : Self) -> T` keeps the PATTERN's nominal id with a concrete
+/// payload, the case TS flags at impl.ts:1451 ("types in Yo are nominal, so we
+/// can't just substitute structurally").
+subst_set_self :: (fn(s : Substitution, from : TypeValue, to : TypeValue) -> unit)({
+  s.self_from.push(from);
+  s.self_to.push(to);
+  ()
+});
 /// True if `id` is already recorded in the substitution's visited-trait set.
 _subst_trait_visited :: (fn(s : Substitution, id : String) -> bool)({
   i := usize(0);
@@ -97,257 +119,285 @@ subst_lookup :: (fn(s : Substitution, name : String, level : usize) -> Option(Ty
 /// SomeT nodes that match a binding are replaced; everything else is
 /// structurally reconstructed (copies untouched leaves, recurses into
 /// compound nodes).
+/// True when `ty` IS the impl's specialized receiver pattern bound by
+/// `subst_set_self`. Struct/EnumT only: a blanket impl's bare-SomeT pattern is
+/// already handled by the forall bindings and replacing there would clobber
+/// them. Exact structural equality keeps this a port, not a shape guess.
+_is_self_pattern :: (fn(s : Substitution, ty : TypeValue) -> bool)({
+  if(s.self_from.len() == usize(0), {
+    return(false);
+  });
+  from := match(s.self_from.get(usize(0)),.Some(f) => f,.None => TypeValue.Unit);
+  ty_id := match(ty,.Struct({ id : sid }) => sid,.EnumT(eid, _, _, _, _, _, _, _, _) => eid, _ => String.new());
+  if(ty_id.is_empty(), {
+    return(false);
+  });
+  from_id := match(from,.Struct({ id : fid }) => fid,.EnumT(fe, _, _, _, _, _, _, _, _) => fe, _ => String.new());
+  if(from_id.is_empty() || !(ty_id == from_id), {
+    return(false);
+  });
+  are_types_compatible_exact(ty, from)
+});
 substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
   // P2 hash-consing: intern each substitution result. `substitute` recurses via
   // `recur`, so wrapping the body interns EVERY level bottom-up → shared subtrees
   // (and transient duplicates) canonicalize to one instance. Key validated to match
   // codegen identity (plans/TYPEVALUE_HASH_CONSING.md). Gate: corpus 96/96.
-  intern_type(
-    match(
-      ty,
-      // Recurse into pointer / slice / array.
-      .Pointer(inner) =>.Pointer(recur(s, inner)),
-      .Array(inner, len, lvar) =>.Array(recur(s, inner), len, lvar),
-      // Recurse into tuple.
-      .Tuple(labels, types) => {
-        new_types := ArrayList(TypeValue).new();
-        i := usize(0);
-        while(i < types.len(), {
-          elem := match(types.get(i),.Some(t) => t,.None => TypeValue.Unit);
-          new_types.push(recur(s, elem));
-          i = (i + usize(1));
-        });
-        .Tuple(labels, new_types)
-      },
-      // Recurse into Func (all type-bearing fields).
-      .Func({ forall_types : fts, param_types : pts, implicit_types : its, where_types : wts, result : ret, meta : __fm1 }) => {
-        new_fts := ArrayList(TypeValue).new();
-        i := usize(0);
-        while(i < fts.len(), {
-          elem := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
-          new_fts.push(recur(s, elem));
-          i = (i + usize(1));
-        });
-        new_pts := ArrayList(TypeValue).new();
-        i = usize(0);
-        while(i < pts.len(), {
-          elem := match(pts.get(i),.Some(t) => t,.None => TypeValue.Unit);
-          new_pts.push(recur(s, elem));
-          i = (i + usize(1));
-        });
-        new_its := ArrayList(TypeValue).new();
-        i = usize(0);
-        while(i < its.len(), {
-          elem := match(its.get(i),.Some(t) => t,.None => TypeValue.Unit);
-          new_its.push(recur(s, elem));
-          i = (i + usize(1));
-        });
-        new_wts := ArrayList(TypeValue).new();
-        i = usize(0);
-        while(i < wts.len(), {
-          elem := match(wts.get(i),.Some(t) => t,.None => TypeValue.Unit);
-          new_wts.push(recur(s, elem));
-          i = (i + usize(1));
-        });
-        // Preserve result_is_comptime_only + ref-tracking + variadic flag +
-        // FFI metadata across substitution.
-        .Func(new_fts, new_pts, new_its, new_wts, recur(s, ret), __fm1)
-      },
-      // TraitT — recurse into field types. (Source-namespace structs go
-      // through the Struct arm above.)
-      .TraitT(
-        name : n,
-        assoc_type_names : atns,
-        field_labels : fls,
-        field_types : fts,
-        id : tid,
-        is_concrete : ic,
-        self_constraints : scons,
-        neg_self_constraints : ncons
-      ) =>
-        // Cycle guard: self-referential traits (e.g. a method returning
-        // `Dyn(SelfTrait)`) form a cyclic TypeValue graph. If we are already
-        // recursing into this trait id, return it unchanged to break the cycle.
-        cond(
-          ((tid.len() > usize(0)) && _subst_trait_visited(s, tid)) => ty,
-          true => {
-            if(tid.len() > usize(0), {
-              s.visited_trait_ids.push(tid);
-            });
-            new_fts := ArrayList(TypeValue).new();
-            i := usize(0);
-            while(i < fts.len(), {
-              elem := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
-              new_fts.push(recur(s, elem));
-              i = (i + usize(1));
-            });
-            .TraitT(n, atns, fls, new_fts, tid, ic, scons, ncons)
-          }
-        ),
-      // SomeT — check substitution first; if not found, recurse into constraints.
-      .SomeT(
-        id : orig_id,
-        name : n,
-        frame_level : lvl,
-        parent_type : pt,
-        required_trait_types : rts,
-        required_trait_levels : rlvls,
-        negative_trait_types : nts,
-        negative_trait_levels : nlvls,
-        resolved_concrete : rcp
-      ) => {
-        found := subst_lookup(s, n, lvl);
-        match(
-          found,
-          .Some(replacement) => replacement,
-          .None => {
-            new_rts := ArrayList(TypeValue).new();
-            i := usize(0);
-            while(i < rts.len(), {
-              elem := match(rts.get(i),.Some(t) => t,.None => TypeValue.Unit);
-              new_rts.push(recur(s, elem));
-              i = (i + usize(1));
-            });
-            new_nts := ArrayList(TypeValue).new();
-            i = usize(0);
-            while(i < nts.len(), {
-              elem := match(nts.get(i),.Some(t) => t,.None => TypeValue.Unit);
-              new_nts.push(recur(s, elem));
-              i = (i + usize(1));
-            });
-            .SomeT(orig_id, n, lvl, pt, new_rts, rlvls, new_nts, nlvls, false, Option(TypeValue).None, rcp)
-          }
-        )
-      },
-      // Struct / Enum / Union — recurse into field types.
-      .Struct({ id, name, field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype : is_nt, constructor_func_id : cfid, type_arguments : tyargs, is_source_namespace : is_sns }) => {
-        new_types := ArrayList(TypeValue).new();
-        i := usize(0);
-        while(i < types.len(), {
-          elem := match(types.get(i),.Some(t) => t,.None => TypeValue.Unit);
-          new_types.push(recur(s, elem));
-          i = (i + usize(1));
-        });
-        // Substitute the stored type arguments too, so a generic pattern's
-        // `type_arguments` (e.g. `[K, V]`) becomes the concrete `[String, V]`
-        // after substitution — keeping them aligned with the substituted fields.
-        new_tyargs := ArrayList(TypeValue).new();
-        ti := usize(0);
-        while(ti < tyargs.len(), {
-          targ := match(tyargs.get(ti),.Some(t) => t,.None => TypeValue.Unit);
-          new_tyargs.push(recur(s, targ));
-          ti = (ti + usize(1));
-        });
-        // Preserve constructor_func_id across substitution so the
-        // type-constructor identity travels with specialized instantiations.
-        .Struct(id, name, labels, new_types, is_ref, is_atomic, is_nt, cfid, new_tyargs, is_sns)
-      },
-      // EnumT has variant_fields : ArrayList(ArrayList(TypeValue)) — nested.
-      .EnumT(id, name, variant_names, variant_fields, svn, vfl, discs, eirs, eiar) => {
-        new_variant_fields := ArrayList(ArrayList(TypeValue)).new();
-        i := usize(0);
-        while(i < variant_fields.len(), {
-          vf := match(
-            variant_fields.get(i),
-            .Some(vf_inner) => vf_inner,
-            .None => ArrayList(TypeValue).new()
-          );
-          new_vf := ArrayList(TypeValue).new();
-          j := usize(0);
-          while(j < vf.len(), {
-            elem := match(vf.get(j),.Some(t) => t,.None => TypeValue.Unit);
-            new_vf.push(recur(s, elem));
-            j = (j + usize(1));
+  if(
+    (s.self_from.len() > usize(0)) && _is_self_pattern(s, ty),
+    // This node IS `Self` — hand back the concrete receiver, as TS's
+    // re-evaluation of the `Self` identifier yields `context.SelfType`
+    // (src/evaluator/exprs/identifer-and-operator.ts:453-461). Interned like
+    // every other arm; the hash-consing invariant is load-bearing for codegen
+    // identity.
+    intern_type(match(s.self_to.get(usize(0)),.Some(st) => st,.None => ty)),
+    intern_type(
+      match(
+        ty,
+        // Recurse into pointer / slice / array.
+        .Pointer(inner) =>.Pointer(recur(s, inner)),
+        .Array(inner, len, lvar) =>.Array(recur(s, inner), len, lvar),
+        // Recurse into tuple.
+        .Tuple(labels, types) => {
+          new_types := ArrayList(TypeValue).new();
+          i := usize(0);
+          while(i < types.len(), {
+            elem := match(types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            new_types.push(recur(s, elem));
+            i = (i + usize(1));
           });
-          new_variant_fields.push(new_vf);
-          i = (i + usize(1));
-        });
-        .EnumT(id, name, variant_names, new_variant_fields, svn, vfl, discs, eirs, eiar)
-      },
-      .Union(name, labels, types) => {
-        new_types := ArrayList(TypeValue).new();
-        i := usize(0);
-        while(i < types.len(), {
-          elem := match(types.get(i),.Some(t) => t,.None => TypeValue.Unit);
-          new_types.push(recur(s, elem));
-          i = (i + usize(1));
-        });
-        .Union(name, labels, new_types)
-      },
-      // Phase 2f variants — recurse into child types
-      .ComptimeListT(child) =>.ComptimeListT(recur(s, child)),
-      .EffectsRowT(implicit_labels : labels, implicit_types : types) => {
-        new_types := ArrayList(TypeValue).new();
-        i := usize(0);
-        while(i < types.len(), {
-          elem := match(types.get(i),.Some(t) => t,.None => TypeValue.Unit);
-          new_types.push(recur(s, elem));
-          i = (i + usize(1));
-        });
-        .EffectsRowT(labels, new_types)
-      },
-      .TypeAppT(constructor, args) => {
-        new_args := ArrayList(TypeValue).new();
-        i := usize(0);
-        while(i < args.len(), {
-          elem := match(args.get(i),.Some(t) => t,.None => TypeValue.Unit);
-          new_args.push(recur(s, elem));
-          i = (i + usize(1));
-        });
-        .TypeAppT(recur(s, constructor), new_args)
-      },
-      .IsoT(child) =>.IsoT(recur(s, child)),
-      .DynT(
-        required_trait_types : rtt,
-        required_trait_levels : rtl,
-        negative_trait_types : ntt,
-        negative_trait_levels : ntl
-      ) => {
-        new_rtt := ArrayList(TypeValue).new();
-        i := usize(0);
-        while(i < rtt.len(), {
-          elem := match(rtt.get(i),.Some(t) => t,.None => TypeValue.Unit);
-          new_rtt.push(recur(s, elem));
-          i = (i + usize(1));
-        });
-        new_ntt := ArrayList(TypeValue).new();
-        i = usize(0);
-        while(i < ntt.len(), {
-          elem := match(ntt.get(i),.Some(t) => t,.None => TypeValue.Unit);
-          new_ntt.push(recur(s, elem));
-          i = (i + usize(1));
-        });
-        .DynT(new_rtt, rtl, new_ntt, ntl)
-      },
-      .FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : cpts, call_result : cr, implicit_labels : ils, implicit_types : its, implicit_spreads : isps) => {
-        new_cpts := ArrayList(TypeValue).new();
-        i := usize(0);
-        while(i < cpts.len(), {
-          elem := match(cpts.get(i),.Some(t) => t,.None => TypeValue.Unit);
-          new_cpts.push(recur(s, elem));
-          i = (i + usize(1));
-        });
-        new_its := ArrayList(TypeValue).new();
-        (iti : usize) = usize(0);
-        while(iti < its.len(), {
-          elem := match(its.get(iti),.Some(t) => t,.None => TypeValue.Unit);
-          new_its.push(recur(s, elem));
-          iti = (iti + usize(1));
-        });
-        .FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : new_cpts, call_result : recur(s, cr), implicit_labels : ils, implicit_types : new_its, implicit_spreads : isps)
-      },
-      .FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets, effect_spreads : esp) => {
-        new_ets := ArrayList(TypeValue).new();
-        i := usize(0);
-        while(i < ets.len(), {
-          elem := match(ets.get(i),.Some(t) => t,.None => TypeValue.Unit);
-          new_ets.push(recur(s, elem));
-          i = (i + usize(1));
-        });
-        .FutureTraitT(base_name : bn, output : recur(s, out), effect_labels : els, effect_types : new_ets, effect_spreads : esp)
-      },
-      // Primitives and leaves — return unchanged.
-      _ => ty
+          .Tuple(labels, new_types)
+        },
+        // Recurse into Func (all type-bearing fields).
+        .Func({ forall_types : fts, param_types : pts, implicit_types : its, where_types : wts, result : ret, meta : __fm1 }) => {
+          new_fts := ArrayList(TypeValue).new();
+          i := usize(0);
+          while(i < fts.len(), {
+            elem := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            new_fts.push(recur(s, elem));
+            i = (i + usize(1));
+          });
+          new_pts := ArrayList(TypeValue).new();
+          i = usize(0);
+          while(i < pts.len(), {
+            elem := match(pts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            new_pts.push(recur(s, elem));
+            i = (i + usize(1));
+          });
+          new_its := ArrayList(TypeValue).new();
+          i = usize(0);
+          while(i < its.len(), {
+            elem := match(its.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            new_its.push(recur(s, elem));
+            i = (i + usize(1));
+          });
+          new_wts := ArrayList(TypeValue).new();
+          i = usize(0);
+          while(i < wts.len(), {
+            elem := match(wts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            new_wts.push(recur(s, elem));
+            i = (i + usize(1));
+          });
+          // Preserve result_is_comptime_only + ref-tracking + variadic flag +
+          // FFI metadata across substitution.
+          .Func(new_fts, new_pts, new_its, new_wts, recur(s, ret), __fm1)
+        },
+        // TraitT — recurse into field types. (Source-namespace structs go
+        // through the Struct arm above.)
+        .TraitT(
+          name : n,
+          assoc_type_names : atns,
+          field_labels : fls,
+          field_types : fts,
+          id : tid,
+          is_concrete : ic,
+          self_constraints : scons,
+          neg_self_constraints : ncons
+        ) =>
+          // Cycle guard: self-referential traits (e.g. a method returning
+          // `Dyn(SelfTrait)`) form a cyclic TypeValue graph. If we are already
+          // recursing into this trait id, return it unchanged to break the cycle.
+          cond(
+            ((tid.len() > usize(0)) && _subst_trait_visited(s, tid)) => ty,
+            true => {
+              if(tid.len() > usize(0), {
+                s.visited_trait_ids.push(tid);
+              });
+              new_fts := ArrayList(TypeValue).new();
+              i := usize(0);
+              while(i < fts.len(), {
+                elem := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+                new_fts.push(recur(s, elem));
+                i = (i + usize(1));
+              });
+              .TraitT(n, atns, fls, new_fts, tid, ic, scons, ncons)
+            }
+          ),
+        // SomeT — check substitution first; if not found, recurse into constraints.
+        .SomeT(
+          id : orig_id,
+          name : n,
+          frame_level : lvl,
+          parent_type : pt,
+          required_trait_types : rts,
+          required_trait_levels : rlvls,
+          negative_trait_types : nts,
+          negative_trait_levels : nlvls,
+          resolved_concrete : rcp
+        ) => {
+          found := subst_lookup(s, n, lvl);
+          match(
+            found,
+            .Some(replacement) => replacement,
+            .None => {
+              new_rts := ArrayList(TypeValue).new();
+              i := usize(0);
+              while(i < rts.len(), {
+                elem := match(rts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+                new_rts.push(recur(s, elem));
+                i = (i + usize(1));
+              });
+              new_nts := ArrayList(TypeValue).new();
+              i = usize(0);
+              while(i < nts.len(), {
+                elem := match(nts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+                new_nts.push(recur(s, elem));
+                i = (i + usize(1));
+              });
+              .SomeT(orig_id, n, lvl, pt, new_rts, rlvls, new_nts, nlvls, false, Option(TypeValue).None, rcp)
+            }
+          )
+        },
+        // Struct / Enum / Union — recurse into field types.
+        .Struct({ id, name, field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype : is_nt, constructor_func_id : cfid, type_arguments : tyargs, is_source_namespace : is_sns }) => {
+          new_types := ArrayList(TypeValue).new();
+          i := usize(0);
+          while(i < types.len(), {
+            elem := match(types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            new_types.push(recur(s, elem));
+            i = (i + usize(1));
+          });
+          // Substitute the stored type arguments too, so a generic pattern's
+          // `type_arguments` (e.g. `[K, V]`) becomes the concrete `[String, V]`
+          // after substitution — keeping them aligned with the substituted fields.
+          new_tyargs := ArrayList(TypeValue).new();
+          ti := usize(0);
+          while(ti < tyargs.len(), {
+            targ := match(tyargs.get(ti),.Some(t) => t,.None => TypeValue.Unit);
+            new_tyargs.push(recur(s, targ));
+            ti = (ti + usize(1));
+          });
+          // Preserve constructor_func_id across substitution so the
+          // type-constructor identity travels with specialized instantiations.
+          .Struct(id, name, labels, new_types, is_ref, is_atomic, is_nt, cfid, new_tyargs, is_sns)
+        },
+        // EnumT has variant_fields : ArrayList(ArrayList(TypeValue)) — nested.
+        .EnumT(id, name, variant_names, variant_fields, svn, vfl, discs, eirs, eiar) => {
+          new_variant_fields := ArrayList(ArrayList(TypeValue)).new();
+          i := usize(0);
+          while(i < variant_fields.len(), {
+            vf := match(
+              variant_fields.get(i),
+              .Some(vf_inner) => vf_inner,
+              .None => ArrayList(TypeValue).new()
+            );
+            new_vf := ArrayList(TypeValue).new();
+            j := usize(0);
+            while(j < vf.len(), {
+              elem := match(vf.get(j),.Some(t) => t,.None => TypeValue.Unit);
+              new_vf.push(recur(s, elem));
+              j = (j + usize(1));
+            });
+            new_variant_fields.push(new_vf);
+            i = (i + usize(1));
+          });
+          .EnumT(id, name, variant_names, new_variant_fields, svn, vfl, discs, eirs, eiar)
+        },
+        .Union(name, labels, types) => {
+          new_types := ArrayList(TypeValue).new();
+          i := usize(0);
+          while(i < types.len(), {
+            elem := match(types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            new_types.push(recur(s, elem));
+            i = (i + usize(1));
+          });
+          .Union(name, labels, new_types)
+        },
+        // Phase 2f variants — recurse into child types
+        .ComptimeListT(child) =>.ComptimeListT(recur(s, child)),
+        .EffectsRowT(implicit_labels : labels, implicit_types : types) => {
+          new_types := ArrayList(TypeValue).new();
+          i := usize(0);
+          while(i < types.len(), {
+            elem := match(types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            new_types.push(recur(s, elem));
+            i = (i + usize(1));
+          });
+          .EffectsRowT(labels, new_types)
+        },
+        .TypeAppT(constructor, args) => {
+          new_args := ArrayList(TypeValue).new();
+          i := usize(0);
+          while(i < args.len(), {
+            elem := match(args.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            new_args.push(recur(s, elem));
+            i = (i + usize(1));
+          });
+          .TypeAppT(recur(s, constructor), new_args)
+        },
+        .IsoT(child) =>.IsoT(recur(s, child)),
+        .DynT(
+          required_trait_types : rtt,
+          required_trait_levels : rtl,
+          negative_trait_types : ntt,
+          negative_trait_levels : ntl
+        ) => {
+          new_rtt := ArrayList(TypeValue).new();
+          i := usize(0);
+          while(i < rtt.len(), {
+            elem := match(rtt.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            new_rtt.push(recur(s, elem));
+            i = (i + usize(1));
+          });
+          new_ntt := ArrayList(TypeValue).new();
+          i = usize(0);
+          while(i < ntt.len(), {
+            elem := match(ntt.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            new_ntt.push(recur(s, elem));
+            i = (i + usize(1));
+          });
+          .DynT(new_rtt, rtl, new_ntt, ntl)
+        },
+        .FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : cpts, call_result : cr, implicit_labels : ils, implicit_types : its, implicit_spreads : isps) => {
+          new_cpts := ArrayList(TypeValue).new();
+          i := usize(0);
+          while(i < cpts.len(), {
+            elem := match(cpts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            new_cpts.push(recur(s, elem));
+            i = (i + usize(1));
+          });
+          new_its := ArrayList(TypeValue).new();
+          (iti : usize) = usize(0);
+          while(iti < its.len(), {
+            elem := match(its.get(iti),.Some(t) => t,.None => TypeValue.Unit);
+            new_its.push(recur(s, elem));
+            iti = (iti + usize(1));
+          });
+          .FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : new_cpts, call_result : recur(s, cr), implicit_labels : ils, implicit_types : new_its, implicit_spreads : isps)
+        },
+        .FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets, effect_spreads : esp) => {
+          new_ets := ArrayList(TypeValue).new();
+          i := usize(0);
+          while(i < ets.len(), {
+            elem := match(ets.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            new_ets.push(recur(s, elem));
+            i = (i + usize(1));
+          });
+          .FutureTraitT(base_name : bn, output : recur(s, out), effect_labels : els, effect_types : new_ets, effect_spreads : esp)
+        },
+        // Primitives and leaves — return unchanged.
+        _ => ty
+      )
     )
   )
 );
@@ -362,4 +412,4 @@ substitute_all :: (fn(s : Substitution, types : ArrayList(TypeValue)) -> ArrayLi
   });
   result
 });
-export(Substitution, subst_new, subst_add, subst_lookup, substitute, substitute_all);
+export(Substitution, subst_new, subst_set_self, subst_add, subst_lookup, substitute, substitute_all);
