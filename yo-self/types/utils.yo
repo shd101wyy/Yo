@@ -49,7 +49,8 @@ open(import("std/fmt"));
   is_rc_type,
   is_reference_struct_type,
   is_reference_enum_type,
-  is_dyn_type
+  is_dyn_type,
+  is_extern_type_name
 }
 :: import("./guards.yo");
 { Token } :: import("../token.yo");
@@ -865,7 +866,17 @@ type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
     // FnTraitT; futures to state-machine structs). Without this carve-out the
     // contains-SomeT gates skip emitting Box(Impl(Fn)) constructors and drop
     // Impl(Fn)-typed capture fields (the get_info cluster).
-    .SomeT({ required_trait_types : cst_rtt, resolved_concrete : cst_rc }) => cond(
+    .SomeT({ name : cst_name, required_trait_types : cst_rtt, resolved_concrete : cst_rc }) => cond(
+      // TS typeContainsSomeType (utils.ts:499) returns false for an EXTERN
+      // type: `extern("c", atomic_bool : Type)` is a SomeType but is CONCRETE
+      // at codegen time. TS carries `isExtern` on the base Type
+      // (definitions.ts:46); yo-self's TypeValue enum has no such slot on
+      // SomeT, so extern-ness lives in the `g_extern_type_names` side table
+      // that extern.yo registers into — same semantics, different mechanism.
+      // Without this, `atomic(ref(struct((*) : atomic_bool)))` counts as
+      // generic and its `__yo_new_<cName>` constructor is never emitted
+      // (the whole sync/* red family).
+      is_extern_type_name(cst_name) => false,
       (cst_rc.len() > usize(0)) => false,
       true => {
         (cst_has_fn_or_fut : bool) = false;
