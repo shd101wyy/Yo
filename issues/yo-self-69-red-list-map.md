@@ -109,6 +109,50 @@ This is handoff task #15's known root, WIP patch at
 already emit markers, so any "flip" here must be marker-checked against the TS
 emit before it counts.
 
+### GATE RESULT (2026-07-26): the closure registry stamp causes a HOLLOW regression — do not re-apply blind
+
+Measured, single-variable, on stage2 hollow-marker counts
+(`grep -c "Failed to transpile\|Unknown type:"`), baseline **6**:
+
+| configuration                         | hollow       |
+| ------------------------------------- | ------------ |
+| baseline                              | 6            |
+| Self binding + closure registry stamp | 19           |
+| **closure registry stamp ALONE**      | **19**       |
+| Self binding ALONE                    | not measured |
+
+So the CLOSURE REGISTRY STAMP is the culprit, not the `Self` binding. I had
+assumed the opposite and reverted the `Self` work first; that was wrong and
+cost a build cycle.
+
+The stamp is: in `evaluator/values/anonymous_function.yo`, the `=>` lambda path
+calling `register_some_resolved_concrete(<expected Impl(Fn) wrapper id>,
+capture_type)`. It flips `tests/impl_fn_field_rejection` to 5/5 and keeps the
+corpus at PASS 140 / DIFF 0 — but adds 13 hollow markers to the self-emit, all
+in ONE function: build_runner's C-compiler invocation (`cmd.arg`,
+`io.await(cmd.status(io))`, `externs`, `libraries`). The whole body goes
+hollow, i.e. its evaluation throws and the swallow layer at
+`evaluator/exprs/_expr.yo:1018` eats the error.
+
+WHY THAT MATTERS MORE THAN THE MARKER COUNT: the affected function is how the
+self-hosted compiler invokes clang. A build that "passes" while dropping it is
+not a working compiler. Note the state ALSO passed the 19-file battery, corpus
+140/0, `check ./std` 153/153, clang, AND `STRICT_FIXPOINT HOLDS` — the fixpoint
+is stable _around_ the defect because stage2 and stage3 drop the same
+statements. Marker count was the only gate that caught it.
+
+Likely mechanism to investigate first: the stamp is UNCONDITIONAL, whereas TS
+tests `wrapperType.requiredTraits.some(t => t.traitType.id === expectedFnTraitType.id)`
+and, when false, builds a synthetic `__impl_fn` wrapper instead of resolving the
+outer one (`src/evaluator/values/anonymous-function.ts:1200-1226`). Registering
+the OUTER wrapper in a case where TS would not is a plausible cause of a
+downstream type mismatch inside an `io.async`/`io.await` chain.
+
+NEXT: measure the `Self` binding ALONE (impl.yo `subst_set_self` +
+types/substitution.yo, per the faithful spec) — it flips `cli/arg_parser` 15/15
+and its hollow count is still unknown. Do that before touching the closure
+side again.
+
 ### 3. closure value's C type collapses to `void*` — 3 files
 
 - `impl_fn_field_rejection`: ONE error, no cascade. `struct __yo_t22_struct
