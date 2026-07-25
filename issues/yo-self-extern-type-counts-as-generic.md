@@ -70,10 +70,19 @@ the `g_extern_type_names` side table (`types/guards.yo`), registered by
 `sync/atomic` 15/15, `sync/waitgroup` 14/14, `sync/rwlock` 15/15 — all
 matching the TS reference counts exactly. #69: 161 → 164/183.
 
-Still red in that family, different root causes (see the handoff):
-`sync/once` (stored-closure capture identity), `sync/mutex` and
-`sync/channel` (a specialized fn emitted with `__unknown__Type__` in its
-name).
+Still red in that family — and NOT this bug, but do not trust the old
+attribution either:
+
+- `sync/once` and `sync/channel` show the SAME `__yo_new___yo_tN`
+  undeclared-ctor symptom yet still fail WITH this fix applied, so a
+  different type is being skipped. (A minimal `Once.new()` + `is_done()`
+  repro now compiles clean, so the residual failure is in the richer part
+  of the test — likely the `o.call(closure)` path.) Read their post-fix
+  logs before theorising.
+- `sync/mutex` is genuinely distinct: a specialized fn emitted with
+  `__unknown__Type__` in its name. Note `unknown` is an INTENTIONAL
+  signature fallback in BOTH compilers (TS helper.ts:2149), so that is a
+  spec-identity/emission problem, not a naming one.
 
 ## Audit: are there OTHER missing extern carve-outs? — NO (checked)
 
