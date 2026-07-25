@@ -56,6 +56,19 @@
 //! monomorphized instances. Consider fixing THAT before, or instead of,
 //! widening the predicate; at minimum land the two separately so the blast
 //! radius stays attributable.
+//!
+//! OUTCOME (2026-07-25): fixed NARROWLY — `type_contains_some_type_deep`
+//! (types/utils.yo) reuses `get_all_some_types` for the structural recursion
+//! and `type_contains_some_type` for the carve-outs, and is used ONLY in the
+//! `compute_needs_cycle_gc` pre-scan, per the warning above. Verified on this
+//! repro: gc_collecting 9 -> 0, matching TS exactly. Canaries green
+//! (cycle_collector 16/16, rc 15/15), so cycle GC is not lost where needed.
+//!
+//! It flips NO red file on its own. `sync/channel` still fails, but with a
+//! DIFFERENT error (`yo_id_5522` undeclared instead of the dispose_fn one), so
+//! this removed one layer and another remains beneath it. Landed as a
+//! faithfulness + perf fix (affected user programs now get the lightweight RC
+//! runtime instead of full Bacon-Rajan), not as a test flip.
 open(import("std/fmt"));
 { Mutex } :: import("std/sync/mutex");
 

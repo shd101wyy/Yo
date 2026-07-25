@@ -23,7 +23,7 @@ open(import("std/string"));
 { ExprInfoTable, lookup_some_resolved_concrete } :: import("../expr_info.yo");
 { Emitter } :: import("../emitter.yo");
 { is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, set_lookup_some_resolved_concrete } :: import("../types/guards.yo");
-{ type_contains_some_type, can_type_form_rc_cycle } :: import("../types/utils.yo");
+{ type_contains_some_type, type_contains_some_type_deep, can_type_form_rc_cycle } :: import("../types/utils.yo");
 { Exception } :: import("std/error");
 { Environment } :: import("../env.yo");
 { EvalContext } :: import("../evaluator/context.yo");
@@ -53,7 +53,13 @@ _struct_has_generic_field :: (fn(ty : TypeValue) -> bool)(
       while((i < n) && !(found), {
         match(
           field_types.get(i),
-          .Some(ft) => if(type_contains_some_type(ft), {
+          // RECURSIVE: TS's needs-cycle-GC pre-scan uses `typeContainsSomeType`,
+          // which walks the whole type. A generic `ArrayList(E)` has field
+          // `?*(E)` — a SomeT nested under Option/Ptr — which the top-level
+          // test misses, so the generic instantiation was accepted as a
+          // concrete CYCLE ROOT and forced the heavy GC runtime for the entire
+          // program. See issues/repros/toplevel-some-type-check-forces-cycle-gc.yo.
+          .Some(ft) => if(type_contains_some_type_deep(ft), {
             found = true;
           }),
           .None => ()
@@ -85,7 +91,7 @@ compute_needs_cycle_gc :: (fn(context : CodeGenContext) -> unit)({
         is_struct_root := ((is_reference_struct_type(ty) && !(is_atomic_reference_struct_type(ty))) && !(_struct_has_generic_field(ty)));
         // A reference-semantics enum can also form an RC cycle (recursive Self
         // variant field), so it is a cycle root too.
-        is_enum_root := ((is_reference_enum_type(ty) && !(is_atomic_reference_enum_type(ty))) && !(type_contains_some_type(ty)));
+        is_enum_root := ((is_reference_enum_type(ty) && !(is_atomic_reference_enum_type(ty))) && !(type_contains_some_type_deep(ty)));
         if((is_struct_root || is_enum_root) && can_type_form_rc_cycle(ty), {
           context.needs_cycle_gc = true;
           go = false;

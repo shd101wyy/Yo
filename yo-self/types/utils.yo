@@ -1013,6 +1013,50 @@ get_all_some_types :: (fn(ty : TypeValue) -> ArrayList(TypeValue))({
   _collect_some_types_into(ty, acc, visited_ids);
   acc
 });
+/// STRUCTURALLY RECURSIVE "contains a codegen SomeType" test.
+///
+/// `type_contains_some_type` above is TOP-LEVEL ONLY (see this module's header):
+/// it inspects `ty` itself and returns `false` for every composite. TS's
+/// `typeContainsSomeType` (src/types/utils.ts:477) instead walks the whole type
+/// structure, so a SomeT nested under `Option`/`Ptr`/a field is detected.
+///
+/// That difference is not cosmetic: an `ArrayList(E)` left generic has field
+/// `?*(E)`, which the top-level test calls concrete. `compute_needs_cycle_gc`
+/// then accepts the generic ArrayList as a CYCLE ROOT and switches the whole
+/// program to the heavy Bacon-Rajan runtime, where TS stays on the lightweight
+/// RC path — which in turn stamps `dispose_fn` with a bare generic id that is
+/// never emitted ("use of undeclared identifier"). Repro:
+/// `issues/repros/toplevel-some-type-check-forces-cycle-gc.yo`.
+///
+/// Implemented by reusing the PROVEN pieces rather than adding a second walker:
+/// `get_all_some_types` supplies the structural recursion (with its own visited
+/// set) and `type_contains_some_type` supplies the carve-outs (extern,
+/// resolved-concrete, Impl(Fn)/Impl(Future)) at each collected SomeT.
+///
+/// Deliberately NOT swapped in for `type_contains_some_type` everywhere: that
+/// predicate gates constructor emission and specialization decisions, and
+/// making it strictly more conservative would REMOVE constructors that are
+/// currently emitted. Used only where TS's recursive semantics are required.
+type_contains_some_type_deep :: (fn(ty : TypeValue) -> bool)({
+  if(type_contains_some_type(ty), {
+    return(true);
+  });
+  sts := get_all_some_types(ty);
+  n := sts.len();
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < n) && !(found), {
+    match(
+      sts.get(i),
+      .Some(st) => if(type_contains_some_type(st), {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
 // ---------------------------------------------------------------------------
 // Size and alignment utilities
 // ---------------------------------------------------------------------------
@@ -1524,5 +1568,6 @@ export(can_type_form_rc_cycle, buffer_element_type);
 export(type_requires_inference);
 export(type_contains_some_type);
 export(get_all_some_types);
+export(type_contains_some_type_deep);
 export(get_size_of_type, get_alignment_of_type);
 export(type_representation_contains_raw_ptr, type_may_provide_slice_source);
