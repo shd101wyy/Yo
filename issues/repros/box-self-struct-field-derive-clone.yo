@@ -124,6 +124,33 @@
 //! top of `Box.clone`'s body evaluation — rather than reasoning about it; the
 //! last three hypotheses all looked airtight on paper and were all wrong.
 //!
+//! PROBE 3 (INCONCLUSIVE — recorded so it is redesigned, not repeated).
+//! Printed `self`'s bound declared type at the FuncVal param-binding site
+//! (function.yo:3467, `bind_decl_pt`), filtered to types whose
+//! `type_to_string` contains "Box". ZERO hits on this repro.
+//!
+//! Do NOT conclude "Box.clone binds self on a different path" from that. The
+//! FILTER is the weak link: `type_to_string` renders some struct types as an
+//! unnamed `<struct:struct_yo_id_N>` (visible in the PROBEFM output in the
+//! sibling repro, where non-Box patterns printed exactly that way), so a
+//! `Box(...)` param could render without the substring and be filtered out.
+//! The probe cannot distinguish "never bound here" from "bound here but
+//! rendered unnamed". REDESIGN IT: print EVERY `self` binding unfiltered
+//! (optionally with the func_id) and grep afterwards.
+//!
+//! Two facts to carry into that redesign, both read from source:
+//!   * `create_specialized_function_inline` (helper.yo:1182-2020) never calls
+//!     `add_variable_to_env` for `cap_names`/`cap_tys`/`cap_vals` — it only
+//!     COPIES them into a new FuncVal. It binds PARAMS into the caller-supplied
+//!     `callee_env`.
+//!   * That `callee_env` is `fresh_env`, which IS the env whose captures were
+//!     bound at function.yo:3349 (only one `fresh_env` is constructed in that
+//!     file, at :3319, and it is threaded into the extracted runtime-call
+//!     helper that makes the :1623 spec call). So the impl's `T` capture
+//!     SHOULD be in scope for the spec body — which is why the "captures never
+//!     reach the body" story is NOT yet established, and why the unfiltered
+//!     probe is needed before any fix.
+//!
 //! NEXT STEP: find why `Box.clone`'s body is evaluated with `self : Box(V)`
 //! when the candidate's `method_type` was already substituted to the concrete
 //! receiver (`substitute(spec_s, ftype)`, impl.yo:~990). Concretely: determine
