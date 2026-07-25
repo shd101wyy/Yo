@@ -154,6 +154,30 @@
 //! Fix there — not in the recursion guards (proven uninvolved: zero hits), not
 //! in derive, not in return-type inference, and not in the forward-ref
 //! captures.
+//!
+//! FINAL ISOLATION (all with the same Box(Self) field binding, same binary):
+//!
+//!   __v_left.*            deref ..................... WORKS
+//!   box(__v_left.*)       forall free function ...... WORKS  (rc=0, "cloned")
+//!   __v_left.clone()      GENERIC-IMPL METHOD ....... FAILS
+//!
+//! And a fully CONCRETE receiver (`clone : (fn(self : TreeNode) -> TreeNode)`,
+//! no `Self` anywhere in the signature) STILL FAILS — so it is not the
+//! receiver's Self either (fifth disproven hypothesis).
+//!
+//! Conclusion: the field type and forall inference are both sound. What fails
+//! is GENERIC-IMPL METHOD DISPATCH on that field — `Box`'s
+//! `impl(Box(T), where(T <: Clone), Clone(...))` is not instantiated at
+//! T = TreeNode, so its body runs generic and the nested `box(...)` binds V to
+//! itself. That is the `_impl_type_captures_sig` machinery described at
+//! helper.yo:1040 ("yo-self keeps the shared original func_id and injects the
+//! bindings as CAPTURES") failing to inject T for this call.
+//!
+//! NEXT PROBE (do this first, do not guess — six hypotheses have now been
+//! disproven): instrument the generic-impl method instantiation path to print
+//! the receiver type and the injected TypeVal captures for the
+//! `__v_left.clone()` call, and compare against the working `Box(i32)` case
+//! (a struct with a `Box(i32)` field + derive(Clone) compiles and runs).
 open(import("std/fmt"));
 
 TreeNode :: enum(Leaf(value : i32), Branch(left : Box(Self), right : Box(Self)));
