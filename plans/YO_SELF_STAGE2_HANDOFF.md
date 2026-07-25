@@ -21,6 +21,7 @@ per-bug details live in `issues/*.md` — do not re-litigate fixed bugs._
   "1. PERFORMANCE FIRST" below for the numbers, the two dead ends not
   worth repeating, and the next lever.
 - Recent commits (each fully gated incl. STRICT_FIXPOINT):
+  `2dc6d1e39` needs-cycle-GC pre-scan (faithfulness+perf, flips nothing),
   `3e8dfc1a6` extern-type carve-out (3 sync files),
   `011e15c7a` + `a92e7c9a5` + `920c2876d` perf arc,
   `99ba71265` capture-split (arc GREEN), `7823007ba` rc layer 4
@@ -155,6 +156,32 @@ Repros: `issues/repros/imm-map-unspecialized-comptime-helper.yo`
 Sub-class evidence for all of these: END of
 `issues/yo-self-gap6-ctor-memo-reconciliation-attempt7.md`
 ("Residual-red classification" entry).
+
+**Fresh post-fix signatures** (from the 164/183 sweep at /tmp/sweep69_ext —
+use THESE, not the older table text) cluster the 19 reds into three:
+
+| family                   | files                               | signature                          |
+| ------------------------ | ----------------------------------- | ---------------------------------- |
+| missing ctor             | derive_clone_complex, once, channel | `__yo_new___yo_tN` undeclared      |
+| spec identity            | closure_capture_rc_leak, mutex      | `__unknown__Type__` in a spec name |
+| struct-instance identity | cli/arg_parser, imm family          | `__yo_t35` vs `__yo_t24` mismatch  |
+
+**Most promising lead** (`issues/repros/toplevel-some-type-check-forces-cycle-gc.yo`):
+yo-self registers UNMONOMORPHIZED generic instantiations in the codegen
+type table where TS registers only monomorphized ones — measured, TS has
+ZERO `void**` fields on that repro and yo-self has EIGHT. `2dc6d1e39`
+fixed the downstream symptom (those generics being read as cycle roots);
+the registration itself is untouched and is plausibly what feeds the
+missing-ctor family. Do NOT "fix" it by widening
+`type_contains_some_type` globally — that is strictly more conservative
+and would REMOVE constructors that currently work (reasoning in the
+repro).
+
+Two reductions already done, so don't redo them:
+`issues/repros/generic-over-closure-type-field.yo` (the real
+`impl_fn_field_rejection` failure — its three `comptime_expect_error`
+rejections and its Dyn(Fn) workaround all already match TS), and the
+9-line Channel repro shape in the cycle-GC repro's header.
 
 ### 4. Step 3 finalization (after #69 or when instructed)
 
