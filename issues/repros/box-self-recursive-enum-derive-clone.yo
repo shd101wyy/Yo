@@ -30,6 +30,33 @@
 //!
 //! This is the minimal form of tests/derive_clone_complex.test.yo's failure
 //! (same two error classes; that file's TreeNode is the same shape).
+//!
+//! FULL ROOT-CAUSE CHAIN (traced to std source):
+//!
+//!   box  :: (fn(forall(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
+//!   Box's Clone impl (std/prelude.yo ~7400):
+//!            clone : ((self) -> box(self.*.clone()))
+//!
+//! The failing specialization IS `box`. Its `forall(V)` was inferred as UNIT,
+//! which is why the parameter lowered to `void` and the body built Box(V).
+//!
+//! Why V infers to unit: the derived `TreeNode.clone` calls `Box.clone`, which
+//! calls `box(self.*.clone())`, which calls `TreeNode.clone` again — a RECURSION
+//! through the derive. `__derive_clone` emits an UNTYPED lambda,
+//! `clone : ((self) -> #(match_body.to_expr()))`, so the method's return type is
+//! INFERRED FROM ITS BODY. While that body is still being evaluated the inner
+//! `.clone()` has no known return type yet, yields unit, and `box`'s forall V
+//! unifies with unit.
+//!
+//! That also explains the odd split noted above — the return type
+//! (`-> Box(V)`, written explicitly on `box`) substitutes fine, while the
+//! parameter (`value : V`, dependent on the inferred argument) does not.
+//!
+//! So the fix belongs in yo-self's handling of a SELF-RECURSIVE derive-generated
+//! method's return type: TS resolves it (the same std code works there), yo-self
+//! collapses it to unit. A declared-return-type placeholder / recursion guard
+//! for derive-generated methods is the shape to look for. This is NOT fixable in
+//! std — the rule is shared and TS evaluates it correctly.
 open(import("std/fmt"));
 
 TreeNode :: enum(Leaf(value : i32), Branch(left : Box(Self), right : Box(Self)));
