@@ -139,6 +139,35 @@ and are confirmed VERBATIM — treat them as facts, not reports:
   `checkAssociatedTypeConstraints` from step 4 of `typeImplementsTrait`
   (src/evaluator/trait-checking.ts:240-322, called at :311).
 
+### Read HIGH as "wrong IF it runs" — check wiring before fixing a body
+
+"HIGH impact" above assumes the code executes. Two HIGH entries are **unwired**,
+verified by reading (not by grep heuristics):
+
+- `evaluator/trait_checking.yo:450` `_check_associated_type_constraints` — zero
+  call sites.
+- `types/guards.yo:584` `is_function_specializable` — zero call sites; only its
+  definition, its export, and a comment in
+  `codegen/functions/collection.yo:10` acknowledging it is a `false` stub.
+
+For those, repairing the body accomplishes nothing: the faithful port also has
+to restore the CALL SITE TS has (`typeImplementsTrait` step 4 calls
+`checkAssociatedTypeConstraints` at trait-checking.ts:311). That is a different
+and larger job than fixing a wrong implementation, and it should be planned as
+such.
+
+`is_function_specializable` has a second problem: it cannot be implemented
+faithfully at its current signature. TS's
+`isFunctionSpecializable(functionValue)` needs
+`functionValue.specializedFunctionCaches?.length > 0` (src/types/guards.ts:537-547)
+— the function VALUE. yo-self's takes a `TypeValue`, so the second conjunct is
+unrepresentable without changing the signature and its callers.
+
+CAVEAT on doing this at scale: a call-site count is NOT a reliable wiring test
+here. Most evaluator entry points (`evaluate_assignment`, `generate_function`,
+`evaluate_while`, ...) legitimately show a single call site because they are
+dispatched from one large `match`. Only zero-with-reading is conclusive.
+
 ---
 
 # HIGH
