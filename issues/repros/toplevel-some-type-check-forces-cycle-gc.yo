@@ -1,0 +1,52 @@
+//! Repro: yo-self ignores the `Acyclic` marker trait when deciding
+//! `needs_cycle_gc`, so a program TS compiles with the LIGHTWEIGHT RC runtime
+//! gets the full cycle-GC runtime instead.
+//!
+//! Measure on the emitted C (`--emit-c --skip-c-compiler`):
+//!   TS      -> grep -c __yo_gc_collecting = 0   (lightweight, type_id dispatch)
+//!   yo-self -> grep -c __yo_gc_collecting = 9   (full Bacon-Rajan cycle GC)
+//!
+//! ROOT CAUSE (probe-confirmed; an earlier `Acyclic`-trait hypothesis was
+//! WRONG — yo-self's pre-scan already has the `!is_atomic_reference_struct_type`
+//! exclusion that TS has, so Mutex is never the root):
+//!
+//! A probe in `compute_needs_cycle_gc` (codegen/codegen_c.yo) naming the
+//! offending entry printed:
+//!
+//!   // PROBE cycle-root: c_name=__yo_t10 struct_root=true enum_root=false
+//!   //   ty=<struct:struct_yo_id_3049>
+//!
+//! and `__yo_t10` is a GENERIC ArrayList whose element type erased to void:
+//!
+//!   struct __yo_t10_struct {   // <struct:struct_yo_id_3049>
+//!     __yo_ref_header_t header;
+//!     void** _ptr; size_t _length; size_t _capacity;
+//!   };
+//!
+//! (TS monomorphizes these — `uint8_t* _ptr`, `size_t* _ptr`, … — and never
+//! leaves a void** one in its type table.)
+//!
+//! It is treated as a CONCRETE cycle root because the pre-scan's
+//! `!_struct_has_generic_field(ty)` guard says it has no generic field, and
+//! that guard calls `type_contains_some_type`, which in yo-self is
+//! **TOP-LEVEL ONLY** (types/utils.yo: arms for `.SomeT` and `.TypeAppT`, then
+//! `_ => false`; the module header documents the simplification). The field is
+//! `?*(E)` — a SomeT nested under Option/Ptr — so the top-level check misses
+//! it. TS's `typeContainsSomeType` is a full structural walk and returns true.
+//!
+//! So the fix is to make `type_contains_some_type` recurse structurally like
+//! TS. NOTE that is a HIGH-BLAST-RADIUS change: the predicate gates constructor
+//! emission, specialization decisions and several codegen paths, so it needs
+//! the full battery + corpus + fixpoint, and it may flip other families at the
+//! same time (the ordered-collections "dispose_fn referencing a never-emitted
+//! drop method" class is plausibly the same root).
+//!
+open(import("std/fmt"));
+{ Mutex } :: import("std/sync/mutex");
+
+main :: (fn() -> unit)({
+  m := Mutex(i32).new(i32(5));
+  println(`ok`);
+});
+
+export(main);
