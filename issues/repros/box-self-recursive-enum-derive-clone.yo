@@ -58,6 +58,26 @@
 //!   box :: (fn(forall(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
 //!   Box's Clone:  clone : ((self) -> box(self.*.clone()))
 //!
+//! ISOLATION MATRIX (each piece proven fine ALONE — only the recursion fails):
+//!
+//!   deref a Box(Self) field .......................... WORKS (rc=0)
+//!     match(tree,.Branch(l,r) => match(l.*, …))  -> "deref leaf=7"
+//!   forall inference on a deref'd Box(Self) .......... WORKS (rc=0)
+//!     box(l.*)                                    -> "rebox leaf=7"
+//!   the SAME calls inside a self-recursive clone ..... FAILS
+//!
+//! So `Self` DOES resolve, and `box`'s forall(V) DOES infer, on a
+//! `Box(Self)` value. The failure needs the recursion
+//! TreeNode.clone -> Box.clone -> box(self.*.clone()) -> TreeNode.clone.
+//! With an explicit `-> Self` it still fails, so the recursive call's RESULT
+//! is what degenerates — V ends up UNIT (get_type_string gives "void", not the
+//! "void*" an unresolved SomeT would give).
+//!
+//! That "call result degenerated to unit" is the SAME signature the Round-2
+//! ledger records (`Expected: <struct:…> / Given: unit`,
+//! issues/yo-self-gap6-ctor-memo-reconciliation-attempt7.md), which is the
+//! strongest evidence that this and blocker (i) are one bug.
+//!
 //! This looks like a MINIMAL INSTANCE of the handoff's Round-2' blocker (i),
 //! the "pattern-era pointer-Self leak" — and unlike that one, it reproduces
 //! WITHOUT applying the WIP patch, so it is a much cheaper way in.
