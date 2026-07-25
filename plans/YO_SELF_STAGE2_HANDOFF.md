@@ -14,11 +14,11 @@ per-bug details live in `issues/*.md` — do not re-litigate fixed bugs._
   misses — never skip the post-commit sweep, and grow the battery with
   every near-miss (comptime.test is now permanent).
 - **PERF (priority 1) is under way and measured** — `check ./std`
-  87.35 s → 31.02 s (2.82x), stage2 emit ~55-65 → 46.8 min. See
+  87.35 s → 29.71 s (2.94x), stage2 emit ~55-65 → 35.9 min (1.7x). See
   "1. PERFORMANCE FIRST" below for the numbers, the two dead ends not
   worth repeating, and the next lever.
 - Recent commits (each fully gated incl. STRICT_FIXPOINT):
-  `920c2876d` match-place dup elision (perf),
+  `011e15c7a` + `a92e7c9a5` + `920c2876d` perf arc,
   `99ba71265` capture-split (arc GREEN), `7823007ba` rc layer 4
   (rc GREEN), `7fe90d289` witness resolution (iso GREEN), `0bca00991`
   tuple keys, `2319ecc…/2319c` array-wrapper order, `09cb5fd14` Gap-6
@@ -43,15 +43,15 @@ per-bug details live in `issues/*.md` — do not re-litigate fixed bugs._
 `issues/yo-self-compile-performance-rc-string-eq.md` +
 `plans/PERF_BORROW_ELISION.md`.
 
-`check ./std` (evaluator-only proxy): **87.35 s → 31.02 s, 2.82x.**
-stage2 emit: **~55-65 min → 46.8 min** (only ~1.3x — see the warning
-below).
+`check ./std` (evaluator-only proxy): **87.35 s → 29.71 s, 2.94x.**
+stage2 emit (the REAL metric): **~55-65 min → 35.9 min, ~1.7x.**
 
-| step                                   | min user | delta  |
-| -------------------------------------- | -------- | ------ |
-| baseline                               | 87.35 s  | —      |
-| `920c2876d` TS match-place dup elision | 79.90 s  | -8.5%  |
-| yo-self port + 2 hot predicates        | 31.02 s  | -61.0% |
+| step                                    | check ./std | stage2 emit |
+| --------------------------------------- | ----------- | ----------- |
+| baseline                                | 87.35 s     | ~55-65 min  |
+| `920c2876d` TS match-place dup elision  | 79.90 s     | —           |
+| `a92e7c9a5` yo-self port + 2 predicates | 31.02 s     | 46.8 min    |
+| `011e15c7a` codegen String.from (177)   | 29.71 s     | 35.9 min    |
 
 What actually mattered — all measured, none of it guessed:
 
@@ -68,12 +68,25 @@ What actually mattered — all measured, none of it guessed:
 path is **-4.7% for +140% binary** (per-call overhead is NOT the lever);
 a String `==` pointer fast path measured zero.
 
-**NEXT LEVER (highest value):** 143 `== String.from(x)` + 15
-`!= String.from(x)` sites remain, **concentrated in codegen** —
-`codegen/exprs/inline_fns.yo` (46, a ~46-arm `cond` allocating per arm on
-every inline-fn dispatch) and `codegen/exprs/generation.yo` (26).
-Scanner-based rewriter ready and unit-tested:
-`scratchpad/rewrite_string_from_cmp.py`; file list = 28 non-test files.
+**WHERE THE EMIT TIME NOW SITS** (live `sample` of a stage3 emit —
+this is the codegen phase, which `check ./std` never touches):
+`__yo_decr_rc` 43%, `String ==` 38%, memcmp 9%.
+
+`String ==` is now SOURCE-optimal (the match-place elision removed all
+four of its `___dup`s — verified in the emitted C). It is 38% purely
+from CALL VOLUME, driven by identifier lookup
+(`evaluate_identifier_and_operator` is a top caller).
+
+**NEXT LEVER: interning.** Make identifier/type-key comparison an id
+compare instead of a byte compare. TS gets this free — JS interns its
+strings, so `===` is a pointer compare — which is the whole reason
+`String ==` can be 38% of a yo-self emit. `yo-self/types/intern.yo`
+already has the pattern (`g_type_intern`). This removes both the
+linear-scan compares AND the HashMap hashing.
+
+Secondary: every `String ==` still pays four non-inlined accessor calls
+(`ArrayList.len()` x2, `.ptr()` x2). TS's emit marks 4,435 functions
+`always_inline`; yo-self's emit marks 2. Worth measuring.
 
 **MEASURE THE RIGHT THING.** `check ./std` is evaluator-only and does
 NOT exercise codegen — that is exactly why the emit moved 1.3x while the
@@ -82,13 +95,19 @@ proxy moved 2.82x. Measure any codegen round with a REAL emit
 not the check proxy. `scratchpad/perf_ab.sh <binA> <binB> 3` alternates
 arms so machine drift hits both equally.
 
-Then: `_attach_early_return_only_drop_to_returns` (13.9% / 1.5e9 calls)
-walks the ENTIRE begin-block subtree once per early-return variable, and
-nested blocks re-walk what inner ones already did — but it only acts on
-`return`/`unwind` nodes, and `Expr.$` already carries a merged subtree
-control-flow summary (`expr.ts:248`). An early exit when neither
-`controlFlow.return` nor `.unwind` is set should prune most of it; stay
-conservative where `$`/`controlFlow` is undefined.
+Then: `_attach_early_return_only_drop_to_returns` (13.9% of decr
+traffic) is O(V x subtree) — one full walk per early-return variable,
+with nested blocks re-walking. Fix by HOISTING: walk once collecting
+`{node, cleanupPoint}` pairs at every `return`/`unwind`, then loop the
+variables over that list.
+**Do NOT prune it on `Expr.$.controlFlow`** — that is NOT a subtree
+summary (`begin.ts:2251` takes only `lastExpr`'s flow), so a block with
+an early return in a non-tail statement carries no flag and would lose a
+drop: a silent LEAK. Full write-up in the issue doc.
+
+**Dead end (measured):** lowering the `_frame_positions` index threshold
+from 64 to 16 is **+1.2% SLOWER** — building an index for a small frame
+costs more than scanning a few names.
 
 Rules: a perf change must be behavior-identical (same test counts,
 corpus PASS 140 / DIFF 0, FIXPOINT holds); run the FULL gate chain per

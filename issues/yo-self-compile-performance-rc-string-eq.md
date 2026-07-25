@@ -263,3 +263,47 @@ Emit progression (same machine, gate-chain measurements):
 
 Round-2 note: stage3 < stage2 in round 1 (37.9 vs 46.8) because s2 is
 built from yo-self's OWN elided emit — the port pays for itself.
+
+## UNSOUND idea — do NOT prune the early-return drop walk on `controlFlow`
+
+`_attach_early_return_only_drop_to_returns` (13.9% of decr traffic) walks
+the whole begin-block subtree once per early-return variable, and it only
+ever acts on `return`/`unwind` nodes — so pruning subtrees that contain
+neither looks free. It is not: **`Expr.$.controlFlow` is NOT a subtree
+summary.** `begin.ts:2251` sets a begin block's flow from
+`lastExpr.$.controlFlow` alone (tail-position semantics), so
+
+    { if(x, { return(1); }); foo(); }
+
+carries NO return flag — the flow comes from `foo()`. Pruning on it would
+skip a needed drop attachment, i.e. a LEAK: silent, no crash, and easy
+for the battery to miss.
+
+Sound alternative — hoist the walk instead of pruning it. Today it is
+O(V x subtree). Walk ONCE collecting `{node, cleanupPoint}` pairs at
+every `return`/`unwind`, then loop the V variables over that list:
+O(subtree + V x returns), with provably identical attachment decisions
+(the predicate is per-(variable, cleanupPoint) and order-independent).
+Collect the NODE too, not just the token — `attachIfCleanupPointNeedsDrop`
+reads `expr.$.env` of the visited node.
+
+Profile note: the emit `sample` shows this function deeply RECURSIVE but
+with small self-time; its cost is the decr_rc traffic it generates, not
+its own instructions.
+
+## Negative result 2026-07-25: frame-index threshold 64 -> 16 — SLOWER
+
+`_frame_positions` (yo-self/env.yo) linear-scans a frame's variables
+(each a `String ==`) when the frame has < 64 bindings, else uses the
+`g_frame_indexes` side table. Since identifier lookup is what drives the
+`String ==` volume (`evaluate_identifier_and_operator` is a top caller in
+the emit profile), indexing smaller frames looked promising.
+
+Measured (`check ./std`, 3 alternating reps): 29.71 s -> 30.08 s min
+user, **+1.2% SLOWER**. REVERTED.
+
+Why: building an index for a small frame costs a name hash plus a global
+HashMap lookup keyed by `frame.index_key` (itself a String hash+compare)
+— more than scanning a handful of names. The threshold is not the lever;
+INTERNING is (make the compare an id compare everywhere, which removes
+both the scan cost and the hashing).
