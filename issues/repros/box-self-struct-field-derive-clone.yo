@@ -1,0 +1,114 @@
+//! Repro: a PLAIN STRUCT with an `Option(Box(Self))` field + `derive(Clone)`.
+//!
+//!   TS      -> rc=0, prints "box-self-struct cloned"
+//!   yo-self -> C compile fails (rc=1)
+//!
+//! This is a SMALLER and STRICTLY BETTER reproducer than
+//! `box-self-recursive-enum-derive-clone.yo` — read that file for the full
+//! investigation record; this one isolates the variable that actually matters.
+//!
+//! ISOLATION MATRIX (all three run against the SAME s1 binary, so the only
+//! difference is the source shape):
+//!
+//!   struct(inner : Box(i32))            + derive(Clone) ..... WORKS (rc=0)
+//!   struct(inner : Box(Inner))          + derive(Clone) ..... WORKS (rc=0)
+//!     (Inner is an ordinary struct that also derives Clone)
+//!   struct(next  : Option(Box(Self)))   + derive(Clone) ..... FAILS
+//!
+//! So it is NOT "Box over a non-primitive" and NOT enum-specific and NOT
+//! about recursing through enum VARIANTS — the recursive enum in the older
+//! repro was incidental. The single operative ingredient is `Self` inside the
+//! boxed field type.
+//!
+//! It also spans TWO of the handoff's three red families at once, which makes
+//! it the cheapest way in:
+//!
+//!   error: argument may not have 'void' type            <- "missing ctor"
+//!   error: too few arguments to function call, 'self'
+//!   error: assigning to '__yo_t15' from incompatible
+//!          type '__yo_t1'                               <- "struct-instance
+//!                                                           identity"
+//!
+//! MEASURED CAUSAL CHAIN (probes against the running compiler; see the older
+//! repro for the raw traces):
+//!
+//!   1. The generic-impl MATCH is innocent. Probing the real
+//!      `find_methods_from_generic_impls` (evaluator/values/impl.yo:880 — NOT
+//!      the dead duplicate in generic_impl_registry.yo, which nothing
+//!      imports) prints `binds=<the finalized type>`, i.e. the correct
+//!      `T := <Self's concrete type>`, and exactly ONE candidate. So
+//!      property_access.yo:845 takes its `len() == 1` path and installs the
+//!      capture-injected `method_value`.
+//!   2. Captures ARE bound into the body-eval env (function.yo:3349).
+//!   3. And yet `Box.clone`'s body is evaluated GENERICALLY: inside it
+//!      `self.*` has type `V`, so the nested `box(self.*.clone())` sees an
+//!      arg of type `V` and the name-match arm (function.yo:1168, which has
+//!      no `is_some_type` guard) binds `V := V`. That is the emitted
+//!      `yo_id_2747_V_id_1598_…(void value)` — a specialization over an
+//!      unresolved forall, constructing the generic `Box(V)`.
+//!
+//! So: the correct binding is produced AND installed, and is then lost before
+//! the body runs. The defect is that `self` is typed `Box(V)` instead of
+//! `Box(<concrete>)` when that body is evaluated — one level ABOVE the `box`
+//! call where the symptom surfaces.
+//!
+//! EIGHT HYPOTHESES ARE NOW DISPROVEN — do not retry any of them:
+//!   1. derive-specific (a hand-written impl fails identically)
+//!   2. return-type inference (an explicit `-> Self` fails identically)
+//!   3. missing `Acyclic`
+//!   4. forward-ref captures (`_build_forward_ref_funcval`)
+//!   5. receiver `Self` (a fully concrete receiver still fails)
+//!   6. recursion guards (probed: ZERO hits, never fire here)
+//!   7. self-shell leaking into the forall binding. The leak is REAL — a
+//!      shell nested in a generic's `type_arguments` is never resolved,
+//!      because every `resolve_enum_shell`/`resolve_struct_shell` call is
+//!      top-level only — but resolving it at both forall-binding arms of
+//!      `_funcval_bind_foralls` produced BYTE-IDENTICAL output. Reverted.
+//!      It could not have worked: the bogus spec binds `V` to its OWN SomeT,
+//!      not to the shell.
+//!   8. refusing the bind-to-self (`V := V`) in the name-match arm. Made it
+//!      STRICTLY WORSE: 2 -> 4 `void`-type errors, plus a new `field has
+//!      incomplete type 'void'`, and the generic ctor became DECLARED as
+//!      `__yo_new___yo_t13(void _u42_)`. Leaving the forall unbound just
+//!      propagates the unresolved param into the struct definition. Reverted.
+//!      Lesson: the binding arm is the SYMPTOM site, not the defect site —
+//!      fixing it there cannot help, because by then the arg type is already
+//!      generic.
+//!
+//! READING THE SPEC NAME (needed to interpret any future probe). The segment
+//! after the fid is `<bound-type-name>_id_<bound-type-id>`, NOT
+//! `<forall-name>_id_…` — the CORRECT sibling spec in the same emit renders
+//! `yo_id_2747_TreeNode_id_enum_decl_56319…`. So `yo_id_2747_V_id_1598` is
+//! `box`'s forall `V` bound to a SomeType that is itself named `V` — i.e.
+//! `box`'s OWN generic original being specialized against itself. The two
+//! foralls in play are distinct and must not be conflated:
+//!   `box  :: fn(forall(V : Type), own(value) : V) -> Box(V)`  (prelude:7368)
+//!   `impl(forall(T : Type), where(T <: Clone), Box(T), Clone(...))` (:7395)
+//! Note `Box` is NOT a generic struct — it is a comptime FUNCTION
+//! `fn(comptime(V) : Type) -> comptime(Type)` (prelude:7360).
+//!
+//! That the #8 guard did NOT remove this spec, despite it being a
+//! self-binding, says the generic original is emitted through a path that
+//! does not go via the name-match arm. Find that path before guarding
+//! anything else.
+//!
+//! NEXT STEP: find why `Box.clone`'s body is evaluated with `self : Box(V)`
+//! when the candidate's `method_type` was already substituted to the concrete
+//! receiver (`substitute(spec_s, ftype)`, impl.yo:~990). Concretely: determine
+//! whether the call path types the parameters from that substituted
+//! `method_type` or re-derives them from the FuncVal's own declared param
+//! types — and if the latter, whether the impl-forall captures are in scope at
+//! that moment. That is a STATIC question about the call path; answer it by
+//! reading before spending another ~40-minute s1 build on a probe.
+open(import("std/fmt"));
+
+Node :: struct(v : i32, next : Option(Box(Self)));
+derive(Node, Clone);
+
+main :: (fn() -> unit)({
+  n := Node(v : i32(1), next : Option(Box(Node)).None);
+  n2 := n.clone();
+  println(`box-self-struct cloned`);
+});
+
+export(main);
