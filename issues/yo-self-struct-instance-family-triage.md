@@ -61,16 +61,44 @@ The two types are structurally identical — both an `Option`-shaped enum whose
 (`enum_yo_id_2438` vs `enum_yo_id_4936`).
 
 **The obvious reading is wrong.** "yo-self mints a duplicate `Option`" does not
-survive measurement: emitting the same test through BOTH compilers gives an
-identical type universe —
+survive measurement — BOTH compilers create the structurally-identical pair:
 
 ```
-TS   enum typedefs: 14   Some-payload enums: 9
-s1   enum typedefs: 14   Some-payload enums: 9
+TS: 23 enum unions; 1 duplicated payload signature  (x2, ('__yo_struct_yoa98c08fb_id_23',))
+s1: 14 enum unions; 1 duplicated payload signature  (x2, ('__yo_t23*',))
 ```
 
 So yo-self is not creating an extra type. The defect is that it selects the
 WRONG ONE of two legitimately distinct types at specific call sites.
+
+### HOW TO COMPARE THE TWO EMITS — read this before trusting any diff
+
+`YO_KEEP_BATCH=1 <bin> test …` leaves a `.yo_selftest_batch_1.bin.c` **only for
+yo-self**. A passing TS run leaves only the generated
+`.yo_selftest_batch_1.yo` and NO `.bin.c`. So the obvious recipe — run TS, copy
+the `.bin.c`, run s1, copy again — silently copies the STALE yo-self C twice and
+you end up diffing s1 against itself. It looks convincing: byte-identical files,
+matching line numbers, "identical type universe". It is worthless. I did exactly
+this and had to throw away three conclusions.
+
+Correct recipe — compile the SAME generated batch with both compilers:
+
+```bash
+YO_KEEP_BATCH=1 ./yo-cli test ./tests/cli/arg_parser.test.yo --parallel 1
+B=tests/cli/.yo_selftest_batch_1.yo
+./yo-cli compile $B --release --emit-c --skip-c-compiler -o /tmp/argp_ts2
+<s1>     compile $B --release --emit-c --skip-c-compiler -o /tmp/argp_s12
+clang -std=c11 -w -O0 -fsyntax-only /tmp/argp_ts2.c   # 0 errors
+clang -std=c11 -w -O0 -fsyntax-only /tmp/argp_s12.c   # 9 errors
+```
+
+Sanity checks that would have caught the mistake instantly: the two emits must
+differ in SIZE (TS 1,076,345 vs s1 689,682 bytes) and must use DIFFERENT C type
+naming (TS `__yo_enum_yo1c2129e9_id_29642`, s1 `__yo_t35`). Identical md5s mean
+you copied the same file twice.
+
+This gives a clean 11 KB reproducer with a 0-vs-9-error split — much better than
+the full test file.
 
 Pinned precisely. `yo_id_4986` is declared once, returning `__yo_t24`, and is
 called four times on the same argument:
@@ -95,10 +123,27 @@ declared return is already concrete, it would produce exactly this. VERIFY
 BEFORE FIXING — the previous family burned four cycles on fixes built atop an
 unverified premise.
 
-Cheapest next step: the divergence is reproducible in 3 s and the emit is clean,
-so diff the yo-self and TS C around those four call sites (`/tmp/argp_s1.c` vs
-`/tmp/argp_ts.c` regenerate via `YO_KEEP_BATCH=1 … test ./tests/cli/arg_parser.test.yo`)
-and identify what differs about site 6484, the one that gets it right.
+A second, independent code-read supports the hypothesis:
+`adopt_receiver_struct_instance` (expr_info.yo:638) reads the return's id via
+
+```
+ret_id := match(ret,.Struct({ id : ai_rid }) => ai_rid, _ => String.new());
+```
+
+and bails to `.None` when that is empty. A return of `Option(Self)` is an
+**EnumT wrapping** the Self struct, not a top-level `.Struct`, so the adoption
+CANNOT fire for `get_subcommand_args` — it is structurally unreachable for
+exactly this shape. That is the same top-level-only blind spot as the self-shell
+resolvers (`resolve_enum_shell`/`resolve_struct_shell` are also top-level only),
+so "nested type positions are not handled" looks like a recurring architectural
+gap in yo-self rather than a one-off.
+
+Cheapest next step: use the batch recipe above (3 s per side, 0-vs-9 errors),
+then determine what distinguishes call site 6484 — the ONE that records `t24`
+correctly — from the three that record `t35`. Do that BEFORE touching
+`adopt_receiver_struct_instance`: extending adoption into nested positions is
+plausible but unverified, and the previous family burned four cycles on fixes
+built atop an unverified premise.
 
 ## `collections/ordered_map` — a third signature
 
