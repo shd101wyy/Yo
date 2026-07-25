@@ -178,6 +178,27 @@
 //! the receiver type and the injected TypeVal captures for the
 //! `__v_left.clone()` call, and compare against the working `Box(i32)` case
 //! (a struct with a `Box(i32)` field + derive(Clone) compiles and runs).
+//!
+//! STRUCTURAL LEAD (evaluator/values/generic_impl_registry.yo:355,
+//! `find_methods_from_generic_impls`):
+//!
+//!     if(!(try_match_generic_impl(resolved, entry, env)), { continue; });
+//!     …
+//!     results.push(MethodCandidate(method_type : ftype, method_value : fvalue));
+//!
+//! `try_match_generic_impl` returns a BOOL. To decide the match it must compute
+//! the impl substitution (T := TreeNode), and then DISCARDS it — the candidate
+//! is pushed with the RAW generic field type/value, carrying no bindings. That
+//! is precisely the "bindings not injected" condition the isolation above
+//! points at.
+//!
+//! Likely fix shape: have the match return its bindings and attach them to
+//! MethodCandidate (then inject them as the TypeVal captures
+//! `_impl_type_captures_sig` already expects). NOTE this changes
+//! MethodCandidate's shape and every caller, so it is a real change, not a
+//! one-liner — gate it on its own. It does not explain by itself why
+//! `Box(i32)` works and `Box(Self)` does not, so PROBE that difference first:
+//! print `resolved` and the entry's forall bindings for both cases.
 open(import("std/fmt"));
 
 TreeNode :: enum(Leaf(value : i32), Branch(left : Box(Self), right : Box(Self)));
