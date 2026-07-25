@@ -365,7 +365,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       // and callers' `io.await` do `void*->state`.
       async_override := _async_override_return_type(function_type, Option(AstExpr).Some(body_box), context.base);
       prototype := generate_function_prototype(function_type, c_function_name.clone(), context.base, async_override, is_closure_fn(func_id.clone()));
-      is_exported := ((c_function_name == String.from("__yo_user_main")) || context.base.exported_function_labels.contains_key(func_id.clone()));
+      is_exported := ((c_function_name == "__yo_user_main") || context.base.exported_function_labels.contains_key(func_id.clone()));
       is_rc := (!(is_exported) && ((c_function_name.contains("___drop")) || ((c_function_name.contains("___dup")) || (c_function_name.contains("___dispose")))));
       linkage := if(is_exported, String.from(""), if(is_rc, String.from("static inline __attribute__((always_inline)) "), String.from("static inline ")));
       open := linkage;
@@ -723,7 +723,7 @@ generate_main_wrapper :: (fn(context : FunctionGenerationContext, module_vars : 
       it.next(),
       .Some(fid) => match(
         context.base.get_function_entry(fid),
-        .Some(entry) => if(entry.c_name == String.from("__yo_user_main"), {
+        .Some(entry) => if(entry.c_name == "__yo_user_main", {
           match(
             entry.value,
             .FuncVal(__fvd1, _) => {

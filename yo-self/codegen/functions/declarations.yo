@@ -461,7 +461,7 @@ _body_is_effectful :: (fn(body : Option(AstExpr), context : CodeGenContext) -> b
 ///   - skip2: generic params, or generic return that is not a plain `Impl(...)`
 should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : EvalValue, context : CodeGenContext) -> bool)({
   function_type := get_func_type(func_id.clone());
-  is_user_main := (c_name == String.from("__yo_user_main"));
+  is_user_main := (c_name == "__yo_user_main");
   // Io async state-machine closures are generated via the deferred async
   // block system, not as standalone functions (their body would otherwise be
   // emitted TWICE — see mark_io_async_sm_closure). Mirrors TS
@@ -567,7 +567,7 @@ _async_override_return_type :: (
             // delegate (a delegate-of-a-delegate) and this fn's own callers
             // resolve too (see _preregister_async_return_overrides).
             del_s := get_type_string(ei.ty, context);
-            if(!(del_s == String.from("void*")), {
+            if(!(del_s == "void*"), {
               context.register_type(type_key(ret), ret, del_s.clone(), Option(String).None);
             });
             Option(String).Some(del_s)
@@ -630,7 +630,7 @@ generate_function_declaration :: (fn(function_type : TypeValue, c_function_name 
 /// functions: never emit `extern` declarations for these. Mirrors
 /// `THREADING_MACRO_FUNCTIONS`.
 _is_threading_macro_function :: (fn(name : String) -> bool)(
-  (name == String.from("__yo_mutex_init")) || ((name == String.from("__yo_mutex_destroy")) || ((name == String.from("__yo_mutex_lock")) || ((name == String.from("__yo_mutex_unlock")) || ((name == String.from("__yo_cond_init")) || ((name == String.from("__yo_cond_destroy")) || ((name == String.from("__yo_cond_wait")) || ((name == String.from("__yo_cond_signal")) || ((name == String.from("__yo_cond_broadcast")) || ((name == String.from("__yo_thread_join")) || (name == String.from("__yo_thread_self")))))))))))
+  (name == "__yo_mutex_init") || ((name == "__yo_mutex_destroy") || ((name == "__yo_mutex_lock") || ((name == "__yo_mutex_unlock") || ((name == "__yo_cond_init") || ((name == "__yo_cond_destroy") || ((name == "__yo_cond_wait") || ((name == "__yo_cond_signal") || ((name == "__yo_cond_broadcast") || ((name == "__yo_thread_join") || (name == "__yo_thread_self"))))))))))
 );
 /// `is_extern` tag of a Func type: `.Some("c")` / `.Some("yo")` / `.None`.
 _func_extern_tag :: (fn(ft : TypeValue) -> Option(String))(
@@ -675,10 +675,10 @@ generate_function_declarations :: (fn(context : CodeGenContext) -> unit)({
         cn := entry.c_name.clone();
         tag := _func_extern_tag(entry.ty);
         cond(
-          (match(tag,.Some(s) => (s == String.from("yo")),.None => false)) => if(!(_is_threading_macro_function(cn.clone())), {
+          (match(tag,.Some(s) => (s == "yo"),.None => false)) => if(!(_is_threading_macro_function(cn.clone())), {
             generate_function_declaration(entry.ty, cn.clone(), true, false, Option(AstExpr).None, false, context);
           }),
-          (match(tag,.Some(s) => (s == String.from("c")),.None => false) && entry.c_include.is_some()) => (),
+          (match(tag,.Some(s) => (s == "c"),.None => false) && entry.c_include.is_some()) => (),
           (cn.starts_with("__atomic_") || cn.starts_with("__sync_")) => (),
           true => {
             generate_function_declaration(entry.ty, cn.clone(), true, false, Option(AstExpr).None, false, context);
@@ -759,7 +759,7 @@ generate_function_declarations :: (fn(context : CodeGenContext) -> unit)({
           c_name := entry.c_name.clone();
           value := entry.value;
           function_type := get_func_type(func_id.clone());
-          is_user_main := (c_name == String.from("__yo_user_main"));
+          is_user_main := (c_name == "__yo_user_main");
           body := _func_value_body(value);
           is_erm := is_effect_record_member(func_id.clone());
           if(!(should_skip_function_codegen(func_id.clone(), c_name.clone(), value, context)), {

@@ -1991,7 +1991,7 @@ evaluate_module_value :: (
   // collect each trait name, mark it, run field eval, unmark on the
   // way out.
   (pre_registered_trait_ids : ArrayList(String)) = ArrayList(String).new();
-  if(receiver_type_id != String.from(""), {
+  if(receiver_type_id != "", {
     (preri : usize) = usize(1);
     while(preri < n_args, {
       match(
@@ -2046,7 +2046,7 @@ evaluate_module_value :: (
   // NOT bound as a local variable (it would shadow names inside
   // sibling method bodies); forward refs go through `self.X`.
   // ============================================================
-  if(receiver_type_id != String.from(""), {
+  if(receiver_type_id != "", {
     (pre_sfi : usize) = usize(1);
     while(pre_sfi < n_args, {
       match(
@@ -2130,7 +2130,7 @@ evaluate_module_value :: (
                   )
                 );
               });
-              if(receiver_type_id != String.from(""), {
+              if(receiver_type_id != "", {
                 register_negative_impl(receiver_type_id.clone(), get_trait_key(neg_trait_ty));
               });
             },
@@ -2193,7 +2193,7 @@ evaluate_module_value :: (
           // now-removed nameless-trait name collision).
           match(
             current_trait_ty,
-            .Some(ctt) => if(receiver_type_id != String.from(""), {
+            .Some(ctt) => if(receiver_type_id != "", {
               match(
                 g_register_trait_value_fn,
                 .Some(rf) => rf(receiver_type_id.clone(), ctt),
@@ -2319,7 +2319,7 @@ evaluate_module_value :: (
                   // produce an empty id — skip those (mirrors TS
                   // `getTypeTraitMethodsByNameFromEnv` early
                   // returning [] when the type has no trait slot).
-                  if(receiver_type_id != String.from(""), {
+                  if(receiver_type_id != "", {
                     // If the pre-pass created a forward-decl shell for
                     // this method, UPDATE it in place (MethodEntry is an
                     // object — sibling dispatch results holding the entry
@@ -2431,7 +2431,7 @@ evaluate_module_value :: (
                   );
                   dmi = (dmi + usize(1));
                 });
-                if(((!(d_provided)) && is_function_type(d_ty)) && (receiver_type_id != String.from("")), {
+                if(((!(d_provided)) && is_function_type(d_ty)) && (receiver_type_id != ""), {
                   match(
                     get_trait_default(dtf_trait_id.clone(), d_label.clone()),
                     .Some(d_val) => {

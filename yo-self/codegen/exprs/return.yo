@@ -39,7 +39,7 @@ _drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
       match(
         func,
         .FnCall(_, _, fargs, _, _) => if(ast_expr_is_fn_call_of(func, BF_DOT, Option(usize).Some(usize(2))), {
-          a1_is_drop := match(fargs.get(usize(1)),.Some(a1) => if(ast_expr_is_atom(a1), ast_expr_token(a1).value == String.from(BF_DROP), false),.None => false);
+          a1_is_drop := match(fargs.get(usize(1)),.Some(a1) => if(ast_expr_is_atom(a1), ast_expr_token(a1).value == BF_DROP, false),.None => false);
           if(a1_is_drop, match(fargs.get(usize(0)),.Some(a0) => if(ast_expr_is_atom(a0), Option(AstExpr).Some(a0), Option(AstExpr).None),.None => Option(AstExpr).None), Option(AstExpr).None)
         }, Option(AstExpr).None),
         .Atom(_, _) => Option(AstExpr).None
@@ -681,13 +681,13 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
           .None => {
             raw_rt := get_type_string(ei.ty, context.base);
             cond(
-              (raw_rt == String.from("void*")) => match(
+              (raw_rt == "void*") => match(
                 context.current_function_type,
                 .Some(ft) => match(
                   ft,
                   .Func({ result : r }) => {
                     fr := get_type_string(r, context.base);
-                    cond((fr == String.from("void*")) => raw_rt, true => fr)
+                    cond((fr == "void*") => raw_rt, true => fr)
                   },
                   _ => raw_rt
                 ),
@@ -887,7 +887,7 @@ _unwind_dummy_return :: (fn(indent : String, context : FunctionGenerationContext
   em := context.base.emitter;
   if(is_unit_type(rt), em.emit_string_line(`${indent.clone()}return;`), {
     rts := match(context.override_return_type_str,.Some(s) => s,.None => get_type_string(rt, context.base));
-    if(rts == String.from("void"), em.emit_string_line(`${indent.clone()}return;`), {
+    if(rts == "void", em.emit_string_line(`${indent.clone()}return;`), {
       em.emit_string_line(`${indent.clone()}return (${rts}){0};`);
     })
   });
@@ -930,7 +930,7 @@ emit_effect_unwind_check :: (fn(indent : String, context : FunctionGenerationCon
       em.emit_string_line(`${inner.clone()}__yo_effect_escaped = 0;`);
       if(is_unit_type(ret_ty), em.emit_string_line(`${inner.clone()}return;`), {
         cty := match(context.override_return_type_str,.Some(s) => s,.None => get_type_string(ret_ty, context.base));
-        if(cty == String.from("void"), em.emit_string_line(`${inner.clone()}return;`), {
+        if(cty == "void", em.emit_string_line(`${inner.clone()}return;`), {
           em.emit_string_line(`${inner.clone()}${cty.clone()} _unw_result;`);
           em.emit_string_line(`${inner.clone()}memcpy(&_unw_result, __yo_unwind_value, sizeof(${cty}));`);
           em.emit_string_line(`${inner.clone()}return _unw_result;`);
@@ -940,7 +940,7 @@ emit_effect_unwind_check :: (fn(indent : String, context : FunctionGenerationCon
       if(is_unit_type(ret_ty), em.emit_string_line(`${inner.clone()}return;`), {
         cty := match(context.override_return_type_str,.Some(s) => s,.None => get_type_string(ret_ty, context.base));
         if(
-          cty == String.from("void"),
+          cty == "void",
           em.emit_string_line(`${inner.clone()}return;`),
           em.emit_string_line(`${inner.clone()}return (${cty}){0};`)
         );
@@ -966,7 +966,7 @@ generate_unwind :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
       arg_opt,
       .Some(arg) => {
         argc := _call_generate_expr(arg, indent.clone(), context);
-        if((argc.len() > usize(0)) && !(argc == String.from("(void)0")), {
+        if((argc.len() > usize(0)) && !(argc == "(void)0"), {
           em.emit_string_line(`${indent.clone()}(void)${argc};`);
         });
       },

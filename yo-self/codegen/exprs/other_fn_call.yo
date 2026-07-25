@@ -337,12 +337,12 @@ _emit_borrow_releases :: (fn(containers : ArrayList(String), indent : String, co
 /// Whether the current function is a method of an RC-managed object type
 /// (`self` parameter of object type). Mirrors `isInsideObjectMethod`.
 _is_inside_object_method :: (fn(context : FunctionGenerationContext) -> bool)(
-  match(context.current_function_type,.Some(ft) => match(ft,.Func({ param_types : pts, meta : __fm1 }) => if(__fm1.*.param_labels.len() == usize(0), false, match(__fm1.*.param_labels.get(usize(0)),.Some(l) => if(l == String.from("self"), match(pts.get(usize(0)),.Some(t) => is_reference_struct_type(t),.None => false), false),.None => false)), _ => false),.None => false)
+  match(context.current_function_type,.Some(ft) => match(ft,.Func({ param_types : pts, meta : __fm1 }) => if(__fm1.*.param_labels.len() == usize(0), false, match(__fm1.*.param_labels.get(usize(0)),.Some(l) => if(l == "self", match(pts.get(usize(0)),.Some(t) => is_reference_struct_type(t),.None => false), false),.None => false)), _ => false),.None => false)
 );
 /// Auto-emit `__yo_borrow_assert_unborrowed((void*)self)` before a realloc/free
 /// inside an RC-managed object method. Mirrors `maybeEmitAutoBorrowAssert`.
 _maybe_emit_auto_borrow_assert :: (fn(extern_func_name : String, indent : String, context : FunctionGenerationContext) -> unit)(
-  if(((extern_func_name == String.from("__yo_realloc")) || (extern_func_name == String.from("__yo_free"))) && _is_inside_object_method(context), {
+  if(((extern_func_name == "__yo_realloc") || (extern_func_name == "__yo_free")) && _is_inside_object_method(context), {
     em := context.base.emitter;
     line := indent.clone();
     line.push_str("__yo_borrow_assert_unborrowed((void*)self);");
@@ -371,7 +371,7 @@ _is_bare_literal :: (fn(c : String) -> bool)({
   if(
     n == usize(0),
     false,
-    if((c == String.from("true")) || (c == String.from("false")), true, {
+    if((c == "true") || (c == "false"), true, {
       (i : usize) = usize(0);
       if(c.byte_at(usize(0)) == u8(45), {
         i = usize(1);
@@ -1521,7 +1521,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
       // C call (no per-arg cast). For extern "c" the symbol is a C library
       // function (e.g. `exit`, `fwrite`); the unsafe(...) gate is enforced in the
       // evaluator, so codegen just emits the call.
-      is_yo := match(ie,.Some(lang) => ((lang == String.from("yo")) || (lang == String.from("c"))),.None => false);
+      is_yo := match(ie,.Some(lang) => ((lang == "yo") || (lang == "c")),.None => false);
       match(
         en,
         .Some(name) => if(is_yo, {
@@ -1531,10 +1531,10 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           });
           // Parallelism spawn primitives: heap-copy the closure capture + emit a
           // cleanup wrapper, then call the raw spawn. Mirrors other-fn-call.ts:906.
-          if(name == String.from("__yo_thread_spawn"), {
+          if(name == "__yo_thread_spawn", {
             return(generate_thread_spawn_call(expr, indent.clone(), context));
           });
-          if(name == String.from("__yo_worker_spawn"), {
+          if(name == "__yo_worker_spawn", {
             return(generate_worker_spawn_call(expr, indent.clone(), context));
           });
           if(is_unit_type(r), {

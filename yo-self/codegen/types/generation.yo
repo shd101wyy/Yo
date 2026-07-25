@@ -904,7 +904,7 @@ _TypeWalkEntry :: ref(struct(type_id : String, ty : TypeValue, c_name : String, 
 /// Reserved ARC/GC method labels NOT emitted into the dyn vtable (dup/drop/
 /// dispose are generated separately). Mirrors `reservedDynMethodLabels`.
 _is_reserved_dyn_method :: (fn(label : String) -> bool)(
-  ((label == BF_DUP) || (label == BF_DROP)) || ((label == String.from("___dispose")) || (label == String.from("dispose")))
+  ((label == BF_DUP) || (label == BF_DROP)) || ((label == "___dispose") || (label == "dispose"))
 );
 /// Generate forward declarations for Dyn structs (vtable tag fwd-decl + the
 /// fat-pointer struct). Must precede enum/struct decls since enums may contain
@@ -956,7 +956,7 @@ generate_dyn_forward_declarations :: (fn(context : CodeGenContext) -> unit)({
 /// generateDynDeclaration (types/dyn.ts:111-174).
 _emit_dyn_vtable_method :: (fn(label : String, field_ty : TypeValue, processed : HashSet(String), context : CodeGenContext) -> unit)({
   em := context.emitter;
-  if((label == String.from("Self")) || _is_reserved_dyn_method(label), {
+  if((label == "Self") || _is_reserved_dyn_method(label), {
     return(());
   });
   if(processed.contains(label.clone()), {
@@ -970,7 +970,7 @@ _emit_dyn_vtable_method :: (fn(label : String, field_ty : TypeValue, processed :
       .Func({ param_types, result, meta : __fm1 }) => {
         param_labels := __fm1.*.param_labels;
         // Only methods whose first param is `self` go in the vtable.
-        if((param_labels.len() > usize(0)) && match(param_labels.get(usize(0)),.Some(l) => (l == String.from("self")),.None => false), {
+        if((param_labels.len() > usize(0)) && match(param_labels.get(usize(0)),.Some(l) => (l == "self"),.None => false), {
           ret_str := get_type_string(result, context);
           plist := String.new();
           np := param_labels.len();
@@ -1452,7 +1452,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
       .Some(e) => {
         dset := HashSet(String).new();
         cond(
-          (e.kind == String.from("struct")) => {
+          (e.kind == "struct") => {
             rfs := get_runtime_struct_fields(e.ty);
             nf := rfs.len();
             (fi : usize) = usize(0);
@@ -1469,7 +1469,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
               fi = (fi + usize(1));
             });
           },
-          (e.kind == String.from("enum")) => match(
+          (e.kind == "enum") => match(
             e.ty,
             .EnumT({ variant_fields }) => {
               nv := variant_fields.len();
@@ -1487,7 +1487,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
             },
             _ => ()
           ),
-          (e.kind == String.from("tuple")) => match(
+          (e.kind == "tuple") => match(
             e.ty,
             .Tuple(_, field_types) => {
               nft := field_types.len();
@@ -1615,9 +1615,9 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
         .Some(e) => if(e.type_id == sid, {
           found = true;
           cond(
-            (e.kind == String.from("struct")) => generate_struct_declaration(e.ty, e.c_name.clone(), context),
-            (e.kind == String.from("enum")) => generate_enum_declaration(e.ty, e.c_name.clone(), context),
-            (e.kind == String.from("tuple")) => generate_tuple_declaration(e.ty, e.c_name.clone(), context),
+            (e.kind == "struct") => generate_struct_declaration(e.ty, e.c_name.clone(), context),
+            (e.kind == "enum") => generate_enum_declaration(e.ty, e.c_name.clone(), context),
+            (e.kind == "tuple") => generate_tuple_declaration(e.ty, e.c_name.clone(), context),
             true => ()
           );
         }),

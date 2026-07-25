@@ -572,7 +572,7 @@ ${rhs_str}`,
     // Rename `_` to a unique temp name so it is tracked in the frame for drop/RC cleanup.
     actual_lhs_tok := ast_expr_token(actual_lhs);
     (var_name : String) = cond(
-      (actual_lhs_tok.value == String.from("_")) =>
+      (actual_lhs_tok.value == "_") =>
         generate_new_temp_variable_name(env.module_path),
       true =>
         actual_lhs_tok.value.clone()
@@ -638,7 +638,7 @@ Use \`::\` for compile-time definitions inside impl.`,
       .None => ()
     );
     // Store the renamed variable name in ExprInfo so codegen uses it instead of "_".
-    if(actual_lhs_tok.value == String.from("_"), {
+    if(actual_lhs_tok.value == "_", {
       ali_after := match(
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(actual_lhs)),
         .Some(a) => a,

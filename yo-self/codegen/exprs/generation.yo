@@ -172,36 +172,36 @@ _func_name :: (fn(expr : AstExpr) -> String)(
 /// trait method in codegen — the std numeric/bool/bitwise impls all lower to these.
 _operator_inline_name :: (fn(op : String) -> Option(String))(
   cond(
-    (op == String.from("+")) => Option(String).Some(String.from(BF_YO_OP_ADD)),
-    (op == String.from("-")) => Option(String).Some(String.from(BF_YO_OP_SUB)),
-    (op == String.from("*")) => Option(String).Some(String.from(BF_YO_OP_MUL)),
-    (op == String.from("/")) => Option(String).Some(String.from(BF_YO_OP_DIV)),
-    (op == String.from("%")) => Option(String).Some(String.from(BF_YO_OP_MOD)),
-    (op == String.from("==")) => Option(String).Some(String.from(BF_YO_OP_EQ)),
-    (op == String.from("!=")) => Option(String).Some(String.from(BF_YO_OP_NEQ)),
-    (op == String.from("<")) => Option(String).Some(String.from(BF_YO_OP_LT)),
-    (op == String.from("<=")) => Option(String).Some(String.from(BF_YO_OP_LTE)),
-    (op == String.from(">")) => Option(String).Some(String.from(BF_YO_OP_GT)),
-    (op == String.from(">=")) => Option(String).Some(String.from(BF_YO_OP_GTE)),
-    (op == String.from("&")) => Option(String).Some(String.from(BF_YO_OP_BIT_AND)),
-    (op == String.from("|")) => Option(String).Some(String.from(BF_YO_OP_BIT_OR)),
-    (op == String.from("^")) => Option(String).Some(String.from(BF_YO_OP_BIT_XOR)),
-    (op == String.from("<<")) => Option(String).Some(String.from(BF_YO_OP_BIT_LEFT_SHIFT)),
-    (op == String.from(">>")) => Option(String).Some(String.from(BF_YO_OP_BIT_RIGHT_SHIFT)),
+    (op == "+") => Option(String).Some(String.from(BF_YO_OP_ADD)),
+    (op == "-") => Option(String).Some(String.from(BF_YO_OP_SUB)),
+    (op == "*") => Option(String).Some(String.from(BF_YO_OP_MUL)),
+    (op == "/") => Option(String).Some(String.from(BF_YO_OP_DIV)),
+    (op == "%") => Option(String).Some(String.from(BF_YO_OP_MOD)),
+    (op == "==") => Option(String).Some(String.from(BF_YO_OP_EQ)),
+    (op == "!=") => Option(String).Some(String.from(BF_YO_OP_NEQ)),
+    (op == "<") => Option(String).Some(String.from(BF_YO_OP_LT)),
+    (op == "<=") => Option(String).Some(String.from(BF_YO_OP_LTE)),
+    (op == ">") => Option(String).Some(String.from(BF_YO_OP_GT)),
+    (op == ">=") => Option(String).Some(String.from(BF_YO_OP_GTE)),
+    (op == "&") => Option(String).Some(String.from(BF_YO_OP_BIT_AND)),
+    (op == "|") => Option(String).Some(String.from(BF_YO_OP_BIT_OR)),
+    (op == "^") => Option(String).Some(String.from(BF_YO_OP_BIT_XOR)),
+    (op == "<<") => Option(String).Some(String.from(BF_YO_OP_BIT_LEFT_SHIFT)),
+    (op == ">>") => Option(String).Some(String.from(BF_YO_OP_BIT_RIGHT_SHIFT)),
     // Pointer operators (`&`-prefixed): the prelude impls lower to these
     // ptr-builtins (e.g. `(&+)`'s body is `__yo_ptr_add(self, offset)`), so lower
     // the operator directly to the builtin-inline path — same rationale as the
     // primitive operators above (avoid resolving the generic operator method).
     // Gated to pointer LHS in `_is_primitive_infix_operator`.
-    (op == String.from("&+")) => Option(String).Some(String.from(BF_YO_PTR_ADD)),
-    (op == String.from("&-")) => Option(String).Some(String.from(BF_YO_PTR_SUB)),
-    (op == String.from("&/")) => Option(String).Some(String.from(BF_YO_PTR_DIFF)),
-    (op == String.from("&==")) => Option(String).Some(String.from(BF_YO_PTR_EQ)),
-    (op == String.from("&!=")) => Option(String).Some(String.from(BF_YO_PTR_NEQ)),
-    (op == String.from("&<")) => Option(String).Some(String.from(BF_YO_PTR_LT)),
-    (op == String.from("&<=")) => Option(String).Some(String.from(BF_YO_PTR_LTE)),
-    (op == String.from("&>")) => Option(String).Some(String.from(BF_YO_PTR_GT)),
-    (op == String.from("&>=")) => Option(String).Some(String.from(BF_YO_PTR_GTE)),
+    (op == "&+") => Option(String).Some(String.from(BF_YO_PTR_ADD)),
+    (op == "&-") => Option(String).Some(String.from(BF_YO_PTR_SUB)),
+    (op == "&/") => Option(String).Some(String.from(BF_YO_PTR_DIFF)),
+    (op == "&==") => Option(String).Some(String.from(BF_YO_PTR_EQ)),
+    (op == "&!=") => Option(String).Some(String.from(BF_YO_PTR_NEQ)),
+    (op == "&<") => Option(String).Some(String.from(BF_YO_PTR_LT)),
+    (op == "&<=") => Option(String).Some(String.from(BF_YO_PTR_LTE)),
+    (op == "&>") => Option(String).Some(String.from(BF_YO_PTR_GT)),
+    (op == "&>=") => Option(String).Some(String.from(BF_YO_PTR_GTE)),
     true => Option(String).None
   )
 );
@@ -385,7 +385,7 @@ _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String
   call_code := match(
     is_function_value_with_only_builtin_yo_inline_function_call(method_value),
     .Some(inline_op) => if(
-      inline_op == String.from(BF_YO_ARRAY_INDEX),
+      inline_op == BF_YO_ARRAY_INDEX,
       `(&((&${callee_code.clone()})->data[${index_code.clone()}]))`,
       _index_method_call_by_name(method_value, recv_arg.clone(), index_code.clone(), context)
     ),

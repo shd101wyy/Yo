@@ -209,7 +209,7 @@ _try_resolve_associated_type :: (
   //     associated types (the `Output : JsonValue` field is registered
   //     under JsonValue's type id before the `index` method is evaluated).
   type_id := type_id_or_empty(type_val_inner);
-  if(type_id != String.from(""), {
+  if(type_id != "", {
     registry_methods := get_type_trait_methods_by_name(type_id, prop_name);
     // OVERLOAD DEFER: when a type carries MULTIPLE overloads of this method
     // (e.g. `String` implements both `Eq(String).==` (other:String) and
@@ -616,7 +616,7 @@ Raw pointer operations may dereference invalid memory.`,
             !(is_module_type(type_val_inner)) &&
               !(is_some_type(type_val_inner)), {
       prim_type_id := type_id_or_empty(type_val_inner);
-      if(prim_type_id != String.from(""), {
+      if(prim_type_id != "", {
         prim_prop_name := ast_expr_token(property_expr).value;
         prim_methods := get_type_trait_methods_by_name(prim_type_id, prim_prop_name);
         if(prim_methods.len() > usize(0), {
@@ -895,7 +895,7 @@ Raw pointer operations may dereference invalid memory.`,
       // assigned values. Only non-function values are eligible — the
       // function dispatch path handles method overload resolution.
       su_type_id := type_id_or_empty(type_val_inner);
-      if(su_type_id != String.from(""), {
+      if(su_type_id != "", {
         registry_methods := get_type_trait_methods_by_name(su_type_id, prop_name_su);
         if(registry_methods.len() > usize(0), {
           (rm_idx : usize) = usize(0);

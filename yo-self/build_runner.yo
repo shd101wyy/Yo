@@ -350,7 +350,7 @@ compile_artifact :: (
       cmd.arg(String.from("--target"));
       cmd.arg(effective_target);
     });
-    if(ctx.c_compiler != String.from("clang"), {
+    if(ctx.c_compiler != "clang", {
       cmd.arg(String.from("--cc"));
       cmd.arg(ctx.c_compiler);
     });
@@ -796,9 +796,9 @@ print_steps :: (fn(registry : BuildRegistry) -> unit)({
   n := steps.len();
   while(i < n, {
     step := steps(i);
-    is_default := if(step.name == String.from("install"), " (default)", "");
+    is_default := if(step.name == "install", " (default)", "");
     println(`  ${step.name}${is_default}`);
-    if(step.description != String.from(""), {
+    if(step.description != "", {
       println(`    ${step.description}`);
     });
     i = (i + usize(1));

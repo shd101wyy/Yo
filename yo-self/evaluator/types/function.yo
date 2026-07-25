@@ -941,7 +941,7 @@ evaluate_function_parameter :: (
     );
   });
   // Disallow "Self" as label
-  if(match(label,.Some(l) => (l == String.from("Self")),.None => false), {
+  if(match(label,.Some(l) => (l == "Self"),.None => false), {
     exn.throw(
       dyn(
         format_error_message(
@@ -3078,7 +3078,7 @@ evaluate_function_parameters :: (
         Option(AstExpr).None
       );
       // Add to env if named
-      if(!(vparam_name == String.from("...")), {
+      if(!(vparam_name == "..."), {
         v_frame_level := if(
           env_mut.frames.len() > usize(0),
           env_mut.frames.len() - usize(1),
@@ -3979,7 +3979,7 @@ _resolve_some_types_deep :: (
         // and would resolve E to IoExn even for single-effect io.async calls.
         _skip_fallback := match(
           nst,
-          .SomeT(_, _nsn, _, _, _, _, _, _, _, _, _) => (_nsn == String.from("E")),
+          .SomeT(_, _nsn, _, _, _, _, _, _, _, _, _) => (_nsn == "E"),
           _ => false
         );
         if(!(_skip_fallback), {
@@ -4009,7 +4009,7 @@ _resolve_some_types_deep :: (
             if(nres_from_env, {
               _is_ioexn := match(
                 nres,
-                .Struct({ id : _reg_sid }) => (_reg_sid == String.from("IoExn")),
+                .Struct({ id : _reg_sid }) => (_reg_sid == "IoExn"),
                 _ => false
               );
               if(!(_is_ioexn), {

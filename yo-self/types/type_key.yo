@@ -112,7 +112,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
           // Fall back to the bare sid: the cycle guard only fires for a
           // type already ON the expansion path, where id-only rendering is
           // the pre-poison behavior for self-references.
-          .Some(k) => if(k == String.from("!AMBIG"), sid.clone(), k.clone()),
+          .Some(k) => if(k == "!AMBIG", sid.clone(), k.clone()),
           .None => sid.clone()
         );
         cyc_out := ref_pfx.clone();
@@ -159,7 +159,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
           if(sid.len() > usize(0), {
             match(
               g_struct_cfid_keys.get(sid.clone()),
-              .Some(prev) => if(!((prev == key) || (prev == String.from("!AMBIG"))), {
+              .Some(prev) => if(!((prev == key) || (prev == "!AMBIG")), {
                 g_struct_cfid_keys.set(sid.clone(), String.from("!AMBIG"));
               }),
               .None => {
@@ -186,7 +186,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
           slot := g_struct_cfid_keys.get(sid.clone());
           need_structural := match(
             slot,
-            .Some(k) => (k == String.from("!AMBIG")),
+            .Some(k) => (k == "!AMBIG"),
             .None => (sfts.len() > usize(0))
           );
           if(need_structural, {

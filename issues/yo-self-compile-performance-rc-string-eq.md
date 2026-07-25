@@ -226,3 +226,40 @@ showed up immediately in `rc.test.yo` and is what the
 `!isCompileTimeOnly` check excludes.
 
 Effect on emitted C: `String ==` 4 dups + 4 drops -> **0**.
+
+## 2026-07-25 — post-round-2 EMIT profile (the phase that matters)
+
+`check ./std` is evaluator-only. Sampling a live stage3 emit (`sample
+<pid> 20`) gives the CODEGEN-phase profile, which is different:
+
+| symbol                     | samples | share |
+| -------------------------- | ------- | ----- |
+| `__yo_decr_rc`             | 7354    | 43%   |
+| `yo_id_4050` (`String ==`) | 6414    | 38%   |
+| `_platform_memcmp` + stub  | 1519    | 9%    |
+| `_tlv_get_addr`            | 419     | 2%    |
+
+`String ==` is now SOURCE-OPTIMAL — the match-place elision removed all
+four `___dup`s, and the emitted body is a clean switch + length check +
+memcmp (verified in /tmp/r2_stage2.c). It is 38% purely from CALL
+VOLUME, and each call still makes four non-inlined accessor calls
+(`ArrayList.len()` x2, `.ptr()` x2) before the memcmp.
+
+So the two remaining structural levers are:
+
+1. **Inline trivial accessors in codegen.** `yo_id_3053...(b)` is
+   `ArrayList.len()` — a real call to read a field. Every `String ==`
+   pays four of them. TS gets this free (property access).
+2. **Intern identifiers / type keys.** yo-self compares names, fids and
+   type keys as byte strings; TS compares JS strings the engine already
+   interned, so `===` is a pointer compare. This is the big one and the
+   reason `String ==` can be ~40% of an emit at all.
+
+Emit progression (same machine, gate-chain measurements):
+
+    original baseline   ~55-65 min
+    round 1 (920c2876d + a92e7c9a5)   stage2 46.8 min / stage3 37.9 min
+    round 2 (codegen String.from)     stage2 35.9 min
+
+Round-2 note: stage3 < stage2 in round 1 (37.9 vs 46.8) because s2 is
+built from yo-self's OWN elided emit — the port pays for itself.

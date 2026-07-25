@@ -645,7 +645,7 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
   // Don't inline __yo_as — it needs proper call handling for complex args.
   match(
     operator_name,
-    .Some(op) => if(op == String.from(BF_YO_AS), Option(String).None,.Some(op)),
+    .Some(op) => if(op == BF_YO_AS, Option(String).None,.Some(op)),
     .None =>.None
   )
 });
@@ -1130,7 +1130,7 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : AstExpr) -> Option(String))(
               first_ok := match(dot_args.get(usize(0)),.Some(a) => ast_expr_is_atom(a),.None => false);
               second_is_dup := match(
                 dot_args.get(usize(1)),
-                .Some(a) => match(a,.Atom(_, tok) => (tok.value == String.from(BF_DUP)),.FnCall(_, _, _, _, _) => false),
+                .Some(a) => match(a,.Atom(_, tok) => (tok.value == BF_DUP),.FnCall(_, _, _, _, _) => false),
                 .None => false
               );
               if(first_ok && second_is_dup, {
@@ -1162,7 +1162,7 @@ get_deferred_drop_target_atom_name :: (fn(drop_expr : AstExpr) -> Option(String)
             if(ast_expr_is_fn_call_of(func_box, BF_DOT,.Some(usize(2))), {
               second_is_drop := match(
                 dot_args.get(usize(1)),
-                .Some(a) => match(a,.Atom(_, tok) => (tok.value == String.from(BF_DROP)),.FnCall(_, _, _, _, _) => false),
+                .Some(a) => match(a,.Atom(_, tok) => (tok.value == BF_DROP),.FnCall(_, _, _, _, _) => false),
                 .None => false
               );
               first_is_atom := match(dot_args.get(usize(0)),.Some(a) => ast_expr_is_atom(a),.None => false);

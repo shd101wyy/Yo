@@ -120,7 +120,7 @@ _contains_word_return :: (fn(s : String) -> bool)({
 /// Whether generated code is control flow that must NOT be assigned to a temp.
 /// Mirrors `isControlFlowCode`.
 _is_control_flow_code :: (fn(code : String) -> bool)(
-  (code.len() == usize(0)) || ((code == String.from("break")) || ((code == String.from("continue")) || (code.starts_with("goto") || _contains_word_return(code))))
+  (code.len() == usize(0)) || ((code == "break") || ((code == "continue") || (code.starts_with("goto") || _contains_word_return(code))))
 );
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
@@ -448,7 +448,7 @@ generate_primitive_match_expression :: (fn(expr : AstExpr, indent : String, cont
         case_body := match(cargs.get(usize(1)),.Some(cb) => cb,.None => case_expr);
         executed := match(context.base.get_expr_info(case_value),.Some(cei) => match(cei.case_executed,.Some(b) => b,.None => false),.None => false);
         if(executed, {
-          is_wildcard := (ast_expr_is_atom(case_value) && (ast_expr_token(case_value).value == String.from("_")));
+          is_wildcard := (ast_expr_is_atom(case_value) && (ast_expr_token(case_value).value == "_"));
           if(is_wildcard, {
             d := indent.clone();
             d.push_str("default: {");
@@ -731,7 +731,7 @@ _gen_simple_enum_match :: (fn(expr : AstExpr, indent : String, context : Functio
           .Some(cv) => match(
             cargs.get(usize(1)),
             .Some(cb) => if(_case_executed(cv, context), {
-              if(ast_expr_is_atom(cv) && (ast_expr_token(cv).value == String.from("_")), {
+              if(ast_expr_is_atom(cv) && (ast_expr_token(cv).value == "_"), {
                 d := indent.clone();
                 d.push_str("default: {");
                 em.emit_string_line(d);
@@ -809,7 +809,7 @@ _remove_arm_shadows :: (fn(params : ArrayList(AstExpr), context : FunctionGenera
       dparams.get(pi),
       .Some(p) => {
         var_atom := if(ast_expr_is_fn_call_of(p, ":", Option(usize).Some(usize(2))), match(_args(p).get(usize(1)),.Some(v) => v,.None => p), p);
-        if(ast_expr_is_atom(var_atom) && !(ast_expr_token(var_atom).value == String.from("_")), {
+        if(ast_expr_is_atom(var_atom) && !(ast_expr_token(var_atom).value == "_"), {
           _shadow_remove(context, sanitize_for_c_identifier(ast_expr_token(var_atom).value, false));
         });
       },
@@ -884,7 +884,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
                 label := match(pargs.get(usize(0)),.Some(le) => if(ast_expr_is_atom(le), ast_expr_token(le).value, String.from("")),.None => String.from(""));
                 match(
                   pargs.get(usize(1)),
-                  .Some(var_expr) => if((ast_expr_is_atom(var_expr) && !(ast_expr_token(var_expr).value == String.from("_"))) && (label.len() > usize(0)), {
+                  .Some(var_expr) => if((ast_expr_is_atom(var_expr) && !(ast_expr_token(var_expr).value == "_")) && (label.len() > usize(0)), {
                     // Find the field index for this label.
                     (fi : usize) = labels.len();
                     nl := labels.len();
@@ -933,7 +933,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
           while(fi < limit, {
             match(
               dparams.get(fi),
-              .Some(var_expr) => if(ast_expr_is_atom(var_expr) && !(ast_expr_token(var_expr).value == String.from("_")), {
+              .Some(var_expr) => if(ast_expr_is_atom(var_expr) && !(ast_expr_token(var_expr).value == "_"), {
                 field_label := match(labels.get(fi),.Some(fl) => fl,.None => String.from(""));
                 ftype := match(types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
                 if(!(is_unit_type(ftype)), {
@@ -967,7 +967,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
 /// handling both parse forms (`."(Variant, p...)` and `(.Variant)(p...)`).
 /// Returns ("", empty) if the pattern is not a variant.
 _arm_variant_and_params :: (fn(case_value : AstExpr) -> Option(String))(
-  match(case_value,.FnCall(_, func, args, _, _) => match(func,.Atom(_, tok) => if((tok.value == String.from(BF_DOT)) && (args.len() >= usize(1)), match(args.get(usize(0)),.Some(v) => Option(String).Some(ast_expr_token(v).value),.None => Option(String).None), Option(String).None),.FnCall(_, ffunc, fargs, _, _) => if(match(ffunc,.Atom(_, ft) => (ft.value == String.from(BF_DOT)),.FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)),.Some(v) => Option(String).Some(ast_expr_token(v).value),.None => Option(String).None), Option(String).None)),.Atom(_, _) => Option(String).None)
+  match(case_value,.FnCall(_, func, args, _, _) => match(func,.Atom(_, tok) => if((tok.value == BF_DOT) && (args.len() >= usize(1)), match(args.get(usize(0)),.Some(v) => Option(String).Some(ast_expr_token(v).value),.None => Option(String).None), Option(String).None),.FnCall(_, ffunc, fargs, _, _) => if(match(ffunc,.Atom(_, ft) => (ft.value == BF_DOT),.FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)),.Some(v) => Option(String).Some(ast_expr_token(v).value),.None => Option(String).None), Option(String).None)),.Atom(_, _) => Option(String).None)
 );
 /// The destructuring params of a tagged-union arm: `args[1..]` for form 1
 /// (func is the `.` atom) or all `args` for form 2 (func is `.Variant`).
@@ -1034,7 +1034,7 @@ _gen_tagged_union_match :: (fn(expr : AstExpr, indent : String, context : Functi
           .Some(cv) => match(
             cargs.get(usize(1)),
             .Some(cb0) => if(_case_executed(cv, context), {
-              if(ast_expr_is_atom(cv) && (ast_expr_token(cv).value == String.from("_")), {
+              if(ast_expr_is_atom(cv) && (ast_expr_token(cv).value == "_"), {
                 d := indent.clone();
                 d.push_str("default: {");
                 em.emit_string_line(d);

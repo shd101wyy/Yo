@@ -110,33 +110,33 @@ _as_source_is_tagged_enum :: (fn(expr : AstExpr, context : FunctionGenerationCon
 /// `generateYoInlineFunctionCall`.
 generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList(String), expr : AstExpr, context : FunctionGenerationContext, indent : String) -> String)(
   cond(
-    (function_name == String.from(BF_YO_OP_ADD)) => _binop(args, "+"),
-    (function_name == String.from(BF_YO_OP_SUB)) => _binop(args, "-"),
-    (function_name == String.from(BF_YO_OP_MUL)) => _binop(args, "*"),
-    (function_name == String.from(BF_YO_OP_DIV)) => _binop(args, "/"),
-    (function_name == String.from(BF_YO_OP_MOD)) => _binop(args, "%"),
-    (function_name == String.from(BF_YO_OP_NEG)) => _unop(args, "-"),
-    (function_name == String.from(BF_YO_OP_EQ)) => _binop(args, "=="),
-    (function_name == String.from(BF_YO_OP_NEQ)) => _binop(args, "!="),
-    (function_name == String.from(BF_YO_OP_LT)) => _binop(args, "<"),
-    (function_name == String.from(BF_YO_OP_LTE)) => _binop(args, "<="),
-    (function_name == String.from(BF_YO_OP_GT)) => _binop(args, ">"),
-    (function_name == String.from(BF_YO_OP_GTE)) => _binop(args, ">="),
-    (function_name == String.from(BF_YO_OP_NOT)) => _unop(args, "!"),
-    (function_name == String.from(BF_YO_OP_BIT_AND)) => _binop(args, "&"),
-    (function_name == String.from(BF_YO_OP_BIT_OR)) => _binop(args, "|"),
-    (function_name == String.from(BF_YO_OP_BIT_XOR)) => _binop(args, "^"),
-    (function_name == String.from(BF_YO_OP_BIT_COMPLEMENT)) => _unop(args, "~"),
-    (function_name == String.from(BF_YO_OP_BIT_LEFT_SHIFT)) => _binop(args, "<<"),
-    (function_name == String.from(BF_YO_OP_BIT_RIGHT_SHIFT)) => _binop(args, ">>"),
-    (function_name == String.from(BF_YO_NOOP)) => String.from(""),
-    (function_name == String.from(BF_YO_RETURN_SELF)) => {
+    (function_name == BF_YO_OP_ADD) => _binop(args, "+"),
+    (function_name == BF_YO_OP_SUB) => _binop(args, "-"),
+    (function_name == BF_YO_OP_MUL) => _binop(args, "*"),
+    (function_name == BF_YO_OP_DIV) => _binop(args, "/"),
+    (function_name == BF_YO_OP_MOD) => _binop(args, "%"),
+    (function_name == BF_YO_OP_NEG) => _unop(args, "-"),
+    (function_name == BF_YO_OP_EQ) => _binop(args, "=="),
+    (function_name == BF_YO_OP_NEQ) => _binop(args, "!="),
+    (function_name == BF_YO_OP_LT) => _binop(args, "<"),
+    (function_name == BF_YO_OP_LTE) => _binop(args, "<="),
+    (function_name == BF_YO_OP_GT) => _binop(args, ">"),
+    (function_name == BF_YO_OP_GTE) => _binop(args, ">="),
+    (function_name == BF_YO_OP_NOT) => _unop(args, "!"),
+    (function_name == BF_YO_OP_BIT_AND) => _binop(args, "&"),
+    (function_name == BF_YO_OP_BIT_OR) => _binop(args, "|"),
+    (function_name == BF_YO_OP_BIT_XOR) => _binop(args, "^"),
+    (function_name == BF_YO_OP_BIT_COMPLEMENT) => _unop(args, "~"),
+    (function_name == BF_YO_OP_BIT_LEFT_SHIFT) => _binop(args, "<<"),
+    (function_name == BF_YO_OP_BIT_RIGHT_SHIFT) => _binop(args, ">>"),
+    (function_name == BF_YO_NOOP) => String.from(""),
+    (function_name == BF_YO_RETURN_SELF) => {
       out := String.from("(*");
       out.push_string(_a(args, usize(0)));
       out.push_str(")");
       out
     },
-    (function_name == String.from(BF_YO_BORROW_ASSERT_UNBORROWED)) => {
+    (function_name == BF_YO_BORROW_ASSERT_UNBORROWED) => {
       line := indent.clone();
       line.push_str("__yo_borrow_assert_unborrowed((void*)(");
       line.push_string(_a(args, usize(0)));
@@ -145,7 +145,7 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
       em.emit_string_line(line);
       String.from("")
     },
-    (function_name == String.from(BF_YO_MS_SLEEP)) => if(is_target_windows(context.base.target_info), {
+    (function_name == BF_YO_MS_SLEEP) => if(is_target_windows(context.base.target_info), {
       out := String.from("Sleep(");
       out.push_string(_a(args, usize(0)));
       out.push_str(")");
@@ -156,13 +156,13 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
       out.push_str(") * 1000)");
       out
     }),
-    (function_name == String.from(BF_YO_DECR_RC)) => {
+    (function_name == BF_YO_DECR_RC) => {
       out := String.from("__yo_decr_rc((void*)(");
       out.push_string(_a(args, usize(0)));
       out.push_str("))");
       out
     },
-    (function_name == String.from(BF_YO_AS)) => {
+    (function_name == BF_YO_AS) => {
       target_c_type := get_type_string(ei_ty(expr, context), context.base);
       if(_as_source_is_tagged_enum(expr, context), {
         out := String.from("((");
@@ -180,28 +180,28 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
         out
       })
     },
-    (function_name == String.from(BF_YO_PTR_ADD)) => _ptr_binop(args, "+"),
-    (function_name == String.from(BF_YO_PTR_SUB)) => _ptr_binop(args, "-"),
-    (function_name == String.from(BF_YO_PTR_DIFF)) => _ptr_binop(args, "-"),
-    (function_name == String.from(BF_YO_PTR_EQ)) => _ptr_binop(args, "=="),
-    (function_name == String.from(BF_YO_PTR_NEQ)) => _ptr_binop(args, "!="),
-    (function_name == String.from(BF_YO_PTR_LT)) => _ptr_binop(args, "<"),
-    (function_name == String.from(BF_YO_PTR_LTE)) => _ptr_binop(args, "<="),
-    (function_name == String.from(BF_YO_PTR_GT)) => _ptr_binop(args, ">"),
-    (function_name == String.from(BF_YO_PTR_GTE)) => _ptr_binop(args, ">="),
-    (function_name == String.from(BF_YO_STR_LEN)) => {
+    (function_name == BF_YO_PTR_ADD) => _ptr_binop(args, "+"),
+    (function_name == BF_YO_PTR_SUB) => _ptr_binop(args, "-"),
+    (function_name == BF_YO_PTR_DIFF) => _ptr_binop(args, "-"),
+    (function_name == BF_YO_PTR_EQ) => _ptr_binop(args, "=="),
+    (function_name == BF_YO_PTR_NEQ) => _ptr_binop(args, "!="),
+    (function_name == BF_YO_PTR_LT) => _ptr_binop(args, "<"),
+    (function_name == BF_YO_PTR_LTE) => _ptr_binop(args, "<="),
+    (function_name == BF_YO_PTR_GT) => _ptr_binop(args, ">"),
+    (function_name == BF_YO_PTR_GTE) => _ptr_binop(args, ">="),
+    (function_name == BF_YO_STR_LEN) => {
       out := String.from("(");
       out.push_string(_a(args, usize(0)));
       out.push_str(".len)");
       out
     },
-    (function_name == String.from(BF_YO_STR_PTR)) => {
+    (function_name == BF_YO_STR_PTR) => {
       out := String.from("((uint8_t*)");
       out.push_string(_a(args, usize(0)));
       out.push_str(".ptr)");
       out
     },
-    (function_name == String.from(BF_YO_STR_BYTE)) => {
+    (function_name == BF_YO_STR_BYTE) => {
       out := String.from("(");
       out.push_string(_a(args, usize(0)));
       out.push_str(".ptr[");
@@ -209,7 +209,7 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
       out.push_str("])");
       out
     },
-    (function_name == String.from(BF_YO_STR_FROM_RAW_PARTS)) => {
+    (function_name == BF_YO_STR_FROM_RAW_PARTS) => {
       out := String.from("(__yo_str){ .ptr = (const uint8_t*)");
       out.push_string(_a(args, usize(0)));
       out.push_str(", .len = ");
@@ -217,7 +217,7 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
       out.push_str(" }");
       out
     },
-    (function_name == String.from(BF_YO_GETRANDOM)) => {
+    (function_name == BF_YO_GETRANDOM) => {
       out := String.from("getrandom(");
       out.push_string(_a(args, usize(0)));
       out.push_str(", ");
@@ -227,7 +227,7 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
       out.push_str(")");
       out
     },
-    (function_name == String.from(BF_YO_ARC4RANDOM_BUF)) => {
+    (function_name == BF_YO_ARC4RANDOM_BUF) => {
       out := String.from("(arc4random_buf(");
       out.push_string(_a(args, usize(0)));
       out.push_str(", ");
@@ -235,7 +235,7 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
       out.push_str("), (void)0)");
       out
     },
-    (function_name == String.from(BF_YO_BCRYPT_GEN_RANDOM)) => {
+    (function_name == BF_YO_BCRYPT_GEN_RANDOM) => {
       out := String.from("(int32_t)BCryptGenRandom(NULL, ");
       out.push_string(_a(args, usize(0)));
       out.push_str(", ");
@@ -243,7 +243,7 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
       out.push_str(", BCRYPT_USE_SYSTEM_PREFERRED_RNG)");
       out
     },
-    (function_name == String.from(BF_YO_GETENTROPY)) => {
+    (function_name == BF_YO_GETENTROPY) => {
       out := String.from("getentropy(");
       out.push_string(_a(args, usize(0)));
       out.push_str(", ");
@@ -251,7 +251,7 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
       out.push_str(")");
       out
     },
-    (function_name == String.from(BF_YO_MAYBE_UNINIT_NEW)) => {
+    (function_name == BF_YO_MAYBE_UNINIT_NEW) => {
       self_c_type := get_type_string(ei_ty(expr, context), context.base);
       uninit_var := String.from("__yo_uninit_");
       uninit_var.push_string(random_id(String.from("")));
@@ -264,7 +264,7 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
       em.emit_string_line(line);
       uninit_var
     },
-    (function_name == String.from(BF_YO_MAYBE_UNINIT_AS_PTR)) => {
+    (function_name == BF_YO_MAYBE_UNINIT_AS_PTR) => {
       return_c_type := get_type_string(ei_ty(expr, context), context.base);
       out := String.from("((");
       out.push_string(return_c_type);
@@ -273,13 +273,13 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
       out.push_str("))");
       out
     },
-    (function_name == String.from(BF_YO_MAYBE_UNINIT_ASSUME_INIT)) => {
+    (function_name == BF_YO_MAYBE_UNINIT_ASSUME_INIT) => {
       out := String.from("(");
       out.push_string(_a(args, usize(0)));
       out.push_str(")");
       out
     },
-    (function_name == String.from(BF_YO_ARRAY_INDEX)) => {
+    (function_name == BF_YO_ARRAY_INDEX) => {
       out := String.from("(&((");
       out.push_string(_a(args, usize(0)));
       out.push_str(")->data[");
