@@ -41,6 +41,18 @@
 //! same time (the ordered-collections "dispose_fn referencing a never-emitted
 //! drop method" class is plausibly the same root).
 //!
+//!
+//! DIRECTION-OF-CHANGE WARNING. Making the predicate recurse makes it return
+//! TRUE more often, i.e. STRICTLY MORE CONSERVATIVE. The constructor loops skip
+//! types it calls generic, so the naive fix REMOVES constructors that are
+//! currently emitted and could turn green files red — the opposite of what the
+//! undeclared-ctor families need. TS gets away with the strict predicate
+//! because it monomorphizes and never leaves a `void**` ArrayList in its type
+//! table at all. So the real divergence may be UPSTREAM: yo-self registers a
+//! generic ArrayList in the codegen type table where TS registers only
+//! monomorphized instances. Consider fixing THAT before, or instead of,
+//! widening the predicate; at minimum land the two separately so the blast
+//! radius stays attributable.
 open(import("std/fmt"));
 { Mutex } :: import("std/sync/mutex");
 
