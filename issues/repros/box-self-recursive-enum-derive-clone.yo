@@ -96,6 +96,39 @@
 //! `_find_mutual_specializing_info` / `_build_forward_ref_funcval` path) to
 //! print the callee fid, the bindings sig, and the RESULT TYPE handed back for
 //! the recursive `TreeNode.clone` call, and find where it becomes unit.
+//!
+//! PROBE RESULT (this is the actual answer — supersedes the guesses above).
+//!
+//! Instrumenting the recursion branches in helper.yo (~:3676) printed ZERO
+//! hits: neither `is_recursive_spec` nor `mutual_is_some` ever fires here, so
+//! the recursion guards are NOT involved at all.
+//!
+//! The emitted C instead contains TWO specializations of `box` (yo_id_2747):
+//!
+//!   yo_id_2747_TreeNode_id_enum_decl_56319…_rtparam0_enum_decl_56319…   <- CORRECT
+//!   yo_id_2747_V_id_1598_ret_…                                          <- BOGUS
+//!
+//! The correct one (forall V = TreeNode) IS created. The failure is a SPURIOUS
+//! SECOND specialization whose forall segment is literally `V_id_1598` — V
+//! bound to its OWN unresolved type parameter (id_1598 is V itself). That is
+//! what lowers the parameter to `void` and constructs the generic `Box(V)`.
+//!
+//! Where it comes from: the GENERIC body of Box's Clone impl
+//! (`clone : ((self) -> box(self.*.clone()))`) is being evaluated/emitted, not
+//! just its instantiation. Inside that generic body `self.*` has Box's still-
+//! unresolved V, so the nested `box(…)` call specializes against an unresolved
+//! forall.
+//!
+//! This ties the repro directly to the round-2 work item: generic ORIGINALS
+//! should not be emitted (`_is_generic_unspecialized_func`, see the "Round-2
+//! outcome" entry in
+//! issues/yo-self-gap6-ctor-memo-reconciliation-attempt7.md). Two candidate
+//! fixes, both narrow enough to gate independently:
+//!   (a) refuse to create a specialization when any forall binding resolves to
+//!       the forall parameter itself (bind-to-self is never a real
+//!       instantiation); or
+//!   (b) stop emitting the generic original of an impl method that has a
+//!       concrete instantiation.
 open(import("std/fmt"));
 
 TreeNode :: enum(Leaf(value : i32), Branch(left : Box(Self), right : Box(Self)));
