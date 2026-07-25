@@ -546,7 +546,7 @@ export(make_err_expr, ast_expr_token, ast_expr_id, ast_expr_is_atom, ast_expr_is
 ast_expr_is_atom_of :: (fn(e : AstExpr, value : str) -> bool)(
   match(
     e,
-    .Atom(_, tok) => (tok.value == String.from(value)),
+    .Atom(_, tok) => (tok.value == value),
     .FnCall(_, _, _, _, _) => false
   )
 );
@@ -580,7 +580,7 @@ ast_expr_is_fn_call_of :: (fn(e : AstExpr, func_name : str, arg_count : Option(u
     .FnCall(_, func_box, args, _, _) => {
       func_name_matches := match(
         func_box,
-        .Atom(_, tok) => (tok.value == String.from(func_name)),
+        .Atom(_, tok) => (tok.value == func_name),
         .FnCall(_, _, _, _, _) => false
       );
       if(!(func_name_matches), {

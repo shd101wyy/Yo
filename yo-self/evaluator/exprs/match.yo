@@ -28,7 +28,7 @@ open(import("std/string"));
   merge_control_flows
 } :: import("../../expr_info.yo");
 { Environment, Variable, pop_env_frame } :: import("../../env.yo");
-{ add_variable_to_env } :: import("../../env.yo");
+{ add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 {
   EvalValue,
@@ -110,6 +110,81 @@ find_str_in_list :: (fn(list : ArrayList(String), s : String) -> Option(usize))(
 is_or_pattern :: (fn(expr : AstExpr) -> bool)(
   ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, "|",.Some(usize(2)))
 );
+/// True for a *place* expression: a plain variable (Atom) or a bare
+/// field-access chain rooted at one (`self._bytes`, `a.b.c`).
+/// Port of `exprIsPlaceExpression` (src/evaluator/exprs/match.ts).
+///
+/// A place is already owned by the enclosing scope for the whole duration of
+/// the match, so — exactly like the Atom case — it must NOT be wrapped in an
+/// implicit begin() scope: that materializes an owning temp copy (a `___dup`
+/// before the switch and a `___drop` after it) on every single match. Matching
+/// on a field is the hottest shape in a self-compile (`String ==` alone was
+/// 33% of all decr_rc traffic) and the pair is pure overhead there — the arms
+/// only borrow the payload.
+///
+/// A method call (`x.f()`) is NOT a 2-arg dot call (its func IS the dot), so
+/// it still takes the begin() path and keeps its owning temp.
+is_place_expression :: (fn(e : AstExpr, env : Environment) -> bool)({
+  if(ast_expr_is_atom(e), {
+    return(true);
+  });
+  outer_field_is_atom := match(
+    e,
+    .FnCall(_, _, eargs, _, _) =>
+      match(eargs.get(usize(1)),.Some(a1) => ast_expr_is_atom(a1),.None => false),
+    .Atom(_, _) => false
+  );
+  if(!(ast_expr_is_fn_call_of(e, ".",.Some(usize(2))) && outer_field_is_atom), {
+    return(false);
+  });
+  // Walk to the root of the `a.b.c` chain.
+  (root : AstExpr) = match(
+    e,
+    .FnCall(_, _, eargs0, _, _) => match(eargs0.get(usize(0)),.Some(a0) => a0,.None => e),
+    .Atom(_, _) => e
+  );
+  walking := true;
+  while(walking, {
+    nxt := match(
+      root,
+      .FnCall(_, _, rargs, _, _) =>
+        if(
+          ast_expr_is_fn_call_of(root, ".",.Some(usize(2)))
+          && match(rargs.get(usize(1)),.Some(a1) => ast_expr_is_atom(a1),.None => false),
+          rargs.get(usize(0)),
+          Option(AstExpr).None
+        ),
+      .Atom(_, _) => Option(AstExpr).None
+    );
+    match(
+      nxt,
+      .Some(n) => {
+        root = n;
+      },
+      .None => {
+        walking = false;
+      }
+    );
+  });
+  if(!(ast_expr_is_atom(root)), {
+    return(false);
+  });
+  // The chain must bottom out in a RUNTIME variable. A compile-time dot such
+  // as `Kind.Func` (an enum variant) or a module member is not a place:
+  // evaluating it directly yields no variable_name for the match to bind, and
+  // it carries no RC traffic to save in the first place.
+  root_vars := get_variables_from_env(env, ast_expr_token(root).value);
+  if(root_vars.len() == usize(0), {
+    return(false);
+  });
+  return(
+    match(
+      root_vars.get(root_vars.len() - usize(1)),
+      .Some(rv) => !(rv.is_compile_time_only),
+      .None => false
+    )
+  );
+});
 /// Flatten an or-pattern `(a | b | c)` into `[a, b, c]`.
 /// Uses `recur` for self-recursion.
 flatten_or_pattern :: (fn(expr : AstExpr) -> ArrayList(AstExpr))({
@@ -1097,7 +1172,7 @@ evaluate_match :: (
   old_expected_scr := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   evaluated_scrutinee := cond(
-    ast_expr_is_atom(scrutinee_expr) =>
+    is_place_expression(scrutinee_expr, env) =>
       evaluate_expression(scrutinee_expr, env, ctx),
     true =>
       evaluate_begin_expression(scrutinee_expr, env, ctx, ArrayList(Variable).new(), false, exn)

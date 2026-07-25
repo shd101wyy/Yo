@@ -35,7 +35,7 @@ evaluator/codegen runtime. So runtime-level hypotheses can be tested by
 patching the already-emitted `.c` and re-clanging (~2 min/experiment),
 with no 10-min s1 rebuild. Harnesses in `scratchpad/`:
 `patch_decr_rc.py`, `patch_rc_counters.py`, `patch_rc_attrib.py`,
-`perf_ab.sh`, `asan_corpus.sh`.
+`perf_ab.sh`, `guardmalloc_corpus.sh`.
 
 ## Landed / measured
 

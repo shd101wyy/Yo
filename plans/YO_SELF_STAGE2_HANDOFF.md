@@ -13,7 +13,12 @@ per-bug details live in `issues/*.md` — do not re-litigate fixed bugs._
   LESSON now in THE METHOD: verification sweeps catch what the battery
   misses — never skip the post-commit sweep, and grow the battery with
   every near-miss (comptime.test is now permanent).
+- **PERF (priority 1) is under way and measured** — `check ./std`
+  87.35 s → 31.02 s (2.82x), stage2 emit ~55-65 → 46.8 min. See
+  "1. PERFORMANCE FIRST" below for the numbers, the two dead ends not
+  worth repeating, and the next lever.
 - Recent commits (each fully gated incl. STRICT_FIXPOINT):
+  `920c2876d` match-place dup elision (perf),
   `99ba71265` capture-split (arc GREEN), `7823007ba` rc layer 4
   (rc GREEN), `7fe90d289` witness resolution (iso GREEN), `0bca00991`
   tuple keys, `2319ecc…/2319c` array-wrapper order, `09cb5fd14` Gap-6
@@ -34,19 +39,60 @@ per-bug details live in `issues/*.md` — do not re-litigate fixed bugs._
 
 ### 1. PERFORMANCE FIRST — cut self-compile from ~55 min to ~15 min
 
-Profile-verified (`issues/yo-self-compile-performance-rc-string-eq.md`,
-profiles /tmp/s1_profile_early.txt + \_late.txt): ~91% of self-compile
-CPU is `__yo_decr_rc` refcount churn (58-65%) + `String ==` (23-27%) +
-identifier lookup. The issue doc has the lever list (dup/drop elision on
-hot paths, string interning / hash-consed identifiers, cheaper type-key
-comparisons). Rules:
+**In progress, measured.** Full detail:
+`issues/yo-self-compile-performance-rc-string-eq.md` +
+`plans/PERF_BORROW_ELISION.md`.
 
-- A perf change must be **behavior-identical** — same emitted C, same
-  test counts, FIXPOINT still holds. Run the FULL gate chain per change.
-- Measure with `time <s1> compile yo-self/main.yo --release --emit-c
---skip-c-compiler -o /tmp/x` before/after; profile with
-  `sample <pid>` on macOS.
-- Payoff: halves every later gate cycle.
+`check ./std` (evaluator-only proxy): **87.35 s → 31.02 s, 2.82x.**
+stage2 emit: **~55-65 min → 46.8 min** (only ~1.3x — see the warning
+below).
+
+| step                                   | min user | delta  |
+| -------------------------------------- | -------- | ------ |
+| baseline                               | 87.35 s  | —      |
+| `920c2876d` TS match-place dup elision | 79.90 s  | -8.5%  |
+| yo-self port + 2 hot predicates        | 31.02 s  | -61.0% |
+
+What actually mattered — all measured, none of it guessed:
+
+- A `check ./std` performs **10.8e9 `__yo_decr_rc` + 9.2e9 `__yo_incr_rc`
+  calls and 1.64e9 frees**. Sampled return-address attribution
+  (`scratchpad/patch_rc_attrib.py`) put ~60% of decr traffic in three
+  functions that all `match` on a FIELD.
+- The dominant cost was **allocation, not refcounting**:
+  `ast_expr_is_atom_of` / `ast_expr_is_fn_call_of` built a whole String
+  (`== String.from(value)`) just to compare against a `str` — a
+  malloc+free at ~2.9e9 calls. Two lines gave -61%.
+
+**Dead ends — do not repeat:** an `always_inline` `__yo_decr_rc` fast
+path is **-4.7% for +140% binary** (per-call overhead is NOT the lever);
+a String `==` pointer fast path measured zero.
+
+**NEXT LEVER (highest value):** 143 `== String.from(x)` + 15
+`!= String.from(x)` sites remain, **concentrated in codegen** —
+`codegen/exprs/inline_fns.yo` (46, a ~46-arm `cond` allocating per arm on
+every inline-fn dispatch) and `codegen/exprs/generation.yo` (26).
+Scanner-based rewriter ready and unit-tested:
+`scratchpad/rewrite_string_from_cmp.py`; file list = 28 non-test files.
+
+**MEASURE THE RIGHT THING.** `check ./std` is evaluator-only and does
+NOT exercise codegen — that is exactly why the emit moved 1.3x while the
+proxy moved 2.82x. Measure any codegen round with a REAL emit
+(`<s1> compile yo-self/main.yo --release --emit-c --skip-c-compiler`),
+not the check proxy. `scratchpad/perf_ab.sh <binA> <binB> 3` alternates
+arms so machine drift hits both equally.
+
+Then: `_attach_early_return_only_drop_to_returns` (13.9% / 1.5e9 calls)
+walks the ENTIRE begin-block subtree once per early-return variable, and
+nested blocks re-walk what inner ones already did — but it only acts on
+`return`/`unwind` nodes, and `Expr.$` already carries a merged subtree
+control-flow summary (`expr.ts:248`). An early exit when neither
+`controlFlow.return` nor `.unwind` is set should prune most of it; stay
+conservative where `$`/`controlFlow` is undefined.
+
+Rules: a perf change must be behavior-identical (same test counts,
+corpus PASS 140 / DIFF 0, FIXPOINT holds); run the FULL gate chain per
+change (`scratchpad/gates_perf1.sh` is the current template).
 
 ### 2. Round 2' — imm/collections comptime-param spec model (6 files)
 
@@ -110,6 +156,15 @@ update `yo-self/README.md`, mark `plans/BOOTSTRAPPING.md` historical.
    repro gate must compare `grep -c "Failed to transpile\|Unknown
 type:" <emitted.c>` against the TS emit of the same file (usually
    0). Harness: `scratchpad/probe_cf5.sh`.
+   Same rule for the MEMORY-SAFETY gate: **AddressSanitizer does not
+   work on this box** — `yo-cli` detects the broken runtime and silently
+   skips instrumentation (`compiler-utils.ts:96`), so
+   `--sanitize address` compiles, exits 0, and proves NOTHING (and
+   grepping the log for "AddressSanitizer" just matches yo-cli's own
+   skip warning). Use Guard Malloc instead:
+   `scratchpad/guardmalloc_corpus.sh` — verified to actually FAIL on a
+   planted use-after-free (SIGSEGV) and double free (SIGABRT).
+   Prove a gate can fail before trusting it to pass.
 4. **Probe before fixing.** `println` probes (files need
    `open(import("std/fmt"))`; helpers must be defined ABOVE first use —
    no forward refs). ~10-12 min per s1 rebuild — BATCH probes; strip
