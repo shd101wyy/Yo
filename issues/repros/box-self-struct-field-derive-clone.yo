@@ -151,6 +151,60 @@
 //!     reach the body" story is NOT yet established, and why the unfiltered
 //!     probe is needed before any fix.
 //!
+//! ============================================================
+//! PROBE 4 — THE PREMISE BEHIND HYPOTHESES 7-10 IS FALSE.
+//! ============================================================
+//!
+//! Probing immediately before the specialized body is evaluated
+//! (helper.yo, the `evaluate_begin_expression(cloned_body, callee_env, …)`
+//! call in `create_specialized_function_inline`), printing `self`'s bound type
+//! and every capture:
+//!
+//!     PROBESPEC fid=fn_yo_id_2767
+//!               self=Box(<struct:struct_decl_56311_…_yo>)      <- CORRECT
+//!               caps=…;T=T;T=<struct:struct_decl_56311_…_yo>;  <- DUPLICATE
+//!
+//! `self` IS `Box(Node)`. Box's `Clone` IS specialized correctly. So
+//! "`Box.clone`'s body is evaluated generically" — the premise every one of
+//! hypotheses 7, 8, 9 and 10 was built on — IS WRONG. That is why fixing the
+//! shell, the binding arm, the substitution key, and the capture list all
+//! changed nothing: they were repairs to a step that was never broken.
+//!
+//!  10. DUPLICATE CAPTURE. The dump above is a real defect: the FuncVal
+//!      captured from the impl's DEFINITION env already carries `T = T` (bound
+//!      to its own unresolved SomeT), and `_inject_forall_captures` APPENDS
+//!      `T = <Node>` rather than replacing it, so the body env gets two
+//!      bindings named `T`. Fixed it (skip same-named captures during the
+//!      copy). Output BYTE-IDENTICAL — because consumers read the LAST match
+//!      (`get_variables_from_env(...).get(len - 1)`), so the stale first entry
+//!      was never consulted. REVERTED. Worth knowing it exists; it is not this
+//!      bug, and it is latent only for a consumer that reads the first match.
+//!
+//! WHERE THE BOGUS SPEC MUST COME FROM. Not from this call — this call is
+//! correct. So the `yo_id_2747_V_id_1598` spec is minted by a DIFFERENT
+//! evaluation of `Box`'s `Clone` body, the overwhelmingly likely candidate
+//! being the impl's own DEFINITION-time evaluation, where `self : Box(T)` is
+//! legitimately still generic. It is then collected and emitted because it
+//! looks like an ordinary specialization: `_is_generic_unspecialized_func`
+//! (collection.yo:287) only skips values whose type still carries
+//! `forall_labels`, and a minted spec has none.
+//!
+//! That reframes the fix: the goal is NOT to make some body resolve `T`. It is
+//! to stop a DEGENERATE spec — one minted while its foralls were legitimately
+//! unresolved — from being registered/collected. Note hypothesis 8 was a crude
+//! version of this idea applied at the WRONG layer (the binding arm) and it
+//! made the emit worse, so apply it at spec REGISTRATION instead, and gate it
+//! hard.
+//!
+//! NEXT PROBE (do this first): at the `create_specialized_function_inline`
+//! call site (function.yo:1623) print the minted spec fid together with
+//! `ctx.currently_specializing_function` AND the runtime param types, then
+//! find the mint whose fid contains `V_id_`. An earlier probe already showed
+//! that one is created with `inside=fn_yo_id_2767`; re-run it now that
+//! fn_yo_id_2767 is known to be the CORRECTLY specialized `Box.clone`, because
+//! that combination is contradictory and pinning it down is the whole
+//! remaining question.
+//!
 //! NEXT STEP: find why `Box.clone`'s body is evaluated with `self : Box(V)`
 //! when the candidate's `method_type` was already substituted to the concrete
 //! receiver (`substitute(spec_s, ftype)`, impl.yo:~990). Concretely: determine
