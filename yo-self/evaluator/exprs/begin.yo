@@ -1295,8 +1295,18 @@ _schedule_scope_end_drops :: (
   // Build + evaluate `___drop(name)` per var — mirrors the proven eval-side builder
   // calls/helper.yo:234 (and begin.ts:273-334).
   deferred := ArrayList(AstExpr).new();
-  (di : usize) = usize(0);
-  while(di < to_drop.len(), {
+  // REVERSE declaration order — last declared is dropped FIRST. Faithful port
+  // of TS `getVariablesNeedingDrop`, which ends with
+  //     // Return in reverse order (end to start) for proper drop order
+  //     return variables.reverse();
+  // (src/env.ts:2265-2266). `to_drop` is collected in FORWARD frame order and
+  // this loop consumed it forward too, so yo-self dropped scope locals in
+  // exactly the opposite order from TS. That matters whenever one local is
+  // derived from an earlier one: dropping the earlier binding first can
+  // release storage the later one still refers to.
+  (di : usize) = to_drop.len();
+  while(di > usize(0), {
+    di = (di - usize(1));
     match(
       to_drop.get(di),
       .Some(v) => {
@@ -1307,7 +1317,6 @@ _schedule_scope_end_drops :: (
       },
       .None => ()
     );
-    di = (di + usize(1));
   });
   Option(ArrayList(AstExpr)).Some(deferred)
 });
