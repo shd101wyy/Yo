@@ -121,10 +121,41 @@ Candidate sites: `yo-self/evaluator/values/anonymous_function.yo:1416, :588,
 :1383`; sinks at `codegen/utils/index.yo:945, :880` and
 `codegen/functions/declarations.yo:178`.
 
-Confidence: high for the sinks and the return/parameter mechanisms (each
-emitter line was read and matches the observed C); medium for the field
-position. NOT yet verified end-to-end — confirm by diffing the TS emit of
-`impl_fn_field_rejection` for the same struct before changing anything.
+STATUS: the FIELD position is FIXED and verified (`impl_fn_field_rejection`
+5/5). The fix was small because yo-self already had the mechanism —
+`closure_type.yo:296-299` registers the `Impl(Fn)` wrapper's resolved concrete
+on one closure path, and the `=>` lambda path simply never did it. TS gets this
+by mutating the wrapper in place; yo-self's TypeValues are immutable copies, so
+the id-keyed registry IS its equivalent.
+
+The other TWO positions were attempted and REVERTED. Record of what was tried,
+so it is not repeated blind:
+
+- RETURN (`ref_closure_capture`). Symptom is precise: the DEFINITION emits
+  `static inline __yo_t23 yo_id_4939(...)` (correct, capture struct) while the
+  PROTOTYPE still emits `void*`, so clang reports
+  `conflicting types for 'yo_id_4939'`. Attempted fix: in the declared-return
+  stamping (`function_type.yo:730`, the `!is_some_type(dts_bty)` branch), stamp
+  the closure's CAPTURE STRUCT instead of the bare `Func` — a `Func` is what
+  `get_type_string` lowers to `void*` (codegen/utils/index.yo:880). Result: NO
+  EFFECT, error unchanged. So the prototype does NOT take its return type from
+  that stamping — find the prototype's actual type source before retrying.
+
+- PARAMETER (`sync/once`). yo-self builds specialized parameter types from the
+  ARG type (helper.yo:1888-1909), so a closure arg puts a bare `Func` in the
+  slot and `generate_function_prototype` emits `void (*f)()`. Attempted fix:
+  extend the existing "prefer the declared param type" fallback (which was
+  scoped to the poisoned unit-arg case) to closure args whose declared param is
+  a SomeT WITH a registered resolved concrete. Result: PARTIAL — the error
+  moved from `void (*)()` to `void *`, i.e. the parameter is no longer a
+  function pointer, but the SomeT still lowers to `void*` at codegen even
+  though the registry lookup succeeded during evaluation. That gap (registry
+  hit at eval time, miss at codegen time) points at the SomeT id being
+  RE-MINTED between the two — investigate that before retrying, since it likely
+  also limits the field fix in other shapes.
+
+Both reverted rather than committed: neither flipped its test, and #4 does
+change the emitted C, so keeping it would be an unvalidated behaviour change.
 
 ### 4. await result type → void/unit — 2 files, byte-for-byte identical
 
