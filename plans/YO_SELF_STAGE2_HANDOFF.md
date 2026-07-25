@@ -6,10 +6,10 @@ per-bug details live in `issues/*.md` — do not re-litigate fixed bugs._
 ## Status
 
 - **#70 (`s2 test ./yo-self/tests`): DONE — 61/61.**
-- **#69 (`s2 test ./tests`): 161/183 committed** (`4bf8cb418` +
-  `2764b90cf` comptime_int forall fix — prelude GREEN, comptime
-  regression caught by the r3 sweep and fixed the same day; full gates
-  incl. STRICT_FIXPOINT; verification sweep at /tmp/sweep69_r6).
+- **#69 (`s2 test ./tests`): 164/183 committed** (`3e8dfc1a6` extern-type
+  carve-out — sync/atomic 15/15, sync/waitgroup 14/14, sync/rwlock 15/15,
+  all at exact TS parity; full gates incl. STRICT_FIXPOINT; re-baseline
+  sweep at /tmp/sweep69_ext).
   LESSON now in THE METHOD: verification sweeps catch what the battery
   misses — never skip the post-commit sweep, and grow the battery with
   every near-miss (comptime.test is now permanent).
@@ -18,6 +18,7 @@ per-bug details live in `issues/*.md` — do not re-litigate fixed bugs._
   "1. PERFORMANCE FIRST" below for the numbers, the two dead ends not
   worth repeating, and the next lever.
 - Recent commits (each fully gated incl. STRICT_FIXPOINT):
+  `3e8dfc1a6` extern-type carve-out (3 sync files),
   `011e15c7a` + `a92e7c9a5` + `920c2876d` perf arc,
   `99ba71265` capture-split (arc GREEN), `7823007ba` rc layer 4
   (rc GREEN), `7fe90d289` witness resolution (iso GREEN), `0bca00991`
@@ -138,15 +139,15 @@ block it (full diagnosis: "Round-2 outcome" entry at the end of
 Repros: `issues/repros/imm-map-unspecialized-comptime-helper.yo`
 (+ /tmp/imm_map_probe_b.yo, /tmp/imm_set_probe.yo shapes in the ledger).
 
-### 3. Remaining red families (~16 more files)
+### 3. Remaining red families (~13 more files)
 
-| Family                | Files                                                         | Diagnosis / pointer                                                                                                                                            |
-| --------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| async-SM layer        | thread, worker                                                | post-capture-split: `sm->var_NNN` / void-variable C errors in async state-machine emission                                                                     |
-| sync/\*               | atomic, channel, mutex, once, rwlock, waitgroup               | once = STORED-closure capture identity (field-held closure, not covered by the call-arg split); atomic = `__yo_new___yo_tN` ctor never emitted; rest untriaged |
-| ordered collections   | ordered_map, btree_map, priority_queue                        | whole-body "Failed to transpile" + `dispose_fn` referencing never-emitted drop method (ref structs with HashMap/ArrayList fields)                              |
-| closure identity tail | ref_closure_capture, closure_capture_rc_leak                  | closure return-type identity; spec names with `unknown` forall segments                                                                                        |
-| singles               | cli/arg_parser, derive_clone_complex, impl_fn_field_rejection | each its own class; untriaged details in the g14 sweep logs (/tmp/sweep69_g14/\*.log)                                                                          |
+| Family                | Files                                                         | Diagnosis / pointer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| async-SM layer        | thread, worker                                                | post-capture-split: `sm->var_NNN` / void-variable C errors in async state-machine emission                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| sync/\*               | channel, mutex, once                                          | atomic/waitgroup/rwlock FIXED by `3e8dfc1a6` (extern type wrongly counted generic -> ctor skipped). The remaining three are NOT that bug: `once` + `channel` show the same `__yo_new___yo_tN` undeclared-ctor SYMPTOM but survive the fix, so a different type is being skipped — re-read their post-fix logs in /tmp/sweep69_ext, do not trust the old attribution. `mutex` is distinct: a spec emitted with `__unknown__Type__` in its name (note `unknown` is an INTENTIONAL signature fallback in BOTH compilers, TS helper.ts:2149 — so that is spec-identity/emission, not naming) |
+| ordered collections   | ordered_map, btree_map, priority_queue                        | whole-body "Failed to transpile" + `dispose_fn` referencing never-emitted drop method (ref structs with HashMap/ArrayList fields)                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| closure identity tail | ref_closure_capture, closure_capture_rc_leak                  | closure return-type identity; spec names with `unknown` forall segments                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| singles               | cli/arg_parser, derive_clone_complex, impl_fn_field_rejection | each its own class; untriaged details in the g14 sweep logs (/tmp/sweep69_g14/\*.log)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 Sub-class evidence for all of these: END of
 `issues/yo-self-gap6-ctor-memo-reconciliation-attempt7.md`
