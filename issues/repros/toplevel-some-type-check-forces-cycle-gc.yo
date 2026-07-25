@@ -48,7 +48,10 @@
 //! currently emitted and could turn green files red — the opposite of what the
 //! undeclared-ctor families need. TS gets away with the strict predicate
 //! because it monomorphizes and never leaves a `void**` ArrayList in its type
-//! table at all. So the real divergence may be UPSTREAM: yo-self registers a
+//! table at all. MEASURED on this repro's two emits: TS has ZERO `void**`
+//! fields (its ArrayLists are all monomorphized — `uint8_t*`, `size_t*`,
+//! `__yo_struct_…_id_23*`), yo-self has EIGHT.
+//! So the real divergence may be UPSTREAM: yo-self registers a
 //! generic ArrayList in the codegen type table where TS registers only
 //! monomorphized instances. Consider fixing THAT before, or instead of,
 //! widening the predicate; at minimum land the two separately so the blast
