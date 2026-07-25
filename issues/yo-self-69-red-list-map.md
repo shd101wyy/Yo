@@ -135,6 +135,36 @@ void _file____User_temp_7090 = ;
 void _file____User_temp_7091 = (() == ());
 ```
 
+INVESTIGATED, and one appealing discriminator is REFUTED. Only ONE test in each
+file is actually broken — index 4, the `io.async` block whose body returns a
+value computed from CAPTURED outer variables
+(`x := 10; y := 20; … return(x + y)`), whereas the neighbouring "async loop"
+test returns a LOCAL (`counter`) and passes. That makes "capture of outer
+variables" the obvious trigger.
+
+It is NOT sufficient on its own. A standalone file containing exactly that
+contrast — one `Thread.spawn` whose `io.async` body returns `i32(30)` from
+locals, and a second whose body returns `x + y` from captured outer variables,
+both awaited and asserted — COMPILES AND RUNS CLEAN on yo-self (rc=0),
+matching TS. So the trigger needs something further from the test file
+(the `test(...)` harness context, or accumulation across the earlier async
+blocks in the same batch). Reproduce it before fixing; do not assume capture
+alone.
+
+The mechanism sketch below is therefore unconfirmed at the point of failure,
+though the pieces were read directly: yo-self keeps a GLOBAL side-table
+`g_some_resolved_concrete` (expr_info.yo:562-570) which at each `io.async` is
+written with `get_func_type(<action fid>).result` guarded only by
+`if(!(is_some_type(rr)))` — so a `unit` result is happily stored — and at each
+`io.await` the call's return type is overwritten from that table
+(function.yo:4478-4518). TS instead binds the await's forall `T` by synthesis
+against the future ARG and carries `resolvedConcreteType` on a PER-CALL cloned
+SomeType (function.ts:2080-2115). Also noted: yo-self's await emitter checks
+`expr_type` BEFORE the output SomeT's own resolution cell, inverted relative to
+TS (codegen/exprs/await.ts:79-102), and the malformed `void x = ;` itself comes
+from `_materialize_arg` (codegen/exprs/other_fn_call.yo:452-462), which has no
+TS analogue printing a declaration for a unit-typed argument.
+
 The awaited Future's result type resolved to void/unit, so the result binding
 and both comparison operands emit empty. Both then call `yo_id_4927(...)`
 without its specialization suffix, though the correctly-suffixed
