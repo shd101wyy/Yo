@@ -8,8 +8,11 @@ per-bug details live in `issues/*.md` — do not re-litigate fixed bugs._
 - **#70 (`s2 test ./yo-self/tests`): DONE — 61/61.**
 - **#69 (`s2 test ./tests`): 164/183 committed** (`3e8dfc1a6` extern-type
   carve-out — sync/atomic 15/15, sync/waitgroup 14/14, sync/rwlock 15/15,
-  all at exact TS parity; full gates incl. STRICT_FIXPOINT; re-baseline
-  sweep at /tmp/sweep69_ext).
+  all at exact TS parity; full gates incl. STRICT_FIXPOINT).
+  **SWEEP-VERIFIED**: the 183-file re-baseline (/tmp/sweep69_ext) reports
+  GREEN=164, and its diff against the 161 baseline is EXACTLY the three
+  expected flips with nothing else moving — so the three perf commits
+  (920c2876d, a92e7c9a5, 011e15c7a) caused ZERO regressions.
   LESSON now in THE METHOD: verification sweeps catch what the battery
   misses — never skip the post-commit sweep, and grow the battery with
   every near-miss (comptime.test is now permanent).
