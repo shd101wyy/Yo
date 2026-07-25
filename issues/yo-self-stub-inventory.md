@@ -111,6 +111,36 @@ not a local edit.
 
 ---
 
+## SPOT-VERIFIED entries (read directly, 2026-07-26)
+
+The findings below are agent-reported. These three were re-read in the source
+and are confirmed VERBATIM — treat them as facts, not reports:
+
+- **`types/guards.yo:584`** — the whole definition is
+  `is_function_specializable :: (fn(t : TypeValue) -> bool)(false);`
+  A predicate whose body is the constant `false`. TS computes
+  `isFunctionTypeGeneric(functionValue.type) || ...` (src/types/guards.ts:537-549).
+  Note the signature also takes a `TypeValue` where TS takes a `FunctionValue`.
+
+- **`types/compatibility.yo:708`** — Union-vs-Union is
+  `(((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0)))`
+  i.e. name-only with the EMPTY NAME AS A WILDCARD, in the exact-match path
+  too. Since yo-self routinely leaves union/enum names empty, this makes
+  unrelated unions mutually compatible. TS rejects on field-count mismatch or
+  distinct ids (src/types/compatibility.ts:407-439).
+
+- **`evaluator/trait_checking.yo:450`** — body is
+  `AssocTypeCheckResult(satisfied : true, env : env)` with the comment
+  "Phase 3 stub ... conservatively return satisfied=true", AND it has ZERO call
+  sites (grep over all non-test yo-self files returns only its own definition,
+  its doc comment, and the module header). So associated-type constraints such
+  as `where(T <: Iterator(Item := i32))` are satisfied by ANY `Iterator`, and
+  the check is not wired in at all. TS calls
+  `checkAssociatedTypeConstraints` from step 4 of `typeImplementsTrait`
+  (src/evaluator/trait-checking.ts:240-322, called at :311).
+
+---
+
 # HIGH
 
 ### `yo-self/codegen/codegen_c.yo:216` — partial _(codegen-core)_
