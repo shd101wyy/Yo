@@ -1,49 +1,181 @@
 # yo-self stub inventory — every unfaithful port, measured (2026-07-26)
 
-Produced by reading each yo-self module against its TS counterpart in `src/`.
+Each yo-self module read against its TS counterpart in `src/`. Produced because
+bugs traced this session were exactly this shape: a "simplified port" of
+`find_methods_from_generic_impls`, a TOP-LEVEL-ONLY `type_contains_some_type`
+where TS recurses, a closure path skipping TS's `resolvedConcreteType` stamp.
 
-**247 findings** across 8 areas:
-129 medium, 63 high, 28 low, 27 none-observable.
+**300 findings** across 10 areas: 153 medium, 78 high, 35 low, 34 none-observable.
 
-HIGH = can produce a MISCOMPILE or wrong C. Fix these faithful-port-first:
+HIGH = can produce a MISCOMPILE or wrong C. Fix faithful-port-first: TS's
+mechanism, in TS's place, via yo-self's EXISTING equivalents. Inventing a
+yo-self-only heuristic is wrong even when it makes a test pass.
 
-port TS's mechanism, in TS's place, using yo-self's existing equivalents.
+## Area summaries — the worst gap in each
 
-## Area summary: evaluator-calls
+### codegen-core
+
+The codegen-core area (codegen_c.yo, constants.yo, utils/**, functions/**) is a substantially complete and unusually well-annotated port — the GC/RC runtime prelude, unwind-value buffer, ref-struct/ref-enum constructors, dyn emitters, and the prototype/body/main-wrapper skeleton are faithful, and several apparent stubs (generate_closure_constructor_functions, generate_closure_constructor_declarations, generate_closure_vtable_declarations, get_evidence_parameters, dyn.yo's traverse_fn=NULL TODO) are verified-faithful ports of TS no-ops, not gaps. The real gaps cluster in two places: (1) whole TS pipeline stages that compile_module simply never calls — preRegisterEffectfulFunctions, generateLibraryInitFunction, generateClosureDisposeFunctions, generateSpecializedFunction{Declarations,s} — and (2) the collection/skip boundary, where yo-self both over-skips (a merged should_skip_function_codegen that drops TS's `!specializedType && caches===0` guards on the hard-generic skip) and under-collects. The single worst gap is that compile_module never walks module-level mutable-variable initializer expressions with find_function_calls_in_expr (TS codegen-c.ts:121-125) even though generate_main_wrapper DOES emit those initializer RHS expressions into `__yo_main_module_init()` — so any function reachable only from a global's initializer is emitted at its call site but never collected, declared, or defined. A close second is generate_main_wrapper omitting `__yo_async_wait_all()`, which silently drops in-flight async work at program exit, and the yo-self-only `abort()` rewrites (generation.yo:509, dyn.yo:412) that convert untranspilable emissions into runtime traps and can mask codegen failures as green builds.
+
+### codegen-exprs
+
+The `codegen/exprs` + `parallelism` + `shared`/`c`/`utils`/`codegen_c` area is much further along than its module headers claim — several headers are demonstrably STALE (atom.yo:12 says the `inout` deref is omitted but `_var_read_code` implements it; recur.yo:4 says the ref-strip is deferred but it is ported; downcast.yo:11 says `is_boxed_type` is hardcoded false but it is a real predicate; other*fn_call.yo:6-10 says the call dispatcher is a TODO stub but it is ~1800 lines and live; init_assignment.yo:15 and return.yo:12 both call live code \"gated dead\"), so the headers cannot be trusted as an inventory and every claim here was verified against the code. Faithful, semantically-equivalent adaptations are common and I have called them out as such (the empty `get_evidence_parameters`, the dead `continuationVariables`/`closureCaptureMap` branches, `random_id` for TS counters, SM c_names registered with the `*` already attached). The single worst gap is that the async/effect state-machine WRITE side is missing while the READ side is ported: `other_fn_call.yo`'s `_store_temp_var_to_state_machine_if_needed` is a `()` no-op that is not even called (TS calls its counterpart at ~18 sites), `match.yo` never writes destructured arm variables into `sm->var*<id>`(TS does at 4 sites), and`assignment.yo`skips the SM save-old-value entirely — so inside an async block, atom.yo faithfully resolves reads to`sm->var\_<id>`fields that nothing ever wrote, yielding zero-initialised values and NULL/garbage deferred drops after every suspension. Close behind it are three silent-miscompile holes with no diagnostic at all:`asm`/`global_asm`emit a comment instead of the assembly (tests/asm.test.yo exercises this),`begin.yo` assigns its final expression to the block temp with no deferred-`\_\_\_dup`rewrite (RC undercount → UAF, and`begin`is everywhere), and`downcast.yo`omits the`wasBoxed`extraction while`dyn.yo`genuinely boxes value types (type confusion on`dyn.data`). The effect subsystem is the largest wholly-unported region: no `in_effect_state_machine`context field and no`pre_register_effectful_functions` stage.
+
+### evaluator-calls
 
 yo-self/evaluator/calls/\*\* is far past "stub" for the hot paths (function.yo, helper.yo, comptime_fn.yo, index_trait.yo are large, heavily-annotated real ports), but three files are still materially unfinished — closure_type.yo, function_type.yo, and trait_type.yo — and every file leaks small TS branches. There are no TODO/FIXME markers at all; every divergence is written as prose in a `//!` header or an inline comment, and several headers are now STALE (helper.yo:1 still says "stub", function.yo:12 says method calls/CTFE/macros are "deferred to Phase 4" when they are implemented, function_type.yo:408 says def-time body eval is skipped when it now happens). Ranked by blast radius the single worst gap is `create_specialized_function_inline` (helper.yo:1249-1263, "Phase 3 simplification: all regular params are treated as runtime"): TS pushes every `isCompileTimeOnly` regular parameter's VALUE into `compileTimeArgValues` and excludes it from `runtimeParameterTypes` (helper.ts:2229-2254), while yo-self pushes only forall + implicit values and dumps ALL regular arg TYPES into the runtime key — so two calls that differ only in a `comptime(n)` argument compute identical cache keys AND an identical specialization signature, silently reusing the first call's monomorphized body (and its emitted C function) for the second. Close behind: closure_type.yo is missing the pre-compat `synthesizeTypes` on the closure return (closure-type.ts:186-196 — the exact mechanism that binds `io.async`'s outer forall T), the captured-ARC `___dup` generation, and the DynType `attachTempVariableToExpr`; and evaluator/calls/type.yo leaves `runtime_arg_exprs_in_order[i]` pointing at the type-callee expression for every defaulted struct field. Two soft fallbacks (helper.yo:3808 non-Func callee → unit-typed FuncCallResult; numeric_type.yo:337 non-numeric cast source → UnknownVal with no `__yo_as`) convert what TS treats as hard errors into silently wrong emissions.
 
-## Area summary: evaluator-core
+### evaluator-core
 
 The top-level `evaluator/*.yo` files are structurally near-complete ports — `memory_safety.yo` and `type_of.yo` are faithful 1:1, `context.yo` reproduces all but one `EvaluatorContext` field, and the two big files (`trait_checking.yo`, `utils.yo`) are dense, well-annotated ports whose divergences are mostly documented in prose. `eval.yo` (370 KB) and `index.yo` are dead weight for the compiler binary — neither is reachable from `main.yo`, so their many stubs are inert. The real damage is concentrated in a handful of silently-omitted branches rather than in the loudly-labelled "Phase 3 stubs". The single worst gap is `evaluator/utils.yo:1030/1058`: `merge_and_check_envs` collects a per-column `case_types` array and never reads it, dropping BOTH of TS's cross-branch type checks (`src/expr.ts:2013-2088`) — including the one that rejects an `Impl(...)` local whose `resolvedConcreteType` differs between cond/match arms. Since `Impl` is static dispatch and yo-self _does_ now carry a real `SomeT.resolved_concrete` cell, branch-divergent concrete types are accepted and codegen commits to one of them: a straight miscompile with no diagnostic. Close behind are three more high-impact omissions in the same family: `attach_temp_variable_to_expr` (utils.yo:112) lost TS's `isRef` and `isOwningTheSameRcValueAs` parameters, so `ref(T)`-returning calls get a temp declared `T` instead of `T*` and the RC borrow-alias chain is permanently empty; `type_contains_some_type_for_codegen_param` (trait_checking.yo:1265) never consults `SomeT.resolved_concrete`, so already-monomorphized parameters still read as generic in the C declaration path; and the entire associated-type-constraint mechanism is absent (no field on `TraitT`, a hardcoded `satisfied:true` stub that is never even called, and no `synthesize_types` binding propagation), so `where(T <: Iterator(Item := i32))` is satisfied by any `Iterator` at all.
 
-## Area summary: evaluator-exprs
+### evaluator-exprs
 
 yo-self/evaluator/exprs is a broadly faithful port at the control-flow/dispatch level (atom dispatch, `->`/`=>` forms, builtin routing, match exhaustiveness, cond, destructuring, test, typeof, unwind, subtype_of all track their TS counterparts closely, and several files are LARGER than TS), but the ownership/RC, FFI-metadata, and comptime-mutation layers have real holes, and — importantly — several module headers are STALE in both directions: `begin.yo` lines 5-11, `assignment.yo` 10-14 and `initialization_assignment.yo` 11-16 all advertise stubs (`type_contains_rc_type = false`, `clone_value`, `attach_temp_variable_to_expr`, `generate_deferred_drop_expressions`) that have since been fully implemented, so the headers cannot be trusted as a stub index. The single worst gap is that the evaluator drops _all_ C-header provenance: `c_include.yo` computes `c_header_file` (line 141) purely to validate it and then never attaches it to any field type or registry, where TS `c-include.ts:141/145/162` stamps `cInclude` onto every field type — yo-self's codegen `collect_c_includes` therefore reads `c_include` slots that `codegen/functions/collection.yo:674` always registers as `.None`, so no `#include <header>` is ever emitted for c_include'd FFI symbols. Close behind: `while.yo` never populates `comptime_unrolled_bodies` (its codegen consumer at `codegen/exprs/while_loop.yo:235` is dead code), `extern.yo` deliberately drops the `ioBuiltin` marker forcing name-based structural io detection everywhere, `_expr.yo`'s non-raw wrapper silently swallows every sub-evaluator error into an `err` expr (contradicting its own doc comment), and comptime pointer writes (`p.* = v`, `ptrTargetValue`, `ComptimeRef.StructRef`/`TupleRef`) are unreachable because nothing ever produces them.
 
-## Area summary: evaluator-misc
+### evaluator-misc
 
 The async/suspension core is the weakest part of this area: yo-self replaces TS's `ioBuiltin` TYPE marker with purely syntactic `io.<method>` name matching (await_analysis.yo:85), so an Io bound to any other name emits no await state machine at all, while `is_join_handle_await_call` conversely claims every non-`io` `x.await(...)`; the typed AwaitPoint fields are then re-attached through a `token.character`-keyed side channel that can collide or silently drop points. Everything under shared/suspension_analysis.yo is otherwise a faithful (indeed enhanced) port, and effects/\*\* is a faithful port of a TS module that is now dead on both sides, so it is inert. builtins/ are broadly complete — full op coverage in the comptime numeric/string/list/index/rc/expr families — but three real correctness gaps hide there: comptime integers are i64-only with silent hex wraparound and no 64-bit clamping where TS uses bigint (`0xFFFFFFFFFFFFFFFF` → `-1`), `Impl(Concrete(T))` never stamps resolvedConcreteType (std/sys/future.yo's IoFuture depends on it, and codegen has to sniff the leftover trait), and `&(...)` skips TS's comptime→runtime type conversion so `converted_runtime_type` is never set and the codegen branch reading it is dead. utils/closure.yo is the other soft spot: three declared no-ops (move-consumption, path collection, capture trait validation) plus `enrich_captured_variables` ignoring the recorded `frame_level` and taking the last whole-env match, which mis-types capture fields under shadowing. asm, signature contracts, and the CTFE-capability module are outright unported (the first two fail loudly; the third silently forgoes nested-function comptime upgrades). The single worst gap is the structural Io detection: it is the only one that can silently emit a function with the await sequence missing entirely rather than erroring.
 
-## Area summary: evaluator-types
+### evaluator-types
 
 yo-self/evaluator/types/ is broadly complete for the "shape" work — struct/enum/tuple/union/field/trait/function/synthesizer all build the right TypeValues, and several module headers understate how much has since been ported (union auto-derive, dyn self-constraint expansion, macro registry, GADT support are all live despite headers saying "stub"). The real gaps are concentrated in three places: (1) `expr_synthesizer.yo` is still a literal identity no-op against a 263-line TS function, which makes the annotated-initialization compatibility check in `initialization_assignment.yo` VACUOUS (`are_types_compatible(pre_type, synth.ty)` compares `pre_type` with itself) and drops TS's `synthesizeTypes` unification of SomeTypes in the declared type — this is the single worst gap and is a direct miscompile vector; (2) `array.yo` silently substitutes `usize(0)` for any array length it cannot fold to an `IntLit` when the length expression is not a bare atom, producing `Array(T, 0)` (wrong sizeof / wrong C layout) instead of TS's stored `UnknownValue` length; (3) `synthesizer.yo` inverts TS's first-wins `resolvedConcreteType` stamp into last-wins and never places a fresh SomeType binding at `definitionFrameLevel` (TS's `deltaFrame`), both of which feed generic specialization and the async/FSM concrete-type reader. Beyond those, a broad class of _validation_ work is simply not wired: `validate_type_availability` exists but has zero callers, `definedInModulePath` is absent from every nominal type, atomic-object `Send` enforcement and the pre-field-eval `beginSendDerivation` cycle-break are missing, tuple auto-derive is a documented no-op, and trait where-clause constraints that fail on retry are silently DROPPED where TS re-runs them to produce a hard error.
 
-## Area summary: evaluator-values
+### evaluator-values
 
 yo-self/evaluator/values/ is broadly complete for the literal evaluators and the non-generic impl path, but it carries a dense cluster of real gaps. The single worst is the generic-impl method pipeline in impl.yo: `find_methods_from_generic_impls` (impl.yo:970-997) does a purely STRUCTURAL `substitute()` where TS's `reEvaluateFunctionType` re-evaluates the type in a specialized environment — TS's own comment (impl.ts:1443) says nominal Yo types cannot be substituted structurally — and it never re-evaluates the body or mints a per-instantiation funcId, while `GenericImplEntry` drops `traitTypeArgExprs`/`traitFunctionParamNames` entirely so parametric-trait impls never rebind their trait parameters. Close behind are four independent MISCOMPILE-class defects that produce wrong output with no diagnostic: float literals round-trip through `%g` and lose all precision past 6 significant digits (float.yo:60); non-ASCII char literals decode the first UTF-8 byte instead of the code point (char.yo:79); array.yo and anonymous_struct.yo both miss the `Some(UnknownVal)`-vs-`undefined` convention that tuple.yo already fixed, so runtime literals get bogus comptime values; and `type_id_or_empty` returns "" for Pointer/Array/Tuple/Func/Dyn receivers, silently discarding every concrete impl on those shapes. The closure path in anonymous_function.yo is the other hotspot: no temp-variable attachment, a FuncVal stored where TS stores `undefined`, the plain Func recorded instead of the resolved wrapper SomeT, and the missing `__impl_fn` intermediary that TS explicitly added to stop the Fn trait being stripped. Remaining findings are diagnostics-only (orphan/duplicate impl, uninitialized module vars, impl field syntax) or documented deliberate trades (where-clause scoping, allow-listed SomeT substitution). generic_impl_registry.yo is entirely dead code holding a stale pre-Phase-3.5 copy of the same API.
 
-## Area summary: root
+### root
 
 The root-level modules split sharply into two tiers. The pure syntactic layer — lexer.yo, token.yo, parser.yo, error.yo, formatter.yo, and the small tooling modules (cache/lock_file/version/pkg_config/init/fetch/install_command/version_cache) — is a genuinely faithful 1:1 port with explicit, well-argued fidelity notes (the lexer even documents that TS has no unterminated-string check and matches that; the parser documents removing over-strict guards a previous port added). The semantic layer is where the real gaps live: env.yo, expr_info.yo, value.yo, function_value.yo and expr_traversal.yo each carry documented "first-cut" / "still owed" ports of TS functions that TS uses to make correctness decisions. The single worst gap is `_filter_receiver_methods` (yo-self/env.yo:2535): it never runs TS's final `areTypesCompatible(firstParam, receiver, isMethodReceiver=true)` gate, never applies the "receiver has SomeType but method doesn't → skip" rule, and never applies the Dyn object-safety filter (self-by-value / returns-Self) — so the candidate set handed to overload resolution is strictly larger than TS's and a method TS rejects can win dispatch, producing a wrong or signature-mismatched C call. Close behind are three more high-impact items: `ExprInfo` has no `is_return_slot` field (expr_info.yo:317), which makes every `&(ref-returning-call)` in a return slot emit TS's documented use-after-free shape `T* temp = call(); return &temp;`; `keep_top_level_frame_and_comptime_variables_from_env` (env.yo:1412) has zero callers, so the runtime-local hiding TS performs at nested non-closure function definitions never happens; and main.yo:1136 resolves the `--target` only after evaluation and never calls `set_target_pointer_size`, leaving the pointer width pinned at 64 bits for every cross-compile.
 
-## Area summary: types
+### types
 
 yo-self/types/\*\* is far more complete than its \"Phase 2\" comments suggest — compatibility.yo, utils.yo's RC/size/cycle walkers, type_key.yo and intern.yo have all been hardened past their original ports with issue-linked fixes — but the completeness is uneven, and the gaps cluster in one place: yo-self's `SomeT.resolved_concrete` and the recursive descent into composite types. Three separate predicates (`is_rc_type` guards.yo:430, `_type_is_control_bound_inner` utils.yo:526, `_type_refs_back_to_cyclic` utils.yo:710) refuse to follow `resolved_concrete` and justify it with comments claiming yo-self's SomeT has no such field — a claim that `_type_contains_rc_inner` (utils.yo:414) disproves twenty lines away; `type_contains_some_type` (utils.yo:860) is top-level-only while every evaluator call site expects TS's full recursion; `substitute` (substitution.yo:276) silently zeroes `is_effects_row` and `kind_function_type` on every SomeT it rebuilds; and SomeT-vs-SomeT compatibility (compatibility.yo:720) is name+frame_level only. The single worst gap is the interaction between `intern_type` (intern.yo:559) and that same field: interning merges two structurally-identical UNRESOLVED SomeTs into one instance, and because `resolved_concrete` is a deliberately SHARED MUTABLE cell that synthesizer.yo:1314/1399 mutates in place, a resolution stamped at one call site now silently rewrites an unrelated type variable's resolution — the intern header's soundness argument (\"TypeValues are rebuilt-not-mutated\") is contradicted by definitions.yo's own HAZARD note on that field, and the bad resolution flows straight into codegen's parameter lowering.
 
 ---
 
 # HIGH
+
+### `yo-self/codegen/codegen_c.yo:216` — partial _(codegen-core)_
+
+**yo-self:** compile_module collects functions only from the module value's exported fields. It never walks the module-level mutable-variable initializer expressions. Types ARE collected from them (types/collection.yo:640 calls collect_types_from_expr over get_module_level_init_exprs()), but functions are not — grep confirms find_function_calls_in_expr is never applied to init exprs anywhere in yo-self.
+
+**TS:** src/codegen/codegen-c.ts:121-125 — immediately after collectRequiredFunctions: `if (context.moduleLevelInitExprs) { for (const initExpr of context.moduleLevelInitExprs) { findFunctionCallsInExpr(initExpr, context); } }`
+
+**Evidence:** codegen_c.yo:216 `collect_required_functions(module_value, base, info, true);` with no init-expr loop; types/collection.yo:602 `(Signature-type collection omitted — Gap 2; the moduleLevelInitExprs pass is deferred until the context carries them.)` — yet types/collection.yo:640 later DOES add the type-side loop, leaving only the function side missing.
+
+### `yo-self/codegen/functions/dyn.yo:412` — conservative-fallback _(codegen-core)_
+
+**yo-self:** In generate_dyn_wrapper_functions' regular-trait-method pass, if should_skip_function_codegen says the impl function was dropped, the wrapper body becomes `abort(); /* dyn method unavailable: impl fn skipped (degraded type) */` instead of forwarding to the impl.
+
+**TS:** src/codegen/functions/dyn.ts — the wrapper always emits the forwarding call to the impl's cName; there is no skip check and no abort path in the wrapper emitter.
+
+**Evidence:** dyn.yo:405-413 `// A method whose DEFINITION the generic/comptime skip drops ... must not be CALLED from the wrapper ... Emit a visible runtime trap instead` then `if(should_skip_function_codegen(...), { em.emit_declaration_string_line(\` abort(); /_ dyn method unavailable: impl fn skipped (degraded type) _/\`); }, { \_emit_wrapper_call(...) });`
+
+### `yo-self/codegen/functions/generation.yo:509` — conservative-fallback _(codegen-core)_
+
+**yo-self:** After emitting a function body, generate_function re-reads the emitted text; if it contains the string `// Failed to transpile` AND fid_fully_specialized(func_id), it TRUNCATES the emitter buffer back to stub_mark and re-emits the signature with a body of `abort(); /* superseded generic original: all call sites dispatch a specialization */`.
+
+**TS:** none found — no equivalent post-emission rewrite exists in src/codegen/functions/generation.ts. TS avoids the situation structurally: resolution replaces the value on the shared AST node so the abstract original never reaches the emitter (the yo-self comment at :502-504 says exactly this).
+
+**Evidence:** generation.yo:508-514 `emitted_fn := em.code.substring(stub_mark, em.code.len()); if(emitted_fn.contains("// Failed to transpile") && fid_fully_specialized(func_id.clone()), { em.code = em.code.substring(usize(0), stub_mark); ... em.emit_string_line(String.from("  abort(); ...")); })`
+
+### `yo-self/codegen/functions/generation.yo:790` — partial _(codegen-core)_
+
+**yo-self:** generate_main_wrapper emits `__yo_user_main${main_call_args};` and returns. It never emits `__yo_async_scheduler_init();` or `__yo_async_wait_all();`, and never emits the `if (__yo_effect_escaped) return NULL;` guard after the module-init call.
+
+**TS:** src/codegen/functions/generation.ts:936-944 builds asyncInit/asyncWait from context.usesAsync, and generation.ts:1015-1022 emits `${asyncInit}`, `__yo_main_module_init(); if (__yo_effect_escaped) return NULL;`, then `__yo_user_main${mainCallArgs}; ${asyncWait}`. Both the POSIX worker path and the direct path emit them.
+
+**Evidence:** generation.yo:712 `/// DEFERRED (documented): async runtime init/wait (no async in corpus — emitted empty), evidence-param mains (Phase 5).` and the emitted block at :786-820 / :826-835 contains neither call. `grep -rn '__yo_async_wait_all' yo-self/codegen/` matches only runtime_core.yo:187 (the definition) and parallelism/runtime.yo.
+
+### `yo-self/codegen/exprs/begin.yo:232-239` — partial _(codegen-exprs)_
+
+**yo-self:** The expression-form `begin` block assigns its final expression to the result temp verbatim (`temp_var = last_arg_code;`) with no deferred-`___dup` rewrite of that final expression.
+
+**TS:** src/codegen/exprs/begin.ts:104-153 — when `lastArg.$.deferredDupExpressions` is non-empty, TS re-emits the last expr into its own temp (skipping the decl for `inout` atoms), calls `generateDeferredDupExpressions(lastArg, ...)`, and assigns the DUP RESULT variable to the block temp.
+
+**Evidence:** begin.yo:14 header — "DEFERRED (documented, not hit by the no-RC corpus): the deferred-dup rewrite of the return value … The no-RC corpus has no deferred dups, so the last expression is assigned to the result temp as-is." Code at 232-239 confirms a bare assignment.
+
+### `yo-self/codegen/exprs/closures.yo:119-121` — hardcoded _(codegen-exprs)_
+
+**yo-self:** A `Dyn(Fn(...))` closure construction returns the string `"// Error: Dyn(Fn(...)) closure construction not yet ported"`, which the caller splices into an EXPRESSION position.
+
+**TS:** src/codegen/exprs/closures.ts:296-330 — TS heap-allocates the capture struct (`allocateClosureCapture` with `useStackAllocation=false`), then returns `__yo_create_<closureCName>(captureTempVar, __yo_dispose_<closureCName>, (ret (*)(void*, params))fn)`; the capture-less case returns the same with `NULL`.
+
+**Evidence:** `if(is_dyn_type(ei.ty), {\n    return(String.from("// Error: Dyn(Fn(...)) closure construction not yet ported"));\n  });`
+
+### `yo-self/codegen/exprs/downcast.yo:9-13 and the emitter body` — partial _(codegen-exprs)_
+
+**yo-self:** The `wasBoxed` path is entirely absent: `generate_downcast` always emits the unboxed object cast over `dyn.data`. There is no scan of `context.dyn_impls` for an impl whose `data_type` is a `Box(T)`.
+
+**TS:** src/codegen/exprs/downcast.ts:88-160 — TS walks `context.dynImpls`, and when the matching impl's `dataType` `isBoxedType`, emits `((BoxCName*)dyn.data)->{field}` plus the correct dup (`__yo_incr_rc` / `___dup` / memcpy) depending on whether the target is a reference struct, has a dup fn, or is a plain value.
+
+**Evidence:** downcast.yo:9-13 — "DEFERRED (documented): the `wasBoxed` branch … is UNREACHABLE — yo-self `is_boxed_type` is hardcoded false (Box is not modeled in the type system yet)." Contradicted by types/guards.yo:591 and dyn.yo:37.
+
+### `yo-self/codegen/exprs/generation.yo:472-473` — no-op _(codegen-exprs)_
+
+**yo-self:** `asm(...)` and `global_asm(...)` return the literal string `/* TODO[codegen-port]: asm not yet ported */` instead of emitting anything. There is no `yo-self/codegen/exprs/asm.yo` at all — the entire 761-line TS emitter is unported.
+
+**TS:** src/codegen/exprs/generation.ts:651-658 dispatches to `generateAsm` / `generateGlobalAsm` (src/codegen/exprs/asm.ts, 761 lines) which emit real `__asm__ __volatile__(...)` blocks with operand/clobber lowering.
+
+**Evidence:** `if(ast_expr_is_fn_call_of(expr, BF_ASM, Option(usize).None), return(String.from("/* TODO[codegen-port]: asm not yet ported */")));`
+
+### `yo-self/codegen/exprs/match.yo:828 (_emit_destructure_binds) and 1056` — partial _(codegen-exprs)_
+
+**yo-self:** Tagged-union arm destructuring emits only the local C binds (`<T> v = subj.data.Variant.f;`). There is no state-machine write-back of the destructured variables; the file contains no `sm->` emission at all.
+
+**TS:** src/codegen/exprs/match.ts:673-699, 752-781, 906-927, 983-1008 — four sites where, when `inAsyncStateMachine || inEffectStateMachine` and the destructured var's id is in `stateMachineVariables`, TS additionally emits `sm->${getStateMachineFieldName(varId, "local", …)} = ${varName};`.
+
+**Evidence:** match.yo:14 header — "DEFERRED (documented …): state-machine storage of destructured variables (Phase 5, gated on in_async)". `grep 'sm->' match.yo` returns only a comment at line 409.
+
+### `yo-self/codegen/exprs/other_fn_call.yo:246-250 (and the absence of any call site)` — no-op _(codegen-exprs)_
+
+**yo-self:** `_store_temp_var_to_state_machine_if_needed` has body `()` — a pure no-op — AND is never invoked anywhere in the file (only re-exported at line 1803). The direct-call emission path (1612-1651) declares `T tv = f(args);` as a plain C local and never writes it back to the state-machine struct.
+
+**TS:** src/codegen/exprs/other-fn-call.ts:215-253 defines `storeTempVarToStateMachineIfNeeded`, which emits `sm->var_<id> = <tempVar>;` (skipping Future-typed temps and `outer` captures). It is called at ~18 sites (620, 1501, 1797, 1956, 2207, 2316, 2384, 2456, 2516, 2551, 2572, 2596, 2684, 2756, 3201, …).
+
+**Evidence:** `_store_temp_var_to_state_machine_if_needed :: (fn(temp_var : String, indent : String, context : FunctionGenerationContext) -> unit)(\n  ()\n);` with doc "SM temp-var store (Phase 5) — no-op outside a state machine."
+
+### `yo-self/codegen/exprs/property_access.yo:13-16` — partial _(codegen-exprs)_
+
+**yo-self:** Two whole resolution branches are absent: (a) the late-dispatch trait walk that resolves `obj.method` at emit time when the evaluator left the value unresolved, and (b) the Rc-method (`___drop`/`___dup`/`___dispose`) trait lookup fallback. `grep 'trait' property_access.yo` matches only the header comment.
+
+**TS:** src/codegen/exprs/property-access.ts:154-222 (late dispatch: strips pointer layers, finds the type's trait, skips names that are real data fields, checks direct trait fields then nested trait impls, and returns the method's C function name) and 227-265 (Rc-method trait lookup returning the function name directly).
+
+**Evidence:** Header: "Late-dispatch trait-walk + Rc-method (\_\_\_drop/dup/dispose) trait lookup: TS reads `objectType.trait.fields[].assignedValue`, but yo-self's Struct/EnumT carry NO `.trait` field — methods live in a separate type-method registry. Porting these requires routing through that registry (Phase 3/4)."
+
+### `yo-self/codegen/exprs/ptr_fns.yo:9-13 (generate_address_of)` — partial _(codegen-exprs)_
+
+**yo-self:** The `is_return_slot` ref-forward is omitted: `&(call_returning_inout)` in a `-> *(T)` return position always falls through to the rvalue-spill path, emitting `T* tmp = call(...); … (&tmp)`.
+
+**TS:** src/codegen/exprs/ptr-fns.ts:123-139 — when `expr.$.isReturnSlot` and the arg's last env binding `isRef`, TS returns `argCode` unchanged (forwards the already-`T*` pointer). Its own comment: "Without this, the body emits `T* temp = call(...); return &temp;` — a use-after-free because `temp` dies when the function returns."
+
+**Evidence:** ptr_fns.yo:9-13 — "DEFERRED (documented): the `is_return_slot` ref-forward … yo-self ExprInfo has no `is_return_slot` field and Variable has no `is_ref` flag." (The `is_ref` half of that claim is stale — env.yo:115 has `is_ref`.)
+
+### `yo-self/codegen/exprs/recur.yo:33-57` — partial _(codegen-exprs)_
+
+**yo-self:** Per-argument deferred-`___dup` emission is missing: after generating each arg, yo-self only does the `(*name)`→`name` ref strip and pushes `arg_code`. It also never calls `generate_deferred_drop_expressions(expr, …)` for the recur node itself.
+
+**TS:** src/codegen/exprs/recur.ts:54-68 — if `arg.$.deferredDupExpressions.length > 0`, TS calls `generateDeferredDupExpressions(arg, indent, functionContext)` and substitutes the dup-result variable for the arg. recur.ts:92-94 additionally emits `generateDeferredDropExpressions(expr, …)` for moved RC arguments.
+
+**Evidence:** recur.yo:3-6 header lists this as deferred; the loop body at 33-57 goes straight from `arg_code := _call_generate_expr(...)` + ref-strip to `args_list.push_string(arg_code);` with no dup handling and no drop call anywhere in the function.
+
+### `yo-self/codegen/exprs/return.yo:993-999 (generate_unwind)` — partial _(codegen-exprs)_
+
+**yo-self:** The unwind-with-argument path generates the arg code and then immediately emits handler-param drops, pending deferred drops, and consumed-var escape drops. It does not snapshot/truncate the drop lists around arg evaluation, and does not filter out a pre-existing drop whose target IS the arg's C expression.
+
+**TS:** src/codegen/exprs/generation.ts:345-390 — TS records `consumedDropsBaselineForEscapeArg` / `pendingDropsBaselineForEscapeArg` BEFORE `generateExpr(arg, …)`, truncates both lists back to the baselines afterwards, then filters both lists removing any drop whose `getDeferredDropTargetAtomName` equals the trimmed arg code. Its comment: "The value's ownership escapes via \_\_yo_unwind_value, so dropping it here would cause a use-after-free at the handler installation site."
+
+**Evidence:** return.yo:993-999 goes `argc := _call_generate_expr(arg, …); _emit_effect_handler_param_drops(…); generate_pending_deferred_drops(…); generate_consumed_var_drops_for_escape(…);` with no baseline capture and no filter.
+
+### `yo-self/codegen/functions/context.yo:210 (and yo-self/codegen/codegen_c.yo:187-300)` — deferred-todo _(codegen-exprs)_
+
+**yo-self:** The effect state-machine subsystem is entirely unmodelled: `FunctionGenerationContext` has `in_async_state_machine` but no `in_effect_state_machine` field, and `compile_module` never calls a `pre_register_effectful_functions` equivalent.
+
+**TS:** src/codegen/functions/generation.ts:1109-1140 `preRegisterEffectfulFunctions` (registers effect-SM structs + forward declarations for every function whose body has `effectAnalysis.hasEffects`), called from src/codegen/codegen-c.ts:228 BEFORE any body is generated "so that call sites can find effectStateMachineInfo". ~10 exprs files then branch on `inAsyncStateMachine || inEffectStateMachine`.
+
+**Evidence:** `grep 'in_effect' yo-self/codegen/functions/context.yo` → no match; line 210 shows only `in_async_state_machine : Option(InAsyncStateMachine),`. `grep -r 'pre_register_effectful\|preregister_effectful' yo-self` → no match.
 
 ### `yo-self/evaluator/calls/closure_type.yo:250` — partial _(evaluator-calls)_
 
@@ -552,6 +684,198 @@ yo-self/types/\*\* is far more complete than its \"Phase 2\" comments suggest �
 ---
 
 # MEDIUM
+
+### `yo-self/codegen/codegen_c.yo:273` — no-op _(codegen-core)_
+
+**yo-self:** compile_module goes generate_function_declarations → register_impl_closure_call_mappings → generate_all_functions. The preRegisterEffectfulFunctions stage between declarations and bodies is not ported anywhere in yo-self (grep for preregister_effectful / pre_register_effectful returns only the stale mention in the codegen_c.yo header comment).
+
+**TS:** src/codegen/codegen-c.ts:228 `preRegisterEffectfulFunctions(context);`, implemented at src/codegen/functions/generation.ts:1109. Its doc: "This must run BEFORE any function bodies are generated, so that call sites can find the effectStateMachineInfo when generating calls to effectful functions." It creates SM structs + forward declarations for every effectful function across both the regular and specialized function sets.
+
+**Evidence:** codegen_c.yo:184 lists `preRegisterAsyncBlockTypes / preRegisterEffectfulFunctions` as DEFERRED; preRegisterAsyncBlockTypes has since been ported (codegen_c.yo:271) but preRegisterEffectfulFunctions has not.
+
+### `yo-self/codegen/codegen_c.yo:286` — no-op _(codegen-core)_
+
+**yo-self:** compile_module ends at generate_deferred_async_blocks → module vars → main wrapper → emit_dispose_dispatch. The two specialized-function stages are never called and no yo-self equivalent exists.
+
+**TS:** src/codegen/codegen-c.ts:269-272 — `generateSpecializedFunctionDeclarations(context); generateSpecializedFunctions(context);` (declarations.ts:753, generation.ts:1852), a fifth and sixth pass that emit declarations and bodies for specializations collected during body generation.
+
+**Evidence:** codegen_c.yo:186 `generateSpecialized* (Gap 2)` listed as DEFERRED; generation.yo:554-559 documents the re-read-len workaround that stands in for it.
+
+### `yo-self/codegen/codegen_c.yo:295` — partial _(codegen-core)_
+
+**yo-self:** `if(!(is_library), { generate_main_wrapper(ctx, module_vars); });` — in library mode nothing is emitted. emit_module_level_variable_declarations has already emitted the `static <T> <name>;` declarations, but nothing ever assigns their initializer RHS.
+
+**TS:** src/codegen/codegen-c.ts:256-261 — `if (!options.isLibrary) { generateMainWrapper(context); } else { generateLibraryInitFunction(context, moduleLevelVars); }`, implemented at src/codegen/functions/generation.ts:839.
+
+**Evidence:** codegen_c.yo:186 lists `generateLibraryInitFunction` as DEFERRED; codegen_c.yo:290-297 emits the declarations unconditionally but the init only via generate_main_wrapper.
+
+### `yo-self/codegen/functions/collection.yo:1021` — partial _(codegen-core)_
+
+**yo-self:** collect_trace_methods_from_generic_impls calls find_methods_from_generic_impls(ct, "trace", module_env) and then processes ONLY `candidates.get(usize(0))` — the first candidate.
+
+**TS:** src/codegen/functions/collection.ts:724-746 — `for (const method of methods) { ... }`: TS iterates EVERY method returned by findMethodsFromGenericImpls, registering and recursing into each. The sibling collectDisposeMethodsFromGenericImpls (collection.ts:669-698) does the same.
+
+**Evidence:** collection.yo:1021-1033 `if(candidates.len() > usize(0), { match(candidates.get(usize(0)), .Some(cand) => ... ) })` — no loop over candidates.
+
+### `yo-self/codegen/functions/collection.yo:229` — partial _(codegen-core)_
+
+**yo-self:** collect_effect_record_members registers the effect-record fn field and recurses its body, then stops. The loop over the field's specialized function caches is absent.
+
+**TS:** src/codegen/functions/collection.ts:232-247 — after registering the field, TS iterates `fieldValue.specializedFunctionCaches`, marks each `specialized.isEffectRecordMember = true`, registers it, and recurses into its body. TS's own comment: "Also collect specialized versions (e.g., forall throw handlers specialized for concrete ResumeTypes ...). Without this, the codegen emits a call to the specialized name but never defines it."
+
+**Evidence:** collection.yo:229 `// specializedFunctionCaches: deferred (Phase 3).` inside the fn-field branch.
+
+### `yo-self/codegen/functions/collection.yo:784` — partial _(codegen-core)_
+
+**yo-self:** The dyn-impl registration inside find_function_calls_in_expr builds its key with `type_key(concrete)` / `type_key(ei.ty)`, which structurally walks the type. The code comments that this can loop forever on a self-referential dyn trait and is only safe because the current corpus's Dyn types are acyclic.
+
+**TS:** src/codegen/functions/collection.ts:352 — `const implKey = \`${concreteType.id}_${dynType.id}\`;` uses opaque numeric type ids, which cannot recurse regardless of type cyclicity.
+
+**Evidence:** collection.yo:784-786 `NOTE: type_key on a cyclic dyn (Dyn(Error)) could loop — the corpus's Dyn(Speak) is acyclic so this is corpus-safe; a cycle-safe key is future work for compiling std's self-referential traits.`
+
+### `yo-self/codegen/functions/declarations.yo:186` — partial _(codegen-core)_
+
+**yo-self:** generate_function_prototype's non-function-parameter branch does `pts := get_type_string(pt, context)` for every parameter, with no special case for SomeType parameters that implement Future.
+
+**TS:** src/codegen/functions/declarations.ts:411-425 — `if (isSomeType(param.type) && typeImplementsFuture(param.type)) { if (param.type.resolvedConcreteType) { paramTypeStr = getTypeString(param.type.resolvedConcreteType, context) + "*"; } else { paramTypeStr = getTypeString(param.type, context); } }`
+
+**Evidence:** declarations.yo:125-126 `the SomeType-Future resolvedConcreteType param branch is omitted (Gap 6)`.
+
+### `yo-self/codegen/functions/declarations.yo:462` — partial _(codegen-core)_
+
+**yo-self:** should_skip_function_codegen is a single merged predicate shared by the prototype loop and the body loop. It omits two skips TS applies: (a) `value.specializedFunctionCaches?.length > 0 && !value.type.isClosure` (skip the unspecialized BASE when specializations exist), and (b) `value.specializedType && !isSpecializedImplMethod`. It adds one skip TS does not have: skip_comptime_result (:506).
+
+**TS:** src/codegen/functions/declarations.ts:151-171 (base-skip with the hasRegisteredReplacement carve-out), declarations.ts:192-193, and src/codegen/functions/generation.ts:699-703 `(value.specializedFunctionCaches?.length > 0 && !value.type.isClosure) || (value.specializedType && !isSpecializedImplMethod)`.
+
+**Evidence:** declarations.yo:660-663 `DEFERRED (documented, Gap 2 — yo-self FuncVal/Func model lacks these fields): the specialization skips (specializedFunctionCaches / specializedType / isConcreteSpecialization) ... all evaluate to false here.`
+
+### `yo-self/codegen/functions/declarations.yo:488` — partial _(codegen-core)_
+
+**yo-self:** skip_unemittable = `!is_user_main && ((!is_erm && is_function_type_hard_generic(function_type)) || _func_has_expr_param(function_type))`. The hard-generic half is applied with only the effect-record-member exemption and the is_closure_fn early-return at :512.
+
+**TS:** src/codegen/functions/generation.ts:667-685 gates the same hard-generic skip with FOUR extra conditions: `!value.specializedType && (value.specializedFunctionCaches?.length ?? 0) === 0 && !value.type.isClosure && (!value.isEffectRecordMember || hasComptimeParams)`. src/codegen/functions/declarations.ts:186-196 gates its copy with `!isEffectfulFunction && !hasEvidenceParams && !value.isEffectRecordMember && !isConcreteSpecialization`.
+
+**Evidence:** declarations.yo:457-461 documents only three skip classes; the code at :488 has no specializedType/caches guard, and the ERM exemption is unconditional (TS's is `!isEffectRecordMember || hasComptimeParams`).
+
+### `yo-self/codegen/functions/declarations.yo:649` — no-op _(codegen-core)_
+
+**yo-self:** generate_capture_dispose_function_declarations has a body of `()`. Its doc says the driving closure_capture_map is not modelled on yo-self's context. The paired body emitter generateClosureDisposeFunctions is not ported at all (no yo-self symbol exists).
+
+**TS:** src/codegen/functions/declarations.ts:723-740 emits `static void __yo_dispose_closure_${closureInstanceId}(void* closure_ptr);` for every closureCaptureMap entry; src/codegen/functions/generation.ts:3304 generateClosureDisposeFunctions emits the bodies (cast closure → cast data to capture type → call the capture's drop → free). Called from src/codegen/codegen-c.ts:265.
+
+**Evidence:** declarations.yo:645-651 `DEFERRED: driven by closureCaptureMap, which yo-self's context does not model yet (Phase 5 closure support) — the map is empty for the corpus, so this emits nothing.` Confirmed absent from utils/index.yo's CodeGenContext field list.
+
+### `yo-self/codegen/utils/fixup.yo:41` — partial _(codegen-core)_
+
+**yo-self:** fixup*dyn_impl_keys computes `concrete_key := type_key(impl_entry.concrete_type)` directly from the stored concrete type, with no SomeType resolution step, then falls back to extract_fn_trait_from_type and finally to the literal `unknown*${concrete_key}`.
+
+**TS:** src/codegen/utils/fixup.ts:26-30 — TS first does `const resolvedConcreteType = isSomeType(impl.concreteType) && impl.concreteType.resolvedConcreteType ? impl.concreteType.resolvedConcreteType : impl.concreteType;` and looks the C name up on THAT.
+
+**Evidence:** utils/fixup.yo:5-7 `yo-self's DynT carries no .id and no resolvedConcreteType, so the key components use type_key(...) directly (the registry key) and the concrete type is used as-is (no SomeType-resolve step).`
+
+### `yo-self/codegen/utils/index.yo:768` — intentional-divergence _(codegen-core)_
+
+**yo-self:** get_type_string has no global extern early-return. The only extern handling is inside the SomeT arm (`is_extern_type_name(snm)` at :930).
+
+**TS:** src/codegen/utils/index.ts:433-436 — the FIRST thing getTypeString does after the undefined check: `if (type.isExtern && type.externName) { return type.externName; }`, applying to every tag (structs, enums, unions, pointers).
+
+**Evidence:** utils/index.yo:768-770 `DIVERGENCE: TS's \`type.isExtern && type.externName\` early return is omitted (Gap 3 — yo-self models is_extern only on Func; extern-C struct types are a later-phase concern).`
+
+### `yo-self/codegen/utils/index.yo:919` — partial _(codegen-core)_
+
+**yo-self:** get_type_string's SomeT arm resolves in the order: per-object resolved_concrete (or the id-keyed global) → recur WITHOUT appending `*`; else extern name; else context.get_type_c_name(type_key(t)) verbatim; else `__yo_io_future_t*` if the SomeT requires Future, else `void*`. Future-ness is never checked FIRST and no `*` is ever appended by this arm.
+
+**TS:** src/codegen/utils/index.ts:620-745 — TS branches on `typeImplementsFuture(someType)` FIRST, and inside it the order is: resolvedConcreteType.isExtern → `${externTypeName}*`; then `context.types[someType.id]?.cName` → `${cName}*`; then resolvedConcreteType-as-SomeType → `${innerCName}*`; then resolvedConcreteType-as-struct → scan context.types for the SM whose capture struct matches → `${cName}*`; then extractFutureTraitFromType → `${cName}*`; else THROW. Only after that does it fall through to typeImplementsFn / plain resolvedConcreteType.
+
+**Evidence:** utils/index.yo:919-952; the fallback comment at :940 explicitly cites `Mirrors TS getTypeString case 3 (utils/index.ts:615)` while implementing only that one case of the five-case ladder.
+
+### `yo-self/codegen/utils/index.yo:976` — intentional-divergence _(codegen-core)_
+
+**yo-self:** get_type_string's FnTraitT and FutureTraitT arms call \_\_yo_panic with a phase marker instead of producing a type string.
+
+**TS:** src/codegen/utils/index.ts:426-812 — the getTypeString switch has NO case for the FnTrait or FutureTrait tags (verified by enumerating every `case TypeTag.` in the function). They fall out of the switch to the tail `return \`// Unknown type: ${typeToString(type)}\`;` at index.ts:812.
+
+**Evidence:** utils/index.yo:976-977 `.FnTraitT({}) => __yo_panic("get_type_string: Fn-trait lowering is Phase 3/5 — not yet ported"), .FutureTraitT({}) => __yo_panic("get_type_string: Future-trait lowering is Phase 5 — not yet ported")`
+
+### `yo-self/codegen/codegen_c.yo:216-222 (compile_module)` — partial _(codegen-exprs)_
+
+**yo-self:** `compile_module` collects functions only from the module exports (`collect_required_functions`) — it never walks the module-level mutable-variable initialiser expressions to collect the functions they call.
+
+**TS:** src/codegen/codegen-c.ts:120-126 — `if (context.moduleLevelInitExprs) { for (const initExpr of context.moduleLevelInitExprs) findFunctionCallsInExpr(initExpr, context); }`, run right after `collectRequiredFunctions`.
+
+**Evidence:** codegen_c.yo:181-182 header — "DEFERRED (documented, gated dead for the corpus): module-level mutable-var init collection + emission (no field)". `register_find_function_calls_in_expr()` is wired at line 190 but the init-expr loop TS runs is absent from the pipeline.
+
+### `yo-self/codegen/codegen_c.yo:280-300` — partial _(codegen-exprs)_
+
+**yo-self:** `compile_module` omits three TS pipeline stages entirely: `generateSpecializedFunctionDeclarations`, `generateSpecializedFunctions`, and (library mode) `generateLibraryInitFunction`.
+
+**TS:** src/codegen/codegen-c.ts:260 `generateLibraryInitFunction(context, moduleLevelVars)` (emits `__yo_module_init()` so a library initialises its module-level vars), 268 and 271 (the fifth/sixth passes that declare and emit specialized function bodies collected during body generation).
+
+**Evidence:** codegen_c.yo:186 header lists "generateSpecialized\* (Gap 2), generateLibraryInitFunction" as deferred; the `if(!(is_library), { generate_main_wrapper(...) });` at 295-297 has no `else` branch.
+
+### `yo-self/codegen/exprs/assignment.yo:100-118` — partial _(codegen-exprs)_
+
+**yo-self:** When the assignment is inside an async state machine and the LHS lowers to an `sm->` field, yo-self emits NOTHING for the save-old-value step (`if(!(in_sm), …)`), yet still returns `ei.variable_name` as the expression result.
+
+**TS:** src/codegen/exprs/assignment.ts:106-141 — in the SM case TS looks the temp up in `stateMachineVariables` (by key, then by name) and emits `sm->var_<id> = <lhsCode>; // Save old value for deferred drop`; if no field is found it sets `skippedTempVar = true` and returns `""` instead of the variable name.
+
+**Evidence:** assignment.yo:104-115: `in_sm := match(context.in_async_state_machine,.Some(_) => lhs_code.starts_with("sm->"),.None => false); if(!(in_sm), if(!(is_unit_type(lhs_type)), { …emit save… }));` — the `in_sm` arm is empty.
+
+### `yo-self/codegen/exprs/closures.yo:147-185` — partial _(codegen-exprs)_
+
+**yo-self:** The capture-struct literal iterates the Struct's `field_labels` and initialises every field from a deferred `___dup` (matched by target name) or else `get_variable_name_for_codegen(label, env)`. There is no `is_effect_param` check, and no use of the field's own source expression / atom token as a dup-lookup candidate.
+
+**TS:** src/codegen/exprs/closures.ts:132-171 — `allocateClosureCapture` returns `NULL` immediately for `field.isEffectParam` ("zero-initialized at closure construction time … populated at io.spawn/io.await time"), then tries `field.exprs.expr.$.deferredDupExpressions[0]`, then a name lookup over BOTH `field.label` and the field expr's atom token, and finally re-emits the field expr as an atom.
+
+**Evidence:** closures.yo:147-185 loop over `field_labels` only; `grep 'is_effect_param' yo-self/codegen` → no match.
+
+### `yo-self/codegen/exprs/comptime_value.yo:183-198` — intentional-divergence _(codegen-exprs)_
+
+**yo-self:** `FloatLit(raw)` emits the stored raw text directly (with `.0`/`f` fixups). yo-self's CTFE produces that text via `f64.to_string()`, which is `snprintf("%g")` — 6 significant digits.
+
+**TS:** src/codegen/exprs/comptime-value.ts:49-59 uses JS `value.value.toString()`, which round-trips a double exactly, then appends `.0` when there is no radix point.
+
+**Evidence:** comptime_value.yo:185-187 — "yo-self float raws come from f64 `.to_string()` (C `%g`), which renders large magnitudes in exponent form (`1e+09`) — unlike TS's JS `Number.toString()` (`1000000000`)." std/fmt/to_string.yo:151 confirms `snprintf(..., "%g", self)`.
+
+### `yo-self/codegen/exprs/generation.yo:445` — partial _(codegen-exprs)_
+
+**yo-self:** The SomeType-implementing-Future `___drop`/`___dup` method-call fast path is omitted (a bare comment marks the spot); such calls fall through to `generate_other_function_call`.
+
+**TS:** src/codegen/exprs/generation.ts:493-523 — when the callee is `recv.___drop` / `recv.___dup` and `isSomeType(receiverType) && typeImplementsFuture(receiverType)`, TS short-circuits to `if (recv != NULL) { __yo_decr_rc((void*)recv); }` / `__yo_incr_rc((void*)recv)`, explicitly because those wrapper functions were never collected.
+
+**Evidence:** `// (SomeType-Future ___drop/___dup fast path — Phase 5, omitted.)`
+
+### `yo-self/codegen/exprs/other_fn_call.yo:1615` — partial _(codegen-exprs)_
+
+**yo-self:** The call-result temp's C type is `get_type_string(result_type, context.base)` with no `*` suffix when the callee's `result_is_ref` (a `-> inout(T)` / `-> ref(T)` function whose C signature returns `T*`), and no Future/state-machine struct-name resolution.
+
+**TS:** src/codegen/exprs/other-fn-call.ts:1468-1473 appends `*` when `functionValueType.return.isRef && !cTypeString.endsWith("*")`; 1408-1454 resolves an `Impl(Future)` return to the async block's `asyncStateMachineStructName*` and records it in `context.tempVarAsyncStructNames` for the later binding.
+
+**Evidence:** other_fn_call.yo:1615 `c_type := get_type_string(result_type, context.base);` — `grep -n 'result_is_ref' other_fn_call.yo` matches only line 1322 (constructing a Func with `result_is_ref : false`). `grep -r 'temp_var_async_struct_names' yo-self/codegen` → no match.
+
+### `yo-self/codegen/exprs/other_fn_call.yo:281 and 311` — no-op _(codegen-exprs)_
+
+**yo-self:** `_emit_borrow_acquires` and `_emit_borrow_releases` are fully implemented (they emit `__yo_borrow_acquire((void*)(...))` / `__yo_borrow_release(...)`) but are never called from any emission path — only re-exported at line 1803. No call site brackets a call with borrow flags.
+
+**TS:** src/codegen/exprs/other-fn-call.ts:1351, 1476, 2179 — `emitBorrowAcquires` is called before the call emission and `emitBorrowReleases` after it, at three sites (unit-return call, temp-return call, closure call).
+
+**Evidence:** `grep -n '_emit_borrow_acquires(\|_emit_borrow_releases(' other_fn_call.yo` returns nothing but the definitions and the export line.
+
+### `yo-self/codegen/exprs/parallelism.yo:136` — partial _(codegen-exprs)_
+
+**yo-self:** The spawn wrapper drops the heap-copied capture struct without first NULLing the capture fields the closure consumed via `own(self)`.
+
+**TS:** src/codegen/exprs/parallelism.ts:89-99 — for each name in `closureInfo.consumedCaptures` whose field `typeContainsRcType`, TS emits `((<captureCName>*)closure)-><field> = NULL;` before the drop, "to prevent double-free when a closure consumes a captured variable via own(self)".
+
+**Evidence:** parallelism.yo:136 `// (consumed-capture NULLing omitted — see module doc.)`; `consumed_captures : Option(ArrayList(String)).None` is hardcoded at closures.yo:210, 241, 286 so the data is never available.
+
+### `yo-self/codegen/utils/index.yo:976-977` — deferred-todo _(codegen-exprs)_
+
+**yo-self:** `get_type_string` panics on `.FnTraitT` ("Fn-trait lowering is Phase 3/5 — not yet ported") and `.FutureTraitT` ("Future-trait lowering is Phase 5 — not yet ported"). The final catch-all at 979-983 returns the string `"// Unknown type: …"` as a C TYPE.
+
+**TS:** src/codegen/utils/index.ts getTypeString handles both tags structurally (the Future case at 621-660 resolves through `resolvedConcreteType`/registered cName/`__yo_io_future_t*`); the TS fallback at 811 also returns `// Unknown type: …` but is reached far less often because the tag cases above it are complete.
+
+**Evidence:** `.FnTraitT({}) => __yo_panic("get_type_string: Fn-trait lowering is Phase 3/5 — not yet ported"), .FutureTraitT({}) => __yo_panic("get_type_string: Future-trait lowering is Phase 5 — not yet ported"),`
 
 ### `yo-self/evaluator/calls/array_type.yo:68` — partial _(evaluator-calls)_
 
@@ -1589,6 +1913,62 @@ yo-self/types/\*\* is far more complete than its \"Phase 2\" comments suggest �
 
 # LOW
 
+### `yo-self/codegen/functions/declarations.yo:694` — partial _(codegen-core)_
+
+**yo-self:** generate_function_declarations skips the async-runtime forward-declaration block entirely, because uses_async lives on FunctionGenerationContext while this function only receives the base CodeGenContext.
+
+**TS:** src/codegen/functions/declarations.ts:90-97 — `if (context.usesAsync) { emitDeclarationLine('/// Async runtime functions'); emitDeclarationLine('static void __yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine);'); }`
+
+**Evidence:** declarations.yo:694-695 `// Async runtime forward declarations are gated on uses_async (deferred — corpus is synchronous; the flag lives on FunctionGenerationContext, not the base).`
+
+### `yo-self/codegen/functions/generation.yo:541` — hardcoded _(codegen-core)_
+
+**yo-self:** `generate_async_runtime(context.base.emitter, context.base.target_info, false, opts);` — the debug-async-await argument is hardcoded to `false` even though `context.base.debug_async_await` is populated from compile_module's parameter (codegen_c.yo:199).
+
+**TS:** src/codegen/functions/generation.ts:447-450 — `generateAsyncRuntime(context.emitter, context.targetInfo, context.debugAsyncAwait, { ... })` threads the real flag.
+
+**Evidence:** generation.yo:541 literal `false`; async/runtime.yo:25 `_debug_async_await : bool,` never referenced in the body.
+
+### `yo-self/codegen/functions/generation.yo:714` — partial _(codegen-core)_
+
+**yo-self:** generate_main_wrapper locates \_\_yo_user_main and proceeds; it never validates that main's return type is unit.
+
+**TS:** src/codegen/functions/generation.ts:877-885 — `if (!returnsUnit) { throw new Error(\`main function must return unit, but it returns ${typeToString(returnType)} ... For exit codes, use 'exit(code)' from std/libc/stdlib.yo\`); }`
+
+**Evidence:** generation.yo:714-747 goes straight from the \_\_yo_user_main lookup to `if(!(found), { return(); }); main_call_args := ...` with no return-type check.
+
+### `yo-self/codegen/async/runtime.yo:41 and yo-self/codegen/async/runtime_io_common.yo:42` — deferred-todo _(codegen-exprs)_
+
+**yo-self:** The WASM async-I/O runtime generator is unported; both entry points `__yo_panic("… WASM … is a Phase-5 follow-up (deferred)")`.
+
+**TS:** src/codegen/async/runtime.ts and runtime-io-common.ts dispatch to a WASM branch that emits the WASM I/O runtime C.
+
+**Evidence:** runtime.yo:8-9 header — "the WASM backend is deferred (its I/O generator is not yet ported), so that branch panics."
+
+### `yo-self/codegen/exprs/atom.yo (tail, 690-736) — compare src/codegen/exprs/atom.ts:548-573` — partial _(codegen-exprs)_
+
+**yo-self:** The `currentFunctionEntry.value.type.isClosure` fallback (used when `currentClosureCaptures` is unset) is absent; yo-self falls straight through to `_var_read_code`.
+
+**TS:** src/codegen/exprs/atom.ts:549-573 — finds the current function entry by cName, and if its type `isClosure`, emits `((<closureCName>_capture*)closure_context->data)-><name>`.
+
+**Evidence:** atom.yo:14-15 header — "The `value.type.isClosure` fallback closure-detection (Gap 2: FuncVal carries no TypeValue) is omitted."
+
+### `yo-self/codegen/exprs/comptime_value.yo:82-101` — partial _(codegen-exprs)_
+
+**yo-self:** `_c_string_literal` escapes only `"`, `\`, `\n`, `\t`, `\r`; every other byte is emitted raw, including control bytes 0x00-0x08, 0x0b, 0x0c, 0x0e-0x1f and 0x7f.
+
+**TS:** src/codegen/exprs/comptime-value.ts:79, 91, 96 use `JSON.stringify(value.value)`, which escapes the full C0 control range as `\u00XX`.
+
+**Evidence:** The cond chain in `_c_string_literal` has exactly five escape arms and `true => out.push_byte(b)`.
+
+### `yo-self/codegen/exprs/generation.yo (no branch) — compare src/codegen/exprs/generation.ts:669-671` — partial _(codegen-exprs)_
+
+**yo-self:** There is no dispatch branch for `__yo_thread_set_maximum_threads`; the call falls through to `generate_other_function_call`.
+
+**TS:** src/codegen/exprs/generation.ts:669-671 routes it to `generateYoThreadSetMaximumThreads` (src/codegen/exprs/parallelism.ts:307-318), which emits `__yo_thread_set_maximum_threads(<numCode>)`.
+
+**Evidence:** generation.yo:12 header — "…thread_set_maximum_threads (Phase 5 parallelism)" in the DEFERRED list; `grep 'thread_set_maximum' yo-self` matches only the emitted C runtime text in async/runtime_core.yo:250.
+
 ### `yo-self/evaluator/calls/helper.yo:251` — partial _(evaluator-calls)_
 
 **yo-self:** generate_deferred_drop_expressions evaluates each `___drop(name)` with the caller's context unchanged (expected_type not cleared) and never threads the resulting env forward — `cur_env` is explicitly left unchanged across iterations.
@@ -1816,6 +2196,62 @@ yo-self/types/\*\* is far more complete than its \"Phase 2\" comments suggest �
 ---
 
 # NONE-OBSERVABLE
+
+### `yo-self/codegen/functions/constructors.yo:618` — intentional-divergence _(codegen-core)_
+
+**yo-self:** generate_closure_constructor_functions has a body of `()`. Likewise generate_closure_constructor_declarations (declarations.yo:642) and generate_closure_vtable_declarations (declarations.yo:654).
+
+**TS:** src/codegen/functions/generation.ts:3284-3290 `// No-op: Impl(Fn(...)) closures use concrete capture structs + direct calls. Dyn(Fn(...)) uses dyn constructors (generated elsewhere). void context;`; src/codegen/functions/declarations.ts:712-718 identical; declarations.ts:743-748 `// No static vtable instances - closures will create vtables dynamically`.
+
+**Evidence:** constructors.yo:618-621 `No-op: Impl(Fn(...)) closures use concrete capture structs + direct calls, ... Faithful port of the TS no-op.`
+
+### `yo-self/codegen/functions/declarations.yo:111` — intentional-divergence _(codegen-core)_
+
+**yo-self:** get_evidence_parameters returns an empty ArrayList unconditionally; collect_evidence_from_record (:60) is fully implemented but never reached. This makes has_evidence in should_skip_function_codegen (:476) always false and adds no evidence params in generate_function_prototype.
+
+**TS:** src/codegen/functions/declarations.ts:301-329 — getEvidenceParameters is likewise a no-op in TS: it iterates `expandImplicitParameters([] as FunctionParameter[])`, and expandImplicitParameters (declarations.ts:371-375) is `implicits.slice()` over a hardcoded empty array. Verified faithful.
+
+**Evidence:** declarations.yo:104-110 `DIVERGENCE: TS hardcodes expandImplicitParameters([]) (the implicit-param expansion is currently a no-op ...), so this yields no evidence parameters.`
+
+### `yo-self/codegen/functions/dyn.yo:160` — intentional-divergence _(codegen-core)_
+
+**yo-self:** The dyn box constructor emits `box->header.traverse_fn = NULL; // TODO: Set if value contains GC types` on the needs_cycle_gc path.
+
+**TS:** src/codegen/functions/dyn.ts:122-126 — byte-identical: `if (context.needsCycleGC) { emitter.emitLine(\` box->header.traverse_fn = NULL; // TODO: Set if value contains GC types\`); }`
+
+**Evidence:** dyn.yo:160 matches src/codegen/functions/dyn.ts:124 character for character.
+
+### `yo-self/codegen/utils/index.yo:13` — deferred-todo _(codegen-core)_
+
+**yo-self:** The module header lists `isComptimeFunction` as DEFERRED ("yo-self FuncVal does not store the function's TypeValue; the return-comptime flag is reached via a func_id side-table (Gap 2)"), and codegen_c.yo:181-186 lists fixupDynImplKeys, generateDynBox\*, preRegisterAsyncBlockTypes, generateDeferredAsyncBlocks and module-level-var emission as DEFERRED.
+
+**TS:** src/codegen/utils/index.ts:852-854 `isComptimeFunction(fv) { return fv.type.return.isCompileTimeOnly; }` — exactly what yo-self's \_func_result_is_comptime_only (declarations.yo:373) computes. And codegen_c.yo:256/257/271/289/293 now DO call fixup_dyn_impl_keys, generate_dyn_box_types, preregister_async_block_types, generate_deferred_async_blocks and emit_module_level_variable_declarations.
+
+**Evidence:** utils/index.yo:13-15 vs declarations.yo:373-375; codegen_c.yo:181-186 vs the actual call sequence at codegen_c.yo:256-293.
+
+### `yo-self/codegen/exprs/parallelism.yo:117-134 (_generate_spawn_wrapper)` — intentional-divergence _(codegen-exprs)_
+
+**yo-self:** The wrapper's call to the closure passes only the runtime-param zero-inits; the `, NULL` evidence arguments TS appends are omitted, and the drop is not gated on `isStructType(captureType)`.
+
+**TS:** src/codegen/exprs/parallelism.ts:40-47 builds `nullArgs` from `getEvidenceParameters(closureInfo.callType)`; 81-101 gates the drop on `isStructType(captureType)`.
+
+**Evidence:** declarations.yo:104-110 — "DIVERGENCE: TS hardcodes `expandImplicitParameters([])` (the implicit-param expansion is currently a no-op…), so this yields no evidence parameters." Verified against declarations.ts:305.
+
+### `yo-self/codegen/exprs/return.yo:535 and yo-self/codegen/exprs/generation.yo (generate_unwind, nested-escape branch)` — intentional-divergence _(codegen-exprs)_
+
+**yo-self:** The ctl-handler resume machinery is unported: `generate_return` has no `continuation_variables` lookup and `generate_unwind` has no `hasDirectExit` branch (assign the outer handler's result var + `goto` its exit label).
+
+**TS:** src/codegen/exprs/return.ts:489-529 and src/codegen/exprs/generation.ts:210-242 read `functionContext.continuationVariables.get("resume")` and emit `resumeInfo.directReturnVar = …; goto resumeInfo.directExitLabel;`.
+
+**Evidence:** return.yo:535 `// (ctl-handler resume is Phase 5: FGC has no continuation_variables — omitted.)`; `grep -rn 'continuationVariables' src/` returns only context.ts:62 plus the two read sites.
+
+### `yo-self/codegen/functions/declarations.yo:649-651 (and the absent generate_closure_dispose_functions)` — intentional-divergence _(codegen-exprs)_
+
+**yo-self:** `generate_capture_dispose_function_declarations` has body `()`, and `compile_module` never calls a `generate_closure_dispose_functions` equivalent.
+
+**TS:** src/codegen/functions/declarations.ts:729-736 and src/codegen/functions/generation.ts:3304-3380 both iterate `context.closureCaptureMap` to emit `__yo_dispose_closure_<id>` declarations and bodies; codegen-c.ts:265 calls the latter.
+
+**Evidence:** declarations.yo:645-651 — "DEFERRED: driven by closureCaptureMap, which yo-self's context does not model yet … the map is empty for the corpus, so this emits nothing." Verified: `grep -rn 'closureCaptureMap' src/` shows construction + 3 reads, no writes.
 
 ### `yo-self/evaluator/calls/function.yo:2256` — intentional-divergence _(evaluator-calls)_
 
