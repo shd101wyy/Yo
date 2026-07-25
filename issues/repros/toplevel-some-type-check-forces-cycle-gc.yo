@@ -90,6 +90,14 @@
 //! the skipped generics; yo-self does not yet. So the collection guard is a
 //! CONSEQUENCE of incomplete monomorphization, not the root — fix the
 //! specialization gap first, then this guard can be tightened to match TS.
+//!
+//! SECOND ATTEMPT, ALSO REVERTED: narrowing to the MAIN guard only (leaving the
+//! two `_*_some_type_is_only_in_function_fields` exception helpers shallow) is
+//! WORSE, not better — imm_list still SIGABRTs AND sync/channel no longer
+//! flips. So the main guard is the breaker (not the exception helpers, as first
+//! guessed), and the exception helpers are what channel needed. Both
+//! combinations break imm_list, which reinforces that the collection guard
+//! cannot be tightened until monomorphization is complete.
 open(import("std/fmt"));
 { Mutex } :: import("std/sync/mutex");
 
