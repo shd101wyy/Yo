@@ -19,7 +19,7 @@ The codegen-core area (codegen_c.yo, constants.yo, utils/**, functions/**) is a 
 
 ### codegen-exprs
 
-The `codegen/exprs` + `parallelism` + `shared`/`c`/`utils`/`codegen_c` area is much further along than its module headers claim — several headers are demonstrably STALE (atom.yo:12 says the `inout` deref is omitted but `_var_read_code` implements it; recur.yo:4 says the ref-strip is deferred but it is ported; downcast.yo:11 says `is_boxed_type` is hardcoded false but it is a real predicate; other*fn_call.yo:6-10 says the call dispatcher is a TODO stub but it is ~1800 lines and live; init_assignment.yo:15 and return.yo:12 both call live code \"gated dead\"), so the headers cannot be trusted as an inventory and every claim here was verified against the code. Faithful, semantically-equivalent adaptations are common and I have called them out as such (the empty `get_evidence_parameters`, the dead `continuationVariables`/`closureCaptureMap` branches, `random_id` for TS counters, SM c_names registered with the `*` already attached). The single worst gap is that the async/effect state-machine WRITE side is missing while the READ side is ported: `other_fn_call.yo`'s `_store_temp_var_to_state_machine_if_needed` is a `()` no-op that is not even called (TS calls its counterpart at ~18 sites), `match.yo` never writes destructured arm variables into `sm->var*<id>`(TS does at 4 sites), and`assignment.yo`skips the SM save-old-value entirely — so inside an async block, atom.yo faithfully resolves reads to`sm->var\_<id>`fields that nothing ever wrote, yielding zero-initialised values and NULL/garbage deferred drops after every suspension. Close behind it are three silent-miscompile holes with no diagnostic at all:`asm`/`global_asm`emit a comment instead of the assembly (tests/asm.test.yo exercises this),`begin.yo` assigns its final expression to the block temp with no deferred-`\_\_\_dup`rewrite (RC undercount → UAF, and`begin`is everywhere), and`downcast.yo`omits the`wasBoxed`extraction while`dyn.yo`genuinely boxes value types (type confusion on`dyn.data`). The effect subsystem is the largest wholly-unported region: no `in_effect_state_machine`context field and no`pre_register_effectful_functions` stage.
+The `codegen/exprs` + `parallelism` + `shared`/`c`/`utils`/`codegen_c` area is much further along than its module headers claim — several headers are demonstrably STALE (atom.yo:12 says the `inout` deref is omitted but `_var_read_code` implements it; recur.yo:4 says the ref-strip is deferred but it is ported; downcast.yo:11 says `is_boxed_type` is hardcoded false but it is a real predicate; other*fn_call.yo:6-10 says the call dispatcher is a TODO stub but it is ~1800 lines and live; init_assignment.yo:15 and return.yo:12 both call live code \"gated dead\"), so the headers cannot be trusted as an inventory and every claim here was verified against the code. Faithful, semantically-equivalent adaptations are common and I have called them out as such (the empty `get_evidence_parameters`, the dead `continuationVariables`/`closureCaptureMap` branches, `random_id` for TS counters, SM c_names registered with the `*`already attached). The single worst gap is that the async/effect state-machine WRITE side is missing while the READ side is ported:`other_fn_call.yo`'s `\_store_temp_var_to_state_machine_if_needed`is a`()`no-op that is not even called (TS calls its counterpart at ~18 sites),`match.yo`never writes destructured arm variables into`sm->var\*<id>`(TS does at 4 sites), and`assignment.yo`skips the SM save-old-value entirely — so inside an async block, atom.yo faithfully resolves reads to`sm->var\_<id>`fields that nothing ever wrote, yielding zero-initialised values and NULL/garbage deferred drops after every suspension. Close behind it are three silent-miscompile holes with no diagnostic at all:`asm`/`global_asm`emit a comment instead of the assembly (tests/asm.test.yo exercises this),`begin.yo` assigns its final expression to the block temp with no deferred-`\_\_\_dup`rewrite (RC undercount → UAF, and`begin`is everywhere), and`downcast.yo`omits the`wasBoxed`extraction while`dyn.yo`genuinely boxes value types (type confusion on`dyn.data`). The effect subsystem is the largest wholly-unported region: no `in_effect_state_machine`context field and no`pre_register_effectful_functions` stage.
 
 ### evaluator-calls
 
@@ -31,7 +31,7 @@ The top-level `evaluator/*.yo` files are structurally near-complete ports — `m
 
 ### evaluator-exprs
 
-yo-self/evaluator/exprs is a broadly faithful port at the control-flow/dispatch level (atom dispatch, `->`/`=>` forms, builtin routing, match exhaustiveness, cond, destructuring, test, typeof, unwind, subtype_of all track their TS counterparts closely, and several files are LARGER than TS), but the ownership/RC, FFI-metadata, and comptime-mutation layers have real holes, and — importantly — several module headers are STALE in both directions: `begin.yo` lines 5-11, `assignment.yo` 10-14 and `initialization_assignment.yo` 11-16 all advertise stubs (`type_contains_rc_type = false`, `clone_value`, `attach_temp_variable_to_expr`, `generate_deferred_drop_expressions`) that have since been fully implemented, so the headers cannot be trusted as a stub index. The single worst gap is that the evaluator drops _all_ C-header provenance: `c_include.yo` computes `c_header_file` (line 141) purely to validate it and then never attaches it to any field type or registry, where TS `c-include.ts:141/145/162` stamps `cInclude` onto every field type — yo-self's codegen `collect_c_includes` therefore reads `c_include` slots that `codegen/functions/collection.yo:674` always registers as `.None`, so no `#include <header>` is ever emitted for c_include'd FFI symbols. Close behind: `while.yo` never populates `comptime_unrolled_bodies` (its codegen consumer at `codegen/exprs/while_loop.yo:235` is dead code), `extern.yo` deliberately drops the `ioBuiltin` marker forcing name-based structural io detection everywhere, `_expr.yo`'s non-raw wrapper silently swallows every sub-evaluator error into an `err` expr (contradicting its own doc comment), and comptime pointer writes (`p.* = v`, `ptrTargetValue`, `ComptimeRef.StructRef`/`TupleRef`) are unreachable because nothing ever produces them.
+yo-self/evaluator/exprs is a broadly faithful port at the control-flow/dispatch level (atom dispatch, `->`/`=>` forms, builtin routing, match exhaustiveness, cond, destructuring, test, typeof, unwind, subtype*of all track their TS counterparts closely, and several files are LARGER than TS), but the ownership/RC, FFI-metadata, and comptime-mutation layers have real holes, and — importantly — several module headers are STALE in both directions: `begin.yo` lines 5-11, `assignment.yo` 10-14 and `initialization_assignment.yo` 11-16 all advertise stubs (`type_contains_rc_type = false`, `clone_value`, `attach_temp_variable_to_expr`, `generate_deferred_drop_expressions`) that have since been fully implemented, so the headers cannot be trusted as a stub index. The single worst gap is that the evaluator drops \_all* C-header provenance: `c_include.yo` computes `c_header_file` (line 141) purely to validate it and then never attaches it to any field type or registry, where TS `c-include.ts:141/145/162` stamps `cInclude` onto every field type — yo-self's codegen `collect_c_includes` therefore reads `c_include` slots that `codegen/functions/collection.yo:674` always registers as `.None`, so no `#include <header>` is ever emitted for c_include'd FFI symbols. Close behind: `while.yo` never populates `comptime_unrolled_bodies` (its codegen consumer at `codegen/exprs/while_loop.yo:235` is dead code), `extern.yo` deliberately drops the `ioBuiltin` marker forcing name-based structural io detection everywhere, `_expr.yo`'s non-raw wrapper silently swallows every sub-evaluator error into an `err` expr (contradicting its own doc comment), and comptime pointer writes (`p.* = v`, `ptrTargetValue`, `ComptimeRef.StructRef`/`TupleRef`) are unreachable because nothing ever produces them.
 
 ### evaluator-misc
 
@@ -52,6 +52,40 @@ The root-level modules split sharply into two tiers. The pure syntactic layer �
 ### types
 
 yo-self/types/\*\* is far more complete than its \"Phase 2\" comments suggest — compatibility.yo, utils.yo's RC/size/cycle walkers, type_key.yo and intern.yo have all been hardened past their original ports with issue-linked fixes — but the completeness is uneven, and the gaps cluster in one place: yo-self's `SomeT.resolved_concrete` and the recursive descent into composite types. Three separate predicates (`is_rc_type` guards.yo:430, `_type_is_control_bound_inner` utils.yo:526, `_type_refs_back_to_cyclic` utils.yo:710) refuse to follow `resolved_concrete` and justify it with comments claiming yo-self's SomeT has no such field — a claim that `_type_contains_rc_inner` (utils.yo:414) disproves twenty lines away; `type_contains_some_type` (utils.yo:860) is top-level-only while every evaluator call site expects TS's full recursion; `substitute` (substitution.yo:276) silently zeroes `is_effects_row` and `kind_function_type` on every SomeT it rebuilds; and SomeT-vs-SomeT compatibility (compatibility.yo:720) is name+frame_level only. The single worst gap is the interaction between `intern_type` (intern.yo:559) and that same field: interning merges two structurally-identical UNRESOLVED SomeTs into one instance, and because `resolved_concrete` is a deliberately SHARED MUTABLE cell that synthesizer.yo:1314/1399 mutates in place, a resolution stamped at one call site now silently rewrites an unrelated type variable's resolution — the intern header's soundness argument (\"TypeValues are rebuilt-not-mutated\") is contradicted by definitions.yo's own HAZARD note on that field, and the bad resolution flows straight into codegen's parameter lowering.
+
+---
+
+## CORRECTION (2026-07-26): the `ioBuiltin` gap IS fixable — the stated blocker is false
+
+`yo-self/evaluator/async/await_analysis.yo:84` justifies its purely syntactic Io
+detection with:
+
+> This replaces the TypeScript `expr.func.$?.type?.ioBuiltin` marker which is
+> not available in the Yo self-hosted type system.
+
+Both halves of that are wrong, verified:
+
+1. **The marker's information IS in yo-self's type system.** TS derives
+   `ioBuiltin` from the extern field LABEL (`src/evaluator/exprs/extern.ts:141-158`:
+   `__yo_io_async` -> `"io_async"`, `__yo_io_await`, `__yo_io_state`,
+   `__yo_io_spawn`, `__yo_join_handle_await`). yo-self's Func meta already has
+   `extern_name : Option(String)` (types/definitions.yo) and
+   `evaluator/exprs/extern.yo:208` already stamps it with that same label. So the
+   classification is derivable today — no new meta slot required, which is what
+   makes this a cheap faithful port rather than a schema change.
+2. **The analysis pass CAN see types.** `analyze_await_points`
+   (await_analysis.yo:385) takes
+   `get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))` precisely so it can
+   look up evaluated expression info.
+
+Consequence of the current syntactic scheme, both already recorded below as
+HIGH: Io calls are recognised only when the receiver's token text is literally
+`io`, and `is_join_handle_await_call` (await_analysis.yo:188) returns true for
+ANY `x.await(...)` with a non-`io` receiver, with no JoinHandle check at all.
+
+Prime suspect for cluster C (thread/worker). Note the related deliberate
+omission at `evaluator/exprs/extern.yo:207`, whose comment says "`ioBuiltin` is
+codegen-only and stays skipped" — also false, since await analysis needs it.
 
 ---
 
@@ -2015,7 +2049,7 @@ yo-self/types/\*\* is far more complete than its \"Phase 2\" comments suggest �
 
 **TS:** src/module-manager.ts (458 lines) — `deleteModuleAndDependents` (:168/:181/:252 call `clearImplsFromModule`), `findExtensionDuplicates` (:311), `addDependency` (:285), and the reset at :260-266 (`this.loadingModules.clear(); clearAllGlobalImplState(); clearEnvContainingPrelude(); clearAllModuleCounters(); clearAllCachedTypes(); _clearPragmaRegistry();`). yo-self's `_clear_pragma_registry` exists (evaluator/memory_safety.yo:67) but nothing calls it.
 
-**Evidence:** module_loader.yo:3-6 `yo-self has no equivalent of TypeScript's \`ModuleManager\` (\`src/module-manager.ts\`). For the \`check\` subcommand we still need \`ctx.load_module\` to return _just_ an imported file's exports ...`; :24-26 `This mirrors the _effect_ of TS's \`ModuleManager.loadModule\` (cache + per-module isolation) while keeping all effects at the orchestration layer.`
+**Evidence:** module*loader.yo:3-6 `yo-self has no equivalent of TypeScript's \`ModuleManager\` (\`src/module-manager.ts\`). For the \`check\` subcommand we still need \`ctx.load_module\` to return \_just* an imported file's exports ...`; :24-26 `This mirrors the _effect_ of TS's \`ModuleManager.loadModule\` (cache + per-module isolation) while keeping all effects at the orchestration layer.`
 
 ### `yo-self/evaluator/exprs/property_access.yo:1463` — intentional-divergence _(evaluator-exprs)_
 
