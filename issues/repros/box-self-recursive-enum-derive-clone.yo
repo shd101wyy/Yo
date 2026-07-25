@@ -81,6 +81,21 @@
 //! This looks like a MINIMAL INSTANCE of the handoff's Round-2' blocker (i),
 //! the "pattern-era pointer-Self leak" — and unlike that one, it reproduces
 //! WITHOUT applying the WIP patch, so it is a much cheaper way in.
+//!
+//! FOURTH DISPROVEN HYPOTHESIS: `_build_forward_ref_funcval`
+//! (evaluator/calls/helper.yo:1135) empties `cap_names`/`cap_tys`, and this
+//! file's own comment at :1040 says yo-self injects a generic impl's bindings
+//! as TypeVal CAPTURES — so dropping them looked like it would strip `Self`
+//! from the forward-referenced recursive call. PRESERVING them
+//! (`cap_names/cap_tys : __fvm1.*.….clone()`) builds clean but does NOT fix
+//! the repro — identical errors. Reverted.
+//!
+//! Four hypotheses now disproven (derive-specific / return-type inference /
+//! missing Acyclic / forward-ref captures). STOP GUESSING: the next step is a
+//! PROBE — instrument the mutual-recursion branch in helper.yo (~:3676, the
+//! `_find_mutual_specializing_info` / `_build_forward_ref_funcval` path) to
+//! print the callee fid, the bindings sig, and the RESULT TYPE handed back for
+//! the recursive `TreeNode.clone` call, and find where it becomes unit.
 open(import("std/fmt"));
 
 TreeNode :: enum(Leaf(value : i32), Branch(left : Box(Self), right : Box(Self)));
