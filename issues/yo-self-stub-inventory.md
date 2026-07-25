@@ -87,6 +87,28 @@ Prime suspect for cluster C (thread/worker). Note the related deliberate
 omission at `evaluator/exprs/extern.yo:207`, whose comment says "`ioBuiltin` is
 codegen-only and stays skipped" — also false, since await analysis needs it.
 
+**COST CORRECTION (same day).** An earlier revision of this note called the
+port "cheap". That was wrong and is retracted. The two claims above hold — the
+information is present in `extern_name`, and `analyze_await_points` does take
+`get_info` — but the predicates that need it
+(`is_io_await_call`, `is_io_async_call`, `is_io_state_call`, `is_io_spawn_call`,
+`is_join_handle_await_call`) are `fn(expr : AstExpr) -> bool` with **12+ callers**
+across `expr_traversal.yo`, `evaluator/calls/helper.yo` and
+`evaluator/calls/function.yo`, and at least one of them —
+`expr_contains_await` (expr_traversal.yo:282) — is a PURE AST predicate with no
+`ctx` and no `get_info` in scope.
+
+The reason is a genuine architectural divergence, not an oversight: TS hangs
+evaluated info on the AST node itself, so `exprContainsAwait` reads
+`expr.func.$?.type?.ioBuiltin` for free (src/expr-traversal.ts:371-376).
+yo-self keeps `ExprInfo` in an id-keyed SIDE TABLE reachable only through
+`ctx.expr_info_table`, so the faithful port must thread the table (or `ctx`)
+through every one of those predicates and their callers.
+
+Still worth doing — it removes the whole class of "receiver must literally be
+named `io`" fragility — but budget it as a threading refactor across 4 files,
+not a local edit.
+
 ---
 
 # HIGH
