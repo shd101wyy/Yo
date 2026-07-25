@@ -28,8 +28,40 @@ non-terminating comptime evaluation (or a pathological blowup) in the shared
 ordered-collection core would explain all six. Worth attacking first purely on
 count: 6 of 19.
 
-Next step: run one with a long timeout under `sample`/SIGQUIT to get a stack,
-or bisect the test body — do NOT assume it is slow rather than looping.
+STACK CAPTURED (priority_queue, `sample` after 60 s). 4115/4115 samples sit in
+one stack whose repeated frame is `_tts` (`yo-self/types/string.yo:18`, the
+worker behind `type_to_string`), reached via `create_specialized_function…` and
+`_impl_type_captures_sig`. Supporting frames: `concat` 305,
+`extend_from_ptr_specialized` 272, `to_string` 64 — i.e. string building inside
+the recursion.
+
+READ THE SHAPE CAREFULLY — it is NOT exponential fan-out. Every level reports
+the SAME sample count (4115) and the indentation steps by 2 per frame, which is
+a single LINEAR chain, not branching. (An earlier reading of this same sample
+called it "combinatorial fan-out"; its own numbers contradict that.)
+
+The depth is also the puzzle: the `_tts` frames span indentation 9 → 137, i.e.
+60+ nested levels, yet `_tts` has a hard depth cap (`_d > 40 => "…"`,
+string.yo:20) and ALL 23 of its recursive calls do pass `_d + usize(1)`
+(verified). A chain deeper than the cap therefore means the cap is being RESET
+by re-entry: `_tts` → `concat`/`to_string` → a FRESH `type_to_string` call
+starting again at `_d = 0`. Confirm that before fixing.
+
+Candidate fix, but note the caveat: TS's `typeToString`
+(src/types/utils.ts:1210-1233) carries a path-scoped `visited: Set<string>` —
+it returns `type.typeName || <circular:tag>` on a repeated type id, adding on
+entry and DELETING on exit — while yo-self has only the depth cap. Porting that
+guard is faithful. BUT it keys on type ids, and in `_tts` a NAMED Struct/EnumT
+already returns its name without recursing, so the cycle cannot be running
+through those; it must go through `SomeT` trait lists or an unnamed `TraitT`,
+and `TraitT` carries no id to key on. So the guard as TS writes it may not
+catch this particular cycle. Establish which variant actually recurses before
+porting.
+
+Blast-radius note for whoever does it: `type_to_string` feeds `type_key.yo`
+(:213, :251, :327) and signature strings, so changing its output changes spec
+identity. The guard is a NO-OP for acyclic types, which is what keeps that
+risk contained — verify that property holds for any variant you implement.
 
 ### 2. comptime param model (`__unknown__Type__`) — 4 files
 
@@ -74,6 +106,25 @@ yo_id_4939(int32_t* x, int32_t y)` returns the capture struct `__yo_t23`
 
 Clean markers, minimal cascade, and two of the three fail on a SINGLE error —
 the cheapest cluster to iterate on after the stalls.
+
+INVESTIGATED: the root looks to be in the EVALUATOR, not codegen. TS
+(`src/evaluator/values/anonymous-function.ts:1138-1230`) keeps the expected
+`Impl(Fn(...))` wrapper SomeType, mutates it in place with
+`wrapperType.resolvedConcreteType = captureType` (:1211/:1221) and sets the
+expression's type to that RESOLVED wrapper (:1237-1240). yo-self's
+`evaluate_anonymous_function_implementation` (the `=>` lambda path — the one
+taken when a closure is a call argument, a struct-field initializer, or a
+function-body tail) instead only uses the expected type to derive a plain
+`Func` and never stamps the resolved wrapper, so the capture struct's concrete
+C type is unavailable downstream and every sink falls back to `void*`.
+Candidate sites: `yo-self/evaluator/values/anonymous_function.yo:1416, :588,
+:1383`; sinks at `codegen/utils/index.yo:945, :880` and
+`codegen/functions/declarations.yo:178`.
+
+Confidence: high for the sinks and the return/parameter mechanisms (each
+emitter line was read and matches the observed C); medium for the field
+position. NOT yet verified end-to-end — confirm by diffing the TS emit of
+`impl_fn_field_rejection` for the same struct before changing anything.
 
 ### 4. await result type → void/unit — 2 files, byte-for-byte identical
 
