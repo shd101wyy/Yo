@@ -40,6 +40,59 @@ per-bug details live in `issues/*.md` — do not re-litigate fixed bugs._
 - A test file "matches" when `<bin> test <file>` rc==0 with the same
   pass count as `./yo-cli test <file>`.
 
+## FAITHFUL PORT FIRST (user directive 2026-07-25) — READ BEFORE WRITING CODE
+
+> "we should always do faithful port first" ... "fix all the stubs with
+> faithful ports"
+
+yo-self is a PORT of the TS compiler in `src/`. When yo-self and TS diverge,
+the repair is TS's mechanism, in TS's place, using yo-self's EXISTING
+equivalents. A yo-self-only heuristic that turns a test green is WRONG — it
+accumulates divergence and breaks the next thing.
+
+Worked example from 2026-07-25, both of which made `cli/arg_parser` 15/15:
+
+- INVENTED (rejected): `_is_pattern_era_enum_sibling`, a predicate comparing
+  two enums by variant names and RENDERED field types, substituting the
+  callee's registered return when they matched with differing ids.
+- FAITHFUL (kept): TS sets `substitutions.set("Self", concreteType)`
+  (`src/evaluator/values/impl.ts:2474`) and consumes it through
+  `reEvaluateFunctionType(..., SelfType)` (`impl.ts:1494-1498`). yo-self's
+  `find_methods_from_generic_impls` omitted the `Self` entry entirely and used
+  a purely STRUCTURAL `substitute` — the exact case TS flags at `impl.ts:1451`
+  ("types in Yo are nominal, so we can't just substitute structurally").
+
+Three corollaries, each learned the hard way in one session:
+
+1. **Distrust yo-self comments that explain why something could not be
+   ported.** Three were false: a committed "structural lead" naming a DEAD
+   DUPLICATE that nothing imports; `_tts`'s depth-cap story (the cap works —
+   measured exactly 41 contiguous frames); and `await_analysis.yo:84`'s claim
+   that TS's `ioBuiltin` marker "is not available in the Yo self-hosted type
+   system" (it is: `extern_name` already carries the same field label, and the
+   pass already receives a `get_info` callback).
+2. **Faithful does not mean safe.** Two literal transcriptions of TS each
+   regressed a gate: recording TS's `finalType` wrapper as the closure's
+   expression type cost 13 corpus files (`PASS 127`, all `io_async`); the
+   `Self` binding cost 13 hollow markers. Gate every one.
+3. **When a faithful port seems to have NO effect, check that it FIRES.**
+   Twice the port was right and the implementation silently no-op'd — once
+   comparing pre-substitution nodes against a post-substitution key, once
+   omitting `intern_type`.
+
+### The stub inventory — `issues/yo-self-stub-inventory.md`
+
+300 measured findings (78 HIGH, 153 medium), every yo-self module read against
+its TS counterpart, each entry carrying the TS `file:line`, what yo-self does
+instead, and a miscompile-impact rating. HIGH = can produce wrong C.
+
+This reframes the red list: the 19 reds are SYMPTOMS of a port that diverges in
+300 measured places. Work the HIGH entries rather than chasing tests one at a
+time. NOTE the inventory also found that module headers are STALE IN BOTH
+DIRECTIONS (`begin.yo`, `assignment.yo`, `initialization_assignment.yo`
+advertise stubs that are now implemented, while real gaps go undocumented) — so
+the headers are NOT a stub index; that file is.
+
 ## Priority order (user directive 2026-07-24)
 
 ### 1. PERFORMANCE FIRST — cut self-compile from ~55 min to ~15 min
