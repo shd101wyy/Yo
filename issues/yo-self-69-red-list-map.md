@@ -40,23 +40,40 @@ the SAME sample count (4115) and the indentation steps by 2 per frame, which is
 a single LINEAR chain, not branching. (An earlier reading of this same sample
 called it "combinatorial fan-out"; its own numbers contradict that.)
 
-The depth is also the puzzle: the `_tts` frames span indentation 9 → 137, i.e.
-60+ nested levels, yet `_tts` has a hard depth cap (`_d > 40 => "…"`,
-string.yo:20) and ALL 23 of its recursive calls do pass `_d + usize(1)`
-(verified). A chain deeper than the cap therefore means the cap is being RESET
-by re-entry: `_tts` → `concat`/`to_string` → a FRESH `type_to_string` call
-starting again at `_d = 0`. Confirm that before fixing.
+DEPTH MEASURED — and it exonerates the depth cap. An earlier note here claimed
+the cap must be "reset by re-entry" because the frames looked 60+ deep. That
+was an artifact of eyeballing indentation. Counting CONTIGUOUS `_tts` frames in
+the sample gives a longest run of **exactly 41** — i.e. depths 0..40, precisely
+the cap (`_d > 40 => "…"`, string.yo:20). The cap works. Corroborating: `_tts`
+never calls `type_to_string` (the depth-0 entry) internally — only `recur`, and
+all 23 of those pass `_d + usize(1)` (verified by grep). There is no reset.
 
-Candidate fix, but note the caveat: TS's `typeToString`
-(src/types/utils.ts:1210-1233) carries a path-scoped `visited: Set<string>` —
-it returns `type.typeName || <circular:tag>` on a repeated type id, adding on
-entry and DELETING on exit — while yo-self has only the depth cap. Porting that
-guard is faithful. BUT it keys on type ids, and in `_tts` a NAMED Struct/EnumT
-already returns its name without recursing, so the cycle cannot be running
-through those; it must go through `SomeT` trait lists or an unnamed `TraitT`,
-and `TraitT` carries no id to key on. So the guard as TS writes it may not
-catch this particular cycle. Establish which variant actually recurses before
-porting.
+So this is NOT a runaway recursion and NOT a missing cycle guard. The 341 total
+`_tts` frames in the sample are roughly EIGHT SEPARATE invocations each running
+to the 41-frame cap, and the frames cycle through just three call sites
+(+7488 / +13612 / +16588 = three of the recursive arms). The cost is CALL
+VOLUME × per-call expense: each of those 41-deep renders builds strings
+(`concat` 305 frames, `extend_from_ptr_specialized` 272 in the same sample).
+
+That points the fix at the CALLER, not at `_tts`. The sample reaches `_tts` via
+`create_specialized_function…` → `_impl_type_captures_sig`
+(evaluator/calls/helper.yo:1048), which renders EVERY `TypeVal` capture with
+full `type_to_string` to build a signature string — once per specialization.
+With many captures over large types that is quadratic-ish and is exactly the
+hazard string.yo already documents at :302-304, where a "cheap, shallow key"
+variant was added for the synthesizer "so it can't blow up the way full
+`type_to_string` (depth 40) does when called O(n) times".
+
+NEXT: confirm the hot caller by counting `_impl_type_captures_sig` invocations
+on a stalling file, then either reuse the existing shallow key there or memoize
+`type_to_string` per type id. Note this is a PERF fix, not a correctness one —
+which also means it should be measured (does the file complete?) rather than
+judged by test flips alone.
+
+Do NOT port TS's `visited` cycle guard on the strength of this cluster: TS does
+have one (src/types/utils.ts:1210-1233) and yo-self does not, so porting it is
+faithful in general, but the measurement above shows it is not what makes these
+six hang.
 
 Blast-radius note for whoever does it: `type_to_string` feeds `type_key.yo`
 (:213, :251, :327) and signature strings, so changing its output changes spec
