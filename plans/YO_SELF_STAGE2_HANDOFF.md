@@ -177,6 +177,24 @@ missing-ctor family. Do NOT "fix" it by widening
 and would REMOVE constructors that currently work (reasoning in the
 repro).
 
+**`derive_clone_complex` is the same root, traced to the C** (via
+`YO_KEEP_BATCH=1 <bin> test …`, which keeps `.yo_selftest_batch_1.bin.c`):
+
+    static inline __yo_t48* yo_id_2747_V_id_1598_ret_…(void value) {
+      __yo_t49* _tmp = __yo_new___yo_t49();   // __yo_t49 = GENERIC Box(V)
+    }
+
+i.e. a `Box.new` specialization whose V never got substituted, so it
+constructs the generic `Box(V)` (`void* _u42_`) and takes a `void`
+parameter — never legal C, hence both "call to undeclared function
+`__yo_new___yo_t49`" and "argument may not have 'void' type".
+
+DO NOT "fix" this by filtering unit-typed params out of the emitted
+signature. TS's declarations.ts filters `isUnitType` only for ENUM VARIANT
+fields (line 695), never for function params — it simply never produces a
+unit param, because its specialization is correct. A filter would mask the
+spec-identity bug, not fix it.
+
 Two reductions already done, so don't redo them:
 `issues/repros/generic-over-closure-type-field.yo` (the real
 `impl_fn_field_rejection` failure — its three `comptime_expect_error`
