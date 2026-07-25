@@ -92,6 +92,38 @@
 //! does not go via the name-match arm. Find that path before guarding
 //! anything else.
 //!
+//!   9. Stale FRAME LEVELS in the method-type substitution. `substitute`
+//!      replaces a SomeT only when `subst_lookup(s, name, level)` matches on
+//!      BOTH name and `frame_level` (types/substitution.yo:100), and
+//!      `find_methods_from_generic_impls` keys `spec_s` from
+//!      `entry.forall_some_types[i]` while the `T` inside the stored method
+//!      type was baked at impl-DEFINITION time — so a level mismatch would
+//!      silently leave `Box(T)` unsubstituted. Tested by adding a name-only
+//!      substitution key (`subst_new_name_only`) plus a probe that fires
+//!      whenever a name-only lookup succeeds where the exact key would have
+//!      missed. Result: ZERO probe hits, repro unchanged. The exact key never
+//!      misses; `substitute` is NOT no-opping. REVERTED (pure no-op).
+//!
+//! WHERE THAT LEAVES IT. The bogus emission is a SPECIALIZATION, not a bare
+//! generic original — `_is_generic_unspecialized_func`
+//! (codegen/functions/collection.yo:287) already skips anything whose type
+//! still has `forall_labels`, and the spec has none, so it passes collection
+//! legitimately. Per an earlier probe it is created at the
+//! `create_specialized_function_inline` call site
+//! (evaluator/calls/function.yo:1623) while `ctx.currently_specializing_function`
+//! is the OUTER `clone` spec. So the defect is upstream of codegen entirely:
+//! something evaluates `Box.clone`'s body with its forall unresolved and mints
+//! a specialization from it.
+//!
+//! Since hypothesis 9 shows `method_type` IS substituted correctly, the
+//! remaining suspect is that the BODY evaluation does not use it: check
+//! whether the FuncVal body is typed from `fv_param_types` (which comes from
+//! the callee's `ExprInfo.ty`, i.e. the substituted `method_type` —
+//! function.yo:2899) or is re-derived from the FuncVal's own declared param
+//! type expressions. PROBE THAT DIRECTLY — print `self`'s bound type at the
+//! top of `Box.clone`'s body evaluation — rather than reasoning about it; the
+//! last three hypotheses all looked airtight on paper and were all wrong.
+//!
 //! NEXT STEP: find why `Box.clone`'s body is evaluated with `self : Box(V)`
 //! when the candidate's `method_type` was already substituted to the concrete
 //! receiver (`substitute(spec_s, ftype)`, impl.yo:~990). Concretely: determine

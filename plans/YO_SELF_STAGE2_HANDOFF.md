@@ -177,6 +177,16 @@ missing-ctor family. Do NOT "fix" it by widening
 and would REMOVE constructors that currently work (reasoning in the
 repro).
 
+**START HERE for the missing-ctor family:**
+`issues/repros/box-self-struct-field-derive-clone.yo`. A plain struct with one
+`Option(Box(Self))` field + `derive(Clone)` — smaller than the recursive-enum
+repro, and it exhibits the struct-instance-identity error
+(`__yo_t15` vs `__yo_t1`) too, so it covers TWO of the three families. Its
+header carries the measured causal chain, how to READ a specialization name,
+and NINE disproven hypotheses with the evidence that killed each — including
+three fixes that were implemented, measured, and reverted (one of them made
+the emit strictly worse). Read it before writing any code for this family.
+
 **`derive_clone_complex` is the same root, traced to the C** (via
 `YO_KEEP_BATCH=1 <bin> test …`, which keeps `.yo_selftest_batch_1.bin.c`):
 
