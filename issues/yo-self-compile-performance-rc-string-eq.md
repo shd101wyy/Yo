@@ -155,3 +155,74 @@ AND the 20% String== simultaneously (they are the same traffic). Plan
 it as its own multi-round arc with the full gate battery per round;
 start from `_optimize_dup_drop_pairs`' existing begin-block machinery
 (evaluator/exprs/begin.yo) and TS's equivalent.
+
+## 2026-07-25 — MEASURED: exact attribution, and the fix
+
+Prior rounds reasoned about the profile symbol-by-symbol. This round
+measured the _dynamic_ traffic and attributed it to call sites, which
+overturned two working assumptions.
+
+### Method (cheap loop — reuse this)
+
+The self-compile's clang step is only ~46 s; the ~55 min is entirely
+evaluator/codegen runtime. So RUNTIME-level hypotheses do NOT need a
+10-min s1 rebuild: patch the already-emitted `.c` and re-clang.
+
+- `scratchpad/patch_decr_rc.py` — split decr_rc fast/slow path
+- `scratchpad/patch_rc_counters.py` — dynamic RC counters at exit
+- `scratchpad/patch_rc_attrib.py` — sampled `__builtin_return_address`
+  attribution of decr_rc to CALL SITES (symbolize via `nm -n` + slide)
+- `scratchpad/perf_ab.sh A B [reps]` — alternating A/B over `check ./std`
+
+### Dynamic traffic, one `check ./std` (86 s)
+
+    decr_rc  10,817,756,475   (fast/untracked 87.1%, frees 15.2%)
+    incr_rc   9,207,372,734
+
+~20 BILLION RC ops to type-check 153 files.
+
+### Call-site attribution (top of 10.8e9 decrements)
+
+| share | est. calls | site                                        |
+| ----- | ---------- | ------------------------------------------- |
+| 33.2% | 3.59e9     | `String ==` (4 sites)                       |
+| 17.5% | 1.89e9     | `ast_expr_is_fn_call_of`                    |
+| 9.6%  | 1.04e9     | `ast_expr_is_atom_of`                       |
+| 13.9% | 1.50e9     | `_attach_early_return_only_drop_to_returns` |
+
+### Negative result: inlining decr_rc is NOT the lever
+
+`always_inline` fast path + outlined slow path: **-4.7%** only
+(86.21 -> 82.15 s min user, 3 reps) for **+140% binary** (4.8 -> 11.6 MB).
+So per-call overhead is minor; the cost is the header load itself and,
+above all, the NUMBER of ops. Not landed on its own merits.
+
+### ROOT CAUSE (the real one)
+
+`match.ts:238` evaluated an _atom_ scrutinee directly but wrapped every
+other scrutinee in an implicit `begin()` — which materializes an OWNING
+TEMP: a `___dup` before the switch and a `___drop` after it. A field
+read (`self._bytes`, `e.token`) is a **place**, not a temporary: it is
+already owned by the enclosing scope for the whole match, and the arms
+only borrow it. The three hottest functions above all match on a field,
+so ~60% of all decr_rc traffic was this one redundant pair.
+
+Note the corpus diff-test judges **run behavior, not C text**
+(`scripts/diff-test.sh` header), so TS and yo-self may legitimately
+differ in emitted C; the binding constraints are behavior parity,
+test counts, and STRICT_FIXPOINT.
+
+### Fix
+
+Widen the predicate from "atom" to "place" — a bare field-access chain
+(2-arg `.` call) rooted at a **runtime** variable. Routing places
+through the exact same path as atoms means every downstream ownership
+decision (binding registration, escape dup) is the already-proven atom
+behavior, rather than a new elision rule.
+
+The root must be a runtime variable: `Kind.Func` (an enum variant) is
+also a 2-arg dot but has no `variableName` to bind — that regression
+showed up immediately in `rc.test.yo` and is what the
+`!isCompileTimeOnly` check excludes.
+
+Effect on emitted C: `String ==` 4 dups + 4 drops -> **0**.

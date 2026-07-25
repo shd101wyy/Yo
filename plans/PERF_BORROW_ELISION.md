@@ -1,57 +1,113 @@
-# Perf: borrow-elision for RC dup/drop pairs (the 55→15 min arc)
+# Perf: cutting RC traffic in the self-compile (the 55→15 min arc)
 
-_Status: PLANNED 2026-07-25. Prereq reading:
-`issues/yo-self-compile-performance-rc-string-eq.md` (profiles, negative
-results, why this is THE lever)._
+_Status: IN PROGRESS 2026-07-25. Measurements + method:
+`issues/yo-self-compile-performance-rc-string-eq.md`._
 
 ## Problem
 
-The yo-self self-compile spends ~60% of CPU in `__yo_decr_rc` and
-~20% in `String ==` — and they are the same traffic: codegen emits a
-`__yo_incr_rc`/`__yo_decr_rc` pair around every RC-typed value read
-that feeds a call argument, match scrutinee, or method receiver, even
-when the callee only BORROWS the value for the duration of the call.
-The runtime fast path is already optimal (`static inline`, untracked
-short-circuit); the remaining lever is emitting fewer pairs.
+A single `check ./std` (86 s) performs **10.8 billion `__yo_decr_rc` and
+9.2 billion `__yo_incr_rc` calls** — ~20 billion RC ops to type-check
+153 files. That traffic, not per-call cost, is the self-compile's
+runtime.
 
-## Approach
+## Two premises from the first draft of this plan were WRONG
 
-Teach the emitter that an argument position which (a) reads an
-already-owned place (local variable, field of a live local) and (b)
-feeds a callee that does not retain the value (pure/borrowing) needs NO
-dup before / drop after — the caller's existing ownership covers the
-call's duration.
+1. **"The corpus diff-test enforces identical C between the two
+   emitters."** It does not — `scripts/diff-test.sh` judges _run
+   behavior_ ("Equivalence is judged by RUN BEHAVIOR, never C-text
+   equality"). The two emitters already differ structurally: the TS
+   emit wraps drops in 4,435 `always_inline` `___drop` functions
+   (256,772 calls), while yo-self emits `__yo_decr_rc` directly at
+   254,824 sites. The binding constraints are behavior parity, test
+   counts, and STRICT_FIXPOINT (stage2 ≡ stage3) — which each emitter
+   satisfies independently. A prelude/codegen change in one compiler
+   alone is therefore fixpoint-safe; both should still be changed to
+   keep the port faithful.
+2. **"Call arguments are where the dups are."** They are not — an
+   argument to a non-owning parameter already gets no dup
+   (`helper.ts:411` gates on `parameter.isOwningTheRcValue`). The dups
+   were on **match scrutinees**.
 
-Candidate tiers, safest first:
+## Measure before optimizing — the cheap loop
 
-1. **Borrowing builtins allowlist**: String `==`/`len`/`hash`,
-   ArrayList `.len()`/`.get()` receiver — hand-verified non-retaining.
-   Gate elision to args that are PLAIN variable reads (no temporaries).
-2. **`inout(self)` receivers**: already by-reference semantically;
-   audit whether the emitter still dups the receiver handle.
-3. **General non-owning params**: any param that is not `own(...)` and
-   whose type is RC — requires the callee to be compiled with the same
-   convention (callee must dup where it stores). This is the TS
-   `param_is_owning` model — verify both emitters agree before eliding.
+The clang step of a self-compile is only ~46 s; the ~55 min is entirely
+evaluator/codegen runtime. So runtime-level hypotheses can be tested by
+patching the already-emitted `.c` and re-clanging (~2 min/experiment),
+with no 10-min s1 rebuild. Harnesses in `scratchpad/`:
+`patch_decr_rc.py`, `patch_rc_counters.py`, `patch_rc_attrib.py`,
+`perf_ab.sh`, `asan_corpus.sh`.
 
-## Hard constraints
+## Landed / measured
 
-- **Paired change**: `src/codegen` (TS) and `yo-self/codegen` must emit
-  IDENTICAL C — the corpus diff-test (`PASS 140 / DIFF 0`) enforces it;
-  STRICT_FIXPOINT enforces yo-self self-consistency. Land each tier as
-  one commit with the FULL gate battery.
-- The dup/drop pair optimizer (`_optimize_dup_drop_pairs`,
-  evaluator/exprs/begin.yo + TS begin.ts) already does begin-block-scope
-  elision — reuse its ownership analysis; do not fork a second model.
-- ASan corpus run (`--sanitize address --allocator libc`) per tier —
-  elision bugs are use-after-frees, the most expensive class to chase
-  later (see tests run with `./yo-cli compile --sanitize address`).
-- Measure per tier: `time <s1> check ./std` (~80s baseline, cheap
-  proxy) + one full stage2 emit for the tier that claims victory
-  (~60 min baseline @ 2026-07-25, /tmp/r3 chain).
+### 1. Match-place dup elision — the big one
 
-## Expected payoff
+`match.ts` evaluated an _atom_ scrutinee directly but wrapped every
+other scrutinee in an implicit `begin()`, materializing an owning temp:
+`___dup` before the switch, `___drop` after. A field read is a **place**
+— already owned by the enclosing scope for the whole match, with arms
+that only borrow it.
 
-Tier 1 alone plausibly cuts 20-30% (the String==/env-lookup traffic);
-tiers 2+3 target the bulk of the 60% decr_rc share. Goal: stage2 emit
-55-60 min → ~15-20 min, halving every future gate chain.
+Fix: widen the predicate from "atom" to "place" (a bare 2-arg `.` chain
+rooted at a **runtime** variable). Routing places through the same path
+as atoms reuses every already-proven downstream ownership decision
+instead of inventing a new elision rule. The root must be runtime:
+`Kind.Func` is also a 2-arg dot but has no `variableName` to bind.
+
+Attribution before the fix (share of 10.8e9 decrements):
+
+| share | est. calls | site                                        |
+| ----- | ---------- | ------------------------------------------- |
+| 33.2% | 3.59e9     | `String ==`                                 |
+| 17.5% | 1.89e9     | `ast_expr_is_fn_call_of`                    |
+| 9.6%  | 1.04e9     | `ast_expr_is_atom_of`                       |
+| 13.9% | 1.50e9     | `_attach_early_return_only_drop_to_returns` |
+
+Effect: `String ==` 4 dups + 4 drops → **0**, in both the repro and the
+real yo-self emit.
+
+### 2. Negative result — inlining `decr_rc` is NOT the lever
+
+`always_inline` fast path + outlined slow path measured **-4.7%** only
+(86.21 → 82.15 s min user, 3 reps) for **+140% binary size**
+(4.8 → 11.6 MB). Not worth landing on its own.
+
+## Remaining levers, in attribution order
+
+1. **`== String.from(x)` in yo-self hot paths** (177 sites). Allocates a
+   String just to compare against a `str`, when std has a direct
+   `String == str` impl and TS compares directly (`expr.ts:554`) — so
+   this is a fidelity gap too. Covers `ast_expr_is_fn_call_of` (17.5%)
+   and `ast_expr_is_atom_of` (9.6%).
+2. **`_attach_early_return_only_drop_to_returns`** (13.9%) — a recursive
+   AST walk run per begin block; check for an algorithmic fix before an
+   RC one.
+3. **1.64e9 frees per `check ./std`** — allocation churn itself. String
+   interning / small-string optimization is the structural answer, and
+   the largest remaining item after the above.
+
+## Hard constraints (unchanged)
+
+- Full gate battery per change; revert on ANY regression.
+- **Memory-safety gate per change** — elision bugs are use-after-frees
+  and are silent otherwise. NOTE: **AddressSanitizer does not work on
+  this machine.** `yo-cli` detects it and silently skips the sanitizer
+  (`compiler-utils.ts:96 asanRuntimeIsUsable`), so an
+  `--sanitize address` run is VACUOUS — it compiles and passes without
+  any instrumentation. Verified by hand: both nix clang 21.1.7 and
+  Apple clang 17 produce ASan binaries that hang (`rc=124`) on a
+  `int main(void){return 0;}` probe. Use instead:
+  - `scratchpad/guardmalloc_corpus.sh` — Guard Malloc
+    (`DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib` + `--allocator
+libc`), the working ASan substitute here. Proven to FAIL on planted
+    bugs: use-after-free read → SIGSEGV (139), double free → SIGABRT
+    (134). `MallocScribble` was tried first and does NOT work on this
+    macOS allocator (a UAF read still returned live data) — don't build
+    a gate on it.
+  - `YO_SELF_BIN=<pre-change s1> scripts/diff-test.sh
+tests/codegen-bootstrap --release` — compares the CHANGED emitter's
+    behavior against the UNCHANGED one over 140 programs, so any
+    behavior drift the change introduced shows up as DIFF.
+- Port each landed change to the other compiler to keep yo-self faithful.
+- Measure with `scratchpad/perf_ab.sh <base> <new> 3` on a quiet box
+  (`check ./std`, ~86 s baseline), plus one full stage2 emit for any
+  tier claiming victory.

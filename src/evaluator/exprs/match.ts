@@ -1,6 +1,7 @@
 import {
   addVariableToEnv,
   type Environment,
+  getVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
@@ -159,6 +160,55 @@ function isMatchablePrimitiveType(type: Type): boolean {
 }
 
 /**
+ * True for a *place* expression: a plain variable (atom) or a bare field-access
+ * chain rooted at one (`self._bytes`, `a.b.c`).
+ *
+ * A place is already owned by the enclosing scope for the whole duration of the
+ * match, so — exactly like the atom case — it must not be wrapped in an implicit
+ * begin() scope, which would materialize an owning temp copy (a `___dup` before
+ * the switch and a `___drop` after it) on every single match.
+ *
+ * That pair is the single hottest shape in a self-compile: `String ==`,
+ * `ast_expr_is_fn_call_of` and `ast_expr_is_atom_of` all match on a field and
+ * together account for ~60% of all `__yo_decr_rc` traffic, purely to borrow a
+ * payload their arms only read.
+ *
+ * A method call (`x.f()`) is NOT a 2-arg dot call — its `func` is the dot — so
+ * it still takes the begin() path and keeps its owning temp.
+ */
+function exprIsPlaceExpression(expr: Expr, env: Environment): boolean {
+  if (exprIsAtom(expr)) {
+    return true;
+  }
+  if (
+    !exprIsFunctionCall(expr) ||
+    !exprIsFunctionCallOf(expr, ".", 2) ||
+    !exprIsAtom(expr.args[1]!)
+  ) {
+    return false;
+  }
+  // Walk to the root of the `a.b.c` chain.
+  let root: Expr = expr.args[0]!;
+  while (
+    exprIsFunctionCall(root) &&
+    exprIsFunctionCallOf(root, ".", 2) &&
+    exprIsAtom(root.args[1]!)
+  ) {
+    root = root.args[0]!;
+  }
+  if (!exprIsAtom(root)) {
+    return false;
+  }
+  // The chain must bottom out in a RUNTIME variable. A compile-time dot such as
+  // `Kind.Func` (an enum variant) or a module member is not a place: evaluating
+  // it directly yields no `variableName` for the match to bind, and it carries
+  // no RC traffic to save in the first place.
+  const rootVars = getVariablesFromEnv(env, root.token.value);
+  const rootVar = rootVars.length ? rootVars[rootVars.length - 1] : undefined;
+  return rootVar !== undefined && !rootVar.isCompileTimeOnly;
+}
+
+/**
  * Evaluate a `match` expression.
  *
  * **Ownership**: `match` does NOT consume the scrutinee. The original variable
@@ -229,13 +279,12 @@ export function evaluateMatch({
   const scrutineeExpr = args[0]!;
 
   // Evaluate any expression as scrutinee, not just atoms.
-  // Important: don't wrap an *atomic* scrutinee (a plain variable like `result`/`self`)
-  // in an implicit begin() scope.
+  // Important: don't wrap a *place* scrutinee in an implicit begin() scope.
   // Doing so creates an owning temp copy that gets dropped at end-of-scope, which is
   // incorrect for borrowed scrutinees and breaks enums/structs-with-GC-fields
   // (e.g. Result(String, Err) causing double-drop/UAF).
   // Also, match(self, XXX) will `dup(self)` infinitely if wrapped in begin block
-  const evaluatedScrutineeExpr = exprIsAtom(scrutineeExpr)
+  const evaluatedScrutineeExpr = exprIsPlaceExpression(scrutineeExpr, env)
     ? evaluateExpression({
         expr: scrutineeExpr,
         env,
