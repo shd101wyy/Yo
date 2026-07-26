@@ -177,6 +177,41 @@ fixed there, which makes this the same root as the cluster-B `closure -> void*`
 reds — and those have a history of hollow regressions, so gate any attempt on
 marker counts, not test flips.
 
+### Measured on the `=>` lambda path (2026-07-26) — two more dead ends, recorded
+
+Instrumenting `helper.yo`'s Step-6 synthesize shows exactly what the caller
+sees for `xs.map((x) => (x * i32(2)))`:
+
+```
+param=f  expected=Impl : (Fn(i32) -> U : (Send))
+         given   =fn(a : i32) -> U : (Send)          <- should be -> i32
+```
+
+So the closure's OWN type keeps the expected return `U`; Step 6 then binds `U`
+to itself and nothing is learned. Two fixes were implemented and measured, and
+NEITHER clears the repro:
+
+1. **Stamp the SomeType return from the body type** — the faithful port of
+   TS anonymous-function.ts:963-988 (`functionType.return.type
+.resolvedConcreteType = <body type>`), using yo-self's shared
+   `resolved_concrete` cell plus the id-keyed registry. Instrumentation
+   confirms it FIRES for our case (`ret=U : (Send) body=i32`), and the markers
+   do not change — so the stamp lands on a SomeT that `map`'s body evaluation
+   does not consult. Next probe: print the SomeT id at the stamp and at the
+   `List(U)` CTFE short-circuit and compare; a mismatch means the resolved
+   param type is a substituted COPY with a fresh id, which would make the
+   id-keyed registry the wrong channel here.
+
+2. **Stop coercing the body to the forall var** — `anonymous_function.yo:1243`
+   clears `expected_type` when the return is an unresolved SomeT, but only for
+   `mark_closure_for_codegen` (io.async) closures; widening that to every
+   closure makes the body type concrete (`i32`) instead of `U`, which is what
+   makes fix 1 fire at all. Still not sufficient on its own.
+
+Both are kept OUT of the tree pending a fix that actually clears the repro —
+the area has a history of hollow regressions, so nothing lands there on
+plausibility alone.
+
 ### Two independent hardening items this exposes
 
 - `_trial_eval_fn_body` abandoning the caller's begin loop is a much bigger
