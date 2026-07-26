@@ -508,3 +508,19 @@ whichever representation bridge is missing. After that, the fid render
 (`rtparam1_fn_a___i32_____U____Send_` — runtime_param_tys still carries the
 closure's `-> U` type) may also want the substituted arg type for identity
 hygiene, but emission only needs spec_ret_ty.
+
+CORRECTION to the "next probe" above, measured 2026-07-27 late: helper.yo's
+Step-8 forall extraction NEVER FIRES for the repro compile (a `__EXTRACT`
+probe on its SomeT arm prints nothing) — and a ported TS-helper.ts:1464-1494
+resolution-propagation there changes nothing. The map call runs on the OTHER
+call path (`_evaluate_funcval_runtime_call`, the FuncVal arm — the same
+two-path split the arg-type-check fix documented), so the spec's return
+inputs are the FuncVal arm's OWN `fa_bound_names`/`fa_bound_types` (built by
+function.yo's Step-6-analog synthesis, threaded into
+`create_specialized_function_inline`). The Step-6 closure-body-type
+substitution (landed) only covers check_and_add_argument — the FuncVal arm's
+arg loop needs the SAME given-return substitution before ITS synthesis, and
+then `fa_bound_types` will carry `i32` and spec_ret_ty resolves. That is the
+one remaining edit for the emission half; the prototyped
+`_collect_specializations_of` collection helper (in the same WIP) is the
+belt-and-braces companion (TS collection.ts:565).
