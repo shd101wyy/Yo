@@ -1,0 +1,31 @@
+// Regression test for issues/ts-while-loop-body-drops-missing-guards.md:
+// an OWNED temp (make_list's ArrayList) created inside the RHS of a
+// short-circuit `||` in a WHILE-LOOP body. The loop-body scope-end drop pass
+// must honor the same two skip-guards as the begin-block pass
+// (declared-C-name gate + short-circuit-handled gate); without them the temp's
+// drop was re-emitted at the loop scope end — an undeclared C identifier
+// (clang error) or a double drop.
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+make_list :: (fn(n : usize) -> ArrayList(usize))({
+  out := ArrayList(usize).new();
+  (k : usize) = usize(0);
+  while(k < n, {
+    out.push(k);
+    k = (k + usize(1));
+  });
+  out
+});
+main :: (fn() -> unit)({
+  (i : usize) = usize(0);
+  (hits : usize) = usize(0);
+  while(i < usize(3), {
+    flagged := ((i == usize(0)) || (make_list(i).len() > usize(1)));
+    if(flagged, {
+      hits = (hits + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  println(`${hits}`);
+});
+export(main);

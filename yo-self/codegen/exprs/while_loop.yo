@@ -191,12 +191,32 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
                   .None => false
                 );
                 if(!(undeclared_temp), {
-                  code := _call_generate_expr(de, indent.clone(), context);
-                  if(code.len() > usize(0), {
-                    line := indent.clone();
-                    line.push_string(code);
-                    line.push_str(";");
-                    em.emit_string_line(line);
+                  // Skip a drop already emitted inside a short-circuit
+                  // conditional branch (and_or.yo) — same guard as begin.yo's
+                  // scope-end pass. Without it (and TS while.ts before the
+                  // paired fix) an owned temp created in a `||`/`&&` RHS in a
+                  // loop body was re-dropped at the loop scope end:
+                  // issues/ts-while-loop-body-drops-missing-guards.md.
+                  sc_skip := match(
+                    context.short_circuit_handled_drop_var_names,
+                    .Some(handled) => match(
+                      get_deferred_drop_target_atom_name(de),
+                      .Some(target) => if(handled.contains(target.clone()), {
+                        _r := handled.remove(target);
+                        true
+                      }, false),
+                      .None => false
+                    ),
+                    .None => false
+                  );
+                  if(!(sc_skip), {
+                    code := _call_generate_expr(de, indent.clone(), context);
+                    if(code.len() > usize(0), {
+                      line := indent.clone();
+                      line.push_string(code);
+                      line.push_str(";");
+                      em.emit_string_line(line);
+                    });
                   });
                 });
               },
