@@ -484,6 +484,19 @@ dispatched from one large `match`. Only zero-with-reading is conclusive.
 
 **Evidence:** recur.yo:189-193 `// TODO (Phase 3): extend UnknownVal with variable_name and is_runtime_only to match TypeScript's createUnknownValue({variableName, ...}) and the recurUnknown.isRuntimeOnly = true flag that prevents comptime overload selection on recur(...) results. See issues/recur-runtime-result-not-marked-runtime-only.md.` Also property_access.yo:13 `isRuntimeOnly propagation on UnknownVal — skipped (no flag in Phase 2).`
 
+**PROMOTED 2026-07-26 — this one is not cosmetic, it silently deletes code.**
+The missing flag is READ at helper.yo:594-616, which treats EVERY `UnknownVal`
+as a runtime value; TS rejects only a `isRuntimeOnly` one (helper.ts:465-478).
+So any comptime-only parameter fed an ordinary compile-time `UnknownVal`
+throws `Cannot assign runtime argument to compile-time parameter "self"`, and
+`_evaluate_expression_wrapper`'s handler (`_expr.yo:1017`) discards the error —
+the statement then emits as `// Failed to transpile …`. Measured on
+`tests/imm_vec.test.yo` (once the cluster-A stall was removed): FIVE such
+throws, one of which is the whole `match(env.get("YO_TEST_INDEX"), …)` main
+body, giving a **hollow rc=0 "47 passed"**. An instrumented build printing the
+arm that fired shows every hit is `kind=UNKNOWN` — never the `.VarRef` arm,
+which is itself an extra yo-self-only rejection with no TS counterpart.
+
 ### `yo-self/evaluator/exprs/while.yo:516` — deferred-todo _(evaluator-exprs)_
 
 **yo-self:** The comptime-loop-unrolling branch is absent. When the condition folds to comptime-true, yo-self just `recur`s on the SAME (uncloned) `expr` with `next_count+1` (line 526-530), re-evaluating the body over the same AST ids until the condition folds false or MAX_COMPTIME_LOOP_ITERATIONS throws. `ExprInfo.comptime_unrolled_bodies` is never set anywhere in yo-self.

@@ -35,6 +35,11 @@ worker behind `type_to_string`), reached via `create_specialized_function…` an
 `extend_from_ptr_specialized` 272, `to_string` 64 — i.e. string building inside
 the recursion.
 
+**The next three paragraphs are SUPERSEDED — see "RE-MEASURED 2026-07-26"
+below. They are kept because the depth-cap measurement in them is still valid
+and because the wrong turn is worth recording: a single 60 s sample was read as
+many small renders when it is one runaway render.**
+
 READ THE SHAPE CAREFULLY — it is NOT exponential fan-out. Every level reports
 the SAME sample count (4115) and the indentation steps by 2 per frame, which is
 a single LINEAR chain, not branching. (An earlier reading of this same sample
@@ -64,21 +69,109 @@ hazard string.yo already documents at :302-304, where a "cheap, shallow key"
 variant was added for the synthesizer "so it can't blow up the way full
 `type_to_string` (depth 40) does when called O(n) times".
 
-NEXT: confirm the hot caller by counting `_impl_type_captures_sig` invocations
-on a stalling file, then either reuse the existing shallow key there or memoize
-`type_to_string` per type id. Note this is a PERF fix, not a correctness one —
-which also means it should be measured (does the file complete?) rather than
-judged by test flips alone.
+#### RE-MEASURED 2026-07-26 — "call volume" was the WRONG reading
 
-Do NOT port TS's `visited` cycle guard on the strength of this cluster: TS does
-have one (src/types/utils.ts:1210-1233) and yo-self does not, so porting it is
-faithful in general, but the measurement above shows it is not what makes these
-six hang.
+Two fresh `sample` runs on `priority_queue` (45 s and 7 min into the run, s2
+binary) both show **100 % of samples — 15624/15624 and 7592/7592 — inside a
+SINGLE call**:
 
-Blast-radius note for whoever does it: `type_to_string` feeds `type_key.yo`
-(:213, :251, :327) and signature strings, so changing its output changes spec
-identity. The guard is a NO-OP for acyclic types, which is what keeps that
-risk contained — verify that property holds for any variant you implement.
+```
+… evaluate_function_call → create_specialized_function (yo_id_262993)
+                         → _impl_type_captures_sig     (yo_id_262913)
+                         → value_to_signature_string   (yo_id_262634)
+                         → _tts ×17  (offsets +7032 / +14060 / +15924, cycling)
+                         → String concat → _platform_memmove
+```
+
+18 % of the second sample sits at `value_to_signature_string + 92` itself
+(concat → memmove), i.e. copying an already-enormous string. **RSS was 6.8 GB
+after 7 minutes and still climbing** (a full self-compile, for comparison, peaks
+around 1.3 GB). One render, not many: the earlier "≈8 invocations × 41 frames"
+reading came from one 60 s sample and does not survive re-measurement.
+
+So the shape IS fanout^depth — the depth cap cannot bound it, because the cost
+is the product of the branching factors, not the depth. The exactly-periodic
+three-offset cycle is the give-away: the traversal keeps re-entering the same
+three recursive arms.
+
+#### What TS does — measured, not assumed
+
+A temporary probe on TS's `typeToString` (added, measured, reverted) running
+`check` over the SAME file reports:
+
+| metric                                           | value        |
+| ------------------------------------------------ | ------------ |
+| largest string `typeToString` ever returns       | **44 chars** |
+| calls                                            | 4455+        |
+| times the `visited` cycle guard fired            | **0**        |
+| times it was called on a source-namespace struct | **0**        |
+
+TS is not fast here because its guard is better — the guard never fires. TS is
+fast because **it never renders these types at all**: `_impl_type_captures_sig`
+has no TS counterpart (TS gives every generic-impl method instantiation a unique
+funcId embedding its substitutions, impl.ts:1551, so identity is a string
+compare). yo-self shares one func_id and reconstructs the identity by RENDERING
+the captured `TypeVal`s on every specialization.
+
+Note this also retires the earlier "do NOT port TS's visited guard" advice in
+its original form: the guard is not what makes TS fast, but yo-self still needs
+a bound, and the guard is the only bounding mechanism TS has.
+
+#### Fix applied
+
+`_tts` now threads a `visited` set of already-expanded named-type ids
+(`yo-self/types/string.yo`), guarding the three id-bearing arms that recurse:
+source-namespace `Struct` (a module's field dump is its exported functions,
+whose parameter types are more modules), anonymous `TraitT` (its field dump is
+method signatures), and `SomeT` with constraints (the arm that closes the loop:
+`T : (Ord)` → `Ord.cmp : fn(self : T, …)` → `T` → …). Named structs, enums and
+unions already render name-only, so they cannot be the cycle.
+
+The set is MONOTONIC (never popped) rather than path-scoped like TS's, which
+bounds a shared-but-acyclic graph too. That is the same deliberate divergence,
+for the same measured reason, as yo-self's two sibling key functions —
+`type_intern_key` (intern.yo: "Never-pop keeps rendering deterministic (=>
+injective)") and `_type_key_at`, whose `g_tk_visited` header records this exact
+pathology: "40-way variant fanout × depth 4 built multi-MB key strings per
+lookup … a ~300 MB/s runaway (footprint 7→62 GB)", fixed the same way, with the
+note that the guard "bounds each key to O(distinct types on path) and is MORE
+precise than depth truncation".
+
+Blast radius: `type_to_string` feeds `type_key.yo` (:213, :251, :327) and
+signature strings, so its output is part of spec identity. Output changes ONLY
+for a render that re-encounters one id, and the placeholders carry the id
+(`<module:…>`, `<trait:…>`), so distinct types still render distinctly. Judge it
+by GATE 2 (corpus diff-test) and whether the six files complete — a PERF fix is
+measured, not inferred from test flips.
+
+#### RESULT — all six stalls are gone; zero of them is green yet
+
+Single-variable, both binaries s1 (TS-compiled), same machine:
+
+| file             | HEAD s1        | with the guard         |
+| ---------------- | -------------- | ---------------------- |
+| `imm_vec`        | killed at 240s | **3 s**, rc=0 (HOLLOW) |
+| `imm_sorted_map` | timeout        | 3 s, rc=1, 9 markers   |
+| `imm_sorted_set` | timeout        | 4 s, rc=1, 9 markers   |
+| `imm_threading`  | timeout        | 5 s, rc=1, 13 markers  |
+| `btree_map`      | timeout        | 3 s, rc=1, 0 markers   |
+| `priority_queue` | timeout        | 3 s, rc=1, 0 markers   |
+
+1800 s of non-termination → 3-5 s in every case. The cluster is no longer a
+stall cluster; it is now five ordinary C-error reds plus one hollow pass.
+
+**`imm_vec`'s rc=0 is VACUOUS — do not count it as a flip.** Its emitted batch
+carries exactly ONE marker, and that marker is the whole main body:
+`// Failed to transpile match(((__yo_batch_env.env).get)("YO_TEST_INDEX"), …)`
+— i.e. every one of the 47 "passing" tests. Textbook hollow-green (the empty
+test body counts as a pass). Whether that throw predates the guard cannot be
+established from this file, because it never completed before; the guard's own
+regression evidence is GATE 2 (corpus **PASS 140 / DIFF 0**, so no emitted C
+changed anywhere) and GATE 1 (19/19 at expected counts).
+
+The two `btree_map` / `priority_queue` errors are now the SAME shape as cluster
+7 (`call to undeclared function 'yo_id_…'`), which merges those four files into
+one investigation.
 
 ### 2. comptime param model (`__unknown__Type__`) — 4 files
 
