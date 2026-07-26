@@ -666,3 +666,30 @@ stamp. Gate any attempt on stage2 markers (baseline 6) FIRST, before test
 flips. This closes the investigation loop: closure-forall (8 hollow) +
 cluster 3 (3 red) + cluster 7 (2 red) all end at this one guarded stamp plus
 the WIP already staged.
+
+
+### RESOLVED (first repro) + NEXT LAYER MAPPED (2026-07-28)
+
+The canonical repro COMPILES AND RUNS with the landed chain (see the
+`feat(yo-self): specialization mint` commit): Step-6 closure-body-type
+binding + mint subst-by-occurrence (returns AND params) + capture-struct
+closure params + capture-info cap_ty fallback in the rebind. Two pieces
+measured HARMFUL and dropped: the register-all-specializations collection
+helper (cycle_collector RC regression — it emitted extra spec copies) and
+the wrapper-resolution stamp even in TS-conditioned form (fs/file + fs/temp
+went hollow). The battery, corpus (141), and std are all at baseline with
+the landed chain; TIER 2 in flight.
+
+imm_list's batch main is STILL hollow — the next failure layer under the
+same specialization-path swallow, measured with a fresh diag:
+
+- `(result : Self) = Self.new()` types UNIT (list.yo:117 filter, :152) —
+  the `Self`-slot sibling of the fixed `U` problem;
+- `Failed to evaluate right-hand side of assignment: (reversed._head)`
+  (list.yo:131) — downstream of a reverse() return typing;
+- `Cannot unify incompatible types: "usize" and "Type"` — the third
+  handoff-cause-table construct.
+
+These are the handoff cause-table's `reversed._head` (2 files) and
+`usize/Type` (2 files) rows plus a new Self-slot class — same
+probe-cycle method, next session.
