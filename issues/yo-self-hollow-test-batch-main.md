@@ -318,3 +318,33 @@ probe next, in order:
 The 2026-07-26 step-3 attribution ("the trial swallow's unwind abandons the
 begin loop") is definitively WRONG — measured twice over: the trial contains
 correctly and the loop dies later, silently.
+
+
+### THIRD ROUND 2026-07-27 — the begin frame never exits at all
+
+All 185 compiled `return` statements of `evaluate_begin_expression`'s C body
+were instrumented (`__BEXIT L<line>`), same emitted-C sed technique:
+
+- The map def-time trial's TWO begins (the synthetic `wrap_body_in_begin`
+  wrapper + the body's own) both exit via the SAME escape-check return
+  (L186153) when the trial throw unwinds — correct containment, again.
+- A later successful trial's begin exits via the normal tail (L188906).
+- **Main's body begin (the one that loses statements i>=2) exits through NO
+  return at all** — no `__BEXIT`, no loop-end print, no postloop print, and
+  no escape-flag activity — yet the process continues into the codegen-phase
+  prelude pass and completes rc=0.
+
+A C frame that never returns while execution continues afterwards means the
+frame was terminated non-locally or its loop state was corrupted. Combined
+with the intermittent rc=139s in the same neighborhood, MEMORY CORRUPTION
+(stack smash / UAF during the map-call chain) is now the leading hypothesis —
+NOT a semantic swallow. Next recipe: run
+`/tmp/diag_s1c compile issues/repros/closure-arg-abandons-enclosing-begin.yo`
+under Guard Malloc (`DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib`, see
+scratchpad/guardmalloc_corpus.sh and the ExprInfo-table-UAF lldb recipe in
+agent memory `yo-self-macro-dispatch-corruption-fixed`), which converts the
+corrupting write into a deterministic crash with a stack.
+
+Caveat recorded: `__BEXIT` uses raw fprintf while the other probes are yo
+eprintln — if eprintln buffers, CROSS-channel ordering is unreliable; only
+the absence/presence of events is load-bearing in this round.
