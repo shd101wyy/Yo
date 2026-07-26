@@ -132,10 +132,27 @@ Also refuted: the trial-eval unwind is NOT escaping its helper
 
 ### Suggested next moves, highest leverage first
 
-1. **`comptime_expect_error` (7 files, ~90 assertions)** — likely the cheapest
-   block: these fail because yo-self ACCEPTS code TS rejects, so each is a
-   missing validation, and the files are otherwise green. Start by listing the
-   specific expectations that pass in TS and not in yo-self.
+1. **`comptime_expect_error` (7 files, ~90 assertions)** — the cheapest block:
+   each failure is a missing VALIDATION (yo-self accepts what TS rejects), the
+   files are otherwise green, and one validation can flip a whole file.
+   **First one is done and proves the method** — see `operator_grouping` below.
+   The remaining six, with the exact expectation each needs:
+
+   | file                        | expectation yo-self wrongly accepts                                                                                                                           |
+   | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | `inherent_first_resolution` | `f.m(true)` must NOT fall through from the inherent `m(i32)` to the trait `Bar::m(bool)`; and `s.starts_with(i32(5))` must fail the `P : Pattern` where-bound |
+   | `atomic_object`             | `atomic(ref(struct(inner : NonSend)))` must be rejected (Send derivation)                                                                                     |
+   | `basic`                     | `x = 12` on a variable defined outside the fn body / outside the while loop                                                                                   |
+   | `impl`                      | a fn returning `Impl(Id)` from divergent `cond`/`match` arms; `v.pick("s")`                                                                                   |
+   | `module_struct_unification` | bare `module(x : i32)` and bare `Module` as expressions                                                                                                       |
+   | `prelude`                   | a duplicate/conflicting `impl` on `AnotherBox`; `uninit.assume_init()` before init                                                                            |
+
+   Method that worked: run the file under the diagnostic s1 (prints every
+   swallowed error), find the `Expected compile error …` site, write the
+   offending expression into `src/tests/fixme.yo`, and compare
+   `./yo-cli compile` (TS) against the yo-self binary — TS rc=1 vs yo-self rc=0
+   localises the missing check immediately.
+
 2. **`Incompatible types:` closure-forall family (8 files, ~500 assertions)** —
    the reproducer is `issues/repros/closure-arg-abandons-enclosing-begin.yo`
    and dead ends 1-4 above narrow it a lot. Next probe: find what reads `U`

@@ -79,7 +79,7 @@ open(import("std/fmt"));
   ArgEntry,
   VarArgEntry
 } :: import("../context.yo");
-{ is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_fn_trait_type, is_unit_type } :: import("../../types/guards.yo");
+{ is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_fn_trait_type, is_unit_type, is_primitive_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { is_control_fn } :: import("../types/control_fn_registry.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
@@ -1784,6 +1784,33 @@ evaluate_function_call :: (
     // is_infix_operator_call = true: infix operators don't allow auto
     // pointer conversion of the receiver.
     op_methods := get_receiver_methods_by_name_from_env(env, op_name.clone(), receiver_ty, true);
+    // A PRIMITIVE receiver with no operator impl is a hard error, exactly as in
+    // TS: `true < false` / `(1 < 2) < 3` there report "No matching call found
+    // with arguments: …" because `bool` has no `Ord`/`(<)` impl in the prelude
+    // (it only gets Comptime/Runtime/Send/Acyclic/Eq). yo-self instead FELL
+    // THROUGH to the generic call path, which accepted the call against the
+    // `forall(T) fn(x : T, y : T) -> bool` builtin — so `comptime_expect_error`
+    // saw no error and threw "Expected compile error, but the expression was
+    // evaluated successfully", hollowing out the whole test file
+    // (issues/yo-self-hollow-test-batch-main.md).
+    //
+    // Scoped to primitives EXCLUDING unit, and measured before landing: across
+    // `check ./std` (153 files) the operator fall-through fires 8 times and the
+    // receiver is `unit` (5), a bare SomeT `T` (2) or an anonymous struct (1) —
+    // never a primitive. Those three shapes still fall through, so generic and
+    // def-time contexts are untouched.
+    if((op_methods.len() == usize(0)) && (is_primitive_type(receiver_ty) && !(is_unit_type(receiver_ty))), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `No matching call found for operator "${op_name}" with receiver type "${type_to_string(receiver_ty)}"`,
+            false,
+            .None
+          )
+        )
+      );
+    });
     if(op_methods.len() > usize(0), {
       first_m_0 := match(
         op_methods.get(usize(0)),
