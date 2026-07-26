@@ -272,7 +272,7 @@
            });
            fa_synth_env = Option(Environment).Some(se_new);
 --- yo-self/evaluator/calls/helper.yo	2026-07-27 04:54:52.726882663 +0800
-+++ /tmp/yb/evaluator/calls/helper.yo	2026-07-27 06:46:33.875457048 +0800
++++ /tmp/yb/evaluator/calls/helper.yo	2026-07-27 06:52:07.739526294 +0800
 @@ -21,6 +21,7 @@
  //! stub that lived here has been retired.
  pragma(Pragma.AllowUnsafe);
@@ -404,14 +404,66 @@
            prev_spec := ctx.currently_specializing_function;
            // Push onto the FULL specializing stack BEFORE moving the originals into
            // the single slot. The stack catches MUTUAL recursion (f→g→f) that the
-@@ -1965,6 +2062,50 @@
+@@ -1938,7 +2035,7 @@
+               sp_ie := __fm5.*.is_extern;
+               sp_en := __fm5.*.extern_name;
+               sp_ic := __fm5.*.is_control;
+-              spec_param_types := ArrayList(TypeValue).new();
++              (spec_param_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+               (spi : usize) = usize(0);
+               while(spi < runtime_param_tys.len(), {
+                 rpt := match(runtime_param_tys.get(spi),.Some(t) => t,.None => t_unit());
+@@ -1965,6 +2062,110 @@
                  spi = (spi + usize(1));
                });
                (spec_result : TypeValue) = evaluate_function_return_type_again(sp_res_b, callee_env, ctx);
 +              // Same subst-by-occurrence as spec_ret_ty above: the env NAME
 +              // binding cannot resolve the SomeT copy inside `List(U)`.
-+              if(get_all_some_types(spec_result).len() > usize(0), {
++              // Collect occurrences from the RETURN and every PARAM type —
++              // the closure param's `fn(a : i32) -> U` carries its own `U`
++              // copy at its own level, and an unsubstituted param trips
++              // emission's _func_has_generic_params gate just like the
++              // return trips has_generic_return.
++              if((get_all_some_types(spec_result).len() > usize(0)) || {
++                (yp_probe : bool) = false;
++                (ypi0 : usize) = usize(0);
++                while((ypi0 < spec_param_types.len()) && !(yp_probe), {
++                  match(
++                    spec_param_types.get(ypi0),
++                    .Some(ypt0) => if(get_all_some_types(ypt0).len() > usize(0), {
++                      yp_probe = true;
++                    }),
++                    .None => ()
++                  );
++                  ypi0 = (ypi0 + usize(1));
++                });
++                yp_probe
++              }, {
 +                y_somes := get_all_some_types(sp_res_b);
++                {
++                  (ypc : usize) = usize(0);
++                  while(ypc < spec_param_types.len(), {
++                    match(
++                      spec_param_types.get(ypc),
++                      .Some(ypt) => {
++                        yp_found := get_all_some_types(ypt);
++                        (ypf : usize) = usize(0);
++                        while(ypf < yp_found.len(), {
++                          match(
++                            yp_found.get(ypf),
++                            .Some(yps) => {
++                              y_somes.push(yps);
++                            },
++                            .None => ()
++                          );
++                          ypf = (ypf + usize(1));
++                        });
++                      },
++                      .None => ()
++                    );
++                    ypc = (ypc + usize(1));
++                  });
++                };
 +                ys_ret := subst_new();
 +                (ys_any : bool) = false;
 +                (yrsi : usize) = usize(0);
@@ -450,12 +502,29 @@
 +                });
 +                if(ys_any, {
 +                  spec_result = substitute(ys_ret, sp_res_b);
++                  // Rebuild the param list through the same substitution
++                  // (ArrayList has no indexed set).
++                  y_new_params := ArrayList(TypeValue).new();
++                  (ypr : usize) = usize(0);
++                  while(ypr < spec_param_types.len(), {
++                    match(
++                      spec_param_types.get(ypr),
++                      .Some(ypt2) => if(get_all_some_types(ypt2).len() > usize(0), {
++                        y_new_params.push(substitute(ys_ret, ypt2));
++                      }, {
++                        y_new_params.push(ypt2);
++                      }),
++                      .None => ()
++                    );
++                    ypr = (ypr + usize(1));
++                  });
++                  spec_param_types = y_new_params;
 +                });
 +              });
                // Gap-6 attempt #8(a): a declared-`Self` return resolves through
                // callee_env to the impl's PATTERN-ERA instance (unresolved T#N
                // only in type_arguments — no resolution path concretizes it,
-@@ -3375,9 +3516,40 @@
+@@ -3375,9 +3576,40 @@
                match(
                  last_v.value,
                  .Some(v) => {

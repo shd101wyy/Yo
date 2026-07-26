@@ -601,3 +601,37 @@ fixes the fid's `rtparam1_fn_..._U_...` identity segment). All layers are in
 `issues/patches/spec-emission-second-half-wip.patch` (updated). The chain is
 now: [landed Step-6 binding] → [WIP: collection helper + mint return substs]
 → [remaining: param-type subst + gates re-check + full TIER 1/2].
+
+
+### CYCLE 10 — THE SPEC EMITS; three clusters converge on ONE remaining project
+
+Extending the mint substitution to the PARAM types (collect SomeT occurrences
+from return + every param, substitute both; ArrayList has no indexed set —
+rebuild the list) gets the spec FULLY EMITTED for the first time: prototype +
+definition, with a correct body (the map loop, RC handling, and the closure
+invocation). The canonical repro is now down to ONE line of C error:
+
+    passing '__yo_t21' (capture struct) to parameter of incompatible type
+    'int32_t (*)(int32_t)'
+
+i.e. the CLOSURE-PARAM CALLING CONVENTION — exactly red-cluster 3
+(`issues/yo-self-69-red-list-map.md`: impl_fn_field_rejection /
+ref_closure_capture / sync/once, "capture struct passed to a parameter
+declared void (*)()"). The plain-Func substitution for a closure param is
+WRONG for the convention: TS types the param as the CAPTURE STRUCT (the
+wrapper SomeType's resolvedConcreteType — the closure_type.yo:296-299
+registry is yo-self's equivalent) and lowers body calls `f(x)` through the
+closure convention (`closure_fn(ctx, x)`). So the param substitution must
+special-case closure params: substitute the registered capture-struct type
+(get_closure_capture_info) instead of the plain Func, and the body's
+call-through must use the closure convention (the body currently emits
+`((int32_t (*)(int32_t))f)(v)` because the param re-bind chose the plain
+Func).
+
+STRATEGIC: completing this ONE convention finishes (a) the closure-forall
+hollow family (8 files), (b) red cluster 3 (3 files), (c) red cluster 7's
+undeclared-spec shape (2 files, same emission path), and plausibly parts of
+cluster 2 — up to ~13 files. The full WIP chain (collection helper + mint
+return/param substitutions) is `issues/patches/spec-emission-second-half-wip.patch`
+(re-apply on top of the landed Step-6 binding; gate on TIER 1 + battery
+hollow flags + stage2 markers=6).
