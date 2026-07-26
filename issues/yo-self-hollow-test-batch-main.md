@@ -472,3 +472,39 @@ body type is registered, substitute it as the given return
 bound return (`List(i32)`), which is where the cluster-7 undeclared-spec
 work and this fix meet. Reverted from the tree pending both; the patch
 re-applies cleanly.
+
+
+### SECOND HALF LOCALIZED (2026-07-27, post-landing) — three checkpoints, one gap left
+
+With the Step-6 binding landed, the residual "spec called but never defined"
+was traced end-to-end on the canonical repro (probes in /tmp/yb):
+
+1. The spec IS created and cached: `__SPECSTORE base=yo_id_5059
+   spec=yo_id_5059_..._cl1_closure_...` — the exact name the call site emits.
+2. Codegen COLLECTION does find and register it — via the method-callee VALUE
+   side-table path in `codegen/functions/collection.yo`
+   (`lookup_method_callee_value`), NOT via any of the module-field /
+   registry / callee-ExprInfo paths (all measured misses; the callee's
+   ExprInfo carries no 5059 FuncVal at all). A general
+   `_collect_specializations_of` helper (walks
+   `EvalContext.specialized_fn_caches` by base fid, injected into collection
+   via a `set_spec_caches_for_collection` live view — same indirection as
+   register_find_function_calls_in_expr) was prototyped and is ALSO useful
+   (TS collection.ts:565), but is NOT what's missing for this repro.
+3. EMISSION drops it: `should_skip_function_codegen`
+   (codegen/functions/declarations.yo) skip2's `has_generic_return` fires
+   because the spec's REGISTERED fn type still returns `List(U)` — the fid's
+   own render says so (`ret_gs_yo_id_4998_1975`, 1975 = U's SomeT id).
+
+So the one remaining gap: `create_specialized_function_inline`'s
+`spec_ret_ty` stays unresolved even though the spec BODY eval resolves `U`
+fine (markers 0 — `List(U).new()` no longer throws). The forall-extraction
+that feeds spec_ret_ty (helper.yo, the "extract the inferred type parameter
+values from calleeEnv" block after Step 6, TS helper.ts:1499-1513) does not
+see the binding the substituted synthesis produced. Next probe: print what
+callee_env's `U` variable holds right after Step-6 synthesis (TypeVal of
+what? resolved_concrete set?) vs what the extraction requires; the fix is
+whichever representation bridge is missing. After that, the fid render
+(`rtparam1_fn_a___i32_____U____Send_` — runtime_param_tys still carries the
+closure's `-> U` type) may also want the substituted arg type for identity
+hygiene, but emission only needs spec_ret_ty.
