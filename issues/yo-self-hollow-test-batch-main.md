@@ -356,3 +356,53 @@ lldb with a hardware watchpoint on the dying begin's `loop_i`/`done` stack
 slots (break on entry to `evaluate_begin_expression` when
 `env->module_path` matches the repro, finish-to the fatal iteration, then
 watch), or a gmalloc run that starts the protection late.
+
+
+### FOURTH ROUND 2026-07-27 — MECHANISM FULLY CAPTURED (single ordered fprintf stream)
+
+A combined instrumentation build (all 18 setters `__ESC`, all 23 containments
+`__CONT`, all 16,993 checks-taken `__PROP`, all 185 begin returns `__BEXIT` —
+one unbuffered stderr stream, no eprintln-vs-fprintf ordering hazard) shows
+the complete fatal chain for `xs.map(closure)`:
+
+```
+(throw: Incompatible types, inside map's body eval — U unbound)
+__PROP evaluate_begin_expression        <- map's BODY begin propagates
+__BEXIT L186153                         <- ... and exits via the escape path
+__PROP create_specialized_function_inline    <- THE KEY FRAME
+__PROP try_to_call_function_with_arguments
+__PROP evaluate_function_call
+__PROP _evaluate_expression / wrapper / raw
+__PROP evaluate_initialization_assignment    <- main's `doubled := ...`
+__PROP _evaluate_expression / wrapper / raw
+__PROP evaluate_begin_expression        <- MAIN'S begin loop propagates
+__BEXIT L186153                         <- ... and exits — statements i>=2 lost
+__PROP raw / wrapper / _evaluate_expression
+__PROP _trial_eval_fn_body              <- MAIN'S OWN def-time trial
+__CONT _trial_eval_fn_body              <- contained HERE (this is whose
+                                           handler printed the __DBGT!)
+```
+
+So, correcting every earlier attribution:
+
+1. map's body is evaluated during the call via the SPECIALIZATION path
+   (`create_specialized_function_inline` → `try_to_call_function_with_arguments`)
+   — NOT under map's own def-time trial swallow.
+2. That path installs NO swallowing handler, so the `Incompatible types`
+   throw (root: the callee's generic `U` never bound from the closure
+   argument) unwinds the ENTIRE call chain, including main's begin loop —
+   exactly the hollow-batch blast radius.
+3. It is finally contained by the ENCLOSING function's (here: main's)
+   def-time trial — whose handler is what prints the error in a diag build,
+   which is why every earlier round misattributed the swallow.
+4. Earlier stdout/stderr and eprintln-buffering artifacts created the
+   phantom "frame never exits / process continues" readings — both retracted.
+
+Implication for the fix: containment-at-specialization (mirroring TS's
+checking-phase try/catch) would only trade hollow for the cluster-2
+`__unknown__Type__` mangling (dead end 4 already measured that shape). The
+real fix remains binding `U` from the closure's actual return type on the
+argument path — and the next probe from the 2026-07-26 session ("compare the
+SomeT id at the stamp vs at the `List(U)` CTFE short-circuit") should now be
+run INSIDE `create_specialized_function_inline`'s substitution, which is the
+path that actually evaluates the body.
