@@ -21,6 +21,7 @@
 //! stub that lived here has been retired.
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
+open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 {
   AstExpr,
@@ -100,6 +101,7 @@ open(import("std/string"));
   new_expr_info,
   expr_info_table_get,
   register_some_resolved_concrete,
+  lookup_some_resolved_concrete,
   adopt_receiver_struct_instance
 } :: import("../../expr_info.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -109,6 +111,7 @@ open(import("std/string"));
   TypePair,
   synthesize_types
 } :: import("../types/synthesizer.yo");
+{ subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 {
   are_types_compatible,
   are_types_compatible_exact
@@ -136,6 +139,7 @@ open(import("std/string"));
   get_func_type,
   is_closure_fn,
   register_closure_capture_info,
+  get_closure_capture_info,
   ClosureCaptureInfo
 } :: import("../../function_value.yo");
 { enrich_captured_variables, create_capture_type_and_value, FuncCapturedVarInfo } :: import("../utils/closure.yo");
@@ -1462,11 +1466,105 @@ create_specialized_function_inline :: (
           );
           // Register recursive self-reference in context so recursive calls
           // inside the body can find the specialized func_id.
-          spec_ret_ty := evaluate_function_return_type_again(
+          // Bind the inferred generic values (arg_values.forall_args, in
+          // forall_names order) into the mint env before the return
+          // re-evaluation. TS's calleeEnv already carries these bindings; on
+          // the yo-self FuncVal-arm route the env passed here does NOT —
+          // measured on the closure-arg repro: forall_args=[i32] at mint
+          // entry while the re-eval still saw `U` unbound, so spec_ret_ty
+          // stayed `List(U)`, emission's has_generic_return gate silently
+          // dropped the spec, and the call site referenced an undefined
+          // yo_id_... (the cluster-7 shape). Concrete values only.
+          {
+            (zb_i : usize) = usize(0);
+            n_zb := forall_names.len();
+            while((zb_i < n_zb) && (zb_i < arg_values.forall_args.len()), {
+              zb_name := match(forall_names.get(zb_i),.Some(n) => n,.None => String.from(""));
+              match(
+                arg_values.forall_args.get(zb_i),
+                .Some(zb_ae) => match(
+                  zb_ae.value,
+                  .Some(zb_v) => match(
+                    zb_v,
+                    .TypeVal(zb_tb) => if(!(is_some_type(zb_tb)), {
+                      _zb := add_variable_to_env(
+                        callee_env,
+                        zb_name,
+                        TypeValue.TypeUni(usize(0)),
+                        Option(EvalValue).Some(EvalValue.TypeVal(zb_tb.clone())),
+                        true,
+                        false,
+                        false,
+                        false,
+                        synthetic_token(zb_name, callee_env.module_path)
+                      );
+                    }),
+                    _ => ()
+                  ),
+                  .None => ()
+                ),
+                .None => ()
+              );
+              zb_i = (zb_i + usize(1));
+            });
+          };
+          (spec_ret_ty : TypeValue) = evaluate_function_return_type_again(
             match(func_type,.Func({ result : r }) => r, _ => t_unit()),
             callee_env,
             ctx
           );
+          // If the re-evaluation left SomeTs (an env NAME binding cannot
+          // resolve the DIFFERENT SomeT copy inside a generic instantiation
+          // like `List(U)` — the Gap-6 lineage split), substitute by SomeT
+          // OCCURRENCE, the proven FuncVal-arm template
+          // (function.yo:1348-1370): match each SomeT in the declared return
+          // to a forall name and substitute the inferred forall_args value at
+          // the occurrence's own recorded level.
+          if(get_all_some_types(spec_ret_ty).len() > usize(0), {
+            zdecl_ret := match(func_type,.Func({ result : zr }) => zr, _ => t_unit());
+            zret_somes := get_all_some_types(zdecl_ret);
+            if(zret_somes.len() > usize(0), {
+              zs_ret := subst_new();
+              (zs_any : bool) = false;
+              (zrsi : usize) = usize(0);
+              while(zrsi < zret_somes.len(), {
+                zrst := match(zret_somes.get(zrsi),.Some(t) => t,.None => t_unit());
+                match(
+                  zrst,
+                  .SomeT(_, zrst_name, zrst_lvl, _, _, _, _, _, _, _, _) => {
+                    (zbni : usize) = usize(0);
+                    while(zbni < forall_names.len(), {
+                      zbn := match(forall_names.get(zbni),.Some(n) => n,.None => String.from(""));
+                      if((zbn == zrst_name) && (zbni < arg_values.forall_args.len()), {
+                        match(
+                          arg_values.forall_args.get(zbni),
+                          .Some(zae) => match(
+                            zae.value,
+                            .Some(zv) => match(
+                              zv,
+                              .TypeVal(ztb) => if(!(is_some_type(ztb)), {
+                                subst_add(zs_ret, zrst_name.clone(), zrst_lvl, ztb.clone());
+                                zs_any = true;
+                              }),
+                              _ => ()
+                            ),
+                            .None => ()
+                          ),
+                          .None => ()
+                        );
+                      });
+                      zbni = (zbni + usize(1));
+                    });
+                  },
+                  _ => ()
+                );
+                zrsi = (zrsi + usize(1));
+              });
+              if(zs_any, {
+                spec_ret_ty = substitute(zs_ret, zdecl_ret);
+              });
+            });
+          });
           prev_spec := ctx.currently_specializing_function;
           // Push onto the FULL specializing stack BEFORE moving the originals into
           // the single slot. The stack catches MUTUAL recursion (f→g→f) that the
@@ -1654,8 +1752,43 @@ create_specialized_function_inline :: (
               // for consumers that resolve the DECLARED param type rather than
               // the bound variable's.
               (bind_pt_cl : TypeValue) = decl_pt.clone();
+              // cap_ty must be the CAPTURE STRUCT. On the try_to_call path the
+              // arg_type already IS it (the closure eval recorded capture_type
+              // on the arg's ExprInfo); on the FuncVal-arm path the arg_type is
+              // the plain `fn(...) -> U` Func — fall back to the closure's
+              // registered capture info (keyed by the arg FuncVal's fid), else
+              // the body's `cb(x)` resolves to a Func and the closure-call map
+              // misses (the fn-pointer-cast fallback, red cluster 3).
+              (cap_ty_fixed : Option(TypeValue)) = runtime_param_tys.get(rbp_i);
               match(
-                runtime_param_tys.get(rbp_i),
+                cap_ty_fixed,
+                .Some(ct_probe) => if(!(
+                  match(ct_probe,.Struct({ id : _ }) => true, _ => false)
+                ), {
+                  match(
+                    arg_values.args.get(rbp_i),
+                    .Some(cb_ae2) => match(
+                      cb_ae2.value,
+                      .Some(cb_v2) => match(
+                        cb_v2,
+                        .FuncVal(cb_fvd2, _) => match(
+                          get_closure_capture_info(cb_fvd2.*.func_id.clone()),
+                          .Some(cb_ci2) => {
+                            cap_ty_fixed = Option(TypeValue).Some(cb_ci2.capture_type);
+                          },
+                          .None => ()
+                        ),
+                        _ => ()
+                      ),
+                      .None => ()
+                    ),
+                    .None => ()
+                  );
+                }),
+                .None => ()
+              );
+              match(
+                cap_ty_fixed,
                 .Some(cap_ty) => {
                   fresh_some_id := `${closure_some_id}_capbind_${type_key(cap_ty)}`;
                   match(
@@ -1938,7 +2071,7 @@ create_specialized_function_inline :: (
               sp_ie := __fm5.*.is_extern;
               sp_en := __fm5.*.extern_name;
               sp_ic := __fm5.*.is_control;
-              spec_param_types := ArrayList(TypeValue).new();
+              (spec_param_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
               (spi : usize) = usize(0);
               while(spi < runtime_param_tys.len(), {
                 rpt := match(runtime_param_tys.get(spi),.Some(t) => t,.None => t_unit());
@@ -1955,16 +2088,151 @@ create_specialized_function_inline :: (
                 // (`assert(flag : bool, ...)` emitted `void flag`;
                 // issues/repros/void-param-assert-open-env.yo).
                 declared_pt := match(sp_pt.get(spi),.Some(t) => t,.None => t_unit());
-                use_ty := if(is_unit_type(rpt) && !(is_unit_type(declared_pt)), {
-                  resolved_decl := evaluate_function_parameter_type_again(declared_pt, callee_env, ctx);
-                  if(type_contains_some_type(resolved_decl) || is_unit_type(resolved_decl), rpt, resolved_decl)
-                }, rpt);
+                // CLOSURE param: type the spec's param as the closure's
+                // CAPTURE STRUCT (the TS convention — the wrapper SomeType's
+                // resolvedConcreteType is the capture struct; yo-self's
+                // registry equivalent is get_closure_capture_info). A plain
+                // Func type here emits an `int32_t (*)(int32_t)` C param that
+                // the call site's capture-struct argument cannot satisfy
+                // (red cluster 3 / the closure-forall emission residual).
+                (closure_cap_ty : Option(TypeValue)) = Option(TypeValue).None;
+                match(
+                  arg_values.args.get(spi),
+                  .Some(cc_ae) => match(
+                    cc_ae.value,
+                    .Some(cc_v) => match(
+                      cc_v,
+                      .FuncVal(cc_fvd, _) => match(
+                        get_closure_capture_info(cc_fvd.*.func_id.clone()),
+                        .Some(cc_info) => {
+                          closure_cap_ty = Option(TypeValue).Some(cc_info.capture_type);
+                        },
+                        .None => ()
+                      ),
+                      _ => ()
+                    ),
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                use_ty := match(
+                  closure_cap_ty,
+                  .Some(cc_t) => cc_t,
+                  .None => if(is_unit_type(rpt) && !(is_unit_type(declared_pt)), {
+                    resolved_decl := evaluate_function_parameter_type_again(declared_pt, callee_env, ctx);
+                    if(type_contains_some_type(resolved_decl) || is_unit_type(resolved_decl), rpt, resolved_decl)
+                  }, rpt)
+                );
                 spec_param_types.push(
                   convert_comptime_type_to_runtime_type_with_expected(use_ty, Option(TypeValue).None, callee_env)
                 );
                 spi = (spi + usize(1));
               });
               (spec_result : TypeValue) = evaluate_function_return_type_again(sp_res_b, callee_env, ctx);
+              // Same subst-by-occurrence as spec_ret_ty above: the env NAME
+              // binding cannot resolve the SomeT copy inside `List(U)`.
+              // Collect occurrences from the RETURN and every PARAM type —
+              // the closure param's `fn(a : i32) -> U` carries its own `U`
+              // copy at its own level, and an unsubstituted param trips
+              // emission's _func_has_generic_params gate just like the
+              // return trips has_generic_return.
+              if((get_all_some_types(spec_result).len() > usize(0)) || {
+                (yp_probe : bool) = false;
+                (ypi0 : usize) = usize(0);
+                while((ypi0 < spec_param_types.len()) && !(yp_probe), {
+                  match(
+                    spec_param_types.get(ypi0),
+                    .Some(ypt0) => if(get_all_some_types(ypt0).len() > usize(0), {
+                      yp_probe = true;
+                    }),
+                    .None => ()
+                  );
+                  ypi0 = (ypi0 + usize(1));
+                });
+                yp_probe
+              }, {
+                y_somes := get_all_some_types(sp_res_b);
+                {
+                  (ypc : usize) = usize(0);
+                  while(ypc < spec_param_types.len(), {
+                    match(
+                      spec_param_types.get(ypc),
+                      .Some(ypt) => {
+                        yp_found := get_all_some_types(ypt);
+                        (ypf : usize) = usize(0);
+                        while(ypf < yp_found.len(), {
+                          match(
+                            yp_found.get(ypf),
+                            .Some(yps) => {
+                              y_somes.push(yps);
+                            },
+                            .None => ()
+                          );
+                          ypf = (ypf + usize(1));
+                        });
+                      },
+                      .None => ()
+                    );
+                    ypc = (ypc + usize(1));
+                  });
+                };
+                ys_ret := subst_new();
+                (ys_any : bool) = false;
+                (yrsi : usize) = usize(0);
+                while(yrsi < y_somes.len(), {
+                  yrst := match(y_somes.get(yrsi),.Some(t) => t,.None => t_unit());
+                  match(
+                    yrst,
+                    .SomeT(_, yrst_name, yrst_lvl, _, _, _, _, _, _, _, _) => {
+                      (ybni : usize) = usize(0);
+                      while(ybni < forall_names.len(), {
+                        ybn := match(forall_names.get(ybni),.Some(n) => n,.None => String.from(""));
+                        if((ybn == yrst_name) && (ybni < arg_values.forall_args.len()), {
+                          match(
+                            arg_values.forall_args.get(ybni),
+                            .Some(yae) => match(
+                              yae.value,
+                              .Some(yv) => match(
+                                yv,
+                                .TypeVal(ytb) => if(!(is_some_type(ytb)), {
+                                  subst_add(ys_ret, yrst_name.clone(), yrst_lvl, ytb.clone());
+                                  ys_any = true;
+                                }),
+                                _ => ()
+                              ),
+                              .None => ()
+                            ),
+                            .None => ()
+                          );
+                        });
+                        ybni = (ybni + usize(1));
+                      });
+                    },
+                    _ => ()
+                  );
+                  yrsi = (yrsi + usize(1));
+                });
+                if(ys_any, {
+                  spec_result = substitute(ys_ret, sp_res_b);
+                  // Rebuild the param list through the same substitution
+                  // (ArrayList has no indexed set).
+                  y_new_params := ArrayList(TypeValue).new();
+                  (ypr : usize) = usize(0);
+                  while(ypr < spec_param_types.len(), {
+                    match(
+                      spec_param_types.get(ypr),
+                      .Some(ypt2) => if(get_all_some_types(ypt2).len() > usize(0), {
+                        y_new_params.push(substitute(ys_ret, ypt2));
+                      }, {
+                        y_new_params.push(ypt2);
+                      }),
+                      .None => ()
+                    );
+                    ypr = (ypr + usize(1));
+                  });
+                  spec_param_types = y_new_params;
+                });
+              });
               // Gap-6 attempt #8(a): a declared-`Self` return resolves through
               // callee_env to the impl's PATTERN-ERA instance (unresolved T#N
               // only in type_arguments — no resolution path concretizes it,
@@ -3375,9 +3643,40 @@ try_to_call_function_with_arguments :: (
               match(
                 last_v.value,
                 .Some(v) => {
+                  // TS helper.ts:1464-1494 (unported until now): propagate
+                  // resolvedConcreteType from a generic SomeType back before
+                  // extraction — the body eval resolves `U` through the
+                  // lineage cell / id registry, but this raw env read handed
+                  // the spec's return substitution the bare SomeT, so
+                  // spec_ret_ty stayed `List(U)` and emission's
+                  // has_generic_return gate silently dropped the spec.
+                  (v_out : EvalValue) = v;
+                  match(
+                    v,
+                    .TypeVal(v_tb) => match(
+                      v_tb,
+                      .SomeT({ id : ex_sid, resolved_concrete : ex_cell }) => {
+                        (ex_res : Option(TypeValue)) = Option(TypeValue).None;
+                        if(ex_cell.len() > usize(0), {
+                          ex_res = ex_cell.get(ex_cell.len() - usize(1));
+                        }, {
+                          ex_res = lookup_some_resolved_concrete(ex_sid);
+                        });
+                        match(
+                          ex_res,
+                          .Some(ex_c) => {
+                            v_out = EvalValue.TypeVal(ex_c);
+                          },
+                          .None => ()
+                        );
+                      },
+                      _ => ()
+                    ),
+                    _ => ()
+                  );
                   forall_arg_vals.push(
                     ArgEntry(
-                      value :.Some(v),
+                      value :.Some(v_out),
                       parameter_type : ftype2,
                       arg_type : last_v.ty
                     )
