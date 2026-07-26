@@ -208,9 +208,32 @@ NEITHER clears the repro:
    closure makes the body type concrete (`i32`) instead of `U`, which is what
    makes fix 1 fire at all. Still not sufficient on its own.
 
-Both are kept OUT of the tree pending a fix that actually clears the repro —
-the area has a history of hollow regressions, so nothing lands there on
-plausibility alone.
+3. **Narrow the unknown-arg CTFE gate to non-type returns.** This one is a
+   genuine faithfulness finding: `comptime_fn.yo:565-585` short-circuits a CTFE
+   call whose arg values contain an `UnknownVal`, and **TS has no such gate at
+   all** — `evaluateComptimeFunctionCall` short-circuits only for
+   `isAnalyzingCtfeCapability` (comptime-fn.ts:58-70) and otherwise executes the
+   body. Exempting type constructors (`is_type_hierarchy_type(return_type)`)
+   makes `List(U)` fold to the real generic instantiation instead of a
+   `ctfe_result_…` placeholder.
+
+   **Repro: markers 2 → 0.** The statement is no longer dropped; the emitted C
+   contains the real `map` call. But it does NOT hold up on the battery:
+
+   | file       | HEAD         | narrowed gate                      |
+   | ---------- | ------------ | ---------------------------------- |
+   | `imm_list` | rc=0, hollow | **rc=139 (SIGSEGV)**, still hollow |
+   | other 18   | unchanged    | unchanged (8 hollow both ways)     |
+
+   So it converts one silent drop into a crash and clears none of the eight
+   hollow batteries — the batch `main`'s hollow statement fails for a reason
+   the repro does not capture. NOT landed. (It also leaves the emitted call
+   mangled `yo_id_…__unknown__Type__…` and the C full of `void` fields/params,
+   i.e. it lands squarely in the cluster-2 comptime-param-model territory.)
+
+All three are kept OUT of the tree pending a fix that clears the repro AND the
+battery — the area has a history of hollow regressions, so nothing lands there
+on plausibility alone.
 
 ### Two independent hardening items this exposes
 
