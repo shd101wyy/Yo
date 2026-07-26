@@ -147,19 +147,24 @@ passed as a call ARGUMENT leaves the callee's forall `U` unbound → the callee'
 def-time trial body eval hits `List(U)` → `(result : List(U)) = List(U).new()`
 throws.
 
-**MECHANISM CORRECTED 2026-07-27** (two instrumentation rounds, full detail
-appended to `issues/yo-self-hollow-test-batch-main.md`): the trial swallow's
-unwind is CONTAINED correctly — the emitted C for `_trial_eval_fn_body`
-clears `__yo_effect_escaped` and returns, and P1..P5 probes show
-`try_to_implement_function_by_function_type` runs to its tail. The begin-loop
-abandonment happens LATER in the same statement's evaluation by a path that is
-**neither** the escape flag (all 18 setter sites + 16,993/16,996 checks
-instrumented in the C: zero hits in the fatal window) **nor** a source-level
-early return in `begin.yo`'s loop. Next probes are listed in the issue
-(instrument `evaluate_begin_expression`'s compiled exits; C-level trace of
-the check-phase end). The cheap C-instrumentation trick: sed-replace
-`__yo_effect_escaped = 1;` / `if (__yo_effect_escaped) {` in the emitted `.c`
-(skip lines containing `"` — emitter templates) and re-run clang only.
+**MECHANISM FULLY CAPTURED 2026-07-27** (four instrumentation rounds, full
+detail in `issues/yo-self-hollow-test-batch-main.md`): map's body is evaluated
+during the call via the SPECIALIZATION path
+(`create_specialized_function_inline` → `try_to_call_function_with_arguments`)
+which installs NO swallowing handler, so the `Incompatible types` throw
+(root: `U` unbound from the closure argument) unwinds the ENTIRE call chain —
+including the CALLER's begin loop, which is the hollow-batch blast radius —
+and is finally contained by the ENCLOSING function's own def-time trial
+(whose handler is what a diag build prints, the source of every earlier
+misattribution). Containment-at-specialization would only trade hollow for
+the cluster-2 `__unknown__Type__` mangling (dead end 4 measured that); the
+real fix is binding `U` on the closure-argument path, and the SomeT-id
+comparison probe should be run inside `create_specialized_function_inline`'s
+substitution. The cheap emitted-C instrumentation trick (sed-replace the
+`__yo_effect_escaped` setters/checks + per-fn `return`s, skip lines containing
+`"`, re-run clang only — all probes fprintf so ONE ordered stream) is the
+tool that cracked it; beware eprintln-vs-fprintf and stdout-vs-stderr
+buffering when mixing probe channels.
 
 **Four measured dead ends — do not repeat** (all in
 `issues/yo-self-hollow-test-batch-main.md`):
