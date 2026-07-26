@@ -406,3 +406,28 @@ argument path — and the next probe from the 2026-07-26 session ("compare the
 SomeT id at the stamp vs at the `List(U)` CTFE short-circuit") should now be
 run INSIDE `create_specialized_function_inline`'s substitution, which is the
 path that actually evaluates the body.
+
+
+### NEXT ATTEMPT DESIGN (2026-07-27, from the spec-path capture — untried)
+
+The spec body eval resolves `U` from the CALLEE ENV (`get_variables_from_env`)
+— bound by `try_to_call`'s Step-6 synthesis, where the measured given type
+for the closure is still `fn(a : i32) -> U` (U binds to itself). There are
+potentially THREE same-named-but-distinct `U` SomeT lineages: the wrapper's
+`Fn(i32)->U` return, the fn's `-> List(U)` occurrence, and the env-bound
+generic param. The dead-end registry stamps (2026-07-26 #2/#3) keyed ONE of
+them and the body eval consulted another.
+
+Untried, concrete: at Step 6 (`check_and_add_argument`'s synthesize), when
+the GIVEN closure-arg type's return is a SomeT (i.e. the closure's own
+declared return never resolved), look up the closure's DEFINITION-SITE
+return type by its FuncVal id (`register_definition_site_return` /
+function_value.yo — the anonymous-fn path already registers it) and use THAT
+as the given return for synthesis — so `U` binds to `i32` directly in
+callee_env, the same channel the spec body eval actually reads. This routes
+around all three lineage identities instead of trying to stamp one.
+
+Gate any attempt on: the repro's 2 markers, the 8 hollow batteries' hollow
+flags, corpus 141, std 153, and stage2 markers=6 — this area has a history
+of hollow regressions (the closure registry stamp added 13 markers while
+passing every other gate).
