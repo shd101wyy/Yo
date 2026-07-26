@@ -348,3 +348,11 @@ corrupting write into a deterministic crash with a stack.
 Caveat recorded: `__BEXIT` uses raw fprintf while the other probes are yo
 eprintln — if eprintln buffers, CROSS-channel ordering is unreliable; only
 the absence/presence of events is load-bearing in this round.
+
+Guard Malloc over the FULL repro compile is infeasible: rc=137 (killed)
+mid-way through std/string evaluation — page-per-allocation over the
+evaluator's millions of allocations exhausts memory. Narrow it next time:
+lldb with a hardware watchpoint on the dying begin's `loop_i`/`done` stack
+slots (break on entry to `evaluate_begin_expression` when
+`env->module_path` matches the repro, finish-to the fatal iteration, then
+watch), or a gmalloc run that starts the protection late.
