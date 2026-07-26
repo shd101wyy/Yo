@@ -147,24 +147,39 @@ passed as a call ARGUMENT leaves the callee's forall `U` unbound → the callee'
 def-time trial body eval hits `List(U)` → `(result : List(U)) = List(U).new()`
 throws.
 
-**MECHANISM FULLY CAPTURED 2026-07-27** (four instrumentation rounds, full
-detail in `issues/yo-self-hollow-test-batch-main.md`): map's body is evaluated
-during the call via the SPECIALIZATION path
-(`create_specialized_function_inline` → `try_to_call_function_with_arguments`)
-which installs NO swallowing handler, so the `Incompatible types` throw
-(root: `U` unbound from the closure argument) unwinds the ENTIRE call chain —
-including the CALLER's begin loop, which is the hollow-batch blast radius —
-and is finally contained by the ENCLOSING function's own def-time trial
-(whose handler is what a diag build prints, the source of every earlier
-misattribution). Containment-at-specialization would only trade hollow for
-the cluster-2 `__unknown__Type__` mangling (dead end 4 measured that); the
-real fix is binding `U` on the closure-argument path, and the SomeT-id
-comparison probe should be run inside `create_specialized_function_inline`'s
-substitution. The cheap emitted-C instrumentation trick (sed-replace the
-`__yo_effect_escaped` setters/checks + per-fn `return`s, skip lines containing
-`"`, re-run clang only — all probes fprintf so ONE ordered stream) is the
-tool that cracked it; beware eprintln-vs-fprintf and stdout-vs-stderr
-buffering when mixing probe channels.
+**MECHANISM CAPTURED + FIRST HALF LANDED 2026-07-27** (full detail in
+`issues/yo-self-hollow-test-batch-main.md`): the throw travels the
+SPECIALIZATION path (`create_specialized_function_inline` →
+`try_to_call_function_with_arguments`), which installs NO swallow, unwinds
+the CALLER's begin loop (the hollow blast radius), and is contained by the
+ENCLOSING fn's own def-time trial — whose handler is what a diag build
+prints (the source of every earlier misattribution).
+
+**LANDED (TIER 2 + FIXPOINT green):** the closure-body-type Step-6 binding —
+`register_closure_body_type` (function_value.yo, fed by
+values/anonymous_function.yo's concrete-body refine block, COMPTIME body
+types excluded) + the given-return substitution before Step-6 synthesize in
+check_and_add_argument (helper.yo). The canonical repro's markers went
+**2 → 0** (statements emitted for real, first time) and the blast radius is
+gone; battery/corpus/std all at baseline.
+
+**REMAINING (the emission half, WIP =
+`issues/patches/spec-emission-second-half-wip.patch`):** the spec is created,
+cached, and COLLECTED (method-callee side-table), but its registered type
+still returns `List(U)` so `should_skip_function_codegen`'s
+has_generic_return gate drops it — the call site then references an
+undefined `yo_id_..._ret_gs_..._1975_cl1_...` (merges with the cluster-7
+reds). Measured negatives so far: helper.yo Step-8 forall extraction never
+fires for this call (wrong path — it's the FuncVal arm), and the FuncVal
+arm's structural-fallback substitution twin alone doesn't resolve it either.
+Next probe: which FuncVal-arm inference arm binds `U` and to what, filtered
+by callee fid `yo_id_5059` (never by the name `U`). A resolved-return spec
+name (`ret_gs_yo_id_4998_i32`) already appears for another call in the same
+emit, so downstream (fid render, prototype, emission gate) needs nothing
+once the binding lands. The cheap emitted-C sed-instrumentation trick
+(setters/checks/containments/returns as ONE fprintf stream; never mix
+eprintln/fprintf probe channels; stdout is block-buffered under `&>`) is the
+tool that cracked all of this.
 
 **Four measured dead ends — do not repeat** (all in
 `issues/yo-self-hollow-test-batch-main.md`):
