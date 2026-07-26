@@ -548,3 +548,24 @@ probe-free, diff vs the landed tree):
   registered TYPE resolves, `should_skip_function_codegen`'s
   has_generic_return gate stops dropping it and no further codegen work
   should be needed.
+
+TWO MORE DATA POINTS (2026-07-27, final probes of the session):
+
+- `__STEP8 fid=yo_id_5059 n_forall=1 fv_forall=1` — try_to_call DOES process
+  the map call with U in its forall list, and the Step-8 extraction's SomeT
+  arm does NOT fire for it — i.e. U's callee_env value at extraction is
+  already NON-SomeT (concrete) or absent. If concrete, THAT invocation's
+  arg_values.forall_args carries i32.
+- The FuncVal arm's four inference arms NEVER attempt `U` at all (unfiltered
+  `__FABIND` census: T/_Self only) — so if the single `__SPECSTORE
+  base=yo_id_5059` mint happened on the FuncVal-arm path, its bindings had
+  no U and the U-flavored fid follows.
+
+LEADING HYPOTHESIS for the next session: the spec is minted ONCE on a pass
+whose forall bindings lack/miss U (checking-pass or the FuncVal-arm path),
+cached under the base fid, and the later better-bound pass gets a CACHE HIT
+on the unresolved spec (the cache key doesn't include the resolved return).
+Probe: print `arg_values.forall_args` contents + which caller invoked
+`create_specialized_function_inline` at the 5059 mint, and whether a second
+mint attempt cache-hits. Fix candidates: include resolved forall values in
+the cache key, or re-mint/patch the cached spec when bindings improve.
