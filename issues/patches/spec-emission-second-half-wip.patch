@@ -215,7 +215,7 @@
    collect_required_functions(module_value, base, info, true);
    collect_required_types(module_value, base, info);
 --- yo-self/evaluator/calls/function.yo	2026-07-26 23:06:11.898939241 +0800
-+++ /tmp/yb/evaluator/calls/function.yo	2026-07-27 05:28:52.544493354 +0800
++++ /tmp/yb/evaluator/calls/function.yo	2026-07-27 06:40:56.247435190 +0800
 @@ -117,7 +117,7 @@
  { evaluate_iso_value_call } :: import("./iso.yo");
  { TypeField, get_struct_fields } :: import("../types/field.yo");
@@ -272,7 +272,7 @@
            });
            fa_synth_env = Option(Environment).Some(se_new);
 --- yo-self/evaluator/calls/helper.yo	2026-07-27 04:54:52.726882663 +0800
-+++ /tmp/yb/evaluator/calls/helper.yo	2026-07-27 05:31:52.533882677 +0800
++++ /tmp/yb/evaluator/calls/helper.yo	2026-07-27 06:40:56.246625653 +0800
 @@ -21,6 +21,7 @@
  //! stub that lived here has been retired.
  pragma(Pragma.AllowUnsafe);
@@ -289,7 +289,56 @@
    adopt_receiver_struct_instance
  } :: import("../../expr_info.yo");
  { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
-@@ -3375,9 +3377,40 @@
+@@ -1462,6 +1464,48 @@
+           );
+           // Register recursive self-reference in context so recursive calls
+           // inside the body can find the specialized func_id.
++          // Bind the inferred generic values (arg_values.forall_args, in
++          // forall_names order) into the mint env before the return
++          // re-evaluation. TS's calleeEnv already carries these bindings; on
++          // the yo-self FuncVal-arm route the env passed here does NOT —
++          // measured on the closure-arg repro: forall_args=[i32] at mint
++          // entry while the re-eval still saw `U` unbound, so spec_ret_ty
++          // stayed `List(U)`, emission's has_generic_return gate silently
++          // dropped the spec, and the call site referenced an undefined
++          // yo_id_... (the cluster-7 shape). Concrete values only.
++          {
++            (zb_i : usize) = usize(0);
++            n_zb := forall_names.len();
++            while((zb_i < n_zb) && (zb_i < arg_values.forall_args.len()), {
++              zb_name := match(forall_names.get(zb_i),.Some(n) => n,.None => String.from(""));
++              match(
++                arg_values.forall_args.get(zb_i),
++                .Some(zb_ae) => match(
++                  zb_ae.value,
++                  .Some(zb_v) => match(
++                    zb_v,
++                    .TypeVal(zb_tb) => if(!(is_some_type(zb_tb)), {
++                      _zb := add_variable_to_env(
++                        callee_env,
++                        zb_name,
++                        TypeValue.TypeUni(usize(0)),
++                        Option(EvalValue).Some(EvalValue.TypeVal(zb_tb.clone())),
++                        true,
++                        false,
++                        false,
++                        false,
++                        synthetic_token(zb_name, callee_env.module_path)
++                      );
++                    }),
++                    _ => ()
++                  ),
++                  .None => ()
++                ),
++                .None => ()
++              );
++              zb_i = (zb_i + usize(1));
++            });
++          };
+           spec_ret_ty := evaluate_function_return_type_again(
+             match(func_type,.Func({ result : r }) => r, _ => t_unit()),
+             callee_env,
+@@ -3375,9 +3419,40 @@
                match(
                  last_v.value,
                  .Some(v) => {

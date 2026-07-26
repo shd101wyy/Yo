@@ -569,3 +569,22 @@ Probe: print `arg_values.forall_args` contents + which caller invoked
 `create_specialized_function_inline` at the 5059 mint, and whether a second
 mint attempt cache-hits. Fix candidates: include resolved forall values in
 the cache key, or re-mint/patch the cached spec when bindings improve.
+
+FINAL NEGATIVE of the session (probe cycle 8): `U` IS bound to `i32` in
+`arg_values.forall_args` at the 5059 mint entry (`__MINTENTRY n_fa=1` /
+`__MINTFA ty=i32`), and a zip-bind of forall_names→forall_args values into
+the mint's callee_env immediately before
+`spec_ret_ty := evaluate_function_return_type_again(<List(U)>, callee_env, ctx)`
+STILL leaves the return unresolved — so `evaluate_function_return_type_again`
+does not resolve a SomeT inside a generic instantiation (`List(U)`) from an
+env NAME binding alone; it needs the SomeT-identity channel (substitution by
+SomeT id/level, or the resolved_concrete cell on THAT `U` occurrence — the
+`U` inside `List(U)` is a different SomeT copy than the env-bound one, the
+classic Gap-6 lineage split). NEXT: substitute the declared return through
+`substitute()` keyed by the forall SomeT occurrences (get_all_some_types of
+the declared return, matched to forall_names by name+level) with the
+forall_args values — the same mechanism `_evaluate_funcval_runtime_call`'s
+header already implements for ITS return resolution (function.yo:1348-1370,
+`s_ret := subst_new(); ...`) — that code is the proven in-tree template; the
+mint should reuse it. All attempts probe-free in
+`issues/patches/spec-emission-second-half-wip.patch`.
