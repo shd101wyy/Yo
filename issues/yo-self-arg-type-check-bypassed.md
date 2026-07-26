@@ -1,6 +1,15 @@
 # yo-self accepts a type-incompatible argument and emits a silent C cast
 
-**Status:** FIX WRITTEN + TIER-1 CLEAN, TIER-2 pending, 2026-07-26.
+**Status:** FIX WRITTEN + TIER-1 CLEAN; **NOT LANDED** — reverted from the tree
+so the `forall` → `generic` migration (`plans/FORALL_TO_GENERIC.md`) could start
+from a clean base, as that plan's Timing rule requires ("Any in-flight yo-self
+work must be committed or reverted first"). TIER-2 was stopped ~10 min into
+stage2 and never completed, so the fixpoint is UNVERIFIED.
+
+**To resume:** `git apply issues/patches/arg-type-check-fix.patch` (93 added
+lines, one file: `yo-self/evaluator/calls/function.yo`). It will need rebasing
+onto the rename — mechanical, the patch context contains no `forall` binder —
+then re-run TIER 1 and a full TIER 2.
 **Severity:** a core soundness hole — the callee's parameter type is not
 enforced on some call path, and codegen papers over it with a C cast.
 
