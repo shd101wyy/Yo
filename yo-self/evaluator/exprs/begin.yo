@@ -580,7 +580,7 @@ _check_keyword_position :: (
 _value_contains_unknown :: (fn(v : EvalValue) -> bool)(
   match(
     v,
-    .UnknownVal(_) => true,
+    .UnknownVal(_, _) => true,
     .EnumVal(_, fields) => {
       (i : usize) = usize(0);
       (found : bool) = false;
@@ -1758,7 +1758,7 @@ evaluate_begin_expression :: (
             ev_info_opt,
             .Some(ei) => match(
               ei.value,
-              .Some(v) => match(v,.UnknownVal(_) => true, _ => false),
+              .Some(v) => match(v,.UnknownVal(_, _) => true, _ => false),
               .None => false
             ),
             .None => false

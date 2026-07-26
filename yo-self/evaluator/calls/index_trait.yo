@@ -28,7 +28,8 @@ open(import("std/string"));
   is_struct_val,
   is_int_lit,
   is_unknown_val,
-  create_unknown_val
+  create_unknown_val,
+  create_runtime_unknown_val
 } :: import("../../value.yo");
 { EvalContext, IndexCallResult, ExpectedTypeCtx } :: import("../context.yo");
 {
@@ -945,7 +946,10 @@ try_to_call_with_index_trait :: (
     .Pointer(et) => et,
     _ => ret_ty
   );
-  result_val := create_unknown_val(output_ty);
+  // Runtime dispatch through a trait method — TS marks the result
+  // `isRuntimeOnly` "so overload resolution doesn't prefer comptime functions"
+  // (index-trait.ts:321-328).
+  result_val := create_runtime_unknown_val(output_ty);
   // Specialize the index method so codegen has an emittable concrete FuncVal (see
   // _specialize_index_method). On any failure, fall back to the generic value
   // (no worse than before — the codegen branch then references an unemitted fn).

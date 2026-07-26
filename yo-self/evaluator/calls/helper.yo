@@ -590,13 +590,24 @@ check_if_function_parameter_matches_argument :: (
     );
   });
   // Step 5: Comptime check — runtime arg cannot fill a comptime parameter.
+  //
+  // 1:1 with TS helper.ts:465-478: the argument counts as runtime when it has
+  // NO value, or when it is an UnknownValue that is `isRuntimeOnly`. An
+  // ORDINARY `UnknownVal` is a compile-time placeholder (CTFE analysis) and TS
+  // accepts it. yo-self used to reject every `UnknownVal`, which made a
+  // comptime-only `self` parameter unfillable; the throw was then eaten by
+  // `_evaluate_expression_wrapper` (_expr.yo:1017) and the enclosing statement
+  // emitted as `// Failed to transpile` — measured on tests/imm_vec, where the
+  // dropped statement was the whole test body (a hollow rc=0 "47 passed").
+  // `VarRef` keeps its own arm: it names a runtime variable binding, which is
+  // never a compile-time value in yo-self (TS has no VarRef).
   if(is_ct_only, {
     is_rt := match(
       arg_value,
       .None => true,
       .Some(v) => match(
         v,
-        .UnknownVal(_) => true,
+        .UnknownVal(_, ro) => ro,
         .VarRef(_) => true,
         _ => false
       )
@@ -2898,7 +2909,7 @@ try_to_call_function_with_arguments :: (
         flabel := match(fl.get(fpi),.Some(l) => l,.None => String.from(""));
         ftype := match(ft.get(fpi),.Some(t) => t,.None => t_unit());
         ftype_inner := match(ft.get(fpi),.Some(t) => t,.None => t_unit());
-        (forall_val : EvalValue) = EvalValue.UnknownVal(ftype_inner);
+        (forall_val : EvalValue) = EvalValue.UnknownVal(ftype_inner, false);
         // If caller supplied explicit forall(…) args, try to resolve.
         match(
           forall_args_opt,

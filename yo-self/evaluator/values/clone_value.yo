@@ -39,7 +39,7 @@ clone_value :: (fn(v : EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
     .FuncVal(_, _) => v,
     .TypeVal(_) => v,
     .ExprVal(_) => v,
-    .UnknownVal(_) => v,
+    .UnknownVal(_, _) => v,
     // ReturnVal — recursively clone the wrapped value
     .ReturnVal(val : val_box, ty : ty) =>
       EvalValue.ReturnVal(val : recur(val_box, preserve_pointer_refs), ty : ty.clone()),

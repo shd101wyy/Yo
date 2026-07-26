@@ -1372,9 +1372,9 @@ are_values_equal :: (
       )
     },
     // val1 is UnknownVal: compare types with are_types_compatible.
-    .UnknownVal(ty1) => match(
+    .UnknownVal(ty1, _) => match(
       val2,
-      .UnknownVal(ty2) => are_types_compatible(ty1, ty2),
+      .UnknownVal(ty2, _) => are_types_compatible(ty1, ty2),
       _ => false
     ),
     // val1 is a concrete value.
@@ -1387,7 +1387,7 @@ are_values_equal :: (
         match(resolved2,.Some(r2) => recur(val1, env1, r2, env2),.None => false)
       },
       // val2 is UnknownVal: not equal to a concrete value.
-      .UnknownVal(_) => false,
+      .UnknownVal(_, _) => false,
       // Both concrete: structural equality.
       _ => (val1 == val2)
     )

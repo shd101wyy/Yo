@@ -196,7 +196,18 @@ EvalValue :: ref(
     ///
     /// NOT the same as `VarRef` — `VarRef` represents a known-at-runtime variable
     /// reference, while `UnknownVal` is a compile-time placeholder.
-    UnknownVal(ty : TypeValue)
+    ///
+    /// `is_runtime_only` mirrors `UnknownValue.isRuntimeOnly` (src/value.ts:163).
+    /// FALSE for an ordinary compile-time placeholder (the default, and what
+    /// `create_unknown_val` builds); TRUE only for a value produced by runtime
+    /// dispatch — Index-trait dispatch (index-trait.ts:321-328), a `recur`
+    /// result in a runtime-returning function (recur.ts:97-108), and anything
+    /// derived from one by property access (property-access.ts:358-368,
+    /// 1040-1053, 1170-1184). Consumers must treat only the TRUE case as "this
+    /// is a runtime value": TS's comptime-parameter check rejects exactly that
+    /// (helper.ts:465-478), and treating every unknown as runtime made a
+    /// comptime `self` parameter unfillable.
+    UnknownVal(ty : TypeValue, is_runtime_only : bool)
   )
 );
 /// Element-wise equality for `EvalValue`.
@@ -517,7 +528,9 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
       _ => false
     ),
     // UnknownVal: two unknowns are equal if they represent the same type.
-    .UnknownVal(aty) => match(b,.UnknownVal(bty) => are_types_compatible(aty, bty), _ => false)
+    // The `is_runtime_only` flag is provenance, not identity — TS's
+    // `areValuesEqual` compares the TYPES only, so it is excluded here too.
+    .UnknownVal(aty, _) => match(b,.UnknownVal(bty, _) => are_types_compatible(aty, bty), _ => false)
   )
 );
 impl(
@@ -764,7 +777,7 @@ value_to_string :: (fn(v : EvalValue) -> String)(
       `comptime_list(${parts_cl})`
     },
     .ExprVal(_) => String.from("<expr>"),
-    .UnknownVal(ty) => {
+    .UnknownVal(ty, _) => {
       ts := type_to_string(ty);
       `<unknown: ${ts}>`
     }
@@ -797,7 +810,13 @@ is_ptr_val :: (fn(v : EvalValue) -> bool)(match(v,.PtrVal(_, _) => true, _ => fa
 is_trait_val :: (fn(v : EvalValue) -> bool)(match(v,.TraitVal(_, _, _) => true, _ => false));
 is_comptime_list_val :: (fn(v : EvalValue) -> bool)(match(v,.ComptimeListVal(_) => true, _ => false));
 is_expr_val :: (fn(v : EvalValue) -> bool)(match(v,.ExprVal(_) => true, _ => false));
-is_unknown_val :: (fn(v : EvalValue) -> bool)(match(v,.UnknownVal(_) => true, _ => false));
+is_unknown_val :: (fn(v : EvalValue) -> bool)(match(v,.UnknownVal(_, _) => true, _ => false));
+/// Is `v` a RUNTIME-ONLY unknown (`UnknownValue.isRuntimeOnly` in TS)?
+/// Mirrors the `isUnknownValue(v) && v.isRuntimeOnly` test TS spells out at
+/// helper.ts:471, function.ts:1706/2441/2504 and assignment.ts:1207.
+is_runtime_only_unknown_val :: (fn(v : EvalValue) -> bool)(
+  match(v,.UnknownVal(_, ro) => ro, _ => false)
+);
 /// Check if `v` is a numeric literal (int or float). Mirrors TS
 /// `isNumberValue` in `src/value.ts`, which covers all numeric
 /// variants. yo-self stores numerics as `IntLit` / `FloatLit` raw
@@ -844,7 +863,14 @@ is_type_value :: (fn(opt : Option(EvalValue)) -> bool)(
 /// declared type is `Type` so that later expressions can use the name as a type
 /// (e.g. `INT_LEAST8_MIN : int_least8_t`).
 create_unknown_val :: (fn(ty : TypeValue) -> EvalValue)(
-  EvalValue.UnknownVal(ty)
+  EvalValue.UnknownVal(ty, false)
+);
+/// Create a RUNTIME-ONLY unknown placeholder — the value TS produces by
+/// `createUnknownValue(...)` followed by `value.isRuntimeOnly = true`. yo-self
+/// values are immutable copies, so the flag is set at construction instead of
+/// mutated afterwards.
+create_runtime_unknown_val :: (fn(ty : TypeValue) -> EvalValue)(
+  EvalValue.UnknownVal(ty, true)
 );
 /// Create a compile-time unknown placeholder, promoting to `TypeVal(SomeType)` when
 /// `ty` is the `Type` universe (i.e. the binding is type-level). Mirrors the TS
@@ -854,7 +880,7 @@ create_unknown_val_with_name :: (fn(ty : TypeValue, name : String) -> EvalValue)
   cond(
     is_type_0(ty) =>
       EvalValue.TypeVal(t_some_t(name, usize(0))),
-    true => EvalValue.UnknownVal(ty)
+    true => EvalValue.UnknownVal(ty, false)
   )
 );
 /// The result of evaluating a single `AstExpr` node.
@@ -918,7 +944,7 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
         true =>.Struct(String.from(""), name, labels, tys, false, false, false, String.from(""), ArrayList(TypeValue).new(), false)
       )
     },
-    .UnknownVal(ty) => ty,
+    .UnknownVal(ty, _) => ty,
     _ => t_unit()
   )
 );
@@ -934,7 +960,12 @@ export(
   is_comptime_float_value,
   is_comptime_string_value
 );
-export(is_type_value, create_unknown_val, create_unknown_val_with_name);
+export(
+  is_type_value,
+  create_unknown_val,
+  create_runtime_unknown_val,
+  create_unknown_val_with_name
+);
 export(eval_value_eq);
 // ---------------------------------------------------------------------------
 // Enum constructor-func-id side-table. `TypeValue.EnumT` has no

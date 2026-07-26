@@ -40,6 +40,7 @@ open(import("std/string"));
   EvalValue,
   create_type_value,
   create_unknown_val,
+  create_runtime_unknown_val,
   type_of_eval_value,
   is_type_value
 } :: import("../../value.yo");
@@ -548,7 +549,7 @@ Raw pointer operations may dereference invalid memory.`,
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_ptr);
                   return(expr);
                 },
-                .UnknownVal(_) => {
+                .UnknownVal(_, _) => {
                   // CHECKING PHASE ONLY: keep the comptime Unknown placeholder.
                   // In execution mode a call-chain result carries `UnknownVal`
                   // under yo-self's runtime-result convention where TS carries
@@ -1371,8 +1372,16 @@ Raw pointer operations may dereference invalid memory.`,
               .Some(ov_lbl) => {
                 match(
                   ov_lbl,
-                  .UnknownVal(_) => {
-                    out_lbl.value = Option(EvalValue).Some(create_unknown_val(ft_lbl));
+                  // Propagate `is_runtime_only` onto the field's unknown —
+                  // TS property-access.ts:1040-1053 does exactly this.
+                  .UnknownVal(_, ov_lbl_ro) => {
+                    out_lbl.value = Option(EvalValue).Some(
+                      if(
+                        ov_lbl_ro,
+                        create_runtime_unknown_val(ft_lbl),
+                        create_unknown_val(ft_lbl)
+                      )
+                    );
                   },
                   _ => {
                     // Dereference through PtrVal before field selection.
@@ -1494,8 +1503,15 @@ Raw pointer operations may dereference invalid memory.`,
               .Some(ov_mod) => {
                 match(
                   ov_mod,
-                  .UnknownVal(_) => {
-                    out_mod.value = Option(EvalValue).Some(create_unknown_val(ft_mod));
+                  // Propagate `is_runtime_only` — TS property-access.ts:1170-1184.
+                  .UnknownVal(_, ov_mod_ro) => {
+                    out_mod.value = Option(EvalValue).Some(
+                      if(
+                        ov_mod_ro,
+                        create_runtime_unknown_val(ft_mod),
+                        create_unknown_val(ft_mod)
+                      )
+                    );
                   },
                   .StructVal(_, _, mvals) => {
                     match(

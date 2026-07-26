@@ -266,7 +266,7 @@ value_is_comptime :: (fn(v : EvalValue) -> bool)(
     .ComptimeListVal(_) => true,
     .ExprVal(_) => true,
     // Phase 2u variants
-    .UnknownVal(_) => true,
+    .UnknownVal(_, _) => true,
     // Phase 3z variants
     .StructVal(_, _, _) => true
   )
@@ -385,7 +385,7 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
     .ComptimeListVal(_) => t_unit(),
     .ExprVal(_) => t_expr_t(),
     // Phase 2u
-    .UnknownVal(ty) => ty,
+    .UnknownVal(ty, _) => ty,
     // Phase 3z
     .StructVal(_, _, _) => t_unit()
   )

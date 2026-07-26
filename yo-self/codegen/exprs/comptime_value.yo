@@ -452,7 +452,7 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
     // 304-314 (`UnknownValue` whose own `type.ioBuiltin` is set → "NULL");
     // the extern("Yo") name on the CARRIED type is yo-self's detection (the
     // declared field type on the Io struct is a plain unmarked Func).
-    .UnknownVal(unk_ty) => if(
+    .UnknownVal(unk_ty, _) => if(
       _is_io_builtin_fn_type(unk_ty) || _is_io_builtin_fn_type(ty),
       String.from("NULL"),
       String.from("/* skip generating value */")
