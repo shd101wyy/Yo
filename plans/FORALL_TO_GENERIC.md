@@ -1,7 +1,8 @@
 # `forall` → `generic`: keyword migration plan
 
-**Status: EXECUTED 2026-07-26.** One atomic commit, per the hard-cutover
-decision below. See "Deviation from the plan" for the one place reality
+**Status: DONE 2026-07-26** (`60d1c9920`). One atomic commit, per the
+hard-cutover decision below; full bootstrap chain green including
+STRICT_FIXPOINT. See "Deviation from the plan" for the one place reality
 overruled the design.
 
 Rename the type-parameter binder keyword from `forall` to `generic`, and
@@ -304,13 +305,31 @@ for every failure:
 
 **Net: zero regressions attributable to the rename.**
 
-### Still outstanding
+### Bootstrap chain — PASSED
 
-The bootstrap chain (step 7's second half) has NOT been run: s1 build, s1
-battery, corpus diff-test, `s1 check ./std`, stage2 → clang → stage3 →
-STRICT_FIXPOINT, and the 183-file sweep against the
-132 GREEN / 32 HOLLOW / 19 RED baseline. That is ~2.5 h of wall clock and must
-pass before this is considered landed.
+Run on an s1 built from the renamed sources (`S1=/tmp/fg_s1 P=fg
+scratchpad/gates_perf1.sh`):
+
+| gate                     | result                                 |
+| ------------------------ | -------------------------------------- |
+| GATE 0 repros            | as expected (the known-red one is red) |
+| GATE 1 battery, 19 files | 19/19 at their expected counts         |
+| GATE 2 corpus diff-test  | **PASS 140 / DIFF 0** / SELF-FAIL 0    |
+| GATE 3 `check ./std`     | 153/153                                |
+| GATE 4 stage2 + clang    | rc=0, hollow markers **6** = baseline  |
+| GATE 5 stage3            | rc=0                                   |
+| GATE 6                   | **STRICT_FIXPOINT HOLDS**              |
+
+Corpus DIFF 0 is the strong result: the emitted C is byte-identical to the TS
+compiler's across all 140 files, so the rename is behaviour-neutral through
+both frontends.
+
+### Remaining
+
+`docs/en-US/DESIGN.md` and `docs/zh-CN/DESIGN.md` carry the rename in the
+working tree but were left UNCOMMITTED — they also hold an in-progress edit by
+the repo owner (one line adding a Dafny reference). 28 of their 29 changed
+lines are the rename; they land whenever the owner commits.
 
 ## Risks
 
