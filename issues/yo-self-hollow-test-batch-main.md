@@ -431,3 +431,44 @@ Gate any attempt on: the repro's 2 markers, the 8 hollow batteries' hollow
 flags, corpus 141, std 153, and stage2 markers=6 — this area has a history
 of hollow regressions (the closure registry stamp added 13 markers while
 passing every other gate).
+
+
+### ATTEMPT 5 (2026-07-27) — Step-6 closure-body-type binding: BEST RESULT YET, parked as WIP
+
+Implemented the design above (`issues/patches/closure-body-type-step6-binding.patch`,
+3 files): a `register_closure_body_type` side table (function_value.yo) fed by
+the `=>` path's existing concrete-body refine block (anonymous_function.yo,
+inside the `has_some == 0` branch that already computes `body_ty`), consumed
+in `check_and_add_argument` immediately before Step-6 synthesize: when the
+arg value is a FuncVal whose GIVEN fn-type return is a SomeT and a concrete
+body type is registered, substitute it as the given return
+(`arg_type_for_synth`).
+
+**Measured:**
+
+- Canonical repro: markers **2 → 0** — the map call and the assert are
+  emitted for REAL for the first time (every prior attempt either changed
+  nothing or crashed imm_list). The begin-loop blast radius is GONE.
+- Residual on the repro: the emitted spec call
+  `yo_id_5059_..._ret_gs_yo_id_4998_1975_cl1_closure_...` is **called but
+  never defined** (rc=139 via clang implicit-int) — i.e. the file moves from
+  the closure-forall family INTO the cluster-7 "undeclared spec" bucket; the
+  spec's name still renders the return as `List(U-1975)` rather than
+  `List(i32)`, so the spec-emission/identity half still needs the same
+  binding at SPEC-NAMING time.
+- TIER 1: battery UNCHANGED (all hollow flags at baseline — no regressions,
+  no flips yet), std 153/153, corpus PASS 140 / **SELF-FAIL 1**:
+  `io_async_str.yo` — the io.async STATEMENT itself goes FTT (the
+  substitution perturbs io.async's own `_ret`/E-bundle Step-6 synthesis).
+- Narrowing the REGISTRATION with `!(ctx.is_inside_io_async_call)` did NOT
+  fix io_async_str — the flag is not set (or not preserved) at the
+  registration moment inside the def-time body-eval context. The right scope
+  is probably at the CONSUMER: skip the substitution when the CALLEE is the
+  io builtin (`_freshen_io_builtin_callee` knows it) or when resolved_pt is
+  the io.async bundle-carrying wrapper.
+
+**Next session:** (1) scope the consumer by callee (io builtins excluded),
+(2) fix the spec-identity half — the spec name/prototype must render the
+bound return (`List(i32)`), which is where the cluster-7 undeclared-spec
+work and this fix meet. Reverted from the tree pending both; the patch
+re-applies cleanly.
