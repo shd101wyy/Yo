@@ -1,6 +1,6 @@
 # yo-self accepts a type-incompatible argument and emits a silent C cast
 
-**Status:** OPEN, found 2026-07-26 on HEAD (`ccd2dc498`).
+**Status:** FIX WRITTEN + TIER-1 CLEAN, TIER-2 pending, 2026-07-26.
 **Severity:** a core soundness hole — the callee's parameter type is not
 enforced on some call path, and codegen papers over it with a C cast.
 
@@ -157,15 +157,52 @@ where this branch walks the arguments unconditionally (or add such a walk), and
 keep the same three guards (count alignment, concrete declared type,
 post-comptime-coercion) — they are what keep it off the generic paths.
 
-## Next step
+## Fix
 
-Add the per-argument compatibility check on the unconditional path of
-`_evaluate_funcval_runtime_call`, then gate with TIER 1
-(`scratchpad/gates_fast.sh`, ~12 min) before anything else: this branch handles
-nearly every call in the compiler, so a check that is too strict will fail
-loudly and immediately. Success criteria: `issues/repros/arg-type-check-bypassed.yo`
-is rejected (matching TS), the 20-file battery keeps its counts AND its hollow
-flags, corpus stays PASS 140 / DIFF 0. Suggested probe: print the callee `func_id` at every site
+A per-argument compatibility check on the UNCONDITIONAL path of
+`_evaluate_funcval_runtime_call` (top of the function, before the return-type
+resolution), guarded to stay off every path where the binding is made
+elsewhere:
+
+- declared parameter count == evaluated argument count (unambiguous alignment —
+  receiver / implicit / defaulted params otherwise shift the indices);
+- declared parameter type concrete: not a SomeT, not `type_contains_some_type`,
+  **and not a function type**;
+- argument type concrete: same three, and not `comptime_int/float/string`
+  (those are lowered further down).
+
+The function-type guard is load-bearing and was found by measurement, not
+foresight. `type_contains_some_type` does NOT see through a `Func`, so a
+callback parameter like `fn(e : E2) -> T2` reads as concrete and the check
+rejected three legitimate effect-polymorphic calls:
+
+```
+expected=fn(e : E2) -> T2   given=fn(e : LogBundle) -> unit
+expected=fn(e : E1) -> T1   given=fn(e : RaiseBundle) -> i32
+expected=fn(e : E)  -> T    given=fn(e : RaiseBundle) -> i32
+```
+
+Without it: `async_await` rc=1, corpus PASS 139 / **DIFF 1**
+(`effect_polymorphism_forall_infer`). With it: both clean.
+
+### TIER-1 result (`scratchpad/gates_fast.sh`)
+
+| gate             | result                                                        |
+| ---------------- | ------------------------------------------------------------- |
+| reproducer       | now REJECTED (statement no longer emitted with a silent cast) |
+| battery 20 files | all counts AND all hollow flags identical to HEAD             |
+| corpus           | PASS 140 / DIFF 0                                             |
+| `check ./std`    | 153/153                                                       |
+
+`sys/bufio` SIGSEGV'd once in the battery run; it reproduces on HEAD too (it is
+already RED with rc=139 in the 183-file sweep). Re-ran it 6× with the fix
+(5 clean, 1 rc=139 with a **zero-byte log** = the documented phantom-kill
+signature) and 5× on HEAD (5 clean). Treated as machine flakiness, not a
+regression — but worth re-checking if it recurs.
+
+**This fix flips no test by itself** — the battery's hollow set is unchanged. It
+closes a soundness hole; the `comptime_expect_error` files each need their own
+missing validation on top. Suggested probe: print the callee `func_id` at every site
 in `evaluator/calls/function.yo` that produces a `FuncCallResult` without going
 through `try_to_call_function_with_arguments` (the FuncVal arm around :945, the
 `.method()` arm around :2856, and the specialization shortcuts), and match it
