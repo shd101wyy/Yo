@@ -130,6 +130,39 @@ Also refuted: the trial-eval unwind is NOT escaping its helper
 (`__DBG_TRIAL before → after out=0` prints prove containment), so
 `_trial_eval_fn_body` is not corrupting the caller by unwinding too far.
 
+### NEW 2026-07-26 — a soundness hole found while doing (1): arg types unchecked
+
+`f :: (fn(x : i32) -> i32)(x); f(true)` — TS rejects ("Cannot unify
+incompatible types: Expected i32, Given bool"); **yo-self accepts it and emits
+`yo_id_NNNN((int32_t)(true))`**. Measured: `are_types_compatible(i32, bool)` is
+correctly `false`, and instrumenting Step 8 of `check_and_add_argument` while
+compiling the reproducer prints 25 distinct param/arg pairs — every one equal —
+and NEVER an `i32/bool` pair. So this call path does not run the per-argument
+check at all. TS funnels every call through `tryToCallFunctionWithArguments`;
+whichever yo-self path bypasses it is the divergence. Full write-up +
+reproducer: `issues/yo-self-arg-type-check-bypassed.md`,
+`issues/repros/arg-type-check-bypassed.yo`. This is probably why several
+`comptime_expect_error` tests fail, and it means a "green" file can contain
+silently mistyped calls that C casts into place — fix it before trusting the
+green count further.
+
+### Batched workflow (adopted 2026-07-26 on the user's instruction)
+
+One landing used to cost ~75 min of gates while diagnosis costs minutes, so
+ports are now batched:
+
+- **TIER 1 — `scratchpad/gates_fast.sh` (~12 min)**: repros, the 20-file battery
+  WITH per-file hollow detection, corpus diff-test, `check ./std`. Run on every
+  change while assembling a batch.
+- **TIER 2 — `scratchpad/gates_perf1.sh` (~75 min)**: adds stage2, clang,
+  stage3, STRICT_FIXPOINT. Run ONCE per batch, immediately before pushing.
+- Bisect a TIER-2 failure with 2-minute s1 builds; do not go back to
+  one-gate-per-commit.
+
+Iterate in a scratch copy so a running gate never reads a half-edited tree:
+`cp -R yo-self /tmp/yb && ./yo-cli compile /tmp/yb/main.yo --release -o /tmp/yb_s1`
+(~2 min). Add `open(import("std/fmt"));` to any file you put an `eprintln` in.
+
 ### Suggested next moves, highest leverage first
 
 1. **`comptime_expect_error` (7 files, ~90 assertions)** — the cheapest block:
