@@ -6,7 +6,9 @@ this file and in `issues/*.md`; nothing below needs re-litigating._
 ## Where things stand
 
 - **#70 (`s2 test ./yo-self/tests`): DONE — 61/61.**
-- **#69 (`s2 test ./tests`): 132 GREEN / 32 HOLLOW / 19 RED of 183.**
+- **#69 (`s2 test ./tests`): 133 GREEN / 32 HOLLOW / 18 RED of 183.**
+  Measured 2026-07-26 with `scratchpad/hollow_sweep69.sh` on an s1 built from
+  the current tree; raw per-file verdicts in that sweep's `results.txt`.
 
 **Do not quote a bare "N passing" number.** 33 files used to be counted green
 while running NOTHING: yo-self emitted the test batch's whole `main` as a
@@ -16,12 +18,31 @@ scored every test a pass. Proven with a deliberate `assert(false)` probe (TS:
 `issues/yo-self-hollow-test-batch-main.md`.
 
 Score honestly with **`scratchpad/hollow_sweep69.sh`** (resumable, 183 files,
-~45 min): a file is GREEN only if it exits 0 **and** its batch `main` is not a
+~90 min): a file is GREEN only if it exits 0 **and** its batch `main` is not a
 comment. Anything else is HOLLOW or RED.
+
+`sys/bufio` and `thread` are FLAKY on this machine — they SIGSEGV
+intermittently with a ZERO-byte log (the phantom-kill signature). Re-run before
+believing either result; measured 5/6 and 5/5 clean across repeats.
 
 ## What to work on, in order
 
 ### 1. The hollow cluster (32 files) — biggest and best-mapped
+
+The 32, as of the 2026-07-26 sweep:
+
+```
+algebraic_effects  array  asm  async_await  atomic_object  basic  closure
+collections/linked_list  comptime  comptime_option_result  env  fn
+for_macro_borrow  gadts  higher_kinded_types  imm_list  imm_vec  impl  index
+inherent_first_resolution  iter_filter_closure  iterator_combinators
+module_struct_unification  option_result_combinators  prelude
+spec/contracts_phase0  spec/pragma_no_contracts  spec/pragma_verify
+string/string  sys/file  type_reflection  where_clause_fn_inference
+```
+
+They hide roughly 950 reported assertions (`string/string` alone claims 251,
+`async_await` 116, `algebraic_effects` 72, `collections/linked_list` 69).
 
 Because the generated batch `main` is ONE `match` statement holding every test,
 a single evaluation failure anywhere in the file loses that statement's
@@ -59,16 +80,43 @@ operator with no impl on a primitive receiver an error (`bool < 3`), flipping
 | `module_struct_unification` | bare `module(x : i32)` and bare `Module` as expressions                                                                                |
 | `prelude`                   | conflicting `impl` on `AnotherBox`; `uninit.assume_init()` before init                                                                 |
 
-Method that works: run the file under a diagnostic s1 (prints every swallowed
-error), find the `Expected compile error …` site, put the offending expression
-in `src/tests/fixme.yo`, and compare `./yo-cli compile` (TS) against the
-yo-self binary. TS rc=1 vs yo-self rc=0 localises the missing check in minutes.
+Method that works: run the file under a DIAGNOSTIC s1 (below), find the
+`Expected compile error …` site, put the offending expression in
+`src/tests/fixme.yo`, and compare `./yo-cli compile` (TS) against the yo-self
+binary. TS rc=1 vs yo-self rc=0 localises the missing check in minutes.
+
+#### Building a diagnostic s1 (the highest-value tool in this campaign)
+
+yo-self swallows evaluator errors in three places and emits
+`// Failed to transpile` instead. Un-silencing them turns "the file is hollow"
+into a precise error list. ~4 minutes end to end:
+
+```bash
+cp -R yo-self /tmp/ydiag && rm -rf /tmp/ydiag/tests /tmp/ydiag/yo-self-bin.c
+```
+
+Then add an `eprintln` before each of these three `unwind`s and rebuild with
+`./yo-cli compile /tmp/ydiag/main.yo --release -o /tmp/diag_s1`:
+
+| file (under `/tmp/ydiag/`)               | handler                                            |
+| ---------------------------------------- | -------------------------------------------------- |
+| `evaluator/exprs/_expr.yo:1018`          | `_evaluate_expression_wrapper`'s catch-all swallow |
+| `evaluator/calls/function_type.yo:222`   | `_trial_eval_fn_body`'s def-time trial swallow     |
+| `evaluator/values/anonymous_function.yo` | `_trial_eval_anon_body`'s equivalent               |
+
+e.g. `(_err) -> { eprintln(\`\_\_DBG \${\_err.to_string()}\`); unwind(()) }`. Add
+`open(import("std/fmt"));`to any file you touch — EXCEPT`yo-self/evaluator/calls/function.yo`, where `eprintln`is already in scope and
+the import collides with`ToString`.
+
+Then `/tmp/diag_s1 test <file> --parallel 1 2>&1 | grep __DBG | sort -u`.
+Messages that appear for EVERY file are prelude-evaluation noise — ignore them;
+the discriminating ones are the work-list.
 
 ### 2. The parked soundness fix — arguments are not type-checked
 
 `f :: (fn(x : i32) -> i32)(x); f(true)` — TS rejects, **yo-self accepts and
 emits `yo_id_NNNN((int32_t)(true))`**. Located precisely:
-`_evaluate_funcval_runtime_call` (`evaluator/calls/function.yo:1347-1674`), the
+`_evaluate_funcval_runtime_call` (`yo-self/evaluator/calls/function.yo:1347-1674`), the
 runtime-return branch of the FuncVal arm taken for most ordinary calls, calls
 NEITHER `try_to_call_function_with_arguments` NOR
 `check_if_function_parameter_matches_argument` across its 327 lines.
@@ -84,21 +132,21 @@ measurement: `issues/yo-self-arg-type-check-bypassed.md`.
 Reproducer: `issues/repros/closure-arg-abandons-enclosing-begin.yo`. A closure
 passed as a call ARGUMENT leaves the callee's forall `U` unbound → the callee's
 def-time trial body eval hits `List(U)` → `(result : List(U)) = List(U).new()`
-throws → `_trial_eval_fn_body`'s silent handler (`calls/function_type.yo:222`)
+throws → `_trial_eval_fn_body`'s silent handler (`yo-self/evaluator/calls/function_type.yo:222`)
 swallows it and abandons the caller's begin loop.
 
 **Four measured dead ends — do not repeat** (all in
 `issues/yo-self-hollow-test-batch-main.md`):
 
-1. `synthesizeTypes` on the closure return in `closure_type.yo` (TS
+1. `synthesizeTypes` on the closure return in `yo-self/evaluator/calls/closure_type.yo` (TS
    closure-type.ts:186-196) — zero effect; that path is never taken for a
-   closure passed as an argument (it is `values/anonymous_function.yo`).
+   closure passed as an argument (it is `yo-self/evaluator/values/anonymous_function.yo`).
 2. Stamping the SomeType return from the body type (TS
    anonymous-function.ts:963-988) — it FIRES (`ret=U rid=1975 body=i32`) and
    Step 6 sees the resolution, yet the repro is unchanged.
-3. Widening the expected-type clear at `anonymous_function.yo:1243` — needed to
+3. Widening the expected-type clear at `yo-self/evaluator/values/anonymous_function.yo:1243` — needed to
    make (2) fire at all, not sufficient.
-4. Narrowing the unknown-arg CTFE gate (`comptime_fn.yo:565-585`; TS has no such
+4. Narrowing the unknown-arg CTFE gate (`yo-self/evaluator/calls/comptime_fn.yo:565-585`; TS has no such
    gate) — clears the repro but regresses `imm_list` to SIGSEGV and clears no
    hollow file.
 
@@ -135,7 +183,7 @@ BIN=/tmp/s1 OUT=/tmp/hs scratchpad/hollow_sweep69.sh      # honest 183-file scor
 Iterate in a scratch copy so a running gate never reads a half-edited tree:
 `cp -R yo-self /tmp/yb && ./yo-cli compile /tmp/yb/main.yo --release -o /tmp/yb_s1`.
 Add `open(import("std/fmt"));` to any file you put an `eprintln` in — except
-`evaluator/calls/function.yo`, where `eprintln` is already in scope and the
+`yo-self/evaluator/calls/function.yo`, where `eprintln` is already in scope and the
 import collides with `ToString`.
 
 ## THE METHOD (non-negotiable — proven over ~35 fix rounds)
@@ -172,9 +220,9 @@ import collides with `ToString`.
 
 - **Per-call / per-closure type identity is THE recurring theme** (Gap-6). Do
   not weaken `_freshen_io_builtin_callee`, the call-scoped forall rebinds +
-  lineage-identity gate (`types/synthesizer.yo`), the clfid spec-cache keying +
-  per-spec SomeT rebuild (`calls/helper.yo`), or receiver-instance Self
-  adoption (`expr_info.yo`).
+  lineage-identity gate (`yo-self/evaluator/types/synthesizer.yo`), the clfid spec-cache keying +
+  per-spec SomeT rebuild (`yo-self/evaluator/calls/helper.yo`), or receiver-instance Self
+  adoption (`yo-self/expr_info.yo`).
 - **`SomeT.resolved_concrete` is a SHARED-LINEAGE cell** — per-call resolutions
   must rebuild a FRESH SomeT + cell, never write the shared id last-wins.
 - **The shell pattern:** any walker of struct fields / enum variants may get a
@@ -206,17 +254,17 @@ import collides with `ToString`.
 
 ## Key locations
 
-| path                                          | what                                                    |
-| --------------------------------------------- | ------------------------------------------------------- |
-| `issues/yo-self-hollow-test-batch-main.md`    | the hollow-batch defect, causes, 4 dead ends            |
-| `issues/yo-self-arg-type-check-bypassed.md`   | the parked soundness fix                                |
-| `issues/yo-self-69-red-list-map.md`           | the 19 REDs, cluster-mapped                             |
-| `issues/yo-self-stub-inventory.md`            | 311 unported/divergent findings, each with TS file:line |
-| `issues/patches/arg-type-check-fix.patch`     | TIER-1-clean fix awaiting TIER 2                        |
-| `scratchpad/hollow_sweep69.sh`                | honest 183-file scorer                                  |
-| `scratchpad/gates_fast.sh` / `gates_perf1.sh` | TIER 1 / TIER 2                                         |
-| `tests/codegen-bootstrap/`                    | the 140-file differential corpus                        |
-| agent auto-memory `MEMORY.md`                 | distilled lessons — recall before re-deriving           |
+| path                                                    | what                                                                                      |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `issues/yo-self-hollow-test-batch-main.md`              | the hollow-batch defect, causes, 4 dead ends                                              |
+| `issues/yo-self-arg-type-check-bypassed.md`             | the parked soundness fix                                                                  |
+| `issues/yo-self-69-red-list-map.md`                     | the 19 REDs, cluster-mapped                                                               |
+| `issues/yo-self-stub-inventory.md`                      | 311 unported/divergent findings, each with TS file:line                                   |
+| `issues/patches/arg-type-check-fix.patch`               | TIER-1-clean fix awaiting TIER 2                                                          |
+| `scratchpad/hollow_sweep69.sh`                          | honest 183-file scorer                                                                    |
+| `scratchpad/gates_fast.sh`, `scratchpad/gates_perf1.sh` | TIER 1 / TIER 2                                                                           |
+| `tests/codegen-bootstrap/`                              | the 140-file differential corpus                                                          |
+| agent auto-memory (outside the repo)                    | `MEMORY.md` in the agent memory dir indexes distilled lessons — recall before re-deriving |
 
 Note `tmp/` is a git-ignored scratch dir holding ~78 stale `*.test.yo` files; a
 bare `./yo-cli test` sweeps them up and they all fail. Ignore them, or pass an
