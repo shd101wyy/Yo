@@ -83,15 +83,44 @@ type there is nothing to check and every argument is accepted.
 Also ruled out: it is not literal-specific coercion — binding `b := true` first
 and calling `f(b)` is accepted just the same (TS rejects both).
 
+## Correction — it is site 4, not site 5 (the earlier read was a name collision)
+
+The first pass filtered the entry probe on the callee atom being named `f`, but
+**the prelude also has an `f`** (`fn(acc : comptime_str, i : usize) -> comptime_str`,
+the fold/template helper), and that is what produced the `TTCSITE 5` hit. Filtering
+exactly — callee named `f` AND first argument the atom `true` — gives the real
+trace:
+
+```
+__DBG_CALL entry callee=f arg=true      <- our call, 1st evaluation
+__DBG_TTCSITE 4                          <- function.yo:4215, the .method() arm
+__DBG_CALL entry callee=f arg=true      <- our call, 2nd evaluation
+__DBG_P0 label=self pt=i32 arg_in=i32    <- to_string(self : i32) on the RESULT
+__DBG_TTCSITE 4
+```
+
+So `f(true)` is dispatched through the **method arm** at `function.yo:4215`, and
+the `func_type` handed to `try_to_call_function_with_arguments` there is NOT
+`fn(x : i32) -> i32` (the TTC entry probe filtered on that rendering never
+fires). With a non-`Func` type the parameter loop at `helper.yo:2603` has
+nothing to iterate, so the argument is never checked. The valueless-callee
+branch at `function.yo:4433` is NOT involved — its probe only ever fired for the
+prelude's `f`.
+
+**Lesson for the next probe: never filter a trace on a bare identifier name.**
+The prelude defines short names (`f`, `x`, `m`) that collide with anything a
+reproducer uses; filter on a shape unique to the reproducer, or on
+`ast_expr_token(expr).module_path`.
+
 ## Next step
 
-Find why the callee type is not resolved to the function's `Func` type on that
-branch: print `callee_ty_none` at `function.yo:4433` for the reproducer. Either
-the atom lookup for `f` yields a non-`Func` (so the fix is in the lookup), or
-the branch is chosen when a `FuncVal` was in fact available (so the fix is the
-branch condition). TS has no valueless-callee shortcut — every call goes through
-`tryToCallFunctionWithArguments` with the resolved function type — so whichever
-it is, the repair is to route this branch through the same check. Suggested probe: print the callee `func_id` at every site
+Print the `func_type` (and whether it is a `.Func`) passed at
+`function.yo:4215`, for the exact-filtered reproducer call. Then either the
+method-arm lookup is resolving `f` to something that is not its function type
+(fix the lookup), or the method arm should not be handling a plain
+non-method call at all (fix the branch condition). TS routes every call through
+`tryToCallFunctionWithArguments` with the resolved function type, so the repair
+is to make this path do the same rather than to add a parallel check. Suggested probe: print the callee `func_id` at every site
 in `evaluator/calls/function.yo` that produces a `FuncCallResult` without going
 through `try_to_call_function_with_arguments` (the FuncVal arm around :945, the
 `.method()` arm around :2856, and the specialization shortcuts), and match it
