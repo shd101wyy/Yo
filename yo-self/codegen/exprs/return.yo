@@ -25,6 +25,7 @@ open(import("std/string"));
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { emit_async_future_escape, emit_async_future_completion } :: import("./async_completion.yo");
+{ resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { t_unit } :: import("../../types/creators.yo");
 { generate_atom } :: import("./atom.yo");
@@ -777,6 +778,31 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
         return(String.from("return"));
       });
       return_value := if(handled_deferred_dup, arg_code, match(return_temp_var,.Some(rtv) => rtv,.None => arg_code));
+      // DEGRADED return for an UNRESOLVED-SomeT fn return. A cee'd function
+      // definition whose Impl(...) return check threw mid-body (the divergent-
+      // return validation) leaves a half-registered fn in yo-self's mutable
+      // registries; its declared return stays an unresolved SomeT (C: void*)
+      // while an already-evaluated `return(<concrete>)` would emit e.g.
+      // `return <int32_t temp>;` — invalid C ("incompatible integer to
+      // pointer conversion", the tests/impl batch clang error). TS never
+      // emits such fns (the throw discards the whole definition); yo-self
+      // can't roll registrations back, so emit a null-pointer return instead.
+      // The fn has no callers — the statements that would call it were
+      // dropped by the same throw. Guarded to EXACTLY the mismatch case:
+      // declared return still SomeT after resolution AND the returned
+      // value's type is concrete (not a SomeT itself).
+      declared_ret_unresolved := match(
+        context.current_function_type,
+        .Some(cft_dr) => match(
+          cft_dr,
+          .Func({ result : dr_r }) => is_some_type(resolve_some_type_to_concrete(dr_r.clone())),
+          _ => false
+        ),
+        .None => false
+      );
+      if(declared_ret_unresolved && !(is_some_type(ei.ty)), {
+        return(String.from("return (void*)0; // degraded: unresolved Impl(...) return on a definition whose evaluation threw"));
+      });
       out := String.from("return ");
       out.push_string(return_value);
       out
