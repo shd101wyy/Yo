@@ -272,7 +272,7 @@
            });
            fa_synth_env = Option(Environment).Some(se_new);
 --- yo-self/evaluator/calls/helper.yo	2026-07-27 04:54:52.726882663 +0800
-+++ /tmp/yb/evaluator/calls/helper.yo	2026-07-27 06:52:07.739526294 +0800
++++ /tmp/yb/evaluator/calls/helper.yo	2026-07-27 06:56:58.129534569 +0800
 @@ -21,6 +21,7 @@
  //! stub that lived here has been retired.
  pragma(Pragma.AllowUnsafe);
@@ -297,7 +297,15 @@
  {
    are_types_compatible,
    are_types_compatible_exact
-@@ -1462,11 +1465,105 @@
+@@ -136,6 +139,7 @@
+   get_func_type,
+   is_closure_fn,
+   register_closure_capture_info,
++  get_closure_capture_info,
+   ClosureCaptureInfo
+ } :: import("../../function_value.yo");
+ { enrich_captured_variables, create_capture_type_and_value, FuncCapturedVarInfo } :: import("../utils/closure.yo");
+@@ -1462,11 +1466,105 @@
            );
            // Register recursive self-reference in context so recursive calls
            // inside the body can find the specialized func_id.
@@ -404,7 +412,7 @@
            prev_spec := ctx.currently_specializing_function;
            // Push onto the FULL specializing stack BEFORE moving the originals into
            // the single slot. The stack catches MUTUAL recursion (f→g→f) that the
-@@ -1938,7 +2035,7 @@
+@@ -1938,7 +2036,7 @@
                sp_ie := __fm5.*.is_extern;
                sp_en := __fm5.*.extern_name;
                sp_ic := __fm5.*.is_control;
@@ -413,7 +421,52 @@
                (spi : usize) = usize(0);
                while(spi < runtime_param_tys.len(), {
                  rpt := match(runtime_param_tys.get(spi),.Some(t) => t,.None => t_unit());
-@@ -1965,6 +2062,110 @@
+@@ -1955,16 +2053,151 @@
+                 // (`assert(flag : bool, ...)` emitted `void flag`;
+                 // issues/repros/void-param-assert-open-env.yo).
+                 declared_pt := match(sp_pt.get(spi),.Some(t) => t,.None => t_unit());
+-                use_ty := if(is_unit_type(rpt) && !(is_unit_type(declared_pt)), {
+-                  resolved_decl := evaluate_function_parameter_type_again(declared_pt, callee_env, ctx);
+-                  if(type_contains_some_type(resolved_decl) || is_unit_type(resolved_decl), rpt, resolved_decl)
+-                }, rpt);
++                // CLOSURE param: type the spec's param as the closure's
++                // CAPTURE STRUCT (the TS convention — the wrapper SomeType's
++                // resolvedConcreteType is the capture struct; yo-self's
++                // registry equivalent is get_closure_capture_info). A plain
++                // Func type here emits an `int32_t (*)(int32_t)` C param that
++                // the call site's capture-struct argument cannot satisfy
++                // (red cluster 3 / the closure-forall emission residual).
++                (closure_cap_ty : Option(TypeValue)) = Option(TypeValue).None;
++                match(
++                  arg_values.args.get(spi),
++                  .Some(cc_ae) => match(
++                    cc_ae.value,
++                    .Some(cc_v) => match(
++                      cc_v,
++                      .FuncVal(cc_fvd, _) => match(
++                        get_closure_capture_info(cc_fvd.*.func_id.clone()),
++                        .Some(cc_info) => {
++                          closure_cap_ty = Option(TypeValue).Some(cc_info.capture_type);
++                        },
++                        .None => ()
++                      ),
++                      _ => ()
++                    ),
++                    .None => ()
++                  ),
++                  .None => ()
++                );
++                use_ty := match(
++                  closure_cap_ty,
++                  .Some(cc_t) => cc_t,
++                  .None => if(is_unit_type(rpt) && !(is_unit_type(declared_pt)), {
++                    resolved_decl := evaluate_function_parameter_type_again(declared_pt, callee_env, ctx);
++                    if(type_contains_some_type(resolved_decl) || is_unit_type(resolved_decl), rpt, resolved_decl)
++                  }, rpt)
++                );
+                 spec_param_types.push(
+                   convert_comptime_type_to_runtime_type_with_expected(use_ty, Option(TypeValue).None, callee_env)
+                 );
                  spi = (spi + usize(1));
                });
                (spec_result : TypeValue) = evaluate_function_return_type_again(sp_res_b, callee_env, ctx);
@@ -524,7 +577,7 @@
                // Gap-6 attempt #8(a): a declared-`Self` return resolves through
                // callee_env to the impl's PATTERN-ERA instance (unresolved T#N
                // only in type_arguments — no resolution path concretizes it,
-@@ -3375,9 +3576,40 @@
+@@ -3375,9 +3608,40 @@
                match(
                  last_v.value,
                  .Some(v) => {

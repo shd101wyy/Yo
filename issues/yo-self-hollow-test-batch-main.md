@@ -635,3 +635,18 @@ cluster 2 — up to ~13 files. The full WIP chain (collection helper + mint
 return/param substitutions) is `issues/patches/spec-emission-second-half-wip.patch`
 (re-apply on top of the landed Step-6 binding; gate on TIER 1 + battery
 hollow flags + stage2 markers=6).
+
+CYCLE 11 (session end): typing the spec's closure param as the CAPTURE
+STRUCT (get_closure_capture_info in the mint's param loop — in the WIP) makes
+the CALL SITE line up (`__yo_t21` passed to `__yo_t21 f`); the repro's last
+error moves INSIDE the spec body: `f(x)` emits the fn-pointer-cast fallback
+(`((int32_t (*)(int32_t))f)(v)`) instead of the closure convention. The
+correct lowering ALREADY EXISTS — other_fn_call.yo "Piece C" emits
+`impl_fn(&(f), args)` when `resolve_some_type_to_concrete(<callee ExprInfo
+type>)` reaches a capture-struct id present in `impl_closure_call_map` — so
+the miss is the SomeT-resolution at codegen time, i.e. EXACTLY red cluster
+3's documented "registry hit at eval time, miss at codegen time / SomeT id
+re-minted between the two" identity gap. Everything else is peeled off; the
+next session starts at that identity question with the full WIP applied
+(`issues/patches/spec-emission-second-half-wip.patch`, now including the
+capture-struct param typing).
