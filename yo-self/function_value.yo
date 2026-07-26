@@ -260,6 +260,29 @@ get_definition_site_return :: (fn(func_id : String) -> TypeValue)(
     .None => t_unit()
   )
 );
+/// The CONCRETE type a closure's body evaluated to at DEFINITION time, keyed
+/// by the closure's FuncVal id. Registered by the `=>` lambda path
+/// (evaluator/values/anonymous_function.yo) only when the def-time body eval
+/// succeeded AND produced a fully concrete (SomeT-free) type. Consumed by
+/// `check_and_add_argument`'s Step-6 synthesis (evaluator/calls/helper.yo):
+/// a closure passed as a call ARGUMENT whose own declared return never
+/// resolved (still `-> U`) contributes nothing to the callee's generic
+/// binding — `U` binds to itself, the callee's specialization body eval then
+/// throws on `List(U)`, and the throw unwinds the CALLER's whole statement
+/// chain (the hollow-batch blast radius; see
+/// issues/yo-self-hollow-test-batch-main.md, fourth round). Substituting
+/// this body type as the given return lets `U` bind concretely through the
+/// SAME env channel the spec body eval reads. TS needs no side table: its
+/// synthesize sees the closure's mutated-in-place concrete return via object
+/// identity (anonymous-function.ts:963-988).
+(g_closure_body_type_registry : HashMap(String, TypeValue)) =
+  HashMap(String, TypeValue).new();
+register_closure_body_type :: (fn(func_id : String, body_ty : TypeValue) -> unit)({
+  g_closure_body_type_registry.set(func_id.clone(), body_ty);
+});
+get_closure_body_type :: (fn(func_id : String) -> Option(TypeValue))(
+  g_closure_body_type_registry.get(func_id.clone())
+);
 /// Record a function's own resolved `Func` type by func_id (called when the
 /// FuncVal is created). Resolves Gap 10 for the codegen function-emission driver.
 register_func_type :: (fn(func_id : String, func_ty : TypeValue) -> unit)({
@@ -319,6 +342,8 @@ export(
   is_effect_record_member,
   register_definition_site_return,
   get_definition_site_return,
+  register_closure_body_type,
+  get_closure_body_type,
   register_func_type,
   get_func_type,
   register_func_parameters_frame,

@@ -71,6 +71,7 @@ open(import("std/string"));
 { Exception } :: import("std/error");
 {
   register_definition_site_return,
+  register_closure_body_type,
   register_func_type,
   mark_as_closure_fn,
   ClosureCaptureInfo,
@@ -89,7 +90,7 @@ open(import("std/string"));
 { create_function_body_evaluation_context } :: import("../calls/function_type.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound } :: import("../../types/utils.yo");
-{ is_some_type } :: import("../../types/guards.yo");
+{ is_some_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 {
   clear_flow_violation,
@@ -1241,6 +1242,9 @@ evaluate_anonymous_function_implementation :: (
     // + future result then lower to void*). Clear the expected type so the body
     // types naturally (the closure's result is inferred from the body anyway).
     ret_ty_for_body := match(function_type,.Func({ result : brt }) => brt, _ => t_unit());
+    // (`mark_closure_for_codegen` is every `=>` closure — this clear is what
+    // makes the def-time body type CONCRETELY instead of being coerced to
+    // the SomeT, which feeds the closure-body-type registration below.)
     if(mark_closure_for_codegen && is_some_type(ret_ty_for_body), {
       body_eval_ctx.expected_type = Option(ExpectedTypeCtx).None;
     });
@@ -1334,7 +1338,34 @@ evaluate_anonymous_function_implementation :: (
                 // referenced the source name (`io`) — "use of undeclared
                 // identifier 'io'" (issues/yo-self-async-emission-cluster.md
                 // item 2).
-                register_func_type(func_id.clone(), t_func_simple(actual_param_labels.clone(), param_types.clone(), body_ty));
+                register_func_type(func_id.clone(), t_func_simple(actual_param_labels.clone(), param_types.clone(), body_ty.clone()));
+                // Record the CONCRETE def-evaluated body type by FuncVal id.
+                // Consumed by check_and_add_argument's Step-6 synthesis
+                // (calls/helper.yo): a closure passed as a call ARGUMENT whose
+                // declared return never resolved (`-> U`) otherwise binds the
+                // callee's generic to ITSELF, and the callee's specialization
+                // body eval then throws and unwinds the CALLER's statement
+                // chain (the hollow-batch blast radius —
+                // issues/yo-self-hollow-test-batch-main.md, fourth round).
+                // NOT for io.async closures: substituting the body type as
+                // the given return perturbs io.async's own `_ret`/E-bundle
+                // synthesis and FTTs the io.async statement (measured:
+                // corpus io_async_str SELF-FAIL).
+                // COMPTIME body types are excluded: a comptime_str/int/float
+                // body (e.g. io.async's `(io : Io) => "hello async"`, whose
+                // def-eval types comptime_str) must not bind a RUNTIME generic
+                // slot — substituting it as the given return perturbed
+                // io.async's own `_ret` synthesis (corpus io_async_str
+                // SELF-FAIL; measured: label=action body=comptime_str, and
+                // ctx.is_inside_io_async_call is FALSE at this point, so the
+                // flag cannot be the gate).
+                body_is_comptime := (
+                  (is_comptime_string_type(body_ty) || is_comptime_int_type(body_ty))
+                  || is_comptime_float_type(body_ty)
+                );
+                if(!(body_is_comptime), {
+                  register_closure_body_type(func_id.clone(), body_ty);
+                });
               });
             },
             .None => ()

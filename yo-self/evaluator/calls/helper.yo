@@ -131,6 +131,7 @@ open(import("std/string"));
   mark_as_control_fn,
   is_control_fn,
   get_definition_site_return,
+  get_closure_body_type,
   register_func_type,
   get_func_type,
   is_closure_fn,
@@ -625,6 +626,49 @@ check_if_function_parameter_matches_argument :: (
       );
     });
   });
+  // Closure-argument return refinement for Step-6 synthesis: a closure whose
+  // OWN declared return never resolved (still `-> U`, a SomeT) contributes
+  // nothing to the callee's generic binding — synthesize binds the callee's
+  // `U` to itself, and the callee's SPECIALIZATION body eval (which installs
+  // no swallow) then throws on e.g. `List(U)` and unwinds the CALLER's whole
+  // statement chain — the hollow-test-batch blast radius
+  // (issues/yo-self-hollow-test-batch-main.md, fourth round). Substitute the
+  // closure's def-time-evaluated CONCRETE body type (side table registered by
+  // values/anonymous_function.yo) as the GIVEN return, so the generic binds
+  // through the same env channel the spec body eval reads. TS needs no side
+  // table — its synthesize sees the concrete return through object identity
+  // (anonymous-function.ts:963-988 mutates the closure's type in place). No
+  // effect unless the arg value is a FuncVal whose given fn-type return is a
+  // SomeT and a concrete body type was registered.
+  (arg_type_for_synth : TypeValue) = arg_type;
+  match(
+    arg_value,
+    .Some(av_cb) => match(
+      av_cb,
+      .FuncVal(cb_fvd, _) => match(
+        arg_type,
+        .Func({
+          forall_types : cb_ft,
+          param_types : cb_pt,
+          implicit_types : cb_it,
+          where_types : cb_wt,
+          result : cb_res,
+          meta : cb_meta
+        }) => if(is_some_type(cb_res), {
+          match(
+            get_closure_body_type(cb_fvd.*.func_id.clone()),
+            .Some(cb_body_ty) => {
+              arg_type_for_synth = TypeValue.Func(cb_ft, cb_pt, cb_it, cb_wt, cb_body_ty, cb_meta);
+            },
+            .None => ()
+          );
+        }),
+        _ => ()
+      ),
+      _ => ()
+    ),
+    .None => ()
+  );
   // Step 6: Synthesize generic bindings from arg type into callee_env.
   checked := ArrayList(TypePair).new();
   // Note: opts is a local variable (not comptime .None) to ensure the
@@ -634,7 +678,7 @@ check_if_function_parameter_matches_argument :: (
   synth := synthesize_types(
     resolved_pt,
     callee_env_r,
-    arg_type,
+    arg_type_for_synth,
     caller_env_r,
     checked,
     synth_opts,
