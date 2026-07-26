@@ -650,3 +650,19 @@ re-minted between the two" identity gap. Everything else is peeled off; the
 next session starts at that identity question with the full WIP applied
 (`issues/patches/spec-emission-second-half-wip.patch`, now including the
 capture-struct param typing).
+
+FINAL CONNECTION: the codegen-time resolution the body call needs is the
+`register_some_resolved_concrete(<wrapper SomeT id>, capture_type)` stamp on
+the `=>` lambda path — WHICH IS THE EXACT CHANGE ALREADY MEASURED as adding
+13 hollow markers to the stage2 self-compile when made UNCONDITIONAL
+(issues/yo-self-69-red-list-map.md, "GATE RESULT: the closure registry stamp
+causes a HOLLOW regression — do not re-apply blind"; the affected function
+was build_runner's C-compiler invocation). The red-list already prescribes
+the fix shape: TS gates the stamp on
+`wrapperType.requiredTraits.some(t => t.traitType.id === expectedFnTraitType.id)`
+and otherwise builds a synthetic `__impl_fn` wrapper
+(anonymous-function.ts:1200-1226) — port the CONDITION, not the unconditional
+stamp. Gate any attempt on stage2 markers (baseline 6) FIRST, before test
+flips. This closes the investigation loop: closure-forall (8 hollow) +
+cluster 3 (3 red) + cluster 7 (2 red) all end at this one guarded stamp plus
+the WIP already staged.
