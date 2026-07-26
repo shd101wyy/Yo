@@ -62,9 +62,36 @@ Instrumented at the entry of each, compiling this reproducer:
 So a THIRD dispatch path handles a direct call to a module-level `FuncVal`, and
 that path performs no argument checking.
 
+## Narrowed further (2026-07-26, second session pass)
+
+Probing the call evaluator itself:
+
+| probe                                                                                                 | result                                                                                                                                  |
+| ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `evaluate_function_call` entry, filtered to callee atom `f`                                           | **fires** — the call IS evaluated by the normal entry                                                                                   |
+| the 5 `try_to_call_function_with_arguments` sites in `function.yo`, each tagged                       | **site 5 fires** immediately after it (`function.yo:4433`, the VALUELESS-callee branch that passes `func_val = Option(EvalValue).None`) |
+| `try_to_call_function_with_arguments` entry, filtered to a `func_type` rendering containing `x : i32` | **never fires**                                                                                                                         |
+| `check_if_function_parameter_matches_argument` entry, filtered to `resolved_pt == "i32"`              | prints only `label=self` and `label=y` — **never `label=x`**                                                                            |
+
+So the sequence is: the call reaches `evaluate_function_call`, is dispatched
+through the valueless-callee branch at `function.yo:4433`, and the
+`func_type` handed to `try_to_call_function_with_arguments` is **not** the
+callee's `fn(x : i32) -> i32`. The parameter loop lives inside
+`match(func_type, .Func({…}) => { … })` (helper.yo:2603), so with a non-`Func`
+type there is nothing to check and every argument is accepted.
+
+Also ruled out: it is not literal-specific coercion — binding `b := true` first
+and calling `f(b)` is accepted just the same (TS rejects both).
+
 ## Next step
 
-Find that third path. Suggested probe: print the callee `func_id` at every site
+Find why the callee type is not resolved to the function's `Func` type on that
+branch: print `callee_ty_none` at `function.yo:4433` for the reproducer. Either
+the atom lookup for `f` yields a non-`Func` (so the fix is in the lookup), or
+the branch is chosen when a `FuncVal` was in fact available (so the fix is the
+branch condition). TS has no valueless-callee shortcut — every call goes through
+`tryToCallFunctionWithArguments` with the resolved function type — so whichever
+it is, the repair is to route this branch through the same check. Suggested probe: print the callee `func_id` at every site
 in `evaluator/calls/function.yo` that produces a `FuncCallResult` without going
 through `try_to_call_function_with_arguments` (the FuncVal arm around :945, the
 `.method()` arm around :2856, and the specialization shortcuts), and match it
