@@ -67,7 +67,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
 - [代数数据类型 (ADT)](#代数数据类型-adt)
 - [高级类型系统](#高级类型系统)
   - [高阶类型（Higher-Kinded Types，HKT）](#高阶类型higher-kinded-typeshkt)
-    - [HKT forall 参数](#hkt-forall-参数)
+    - [HKT generic 参数](#hkt-generic-参数)
     - [HKT Trait](#hkt-trait)
     - [使用 HKT where 子句的泛型函数](#使用-hkt-where-子句的泛型函数)
   - [广义代数数据类型（GADTs）](#广义代数数据类型gadts)
@@ -191,6 +191,7 @@ diff 中能一眼读懂的代码。设计的关键杠杆是**显式性** —— 
 - [Jai](https://github.com/Ivo-Balbaert/The_Way_to_Jai), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/)
 - [Koka](https://koka-lang.github.io/), [Effekt](https://effekt-lang.org/), [Flix](https://flix.dev/)
 - [Nim](https://nim-lang.org/)
+- [Dafny](https://dafny.org/)
 - [Austral](https://austral-lang.org/)
 - [Elixir](https://elixir-lang.org/)
 - [Io](https://iolanguage.org/)
@@ -611,10 +612,10 @@ create_user(name: "Bob", age: 30);  // 显式指定 age
 
 ### 泛型函数
 
-你可以使用 `forall` 来定义泛型函数：
+你可以使用 `generic` 来定义泛型函数：
 
 ```rust
-identity :: (fn(forall(T : Type), arg : T) -> T)
+identity :: (fn(generic(T : Type), arg : T) -> T)
   arg
 ;
 
@@ -627,7 +628,7 @@ y := identity(true);   // 类型推断：y: bool
 你可以使用 `where` 子句在泛型参数上添加类型约束：
 
 ```rust
-add :: (fn(forall(T : Type), x: T, y: T, where(T <: Add(T))) -> T)
+add :: (fn(generic(T : Type), x: T, y: T, where(T <: Add(T))) -> T)
   (x + y)
 ;
 ```
@@ -636,7 +637,7 @@ add :: (fn(forall(T : Type), x: T, y: T, where(T <: Add(T))) -> T)
 
 ```rust
 compare_and_add :: (fn(
-    forall(T : Type),
+    generic(T : Type),
     x: T,
     y: T,
     z: T,
@@ -662,12 +663,12 @@ impl(Point, T1(get_number : (self -> self.x)));
 impl(Point, T2(get_number : (self -> self.y)));
 
 // 隐式分派 — where(T <: T1) 约束 self.get_number() 只使用 T1 的方法
-use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32)({
+use_t1 :: (fn(generic(T : Type), self : T, where(T <: T1)) -> i32)({
   return(self.get_number());  // 返回 self.x (10)
 });
 
 // 显式分派 — 使用 (T <: T2).method(self) 语法
-use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32)({
+use_t2 :: (fn(generic(T : Type), self : T, where(T <: T2)) -> i32)({
   return((T <: T2).get_number(self));  // 返回 self.y (20)
 });
 
@@ -703,7 +704,7 @@ add1 :: add(i32(1), _);  // fn(comptime(y) : i32) -> comptime(i32)
 result :: add1(i32(2));   // 3
 ```
 
-偏应用的类型构造器可以作为 HKT forall 参数使用：
+偏应用的类型构造器可以作为 HKT generic 参数使用：
 
 ```rust
 IntResult :: Result(_, i32);
@@ -1040,7 +1041,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-`inout(...)` 不能与 `own(...)`（相反的调用约定）或 `comptime`/`forall`（`inout` 是运行时专用的）组合使用。对于链式调用，将 `inout` 参数传递给另一个函数的 `inout` 参数按预期工作：
+`inout(...)` 不能与 `own(...)`（相反的调用约定）或 `comptime`/`generic`（`inout` 是运行时专用的）组合使用。对于链式调用，将 `inout` 参数传递给另一个函数的 `inout` 参数按预期工作：
 
 ```rust
 double :: (fn(inout(n) : i32) -> unit)({
@@ -1376,7 +1377,7 @@ while(i < usize(3), {
 // arr 现在是 [10, 20, 30]。
 ```
 
-组合器链（`coll.into_iter().map(f)`、`.filter(p)`、`.fold(init, f)` 等）保持值产出的 `Iterator` 形状；一个全覆盖的 `into_iter` 实现 `forall(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)`（恒等函数）使得 `for(combinator_chain, (x) => body)` 与 `for(coll, (x) => body)` 一致。
+组合器链（`coll.into_iter().map(f)`、`.filter(p)`、`.fold(init, f)` 等）保持值产出的 `Iterator` 形状；一个全覆盖的 `into_iter` 实现 `generic(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)`（恒等函数）使得 `for(combinator_chain, (x) => body)` 与 `for(coll, (x) => body)` 一致。
 
 旧的借用形式 `for(coll, inout(x) => body)` 已移除（指向可重分配存储的内部引用已无法表达 —— 见 [FLOWABILITY.md](./FLOWABILITY.md)）；使用它会产生带迁移指引的编译错误。
 
@@ -1436,20 +1437,20 @@ Yo 通过**编译期函数类型作为 Kind**来支持高阶类型。像 `Option
 | `* -> *`      | `fn(comptime(T) : Type) -> comptime(Type)`                     |
 | `* -> * -> *` | `fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type)` |
 
-#### HKT forall 参数
+#### HKT generic 参数
 
-声明一个具有函数类型 Kind 的 forall 参数来接受类型构造器：
+声明一个具有函数类型 Kind 的 generic 参数来接受类型构造器：
 
 ```rust
 // F 是一个类型构造器（kind: Type → Type）
 identity :: (fn(
-  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
+  generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
   x: F(A)
 ) -> F(A))(x);
 
 // 使用：
 (x : Option(i32)) = .Some(i32(42));
-result := identity(forall(Option, i32), x);  // result: Option(i32)
+result := identity(generic(Option, i32), x);  // result: Option(i32)
 ```
 
 #### HKT Trait
@@ -1460,13 +1461,13 @@ result := identity(forall(Option, i32), x);  // result: Option(i32)
 // Functor trait —— F 是一个类型构造器
 Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
   trait(
-    map : (fn(forall(A : Type, B : Type), self: F(A), f: (fn(a : A) -> B)) -> F(B))
+    map : (fn(generic(A : Type, B : Type), self: F(A), f: (fn(a : A) -> B)) -> F(B))
   )
 );
 
 // 为 Option 实现 Functor
-impl(forall(A : Type), Option(A), Functor(Option)(
-  map : (fn(forall(A : Type, B : Type), self: Option(A), f: (fn(a : A) -> B)) -> Option(B))(
+impl(generic(A : Type), Option(A), Functor(Option)(
+  map : (fn(generic(A : Type, B : Type), self: Option(A), f: (fn(a : A) -> B)) -> Option(B))(
     match(self,
       .Some(v) => .Some(f(v)),
       .None => .None
@@ -1476,7 +1477,7 @@ impl(forall(A : Type), Option(A), Functor(Option)(
 
 // 使用 trait 方法
 (x : Option(i32)) = .Some(i32(42));
-result := x.map(forall(i32), (fn(a: i32) -> i32)((a + i32(1))));
+result := x.map(generic(i32), (fn(a: i32) -> i32)((a + i32(1))));
 // result = .Some(i32(43))
 ```
 
@@ -1484,16 +1485,16 @@ result := x.map(forall(i32), (fn(a: i32) -> i32)((a + i32(1))));
 
 ```rust
 do_map :: (fn(
-  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
+  generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
   container: F(A),
   f: (fn(a : A) -> B),
   where(F(A) <: Functor(F))
 ) -> F(B))(
-  container.map(forall(B), f)
+  container.map(generic(B), f)
 );
 
 (x : Option(i32)) = .Some(i32(10));
-result := do_map(forall(Option, i32, i32), x, (fn(a: i32) -> i32)((a * i32(2))));
+result := do_map(generic(Option, i32, i32), x, (fn(a: i32) -> i32)((a * i32(2))));
 // result = .Some(i32(20))
 ```
 
@@ -1516,7 +1517,7 @@ Value :: (fn(comptime(T) : Type) -> comptime(Type))(
 对 GADT 值进行模式匹配时，类型系统会在每个分支中细化类型变量：
 
 ```rust
-eval_value :: (fn(forall(T : Type), v : Value(T)) -> T)(
+eval_value :: (fn(generic(T : Type), v : Value(T)) -> T)(
   match(v,
     .IntVal(i) => i,      // T 被细化为 i32，返回 i32 ✓
     .BoolVal(b) => b,     // T 被细化为 bool，返回 bool ✓
@@ -1554,7 +1555,7 @@ MyPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   )
 );
 
-my_fst :: (fn(forall(A : Type, B : Type), p : MyPair(A, B)) -> A)(
+my_fst :: (fn(generic(A : Type, B : Type), p : MyPair(A, B)) -> A)(
   match(p,
     .MkIntBool(x, y) => x,
     .MkBoolInt(x, y) => x
@@ -1755,7 +1756,7 @@ notify :: (fn(inout(item) : NewsArticle) -> unit)({
 });
 
 // 带 trait 约束的泛型函数
-notify2 :: (fn(forall(T : Type), inout(item) : T, where(T <: Display)) -> unit)({
+notify2 :: (fn(generic(T : Type), inout(item) : T, where(T <: Display)) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
   println(`Breaking news! ${item.display()}`);
 });
@@ -2217,7 +2218,7 @@ Box :: (fn(comptime(V) : Type) -> comptime(Type))(
 );
 
 // box 函数创建一个 Box
-box :: (fn(forall(V : Type), value : V) -> Box(V))(
+box :: (fn(generic(V : Type), value : V) -> Box(V))(
   Box(V)(value)
 );
 ```
@@ -2307,7 +2308,7 @@ Id :: trait(
 
 // 接受任何实现了 Id 的类型的函数
 use_id :: (fn(
-  forall(T : Type),
+  generic(T : Type),
   value : T,
   where(T <: Id)
 ) -> T)({
@@ -2358,7 +2359,7 @@ Run :: trait(
 
 // 类型必须同时实现 Speak 和 Run
 perform :: (fn(
-  forall(T : Type),
+  generic(T : Type),
   actor : T,
   where(T <: (Speak, Run))
 ) -> unit)({
@@ -2434,7 +2435,7 @@ main :: (fn() -> i32)({
 
 ```rust
 // Impl — 静态分发（单态化）
-use_impl :: (fn(forall(T), value: T, where(T <: SomeTrait)) -> unit)({
+use_impl :: (fn(generic(T), value: T, where(T <: SomeTrait)) -> unit)({
   value.method();  // 静态分发
 });
 

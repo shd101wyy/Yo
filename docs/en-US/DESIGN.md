@@ -67,7 +67,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Algebraic Data Types (ADT)](#algebraic-data-types-adt)
 - [Advanced Type System](#advanced-type-system)
   - [Higher-Kinded Types (HKT)](#higher-kinded-types-hkt)
-    - [HKT forall parameters](#hkt-forall-parameters)
+    - [HKT generic parameters](#hkt-generic-parameters)
     - [HKT traits](#hkt-traits)
     - [Generic functions with HKT where clauses](#generic-functions-with-hkt-where-clauses)
   - [Generalized Algebraic Data Types (GADTs)](#generalized-algebraic-data-types-gadts)
@@ -192,6 +192,7 @@ The **Yo** language is inspired by the following programming languages and absor
 - [Jai](https://github.com/Ivo-Balbaert/The_Way_to_Jai), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/)
 - [Koka](https://koka-lang.github.io/), [Effekt](https://effekt-lang.org/), [Flix](https://flix.dev/)
 - [Nim](https://nim-lang.org/)
+- [Dafny](https://dafny.org/)
 - [Austral](https://austral-lang.org/)
 - [Elixir](https://elixir-lang.org/)
 - [Io](https://iolanguage.org/)
@@ -614,10 +615,10 @@ create_user(name: "Bob", age: 30);  // Explicit age
 
 ### Generic function
 
-You can use `forall` to define generic functions:
+You can use `generic` to define generic functions:
 
 ```rust
-identity :: (fn(forall(T : Type), arg : T) -> T)
+identity :: (fn(generic(T : Type), arg : T) -> T)
   arg
 ;
 
@@ -630,7 +631,7 @@ y := identity(true);   // Type inferred: y: bool
 You can use `where` clause to add type constraints on generic parameters:
 
 ```rust
-add :: (fn(forall(T : Type), x: T, y: T, where(T <: Add(T))) -> T)
+add :: (fn(generic(T : Type), x: T, y: T, where(T <: Add(T))) -> T)
   (x + y)
 ;
 ```
@@ -639,7 +640,7 @@ add :: (fn(forall(T : Type), x: T, y: T, where(T <: Add(T))) -> T)
 
 ```rust
 compare_and_add :: (fn(
-    forall(T : Type),
+    generic(T : Type),
     x: T,
     y: T,
     z: T,
@@ -665,12 +666,12 @@ impl(Point, T1(get_number : (self -> self.x)));
 impl(Point, T2(get_number : (self -> self.y)));
 
 // Implicit dispatch — where(T <: T1) constrains self.get_number() to T1's method
-use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32)({
+use_t1 :: (fn(generic(T : Type), self : T, where(T <: T1)) -> i32)({
   return(self.get_number());  // Returns self.x (10)
 });
 
 // Explicit dispatch — (T <: T2).method(self) syntax
-use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32)({
+use_t2 :: (fn(generic(T : Type), self : T, where(T <: T2)) -> i32)({
   return((T <: T2).get_number(self));  // Returns self.y (20)
 });
 
@@ -706,7 +707,7 @@ add1 :: add(i32(1), _);  // fn(comptime(y) : i32) -> comptime(i32)
 result :: add1(i32(2));   // 3
 ```
 
-Partially applied type constructors can be used as HKT forall arguments:
+Partially applied type constructors can be used as HKT generic arguments:
 
 ```rust
 IntResult :: Result(_, i32);
@@ -1044,7 +1045,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-`inout(...)` cannot be combined with `own(...)` (opposite calling conventions) or with `comptime`/`forall` (`inout` is runtime-only). For chained calls, passing an `inout`-param through to another function's `inout`-param works as expected:
+`inout(...)` cannot be combined with `own(...)` (opposite calling conventions) or with `comptime`/`generic` (`inout` is runtime-only). For chained calls, passing an `inout`-param through to another function's `inout`-param works as expected:
 
 ```rust
 double :: (fn(inout(n) : i32) -> unit)({
@@ -1382,7 +1383,7 @@ while(i < usize(3), {
 // arr is now [10, 20, 30].
 ```
 
-Combinator chains (`coll.into_iter().map(f)`, `.filter(p)`, `.fold(init, f)`, etc.) keep the value-yielding `Iterator` shape; a blanket `into_iter` impl `forall(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)` (identity) lets `for(combinator_chain, (x) => body)` work uniformly.
+Combinator chains (`coll.into_iter().map(f)`, `.filter(p)`, `.fold(init, f)`, etc.) keep the value-yielding `Iterator` shape; a blanket `into_iter` impl `generic(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)` (identity) lets `for(combinator_chain, (x) => body)` work uniformly.
 
 The old borrow form `for(coll, inout(x) => body)` was removed (interior refs into reallocatable storage are inexpressible — see [FLOWABILITY.md](./FLOWABILITY.md)); using it produces a compile error with the migration recipe.
 
@@ -1442,20 +1443,20 @@ Yo supports higher-kinded types through **comptime function types as kinds**. Ty
 | `* -> *`      | `fn(comptime(T) : Type) -> comptime(Type)`                     |
 | `* -> * -> *` | `fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type)` |
 
-#### HKT forall parameters
+#### HKT generic parameters
 
-Declare a forall parameter with a function-type kind to accept type constructors:
+Declare a generic parameter with a function-type kind to accept type constructors:
 
 ```rust
 // F is a type constructor (kind: Type → Type)
 identity :: (fn(
-  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
+  generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
   x: F(A)
 ) -> F(A))(x);
 
 // Usage:
 (x : Option(i32)) = .Some(i32(42));
-result := identity(forall(Option, i32), x);  // result: Option(i32)
+result := identity(generic(Option, i32), x);  // result: Option(i32)
 ```
 
 #### HKT traits
@@ -1466,13 +1467,13 @@ Define traits parameterized by type constructors:
 // Functor trait — F is a type constructor
 Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
   trait(
-    map : (fn(forall(A : Type, B : Type), self: F(A), f: (fn(a : A) -> B)) -> F(B))
+    map : (fn(generic(A : Type, B : Type), self: F(A), f: (fn(a : A) -> B)) -> F(B))
   )
 );
 
 // Implement Functor for Option
-impl(forall(A : Type), Option(A), Functor(Option)(
-  map : (fn(forall(A : Type, B : Type), self: Option(A), f: (fn(a : A) -> B)) -> Option(B))(
+impl(generic(A : Type), Option(A), Functor(Option)(
+  map : (fn(generic(A : Type, B : Type), self: Option(A), f: (fn(a : A) -> B)) -> Option(B))(
     match(self,
       .Some(v) => .Some(f(v)),
       .None => .None
@@ -1482,7 +1483,7 @@ impl(forall(A : Type), Option(A), Functor(Option)(
 
 // Use the trait method
 (x : Option(i32)) = .Some(i32(42));
-result := x.map(forall(i32), (fn(a: i32) -> i32)((a + i32(1))));
+result := x.map(generic(i32), (fn(a: i32) -> i32)((a + i32(1))));
 // result = .Some(i32(43))
 ```
 
@@ -1490,16 +1491,16 @@ result := x.map(forall(i32), (fn(a: i32) -> i32)((a + i32(1))));
 
 ```rust
 do_map :: (fn(
-  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
+  generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
   container: F(A),
   f: (fn(a : A) -> B),
   where(F(A) <: Functor(F))
 ) -> F(B))(
-  container.map(forall(B), f)
+  container.map(generic(B), f)
 );
 
 (x : Option(i32)) = .Some(i32(10));
-result := do_map(forall(Option, i32, i32), x, (fn(a: i32) -> i32)((a * i32(2))));
+result := do_map(generic(Option, i32, i32), x, (fn(a: i32) -> i32)((a * i32(2))));
 // result = .Some(i32(20))
 ```
 
@@ -1522,7 +1523,7 @@ Value :: (fn(comptime(T) : Type) -> comptime(Type))(
 When pattern matching on a GADT value, the type system refines type variables in each branch:
 
 ```rust
-eval_value :: (fn(forall(T : Type), v : Value(T)) -> T)(
+eval_value :: (fn(generic(T : Type), v : Value(T)) -> T)(
   match(v,
     .IntVal(i) => i,      // T refined to i32, returns i32 ✓
     .BoolVal(b) => b,     // T refined to bool, returns bool ✓
@@ -1560,7 +1561,7 @@ MyPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   )
 );
 
-my_fst :: (fn(forall(A : Type, B : Type), p : MyPair(A, B)) -> A)(
+my_fst :: (fn(generic(A : Type, B : Type), p : MyPair(A, B)) -> A)(
   match(p,
     .MkIntBool(x, y) => x,
     .MkBoolInt(x, y) => x
@@ -1761,7 +1762,7 @@ notify :: (fn(inout(item) : NewsArticle) -> unit)({
 });
 
 // Generic function with trait constraint
-notify2 :: (fn(forall(T : Type), inout(item) : T, where(T <: Display)) -> unit)({
+notify2 :: (fn(generic(T : Type), inout(item) : T, where(T <: Display)) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
   println(`Breaking news! ${item.display()}`);
 });
@@ -2223,7 +2224,7 @@ Box :: (fn(comptime(V) : Type) -> comptime(Type))(
 );
 
 // box function creates a Box
-box :: (fn(forall(V : Type), value : V) -> Box(V))(
+box :: (fn(generic(V : Type), value : V) -> Box(V))(
   Box(V)(value)
 );
 ```
@@ -2313,7 +2314,7 @@ Id :: trait(
 
 // Function accepting any type implementing Id
 use_id :: (fn(
-  forall(T : Type),
+  generic(T : Type),
   value : T,
   where(T <: Id)
 ) -> T)({
@@ -2364,7 +2365,7 @@ Run :: trait(
 
 // Type must implement both Speak and Run
 perform :: (fn(
-  forall(T : Type),
+  generic(T : Type),
   actor : T,
   where(T <: (Speak, Run))
 ) -> unit)({
@@ -2440,7 +2441,7 @@ main :: (fn() -> i32)({
 
 ```rust
 // Impl - static dispatch (monomorphization)
-use_impl :: (fn(forall(T), value: T, where(T <: SomeTrait)) -> unit)({
+use_impl :: (fn(generic(T), value: T, where(T <: SomeTrait)) -> unit)({
   value.method();  // Statically dispatched
 });
 
