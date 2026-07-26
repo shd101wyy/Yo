@@ -50,15 +50,28 @@ them equal and compatible** (`i32/i32`, `bool/bool`, `usize/usize`, …) — and
 So the argument never reaches the per-argument check: `f(true)` is dispatched
 through a call path that does not run `check_and_add_argument`.
 
+## Both known dispatch paths are ruled out (measured)
+
+Instrumented at the entry of each, compiling this reproducer:
+
+| path                                                   | fires for `f(true)`?                                                                                                                            |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `try_to_call_function_with_arguments` (helper.yo:2541) | **NO** — over the whole compile it is never entered with a `fn(x : i32)` type (only `fn(self : i32) -> String`, i.e. `to_string` on the result) |
+| `evaluate_comptime_fn_call` (comptime_fn.yo:382)       | **NO** — it is entered 1167 times (prelude), never with `fid=yo_id_4992`, the id the emitted call uses (`yo_id_4992((int32_t)(true))`)          |
+
+So a THIRD dispatch path handles a direct call to a module-level `FuncVal`, and
+that path performs no argument checking.
+
 ## Next step
 
-Find which path handles a direct call to a top-level `FuncVal` and why it skips
-argument checking — instrument the entry points in `evaluator/calls/function.yo`
-(the FuncVal arm around :945 and the specialization shortcut in
-`create_specialized_function`) to print when they dispatch without calling
-`try_to_call_function_with_arguments`. TS funnels every call through
+Find that third path. Suggested probe: print the callee `func_id` at every site
+in `evaluator/calls/function.yo` that produces a `FuncCallResult` without going
+through `try_to_call_function_with_arguments` (the FuncVal arm around :945, the
+`.method()` arm around :2856, and the specialization shortcuts), and match it
+against `yo_id_4992`. TS funnels EVERY call through
 `tryToCallFunctionWithArguments`, so whichever yo-self path bypasses it is the
-divergence.
+divergence — and the repair is to route it through the same argument check
+rather than to add a second, parallel check.
 
 ## Why it matters beyond one reproducer
 
