@@ -112,15 +112,60 @@ The prelude defines short names (`f`, `x`, `m`) that collide with anything a
 reproducer uses; filter on a shape unique to the reproducer, or on
 `ast_expr_token(expr).module_path`.
 
+## LOCATED — `_evaluate_funcval_runtime_call` (function.yo:1347-1674)
+
+Tagging every `return` inside `evaluate_function_call` and filtering exactly
+(callee `f` AND first arg the atom `true`) shows the call exits through:
+
+```
+__DBG_CALL entry callee=f arg=true
+__DBG_RETX funcval_runtime_call      <- function.yo:3894
+```
+
+`_evaluate_funcval_runtime_call` is the runtime-return branch of the FuncVal
+arm, entered whenever the callee's return is neither a `Type` nor comptime —
+i.e. for most ordinary calls. Its header calls it "pure code motion" from
+`evaluate_function_call`, extracted for -O0 frame size. Over its **327 lines**:
+
+| symbol                                         | occurrences          |
+| ---------------------------------------------- | -------------------- |
+| `try_to_call_function_with_arguments`          | **0**                |
+| `check_if_function_parameter_matches_argument` | 1 — **in a comment** |
+| `are_types_compatible`                         | **0**                |
+| `synthesize_types`                             | **0**                |
+
+It mirrors only that function's Step-4 comptime coercion. No argument is ever
+checked against its parameter type. (The earlier "method arm at
+`function.yo:4215`" reading was another adjacent-line artifact — that site's own
+probe never fires for this call.)
+
+## Attempted fix and why it did not fire — read before retrying
+
+A conservative check was added inside the branch's per-argument loop
+(`while(sra_i < n_supplied_reg, …)`, function.yo:1583), guarded to only fire
+when the declared param count equals the supplied count and the declared type is
+concrete. **It never executed**: a debug print at the top of that loop produces
+no output for the reproducer.
+
+Reason: that loop builds the SPECIALIZATION argument list, and `f` is
+NON-GENERIC — there is nothing to specialize, so the branch skips the loop
+entirely and emits the call directly.
+
+So the check must go **outside** the specialization loop, on a path that runs
+for every call this branch handles, generic or not. Before writing it, find
+where this branch walks the arguments unconditionally (or add such a walk), and
+keep the same three guards (count alignment, concrete declared type,
+post-comptime-coercion) — they are what keep it off the generic paths.
+
 ## Next step
 
-Print the `func_type` (and whether it is a `.Func`) passed at
-`function.yo:4215`, for the exact-filtered reproducer call. Then either the
-method-arm lookup is resolving `f` to something that is not its function type
-(fix the lookup), or the method arm should not be handling a plain
-non-method call at all (fix the branch condition). TS routes every call through
-`tryToCallFunctionWithArguments` with the resolved function type, so the repair
-is to make this path do the same rather than to add a parallel check. Suggested probe: print the callee `func_id` at every site
+Add the per-argument compatibility check on the unconditional path of
+`_evaluate_funcval_runtime_call`, then gate with TIER 1
+(`scratchpad/gates_fast.sh`, ~12 min) before anything else: this branch handles
+nearly every call in the compiler, so a check that is too strict will fail
+loudly and immediately. Success criteria: `issues/repros/arg-type-check-bypassed.yo`
+is rejected (matching TS), the 20-file battery keeps its counts AND its hollow
+flags, corpus stays PASS 140 / DIFF 0. Suggested probe: print the callee `func_id` at every site
 in `evaluator/calls/function.yo` that produces a `FuncCallResult` without going
 through `try_to_call_function_with_arguments` (the FuncVal arm around :945, the
 `.method()` arm around :2856, and the specialization shortcuts), and match it
