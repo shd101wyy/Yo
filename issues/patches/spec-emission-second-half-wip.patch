@@ -1,0 +1,333 @@
+--- yo-self/codegen/functions/collection.yo	2026-07-26 18:28:01.344821113 +0800
++++ /tmp/yb/codegen/functions/collection.yo	2026-07-27 05:31:35.451495807 +0800
+@@ -13,6 +13,7 @@
+ //! (needs findMethodsFromGenericImpls). See issues/codegen-port-type-model-gaps.md.
+ pragma(Pragma.AllowUnsafe);
+ open(import("std/string"));
++open(import("std/fmt"));
+ { ArrayList } :: import("std/collections/array_list");
+ { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_TEST, BF_DOT, BF_COMPTIME_EXPECT_ERROR } :: import("../../expr.yo");
+ { get_type_trait_methods_by_name, type_id_or_empty, register_type_trait_method, MethodEntry } :: import("../../evaluator/values/type_trait_methods.yo");
+@@ -32,6 +33,7 @@
+ { EvalContext, ArgValues, ArgEntry, VarArgEntry } :: import("../../evaluator/context.yo");
+ { find_methods_from_generic_impls } :: import("../../evaluator/values/impl.yo");
+ { create_specialized_function_inline } :: import("../../evaluator/calls/helper.yo");
++{ SpecializedFunctionCacheEntry } :: import("../../evaluator/context.yo");
+ // Auto-derived ___dispose synthesis (collect_dispose_methods): synthesize the
+ // recursive RC-field-drop function from the struct's fields, parse + evaluate it,
+ // register it as the type's ___dispose method. Mirrors TS evaluator/types/utils.ts
+@@ -207,6 +209,69 @@
+ /// (import.yo:230 names every module namespace that way) but STILL recurse
+ /// into nested StructVal fields — a module-level effect-handler record
+ /// (`h :: Exception(throw : ...)`) must keep getting marked.
++/// Live view of the evaluator's specialization caches
++/// (EvalContext.specialized_fn_caches), installed by compile_module before
++/// collection — the same codegen->evaluator indirection pattern as
++/// register_find_function_calls_in_expr. TS instead reads
++/// functionValue.specializedFunctionCaches directly (collection.ts:234/:565);
++/// yo-self keys the caches by the ORIGINAL func_id on the context.
++(g_spec_caches_view : Option(ArrayList(SpecializedFunctionCacheEntry))) =
++  Option(ArrayList(SpecializedFunctionCacheEntry)).None;
++set_spec_caches_for_collection :: (fn(entries : ArrayList(SpecializedFunctionCacheEntry)) -> unit)({
++  g_spec_caches_view = Option(ArrayList(SpecializedFunctionCacheEntry)).Some(entries);
++});
++/// Register every SPECIALIZATION of `func_id` for emission (TS
++/// collection.ts:565-577: without this, a spec created during evaluation and
++/// referenced only by its mangled CALL-SITE name is never emitted — the
++/// cluster-7 "call to undeclared yo_id_..." reds, and the residual of the
++/// closure-body-type Step-6 binding fix).
++_collect_specializations_of :: (fn(func_id : String, context : CodeGenContext, info : ExprInfoTable) -> unit)({
++  match(
++    g_spec_caches_view,
++    .Some(entries) => {
++      n := entries.len();
++      (i : usize) = usize(0);
++      while(i < n, {
++        entry := match(
++          entries.get(i),
++          .Some(e) => e,
++          .None => {
++            i = (i + usize(1));
++            continue;
++          }
++        );
++        if(entry.func_id == func_id, {
++          m := entry.caches.len();
++          (j : usize) = usize(0);
++          while(j < m, {
++            cache := match(
++              entry.caches.get(j),
++              .Some(c) => c,
++              .None => {
++                j = (j + usize(1));
++                continue;
++              }
++            );
++            match(
++              cache.specialized_func_value,
++              .FuncVal(sfvd, _) => {
++                sfid := sfvd.*.func_id;
++                if(!(context.has_function(sfid.clone())), {
++                  context.register_function(sfid.clone(), cache.specialized_func_value, sanitize_for_c_identifier(sfid.clone(), false));
++                  _call_find_function_calls_in_expr(sfvd.*.body, context, info);
++                });
++              },
++              _ => ()
++            );
++            j = (j + usize(1));
++          });
++        });
++        i = (i + usize(1));
++      });
++    },
++    .None => ()
++  );
++});
+ collect_effect_record_members :: (fn(mv : EvalValue, context : CodeGenContext, info : ExprInfoTable) -> unit)(
+   match(
+     mv,
+@@ -223,6 +288,7 @@
+               if(!(context.has_function(func_id.clone())), {
+                 mark_as_effect_record_member(func_id.clone());
+                 context.register_function(func_id.clone(), fv, sanitize_for_c_identifier(func_id.clone(), false));
++                _collect_specializations_of(func_id.clone(), context, info);
+                 body := match(fv,.FuncVal(__fvd2, _) => __fvd2.*.body, _ => make_err_expr());
+                 _call_find_function_calls_in_expr(body, context, info);
+               });
+@@ -370,15 +436,18 @@
+           cond(
+             (!(context.has_function_with_c_name(plain.clone()))) => {
+               context.register_function(func_id.clone(), value, plain.clone());
++              _collect_specializations_of(func_id.clone(), context, info);
+               context.set_exported_function_label(func_id.clone(), label.clone());
+             },
+             true => {
+               context.register_function(func_id.clone(), value, sanitize_for_c_identifier(func_id.clone(), false));
++              _collect_specializations_of(func_id.clone(), context, info);
+             }
+           );
+         },
+         true => {
+           context.register_function(func_id.clone(), value, sanitize_for_c_identifier(func_id.clone(), false));
++          _collect_specializations_of(func_id.clone(), context, info);
+         }
+       );
+     }
+@@ -483,6 +552,7 @@
+           cid := _func_val_id(cfv);
+           if(!(context.has_function(cid.clone())), {
+             context.register_function(cid.clone(), cfv, sanitize_for_c_identifier(cid.clone(), false));
++            _collect_specializations_of(cid.clone(), context, info);
+             recur(_func_val_body(cfv), context, info);
+           });
+         }),
+@@ -494,6 +564,7 @@
+           iid := _func_val_id(imv);
+           if(!(context.has_function(iid.clone())), {
+             context.register_function(iid.clone(), imv, sanitize_for_c_identifier(iid.clone(), false));
++            _collect_specializations_of(iid.clone(), context, info);
+             recur(_func_val_body(imv), context, info);
+           });
+         }),
+@@ -554,6 +625,7 @@
+                   mfid := _func_val_id(mv);
+                   if(!(context.has_function(mfid.clone())), {
+                     context.register_function(mfid.clone(), mv, sanitize_for_c_identifier(mfid.clone(), false));
++                    _collect_specializations_of(mfid.clone(), context, info);
+                     recur(_func_val_body(mv), context, info);
+                   });
+                 }),
+@@ -593,6 +665,7 @@
+                         rm_fid := _func_val_id(rmv2);
+                         if((!(context.has_function(rm_fid.clone()))) && !(is_control_fn(rm_fid.clone())), {
+                           context.register_function(rm_fid.clone(), rmv2, sanitize_for_c_identifier(rm_fid.clone(), false));
++                          _collect_specializations_of(rm_fid.clone(), context, info);
+                           recur(_func_val_body(rmv2), context, info);
+                         });
+                       }),
+@@ -624,6 +697,8 @@
+         lookup_method_callee_value(ast_expr_id(expr)),
+         .Some(scv) => if(is_func_val(scv), {
+           sfid := _func_val_id(scv);
++          if(sfid.contains(String.from("5059")), {
++          });
+           if(!(context.has_function(sfid.clone())), {
+             context.register_function(sfid.clone(), scv, sanitize_for_c_identifier(sfid.clone(), false));
+             recur(_func_val_body(scv), context, info);
+@@ -634,6 +709,15 @@
+       match(
+         expr_info_table_get(info, ast_expr_id(callee)),
+         .Some(cei) => if(is_function_type(cei.ty), {
++          match(
++            cei.value,
++            .Some(__dbg_cv) => if(is_func_val(__dbg_cv), {
++              __dbg_fid := _func_val_id(__dbg_cv);
++              if(__dbg_fid.contains(String.from("5059")), {
++              });
++            }),
++            .None => ()
++          );
+           is_comptime_only := match(cei.ty,.Func({ meta : __fm3 }) => __fm3.*.result_is_comptime_only, _ => false);
+           match(
+             cei.value,
+@@ -712,6 +796,13 @@
+                 match(ei.ty,.Func({ meta : __fm6 }) => __fm6.*.is_control, _ => false)
+             )
+         );
++        // Collect this function's SPECIALIZATIONS regardless of whether the
++        // BASE is emittable — TS skips only generics with NO caches
++        // (collection.ts:583-586); a generic base whose call sites reference
++        // mangled spec names must have those specs emitted or the C carries
++        // calls to undeclared yo_id_... functions (the cluster-7 reds and the
++        // closure-body-type binding's residual).
++        _collect_specializations_of(_func_val_id(v), context, info);
+         cond(
+           v_is_control => {
+             mark_as_effect_record_member(_func_val_id(v));
+@@ -1272,5 +1363,6 @@
+   set_collect_type_fn,
+   collect_trace_methods_from_generic_impls,
+   collect_dispose_methods,
+-  register_find_function_calls_in_expr
++  register_find_function_calls_in_expr,
++  set_spec_caches_for_collection
+ );
+--- yo-self/codegen/codegen_c.yo	2026-07-25 15:08:53.222184131 +0800
++++ /tmp/yb/codegen/codegen_c.yo	2026-07-27 05:02:20.672006234 +0800
+@@ -29,7 +29,7 @@
+ { EvalContext } :: import("../evaluator/context.yo");
+ { CodeGenContext } :: import("./utils/index.yo");
+ { FunctionGenerationContext } :: import("./functions/context.yo");
+-{ collect_required_functions, collect_trace_methods_from_generic_impls, collect_dispose_methods, register_find_function_calls_in_expr } :: import("./functions/collection.yo");
++{ collect_required_functions, collect_trace_methods_from_generic_impls, collect_dispose_methods, register_find_function_calls_in_expr, set_spec_caches_for_collection } :: import("./functions/collection.yo");
+ { collect_required_types, collect_pointer_pointees, register_collect_type } :: import("./types/collection.yo");
+ { collect_c_includes, emit_c_includes } :: import("./c/collection.yo");
+ { generate_type_declarations, generate_dyn_box_types } :: import("./types/generation.yo");
+@@ -212,6 +212,10 @@
+   base.add_c_include(String.from("<fcntl.h>"));
+   ctx := FunctionGenerationContext.new(base);
+   base.emitter.emit_declaration_line("// Module (self-hosted codegen)");
++  // Install the live specialization-cache view for the collection pass
++  // (TS reads functionValue.specializedFunctionCaches directly; yo-self's
++  // caches live on the EvalContext keyed by original func_id).
++  set_spec_caches_for_collection(eval_ctx.specialized_fn_caches);
+   // First pass: collect functions and types reachable from the module exports.
+   collect_required_functions(module_value, base, info, true);
+   collect_required_types(module_value, base, info);
+--- yo-self/evaluator/calls/function.yo	2026-07-26 23:06:11.898939241 +0800
++++ /tmp/yb/evaluator/calls/function.yo	2026-07-27 05:28:52.544493354 +0800
+@@ -117,7 +117,7 @@
+ { evaluate_iso_value_call } :: import("./iso.yo");
+ { TypeField, get_struct_fields } :: import("../types/field.yo");
+ { try_to_call_function_with_arguments, resolve_param_types_from_expected, validate_where_constraints_for_call, create_specialized_function_inline } :: import("./helper.yo");
+-{ get_func_type, register_func_type } :: import("../../function_value.yo");
++{ get_func_type, register_func_type, get_closure_body_type } :: import("../../function_value.yo");
+ { create_unknown_val, create_unknown_val_with_name } :: import("../../value.yo");
+ /// Named call-result unknown: promotes a Type-universe result to
+ /// `TypeVal(SomeT)`. TS names every result UnknownValue (variableName is
+@@ -1212,7 +1212,44 @@
+               .Some(i) => i,
+               .None => new_expr_info(env, t_unit())
+             );
+-            _funcval_try_synthesize_param(dpt, se_new, sp_info.ty, env);
++            // Closure-arg return refinement — the FuncVal-arm TWIN of the
++            // Step-6 substitution in check_and_add_argument (helper.yo): a
++            // closure arg whose own declared return never resolved gives the
++            // structural synthesis `-> U` and the callee's generic binds to
++            // itself; the spec's return then stays List(U) and emission's
++            // has_generic_return gate drops the spec silently (the
++            // called-but-undefined yo_id_... family). Substitute the
++            // registered def-time body type as the given return.
++            (sp_arg_ty : TypeValue) = sp_info.ty;
++            match(
++              sp_info.value,
++              .Some(sp_v) => match(
++                sp_v,
++                .FuncVal(sp_fvd, _) => match(
++                  sp_info.ty,
++                  .Func({
++                    forall_types : sp_ft,
++                    param_types : sp_pt,
++                    implicit_types : sp_it,
++                    where_types : sp_wt,
++                    result : sp_res,
++                    meta : sp_meta
++                  }) => if(is_some_type(sp_res), {
++                    match(
++                      get_closure_body_type(sp_fvd.*.func_id.clone()),
++                      .Some(sp_body_ty) => {
++                        sp_arg_ty = TypeValue.Func(sp_ft, sp_pt, sp_it, sp_wt, sp_body_ty, sp_meta);
++                      },
++                      .None => ()
++                    );
++                  }),
++                  _ => ()
++                ),
++                _ => ()
++              ),
++              .None => ()
++            );
++            _funcval_try_synthesize_param(dpt, se_new, sp_arg_ty, env);
+             sp_i = (sp_i + usize(1));
+           });
+           fa_synth_env = Option(Environment).Some(se_new);
+--- yo-self/evaluator/calls/helper.yo	2026-07-27 04:54:52.726882663 +0800
++++ /tmp/yb/evaluator/calls/helper.yo	2026-07-27 05:31:52.533882677 +0800
+@@ -21,6 +21,7 @@
+ //! stub that lived here has been retired.
+ pragma(Pragma.AllowUnsafe);
+ open(import("std/string"));
++open(import("std/fmt"));
+ { ArrayList } :: import("std/collections/array_list");
+ {
+   AstExpr,
+@@ -100,6 +101,7 @@
+   new_expr_info,
+   expr_info_table_get,
+   register_some_resolved_concrete,
++  lookup_some_resolved_concrete,
+   adopt_receiver_struct_instance
+ } :: import("../../expr_info.yo");
+ { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
+@@ -3375,9 +3377,40 @@
+               match(
+                 last_v.value,
+                 .Some(v) => {
++                  // TS helper.ts:1464-1494 (unported until now): propagate
++                  // resolvedConcreteType from a generic SomeType back before
++                  // extraction — the body eval resolves `U` through the
++                  // lineage cell / id registry, but this raw env read handed
++                  // the spec's return substitution the bare SomeT, so
++                  // spec_ret_ty stayed `List(U)` and emission's
++                  // has_generic_return gate silently dropped the spec.
++                  (v_out : EvalValue) = v;
++                  match(
++                    v,
++                    .TypeVal(v_tb) => match(
++                      v_tb,
++                      .SomeT({ id : ex_sid, resolved_concrete : ex_cell }) => {
++                        (ex_res : Option(TypeValue)) = Option(TypeValue).None;
++                        if(ex_cell.len() > usize(0), {
++                          ex_res = ex_cell.get(ex_cell.len() - usize(1));
++                        }, {
++                          ex_res = lookup_some_resolved_concrete(ex_sid);
++                        });
++                        match(
++                          ex_res,
++                          .Some(ex_c) => {
++                            v_out = EvalValue.TypeVal(ex_c);
++                          },
++                          .None => ()
++                        );
++                      },
++                      _ => ()
++                    ),
++                    _ => ()
++                  );
+                   forall_arg_vals.push(
+                     ArgEntry(
+-                      value :.Some(v),
++                      value :.Some(v_out),
+                       parameter_type : ftype2,
+                       arg_type : last_v.ty
+                     )

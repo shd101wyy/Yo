@@ -524,3 +524,27 @@ then `fa_bound_types` will carry `i32` and spec_ret_ty resolves. That is the
 one remaining edit for the emission half; the prototyped
 `_collect_specializations_of` collection helper (in the same WIP) is the
 belt-and-braces companion (TS collection.ts:565).
+
+FURTHER NEGATIVES on the emission half (2026-07-27, all in
+`issues/patches/spec-emission-second-half-wip.patch` — collection helper +
+codegen_c wiring + the FuncVal-arm structural-fallback substitution twin,
+probe-free, diff vs the landed tree):
+
+- The FuncVal arm's STRUCTURAL fallback substitution (the twin of the landed
+  Step-6 one, applied before `_funcval_try_synthesize_param`) does NOT
+  resolve the spec's return either — the fid still renders
+  `ret_gs_yo_id_4998_1975`. Either an earlier inference arm already
+  "bound" U (to something non-concrete, setting fa_bound), or the scratch
+  synthesis still yields a SomeT (skipped by its `!(is_some_type)` gate).
+  Next probe: print which arm binds U and to what, for the map call
+  specifically (filter by the callee fid `yo_id_5059`, never by the name
+  `U`).
+- Meanwhile the C shows `ret_gs_yo_id_4998_i32` for a DIFFERENT call — the
+  resolved-return render works when the binding lands, so everything
+  downstream (fid, prototype, emission gate) is expected to fall into place
+  once the right arm binds U concretely.
+- Also confirmed: collection's method-callee side-table DOES register the
+  spec FuncVal (`__MCV ... has=false` then registration), so once the spec's
+  registered TYPE resolves, `should_skip_function_codegen`'s
+  has_generic_return gate stops dropping it and no further codegen work
+  should be needed.
