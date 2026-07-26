@@ -1,14 +1,22 @@
 # yo-self bootstrap — handoff
 
-_Rewritten 2026-07-26 for handover. Historical detail lives in `git log` of
-this file and in `issues/*.md`; nothing below needs re-litigating._
+_Rewritten 2026-07-26 for handover; updated 2026-07-27 after the validation
+batch. Historical detail lives in `git log` of this file and in `issues/*.md`;
+nothing below needs re-litigating._
 
 ## Where things stand
 
 - **#70 (`s2 test ./yo-self/tests`): DONE — 61/61.**
-- **#69 (`s2 test ./tests`): 133 GREEN / 32 HOLLOW / 18 RED of 183.**
-  Measured 2026-07-26 with `scratchpad/hollow_sweep69.sh` on an s1 built from
-  the current tree; raw per-file verdicts in that sweep's `results.txt`.
+- **#69 (`s2 test ./tests`): 135 GREEN / 29 HOLLOW / 19 RED of 183.**
+  Measured 2026-07-27 with `scratchpad/hollow_sweep69.sh` (`/tmp/hs_final`)
+  on an s1 from the current tree, after the validation batch (`a71032468`,
+  full TIER 2 green incl. **STRICT_FIXPOINT HOLDS**, stage2 hollow=6
+  baseline) plus the while-loop drop-guard pair. vs 2026-07-26:
+  **`module_struct_unification`** (10/10) and **`atomic_object`** (21/21)
+  flipped hollow → GREEN; `impl` moved hollow → RED (all its
+  `comptime_expect_error` targets now throw correctly; the file is blocked
+  only by the partial-body-emission C error below). Every other verdict
+  unchanged.
 
 **Do not quote a bare "N passing" number.** 33 files used to be counted green
 while running NOTHING: yo-self emitted the test batch's whole `main` as a
@@ -67,18 +75,27 @@ common to all 32 are prelude noise and are excluded):
 
 The `comptime_expect_error` group is the cheapest: each is a missing
 VALIDATION (yo-self ACCEPTS what TS rejects) in an otherwise-green file.
-**One is already done and proves the method** — `ccd2dc498` made an infix
-operator with no impl on a primitive receiver an error (`bool < 3`), flipping
-`operator_grouping` hollow → GREEN. The remaining six and what each needs:
+`ccd2dc498` (`operator_grouping`) proved the method; the 2026-07-27 batch
+`a71032468` worked the six. **Per-file state after the batch:**
 
-| file                        | expectation yo-self wrongly accepts                                                                                                    |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `inherent_first_resolution` | `f.m(true)` must not fall through from inherent `m(i32)` to trait `m(bool)`; `s.starts_with(i32(5))` must fail the `P : Pattern` bound |
-| `atomic_object`             | `atomic(ref(struct(inner : NonSend)))` must be rejected                                                                                |
-| `basic`                     | `x = 12` on a variable defined outside the fn body / while loop                                                                        |
-| `impl`                      | fn returning `Impl(Id)` from divergent `cond`/`match` arms; `v.pick("s")`                                                              |
-| `module_struct_unification` | bare `module(x : i32)` and bare `Module` as expressions                                                                                |
-| `prelude`                   | conflicting `impl` on `AnotherBox`; `uninit.assume_init()` before init                                                                 |
+| file                        | state                                                                                                                                                                              |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `module_struct_unification` | **FLIPPED GREEN** (10/10) — `module(...)`/`Module` removed from yo-self (the TS Module→Struct unification's missing half)                                                            |
+| `atomic_object`             | **FLIPPED GREEN** (21/21) — atomic-Send enforcement ported (guarded to CONCRETE fields; see the divergence note in `enforce_atomic_object_send`)                                     |
+| `impl`                      | hollow → RED. Both targets now THROW correctly (Impl-divergent-return check in begin.yo + `v.pick("s")` via the arg-type-check). Blocked by partial-body emission (next paragraph)   |
+| `basic`                     | still hollow. `x = 12` outside a FN BODY now errors (assignment.yo); the WHILE twin is unportable (frame-level off-by-one, measured). NEXT failing cee: `x := 13` after `(x:i32)=12` — needs TS's `addVariableToEnv` no-shadowing/duplicate rules, a wide-blast-radius port  |
+| `inherent_first_resolution` | still hollow. `f.m(true)` errors on HEAD; `s.starts_with(i32(5))` needs call-site where-clause validation WIDENED past marker traits, which first needs `type_implements_trait` fixed for concrete method-trait satisfaction (measured false negatives: `String <: Hash` ×14, `String <: Eq` ×12 over `check ./std` — widening today rejects valid std code)  |
+| `prelude`                   | still hollow. `impl(AnotherBox, Dispose(...))` now REJECTED (self-constraint hook); `assume_init()`-twice is BLOCKED on TS-parity env cloning for the call checking phase (`cloneEnvForCTFECheck`) — a consumed-state gate at the TS-mirror site (helper.ts:402) false-positives on yo-self's shared-env double evaluation (measured: hollows imm_string). Reverted; do not re-land without the env clone  |
+
+**New known defect from the impl flip:** when a cee'd fn DEFINITION throws
+mid-body (e.g. at the second divergent `return`), yo-self's mutable
+registrations keep the half-evaluated fn and codegen emits a PARTIAL body —
+statements before the throw as real C (with the unresolved `Impl` return
+lowered to `void*`, so `return <int32_t temp>;` breaks clang), statements
+after as `// Failed to transpile`. TS discards the whole definition. Cheapest
+fix candidate: fn-body emitters treat a body containing ANY missing-ExprInfo
+statement as fully failed (whole-body comment), which is what already happens
+when the FIRST statement throws. Gate on corpus + battery + stage2 markers.
 
 Method that works: run the file under a DIAGNOSTIC s1 (below), find the
 `Expected compile error …` site, put the offending expression in
@@ -110,30 +127,40 @@ the import collides with`ToString`.
 
 Then `/tmp/diag_s1 test <file> --parallel 1 2>&1 | grep __DBG | sort -u`.
 Messages that appear for EVERY file are prelude-evaluation noise — ignore them;
-the discriminating ones are the work-list.
+the discriminating ones are the work-list. Use DISTINCT tags per site (the
+2026-07-26 recipe used one `__DBG` for all three and could not tell them
+apart), and know there is a FOURTH, silent swallow the recipe misses:
+`_comptime_expect_error_arg_threw`'s `local_exn`
+(`evaluator/builtins/comptime_expect_error.yo`).
 
-### 2. The parked soundness fix — arguments are not type-checked
+### 2. The soundness fix — LANDED
 
-`f :: (fn(x : i32) -> i32)(x); f(true)` — TS rejects, **yo-self accepts and
-emits `yo_id_NNNN((int32_t)(true))`**. Located precisely:
-`_evaluate_funcval_runtime_call` (`yo-self/evaluator/calls/function.yo:1347-1674`), the
-runtime-return branch of the FuncVal arm taken for most ordinary calls, calls
-NEITHER `try_to_call_function_with_arguments` NOR
-`check_if_function_parameter_matches_argument` across its 327 lines.
-
-A fix exists and is **TIER-1 clean but TIER-2 unverified**:
-`git apply issues/patches/arg-type-check-fix.patch` (93 lines, one file). It
-needs rebasing onto the `forall`→`generic` rename, then TIER 1 + a full TIER 2.
-Full analysis, including the load-bearing function-type guard found by
-measurement: `issues/yo-self-arg-type-check-bypassed.md`.
+The arg-type-check fix (a call's arguments were never validated against the
+declared parameter types on the `_evaluate_funcval_runtime_call` path) landed
+in `a71032468` with the full validation batch; TIER 2 green, FIXPOINT HOLDS.
+History and the load-bearing function-type guard:
+`issues/yo-self-arg-type-check-bypassed.md`.
 
 ### 3. The closure-forall family (8 hollow files)
 
 Reproducer: `issues/repros/closure-arg-abandons-enclosing-begin.yo`. A closure
 passed as a call ARGUMENT leaves the callee's forall `U` unbound → the callee's
 def-time trial body eval hits `List(U)` → `(result : List(U)) = List(U).new()`
-throws → `_trial_eval_fn_body`'s silent handler (`yo-self/evaluator/calls/function_type.yo:222`)
-swallows it and abandons the caller's begin loop.
+throws.
+
+**MECHANISM CORRECTED 2026-07-27** (two instrumentation rounds, full detail
+appended to `issues/yo-self-hollow-test-batch-main.md`): the trial swallow's
+unwind is CONTAINED correctly — the emitted C for `_trial_eval_fn_body`
+clears `__yo_effect_escaped` and returns, and P1..P5 probes show
+`try_to_implement_function_by_function_type` runs to its tail. The begin-loop
+abandonment happens LATER in the same statement's evaluation by a path that is
+**neither** the escape flag (all 18 setter sites + 16,993/16,996 checks
+instrumented in the C: zero hits in the fatal window) **nor** a source-level
+early return in `begin.yo`'s loop. Next probes are listed in the issue
+(instrument `evaluate_begin_expression`'s compiled exits; C-level trace of
+the check-phase end). The cheap C-instrumentation trick: sed-replace
+`__yo_effect_escaped = 1;` / `if (__yo_effect_escaped) {` in the emitted `.c`
+(skip lines containing `"` — emitter templates) and re-run clang only.
 
 **Four measured dead ends — do not repeat** (all in
 `issues/yo-self-hollow-test-batch-main.md`):
@@ -168,9 +195,11 @@ and gate the batch:
 - Bisect a TIER-2 failure with 2-minute s1 builds. Do not go back to
   one-gate-per-commit.
 
-Green baselines: corpus **PASS 140 / DIFF 0**, `check ./std` **153/153**,
-battery at its counts AND its hollow flags, stage2 hollow markers **6**,
-**FIXPOINT HOLDS**.
+Green baselines: corpus **PASS 141 / DIFF 0** (140 before
+`while_or_shortcircuit_owned_temp.yo` was added 2026-07-27), `check ./std`
+**153/153**, battery at its counts AND its hollow flags
+(`module_struct_unification` and `atomic_object` are now hollow=0 GREEN;
+`imm_string` 28/hollow=0), stage2 hollow markers **6**, **FIXPOINT HOLDS**.
 
 ```bash
 bun run build                                             # before any yo-cli work
@@ -277,3 +306,9 @@ explicit path.
 - `issues/ts-constructor-result-drop-o0-crash.md` — TS-side -O0 crash.
 - Broad anon-struct expected-type rule blocked by a stage-2 miscompile; the
   narrow rule is committed and green.
+- `issues/ts-while-loop-body-drops-missing-guards.md` — FIXED both sides
+  2026-07-27 (TS while.ts + yo-self while_loop.yo, corpus test
+  `while_or_shortcircuit_owned_temp.yo`).
+- Intermittent rc=139 AFTER a correctly-printed impl-path error (2× then 6×
+  clean on `repro_dispose_nonrc`) — logs have content, so NOT the zero-byte
+  phantom signature. Watch item.
