@@ -241,3 +241,80 @@ on plausibility alone.
   blast radius than "def-time trial eval failed". TS's def-time body eval
   (function-type.ts:499) does not take the caller's statement list with it.
 - A per-test hollow gate is mandatory: see "New gate needed" above.
+
+
+## RE-MEASURED 2026-07-27 (post-validation-batch, s1i + a bracketed diag)
+
+Three probes bracketing the def-time path (`__TR P1..P5` in
+`try_to_implement_function_by_function_type`) plus begin-loop enter/end
+counters, on `issues/repros/closure-arg-abandons-enclosing-begin.yo`:
+
+- The map def-time trial throws (`__DBGT Incompatible types: Expected
+  ctfe_result_… Given unit`) and `_trial_eval_fn_body` CONTAINS it — the
+  emitted C is correct (`if (__yo_effect_escaped) { …; __yo_effect_escaped=0;
+  return; }`), and P1..P5 all print: **the def-time path completes
+  normally** (flow_out empty, no re-raise).
+- The abandonment happens ABOVE: after try_to_implement returns, the
+  enclosing evaluation chain for `xs.map(closure)` dies silently — main's
+  4-statement begin loop never re-enters (i=1 has no loop-end, i=2 never
+  entered), NO error passes the statement wrapper (`__DBGW` = 0 prints for
+  the whole compile), and the module driver simply moves on to the next
+  module ("check: parsing ./std/prelude.yo").
+- So the killer is a SILENT `__yo_effect_escaped` set (no printing handler
+  is ever invoked) somewhere between try_to_implement's return and the call
+  evaluation completing, cascading up every `if (__yo_effect_escaped)
+  return` site until the top-level driver's local containment. This matches
+  the flag-leak class already documented at `_expr.yo` ("HashMap ops
+  (ExprInfo table get/set) can leak the escaped flag through GC").
+- **Earlier step-3 wording is corrected**: the trial swallow's unwind does
+  NOT itself abandon the caller's begin loop; the abandonment is a separate
+  stale-flag cascade fired later in the same statement's evaluation.
+
+Next probe: an lldb watchpoint on `__yo_effect_escaped` (or a temporary
+`__yo_set_escaped()` wrapper function in the emitted C to get a stack) run
+on the repro, filtered to hits after the last `__TR P5` — that names the
+silent setter directly. The 4 dead ends above still stand.
+
+Also note for diag builders: there is a FOURTH silent swallow the 3-site
+recipe misses — `_comptime_expect_error_arg_threw`'s `local_exn`
+(`evaluator/builtins/comptime_expect_error.yo`), which eats REAL errors
+during a `comptime_expect_error` argument eval with no diagnostic.
+
+
+### REFINED 2026-07-27 — the abandonment is NOT an escape-flag cascade either
+
+Full-coverage C instrumentation on the diag binary (all 18 `__yo_effect_escaped
+= 1;` setter sites printing `__ESC <func>`, all 16,993 of 16,996
+`if (__yo_effect_escaped)` checks printing `__PROP <func>` when taken):
+
+- The four setter handlers in play: the two diag print-handlers (`__DBGT`
+  trial, `__DBGA` anon-trial), `try_match_generic_impl`'s synthesis-failure
+  swallow in impl.yo (~1150 benign firings/compile), and a silent
+  function.yo handler (6 firings).
+- In the fatal window (main's body begin, stmt i=1 `doubled := xs.map(...)`),
+  the last events are: map's def-time trial throw (contained, P1..P5
+  complete), a SECOND successful def-time trial (out=1, P1..P5 complete) —
+  then the log jumps STRAIGHT to the codegen phase's prelude re-parse.
+  **Zero `__PROP`, zero `__ESC`, zero begin-loop end prints** between the last
+  P5 and the phase change.
+- `evaluate_begin_expression`'s statement loop has NO `continue`/`break`/
+  direct `return(...)` that could skip the loop-end probe.
+
+So the statement evaluation chain (map-call machinery → main's body begin
+loop → main's def-time trial → module eval end) exits by some path that is
+neither the escape flag nor a source-level early return. Candidate vectors to
+probe next, in order:
+
+1. Instrument `evaluate_begin_expression`'s C exits directly (every `return`
+   in its compiled body) — is the loop fn even exiting, or is its FRAME
+   corrupted (stack smash) so the `while` condition ends?
+2. Probes are eprintln calls — verify the emitted call sites for the loop
+   probes have no conditional gating (pre-clear + check pattern) that could
+   suppress output under a stale flag.
+3. lldb: `watchpoint set variable loop_i` equivalents / breakpoint on the
+   codegen-phase entry with `bt` to see what the stack looked like when the
+   check phase ended.
+
+The 2026-07-26 step-3 attribution ("the trial swallow's unwind abandons the
+begin loop") is definitively WRONG — measured twice over: the trial contains
+correctly and the loop dies later, silently.
