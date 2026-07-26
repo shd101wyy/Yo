@@ -588,3 +588,16 @@ header already implements for ITS return resolution (function.yo:1348-1370,
 `s_ret := subst_new(); ...`) — that code is the proven in-tree template; the
 mint should reuse it. All attempts probe-free in
 `issues/patches/spec-emission-second-half-wip.patch`.
+
+CYCLE 9 (final): subst-by-occurrence applied to BOTH mint return re-evals
+(`spec_ret_ty` ~helper.yo:1490 AND `spec_result` ~helper.yo:2064, the one
+feeding `register_func_type(specialized_func_id, spec_type)`) STILL leaves
+the spec unemitted — because `should_skip_function_codegen`'s
+`_func_has_generic_params` gate also fires: the spec's PARAM list still
+carries the closure param typed `fn(a : i32) -> U`. Completing the emission
+therefore needs the SAME substitution over `spec_param_types` (and ideally
+the closure param swapped for its registered body-typed Func — which also
+fixes the fid's `rtparam1_fn_..._U_...` identity segment). All layers are in
+`issues/patches/spec-emission-second-half-wip.patch` (updated). The chain is
+now: [landed Step-6 binding] → [WIP: collection helper + mint return substs]
+→ [remaining: param-type subst + gates re-check + full TIER 1/2].

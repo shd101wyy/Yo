@@ -272,7 +272,7 @@
            });
            fa_synth_env = Option(Environment).Some(se_new);
 --- yo-self/evaluator/calls/helper.yo	2026-07-27 04:54:52.726882663 +0800
-+++ /tmp/yb/evaluator/calls/helper.yo	2026-07-27 06:40:56.246625653 +0800
++++ /tmp/yb/evaluator/calls/helper.yo	2026-07-27 06:46:33.875457048 +0800
 @@ -21,6 +21,7 @@
  //! stub that lived here has been retired.
  pragma(Pragma.AllowUnsafe);
@@ -289,10 +289,19 @@
    adopt_receiver_struct_instance
  } :: import("../../expr_info.yo");
  { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
-@@ -1462,6 +1464,48 @@
+@@ -109,6 +111,7 @@
+   TypePair,
+   synthesize_types
+ } :: import("../types/synthesizer.yo");
++{ subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
+ {
+   are_types_compatible,
+   are_types_compatible_exact
+@@ -1462,11 +1465,105 @@
            );
            // Register recursive self-reference in context so recursive calls
            // inside the body can find the specialized func_id.
+-          spec_ret_ty := evaluate_function_return_type_again(
 +          // Bind the inferred generic values (arg_values.forall_args, in
 +          // forall_names order) into the mint env before the return
 +          // re-evaluation. TS's calleeEnv already carries these bindings; on
@@ -335,10 +344,118 @@
 +              zb_i = (zb_i + usize(1));
 +            });
 +          };
-           spec_ret_ty := evaluate_function_return_type_again(
++          (spec_ret_ty : TypeValue) = evaluate_function_return_type_again(
              match(func_type,.Func({ result : r }) => r, _ => t_unit()),
              callee_env,
-@@ -3375,9 +3419,40 @@
+             ctx
+           );
++          // If the re-evaluation left SomeTs (an env NAME binding cannot
++          // resolve the DIFFERENT SomeT copy inside a generic instantiation
++          // like `List(U)` — the Gap-6 lineage split), substitute by SomeT
++          // OCCURRENCE, the proven FuncVal-arm template
++          // (function.yo:1348-1370): match each SomeT in the declared return
++          // to a forall name and substitute the inferred forall_args value at
++          // the occurrence's own recorded level.
++          if(get_all_some_types(spec_ret_ty).len() > usize(0), {
++            zdecl_ret := match(func_type,.Func({ result : zr }) => zr, _ => t_unit());
++            zret_somes := get_all_some_types(zdecl_ret);
++            if(zret_somes.len() > usize(0), {
++              zs_ret := subst_new();
++              (zs_any : bool) = false;
++              (zrsi : usize) = usize(0);
++              while(zrsi < zret_somes.len(), {
++                zrst := match(zret_somes.get(zrsi),.Some(t) => t,.None => t_unit());
++                match(
++                  zrst,
++                  .SomeT(_, zrst_name, zrst_lvl, _, _, _, _, _, _, _, _) => {
++                    (zbni : usize) = usize(0);
++                    while(zbni < forall_names.len(), {
++                      zbn := match(forall_names.get(zbni),.Some(n) => n,.None => String.from(""));
++                      if((zbn == zrst_name) && (zbni < arg_values.forall_args.len()), {
++                        match(
++                          arg_values.forall_args.get(zbni),
++                          .Some(zae) => match(
++                            zae.value,
++                            .Some(zv) => match(
++                              zv,
++                              .TypeVal(ztb) => if(!(is_some_type(ztb)), {
++                                subst_add(zs_ret, zrst_name.clone(), zrst_lvl, ztb.clone());
++                                zs_any = true;
++                              }),
++                              _ => ()
++                            ),
++                            .None => ()
++                          ),
++                          .None => ()
++                        );
++                      });
++                      zbni = (zbni + usize(1));
++                    });
++                  },
++                  _ => ()
++                );
++                zrsi = (zrsi + usize(1));
++              });
++              if(zs_any, {
++                spec_ret_ty = substitute(zs_ret, zdecl_ret);
++              });
++            });
++          });
+           prev_spec := ctx.currently_specializing_function;
+           // Push onto the FULL specializing stack BEFORE moving the originals into
+           // the single slot. The stack catches MUTUAL recursion (f→g→f) that the
+@@ -1965,6 +2062,50 @@
+                 spi = (spi + usize(1));
+               });
+               (spec_result : TypeValue) = evaluate_function_return_type_again(sp_res_b, callee_env, ctx);
++              // Same subst-by-occurrence as spec_ret_ty above: the env NAME
++              // binding cannot resolve the SomeT copy inside `List(U)`.
++              if(get_all_some_types(spec_result).len() > usize(0), {
++                y_somes := get_all_some_types(sp_res_b);
++                ys_ret := subst_new();
++                (ys_any : bool) = false;
++                (yrsi : usize) = usize(0);
++                while(yrsi < y_somes.len(), {
++                  yrst := match(y_somes.get(yrsi),.Some(t) => t,.None => t_unit());
++                  match(
++                    yrst,
++                    .SomeT(_, yrst_name, yrst_lvl, _, _, _, _, _, _, _, _) => {
++                      (ybni : usize) = usize(0);
++                      while(ybni < forall_names.len(), {
++                        ybn := match(forall_names.get(ybni),.Some(n) => n,.None => String.from(""));
++                        if((ybn == yrst_name) && (ybni < arg_values.forall_args.len()), {
++                          match(
++                            arg_values.forall_args.get(ybni),
++                            .Some(yae) => match(
++                              yae.value,
++                              .Some(yv) => match(
++                                yv,
++                                .TypeVal(ytb) => if(!(is_some_type(ytb)), {
++                                  subst_add(ys_ret, yrst_name.clone(), yrst_lvl, ytb.clone());
++                                  ys_any = true;
++                                }),
++                                _ => ()
++                              ),
++                              .None => ()
++                            ),
++                            .None => ()
++                          );
++                        });
++                        ybni = (ybni + usize(1));
++                      });
++                    },
++                    _ => ()
++                  );
++                  yrsi = (yrsi + usize(1));
++                });
++                if(ys_any, {
++                  spec_result = substitute(ys_ret, sp_res_b);
++                });
++              });
+               // Gap-6 attempt #8(a): a declared-`Self` return resolves through
+               // callee_env to the impl's PATTERN-ERA instance (unresolved T#N
+               // only in type_arguments — no resolution path concretizes it,
+@@ -3375,9 +3516,40 @@
                match(
                  last_v.value,
                  .Some(v) => {
