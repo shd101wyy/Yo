@@ -1,0 +1,44 @@
+// Minimal reproducer for issues/yo-self-hollow-test-batch-main.md.
+//
+// yo-self: compile rc=0, but the LAST TWO statements of `main` are emitted as
+//   // Failed to transpile doubled := (xs.map)(x => (x * i32(2)));
+//   // Failed to transpile assert(doubled(usize(0)) == i32(4), ...);
+// TS: emits both correctly.
+//
+// Chain (measured with an instrumented s1, 2026-07-26):
+//   1. `xs.map(<closure>)` is evaluated. The forall `U` of
+//      `map : fn(self, f : Impl(Fn(T) -> U)) -> List(U)` never gets bound from
+//      the closure's actual return type.
+//   2. `map`'s body is trial-evaluated at definition time. With `U` unbound,
+//      `List(U)` at std/imm/list.yo:141 short-circuits through CTFE to a fresh
+//      named unknown, so
+//         (result : List(U)) = List(U).new();
+//      throws `Incompatible types: Expected ctfe_result_yo_id_5179, Given unit`.
+//   3. That throw is swallowed by `_trial_eval_fn_body`'s `inner_exn`
+//      (evaluator/calls/function_type.yo:222), whose `unwind(())` exits the
+//      helper — ABANDONING the enclosing begin loop. Statement i=1 and every
+//      statement after it never get an ExprInfo.
+//   4. codegen/exprs/generation.yo:417 finds no ExprInfo and emits
+//      `// Failed to transpile <stmt>`.
+//
+// In a generated test batch the abandoned statement is the whole
+// `match(env.get("YO_TEST_INDEX"), ...)` dispatch, so the binary runs nothing
+// and every test reports a pass.
+//
+// NOT the fix: porting TS's `synthesizeTypes` on the closure return
+// (closure-type.ts:186-196) into closure_type.yo. Instrumentation shows
+// `try_to_implement_closure_by_fn_module_type` is never called for a closure
+// passed as a CALL ARGUMENT — that path is values/anonymous_function.yo (the
+// `=>` lambda path). The missing binding has to be fixed there, which is the
+// same root as the cluster-B `closure -> void*` reds.
+{ assert } :: import("std/assert");
+{ List } :: import("std/imm/list");
+
+main :: (fn() -> unit)({
+  xs := List(i32).new().prepend(i32(1)).prepend(i32(2));
+  doubled := xs.map((x) => (x * i32(2)));
+  assert(doubled(usize(0)) == i32(4), "doubled[0] should be 4");
+  ()
+});
+
+export(main);

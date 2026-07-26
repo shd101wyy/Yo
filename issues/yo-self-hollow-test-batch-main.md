@@ -129,9 +129,57 @@ The headline "165/183" counts hollow passes as green. The real number is
 unknown until the same sweep is run over all 183 files; on the 19-file battery
 the hollow rate is 8/19. Re-baseline before quoting progress.
 
-## Next step
+## MECHANISM FOUND (2026-07-26) — full chain, with an 11-line reproducer
 
-Find where the evaluator's recorded expr id diverges from the node
-`generate_function_body` walks for `main` — instrument the body-evaluation
-entry and the codegen body walk to print the root/statement ids for `main` and
-compare. The 11 clean files give a working control to diff against.
+`issues/repros/closure-arg-abandons-enclosing-begin.yo`:
+
+```rust
+main :: (fn() -> unit)({
+  xs := List(i32).new().prepend(i32(1)).prepend(i32(2));
+  doubled := xs.map((x) => (x * i32(2)));      // <- emitted as a comment
+  assert(doubled(usize(0)) == i32(4), "…");    // <- and so is everything after
+  ()
+});
+```
+
+1. `xs.map(<closure>)` is evaluated. The forall `U` of
+   `map : fn(self, f : Impl(Fn(T) -> U)) -> List(U)` is never bound from the
+   closure's actual return type.
+2. `map`'s body is trial-evaluated at definition time. With `U` unbound,
+   `List(U)` at `std/imm/list.yo:141` short-circuits through CTFE to a fresh
+   named unknown, so `(result : List(U)) = List(U).new()` throws
+   **`Incompatible types: Expected ctfe_result_yo_id_5179, Given unit`**.
+3. That throw is swallowed by `_trial_eval_fn_body`'s `inner_exn`
+   (`evaluator/calls/function_type.yo:222`). Its `unwind(())` exits the helper
+   — and with it the ENCLOSING begin loop. The statement being evaluated and
+   every statement after it never get an ExprInfo. (This is why the begin loop
+   prints its statement id and then never prints a loop-end for it: measured.)
+4. `codegen/exprs/generation.yo:417` finds no ExprInfo and emits
+   `// Failed to transpile <stmt>`.
+
+That also explains the earlier dead end: the wrapper probe never fired on the
+missing ids because the node is not skipped and not re-cloned — the loop that
+would have evaluated it was abandoned mid-flight.
+
+The bisect that found it: splitting `tests/imm_list.test.yo` into single-test
+files, the first one that goes hollow is test 6, `List map` — the first test
+that passes a CLOSURE.
+
+### Not the fix
+
+Porting TS's `synthesizeTypes` on the closure return (closure-type.ts:186-196)
+into `closure_type.yo` — a genuinely missing port, already flagged in the stub
+inventory — was implemented and measured: **no effect on this repro**, because
+instrumentation shows `try_to_implement_closure_by_fn_module_type` is never
+called for a closure passed as a CALL ARGUMENT. That path is
+`values/anonymous_function.yo` (the `=>` lambda path). The binding has to be
+fixed there, which makes this the same root as the cluster-B `closure -> void*`
+reds — and those have a history of hollow regressions, so gate any attempt on
+marker counts, not test flips.
+
+### Two independent hardening items this exposes
+
+- `_trial_eval_fn_body` abandoning the caller's begin loop is a much bigger
+  blast radius than "def-time trial eval failed". TS's def-time body eval
+  (function-type.ts:499) does not take the caller's statement list with it.
+- A per-test hollow gate is mandatory: see "New gate needed" above.
