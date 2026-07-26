@@ -44,7 +44,7 @@ open(import("std/string"));
   type_implements_runtime_builtin
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
-{ Environment } :: import("../env.yo");
+{ Environment, get_where_clause_constraints_for_some_type } :: import("../env.yo");
 { Token } :: import("../token.yo");
 { YoError, ErrorKind, format_error_message } :: import("../error.yo");
 {
@@ -52,6 +52,7 @@ open(import("std/string"));
   find_matching_negative_generic_impl,
   set_type_implements_trait_fn,
   set_register_trait_value_fn,
+  set_check_self_constraints_fn,
   is_concrete_impl_being_registered,
   mark_concrete_impl_being_registered : impl_mark_concrete_impl_being_registered,
   unmark_concrete_impl_being_registered : impl_unmark_concrete_impl_being_registered,
@@ -812,6 +813,50 @@ type_implements_trait :: (
         });
         in2 = (in2 + usize(1));
       });
+      // Also consult the ENV-stored where-clause evidence
+      // (trait-checking.ts:468-483, getWhereClauseConstraintsForSomeType):
+      // a `where(V <: (Send, Acyclic))` on the enclosing fn records its
+      // constraints in the callee env frames, not always on the SomeT's own
+      // required_trait_types — e.g. `Arc`'s `atomic(ref(struct((*) : V)))`
+      // body must see V as Send during the atomic-Send enforcement.
+      match(
+        get_where_clause_constraints_for_some_type(env, target),
+        .Some(wcc) => {
+          nwr := wcc.required_traits.len();
+          (iwr : usize) = usize(0);
+          while(iwr < nwr, {
+            wr_t := match(
+              wcc.required_traits.get(iwr),
+              .Some(t) => t,
+              .None => {
+                iwr = (iwr + usize(1));
+                continue;
+              }
+            );
+            if(_trait_type_id(wr_t) == _trait_type_id(trait_type), {
+              found_req = true;
+            });
+            iwr = (iwr + usize(1));
+          });
+          nwn := wcc.negative_traits.len();
+          (iwn : usize) = usize(0);
+          while(iwn < nwn, {
+            wn_t := match(
+              wcc.negative_traits.get(iwn),
+              .Some(t) => t,
+              .None => {
+                iwn = (iwn + usize(1));
+                continue;
+              }
+            );
+            if(_trait_type_id(wn_t) == _trait_type_id(trait_type), {
+              found_neg = true;
+            });
+            iwn = (iwn + usize(1));
+          });
+        },
+        .None => ()
+      );
       if(found_req, {
         return(TraitCheckResult(implemented : !(found_neg), env : env));
       }, {
@@ -886,20 +931,19 @@ type_implements_trait_bool :: (
 // ---------------------------------------------------------------------------
 // check_type_implements_self_constraints
 // ---------------------------------------------------------------------------
-/// Check that a type satisfies all positive and negative selfConstraints on a
-/// trait. Throws if any constraint is not satisfied.
-///
-/// Mirrors `checkTypeImplementsSelfConstraints` in
-/// `src/evaluator/trait-checking.ts`.
-check_type_implements_self_constraints :: (
+/// Message-returning core of the self-constraint check: `.Some(msg)` when the
+/// target violates a positive or negative selfConstraint on the trait, `.None`
+/// otherwise. Split out (throw-free) so `impl.yo`'s concrete-impl path can
+/// call it through the injected function-pointer hook
+/// (`set_check_self_constraints_fn`) without an import cycle, and throw with
+/// its own token/exn — the same routing as `RegisterTraitValueFn`.
+check_self_constraints_violation_msg :: (
   fn(
     target_type : TypeValue,
     trait_type : TypeValue,
-    env : Environment,
-    error_token : Token,
-    exn : Exception
-  ) -> unit
-)(
+    env : Environment
+  ) -> Option(String)
+)({
   match(
     trait_type,
     .TraitT(name, _, _, _, _, _, self_constraints, neg_self_constraints) => {
@@ -917,7 +961,7 @@ check_type_implements_self_constraints :: (
         );
         if(!(type_implements_trait_bool(target_type, constraint, env)), {
           msg := `Type "`.concat(type_to_string(target_type)).concat(`" does not implement required constraint "`).concat(type_to_string(constraint)).concat(`" from trait "`).concat(name).concat(`"'s where clause.`);
-          exn.throw(dyn(format_error_message(error_token, msg, false, Option(ErrorKind).None)));
+          return(Option(String).Some(msg));
         });
         ip = (ip + usize(1));
       });
@@ -935,12 +979,33 @@ check_type_implements_self_constraints :: (
         );
         if(type_implements_trait_bool(target_type, constraint, env), {
           msg := `Type "`.concat(type_to_string(target_type)).concat(`" implements "`).concat(type_to_string(constraint)).concat(`" but the trait "`).concat(name).concat(`"'s where clause requires it to NOT implement this trait.`);
-          exn.throw(dyn(format_error_message(error_token, msg, false, Option(ErrorKind).None)));
+          return(Option(String).Some(msg));
         });
         in_ = (in_ + usize(1));
       });
     },
     _ => ()
+  );
+  Option(String).None
+});
+/// Check that a type satisfies all positive and negative selfConstraints on a
+/// trait. Throws if any constraint is not satisfied.
+///
+/// Mirrors `checkTypeImplementsSelfConstraints` in
+/// `src/evaluator/trait-checking.ts`.
+check_type_implements_self_constraints :: (
+  fn(
+    target_type : TypeValue,
+    trait_type : TypeValue,
+    env : Environment,
+    error_token : Token,
+    exn : Exception
+  ) -> unit
+)(
+  match(
+    check_self_constraints_violation_msg(target_type, trait_type, env),
+    .Some(msg) => exn.throw(dyn(format_error_message(error_token, msg, false, Option(ErrorKind).None))),
+    .None => ()
   )
 );
 // ---------------------------------------------------------------------------
@@ -1599,6 +1664,7 @@ _compat_implements_adapter :: (fn(t : TypeValue, trait_type : TypeValue) -> bool
 _trait_checking_init := (fn() -> bool)({
   set_type_implements_trait_fn(type_implements_trait_bool);
   set_register_trait_value_fn(register_type_trait_value);
+  set_check_self_constraints_fn(check_self_constraints_violation_msg);
   set_compat_type_implements_trait_fn(_compat_implements_adapter);
   true
 })();

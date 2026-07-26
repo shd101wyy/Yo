@@ -79,7 +79,7 @@ open(import("std/string"));
 { is_flowable_expr, FlowOptions, flag_flow_violation }
 :: import("../../types/flowability.yo");
 { type_representation_contains_raw_ptr, type_contains_rc_type } :: import("../../types/utils.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { evaluate_binding } :: import("./binding.yo");
 {
@@ -942,6 +942,46 @@ evaluate_assignment :: (
   );
   // Determine whether this is initialisation (first assignment) or reassignment.
   is_mutating_defined_variable := updated_variable.initialized_at_token.is_some();
+  // First-initialisation scope gate (assignment.ts:557-574): a declared-but-
+  // uninitialised variable may only be initialised in the scope that declared
+  // it — initialising one defined OUTSIDE the current function body is an
+  // error (the function may never be called, and its body must not initialise
+  // caller-scope storage).
+  //
+  // The TS while-loop twin (assignment.ts:539-555) is deliberately NOT ported:
+  // yo-self's mutable-shared frames make the frame-level oracle unreliable
+  // there — measured on tests/codegen-bootstrap/arraylist_index_call.yo, a
+  // body-local `(b : u8) = al(i)` inside `while` carried frame_level 3 against
+  // a loop-entry frame count of 4, so the gate wrongly fired and the swallowed
+  // throw dropped the loop from the emitted C (corpus DIFF).
+  if(!(is_mutating_defined_variable), {
+    match(
+      ctx.is_evaluating_function_body_or_async_block,
+      .Some(of_ctx) => match(
+        of_ctx.kind,
+        .FunctionBody => {
+          if(updated_variable.frame_level < of_ctx.eval_env.frames.len(), {
+            of_entries := ArrayList(TokenAndError).new();
+            of_entries.push(
+              TokenAndError(
+                token : ast_expr_token(lhs_resolved),
+                error_message : String.from("Cannot initialize a variable that is defined outside the function body.")
+              )
+            );
+            of_entries.push(
+              TokenAndError(
+                token : updated_variable.token,
+                error_message : String.from("Defined here:")
+              )
+            );
+            exn.throw(dyn(format_error_messages(of_entries, false,.None)));
+          });
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+  });
   // Store the RHS value for comptime-only variables; runtime vars don't carry a value.
   value_to_store := cond(
     (updated_variable.is_compile_time_only) => rhs_info.value,

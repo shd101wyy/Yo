@@ -54,7 +54,8 @@ open(import("std/string"));
 { Environment, Variable, Frame, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 {
   EvalContext,
-  ExpectedTypeCtx
+  ExpectedTypeCtx,
+  ImplConcreteTypeInfo
 } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -70,7 +71,7 @@ open(import("std/string"));
 { type_representation_contains_raw_ptr, type_contains_rc_type } :: import("../../types/utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 {
   attach_temp_variable_to_expr,
@@ -1569,6 +1570,78 @@ evaluate_begin_expression :: (
             ),
             .None => ()
           );
+          // Validate Impl return types across multiple return statements
+          // (begin.ts:1273-1318): a fn whose declared return is an `Impl(...)`
+          // SomeType uses STATIC dispatch, so every `return(...)` must produce
+          // the same concrete type. The first return's concrete type is
+          // recorded in `ctx.function_return_impl_concrete_type` (the TS
+          // `functionReturnImplConcreteType` array — seeded FRESH per
+          // body/specialization eval by create_function_body_evaluation_context
+          // and the helper.yo / comptime_fn.yo save-restore sites); each later
+          // return must be compatible with it.
+          (ir_declared_impl : bool) = match(
+            ctx.is_evaluating_function_body_or_async_block,
+            .Some(ir_fb) => match(
+              ir_fb.kind,
+              .FunctionBody => match(
+                ir_fb.func_type,
+                .Some(ir_ft) => match(
+                  ir_ft,
+                  .Func({ result : ir_ret }) => is_some_type(ir_ret),
+                  _ => false
+                ),
+                .None => false
+              ),
+              _ => false
+            ),
+            .None => false
+          );
+          if(ir_declared_impl, {
+            match(
+              ctx.function_return_impl_concrete_type,
+              .Some(ir_list) => {
+                if(ir_list.len() > usize(0), {
+                  match(
+                    ir_list.get(usize(0)),
+                    .Some(ir_first) => {
+                      if(!(are_types_compatible(ir_first.concrete_type, ret_info.ty)), {
+                        ir_entries := ArrayList(TokenAndError).new();
+                        ir_entries.push(
+                          TokenAndError(
+                            token : ast_expr_token(expr_to_eval),
+                            error_message : String.from("All return statements must return the same concrete type for Impl(...).\nImpl(...) uses static dispatch and requires the same concrete type across all returns.\nConsider using Dyn(...) for dynamic dispatch if different concrete types are needed.")
+                          )
+                        );
+                        ir_entries.push(
+                          TokenAndError(
+                            token : ir_first.token,
+                            error_message : `First return has concrete type: ${type_to_string(ir_first.concrete_type)}`
+                          )
+                        );
+                        ir_entries.push(
+                          TokenAndError(
+                            token : ast_expr_token(expr_to_eval),
+                            error_message : `Conflicting return has concrete type: ${type_to_string(ret_info.ty)}`
+                          )
+                        );
+                        exn.throw(dyn(format_error_messages(ir_entries, false,.None)));
+                      });
+                    },
+                    .None => ()
+                  );
+                }, {
+                  ir_list.push(
+                    ImplConcreteTypeInfo(
+                      concrete_type : ret_info.ty,
+                      env : env,
+                      token : ast_expr_token(expr_to_eval)
+                    )
+                  );
+                });
+              },
+              .None => ()
+            );
+          });
           out := new_expr_info(env, ret_info.ty);
           out.value = ret_info.value;
           out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Return));

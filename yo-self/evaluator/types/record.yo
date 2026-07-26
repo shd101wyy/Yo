@@ -1,4 +1,4 @@
-//! evaluate_module_type — evaluates a `module(...)` type expression.
+//! evaluate_module_field — evaluates a field in a record type expression.
 //!
 //! TS counterpart: `src/evaluator/types/record.ts` (~420 lines).
 //!
@@ -7,20 +7,17 @@
 //! (ca129d0e, 2026-05-08). The pre-refactor `evaluateModuleType` was
 //! replaced by `evaluateRecordField` and friends; `ModuleType` was merged
 //! into `StructType` (`SourceNamespaceType = StructType & { isSourceNamespace
-//! : true }`).
+//! : true }`). The `module(...)` keyword is REMOVED from the language —
+//! `evaluate_module_type` was deleted here to match (a bare `module(x : i32)`
+//! is now "Variable \"module\" not found", exactly like TS).
 //!
-//! This file keeps the pre-refactor symbols (`evaluate_module_type`,
-//! `TypeValue.ModuleT`, `EvalModuleFieldResult`, `evaluate_module_field`) —
-//! symbol-level rename and content sync to the new TS record-shaped API
-//! are tracked as a follow-up content-drift port. File/directory layout
-//! matches the current TS tree.
-//!
-//! Original behavior:
-//!   - Builds a `TypeValue.ModuleT` with the given field labels and types.
+//! This file keeps the pre-refactor symbols (`EvalModuleFieldResult`,
+//! `evaluate_module_field`) — symbol-level rename and content sync to the
+//! new TS record-shaped API are tracked as a follow-up content-drift port.
+//! File/directory layout matches the current TS tree.
 //!
 //! Stubs (deferred to Phase 3):
 //!   - ?= (default value) and =/`:=` (assigned value) module field forms
-//!   - `...` spread (extend) operator
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
@@ -32,8 +29,7 @@ open(import("std/fmt"));
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   ast_expr_is_atom,
-  make_err_expr,
-  BK_MODULE
+  make_err_expr
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
@@ -184,97 +180,4 @@ evaluate_module_field :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), unit_info);
   EvalModuleFieldResult(label, field_type, env_mut)
 });
-evaluate_module_type :: (
-  fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
-  ) -> AstExpr
-)({
-  if(!(ast_expr_is_fn_call_of(expr, BK_MODULE, Option(usize).None)), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          `Expected "module", got:\n${ast_expr_to_string(expr)}`,
-          false,
-          .None
-        )
-      )
-    );
-  });
-  module_id := `source_namespace_${random_id(env.module_path)}`;
-  (env_mut : Environment) = env;
-  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
-  field_labels := ArrayList(String).new();
-  field_types := ArrayList(TypeValue).new();
-  (i : usize) = usize(0);
-  while(i < args.len(), {
-    arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
-    // Stub: spread (...) extend form — Phase 3
-    if(ast_expr_is_fn_call_of(arg, "...", Option(usize).Some(usize(1))), {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(arg),
-            String.from("evaluate_module_type: spread (...) extend is not yet supported (Phase 3)"),
-            false,
-            .None
-          )
-        )
-      );
-    });
-    // Normal module field
-    result := evaluate_module_field(arg, i, env_mut, ctx, true, exn);
-    // Check for duplicate labels
-    (dup_idx : usize) = usize(0);
-    (has_dup : bool) = false;
-    while((dup_idx < field_labels.len()) && !(has_dup), {
-      existing := match(field_labels.get(dup_idx),.Some(l) => l,.None => String.from(""));
-      if(existing == result.label, {
-        has_dup = true;
-      });
-      dup_idx = (dup_idx + usize(1));
-    });
-    if(has_dup, {
-      arg_args := match(arg,.FnCall(_, _, a2, _, _) => a2, _ => ArrayList(AstExpr).new());
-      err_tok := if(
-        ast_expr_is_fn_call(arg),
-        match(arg_args.get(usize(0)),.Some(fe) => ast_expr_token(fe),.None => ast_expr_token(arg)),
-        ast_expr_token(arg)
-      );
-      exn.throw(
-        dyn(
-          format_error_message(
-            err_tok,
-            `Duplicate label "${result.label}" in module`,
-            false,
-            .None
-          )
-        )
-      );
-    });
-    field_labels.push(result.label);
-    field_types.push(result.field_type);
-    env_mut.frames = result.env.frames;
-    env_mut.module_path = result.env.module_path;
-    env_mut.function_declaration_frame_level = result.env.function_declaration_frame_level;
-    env_mut.input_string = result.env.input_string;
-    i = (i + usize(1));
-  });
-  // TODO (Phase 3): propagate ctx.current_module_path to module type (orphan rule checks).
-  // Source-namespace STRUCT (TS: records operate on SourceNamespaceType,
-  // record-type.ts:37). See plans/MODULE_AS_STRUCT_ALIGNMENT.md.
-  module_ty := TypeValue.Struct(module_id.clone(), String.from(""), field_labels, field_types, false, false, false, String.from(""), ArrayList(TypeValue).new(), true);
-  module_val := create_type_value(module_ty);
-  meta_ty := type_of_type(module_ty);
-  out_info := new_expr_info(env_mut, meta_ty);
-  out_info.value = Option(EvalValue).Some(module_val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-  // Annotate callee with same info (mirrors TS: expr.func.$ = expr.$).
-  callee_expr := match(expr,.FnCall(_, fb, _, _, _) => fb,.Atom(_, _) => expr);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), out_info);
-  expr
-});
-export(EvalModuleFieldResult, evaluate_module_field, evaluate_module_type);
+export(EvalModuleFieldResult, evaluate_module_field);

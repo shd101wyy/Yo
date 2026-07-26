@@ -23,7 +23,7 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr, wrap_body_in_begin } :: import("../../expr.yo");
-{ copy_func_param_defaults, copy_func_param_default_exprs, copy_func_param_comptime, copy_macro_registration, get_func_variadic_param, copy_func_variadic_param, copy_func_where_constraints } :: import("../types/function.yo");
+{ copy_func_param_defaults, copy_func_param_default_exprs, copy_func_param_comptime, copy_macro_registration, get_func_variadic_param, copy_func_variadic_param, copy_func_where_constraints, get_func_where_constraints, WhereConstraintEntry } :: import("../types/function.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -246,7 +246,21 @@ _build_def_time_body_env :: (
     // `_alloc_pairs`). TS has no such split: the def-time body eval
     // reuses the fn-type evaluation env, so the body sees the same
     // SomeType objects (function-type.ts:499).
-    result_type : TypeValue
+    result_type : TypeValue,
+    // The fn's registered where-clause constraints (side table keyed by the
+    // fn-type expr id — same key as the defaults). A comptime TYPE param
+    // (`comptime(V) : Type, where(V <: (Send, Acyclic))`) has its SomeT only
+    // in the fn-type eval env's VALUE binding — not in param_types/result —
+    // so the sig_some_ts scan misses it and a fresh unconstrained SomeT is
+    // minted. TS reuses the fn-type parametersFrame (function-type.ts:380)
+    // whose variables hold the SAME (where-stamped) SomeType objects, so its
+    // body sees the constraints; stamp the fresh mint here to match.
+    // Measured on std/prelude `Arc`: without this, the body's
+    // `atomic(ref(struct((*) : V)))` saw V with ZERO required traits and the
+    // atomic-Send enforcement wrongly threw — and the swallowed def-time
+    // throw abandoned the whole prelude begin loop ("Variable Option/Dispose
+    // not found" cascade).
+    where_entries : ArrayList(WhereConstraintEntry)
   ) -> Environment
 )({
   module_path := caller_env.module_path;
@@ -374,7 +388,39 @@ _build_def_time_body_env :: (
       match(
         sig_match,
         .Some(st) => Option(EvalValue).Some(create_type_value(st)),
-        .None => Option(EvalValue).Some(create_type_value(t_some_t(pn, pf_level)))
+        .None => {
+          fresh_some := t_some_t(pn, pf_level);
+          // Stamp the fn's where-clause constraints for this label onto the
+          // fresh SomeT (see the where_entries doc comment above).
+          (we_i : usize) = usize(0);
+          while(we_i < where_entries.len(), {
+            we := match(
+              where_entries.get(we_i),
+              .Some(e) => e,
+              .None => {
+                we_i = (we_i + usize(1));
+                continue;
+              }
+            );
+            if(we.lhs_label == pn, {
+              match(
+                fresh_some,
+                .SomeT(_, _, _, _, fs_req, fs_req_lv, fs_neg, fs_neg_lv, _, _, _) => {
+                  if(we.is_negated, {
+                    fs_neg.push(we.trait_ty);
+                    fs_neg_lv.push(usize(0));
+                  }, {
+                    fs_req.push(we.trait_ty);
+                    fs_req_lv.push(usize(0));
+                  });
+                },
+                _ => ()
+              );
+            });
+            we_i = (we_i + usize(1));
+          });
+          Option(EvalValue).Some(create_type_value(fresh_some))
+        }
       )
     }, Option(EvalValue).None);
     add_parameter_to_env(
@@ -601,7 +647,13 @@ try_to_implement_function_by_function_type :: (
       match(
         flow_body,
         .Some(fb) => {
-          flow_env := _build_def_time_body_env(caller_env, param_labels, param_types, param_is_ref, result_box);
+          def_where_entries := match(
+            expr,
+            .FnCall(_, dwe_ft_box, _, _, _) =>
+              get_func_where_constraints(ast_expr_id(dwe_ft_box).to_string()),
+            .Atom(_, _) => ArrayList(WhereConstraintEntry).new()
+          );
+          flow_env := _build_def_time_body_env(caller_env, param_labels, param_types, param_is_ref, result_box, def_where_entries);
           // Bind the variadic parameter (`...(quote(elems))` → `elems` as
           // an unknown ComptimeList) into the body env — its name/type
           // are not on TypeValue.Func, so they ride the side table (see

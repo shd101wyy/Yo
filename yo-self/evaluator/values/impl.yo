@@ -216,6 +216,20 @@ RegisterTraitValueFn :: (fn(type_id : String, trait_ty : TypeValue) -> unit);
 set_register_trait_value_fn :: (fn(f : RegisterTraitValueFn) -> unit)({
   g_register_trait_value_fn = Option(RegisterTraitValueFn).Some(f);
 });
+/// Type of `check_self_constraints_violation_msg` from trait_checking.yo:
+/// `.Some(error message)` when `target_type` violates a positive or negative
+/// selfConstraint on `trait_ty` (e.g. `Dispose`'s `where(Self <: Rc)` against
+/// a value struct), `.None` when satisfied. Routed via a function pointer to
+/// break the impl.yo ↔ trait_checking.yo import cycle (same pattern as above);
+/// the caller throws with its own token/exn. Mirrors TS calling
+/// `checkTypeImplementsSelfConstraints` per trait entry (impl.ts:3269).
+CheckSelfConstraintsFn :: (fn(target_type : TypeValue, trait_ty : TypeValue, env : Environment) -> Option(String));
+(g_check_self_constraints_fn : Option(CheckSelfConstraintsFn)) =
+  Option(CheckSelfConstraintsFn).None;
+/// Install the function pointer (called from trait_checking.yo init block).
+set_check_self_constraints_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
+  g_check_self_constraints_fn = Option(CheckSelfConstraintsFn).Some(f);
+});
 // ---------------------------------------------------------------------------
 // `currentlyRegisteringConcreteImpls` registry
 // ---------------------------------------------------------------------------
@@ -1451,6 +1465,24 @@ _collect_impl_where_constraints :: (
                 .Some(tr) => {
                   _s := out_some_types.push(st.clone());
                   _t := out_traits.push(tr);
+                  // ALSO stamp the constraint on the generic SomeT itself —
+                  // yo-self's established equivalent of TS recording
+                  // frame-scoped where evidence (subtype-of.ts:159-174 →
+                  // addWhereClauseConstraintToEnv): constraints live on
+                  // SomeT.required_trait_types (the fn-type path's
+                  // _add_where_clause_constraint divergence). Without this,
+                  // CTFE-evaluating the impl HEAD (`Arc(T)` in
+                  // `impl(generic(T), where(T <: (Send, Acyclic)), Arc(T), Send())`)
+                  // sees T with ZERO constraints and the atomic-Send
+                  // enforcement wrongly rejects the prelude.
+                  match(
+                    st,
+                    .SomeT(_, _, _, _, cw_req, cw_req_lv, _, _, _, _, _) => {
+                      cw_req.push(tr);
+                      cw_req_lv.push(usize(0));
+                    },
+                    _ => ()
+                  );
                 },
                 .None => ()
               );
@@ -1462,6 +1494,15 @@ _collect_impl_where_constraints :: (
               .Some(tr) => {
                 _s := out_some_types.push(st.clone());
                 _t := out_traits.push(tr);
+                // Stamp on the SomeT too — see the tuple arm above.
+                match(
+                  st,
+                  .SomeT(_, _, _, _, cw1_req, cw1_req_lv, _, _, _, _, _) => {
+                    cw1_req.push(tr);
+                    cw1_req_lv.push(usize(0));
+                  },
+                  _ => ()
+                );
               },
               .None => ()
             );
@@ -2204,6 +2245,23 @@ evaluate_module_value :: (
           match(
             current_trait_ty,
             .Some(ctt) => if(receiver_type_id != "", {
+              // Self-constraint gate (impl.ts:3269, checkTypeImplementsSelfConstraints):
+              // a trait with a `where(Self <: X)` clause can only be implemented
+              // on a receiver satisfying X — e.g. `impl(ValueStruct, Dispose(...))`
+              // must be rejected because `Dispose` requires `Self <: Rc`.
+              match(
+                g_check_self_constraints_fn,
+                .Some(cf) => match(
+                  cf(receiver_ty, ctt, local_env),
+                  .Some(sc_msg) => {
+                    exn.throw(
+                      dyn(format_error_message(ast_expr_token(expr), sc_msg, false,.None))
+                    );
+                  },
+                  .None => ()
+                ),
+                .None => ()
+              );
               match(
                 g_register_trait_value_fn,
                 .Some(rf) => rf(receiver_type_id.clone(), ctt),
@@ -2552,7 +2610,7 @@ _impl_generic_impl_fallback_init := (fn() -> bool)({
 export(evaluate_module_value);
 export(GenericImplEntry, MethodCandidate);
 export(TypeImplementsTraitFn);
-export(set_type_implements_trait_fn, set_register_trait_value_fn, get_trait_key);
+export(set_type_implements_trait_fn, set_register_trait_value_fn, set_check_self_constraints_fn, get_trait_key);
 export(register_generic_impl);
 export(register_negative_generic_impl, find_matching_negative_generic_impl);
 export(try_match_generic_impl);

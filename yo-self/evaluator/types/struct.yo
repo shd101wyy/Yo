@@ -42,7 +42,7 @@ open(import("std/fmt"));
 { random_id } :: import("../../utils.yo");
 { register_struct_final, _patch_self_shell } :: import("../../types/creators.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ auto_derive_traits_for_struct_type } :: import("./utils.yo");
+{ auto_derive_traits_for_struct_type, enforce_atomic_object_send } :: import("./utils.yo");
 { is_iso_type } :: import("../../types/guards.yo");
 evaluate_struct_type :: (
   fn(
@@ -278,6 +278,18 @@ evaluate_struct_type :: (
     env,
     struct_ty
   );
+  // Enforce Send for atomic object types (struct.ts:152-173) — must run AFTER
+  // auto-derive so the Send-derivation cycle bracket is closed.
+  if(is_atomic_rc, {
+    enforce_atomic_object_send(
+      struct_ty,
+      field_labels,
+      patched_types,
+      env,
+      ast_expr_token(expr),
+      exn
+    );
+  });
   // Restore SelfType
   ctx.self_type = old_self_type;
   // Register TypeField metadata in global registry

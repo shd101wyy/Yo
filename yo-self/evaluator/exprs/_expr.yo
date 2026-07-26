@@ -28,7 +28,6 @@ open(import("std/fmt"));
   BK_NEWTYPE,
   BK_ENUM,
   BK_UNION,
-  BK_MODULE,
   BK_TRAIT,
   BK_IMPL_UPPER,
   BK_IMPL_LOWER,
@@ -242,7 +241,6 @@ open(import("std/fmt"));
 { evaluate_fn_trait_type } :: import("../types/fn_trait.yo");
 { evaluate_function_type } :: import("../types/function.yo");
 { evaluate_future_type } :: import("../types/future_trait.yo");
-{ evaluate_module_type } :: import("../types/record.yo");
 { evaluate_newtype_type } :: import("../types/newtype.yo");
 { evaluate_struct_type } :: import("../types/struct.yo");
 { evaluate_trait_type } :: import("../types/trait.yo");
@@ -678,8 +676,6 @@ _evaluate_expression :: (
           evaluate_property_access(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BK_BEGIN,.None) =>
           evaluate_begin_expression(expr, env, ctx, ArrayList(Variable).new(), false, exn),
-        ast_expr_is_fn_call_of(expr, BK_MODULE,.None) =>
-          evaluate_module_type(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BK_TRAIT,.None) =>
           evaluate_trait_type(expr, env, ctx, exn),
         ast_expr_is_fn_call_of(expr, BK_IMPL_UPPER,.None) =>

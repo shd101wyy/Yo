@@ -35,7 +35,12 @@ open(import("std/string"));
   type_implements_runtime_full,
   register_type_trait
 } :: import("../trait_checking.yo");
-{ can_type_form_rc_cycle, buffer_element_type } :: import("../../types/utils.yo");
+{ can_type_form_rc_cycle, buffer_element_type, get_all_some_types } :: import("../../types/utils.yo");
+{ is_some_type } :: import("../../types/guards.yo");
+{ Exception } :: import("std/error");
+{ Token } :: import("../../token.yo");
+{ format_error_message } :: import("../../error.yo");
+{ type_to_string } :: import("../../types/string.yo");
 // ---------------------------------------------------------------------------
 // Helpers: check all field types for a trait
 // ---------------------------------------------------------------------------
@@ -264,6 +269,75 @@ auto_derive_traits_for_union_type :: (
     register_type_trait(union_id, "Runtime", env);
   });
 });
+// ---------------------------------------------------------------------------
+// enforce_atomic_object_send
+// ---------------------------------------------------------------------------
+/// Enforce Send for atomic object types. Mirrors the check at the end of TS
+/// `evaluateStructType` (struct.ts:152-173): after auto-derive completes (the
+/// begin/end_send_derivation bracket lives in
+/// `auto_derive_traits_for_struct_type` above, so the cycle breaker cannot
+/// interfere with this check), an `atomic(ref(struct(...)))` whose type did
+/// not derive Send is an error listing the non-Send fields. Acyclic is NOT
+/// enforced here — self-referential atomic objects are valid (e.g. tree nodes
+/// via Option(Self)).
+///
+/// Lives HERE (not struct.yo) to keep struct.yo free of a direct
+/// trait_checking.yo import, the same routing choice as the
+/// begin/end_send_derivation bracket.
+enforce_atomic_object_send :: (
+  fn(
+    struct_ty : TypeValue,
+    field_labels : ArrayList(String),
+    field_types : ArrayList(TypeValue),
+    env : Environment,
+    error_token : Token,
+    exn : Exception
+  ) -> unit
+)({
+  if(!(type_implements_send(struct_ty, env)), {
+    (non_send_fields : String) = String.from("");
+    n := field_labels.len();
+    (i : usize) = usize(0);
+    while(i < n, {
+      fl := match(field_labels.get(i),.Some(l) => l,.None => String.from(""));
+      ft := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+      // DOCUMENTED DIVERGENCE (narrower than TS): only a fully CONCRETE
+      // (SomeT-free) field counts as a violation. A generic type-constructor
+      // body (`Channel`'s `_data : *(T)` with `where(T <: Send)`) is
+      // trial-evaluated with T an unresolved SomeT; TS proves `*(T)` Send
+      // through the blanket `impl(generic(T), where(T <: Send), *(T),
+      // Send())` with SomeType-level constraint evidence, which yo-self's
+      // generic-impl matcher can't yet do for constrained-SomeT targets.
+      // Every concrete INSTANTIATION re-evaluates the body (CTFE per call),
+      // so a real non-Send field is still rejected there.
+      // Hoisted out of the `||` (an owned temp inside a short-circuit RHS in a
+      // loop body trips the TS drop-emission bug — see _is_dots_atom's note).
+      ft_somes := get_all_some_types(ft);
+      ft_is_generic := (is_some_type(ft) || (ft_somes.len() > usize(0)));
+      if((!(ft_is_generic)) && !(type_implements_send(ft, env)), {
+        if(non_send_fields.len() > usize(0), {
+          non_send_fields = non_send_fields.concat(String.from("\n"));
+        });
+        non_send_fields = non_send_fields.concat(`  - ${fl}: ${type_to_string(ft)}`);
+      });
+      i = (i + usize(1));
+    });
+    // Throw only when a CONCRETE field is non-Send (see divergence note).
+    if(non_send_fields.len() > usize(0), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            error_token,
+            `atomic object must implement Send (all fields must be Send), but ${type_to_string(struct_ty)} has non-Send fields:\n${non_send_fields}\nUse "object" instead if thread safety is not needed.`,
+            false,
+            .None
+          )
+        )
+      );
+    });
+  });
+});
 export(auto_derive_traits_for_struct_type);
 export(auto_derive_traits_for_enum_type);
 export(auto_derive_traits_for_union_type);
+export(enforce_atomic_object_send);
