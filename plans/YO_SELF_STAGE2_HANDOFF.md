@@ -13,10 +13,9 @@ nothing below needs re-litigating._
   full TIER 2 green incl. **STRICT_FIXPOINT HOLDS**, stage2 hollow=6
   baseline) plus the while-loop drop-guard pair. vs 2026-07-26:
   **`module_struct_unification`** (10/10) and **`atomic_object`** (21/21)
-  flipped hollow → GREEN; `impl` moved hollow → RED (all its
-  `comptime_expect_error` targets now throw correctly; the file is blocked
-  only by the partial-body-emission C error below). Every other verdict
-  unchanged.
+  flipped hollow → GREEN; `impl` moved hollow → RED in that sweep, then back
+  to rc=0 partial-hollow after the degraded-return fix (see its row below).
+  Every other verdict unchanged.
 
 **Do not quote a bare "N passing" number.** 33 files used to be counted green
 while running NOTHING: yo-self emitted the test batch's whole `main` as a
@@ -82,7 +81,7 @@ VALIDATION (yo-self ACCEPTS what TS rejects) in an otherwise-green file.
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `module_struct_unification` | **FLIPPED GREEN** (10/10) — `module(...)`/`Module` removed from yo-self (the TS Module→Struct unification's missing half)                                                            |
 | `atomic_object`             | **FLIPPED GREEN** (21/21) — atomic-Send enforcement ported (guarded to CONCRETE fields; see the divergence note in `enforce_atomic_object_send`)                                     |
-| `impl`                      | hollow → RED. Both targets now THROW correctly (Impl-divergent-return check in begin.yo + `v.pick("s")` via the arg-type-check). Blocked by partial-body emission (next paragraph)   |
+| `impl`                      | hollow → RED → rc=0 partial-hollow (6/26). Both targets THROW correctly (Impl-divergent-return check in begin.yo + `v.pick("s")` via the arg-type-check); the C build is restored by the degraded `return (void*)0;` for unresolved-Impl returns (codegen/exprs/return.yo). The batch main still drops a region — same silent-abandonment class as §3 |
 | `basic`                     | still hollow. `x = 12` outside a FN BODY now errors (assignment.yo); the WHILE twin is unportable (frame-level off-by-one, measured). NEXT failing cee: `x := 13` after `(x:i32)=12` — needs TS's `addVariableToEnv` no-shadowing/duplicate rules, a wide-blast-radius port  |
 | `inherent_first_resolution` | still hollow. `f.m(true)` errors on HEAD; `s.starts_with(i32(5))` needs call-site where-clause validation WIDENED past marker traits, which first needs `type_implements_trait` fixed for concrete method-trait satisfaction (measured false negatives: `String <: Hash` ×14, `String <: Eq` ×12 over `check ./std` — widening today rejects valid std code)  |
 | `prelude`                   | still hollow. `impl(AnotherBox, Dispose(...))` now REJECTED (self-constraint hook); `assume_init()`-twice is BLOCKED on TS-parity env cloning for the call checking phase (`cloneEnvForCTFECheck`) — a consumed-state gate at the TS-mirror site (helper.ts:402) false-positives on yo-self's shared-env double evaluation (measured: hollows imm_string). Reverted; do not re-land without the env clone  |
