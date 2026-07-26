@@ -658,8 +658,8 @@ call_funcval_with_args :: (
                 true,
                 .Some(fv)
               );
-              // Phase 3l: infer forall type params from argument types.
-              // For each forall name F, scan param_type_names_h for a value param
+              // Phase 3l: infer generic type params from argument types.
+              // For each generic name F, scan param_type_names_h for a value param
               // annotated with F; use that argument's type to bind F = TypeVal(ty).
               n_forall_h := forall_names_h.len();
               (fa_i_h : usize) = usize(0);
@@ -5342,14 +5342,14 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                           cond(
                             (!(ok_fn)) => Option(EvalResult).None,
                             true => {
-                              // Extract forall names, param names, and param type
+                              // Extract generic names, param names, and param type
                               // annotation identifiers from the param list.
                               //
                               // Each param is one of:
-                              //   FnCall(Atom("forall"), [Atom("T")], false)
-                              //     → forall name "T"
-                              //   FnCall(Atom("forall"), [FnCall(Atom(":"), [Atom("T"), ...], true)], false)
-                              //     → forall name "T" (constrained forall)
+                              //   FnCall(Atom("generic"), [Atom("T")], false)
+                              //     → generic name "T"
+                              //   FnCall(Atom("generic"), [FnCall(Atom(":"), [Atom("T"), ...], true)], false)
+                              //     → generic name "T" (constrained generic)
                               //   FnCall(Atom(":"), [Atom(name), type_expr], true)
                               //     → value param "name" with type annotation
                               //   Atom(name)
@@ -5424,18 +5424,18 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                                     param_ok = false;
                                                   }
                                                 ),
-                                              (kw_tok.value == "forall") =>
+                                              (kw_tok.value == "generic") =>
                                                 // Forall param: extract generic name
                                                 match(
                                                   kw_args.get(usize(0)),
                                                   .Some(fa_expr) =>
                                                     match(
                                                       fa_expr,
-                                                      // Simple: forall(T)
+                                                      // Simple: generic(T)
                                                       .Atom(_, fa_tok) => {
                                                         forall_names_f.push(fa_tok.value);
                                                       },
-                                                      // Constrained: forall(T: Constraint)
+                                                      // Constrained: generic(T: Constraint)
                                                       .FnCall(_, fa_c_box, fa_c_args, _, _) =>
                                                         match(
                                                           fa_c_box,
@@ -7080,7 +7080,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
             // -----------------------------------------------------------------
             // recur — tail/recursive call to the currently-executing FuncVal.
             // Looks up __recur_fn bound when the current function frame was opened.
-            // Delegates to call_funcval_with_args for env setup + forall inference.
+            // Delegates to call_funcval_with_args for env setup + generic inference.
             // -----------------------------------------------------------------
             (fval == "recur") =>
               match(
@@ -7540,11 +7540,11 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
             // -----------------------------------------------------------------
             (fval == "where") =>.Some(eval_result(.UnitVal, t_unit())),
             // -----------------------------------------------------------------
-            // Phase 5y: forall(T : Type, ...) — type parameter declarations.
+            // Phase 5y: generic(T : Type, ...) — type parameter declarations.
             // For proto-eval: evaluate the inner (binding exprs) and return unit.
             // The real evaluator creates type variables; we skip that.
             // -----------------------------------------------------------------
-            (fval == "forall") =>.Some(eval_result(.UnitVal, t_unit())),
+            (fval == "generic") =>.Some(eval_result(.UnitVal, t_unit())),
             // -----------------------------------------------------------------
             // Phase 5y: type_of(expr) — return the type as a TypeVal.
             // Evaluates the expression, extracts its type, wraps as TypeVal.

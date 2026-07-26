@@ -207,9 +207,9 @@ Prefer `comptime_assert` over `assert` when the value being tested is compile-ti
 Partial application tests live in `tests/fn.test.yo`. Key facts:
 
 - Partial application with `_` only works on **comptime functions** (return type must be `comptime(...)`)
-- It does NOT work on runtime functions or `forall` parameters — use `comptime` parameters instead
+- It does NOT work on runtime functions or `generic` parameters — use `comptime` parameters instead
 - Type constructors like `Result`, `Option` use comptime params and work with `_`
-- `fn(forall(A, B, C)) -> comptime(Type)` does NOT support `_` — the partial application checks `origFuncType.parameters.length` which excludes forall params
+- `fn(generic(A, B, C)) -> comptime(Type)` does NOT support `_` — the partial application checks `origFuncType.parameters.length` which excludes generic params
 - Use `fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type)` for custom type constructors that need `_`
 
 ## Linting and formatting

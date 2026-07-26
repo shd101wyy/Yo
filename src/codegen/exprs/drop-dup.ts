@@ -30,10 +30,10 @@ import { generateExpr } from "./expr";
 
 /**
  * If `valueArg` is an atom referring to a function parameter whose static type is an
- * unresolved SomeType (forall-typed), look up the concrete parameter type from
+ * unresolved SomeType (generic-typed), look up the concrete parameter type from
  * `currentFunctionType.parameters` so drop/dup codegen can find the right RC handler.
  *
- * This fixes a leak where forall-typed parameters (e.g., `f : F where F <: Fn(...)`)
+ * This fixes a leak where generic-typed parameters (e.g., `f : F where F <: Fn(...)`)
  * were silently skipped by drop/dup codegen because their AST `$.type` remains a
  * SomeType without `resolvedConcreteType`, even though the specialized C signature
  * uses the concrete type.

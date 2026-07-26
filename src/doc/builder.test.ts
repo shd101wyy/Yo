@@ -300,7 +300,7 @@ ArrayList :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(len : usize)
 );
 
-impl(forall(T : Type), ArrayList(T),
+impl(generic(T : Type), ArrayList(T),
   /// Return the number of elements.
   length : (fn(self : Self) -> usize)(self.len),
   /// Check whether the list is empty.
@@ -317,7 +317,7 @@ export(ArrayList);
       "is_empty",
     ]);
     expect(type.impls?.[0]?.signature).toContain(
-      "impl(forall(T : Type), ArrayList(T), ...)"
+      "impl(generic(T : Type), ArrayList(T), ...)"
     );
   });
 
@@ -327,7 +327,7 @@ List :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(len : usize)
 );
 
-impl(forall(T : Type), where(T <: Send), List(T),
+impl(generic(T : Type), where(T <: Send), List(T),
   size : (fn(self : Self) -> usize)(self.len)
 );
 
@@ -337,7 +337,7 @@ export(List);
     expect(doc.types).toHaveLength(1);
     const type = doc.types[0]!;
     expect(type.methods.map((method) => method.name)).toContain("size");
-    expect(type.impls?.[0]?.signature).toContain("forall(T : Type)");
+    expect(type.impls?.[0]?.signature).toContain("generic(T : Type)");
     expect(type.impls?.[0]?.signature).toContain("where(T <: Send)");
   });
 

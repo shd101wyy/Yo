@@ -165,7 +165,7 @@ evaluate_array_type :: (
   );
   // Length type / value checks are best-effort under the bootstrap's
   // partial HKT support. The legacy strict checks fired on
-  // `forall(U : usize)` → `Array(T, U)` and on UnknownVal-fallback
+  // `generic(U : usize)` → `Array(T, U)` and on UnknownVal-fallback
   // shapes; silently accept and continue with `usize(0)` placeholder
   // (set further down). Tracked in §5b/§5c of the gap doc.
   len_info.ty;
@@ -189,14 +189,14 @@ evaluate_array_type :: (
     .None => create_unknown_val(t_usize())
   );
   // Extract the usize value from the length expression. If the length is
-  // an `UnknownVal` (forall-bound, e.g. `Array(T, N)` with `N : usize` in
-  // a `forall(...)` parameter list), use `usize(0)` as a placeholder so
+  // an `UnknownVal` (generic-bound, e.g. `Array(T, N)` with `N : usize` in
+  // a `generic(...)` parameter list), use `usize(0)` as a placeholder so
   // the surrounding type expression can still be evaluated. The proper
   // representation of an abstract array length is tracked in
   // `issues/yo-self-evaluator-gaps.md` §5 (HKT) — until the Array variant
   // carries an EvalValue length, the placeholder is a deliberate
   // simplification: it lets prelude function signatures with HKT-style
-  // forall-bound lengths typecheck without segfaulting at this site.
+  // generic-bound lengths typecheck without segfaulting at this site.
   // Mirrors TS `evaluator/types/array.ts` which accepts any compile-time
   // value (including UnknownValue) and stores it in `ArrayType.length`.
   (len_is_var : bool) = false;
@@ -223,7 +223,7 @@ evaluate_array_type :: (
       len_is_var = true;
       usize(0)
     },
-    // Any other value shape (TypeVal for forall-bound SomeT length,
+    // Any other value shape (TypeVal for generic-bound SomeT length,
     // VarRef, ...) is also an unresolved variable length.
     _ => {
       len_is_var = true;

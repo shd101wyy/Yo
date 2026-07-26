@@ -68,7 +68,7 @@ _to_comptime_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
 ///
 /// Mirrors `analyzeCtfeCapability` from `src/evaluator/ctfe/ctfe-analysis.ts`.
 ///
-/// All pre-condition checks (forall params, type_prohibits_comptime_modifier)
+/// All pre-condition checks (generic params, type_prohibits_comptime_modifier)
 /// are done by the caller. Errors from body evaluation propagate to the caller
 /// (no `given` handler here, which avoids the "ambiguous implicit parameter"
 /// error that arises when two Exception handlers are in the dynamic effect scope).
@@ -295,13 +295,13 @@ evaluate_comptime_fn :: (
   implicit_spreads := match(func_type,.Func({ meta : __fm4 }) => __fm4.*.implicit_spreads, _ => ArrayList(bool).new());
   where_types := match(func_type,.Func({ where_types : wt }) => wt, _ => ArrayList(TypeValue).new());
   result_box := match(func_type,.Func({ result : rb }) => rb, _ => t_unit());
-  // Skip functions with forall parameters — they need specialisation first.
+  // Skip functions with generic parameters — they need specialisation first.
   if(forall_labels.len() > usize(0), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(arg_expr),
-          String.from("comptime_fn: cannot convert a generic (forall) function to comptime"),
+          String.from("comptime_fn: cannot convert a generic (generic) function to comptime"),
           false,
           .None
         )

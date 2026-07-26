@@ -32,7 +32,7 @@ open(import("std/string"));
 /// (`*_types`/`result`) stay inline on the variant.
 FuncMeta :: struct(
   forall_labels : ArrayList(String),
-  // forall type-var names (parallel to Func.forall_types)
+  // generic type-var names (parallel to Func.forall_types)
   param_labels : ArrayList(String),
   // normal parameter labels (parallel to Func.param_types)
   implicit_labels : ArrayList(String),
@@ -123,15 +123,15 @@ TypeValue :: ref(
     Pointer(pointee : Self),
     /// `length_var` mirrors the VALUE-ness of TS `ArrayType.length: Value`:
     /// "" = `length` is the concrete element count; non-empty = the length is
-    /// an unresolved forall VARIABLE of that name (e.g. the `U` in
-    /// `impl(forall(T : Type, U : usize), Array(T, U), ...)`) and `length`
+    /// an unresolved generic VARIABLE of that name (e.g. the `U` in
+    /// `impl(generic(T : Type, U : usize), Array(T, U), ...)`) and `length`
     /// is a meaningless placeholder. TS stores an UnknownValue carrying
     /// `variableName` and binds it during synthesis (synthesizer.ts:884).
     Array(element : Self, length : usize, length_var : String),
     /// Anonymous tuple. `field_labels(i)` is the optional label for the i-th
     /// field (empty `String` means positional). `field_types(i)` is the type.
     Tuple(field_labels : ArrayList(String), field_types : ArrayList(Self)),
-    /// Function type. Phase 2b: forall type-vars, implicit (using) params,
+    /// Function type. Phase 2b: generic type-vars, implicit (using) params,
     /// effect-row-spread flags, and where-clause constraint types.
     /// Self-typed (recursive) fields stay inline; the non-recursive metadata
     /// (labels, ref/own/variadic/extern/control flags) lives in `meta`
@@ -176,7 +176,7 @@ TypeValue :: ref(
       /// parameter order (`HashMap(String, String)` → `[String, String]`). Empty
       /// for non-generic or not-yet-instantiated structs. Faithful stand-in for
       /// `StructType.env` (TS carries the instantiation env): a method dispatched
-      /// on this struct binds its `forall` params positionally from here. See
+      /// on this struct binds its `generic` params positionally from here. See
       /// plans/STRUCT_TYPE_ARGUMENTS.md.
       type_arguments : ArrayList(Self),
       /// True for source-namespace structs — anonymous modules (`impl({...})`,
@@ -240,7 +240,7 @@ TypeValue :: ref(
       neg_self_constraints : ArrayList(Self) // negative where-clause constraints on Self
     ),
     // Generic / unresolved ----------------------------------------------------
-    /// A `SomeType` introduced by `forall` or by a yet-to-be-resolved generic
+    /// A `SomeType` introduced by `generic` or by a yet-to-be-resolved generic
     /// parameter. `frame_level` is the env frame at which it was introduced.
     /// Phase 2b: required and negative trait constraint lists.
     /// Phase 2d: `id` for unique identity (mirrors TypeScript SomeType.id).

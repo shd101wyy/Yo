@@ -653,7 +653,7 @@ describe("renderDocSite", () => {
     expect(html).toContain("prefers-color-scheme: dark");
   });
 
-  test("renders impl blocks with forall and where clauses", async () => {
+  test("renders impl blocks with generic and where clauses", async () => {
     cleanup();
     const model: DocModel = {
       name: "ImplDocs",
@@ -671,7 +671,7 @@ describe("renderDocSite", () => {
               impls: [
                 {
                   signature:
-                    "impl(forall(T : Type), where(T <: Send), List(T))",
+                    "impl(generic(T : Type), where(T <: Send), List(T))",
                   methodNames: ["size", "is_empty"],
                 },
               ],
@@ -690,7 +690,7 @@ describe("renderDocSite", () => {
 
     expect(html).toContain("impl-header");
     expect(html).toContain("impl-block");
-    expect(html).toContain("forall(T : Type)");
+    expect(html).toContain("generic(T : Type)");
     expect(html).toContain("where(T &lt;: Send)");
     expect(html).toContain("size");
     expect(html).toContain("is_empty");
@@ -731,7 +731,7 @@ describe("renderDocSite", () => {
               name: "async_read",
               doc: "Read a file asynchronously.",
               signature:
-                "fn(forall(T), path: str, using(io: Io)) -> Impl(Future(Result(T, Error), Io))",
+                "fn(generic(T), path: str, using(io: Io)) -> Impl(Future(Result(T, Error), Io))",
               parameters: [
                 {
                   name: "path",

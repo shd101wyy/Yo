@@ -100,22 +100,22 @@ function reEvaluateFunctionType({
   // Build re-evaluation env by merging the function type's definition env
   // (which captures scope variables like `F` from HKT trait constructors)
   // with the substitution frame from specializedEnv (which has concrete bindings
-  // like A=i32 from the generic impl's forall parameters).
+  // like A=i32 from the generic impl's generic parameters).
   const substitutionFrame =
     specializedEnv.frames[specializedEnv.frames.length - 1]!;
   const substitutionNames = new Set(
     substitutionFrame.variables.map((v) => v.name)
   );
 
-  // The functionType.env does NOT include forall params (they were popped into
-  // parametersFrame). We need to re-add unresolved forall params so that nested
+  // The functionType.env does NOT include generic params (they were popped into
+  // parametersFrame). We need to re-add unresolved generic params so that nested
   // type expressions like `(fn(a: A) -> B)` can reference them.
   const baseEnv = pushEnvFrame(functionType.env, substitutionFrame);
 
-  // Add forall parameter variables that are NOT resolved by substitutions
-  // (e.g., B in Functor's map when only A is resolved from impl's forall)
+  // Add generic parameter variables that are NOT resolved by substitutions
+  // (e.g., B in Functor's map when only A is resolved from impl's generic)
   // These are added to a separate env used only for re-evaluation, NOT stored
-  // in the returned function type's env (otherwise they'd conflict with forall
+  // in the returned function type's env (otherwise they'd conflict with generic
   // arg processing at the call site).
   let reEvalEnv = baseEnv;
   const forallParamVars = functionType.parametersFrame.variables.filter(
@@ -194,9 +194,9 @@ function reEvaluateFunctionType({
     newSelfType = SelfType;
   }
 
-  // Determine which forall parameters have been resolved by the substitutions.
-  // Only clear forall parameters whose names exist in the substitution frame;
-  // method-level forall params (like B in Functor's map) may remain unresolved.
+  // Determine which generic parameters have been resolved by the substitutions.
+  // Only clear generic parameters whose names exist in the substitution frame;
+  // method-level generic params (like B in Functor's map) may remain unresolved.
   const remainingForallParams = functionType.forallParameters.filter(
     (fp) => !substitutionNames.has(fp.label)
   );
@@ -325,10 +325,10 @@ type NegativeImplEntry = {
 };
 
 /**
- * Generic impl that uses forall type parameters.
- * For example: impl(forall(T : Type), Data(T), Copy())
+ * Generic impl that uses generic type parameters.
+ * For example: impl(generic(T : Type), Data(T), Copy())
  */
-/** A forall parameter can be either a type parameter (SomeType) or a value parameter (unknown value) */
+/** A generic parameter can be either a type parameter (SomeType) or a value parameter (unknown value) */
 export type ForallParameter =
   | { kind: "type"; name: string; someType: SomeType }
   | { kind: "value"; name: string; type: Type; unknownValue: UnknownValue };
@@ -1342,8 +1342,8 @@ export function findMethodsFromGenericImpls({
           // The proper specialization will happen later when called with concrete values.
           const hasUnknownTypes = typeContainsUnknownValue(concreteType);
 
-          // When any forall type parameter is bound to a SomeType (e.g., T→U
-          // inside a forall(U) method), we can't fully specialize the body.
+          // When any generic type parameter is bound to a SomeType (e.g., T→U
+          // inside a generic(U) method), we can't fully specialize the body.
           // The type-only specialization path handles this correctly.
           // EXCEPTION: SomeTypes with resolvedConcreteType (e.g., closure
           // wrappers `__impl_fn` carrying their concrete struct type) are
@@ -1354,17 +1354,17 @@ export function findMethodsFromGenericImpls({
               key !== "Self" && isSomeType(type) && !type.resolvedConcreteType
           );
 
-          // When any forall type parameter is NOT in substitutions, the concrete
+          // When any generic type parameter is NOT in substitutions, the concrete
           // type is the impl's own receiver pattern (template type, e.g.,
-          // MapBranch(K, V) where K, V are the forall SomeTypes themselves).
-          // We can't specialize the body because the forall params won't be in scope.
+          // MapBranch(K, V) where K, V are the generic SomeTypes themselves).
+          // We can't specialize the body because the generic params won't be in scope.
           const hasMissingForallParams = impl.forallParameters.some(
             (p) => p.kind === "type" && !match.substitutions.has(p.name)
           );
 
-          // When the method itself has its own forall parameters (inner
-          // forall, e.g., `map :: fn(forall(A, B), ...)` inside a blanket
-          // `impl(forall(I), I, map: ...)`), those A/B params are NOT in
+          // When the method itself has its own generic parameters (inner
+          // generic, e.g., `map :: fn(generic(A, B), ...)` inside a blanket
+          // `impl(generic(I), I, map: ...)`), those A/B params are NOT in
           // `match.substitutions` — they are resolved at the call site from
           // argument types. We must NOT pre-evaluate the body here, because
           // doing so would leave A/B as unresolved SomeTypes baked into any
@@ -1390,9 +1390,9 @@ export function findMethodsFromGenericImpls({
             !hasMissingForallParams &&
             !methodHasUnresolvedInnerForall;
 
-          // When forall type parameters are missing from substitutions, the
+          // When generic type parameters are missing from substitutions, the
           // concrete type is the impl's own unspecialized template (e.g.,
-          // MapBranch(K, V) where K, V are the forall SomeTypes themselves).
+          // MapBranch(K, V) where K, V are the generic SomeTypes themselves).
           // We cannot specialize or use this method — skip it entirely.
           if (hasMissingForallParams) {
             continue;
@@ -1565,15 +1565,15 @@ export function findMethodsFromGenericImpls({
             methodHasUnresolvedInnerForall
           ) {
             // We have unknown types (like unknown array length), unresolved type
-            // parameters (like T→U inside a forall(U) method), or the method
-            // has its own inner forall params not yet bound by the impl's
+            // parameters (like T→U inside a generic(U) method), or the method
+            // has its own inner generic params not yet bound by the impl's
             // substitutions. We can't fully specialize the function body here.
             //
-            // For the inner-forall case, we still produce a FunctionValue
+            // For the inner-generic case, we still produce a FunctionValue
             // (carrying the original body and the partially specialized type)
             // so that the call site's `createSpecializedFunctionInline` can
             // finish specialization once argument-driven inference resolves
-            // the inner forall params (e.g., A, B in `IterMap(Self, A, B)`).
+            // the inner generic params (e.g., A, B in `IterMap(Self, A, B)`).
 
             // Use the environment where the impl was originally defined
             const baseEnv = impl.definitionEnv;
@@ -1625,9 +1625,9 @@ export function findMethodsFromGenericImpls({
               SelfType: match.substitutions.get("Self"),
             });
 
-            // For the inner-forall case, attach the original FunctionValue
+            // For the inner-generic case, attach the original FunctionValue
             // (with original body) so the call site can re-specialize via
-            // createSpecializedFunctionInline once inner forall params are
+            // createSpecializedFunctionInline once inner generic params are
             // bound from arguments. Without a FunctionValue, the call site
             // has no body to evaluate.
             let typeOnlyValue: FunctionValue | undefined = undefined;
@@ -1797,7 +1797,7 @@ function formatGenericImplSignature(impl: GenericImpl): string {
 
   if (impl.forallParameters.length > 0) {
     parts.push(
-      `forall(${impl.forallParameters
+      `generic(${impl.forallParameters
         .map((param) =>
           param.kind === "type"
             ? `${param.name} : ${typeToString(param.someType.parentType)}`
@@ -2239,10 +2239,10 @@ function tryMatchGenericImpl({
     concreteType = resolvedType;
   }
 
-  // Create a fresh env with the forall parameters in scope for unification
+  // Create a fresh env with the generic parameters in scope for unification
   let unifyEnv = pushEnvFrame(env);
 
-  // Add the parameters from forall to the environment
+  // Add the parameters from generic to the environment
   for (const param of impl.forallParameters) {
     if (param.kind === "type") {
       const { env: nextEnv } = addVariableToEnv({
@@ -2287,7 +2287,7 @@ function tryMatchGenericImpl({
       { type: concreteType, env }
     );
 
-    // When structural field unification can't bind all forall type parameters
+    // When structural field unification can't bind all generic type parameters
     // (e.g., when a struct erases type params to *(void) to break circular deps),
     // fall back to extracting bindings from the concrete type's captured env.
     // The concrete type's env was captured at construction time and contains
@@ -2300,7 +2300,7 @@ function tryMatchGenericImpl({
           param.someType
         );
         // Still unresolved (SomeType → itself)?  Try the concrete type's env.
-        // Use name-based lookup since the forall param's SomeType was defined at
+        // Use name-based lookup since the generic param's SomeType was defined at
         // a different frame level than the concrete type's env bindings.
         if (isSomeType(boundType)) {
           const resolved = getValueOfSomeTypeFromEnvForGenericImpl(
@@ -2308,9 +2308,9 @@ function tryMatchGenericImpl({
             param.someType
           );
           if (!isSomeType(resolved)) {
-            // Update the forall param's value in-place in expectedEnv.
+            // Update the generic param's value in-place in expectedEnv.
             // We can't use addVariableToEnv because the param already exists
-            // in the forall frame. Instead, find and update its value directly.
+            // in the generic frame. Instead, find and update its value directly.
             for (let fi = expectedEnv.frames.length - 1; fi >= 0; fi--) {
               const frame = expectedEnv.frames[fi]!;
               const varIdx = frame.variables.findIndex(
@@ -2419,7 +2419,7 @@ function tryMatchGenericImpl({
       // Use the full typeImplementsTrait (not Bool) so that bindings produced
       // during trait satisfaction (e.g. synthesizing `A=i32` from
       // `F <: Fn(item:A)->B` against `fn(item:i32)->i32`) are propagated back
-      // into expectedEnv.  This is necessary for forall params that are only
+      // into expectedEnv.  This is necessary for generic params that are only
       // constrained through where-clauses (not struct fields) to appear in the
       // final substitutions map and avoid a false hasMissingForallParams skip.
       const { implemented, env: afterConstraintEnv } = typeImplementsTrait({
@@ -2445,7 +2445,7 @@ function tryMatchGenericImpl({
         );
         // Include the substitution if the type was resolved to a concrete type,
         // OR if it was unified to a DIFFERENT SomeType (e.g., T unified to U
-        // from an outer forall scope). Only skip when T is still its own
+        // from an outer generic scope). Only skip when T is still its own
         // original unresolved SomeType (meaning nothing was unified).
         if (
           boundType &&
@@ -2459,7 +2459,7 @@ function tryMatchGenericImpl({
         const variable = variables[variables.length - 1];
         if (variable && variable.value && !isUnknownValue(variable.value[0])) {
           // IMPORTANT: Use the parameter's declared type, not the value's type
-          // For example, if forall(U : usize) and the value is 3 (comptime_int),
+          // For example, if generic(U : usize) and the value is 3 (comptime_int),
           // we should store it as 3 with type usize, not comptime_int
           const valueWithCorrectType = {
             ...variable.value[0],
@@ -2513,7 +2513,7 @@ function someTypeHasTraitConstraint(
 
   // If this SomeType has been resolved to another SomeType (e.g., a wrapper
   // Impl(Fn(...))) carrying the trait constraint, follow the resolution chain.
-  // This is critical when a forall SomeType `F` is bound to a closure whose
+  // This is critical when a generic SomeType `F` is bound to a closure whose
   // value-type is `Impl(Fn(...))`-wrapped — the Fn constraint sits on the
   // wrapper, not on F itself.
   if (
@@ -2633,10 +2633,10 @@ function someTypeHasNegatedTraitConstraint(
  * For example, if trait Id has `where(Self <: Copy)`, then any impl of Id must ensure
  * the receiver type implements Copy.
  *
- * For `impl(forall(T : Type), Data(T), Id(...))`, this would fail because Data(T) doesn't
+ * For `impl(generic(T : Type), Data(T), Id(...))`, this would fail because Data(T) doesn't
  * necessarily implement Copy (T is unconstrained).
  *
- * For `impl(forall(T : Type), where(T <: Copy), Data(T), Id(...))`, this would succeed
+ * For `impl(generic(T : Type), where(T <: Copy), Data(T), Id(...))`, this would succeed
  * because the where clause provides the necessary constraint.
  */
 function checkGenericImplSelfConstraints({
@@ -2671,7 +2671,7 @@ function checkGenericImplSelfConstraints({
         continue;
       }
 
-      // If direct check failed, collect all SomeTypes from the forall that have
+      // If direct check failed, collect all SomeTypes from the generic that have
       // the required constraint in whereConstraints and check if the receiver
       // pattern contains those SomeTypes with proper constraints
       const someTypesWithConstraint = new Set<string>();
@@ -3106,13 +3106,13 @@ export function evaluateImplBlock({
   let whereArg: FnCallExpr | undefined;
 
   // Supported forms:
-  //   impl(forall(...), where(...), receiverType, ...)
-  //   impl(forall(...), receiverType, where(...), ...)
+  //   impl(generic(...), where(...), receiverType, ...)
+  //   impl(generic(...), receiverType, where(...), ...)
 
   if (
     args[argIndex] &&
     exprIsFunctionCall(args[argIndex]!) &&
-    exprIsFunctionCallOf(args[argIndex]!, BuiltinKeywords.forall)
+    exprIsFunctionCallOf(args[argIndex]!, BuiltinKeywords.generic)
   ) {
     forallArg = args[argIndex]! as FnCallExpr;
     argIndex++;
@@ -3126,7 +3126,7 @@ export function evaluateImplBlock({
     if (!forallArg) {
       throw formatErrorMessage({
         token: args[argIndex]!.token,
-        errorMessage: `impl where(...) requires forall(...) and may appear before or after the receiver type.`,
+        errorMessage: `impl where(...) requires generic(...) and may appear before or after the receiver type.`,
       });
     }
     whereArg = args[argIndex]! as FnCallExpr;
@@ -3151,7 +3151,7 @@ export function evaluateImplBlock({
     if (!forallArg) {
       throw formatErrorMessage({
         token: args[argIndex]!.token,
-        errorMessage: `impl where(...) requires forall(...) and may appear before or after the receiver type.`,
+        errorMessage: `impl where(...) requires generic(...) and may appear before or after the receiver type.`,
       });
     }
     if (whereArg) {
@@ -3310,14 +3310,14 @@ export function evaluateImplBlock({
     return expr;
   }
 
-  // Generic impl with forall (and optional where)
+  // Generic impl with generic (and optional where)
   const firstArg = forallArg;
 
-  // Parse forall parameters and create SomeTypes or unknown values
+  // Parse generic parameters and create SomeTypes or unknown values
   const forallParamExprs = firstArg.args;
   const forallParameters: ForallParameter[] = [];
 
-  // Create a new env frame for forall parameters
+  // Create a new env frame for generic parameters
   env = pushEnvFrame(env);
 
   for (const paramExpr of forallParamExprs) {
@@ -3334,7 +3334,7 @@ export function evaluateImplBlock({
       if (!exprIsAtom(nameExpr)) {
         throw formatErrorMessage({
           token: nameExpr.token,
-          errorMessage: `Expected identifier for forall parameter name, got: ${exprToString(nameExpr)}`,
+          errorMessage: `Expected identifier for generic parameter name, got: ${exprToString(nameExpr)}`,
         });
       }
       paramName = nameExpr.token.value;
@@ -3345,7 +3345,7 @@ export function evaluateImplBlock({
     } else {
       throw formatErrorMessage({
         token: paramExpr.token,
-        errorMessage: `Expected parameter name or "name : Type" for forall parameter, got: ${exprToString(paramExpr)}`,
+        errorMessage: `Expected parameter name or "name : Type" for generic parameter, got: ${exprToString(paramExpr)}`,
       });
     }
 
@@ -3368,7 +3368,7 @@ export function evaluateImplBlock({
       ) {
         throw formatErrorMessage({
           token: paramTypeExpr.token,
-          errorMessage: `Expected type for forall parameter type, got: ${exprToString(paramTypeExpr)}`,
+          errorMessage: `Expected type for generic parameter type, got: ${exprToString(paramTypeExpr)}`,
         });
       }
       paramType = evaluatedType.$.value.value;
@@ -3677,7 +3677,7 @@ export function evaluateImplBlock({
     });
   }
 
-  // Pop the forall env frame
+  // Pop the generic env frame
   env = popEnvFrame(env);
 
   for (const registration of pendingRegistrations) {

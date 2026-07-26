@@ -4,7 +4,7 @@
 //! 1:1 port of `src/evaluator/calls/helper.ts`.
 //!
 //! `try_to_call_function_with_arguments` is the core function-call helper that:
-//!   1. Resolves forall type variables from argument types.
+//!   1. Resolves generic type variables from argument types.
 //!   2. Matches arguments against function parameters (type-checks).
 //!   3. Optionally executes CTFE (unless skip_ctfe_execution is true).
 //!   4. Returns a `FuncCallResult` with the resolved return type, runtime arg
@@ -479,7 +479,7 @@ check_if_function_parameter_matches_argument :: (
   // For io.await/io.state/io.spawn/JoinHandle.await args (`skip_expected_type`),
   // evaluate WITHOUT an expected type so the future arg keeps its NATURAL type
   // (e.g. `IoFuture`) rather than being coerced to the `Impl(Future(T,E))`
-  // SomeType parameter — coercion can make synthesis unable to resolve the forall
+  // SomeType parameter — coercion can make synthesis unable to resolve the generic
   // `T` from `Future(T)`. Mirrors TS helper.ts:378-384 (the
   // `functionType.ioBuiltin === "io_await"` skip); yo-self has no `ioBuiltin`
   // marker, so the caller detects the io-builtin structurally.
@@ -625,7 +625,7 @@ check_if_function_parameter_matches_argument :: (
       );
     });
   });
-  // Step 6: Synthesize forall bindings from arg type into callee_env.
+  // Step 6: Synthesize generic bindings from arg type into callee_env.
   checked := ArrayList(TypePair).new();
   // Note: opts is a local variable (not comptime .None) to ensure the
   // un-specialized synthesize_types wrapper is generated in C codegen.
@@ -787,7 +787,7 @@ value_to_signature_string :: (fn(value : EvalValue) -> String)(
 /// Build a deterministic signature string for a generic function specialization.
 ///
 /// The signature encodes:
-///   - forall type arguments
+///   - generic type arguments
 ///   - compile-time implicit arguments (given/using handlers)
 ///   - runtime parameter types that contain SomeType (to differentiate
 ///     specializations with different concrete closure capture types)
@@ -827,7 +827,7 @@ compute_compile_time_signature :: (
           val_opt,
           .Some(v) => sanitize_for_sig(value_to_signature_string(v)),
           .None => {
-            // Look up the forall label in callee_env
+            // Look up the generic label in callee_env
             label := match(fl.get(fpi),.Some(s) => s,.None => String.new());
             vars := get_variables_from_env(callee_env, label);
             n_v := vars.len();
@@ -878,7 +878,7 @@ compute_compile_time_signature :: (
   );
   // Runtime parameter types — disambiguates specializations with the same
   // compile-time args but different concrete runtime param types (e.g.
-  // `println(forall(T), v : T)` over `str` vs `i32`: the forall T part may
+  // `println(generic(T), v : T)` over `str` vs `i32`: the generic T part may
   // resolve to "unknown" for an INFERRED type param, so without the concrete
   // param type here `println<str>` and `println<i32>` would get the SAME
   // signature and collide on one specialized func id). Mirrors TS
@@ -1043,7 +1043,7 @@ _store_specialization_cache :: (
     );
   });
 });
-/// Render the impl-forall bindings a generic-impl method carries as `TypeVal`
+/// Render the impl-generic bindings a generic-impl method carries as `TypeVal`
 /// captures (`_inject_forall_captures`, evaluator/values/impl.yo) into a
 /// deterministic signature string. TS never needs this: each generic-impl
 /// method INSTANTIATION gets a unique funcId embedding its substitutions
@@ -1136,7 +1136,7 @@ _find_mutual_specializing_info :: (
   )
 });
 /// Build a forward-reference `FuncVal` for a recursive call encountered mid-
-/// specialization: a copy of the callee's arity (forall/param/evidence labels) with
+/// specialization: a copy of the callee's arity (generic/param/evidence labels) with
 /// the body + captures stripped and `func_id` rewritten to the in-progress
 /// `specialized_func_id`, so codegen emits a call to the specialized function rather
 /// than re-specializing the generic original. Mirrors TS helper.ts:1998-2010
@@ -1217,7 +1217,7 @@ create_specialized_function_inline :: (
       // ------------------------------------------------------------------
       compile_time_args := ArrayList(EvalValue).new();
       runtime_param_tys := ArrayList(TypeValue).new();
-      // Add forall type arguments (always compile-time)
+      // Add generic type arguments (always compile-time)
       (fai : usize) = usize(0);
       n_fa := arg_values.forall_args.len();
       while(fai < n_fa, {
@@ -1798,7 +1798,7 @@ create_specialized_function_inline :: (
           );
           // Build updated captures from the specialized callee_env.
           // This ensures the specialized function "closes over" the bound
-          // compile-time values (forall type params, given handlers, etc.)
+          // compile-time values (generic type params, given handlers, etc.)
           // so codegen can inline them without extra lookups.
           new_cap_names := ArrayList(String).new();
           new_cap_tys := ArrayList(TypeValue).new();
@@ -1815,7 +1815,7 @@ create_specialized_function_inline :: (
             new_cap_vals.push(cv);
             oci = (oci + usize(1));
           });
-          // Add compile-time args as additional captures (forall type bindings)
+          // Add compile-time args as additional captures (generic type bindings)
           (fai2 : usize) = usize(0);
           n_fl := match(func_type,.Func({ meta : __fm3 }) => __fm3.*.forall_labels.len(), _ => usize(0));
           while(fai2 < n_fl, {
@@ -1871,8 +1871,8 @@ create_specialized_function_inline :: (
           );
           // Register the SPECIALIZED Func TYPE under the specialized func_id so
           // codegen's get_func_type(specialized_func_id) returns concrete
-          // param/return types (forall dropped) instead of the generic
-          // `forall(T) …` whose SomeT crashes get_type_string (Gap 6). Mirrors
+          // param/return types (generic dropped) instead of the generic
+          // `generic(T) …` whose SomeT crashes get_type_string (Gap 6). Mirrors
           // TS `specializedType`.
           match(
             func_type,
@@ -2020,10 +2020,10 @@ create_specialized_function_inline :: (
 // evaluate_ctl_function_body_inline
 // ---------------------------------------------------------------------------
 /// Inline-evaluate a control function body to produce a specialized version
-/// with the forall type parameter bound to the concrete call-site type.
+/// with the generic type parameter bound to the concrete call-site type.
 ///
 /// Called for `isControlFunction` functions (effect handlers that use `unwind`)
-/// when they have forall parameters. This is separate from normal specialization
+/// when they have generic parameters. This is separate from normal specialization
 /// because the concrete type comes from the CALL SITE's enclosing function return
 /// type (not from the arguments).
 ///
@@ -2174,7 +2174,7 @@ evaluate_ctl_function_body_inline :: (
     cfi = (cfi + usize(1));
   });
   // -------------------------------------------------------------------------
-  // Bind each forall parameter to concreteTypeForForall.
+  // Bind each generic parameter to concreteTypeForForall.
   // Mirrors the forallParam loop in evaluateCtlFunctionBodyInline.
   // -------------------------------------------------------------------------
   forall_labels := match(
@@ -2257,7 +2257,7 @@ evaluate_ctl_function_body_inline :: (
   if(ctl_parent_is_ctl || ctl_body_has_unwind, {
     mark_as_control_fn(ctl_func_id.clone());
   });
-  // Rebuild captures (same as original + forall type bindings).
+  // Rebuild captures (same as original + generic type bindings).
   ctl_cap_names := ArrayList(String).new();
   ctl_cap_tys := ArrayList(TypeValue).new();
   ctl_cap_vals := ArrayList(EvalValue).new();
@@ -2269,7 +2269,7 @@ evaluate_ctl_function_body_inline :: (
     ctl_cap_vals.push(match(orig_cap_vals.get(oci),.Some(v) => v,.None => EvalValue.UnitVal));
     oci = (oci + usize(1));
   });
-  // Add forall type bindings as extra captures.
+  // Add generic type bindings as extra captures.
   (fi3 : usize) = usize(0);
   while(fi3 < n_forall, {
     fl3 := match(forall_labels.get(fi3),.Some(s) => s,.None => String.new());
@@ -2446,10 +2446,10 @@ validate_where_constraints_for_call :: (
     wcl_i = (wcl_i + usize(1));
   });
 });
-/// Resolve a function's parameter types by synthesizing its `forall` parameters
+/// Resolve a function's parameter types by synthesizing its `generic` parameters
 /// from the expected return type. For the FuncVal-arm call path (`function.yo`),
 /// which sets each argument's expected type from the DECLARED parameter type —
-/// an unresolved `forall` (e.g. `value : V` in `box`) is skipped there, so a
+/// an unresolved `generic` (e.g. `value : V` in `box`) is skipped there, so a
 /// `.Variant`-shorthand argument cannot resolve its enum type. Mirrors TS
 /// `helper.ts:1283-1310`: synthesize the foralls from the expected type, then
 /// re-evaluate the parameter types so they become concrete (`V → Tree` for
@@ -2480,7 +2480,7 @@ resolve_param_types_from_expected :: (
   // fills `out` runs only after a successful synth, so `out` stays empty).
   rps_exn := Exception(throw : ((_e) -> unwind(())));
   // Seed every signature SomeT as a self-binding placeholder so
-  // `synthesize_types` has a slot to rebind (mirrors the forall-placeholder
+  // `synthesize_types` has a slot to rebind (mirrors the generic-placeholder
   // setup in `try_to_call_function_with_arguments`).
   synth_env := Environment.new(caller_env.module_path);
   synth_env.push_frame(false);
@@ -2611,13 +2611,13 @@ try_to_call_function_with_arguments :: (
       ispr;
       wt;
       // ----------------------------------------------------------------
-      // Step 1: Detect explicit forall(…) argument.
+      // Step 1: Detect explicit generic(…) argument.
       // ----------------------------------------------------------------
       (forall_args_opt : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
       (regular_start : usize) = usize(0);
       has_f0 := match(
         arg_exprs.get(usize(0)),
-        .Some(a) => ast_expr_is_fn_call_of(a, "forall", Option(usize).None),
+        .Some(a) => ast_expr_is_fn_call_of(a, "generic", Option(usize).None),
         .None => false
       );
       if(has_f0, {
@@ -2625,11 +2625,11 @@ try_to_call_function_with_arguments :: (
         forall_args_opt =.Some(_h_get_fn_call_args(fa0));
         regular_start = usize(1);
       });
-      // For method calls, forall may appear at index 1 (self is at 0).
+      // For method calls, generic may appear at index 1 (self is at 0).
       if((!(has_f0)) && (is_method_call && (arg_exprs.len() > usize(1))), {
         has_f1 := match(
           arg_exprs.get(usize(1)),
-          .Some(a) => ast_expr_is_fn_call_of(a, "forall", Option(usize).None),
+          .Some(a) => ast_expr_is_fn_call_of(a, "generic", Option(usize).None),
           .None => false
         );
         if(has_f1, {
@@ -2778,25 +2778,25 @@ try_to_call_function_with_arguments :: (
       // Step 5: Push a new frame on callee_env for parameter bindings.
       callee_env.push_frame(false);
       // ----------------------------------------------------------------
-      // Step 6: Add forall params as UnknownVal placeholders (or resolve
-      //         them from an explicit forall(…) argument).
+      // Step 6: Add generic params as UnknownVal placeholders (or resolve
+      //         them from an explicit generic(…) argument).
       // ----------------------------------------------------------------
       n_forall := fl.len();
       // Self-bound markers (TS structural mirror): TS's callee env EXTENDS
       // the function type's definition env (`pushEnvFrame(functionType.env)`,
       // helper.ts:1009), whose frames still hold the self-binding
       // `T := SomeT(T)` for EVERY type variable the signature introduced —
-      // explicit `forall` labels AND implicit ones (`Impl(...)` sugar). That
+      // explicit `generic` labels AND implicit ones (`Impl(...)` sugar). That
       // intact marker is what lets `getValueOfSomeTypeFromEnv` accept the
       // concrete rebinding `synthesizeTypes` later writes over the LAST
       // binding (env-lookup.ts:141-167, `thisSomeTypeWasBound`). yo-self's
       // callee_env is built FRESH (the flattened `Func` TypeValue carries no
       // definition env), so the markers must be recreated here, for every
       // distinct SomeT in the signature:
-      //   - forall labels: marker only — the `UnknownVal` call binding added
+      //   - generic labels: marker only — the `UnknownVal` call binding added
       //     by the loop below stays LAST (it is what `_bind_some_type`
       //     updates), with the marker intact beneath it.
-      //   - non-forall SomeTs (`Impl(...)`): marker + a SECOND self-binding.
+      //   - non-generic SomeTs (`Impl(...)`): marker + a SECOND self-binding.
       //     `_bind_some_type` updates the second; the first survives as the
       //     ownership marker. Skipped when the name is already bound in
       //     callee_env (e.g. an enclosing impl's type param arriving through
@@ -2887,7 +2887,7 @@ try_to_call_function_with_arguments :: (
               );
             });
             if((!(sg_is_forall)) && !(sg_already_bound), {
-              // The updatable second binding for non-forall SomeTs.
+              // The updatable second binding for non-generic SomeTs.
               add_variable_to_env(
                 callee_env,
                 sg_nm,
@@ -2910,7 +2910,7 @@ try_to_call_function_with_arguments :: (
         ftype := match(ft.get(fpi),.Some(t) => t,.None => t_unit());
         ftype_inner := match(ft.get(fpi),.Some(t) => t,.None => t_unit());
         (forall_val : EvalValue) = EvalValue.UnknownVal(ftype_inner, false);
-        // If caller supplied explicit forall(…) args, try to resolve.
+        // If caller supplied explicit generic(…) args, try to resolve.
         match(
           forall_args_opt,
           .Some(fas) => {
@@ -2955,10 +2955,10 @@ try_to_call_function_with_arguments :: (
         fpi = (fpi + usize(1));
       });
       // ----------------------------------------------------------------
-      // Step 6b: io.async — pre-bind the effect-bundle forall `E` from the
+      // Step 6b: io.async — pre-bind the effect-bundle generic `E` from the
       // expected return type. Mirrors TS `helper.ts:1312-1366` (which binds both
       // `T` and `E`). `io.async`'s signature is
-      //   fn(forall(T, E), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))
+      //   fn(generic(T, E), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))
       // and the closure argument's parameter type references `E`. When the call
       // has an expected type `Impl(Future(T, E_concrete))`, bind `E` to that
       // concrete effect bundle in `callee_env` NOW — before the argument loop —
@@ -2985,7 +2985,7 @@ try_to_call_function_with_arguments :: (
             .Some(io_ftt) => match(
               io_ftt,
               .FutureTraitT({ output : io_t_out, effect_types : io_ets }) => {
-                // Bind the future OUTPUT forall `T` when the expected output is
+                // Bind the future OUTPUT generic `T` when the expected output is
                 // concrete (TS binds T unconditionally at helper.ts:1334-1362;
                 // yo-self guards on concreteness because the async pipeline's
                 // sync-future/io.await refinements are keyed on the UNRESOLVED
@@ -3138,9 +3138,9 @@ try_to_call_function_with_arguments :: (
         // recorded default VALUE EXPRESSION and route it through the SAME
         // matching flow as an explicit argument. In TS the omitted branch
         // (helper.ts:323-344) merges into the shared post-processing after
-        // evaluating the default — comptime→runtime conversion, forall
+        // evaluating the default — comptime→runtime conversion, generic
         // synthesis into callee_env, compatibility check, and the param
-        // binding all run for defaults too. Skipping them left the forall
+        // binding all run for defaults too. Skipping them left the generic
         // type param UNBOUND for calls relying on the default (e.g. bare
         // `assert(x)`: `panic(msg)` then specialized at an unresolved SomeT
         // → unemitted C fn → clang undeclared-function). Differences from an
@@ -3315,7 +3315,7 @@ try_to_call_function_with_arguments :: (
       );
       require_valid_ref_argument_places(vrf_param_is_ref, adjusted_args, caller_env_m, ctx, exn);
       // ----------------------------------------------------------------
-      // Step 8: Extract resolved forall values from callee_env.
+      // Step 8: Extract resolved generic values from callee_env.
       // ----------------------------------------------------------------
       (fpi2 : usize) = usize(0);
       while(fpi2 < n_forall, {
@@ -3406,8 +3406,8 @@ try_to_call_function_with_arguments :: (
           .None => ()
         );
       });
-      // A CONTROL (`ctl`) function whose result stays the forall ResumeType
-      // SomeT (e.g. `Exception.throw : ctl(forall(ResumeType), ...) ->
+      // A CONTROL (`ctl`) function whose result stays the generic ResumeType
+      // SomeT (e.g. `Exception.throw : ctl(generic(ResumeType), ...) ->
       // ResumeType` — a runtime FIELD value, so the ctl-inline path never
       // runs): resolve the result per CALL SITE — the caller's expected type,
       // else the enclosing function's return type (the same rule
@@ -3630,8 +3630,8 @@ try_to_call_function_with_arguments :: (
       // Simplified port of the specialization guard in helper.ts.
       // ----------------------------------------------------------------
       // A generic-impl method resolved for a concrete receiver arrives with its
-      // Func TYPE already concretized (forall stripped, `fl=0`), but its FuncVAL
-      // carries the impl's forall (stamped at impl-eval by
+      // Func TYPE already concretized (generic stripped, `fl=0`), but its FuncVAL
+      // carries the impl's generic (stamped at impl-eval by
       // `_stamp_impl_forall_on_method`). That surviving `forall_names` is the
       // signal that the method needs specialization — without it the method is
       // never specialized and codegen only has the abstract body (skipped). Mirror
@@ -3705,7 +3705,7 @@ try_to_call_function_with_arguments :: (
         if((!(is_recursive_spec) && !(mutual_is_some)) && is_concrete_fv, {
           fv2 := match(func_val,.Some(v) => v,.None => EvalValue.UnitVal);
           // ----------------------------------------------------------------
-          // Ctl function path: isControlFunction + has forall params.
+          // Ctl function path: isControlFunction + has generic params.
           // Must come before regular specialization to override it.
           // Mirrors the `isControlFunction` branch in helper.ts step 12b.
           // ----------------------------------------------------------------
@@ -3727,7 +3727,7 @@ try_to_call_function_with_arguments :: (
                 exn
               )
             );
-            // The ctl call's RESULT is the forall ResumeType, concrete per
+            // The ctl call's RESULT is the generic ResumeType, concrete per
             // CALL SITE (the enclosing function's return type — the same
             // derivation evaluate_ctl_function_body_inline uses). Carry it on
             // the result SomeT's resolved_concrete so codegen types the

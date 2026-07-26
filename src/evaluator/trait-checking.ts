@@ -52,7 +52,7 @@ import {
 /**
  * Recursion guard to prevent infinite loops when checking trait implementations.
  * This can happen with impls that have where clauses referencing the same trait.
- * For example: impl(forall(T : Type), where(T <: Runtime), *(T), Runtime())
+ * For example: impl(generic(T : Type), where(T <: Runtime), *(T), Runtime())
  * When checking if *(SomeType) implements Runtime, it would recursively check
  * if SomeType implements Runtime, which could loop indefinitely.
  */
@@ -526,7 +526,7 @@ export function typeImplementsTrait({
 
   // 8. Generic impl registry.
   // Use a recursion guard to prevent infinite loops when checking impls with
-  // where clauses — e.g. `impl(forall(T), where(T <: Runtime), *(T), Runtime())`
+  // where clauses — e.g. `impl(generic(T), where(T <: Runtime), *(T), Runtime())`
   // would recurse when checking if *(SomeType) implements Runtime.
   const guardKey = `${targetType.id}:${traitType.id}`;
   if (traitCheckRecursionGuard.has(guardKey)) {
@@ -879,7 +879,7 @@ export function typeImplementsFn(
         return true;
       }
     }
-    // Look through resolvedConcreteType chain - a forall SomeType may have its
+    // Look through resolvedConcreteType chain - a generic SomeType may have its
     // Fn trait constraint stored on a wrapper Impl(Fn(...)) SomeType assigned as
     // resolvedConcreteType (see anonymous-function.ts where wrapperType has its
     // resolvedConcreteType set to an implFnWrapper).
@@ -920,7 +920,7 @@ export function extractFnTraitFromType(
       if (fromConcrete) return fromConcrete;
     }
   }
-  // A forall parameter `F : Type` constrained as `where(F <: (Fn(...) -> ...))`
+  // A generic parameter `F : Type` constrained as `where(F <: (Fn(...) -> ...))`
   // stores the Fn trait constraint in env.whereClauseConstraints, NOT in
   // F.requiredTraits. Without checking here, lambda type-resolution at call
   // sites that pass `f : F` would fail with "Expected a function type".

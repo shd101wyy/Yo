@@ -19,7 +19,7 @@ function pointers are passed as extra C parameters.
 | One-shot continuations | `return` resumes, `unwind` discards                      |
 | Handler type           | `ctl(args) -> ret` parallel to `fn(args) -> ret`         |
 | Escape discipline      | Type-level check via `typeIsControlBound`                |
-| Effect polymorphism    | `forall(E : Type.Struct)` + `e : E`                      |
+| Effect polymorphism    | `generic(E : Type.Struct)` + `e : E`                     |
 | Effect bundling        | Anonymous structs `{ raise, log }` or named struct types |
 
 ## Syntax
@@ -116,14 +116,14 @@ at the top, then flow through any number of forwarding layers.
 
 ### Effect row polymorphism
 
-Effect-polymorphic functions use `forall(E : Type.Struct)`. The
+Effect-polymorphic functions use `generic(E : Type.Struct)`. The
 constraint `Type.Struct` restricts `E` to struct types (single bundle
 of effects), and enables auto-flattening of struct fn-ptr fields into
 separate C parameters at specialization.
 
 ```rust
 run :: (
-  fn(forall(T : Type, E : Type.Struct),
+  fn(generic(T : Type, E : Type.Struct),
      f : (fn(e : E) -> T),
      e : E
   ) -> T
@@ -143,7 +143,7 @@ result := run(pure_func, {});
 
 `Future` is parameterised by the return type plus zero or more effect
 type arguments. Each effect arg should itself be a struct type (or a
-forall E bound to one), so that callers can pass a struct value
+generic E bound to one), so that callers can pass a struct value
 containing the actual handlers:
 
 ```rust
@@ -222,7 +222,7 @@ locally installed.
    value where unwind is permitted. The reverse is unsafe and
    rejected.
 
-6. **Generics over function kinds.** `forall(T : Type)` can bind `T`
+6. **Generics over function kinds.** `generic(T : Type)` can bind `T`
    to either `fn(...)` or `ctl(...)` — uses of `T` are handled
    uniformly.
 
@@ -312,7 +312,7 @@ Raise :: (ctl(msg : String) -> i32);
 
 // Struct record — multi-method effect.
 Exception :: struct(
-  throw : (ctl(forall(T : Type), msg : String) -> T)
+  throw : (ctl(generic(T : Type), msg : String) -> T)
 );
 ```
 
@@ -324,7 +324,7 @@ Rules of thumb:
 - **Multi-method effect** (`exn.throw(...)`, `logger.warn(...)`): wrap
   the handlers in a `struct(...)` so the methods share a namespace and
   travel together as one value.
-- **Effect bundle for a Future** (`Future(T, E)`, `forall(E : Type.Struct)`):
+- **Effect bundle for a Future** (`Future(T, E)`, `generic(E : Type.Struct)`):
   the bundle is already a struct, so the handlers live as its fields.
 
 The two shapes have the same install-site, escape, and codegen

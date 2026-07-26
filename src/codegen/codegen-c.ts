@@ -138,7 +138,7 @@ export class CodeGeneratorC {
 
     // Collect dispose methods from generic impls for all collected types
     // This is needed because ___dispose functions may need to call user's dispose methods
-    // that are defined via generic impls like: impl(forall(T : Type), ArrayList(T), Dispose(...))
+    // that are defined via generic impls like: impl(generic(T : Type), ArrayList(T), Dispose(...))
     collectDisposeMethodsFromGenericImpls(context);
 
     // Same for `trace` methods (Trace trait) from generic impls — the cycle-GC

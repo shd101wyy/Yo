@@ -27,7 +27,7 @@ syn match yoNumber /\v\<\d+(\.\d+)?([eE][+-]?\d+)?\>/
 syn match yoOperator /[-=+*\/<>@$~&%|!?^.:#∀]\+/
 
 " Keywords
-syn keyword yoKeyword let var while for select forall mut const in out inout ref break continue pass return unwind pure recur use borrow comptime runt resume shift reset panic assert test thread_local atomic
+syn keyword yoKeyword let var while for select generic mut const in out inout ref break continue pass return unwind pure recur use borrow comptime runt resume shift reset panic assert test thread_local atomic
 syn keyword yoKeyword open import export from as extern trait c_include exists where
 syn keyword yoKeyword type fn ctl macro enum struct newtype union object actor impl dyn box chan static
 syn keyword yoKeyword if cond then else switch case default match try with

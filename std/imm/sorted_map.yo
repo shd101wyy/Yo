@@ -46,7 +46,7 @@ RBNode :: (
 // SAFETY: Manual Acyclic impl — RBNode is self-referential, so auto-derivation skips it.
 // This is safe because RBNode is immutable: all tree operations create new nodes
 // and never mutate existing ones, making it impossible to form cycles at runtime.
-impl(forall(K : Type, V : Type), where(K <: (Eq(K), Ord(K), Send), V <: Send), RBNode(K, V), Acyclic());
+impl(generic(K : Type, V : Type), where(K <: (Eq(K), Ord(K), Send), V <: Send), RBNode(K, V), Acyclic());
 /// Persistent immutable sorted map backed by a left-leaning red-black tree.
 SortedMap :: (
   fn(
@@ -523,7 +523,7 @@ _collect_values :: (
 // SortedMap impl
 // ---------------------------------------------------------------------------
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Ord(K), Send), V <: Send),
   SortedMap(K, V),
   /// Create an empty sorted map.
@@ -629,7 +629,7 @@ impl(
   })
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Ord(K), Send), V <: (Eq(V), Send)),
   SortedMap(K, V),
   Eq(SortedMap(K, V))(

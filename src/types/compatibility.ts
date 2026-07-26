@@ -702,7 +702,7 @@ export function areTypesCompatible(
       // - Two type parameters can unify if they have compatible constraints (requiredTraits)
       //
       // The key insight is that even with requireExactMatch=true, two different type parameters
-      // like T from impl(forall(T: Type), *(T), ...) and T from ArrayList should be allowed
+      // like T from impl(generic(T: Type), *(T), ...) and T from ArrayList should be allowed
       // to unify because they represent "any type" with the same constraints.
       //
       // We only reject if:
@@ -815,7 +815,7 @@ export function areTypesCompatible(
         expected.type
       );
 
-      // Unconstrained SomeType (bare forall type parameter like T : Type with no
+      // Unconstrained SomeType (bare generic type parameter like T : Type with no
       // required traits and no where-clause constraints) is compatible with any
       // concrete type. This is the semantics of a universal type parameter.
       // However, for exact matching (cache comparisons), an unconstrained SomeType

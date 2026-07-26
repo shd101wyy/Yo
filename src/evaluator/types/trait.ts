@@ -767,7 +767,7 @@ Type expressions are required for all function parameters in trait fields to sup
       if (!param.exprs.typeExpr) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `Function forall parameter "${param.label}" in trait field "${label ?? "unnamed"}" must have an explicit type annotation.
+          errorMessage: `Function generic parameter "${param.label}" in trait field "${label ?? "unnamed"}" must have an explicit type annotation.
 Type expressions are required for all function parameters in trait fields to support proper type specialization.`,
         });
       }

@@ -581,7 +581,7 @@ typedef struct __yo_io_future_t {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
       // Exception: struct or enum whose only SomeType source is its
-      // function-typed fields (e.g., Io, Exception with forall fn-ptr
+      // function-typed fields (e.g., Io, Exception with generic fn-ptr
       // fields, or Option(EvaluateExprRawFn) with fn-typed variant field).
       if (
         !(

@@ -659,7 +659,12 @@ export const BuiltinKeywords = {
   ref: ["ref"], // Reference-semantics TYPE constructor: `ref(struct(…))` / `ref(enum(…))` (see plans/REF_REFERENCE_SEMANTICS.md). The old second-class-reference PARAMETER modifier moved to `inout` (below).
   inout: ["inout"], // Second-class reference PARAMETER modifier: `inout(name) : T`. In-out parameter (caller's storage, mutate in place). Cannot be returned; no local-binding form. (Renamed from `ref` — see plans/REF_REFERENCE_SEMANTICS.md.)
 
-  forall: ["forall", "∀"],
+  // Type-parameter binder. Renamed from `generic` (plans/FORALL_TO_GENERIC.md):
+  // `generic`/`exists` (and `∀`/`∃`) are reserved for Dafny-style verification
+  // quantifiers in `requires`/`ensures`, where they bind VALUES and take a
+  // predicate — a different concept with a different shape. One keyword, one
+  // concept. `∀` follows the quantifier and returns with verification.
+  generic: ["generic"],
   where: ["where"],
   // Exists: ["exists", "∃"],
   // In: ["in", "∈"],

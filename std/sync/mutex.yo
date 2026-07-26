@@ -68,7 +68,7 @@ __MutexUnlocker :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Send),
   __MutexUnlocker(T),
   Dispose(
@@ -79,7 +79,7 @@ impl(
 );
 
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Send),
   Mutex(T),
   new : (fn(value : T) -> Self)({
@@ -87,7 +87,7 @@ impl(
   }),
   with_lock : (
     fn(
-      forall(R : Type),
+      generic(R : Type),
       self : Self,
       body : Impl(Fn(inout(v) : T) -> R)
     ) -> R
@@ -109,7 +109,7 @@ impl(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Send),
   Mutex(T),
   Dispose(

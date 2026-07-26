@@ -34,7 +34,7 @@ Use this skill when you need to:
 - Use `func(arg)` with no space before `(` for every call; `func arg` and `func (arg)` are invalid.
 - Use `return(value)` / `return()` and `unwind(value)` / `unwind()`; bare control-flow arguments are invalid.
 - Use `recur(...)` for self-recursion instead of the function name.
-- Use `forall(T : Type)` for generic type parameters, `comptime(x) : T` for compile-time parameters.
+- Use `generic(T : Type)` for generic type parameters, `comptime(x) : T` for compile-time parameters.
 - Use `where(T <: Trait)` to constrain type parameters.
 - Effect parameters are explicit: name them in the function signature (e.g. `raise : Raise`, `exn : Exception`) and pass them at the call site. Install a handler locally with `name := Constructor(...)` for struct effects, or `(name : EffectType) = ((args) -> { ... })` when the RHS is a bare lambda that needs the `ctl(...) -> R` annotation.
 - Use `(params) => expr` for closures; `Impl(Fn(...) -> T)` for the closure type.

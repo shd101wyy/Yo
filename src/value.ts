@@ -561,7 +561,7 @@ export function createUnknownValue(
   }
 
   // Handle function-type kind annotations for HKT support.
-  // When a forall parameter has a kind like `fn(comptime(T) : Type) -> comptime(Type)`,
+  // When a generic parameter has a kind like `fn(comptime(T) : Type) -> comptime(Type)`,
   // create a SomeType with kindFunctionType set.
   if (isFunctionType(type) && variableName) {
     const funcType = type as FunctionType;

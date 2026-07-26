@@ -613,6 +613,27 @@ tokenize :: (
           j = (j + usize(1));
         });
         id_str := id_sb.to_string();
+        // RESERVED for Dafny-style verification quantifiers
+        // (plans/FORALL_TO_GENERIC.md). The type-parameter binder was renamed
+        // `forall` -> `generic`; the word is held back so `requires` /
+        // `ensures` can bind VALUES with a predicate later. Rejected at lex
+        // time — mirrors src/lexer.ts, and parser parity across the two
+        // frontends is a STRICT_FIXPOINT prerequisite.
+        //
+        // `exists` / `∃` are deliberately NOT reserved — `exists` is a live
+        // public API (`std/fs/file.yo:324`, used in 72 files).
+        if((id_str == `forall`) || (id_str == `∀`), {
+          exn.throw(
+            dyn(
+              LexerError(
+                message : `\`${id_str}\` is reserved for verification quantifiers. Use \`generic(T : Type)\` to declare type parameters.`,
+                row : line,
+                column : col,
+                character : char_idx
+              )
+            )
+          );
+        });
         kind := cond(
           (id_str == `true`) => TokenKind.Bool,
           (id_str == `false`) => TokenKind.Bool,

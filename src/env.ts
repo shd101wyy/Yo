@@ -136,7 +136,7 @@ export interface Variable {
 
   /**
    * Whether this variable was introduced as a function parameter (any
-   * kind: regular, comptime, variadic, forall, where-clause SomeType,
+   * kind: regular, comptime, variadic, generic, where-clause SomeType,
    * effect parameter). Distinguishes parameters from locals introduced
    * by `:=`, `::`, destructuring, match arms, or for-loop iteration.
    *
@@ -1575,7 +1575,7 @@ export function getReceiverMethodsByNameFromEnv({
   }
 
   // Check generic impl registry for the original receiver type (e.g., *(i32))
-  // This is needed for impls like `impl(forall(T : Type), *(T), Add(...))`
+  // This is needed for impls like `impl(generic(T : Type), *(T), Add(...))`
   if (methods.length === 0 && receiverType !== dereferencedReceiverType) {
     const genericMethods = findMethodsFromGenericImpls({
       concreteType: receiverType,
@@ -2186,7 +2186,7 @@ export function getReceiverMethodsByNameFromEnv({
    *   id :: ((self) -> self)
    * );
    *
-   * use_id :: (fn(forall(T : Type), v : Type, using(XId) : (T <: Id)) -> T) {
+   * use_id :: (fn(generic(T : Type), v : Type, using(XId) : (T <: Id)) -> T) {
    *   return v.id(); // This line could cause problem.
    * }
    *
@@ -2246,7 +2246,7 @@ export function getVariablesNeedingDrop(env: Environment): Variable[] {
 
     // Skip variables whose types contain unresolved SomeTypes.
     // We can't generate proper drop code for abstract type parameters.
-    // This handles cases like compile-time generic functions: `comptime(id) : (fn(forall(T), x: T) -> T)`
+    // This handles cases like compile-time generic functions: `comptime(id) : (fn(generic(T), x: T) -> T)`
     // where temp variables may have type `T` that isn't resolved to a concrete type.
     // BUT: Don't skip SomeType that has required traits (like Impl(Future(T))) - these
     // have ___drop methods added by addRcFunctionsToSomeType and can be dropped.

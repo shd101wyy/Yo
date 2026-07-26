@@ -279,7 +279,7 @@ _any_expr_param :: (fn(tys : ArrayList(TypeValue)) -> bool)({
   found
 });
 /// True when this FuncVal is NOT emittable as a C function: a GENERIC +
-/// UNSPECIALIZED function (registered Func type still carries `forall` params —
+/// UNSPECIALIZED function (registered Func type still carries `generic` params —
 /// unresolved SomeTs crash get_type_string) OR a MACRO (has an `Expr`-typed
 /// param). Codegen skips it and emits only the monomorphizations / macro
 /// expansions the evaluator records. Mirrors TS isFunctionSpecializable &&
@@ -838,14 +838,14 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
 /// `ct` and register it (a) under `ct`'s id in the trait-method registry so the
 /// traversal generator's `get_trace_function_for_type` resolves it, and (b) in the
 /// codegen function table so its body is emitted. `fv` is the generic trace FuncVal
-/// (from `find_methods_from_generic_impls`, with the impl's forall param injected as
+/// (from `find_methods_from_generic_impls`, with the impl's generic param injected as
 /// a capture, e.g. `T -> Node`); `method_ty` its (type-substituted) Func type.
 _specialize_and_register_trace :: (
   fn(base : CodeGenContext, ctx : EvalContext, module_env : Environment, info : ExprInfoTable, exn : Exception, ct : TypeValue, fv : EvalValue, method_ty : TypeValue) -> unit
 )({
   // Build a callee env: a clone of the module env (so the prelude's GcTracer /
   // Trace / __yo_gc_trace_child and all types stay visible during body re-eval)
-  // plus a fresh frame carrying the impl's forall type params, bound from the
+  // plus a fresh frame carrying the impl's generic type params, bound from the
   // FuncVal's injected captures (mirrors function.yo's capture fallback that
   // populates `fresh_env` before create_specialized_function_inline).
   fresh := clone_env(module_env);
@@ -1155,7 +1155,7 @@ _synthesize_and_register_dispose :: (
   // Does this type carry a user `impl Dispose` (its RAII destructor)? Containers
   // like ArrayList/HashMap keep their elements in a malloc'd BUFFER the field-walk
   // below cannot reach, and drop them via a `Dispose` impl (a generic impl such as
-  // `impl(forall(T), ArrayList(T), Dispose(...))`, or a direct impl). Without wiring
+  // `impl(generic(T), ArrayList(T), Dispose(...))`, or a direct impl). Without wiring
   // that into the type's ___dispose, freeing such a container TRANSITIVELY (as an RC
   // field of another object whose dispose merely `decr_rc`s it) leaks ALL its
   // elements — the dominant self-compile leak (Environment→frames→variables). Mirror

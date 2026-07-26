@@ -71,10 +71,10 @@ assert((arr(usize(1)) == i32(20)), "should be 20");
 
 ### Generic Implementation
 
-For generic types like `ArrayList(T)`, use `forall` in the impl:
+For generic types like `ArrayList(T)`, use `generic` in the impl:
 
 ```rust
-impl(forall(T : Type), ArrayList(T), Index(usize)(
+impl(generic(T : Type), ArrayList(T), Index(usize)(
   Output : T,
   index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
     assert((idx < self._length), "ArrayList: index out of bounds");

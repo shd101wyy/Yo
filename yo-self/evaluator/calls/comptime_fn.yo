@@ -436,7 +436,7 @@ evaluate_comptime_fn_call :: (
   // skip execution ONLY for non-type CTFE functions — mirrors TS
   // function.ts:1843 `isInFunctionCallCheckingPhase && isNonTypeCtfeFunction`
   // where isNonTypeCtfeFunction = comptime-only return AND NOT an unquote
-  // macro AND NOT a type-returning constructor AND no forall params
+  // macro AND NOT a type-returning constructor AND no generic params
   // (function.ts:782-789, "prevents exponential blowup when checking
   // recursive CTFE functions"; type constructors MUST still execute so the
   // trial can resolve argument types). Without any gate, each overload
@@ -882,7 +882,7 @@ evaluate_comptime_fn_call :: (
   );
   // Collect this instantiation's type-valued arguments, in parameter order, to
   // record on the returned Struct (faithful stand-in for `StructType.env`): a
-  // method later dispatched on the instantiation binds its `forall` params
+  // method later dispatched on the instantiation binds its `generic` params
   // positionally from these. Non-type args become `Unit` placeholders so the
   // positions still line up with the constructor's parameters.
   inst_type_args := ArrayList(TypeValue).new();

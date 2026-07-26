@@ -14,7 +14,7 @@ Arc :: (fn(comptime(V) : Type, where(V <: Send)) -> comptime(Type))
   )))
 ;
 
-arc :: (fn(forall(V : Type), own(value) : V, where(V <: Send)) -> Arc(V))
+arc :: (fn(generic(V : Type), own(value) : V, where(V <: Send)) -> Arc(V))
   Arc(V)(value)
 ;
 ```
@@ -81,11 +81,11 @@ assert((shared.(*) == i32(42)), "main still sees shared value");
 
 ## `Arc`、`atomic(ref(struct(...)))` 与 `Iso` 的区别
 
-| 需求                            | 推荐工具             |
-| ------------------------------- | -------------------- |
-| 共享一个现有值                  | `Arc(T)`             |
+| 需求                            | 推荐工具                   |
+| ------------------------------- | -------------------------- |
+| 共享一个现有值                  | `Arc(T)`                   |
 | 定义可复用的共享引用计数类型    | `atomic(ref(struct(...)))` |
-| 在线程/作用域之间转移唯一所有权 | `Iso(T)`             |
+| 在线程/作用域之间转移唯一所有权 | `Iso(T)`                   |
 
 ## 语义
 

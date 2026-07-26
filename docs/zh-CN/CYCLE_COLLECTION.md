@@ -463,7 +463,7 @@ Trace :: trait(
 元素槽位。`ArrayList`（位于 `std/collections/array_list.yo`）：
 
 ```rust
-impl(forall(T : Type), ArrayList(T),
+impl(generic(T : Type), ArrayList(T),
   Trace(
     trace : (fn(self : Self, tracer : GcTracer) -> unit)({
       match(
@@ -490,7 +490,7 @@ impl(forall(T : Type), ArrayList(T),
 GcTracer :: newtype(_callback : *(u8));
 
 // （位于 `impl(GcTracer, ...)` 中）
-visit : (fn(forall(T : Type), self : Self, slot : *(T)) -> unit)
+visit : (fn(generic(T : Type), self : Self, slot : *(T)) -> unit)
 ```
 
 `visit` 接收一个**指向子节点所在位置的指针**（结构体字段或缓冲区槽位），而非按值传入子节点。这是关键的

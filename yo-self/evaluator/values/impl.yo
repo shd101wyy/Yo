@@ -4,7 +4,7 @@
 //! `evaluateModuleValue` from `src/evaluator/values/impl.ts`.
 //!
 //! Phase 3.5 changes (generic impl support):
-//!   - Generic impl (forall): now registers in the global generic impl registry.
+//!   - Generic impl (generic): now registers in the global generic impl registry.
 //!   - Forall params extracted manually as SomeT TypeValues and added to env.
 //!   - Receiver type is evaluated with SomeTs in scope.
 //!   - Methods are evaluated and stored in GenericImplEntry.
@@ -27,7 +27,7 @@ open(import("std/string"));
   make_err_expr,
   clone_expr_fresh_ids,
   BK_BEGIN,
-  BK_FORALL,
+  BK_GENERIC,
   BK_COLON,
   BK_IMPL_LOWER,
   BK_WHERE,
@@ -76,27 +76,27 @@ open(import("std/string"));
 { synthesize_types, SynthesizeOptions, TypePair }
 :: import("../types/synthesizer.yo");
 { Exception } :: import("std/error");
-/// Stamp a generic impl's `forall(T)` names onto a method's FuncVal so the call
+/// Stamp a generic impl's `generic(T)` names onto a method's FuncVal so the call
 /// site recognizes the method as generic and SPECIALIZES it. A method defined in
-/// `impl(forall(T), C(T), m : (fn(self : Self) -> T))` is evaluated to a FuncVal
-/// with `forall_names = []` — the impl forall lives only on the impl entry, never
+/// `impl(generic(T), C(T), m : (fn(self : Self) -> T))` is evaluated to a FuncVal
+/// with `forall_names = []` — the impl generic lives only on the impl entry, never
 /// on the method value. TS keeps `forallParameters = [T]` on each impl method's
 /// functionType; without it `is_function_type_generic`/the spec guard never fires
 /// and codegen only ever has the abstract method (skipped → undeclared). We stamp
 /// the names onto the FuncVal (the VALUE, which survives method resolution's
-/// type-concretization — the resolved Func TYPE has its forall stripped, so the
+/// type-concretization — the resolved Func TYPE has its generic stripped, so the
 /// value's `forall_names` is the surviving signal the spec guard consults). Only
-/// stamps a FuncVal whose own forall is empty, and only when `names` is non-empty.
+/// stamps a FuncVal whose own generic is empty, and only when `names` is non-empty.
 ///
 /// Stamps every generic-impl method (instance AND static). Instance methods bind
 /// their type params from the concrete `self` ARGUMENT; static methods (no
 /// `self`, e.g. `ArrayList(u8).new : (fn() -> Self)`) bind `T` from the impl
-/// forall binding that `_inject_forall_captures` puts in the method's captures
-/// (the FuncVal-call arm reads it back via its forall-binding capture fallback),
+/// generic binding that `_inject_forall_captures` puts in the method's captures
+/// (the FuncVal-call arm reads it back via its generic-binding capture fallback),
 /// and bind `Self` from the static dot-receiver set into `ctx.self_type` around
-/// the specialization. Only stamps a FuncVal whose own forall is empty, and only
+/// the specialization. Only stamps a FuncVal whose own generic is empty, and only
 /// when `names` is non-empty.
-/// True if a generic-impl method must NOT be forall-stamped — i.e. it is a
+/// True if a generic-impl method must NOT be generic-stamped — i.e. it is a
 /// MACRO / quoted-expr / comptime method, not a runtime monomorphizable function.
 /// Stamping such a method makes it specialization-eligible, and specializing it
 /// re-evaluates a body that quotes (`__yo_expr_to_string`) with a no-value Expr
@@ -145,7 +145,7 @@ _stamp_impl_forall_on_method :: (fn(v : EvalValue, names : ArrayList(String)) ->
 // `evaluator/values/generic_impl_registry.yo`).
 //
 // 1:1 with the generic-impl parts of `src/evaluator/values/impl.ts`.
-// The registry stores `impl(forall(T), ReceiverType, ...)` entries; matches
+// The registry stores `impl(generic(T), ReceiverType, ...)` entries; matches
 // them against (concrete_type, trait_type) lookups; and resolves methods on
 // matched impls. Implemented as two parallel ArrayLists keyed by the trait's
 // nominal id, since HashMap(String, ...) would itself depend on generic-impl
@@ -163,9 +163,9 @@ _stamp_impl_forall_on_method :: (fn(v : EvalValue, names : ArrayList(String)) ->
 GenericImplEntry :: struct(
   /// Registry key — same as the trait type's `id` field (from `_trait_type_id`).
   trait_key : String,
-  /// Names of forall type parameters, e.g. ["T", "U"].
+  /// Names of generic type parameters, e.g. ["T", "U"].
   forall_names : ArrayList(String),
-  /// Corresponding SomeT TypeValues, one per forall name.
+  /// Corresponding SomeT TypeValues, one per generic name.
   /// Used by `try_match_generic_impl` to populate the unification env.
   forall_some_types : ArrayList(TypeValue),
   /// Receiver type pattern, e.g. `Option(SomeT(T))`.
@@ -185,7 +185,7 @@ GenericImplEntry :: struct(
   /// `where_constraint_some_types[i]` during `try_match_generic_impl` must
   /// implement `where_constraint_traits[i]`, else the impl does NOT match.
   /// Mirrors TS `GenericImpl.whereConstraints` (impl.ts:3011). Without this a
-  /// blanket `impl(forall(I), where(I <: Iterator), I, into_iter -> Self)`
+  /// blanket `impl(generic(I), where(I <: Iterator), I, into_iter -> Self)`
   /// leaks onto non-Iterator types (e.g. ArrayList), shadowing the type's own
   /// method. See issues/yo-self-p1-transpile-tail.md.
   where_constraint_some_types : ArrayList(TypeValue),
@@ -307,7 +307,7 @@ register_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
 // Negative-impl registry (Phase N THREAD_SAFETY). A negative impl
 // `impl(T, !(Trait))` declares that T does NOT implement Trait, overriding
 // auto-derive. Keyed by "typeId:traitId". 1-to-1 with impl.ts:269-293
-// (`negativeImplRegistry`). Generic negative impls (forall) are out of scope
+// (`negativeImplRegistry`). Generic negative impls (generic) are out of scope
 // here — they only feed vacuous `comptime_assert`s in the tests.
 // ---------------------------------------------------------------------------
 (g_negative_impl_registry : ArrayList(String)) = ArrayList(String).new();
@@ -340,7 +340,7 @@ register_negative_impl :: (fn(type_id : String, trait_id : String) -> unit)({
 // - No struct env fallback for erasure (simpler struct lookup).
 // - Where-clause constraints skipped (no `g_type_implements_trait_fn` check
 //   yet beyond returning true if function pointer is set).
-/// Resolve the concrete type bound to one `forall` param after a successful
+/// Resolve the concrete type bound to one `generic` param after a successful
 /// `synthesize_types`. Returns `.None` if the param stayed abstract (`SomeT`).
 /// Used by `try_match_generic_impl` to surface the unification result so the
 /// dispatcher can bind the impl's type params in the method body.
@@ -366,7 +366,7 @@ _resolve_one_forall_binding :: (
         !(is_some_type(b)) => Option(TypeValue).Some(b),
         true => Option(TypeValue).None
       ),
-      // VALUE-level forall (`forall(U : usize)` array lengths): the
+      // VALUE-level generic (`generic(U : usize)` array lengths): the
       // synthesizer binds the variable to an IntLit. Represent the
       // binding by the variable's declared type (usize) — KNOWN GAP:
       // method types that mention `U` in a LENGTH position would need a
@@ -380,7 +380,7 @@ _resolve_one_forall_binding :: (
 });
 /// Match `entry` against `concrete_type` in `env`. Returns `.Some(bindings)`
 /// where `bindings[i]` is the concrete type bound to `entry.forall_names[i]`
-/// (in declaration order) when the impl matches and every forall param
+/// (in declaration order) when the impl matches and every generic param
 /// resolved to a concrete type; `.None` when there is no match.
 /// Conservative root-shape compatibility for the generic-impl prefilter:
 /// returns false ONLY when BOTH roots are concrete shapes that can never
@@ -480,7 +480,7 @@ _root_shapes_could_match :: (fn(pattern : TypeValue, concrete : TypeValue) -> bo
   });
   true
 });
-/// Fallback binding for a generic-impl `forall` param that structural field
+/// Fallback binding for a generic-impl `generic` param that structural field
 /// synthesis could not resolve. When the receiver pattern erases the param
 /// from its fields (e.g. `Buf(T)` evaluates to `object(_n : usize)` — `T`
 /// never appears structurally, so synthesizing `Buf(T)` against `Buf(u8)`
@@ -564,7 +564,7 @@ try_match_generic_impl :: (
   if(!(_root_shapes_could_match(entry.receiver_type_pattern, resolved_concrete)), {
     return(Option(ArrayList(TypeValue)).None);
   });
-  // 2. Build unify_env: clone the env and push a fresh frame, add all forall SomeTs.
+  // 2. Build unify_env: clone the env and push a fresh frame, add all generic SomeTs.
   (unify_env : Environment) = clone_env(env);
   unify_env.push_frame(false);
   (ui : usize) = usize(0);
@@ -622,7 +622,7 @@ try_match_generic_impl :: (
     opts,
     exn_match
   );
-  // Synthesis succeeded — collect the concrete binding for each forall param
+  // Synthesis succeeded — collect the concrete binding for each generic param
   // (in declaration order). If any param stayed abstract, there is no match.
   bindings := ArrayList(TypeValue).new();
   (all_bound : bool) = true;
@@ -656,15 +656,15 @@ try_match_generic_impl :: (
     vi = (vi + usize(1));
   });
   // Where-clause check (mirrors TS `tryMatchGenericImpl`, impl.ts:2425-2432): a
-  // concrete type bound to a where-constrained forall param MUST implement the
+  // concrete type bound to a where-constrained generic param MUST implement the
   // constraint trait, else this impl does NOT match. Without this, a blanket
-  // `impl(forall(I), where(I <: Iterator), I, into_iter -> Self)` matches every
+  // `impl(generic(I), where(I <: Iterator), I, into_iter -> Self)` matches every
   // type and its method shadows the receiver's own (e.g. `ArrayList.into_iter()`
   // resolves to the blanket `-> Self` instead of `-> ArrayListIter`, so
   // `.next()` then finds nothing). `g_type_implements_trait_fn` is the
   // trait_checking.yo hook; if unset (None) we conservatively skip the check.
   // Enforce where-clause constraints ONLY for BLANKET impls — those whose
-  // receiver pattern is a bare type variable (`impl(forall(I), where(I <:
+  // receiver pattern is a bare type variable (`impl(generic(I), where(I <:
   // Iterator), I, ...)`). A blanket matches EVERY type, so its where-clause is
   // the only thing keeping it off non-satisfying types (the Iterator blanket
   // shadowing a collection's own method). Specific-pattern impls (`ArrayList(T)`,
@@ -757,10 +757,10 @@ find_matching_generic_impl :: (
   false
 });
 /// Negative generic impl registry. Mirrors TS `negativeGenericImplRegistry`
-/// (impl.ts:286): holds `impl(forall(...), Pattern, !(Trait))` entries (reusing
+/// (impl.ts:286): holds `impl(generic(...), Pattern, !(Trait))` entries (reusing
 /// `GenericImplEntry`, with empty field_* lists — negative impls carry no
 /// methods). Checked as step 0 of `type_implements_trait` so a matching negative
-/// generic impl overrides auto-derive (e.g. `impl(forall(T), Container(T),
+/// generic impl overrides auto-derive (e.g. `impl(generic(T), Container(T),
 /// !(Send))` makes `Container(i32)` NOT `Send`).
 (g_negative_generic_impl_entries : ArrayList(GenericImplEntry)) =
   ArrayList(GenericImplEntry).new();
@@ -812,12 +812,12 @@ MethodCandidate :: struct(
   method_value : Option(EvalValue),
   source_trait_id : String
 );
-/// Inject the impl's `forall` type-param bindings into a matched method's
+/// Inject the impl's `generic` type-param bindings into a matched method's
 /// closure captures, so the method body resolves `K`, `V`, … to the
 /// receiver's concrete type arguments. Mirrors TS restoring the impl's
 /// instantiation env (`func.$.env`) at dispatch: impl methods carry no
-/// `forall` of their own (the `forall(K, V)` lives on the impl block), so the
-/// regular call path — which only binds a method's *own* forall params — would
+/// `generic` of their own (the `generic(K, V)` lives on the impl block), so the
+/// regular call path — which only binds a method's *own* generic params — would
 /// otherwise leave `K`/`V` abstract and break e.g. `sizeof(Bucket(K, V))`.
 ///
 /// Only `FuncVal` methods are affected; associated-type and other field shapes
@@ -855,7 +855,7 @@ _inject_forall_captures :: (
           _c := new_cvs.push(match(cvs.get(ci),.Some(x) => x,.None => EvalValue.UnitVal));
           ci = (ci + usize(1));
         });
-        // Append one capture per impl forall param (bound to its concrete type).
+        // Append one capture per impl generic param (bound to its concrete type).
         n_fa := forall_names.len();
         (fi2 : usize) = usize(0);
         while(fi2 < n_fa, {
@@ -875,7 +875,7 @@ _inject_forall_captures :: (
   )
 );
 /// Search ALL registered generic impls for matching entries that have a field
-/// with `method_name`. Returns candidates, with the impl's `forall` bindings
+/// with `method_name`. Returns candidates, with the impl's `generic` bindings
 /// injected into each `FuncVal` method's captures (see `_inject_forall_captures`).
 find_methods_from_generic_impls :: (
   fn(
@@ -967,7 +967,7 @@ find_methods_from_generic_impls :: (
                 .None => TypeValue.Unit
               );
               fvalue := entry.field_values.get(fi);
-              // Specialize the method TYPE with the impl's forall bindings —
+              // Specialize the method TYPE with the impl's generic bindings —
               // mirrors TS `reEvaluateFunctionType` in `findMethodsFromGenericImpls`
               // (impl.ts:1484): the returned candidate's param/return types must
               // be concrete (e.g. `self : ComptimeList(comptime_str)`, not
@@ -1381,7 +1381,7 @@ _try_create_forward_shell :: (
 });
 /// Parse an impl's `where(...)` clause into parallel constraint arrays for
 /// `GenericImplEntry`. For each `X <: Trait` constraint whose LHS `X` is a
-/// forall type param, append (the forall SomeT for `X`, the evaluated `Trait`)
+/// generic type param, append (the generic SomeT for `X`, the evaluated `Trait`)
 /// to `out_some_types` / `out_traits`. Single-trait constraints only — a
 /// `(Trait1, Trait2)` RHS or an unknown trait is skipped (conservative: no
 /// constraint captured ⇒ no exclusion, same as before). Mirrors the
@@ -1534,11 +1534,11 @@ evaluate_module_value :: (
     return(expr);
   });
   // ---------------------------------------------------------------------------
-  // Case 2: Generic impl — impl(forall(...), ReceiverType, …)
+  // Case 2: Generic impl — impl(generic(...), ReceiverType, …)
   // ---------------------------------------------------------------------------
   has_forall := match(
     args.get(usize(0)),
-    .Some(a0) => (ast_expr_is_fn_call(a0) && ast_expr_is_fn_call_of(a0, BK_FORALL,.None)),
+    .Some(a0) => (ast_expr_is_fn_call(a0) && ast_expr_is_fn_call_of(a0, BK_GENERIC,.None)),
     .None => false
   );
   if(has_forall, {
@@ -1548,7 +1548,7 @@ evaluate_module_value :: (
       .FnCall(_, _, fa, _, _) => fa,
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
-    // Clone env to isolate forall frame from the outer scope.
+    // Clone env to isolate generic frame from the outer scope.
     (forall_env : Environment) = clone_env(local_env);
     forall_env.push_frame(false);
     frame_lvl := (forall_env.frames.len() - usize(1));
@@ -1601,8 +1601,8 @@ evaluate_module_value :: (
     // `try_match_generic_impl` can reject this impl for a concrete type that
     // fails them (e.g. the blanket `where(I <: Iterator)` must NOT match a
     // non-Iterator collection). Populated at BOTH where positions: before the
-    // receiver (`forall(I), where(...), I, ...`) here, and after the receiver
-    // (`forall(T), Channel(T), where(...), ...`) in the field loop below.
+    // receiver (`generic(I), where(...), I, ...`) here, and after the receiver
+    // (`generic(T), Channel(T), where(...), ...`) in the field loop below.
     (impl_where_some_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
     (impl_where_traits : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
     // Determine where `receiver_type_expr` starts: skip optional where(...) arg.
@@ -1655,9 +1655,9 @@ evaluate_module_value :: (
     while(fj < n_args, {
       mf_expr := match(args.get(fj),.None => make_err_expr(),.Some(e) => e);
       fj = (fj + usize(1));
-      // Negative GENERIC impl: `impl(forall(...), Pattern, !(Trait))`. Register
+      // Negative GENERIC impl: `impl(generic(...), Pattern, !(Trait))`. Register
       // the negated trait into the negative-generic registry (reusing this
-      // impl's forall params + receiver pattern) so `Type.impls(Concrete, Trait)`
+      // impl's generic params + receiver pattern) so `Type.impls(Concrete, Trait)`
       // returns false at trait-checking step 0. Mirrors TS impl.ts:3017-3024
       // (`isGeneric` branch of negative-trait registration). The `!(...)` field
       // then falls through the trait-constructor handling below as a no-op (its
@@ -1753,7 +1753,7 @@ evaluate_module_value :: (
       // skipped, so generic TRAIT impls registered no methods at all and
       // `x(i)` Index dispatch on `ArrayList(u8)` found nothing.
       // `where(...)` clauses may also appear AFTER the receiver
-      // (`impl(forall(T), Channel(T), where(T <: Send), ...)`); they are
+      // (`impl(generic(T), Channel(T), where(T <: Send), ...)`); they are
       // not fields — capture their constraints (for try_match_generic_impl),
       // then skip them like the pre-receiver capture above.
       if(ast_expr_is_fn_call_of(mf_expr, BK_WHERE,.None), {
@@ -1941,7 +1941,7 @@ evaluate_module_value :: (
       impl_where_traits // 11. where_constraint_traits
     );
     register_generic_impl(entry);
-    // Return the original local_env (without the forall frame leaked into scope).
+    // Return the original local_env (without the generic frame leaked into scope).
     out_info := new_expr_info(local_env, t_unit());
     out_info.value =.Some(EvalValue.UnitVal);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);

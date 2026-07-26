@@ -340,7 +340,7 @@ function enumVariantsToDocVariants(
   }));
 }
 
-// ── Helper: get forall type params from a type-constructor function ──
+// ── Helper: get generic type params from a type-constructor function ──
 
 function getTypeConstructorParams(field: TypeField): DocParam[] | undefined {
   if (
@@ -369,8 +369,8 @@ function getTypeConstructorParams(field: TypeField): DocParam[] | undefined {
  *
  * Scans for patterns like:
  *   impl(TypeName, TraitName(...))
- *   impl(forall(...), TypeName, TraitName(...))
- *   impl(forall(...), where(...), TypeName, TraitName(...))
+ *   impl(generic(...), TypeName, TraitName(...))
+ *   impl(generic(...), where(...), TypeName, TraitName(...))
  *
  * Returns a map from type name to deduplicated list of trait names.
  */
@@ -399,14 +399,14 @@ function extractTraitImplsFromTokens(tokens: Token[]): Map<string, string[]> {
     // Skip past `impl(`
     let j = i + 2;
 
-    // Skip `forall(...)` if present
+    // Skip `generic(...)` if present
     if (
       j < toks.length &&
       toks[j]!.type === TokenType.Identifier &&
-      toks[j]!.value === "forall"
+      toks[j]!.value === "generic"
     ) {
       j = skipBalancedParens(toks, j + 1);
-      // Skip comma after forall(...)
+      // Skip comma after generic(...)
       if (j < toks.length && toks[j]!.type === TokenType.Comma) j++;
     }
 
@@ -794,7 +794,7 @@ function extractImplInfoFromTokens(
     if (
       current < toks.length &&
       toks[current]!.type === TokenType.Identifier &&
-      toks[current]!.value === "forall"
+      toks[current]!.value === "generic"
     ) {
       const forallEnd = skipBalancedParens(toks, current + 1);
       signatureParts.push(sliceTokenText(toks, current, forallEnd - 1));

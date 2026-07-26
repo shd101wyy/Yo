@@ -2227,14 +2227,14 @@ test("Test types compatibility", {
   comptime_assert(
     __yo_are_types_compatible(
       // true
-      fn(forall(T : Type), x : T, y : T) -> T,
-      fn(forall(Z : Type), a : Z, b : Z) -> Z
+      fn(generic(T : Type), x : T, y : T) -> T,
+      fn(generic(Z : Type), a : Z, b : Z) -> Z
     ) == true
   );
   comptime_assert(
     __yo_are_types_compatible(
       // false
-      fn(forall(T : Type), x : T, y : T) -> T,
+      fn(generic(T : Type), x : T, y : T) -> T,
       fn(a : i32, b : i32) -> i32
     ) == false
   );
@@ -2242,23 +2242,23 @@ test("Test types compatibility", {
     __yo_are_types_compatible(
       // false
       fn(a : i32, b : i32) -> i32,
-      fn(forall(T : Type), x : T, y : T) -> T
+      fn(generic(T : Type), x : T, y : T) -> T
     ) == false
   );
   MyBox :: (fn(comptime(T) : Type) -> comptime(Type))(struct(value : T));
   comptime_assert(
     __yo_are_types_compatible(
       // true
-      fn(forall(T : Type), x : T) -> MyBox(T),
-      fn(forall(Z : Type), a : Z) -> MyBox(Z)
+      fn(generic(T : Type), x : T) -> MyBox(T),
+      fn(generic(Z : Type), a : Z) -> MyBox(Z)
     ) == true
   );
   Point :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
   comptime_assert(
     __yo_are_types_compatible(
       // true
-      fn(forall(T : Type), x : T, y : T) -> Point(T),
-      fn(forall(Z : Type), a : Z, b : Z) -> Point(Z)
+      fn(generic(T : Type), x : T, y : T) -> Point(T),
+      fn(generic(Z : Type), a : Z, b : Z) -> Point(Z)
     ) == true
   );
   // Test pointer type compatibility

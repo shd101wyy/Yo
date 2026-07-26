@@ -24,7 +24,7 @@ ArrayList :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   ArrayList(T),
   len : (fn(self : Self) -> usize)({
     return(self._length);
@@ -102,7 +102,7 @@ impl(
     });
     out
   }),
-  from_array : (fn(forall(N : usize), arr : Array(T, N)) -> Self)({
+  from_array : (fn(generic(N : usize), arr : Array(T, N)) -> Self)({
     out := Self.with_capacity(N);
     i := usize(0);
     while(i < N, i = (i + usize(1)), {
@@ -529,7 +529,7 @@ impl(
   })
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   ArrayList(T),
   Index(usize)(
     /// The output type is the element type `T`.
@@ -550,7 +550,7 @@ impl(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   ArrayList(T),
   Dispose(
     /**
@@ -572,7 +572,7 @@ impl(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   ArrayList(T),
   Trace(
     /**
@@ -609,7 +609,7 @@ ArrayListIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   ArrayListIter(T),
   Iterator(
     Item : T,
@@ -626,14 +626,14 @@ impl(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   ArrayList(T),
   into_iter : (fn(self : Self) -> ArrayListIter(T))(
     ArrayListIter(T)(_list : self, _index : usize(0))
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Eq(T)),
   ArrayList(T),
   /**
@@ -685,7 +685,7 @@ impl(
   })
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   ArrayList(T),
   /**
   * Reverse elements in place
@@ -714,7 +714,7 @@ impl(
   })
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Ord(T)),
   ArrayList(T),
   /**
@@ -754,7 +754,7 @@ impl(
 /// Equality for ArrayList — two lists are equal if they have the same length
 /// and every pair of elements at corresponding indices is equal.
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Eq(T)),
   ArrayList(T),
   Eq(ArrayList(T))(
@@ -791,7 +791,7 @@ impl(
 );
 /// Clone implementation for ArrayList — deep-clones each element.
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Clone),
   ArrayList(T),
   Clone(
@@ -877,7 +877,7 @@ array_list :: (fn(...(quote(elems))) -> unquote(Expr))({
 /// Range slicing on fixed-size arrays returns an OWNED ArrayList copy
 /// (`arr(a..b)` lowers to this — plans/SLICE_REWORK.md).
 impl(
-  forall(T : Type, N : usize),
+  generic(T : Type, N : usize),
   Array(T, N),
   slice_copy : (fn(self : Array(T, N), r : Range(usize)) -> ArrayList(T))({
     e := cond((r.end > N) => N, true => r.end);

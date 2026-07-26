@@ -405,7 +405,7 @@ make_typed_decl :: (fn(name : String, type_name : String, rhs : AstExpr) -> AstE
 // Phase 3k — TypeVal: type names as first-class compile-time values
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// Phase 3l helpers — build fn defs with typed / forall params
+// Phase 3l helpers — build fn defs with typed / generic params
 // ---------------------------------------------------------------------------
 /// Build a typed param `name : type_name` as an infix `:` FnCall.
 make_typed_param :: (fn(name : String, type_name : String) -> AstExpr)(
@@ -416,13 +416,13 @@ make_typed_param :: (fn(name : String, type_name : String) -> AstExpr)(
     a
   }, true, make_token(TokenKind.Operator, String.from(":")))
 );
-/// Build a forall param `forall(name)` as a non-infix FnCall.
+/// Build a generic param `generic(name)` as a non-infix FnCall.
 make_forall_param :: (fn(name : String) -> AstExpr)(
-  .FnCall(usize(0),.Atom(usize(0), make_token(TokenKind.Identifier, String.from("forall"))), {
+  .FnCall(usize(0),.Atom(usize(0), make_token(TokenKind.Identifier, String.from("generic"))), {
     a := ArrayList(AstExpr).new();
     a.push(make_atom(TokenKind.Identifier, name));
     a
-  }, false, make_token(TokenKind.Identifier, String.from("forall")))
+  }, false, make_token(TokenKind.Identifier, String.from("generic")))
 );
 /// Build `(fn(param_exprs…) -> unit)(body)` from an ArrayList of AstExpr params.
 /// More general than `make_fn_def` which only accepts bare atom param names.
@@ -450,7 +450,7 @@ make_fn_def_from_param_exprs :: (fn(param_exprs : ArrayList(AstExpr), body : Ast
   result
 });
 // ---------------------------------------------------------------------------
-// Phase 3l — Generic specialization / forall param binding
+// Phase 3l — Generic specialization / generic param binding
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Phase 3m helpers — build export, open, and import AST nodes
@@ -675,7 +675,7 @@ make_env_with_T :: (fn() -> Environment)({
 // ===========================================================================
 // Phase 5x — Bitwise operators, println no-op
 // ===========================================================================
-// Phase 5y — extern, c_include, where, forall, type_of, size_of, align_of,
+// Phase 5y — extern, c_include, where, generic, type_of, size_of, align_of,
 // HashMap, unreachable, panic, todo, array .set(), .is_empty()
 // Phase 5z — Impl/Fn/FnMut/FnOnce type constructors, derive, export, comptime_expect_error,
 // StrLit.is_empty(), StrLit.char_at(i)
@@ -3078,13 +3078,13 @@ test("Phase 5p: StrLit.as_str() passthrough", {
   );
 });
 test("Phase 5p: where clause in fn definition does not crash", {
-  // fn(forall(T), where(T <: Trait), x : T) -> T
+  // fn(generic(T), where(T <: Trait), x : T) -> T
   // We just verify the function definition succeeds without crashing
   env := empty_env();
-  // Build: id :: (fn(forall(T), where(T <: Clone), x : T) -> T)(x)
+  // Build: id :: (fn(generic(T), where(T <: Clone), x : T) -> T)(x)
   params := ArrayList(AstExpr).new();
   params.push(
-    make_call(String.from("forall"), {
+    make_call(String.from("generic"), {
       fa := ArrayList(AstExpr).new();
       fa.push(make_atom(TokenKind.Identifier, String.from("T")));
       fa

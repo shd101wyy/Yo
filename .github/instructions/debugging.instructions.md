@@ -62,7 +62,7 @@ The evaluator uses frame-based environments. Key debugging facts:
 - `variable.frameLevel` = the frame index where the variable was defined
 - `env.frames.length` = total number of frames in the environment
 - `functionType.env` captures the env at the function's **definition site** (minus parameters frame)
-- `impl.definitionEnv` is captured AFTER `popEnvFrame` removes the forall frame
+- `impl.definitionEnv` is captured AFTER `popEnvFrame` removes the generic frame
 - The check in `assignment.ts:454-471` compares `variable.frameLevel < functionType.env.frames.length` to detect "variable defined outside function body"
 - Frame count mismatches between `functionType.env` and the actual evaluation env cause false positives in this check
 

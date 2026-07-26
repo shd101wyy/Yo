@@ -86,13 +86,13 @@ Index methods backed by builtins (e.g., `__yo_array_index`) are detected by `isF
 
 ## Algebraic effects codegen
 
-- Functions with `forall(E : Type.Struct)` polymorphic over an effect bundle have generic bodies where sub-expression type info may be missing. Effect analysis for these functions is performed during the codegen phase (in `preRegisterEffectfulFunctions`), not during evaluation.
+- Functions with `generic(E : Type.Struct)` polymorphic over an effect bundle have generic bodies where sub-expression type info may be missing. Effect analysis for these functions is performed during the codegen phase (in `preRegisterEffectfulFunctions`), not during evaluation.
 
 ### Evidence passing for effects
 
 **All** effects — both struct-record (e.g., `Exception`, `Raise`) and function-type — use **evidence passing**. A struct effect record is an evidence record; at runtime, its function fields are passed as function pointers. Therefore there is no distinction between struct-record effects and function effects in codegen — both compile to passing function pointers as explicit C parameters.
 
-`forall(...)` remains compile-time-only. Effect parameters are explicit `fn`/`ctl` parameters at the language level; codegen lowers them to function-pointer C parameters. Evidence passing is how that runtime behavior is realized.
+`generic(...)` remains compile-time-only. Effect parameters are explicit `fn`/`ctl` parameters at the language level; codegen lowers them to function-pointer C parameters. Evidence passing is how that runtime behavior is realized.
 
 For the full design document with overhead analysis and language semantics, see `docs/en-US/ALGEBRAIC_EFFECTS.md`.
 
@@ -115,11 +115,11 @@ For the full design document with overhead analysis and language semantics, see 
 
 See `issues/sync-effect-inlining-inside-async-context.md` for the full design rationale.
 
-**Forall function-type effects (e.g., `Raise :: ctl(forall(T), msg: String) -> T`):**
+**Forall function-type effects (e.g., `Raise :: ctl(generic(T), msg: String) -> T`):**
 
-- Bare function-type effect handlers from local `(raise : Raise) = ((msg) -> { ... })` bindings are marked `isModuleEffectMember = true` in the evaluator (`initialization-assignment.ts`). This historical flag means "effect member function" and ensures their C function body is generated despite having forall parameters (the forall types are erased at runtime).
-- The evaluator includes forall function effects in async closure capture structs (`isEffectParamInAsyncClosure` in `anonymous-function.ts`). They are stored as `void*` and cast at each call site.
-- Effect injection at `io.await`/`io.spawn` writes the handler function pointer into the future's capture struct for both struct-record and forall function-type effects (`emitEffectInjectionForAwait` in `await.ts`).
+- Bare function-type effect handlers from local `(raise : Raise) = ((msg) -> { ... })` bindings are marked `isModuleEffectMember = true` in the evaluator (`initialization-assignment.ts`). This historical flag means "effect member function" and ensures their C function body is generated despite having generic parameters (the generic types are erased at runtime).
+- The evaluator includes generic function effects in async closure capture structs (`isEffectParamInAsyncClosure` in `anonymous-function.ts`). They are stored as `void*` and cast at each call site.
+- Effect injection at `io.await`/`io.spawn` writes the handler function pointer into the future's capture struct for both struct-record and generic function-type effects (`emitEffectInjectionForAwait` in `await.ts`).
 
 **Mixed unwind+return handlers:**
 
@@ -172,7 +172,7 @@ Key files: `context.ts` (`isModuleEffectMemberFunction`), `generation.ts` (decla
 
 Functions with evidence parameters (from `io: Io` or algebraic effect parameters) need special handling in `collection.ts`. Three skip conditions must allow these functions through:
 
-1. **`isFunctionTypeHardGeneric` check** — A specialized function may still appear "hard-generic" because evidence params trace back to a comptime-only `forall(...)` binding. If `getEvidenceParameters(specializedType).length > 0`, the function is valid for codegen — evidence params become C function pointers.
+1. **`isFunctionTypeHardGeneric` check** — A specialized function may still appear "hard-generic" because evidence params trace back to a comptime-only `generic(...)` binding. If `getEvidenceParameters(specializedType).length > 0`, the function is valid for codegen — evidence params become C function pointers.
 
 2. **`exprContainsUnknownValue` check** — Functions with effect params may have `UnknownValue` in their body for compile-time parameter references. Check both original and specialized types: if either has evidence parameters, the function is valid.
 
@@ -182,11 +182,11 @@ Functions with evidence parameters (from `io: Io` or algebraic effect parameters
 
 A specialization `FunctionValue` always has `specializedType` set but inherits `value.type` from the original generic FunctionValue. So a specialization is "concrete at the C ABI" yet still answers `isFunctionTypeHardGeneric(value.type) === true`. Without a carve-out, the hard-generic skip in `declarations.ts` / `generation.ts` would drop both the base AND its specializations, leaving call sites that reference the specialized cName with no matching decl/def.
 
-Use the predicate `isConcreteSpecialization = !!value.specializedType && (value.specializedFunctionCaches?.length ?? 0) === 0` to exempt specializations from those skips. The `generateSpecializedFunctions` pass that emits the specialized bodies must use `typeContainsSomeTypeForCodegenParam` (not the strict `typeContainsSomeType`) when probing for "still-generic" parameters — struct fields whose type is a `Function` (effect-record handlers like `throw : ctl(forall(ResumeType), ...) -> ResumeType`) are type-erased fn pointers at the C ABI, so their inner forall does NOT make the outer struct still-generic for codegen.
+Use the predicate `isConcreteSpecialization = !!value.specializedType && (value.specializedFunctionCaches?.length ?? 0) === 0` to exempt specializations from those skips. The `generateSpecializedFunctions` pass that emits the specialized bodies must use `typeContainsSomeTypeForCodegenParam` (not the strict `typeContainsSomeType`) when probing for "still-generic" parameters — struct fields whose type is a `Function` (effect-record handlers like `throw : ctl(generic(ResumeType), ...) -> ResumeType`) are type-erased fn pointers at the C ABI, so their inner generic does NOT make the outer struct still-generic for codegen.
 
 ### Effect-record handlers whose body uses `return(value)`
 
-When a struct field declared as `throw : ctl(forall(ResumeType), ...) -> ResumeType` is bound to a lambda body like `(val, resume_val) -> { return(resume_val); }`, the lambda's body is `shouldDeferBodyEvaluation`'d — its sub-expressions (including the `return`) never get `.$` populated. The handler still needs a C function symbol because its address is stored as `void*` in the effect record's capture struct (via `emitEffectRecordInjection` in `await.ts`).
+When a struct field declared as `throw : ctl(generic(ResumeType), ...) -> ResumeType` is bound to a lambda body like `(val, resume_val) -> { return(resume_val); }`, the lambda's body is `shouldDeferBodyEvaluation`'d — its sub-expressions (including the `return`) never get `.$` populated. The handler still needs a C function symbol because its address is stored as `void*` in the effect record's capture struct (via `emitEffectRecordInjection` in `await.ts`).
 
 The stub-emit gate in `generation.ts` covers this: an `isEffectRecordMember` whose body contains an explicit `return(expr)` (use `bodyHasExplicitReturn`) is emitted as a `__yo_effect_escaped = 1; return ZERO;` stub. The effect runtime resumes via `set_effect`, so the stub return value is never observed. Bodies that only `unwind(...)` keep their real bodies — they preserve observable side effects like `println(msg)` before `unwind(())`.
 
@@ -196,7 +196,7 @@ The stub-emit gate in `generation.ts` covers this: an `isEffectRecordMember` who
 
 Inside a `-> ref(T)` function, `function-type.ts` lowers the body's expected type to `*(T)` (`bodyExpectedType`) so cross-arm unification, the return-type compatibility check, and downstream synth all agree on a single pointer-typed shape. Two downstream pieces need to know about this lowering:
 
-- **Call-return synth in `_tryToCallFunctionWithArgumentsImpl`** — when the callee is `-> ref(T)`, its return type is the raw `T` while the surrounding `context.expectedType` is `*(T)`. Lift `returnType` to `createPtrType(...)` _only_ when the expected is itself a `Ptr` AND `returnType` isn't already a `Ptr`. The "already a Ptr" guard avoids double-wrapping a generic forall `T` that was pre-resolved upstream (e.g. `values.project(...)` in std/encoding/json's `Index.index` with `T = JsonValue` resolved to `*(JsonValue)`).
+- **Call-return synth in `_tryToCallFunctionWithArgumentsImpl`** — when the callee is `-> ref(T)`, its return type is the raw `T` while the surrounding `context.expectedType` is `*(T)`. Lift `returnType` to `createPtrType(...)` _only_ when the expected is itself a `Ptr` AND `returnType` isn't already a `Ptr`. The "already a Ptr" guard avoids double-wrapping a generic generic `T` that was pre-resolved upstream (e.g. `values.project(...)` in std/encoding/json's `Index.index` with `T = JsonValue` resolved to `*(JsonValue)`).
 - **Cond arm typecheck** — in `evaluator/exprs/cond.ts`, accept an arm whose `.$.type` is the underlying `T` against an expected `*(T)` (PtrRelaxedMatch). Flowability still owns soundness — the arm must root back to a ref-bound parameter via R1–R4.
 - **Cond arm codegen** — in `codegen/exprs/cond.ts`, the cond's temp var is declared as `T*` (the lowered place shape). Arm bodies whose `.$.type` is the raw `T` must have their assignment to the temp wrapped in `&(...)` so the C-level lvalue types agree. The `maybeAddressOf` helper handles this when `currentFunctionType.return.isRef && isPtrType(condValueType)`.
 
@@ -212,7 +212,7 @@ The helper `isAwaitEscapeHandlerInstallation()` in `await.ts` determines this by
 
 ### Effect member return types
 
-Handler functions marked `isModuleEffectMember = true` with SomeType return types (e.g., `Raise :: (fn(forall(T), ...) -> T)`) use `void` as their C return type consistently in both forward declarations AND definitions. The flag name is legacy; read it as "effect member function":
+Handler functions marked `isModuleEffectMember = true` with SomeType return types (e.g., `Raise :: (fn(generic(T), ...) -> T)`) use `void` as their C return type consistently in both forward declarations AND definitions. The flag name is legacy; read it as "effect member function":
 
 - **Declaration** (`declarations.ts`): passes `undefined` for body → no body-type override → `getTypeString(SomeType)` → `void`
 - **Definition** (`generation.ts`): skips SomeType body override when `isModuleEffectMember` is true
@@ -221,9 +221,9 @@ This consistency prevents type mismatches between forward declarations and defin
 
 The `overrideReturnTypeStr` field on `FunctionGenerationContext` stores the actual C return type derived from the body, used by `generateEscape` to emit correct dummy return values when the SomeType-based return maps to `void` but the declaration uses a concrete type.
 
-### Evidence function pointer casts must use void for forall handlers
+### Evidence function pointer casts must use void for generic handlers
 
-When calling an evidence handler through a function pointer cast in `generateEvidenceFnPtrCall`, the cast return type **must** match the handler's actual C return type. For forall handlers (e.g., `Exception.throw :: (fn(forall(T), error: AnyError) -> T)`), the C return type is `void` (SomeType → void). Using the call-site concrete type (e.g., `JsonValue`) creates an ABI mismatch — **undefined behavior** in C11 that crashes on WASM (`RuntimeError: unreachable`) and corrupts the stack on native.
+When calling an evidence handler through a function pointer cast in `generateEvidenceFnPtrCall`, the cast return type **must** match the handler's actual C return type. For generic handlers (e.g., `Exception.throw :: (fn(generic(T), error: AnyError) -> T)`), the C return type is `void` (SomeType → void). Using the call-site concrete type (e.g., `JsonValue`) creates an ABI mismatch — **undefined behavior** in C11 that crashes on WASM (`RuntimeError: unreachable`) and corrupts the stack on native.
 
 The `handlerReturnsVoid` flag in `generateEvidenceFnPtrCall` handles this: declares a zero-initialized temp var, calls the handler as void, checks `__yo_effect_escaped`, and propagates unwind. See `issues/evidence-fn-ptr-void-return-abi-mismatch.md`.
 
@@ -260,14 +260,14 @@ See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) fo
 3. Caller's evidence params (`currentEvidenceParams` map)
 4. Locally installed handler bindings in the call environment
 
-**Function effects (e.g., Raise):** Including forall function effects:
+**Function effects (e.g., Raise):** Including generic function effects:
 
 1. Caller's evidence params
 2. SM capture variables
 3. The bound handler's function value (from evaluator)
 4. Fallback: `generateExpr(handlerArg)`
 
-**Important:** Forall function-type effects (e.g., `Raise :: ctl(forall(T), ...) -> T`) are NOT skipped. They are runtime function pointers passed as `void*` in evidence passing.
+**Important:** Forall function-type effects (e.g., `Raise :: ctl(generic(T), ...) -> T`) are NOT skipped. They are runtime function pointers passed as `void*` in evidence passing.
 
 ### JoinHandle.await codegen
 

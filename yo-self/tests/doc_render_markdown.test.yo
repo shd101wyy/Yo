@@ -385,7 +385,7 @@ test("renderTypeMd: renders impl blocks with methods", {
   method_names.push(`size`);
   method_names.push(`is_empty`);
   impl_ := DocImpl(
-    signature : `impl(forall(T : Type), where(T <: Send), List(T))`,
+    signature : `impl(generic(T : Type), where(T <: Send), List(T))`,
     trait_name : Option(String).None,
     method_names : method_names,
     associated_types : Option(ArrayList(DocImplAssocType)).None
@@ -443,7 +443,7 @@ test("renderTypeMd: renders impl blocks with methods", {
     examples : t.examples
   );
   md := render_type_md(t2);
-  assert(md.contains(`\`impl(forall(T : Type), where(T <: Send), List(T))\``), "impl heading");
+  assert(md.contains(`\`impl(generic(T : Type), where(T <: Send), List(T))\``), "impl heading");
   assert(md.contains(`List.size`), "method List.size");
   assert(md.contains(`List.is_empty`), "method List.is_empty");
 });

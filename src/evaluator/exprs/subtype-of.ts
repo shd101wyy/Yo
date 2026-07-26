@@ -20,7 +20,7 @@ import { evaluateExpression } from "./expr";
 
     use_id :: 
       (fn(
-        forall(T : Type),
+        generic(T : Type),
         value : T,
         using(IdInstance : (T <: Id))
       ) -> value) {

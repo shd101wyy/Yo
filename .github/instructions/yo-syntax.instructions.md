@@ -624,7 +624,7 @@ main :: (fn() -> unit)({
 
 Rules:
 
-- `inout(...)` cannot combine with `own(...)` (opposite calling conventions) or with `forall`/`using` parameters (those are erased at runtime — no callee-side binding to mutate).
+- `inout(...)` cannot combine with `own(...)` (opposite calling conventions) or with `generic`/`using` parameters (those are erased at runtime — no callee-side binding to mutate).
 - `inout` CAN combine with `comptime` as `comptime(inout(name)) : T` (outer comptime, inner inout). The parameter is erased at runtime and mutations propagate via the evaluator's compile-time binding update path. The prelude `ComptimeIndex` trait uses this form (`index : (fn(comptime(inout(self)) : Self, comptime(idx) : Idx) -> comptime(*(Self.Output)))`) to let comptime index methods mutate the caller's value without a raw pointer parameter.
 - Inside the callee, the inout-param identifier behaves like a regular variable for reads (`tmp := a;`) and assignments (`a = b;`).
 - Calls through inout-params chain naturally: `fn outer(inout(x))` calling `fn inner(inout(p))` with `inner(x)` passes `&x` to `inner` (the caller-side `&` is implicit).
@@ -803,7 +803,7 @@ The parser rewrites `{...}` to `_(...)` and turns bare atoms into `(name: name)`
 When a generic function has `where(T <: Trait)`, calling `self.method()` on a parameter of type `T` dispatches to `Trait`'s method:
 
 ```rust
-use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32)({
+use_t1 :: (fn(generic(T : Type), self : T, where(T <: T1)) -> i32)({
   return(self.get_number());  // Dispatches to T1.get_number
 });
 ```
@@ -813,7 +813,7 @@ use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32)({
 Use `(T <: Trait).method(self)` to explicitly select which trait's method to call:
 
 ```rust
-use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32)({
+use_t2 :: (fn(generic(T : Type), self : T, where(T <: T2)) -> i32)({
   return((T <: T2).get_number(self));  // Explicitly calls T2.get_number
 });
 ```
@@ -853,7 +853,7 @@ define :: (fn(ty : TypeValue) -> unit)(...)  // CORRECT, use `ty`
 Variable :: ref(struct(name : String, ty : TypeValue));
 ```
 
-Other reserved words to avoid as identifiers: `fn`, `type`, `trait`, `impl`, `enum`, `struct`, `ref`, `atomic`, `inout`, `newtype`, `match`, `cond`, `if`, `while`, `for`, `return`, `unwind`, `recur`, `export`, `import`, `using`, `given`, `forall`, `where`.
+Other reserved words to avoid as identifiers: `fn`, `type`, `trait`, `impl`, `enum`, `struct`, `ref`, `atomic`, `inout`, `newtype`, `match`, `cond`, `if`, `while`, `for`, `return`, `unwind`, `recur`, `export`, `import`, `using`, `given`, `generic`, `where`.
 
 ## `___` (discard) cannot be used twice in the same scope
 
@@ -987,7 +987,7 @@ functions, i.e. those returning `comptime(T)`).
 
 They are clauses in the parameter list, after regular params and
 `where(...)`. The clause order is **enforced** (not just conventional):
-`forall(...), ...params..., where(...), requires(...), ensures(...)`.
+`generic(...), ...params..., where(...), requires(...), ensures(...)`.
 A clause out of order — `ensures` before `requires`, `where` after
 `requires`, a regular param after `where`/`requires` — is a syntax
 error ("X appears after Y in the function signature").

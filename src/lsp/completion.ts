@@ -1409,7 +1409,7 @@ function generateMethodSnippet(
  * Add all methods available on a type, from three sources:
  * 1. Direct trait fields (from anonymous impl blocks — flattened onto receiverType.trait)
  * 2. Named trait impl entries (stored with label="" and TraitValue assignedValue)
- * 3. Generic impl registry (for generic impl blocks like `impl(forall(T), ArrayList(T), ...)`)
+ * 3. Generic impl registry (for generic impl blocks like `impl(generic(T), ArrayList(T), ...)`)
  */
 function addAllMethods(
   members: {

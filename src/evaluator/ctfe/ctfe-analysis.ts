@@ -101,7 +101,7 @@ function _analyzeCtfeCapabilityInner(
     return undefined;
   }
 
-  // Skip functions with forall parameters - they need specialization first
+  // Skip functions with generic parameters - they need specialization first
   if (functionValue.type.forallParameters.length > 0) {
     return undefined;
   }

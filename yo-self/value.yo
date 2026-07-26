@@ -72,10 +72,10 @@ EvalValue :: ref(
     /// `cap_vals`; their type is preserved in the parallel `cap_tys` array.
     ///
     /// Phase 3l: `forall_names` holds the generic type parameter names extracted
-    /// from the function's `forall(T)` parameters. `param_type_names` holds the
+    /// from the function's `generic(T)` parameters. `param_type_names` holds the
     /// type annotation identifier for each value parameter (empty string if the
     /// annotation is complex or absent). These are used together at call time to
-    /// infer forall bindings: for each forall name `F`, if any value param has
+    /// infer generic bindings: for each generic name `F`, if any value param has
     /// type annotation `F`, the corresponding argument's type is bound as
     /// `TypeVal(arg.ty)` under name `F` before value params are bound.
     ///
@@ -115,7 +115,7 @@ EvalValue :: ref(
     ///
     /// Represents a Yo type as a first-class compile-time value.  For example,
     /// evaluating the bare identifier `i32` produces `TypeVal(Int(32, true))`.
-    /// This is needed for `forall(T: Type)` param binding, type-level lambdas
+    /// This is needed for `generic(T: Type)` param binding, type-level lambdas
     /// (`ArrayList(String)`), and any other context where a type appears as a
     /// value.
     ///
@@ -276,7 +276,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
       // EXACT type identity (not lenient compatibility): mirrors TS `areValuesEqual`
       // (value.ts:699-704) passing `requireExactMatch = true`. `eval_value_eq` keys the
       // specialization cache (`_find_specialization_cache`, on compile-time arg VALUES —
-      // which include the forall type args like a HashMap's `V`), so a lenient compare
+      // which include the generic type args like a HashMap's `V`), so a lenient compare
       // collapses distinct instantiations: `HashMap<usize, ArrayList>` and
       // `HashMap<usize, WhileLoopInfo>` are `are_types_compatible` (both `struct_13613`)
       // but NOT identical — a lenient key let `Self._alloc_with_capacity`'s specialization

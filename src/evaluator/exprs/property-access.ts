@@ -53,7 +53,7 @@ import {
 import { evaluateExpression } from "./expr";
 
 /**
- * Kind-constraint refinements of `Type`. Used in `forall(T : Type.Struct, ...)`
+ * Kind-constraint refinements of `Type`. Used in `generic(T : Type.Struct, ...)`
  * positions. Each refinement resolves to the same `TypeHierarchyType` value
  * `Type` itself returns — the kind is documentation/intent today, with
  * future enforcement (reject non-struct bindings) tracked separately. See
@@ -156,7 +156,7 @@ export function evaluatePropertyAccess({
 
   // Short-circuit: Type.<KindName> is a kind-constraint syntactic form.
   // The result is the same TypeHierarchyType value `Type` alone returns,
-  // letting `forall(E : Type.Struct, ...)` parse without a new keyword.
+  // letting `generic(E : Type.Struct, ...)` parse without a new keyword.
   if (
     exprIsFunctionCallOf(expr, ".", 2) &&
     exprIsAtom(expr.args[0]!) &&
@@ -666,7 +666,7 @@ Raw pointer operations may dereference invalid memory.`,
           }
         }
 
-        // Check if there's a generic impl for this type (e.g., impl(forall(T), *(T), {...}))
+        // Check if there's a generic impl for this type (e.g., impl(generic(T), *(T), {...}))
         const genericMethods = findMethodsFromGenericImpls({
           concreteType: typeValue.value,
           methodName: propertyName,
@@ -846,7 +846,7 @@ Raw pointer operations may dereference invalid memory.`,
         }
 
         // Not found in receiverType.trait.fields - try generic impl registry
-        // This handles cases like `impl(forall(T : Type), Box(T), Isolation(...))`
+        // This handles cases like `impl(generic(T : Type), Box(T), Isolation(...))`
         const genericMethod = findMethodFromGenericImplForTrait({
           concreteType: traitType.receiverType,
           traitType,

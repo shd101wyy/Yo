@@ -86,7 +86,7 @@ export function evaluateUnwind({
   }
 
   // Type-check: the argument type must be compatible with enclosingFunctionReturnType.
-  // Skip when enclosingFunctionReturnType is SomeType (unresolved forall param like T),
+  // Skip when enclosingFunctionReturnType is SomeType (unresolved generic param like T),
   // because T will be resolved to the concrete type at each call site.
   if (
     !isSomeType(enclosingReturnType) &&

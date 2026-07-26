@@ -36,7 +36,7 @@ Use this skill when you need to:
 - Use `rune` for Unicode code points, not `Char`.
 - Model nullable pointers with `Option(*(T))` or `?*(T)`.
 - Use `struct` for value types, `newtype` for single-field wrappers, `object` for reference-counted types.
-- Use `forall` + `where` for generic impls; use `_` placeholder for partial application of comptime functions.
+- Use `generic` + `where` for generic impls; use `_` placeholder for partial application of comptime functions.
 - Use `derive(Type, Eq, Hash, Clone, Ord, ToString)` to auto-generate common trait impls.
 - Custom error types implement `ToString` + `Error`; wrap with `dyn(...)` into `AnyError`.
 - Use `(params) => expr` for closures; `Impl(Fn(...) -> T)` for the closure type.

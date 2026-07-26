@@ -73,7 +73,7 @@ MapCollision :: (
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash, Send), V <: Send),
   MapCollision(K, V),
   Dispose(
@@ -122,7 +122,7 @@ MapNode :: (
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash, Send), V <: Send),
   MapBranch(K, V),
   Dispose(
@@ -849,7 +849,7 @@ _all_entries_match :: (
 );
 // -- Public Map API --
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash, Send), V <: Send),
   Map(K, V),
   /// Create an empty map.
@@ -935,7 +935,7 @@ impl(
     )
   ),
   /// Apply a function to each value, producing a new map.
-  map_values : (fn(forall(U : Type), self : Self, f : Impl(Fn(a : V) -> U), where(U <: Send)) -> Map(K, U))(
+  map_values : (fn(generic(U : Type), self : Self, f : Impl(Fn(a : V) -> U), where(U <: Send)) -> Map(K, U))(
     match(
       self._root,
       .Some(root) => Map(K, U)(_root :.Some(_map_values_node(K, V, U, root, f)), _len : self._len),
@@ -967,7 +967,7 @@ impl(
   })
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash, Send), V <: (Send, Eq(V))),
   Map(K, V),
   Eq(Map(K, V))(

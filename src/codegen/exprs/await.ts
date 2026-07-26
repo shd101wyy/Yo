@@ -94,7 +94,7 @@ export function generateAwait(
     }
     const emitter = functionContext.emitter;
 
-    // When the output type is an unresolved SomeType (e.g., from forall(T) in
+    // When the output type is an unresolved SomeType (e.g., from generic(T) in
     // io.await's signature evaluated with io=UnknownValue), check if the await
     // call expression's type gives us a more concrete result.
     const isResultUnit =

@@ -473,7 +473,7 @@ so the container must trace each element slot itself. `ArrayList` (in
 `std/collections/array_list.yo`):
 
 ```rust
-impl(forall(T : Type), ArrayList(T),
+impl(generic(T : Type), ArrayList(T),
   Trace(
     trace : (fn(self : Self, tracer : GcTracer) -> unit)({
       match(
@@ -500,7 +500,7 @@ impl(forall(T : Type), ArrayList(T),
 GcTracer :: newtype(_callback : *(u8));
 
 // (in `impl(GcTracer, ...)`)
-visit : (fn(forall(T : Type), self : Self, slot : *(T)) -> unit)
+visit : (fn(generic(T : Type), self : Self, slot : *(T)) -> unit)
 ```
 
 `visit` takes a **pointer to where the child lives** (a struct field or a buffer slot),

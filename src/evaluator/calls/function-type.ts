@@ -52,7 +52,7 @@ import {
  * Check if a generic (deferred) function body returns a concrete type that is
  * incompatible with the declared generic return type.
  *
- * For example, `fn(forall(T), value: T) -> T { return i32(0); }` should error
+ * For example, `fn(generic(T), value: T) -> T { return i32(0); }` should error
  * because the body returns i32 but the declared return type is the generic T.
  *
  * We trial-evaluate a clone of the body. If evaluation fails (e.g. because the
@@ -60,7 +60,7 @@ import {
  * will be properly validated at specialization time.
  *
  * The check only fires when a SomeType from the return type also appears in
- * parameter types. Effect handlers (e.g., Raise :: fn(forall(T), msg: String) -> T)
+ * parameter types. Effect handlers (e.g., Raise :: fn(generic(T), msg: String) -> T)
  * use T only in the return type — T is determined by the call-site context, so
  * returning a concrete type is valid for resuming continuations.
  */
@@ -121,17 +121,17 @@ export function checkDeferredGenericReturnType({
     ? createPtrType(functionType.return.type)
     : functionType.return.type;
   // When the expected return type IS a bare SomeType (e.g. T from an
-  // outer forall like `io.async`'s `Impl(Fn(e : E) -> T)`), the
+  // outer generic like `io.async`'s `Impl(Fn(e : E) -> T)`), the
   // closure body returning a concrete type is the CORRECT shape —
-  // synthesis at the outer call site binds the forall var from the
+  // synthesis at the outer call site binds the generic var from the
   // concrete body type. Skip the strict trial check here; the
   // anonymous-function evaluator runs synthesizeTypes against the
   // SomeType separately to attach resolvedConcreteType for codegen.
   // Without this carve-out, every `io.async((e) => concrete_value)`
   // form is rejected at definition time with "Expected: T / Given:
-  // <concrete>" before the call-site forall binding has a chance.
+  // <concrete>" before the call-site generic binding has a chance.
   //
-  // BUT — when the function declares its OWN `forall(T)` and the
+  // BUT — when the function declares its OWN `generic(T)` and the
   // return type is exactly that T, the body MUST produce a T-shaped
   // value (or escape). A concrete-typed body would only type-check
   // for one monomorphization; we reject it at definition time. This
@@ -306,7 +306,7 @@ export function tryToImplementFunctionByFunctionType({
   // If we need parameter aliasing, manually add parameters with aliases
   // Otherwise use the functionType.parametersFrame directly
   if (needsParameterAliasing && expectedType && isFunctionType(expectedType)) {
-    // Add forall parameters first (they must match exactly)
+    // Add generic parameters first (they must match exactly)
     for (const forallParam of functionType.forallParameters) {
       const { env: nextEnv } = addVariableToEnv({
         env,
@@ -420,7 +420,7 @@ export function tryToImplementFunctionByFunctionType({
     specializedFunctionCaches: [],
   };
 
-  // Check if the function has forall type parameters
+  // Check if the function has generic type parameters
   // Re-apply where-clause constraints for this function body evaluation.
   if (newFunctionType.whereClauseExprs?.length) {
     const constraintExprs = newFunctionType.whereClauseExprs.map(
@@ -441,7 +441,7 @@ export function tryToImplementFunctionByFunctionType({
   // with concrete type arguments.
   // See note in src/evaluator/values/anonymous-function.ts:
   // an `exn : Exception` / `io : Io` parameter must NOT defer body evaluation —
-  // their forall content is only inside type-erased fn-pointer fields.
+  // their generic content is only inside type-erased fn-pointer fields.
   const shouldDeferBodyEvaluation =
     newFunctionType.forallParameters.length > 0 ||
     newFunctionType.parameters.some((param) =>
@@ -575,7 +575,7 @@ export function tryToImplementFunctionByFunctionType({
   // Also skip when the function body's return type is a SomeType (e.g. `ResumeType`
   // from `Exception.throw`) AND the function has implicit parameters whose type
   // contains SomeType (e.g. `using(exn : Exception)`). In that case the body's
-  // SomeType result is a forall param of an implicit-parameter method; it will be
+  // SomeType result is a generic param of an implicit-parameter method; it will be
   // resolved when the function is specialized at a concrete call site.
   //
   // Phase B/C of plans/ITERATOR_REDESIGN.md — for `-> ref(T)`

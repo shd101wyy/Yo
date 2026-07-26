@@ -53,7 +53,7 @@ subst_new :: (fn() -> Substitution)(
 /// the stored type EXPRESSIONS; yo-self's `TypeValue.Func` stores none
 /// (types/definitions.yo:135-146), so the binding is applied as a type-level
 /// replacement keyed on EXACT identity with the impl's own receiver pattern —
-/// i.e. literally `Self`. Without it `substitute` maps only the forall params
+/// i.e. literally `Self`. Without it `substitute` maps only the generic params
 /// and a `fn(self : Self) -> T` keeps the PATTERN's nominal id with a concrete
 /// payload, the case TS flags at impl.ts:1451 ("types in Yo are nominal, so we
 /// can't just substitute structurally").
@@ -121,7 +121,7 @@ subst_lookup :: (fn(s : Substitution, name : String, level : usize) -> Option(Ty
 /// compound nodes).
 /// True when `ty` IS the impl's specialized receiver pattern bound by
 /// `subst_set_self`. Struct/EnumT only: a blanket impl's bare-SomeT pattern is
-/// already handled by the forall bindings and replacing there would clobber
+/// already handled by the generic bindings and replacing there would clobber
 /// them. Exact structural equality keeps this a port, not a shape guess.
 _is_self_pattern :: (fn(s : Substitution, ty : TypeValue) -> bool)({
   if(s.self_from.len() == usize(0), {

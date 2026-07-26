@@ -1480,7 +1480,7 @@ test("Test Future with single effect row spread", {
   );
   run :: (
     fn(
-      forall(T : Type, E : Type.Struct),
+      generic(T : Type, E : Type.Struct),
       f : (fn(e : E) -> T),
       e : E
     ) -> T
@@ -1565,7 +1565,7 @@ test("Test Future with multiple effect row spreads", {
   );
   run_both :: (
     fn(
-      forall(T1 : Type, T2 : Type, E1 : Type.Struct, E2 : Type.Struct),
+      generic(T1 : Type, T2 : Type, E1 : Type.Struct, E2 : Type.Struct),
       f1 : (fn(e : E1) -> T1),
       f2 : (fn(e : E2) -> T2),
       e1 : E1,
@@ -1614,7 +1614,7 @@ test("Test Future with mixed individual effect and spread", {
     );
     might_fail_and_forward :: (
       fn(
-        forall(E : Type.Struct),
+        generic(E : Type.Struct),
         my_raise : Raise,
         e : E
       ) -> i32
@@ -1749,9 +1749,9 @@ test("Test io.state consistency", {
   assert(s3 == FutureState.Completed, "completed future should be Completed");
 });
 test("Test unwind in async closure", {
-  // NOTE: Using forall(T) here due to a C codegen bug where concrete effect
+  // NOTE: Using generic(T) here due to a C codegen bug where concrete effect
   // types in async closures produce "No C function name found" errors.
-  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+  Raise :: (ctl(generic(T : Type), msg : String) -> T);
   Ctx :: struct(io : Io, raise : Raise);
   {
     test_unwind :: (fn(task : Impl(Future(i32, Ctx)), my_io : Io) -> unit)({
@@ -1820,7 +1820,7 @@ test("Test JoinHandle await returns Some on success", {
 // JoinHandle.await returns .None when the task escapes (aborts)
 // ---------------------------------------------------------------------------
 test("Test JoinHandle await returns None on unwind", {
-  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+  Raise :: (ctl(generic(T : Type), msg : String) -> T);
   Ctx :: struct(io : Io, raise : Raise);
   task := io.async((ctx : Ctx) => {
     ctx.io.await(yield(ctx.io), ctx.io);
@@ -1841,7 +1841,7 @@ test("Test JoinHandle await returns None on unwind", {
 // Two spawned tasks — one escapes, one succeeds. Verify both JoinHandles.
 // ---------------------------------------------------------------------------
 test("Test JoinHandle two tasks one escapes", {
-  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+  Raise :: (ctl(generic(T : Type), msg : String) -> T);
   Ctx :: struct(io : Io, raise : Raise);
   task1 := io.async((ctx : Ctx) => {
     ctx.io.await(yield(ctx.io), ctx.io);
@@ -2204,7 +2204,7 @@ test("Test effect resume in async while loop with break", {
 // the future is aborted, and the caller sees the unwind.
 // ---------------------------------------------------------------------------
 test("Test unwind via injected effect aborts future", {
-  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+  Raise :: (ctl(generic(T : Type), msg : String) -> T);
   Ctx :: struct(io : Io, raise : Raise);
   test_unwind :: (fn(my_io : Io) -> i32)({
     task := my_io.async((ctx : Ctx) => {
@@ -2230,7 +2230,7 @@ test("Test unwind via injected effect aborts future", {
 // with the effect injected via io.spawn (not io.await).
 // ---------------------------------------------------------------------------
 test("Test JoinHandle unwind via spawn-injected effect", {
-  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+  Raise :: (ctl(generic(T : Type), msg : String) -> T);
   Ctx :: struct(io : Io, raise : Raise);
   task := io.async((ctx : Ctx) => {
     ctx.io.await(yield(ctx.io), ctx.io);
@@ -2325,7 +2325,7 @@ test("Regression: async unwind RC no double-decrement UAF", {
   // use-after-free when the caller accesses the future after the await.
   // Before the fix, the synchronous await abort path decremented the RC
   // again after the SM already self-decremented, causing a double-free.
-  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+  Raise :: (ctl(generic(T : Type), msg : String) -> T);
   Ctx :: struct(io : Io, raise : Raise);
   test_and_check :: (fn(my_io : Io) -> i32)({
     task := my_io.async((ctx : Ctx) => {

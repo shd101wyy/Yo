@@ -96,7 +96,7 @@ internal node types declare a **manual `Acyclic` impl**:
 ListNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
   atomic(ref(struct(_value : T, _next : Option(Self))))
 );
-impl(forall(T : Type), where(T <: Send), ListNode(T), Acyclic());
+impl(generic(T : Type), where(T <: Send), ListNode(T), Acyclic());
 ```
 
 This is analogous to Rust's `unsafe impl Send` — the programmer asserts a safety

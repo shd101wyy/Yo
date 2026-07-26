@@ -68,7 +68,7 @@ Box :: (fn(comptime(V) : Type) -> comptime(Type))
     (*) : V
   ))
 ;
-box :: (fn(forall(V : Type), value : V) -> Box(V))
+box :: (fn(generic(V : Type), value : V) -> Box(V))
   Box(V)(value)
 ;
 ```

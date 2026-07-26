@@ -133,7 +133,7 @@ export function generateFunctionDeclarations(
     // Skip the original (unspecialized) function when it has specialization caches.
     // The specialized versions handle codegen. The original body was evaluated
     // generically and sub-expressions may lack type annotations.
-    // Exception: isEffectRecordMember functions (e.g., Exception.throw forall handlers)
+    // Exception: isEffectRecordMember functions (e.g., Exception.throw generic handlers)
     // MUST still be emitted in their unspecialized form — their body is simple (escape)
     // and the unspecialized name is stored as a void* function pointer in async capture
     // structs by emitEffectRecordInjection in await.ts.
@@ -254,10 +254,10 @@ export function generateFunctionDeclarations(
       // (even if SomeType → void) is used consistently in both declaration and definition.
       value.isEffectRecordMember ? undefined : value.body,
       // Pass original type so evidence params are detected when specialization
-      // strips implicit parameters (e.g., for forall effects).
+      // strips implicit parameters (e.g., for generic effects).
       // Only do this when specializedType has no evidence but the original does,
-      // AND the original has forall function evidence params (which need void* passing).
-      // Non-forall using params are resolved at specialization time and don't need this.
+      // AND the original has generic function evidence params (which need void* passing).
+      // Non-generic using params are resolved at specialization time and don't need this.
       value.specializedType &&
         getEvidenceParameters(functionType).length === 0 &&
         getEvidenceParameters(value.type).some(
@@ -466,7 +466,7 @@ export function generateFunctionPrototype(
     originalFunctionType ?? functionType
   );
   for (const ep of evidenceParams) {
-    // For forall function types, use void* — the body casts to the right type at each call site.
+    // For generic function types, use void* — the body casts to the right type at each call site.
     if (
       ep.fieldFunctionType.forallParameters &&
       ep.fieldFunctionType.forallParameters.length > 0
@@ -809,8 +809,8 @@ export function generateSpecializedFunctionDeclarations(
     // Skip if the original function type has evidence parameters — the regular
     // forward declaration loop already emits a correct declaration with evidence
     // params included (via originalFunctionType fallback).
-    // Only skip for forall evidence params (which need void* evidence passing).
-    // Non-forall using params that were resolved during specialization should still
+    // Only skip for generic evidence params (which need void* evidence passing).
+    // Non-generic using params that were resolved during specialization should still
     // have their specialized declarations emitted.
     const origEvidenceParams = getEvidenceParameters(functionValue.type);
     if (

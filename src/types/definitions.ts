@@ -225,7 +225,7 @@ export interface SomeType extends Type {
 
   /**
    * When present, this SomeType represents a higher-kinded type variable with a function-type kind.
-   * For example, `forall(F : (fn(comptime(T) : Type) -> comptime(Type)))` creates a SomeType
+   * For example, `generic(F : (fn(comptime(T) : Type) -> comptime(Type)))` creates a SomeType
    * with kindFunctionType set to the `fn(comptime(T) : Type) -> comptime(Type)` function type.
    * This enables HKT support — F can be passed `Option`, `ArrayList`, etc. as concrete constructors.
    */
@@ -235,7 +235,7 @@ export interface SomeType extends Type {
 /**
  * TypeApplicationType represents the symbolic application of an abstract type constructor
  * to type arguments. Created when `F(A)` is evaluated and `F` is an abstract SomeType
- * with a function-type kind (e.g., `forall(F : (fn(comptime(T) : Type) -> comptime(Type)))`).
+ * with a function-type kind (e.g., `generic(F : (fn(comptime(T) : Type) -> comptime(Type)))`).
  *
  * TypeApplication must NEVER reach codegen — it must be fully resolved during type evaluation
  * when the abstract constructor becomes concrete.
@@ -427,7 +427,7 @@ export interface FunctionParameter {
   /**
    * The assigned value for "=" syntax (e.g., (T : Type) = Impl(Id))
    * This is the constraint/value bound to the type parameter.
-   * Only used for forall parameters.
+   * Only used for generic parameters.
    */
   assignedValue?: Value;
 }
@@ -639,7 +639,7 @@ export type FnTraitType = TraitType & { isFn: { callType: FunctionType } };
 export interface FutureEffect {
   /** Display / capture-struct field name derived from the effect type. */
   label: string;
-  /** The effect bundle type (typically a struct type or a forall-bound SomeType). */
+  /** The effect bundle type (typically a struct type or a generic-bound SomeType). */
   type: Type;
 }
 
@@ -824,9 +824,9 @@ export interface FunctionType extends Type {
   parameters: FunctionParameter[];
 
   /**
-   * The type parameters, usually defined in forall(...):
+   * The type parameters, usually defined in generic(...):
    * eg:
-   *   (forall(T: Type), x: T)-> T;
+   *   (generic(T: Type), x: T)-> T;
    */
   forallParameters: FunctionForallParameter[];
 

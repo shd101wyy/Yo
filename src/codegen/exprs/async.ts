@@ -123,7 +123,7 @@ export function generateAsyncBlock(
   // Get the result type (T in Future(T))
   let resultType = futureTraitType.isFuture.outputType;
 
-  // If outputType is an unresolved SomeType (type parameter T from forall),
+  // If outputType is an unresolved SomeType (type parameter T from generic),
   // resolve it to a concrete type. The evaluator may set resolvedConcreteType
   // on the SomeType when the body returns a concrete type, but the
   // FutureTraitType's outputType may be a different SomeType instance.
@@ -787,7 +787,7 @@ function emitAsyncBlockStructDefinition(
   if (analysis.awaitPoints.length > 0) {
     const awaitResultFields: string[] = [];
     for (const awaitPoint of analysis.awaitPoints) {
-      // When the output type is an unresolved SomeType (e.g., forall(T) from
+      // When the output type is an unresolved SomeType (e.g., generic(T) from
       // io.await evaluated with io=UnknownValue), treat it as unit since the
       // generic type parameter couldn't be resolved to a concrete type.
       const isEffectivelyUnit =
@@ -1111,7 +1111,7 @@ function generateAsyncBlockStateDisposeFunction(
         }
       } else {
         // The capture struct's ___drop function was not generated (likely because
-        // the struct contains fields with unresolved SomeType from forall parameters,
+        // the struct contains fields with unresolved SomeType from generic parameters,
         // e.g. Io's method signatures). Generate inline drops for each RC-typed field.
         for (const field of captureType.fields) {
           if (field.isEffectParam) continue;
@@ -1121,7 +1121,10 @@ function generateAsyncBlockStateDisposeFunction(
             emitter.emitLine(
               `  if ((${fieldRef}).data != NULL) { __yo_decr_rc((void*)(${fieldRef}).data); }`
             );
-          } else if (isIsoType(field.type) || isAtomicReferenceStructType(field.type)) {
+          } else if (
+            isIsoType(field.type) ||
+            isAtomicReferenceStructType(field.type)
+          ) {
             emitter.emitLine(
               `  if (${fieldRef} != NULL) { __yo_decr_rc_atomic((void*)${fieldRef}); }`
             );
@@ -1812,7 +1815,7 @@ export function generateIoAsyncSyncCall(
 
   let resultType = futureTraitType.isFuture.outputType;
 
-  // If outputType is an unresolved SomeType (type parameter T from forall),
+  // If outputType is an unresolved SomeType (type parameter T from generic),
   // resolve it to a concrete type. Same resolution chain as the state machine path.
   if (isSomeType(resultType)) {
     if (resultType.resolvedConcreteType) {

@@ -675,6 +675,26 @@ export function tokenize(input: string, modulePath: string): Token[] {
             */
             {
               switch (value) {
+                // RESERVED for Dafny-style verification quantifiers
+                // (plans/FORALL_TO_GENERIC.md). The type-parameter binder was
+                // renamed `forall` -> `generic`; the word is held back so
+                // `requires`/`ensures` can bind VALUES with a predicate later.
+                // Rejected at lex time so stale code fails with the exact fix
+                // instead of an "unknown identifier" cascade.
+                //
+                // `exists` / `∃` are deliberately NOT reserved: `exists` is a
+                // live public API — `std/fs/file.yo:324` `exists(path, io)`,
+                // used in 72 files — and reserving it would break the
+                // filesystem API for a feature that does not exist yet. The
+                // verification design must either pick another spelling or
+                // rename that API in its own deliberate commit.
+                case "forall":
+                case "\u2200":
+                  throw new YoLexerError({
+                    message: `\`${value}\` is reserved for verification quantifiers. Use \`generic(T : Type)\` to declare type parameters.`,
+                    characterIndex: startIndex,
+                    row: line,
+                  });
                 // bool
                 case "true":
                 case "false":

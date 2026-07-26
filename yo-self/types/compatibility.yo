@@ -282,7 +282,7 @@ _compat_impl :: (
   });
   // --- Concrete (actual) vs SomeType (expected) ------------------------------
   // Mirrors TS compatibility.ts:800-828 ("Given is a concrete type, expected is
-  // SomeType"): an UNCONSTRAINED SomeType (bare forall param, e.g. a ctl
+  // SomeType"): an UNCONSTRAINED SomeType (bare generic param, e.g. a ctl
   // handler's free `ResumeType`) accepts ANY concrete type — non-exact only
   // (exact/cache comparisons keep them distinct, like TS's requireExactMatch
   // branch). A CONSTRAINED SomeType accepts a concrete type that implements ALL
@@ -384,7 +384,7 @@ _compat_impl :: (
     .Array(ainner, alen, alvar) => match(
       expected,
       .Array(einner, elen, elvar) => {
-        // Variable-length arrays (forall `U : usize` patterns) are
+        // Variable-length arrays (generic `U : usize` patterns) are
         // length-compatible with anything; concrete lengths must match.
         len_ok := cond(
           ((alvar.len() > usize(0)) || (elvar.len() > usize(0))) => true,
@@ -419,7 +419,7 @@ _compat_impl :: (
       },
       _ => false
     ),
-    // Function types: compare forall count, param count, types, return
+    // Function types: compare generic count, param count, types, return
     .Func({ forall_types : afts, param_types : apts, result : aret }) => match(
       expected,
       .Func({ forall_types : efts, param_types : epts, result : eret }) => {
@@ -473,14 +473,14 @@ _compat_impl :: (
         // shortcut for structs: it rejects only on field-count / nominal-distinctness
         // and otherwise recurses field types. yo-self's old name-only rule rejected
         // two instantiations of the SAME constructor whose STAMPED names differ —
-        // e.g. `Box(V)` (forall placeholder, or a recursive `Box(Self)` field whose
+        // e.g. `Box(V)` (generic placeholder, or a recursive `Box(Self)` field whose
         // name embeds the unresolved `__self_shell`) vs the resolved `Box(<final>)` —
         // even though their fields are compatible. Restore TS behavior: accept the
         // empty-name / equal-name wildcard fast paths, reject only genuinely-distinct
         // nominals (different non-empty names, NO SomeT either side, DIFFERENT
         // constructor_func_id — TS's `functionValue.funcId` check), and otherwise
         // recurse field types (which resolves `__self_shell`s via the EnumT arm and
-        // treats a forall SomeT as compatible). See
+        // treats a generic SomeT as compatible). See
         // issues/yo-self-recursive-enum-nested-member-shell.md.
         !(require_exact) => cond(
           (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))) => true,

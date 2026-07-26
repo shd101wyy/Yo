@@ -1903,7 +1903,7 @@ Fix: wrap the call:
   //
   // IMPORTANT: We must NOT skip execution for:
   // 1. Type-returning CTFE functions (Box(V), Vec(T)) - need execution to resolve the type
-  // 2. Functions with forall parameters - return type may reference unresolved forall params
+  // 2. Functions with generic parameters - return type may reference unresolved generic params
   const shouldSkipExecutionDuringChecking =
     context.isInFunctionCallCheckingPhase && isNonTypeCtfeFunction;
 
@@ -2105,7 +2105,7 @@ Fix: wrap the call:
         ) {
           // For extern C functions (and others without a FunctionValue body),
           // use the declared return type from the function signature.
-          // This ensures forall type parameters (e.g., _Self in `not`) get
+          // This ensures generic type parameters (e.g., _Self in `not`) get
           // resolvedConcreteType set so specialization works correctly.
           finalReturnType = {
             ...returnType,
@@ -2125,7 +2125,7 @@ Fix: wrap the call:
         variableName: previousVariableName,
       };
 
-      // isControlFunction with forall parameters that was specialized inline: mark
+      // isControlFunction with generic parameters that was specialized inline: mark
       // the call expression with escape control flow. After specialization the
       // effective return type matches the enclosing function's return type (e.g. unit
       // → void). The "unwind" annotation lets match arms treat this call as
@@ -2146,7 +2146,7 @@ Fix: wrap the call:
       // controlFlow="unwind" so the begin-block evaluator would skip
       // subsequent dead code (like `t_i32()` constructor calls).
       // That detection was reverted because it also fired on calls inside
-      // async closures whose closure parameters wrap forall-T inside
+      // async closures whose closure parameters wrap generic-T inside
       // Impl(Fn(...) -> T) (which `typeContainsSomeType` does not look
       // through), and on user code with explicit `return` statements after
       // a `raise(...)`-style escape — breaking closure return-type

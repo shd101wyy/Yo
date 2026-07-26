@@ -1,6 +1,6 @@
 /// Tests for synthesize_types (evaluator/types/synthesizer.yo) — SomeType
-/// unification / forall inference. Locks in structural binding through
-/// composite types (a forall used INSIDE a Func param type must bind from the
+/// unification / generic inference. Locks in structural binding through
+/// composite types (a generic used INSIDE a Func param type must bind from the
 /// argument's corresponding position — the effect-polymorphism class fixed in
 /// commit 702de11c9; see tests/codegen-bootstrap/effect_polymorphism_forall_infer.yo
 /// for the end-to-end version).
@@ -35,7 +35,7 @@ test("synthesize_types: SomeT binds to a concrete given type", {
   bound := get_value_of_some_type_from_env(ee, st);
   assert(!(is_some_type(bound)), "T resolved to a concrete type");
 });
-test("synthesize_types: forall inside a Func param binds structurally", {
+test("synthesize_types: generic inside a Func param binds structurally", {
   ee := Environment.new(`test`);
   ge := Environment.new(`test`);
   st := t_some_t(`T`, usize(0));

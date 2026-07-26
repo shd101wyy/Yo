@@ -233,13 +233,13 @@ _get_param_name_from_expr :: (fn(param_expr : AstExpr, fallback : String) -> Str
 );
 /// Helper: build a Func TypeValue from a FnTraitT TypeValue.
 /// Extracts `call_param_labels`, `call_param_types`, `call_result` from FnTraitT
-/// and wraps them in a no-forall, no-implicit Func.
+/// and wraps them in a no-generic, no-implicit Func.
 _func_from_fn_trait :: (fn(ftt : TypeValue) -> TypeValue)(
   match(
     ftt,
     .FnTraitT(_, cpl, cpt, cr_box, _, _, _) => TypeValue.Func(
       ArrayList(TypeValue).new(),
-      // no forall types
+      // no generic types
       cpt,
       ArrayList(TypeValue).new(),
       // no implicit types
@@ -269,11 +269,11 @@ _func_from_fn_trait :: (fn(ftt : TypeValue) -> TypeValue)(
     _ => TypeValue.Unit
   )
 );
-/// Substitute forall SomeTypes (by name, from `env2` bindings) throughout a
+/// Substitute generic SomeTypes (by name, from `env2` bindings) throughout a
 /// type. Faithful port of TS `substituteSomeTypesFromEnv`
 /// (anonymous-function.ts:110): a SomeT becomes the env's non-SomeT TypeVal
 /// binding (innermost frame wins); Pointer/Array recurse into the child;
-/// Func substitutes param + result types only (forall/implicit/where lists
+/// Func substitutes param + result types only (generic/implicit/where lists
 /// and meta are preserved); every other node is returned unchanged. yo-self
 /// stands in `!is_some_type(bound)` for TS's `bound !== type` identity guard
 /// (same convention as the per-param substitution loop in
@@ -294,7 +294,7 @@ _subst_some_types_from_env :: (fn(ty : TypeValue, env2 : Environment, allow : Ar
   match(
     ty,
     .SomeT({ name : ssn }) => {
-      // ALLOW-LIST gate: only substitute forall names THIS pass itself bound
+      // ALLOW-LIST gate: only substitute generic names THIS pass itself bound
       // (the per-lambda annotation frame). A bare name-based env walk is
       // collision-prone for trait-associated type names — the Future trait's
       // `Output` matched std/process/command.yo's `Output` STRUCT through the
@@ -566,7 +566,7 @@ evaluate_anonymous_function_implementation :: (
     .None => _synthesize_default_func_type(param_decl, env)
   );
   // For closures passed to generic functions (e.g. io.async), the callee's
-  // env carries forall bindings (E=Io, T=i32). Extract it so the closure's
+  // env carries generic bindings (E=Io, T=i32). Extract it so the closure's
   // parameter types can be resolved against those bindings before body
   // evaluation. Mirrors TS anonymous-function.ts:205 `expectedTypeEnv`.
   expected_type_env := match(
@@ -695,7 +695,7 @@ evaluate_anonymous_function_implementation :: (
     }
   );
   // -------------------------------------------------------------------------
-  // Separate forall / using / regular parameter expressions.
+  // Separate generic / using / regular parameter expressions.
   // -------------------------------------------------------------------------
   forall_param_exprs := ArrayList(AstExpr).new();
   using_param_exprs := ArrayList(AstExpr).new();
@@ -704,7 +704,7 @@ evaluate_anonymous_function_implementation :: (
   n_raw := raw_param_exprs.len();
   while(sep_i < n_raw, {
     pe := match(raw_param_exprs.get(sep_i),.Some(a) => a,.None => make_err_expr());
-    is_forall_call := ast_expr_is_fn_call_of(pe, "forall",.None);
+    is_forall_call := ast_expr_is_fn_call_of(pe, "generic",.None);
     is_using_call := ast_expr_is_fn_call_of(pe, "using",.None);
     cond(
       is_forall_call => {
@@ -749,7 +749,7 @@ evaluate_anonymous_function_implementation :: (
     );
   });
   // -------------------------------------------------------------------------
-  // Lambda-annotation-driven forall resolution (closure params). Mirrors TS
+  // Lambda-annotation-driven generic resolution (closure params). Mirrors TS
   // anonymous-function.ts:416-490: when a closure parameter carries an
   // explicit `(name : Type)` annotation and the expected Fn-trait parameter
   // type is an UNRESOLVED SomeType (io.async's `Impl(Fn(E) -> T)` exposes
@@ -797,9 +797,9 @@ evaluate_anonymous_function_implementation :: (
                 _ann_fr := env.push_frame(false);
                 ann_frame_pushed = true;
               });
-              // Skip if this forall name was already bound by an earlier
+              // Skip if this generic name was already bound by an earlier
               // annotated param (TS: topFrame duplicate-name check —
-              // multi-param closures reusing one forall name).
+              // multi-param closures reusing one generic name).
               ann_already := match(
                 env.frames.get(env.frames.len() - usize(1)),
                 .Some(ann_top) => {
@@ -906,8 +906,8 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   _frame_idx := env.push_frame(false);
   // -------------------------------------------------------------------------
-  // Add forall parameters to the environment.
-  // Each forall type variable is bound as a compile-time unknown SomeT.
+  // Add generic parameters to the environment.
+  // Each generic type variable is bound as a compile-time unknown SomeT.
   // -------------------------------------------------------------------------
   (fa_env_i : usize) = usize(0);
   while(fa_env_i < forall_labels.len(), {
@@ -973,7 +973,7 @@ evaluate_anonymous_function_implementation :: (
     rpe := match(regular_param_exprs.get(rp_i),.Some(a) => a,.None => make_err_expr());
     exp_label := match(param_labels.get(rp_i),.Some(n) => n,.None => String.from(""));
     rp_ty_raw := match(param_types.get(rp_i),.Some(t) => t,.None => TypeValue.Unit);
-    // Substitute forall SomeTypes (e.g. `E`) in the param type with their
+    // Substitute generic SomeTypes (e.g. `E`) in the param type with their
     // concrete bindings from the callee env. Mirrors TS
     // substituteSomeTypesFromEnv at anonymous-function.ts:249.
     rp_ty := match(
@@ -1155,7 +1155,7 @@ evaluate_anonymous_function_implementation :: (
   // evaluates its body NOW, under a function-body evaluation context whose
   // `captured_variables` map records every outer-variable reference
   // (identifier lookup calls `track_variable_usage`). Generic bodies stay
-  // deferred, mirroring `shouldDeferBodyEvaluation` (forall params, or a
+  // deferred, mirroring `shouldDeferBodyEvaluation` (generic params, or a
   // param type carrying SomeTs).
   //
   // Eval errors are SWALLOWED by the capture-free trial wrapper (the
@@ -1169,14 +1169,14 @@ evaluate_anonymous_function_implementation :: (
   //   3. the post-eval gates below (unwind-needs-ctl, capture checks) throw
   //      via the real `exn` directly.
   // -------------------------------------------------------------------------
-  // Defer body eval on the SOURCE forall count (`forall_param_exprs`), NOT the
+  // Defer body eval on the SOURCE generic count (`forall_param_exprs`), NOT the
   // synthesized type's `forall_labels`. A bare handler `Exception(throw : (err) ->
-  // unwind(...))` checked against the expected `ctl(forall(ResumeType), error :
+  // unwind(...))` checked against the expected `ctl(generic(ResumeType), error :
   // AnyError) -> ResumeType` INHERITS `forall_labels = [ResumeType]` even though its
-  // source declares no forall — keying the defer on `forall_labels` would wrongly skip
+  // source declares no generic — keying the defer on `forall_labels` would wrongly skip
   // evaluating the body, leaving its `unwind` sub-expr UNSTAMPED (→ codegen "// Failed
   // to transpile unwind(...)"). TS keys on `forallParamExprs.length` (the anon fn's OWN
-  // forall args — anonymous-function.ts:759; the forall-count mismatch guard at :320 is
+  // generic args — anonymous-function.ts:759; the generic-count mismatch guard at :320 is
   // commented out). The env still binds the inherited `forall_labels` below (~line 688)
   // for bodies that DO reference ResumeType.
   (should_defer_body : bool) = (forall_param_exprs.len() > usize(0));
@@ -1223,7 +1223,7 @@ evaluate_anonymous_function_implementation :: (
     // issue). TS evaluates in the live env and restores `outerEnv` after
     // (anonymous-function.ts:1062) — the snapshot gives the same net effect.
     body_eval_env := snapshot_env(env);
-    // NOTE: io.async's forall `E` (the effect bundle) is bound at the CALL site
+    // NOTE: io.async's generic `E` (the effect bundle) is bound at the CALL site
     // (`try_to_call_function_with_arguments` Step 6b, helper.yo), which resolves
     // the closure's `e : E` param type to the concrete bundle BEFORE this body
     // eval runs — mirroring TS helper.ts:1312-1366. So `e.io` / `e.exn` field

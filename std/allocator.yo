@@ -46,9 +46,9 @@ CustomAllocator :: trait(
   /// Allocate aligned memory for `count` items of type T with the given alignment.
   alloc_aligned : (fn(inout(self) : Self, comptime(T) : Type, count : usize, alignment : usize) -> Result(?*(T), AllocError)),
   /// Reallocate memory to `new_count` items, preserving existing data.
-  realloc : (fn(forall(T : Type), inout(self) : Self, old_ptr : ?*(T), new_count : usize) -> Result(?*(T), AllocError)),
+  realloc : (fn(generic(T : Type), inout(self) : Self, old_ptr : ?*(T), new_count : usize) -> Result(?*(T), AllocError)),
   /// Deallocate memory pointed to by `ptr`.
-  dealloc : (fn(forall(T : Type), inout(self) : Self, ptr : *(T)) -> Result(unit, AllocError))
+  dealloc : (fn(generic(T : Type), inout(self) : Self, ptr : *(T)) -> Result(unit, AllocError))
 );
 /// Type-erased dynamic allocator wrapping any `CustomAllocator` implementation.
 Allocator :: Dyn(CustomAllocator);

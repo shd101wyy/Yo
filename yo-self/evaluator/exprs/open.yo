@@ -203,10 +203,10 @@ evaluate_open :: (
               field_name := match(mnames.get(i),.Some(n) => n,.None => String.from(""));
               field_val := match(mvals.get(i),.Some(x) => x,.None => EvalValue.UnitVal);
               // A FuncVal field's type must be its registered Func type (with
-              // forall labels), NOT type_of_eval_value — which has no FuncVal arm
+              // generic labels), NOT type_of_eval_value — which has no FuncVal arm
               // and returns `unit`. Binding a function under type `unit` made the
               // callee a non-Func, so `try_to_call` soft-fell to unit without
-              // inferring forall args (e.g. `open(std/fmt)` then `println(s)`
+              // inferring generic args (e.g. `open(std/fmt)` then `println(s)`
               // specialized to `(void)` instead of `(String v)` and failed to
               // transpile). Mirrors TS, where the open'd value carries its own
               // `.type`. Named imports already bind via the real Func type.

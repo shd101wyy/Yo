@@ -71,8 +71,8 @@ t_ptr :: (fn(pointee : TypeValue) -> TypeValue)(.Pointer(pointee));
 t_array :: (fn(element : TypeValue, length : usize) -> TypeValue)(
   .Array(element, length, String.from(""))
 );
-/// Array type whose LENGTH is an unresolved forall variable (`Array(T, U)`
-/// with `U : usize` in a forall list). `length` is a placeholder 0; the
+/// Array type whose LENGTH is an unresolved generic variable (`Array(T, U)`
+/// with `U : usize` in a generic list). `length` is a placeholder 0; the
 /// synthesizer binds `length_var` to the concrete count during matching
 /// (mirrors TS ArrayType.length being an UnknownValue with variableName).
 t_array_var :: (fn(element : TypeValue, length_var : String) -> TypeValue)(
@@ -81,7 +81,7 @@ t_array_var :: (fn(element : TypeValue, length_var : String) -> TypeValue)(
 // ---------------------------------------------------------------------------
 // Convenience constructors for compound types (Phase 2b)
 // ---------------------------------------------------------------------------
-/// Create a simple function type (no forall, implicit, or where constraints).
+/// Create a simple function type (no generic, implicit, or where constraints).
 t_func_simple :: (
   fn(
     param_labels : ArrayList(String),
@@ -240,7 +240,7 @@ t_resolved_cell :: (fn(t : TypeValue) -> ArrayList(TypeValue))({
 /// higher-kinded type variable like `F : (fn(T : Type) -> Type)`.
 /// `kind` must be a `Func` TypeValue. Mirrors TS's `SomeType.kindFunctionType`
 /// path; used by `evaluate_function_parameter` when binding HKT-kinded
-/// forall params so `F(A)` can later be evaluated as a TypeApplication.
+/// generic params so `F(A)` can later be evaluated as a TypeApplication.
 t_some_t_with_kind :: (fn(name : String, frame_level : usize, kind : TypeValue) -> TypeValue)(
   .SomeT(
     generate_some_type_id(),

@@ -1143,7 +1143,7 @@ export function generateOtherFunctionCall(
           // Evidence passing call site: callee has effect-record implicit params
           // that compile to extra C function pointer parameters.
           // Use specializedType (which now includes resolved implicits) if available,
-          // otherwise fall back to original type for forall evidence params (void* cast).
+          // otherwise fall back to original type for generic evidence params (void* cast).
           const evidenceCheckType =
             functionValue.specializedType ?? functionValue.type;
           let calleeEvidenceParams = getEvidenceParameters(evidenceCheckType);
@@ -1577,7 +1577,7 @@ export function generateOtherFunctionCall(
             }
           }
 
-          // Use the call expression's resolved type when available (handles forall monomorphization)
+          // Use the call expression's resolved type when available (handles generic monomorphization)
           const resolvedReturnType = expr.$?.type ?? functionType.return.type;
           const returnTypeStr = getTypeString(resolvedReturnType, context);
           const runtimeParams = functionType.parameters.filter(
@@ -2044,7 +2044,7 @@ export function generateOtherFunctionCall(
         // - Dyn(Fn(...)) uses vtable: closure.vtable->call(closure.data, args...)
         // - Impl(Fn(...)) uses static dispatch: closure_impl(&closure, args...)
         // - Function pointer parameter: direct call f(args...)
-        //   (when the parameter is a forall F constrained by where(F <: Fn(...)),
+        //   (when the parameter is a generic F constrained by where(F <: Fn(...)),
         //    specialization replaces F with a concrete FunctionType, and the C
         //    parameter is declared as a function pointer in declarations.ts.)
         let closureCall: string;
@@ -2071,7 +2071,7 @@ export function generateOtherFunctionCall(
                 .return.type;
             } else if (isSomeType(matchedParam.type)) {
               // Walk the SomeType chain to find the concrete FunctionType.
-              // This occurs when a forall parameter constrained by Impl(Fn(...))
+              // This occurs when a generic parameter constrained by Impl(Fn(...))
               // is specialized with a concrete function type — the C param is
               // declared as void*, so we need an explicit cast.
               let cur: Type = matchedParam.type;
@@ -2942,7 +2942,7 @@ function emitEffectUnwindCheck(
  *   result = evidence_fn_ptr(args);
  *   if (__yo_effect_escaped) { return dummy; }
  *
- * For forall evidence (void* parameter), generates a cast:
+ * For generic evidence (void* parameter), generates a cast:
  *   result = ((ReturnType (*)(ParamTypes...))evidence_fn_ptr)(args);
  */
 function generateEvidenceFnPtrCall(
@@ -2959,12 +2959,12 @@ function generateEvidenceFnPtrCall(
   const returnType = functionType.return.type;
   const emitter = context.emitter;
 
-  // For forall evidence parameters (passed as void*), cast to the concrete
-  // function pointer type at this call site. The forall type vars (SomeType)
+  // For generic evidence parameters (passed as void*), cast to the concrete
+  // function pointer type at this call site. The generic type vars (SomeType)
   // resolve to void* in the function type, so we build the cast from the
   // concrete argument and return types at this call expression.
   let callExpr: string;
-  // Track whether the handler has a forall/SomeType return type (compiled as void).
+  // Track whether the handler has a generic/SomeType return type (compiled as void).
   // The cast must use void to match the handler's actual C return type.
   let handlerReturnsVoid = false;
   if (
@@ -2974,9 +2974,9 @@ function generateEvidenceFnPtrCall(
     // Build concrete fn ptr type from the FUNCTION TYPE's parameters, not the
     // argument expression types. This avoids mismatches like ComptimeString
     // (uint8_t*) vs str (Slice_uint8_t) when the arg gets coerced.
-    // For SomeType (forall type vars), resolve from the call-site arg types.
+    // For SomeType (generic type vars), resolve from the call-site arg types.
     const fieldRetType = evidenceParam.fieldFunctionType.return.type;
-    // When the handler's return type is SomeType (forall type variable), it's
+    // When the handler's return type is SomeType (generic type variable), it's
     // compiled as void in C. The cast must use void to avoid ABI mismatch —
     // casting a void-returning function to return a struct is undefined behavior
     // and crashes on WASM.
@@ -2993,7 +2993,7 @@ function generateEvidenceFnPtrCall(
     );
     for (let i = 0; i < runtimeParams.length; i++) {
       const paramType = runtimeParams[i]!.type;
-      // For SomeType (forall type variable T), use the concrete type from
+      // For SomeType (generic type variable T), use the concrete type from
       // the call-site argument expression instead.
       const resolvedType =
         isSomeType(paramType) && runtimeArgExprs?.[i]?.$?.type
@@ -3069,7 +3069,7 @@ function generateEvidenceFnPtrCall(
   } else {
     const tempVar = expr.$?.variableName;
     if (tempVar) {
-      // For forall evidence calls, use the concrete return type from the call expression
+      // For generic evidence calls, use the concrete return type from the call expression
       // rather than the generic function type's return type (which may be SomeType/void*).
       const concreteReturnType =
         evidenceParam?.fieldFunctionType.forallParameters?.length &&
@@ -3078,7 +3078,7 @@ function generateEvidenceFnPtrCall(
           : returnType;
       const cTypeString = getTypeString(concreteReturnType, context);
 
-      // When the concrete return type resolves to void (e.g., forall ResumeType resolved
+      // When the concrete return type resolves to void (e.g., generic ResumeType resolved
       // to unit), we must not assign to a temp — treat like the unit case above.
       if (cTypeString === "void" || isUnitType(concreteReturnType)) {
         emitter.emitLine(`${indent}${callExpr}(${argsList});`);
@@ -3137,7 +3137,7 @@ function generateEvidenceFnPtrCall(
         return "";
       }
 
-      // When the handler has a forall/SomeType return type, it's compiled as
+      // When the handler has a generic/SomeType return type, it's compiled as
       // void in C (isEffectRecordMember). We must NOT assign the handler's
       // (void) "return value" to a typed temp — that's undefined behavior and
       // crashes on WASM. Instead: declare the temp var zero-initialized before
@@ -3314,7 +3314,7 @@ function resolveEvidenceArgsForCallSite(
           }
           const handlerValue = hi.handlerValue as FunctionValue | undefined;
           if (handlerValue && isFunctionValue(handlerValue)) {
-            // For forall handlers, use the specialized version cast to void*
+            // For generic handlers, use the specialized version cast to void*
             if (handlerValue.specializedFunctionCaches?.length) {
               const specialized =
                 handlerValue.specializedFunctionCaches[0]!.specializedFunction;
@@ -3350,7 +3350,7 @@ function resolveEvidenceArgsForCallSite(
           | FunctionValue
           | undefined;
         if (handlerValue && isFunctionValue(handlerValue)) {
-          // For forall handlers, use the specialized version cast to void*
+          // For generic handlers, use the specialized version cast to void*
           if (handlerValue.specializedFunctionCaches?.length) {
             const specialized =
               handlerValue.specializedFunctionCaches[0]!.specializedFunction;
@@ -3458,9 +3458,9 @@ function resolveEvidenceArgsForCallSite(
             if (fieldIndex >= 0) {
               const fieldValue = currentModule.fields[fieldIndex];
               if (fieldValue && isFunctionValue(fieldValue)) {
-                // For forall functions that were specialized, the unspecialized C function
+                // For generic functions that were specialized, the unspecialized C function
                 // is not generated — only specialized versions exist. Use one of those
-                // and cast to void* (the evidence param type for forall functions).
+                // and cast to void* (the evidence param type for generic functions).
                 if (fieldValue.specializedFunctionCaches?.length > 0) {
                   const specialized =
                     fieldValue.specializedFunctionCaches[0]!
@@ -3484,7 +3484,7 @@ function resolveEvidenceArgsForCallSite(
           }
         } else if (givenValue && isFunctionValue(givenValue)) {
           // Bare function evidence (non-module) — look up cName directly.
-          // For forall handlers, use the specialized version (cast to void*)
+          // For generic handlers, use the specialized version (cast to void*)
           // since the unspecialized version has void* params that don't match.
           if (givenValue.specializedFunctionCaches?.length) {
             const specialized =

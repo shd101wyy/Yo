@@ -22,10 +22,10 @@ println("plain str is also fine");
 
 ### String type disambiguation
 
-| Type              | When you see it                              | Key behavior                           |
-| ----------------- | -------------------------------------------- | -------------------------------------- |
-| `str`             | `"hello"` in runtime contexts                | View of STATIC bytes, no constraints   |
-| `String`          | Template strings `` `hello` ``               | Owned UTF-8, reference-counted         |
+| Type           | When you see it                              | Key behavior                           |
+| -------------- | -------------------------------------------- | -------------------------------------- |
+| `str`          | `"hello"` in runtime contexts                | View of STATIC bytes, no constraints   |
+| `String`       | Template strings `` `hello` ``               | Owned UTF-8, reference-counted         |
 | `comptime_str` | `"hello"` inside `comptime` functions/macros | Compile-time only, distinct from `str` |
 
 Key rules:
@@ -217,13 +217,13 @@ FilePermission :: newtype(mode : u32);
 TcpStream :: ref(struct(fd : i32, buffer : ArrayList(u8)));
 ```
 
-| Keyword                  | Semantics                                                |
-| ------------------------ | -------------------------------------------------------- |
-| `struct(...)`            | Value type, copied on assignment                         |
-| `newtype(...)`           | Single-field value wrapper                               |
-| `ref(struct(...))`       | Reference-counted struct, shared on assignment           |
-| `ref(enum(...))`         | Reference-counted enum, shared on assignment             |
-| `atomic(ref(struct(...)))` / `atomic(ref(enum(...)))` | Atomic RC (cross-thread sharing)            |
+| Keyword                                               | Semantics                                      |
+| ----------------------------------------------------- | ---------------------------------------------- |
+| `struct(...)`                                         | Value type, copied on assignment               |
+| `newtype(...)`                                        | Single-field value wrapper                     |
+| `ref(struct(...))`                                    | Reference-counted struct, shared on assignment |
+| `ref(enum(...))`                                      | Reference-counted enum, shared on assignment   |
+| `atomic(ref(struct(...)))` / `atomic(ref(enum(...)))` | Atomic RC (cross-thread sharing)               |
 
 - Use `newtype(...)` when the type has exactly one field
 - Use `ref(struct(...))` / `ref(enum(...))` for types that need shared ownership (`atomic(ref(...))` for atomic RC)
@@ -252,7 +252,7 @@ impl(Point,
   })
 );
 
-impl(forall(T), where(T <: ToString), Box(T),
+impl(generic(T), where(T <: ToString), Box(T),
   show : (fn(self : Self) -> unit)(
     println(self.*)
   )
@@ -262,7 +262,7 @@ impl(forall(T), where(T <: ToString), Box(T),
 - Use `Self` inside impl method signatures
 - Use `Self` inside `struct(...)`, `ref(struct(...))`, `ref(enum(...))`, `enum(...)` definitions for recursive type references (the type name is not yet available during its own definition)
 - `Self` also works inside generic type constructors — it refers to the current instantiation (e.g., `Tree(T)` inside `Tree`). Use `recur(args)` only when the type arguments differ from the current instantiation.
-- `forall(T)` + `where(T <: Trait)` for generic impls
+- `generic(T)` + `where(T <: Trait)` for generic impls
 - Trait impls: `impl(MyType, MyTrait(args), : trait_field_bindings...)`
 
 ### Method overloading: inherent NO, trait YES
@@ -462,11 +462,11 @@ while(i < list.len(), {
 });
 ```
 
-| Form                          | Expansion                                 | When to use                                                                  |
-| ----------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------- |
-| `for(coll, (x) => …)`         | `coll.into_iter()`, yields `T` by value   | All iteration; reference-semantics elements are handles and mutate in place  |
-| index loop + `coll(i) = v`    | Index trait read/write                    | In-place struct/scalar element mutation                                       |
-| `for(chain.map(f), (x) => …)` | Treats chain as the iterator (value form) | Computed values                                                               |
+| Form                          | Expansion                                 | When to use                                                                 |
+| ----------------------------- | ----------------------------------------- | --------------------------------------------------------------------------- |
+| `for(coll, (x) => …)`         | `coll.into_iter()`, yields `T` by value   | All iteration; reference-semantics elements are handles and mutate in place |
+| index loop + `coll(i) = v`    | Index trait read/write                    | In-place struct/scalar element mutation                                     |
+| `for(chain.map(f), (x) => …)` | Treats chain as the iterator (value form) | Computed values                                                             |
 
 - The borrow form `for(coll, ref(x) => …)` was REMOVED (v4, plans/BORROW_EXCLUSIVITY.md — no interior refs); it emits a teaching compile error.
 - `Iterator` trait — defines `next() -> Option(Item)`. Custom iterables impl this.

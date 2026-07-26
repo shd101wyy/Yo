@@ -74,8 +74,8 @@ import {
 /**
  * Find the Dispose trait value attached to a type, if any.
  * Uses trait identity (not just method name) to match Dispose.
- * Also checks generic impl registry for forall impls like:
- *   impl(forall(T : Type), ArrayList(T), Dispose(...))
+ * Also checks generic impl registry for generic impls like:
+ *   impl(generic(T : Type), ArrayList(T), Dispose(...))
  */
 function findDisposeTraitValue(
   type: Type,
@@ -112,7 +112,7 @@ function findDisposeTraitValue(
     }
   }
 
-  // Fallback: check generic impl registry for forall impls
+  // Fallback: check generic impl registry for generic impls
   const genericImpl = findMatchingGenericImpl({
     concreteType: type,
     traitType: disposeTraitType,
@@ -528,8 +528,8 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // sub-expressions may lack type annotations, making codegen impossible.
     // This applies even when the function was marked effectful — the effectful
     // generation needs properly annotated sub-expressions too.
-    // Exception: isEffectRecordMember functions (e.g., Exception.throw forall handlers)
-    // MUST still be emitted in their unspecialized form — their forall params are type-erased
+    // Exception: isEffectRecordMember functions (e.g., Exception.throw generic handlers)
+    // MUST still be emitted in their unspecialized form — their generic params are type-erased
     // (void), the body is just escape(), and the unspecialized name is stored as a void*
     // function pointer in async capture structs by emitEffectRecordInjection in await.ts.
     //
@@ -566,9 +566,9 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     //
     // "Cannot safely emit" covers:
     //   - the base has registered specializations (specializedFunctionCaches > 0):
-    //     its generic body has unresolved forall returns and sub-expression
+    //     its generic body has unresolved generic returns and sub-expression
     //     `.$` is only filled in on the specializations.
-    //   - the declared type carries a forall AND the body contains an explicit
+    //   - the declared type carries a generic AND the body contains an explicit
     //     `return(expr)` statement: the body was deferred at definition time
     //     (`shouldDeferBodyEvaluation`) and the `return`'s `.$` is unpopulated,
     //     so generateReturn would throw "missing metadata". Bodies that only
@@ -592,7 +592,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
         //     the named parameter, no flag — the caller of exn.throw
         //     resumes normally with the value.
         //   - anything else → conservative fallback to the unwind stub.
-        // See issues/fixed/codegen-forall-resume-handler-stub.md.
+        // See issues/fixed/codegen-generic-resume-handler-stub.md.
         const body = value.body;
         const isUnwindBody = !!body && bodyHasUnwind(body);
         const paramLabels = new Set(
@@ -645,11 +645,11 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // These exist only as compile-time templates — their unspecialized
     // bodies reference comptime bindings not available at runtime.
     // Exception: effect handler functions (isEffectRecordMember) must be
-    // generated even when hard-generic — their forall params are erased
+    // generated even when hard-generic — their generic params are erased
     // at runtime and they're stored as void* function pointers.
     // However, module members with comptime parameters MUST still be skipped —
     // comptime params reference compile-time bindings (sizeof, alignof, etc.)
-    // that don't exist at runtime, unlike forall params which are just erased.
+    // that don't exist at runtime, unlike generic params which are just erased.
     const hasComptimeParams = value.type.parameters.some(
       (p) => p.isCompileTimeOnly
     );
@@ -675,7 +675,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       // Hard-generic comptime-template skip — but closures are per-instance
       // (each io.async / Thread.spawn site gets its own closure value with a
       // concrete capture struct and unique funcId), so they must NOT be
-      // skipped here even when their parameter list still mentions forall
+      // skipped here even when their parameter list still mentions generic
       // SomeType (e.g. `e : E` from io.async's Impl(Fn(e : E) -> T)
       // signature). The later carve-out at the hasGenericParams gate already
       // exempts isClosure; mirror it here so the body emission path reaches
@@ -1155,7 +1155,7 @@ export function preRegisterEffectfulFunctions(
     // evidence passing (fn ptr params) instead of SM-inlining.
     // Try the specialized type first (has expanded effect row spreads),
     // then fall back to the original type (retains implicit parameters
-    // that specialization may strip for forall effects only).
+    // that specialization may strip for generic effects only).
     let evidenceParams = getEvidenceParameters(
       functionValue.specializedType ?? functionValue.type
     );
@@ -1183,7 +1183,7 @@ export function preRegisterEffectfulFunctions(
     }
 
     // No evidence params — this shouldn't happen for current effect patterns.
-    // All effects (including forall) use evidence passing.
+    // All effects (including generic) use evidence passing.
   }
 }
 
@@ -1270,10 +1270,10 @@ export function generateFunction(
   // Pass the original (pre-specialization) type so evidence params are detected
   // even when specialization strips implicit parameters.
   // Pass original type so evidence params are detected when specialization
-  // strips implicit parameters (e.g., for forall effects).
+  // strips implicit parameters (e.g., for generic effects).
   // Only do this when specializedType has no evidence but the original does,
-  // AND the original has forall function evidence params (which need void* passing).
-  // Non-forall using params are resolved at specialization time and don't need this.
+  // AND the original has generic function evidence params (which need void* passing).
+  // Non-generic using params are resolved at specialization time and don't need this.
   const originalFunctionType =
     functionValue.specializedType &&
     getEvidenceParameters(functionType).length === 0 &&
@@ -1362,7 +1362,7 @@ export function generateFunction(
   // fn ptr parameter names so body codegen can resolve them.
   // Try the specialized type first (has expanded effect row spreads),
   // then fall back to the original type (retains implicit parameters
-  // that specialization may strip for forall effects).
+  // that specialization may strip for generic effects).
   const previousEvidenceParams = (context as FunctionGenerationContext)
     .currentEvidenceParams;
   let evidenceParams = getEvidenceParameters(functionType);
@@ -1889,8 +1889,8 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
     // Also skip if any parameter type contains SomeType (generic type parameters)
     // This happens when a function specialization wasn't completed properly.
     // Use the codegen-aware variant: struct fields whose type is a function
-    // (effect-record handlers like `throw : ctl(forall, ...)`) are type-erased
-    // fn pointers at the C ABI, so their inner forall does NOT make the outer
+    // (effect-record handlers like `throw : ctl(generic, ...)`) are type-erased
+    // fn pointers at the C ABI, so their inner generic does NOT make the outer
     // struct "still generic" for codegen purposes.
     const hasGenericParams = functionValue.specializedType.parameters.some(
       (p) => typeContainsSomeTypeForCodegenParam(p.type)

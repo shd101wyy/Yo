@@ -482,7 +482,7 @@ export function isFunctionTypeGeneric(functionType: FunctionType): boolean {
 /**
  * Check if a function type has "hard" generic parameters that make the
  * unspecialized form invalid for C codegen. This means comptime params,
- * forall params, or SomeType params — but NOT implicit-params-only.
+ * generic params, or SomeType params — but NOT implicit-params-only.
  *
  * Functions that are generic ONLY because of implicit parameters can still
  * be generated as regular C functions because implicit params are resolved
@@ -523,7 +523,7 @@ export function isFunctionTypeHardGeneric(functionType: FunctionType): boolean {
  * for C codegen?
  *
  * A function is specializable when:
- * 1. Its type is generic (has compile-time params, forall params, implicit params,
+ * 1. Its type is generic (has compile-time params, generic params, implicit params,
  *    or SomeType params) — checked by isFunctionTypeGeneric
  * 2. The evaluator actually created specialized versions for it
  *    — checked by specializedFunctionCaches
@@ -532,7 +532,7 @@ export function isFunctionTypeHardGeneric(functionType: FunctionType): boolean {
  * - using(io : Io): generic type but no caches (Io resolved at compile time) → false
  * - using(raise : Raise): generic type + evaluator created caches → true
  * - using(raise_mod : RaiseMod): generic type + evaluator created caches → true
- * - forall(T): generic type + evaluator created caches → true
+ * - generic(T): generic type + evaluator created caches → true
  */
 export function isFunctionSpecializable(functionValue: FunctionValue): boolean {
   const functionType = functionValue.type;

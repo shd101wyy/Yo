@@ -1,11 +1,13 @@
 # `forall` → `generic`: keyword migration plan
 
-**Status: PLANNED (blocked on the yo-self stage-2 bootstrap campaign landing —
-see Timing).**
+**Status: EXECUTED 2026-07-26.** One atomic commit, per the hard-cutover
+decision below. See "Deviation from the plan" for the one place reality
+overruled the design.
 
 Rename the type-parameter binder keyword from `forall` to `generic`, and
-reserve `forall` / `exists` (and `∀` / `∃`) exclusively for future
-Dafny-style verification quantifiers.
+reserve `forall` (and `∀`) exclusively for future Dafny-style verification
+quantifiers. (`exists` / `∃` were in the original design but could not be
+reserved — see "Deviation from the plan".)
 
 ```rust
 // Before
@@ -83,6 +85,32 @@ deprecated, `fmt` rewrites). **Rejected.** Rationale:
    substitution plus `yo fmt` — one mechanical sweep, one commit, one gate
    run. A transition period costs more engineering than the cutover it
    avoids.
+
+## Deviation from the plan — `exists` / `∃` are NOT reserved
+
+The plan called for reserving `forall`, `exists`, `∀` and `∃`. Its risk table
+surveyed collisions for the INCOMING word (`generic` — clean, re-verified at
+execution time: zero identifiers named `generic`) but not for the OUTGOING
+reservations. Reserving `exists` broke the build immediately:
+
+```
+Lexer Error at row 15: `exists` is reserved for verification quantifiers.
+  yo-self/init.yo  <- via yo-self/tests/init.test.yo
+```
+
+`std/fs/file.yo:324` defines `exists(path, io)` — a public filesystem API used
+in **72 files / 101 occurrences** (`build_runner.yo`, `lock_file.yo`,
+`init.yo`, …). Reserving the word would break the standard library for a
+feature that does not exist yet, so:
+
+- **RESERVED:** `forall`, `∀` — the word this migration actually frees.
+- **NOT reserved:** `exists`, `∃` — left as ordinary identifiers.
+
+When verification work starts it must either choose another spelling for the
+existential quantifier or rename `fs.exists` in its own deliberate commit;
+either way that is a decision for `plans/VERIFICATION.md`, not a side effect of
+a keyword rename. A negative test pins the current behaviour
+(`src/tests/reserved-quantifiers.test.ts`, "`exists` is NOT reserved").
 
 Instead of an alias, the cutover ships **reserved-word diagnostics**: after
 the rename, `forall` (and `exists`, `∀`, `∃`) become _reserved keywords_ that
@@ -217,6 +245,72 @@ stage3.c`).
    - When the verification feature work starts, `exists: ["exists", "∃"]`
      and the quantifier `forall: ["forall", "∀"]` graduate from reserved to
      real — that design belongs to a separate `plans/VERIFICATION.md`.
+
+## Execution log — 2026-07-26
+
+### Counts at execution (the plan's were surveyed 2026-07-23)
+
+| surface    | plan   | actual (word-boundary `\bforall\b`) |
+| ---------- | ------ | ----------------------------------- |
+| `std/`     | 260/24 | 255 in 24 files                     |
+| `tests/`   | 169/29 | 167 in 28 files                     |
+| `yo-self/` | 759/50 | **316 in 41 files**                 |
+| `docs/`    | ~130   | 119 in 22 files                     |
+| `src/*.ts` | —      | 335 in 50 files                     |
+
+The yo-self gap is not missing files: the plan's 759 counted the `forall`
+SUBSTRING (695 today), which includes the ~370 `forall_*` internal identifiers
+the plan excludes as a non-goal. A `\bforall\b` substitution cannot touch those
+(`_` is a word character), so the identifiers are protected automatically —
+verified: `forallParameters` 133 occurrences before AND after the sweep.
+
+### Beyond the plan's list
+
+The plan named two TS literal-string sites. Sweeping found more that are
+user-visible, not prose: `types/function.ts:385` (`Use "comptime(x)" or put this
+in "forall(...)"`) and `:1710` (`name: "forall(...)"`, a signature-zone label).
+All of `src/**/*.ts` was swept for `\bforall\b` instead of a hand-picked list.
+
+### Verification
+
+| gate                                           | result                                       |
+| ---------------------------------------------- | -------------------------------------------- |
+| `bun run build`                                | clean                                        |
+| `bun test src/tests/fixme.test.ts`             | 1 pass                                       |
+| `bun test build-system.test.ts`                | 121 pass                                     |
+| `src/tests/reserved-quantifiers.test.ts` (new) | 5 pass                                       |
+| residue audit `\bforall\b` in `.yo`            | **0** (130 `forall_*` identifiers preserved) |
+| `./yo-cli fmt --check std tests yo-self`       | clean                                        |
+| positive: `fn(generic(T : Type), …)`           | compiles and runs                            |
+| negative: `fn(forall(T : Type), …)`            | rejected with the targeted diagnostic        |
+
+Full suite (`./yo-cli test`, no `--bail`): 3393 passed / 92 failed. Accounting
+for every failure:
+
+- **79 are in `tmp/`** — a git-ignored scratch directory (0 tracked files, 78
+  leftover `test_debug*` / `test_phase5f*` files from earlier sessions) that a
+  bare `./yo-cli test` sweeps up. Not corpus.
+- **3 are the documented known-heavy yo-self files** (`eval_basics`,
+  `eval_tail_1`, `eval_tail_2`) that exceed the runner's isolated-process limit
+  — see `AGENTS.md`.
+- **1 is `await_analysis`**, confirmed pre-existing: it fails identically with
+  the migration stashed (`Type mismatch for type member "resolved_concrete"`).
+- **The remaining 9** were re-run SEQUENTIALLY against a stashed HEAD and the
+  migrated tree, and the two runs are identical file for file: `effect_analysis`
+  19, `macro_registry` 5, `phase6_verify` 3, `phase6c_macro` 2,
+  `phase6f_macro_helpers` 3 all pass in BOTH (they only fail under the
+  10-worker sweep — parallel-load timeouts), and `type_trait_methods` (14/3)
+  and `types_guards` (44/1) fail in BOTH.
+
+**Net: zero regressions attributable to the rename.**
+
+### Still outstanding
+
+The bootstrap chain (step 7's second half) has NOT been run: s1 build, s1
+battery, corpus diff-test, `s1 check ./std`, stage2 → clang → stage3 →
+STRICT_FIXPOINT, and the 183-file sweep against the
+132 GREEN / 32 HOLLOW / 19 RED baseline. That is ~2.5 h of wall clock and must
+pass before this is considered landed.
 
 ## Risks
 

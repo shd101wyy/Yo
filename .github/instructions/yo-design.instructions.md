@@ -88,7 +88,7 @@ Box :: (fn(comptime(V) : Type) -> comptime(Type))
     (*) : V
   ))
 ;
-box :: (fn(forall(V : Type), value : V) -> Box(V))
+box :: (fn(generic(V : Type), value : V) -> Box(V))
   Box(V)(value)
 ;
 ```
@@ -175,7 +175,7 @@ This applies to all parameters and return types in comptime-only APIs:
 - A handler whose body may `unwind` must have type `ctl(args) -> R`. A handler that always resumes can be plain `fn(args) -> R`. Subtyping is one-way: `fn(T) -> R <: ctl(T) -> R`.
 - `return(expr)` inside an effect handler **resumes** the continuation.
 - `unwind(expr)` inside an effect handler **discards** the continuation and exits the install frame (the function that bound the handler). `unwind` is only valid inside a `ctl(...) -> R` body.
-- For effect-bundle polymorphism, quantify over a struct: `forall(E : Type.Struct)` and pass `E` as the Future's single effect argument.
+- For effect-bundle polymorphism, quantify over a struct: `generic(E : Type.Struct)` and pass `E` as the Future's single effect argument.
 - Effect handlers use Evidence Passing (function pointer parameters) for zero-overhead calls.
 - **Handler functions are standalone, not closures.** Effect handlers are compiled as standalone C functions and cannot reference variables from the enclosing scope. Pass state as explicit function arguments instead.
 - Pointers/references to control-bound types (any type transitively containing a `ctl(...) -> R`) are rejected — handlers must live on the stack of the install frame.
@@ -284,12 +284,12 @@ impl(Point, T1(get_number : (self -> self.x)));
 impl(Point, T2(get_number : (self -> self.y)));
 
 // Implicit dispatch — where(T <: T1) constrains self.get_number() to T1's method
-use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32)({
+use_t1 :: (fn(generic(T : Type), self : T, where(T <: T1)) -> i32)({
   return(self.get_number());  // Dispatches to T1.get_number -> returns x
 });
 
 // Explicit dispatch — (T <: T2).get_number accesses T2's method directly
-use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32)({
+use_t2 :: (fn(generic(T : Type), self : T, where(T <: T2)) -> i32)({
   return((T <: T2).get_number(self));  // Dispatches to T2.get_number -> returns y
 });
 ```
@@ -365,13 +365,13 @@ impl(i32, Negate(
 
 Yo supports HKT by using **comptime function types as kinds**. Type constructors like `Option` and `Result` are already first-class comptime functions — HKT lets you abstract over them.
 
-### Function-typed forall parameters
+### Function-typed generic parameters
 
-Declare a forall parameter with a function-type kind to accept type constructors:
+Declare a generic parameter with a function-type kind to accept type constructors:
 
 ```rust
 // F is a type constructor (kind: Type → Type)
-identity :: (fn(forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type), x : F(A)) -> F(A))(x);
+identity :: (fn(generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type), x : F(A)) -> F(A))(x);
 ```
 
 ### HKT traits
@@ -381,7 +381,7 @@ Define traits parameterized by type constructors:
 ```rust
 Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Type))(
   trait(
-    map : (fn(forall(A : Type, B : Type), self : F(A), f : (fn(a : A) -> B)) -> F(B))
+    map : (fn(generic(A : Type, B : Type), self : F(A), f : (fn(a : A) -> B)) -> F(B))
   )
 );
 ```
@@ -392,12 +392,12 @@ Use `where(F(A) <: SomeTrait(F))` to constrain type constructor applications:
 
 ```rust
 do_map :: (fn(
-  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
+  generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
   container: F(A),
   f: (fn(a : A) -> B),
   where(F(A) <: Functor(F))
 ) -> F(B))(
-  container.map(forall(B), f)
+  container.map(generic(B), f)
 );
 ```
 
@@ -429,7 +429,7 @@ Partial application works on **any** comptime function (functions whose return t
 - **Option**: `map`, `and_then`, `filter`, `or_else`, `flatten`, `map_or`, `map_or_else`, `ok_or`, `ok_or_else`, `and`, `or`, `unwrap_or_else`
 - **Result**: `map`, `map_err`, `and_then`, `or_else`, `and`, `or`, `ok`, `err`, `map_or`, `map_or_else`, `unwrap_or_else`
 
-Combinators use `Impl(Fn(...))` callbacks, and the forall type parameter is inferred automatically. Lambda syntax `(a) => expr` works too — parameter types are inferred from context:
+Combinators use `Impl(Fn(...))` callbacks, and the generic type parameter is inferred automatically. Lambda syntax `(a) => expr` works too — parameter types are inferred from context:
 
 ```rust
 (x : Option(i32)) = .Some(i32(5));

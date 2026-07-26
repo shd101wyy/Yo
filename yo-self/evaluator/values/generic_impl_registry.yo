@@ -1,4 +1,4 @@
-//! Generic impl registry — stores and matches `impl(forall(T), ReceiverType, …)` entries.
+//! Generic impl registry — stores and matches `impl(generic(T), ReceiverType, …)` entries.
 //!
 //! 1:1 port of the generic-impl parts of `src/evaluator/values/impl.ts`.
 //!
@@ -39,9 +39,9 @@ open(import("std/string"));
 GenericImplEntry :: struct(
   /// Registry key — same as the trait type's `id` field (from `_trait_type_id`).
   trait_key : String,
-  /// Names of forall type parameters, e.g. ["T", "U"].
+  /// Names of generic type parameters, e.g. ["T", "U"].
   forall_names : ArrayList(String),
-  /// Corresponding SomeT TypeValues, one per forall name.
+  /// Corresponding SomeT TypeValues, one per generic name.
   /// Used by `try_match_generic_impl` to populate the unification env.
   forall_some_types : ArrayList(TypeValue),
   /// Receiver type pattern, e.g. `Option(SomeT(T))`.
@@ -162,7 +162,7 @@ try_match_generic_impl :: (
     });
     resolved_concrete = resolved;
   });
-  // 2. Build unify_env: clone the env and push a fresh frame, add all forall SomeTs.
+  // 2. Build unify_env: clone the env and push a fresh frame, add all generic SomeTs.
   (unify_env : Environment) = clone_env(env);
   unify_env.push_frame(false);
   (ui : usize) = usize(0);
@@ -221,8 +221,8 @@ try_match_generic_impl :: (
     opts,
     exn_match
   );
-  // Synthesis succeeded — all forall params should now be bound in expected_env.
-  // Verify each forall param was actually bound to a concrete type.
+  // Synthesis succeeded — all generic params should now be bound in expected_env.
+  // Verify each generic param was actually bound to a concrete type.
   (all_bound : bool) = true;
   (vi : usize) = usize(0);
   while((vi < n_forall) && all_bound, {

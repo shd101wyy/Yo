@@ -16,7 +16,7 @@ Arc :: (fn(comptime(V) : Type, where(V <: Send)) -> comptime(Type))
   )))
 ;
 
-arc :: (fn(forall(V : Type), own(value) : V, where(V <: Send)) -> Arc(V))
+arc :: (fn(generic(V : Type), own(value) : V, where(V <: Send)) -> Arc(V))
   Arc(V)(value)
 ;
 ```
@@ -85,11 +85,11 @@ assert((shared.(*) == i32(42)), "main still sees shared value");
 
 ## `Arc` vs `atomic(ref(struct(...)))` vs `Iso`
 
-| Need                                            | Preferred tool       |
-| ----------------------------------------------- | -------------------- |
-| Share one existing value                        | `Arc(T)`             |
+| Need                                            | Preferred tool             |
+| ----------------------------------------------- | -------------------------- |
+| Share one existing value                        | `Arc(T)`                   |
 | Define a reusable shared reference-counted type | `atomic(ref(struct(...)))` |
-| Transfer unique ownership across scopes/threads | `Iso(T)`             |
+| Transfer unique ownership across scopes/threads | `Iso(T)`                   |
 
 ## Semantics
 

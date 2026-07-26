@@ -3,7 +3,7 @@
 //! Phase 3 implementation. 1:1 port of `src/evaluator/builtins/derive.ts`.
 //!
 //! Supports:
-//!   derive([forall(...)], [where(...)], TargetType, [where(...)], Trait1, Trait2, ...)
+//!   derive([generic(...)], [where(...)], TargetType, [where(...)], Trait1, Trait2, ...)
 //!
 //! Key difference from TypeScript: we use the global g_derive_rules registry
 //! (from derive_rule.yo) instead of deriveRule fields on FunctionValue/TraitType.
@@ -17,7 +17,7 @@ open(import("std/string"));
   ast_expr_id,
   ast_expr_is_fn_call_of,
   make_err_expr,
-  BK_FORALL,
+  BK_GENERIC,
   BK_WHERE
 } :: import("../../expr.yo");
 {
@@ -73,7 +73,7 @@ add_comptime_var :: (
   );
   ()
 });
-// Build + bind an `Option(Expr)` comptime var for a forall/where argument and
+// Build + bind an `Option(Expr)` comptime var for a generic/where argument and
 // return its variable name. Evaluates a generated `((tmp : Option(Expr)) =
 // .Some(inner))` / `.None` so the bound value carries the real Option(Expr)
 // type (mirrors TS callRegisteredDeriveRule step 4).
@@ -115,7 +115,7 @@ _derive_bind_opt :: (
 //
 // Faithful 1:1 port of `callRegisteredDeriveRule` in
 // `src/evaluator/builtins/derive.ts`: bind the target type, rule fn, target
-// Expr, forall/where options, DeriveContext value and trait-params list as
+// Expr, generic/where options, DeriveContext value and trait-params list as
 // comptime vars on a pushed temp frame, then evaluate a GENERATED call
 // `ruleFn(type, ctx, tps)` (so the rule runs through the normal call path with
 // correct RC — the previous hand-rolled FuncVal-call replication over-released
@@ -174,7 +174,7 @@ call_registered_derive_rule :: (
   // 4. forall_params / where_clause as Option(Expr).
   forall_expr_var := _derive_bind_opt(caller_env, String.from("dfp"), forall_arg_opt, ctx, exn);
   where_expr_var := _derive_bind_opt(caller_env, String.from("dwp"), where_arg_opt, ctx, exn);
-  // 5. DeriveContext(target, forall, where) — evaluated so it carries the
+  // 5. DeriveContext(target, generic, where) — evaluated so it carries the
   //    registered DeriveContext type (its id gates `ctx.make_impl` resolution).
   ctx_var := `__derive_ctx_${generate_variable_id(caller_env.module_path, String.from("dctx"))}`;
   ctx_code := `DeriveContext(${target_expr_var}, ${forall_expr_var}, ${where_expr_var})`;
@@ -340,7 +340,7 @@ process_trait_arg :: (
 //
 // Entry point for `derive(Type, Trait1, Trait2, ...)`.
 // Argument layout:
-//   derive([forall(...)], [where(...)], TargetType, [where(...)], Trait1, Trait2, ...)
+//   derive([generic(...)], [where(...)], TargetType, [where(...)], Trait1, Trait2, ...)
 // Mirrors `evaluateDerive` in `src/evaluator/builtins/derive.ts`.
 // ---------------------------------------------------------------------------
 evaluate_derive :: (
@@ -380,16 +380,16 @@ evaluate_derive :: (
   (arg_idx : usize) = usize(0);
   (forall_arg_opt : Option(AstExpr)) = Option(AstExpr).None;
   (where_arg_opt : Option(AstExpr)) = Option(AstExpr).None;
-  // Check for optional forall(...).
+  // Check for optional generic(...).
   is_forall := match(
     args.get(arg_idx),
-    .Some(a) => ast_expr_is_fn_call_of(a, BK_FORALL,.None),
+    .Some(a) => ast_expr_is_fn_call_of(a, BK_GENERIC,.None),
     .None => false
   );
   if(is_forall, {
     forall_arg_opt = match(args.get(arg_idx),.Some(a) => Option(AstExpr).Some(a),.None => Option(AstExpr).None);
     arg_idx = (arg_idx + usize(1));
-    // Introduce forall type variables into env so that target type expressions
+    // Introduce generic type variables into env so that target type expressions
     // like Pair(T) can be evaluated.
     forall_expr := match(forall_arg_opt,.Some(fa) => fa,.None => make_err_expr());
     forall_params := match(
@@ -540,7 +540,7 @@ evaluate_derive :: (
     }
   );
   arg_idx = (arg_idx + usize(1));
-  // Check for optional where(...) after target type (only when forall is present).
+  // Check for optional where(...) after target type (only when generic is present).
   is_where_post := match(
     args.get(arg_idx),
     .Some(a) => ast_expr_is_fn_call_of(a, BK_WHERE,.None),
@@ -552,7 +552,7 @@ evaluate_derive :: (
     });
     arg_idx = (arg_idx + usize(1));
   });
-  // Pop the forall frame before processing trait args.
+  // Pop the generic frame before processing trait args.
   if(forall_arg_opt.is_some(), {
     env.pop_frame();
   });

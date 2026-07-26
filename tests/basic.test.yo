@@ -418,10 +418,10 @@ test("Test type auto derive Comptime", {
   fn2 :: (fn(comptime(T) : Type, where(T <: Comptime)) -> unit)({
     comptime_assert(Type.impls(T, Comptime));
   });
-  fn3 :: (fn(forall(T : Type), v : T) -> unit)({
+  fn3 :: (fn(generic(T : Type), v : T) -> unit)({
     comptime_assert(Type.impls(T, Comptime) == false);
   });
-  fn4 :: (fn(forall(T : Type), v : T, where(T <: Comptime)) -> unit)({
+  fn4 :: (fn(generic(T : Type), v : T, where(T <: Comptime)) -> unit)({
     comptime_assert(Type.impls(T, Comptime));
   });
   // Recursive type
@@ -534,10 +534,10 @@ test("Test type auto derive Runtime", {
   fn2 :: (fn(comptime(T) : Type, where(T <: !(Runtime))) -> unit)({
     comptime_assert(Type.impls(T, Runtime) == false);
   });
-  fn3 :: (fn(forall(T : Type), v : T) -> unit)({
+  fn3 :: (fn(generic(T : Type), v : T) -> unit)({
     comptime_assert(Type.impls(T, Runtime));
   });
-  fn4 :: (fn(forall(T : Type), v : T, where(T <: !(Runtime))) -> unit)({
+  fn4 :: (fn(generic(T : Type), v : T, where(T <: !(Runtime))) -> unit)({
     comptime_assert(Type.impls(T, Runtime) == false);
   });
   // Self recursive types
@@ -846,7 +846,7 @@ test("Test 'struct'", {
       struct(value : T)
     );
     impl(
-      forall(T : Type),
+      generic(T : Type),
       MyStruct(T),
       new : (fn(v : T) -> Self)(Self(v)),
       another_new : (fn(v : T) -> Self)(
@@ -1960,7 +1960,7 @@ test("Test 'Impl'", {
     Id :: trait(
       id : (fn(self : Self) -> Self)
     );
-    test1 :: (fn(forall((T : Type) = Impl(Id)), x : T) -> T)({
+    test1 :: (fn(generic((T : Type) = Impl(Id)), x : T) -> T)({
       y := (typeof(x) <: Id).id(x);
       return(y.id());
     });
@@ -2103,7 +2103,7 @@ test("Test 'comptime_fn' function call and function overloading", {
     )
   );
   impl(
-    forall(T : Type),
+    generic(T : Type),
     MyOption(T),
     unwrap : (fn(self : Self) -> T)(
       match(
@@ -2114,7 +2114,7 @@ test("Test 'comptime_fn' function call and function overloading", {
     )
   );
   impl(
-    forall(T : Type),
+    generic(T : Type),
     where(T <: Comptime),
     MyOption(T),
     comptime_unwrap : (fn(comptime(self) : Self) -> comptime(T))(

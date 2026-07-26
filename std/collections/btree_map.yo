@@ -31,7 +31,7 @@ BTreeMap :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMap(K, V),
   // Create an empty map.
   new : (fn() -> Self)(
@@ -134,7 +134,7 @@ BTreeMapIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMapIter(K, V),
   Iterator(
     Item : BTreeEntry(K, V),
@@ -151,7 +151,7 @@ impl(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMap(K, V),
   into_iter : (fn(self : Self) -> BTreeMapIter(K, V))(
     BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0))
@@ -167,7 +167,7 @@ BTreeMapIterPtr :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type)
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMapIterPtr(K, V),
   Iterator(
     Item : *(BTreeEntry(K, V)),
@@ -189,7 +189,7 @@ impl(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMap(K, V),
   iter : (fn(self : Self) -> BTreeMapIterPtr(K, V))(
     BTreeMapIterPtr(K, V)(_entries : self._entries, _index : usize(0))
@@ -204,7 +204,7 @@ BTreeMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMapKeys(K, V),
   Iterator(
     Item : K,
@@ -218,7 +218,7 @@ impl(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMap(K, V),
   keys : (fn(self : Self) -> BTreeMapKeys(K, V))(
     BTreeMapKeys(K, V)(_inner : BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0)))
@@ -233,7 +233,7 @@ BTreeMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMapValues(K, V),
   Iterator(
     Item : V,
@@ -247,14 +247,14 @@ impl(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMap(K, V),
   values : (fn(self : Self) -> BTreeMapValues(K, V))(
     BTreeMapValues(K, V)(_inner : BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0)))
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMap(K, V),
   Index(K)(
     Output : V,

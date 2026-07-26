@@ -30,12 +30,12 @@ test("multiple predicates inside a single requires/ensures", {
 });
 
 test("where clause may precede requires/ensures in a signature", {
-  // Use a simple forall + where(Runtime) — focus on the contract
+  // Use a simple generic + where(Runtime) — focus on the contract
   // syntax, not the trait machinery.
-  echo :: (fn(forall(T : Type), x : T, where(T <: Runtime), requires(i32(1) == i32(1))) -> T)(
+  echo :: (fn(generic(T : Type), x : T, where(T <: Runtime), requires(i32(1) == i32(1))) -> T)(
     x
   );
-  assert(echo(forall(i32), i32(7)) == i32(7), "echo returns its arg");
+  assert(echo(generic(i32), i32(7)) == i32(7), "echo returns its arg");
 });
 
 test("invariant referencing loop counters does not corrupt iteration", {
@@ -154,8 +154,8 @@ test("clause order: ensures before requires is rejected", {
 
 test("clause order: where after requires is rejected", {
   comptime_expect_error({
-    f :: (fn(forall(T : Type), x : T, requires(i32(1) == i32(1)), where(T <: Runtime)) -> T)(x);
-    f(forall(i32), i32(1));
+    f :: (fn(generic(T : Type), x : T, requires(i32(1) == i32(1)), where(T <: Runtime)) -> T)(x);
+    f(generic(i32), i32(1));
   }, "appears after");
 });
 
@@ -166,17 +166,17 @@ test("clause order: a regular parameter after requires is rejected", {
   }, "appears after");
 });
 
-test("canonical clause order forall/params/where/requires/ensures is accepted", {
+test("canonical clause order generic/params/where/requires/ensures is accepted", {
   full :: (
     fn(
-      forall(T : Type),
+      generic(T : Type),
       x : T,
       where(T <: Runtime),
       requires(i32(1) == i32(1)),
       ensures(i32(1) == i32(1))
     ) -> T
   )(x);
-  assert(full(forall(i32), i32(9)) == i32(9), "canonical order passes");
+  assert(full(generic(i32), i32(9)) == i32(9), "canonical order passes");
 });
 
 test("nested old(old(...)) in ensures resolves to the entry value", {

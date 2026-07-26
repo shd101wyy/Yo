@@ -376,8 +376,8 @@ evaluate_dyn_value :: (
     ne_value_type := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(inner_ne)),.Some(ii) => ii.ty,.None => t_unit());
     // Auto-box a non-object, non-dyn payload (mirrors TS evaluateDynValue, which
     // always boxes), evaluating the synthetic `box(value)` with the EXPECTED
-    // `Box(value_type)` so the box's `forall(V)` binds. The synthetic atom/call
-    // get REAL ids (alloc_global_expr_id) — id=0 breaks the call's ExprInfo/forall
+    // `Box(value_type)` so the box's `generic(V)` binds. The synthetic atom/call
+    // get REAL ids (alloc_global_expr_id) — id=0 breaks the call's ExprInfo/generic
     // setup. The boxed expr is surfaced via runtime_arg_exprs_in_order (the field
     // generate_dyn_call reads). Trait evidence stays on the PRE-box concrete type.
     //

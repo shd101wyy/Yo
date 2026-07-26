@@ -569,27 +569,27 @@ export function typeContainsSomeType(
 
 /**
  * Like `typeContainsSomeType` but distinguishes "free" SomeTypes from those
- * locally bound by a nested function's `forall(...)`. A function type's
+ * locally bound by a nested function's `generic(...)`. A function type's
  * `forallParameters` introduce SomeType bindings whose scope is just that
  * function's signature; references to those names inside the parameters or
  * return type are NOT free in the outer position.
  *
  * Without this distinction, `typeContainsSomeType(Io)` returns true via the
- * recursion into Io's fn-typed fields (`async : fn(forall(T, E), ...) -> ...`),
+ * recursion into Io's fn-typed fields (`async : fn(generic(T, E), ...) -> ...`),
  * which causes `shouldDeferBodyEvaluation` in anonymous-function.ts to defer
  * any function body that takes `io : Io` as a parameter. The test runner's
  * batched-main function hit exactly this trap and silently dropped every test
  * body until commit `7b3b788b` worked around it by removing the parameter.
  *
- * This function tracks the set of forall-bound SomeType names per scope
+ * This function tracks the set of generic-bound SomeType names per scope
  * (innermost wins, supporting shadowing). When recursing into a FunctionType,
- * the function's own forall labels are added to the bound set for the inner
+ * the function's own generic labels are added to the bound set for the inner
  * walk. SomeTypes whose `name` matches a bound entry are skipped.
  *
- * NOTE: name-based tracking is sufficient because forall parameter names are
+ * NOTE: name-based tracking is sufficient because generic parameter names are
  * unique within a single function signature and Yo's evaluator generates a
- * fresh SomeType per forall declaration. A SomeType encountered inside the
- * function whose name matches a forall label IS that forall's variable.
+ * fresh SomeType per generic declaration. A SomeType encountered inside the
+ * function whose name matches a generic label IS that generic's variable.
  */
 export function typeContainsUnboundSomeType(
   type?: Type,
@@ -644,7 +644,7 @@ export function typeContainsUnboundSomeType(
       );
     case TypeTag.Function: {
       const fnType = type as FunctionType;
-      // Extend bound set with this function's forall labels for the inner walk.
+      // Extend bound set with this function's generic labels for the inner walk.
       // Use a per-recursion copy so siblings don't see each other's bindings.
       const innerBound = new Set(boundNames);
       for (const fp of fnType.forallParameters) {
@@ -682,12 +682,12 @@ export function typeContainsUnboundSomeType(
  *
  * Rationale: effect-record types like `Exception` are concrete C structs
  * whose only "generic" content lives inside function-typed fields (e.g.
- * `throw : ctl(forall(R), error : AnyError) -> R`). At C codegen time those
+ * `throw : ctl(generic(R), error : AnyError) -> R`). At C codegen time those
  * fields are type-erased function pointers — concrete bytes — so a regular
  * function taking `exn : Exception` is NOT itself generic and must still be
  * emitted with a forward declaration and body. The plain
  * `typeContainsSomeType` returns true for `Exception` (because the field
- * walk hits the forall inside `throw`), which causes declarations.ts and
+ * walk hits the generic inside `throw`), which causes declarations.ts and
  * generation.ts to incorrectly skip the function — leaving call sites with
  * an undeclared `fn_*_parse` and similar.
  */
@@ -1162,7 +1162,7 @@ function functionTypeToString(
 
   const typeParams =
     func.forallParameters.length > 0
-      ? `forall(${func.forallParameters
+      ? `generic(${func.forallParameters
           .map((param) => functionParameterToString(param, visited))
           .join(", ")})`
       : "";
@@ -1987,7 +1987,10 @@ export function canTypeFormRcCycle(
     if (isStructType(type)) {
       for (const field of type.fields) {
         const elem = bufferElementType(field.type);
-        if (elem && typeCanFormCyclicRcReference(elem, type, visitedTypes, env)) {
+        if (
+          elem &&
+          typeCanFormCyclicRcReference(elem, type, visitedTypes, env)
+        ) {
           return true;
         }
       }

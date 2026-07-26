@@ -241,7 +241,7 @@ export function evaluateFunctionParameter({
       if (isParameterComptimeByDefault) {
         throw formatErrorMessage({
           token: lhsExpr.token,
-          errorMessage: `"forall"/"using" parameters are "comptime" by default. Not needed to use "comptime" modifier.`,
+          errorMessage: `"generic"/"using" parameters are "comptime" by default. Not needed to use "comptime" modifier.`,
         });
       }
 
@@ -283,13 +283,13 @@ export function evaluateFunctionParameter({
         });
       }
       if (isParameterComptimeByDefault) {
-        // forall/using params are erased at runtime; they have no callee-
+        // generic/using params are erased at runtime; they have no callee-
         // side binding for inout to refer to. comptime(inout(...)) is
-        // permitted (sets isCompileTimeOnly here), but forall(inout(...))
+        // permitted (sets isCompileTimeOnly here), but generic(inout(...))
         // makes no sense.
         throw formatErrorMessage({
           token: lhsExpr.token,
-          errorMessage: `'inout' cannot combine with 'forall'/'using' parameters — they are erased at runtime and have no callee-side binding to mutate.`,
+          errorMessage: `'inout' cannot combine with 'generic'/'using' parameters — they are erased at runtime and have no callee-side binding to mutate.`,
         });
       }
       isRef = true;
@@ -348,7 +348,7 @@ export function evaluateFunctionParameter({
 
   {
     // Evaluate the assignedValueExpr if exists (for "=" syntax)
-    // eg: forall((T : Type) = Impl(Id))
+    // eg: generic((T : Type) = Impl(Id))
     // The assigned value becomes the value of the parameter, and the type is Type
     if (assignedValueExpr) {
       const evaluatedAssignedValue = evaluateExpression({
@@ -382,7 +382,7 @@ export function evaluateFunctionParameter({
       if (!isCompileTimeOnly) {
         throw formatErrorMessage({
           token: assignedValueExpr.token,
-          errorMessage: `Assigned value (=) is only allowed for compile-time parameters. Use "comptime(${label})" or put this in "forall(...)".`,
+          errorMessage: `Assigned value (=) is only allowed for compile-time parameters. Use "comptime(${label})" or put this in "generic(...)".`,
         });
       }
     }
@@ -469,7 +469,7 @@ Use owned collections (ArrayList/String), 'ref(name) : T' parameters for in-plac
       } else {
         // Check if the default value type is compatible with the parameter type.
         // When the parameter type still contains an unresolved generic
-        // (`(msg : T) ?= "..."` with `forall(T)`), defer the check to the
+        // (`(msg : T) ?= "..."` with `generic(T)`), defer the check to the
         // call site: binding the default there infers T from the default
         // value and validates any `where` constraints, exactly like an
         // explicitly passed argument.
@@ -533,7 +533,7 @@ ${typeToString(parameterType)}`,
     if (
       !isCompileTimeOnly &&
       typeRequiresComptimeModifier(parameterType, env) &&
-      !isSomeType(parameterType) // Allow forall type variables (e : E where E : Type)
+      !isSomeType(parameterType) // Allow generic type variables (e : E where E : Type)
     ) {
       throw formatErrorMessage({
         token: lhsExpr?.token ?? expr.token,
@@ -543,7 +543,7 @@ ${typeToString(parameterType)}`,
     }
 
     // Validate that runtime parameters with intrinsically generic function types are prohibited
-    // Functions that have their own forall parameters or compile-time parameters require
+    // Functions that have their own generic parameters or compile-time parameters require
     // specialization and cannot be represented as runtime function pointers.
     // However, functions that merely reference type variables from enclosing scope are allowed (like Rust)
     if (
@@ -606,7 +606,7 @@ Id :: trait
   id   : (fn(self : Self) -> Self)
 ;
 
-use_id :: (fn(forall(T : Type),
+use_id :: (fn(generic(T : Type),
               val : T, 
               where(T <: Id)
           ) -> T) {
@@ -1169,7 +1169,7 @@ function applySingleTraitConstraint({
  * When collectPendingTraits is true, failed individual traits are collected
  * instead of throwing an error.
  *
- * Assumes all LHS variables already exist in env (either from forall, regular params, or prepareWhereClauseVariables).
+ * Assumes all LHS variables already exist in env (either from generic, regular params, or prepareWhereClauseVariables).
  */
 function parseWhereClauseConstraints({
   constraintExprs,
@@ -1653,13 +1653,13 @@ export function evaluateFunctionParameters({
 
   let findVariadicParameter = false;
 
-  // First pass: find and process forall parameters (creates SomeTypes)
-  // forall must be the first parameter if present
+  // First pass: find and process generic parameters (creates SomeTypes)
+  // generic must be the first parameter if present
   if (parameterExprs.length > 0) {
     const firstParam = parameterExprs[0]!;
     if (
       exprIsFunctionCall(firstParam) &&
-      exprIsFunctionCallOf(firstParam, BuiltinKeywords.forall)
+      exprIsFunctionCallOf(firstParam, BuiltinKeywords.generic)
     ) {
       const typeParameterExprs = firstParam.args;
 
@@ -1667,7 +1667,7 @@ export function evaluateFunctionParameters({
         const typeParameterExpr = typeParameterExprs[j]!;
 
         // `...(E)` effect-row variable declarations are gone — every
-        // forall parameter is processed by the standard path below.
+        // generic parameter is processed by the standard path below.
 
         const { parameter, env: nextEnv } = evaluateFunctionParameter({
           expr: typeParameterExpr,
@@ -1699,15 +1699,15 @@ export function evaluateFunctionParameters({
   // Phase 0 of plans/FORMAL_VERIFICATION.md: enforce the canonical
   // signature clause order. Each parameter belongs to an ordered
   // "zone"; zones must appear non-decreasing left-to-right:
-  //   forall(0) → regular params (1) → where(2) → requires(3) → ensures(4)
+  //   generic(0) → regular params (1) → where(2) → requires(3) → ensures(4)
   // A clause appearing before an earlier-zone clause is a syntax
   // error (e.g. `ensures(...)` before `requires(...)`, or `where(...)`
   // after `requires(...)`). This gives one canonical signature shape.
   {
     const zoneOf = (e: Expr): { zone: number; name: string } => {
       if (exprIsFunctionCall(e)) {
-        if (exprIsFunctionCallOf(e, BuiltinKeywords.forall))
-          return { zone: 0, name: "forall(...)" };
+        if (exprIsFunctionCallOf(e, BuiltinKeywords.generic))
+          return { zone: 0, name: "generic(...)" };
         if (exprIsFunctionCallOf(e, BuiltinKeywords.where))
           return { zone: 2, name: "where(...)" };
         if (exprIsFunctionCallOf(e, "requires"))
@@ -1718,20 +1718,20 @@ export function evaluateFunctionParameters({
       return { zone: 1, name: "parameter" };
     };
     const zoneLabels = [
-      "forall(...)",
+      "generic(...)",
       "regular parameters",
       "where(...)",
       "requires(...)",
       "ensures(...)",
     ];
     let maxZone = 0;
-    let maxName = "forall(...)";
+    let maxName = "generic(...)";
     for (const paramExpr of parameterExprs) {
       const { zone, name } = zoneOf(paramExpr);
       if (zone < maxZone) {
         throw formatErrorMessage({
           token: paramExpr.token,
-          errorMessage: `${name} appears after ${maxName} in the function signature. The canonical clause order is: forall(...), parameters, where(...), requires(...), ensures(...). Move ${name} before ${zoneLabels[maxZone]!}.`,
+          errorMessage: `${name} appears after ${maxName} in the function signature. The canonical clause order is: generic(...), parameters, where(...), requires(...), ensures(...). Move ${name} before ${zoneLabels[maxZone]!}.`,
         });
       }
       if (zone > maxZone) {
@@ -1792,13 +1792,13 @@ export function evaluateFunctionParameters({
   const preAddedComptimeParams = new Set<number>();
   for (let i = 0; i < parameterExprs.length; i++) {
     const paramExpr = parameterExprs[i]!;
-    // Skip forall, where, ..., and Phase-0 contract clauses
+    // Skip generic, where, ..., and Phase-0 contract clauses
     // (requires/ensures). The contract clauses are recognized here so
     // they don't get treated as runtime parameters. Their bodies are
     // evaluated later — see plans/FORMAL_VERIFICATION.md task #4.
     if (
       exprIsFunctionCall(paramExpr) &&
-      (exprIsFunctionCallOf(paramExpr, BuiltinKeywords.forall) ||
+      (exprIsFunctionCallOf(paramExpr, BuiltinKeywords.generic) ||
         exprIsFunctionCallOf(paramExpr, BuiltinKeywords.where) ||
         exprIsFunctionCallOf(paramExpr, "...") ||
         exprIsFunctionCallOf(paramExpr, "requires") ||
@@ -1908,10 +1908,10 @@ export function evaluateFunctionParameters({
   for (let i = 0; i < parameterExprs.length; i++) {
     const parameterExpr = parameterExprs[i]!;
 
-    // Skip forall (already processed in first pass)
+    // Skip generic (already processed in first pass)
     if (
       exprIsFunctionCall(parameterExpr) &&
-      exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.forall)
+      exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.generic)
     ) {
       if (i !== 0) {
         throw formatErrorMessage({

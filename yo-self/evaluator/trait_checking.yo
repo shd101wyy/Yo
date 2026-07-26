@@ -485,7 +485,7 @@ type_implements_trait :: (
   // trait regardless of auto-derive. Mirrors `trait-checking.ts:345-358`.
   // Concrete negative impls are keyed `type_id_or_empty:get_trait_key`
   // (registration site impl.yo). Generic negative impls
-  // (`impl(forall(T), Pattern, !(Trait))`) are matched structurally via
+  // (`impl(generic(T), Pattern, !(Trait))`) are matched structurally via
   // `find_matching_negative_generic_impl` (TS findMatchingNegativeGenericImpl).
   if(has_negative_impl(type_id_or_empty(target), get_trait_key(trait_type)), {
     return(TraitCheckResult(implemented : false, env : env));
@@ -670,7 +670,7 @@ type_implements_trait :: (
           fields_opt = Option(ArrayList(TypeValue)).Some(flat);
         },
         // `*(T)`: Send/Acyclic iff `T` is (mirrors the prelude
-        // `impl(forall(T), where(T <: Send), *(T), Send())`).
+        // `impl(generic(T), where(T <: Send), *(T), Send())`).
         .Pointer(pointee_box) => if((tn == "Send") || (tn == "Acyclic"), {
           pfields := ArrayList(TypeValue).new();
           _pp := pfields.push(pointee_box);

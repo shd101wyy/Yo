@@ -273,7 +273,7 @@ TaskCtx :: struct(io : Io, raise : Raise, log : Log);
 
 ```rust
 { yield } :: import "std/async";
-Raise :: (fn(forall(T : Type), msg : String) -> T);
+Raise :: (fn(generic(T : Type), msg : String) -> T);
 Log :: (fn(msg : String) -> unit);
 TaskCtx :: struct(io : Io, raise : Raise, log : Log);
 
@@ -298,10 +298,10 @@ provides:
 
 ```rust
 Io :: struct(
-  async : (fn(forall(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
-  await : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
-  state : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E))) -> FutureState),
-  spawn : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
+  async : (fn(generic(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
+  await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
+  state : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E))) -> FutureState),
+  spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
 ```
 
@@ -343,7 +343,7 @@ When an algebraic effect handler calls `unwind` inside an async task, the Future
 
 ```rust
 main :: (fn(io : Io) -> unit) {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(generic(T : Type), msg : String) -> T);
   task := io.async((io : Io, raise : Raise) => {
     raise(`something went wrong`);
     return i32(42);
@@ -874,8 +874,8 @@ An effect parameter becomes a runtime `void*` field in the capture struct when
 **all** of the following are true:
 
 1. The parameter is **function-typed** (not a module like `Io`)
-2. The function type has **no `forall` parameters** (generic effects like
-   `fn(forall(T : Type), ...) -> T` are resolved at compile time instead)
+2. The function type has **no `generic` parameters** (generic effects like
+   `fn(generic(T : Type), ...) -> T` are resolved at compile time instead)
 3. The handler is **not already resolved** at `io.async` creation time (no
    `(name : Type) = handler` binding in the outer scope)
 
@@ -936,7 +936,7 @@ handle.await(io);
 | Condition                        | Resolution        | C representation      |
 | -------------------------------- | ----------------- | --------------------- |
 | `handler` in scope at `io.async` | Compile-time      | Direct function call  |
-| Generic effect (`forall(T)`)     | Compile-time      | Direct function call  |
+| Generic effect (`generic(T)`)    | Compile-time      | Direct function call  |
 | Non-module (`Io`) type           | Compile-time      | No runtime field      |
 | Non-generic, unresolved handler  | Runtime injection | `void*` capture field |
 

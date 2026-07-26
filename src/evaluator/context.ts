@@ -255,7 +255,7 @@ export interface EvaluatorContext {
    * `evaluateAssignment`) takes responsibility for performing an
    * equivalent check after evaluating the RHS, where it has enough
    * information to relax the constraint for ctl handlers whose body
-   * always unwinds (the C ABI never delivers the forall'd return value
+   * always unwinds (the C ABI never delivers the generic'd return value
    * in that case). See `allPathsUnwind` in `src/expr-traversal.ts`.
    */
   deferGenericFnTypeCheckToAssignment?: boolean;

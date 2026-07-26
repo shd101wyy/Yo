@@ -21,7 +21,7 @@ test("GADT basic construction", {
 // GADT Match Type Refinement Tests
 // =============================================================================
 // eval function — T is refined per branch via GADT
-eval_value :: (fn(forall(T : Type), v : Value(T)) -> T)(
+eval_value :: (fn(generic(T : Type), v : Value(T)) -> T)(
   match(
     v,
     .IntVal(i) => i,
@@ -72,14 +72,14 @@ MyPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   )
 );
 // Extract functions using GADT type refinement
-my_fst :: (fn(forall(A : Type, B : Type), p : MyPair(A, B)) -> A)(
+my_fst :: (fn(generic(A : Type, B : Type), p : MyPair(A, B)) -> A)(
   match(
     p,
     .MkIntBool(x, y) => x,
     .MkBoolInt(x, y) => x
   )
 );
-my_snd :: (fn(forall(A : Type, B : Type), p : MyPair(A, B)) -> B)(
+my_snd :: (fn(generic(A : Type, B : Type), p : MyPair(A, B)) -> B)(
   match(
     p,
     .MkIntBool(x, y) => y,
@@ -106,7 +106,7 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
     (TagBool(b : bool) -> recur(bool)) = 20
   )
 );
-eval_tagged :: (fn(forall(T : Type), t : Tagged(T)) -> T)(
+eval_tagged :: (fn(generic(T : Type), t : Tagged(T)) -> T)(
   match(
     t,
     .TagInt(i) => i,
@@ -129,7 +129,7 @@ MixedVal :: (fn(comptime(T) : Type) -> comptime(Type))(
     MGeneric(v : T)
   )
 );
-eval_mixed :: (fn(forall(T : Type), mv : MixedVal(T)) -> T)(
+eval_mixed :: (fn(generic(T : Type), mv : MixedVal(T)) -> T)(
   match(
     mv,
     .MInt(i) => i,

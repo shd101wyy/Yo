@@ -36,7 +36,7 @@ import { typeContainsSomeType } from "../../types/utils";
 /**
  * A struct whose only SomeType content lives inside function-typed fields
  * is still registerable as a concrete C type — the fn-ptr fields get
- * type-erased at the C ABI (forall functions become void*-cast call sites).
+ * type-erased at the C ABI (generic functions become void*-cast call sites).
  * Io, Exception, and other effect-record structs match this shape.
  */
 function structSomeTypeIsOnlyInFunctionFields(
@@ -53,7 +53,7 @@ function structSomeTypeIsOnlyInFunctionFields(
     // content is also confined to fn-ptr fields (recursive check).
     // This covers effect-bundle structs like `IoExn :: struct(io : Io,
     // exn : Exception)` where the nested Io/Exception structs hide
-    // their forall behind function fields. Without this recursion,
+    // their generic behind function fields. Without this recursion,
     // such bundles can't be registered as C types and any code that
     // constructs / returns them fails codegen with
     // "No C type name found for struct …".

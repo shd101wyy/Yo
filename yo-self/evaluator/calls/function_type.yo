@@ -402,7 +402,7 @@ _build_def_time_body_env :: (
 /// - Extracts `forall_labels`, `param_labels`, `implicit_labels`, `result` from
 ///   `TypeValue.Func`.
 /// - Derives `param_type_names` from each param's type: if the type is `SomeT`,
-///   uses its `name` (for forall binding at call time); otherwise uses `""`.
+///   uses its `name` (for generic binding at call time); otherwise uses `""`.
 /// - Creates `EvalValue.FuncVal` with empty captures (regular functions do not
 ///   capture outer runtime variables in the 1:1 port).
 /// - Body evaluation at definition time is skipped (deferred to call time).
@@ -448,7 +448,7 @@ try_to_implement_function_by_function_type :: (
         );
       });
       body_expr := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
-      // Build param_type_names: for each param type, use the SomeT name (for forall
+      // Build param_type_names: for each param type, use the SomeT name (for generic
       // binding at call time) if the param type is a generic type variable, else "".
       param_type_names := ArrayList(String).new();
       (pti : usize) = usize(0);
@@ -512,7 +512,7 @@ try_to_implement_function_by_function_type :: (
       fn_val_id := random_id(caller_env.module_path);
       // Faithful port of `shouldDeferBodyEvaluation` (function-type.ts:445-451):
       // defer body evaluation ONLY for functions that depend on generic type
-      // variables — `forall` parameters, any parameter whose type contains a
+      // variables — `generic` parameters, any parameter whose type contains a
       // some-type in codegen-relevant position, or a generic `Self`. Every other
       // (concrete) function has its body evaluated UNCONDITIONALLY at definition
       // time, exactly as TS does at function-type.ts:499. This is the def-time

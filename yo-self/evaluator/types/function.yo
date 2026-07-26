@@ -3,13 +3,13 @@
 //! 1:1 port of `src/evaluator/types/function.ts` (Phase 3w).
 //!
 //! Implements the full multi-pass parameter evaluation algorithm:
-//!   Pass 1 — process forall type parameters (create SomeTypes)
+//!   Pass 1 — process generic type parameters (create SomeTypes)
 //!   Pass 2 — process  implicit parameters
 //!   Pass 3 — pre-add comptime parameters to env (so where clauses can reference them)
 //!   Pass 4 — scan where clause and try to evaluate constraints (with pending retry)
 //!   Pass 5 — process regular parameters; retry pending constraints after each
 //!
-//! Phase 3w: effect-row forall `E : Type.Struct` and effect-row spread `E : Type.Struct` in  are now fully implemented.
+//! Phase 3w: effect-row generic `E : Type.Struct` and effect-row spread `E : Type.Struct` in  are now fully implemented.
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
@@ -22,7 +22,7 @@ open(import("std/fmt"));
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   make_err_expr,
-  BK_FORALL,
+  BK_GENERIC,
   BK_WHERE,
   BK_COMPTIME,
   BK_QUOTE,
@@ -360,7 +360,7 @@ get_func_param_default_exprs :: (fn(func_id : String) -> ArrayList(Option(AstExp
 /// `TypeValue.Func` cannot carry AstExprs (definitions.yo must not depend on
 /// expr.yo), so the constraints live here in evaluated form: the label of the
 /// constrained parameter plus the trait it must (or, negated, must NOT)
-/// implement. Only simple-atom LHS constraints naming a forall/comptime param
+/// implement. Only simple-atom LHS constraints naming a generic/comptime param
 /// are recorded — exactly the ones whose LHS can resolve to a concrete bound
 /// type at a call site.
 WhereConstraintEntry :: struct(
@@ -826,7 +826,7 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(lhs_mut),
-                `"forall"/"using" parameters are "comptime" by default. Not needed to use "comptime" modifier.`,
+                `"generic"/"using" parameters are "comptime" by default. Not needed to use "comptime" modifier.`,
                 false,
                 .None
               )
@@ -953,7 +953,7 @@ evaluate_function_parameter :: (
       )
     );
   });
-  // Evaluate assigned value expression (forall((T : Type) = Impl(Id)) form)
+  // Evaluate assigned value expression (generic((T : Type) = Impl(Id)) form)
   (param_type : Option(TypeValue)) = Option(TypeValue).None;
   (assigned_value : Option(EvalValue)) = Option(EvalValue).None;
   match(
@@ -979,7 +979,7 @@ evaluate_function_parameter :: (
           dyn(
             format_error_message(
               ast_expr_token(ave),
-              `Assigned value (=) is only allowed for compile-time parameters. Use "comptime(${match(label, .Some(l) => l, .None => String.from("?"))})" or put this in "forall(...)".`,
+              `Assigned value (=) is only allowed for compile-time parameters. Use "comptime(${match(label, .Some(l) => l, .None => String.from("?"))})" or put this in "generic(...)".`,
               false,
               .None
             )
@@ -1064,7 +1064,7 @@ evaluate_function_parameter :: (
                 },
                 .Some(pt) => {
                   // When the parameter type still contains an unresolved
-                  // generic (`(msg : T) ?= "..."` with `forall(T)`), defer
+                  // generic (`(msg : T) ?= "..."` with `generic(T)`), defer
                   // the check to the call site: binding the default there
                   // infers T from the default value and validates any
                   // `where` constraints, exactly like an explicitly passed
@@ -1234,7 +1234,7 @@ Please consider using "<:" to specify the receiver type for a trait type, for ex
 
 Id :: trait(id   : (fn(self : Self) -> Self)));
 
-use_id :: (fn(forall(T : Type),
+use_id :: (fn(generic(T : Type),
               val : T, 
               where(T <: Id)
           ) -> T)({
@@ -1397,7 +1397,7 @@ use_id :: (fn(forall(T : Type),
           // No existing variable — add new one.
           //
           // When the parameter type is `Type` (TypeUni(0)) — e.g.
-          // `forall(T : Type)` — bind to `TypeVal(SomeT(...))` rather
+          // `generic(T : Type)` — bind to `TypeVal(SomeT(...))` rather
           // than `UnknownVal(...)`. Mirrors TS `createUnknownValue`
           // (src/value.ts:573-588) which returns a TypeValue wrapping
           // a fresh SomeType for level-0 type-hierarchy types. Where
@@ -2314,11 +2314,11 @@ evaluate_function_parameters :: (
   );
   (find_variadic : bool) = false;
   // --------------------------------------------------------------------------
-  // Pass 1 — process forall type parameters (first parameter only)
+  // Pass 1 — process generic type parameters (first parameter only)
   // --------------------------------------------------------------------------
   if(param_exprs.len() > usize(0), {
     first_param := match(param_exprs.get(usize(0)),.Some(e) => e,.None => make_err_expr());
-    if(ast_expr_is_fn_call_of(first_param, BK_FORALL, Option(usize).None), {
+    if(ast_expr_is_fn_call_of(first_param, BK_GENERIC, Option(usize).None), {
       forall_args := _fn_call_args(first_param);
       (j : usize) = usize(0);
       while(j < forall_args.len(), {
@@ -2479,14 +2479,14 @@ evaluate_function_parameters :: (
         ast_expr_is_atom(match(_fn_call_args(impl_expr).get(usize(0)),.Some(a) => a,.None => make_err_expr())), {
         inner_arg2 := match(_fn_call_args(impl_expr).get(usize(0)),.Some(a) => a,.None => make_err_expr());
         row_var_name2 := ast_expr_token(inner_arg2).value.clone();
-        // Look up E (must have been declared in forall)
+        // Look up E (must have been declared in generic)
         row_vars := get_variables_from_env(env_mut, row_var_name2.clone());
         if(row_vars.len() == usize(0), {
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(impl_expr),
-                `Effect row variable "${row_var_name2}" not found in scope. Declare it with forall(..., ...(${row_var_name2}))`,
+                `Effect row variable "${row_var_name2}" not found in scope. Declare it with generic(..., ...(${row_var_name2}))`,
                 false,
                 .None
               )
@@ -2557,7 +2557,7 @@ evaluate_function_parameters :: (
                         dyn(
                           format_error_message(
                             ast_expr_token(impl_expr),
-                            `"...(${row_var_name2})" requires "${row_var_name2}" to be a forall-declared effect row variable, but it resolves to a concrete type.`,
+                            `"...(${row_var_name2})" requires "${row_var_name2}" to be a generic-declared effect row variable, but it resolves to a concrete type.`,
                             false,
                             .None
                           )
@@ -2725,7 +2725,7 @@ evaluate_function_parameters :: (
           dyn(
             format_error_message(
               ast_expr_token(impl_expr),
-              `Duplicate label "${param.label}" in implicit parameter (already in forall)`,
+              `Duplicate label "${param.label}" in implicit parameter (already in generic)`,
               false,
               .None
             )
@@ -2809,8 +2809,8 @@ evaluate_function_parameters :: (
     param_expr := match(param_exprs.get(pi3),.Some(e) => e,.None => make_err_expr());
     (current_idx : usize) = pi3;
     pi3 = (pi3 + usize(1));
-    // Skip forall, using, where, ...
-    if(ast_expr_is_fn_call_of(param_expr, BK_FORALL, Option(usize).None) ||
+    // Skip generic, using, where, ...
+    if(ast_expr_is_fn_call_of(param_expr, BK_GENERIC, Option(usize).None) ||
       ast_expr_is_fn_call_of(param_expr, "using", Option(usize).None) ||
         ast_expr_is_fn_call_of(param_expr, BK_WHERE, Option(usize).None) ||
           ast_expr_is_fn_call_of(param_expr, "...", Option(usize).None), {
@@ -2898,8 +2898,8 @@ evaluate_function_parameters :: (
     param_expr := match(param_exprs.get(pi5),.Some(e) => e,.None => make_err_expr());
     (current_i : usize) = pi5;
     pi5 = (pi5 + usize(1));
-    // Skip forall (already processed in pass 1)
-    if(ast_expr_is_fn_call_of(param_expr, BK_FORALL, Option(usize).None), {
+    // Skip generic (already processed in pass 1)
+    if(ast_expr_is_fn_call_of(param_expr, BK_GENERIC, Option(usize).None), {
       if(!(current_i == usize(0)), {
         exn.throw(
           dyn(
@@ -3865,7 +3865,7 @@ evaluate_function_type :: (
 /// eval (the sync-future struct is registered against the wrapper SomeType id).
 /// Resolving them would change the return type's identity and break that
 /// registration. The `Fn` carrier yields the same `E`/`T` instances (shared
-/// forall vars) so their self-markers still get recreated.
+/// generic vars) so their self-markers still get recreated.
 collect_wrapper_trait_somes :: (fn(wrapper : TypeValue) -> ArrayList(TypeValue))({
   acc := ArrayList(TypeValue).new();
   rtts := match(
@@ -4083,7 +4083,7 @@ _resolve_some_types_deep :: (
 ///
 /// Input:
 ///   `param_type`  — pre-evaluated parameter type from `TypeValue.Func.param_types[i]`
-///   `callee_env`  — callee-side environment (has forall bindings)
+///   `callee_env`  — callee-side environment (has generic bindings)
 /// Output: the resolved parameter type (concrete if a SomeT was bound, else unchanged)
 ///
 /// Mirrors `evaluateFunctionParameterTypeAgain` in
@@ -4107,7 +4107,7 @@ evaluate_function_parameter_type_again :: (
 ///
 /// Input:
 ///   `return_type` — pre-evaluated return type from `TypeValue.Func`
-///   `callee_env`  — callee-side environment (has forall bindings)
+///   `callee_env`  — callee-side environment (has generic bindings)
 /// Output: the resolved return type
 ///
 /// Mirrors `evaluateFunctionReturnTypeAgain` in

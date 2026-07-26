@@ -16,7 +16,7 @@ LocalMapIter :: (fn(comptime(I) : Type, comptime(A) : Type, comptime(B) : Type, 
   struct(_inner : I, _f : F)
 );
 impl(
-  forall(I : Type, A : Type, B : Type, F : Type),
+  generic(I : Type, A : Type, B : Type, F : Type),
   LocalMapIter(I, A, B, F),
   Iterator(
     Item : B,
@@ -26,12 +26,12 @@ impl(
   )
 );
 impl(
-  forall(I : Type),
+  generic(I : Type),
   where(I <: Iterator),
   I,
   local_map_to : (
     fn(
-      forall(A : Type, B : Type, F : Type),
+      generic(A : Type, B : Type, F : Type),
       self : Self,
       f : F,
       where(Self <: Iterator(Item := A), F <: (Fn(a : A) -> B))

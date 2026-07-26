@@ -9,8 +9,8 @@
  *   - Comptime functions: fn(comptime(T) : Type) -> comptime(unit) (user-defined derives)
  *   - Bare trait names: Eq, Hash (backwards-compat, resolved to TraitType via env)
  *
- * Supports forall/where for generic types:
- *   derive(forall(T), Pair(T), where(T <: Eq(T)), Eq(Pair(T)))
+ * Supports generic/where for generic types:
+ *   derive(generic(T), Pair(T), where(T <: Eq(T)), Eq(Pair(T)))
  */
 
 import type { Environment } from "../../env";
@@ -57,7 +57,7 @@ import { evaluateExpression } from "../exprs/expr";
  * Entry point for `derive(Type, Trait1, Trait2, ...)`
  *
  * Argument layout (same positions as `impl`):
- *   derive([forall(...)], [where(...)], TargetType, [where(...)], Trait1, Trait2, ...)
+ *   derive([generic(...)], [where(...)], TargetType, [where(...)], Trait1, Trait2, ...)
  */
 export function evaluateDerive({
   expr,
@@ -91,16 +91,16 @@ export function evaluateDerive({
   let forallArg: FnCallExpr | undefined;
   let whereArg: FnCallExpr | undefined;
 
-  // Check for forall(...)
+  // Check for generic(...)
   if (
     args[argIndex] &&
     exprIsFunctionCall(args[argIndex]!) &&
-    exprIsFunctionCallOf(args[argIndex]!, BuiltinKeywords.forall)
+    exprIsFunctionCallOf(args[argIndex]!, BuiltinKeywords.generic)
   ) {
     forallArg = args[argIndex]! as FnCallExpr;
     argIndex++;
 
-    // Introduce forall type variables into the env so that target type
+    // Introduce generic type variables into the env so that target type
     // expressions like Pair(A, B) can be evaluated
     env = pushEnvFrame(env);
     for (const paramExpr of forallArg.args) {
@@ -115,7 +115,7 @@ export function evaluateDerive({
         if (!exprIsAtom(nameExpr)) {
           throw formatErrorMessage({
             token: nameExpr.token,
-            errorMessage: `Expected identifier for forall parameter name, got: ${exprToString(nameExpr)}`,
+            errorMessage: `Expected identifier for generic parameter name, got: ${exprToString(nameExpr)}`,
           });
         }
         paramName = nameExpr.token.value;
@@ -125,7 +125,7 @@ export function evaluateDerive({
       } else {
         throw formatErrorMessage({
           token: paramExpr.token,
-          errorMessage: `Expected parameter name for forall parameter, got: ${exprToString(paramExpr)}`,
+          errorMessage: `Expected parameter name for generic parameter, got: ${exprToString(paramExpr)}`,
         });
       }
 
@@ -178,7 +178,7 @@ export function evaluateDerive({
     if (!forallArg) {
       throw formatErrorMessage({
         token: args[argIndex]!.token,
-        errorMessage: `derive where(...) requires forall(...).`,
+        errorMessage: `derive where(...) requires generic(...).`,
       });
     }
     whereArg = args[argIndex]! as FnCallExpr;
@@ -222,7 +222,7 @@ export function evaluateDerive({
     if (!forallArg) {
       throw formatErrorMessage({
         token: args[argIndex]!.token,
-        errorMessage: `derive where(...) requires forall(...).`,
+        errorMessage: `derive where(...) requires generic(...).`,
       });
     }
     if (whereArg) {
@@ -252,10 +252,10 @@ export function evaluateDerive({
   }
 
   // Process each trait argument
-  // Pop the forall env frame before processing trait args.
-  // Each trait arg's processing will re-introduce forall vars as needed
-  // (e.g., the generated impl(forall(A,B), ...) expression handles it).
-  // We keep a reference to the env WITH forall vars for evaluating trait arg exprs.
+  // Pop the generic env frame before processing trait args.
+  // Each trait arg's processing will re-introduce generic vars as needed
+  // (e.g., the generated impl(generic(A,B), ...) expression handles it).
+  // We keep a reference to the env WITH generic vars for evaluating trait arg exprs.
   const envWithForall = env;
   if (forallArg) {
     env = popEnvFrame(env);
@@ -310,7 +310,7 @@ function processTraitArg({
   whereArg?: FnCallExpr;
   targetTypeExpr: Expr;
 }): Environment {
-  // Evaluate the trait argument (use envForTraitEval which has forall vars in scope)
+  // Evaluate the trait argument (use envForTraitEval which has generic vars in scope)
   const evaluated = evaluateExpression({
     expr: traitArgExpr,
     env: envForTraitEval,
@@ -325,8 +325,8 @@ function processTraitArg({
   }
 
   // Don't update env from evaluated.$.env — it comes from envForTraitEval
-  // which may contain forall variables. Keep using env (without forall)
-  // for impl generation, since the generated impl introduces its own forall.
+  // which may contain generic variables. Keep using env (without generic)
+  // for impl generation, since the generated impl introduces its own generic.
 
   // Case 1: Evaluated to a TraitType → check registered rule, then built-in
   if (isTraitType(evaluated.$.type)) {

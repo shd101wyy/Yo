@@ -1644,22 +1644,22 @@ impl(
 /// trait dispatch — no overload resolution. See plans/OVERLOADING_REDESIGN.md §4.
 impl(
   String,
-  starts_with : (fn(forall(P : Type), self : Self, prefix : P, (position : usize) ?= 0, where(P <: Pattern)) -> bool)(
+  starts_with : (fn(generic(P : Type), self : Self, prefix : P, (position : usize) ?= 0, where(P <: Pattern)) -> bool)(
     prefix.is_prefix_of(self, position)
   ),
-  ends_with : (fn(forall(P : Type), self : Self, suffix : P, (end_position : usize) ?= usize.MAX, where(P <: Pattern)) -> bool)(
+  ends_with : (fn(generic(P : Type), self : Self, suffix : P, (end_position : usize) ?= usize.MAX, where(P <: Pattern)) -> bool)(
     suffix.is_suffix_of(self, end_position)
   ),
-  contains : (fn(forall(P : Type), self : Self, substr : P, (from_index : usize) ?= 0, where(P <: Pattern)) -> bool)(
+  contains : (fn(generic(P : Type), self : Self, substr : P, (from_index : usize) ?= 0, where(P <: Pattern)) -> bool)(
     substr.is_contained_in(self, from_index)
   ),
-  index_of : (fn(forall(P : Type), self : Self, substr : P, (from_index : usize) ?= 0, where(P <: Pattern)) -> Option(usize))(
+  index_of : (fn(generic(P : Type), self : Self, substr : P, (from_index : usize) ?= 0, where(P <: Pattern)) -> Option(usize))(
     substr.index_in(self, from_index)
   ),
-  last_index_of : (fn(forall(P : Type), self : Self, substr : P, (from_index : usize) ?= usize.MAX, where(P <: Pattern)) -> Option(usize))(
+  last_index_of : (fn(generic(P : Type), self : Self, substr : P, (from_index : usize) ?= usize.MAX, where(P <: Pattern)) -> Option(usize))(
     substr.last_index_in(self, from_index)
   ),
-  split : (fn(forall(P : Type), self : Self, separator : P, where(P <: Pattern)) -> ArrayList(String))(
+  split : (fn(generic(P : Type), self : Self, separator : P, where(P <: Pattern)) -> ArrayList(String))(
     separator.split_of(self)
   )
 );

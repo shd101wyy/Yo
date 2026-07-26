@@ -1025,7 +1025,7 @@ _freshen_io_builtin_callee :: (fn(ft : TypeValue) -> TypeValue)(
 );
 /// True if this function type has a regular parameter that is a SomeType
 /// wrapping an Fn trait (a closure param, e.g. `cb : Impl(Fn(...), Send)`).
-/// Used to NARROW the non-forall specialization trigger: only closure-param
+/// Used to NARROW the non-generic specialization trigger: only closure-param
 /// soft-generic functions (Thread.spawn / io.async-style) are specialized for
 /// codegen so the closure param lowers to its concrete capture struct. Routing
 /// EVERY soft-generic function through create_specialized_function_inline
@@ -1064,13 +1064,13 @@ _func_type_has_closure_param :: (fn(ft : TypeValue) -> bool)(
 /// Complex dispatch (overloads, CTFE, method calls, trait dispatch) deferred to Phase 3.
 ///
 /// Mirrors `evaluateFunctionCall` in `src/evaluator/calls/function.ts`.
-/// [Phase-6 frame split] Extracted forall-binding loop of evaluate_function_call's
+/// [Phase-6 frame split] Extracted generic-binding loop of evaluate_function_call's
 /// FuncVal arm. Runs during call SETUP (before the recursive CTFE descent), so
 /// moving its loop temps into this helper's frame removes them from
 /// evaluate_function_call's -O0 frame on the deep recursion path. Fills
-/// fa_bound_names/fa_bound_types + binds forall type params into fresh_env. Pure
+/// fa_bound_names/fa_bound_types + binds generic type params into fresh_env. Pure
 /// code motion.
-/// Best-effort structural synthesis for forall inference: synthesize one
+/// Best-effort structural synthesis for generic inference: synthesize one
 /// declared param type against its arg type into `scratch_env`, SWALLOWING
 /// any synthesis failure (a capture-free `->` exn — inference here is
 /// best-effort, mirroring the name-match arms around it). The bindings land
@@ -1108,7 +1108,7 @@ _funcval_bind_foralls :: (
     param_ct_flags : ArrayList(bool)
   ) -> unit
 )({
-  // Structural-inference scratch env, built LAZILY on the first forall the
+  // Structural-inference scratch env, built LAZILY on the first generic the
   // name-match loop cannot bind, then shared by the rest.
   (fa_synth_env : Option(Environment)) = Option(Environment).None;
   (fa_i : usize) = usize(0);
@@ -1125,8 +1125,8 @@ _funcval_bind_foralls :: (
           .Some(i) => i,
           .None => new_expr_info(env, t_unit())
         );
-        // A forall type param inferred from a comptime_str VALUE argument (a
-        // string literal `"hi"` to `fn(forall(T), v : T)`) must bind to the
+        // A generic type param inferred from a comptime_str VALUE argument (a
+        // string literal `"hi"` to `fn(generic(T), v : T)`) must bind to the
         // RUNTIME type `str`, not `comptime_str` — else the specialized body
         // dispatches `v.to_string()` against comptime_str (→ comptime_int →
         // i32), throwing "Cannot unify i32 and str" when specializing
@@ -1154,7 +1154,7 @@ _funcval_bind_foralls :: (
           // (its spec keys say `box_i32_idi32`; yo-self's said
           // `R_gs_..._comptime_int`). Mirrors the comptime_str arm above;
           // convert_… lowers comptime_int→i32 / comptime_float→f64. Repro:
-          // issues/repros/box-eq-comptime-int-forall-leak.yo.
+          // issues/repros/box-eq-comptime-int-generic-leak.yo.
           // GATED on the matched param being RUNTIME (mirrors TS
           // helper.ts:508 `!parameter.isCompileTimeOnly`): a
           // `comptime(v) : T` param must bind T to the RAW comptime type —
@@ -1183,9 +1183,9 @@ _funcval_bind_foralls :: (
       });
       ptn_i = (ptn_i + usize(1));
     });
-    // STRUCTURAL fallback: the name-match above only binds a forall used as
-    // a WHOLE param type (`v : T`). A forall inside a composite param type —
-    // `f : (fn(e : E) -> T)` in the effect-polymorphism `run(forall(T, E :
+    // STRUCTURAL fallback: the name-match above only binds a generic used as
+    // a WHOLE param type (`v : T`). A generic inside a composite param type —
+    // `f : (fn(e : E) -> T)` in the effect-polymorphism `run(generic(T, E :
     // Type.Struct), f, e)` — never matches by name, so T/E stayed unbound:
     // `result := run(might_fail, raise)` typed UNIT (assert emitted `void
     // flag` + `if ()`) and the specialization keyed on the unresolved return
@@ -1195,7 +1195,7 @@ _funcval_bind_foralls :: (
     // descends into Func types structurally. Synthesize every declared param
     // type against its arg type into a lazy scratch env (swallowing
     // mismatches — best-effort like the arms around this) and bind the
-    // forall from that env when the inference is CONCRETE.
+    // generic from that env when the inference is CONCRETE.
     if(!(fa_bound), {
       se := match(
         fa_synth_env,
@@ -1252,7 +1252,7 @@ _funcval_bind_foralls :: (
         );
       });
     });
-    // Fallback: bind the i-th forall param from the receiver's i-th type
+    // Fallback: bind the i-th generic param from the receiver's i-th type
     // argument when it could not be inferred from call arguments.
     if(!(fa_bound) && (fa_i < recv_type_args.len()), {
       match(
@@ -1279,7 +1279,7 @@ _funcval_bind_foralls :: (
     // Capture fallback (STATIC generic-impl methods, e.g.
     // `ArrayList(u8).new`): no arg binds `T` and the receiver Struct may
     // not carry `type_arguments`, but the generic-impl resolver injected
-    // the impl's forall binding (`T = u8`) into this FuncVal's CAPTURES
+    // the impl's generic binding (`T = u8`) into this FuncVal's CAPTURES
     // (`_inject_forall_captures`, appended at the tail). Bind `T` from that
     // capture so the body / specialization concretize.
     if(!(fa_bound), {
@@ -1345,15 +1345,15 @@ _evaluate_funcval_runtime_call :: (
     exn : Exception
   ) -> AstExpr
 )({
-  // Resolve forall SomeTs in the declared return type using the
-  // forall bindings just inferred from the call arguments — keyed
+  // Resolve generic SomeTs in the declared return type using the
+  // generic bindings just inferred from the call arguments — keyed
   // by NAME against the SomeT occurrences in the return type, each
   // with ITS OWN recorded frame level. (The levels are the callee's
   // definition-site levels, which a fresh call env cannot confirm,
   // so the env-lookup resolver returns them unresolved; TS instead
   // re-evaluates the return type EXPRESSION in the callee env,
   // helper.ts:1282 — a plain name lookup.) E.g. `(bit_not) ::
-  // (fn(forall(_Self), self : _Self, ...) -> _Self)` called with
+  // (fn(generic(_Self), self : _Self, ...) -> _Self)` called with
   // `self : u32` must return u32, not the abstract `_Self` SomeT.
   (resolved_ret : TypeValue) = ret_type;
   if(fa_bound_names.len() > usize(0), {
@@ -1476,9 +1476,9 @@ _evaluate_funcval_runtime_call :: (
   param_vars;
   // Generic-function SPECIALIZATION for codegen (Gap 6). The runtime-
   // return path doesn't execute the body, leaving the callee's ExprInfo
-  // as the GENERIC FuncVal (its `forall(T) v:T` type crashes
+  // as the GENERIC FuncVal (its `generic(T) v:T` type crashes
   // get_type_string). For a generic callee, produce a monomorphized
-  // FuncVal (specialized func_id + forall-free registered type, see
+  // FuncVal (specialized func_id + generic-free registered type, see
   // helper.yo) and record it (value + type) on the callee node so
   // codegen collects/emits the SPECIALIZED instance. (Method-chain
   // generics like println still hit the upstream soft-fallback-to-unit
@@ -1488,7 +1488,7 @@ _evaluate_funcval_runtime_call :: (
   // Specialize for codegen when the callee is generic. Forall functions
   // always specialize; additionally — mirroring TS's specialization guard
   // (`isFunctionTypeGeneric(functionType) && !functionValue.isControlFunction`,
-  // helper.ts:1911-1929) — a NON-forall soft-generic function (one with a
+  // helper.ts:1911-1929) — a NON-generic soft-generic function (one with a
   // SomeType param, e.g. a closure param `cb : Impl(Fn(...))`) also
   // specializes so its concrete arg types lower into the specialized C
   // function (e.g. Thread.spawn's `cb` → its capture struct). Control
@@ -1501,8 +1501,8 @@ _evaluate_funcval_runtime_call :: (
     // Bind `Self` to the concrete static dot-receiver around the
     // specialization so a STATIC generic-impl method's body (e.g.
     // `ArrayList(u8).new`'s `Self(...)` construction) re-evaluates with
-    // `Self` concrete. The forall type params (`T`) are bound into
-    // `fresh_env` by the capture fallback in the forall-binding loop
+    // `Self` concrete. The generic type params (`T`) are bound into
+    // `fresh_env` by the capture fallback in the generic-binding loop
     // above; `Self` is the remaining piece for static methods (instance
     // methods get it from the concrete `self` arg). Restored after spec.
     spec_self_saved := ctx.self_type;
@@ -1595,7 +1595,7 @@ _evaluate_funcval_runtime_call :: (
       // arm's mirror of check_if_function_parameter_matches_argument's
       // Step-4 coercion (helper.yo, TS helper.ts:508). Without it the
       // specialized fn's runtime param type stays comptime — e.g. `-(x)`
-      // on an f64: the forall T lowered to f64 but rtparam0 stayed
+      // on an f64: the generic T lowered to f64 but rtparam0 stayed
       // comptime_float, so the spec BODY bound `self : comptime_float`
       // and dispatched ComptimeNeg's `__yo_comptime_float_neg` (never
       // emitted — the r3-sweep comptime.test regression, "call to
@@ -1624,10 +1624,10 @@ _evaluate_funcval_runtime_call :: (
     spec_fid := match(spec_fv,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
     // helper.yo's create_specialized registers the specialized type but
     // resolves its RETURN type via evaluate_function_return_type_again,
-    // which does NOT resolve a forall-result SomeT (frame-level mismatch)
+    // which does NOT resolve a generic-result SomeT (frame-level mismatch)
     // — e.g. `fn(a,b:T)->T` specialized to i32 args registers
     // `fn(a:i32,b:i32)->T` (result still `T`). This arm already computed
-    // the concrete return (`resolved_ret`, via explicit forall subst), so
+    // the concrete return (`resolved_ret`, via explicit generic subst), so
     // re-register the specialized type with the result corrected.
     base_spec_ty := get_func_type(spec_fid);
     spec_ty_fixed := match(
@@ -1789,7 +1789,7 @@ evaluate_function_call :: (
     // with arguments: …" because `bool` has no `Ord`/`(<)` impl in the prelude
     // (it only gets Comptime/Runtime/Send/Acyclic/Eq). yo-self instead FELL
     // THROUGH to the generic call path, which accepted the call against the
-    // `forall(T) fn(x : T, y : T) -> bool` builtin — so `comptime_expect_error`
+    // `generic(T) fn(x : T, y : T) -> bool` builtin — so `comptime_expect_error`
     // saw no error and threw "Expected compile error, but the expression was
     // evaluated successfully", hollowing out the whole test file
     // (issues/yo-self-hollow-test-batch-main.md).
@@ -2921,7 +2921,7 @@ Fix: wrap the call:
         // Parallel default-value EXPRESSIONS: the omitted-default splice
         // below (after the arg loop) clones + evaluates these so an omitted
         // default flows through the call EXACTLY like a supplied argument
-        // (forall inference, param binding, runtime C args, specialization).
+        // (generic inference, param binding, runtime C args, specialization).
         fv_default_exprs := get_func_param_default_exprs(func_id_fv.clone());
         fv_param_types := match(
           callee_info_opt,
@@ -2966,7 +2966,7 @@ Fix: wrap the call:
           ),
           .None => ArrayList(bool).new()
         );
-        // Per-param `comptime(...)` flags (side table by fid) — the forall
+        // Per-param `comptime(...)` flags (side table by fid) — the generic
         // inference must NOT lower comptime_int/float args matched against a
         // COMPTIME param (TS helper.ts:508 `!parameter.isCompileTimeOnly`).
         fv_param_ct := get_func_param_comptime(func_id_fv.clone());
@@ -3037,19 +3037,19 @@ Fix: wrap the call:
         // (quoted params / unquote returns) stays populated so the
         // experiment patch only has to flip this constant.
         fv_is_macro := (MACRO_DISPATCH_ENABLED && is_macro_fn(func_id_fv.clone()));
-        // Early forall synthesis from the expected return type (TS helper.ts:
+        // Early generic synthesis from the expected return type (TS helper.ts:
         // 1283-1310). When this call has an expected type, the function has
-        // `forall` parameters, and there is NO explicit `forall(...)` argument,
+        // `generic` parameters, and there is NO explicit `generic(...)` argument,
         // resolve the parameter types from the expected type so that a
         // `.Variant`-shorthand argument whose declared parameter type is a
-        // forall (e.g. `value : V` in `box`) can resolve its concrete enum type
+        // generic (e.g. `value : V` in `box`) can resolve its concrete enum type
         // in the loop below. Without this, `(.Atom(...))` with expected
         // `Box(Tree)` left `.Atom` with no expected enum type → "Failed to
         // infer enum variant type".
         fv_func_type := match(callee_info_opt,.Some(ci) => ci.ty,.None => t_unit());
         fv_has_explicit_forall := match(
           args.get(usize(0)),
-          .Some(a0) => ast_expr_is_fn_call_of(a0, "forall", Option(usize).None),
+          .Some(a0) => ast_expr_is_fn_call_of(a0, "generic", Option(usize).None),
           .None => false
         );
         (resolved_param_types : ArrayList(TypeValue)) = fv_param_types;
@@ -3207,10 +3207,10 @@ Fix: wrap the call:
         // boundary, bumping `n_supplied_reg`. TS has ONE call path where
         // checkIfFunctionParameterMatchesArgument runs for defaults too
         // (helper.ts:323-344 merges into the shared post-processing), so the
-        // default participates in forall inference, binds under the same
+        // default participates in generic inference, binds under the same
         // coercions as a supplied arg, is EMITTED as a C argument, and lands
         // in the specialization args. Without this, bare `assert(x)` bound
-        // `msg` at the unresolved forall SomeT and the body's `panic(msg)`
+        // `msg` at the unresolved generic SomeT and the body's `panic(msg)`
         // specialized (and was called) at an UNEMITTED SomeT-keyed C fn.
         // Splices only the contiguous prefix of omitted params with a
         // recorded default expr; the rest keep the value-binding fallback in
@@ -3395,7 +3395,7 @@ Fix: wrap the call:
         );
         // For a static method call (`Type.method()`), the receiver type carries
         // its concrete type arguments (`type_arguments`, set at instantiation).
-        // A `forall` param NOT inferable from call arguments (e.g. a no-arg
+        // A `generic` param NOT inferable from call arguments (e.g. a no-arg
         // method whose body uses `K`/`V`, or one dispatched via `Self`) is bound
         // positionally from these. Faithful stand-in for TS recovering the
         // substitution from `StructType.env`. See
@@ -3405,10 +3405,10 @@ Fix: wrap the call:
           .Some(rt) => match(rt,.Struct({ type_arguments : ta }) => ta, _ => ArrayList(TypeValue).new()),
           .None => ArrayList(TypeValue).new()
         );
-        // Infer forall type params from argument types.
+        // Infer generic type params from argument types.
         n_forall := forall_names.len();
         // Record the (name -> bound type) pairs so the declared return
-        // type's forall SomeTs can be substituted after binding (see the
+        // type's generic SomeTs can be substituted after binding (see the
         // runtime-return path below).
         fa_bound_names := ArrayList(String).new();
         fa_bound_types := ArrayList(TypeValue).new();
@@ -3492,12 +3492,12 @@ Fix: wrap the call:
           // `(?*) :: (fn(comptime(T):Type)->…)(Option(*(T)))`), which must keep
           // their `Type` value so `*(T)` resolves.
           bind_decl_pt := match(fv_param_types.get(pi),.Some(t) => t,.None => t_unit());
-          // Resolve a forall-`SomeT` declared param type to its concrete binding
+          // Resolve a generic-`SomeT` declared param type to its concrete binding
           // BY NAME via fa_bound_names/types (built in the inference loop just
           // above — e.g. `T`→`str`). A frame-keyed env lookup misses here because
           // the param's SomeT carries the function's DEFINITION frame level, not
           // the call frame. With the resolved concrete type, the comptime_str→
-          // runtime coercion below fires for a forall VALUE param too, so `v` binds
+          // runtime coercion below fires for a generic VALUE param too, so `v` binds
           // as `str` (not comptime_str) — without it, in-body `v.to_string()`
           // dispatches against comptime_str (→ i32) and throws "Cannot unify i32 and
           // str" while specializing println/print (Gap-6).
@@ -3833,7 +3833,7 @@ Fix: wrap the call:
             );
           });
           // A `comptime(Self)`-returning generic Array impl method (e.g.
-          // `Array.fill : (fn(...) -> comptime(Self))` under `impl(forall(T, U),
+          // `Array.fill : (fn(...) -> comptime(Self))` under `impl(generic(T, U),
           // Array(T, U), ...)`) yields a declared return type whose Array
           // `length_var` (`U`) is unresolved — `Self` was expanded to the impl
           // pattern `Array(T, U)` (with `T` substituted) but the const-generic

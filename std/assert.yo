@@ -13,14 +13,14 @@
 /// Terminate the program with a message.
 ///
 /// `msg` must implement `ToString`.
-panic :: (fn(forall(T : Type), msg : T, where(T <: ToString)) -> unit)({
+panic :: (fn(generic(T : Type), msg : T, where(T <: ToString)) -> unit)({
   __yo_panic(msg.to_string().to_c_str());
   ()
 });
 /// Runtime assertion. If `flag` is false, call `panic(msg)`.
 ///
 /// `msg` must implement `ToString`.
-assert :: (fn(forall(T : Type), flag : bool, (msg : T) ?= "Assertion failed.", where(T <: ToString)) -> unit)({
+assert :: (fn(generic(T : Type), flag : bool, (msg : T) ?= "Assertion failed.", where(T <: ToString)) -> unit)({
   cond(
     flag => (),
     true => panic(msg)

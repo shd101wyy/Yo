@@ -263,7 +263,7 @@ _bind_some_type :: (
       // Update the last binding — but ONLY when it lives in the CURRENT top
       // frame (the call's own placeholder frame). An in-place update of an
       // OUTER frame's binding is a DURABLE write-through in yo-self's mutable
-      // env model: a NESTED call's forall resolution (`T := unit` from
+      // env model: a NESTED call's generic resolution (`T := unit` from
       // yield's io.async inside every task body) persisted across def-eval
       // generations and poisoned sibling closures' expected types (the
       // async_await void-closure residual — the [REBIND] topology probe shows
@@ -467,16 +467,16 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
     .IsoT(child) => recur(some_type_id, some_type_name, child, visited, exn),
     .Func({ param_types, implicit_types, result, meta : __fm1 }) => {
       forall_labels := __fm1.*.forall_labels;
-      // A forall declared by this Func's OWN signature SHADOWS the
+      // A generic declared by this Func's OWN signature SHADOWS the
       // searched variable: occurrences inside its params/return are
       // bound (alpha-renameable), not free occurrences. TS gets this
       // implicitly — each fn-type evaluation mints fresh SomeType ids,
       // so an embedded method signature never shares ids with the
       // call's foralls — but yo-self's value-typed struct copies
       // preserve ids: an `IoExn` struct embedding `Io.await :
-      // fn(forall(T, E), …)` made `E := IoExn` a false infinite type
-      // (std/http/client.yo). Within a Func that declares forall "E",
-      // any SomeT named "E" lexically IS that inner forall, so
+      // fn(generic(T, E), …)` made `E := IoExn` a false infinite type
+      // (std/http/client.yo). Within a Func that declares generic "E",
+      // any SomeT named "E" lexically IS that inner generic, so
       // name-based shadowing is sound.
       //
       // The anonymous `Impl(...)` sugar wrapper is per-signature too: an
@@ -484,10 +484,10 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
       // param/return sugar (`action : Impl(Fn(e : E) -> T)`), never the outer
       // var being unified. Same id-preservation trap: resolving a closure
       // bundle param to a concrete `IoExn` (which embeds `Io`'s method fields,
-      // each `fn(forall(T,E), action : Impl(...)) -> Impl(...)`) made the outer
+      // each `fn(generic(T,E), action : Impl(...)) -> Impl(...)`) made the outer
       // closure-wrapper "Impl" a FALSE infinite type. "Impl" is a reserved
       // sugar name (never a user var), so shadowing it inside a nested Func is
-      // sound — mirrors the forall-label shadowing below.
+      // sound — mirrors the generic-label shadowing below.
       if(some_type_name == "Impl", {
         return(false);
       });
@@ -1032,7 +1032,7 @@ _synthesize_fn_traits :: (
   // value-space equivalent is to read params/result from whichever shape each
   // side is. Without the `.Func` arms, a `Func` given fell to `TypeValue.Unit`
   // for its result, so `Impl(Fn(e : E) -> T)` vs `fn(e : IoExn) -> i32` bound
-  // the io.async forall `T = unit` (→ later `Future(unit,E)` vs
+  // the io.async generic `T = unit` (→ later `Future(unit,E)` vs
   // `Future(i32,IoExn)` "Cannot unify unit and i32").
   exp_params := match(
     expected_ty,
@@ -1725,7 +1725,7 @@ _synthesize_types_impl :: (
     ee = res.expected_env;
     ge = res.given_env;
     // Array LENGTH synthesis (mirrors TS synthesizer.ts:884-940): when the
-    // EXPECTED length is an unresolved forall variable and the GIVEN length
+    // EXPECTED length is an unresolved generic variable and the GIVEN length
     // is concrete, bind the variable in the expected env to the concrete
     // count so `_resolve_one_forall_binding` sees `U := <n>`.
     exp_lvar := match(expected_ty,.Array(_, _, lv) => lv, _ => String.from(""));
@@ -1783,7 +1783,7 @@ _synthesize_types_impl :: (
     ge = res.given_env;
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
-  // Case: Func + Func (same forall+param count)
+  // Case: Func + Func (same generic+param count)
   if(is_function_type(expected_ty) && is_function_type(given_ty), {
     exp_fa := match(expected_ty,.Func({ forall_types : fats }) => fats, _ => ArrayList(TypeValue).new());
     giv_fa := match(given_ty,.Func({ forall_types : fats }) => fats, _ => ArrayList(TypeValue).new());
@@ -1798,7 +1798,7 @@ _synthesize_types_impl :: (
     exp_ret := match(expected_ty,.Func({ result : r }) => r, _ => TypeValue.Unit);
     giv_ret := match(given_ty,.Func({ result : r }) => r, _ => TypeValue.Unit);
     if((exp_fa.len() == giv_fa.len()) && (exp_pt.len() == giv_pt.len()), {
-      // Synthesize forall type params
+      // Synthesize generic type params
       n_fa := exp_fa.len();
       (fai : usize) = usize(0);
       while(fai < n_fa, {

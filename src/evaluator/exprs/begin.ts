@@ -34,7 +34,11 @@ import { exprTreeContainsReturn } from "../../expr-traversal";
 import { generateExprFromCode } from "../../parser";
 import type { Token } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
-import { isFunctionType, isReferenceStructType, isSomeType } from "../../types/guards";
+import {
+  isFunctionType,
+  isReferenceStructType,
+  isSomeType,
+} from "../../types/guards";
 import {
   typeContainsRcType,
   typeIsControlBound,
@@ -1495,7 +1499,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       exprToEvaluate.args[0] = evaluatedEscapeArgExpr;
 
       // Type-check against enclosingFunctionReturnType.
-      // Skip when it is a SomeType (e.g., forall T hasn't resolved yet) —
+      // Skip when it is a SomeType (e.g., generic T hasn't resolved yet) —
       // the unwind value's type will determine the actual return type.
       if (
         !isSomeType(context.enclosingFunctionReturnType) &&

@@ -71,10 +71,10 @@ assert((arr(usize(1)) == i32(20)), "应该是 20");
 
 ### 泛型实现
 
-对于泛型类型如 `ArrayList(T)`，在 impl 中使用 `forall`：
+对于泛型类型如 `ArrayList(T)`，在 impl 中使用 `generic`：
 
 ```rust
-impl(forall(T : Type), ArrayList(T), Index(usize)(
+impl(generic(T : Type), ArrayList(T), Index(usize)(
   Output : T,
   index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
     assert((idx < self._length), "ArrayList: index out of bounds");

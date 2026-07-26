@@ -112,7 +112,7 @@ export function evaluateComptimeFunctionCall({
             // For caching purposes, we need EXACT equality, not just compatibility.
             if (isTypeValue(argValue) && isTypeValue(givenArgValue)) {
               // CRITICAL: For SomeTypes, we must compare by id, not by name or structure.
-              // Two different SomeTypes (e.g., V from Box's definition and T from impl's forall)
+              // Two different SomeTypes (e.g., V from Box's definition and T from impl's generic)
               // should NOT be considered equal even if they have the same structure.
               // This ensures that Box(V) and Box(T) create separate cache entries.
               if (

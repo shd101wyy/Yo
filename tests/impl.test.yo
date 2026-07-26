@@ -9,7 +9,7 @@ RetI32 :: trait(
 );
 use_id :: (
   fn(
-    forall(T : Type),
+    generic(T : Type),
     value : T,
     where(T <: Id)
   ) -> T
@@ -193,13 +193,13 @@ impl(
     get_number : (self -> self.y)
   )
 );
-use_trait_a :: (fn(forall(T : Type), self : T, where(T <: TraitDisambigA)) -> i32)({
+use_trait_a :: (fn(generic(T : Type), self : T, where(T <: TraitDisambigA)) -> i32)({
   return(self.get_number());
 });
-use_trait_b :: (fn(forall(T : Type), self : T, where(T <: TraitDisambigB)) -> i32)({
+use_trait_b :: (fn(generic(T : Type), self : T, where(T <: TraitDisambigB)) -> i32)({
   return(self.get_number());
 });
-use_trait_b_explicit :: (fn(forall(T : Type), self : T, where(T <: TraitDisambigB)) -> i32)({
+use_trait_b_explicit :: (fn(generic(T : Type), self : T, where(T <: TraitDisambigB)) -> i32)({
   return((T <: TraitDisambigB).get_number(self));
 });
 test("Test trait method disambiguation with where-clause constraints", {

@@ -129,7 +129,7 @@ masked := ((A | B) | C);
 - Unquote splicing is the tight operator `...#(exprs)`; do not insert a space between `...` and `#`.
 - Canonical pointer dereference is `ptr.*`; formatter should canonicalize legacy `ptr.(*)` to `ptr.*`.
 - **Pointer deref (`p.*`), arithmetic (`&+`, `&-`, `&/`), and `consume(p.* = v)` require `unsafe(...)`, AND the file must declare `pragma(Pragma.AllowUnsafe);` at the top before `unsafe(...)` is usable.** Pointer comparison (`&==`, `&<`, etc.) and pointer-type casts (`*(u8)(p)`) stay safe. `unsafe(expr)` is a one-arg builtin call: `v := unsafe(p.*);`, `unsafe(p.* = i32(5));`, `unsafe(p &+ usize(1))`. Every file in `std/`, `yo-self/`, and `tests/` declares the pragma explicitly. User code (default) does not, so attempts to use `unsafe(...)` are rejected with a hint to add the pragma. See `plans/MEMORY_SAFETY.md`.
-- **In-place mutation without raw pointers:** use the `inout(name) : T` parameter modifier (parallel to `own(name)`). `swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({ tmp := a; a = b; b = tmp; });` — caller writes `swap(x, y)` with no `&()` syntax. The compiler lowers `inout(name) : T` to `T*` in C and inserts `&(arg)` at the call site automatically. Cannot combine with `own(...)` or with `forall`/`using` (those are erased at runtime — no binding to mutate). CAN combine with `comptime` as `comptime(inout(name)) : T` — the parameter is erased at runtime and mutations propagate via the evaluator's compile-time binding update path (used by prelude `ComptimeIndex`). See `plans/MEMORY_SAFETY.md` Phase B.
+- **In-place mutation without raw pointers:** use the `inout(name) : T` parameter modifier (parallel to `own(name)`). `swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({ tmp := a; a = b; b = tmp; });` — caller writes `swap(x, y)` with no `&()` syntax. The compiler lowers `inout(name) : T` to `T*` in C and inserts `&(arg)` at the call site automatically. Cannot combine with `own(...)` or with `generic`/`using` (those are erased at runtime — no binding to mutate). CAN combine with `comptime` as `comptime(inout(name)) : T` — the parameter is erased at runtime and mutations propagate via the evaluator's compile-time binding update path (used by prelude `ComptimeIndex`). See `plans/MEMORY_SAFETY.md` Phase B.
 - **Reference-semantics-type params:** use plain `name : Type`, NOT `*(Type)` or `inout(name) : Type`. Reference-semantics types — `ref(struct(...))` / `ref(enum(...))` (and `atomic(ref(...))`) — such as `Environment`, `EvalContext`, `CodegenContext`, `Emitter`, `HashMap`, `ArrayList`, … carry reference semantics: passing by name already shares the underlying RC state, so mutations through the param propagate to the caller. `*(Type)` requires `pragma(Pragma.AllowUnsafe);` for the `.* ` derefs and clutters the API; `inout(name) : Type` is redundant since reference semantics already share state. Use the plain form: `foo :: (fn(ctx : EvalContext) -> unit)(ctx.method());`. The same applies at call sites — don't wrap reference-semantics arguments with `&(obj)`; just pass `obj`. For receivers on reference-semantics methods, plain `self : Self` is the idiom (`yo-self/env.yo`, `yo-self/codegen/context.yo`, `yo-self/emitter.yo` all follow this). `inout(self) : Self` is reserved for receivers on value-type methods (the form used by `Hash`, `Clone`, `ToString`, `Index`, `ComptimeIndex`, `Writer`, `Reader`).
 - **Byte-buffer params:** for SAFE public signatures use owned collections (`ArrayList(u8)`/`String`). For pragma'd internals/FFI, `RawSlice(u8)` carries ptr+len (construct with `RawSlice(u8)(ptr : &(buf(0)), len : n)`; read `.ptr`/`.len` fields). The `_cstr` family is the explicit raw-pointer variant — those names signal raw-pointer use by contract.
 - **Audit public stdlib safety with `./yo-cli public-safe-report [path]`.** Flags every top-level public `fn(...)` whose params or return type expose `*(T)` outside an `extern(...)` block. Skips FFI-by-construction directories (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`) and names that signal raw-pointer use by contract (`*_cstr`, `*_ptr`, `*_raw`, `raw_*`, `from_raw_parts`, `as_ptr`, `argv`, `argc`). Currently reports 0 findings on `./std` and `./yo-self`; keep it that way when adding new APIs.
@@ -320,18 +320,18 @@ permissive than Rust). `tests/match_bind_nothing.test.yo` is the spec.
 ## Generics and compile-time
 
 ```rust
-identity :: (fn(forall(T : Type), value : T) -> T)(value);
+identity :: (fn(generic(T : Type), value : T) -> T)(value);
 
 max :: (fn(comptime(a) : i32, comptime(b) : i32) -> comptime(i32))(
   cond((a > b) => a, true => b)
 );
 
-show :: (fn(forall(T : Type), value : T, where(T <: ToString)) -> unit)(
+show :: (fn(generic(T : Type), value : T, where(T <: ToString)) -> unit)(
   println(value)
 );
 ```
 
-- `forall(T : Type)` introduces a generic type parameter
+- `generic(T : Type)` introduces a generic type parameter
 - `comptime(x) : T` makes a parameter compile-time only
 - `where(T <: Trait)` constrains a type parameter
 - Functions returning `comptime(...)` are evaluated at compile time
@@ -541,7 +541,7 @@ lower to runtime `assert(...)` (runtime fns) or `comptime_assert(...)`
 
 ```rust
 // requires/ensures are SIGNATURE clauses, after params and where(...).
-// ENFORCED order: forall, params, where, requires, ensures — a clause
+// ENFORCED order: generic, params, where, requires, ensures — a clause
 // out of order is a syntax error ("X appears after Y").
 divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> i32)(
   x / y
@@ -654,6 +654,33 @@ match(val,
 ```
 
 Same applies to `.IntLit(42)`, `.StrLit("hello")`, etc.
+
+### `forall` / `exists` / `∀` / `∃` are RESERVED — the type binder is `generic`
+
+The type-parameter binder is `generic(T : Type)`. `forall` was renamed to it
+(`plans/FORALL_TO_GENERIC.md`) so the quantifier words stay free for
+Dafny-style verification, where they will bind VALUES with a predicate inside
+`requires` / `ensures`. All four words are rejected at LEX time with a targeted
+message, in both the TS lexer (`src/lexer.ts`) and the self-hosted one
+(`yo-self/lexer.yo`):
+
+```
+`forall` is reserved for verification quantifiers. Use `generic(T : Type)` to
+declare type parameters.
+```
+
+```rust
+// WRONG:
+sum :: (fn(forall(T : Type), a : T, b : T) -> T)((a + b));
+
+// CORRECT:
+sum :: (fn(generic(T : Type), a : T, b : T) -> T)((a + b));
+```
+
+Note the INTERNAL identifiers (`forall_labels`, `forall_types`,
+`forallParameters`, …) deliberately keep the old name in both compilers — they
+are invisible to users and renaming them would churn the bootstrap fixpoint for
+no gain.
 
 ### `type` is a reserved keyword — avoid as field/param name
 
@@ -910,19 +937,19 @@ literals/static text only.
 
 These features are powerful but less commonly used. Consult the linked docs for full details.
 
-| Feature                    | Syntax hint                                              | Documentation                                                                                                          |
-| -------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Higher-Kinded Types        | `forall(F : (fn(comptime(T) : Type) -> comptime(Type)))` | [DESIGN.md § HKT](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DESIGN.md#higher-kinded-types-hkt)           |
-| GADTs                      | `enum(IntVal(i : i32) -> recur(i32))`                    | [GADTS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/GADTS.md)                                           |
-| Derive traits              | `derive(MyType, Eq, Hash, Clone, Ord, ToString)`         | [DERIVE_TRAITS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DERIVE_TRAITS.md)                           |
-| Type reflection            | `Type.get_info(T)` returns `TypeInfo`                    | [TYPE_REFLECTION.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/TYPE_REFLECTION.md)                       |
-| Inline assembly            | `asm("mov {0}, #42", out(reg, i32))`                     | [INLINE_ASSEMBLY.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/INLINE_ASSEMBLY.md)                       |
-| Metaprogramming            | `quote(...)`, `unquote(...)`, `unquote_splicing(...)`    | [DESIGN.md § Meta](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DESIGN.md#meta-programming)                 |
-| Effect bundle polymorphism | `forall(E : Type.Struct)` over a bundle struct           | [ALGEBRAIC_EFFECTS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ALGEBRAIC_EFFECTS.md)                   |
-| Custom derive rules        | `derive_rule(MyTrait, (fn(...) -> unquote(Expr)){...})`  | [DERIVE_TRAITS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DERIVE_TRAITS.md#user-defined-derive-rules) |
-| Isolated types             | `Iso(T)` for data-race-free parallelism                  | [ISOLATED.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ISOLATED.md)                                     |
-| Arc (atomic ref count)     | `arc(value)`, `shared.(*)` for cross-thread sharing      | [ARC.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ARC.md)                                               |
-| Parallelism                | Thread pool, `io.spawn` for parallel work                | [PARALLELISM.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/PARALLELISM.md)                               |
+| Feature                    | Syntax hint                                               | Documentation                                                                                                          |
+| -------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Higher-Kinded Types        | `generic(F : (fn(comptime(T) : Type) -> comptime(Type)))` | [DESIGN.md § HKT](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DESIGN.md#higher-kinded-types-hkt)           |
+| GADTs                      | `enum(IntVal(i : i32) -> recur(i32))`                     | [GADTS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/GADTS.md)                                           |
+| Derive traits              | `derive(MyType, Eq, Hash, Clone, Ord, ToString)`          | [DERIVE_TRAITS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DERIVE_TRAITS.md)                           |
+| Type reflection            | `Type.get_info(T)` returns `TypeInfo`                     | [TYPE_REFLECTION.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/TYPE_REFLECTION.md)                       |
+| Inline assembly            | `asm("mov {0}, #42", out(reg, i32))`                      | [INLINE_ASSEMBLY.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/INLINE_ASSEMBLY.md)                       |
+| Metaprogramming            | `quote(...)`, `unquote(...)`, `unquote_splicing(...)`     | [DESIGN.md § Meta](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DESIGN.md#meta-programming)                 |
+| Effect bundle polymorphism | `generic(E : Type.Struct)` over a bundle struct           | [ALGEBRAIC_EFFECTS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ALGEBRAIC_EFFECTS.md)                   |
+| Custom derive rules        | `derive_rule(MyTrait, (fn(...) -> unquote(Expr)){...})`   | [DERIVE_TRAITS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DERIVE_TRAITS.md#user-defined-derive-rules) |
+| Isolated types             | `Iso(T)` for data-race-free parallelism                   | [ISOLATED.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ISOLATED.md)                                     |
+| Arc (atomic ref count)     | `arc(value)`, `shared.(*)` for cross-thread sharing       | [ARC.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ARC.md)                                               |
+| Parallelism                | Thread pool, `io.spawn` for parallel work                 | [PARALLELISM.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/PARALLELISM.md)                               |
 
 ---
 

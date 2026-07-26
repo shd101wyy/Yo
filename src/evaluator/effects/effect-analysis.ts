@@ -51,7 +51,7 @@ export function analyzeEffectCallPoints(
 ): EffectAnalysisResult {
   // Check if the effect parameter type is a function type so we can use it
   // as a fallback for type info when sub-expressions lack evaluation data
-  // (e.g., bodies of functions with forall(...(E)) spread effect parameters).
+  // (e.g., bodies of functions with generic(...(E)) spread effect parameters).
   const effectParamFnType = isFunctionType(effectParameterType)
     ? effectParameterType
     : undefined;
@@ -178,7 +178,7 @@ export function analyzeEffectCallPoints(
  *    `mod.errors.raise(msg)` where the effectFieldPath traces the field access chain.
  *
  * When allowMissingType is true, the type check on func.$?.type is relaxed.
- * This is needed for functions with forall(...(E)) spread effect parameters
+ * This is needed for functions with generic(...(E)) spread effect parameters
  * whose body sub-expressions may not have type info set during generic evaluation.
  */
 function isEffectCall(

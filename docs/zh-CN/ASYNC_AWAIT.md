@@ -273,7 +273,7 @@ TaskCtx :: struct(io : Io, raise : Raise, log : Log);
 
 ```rust
 { yield } :: import "std/async";
-Raise :: (fn(forall(T : Type), msg : String) -> T);
+Raise :: (fn(generic(T : Type), msg : String) -> T);
 Log :: (fn(msg : String) -> unit);
 TaskCtx :: struct(io : Io, raise : Raise, log : Log);
 
@@ -297,10 +297,10 @@ export main;
 
 ```rust
 Io :: struct(
-  async : (fn(forall(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
-  await : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
-  state : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E))) -> FutureState),
-  spawn : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
+  async : (fn(generic(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
+  await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
+  state : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E))) -> FutureState),
+  spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
 ```
 
@@ -342,7 +342,7 @@ Future 在完成后保留其结果。对于引用计数类型的结果，每次 
 
 ```rust
 main :: (fn(io : Io) -> unit) {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(generic(T : Type), msg : String) -> T);
   task := io.async((io : Io, raise : Raise) => {
     raise(`something went wrong`);
     return i32(42);
@@ -869,7 +869,7 @@ export main;
 当以下条件**全部**满足时，效应参数在捕获结构体中成为运行时 `void*` 字段：
 
 1. 参数是**函数类型**（不是像 `Io` 这样的模块）
-2. 函数类型**没有 `forall` 参数**（像 `fn(forall(T : Type), ...) -> T` 这样的泛型效应在编译期解析）
+2. 函数类型**没有 `generic` 参数**（像 `fn(generic(T : Type), ...) -> T` 这样的泛型效应在编译期解析）
 3. 处理器在 `io.async` 创建时**尚未解析**（外部作用域中没有 `(name : Type) = handler` 绑定）
 
 如果处理器在创建时已可用（通过 `given` 绑定），则在编译期解析，参数保持为编译期专用。
@@ -918,7 +918,7 @@ handle.await(io);
 | 条件                                 | 解析方式   | C 表示           |
 | ------------------------------------ | ---------- | ---------------- |
 | `handler` 在 `io.async` 时在作用域内 | 编译期     | 直接函数调用     |
-| 泛型效应（`forall(T)`）              | 编译期     | 直接函数调用     |
+| 泛型效应（`generic(T)`）             | 编译期     | 直接函数调用     |
 | 模块（`Io`）类型                     | 编译期     | 无运行时字段     |
 | 非泛型、未解析的处理器               | 运行时注入 | `void*` 捕获字段 |
 
