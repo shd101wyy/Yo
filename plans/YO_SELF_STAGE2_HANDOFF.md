@@ -1,9 +1,148 @@
 # yo-self Stage-2 Handoff — #69 Campaign
 
-_Last updated 2026-07-25. `git log` of this file has the full archaeology;
+_Last updated 2026-07-26. `git log` of this file has the full archaeology;
 per-bug details live in `issues/*.md` — do not re-litigate fixed bugs._
 
+## READ THIS FIRST (2026-07-26) — the #69 count was overstated by 33 files
+
+`165/183` counted **33 files that report "N passed" while running NOTHING**.
+Proven end-to-end: appending `test("probe", { assert(false, "must fail"); })`
+to a copy of `tests/basic.test.yo` gives TS "33 passed / 1 failed" and yo-self
+"**34 passed**". yo-self emits the whole batch `main` as one
+`// Failed to transpile match((__yo_batch_env.env).get("YO_TEST_INDEX"), …)`
+comment, so the binary runs nothing, exits 0, and the harness scores every test
+a pass. Control: the same probe on `rc` (main NOT hollow) correctly reports
+1 failed. Full write-up + reproducer: `issues/yo-self-hollow-test-batch-main.md`.
+
+**Honest baseline, full 183-file sweep on HEAD (`e6536402e`), 2026-07-26:**
+
+| verdict    | files   | meaning                                  |
+| ---------- | ------- | ---------------------------------------- |
+| **GREEN**  | **131** | exits 0 AND the batch `main` really runs |
+| **HOLLOW** | **33**  | reports "N passed" with an empty `main`  |
+| **RED**    | **19**  | ordinary failure                         |
+
+So **52 of 183 are failing**, not 18. The 33 hollow files hide ~950 reported
+assertions (string/string 251, async_await 116, algebraic_effects 72,
+collections/linked_list 69, option_result_combinators 54, index 48, imm_vec 47,
+…). Harness: `scratchpad/hollow_sweep69.sh` (resumable; scores GREEN only when
+rc==0 AND main is not a comment). **Re-run it before quoting any number, and
+never quote a pass count without it.**
+
+Why every existing gate missed this: GATE 1 checks battery PASS COUNTS and a
+vacuous pass counts; GATE 2's corpus is standalone `compile` inputs, never
+generated test batches; the stage2/stage3 marker gate only covers the
+self-compile. A per-test hollow gate is now mandatory.
+
+### Why one bad expression kills a whole file
+
+The generated batch `main` has exactly ONE statement — the `match` on
+`YO_TEST_INDEX` containing every test. So ANY evaluation failure in ANY test
+body loses that statement's `ExprInfo`, and codegen replaces the whole dispatch
+with a comment. Fixing one evaluator failure can therefore flip an entire file;
+equally, a file stays hollow until its LAST failure is fixed.
+
+### Ranked causes of the 33 hollow files (measured, not guessed)
+
+Captured with a diagnostic s1 that prints every error swallowed by
+`_evaluate_expression_wrapper` (`_expr.yo:1018`) and the two def-time trial
+handlers. 16 messages appear in all 33 files (prelude-evaluation noise — ignore
+them); these are the DISCRIMINATING ones:
+
+| files | error                                                                                                                           |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------- |
+| **8** | `Incompatible types:` — the closure-forall family (see below)                                                                   |
+| **7** | `Expected compile error, but the expression was evaluated successfully:`                                                        |
+| **3** | `Expected a label for function parameter, got requires(y != i32(0))`                                                            |
+| 2     | `Expected enum type or primitive type for match expression, got unit`                                                           |
+| 2     | `Cannot unify incompatible types: "usize" and "Type"`                                                                           |
+| 2     | `Failed to evaluate right-hand side of assignment: (reversed._head)`                                                            |
+| 2     | `Type mismatch for type member "_f":`                                                                                           |
+| 1 ea. | 17 more singles (asm not implemented, `_` array length, `for(inout(x))`, `unwind` outside fn, `Variable "printf" not found`, …) |
+
+- **`Incompatible types:` (8)** — algebraic_effects, async_await, closure,
+  gadts, imm_list, imm_vec, string/string, sys/file.
+- **`Expected compile error …` (7)** — atomic_object, basic, impl,
+  inherent_first_resolution, module_struct_unification, operator_grouping,
+  prelude. These tests use `comptime_expect_error`; yo-self is MORE PERMISSIVE
+  than TS there, so the expectation fails and takes the file with it.
+- **`requires(...)` param label (3)** — spec/contracts_phase0,
+  spec/pragma_no_contracts, spec/pragma_verify: contract clauses are not
+  parsed.
+
+Every one of the 33 has at least one discriminating cause captured (0 files
+unexplained), so this table is a complete work-list.
+
 ## Status
+
+### 2026-07-26 session — 3 fixes landed, 0 flips, 1 metric corrected
+
+All three cleared the full gate battery INCLUDING STRICT_FIXPOINT
+(battery 19/19, corpus PASS 140 / DIFF 0, `check ./std` 153/153, stage2
+hollow=6 baseline, clang, stage3):
+
+| commit      | change                                                                 |
+| ----------- | ---------------------------------------------------------------------- |
+| `a5457bad1` | drop scope locals in REVERSE declaration order (TS `env.ts:2265`)      |
+| `95b17cc95` | visited-id guard on `type_to_string` — **all 6 cluster-A stalls gone** |
+| `e6536402e` | `UnknownValue.isRuntimeOnly` port (comptime params, TS `value.ts:163`) |
+
+`95b17cc95` is the big one operationally: `imm_vec`, `imm_sorted_map`,
+`imm_sorted_set`, `imm_threading`, `btree_map`, `priority_queue` went from
+1800 s timeouts to **3-5 seconds each**. Measured cause: 100% of samples in ONE
+`_impl_type_captures_sig → value_to_signature_string → _tts` render at 6.8 GB
+RSS. A probe on TS's `typeToString` over the same file peaks at **44
+characters** — TS never renders those types because `_impl_type_captures_sig`
+has no TS counterpart (impl.ts:1551 embeds substitutions in the funcId).
+NOTE these six are still not green: five are ordinary reds now, `imm_vec` is
+hollow.
+
+Useful ops fact discovered: **an s1 build is ~2 minutes**, not 10 —
+`./yo-cli compile yo-self/main.yo --release -o /tmp/x_s1`. The ~40 min cost is
+stage2/stage3 ONLY. Iterating on evaluator changes is therefore cheap; build a
+scratch copy (`cp -R yo-self /tmp/yoself-x`), instrument it, and compile that —
+this also keeps the real tree untouched while a gate run is reading it.
+
+### DEAD ENDS from 2026-07-26 — measured, do not repeat
+
+1. **`synthesizeTypes` on the closure return in `closure_type.yo`**
+   (TS closure-type.ts:186-196, a real missing port): implemented, **zero
+   effect** — instrumentation shows
+   `try_to_implement_closure_by_fn_module_type` is NEVER called for a closure
+   passed as a call ARGUMENT. That path is `values/anonymous_function.yo`.
+2. **Stamping the SomeType return from the body type in the `=>` lambda path**
+   (faithful port of TS anonymous-function.ts:963-988, using yo-self's shared
+   `resolved_concrete` cell): it FIRES (`ret=U : (Send) rid=1975 body=i32`) and
+   Step 6 in helper.yo then sees `eid=1975/rc=1 gid=1975/rc=1` — same SomeT,
+   resolution present — and the repro is UNCHANGED. Whatever consumes `U`
+   inside `map`'s body does not read that channel.
+3. **Widening the expected-type clear at `anonymous_function.yo:1243`** beyond
+   io.async closures (so the body types concretely instead of coercing to the
+   forall var): needed to make (2) fire at all, not sufficient alone.
+4. **Narrowing the unknown-arg CTFE gate** (`comptime_fn.yo:565-585`) to
+   non-type returns. TS has NO such gate — `evaluateComptimeFunctionCall` only
+   short-circuits for `isAnalyzingCtfeCapability` (comptime-fn.ts:58-70) — so
+   this IS a faithfulness gap. It clears the standalone repro (markers 2 → 0,
+   the `map` call really emitted) but on the battery it changes nothing for the
+   8 hollow files and **regresses `imm_list` to rc=139 (SIGSEGV)**. Not landed.
+
+Also refuted: the trial-eval unwind is NOT escaping its helper
+(`__DBG_TRIAL before → after out=0` prints prove containment), so
+`_trial_eval_fn_body` is not corrupting the caller by unwinding too far.
+
+### Suggested next moves, highest leverage first
+
+1. **`comptime_expect_error` (7 files, ~90 assertions)** — likely the cheapest
+   block: these fail because yo-self ACCEPTS code TS rejects, so each is a
+   missing validation, and the files are otherwise green. Start by listing the
+   specific expectations that pass in TS and not in yo-self.
+2. **`Incompatible types:` closure-forall family (8 files, ~500 assertions)** —
+   the reproducer is `issues/repros/closure-arg-abandons-enclosing-begin.yo`
+   and dead ends 1-4 above narrow it a lot. Next probe: find what reads `U`
+   inside `map`'s body when the SomeT already carries a resolution.
+3. **`requires(...)` contract clauses (3 files)** — parser-level, self-contained.
+4. Then the 19 REDs, which are the pre-existing cluster map in
+   `issues/yo-self-69-red-list-map.md`.
 
 - **#70 (`s2 test ./yo-self/tests`): DONE — 61/61.**
 - **#69 (`s2 test ./tests`): 164/183 committed** (`3e8dfc1a6` extern-type
