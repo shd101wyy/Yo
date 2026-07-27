@@ -21,12 +21,15 @@ nothing below needs re-litigating._
   was a zero-byte-log phantom kill). It resolved the canonical closure repro
   but flipped no battery file by itself — re-sweep after the value-generic
   chain lands.
-- **Value-generic chain landed (`6e9866bcb`)** — `generic(N : usize)`
-  misbind fixed (see §3's "NEXT LAYER CRACKED"); **imm_list flipped
-  genuinely GREEN in the battery (hollow flags 7 → 6)**; expected to flip
-  imm_vec in the next sweep and to feed the imm_set/imm_sorted_set REDs.
-- **fn-batch chain staged next (TIER 1 green incl. corpus 141/0 +
-  std 153/153 + battery at the new 6-flag baseline)**: labeled-argument
+- **Value-generic chain landed (`6e9866bcb`) — full TIER 2 green incl.
+  FIXPOINT** (`/tmp/t2_vg.log`: stage2 hollow=6, stage3 rc=0,
+  FIXPOINT_HOLDS) — `generic(N : usize)` misbind fixed (see §3's "NEXT
+  LAYER CRACKED"); **imm_list flipped genuinely GREEN in the battery
+  (hollow flags 7 → 6)**; expected to flip imm_vec in the next sweep and
+  to feed the imm_set/imm_sorted_set REDs.
+- **fn-batch chain landed (`59c5fe1fa`, TIER 2 in flight `/tmp/t2_pa.log`;
+  TIER 1 green incl. corpus 141/0 + std 153/153 + battery at the new
+  6-flag baseline)**: labeled-argument
   peel + VALIDATION on both call routes (TS helper.ts:271-302), HKT partial
   application (`Result(_, i32)` — TS function.ts:580-766), sequential
   default-param env + `undefined`-arg defaults (TS helper.ts:323-344), and
