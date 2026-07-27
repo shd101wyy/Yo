@@ -69,6 +69,23 @@ nothing below needs re-litigating._
   box-spec EMISSION (not eval); a decl-position FTT splice breakage was
   found alongside (degrade staged).
 
+- **CLUSTER B SOLVED (`b3a0b8804`, 2026-07-28) — the dyn(box(closure))
+  five-fix chain; c03 repro COMPILES AND RUNS.** The enabler is the port
+  of TS dyn.ts:210-224 (`dyn(box(<closure>))` passes `Box(Impl-SomeT)` as
+  the box call's expected type → V binds the Fn-carrying wrapper → the
+  closure is contextually typed at creation). Plus: function.yo:1799
+  registration regression guard (it was CLOBBERING the mint's concrete
+  spec type — last-wins registry), the declared-param bridge in the mint
+  (return + mint-env halves; **name-guarded to true forall binders** — an
+  unguarded version substituted io.async's `""`-named Future wrapper and
+  crashed the async emitter, a REAL crash wearing the zero-byte-log
+  phantom signature), the dyn-wrapper payload-resolved C-name fallback,
+  and capture-struct nominal identity in exact compat (comptime-fn cache
+  collision between same-shaped captures). Full chain + probes in
+  `issues/yo-self-hollow-test-batch-main.md`. Corpus +2 regression tests
+  (**new corpus baseline 143**). Expected to feed the closure/fn hollow
+  flips; re-sweep #69 after TIER 2.
+
 **Do not quote a bare "N passing" number.** 33 files used to be counted green
 while running NOTHING: yo-self emitted the test batch's whole `main` as a
 `// Failed to transpile …` comment, so the binary exited 0 and the harness
@@ -279,11 +296,13 @@ and gate the batch:
 - Bisect a TIER-2 failure with 2-minute s1 builds. Do not go back to
   one-gate-per-commit.
 
-Green baselines: corpus **PASS 141 / DIFF 0** (140 before
-`while_or_shortcircuit_owned_temp.yo` was added 2026-07-27), `check ./std`
+Green baselines: corpus **PASS 143 / DIFF 0** (141 before the two
+`dyn_box_*` regression tests were added 2026-07-28; 140 before
+`while_or_shortcircuit_owned_temp.yo`, 2026-07-27), `check ./std`
 **153/153**, battery at its counts AND its hollow flags
 (`module_struct_unification` and `atomic_object` are now hollow=0 GREEN;
-`imm_string` 28/hollow=0), stage2 hollow markers **6**, **FIXPOINT HOLDS**.
+`imm_string` 28/hollow=0), stage2 real hollow markers **1**
+(line-anchored grep), **FIXPOINT HOLDS**.
 
 ```bash
 bun run build                                             # before any yo-cli work

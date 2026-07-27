@@ -907,3 +907,68 @@ SKIPPED and V is never collected into y_somes — which would explain the
 bridge never firing. Probe: print y_somes for box's mint; if empty, the
 fix is the visited-guard granularity (key on id + rendered type args, or
 walk type_arguments before the guard).
+
+### CLUSTER-B SOLVED — dyn(box(closure)) five-fix chain (2026-07-28, `b3a0b8804`)
+
+Both prior hypotheses DEAD by probe: `get_all_some_types(Box(V))` DOES
+collect V (`y_somes=1, id=1602 lvl=2` — no shell issue, no visited-guard
+issue; a fresh call's visited set is empty so the id-guard cannot fire on
+the return alone). The bridge in negative-2 was firing AND substituting
+correctly (post-subst `somes=0`, type_key
+`R#gs_yo_id_2797_capture_yo_id_5002_i32`) — the "Box(V)" render was a red
+herring (the struct's stored NAME is literally "Box(V)").
+
+The real chain, each link probed:
+
+1. **function.yo:1799 CLOBBER** (`__YSKIPWHY` probe): after the mint
+   registers the concrete spec type, the FuncVal arm re-registers with its
+   own `resolved_ret` = `Box(wrapper)` (fa_bound subst binds V := the
+   wrapper SomeT) — last-wins registry → `should_skip_function_codegen`
+   sees a generic return → call-site FTT degrade. FIX: regression guard —
+   never replace a somes-free registered return with a somes-bearing one.
+2. **Closure placeholder type** (`__YREG` probe): the closure registered
+   `fn(y : y) -> _ret` (the `_synthesize_default_func_type` no-expected
+   fallback) → C signature `void* y`. The forall binding was the BARE `V`
+   (rts=0), not a Fn-carrying wrapper — nothing at the mint could recover
+   the trait. ROOT: yo-self's dyn port lacked **TS dyn.ts:210-224**, the
+   `dyn(box(<closure>))` special case that passes `Box(Impl-SomeT)` as the
+   box call's expected type. Porting it makes V bind to the wrapper (rts=1)
+   and the closure contextually typed `fn(y : i32) -> i32` at creation.
+   THIS IS THE ENABLER — pieces 1/3/4 then complete the flow.
+3. **helper.yo ys_ret declared-param bridge**: declared param that IS a
+   forall's bare SomeT pairs positionally with the spec's concrete param
+   type (box's `value : V` ↔ capture struct). **MUST be guarded to true
+   forall binders by NAME**: unguarded, io.async's `""`-named
+   `action : Impl(Fn...)` param paired and substituted the equally-`""`-named
+   `Impl(Future(T,E))` RETURN wrapper with the capture struct → walker
+   crashed in the async emitter (`_emit_while_continuation`, pointer =
+   ASCII "esac " — a String read as a pointer). Deterministic rc=139
+   with ZERO-byte log (block-buffered stdout lost on SIGSEGV) — a
+   REAL crash wearing the phantom-kill signature; the lldb run perturbed
+   it into passing. Diagnose this class via
+   `~/Library/Logs/DiagnosticReports/*.ips`, not retries alone.
+4. **helper.yo zb mint-env bridge**: bind V := capture in callee_env
+   BEFORE the spec body eval — the body's `Box(V)(value)` ctor otherwise
+   types the pattern-era instantiation (body called never-emitted
+   `__yo_new___yo_t3` while the signature returned `__yo_t16*`).
+5. **Two knock-on identity fixes**: (a) codegen/functions/dyn.yo wrapper
+   payload lookup falls back to the payload-RESOLVED key (`Box(W)` →
+   `Box(capture)`) — the raw recorded key is no longer collected
+   (dyn*fn_field / dyn_fn_same_sig_closures SELF-FAILs); (b)
+   types/compatibility.yo capture-struct NOMINAL identity under exact
+   match (`capture*<id>` ids compare by id — TS compatibility.ts:292
+rejects on id inequality for SomeT-free structs; TS's per-closure
+StructType object identity). Without (b), two same-shaped captures
+(`{a : i32}`from two closures) collided the comptime-fn CTFE cache and
+the second`box(<closure>)`'s ctor reused the first's Box instantiation
+   ("passing **yo_t32 to parameter of incompatible type **yo_t26" — the fn
+   dyn-manual-boxing batch, needs BOTH the auto-box and manual-box blocks
+   to reproduce).
+
+A speculative 6th piece (re-register the closure's func type from the
+wrapper's Fn trait at the mint) measured DEAD post-dyn-fix and was removed
+(t_func_simple also drops meta flags — hazard).
+
+Corpus regression tests: `tests/codegen-bootstrap/dyn_box_closure_binding.yo`
+(the c03 block runs end-to-end), `dyn_box_same_shape_captures.yo`
+(corpus baseline now 143). TIER 1 green; TIER 2 in flight.
