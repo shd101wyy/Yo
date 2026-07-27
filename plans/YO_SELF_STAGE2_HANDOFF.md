@@ -58,6 +58,17 @@ nothing below needs re-litigating._
   separately. Perf: token interning + String== ptr fast path landed
   (`b00ff439e`, stage2 emit 42.0 → 38.4 min).
 
+- **Closure take-on-expected-type landed (`340c05b9e`) — full TIER 2 green
+  incl. FIXPOINT.** An Impl(Fn)-annotated BINDING's closure now records the
+  wrapper SomeT (capture struct in the value-scoped resolved cell — NOT the
+  global registry, which measured harmful in batch 5). Gated to
+  non-io.async + concrete Fn-trait result; helper.yo Step 7 now sets
+  `is_inside_io_async_call` (the TS helper.ts:1314 twin — this was why the
+  flag measured FALSE in earlier gate attempts). c01 + c06 repros compile
+  and run. Cluster-B frontier moved: `dyn(box(closure))` now fails at the
+  box-spec EMISSION (not eval); a decl-position FTT splice breakage was
+  found alongside (degrade staged).
+
 **Do not quote a bare "N passing" number.** 33 files used to be counted green
 while running NOTHING: yo-self emitted the test batch's whole `main` as a
 `// Failed to transpile …` comment, so the binary exited 0 and the harness
