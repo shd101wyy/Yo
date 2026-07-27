@@ -133,6 +133,14 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
   // Array assignment uses direct struct copy; everything else is scalar.
   if(is_array_type(lhs_type), {
     rhs_code := emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context);
+    // Same FTT degrade as the scalar arm below.
+    if(rhs_code.starts_with("// Failed to transpile"), {
+      ftl := indent.clone();
+      ftl.push_string(rhs_code);
+      em.emit_string_line(ftl);
+      context.current_assignment_save_temp = prev_save_temp;
+      return(match(ei.variable_name,.Some(v) => v,.None => String.from("")));
+    });
     if(is_init, {
       vt := get_variable_type_string(lhs_type, _call_generate_expr(lhs, indent.clone(), context), context.base);
       line := indent.clone();
@@ -151,6 +159,18 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
     });
   }, {
     rhs_code := emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context);
+    // DEGRADED assignment when the RHS render failed to transpile: splicing
+    // the comment into `<type> <name> = <comment>;` breaks the C
+    // ("unexpected type name", the c03 dyn(box(closure)) shape). Same
+    // convention as the return/tail FTT degrades — emit the whole statement
+    // as the comment; TS never reaches this state.
+    if(rhs_code.starts_with("// Failed to transpile"), {
+      ftl := indent.clone();
+      ftl.push_string(rhs_code);
+      em.emit_string_line(ftl);
+      context.current_assignment_save_temp = prev_save_temp;
+      return(match(ei.variable_name,.Some(v) => v,.None => String.from("")));
+    });
     if(!(is_unit_type(lhs_type)), {
       c_type_string := get_type_string(lhs_type, context.base);
       is_sm_var := match(context.in_async_state_machine,.Some(_) => lhs_code.starts_with("sm->"),.None => false);

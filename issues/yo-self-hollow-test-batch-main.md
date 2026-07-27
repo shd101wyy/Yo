@@ -856,3 +856,22 @@ known `// Failed to transpile unwind();`), CLANG_RC=0.
 `scratchpad/gates_perf1.sh` now uses the anchored grep; **new stage2
 baseline: hollow=1 (real markers)**. Historic "baseline 6" == 1 real + 5
 literals.
+
+### Degrade-cascade boundary reached on c03 (2026-07-27 late)
+
+Two more FTT degrades landed (assignment RHS splice + dyn inner-value
+splice — both emitted `<type> <name> = // comment;` invalid C). With them,
+c03's failure moves one statement further each time: the degraded BINDING
+(`(closure : Dyn(...)) = dyn(box(...))`) never declares `closure`, so every
+downstream USE (`closure2 := closure`, `closure(1)`) emits references to an
+undeclared identifier. Degrading those too would re-implement
+eval-abandonment statement-by-statement. VERDICT: the degrade convention is
+for STANDALONE failed expressions; a failed BINDING requires the real fix —
+emit `box(<closure>)`'s spec correctly (the cluster-B root: box's `V` binds
+to the Impl-Fn wrapper SomeT; the spec keyed on it is dropped by
+has_generic_return at emission even though the wrapper now carries the
+capture struct in its resolved cell post-340c05b9e). Next probe: why
+`should_skip_function_codegen` still sees the unresolved SomeT in box's
+registered spec type — the spec registration path (create_specialized's
+register_func_type) likely needs the same resolved-cell-aware substitution
+the mint's return got in batch 5.
