@@ -83,8 +83,14 @@ nothing below needs re-litigating._
   and capture-struct nominal identity in exact compat (comptime-fn cache
   collision between same-shaped captures). Full chain + probes in
   `issues/yo-self-hollow-test-batch-main.md`. Corpus +2 regression tests
-  (**new corpus baseline 143**). Expected to feed the closure/fn hollow
-  flips; re-sweep #69 after TIER 2.
+  (**new corpus baseline 143**). **FULL TIER 2 GREEN incl. FIXPOINT**
+  (2026-07-28: corpus 143/0, std 153/153, stage2 rc=0 hollow=1 clang=0,
+  stage3 rc=0 markers=1, stage2/stage3 byte-identical). NOTE: the stage3
+  emit was killed THREE times as a harness background task (~25-40 min
+  in, zero-byte logs, machine phantom-kill class) — it completed only
+  when launched DETACHED (`nohup ... & disown` + a done-file to poll);
+  use that pattern for any 30-min-plus job on this box. #69 re-sweep in
+  flight.
 
 **Do not quote a bare "N passing" number.** 33 files used to be counted green
 while running NOTHING: yo-self emitted the test batch's whole `main` as a
