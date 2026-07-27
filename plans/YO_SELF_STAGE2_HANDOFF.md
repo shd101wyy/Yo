@@ -7,18 +7,28 @@ nothing below needs re-litigating._
 ## Where things stand
 
 - **#70 (`s2 test ./yo-self/tests`): DONE — 61/61.**
-- **#69 (`s2 test ./tests`): 138 GREEN / 28 HOLLOW / 17 RED of 183.**
-  Measured 2026-07-27 late (`/tmp/hs_pa`, s1 = `/tmp/pa_s1` from
-  `59c5fe1fa`) with walker + bufio phantom-kill flakes corrected by retry
-  (raw sweep said 136/28/19; both re-ran clean). vs the morning sweep
-  (135/29/19, `/tmp/hs_final`): **`imm_list`** (16), **`imm_vec`** (47)
-  flipped hollow → GREEN (the value-generic chain), **`sync/once`** (11)
-  flipped RED → GREEN (red cluster 3 — the closure-convention work), and
-  `impl` moved RED → rc=0 partial-hollow (the emission degrades). fn's
-  markers went 1 → 6 (same hollow verdict — MORE statements now emit, the
-  remaining dead ones are individually marked). Earlier that day:
-  `module_struct_unification` (10/10) and `atomic_object` (21/21) flipped
-  hollow → GREEN.
+- **#69 (`s2 test ./tests`): 137 GREEN / 29 HOLLOW / 17 RED of 183.**
+  Measured 2026-07-28 (`/tmp/hs_dbc`, s1 = `/tmp/ws_s1` from `b3a0b8804`).
+  vs the 2026-07-27 sweep (138/28/17, `/tmp/hs_pa` at `59c5fe1fa`):
+  **`ref_closure_capture` flipped RED → GREEN** (the cluster-B chain);
+  walker + bufio green in-run. The three DOWN moves are **NOT cluster-B
+  regressions — all verified identical under the pre-batch binary**; they
+  are migration/take-on-era surface first measured by this sweep (hs_pa
+  predates `8acde607a`/`340c05b9e`): `algebraic_effects` HOLLOW → RED
+  (batch C now emits more and hits 2 clang errors: evidence-record
+  `exn.throw` called with raw int where the type-erased param is `void*`,
+  and an undeclared `outer_val` return), `ptr` + `unsafe` GREEN → HOLLOW
+  (the whole batch `main` degrades — trait-dispatched pointer COMPARISONS
+  via the migration's `Ord(*(T))` generic impl never emit; repro
+  `/tmp/ptr_repro.yo`, 10 markers, bisect cleared all five cluster-B
+  pieces). Also diagnosed: `closure_capture_rc_leak` RED is the closure
+  `void* x` param class — closures whose expected carries no Fn trait
+  still take the `_synthesize_default_func_type` placeholder path (the
+  dyn(box(...)) fix only covers that shape).
+  History (2026-07-27): `imm_list`/`imm_vec` flipped hollow → GREEN
+  (value-generic chain), `sync/once` RED → GREEN, `impl` RED → rc=0
+  partial-hollow, `module_struct_unification` (10/10) and `atomic_object`
+  (21/21) hollow → GREEN.
 - **Batch 5 (specialization-mint emission chain, helper.yo) is TIER 2 green
   incl. FIXPOINT** (2026-07-27, `/tmp/t2_b12.log`; the gate-1 walker rc=139
   was a zero-byte-log phantom kill). It resolved the canonical closure repro
