@@ -11,7 +11,7 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, alloc_global_expr_id } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, alloc_global_expr_id, ast_expr_is_fn_call_of } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -320,7 +320,8 @@ evaluate_dyn_value :: (
   // negative traits (a type variable, which `synthesize` binds to the
   // concrete value and checks the trait constraints against); otherwise
   // clear the expected type entirely.
-  (inner_expected : Option(ExpectedTypeCtx)) = match(
+  (inner_expected : Option(ExpectedTypeCtx)) = Option(ExpectedTypeCtx).None;
+  match(
     ctx.expected_type,
     .Some(et) => match(
       et.ty,
@@ -329,28 +330,63 @@ evaluate_dyn_value :: (
         required_trait_levels : rtl,
         negative_trait_types : ntt,
         negative_trait_levels : ntl
-      ) =>
-        Option(ExpectedTypeCtx).Some(
-          ExpectedTypeCtx(
-            ty : TypeValue.SomeT(
-              generate_some_type_id(),
-              String.from(""),
-              env.frames.len(),
-              TypeValue.TypeUni(usize(0)),
-              rtt,
-              rtl,
-              ntt,
-              ntl,
-              false,
-              Option(TypeValue).None,
-              ArrayList(TypeValue).new()
+      ) => {
+        w_ty := TypeValue.SomeT(
+          generate_some_type_id(),
+          String.from(""),
+          env.frames.len(),
+          TypeValue.TypeUni(usize(0)),
+          rtt,
+          rtl,
+          ntt,
+          ntl,
+          false,
+          Option(TypeValue).None,
+          ArrayList(TypeValue).new()
+        );
+        (exp_ty : TypeValue) = w_ty;
+        // dyn(box(<closure>)) special case — faithful port of TS
+        // dyn.ts:210-224: pass `Box(Impl-SomeT)` as the box call's
+        // expected type so its early return-type synthesis binds
+        // `V := <the Fn-carrying wrapper>` and the closure argument is
+        // contextually typed from the wrapper's Fn trait (concrete
+        // param types). Without it the closure is created through the
+        // no-expected placeholder fallback (`fn(y : y) -> _ret`) and
+        // its C signature emits `void*` params (the cluster-B family).
+        // (TS's isBoxFunctionCall also accepts `Box(T)(...)` ctor
+        // calls; the bare `box` head covers the dyn-closure pattern.)
+        dyn_box_closure := if(
+          ast_expr_is_fn_call_of(value_arg, "box", Option(usize).Some(usize(1))),
+          match(
+            value_arg,
+            .FnCall(_, _, dbc_args, _, _) => match(
+              dbc_args.get(usize(0)),
+              .Some(dbc_a0) => ast_expr_is_fn_call_of(dbc_a0, "=>", Option(usize).None),
+              .None => false
             ),
+            _ => false
+          ),
+          false
+        );
+        if(dyn_box_closure, {
+          match(
+            _create_boxed_type(w_ty, env, ctx, exn),
+            .Some(dbc_bt) => {
+              exp_ty = dbc_bt;
+            },
+            .None => ()
+          );
+        });
+        inner_expected = Option(ExpectedTypeCtx).Some(
+          ExpectedTypeCtx(
+            ty : exp_ty,
             env : et.env
           )
-        ),
-      _ => Option(ExpectedTypeCtx).None
+        );
+      },
+      _ => ()
     ),
-    .None => Option(ExpectedTypeCtx).None
+    .None => ()
   );
   // Non-executing path: still type-check the inner expression, then return early.
   if(ctx.is_validating_function_definition || !(ctx.is_executing), {

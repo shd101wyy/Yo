@@ -201,6 +201,68 @@ _emit_wrapper_call :: (fn(em : Emitter, cname : String, first_arg : String, n_pa
   line.push_string(call);
   em.emit_declaration_string_line(line);
 });
+/// Resolve a boxed dyn payload type's SomeT fields/type-arguments through
+/// their resolved-concrete cells (`Box(W)` → `Box(<capture struct>)`). The
+/// eval-side declared-param bridge (2026-07-27) registers the box spec on
+/// the RESOLVED instantiation, so the collected C struct is keyed on it,
+/// while the dyn impl entry recorded the wrapper-SomeT form at coercion
+/// time. Unresolved SomeTs pass through unchanged.
+_resolve_box_payload :: (fn(t : TypeValue) -> TypeValue)(
+  match(
+    t,
+    .Struct({
+      id : rbp_id,
+      name : rbp_nm,
+      field_labels : rbp_fl,
+      field_types : rbp_ft,
+      is_reference_semantics : rbp_irs,
+      is_atomic_rc : rbp_iar,
+      is_newtype : rbp_inw,
+      constructor_func_id : rbp_cfid,
+      type_arguments : rbp_ta,
+      is_source_namespace : rbp_isn
+    }) => {
+      rbp_new_ft := ArrayList(TypeValue).new();
+      (rbp_i : usize) = usize(0);
+      while(rbp_i < rbp_ft.len(), {
+        rbp_e := match(rbp_ft.get(rbp_i),.Some(x) => x,.None => TypeValue.Unit);
+        (rbp_r : TypeValue) = rbp_e;
+        if(is_some_type(rbp_e), {
+          rbp_r = resolve_some_type_to_concrete(rbp_e);
+        });
+        rbp_new_ft.push(rbp_r);
+        rbp_i = (rbp_i + usize(1));
+      });
+      rbp_new_ta := ArrayList(TypeValue).new();
+      (rbp_j : usize) = usize(0);
+      while(rbp_j < rbp_ta.len(), {
+        rbp_e2 := match(rbp_ta.get(rbp_j),.Some(x) => x,.None => TypeValue.Unit);
+        (rbp_r2 : TypeValue) = rbp_e2;
+        if(is_some_type(rbp_e2), {
+          rbp_r2 = resolve_some_type_to_concrete(rbp_e2);
+        });
+        rbp_new_ta.push(rbp_r2);
+        rbp_j = (rbp_j + usize(1));
+      });
+      .Struct(rbp_id, rbp_nm, rbp_fl, rbp_new_ft, rbp_irs, rbp_iar, rbp_inw, rbp_cfid, rbp_new_ta, rbp_isn)
+    },
+    _ => t
+  )
+);
+/// C name for the boxed dyn payload: the raw recorded key first (the
+/// pre-bridge convention), then the payload-resolved key (see
+/// `_resolve_box_payload`).
+_boxed_c_name :: (fn(data_type : TypeValue, context : FunctionGenerationContext) -> String)(
+  match(
+    context.base.get_type_c_name(type_key(data_type.clone())),
+    .Some(cn) => cn,
+    .None => match(
+      context.base.get_type_c_name(type_key(_resolve_box_payload(data_type.clone()))),
+      .Some(cn2) => cn2,
+      .None => `unknown_${type_key(data_type.clone())}`
+    )
+  )
+);
 /// Build the wrapper signature param list: `void* self_ptr` plus one `argN` per
 /// impl parameter after the receiver, typed from `param_types[start..]`.
 _wrapper_params :: (fn(param_types : ArrayList(TypeValue), start : usize, context : FunctionGenerationContext) -> String)({
@@ -288,7 +350,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                   );
                   cc_info := if(cc_struct_id.len() > usize(0), context.base.impl_closure_call_map.get(cc_struct_id), Option(ImplClosureCallInfo).None);
                   if(is_boxed && match(cc_info,.Some(_) => true,.None => false), {
-                    boxed_cname := match(context.base.get_type_c_name(type_key(data_type.clone())),.Some(cn) => cn,.None => `unknown_${type_key(data_type.clone())}`);
+                    boxed_cname := _boxed_c_name(data_type.clone(), context);
                     field_name := _box_field_name(data_type.clone());
                     em.emit_declaration_string_line(`  ${boxed_cname}* box = (${boxed_cname}*)self_ptr;`);
                     cc_fn := match(cc_info,.Some(mp) => mp.function_c_name.clone(),.None => String.from(""));
@@ -315,7 +377,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                     // wrapper for an unresolved inner (the eval-side failure
                     // discards it); fall through to the zeroed stub — nothing
                     // calls it, its callers were dropped by the same throw.
-                    boxed_cname := match(context.base.get_type_c_name(type_key(data_type.clone())),.Some(cn) => cn,.None => `unknown_${type_key(data_type.clone())}`);
+                    boxed_cname := _boxed_c_name(data_type.clone(), context);
                     field_name := _box_field_name(data_type.clone());
                     em.emit_declaration_string_line(`  ${boxed_cname}* box = (${boxed_cname}*)self_ptr;`);
                     // General fat-pointer path: box->field.call(box->field.data, args...).
@@ -400,7 +462,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                                   pbp := (match(param_types.get(usize(0)),.Some(p0) => is_pointer_type(p0),.None => false) || match(param_is_ref.get(usize(0)),.Some(r) => r,.None => false));
                                   (first_arg : String) = String.from("");
                                   if(is_boxed, {
-                                    boxed_cname := match(context.base.get_type_c_name(type_key(data_type.clone())),.Some(cn) => cn,.None => `unknown_${type_key(data_type.clone())}`);
+                                    boxed_cname := _boxed_c_name(data_type.clone(), context);
                                     field_name := _box_field_name(data_type.clone());
                                     em.emit_declaration_string_line(`  ${boxed_cname}* box = (${boxed_cname}*)self_ptr;`);
                                     first_arg = if(pbp, `&box->${field_name}`, `box->${field_name}`);

@@ -1553,6 +1553,91 @@ create_specialized_function_inline :: (
                         false,
                         synthetic_token(zb_name, callee_env.module_path)
                       );
+                    }, {
+                      // Declared-param bridge, mint-env half (the
+                      // value-semantics equivalent of TS's shared
+                      // resolvedConcreteType identity): the forall bound to
+                      // an UNRESOLVED wrapper SomeT (box's `V` := the
+                      // Impl-Fn wrapper from the expected-type arm) leaves
+                      // the spec BODY eval typing `Box(V)(value)` with the
+                      // pattern-era instantiation — a DIFFERENT C struct
+                      // identity than the registered concrete return (the
+                      // cluster-B `__yo_new___yo_t3` undeclared-ctor shape).
+                      // A declared param that IS that bare SomeT pairs
+                      // positionally with the call's concrete argument type
+                      // (a closure arg resolves to its capture struct); bind
+                      // THAT so the body eval sees the same concrete `V` the
+                      // registered spec type carries. In TS the wrapper's
+                      // resolvedConcreteType is set once and seen everywhere,
+                      // body eval included.
+                      if(is_some_type(zb_tb) && is_type_0(zb_kind), {
+                        zb_pt := match(func_type,.Func({ param_types : zpt }) => zpt, _ => ArrayList(TypeValue).new());
+                        (zbp : usize) = usize(0);
+                        (zb_done : bool) = false;
+                        while((zbp < zb_pt.len()) && !(zb_done), {
+                          zb_decl_nm := match(
+                            zb_pt.get(zbp),
+                            .Some(zb_dt) => match(
+                              zb_dt,
+                              .SomeT(_, zdn, _, _, _, _, _, _, _, _, _) => zdn,
+                              _ => String.from("")
+                            ),
+                            .None => String.from("")
+                          );
+                          if((zb_decl_nm.len() > usize(0)) && (zb_decl_nm == zb_name), {
+                            (zb_conc : Option(TypeValue)) = Option(TypeValue).None;
+                            match(
+                              arg_values.args.get(zbp),
+                              .Some(zb_ae2) => {
+                                match(
+                                  zb_ae2.value,
+                                  .Some(zb_v2) => match(
+                                    zb_v2,
+                                    .FuncVal(zb_fvd, _) => {
+                                      match(
+                                        get_closure_capture_info(zb_fvd.*.func_id.clone()),
+                                        .Some(zb_ci) => {
+                                          zb_conc = Option(TypeValue).Some(zb_ci.capture_type);
+                                        },
+                                        .None => ()
+                                      );
+                                    },
+                                    _ => ()
+                                  ),
+                                  .None => ()
+                                );
+                                match(
+                                  zb_conc,
+                                  .Some(_) => (),
+                                  .None => if((get_all_some_types(zb_ae2.arg_type).len() == usize(0)) && !(is_unit_type(zb_ae2.arg_type)), {
+                                    zb_conc = Option(TypeValue).Some(zb_ae2.arg_type);
+                                  })
+                                );
+                              },
+                              .None => ()
+                            );
+                            match(
+                              zb_conc,
+                              .Some(zb_ct) => {
+                                _zb2 := add_variable_to_env(
+                                  callee_env,
+                                  zb_name,
+                                  TypeValue.TypeUni(usize(0)),
+                                  Option(EvalValue).Some(EvalValue.TypeVal(zb_ct.clone())),
+                                  true,
+                                  false,
+                                  false,
+                                  false,
+                                  synthetic_token(zb_name, callee_env.module_path)
+                                );
+                                zb_done = true;
+                              },
+                              .None => ()
+                            );
+                          });
+                          zbp = (zbp + usize(1));
+                        });
+                      });
                     }),
                     _ => ()
                   ),
@@ -2233,6 +2318,7 @@ create_specialized_function_inline :: (
                 };
                 ys_ret := subst_new();
                 (ys_any : bool) = false;
+                ys_added_names := ArrayList(String).new();
                 (yrsi : usize) = usize(0);
                 while(yrsi < y_somes.len(), {
                   yrst := match(y_somes.get(yrsi),.Some(t) => t,.None => t_unit());
@@ -2251,6 +2337,7 @@ create_specialized_function_inline :: (
                                 yv,
                                 .TypeVal(ytb) => if(!(is_some_type(ytb)), {
                                   subst_add(ys_ret, yrst_name.clone(), yrst_lvl, ytb.clone());
+                                  ys_added_names.push(yrst_name.clone());
                                   ys_any = true;
                                 }),
                                 _ => ()
@@ -2266,6 +2353,77 @@ create_specialized_function_inline :: (
                     _ => ()
                   );
                   yrsi = (yrsi + usize(1));
+                });
+                // Declared-param bridge — the value-semantics equivalent of
+                // TS's shared resolvedConcreteType identity. When the forall
+                // binding itself is an unresolved SomeT (e.g. box's V bound
+                // to the Impl-Fn wrapper), the loop above harvests nothing,
+                // but a declared param that IS that bare SomeT (`own(value)
+                // : V`) pairs positionally with the spec's CONCRETE param
+                // type (the closure capture struct resolved above). In TS
+                // the same information flows through object identity: the
+                // wrapper SomeType's resolvedConcreteType is set once and
+                // seen everywhere, including inside the specialized return.
+                (ydb : usize) = usize(0);
+                while(ydb < sp_pt.len(), {
+                  match(
+                    sp_pt.get(ydb),
+                    .Some(ydb_dt) => match(
+                      ydb_dt,
+                      .SomeT(_, ydb_nm, ydb_lvl, _, _, _, _, _, _, _, _) => {
+                        // ONLY true forall binders: the declared SomeT's name
+                        // must be one of this function's generic names. A
+                        // WRAPPER param like io.async's `action : Impl(Fn(e :
+                        // E) -> T)` is a SomeT NAMED "" — pairing it would
+                        // substitute the equally-""-named `Impl(Future(T,E))`
+                        // RETURN wrapper with the capture struct, corrupting
+                        // the async spec type (walker async-emitter SIGSEGV,
+                        // pointer = ASCII "esac    ").
+                        (ydb_is_forall : bool) = false;
+                        if(ydb_nm.len() > usize(0), {
+                          (ydb_f : usize) = usize(0);
+                          while((ydb_f < forall_names.len()) && !(ydb_is_forall), {
+                            match(
+                              forall_names.get(ydb_f),
+                              .Some(fnm) => if(fnm == ydb_nm, {
+                                ydb_is_forall = true;
+                              }),
+                              .None => ()
+                            );
+                            ydb_f = (ydb_f + usize(1));
+                          });
+                        });
+                        (ydb_seen : bool) = !(ydb_is_forall);
+                        (ydb_k : usize) = usize(0);
+                        while(ydb_k < ys_added_names.len(), {
+                          match(
+                            ys_added_names.get(ydb_k),
+                            .Some(an) => if(an == ydb_nm, {
+                              ydb_seen = true;
+                            }),
+                            .None => ()
+                          );
+                          ydb_k = (ydb_k + usize(1));
+                        });
+                        if((!(ydb_seen)) && (ydb < spec_param_types.len()), {
+                          match(
+                            spec_param_types.get(ydb),
+                            .Some(ydb_ct) => {
+                              if((get_all_some_types(ydb_ct).len() == usize(0)) && !(is_unit_type(ydb_ct)), {
+                                subst_add(ys_ret, ydb_nm.clone(), ydb_lvl, ydb_ct.clone());
+                                ys_added_names.push(ydb_nm.clone());
+                                ys_any = true;
+                              });
+                            },
+                            .None => ()
+                          );
+                        });
+                      },
+                      _ => ()
+                    ),
+                    .None => ()
+                  );
+                  ydb = (ydb + usize(1));
                 });
                 if(ys_any, {
                   spec_result = substitute(ys_ret, sp_res_b);

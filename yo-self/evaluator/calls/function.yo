@@ -1778,7 +1778,7 @@ _evaluate_funcval_runtime_call :: (
     // the concrete return (`resolved_ret`, via explicit generic subst), so
     // re-register the specialized type with the result corrected.
     base_spec_ty := get_func_type(spec_fid);
-    spec_ty_fixed := match(
+    spec_ty_candidate := match(
       base_spec_ty,
       .Func({
         forall_types : fx_ft,
@@ -1796,7 +1796,26 @@ _evaluate_funcval_runtime_call :: (
       ),
       _ => base_spec_ty
     );
-    register_func_type(spec_fid.clone(), spec_ty_fixed);
+    // Never REGRESS the registered return: create_specialized's declared-
+    // param bridge (helper.yo) can concretize a return this arm cannot —
+    // box's `V` binds to the Impl-Fn wrapper SomeT, so the fa_bound subst
+    // above leaves `Box(V)` generic while the registered spec return is
+    // already the concrete capture-struct instantiation. Overriding with
+    // the LESS-resolved return re-marks the spec hard-generic and
+    // should_skip_function_codegen drops its emission (the cluster-B
+    // dyn(box(closure)) FTT). Override only when this arm's return is at
+    // least as resolved as the registered one.
+    base_ret_somes := match(
+      base_spec_ty,
+      .Func({ result : fx_r0 }) => get_all_some_types(fx_r0).len(),
+      _ => usize(0)
+    );
+    cand_ret_somes := get_all_some_types(resolved_ret).len();
+    is_ret_regression := ((cand_ret_somes > usize(0)) && (base_ret_somes == usize(0)));
+    spec_ty_fixed := if(is_ret_regression, base_spec_ty, spec_ty_candidate);
+    if(!(is_ret_regression), {
+      register_func_type(spec_fid.clone(), spec_ty_fixed);
+    });
     spec_callee_info := new_expr_info(env, spec_ty_fixed);
     spec_callee_info.value = Option(EvalValue).Some(spec_fv);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(func_expr), spec_callee_info);

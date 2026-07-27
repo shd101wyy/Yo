@@ -602,6 +602,20 @@ _compat_impl :: (
         // their original's id (caught by the id-equality arm). See
         // issues/yo-self-same-name-local-struct-spec-cache-collision.md.
         (((aname.len() != usize(0)) && (aname == ename)) && (((ata.len() == usize(0)) && (eta.len() == usize(0))) && ((!(type_contains_some_type(actual))) && (!(type_contains_some_type(expected)))))) => false,
+        // CAPTURE-STRUCT nominal identity (exact only): each closure's capture
+        // struct is minted ONCE under a deterministic `capture_<id>` struct id
+        // (utils/closure.yo g_capture_struct_ids) and is never re-minted as an
+        // id-churned copy, so different capture ids ARE different types — the
+        // faithful equivalent of TS's per-closure StructType object identity
+        // (TS compatibility.ts:292 rejects on id inequality for SomeT-free
+        // structs). Capture structs carry empty names and empty cfids, so the
+        // nominal arms above never fire for them; without this rule two
+        // same-shaped captures (`{a : i32}` from two different closures)
+        // compare exact-equal and collide the comptime-fn CTFE cache — the
+        // second `box(<closure>)`'s `Box(V)(value)` ctor hit the FIRST
+        // closure's cached Box instantiation ("passing __yo_t32 to parameter
+        // of incompatible type __yo_t26", the fn dyn-manual-boxing batch).
+        (aid.starts_with("capture_") && eid.starts_with("capture_")) => (aid == eid),
         (alabels.len() != elabels.len()) => false,
         true => {
           vkey := ((aid.clone() + String.from("=>")) + eid);
