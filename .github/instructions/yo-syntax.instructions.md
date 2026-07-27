@@ -484,7 +484,7 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 - **`while(comptime(cond), body)`** explicitly opts into compile-time loop unrolling. Requires `cond` to be a compile-time-known value. The evaluator will error if it detects an infinite loop (e.g., `while(comptime(true), ...)` with no `break`/`return`/`unwind`).
 - If you use a comptime-only (`::`) variable in a bare `while` condition (without `comptime()`), the compiler will **error**: the condition would never change at runtime, causing an infinite loop.
 - `assert`/`panic` live in `std/assert` (`{ assert, panic } :: import("std/assert");`) — not prelude-ambient. Messages accept any `ToString` type (template strings OK); `assert(cond)` uses a default message. The diverging builtin for value-position arms is `__yo_panic("str only")`.
-- Pointer arithmetic uses `&+`, `&-`, `&<`, `&>`, `&<=`, `&>=` operators with `&` prefix.
+- Pointer operators are the `&`-prefixed family: identity `&==` / `&!=`, ordering `&<`, `&<=`, `&>`, `&>=`, arithmetic `&+`, `&-` (offset by `usize`), difference `&/` (→ `isize`). Plain `==` does NOT exist for typed pointers (`*(u8) == *(u8)` fails overload resolution) — use `p &== q` for pointer identity. Comparisons are safe; arithmetic requires `unsafe(...)`.
 
 ## `unsafe(...)` and `pragma(Pragma.AllowUnsafe);` for raw pointer operations
 
