@@ -1,7 +1,19 @@
 # Retire the `&`-prefixed pointer operators — traits for comparison, methods for arithmetic
 
-_Status: PLANNED (approved 2026-07-27). Breaking language change (`feat(lang)!`),
-same class as the `forall` → `generic` rename._
+_Status: EXECUTED (`8acde607a`, 2026-07-27; TIER 1 green — corpus 141/0,
+battery 6-flag baseline, std 153/153; TIER 2 in flight). Breaking language
+change (`feat(lang)!`), same class as the `forall` → `generic` rename._
+
+**Execution notes:** risk #2 (unsafe-gate placement) was real — the gate
+moved to pointer-receiver method resolution in `src/evaluator/calls/
+function.ts`; yo-self never had the arithmetic gate (pre-existing unported
+gap, unchanged). A NEW pre-existing yo-self bug surfaced and is documented
+with bisect + repro in `issues/yo-self-ptr-eq-trait-call-in-shortcircuit.md`:
+a trait-dispatched pointer `==` as a `||` LHS miscompiles (corpus rc=133);
+`std/string/string.yo`'s fast path therefore calls `__yo_ptr_eq` directly.
+The flowability rule needed the method forms (both compilers,
+pointer-receiver-gated). `&-` hand-audit: only 1 real site existed (the
+prelude impl itself) — raw grep counts were comment/string noise.
 
 ## Motivation
 
