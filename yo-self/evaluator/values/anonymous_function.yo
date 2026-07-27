@@ -55,7 +55,7 @@ open(import("std/string"));
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ t_unit, t_some_t, t_func_simple } :: import("../../types/creators.yo");
+{ t_unit, t_some_t, t_func_simple, t_resolved_cell } :: import("../../types/creators.yo");
 {
   EvalValue,
   FuncValData,
@@ -90,7 +90,7 @@ open(import("std/string"));
 { create_function_body_evaluation_context } :: import("../calls/function_type.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound } :: import("../../types/utils.yo");
-{ is_some_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type } :: import("../../types/guards.yo");
+{ is_some_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 {
   clear_flow_violation,
@@ -1444,7 +1444,79 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   // Build and store the ExprInfo for this expression.
   // -------------------------------------------------------------------------
-  info := new_expr_info(env, function_type);
+  // TS anonymous-function.ts:1183-1252: a CLOSURE whose expected type is a
+  // SomeT wrapper TAKES ON that wrapper as its recorded type, with the
+  // capture struct as its resolved concrete — so an Impl(Fn(...))-ANNOTATED
+  // BINDING's compat check sees the SomeT, not the plain Func (the c01/c06
+  // closure-battery hollow). Recorded on the VALUE COPY's resolved cell —
+  // NOT the global register_some_resolved_concrete registry (that stamp
+  // measured hollow regressions in fs/file + fs/temp; the cell is
+  // value-scoped). Ported for the wrapper-has-Fn-in-requiredTraits case
+  // only (the annotation shape); TS's synthetic `__impl_fn` wrapper for
+  // where-clause-constrained generics (ts:1205-1216) is NOT ported — those
+  // paths keep the plain Func type as before.
+  // GATED to closures whose expected Fn-trait RESULT is CONCRETE: the
+  // async pipeline registers the sync-future struct and io.await
+  // refinement against the UNRESOLVED wrapper SomeT, and its closures'
+  // declared result is the unresolved `T` — taking on the wrapper for
+  // them broke all 12 io_async corpus files (SELF-FAIL: the FSM resume
+  // call lost the closure-context argument; measured 2026-07-27, and
+  // `ctx.is_inside_io_async_call` used to be FALSE here because only the
+  // function.yo route set it — helper.yo's Step 7 now sets it too (the TS
+  // helper.ts:1314 twin), so the flag gates io.async closures whose `T`
+  // was pre-bound concrete by Step-6b — the four fsm/bundle corpus files
+  // the concrete-result check alone admitted). A concrete result means a
+  // fully-annotated binding shape (`(c : Impl(Fn(y : i32) -> i32)) = ...`),
+  // which is exactly the c01/c06 case.
+  (final_lambda_ty : TypeValue) = function_type;
+  if(is_creating_closure && !(ctx.is_inside_io_async_call), {
+    match(
+      expected_ty,
+      .SomeT(w_id, w_nm, w_fl, w_pt, w_rtt, w_rtl, w_ntt, w_ntl, w_ier, w_kft, _) => {
+        match(
+          closure_capture_type,
+          .Some(cap_t) => {
+            (w_has_concrete_fn : bool) = false;
+            (wf_i : usize) = usize(0);
+            while(wf_i < w_rtt.len(), {
+              match(
+                w_rtt.get(wf_i),
+                .Some(w_rt) => if(is_fn_trait_type(w_rt), {
+                  match(
+                    w_rt,
+                    .FnTraitT({ call_result : w_cr }) => if(!(is_some_type(w_cr)), {
+                      w_has_concrete_fn = true;
+                    }),
+                    _ => ()
+                  );
+                }),
+                .None => ()
+              );
+              wf_i = (wf_i + usize(1));
+            });
+            if(w_has_concrete_fn, {
+              final_lambda_ty = TypeValue.SomeT(
+                w_id,
+                w_nm,
+                w_fl,
+                w_pt,
+                w_rtt,
+                w_rtl,
+                w_ntt,
+                w_ntl,
+                w_ier,
+                w_kft,
+                t_resolved_cell(cap_t)
+              );
+            });
+          },
+          .None => ()
+        );
+      },
+      _ => ()
+    );
+  });
+  info := new_expr_info(env, final_lambda_ty);
   info.value = Option(EvalValue).Some(func_val);
   info.is_anonymous_function_definition = Option(bool).Some(true);
   // Phase 3: closure_function_value is not set (EvalValue is not Clone).

@@ -3471,6 +3471,16 @@ try_to_call_function_with_arguments :: (
       rt_args := ArrayList(AstExpr).new();
       (callee_env_m : Environment) = callee_env;
       (caller_env_m : Environment) = caller_env;
+      // io.async: evaluate the closure ARGUMENT under async-block context
+      // (mirrors TS helper.ts:1314-1315 setting isInsideIoAsyncCall in
+      // tryToCall — the OTHER route, function.yo:3369, already sets it; this
+      // route previously did not, which is why the flag measured FALSE at
+      // closure eval and could not gate the closure take-on-expected-type
+      // port). Restored after the arg loop.
+      h_prev_io_async_ctx := ctx.is_inside_io_async_call;
+      if(is_io_async_call(expr), {
+        ctx.is_inside_io_async_call = true;
+      });
       // io-builtin args (io.await/io.state/io.spawn/JoinHandle.await) must be
       // evaluated WITHOUT an expected type so the future arg keeps its natural
       // type (TS helper.ts:378-384 `functionType.ioBuiltin` skip). yo-self has no
@@ -3681,6 +3691,8 @@ try_to_call_function_with_arguments :: (
         exn
       );
       require_valid_ref_argument_places(vrf_param_is_ref, adjusted_args, caller_env_m, ctx, exn);
+      // Restore the io.async arg-eval context flag (set before Step 7).
+      ctx.is_inside_io_async_call = h_prev_io_async_ctx;
       // ----------------------------------------------------------------
       // Step 8: Extract resolved generic values from callee_env.
       // ----------------------------------------------------------------
