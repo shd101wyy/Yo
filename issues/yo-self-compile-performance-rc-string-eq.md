@@ -307,3 +307,28 @@ HashMap lookup keyed by `frame.index_key` (itself a String hash+compare)
 — more than scanning a handful of names. The threshold is not the lever;
 INTERNING is (make the compare an id compare everywhere, which removes
 both the scan cost and the hashing).
+
+## 2026-07-27 — lever 1 (String== accessor inlining) measured: ~-2%, NOT the lever
+
+Direct `_length`/`_ptr` field reads replacing the four `.len()`/`.ptr()`
+accessor calls in `std/string/string.yo`'s `==` (and the same semantics
+note added there). Measured:
+
+- `check ./std` A/B (3 alternating reps): **-2.0%** min user.
+- Full stage2 emit, quiet machine: **42.0 min** vs pat2's 42.8 min
+  (same-day code + concurrent sweep load) — noise-level.
+
+Landed anyway (strictly positive, zero measured risk: corpus 141/0,
+battery at baseline, std 153/153, stage2 real hollow=1) but the "four
+non-inlined accessor calls" premise was wrong at -O2 — clang was already
+inlining them. NOTE the moving baseline: the 2026-07-25 round-2 stage2
+was 35.9 min; the three 2026-07-27 batches (labeled-arg validation,
+partial application, degrades — all per-call evaluator work) grew a
+quiet-machine emit to ~42 min. Perf and correctness are trading against
+each other right now.
+
+Remaining levers, unchanged priority: **interning identifiers / fids /
+type keys** (String== is ~38% of the emit purely from call volume — id
+compares remove both the compare and the frame-scan hashing), then the
+sound O(subtree + V×returns) hoist of
+`_attach_early_return_only_drop_to_returns`.

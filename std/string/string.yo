@@ -1435,8 +1435,14 @@ impl(
   String,
   Eq(String)(
     (==) : (fn(self : Self, other : Self) -> bool)({
-      (self_len : usize) = match(self._bytes,.Some(b) => b.len(),.None => usize(0));
-      (other_len : usize) = match(other._bytes,.Some(b) => b.len(),.None => usize(0));
+      // Direct field reads instead of the trivial `.len()`/`.ptr()`
+      // accessors: this compare is ~38% of a yo-self stage2 emit purely
+      // from call volume, and each call paid four non-inlined accessor
+      // calls before the memcmp (issues/
+      // yo-self-compile-performance-rc-string-eq.md, lever 1). Same
+      // semantics — `len()` returns `_length`, `ptr()` returns `_ptr`.
+      (self_len : usize) = match(self._bytes,.Some(b) => b._length,.None => usize(0));
+      (other_len : usize) = match(other._bytes,.Some(b) => b._length,.None => usize(0));
       cond(
         (self_len != other_len) => false,
         (self_len == usize(0)) => true,
@@ -1448,13 +1454,13 @@ impl(
                 other._bytes,
                 .Some(other_al) =>
                   match(
-                    self_al.ptr(),
+                    self_al._ptr,
                     .Some(self_ptr) =>
                       match(
-                        other_al.ptr(),
+                        other_al._ptr,
                         // SAFETY: self_len equals other_len (checked
                         // above) and both equal each ArrayList's
-                        // .len() (the inner Option's ptr is Some only
+                        // ._length (the inner Option's _ptr is Some only
                         // when len > 0); memcmp reads exactly that many
                         // bytes from each Rc-managed buffer.
                         .Some(other_ptr) =>
