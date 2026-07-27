@@ -3,7 +3,29 @@ open(import("std/string"));
 open(import("std/fmt"));
 open(import("std/error"));
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 { TokenKind, Token, is_operator_char, is_identifier_start, is_identifier_continue } :: import("./token.yo");
+// Identifier/operator INTERN table: one canonical String instance per
+// distinct token text, so every same-named token shares one buffer and
+// downstream `String ==` hits the interned ptr+len fast path
+// (std/string/string.yo). Identifier-name compares (env frame scans,
+// dispatch conds) are ~38% of a stage2 emit purely from call volume
+// (issues/yo-self-compile-performance-rc-string-eq.md). Safe to share:
+// token value Strings are never mutated in place (audited 2026-07-27);
+// clones fall back to memcmp. The hash+lookup is paid once per TOKEN,
+// the savings on every later compare. yo-self-specific divergence: TS
+// gets this for free from JS engine string interning.
+g_token_intern := HashMap(String, String).new();
+intern_token_str :: (fn(s : String) -> String)(
+  match(
+    g_token_intern.get(s),
+    .Some(canonical) => canonical,
+    .None => {
+      g_token_intern.set(s, s);
+      s
+    }
+  )
+);
 /// An error produced by the lexer during tokenization.
 LexerError :: ref(
   struct(
@@ -107,7 +129,7 @@ tokenize :: (
           j = (j + usize(1));
         });
         op_str := op_sb.to_string();
-        tokens.push(Token(kind : TokenKind.Operator, value : op_str, row : line, column : col, character : char_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.Operator, value : intern_token_str(op_str), row : line, column : col, character : char_idx, module_path : module_path, input : input));
         i = j;
       },
       // Whitespace
@@ -639,7 +661,7 @@ tokenize :: (
           (id_str == `false`) => TokenKind.Bool,
           true => TokenKind.Identifier
         );
-        tokens.push(Token(kind : kind, value : id_str, row : line, column : col, character : char_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : kind, value : intern_token_str(id_str), row : line, column : col, character : char_idx, module_path : module_path, input : input));
         i = j;
       },
       // Unknown character: error

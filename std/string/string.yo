@@ -1463,8 +1463,12 @@ impl(
                         // ._length (the inner Option's _ptr is Some only
                         // when len > 0); memcmp reads exactly that many
                         // bytes from each Rc-managed buffer.
+                        // Interned fast path: the SAME buffer with the
+                        // same length is trivially equal — hit constantly
+                        // once identifier tokens are interned (yo-self
+                        // lexer intern table).
                         .Some(other_ptr) =>
-                          (unsafe(memcmp((*(void))(self_ptr), (*(void))(other_ptr), self_len)) == int(0)),
+                          ((self_ptr &== other_ptr) || (unsafe(memcmp((*(void))(self_ptr), (*(void))(other_ptr), self_len)) == int(0))),
                         .None => false
                       ),
                     .None => false
