@@ -30,9 +30,11 @@ nothing below needs re-litigating._
   LAYER CRACKED"); **imm_list flipped genuinely GREEN in the battery
   (hollow flags 7 → 6)**; expected to flip imm_vec in the next sweep and
   to feed the imm_set/imm_sorted_set REDs.
-- **fn-batch chain landed (`59c5fe1fa`, TIER 2 in flight `/tmp/t2_pa.log`;
+- **fn-batch chain landed (`59c5fe1fa`) — full TIER 2 green incl. FIXPOINT**
+  (`/tmp/t2_pa.log`; stage2 real hollow=1 — the raw-count false alarm and the
+  gate-metric fix are in the issues file / `baa644c6b`;
   TIER 1 green incl. corpus 141/0 + std 153/153 + battery at the new
-  6-flag baseline)**: labeled-argument
+  6-flag baseline)\*\*: labeled-argument
   peel + VALIDATION on both call routes (TS helper.ts:271-302), HKT partial
   application (`Result(_, i32)` — TS function.ts:580-766), sequential
   default-param env + `undefined`-arg defaults (TS helper.ts:323-344), and
