@@ -878,16 +878,16 @@ unsafe(ptr.* = 100);  // x is now 100
 // Pointer arithmetic (requires unsafe — could produce OOB address)
 arr := [1, 2, 3, 4, 5];
 ptr := &(arr(0));  // Pointer to first element
-ptr2 := unsafe(ptr &+ 2);  // Point to third element
+ptr2 := unsafe(ptr.add(2));  // Point to third element
 value := unsafe(ptr2.*);  // value == 3
 
 // Pointer casting (safe — just changes type label on the address)
 float_ptr := *(f32)(ptr);  // Cast pointer to *(f32)
 ```
 
-### Pointer Arithmetic Operations
+### Pointer Arithmetic and Comparison
 
-Yo provides a complete set of pointer arithmetic operators. The arithmetic operators (`&+`, `&-`, `&/`) require `unsafe(...)`; the comparison operators (`&<`, `&>`, `&<=`, `&>=`, `&==`, `&!=`) stay safe — comparing addresses can't violate memory safety.
+Pointer arithmetic uses methods — `p.add(n)`, `p.sub(n)`, `p.offset_from(q)` — which require `unsafe(...)`. Pointer comparison uses the ordinary operators (`==`, `!=`, `<`, `<=`, `>`, `>=`) via the `Eq`/`Ord` impls on `*(T)` and stays safe — comparing addresses can't violate memory safety. Note that `*(T) ==` compares ADDRESSES (identity), while reference-semantics object types compare VALUES via their own `Eq` impls.
 
 ```rust
 test("Pointer arithmetic", {
@@ -896,35 +896,36 @@ test("Pointer arithmetic", {
 
   // Addition and subtraction (require unsafe — could produce
   // out-of-bounds addresses):
-  q := unsafe(p &+ 2);   // Advance pointer by 2 elements
-  z := unsafe(q &- 2);   // Go back 2 elements
+  q := unsafe(p.add(2));   // Advance pointer by 2 elements
+  z := unsafe(q.sub(2));   // Go back 2 elements
 
   // Comparison operators (safe — addresses are just data):
-  assert(q &> p);  // q is after p
-  assert(p &< q);  // p is before q
-  assert(q &>= p); // Greater or equal
-  assert(p &<= q); // Less or equal
-  assert(z &== p); // Equal (same address)
-  assert(p &!= q); // Not equal
+  assert(q > p);  // q is after p
+  assert(p < q);  // p is before q
+  assert(q >= p); // Greater or equal
+  assert(p <= q); // Less or equal
+  assert(z == p); // Equal (same address)
+  assert(p != q); // Not equal
 
   // Pointer difference also requires unsafe (assumes both point
   // into the same object):
-  diff := unsafe(q &/ p);  // Distance: 2 elements
+  diff := unsafe(q.offset_from(p));  // Distance: 2 elements
   assert(diff == 2);
 });
 ```
 
-### Pointer Operators Reference
+### Pointer Operations Reference
 
-- `&+` : Pointer addition (advance)
-- `&-` : Pointer subtraction (go back)
-- `&>` : Greater than comparison
-- `&<` : Less than comparison
-- `&>=` : Greater or equal comparison
-- `&<=` : Less or equal comparison
-- `&==` : Equality comparison
-- `&!=` : Inequality comparison
-- `&/` : Pointer difference (distance)
+Arithmetic (methods, require `unsafe(...)`):
+
+- `p.add(n)` : Advance by `n` elements
+- `p.sub(n)` : Go back by `n` elements
+- `p.offset_from(q)` : Signed element distance (`isize`)
+
+Comparison (ordinary operators via `Eq`/`Ord` on `*(T)`, safe):
+
+- `==` / `!=` : Address equality / inequality
+- `<` / `<=` / `>` / `>=` : Address ordering
 
 ### The consume Function
 
@@ -976,7 +977,7 @@ Yo's safety model is layered (the design plan is [plans/MEMORY_SAFETY.md](../../
 read :: (fn(p : *(i32)) -> i32)(unsafe(p.*));
 
 // Pointer arithmetic likewise:
-advance :: (fn(p : *(i32), n : usize) -> *(i32))(unsafe(p &+ n));
+advance :: (fn(p : *(i32), n : usize) -> *(i32))(unsafe(p.add(n)));
 
 // Multi-statement unsafe with begin-block (semicolons required —
 // `{ ... }` without semicolons is a struct literal, not a block):
@@ -985,13 +986,13 @@ write_and_read :: (fn(p : *(i32), v : i32) -> i32)(unsafe({
   p.*
 }));
 
-// Pointer comparison (&==, &<, etc.) and *(T) casts (e.g., *(u8)(p))
+// Pointer comparison (==, <, etc.) and *(T) casts (e.g., *(u8)(p))
 // stay safe — they don't dereference, so they're not gated.
 ```
 
-**What requires `unsafe(...)`**: pointer dereference (`.*`), pointer arithmetic (`&+`, `&-`, `&/`), and `consume(p.* = v)`.
+**What requires `unsafe(...)`**: pointer dereference (`.*`), pointer arithmetic (`.add(n)`, `.sub(n)`, `.offset_from(q)`), and `consume(p.* = v)`.
 
-**What stays safe**: taking an address (`&(x)`), passing/storing/returning pointers, pointer comparison (`&<`, `&==`, etc.), pointer-type casts (`*(u8)(p)`), and `asm(...)` (already implicitly unsafe).
+**What stays safe**: taking an address (`&(x)`), passing/storing/returning pointers, pointer comparison (`<`, `==`, etc.), pointer-type casts (`*(u8)(p)`), and `asm(...)` (already implicitly unsafe).
 
 The unsafe surface is greppable: every `unsafe(` token marks a place where raw memory ops happen. A file must declare `pragma(Pragma.AllowUnsafe);` at the top before it can use `unsafe(...)` or perform raw pointer operations. `std/`, `yo-self/`, and `tests/` files declare this pragma explicitly; user code (`main.yo`, the rest of your project) defaults to safe mode and gets a compile error if it tries to use `unsafe(...)`.
 

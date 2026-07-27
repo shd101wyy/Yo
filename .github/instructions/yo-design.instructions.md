@@ -101,7 +101,7 @@ when the receiver itself has pointer type.
 ## Pointers
 
 - `Pointer` works in both compile-time and runtime contexts (`Runtime` and `Comptime` traits in `prelude.yo`).
-- Pointer arithmetic: `&+`, `&-`, `&<`, `&>`, `&<=`, `&>=`
+- Pointer comparison: plain `==`/`!=`/`<`/`<=`/`>`/`>=` (Eq/Ord impls on `*(T)`, address identity). Pointer arithmetic: the methods `p.add(n)`, `p.sub(n)`, `p.offset_from(q)` (require `unsafe(...)`).
 - No NULL in Yo. Nullable pointer: `Option(*(T))` or `?*(T)`. `Option(*(T)).None` is optimized as NULL in C codegen.
 
 ## Unsafe operations
