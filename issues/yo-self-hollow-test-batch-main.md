@@ -843,3 +843,16 @@ on that SomeT id resolves at eval, misses at codegen). Cluster B is now
 THE unified frontier for BOTH the fn and closure battery files (plus c01/
 c06's sibling: Impl(Fn)-annotated BINDINGS never route the declared type
 through the closure coercion at all).
+
+### GATE-METRIC FALSE ALARM + FIX (2026-07-27, pat2 TIER-2)
+
+pat2's GATE 4 read "stage2 hollow=12" vs baseline 6 — NOT a regression.
+The metric was a plain `grep -c 'Failed to transpile\|Unknown type:'` over
+the stage2 C, which counts the compiler's OWN string literals: the FTT
+emitters and the 59c5fe1fa degrade guards contain "// Failed to transpile"
+strings, and the self-compile embeds them as C string constants (+6).
+Line-anchored recount: **exactly 1 real marker in BOTH pat2 and vgt2** (the
+known `// Failed to transpile unwind();`), CLANG_RC=0.
+`scratchpad/gates_perf1.sh` now uses the anchored grep; **new stage2
+baseline: hollow=1 (real markers)**. Historic "baseline 6" == 1 real + 5
+literals.

@@ -50,7 +50,12 @@ tail -2 /tmp/${P}_std.log
 echo "=== GATE 4: stage2 emit ==="
 YO_MAIN_STACK_MB=4096 "$S1" compile yo-self/main.yo --release --emit-c --skip-c-compiler -o /tmp/${P}_stage2 &> /tmp/${P}_stage2_emit.log
 echo "STAGE2_RC=$?"
-echo "stage2 hollow=$(grep -c 'Failed to transpile\|Unknown type:' /tmp/${P}_stage2.c)"
+# Count only REAL comment markers (line-anchored): the compiler SOURCE itself
+# contains "// Failed to transpile" string literals (the FTT emitters and the
+# 59c5fe1fa degraded-emission guards), which the self-compile embeds as C
+# string constants — a plain grep counts those and false-alarms (raw went
+# 6 -> 12 with ZERO new real markers). Real baseline: 1 (the unwind() marker).
+echo "stage2 hollow=$(grep -cE '^\s*// (Failed to transpile|Unknown type:)' /tmp/${P}_stage2.c)"
 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/${P}_stage2.c -o /tmp/${P}_s2 2> /tmp/${P}_clang.log
 echo "CLANG_RC=$?"
 
