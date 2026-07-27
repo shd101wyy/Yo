@@ -16,6 +16,11 @@ nothing below needs re-litigating._
   flipped hollow → GREEN; `impl` moved hollow → RED in that sweep, then back
   to rc=0 partial-hollow after the degraded-return fix (see its row below).
   Every other verdict unchanged.
+- **Batch 5 (specialization-mint emission chain, helper.yo) is TIER 2 green
+  incl. FIXPOINT** (2026-07-27, `/tmp/t2_b12.log`; the gate-1 walker rc=139
+  was a zero-byte-log phantom kill). It resolved the canonical closure repro
+  but flipped no battery file by itself — re-sweep after the value-generic
+  chain lands.
 
 **Do not quote a bare "N passing" number.** 33 files used to be counted green
 while running NOTHING: yo-self emitted the test batch's whole `main` as a
@@ -77,14 +82,14 @@ VALIDATION (yo-self ACCEPTS what TS rejects) in an otherwise-green file.
 `ccd2dc498` (`operator_grouping`) proved the method; the 2026-07-27 batch
 `a71032468` worked the six. **Per-file state after the batch:**
 
-| file                        | state                                                                                                                                                                              |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `module_struct_unification` | **FLIPPED GREEN** (10/10) — `module(...)`/`Module` removed from yo-self (the TS Module→Struct unification's missing half)                                                            |
-| `atomic_object`             | **FLIPPED GREEN** (21/21) — atomic-Send enforcement ported (guarded to CONCRETE fields; see the divergence note in `enforce_atomic_object_send`)                                     |
-| `impl`                      | hollow → RED → rc=0 partial-hollow (6/26). Both targets THROW correctly (Impl-divergent-return check in begin.yo + `v.pick("s")` via the arg-type-check); the C build is restored by the degraded `return (void*)0;` for unresolved-Impl returns (codegen/exprs/return.yo). The batch main still drops a region — same silent-abandonment class as §3 |
-| `basic`                     | still hollow. `x = 12` outside a FN BODY now errors (assignment.yo); the WHILE twin is unportable (frame-level off-by-one, measured). NEXT failing cee: `x := 13` after `(x:i32)=12` — needs TS's `addVariableToEnv` no-shadowing/duplicate rules, a wide-blast-radius port  |
-| `inherent_first_resolution` | still hollow. `f.m(true)` errors on HEAD; `s.starts_with(i32(5))` needs call-site where-clause validation WIDENED past marker traits, which first needs `type_implements_trait` fixed for concrete method-trait satisfaction (measured false negatives: `String <: Hash` ×14, `String <: Eq` ×12 over `check ./std` — widening today rejects valid std code)  |
-| `prelude`                   | still hollow. `impl(AnotherBox, Dispose(...))` now REJECTED (self-constraint hook); `assume_init()`-twice is BLOCKED on TS-parity env cloning for the call checking phase (`cloneEnvForCTFECheck`) — a consumed-state gate at the TS-mirror site (helper.ts:402) false-positives on yo-self's shared-env double evaluation (measured: hollows imm_string). Reverted; do not re-land without the env clone  |
+| file                        | state                                                                                                                                                                                                                                                                                                                                                                                                     |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `module_struct_unification` | **FLIPPED GREEN** (10/10) — `module(...)`/`Module` removed from yo-self (the TS Module→Struct unification's missing half)                                                                                                                                                                                                                                                                                 |
+| `atomic_object`             | **FLIPPED GREEN** (21/21) — atomic-Send enforcement ported (guarded to CONCRETE fields; see the divergence note in `enforce_atomic_object_send`)                                                                                                                                                                                                                                                          |
+| `impl`                      | hollow → RED → rc=0 partial-hollow (6/26). Both targets THROW correctly (Impl-divergent-return check in begin.yo + `v.pick("s")` via the arg-type-check); the C build is restored by the degraded `return (void*)0;` for unresolved-Impl returns (codegen/exprs/return.yo). The batch main still drops a region — same silent-abandonment class as §3                                                     |
+| `basic`                     | still hollow. `x = 12` outside a FN BODY now errors (assignment.yo); the WHILE twin is unportable (frame-level off-by-one, measured). NEXT failing cee: `x := 13` after `(x:i32)=12` — needs TS's `addVariableToEnv` no-shadowing/duplicate rules, a wide-blast-radius port                                                                                                                               |
+| `inherent_first_resolution` | still hollow. `f.m(true)` errors on HEAD; `s.starts_with(i32(5))` needs call-site where-clause validation WIDENED past marker traits, which first needs `type_implements_trait` fixed for concrete method-trait satisfaction (measured false negatives: `String <: Hash` ×14, `String <: Eq` ×12 over `check ./std` — widening today rejects valid std code)                                              |
+| `prelude`                   | still hollow. `impl(AnotherBox, Dispose(...))` now REJECTED (self-constraint hook); `assume_init()`-twice is BLOCKED on TS-parity env cloning for the call checking phase (`cloneEnvForCTFECheck`) — a consumed-state gate at the TS-mirror site (helper.ts:402) false-positives on yo-self's shared-env double evaluation (measured: hollows imm_string). Reverted; do not re-land without the env clone |
 
 **New known defect from the impl flip:** when a cee'd fn DEFINITION throws
 mid-body (e.g. at the second divergent `return`), yo-self's mutable
@@ -163,20 +168,33 @@ check_and_add_argument (helper.yo). The canonical repro's markers went
 **2 → 0** (statements emitted for real, first time) and the blast radius is
 gone; battery/corpus/std all at baseline.
 
-**REMAINING (the emission half, WIP =
-`issues/patches/spec-emission-second-half-wip.patch`):** the spec is created,
-cached, and COLLECTED (method-callee side-table), but its registered type
-still returns `List(U)` so `should_skip_function_codegen`'s
-has_generic_return gate drops it — the call site then references an
-undefined `yo_id_..._ret_gs_..._1975_cl1_...` (merges with the cluster-7
-reds). Measured negatives so far: helper.yo Step-8 forall extraction never
-fires for this call (wrong path — it's the FuncVal arm), and the FuncVal
-arm's structural-fallback substitution twin alone doesn't resolve it either.
-Next probe: which FuncVal-arm inference arm binds `U` and to what, filtered
-by callee fid `yo_id_5059` (never by the name `U`). A resolved-return spec
-name (`ret_gs_yo_id_4998_i32`) already appears for another call in the same
-emit, so downstream (fid render, prototype, emission gate) needs nothing
-once the binding lands. The cheap emitted-C sed-instrumentation trick
+**EMISSION HALF LANDED (batch 5, TIER 2 + FIXPOINT green 2026-07-27):** the
+specialization-mint chain in helper.yo (307 insertions) — subst-by-occurrence
+for `spec_ret_ty` and `spec_result` (SomeT occurrences collected from return
+AND all params, `subst_new`/`subst_add`/`substitute`), capture-struct closure
+param typing (`get_closure_capture_info`), the `cap_ty_fixed` rebind
+fallback, and the zb-loop mint-env forall binding. The canonical closure
+repro COMPILES AND RUNS. Two pieces measured harmful and dropped (see the
+issues file): the register-all-specializations collection helper
+(cycle_collector RC regression) and the wrapper-resolution stamp even
+TS-conditioned (fs/file + fs/temp went hollow).
+`issues/patches/spec-emission-second-half-wip.patch` is superseded — only
+its two REJECTED pieces remain of interest as documentation.
+
+**NEXT LAYER CRACKED (value-generic misbind, TIER 1 in flight 2026-07-27):**
+per-arm isolation showed every imm_list closure/generic arm now emits clean;
+the single batch-killer is `from_array` (`generic(N : usize)` + `Array(T,
+N)`) — three writers stamped `N := TypeVal(...)` (kind Type) so
+`with_capacity(N)` throws unify(usize, Type) on the unswallowed spec path.
+Fix chain (function.yo + helper.yo, full mechanism in
+`issues/yo-self-hollow-test-batch-main.md`): structural-fallback `.IntLit`
+propagation into fresh_env (the faithful port of TS calleeEnv carrying
+`N = <len> : usize` from synthesizer.ts:900-937), actual env VALUES in
+spec_forall_args (TS keys specs on compileTimeArgValues), and Type-kind
+guards on the two positional rebinds (receiver fallback + mint zb-loop; TS
+never rebinds foralls). r_fromarray/r_fromlist markers 2 → 0, run clean.
+Expected blast radius: imm_list + imm_vec hollow flips; feeds imm_set /
+imm_sorted_set REDs. The cheap emitted-C sed-instrumentation trick
 (setters/checks/containments/returns as ONE fprintf stream; never mix
 eprintln/fprintf probe channels; stdout is block-buffered under `&>`) is the
 tool that cracked all of this.

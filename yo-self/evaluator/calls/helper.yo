@@ -58,7 +58,7 @@ open(import("std/fmt"));
   get_all_some_types,
   type_contains_some_type
 } :: import("../../types/utils.yo");
-{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0 } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 {
   type_implements_future,
@@ -1478,15 +1478,27 @@ create_specialized_function_inline :: (
           {
             (zb_i : usize) = usize(0);
             n_zb := forall_names.len();
+            zb_ft := match(func_type,.Func({ forall_types : zft }) => zft, _ => ArrayList(TypeValue).new());
             while((zb_i < n_zb) && (zb_i < arg_values.forall_args.len()), {
               zb_name := match(forall_names.get(zb_i),.Some(n) => n,.None => String.from(""));
+              // VALUE-generic binders (`generic(N : usize)` — declared kind is
+              // NOT `Type`) must never be rebound to a TypeVal: on the
+              // method-dispatch route (function.yo spec_forall_args) the
+              // forall_args carry the IMPL-level bindings (T := i32) while
+              // forall_names are the FN-level binders, so a positional bind
+              // would stamp `N := i32` (ty Type) and the body's
+              // `with_capacity(N)` throws unify(usize, Type) on the
+              // unswallowed spec path (the imm_list/imm_vec hollow batch
+              // main). TS never rebinds here at all — its calleeEnv already
+              // carries the (kind-correct) bindings.
+              zb_kind := match(zb_ft.get(zb_i),.Some(t) => t,.None => t_unit());
               match(
                 arg_values.forall_args.get(zb_i),
                 .Some(zb_ae) => match(
                   zb_ae.value,
                   .Some(zb_v) => match(
                     zb_v,
-                    .TypeVal(zb_tb) => if(!(is_some_type(zb_tb)), {
+                    .TypeVal(zb_tb) => if((!(is_some_type(zb_tb))) && is_type_0(zb_kind), {
                       _zb := add_variable_to_env(
                         callee_env,
                         zb_name,

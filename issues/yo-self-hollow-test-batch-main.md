@@ -242,7 +242,6 @@ on plausibility alone.
   (function-type.ts:499) does not take the caller's statement list with it.
 - A per-test hollow gate is mandatory: see "New gate needed" above.
 
-
 ## RE-MEASURED 2026-07-27 (post-validation-batch, s1i + a bracketed diag)
 
 Three probes bracketing the def-time path (`__TR P1..P5` in
@@ -250,9 +249,9 @@ Three probes bracketing the def-time path (`__TR P1..P5` in
 counters, on `issues/repros/closure-arg-abandons-enclosing-begin.yo`:
 
 - The map def-time trial throws (`__DBGT Incompatible types: Expected
-  ctfe_result_… Given unit`) and `_trial_eval_fn_body` CONTAINS it — the
+ctfe_result_… Given unit`) and `_trial_eval_fn_body` CONTAINS it — the
   emitted C is correct (`if (__yo_effect_escaped) { …; __yo_effect_escaped=0;
-  return; }`), and P1..P5 all print: **the def-time path completes
+return; }`), and P1..P5 all print: **the def-time path completes
   normally** (flow_out empty, no re-raise).
 - The abandonment happens ABOVE: after try_to_implement returns, the
   enclosing evaluation chain for `xs.map(closure)` dies silently — main's
@@ -263,7 +262,7 @@ counters, on `issues/repros/closure-arg-abandons-enclosing-begin.yo`:
 - So the killer is a SILENT `__yo_effect_escaped` set (no printing handler
   is ever invoked) somewhere between try_to_implement's return and the call
   evaluation completing, cascading up every `if (__yo_effect_escaped)
-  return` site until the top-level driver's local containment. This matches
+return` site until the top-level driver's local containment. This matches
   the flag-leak class already documented at `_expr.yo` ("HashMap ops
   (ExprInfo table get/set) can leak the escaped flag through GC").
 - **Earlier step-3 wording is corrected**: the trial swallow's unwind does
@@ -279,7 +278,6 @@ Also note for diag builders: there is a FOURTH silent swallow the 3-site
 recipe misses — `_comptime_expect_error_arg_threw`'s `local_exn`
 (`evaluator/builtins/comptime_expect_error.yo`), which eats REAL errors
 during a `comptime_expect_error` argument eval with no diagnostic.
-
 
 ### REFINED 2026-07-27 — the abandonment is NOT an escape-flag cascade either
 
@@ -319,7 +317,6 @@ The 2026-07-26 step-3 attribution ("the trial swallow's unwind abandons the
 begin loop") is definitively WRONG — measured twice over: the trial contains
 correctly and the loop dies later, silently.
 
-
 ### THIRD ROUND 2026-07-27 — the begin frame never exits at all
 
 All 185 compiled `return` statements of `evaluate_begin_expression`'s C body
@@ -356,7 +353,6 @@ lldb with a hardware watchpoint on the dying begin's `loop_i`/`done` stack
 slots (break on entry to `evaluate_begin_expression` when
 `env->module_path` matches the repro, finish-to the fatal iteration, then
 watch), or a gmalloc run that starts the protection late.
-
 
 ### FOURTH ROUND 2026-07-27 — MECHANISM FULLY CAPTURED (single ordered fprintf stream)
 
@@ -407,7 +403,6 @@ SomeT id at the stamp vs at the `List(U)` CTFE short-circuit") should now be
 run INSIDE `create_specialized_function_inline`'s substitution, which is the
 path that actually evaluates the body.
 
-
 ### NEXT ATTEMPT DESIGN (2026-07-27, from the spec-path capture — untried)
 
 The spec body eval resolves `U` from the CALLEE ENV (`get_variables_from_env`)
@@ -431,7 +426,6 @@ Gate any attempt on: the repro's 2 markers, the 8 hollow batteries' hollow
 flags, corpus 141, std 153, and stage2 markers=6 — this area has a history
 of hollow regressions (the closure registry stamp added 13 markers while
 passing every other gate).
-
 
 ### ATTEMPT 5 (2026-07-27) — Step-6 closure-body-type binding: BEST RESULT YET, parked as WIP
 
@@ -473,14 +467,13 @@ bound return (`List(i32)`), which is where the cluster-7 undeclared-spec
 work and this fix meet. Reverted from the tree pending both; the patch
 re-applies cleanly.
 
-
 ### SECOND HALF LOCALIZED (2026-07-27, post-landing) — three checkpoints, one gap left
 
 With the Step-6 binding landed, the residual "spec called but never defined"
 was traced end-to-end on the canonical repro (probes in /tmp/yb):
 
 1. The spec IS created and cached: `__SPECSTORE base=yo_id_5059
-   spec=yo_id_5059_..._cl1_closure_...` — the exact name the call site emits.
+spec=yo_id_5059_..._cl1_closure_...` — the exact name the call site emits.
 2. Codegen COLLECTION does find and register it — via the method-callee VALUE
    side-table path in `codegen/functions/collection.yo`
    (`lookup_method_callee_value`), NOT via any of the module-field /
@@ -557,8 +550,8 @@ TWO MORE DATA POINTS (2026-07-27, final probes of the session):
   already NON-SomeT (concrete) or absent. If concrete, THAT invocation's
   arg_values.forall_args carries i32.
 - The FuncVal arm's four inference arms NEVER attempt `U` at all (unfiltered
-  `__FABIND` census: T/_Self only) — so if the single `__SPECSTORE
-  base=yo_id_5059` mint happened on the FuncVal-arm path, its bindings had
+  `__FABIND` census: T/\_Self only) — so if the single `__SPECSTORE
+base=yo_id_5059` mint happened on the FuncVal-arm path, its bindings had
   no U and the U-flavored fid follows.
 
 LEADING HYPOTHESIS for the next session: the spec is minted ONCE on a pass
@@ -602,7 +595,6 @@ fixes the fid's `rtparam1_fn_..._U_...` identity segment). All layers are in
 now: [landed Step-6 binding] → [WIP: collection helper + mint return substs]
 → [remaining: param-type subst + gates re-check + full TIER 1/2].
 
-
 ### CYCLE 10 — THE SPEC EMITS; three clusters converge on ONE remaining project
 
 Extending the mint substitution to the PARAM types (collect SomeT occurrences
@@ -617,7 +609,7 @@ invocation). The canonical repro is now down to ONE line of C error:
 i.e. the CLOSURE-PARAM CALLING CONVENTION — exactly red-cluster 3
 (`issues/yo-self-69-red-list-map.md`: impl_fn_field_rejection /
 ref_closure_capture / sync/once, "capture struct passed to a parameter
-declared void (*)()"). The plain-Func substitution for a closure param is
+declared void (_)()"). The plain-Func substitution for a closure param is
 WRONG for the convention: TS types the param as the CAPTURE STRUCT (the
 wrapper SomeType's resolvedConcreteType — the closure_type.yo:296-299
 registry is yo-self's equivalent) and lowers body calls `f(x)` through the
@@ -625,7 +617,7 @@ closure convention (`closure_fn(ctx, x)`). So the param substitution must
 special-case closure params: substitute the registered capture-struct type
 (get_closure_capture_info) instead of the plain Func, and the body's
 call-through must use the closure convention (the body currently emits
-`((int32_t (*)(int32_t))f)(v)` because the param re-bind chose the plain
+`((int32_t (_)(int32_t))f)(v)` because the param re-bind chose the plain
 Func).
 
 STRATEGIC: completing this ONE convention finishes (a) the closure-forall
@@ -667,7 +659,6 @@ flips. This closes the investigation loop: closure-forall (8 hollow) +
 cluster 3 (3 red) + cluster 7 (2 red) all end at this one guarded stamp plus
 the WIP already staged.
 
-
 ### RESOLVED (first repro) + NEXT LAYER MAPPED (2026-07-28)
 
 The canonical repro COMPILES AND RUNS with the landed chain (see the
@@ -693,3 +684,76 @@ same specialization-path swallow, measured with a fresh diag:
 These are the handoff cause-table's `reversed._head` (2 files) and
 `usize/Type` (2 files) rows plus a new Self-slot class — same
 probe-cycle method, next session.
+
+### usize/Type UNIFY ROOT CAPTURED — value-generic misbind in the batch-5 zb-loop route (2026-07-27)
+
+Per-arm isolation of the imm_list batch (8 standalone repros): after batch 5,
+EVERY closure/generic arm is clean (map, filter, fold, concat, eq, for_each,
+reverse all emit OK) — the single batch-killer is `from_array`, minimally
+`ArrayList(i32).from_array(array(...))` (r_fromarray, HOLLOW markers=2).
+
+Probe chain (fresh instrumented s1 from /tmp/yb):
+
+1. `__ALEN lvar=N giv_len=3 nvars=0` — at Step-6 synthesize, the Array-length
+   synthesis finds NO env binding for `N` and adds `N := IntLit(3) : usize`
+   itself (the add-branch, TS synthesizer.ts:915-930 mirror).
+2. `__ZB name=N bind=i32` — the batch-5 zb-loop in
+   `create_specialized_function_inline` (helper.yo ~1490) binds
+   `N := TypeVal(i32)` with type `TypeUni(0)` — the ELEMENT type under the
+   VALUE binder's name.
+3. `__MINTENV label=N nvars=2 ty=Type val=TypeVal(i32)` — at body eval the
+   last binding of N is the TypeVal; `Self.with_capacity(N)` synthesizes
+   expected `usize` against given `Type` → `Cannot unify incompatible types:
+"usize" and "Type"` on the UNSWALLOWED spec path → begin-loop abandoned →
+   hollow batch main.
+
+MECHANISM: on the method-dispatch route, function.yo:1659 packs
+`spec_forall_args` from `fa_bound_names`/`fa_bound_types` — the IMPL-level
+registry bindings (`T := i32`) — while the FuncVal's `forall_names` are the
+FN-level binders (`["N"]` for `from_array : fn(generic(N : usize), arr :
+Array(T, N)) -> Self`). The zb-loop pairs them POSITIONALLY. The values are
+load-bearing for the spec cache key (shared-FuncVal instantiations are
+differentiated by compile-time args — helper.yo:1355), so they cannot be
+dropped at the source.
+
+FIX (surgical): guard the zb-loop bind on the binder's DECLARED kind —
+`is_type_0(func_type.forall_types[i])` — so value-generic binders are never
+rebound to a TypeVal. TS never rebinds at all (its calleeEnv carries
+kind-correct bindings), so Type-kinded-only rebinding is strictly closer to
+TS. KNOWN RESIDUAL (documented, not triggered by std): a FN-level Type binder
+positionally paired with an IMPL-level binding on the function.yo route would
+still misbind; detecting it needs labeled forall_args (ArgEntry has no name).
+
+BLAST RADIUS: imm_list + imm_vec are both HOLLOW markers=1 (this throw);
+imm_set / imm_sorted_set REDs also call from_array.
+
+CORRECTION (same day, after guarding zb): with the zb-loop guarded the
+misbind PERSISTED (`__MINTENV label=N nvars=1 ty=Type val=TypeVal(i32)`) —
+on this route the mint env is function.yo's `fresh_env`, and the actual
+writer is `_funcval_bind_foralls`' RECEIVER-POSITIONAL fallback
+(function.yo ~1258, a yo-self-only mechanism; TS resolves impl generics via
+specializedType, never positionally): `N` fails the name-match, the
+STRUCTURAL fallback synthesizes `N := IntLit(3) : usize` into the scratch
+env but its extraction only accepted `.TypeVal` (dropping the value
+inference), so the positional fallback paired fn-level binder #0 (`N`) with
+receiver type-arg #0 (`i32`).
+
+FAITHFUL-PORT FIX (TS ground truth: helper.ts:1038-1067 pre-declares
+binders as `createUnknownValue(declaredType)`; synthesizer.ts:900-937 then
+updates that calleeEnv variable to the concrete length VALUE; the TS mint
+never rebinds foralls and its cache keys on compileTimeArgValues — the
+VALUES):
+
+1. structural fallback: accept `.IntLit` — propagate `N := IntLit(len)`
+   with its declared type (usize) into fresh_env — reaching exactly the env
+   state TS reaches, and making `fa_bound=true` so the positional fallback
+   is skipped;
+2. spec_forall_args packing (function.yo ~1663): use the binding's ACTUAL
+   env value in the ArgEntry (IntLit for value binders) instead of minting
+   `TypeVal(bound_type)` — distinct lengths mint distinct specs, kind-wrong
+   TypeVals never reach the mint;
+3. receiver-positional fallback: kind-guarded to Type-kinded binders
+   (declared forall type `is_type_0`), plumbed via a new `forall_kinds`
+   param from callee_info_opt's Func forall_types;
+4. helper.yo zb-loop: same kind guard (TS never rebinds foralls at all, so
+   Type-kinded-only is strictly closer).

@@ -79,7 +79,7 @@ open(import("std/fmt"));
   ArgEntry,
   VarArgEntry
 } :: import("../context.yo");
-{ is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_fn_trait_type, is_unit_type, is_primitive_type } :: import("../../types/guards.yo");
+{ is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0 } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { is_control_fn } :: import("../types/control_fn_registry.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
@@ -1106,7 +1106,8 @@ _funcval_bind_foralls :: (
     fa_bound_types : ArrayList(TypeValue),
     expected_param_types : ArrayList(TypeValue),
     declared_param_types : ArrayList(TypeValue),
-    param_ct_flags : ArrayList(bool)
+    param_ct_flags : ArrayList(bool),
+    forall_kinds : ArrayList(TypeValue)
   ) -> unit
 )({
   // Structural-inference scratch env, built LAZILY on the first generic the
@@ -1245,6 +1246,31 @@ _funcval_bind_foralls :: (
                   fa_bound = true;
                 });
               },
+              // VALUE-level generic (`generic(N : usize)`): the synthesizer's
+              // Array-length branch bound the binder to an IntLit in the
+              // scratch env (with its declared type, usize). Propagate the
+              // VALUE binding into fresh_env — the port of TS's calleeEnv
+              // carrying `N = <len> : usize` from synthesizeTypes
+              // (synthesizer.ts:900-937) — so the body's `with_capacity(N)`
+              // sees a usize value, and the later positional receiver
+              // fallback (which would misbind `N := TypeVal(elem)`, the
+              // imm_list/imm_vec unify(usize, Type) hollow root) is skipped.
+              .IntLit(se_il) => {
+                fa_bound_names.push(fa_name.clone());
+                fa_bound_types.push(se_var.ty);
+                _add_forall_il := add_variable_to_env(
+                  fresh_env,
+                  fa_name,
+                  se_var.ty,
+                  Option(EvalValue).Some(EvalValue.IntLit(se_il)),
+                  true,
+                  false,
+                  false,
+                  false,
+                  synthetic_token(fa_name, env.module_path)
+                );
+                fa_bound = true;
+              },
               _ => ()
             ),
             .None => ()
@@ -1255,7 +1281,13 @@ _funcval_bind_foralls :: (
     });
     // Fallback: bind the i-th generic param from the receiver's i-th type
     // argument when it could not be inferred from call arguments.
-    if(!(fa_bound) && (fa_i < recv_type_args.len()), {
+    // yo-self-only mechanism (TS resolves impl generics via specializedType,
+    // never positionally) — restrict it to Type-kinded binders: pairing a
+    // VALUE binder (`generic(N : usize)`) with a receiver TYPE argument
+    // stamps `N := TypeVal(elem)` and the body throws unify(usize, Type)
+    // (the imm_list/imm_vec hollow batch main).
+    fa_kind_is_type := match(forall_kinds.get(fa_i),.Some(k) => is_type_0(k),.None => true);
+    if((!(fa_bound) && fa_kind_is_type) && (fa_i < recv_type_args.len()), {
       match(
         recv_type_args.get(fa_i),
         .Some(rta) => {
@@ -1660,9 +1692,31 @@ _evaluate_funcval_runtime_call :: (
     (sfa_i : usize) = usize(0);
     while(sfa_i < fa_bound_names.len(), {
       fbt := match(fa_bound_types.get(sfa_i),.Some(t) => t,.None => t_unit());
+      // Use the binding's ACTUAL env value: a VALUE-level generic
+      // (`generic(N : usize)`) is bound to an IntLit — the spec cache key
+      // (compile_time_args in the mint) must carry the VALUE so distinct
+      // lengths mint distinct specs (TS keys on compileTimeArgValues).
+      // Minting `TypeVal(usize)` here would both collide the key and feed
+      // the mint a kind-wrong TypeVal for a non-Type binder.
+      fbn := match(fa_bound_names.get(sfa_i),.Some(n) => n,.None => String.new());
+      (fbv : EvalValue) = EvalValue.TypeVal(fbt.clone());
+      fbn_vars := get_variables_from_env(fresh_env, fbn);
+      if(fbn_vars.len() > usize(0), {
+        match(
+          fbn_vars.get(fbn_vars.len() - usize(1)),
+          .Some(fbn_var) => match(
+            fbn_var.value,
+            .Some(fbn_val) => {
+              fbv = fbn_val;
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+      });
       _sfa := spec_forall_args.push(
         ArgEntry(
-          value : Option(EvalValue).Some(EvalValue.TypeVal(fbt.clone())),
+          value : Option(EvalValue).Some(fbv),
           parameter_type : TypeValue.TypeUni(usize(0)),
           arg_type : fbt
         )
@@ -3519,7 +3573,12 @@ Fix: wrap the call:
           fa_bound_types,
           if(rpt_from_expected, resolved_param_types, ArrayList(TypeValue).new()),
           fv_param_types,
-          fv_param_ct
+          fv_param_ct,
+          match(
+            callee_info_opt,
+            .Some(fk_ci) => match(fk_ci.ty,.Func({ forall_types : fk_fts }) => fk_fts, _ => ArrayList(TypeValue).new()),
+            .None => ArrayList(TypeValue).new()
+          )
         );
         // v4.1: validate the PLACES bound to ref parameters (after argument
         // evaluation so the chain types are resolved). Mirrors TS
