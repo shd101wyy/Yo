@@ -875,3 +875,26 @@ capture struct in its resolved cell post-340c05b9e). Next probe: why
 registered spec type — the spec registration path (create_specialized's
 register_func_type) likely needs the same resolved-cell-aware substitution
 the mint's return got in batch 5.
+
+### c03 box-spec mint — two negative results + measured shapes (2026-07-27 night)
+
+Probe (`__MINTPROBE`, /tmp/yb build): at box's mint for c03,
+`forall V = SomeT(1602 cell=0)` (EMPTY cell — the take-on's capture-struct
+cell rides the ARG TYPE copy, not the forall binding's TypeVal) while
+`runtime_param_tys[0] = <struct:capture_yo_id_5000>` (already concrete).
+fid = `..._rtparam0_capture_..._ret_R_gs_yo_id_2797_1602_...` (return still
+keyed on unresolved 1602).
+
+Negative 1: cell-aware subst (check the forall binding TypeVal's own
+resolved cell at the zs_ret/ys_ret sites) — cell is empty, never fires.
+Negative 2: declared-param bridge (pair the return occurrence's name+level
+with the DECLARED param SomeT and substitute the runtime param type) —
+c03 unchanged (markers=2). UNVERIFIED why: either the `y_somes` collection
+does not include the return's V occurrence (does get_all_some_types walk a
+Struct instance's type_arguments — `Box(V)`'s V lives there, not in
+fields?), or the name/level pairing misses. NEXT PROBE: print y_somes
+contents + whether ys_any/spec_result changed, and check
+get_all_some_types' Struct arm for type_arguments coverage. Both
+experiments live in /tmp/yb helper.yo (with \_\_MINTPROBE); workspace
+helper.yo reverted to keep landed code proven-only. TIER 1 was green with
+both (harmless).
