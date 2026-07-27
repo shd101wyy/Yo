@@ -68,12 +68,22 @@ _a :: (fn(args : ArrayList(String), i : usize) -> String)(
 );
 /// `((a) <op> (b))`.
 _binop :: (fn(args : ArrayList(String), op : str) -> String)({
+  // DEGRADED render when an operand failed to transpile (empty or an FTT
+  // comment — its ExprInfo was dropped by an eval throw inside a discarded
+  // definition, e.g. a dyn'd closure body over an unresolved capture).
+  // `(() + ())` is invalid C and breaks the whole batch ("expected
+  // expression", the fn Dyn-closure test). TS never emits such bodies.
+  lhs := _a(args, usize(0));
+  rhs := _a(args, usize(1));
+  if(((lhs.len() == usize(0)) || (rhs.len() == usize(0))) || (lhs.starts_with("// Failed to transpile") || rhs.starts_with("// Failed to transpile")), {
+    return(`// Failed to transpile (${lhs}) ${op} (${rhs})`);
+  });
   out := String.from("((");
-  out.push_string(_a(args, usize(0)));
+  out.push_string(lhs);
   out.push_str(") ");
   out.push_str(op);
   out.push_str(" (");
-  out.push_string(_a(args, usize(1)));
+  out.push_string(rhs);
   out.push_str("))");
   out
 });

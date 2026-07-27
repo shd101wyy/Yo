@@ -28,7 +28,9 @@ open(import("std/fmt"));
   ast_expr_token,
   ast_expr_id,
   ast_expr_is_fn_call_of,
+  ast_expr_is_atom,
   ast_expr_is_atom_of,
+  ast_expr_to_string,
   make_err_expr,
   clone_expr_fresh_ids
 } :: import("../../expr.yo");
@@ -451,10 +453,51 @@ check_if_function_parameter_matches_argument :: (
     exn : Exception
   ) -> CheckParamResult
 )({
-  // Step 1: Strip "label: value" colon-label wrapper from arg if present.
+  // Step 1: Strip "label: value" colon-label wrapper from arg if present,
+  // VALIDATING the label (port of TS helper.ts:271-302 — labels are
+  // readability-only and must match the declared parameter label; a bare
+  // strip silently accepted wrong/reordered labels TS rejects).
   (actual_arg : AstExpr) = arg_expr_raw;
   if(ast_expr_is_fn_call_of(arg_expr_raw, ":",.Some(usize(2))), {
     colon_args := _h_get_fn_call_args(arg_expr_raw);
+    cl_label_expr := match(colon_args.get(usize(0)),.Some(a) => a,.None => arg_expr_raw);
+    if(!(ast_expr_is_atom(cl_label_expr)), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(cl_label_expr),
+            `Expected identifier for label, got:\n${ast_expr_to_string(cl_label_expr)}`,
+            false,
+            .None
+          )
+        )
+      );
+    });
+    cl_label := ast_expr_token(cl_label_expr).value;
+    if(param_label.len() == usize(0), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(cl_label_expr),
+            String.from("Named argument call is not allowed for this parameter (it has no label)."),
+            false,
+            .None
+          )
+        )
+      );
+    });
+    if(param_label != cl_label, {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(cl_label_expr),
+            `Named argument is not supported. Label is only used for readibility.\n    Expected label "${param_label}" at the argument position, but got "${cl_label}".`,
+            false,
+            .None
+          )
+        )
+      );
+    });
     actual_arg = match(
       colon_args.get(usize(1)),
       .Some(a) => a,

@@ -607,17 +607,17 @@ invocation). The canonical repro is now down to ONE line of C error:
     'int32_t (*)(int32_t)'
 
 i.e. the CLOSURE-PARAM CALLING CONVENTION — exactly red-cluster 3
-(`issues/yo-self-69-red-list-map.md`: impl_fn_field_rejection /
+(`issues/yo-self-69-red-list-map.md`: impl*fn_field_rejection /
 ref_closure_capture / sync/once, "capture struct passed to a parameter
-declared void (_)()"). The plain-Func substitution for a closure param is
+declared void (*)()"). The plain-Func substitution for a closure param is
 WRONG for the convention: TS types the param as the CAPTURE STRUCT (the
-wrapper SomeType's resolvedConcreteType — the closure_type.yo:296-299
+wrapper SomeType's resolvedConcreteType — the closure*type.yo:296-299
 registry is yo-self's equivalent) and lowers body calls `f(x)` through the
 closure convention (`closure_fn(ctx, x)`). So the param substitution must
 special-case closure params: substitute the registered capture-struct type
 (get_closure_capture_info) instead of the plain Func, and the body's
 call-through must use the closure convention (the body currently emits
-`((int32_t (_)(int32_t))f)(v)` because the param re-bind chose the plain
+`((int32_t (*)(int32_t))f)(v)` because the param re-bind chose the plain
 Func).
 
 STRATEGIC: completing this ONE convention finishes (a) the closure-forall
@@ -757,3 +757,89 @@ VALUES):
    param from callee_info_opt's Func forall_types;
 4. helper.yo zb-loop: same kind guard (TS never rebinds foralls at all, so
    Type-kinded-only is strictly closer).
+
+### fn batch decomposed — labeled-arg validation LANDED-pending + partial-application port (2026-07-27)
+
+Compile-only proxy technique (no `test` runner needed, safe alongside a
+running TIER 2): split `tests/fn.test.yo` into per-`test()` standalone mains
+(balanced-brace scan skipping comments/strings) and compile each with the
+candidate s1; `Failed to transpile` markers per file = that block's killers.
+
+Result: 15/24 blocks individually hollow. Killers mapped:
+
+1. **Labeled arguments on the inline FuncVal arm** (b00's s2 and the shared
+   root of several others): `test3(x : 5)` — the arm evaluated the raw
+   colon-pair, which routed through evaluate_binding → "Expected type for
+   rhs, got 5" → unswallowed throw. TS peels AND VALIDATES the label in
+   checkIfFunctionParameterMatchesArgument (helper.ts:271-302). Ported to
+   BOTH routes: function.yo FuncVal-arm arg loop (peel + validate) and
+   helper.yo Step 1 (validation added to the existing bare strip — the bare
+   strip silently accepted wrong/reordered labels TS rejects, itself a cee
+   class). Verified: fn_s2b/min/c markers → 0; block b00's s2 → 0.
+2. **`Variable "_" not found` × 7 blocks (b15-b21)**: HKT partial type
+   application — `Result(_, i32)`. yo-self evaluated `_` as an identifier.
+   Ported TS function.ts:580-766 into the FuncVal arm (before the
+   comptime-fn delegation): mint a comptime FuncVal capturing non-`_` args
+   (yo-self adaptation: captures in cap*names/cap_tys/cap_vals instead of
+   TS env-frame binding), `*`positions become`\__pa_<i>\_<id>` comptime
+   params, body = synthetic call to the captured original. Also feeds the
+   higher_kinded_types hollow file.
+3. Remaining fn killers (diag-mapped, unfixed): b01 `Variable "Lhs" not
+found` (comptime param default `?= Lhs` referencing a sibling generic);
+   b05 (TBD — diag tail was prelude noise); b09/b12/b13 cee
+   missing-validations; b11 `recur: missing function type in context`;
+   b14 Incompatible types (TBD); b00's s3 outer-scope-read cee
+   (`comptime_expect_error(x + a)` inside a plain fn).
+
+ADDENDUM (same session): three more pieces joined the batch after the
+labeled-arg + partial-application fixes exposed fn's next layers:
+
+4. **Sequential default-param env** (function.yo splice + arg loop):
+   `(comptime(Rhs) : Type) ?= Lhs` — defaults were evaluated in the CALLER
+   env where sibling params aren't bound ("Variable Lhs not found"). TS
+   evaluates defaults in calleeEnv with earlier params sequentially bound
+   (helper.ts:329-331). Ported by layering a frame binding the
+   already-evaluated args by param name around both default-eval sites; an
+   `undefined` argument now also substitutes the declared default
+   (helper.ts:323-344, previously unhandled). Flips fn's b01 (MyAdd).
+5. **Three degraded-emission guards** (all in the established
+   FTT-comment/degrade convention — TS never reaches these states because
+   the eval throw discards the definition; yo-self's mutable registries
+   can't roll back):
+   - tail/return of a failed value expr → whole-statement FTT comment
+     (functions/generation.yo + exprs/return.yo; was `return <comment>;` —
+     "expected expression");
+   - Dyn fat-pointer wrapper gated on a RESOLVED inner
+     (functions/dyn.yo; was `.call` on a void\* payload field);
+   - registered-call to a should_skip_function_codegen-dropped callee →
+     FTT comment (exprs/other_fn_call.yo, io.async SM closures exempt; was
+     an undeclared-function call), and \_binop with empty/FTT operands →
+     FTT comment (exprs/inline_fns.yo; was `(() + ())`).
+     With these, tests/fn.test.yo returns to rc=0 (still hollow — the
+     remaining killers are the b09/b12/b13 cee validations, b00-s3
+     outer-scope-read validation, b11 `recur` context, b14, and the
+     cluster-B Dyn/box-closure eval root now clearly the file's frontier).
+
+### closure batch decomposed (2026-07-27, compile-only proxy)
+
+9 blocks; 4 individually hollow. Killers:
+
+- c01 + c06: `(closure : Impl(Fn(y : i32) -> i32)) = ((y) => ...)` — a
+  closure assigned to an Impl(Fn)-ANNOTATED BINDING types as plain
+  `fn(y : i32) -> i32` ("Incompatible types: Expected Impl(Fn...)"). The
+  call-ARG coercion path (values/anonymous_function.yo + the batch-5
+  chain) works; the BINDING position never routes the declared type
+  through the closure coercion. Note closure_type.yo's
+  try_to_implement_closure_by_fn_module_type — measured never-called for
+  call args — may be exactly the binding-position path to wire.
+- c03 + c07: diag tail is prelude noise ("Cannot assign runtime argument
+  to compile-time parameter self") — real killer needs the probe cycle.
+
+UPDATE: c03 + c07 are `(closure : Dyn(Fn(...))) = dyn(box((y) => ...))` —
+the SAME red-cluster-B construct as fn's Dyn-manual-boxing test
+(`box(<closure>)` infers `V := <Impl-Fn SomeT>` from the expected type —
+the deliberate exp_pt arm in \_funcval_bind_foralls — and everything keyed
+on that SomeT id resolves at eval, misses at codegen). Cluster B is now
+THE unified frontier for BOTH the fn and closure battery files (plus c01/
+c06's sibling: Impl(Fn)-annotated BINDINGS never route the declared type
+through the closure coercion at all).

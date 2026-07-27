@@ -263,6 +263,20 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
             // is dropped → reads freed memory). Mirrors generation.ts:1587-1611.
             // Only when there are drops + a non-unit return; else `return <expr>`.
             ret_ty_opt := match(function_type,.Func({ result : r }) => Option(TypeValue).Some(r), _ => Option(TypeValue).None);
+            // DEGRADED tail return when the tail expression itself failed to
+            // transpile (its ExprInfo was dropped by an eval throw inside
+            // this definition — e.g. a comptime_expect_error that did not
+            // error abandons the fn body's begin). `return <comment>` would
+            // splice the closing brace into the return ("expected
+            // expression", the fn batch clang error). TS never emits such
+            // fns (the throw discards the definition); the fn has no callers
+            // — the calling statements were dropped by the same throw.
+            if(expr_code.starts_with("// Failed to transpile"), {
+              ftl := indent.clone();
+              ftl.push_string(expr_code);
+              em.emit_string_line(ftl);
+              return(());
+            });
             has_drops := match(context.base.get_expr_info(body_expr),.Some(bei) => match(bei.deferred_drop_expressions,.Some(d) => (d.len() > usize(0)),.None => false),.None => false);
             mat_ty := cond(
               ((has_drops && (!(result_is_unit))) && (expr_code.len() > usize(0))) => ret_ty_opt,

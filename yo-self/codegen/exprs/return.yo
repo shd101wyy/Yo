@@ -803,6 +803,17 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
       if(declared_ret_unresolved && !(is_some_type(ei.ty)), {
         return(String.from("return (void*)0; // degraded: unresolved Impl(...) return on a definition whose evaluation threw"));
       });
+      // DEGRADED return when the VALUE expression itself failed to
+      // transpile (its ExprInfo was dropped by an eval throw inside the
+      // same definition — e.g. a comptime_expect_error that did not error
+      // abandons the fn body's begin). Emitting `return <comment>` splices
+      // the next C line into the return ("expected expression", the fn
+      // batch clang error). TS never emits such fns (the throw discards
+      // the definition); like the Impl(...) degrade above, the fn has no
+      // callers — the calling statements were dropped by the same throw.
+      if(return_value.starts_with("// Failed to transpile"), {
+        return(return_value);
+      });
       out := String.from("return ");
       out.push_string(return_value);
       out

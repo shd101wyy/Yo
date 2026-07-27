@@ -18,7 +18,7 @@ open(import("std/string"));
 { should_skip_function_codegen } :: import("./declarations.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
 { get_func_type } :: import("../../function_value.yo");
-{ is_boxed_type, is_fn_trait_type, is_function_type, is_void_type, is_pointer_type } :: import("../../types/guards.yo");
+{ is_boxed_type, is_fn_trait_type, is_function_type, is_void_type, is_pointer_type, is_some_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { type_key, get_type_string, sanitize_for_c_identifier, ImplClosureCallInfo } :: import("../utils/index.yo");
 { get_drop_function_for_type } :: import("../exprs/drop_dup.yo");
@@ -307,7 +307,14 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                     });
                     call.push_str(");");
                     em.emit_declaration_string_line(call);
-                  }, if(is_boxed, {
+                  }, if(is_boxed && !(is_some_type(resolve_some_type_to_concrete(impl_entry.concrete_type.clone()))), {
+                    // Gated on a RESOLVED inner: an unresolved-SomeT payload's
+                    // Box field degenerates to `void*` in C, so the fat-pointer
+                    // `.call` below is invalid ("member reference base type
+                    // 'void *'", the fn batch clang error). TS never emits a
+                    // wrapper for an unresolved inner (the eval-side failure
+                    // discards it); fall through to the zeroed stub — nothing
+                    // calls it, its callers were dropped by the same throw.
                     boxed_cname := match(context.base.get_type_c_name(type_key(data_type.clone())),.Some(cn) => cn,.None => `unknown_${type_key(data_type.clone())}`);
                     field_name := _box_field_name(data_type.clone());
                     em.emit_declaration_string_line(`  ${boxed_cname}* box = (${boxed_cname}*)self_ptr;`);

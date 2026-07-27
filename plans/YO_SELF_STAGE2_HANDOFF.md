@@ -21,6 +21,22 @@ nothing below needs re-litigating._
   was a zero-byte-log phantom kill). It resolved the canonical closure repro
   but flipped no battery file by itself — re-sweep after the value-generic
   chain lands.
+- **Value-generic chain landed (`6e9866bcb`)** — `generic(N : usize)`
+  misbind fixed (see §3's "NEXT LAYER CRACKED"); **imm_list flipped
+  genuinely GREEN in the battery (hollow flags 7 → 6)**; expected to flip
+  imm_vec in the next sweep and to feed the imm_set/imm_sorted_set REDs.
+- **fn-batch chain staged next (TIER 1 green incl. corpus 141/0 +
+  std 153/153 + battery at the new 6-flag baseline)**: labeled-argument
+  peel + VALIDATION on both call routes (TS helper.ts:271-302), HKT partial
+  application (`Result(_, i32)` — TS function.ts:580-766), sequential
+  default-param env + `undefined`-arg defaults (TS helper.ts:323-344), and
+  four degraded-emission guards that keep batch C valid when eval throws
+  leave half-registered definitions (tail/return FTT, Dyn wrapper
+  resolved-inner gate, skipped-callee call FTT, `_binop` empty-operand
+  FTT). Full mechanism + fn/closure per-block killer maps in
+  `issues/yo-self-hollow-test-batch-main.md`. bufio flake has a THIRD mode:
+  a one-time nondeterministic `duplicate case value` in a state-dispose
+  switch (passes on retry).
 
 **Do not quote a bare "N passing" number.** 33 files used to be counted green
 while running NOTHING: yo-self emitted the test batch's whole `main` as a

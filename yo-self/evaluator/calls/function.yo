@@ -25,6 +25,7 @@ open(import("std/fmt"));
   alloc_global_expr_id,
   ast_expr_is_fn_call_of,
   ast_expr_is_atom,
+  ast_expr_is_atom_of,
   BF_DOT
 } :: import("../../expr.yo");
 { is_auto_generated_expansion } :: import("../memory_safety.yo");
@@ -58,7 +59,7 @@ open(import("std/fmt"));
   snapshot_env
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_variadic_param } :: import("../types/function.yo");
+{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_variadic_param } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
@@ -3058,6 +3059,141 @@ Fix: wrap the call:
         n_p := param_names.len();
         n_ev := evidence_names.len();
         n_a := args.len();
+        // ------------------------------------------------------------------
+        // Partial application with `_` placeholder (port of TS
+        // function.ts:580-766). A comptime-returning callee called with `_`
+        // holes (`Result(_, i32)`, `add(1, _)`) mints a new comptime FuncVal
+        // that captures the non-`_` args and takes the `_` positions as
+        // parameters. yo-self adaptation: TS binds the original fn and the
+        // captured args as env-frame variables read through the closure
+        // frameLevel; yo-self FuncVals carry captures EXPLICITLY, so both
+        // land in cap_names/cap_tys/cap_vals.
+        {
+          (pa_has_hole : bool) = false;
+          {
+            (pa_i : usize) = usize(0);
+            while(pa_i < n_a, {
+              if(match(args.get(pa_i),.Some(pa_a) => ast_expr_is_atom_of(pa_a, "_"),.None => false), {
+                pa_has_hole = true;
+              });
+              pa_i = (pa_i + usize(1));
+            });
+          };
+          pa_fty := match(callee_info_opt,.Some(pa_ci) => pa_ci.ty,.None => t_unit());
+          pa_ret_ct := match(pa_fty,.Func({ meta : __pam1 }) => __pam1.*.result_is_comptime_only, _ => false);
+          if(pa_has_hole && pa_ret_ct, {
+            pa_pt := match(pa_fty,.Func({ param_types : ppt }) => ppt, _ => ArrayList(TypeValue).new());
+            pa_res := match(pa_fty,.Func({ result : pr }) => pr, _ => t_unit());
+            if(n_a != pa_pt.len(), {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    tok,
+                    `Partial application: expected ${pa_pt.len()} argument(s), got ${n_a}`,
+                    false,
+                    .None
+                  )
+                )
+              );
+            });
+            pa_id := alloc_global_expr_id().to_string();
+            pa_orig_name := `__pa_fn_${pa_id}`;
+            pa_cap_names := ArrayList(String).new();
+            pa_cap_tys := ArrayList(TypeValue).new();
+            pa_cap_vals := ArrayList(EvalValue).new();
+            pa_cap_names.push(pa_orig_name.clone());
+            pa_cap_tys.push(pa_fty.clone());
+            pa_cap_vals.push(cv);
+            pa_new_labels := ArrayList(String).new();
+            pa_new_types := ArrayList(TypeValue).new();
+            pa_new_ct := ArrayList(bool).new();
+            pa_new_flags := ArrayList(bool).new();
+            pa_new_own := ArrayList(bool).new();
+            pa_ptn := ArrayList(String).new();
+            pa_body_args := ArrayList(AstExpr).new();
+            pa_orig_ct := get_func_param_comptime(func_id_fv.clone());
+            (pa_i2 : usize) = usize(0);
+            while(pa_i2 < n_a, {
+              pa_arg := match(args.get(pa_i2),.Some(a) => a,.None => make_err_expr());
+              pa_pty := match(pa_pt.get(pa_i2),.Some(t) => t,.None => t_unit());
+              if(ast_expr_is_atom_of(pa_arg, "_"), {
+                pa_pname := `__pa_${pa_i2}_${pa_id}`;
+                pa_new_labels.push(pa_pname.clone());
+                pa_new_types.push(pa_pty);
+                pa_new_ct.push(match(pa_orig_ct.get(pa_i2),.Some(f) => f,.None => true));
+                pa_new_flags.push(false);
+                pa_new_own.push(false);
+                pa_ptn.push(String.new());
+                pa_body_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(pa_pname, env.module_path)));
+              }, {
+                pa_cname := `__pa_cap_${pa_i2}_${pa_id}`;
+                pa_ev := evaluate_expression_raw(pa_arg, env, ctx, exn);
+                pa_info := match(
+                  expr_info_table_get(ctx.expr_info_table, ast_expr_id(pa_ev)),
+                  .Some(i) => i,
+                  .None => new_expr_info(env, t_unit())
+                );
+                pa_cap_names.push(pa_cname.clone());
+                pa_cap_tys.push(pa_info.ty);
+                pa_cap_vals.push(match(pa_info.value,.Some(v) => v,.None => EvalValue.UnknownVal(pa_info.ty, false)));
+                pa_body_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(pa_cname, env.module_path)));
+              });
+              pa_i2 = (pa_i2 + usize(1));
+            });
+            pa_body := AstExpr.FnCall(
+              alloc_global_expr_id(),
+              AstExpr.Atom(alloc_global_expr_id(), synthetic_token(pa_orig_name.clone(), env.module_path)),
+              pa_body_args,
+              false,
+              tok.clone()
+            );
+            pa_new_ty := TypeValue.Func(
+              ArrayList(TypeValue).new(),
+              pa_new_types,
+              ArrayList(TypeValue).new(),
+              ArrayList(TypeValue).new(),
+              pa_res,
+              box(
+                FuncMeta(
+                  forall_labels : ArrayList(String).new(),
+                  param_labels : pa_new_labels,
+                  implicit_labels : ArrayList(String).new(),
+                  implicit_spreads : ArrayList(bool).new(),
+                  result_is_comptime_only : true,
+                  param_is_ref : pa_new_flags,
+                  param_is_owning : pa_new_own,
+                  result_is_ref : false,
+                  has_variadic : false,
+                  is_extern : Option(String).None,
+                  extern_name : Option(String).None,
+                  is_control : false
+                )
+              )
+            );
+            pa_fid := `partial_${pa_id}`;
+            register_func_type(pa_fid.clone(), pa_new_ty);
+            register_func_param_comptime(pa_fid.clone(), pa_new_ct);
+            pa_fv := EvalValue.FuncVal(
+              box(
+                FuncValData(
+                  forall_names : ArrayList(String).new(),
+                  params : pa_new_labels,
+                  param_type_names : pa_ptn,
+                  evidence_params : ArrayList(String).new(),
+                  body : pa_body,
+                  cap_names : pa_cap_names,
+                  cap_tys : pa_cap_tys,
+                  func_id : pa_fid
+                )
+              ),
+              pa_cap_vals
+            );
+            pa_out := new_expr_info(env, pa_new_ty);
+            pa_out.value = Option(EvalValue).Some(pa_fv);
+            expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), pa_out);
+            return(expr);
+          });
+        };
         // Per-parameter default values (default-argument support): a
         // registered `.Some(value)` at regular-param index i means that
         // param has a `?= default` and may be omitted (then bound to
@@ -3255,6 +3391,109 @@ Fix: wrap the call:
             continue;
           });
           {
+            // Strip + VALIDATE a "label : value" colon-label wrapper (port of
+            // TS helper.ts:271-302, shared by every TS call path; this inline
+            // FuncVal arm previously evaluated the raw colon-pair, which
+            // routed `test3(x : 5)` through evaluate_binding — "Expected type
+            // for rhs, got 5" — and hollowed the fn batch main). Labels are
+            // readability-only: a label that exists must MATCH the declared
+            // parameter label at that position.
+            (arg_expr_eff : AstExpr) = arg_expr;
+            if((ai < n_p) && ast_expr_is_fn_call_of(arg_expr, ":",.Some(usize(2))), {
+              cl_args := match(
+                arg_expr,
+                .FnCall(_, _, cl_as, _, _) => cl_as,
+                _ => ArrayList(AstExpr).new()
+              );
+              cl_label_expr := match(cl_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+              cl_value_expr := match(cl_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+              if(!(ast_expr_is_atom(cl_label_expr)), {
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(cl_label_expr),
+                      `Expected identifier for label, got:\n${ast_expr_to_string(cl_label_expr)}`,
+                      false,
+                      .None
+                    )
+                  )
+                );
+              });
+              cl_label := ast_expr_token(cl_label_expr).value;
+              cl_param_label := match(fv_param_labels.get(ai),.Some(l) => l,.None => String.new());
+              if(cl_param_label.len() == usize(0), {
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(cl_label_expr),
+                      String.from("Named argument call is not allowed for this parameter (it has no label)."),
+                      false,
+                      .None
+                    )
+                  )
+                );
+              });
+              if(cl_param_label != cl_label, {
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(cl_label_expr),
+                      `Named argument is not supported. Label is only used for readibility.\n    Expected label "${cl_param_label}" at the argument position, but got "${cl_label}".`,
+                      false,
+                      .None
+                    )
+                  )
+                );
+              });
+              arg_expr_eff = cl_value_expr;
+            });
+            // An `undefined` argument uses the parameter's declared default
+            // (TS helper.ts:323-344). The default expression may reference
+            // EARLIER params (`(Rhs : Type) ?= Lhs`), which TS resolves via
+            // its sequentially-bound calleeEnv — layer a frame binding the
+            // already-evaluated args by param name for this evaluation.
+            (du_frame_pushed : bool) = false;
+            if((ai < n_p) && ast_expr_is_atom_of(arg_expr_eff, "undefined"), {
+              (du_def : Option(AstExpr)) = Option(AstExpr).None;
+              match(
+                fv_default_exprs.get(ai),
+                .Some(de_opt) => {
+                  du_def = de_opt;
+                },
+                .None => ()
+              );
+              match(
+                du_def,
+                .Some(du_de) => {
+                  arg_expr_eff = clone_expr_fresh_ids(du_de);
+                  _duf := env.push_frame(false);
+                  du_frame_pushed = true;
+                  (du_j : usize) = usize(0);
+                  while(du_j < ai, {
+                    du_name := match(param_names.get(du_j),.Some(nm) => nm,.None => String.new());
+                    match(
+                      evaled_arg_infos.get(du_j),
+                      .Some(du_info) => if(du_name.len() > usize(0), {
+                        add_variable_to_env(
+                          env,
+                          du_name.clone(),
+                          du_info.ty,
+                          du_info.value,
+                          match(du_info.value,.Some(_) => true,.None => false),
+                          false,
+                          false,
+                          false,
+                          synthetic_token(du_name, env.module_path)
+                        );
+                      }),
+                      .None => ()
+                    );
+                    du_j = (du_j + usize(1));
+                  });
+                },
+                .None => ()
+              );
+            });
             // Evaluate the arg with expectedType = the DECLARED PARAM TYPE
             // (helper.ts:330) — leaving the caller's expected type in place
             // leaked e.g. a single-expr fn body's expected `bool` into the
@@ -3288,8 +3527,11 @@ Fix: wrap the call:
               ),
               .None => Option(ExpectedTypeCtx).None
             );
-            evaled_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
+            evaled_arg := evaluate_expression_raw(arg_expr_eff, env, ctx, exn);
             ctx.expected_type = arg_saved_expected;
+            if(du_frame_pushed, {
+              env.pop_frame();
+            });
             arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_arg));
             arg_info := match(
               arg_info_opt,
@@ -3365,6 +3607,39 @@ Fix: wrap the call:
         if(n_supplied_reg < n_p, {
           def_infos := ArrayList(ExprInfo).new();
           def_rt_exprs := ArrayList(AstExpr).new();
+          // TS evaluates a parameter's default IN CALLEE ENV where the
+          // EARLIER params are already bound (helper.ts:329-331 — the
+          // per-param loop binds sequentially), so `(Rhs : Type) ?= Lhs`
+          // resolves the sibling param. This splice runs BEFORE yo-self's
+          // param binding, so layer a frame with the already-supplied (and
+          // previously-spliced) params bound by name; popped after the loop.
+          _dfr := env.push_frame(false);
+          {
+            (dbi : usize) = usize(0);
+            while(dbi < n_supplied_reg, {
+              db_name := match(param_names.get(dbi),.Some(nm) => nm,.None => String.new());
+              match(
+                evaled_arg_infos.get(dbi),
+                .Some(dbi_info) => {
+                  if(db_name.len() > usize(0), {
+                    add_variable_to_env(
+                      env,
+                      db_name.clone(),
+                      dbi_info.ty,
+                      dbi_info.value,
+                      match(dbi_info.value,.Some(_) => true,.None => false),
+                      false,
+                      false,
+                      false,
+                      synthetic_token(db_name, env.module_path)
+                    );
+                  });
+                },
+                .None => ()
+              );
+              dbi = (dbi + usize(1));
+            });
+          };
           (dpi : usize) = n_supplied_reg;
           (def_stop : bool) = false;
           while((dpi < n_p) && !(def_stop), {
@@ -3404,6 +3679,24 @@ Fix: wrap the call:
                 );
                 def_infos.push(de_info);
                 def_rt_exprs.push(evaled_de);
+                // Bind this spliced param so the NEXT param's default sees
+                // it (`(Output : Type) ?= Lhs` after `(Rhs : Type) ?= Lhs`).
+                {
+                  dsn := match(param_names.get(dpi),.Some(nm) => nm,.None => String.new());
+                  if(dsn.len() > usize(0), {
+                    add_variable_to_env(
+                      env,
+                      dsn.clone(),
+                      de_info.ty,
+                      de_info.value,
+                      match(de_info.value,.Some(_) => true,.None => false),
+                      false,
+                      false,
+                      false,
+                      synthetic_token(dsn, env.module_path)
+                    );
+                  });
+                };
               },
               .None => {
                 def_stop = true;
@@ -3413,6 +3706,7 @@ Fix: wrap the call:
               dpi = (dpi + usize(1));
             });
           });
+          env.pop_frame();
           n_spliced := def_infos.len();
           if(n_spliced > usize(0), {
             // Pop the evidence tails, push the defaults, re-push the tails.
