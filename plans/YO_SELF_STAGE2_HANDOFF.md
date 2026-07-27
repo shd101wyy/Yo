@@ -46,6 +46,18 @@ nothing below needs re-litigating._
   a one-time nondeterministic `duplicate case value` in a state-dispose
   switch (passes on retry).
 
+- **Pointer-operator migration landed (`8acde607a`) — full TIER 2 green
+  incl. FIXPOINT.** Pointer comparison is now plain `==`/`<`/… (Eq/Ord on
+  `*(T)`); arithmetic is `p.add(n)`/`p.sub(n)`/`p.offset_from(q)` under
+  `unsafe(...)`; the `&`-operator family is gone (556 sites rewritten —
+  REPROS AND TESTS MUST USE THE NEW SURFACE). A pre-existing yo-self bug
+  surfaced: trait-dispatched pointer `==` as a `||` LHS miscompiles
+  (issues/yo-self-ptr-eq-trait-call-in-shortcircuit.md — bisect + repro).
+  Also pre-existing and still open: `check yo-self/tests/await_analysis.test.yo`
+  FAILS at `8acde607a`'s parent too (SomeT-arity mismatch at :111) — triage
+  separately. Perf: token interning + String== ptr fast path landed
+  (`b00ff439e`, stage2 emit 42.0 → 38.4 min).
+
 **Do not quote a bare "N passing" number.** 33 files used to be counted green
 while running NOTHING: yo-self emitted the test batch's whole `main` as a
 `// Failed to transpile …` comment, so the binary exited 0 and the harness

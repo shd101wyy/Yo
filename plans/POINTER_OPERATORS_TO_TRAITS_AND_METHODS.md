@@ -1,7 +1,8 @@
 # Retire the `&`-prefixed pointer operators — traits for comparison, methods for arithmetic
 
 _Status: EXECUTED (`8acde607a`, 2026-07-27; TIER 1 green — corpus 141/0,
-battery 6-flag baseline, std 153/153; TIER 2 in flight). Breaking language
+battery 6-flag baseline, std 153/153; TIER 2 GREEN incl. STRICT_FIXPOINT, stage2 real hollow=1 baseline —
+/tmp/t2_mig.log). Breaking language
 change (`feat(lang)!`), same class as the `forall` → `generic` rename._
 
 **Execution notes:** risk #2 (unsafe-gate placement) was real — the gate
