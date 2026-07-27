@@ -898,3 +898,12 @@ get_all_some_types' Struct arm for type_arguments coverage. Both
 experiments live in /tmp/yb helper.yo (with \_\_MINTPROBE); workspace
 helper.yo reverted to keep landed code proven-only. TIER 1 was green with
 both (harmless).
+
+FOLLOW-UP: `_collect_some_types_into`'s Struct arm (types/utils.yo:911+)
+walks `field_types` only and its cycle guard keys on the STRUCT ID — if
+`Box(V)` shares its shell id with an earlier-visited instantiation (e.g.
+`Box(i32)` in the same signature walk), the whole `Box(V)` subtree is
+SKIPPED and V is never collected into y_somes — which would explain the
+bridge never firing. Probe: print y_somes for box's mint; if empty, the
+fix is the visited-guard granularity (key on id + rendered type args, or
+walk type_arguments before the guard).
