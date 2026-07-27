@@ -7,15 +7,18 @@ nothing below needs re-litigating._
 ## Where things stand
 
 - **#70 (`s2 test ./yo-self/tests`): DONE — 61/61.**
-- **#69 (`s2 test ./tests`): 135 GREEN / 29 HOLLOW / 19 RED of 183.**
-  Measured 2026-07-27 with `scratchpad/hollow_sweep69.sh` (`/tmp/hs_final`)
-  on an s1 from the current tree, after the validation batch (`a71032468`,
-  full TIER 2 green incl. **STRICT_FIXPOINT HOLDS**, stage2 hollow=6
-  baseline) plus the while-loop drop-guard pair. vs 2026-07-26:
-  **`module_struct_unification`** (10/10) and **`atomic_object`** (21/21)
-  flipped hollow → GREEN; `impl` moved hollow → RED in that sweep, then back
-  to rc=0 partial-hollow after the degraded-return fix (see its row below).
-  Every other verdict unchanged.
+- **#69 (`s2 test ./tests`): 138 GREEN / 28 HOLLOW / 17 RED of 183.**
+  Measured 2026-07-27 late (`/tmp/hs_pa`, s1 = `/tmp/pa_s1` from
+  `59c5fe1fa`) with walker + bufio phantom-kill flakes corrected by retry
+  (raw sweep said 136/28/19; both re-ran clean). vs the morning sweep
+  (135/29/19, `/tmp/hs_final`): **`imm_list`** (16), **`imm_vec`** (47)
+  flipped hollow → GREEN (the value-generic chain), **`sync/once`** (11)
+  flipped RED → GREEN (red cluster 3 — the closure-convention work), and
+  `impl` moved RED → rc=0 partial-hollow (the emission degrades). fn's
+  markers went 1 → 6 (same hollow verdict — MORE statements now emit, the
+  remaining dead ones are individually marked). Earlier that day:
+  `module_struct_unification` (10/10) and `atomic_object` (21/21) flipped
+  hollow → GREEN.
 - **Batch 5 (specialization-mint emission chain, helper.yo) is TIER 2 green
   incl. FIXPOINT** (2026-07-27, `/tmp/t2_b12.log`; the gate-1 walker rc=139
   was a zero-byte-log phantom kill). It resolved the canonical closure repro
