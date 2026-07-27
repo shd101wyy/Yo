@@ -1,0 +1,6 @@
+Wrap :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))(
+  atomic(ref(struct((*) : V)))
+);
+use_wrap :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Wrap(V))(Wrap(V)(value));
+main :: (fn() -> unit)(());
+export(main);

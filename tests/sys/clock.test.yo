@@ -7,19 +7,19 @@ clock_io :: import("std/sys/clock");
 test("clock_gettime monotonic is non-decreasing", {
   t1_uninit := MaybeUninit(Array(i64, usize(2))).new();
   t1 := *(i64)(t1_uninit.as_ptr());
-  r1 := clock_io.clock_gettime(clock_io.CLOCK_MONOTONIC, t1 &+ usize(0), t1 &+ usize(1));
+  r1 := clock_io.clock_gettime(clock_io.CLOCK_MONOTONIC, t1.add(usize(0)), t1.add(usize(1)));
   assert(r1 == i32(0), "first CLOCK_MONOTONIC call should succeed");
-  s1 := (t1 &+ usize(0)).*;
-  ns1 := (t1 &+ usize(1)).*;
+  s1 := (t1.add(usize(0))).*;
+  ns1 := (t1.add(usize(1))).*;
   assert((ns1 >= i64(0)) && (ns1 < i64(1000000000)), "first CLOCK_MONOTONIC nsec must be in [0, 1e9)");
   sleep_result := io.await(sleep(u64(10)), io);
   assert(sleep_result > i32(0), "sleep should complete successfully");
   t2_uninit := MaybeUninit(Array(i64, usize(2))).new();
   t2 := *(i64)(t2_uninit.as_ptr());
-  r2 := clock_io.clock_gettime(clock_io.CLOCK_MONOTONIC, t2 &+ usize(0), t2 &+ usize(1));
+  r2 := clock_io.clock_gettime(clock_io.CLOCK_MONOTONIC, t2.add(usize(0)), t2.add(usize(1)));
   assert(r2 == i32(0), "second CLOCK_MONOTONIC call should succeed");
-  s2 := (t2 &+ usize(0)).*;
-  ns2 := (t2 &+ usize(1)).*;
+  s2 := (t2.add(usize(0))).*;
+  ns2 := (t2.add(usize(1))).*;
   assert((ns2 >= i64(0)) && (ns2 < i64(1000000000)), "second CLOCK_MONOTONIC nsec must be in [0, 1e9)");
   non_decreasing := cond(
     (s2 > s1) => true,
@@ -31,10 +31,10 @@ test("clock_gettime monotonic is non-decreasing", {
 test("clock_gettime realtime returns plausible epoch", {
   now_uninit := MaybeUninit(Array(i64, usize(2))).new();
   now := *(i64)(now_uninit.as_ptr());
-  r := clock_io.clock_gettime(clock_io.CLOCK_REALTIME, now &+ usize(0), now &+ usize(1));
+  r := clock_io.clock_gettime(clock_io.CLOCK_REALTIME, now.add(usize(0)), now.add(usize(1)));
   assert(r == i32(0), "CLOCK_REALTIME call should succeed");
-  sec := (now &+ usize(0)).*;
-  nsec := (now &+ usize(1)).*;
+  sec := (now.add(usize(0))).*;
+  nsec := (now.add(usize(1))).*;
   assert(sec > i64(946684800), "CLOCK_REALTIME sec should be after year 2000");
   assert((nsec >= i64(0)) && (nsec < i64(1000000000)), "CLOCK_REALTIME nsec must be in [0, 1e9)");
   unsafe(printf("  CLOCK_REALTIME sec=%lld nsec=%lld\n", sec, nsec));

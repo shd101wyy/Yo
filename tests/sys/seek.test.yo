@@ -65,8 +65,8 @@ test("lseek on pipe returns non-seekable error", {
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe creation for seek-on-pipe test should succeed");
-  read_fd := (pipefd &+ usize(0)).*;
-  write_fd := (pipefd &+ usize(1)).*;
+  read_fd := (pipefd.add(usize(0))).*;
+  write_fd := (pipefd.add(usize(1))).*;
   seek_ret := seek_io.lseek(read_fd, i64(0), seek_io.SEEK_SET);
   cond(
     (platform == Platform.Windows) => {

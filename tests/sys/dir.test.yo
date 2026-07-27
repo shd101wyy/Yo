@@ -68,7 +68,7 @@ test("async rename", {
   rd := io.await(read(new_open, buf, u32(64), u64(0)), io);
   unsafe(printf("  read = %d\n", rd));
   assert(rd == i32(11));
-  assert((buf &+ usize(0)).* == u8(114));
+  assert((buf.add(usize(0))).* == u8(114));
   io.await(close(new_open), io);
   free(.Some(*(void)(buf)));
   io.await(dir.unlink(AT_FDCWD, new_path, i32(0)), io);
@@ -98,7 +98,7 @@ test("async symlink and readlink", {
   rl_result := dir.readlink(AT_FDCWD, link_path, readlink_buf, usize(256));
   unsafe(printf("  readlink = %d\n", rl_result));
   assert((!(sym_ok)) || (rl_result > i32(0)));
-  first_byte := (readlink_buf &+ usize(0)).*;
+  first_byte := (readlink_buf.add(usize(0))).*;
   assert((!(sym_ok)) || ((first_byte == u8(47)) || (first_byte == u8(92))));
   fd2 := io.await(openat(AT_FDCWD, link_path, O_RDONLY, i32(0)), io);
   unsafe(printf("  open via link = %d\n", fd2));
@@ -107,7 +107,7 @@ test("async symlink and readlink", {
   rd := io.await(read(fd2, read_buf, u32(64), u64(0)), io);
   unsafe(printf("  read via link = %d\n", rd));
   assert((!(sym_ok)) || (rd == i32(14)));
-  assert((!(sym_ok)) || ((read_buf &+ usize(0)).* == u8(115)));
+  assert((!(sym_ok)) || ((read_buf.add(usize(0))).* == u8(115)));
   io.await(close(fd2), io);
   free(.Some(*(void)(readlink_buf)));
   free(.Some(*(void)(read_buf)));
@@ -149,7 +149,7 @@ test("async hard link", {
       rd := io.await(read(fd2, buf, u32(64), u64(0)), io);
       unsafe(printf("  read via link = %d\n", rd));
       assert(rd == i32(13));
-      assert((buf &+ usize(0)).* == u8(104));
+      assert((buf.add(usize(0))).* == u8(104));
       io.await(close(fd2), io);
       free(.Some(*(void)(buf)));
       io.await(dir.unlink(AT_FDCWD, orig_path, i32(0)), io);
@@ -243,7 +243,7 @@ test("async getdents lists directory entries", {
               break;
             },
             true => {
-              entry := (buf &+ usize(offset));
+              entry := buf.add(usize(offset));
               name := dir.dirent_name(entry);
               entry_type := dir.dirent_type(entry);
               unsafe(printf("    entry: %s (type=%d)\n", name, i32(entry_type)));

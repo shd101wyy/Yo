@@ -1,0 +1,707 @@
+diff --git a/yo-self/codegen/exprs/other_fn_call.yo b/yo-self/codegen/exprs/other_fn_call.yo
+index ef9e2e6c2..ed984b1f1 100644
+--- a/yo-self/codegen/exprs/other_fn_call.yo
++++ b/yo-self/codegen/exprs/other_fn_call.yo
+@@ -13,6 +13,7 @@
+ //! (Phase 5 — getStateMachineFieldName / CapturedVariable not ported); these
+ //! helpers are no-ops outside a state machine (the no-async corpus).
+ open(import("std/string"));
++open(import("std/fmt"));
+ { ArrayList } :: import("std/collections/array_list");
+ { HashSet } :: import("std/collections/hash_set");
+ { AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, ast_expr_id, make_err_expr, BF_DOT } :: import("../../expr.yo");
+@@ -1023,6 +1024,10 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
+       // methods like `Iso(T).extract`), falling through to the general path →
+       // "Failed to transpile (iso.extract)()". The registry fallback below stays
+       // effectively tid-gated (get_type_trait_methods_by_name("", ...) is empty).
++      if((mname == "insert") || ((mname == "len") || (mname == "get")), {
++        __probe_mcv := match(lookup_method_callee_value(ast_expr_id(expr)),.Some(pv) => if(is_func_val(pv), match(pv,.FuncVal(__pfvd, _) => __pfvd.*.func_id, _ => String.from("nonfn")), String.from("nonfn")),.None => String.from("NONE"));
++        println(`PROBE dispatch mname=${mname} tid=${tid} sidetable=${__probe_mcv}`);
++      });
+       if((tid.len() > usize(0)) || lookup_method_callee_value(ast_expr_id(expr)).is_some(), {
+         // Prefer the evaluator's RESOLVED method over a registry re-lookup. The
+         // evaluator did overload resolution + specialization and stashed the
+diff --git a/yo-self/codegen/functions/collection.yo b/yo-self/codegen/functions/collection.yo
+index 1bf5df33d..15706f6f5 100644
+--- a/yo-self/codegen/functions/collection.yo
++++ b/yo-self/codegen/functions/collection.yo
+@@ -32,6 +32,7 @@ open(import("std/string"));
+ { EvalContext, ArgValues, ArgEntry, VarArgEntry } :: import("../../evaluator/context.yo");
+ { find_methods_from_generic_impls } :: import("../../evaluator/values/impl.yo");
+ { create_specialized_function_inline } :: import("../../evaluator/calls/helper.yo");
++{ get_func_param_comptime } :: import("../../evaluator/types/function.yo");
+ // Auto-derived ___dispose synthesis (collect_dispose_methods): synthesize the
+ // recursive RC-field-drop function from the struct's fields, parse + evaluate it,
+ // register it as the type's ___dispose method. Mirrors TS evaluator/types/utils.ts
+@@ -284,13 +285,36 @@ _any_expr_param :: (fn(tys : ArrayList(TypeValue)) -> bool)({
+ /// param). Codegen skips it and emits only the monomorphizations / macro
+ /// expansions the evaluator records. Mirrors TS isFunctionSpecializable &&
+ /// !specializedType (+ macros are never emitted).
+-_is_generic_unspecialized_func :: (fn(v : EvalValue) -> bool)(
++_is_generic_unspecialized_func :: (fn(v : EvalValue) -> bool)({
++  // A function with any `comptime(...)` param is generic-unspecialized too
++  // (TS guards.ts:466 hasCompileTimeParams): its ORIGINAL can never be a
++  // valid C function — a `comptime(K) : Type` param renders
++  // `// Unknown type: Type K` in the signature ("invalid storage class
++  // specifier" clang errors, the imm_map/imm_set family). Specializations
++  // get fresh func_ids with no flags registered (the side table is sparse),
++  // so they are never misclassified here.
++  has_ct_param := {
++    ct_flags := get_func_param_comptime(_func_val_id(v));
++    (ctf_i : usize) = usize(0);
++    (ctf_any : bool) = false;
++    while((ctf_i < ct_flags.len()) && !(ctf_any), {
++      match(
++        ct_flags.get(ctf_i),
++        .Some(f) => if(f, {
++          ctf_any = true;
++        }),
++        .None => ()
++      );
++      ctf_i = (ctf_i + usize(1));
++    });
++    ctf_any
++  };
+   match(
+     get_func_type(_func_val_id(v)),
+-    .Func({ param_types, meta : __fm2 }) => ((__fm2.*.forall_labels.len() > usize(0)) || _any_expr_param(param_types)),
+-    _ => false
++    .Func({ param_types, meta : __fm2 }) => (((__fm2.*.forall_labels.len() > usize(0)) || _any_expr_param(param_types)) || has_ct_param),
++    _ => has_ct_param
+   )
+-);
++});
+ /// True if any regular parameter type CONTAINS a SomeType (i.e. the function is
+ /// still genuinely generic / unspecialized in its signature). Used to gate the
+ /// `expr_contains_unknown_value` collection skip: a SPECIALIZED function has
+diff --git a/yo-self/error.yo b/yo-self/error.yo
+index 4619ffb90..9e2086f4b 100644
+--- a/yo-self/error.yo
++++ b/yo-self/error.yo
+@@ -119,6 +119,11 @@ impl(YoError, Error());
+ ///
+ /// Mirrors `formatErrorMessage` in `src/error.ts`.
+ format_error_message :: (fn(token : Token, error_message : String, is_assertion_error : bool, kind : Option(ErrorKind)) -> YoError)({
++  {
++    __probe_msg := error_message.clone();
++    __probe_head := if(__probe_msg.len() > usize(120), __probe_msg.substring(usize(0), usize(120)), __probe_msg.clone());
++    println(`PROBE fem row=${token.row.to_string()} ${__probe_head}`);
++  };
+   line := get_line_at_token(token);
+   trimmed := error_message.trim();
+   full_message := `${trimmed}\n\n${line}`;
+diff --git a/yo-self/evaluator/calls/function.yo b/yo-self/evaluator/calls/function.yo
+index 4bd653cb1..7a07dd7af 100644
+--- a/yo-self/evaluator/calls/function.yo
++++ b/yo-self/evaluator/calls/function.yo
+@@ -58,7 +58,7 @@ open(import("std/fmt"));
+   snapshot_env
+ } :: import("../../env.yo");
+ { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
+-{ get_func_param_defaults, get_func_param_default_exprs, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_variadic_param } :: import("../types/function.yo");
++{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_variadic_param } :: import("../types/function.yo");
+ { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
+ { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
+ { t_unit, t_type, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
+@@ -124,6 +124,14 @@ MACRO_DISPATCH_ENABLED :: true;
+ /// type-expecting builtin in TS; in yo-self `types.first()` on an unknown
+ /// variadic ComptimeList(Type) did exactly that
+ /// (tests/variadic_comptime.test.yo). Template-free name (hot path).
++_probe_dot_name :: (fn(callee : AstExpr) -> String)({
++  if(!(ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2)))), {
++    return(String.new());
++  });
++  pn_args := match(callee,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
++  pn := match(pn_args.get(usize(1)),.Some(m) => ast_expr_token(m).value,.None => String.new());
++  if((pn == "insert") || ((pn == "len") || (pn == "get")), pn.clone(), String.new())
++});
+ _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
+   nm := String.from("call_result_");
+   nm.push_string(random_id(env.module_path));
+@@ -306,6 +314,9 @@ _try_find_receiver_method :: (
+       false
+     )
+   );
++  if(method_name == "insert", {
++    println(`PROBE tfrm insert static=${if(is_static, "T", "F")} recvty=${type_to_string(receiver_type)} hits=${hits.len().to_string()}`);
++  });
+   if(hits.len() == usize(0), {
+     return(Option(ReceiverMethodResult).None);
+   });
+@@ -1022,41 +1033,6 @@ _freshen_io_builtin_callee :: (fn(ft : TypeValue) -> TypeValue)(
+     _ => ft
+   )
+ );
+-/// True if this function type has a regular parameter that is a SomeType
+-/// wrapping an Fn trait (a closure param, e.g. `cb : Impl(Fn(...), Send)`).
+-/// Used to NARROW the non-forall specialization trigger: only closure-param
+-/// soft-generic functions (Thread.spawn / io.async-style) are specialized for
+-/// codegen so the closure param lowers to its concrete capture struct. Routing
+-/// EVERY soft-generic function through create_specialized_function_inline
+-/// (which lacks full effects analysis) crashed `check ./std`.
+-_func_type_has_closure_param :: (fn(ft : TypeValue) -> bool)(
+-  match(
+-    ft,
+-    .Func({ param_types }) => {
+-      n := param_types.len();
+-      (i : usize) = usize(0);
+-      (found : bool) = false;
+-      while((i < n) && !(found), {
+-        match(
+-          param_types.get(i),
+-          .Some(pt) => if(is_some_type(pt.clone()), {
+-            match(
+-              extract_fn_trait_from_type(pt),
+-              .Some(_) => {
+-                found = true;
+-              },
+-              .None => ()
+-            );
+-          }),
+-          .None => ()
+-        );
+-        i = (i + usize(1));
+-      });
+-      found
+-    },
+-    _ => false
+-  )
+-);
+ /// arguments, and returning the annotated expression.
+ ///
+ /// Phase 2bn: handles function definitions (TypeVal callee) and simple FuncVal calls.
+@@ -1466,13 +1442,51 @@ _evaluate_funcval_runtime_call :: (
+   // Specialize for codegen when the callee is generic. Forall functions
+   // always specialize; additionally — mirroring TS's specialization guard
+   // (`isFunctionTypeGeneric(functionType) && !functionValue.isControlFunction`,
+-  // helper.ts:1911-1929) — a NON-forall soft-generic function (one with a
+-  // SomeType param, e.g. a closure param `cb : Impl(Fn(...))`) also
+-  // specializes so its concrete arg types lower into the specialized C
+-  // function (e.g. Thread.spawn's `cb` → its capture struct). Control
+-  // (ctl/effect-handler) functions are excluded — the effect system handles
+-  // them.
+-  ou_spec_soft_generic := match(callee_func_type_opt,.Some(spec_ft) => ((is_function_type_generic(spec_ft) && !(is_control_fn(func_id_fv.clone()))) && _func_type_has_closure_param(spec_ft)),.None => false);
++  // helper.ts:1911-1929, guards.ts:457) — a NON-forall soft-generic
++  // function (SomeType params, comptime Type params) also specializes so
++  // its concrete arg types lower into the specialized C function (a
++  // closure param `cb : Impl(Fn(...))` → its capture struct; a
++  // `comptime(K) : Type` helper like std/imm/map.yo's `_node_insert` → a
++  // per-K/V instance). This gate previously ALSO required a closure param
++  // (`_func_type_has_closure_param`) because routing every soft-generic
++  // through create_specialized_function_inline crashed `check ./std` in
++  // the Phase-4 era; TS has no such narrowing, and with it a comptime-
++  // Type-param helper called inside another spec's body emitted the BARE
++  // generic fid with Type args as runtime C args ("call to undeclared
++  // function 'yo_id_NNNN'", `(// Unknown type: Type)(...)` — the
++  // imm_map/imm_set/sorted_* family; repro
++  // issues/repros/imm-map-unspecialized-comptime-helper.yo). Control
++  // (ctl/effect-handler) functions are excluded — the effect system
++  // handles them.
++  // `comptime(...)` params make a function generic too (TS guards.ts:466
++  // hasCompileTimeParams) — yo-self's is_function_type_generic can't see
++  // them (the flags ride a func-id side table, not the type), and inside
++  // another spec's body the K/V-dependent param types resolve CONCRETE, so
++  // a helper like `_branch_has_bit(K, V, branch, bit)` looked non-generic
++  // and its ORIGINAL (with `Type` C params) was collected and emitted raw.
++  ou_has_ct_param := {
++    ouc_flags := get_func_param_comptime(func_id_fv.clone());
++    (ouc_i : usize) = usize(0);
++    (ouc_any : bool) = false;
++    while((ouc_i < ouc_flags.len()) && !(ouc_any), {
++      match(
++        ouc_flags.get(ouc_i),
++        .Some(f) => if(f, {
++          ouc_any = true;
++        }),
++        .None => ()
++      );
++      ouc_i = (ouc_i + usize(1));
++    });
++    ouc_any
++  };
++  ou_spec_soft_generic := match(callee_func_type_opt,.Some(spec_ft) => ((is_function_type_generic(spec_ft) || ou_has_ct_param) && !(is_control_fn(func_id_fv.clone()))),.None => false);
++  {
++    __probe_rn := _probe_dot_name(func_expr);
++    if(__probe_rn.len() > usize(0), {
++      println(`PROBE inline-arm ${__probe_rn} fid=${func_id_fv} forall=${forall_names.len().to_string()} soft=${if(ou_spec_soft_generic, "T", "F")}`);
++    });
++  };
+   // Supersession counting — see expr_info.yo g_fid_rtcalls/g_fid_specs.
+   record_fid_rtcall(func_id_fv.clone());
+   if((forall_names.len() > usize(0)) || ou_spec_soft_generic, {
+@@ -1619,7 +1633,13 @@ _evaluate_funcval_runtime_call :: (
+     // issues/repros/arc-spawn-capture-split.yo). Record the specialized
+     // FuncVal under this call's id, mirroring TS lowering a call to the
+     // RESOLVED FunctionValue (codegen never re-resolves by name).
+-    if((spec_fid.len() > usize(0)) && ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
++    // Guarded on spec_fid != original: when create_specialized bails and
++    // returns the ORIGINAL FuncVal (degenerate args / recursion guard), its
++    // fid is non-empty too — recording it would OVERWRITE the receiver-
++    // method arm's good spec entry for the same call id with the generic
++    // original (whose emission is skipped), going straight to a silent
++    // "Failed to transpile" at the call site.
++    if(((spec_fid.len() > usize(0)) && !(spec_fid == func_id_fv)) && ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
+       record_method_callee_value(ast_expr_id(expr), spec_fv);
+     });
+     if((spec_fid.len() > usize(0)) && !(spec_fid == func_id_fv), {
+@@ -1667,6 +1687,10 @@ evaluate_function_call :: (
+     .FnCall(_, func_box, _, _, _) => func_box,
+     .Atom(_, _) => make_err_expr()
+   );
++  __probe_dn := _probe_dot_name(func_expr);
++  if(__probe_dn.len() > usize(0), {
++    println(`PROBE efc enter ${__probe_dn} call_id=${ast_expr_id(expr).to_string()}`);
++  });
+   args := match(
+     expr,
+     .FnCall(_, _, a, _, _) => a,
+@@ -2129,6 +2153,24 @@ evaluate_function_call :: (
+     .Some(ci) => ci.env,
+     .None => env
+   );
++  {
++    __probe_cn := _probe_dot_name(func_expr);
++    if(__probe_cn.len() > usize(0), {
++      __probe_cvk := match(
++        callee_value,
++        .Some(v) => match(
++          v,
++          .FuncVal(__pcv, _) => `FuncVal:${__pcv.*.func_id}`,
++          .TypeVal(_) => String.from("TypeVal"),
++          .UnknownVal(_) => String.from("UnknownVal"),
++          _ => String.from("other")
++        ),
++        .None => String.from("NONE")
++      );
++      __probe_cty := match(callee_info_opt,.Some(ci2) => type_to_string(ci2.ty),.None => String.from("noinfo"));
++      println(`PROBE callee ${__probe_cn} value=${__probe_cvk} ty=${__probe_cty}`);
++    });
++  };
+   // plans/EXTERN_UNSAFE_WRAP.md Phase A — extern "c" call-site gate.
+   //
+   // A call to a function declared `extern "c"` (via `extern(...)` or
+@@ -3012,6 +3054,13 @@ Fix: wrap the call:
+           ctx.is_inside_io_async_call = true;
+         });
+         runtime_arg_exprs := ArrayList(AstExpr).new();
++        // Per-param `comptime(...)` flags: a comptime arg (e.g. the K/V Type
++        // args of std/imm/map.yo's `_node_insert(K, V, ...)`) is folded into
++        // the specialization and must NOT join the runtime C argument list —
++        // TS's runtime args are `parameters.filter(!isCompileTimeOnly)`.
++        // (evaled_arg_infos stays COMPLETE/positional — the specialization
++        // block below zips it with the declared params by index.)
++        fv_param_ct := get_func_param_comptime(func_id_fv.clone());
+         (ai : usize) = usize(0);
+         while(ai < n_a, {
+           arg_expr := match(args.get(ai),.Some(a) => a,.None => make_err_expr());
+@@ -3088,7 +3137,10 @@ Fix: wrap the call:
+               }
+             );
+             _push_arg := evaled_arg_infos.push(arg_info);
+-            _push_rt := runtime_arg_exprs.push(evaled_arg);
++            ai_param_is_ct := match(fv_param_ct.get(ai),.Some(f) => f,.None => false);
++            if(!(ai_param_is_ct), {
++              _push_rt := runtime_arg_exprs.push(evaled_arg);
++            });
+             // Step 4b own-consume (port of helper.ts:411-451 / helper.yo:543):
+             // this inline FuncVal arg loop BYPASSES
+             // try_to_call_function_with_arguments, so `own(...)` params never
+@@ -4155,6 +4207,13 @@ Fix: wrap the call:
+           // codegen's method-call dispatch can recover it — the callee dot-access
+           // has no ExprInfo. Prefer the specialized FuncVal (concrete monomorphized
+           // body); fall back to the resolved generic method value.
++          {
++            __probe_mn := _probe_dot_name(func_expr);
++            if(__probe_mn.len() > usize(0), {
++              __probe_sfid := match(call_result_m.specialized_function_value,.Some(sv) => match(sv,.FuncVal(__psf, _) => __psf.*.func_id, _ => String.from("nonfn")),.None => String.from("NONE"));
++              println(`PROBE method-arm ${__probe_mn} spec=${__probe_sfid}`);
++            });
++          };
+           match(
+             call_result_m.specialized_function_value,
+             .Some(sfv) => record_method_callee_value(ast_expr_id(expr), sfv),
+@@ -4355,6 +4414,12 @@ Fix: wrap the call:
+           if(is_io_async_call(expr), {
+             callee_ty_call_none = _freshen_io_builtin_callee(callee_ty_call_none);
+           });
++          {
++            __probe_nn := _probe_dot_name(func_expr);
++            if(__probe_nn.len() > usize(0), {
++              println(`PROBE none-arm ${__probe_nn}`);
++            });
++          };
+           call_result_none := try_to_call_function_with_arguments(
+             Option(EvalValue).None,
+             callee_ty_call_none,
+diff --git a/yo-self/evaluator/calls/helper.yo b/yo-self/evaluator/calls/helper.yo
+index 5784613a5..aac8eab8c 100644
+--- a/yo-self/evaluator/calls/helper.yo
++++ b/yo-self/evaluator/calls/helper.yo
+@@ -21,6 +21,7 @@
+ //! stub that lived here has been retired.
+ pragma(Pragma.AllowUnsafe);
+ open(import("std/string"));
++open(import("std/fmt"));
+ { ArrayList } :: import("std/collections/array_list");
+ {
+   AstExpr,
+@@ -474,6 +475,10 @@ check_if_function_parameter_matches_argument :: (
+     param_type.clone(),
+     evaluate_function_parameter_type_again(param_type, callee_env_r, ctx)
+   );
++  if((param_label == "key") || ((param_label == "value") || ((param_label == "node") || ((param_label == "added") || ((param_label == "hash") || (param_label == "k")))))
++  , {
++    println(`PROBE cifpma label=${param_label} declared=${type_to_string(param_type)} resolved=${type_to_string(resolved_pt)}`);
++  });
+   // Step 3: Evaluate arg with param type as expected-type hint.
+   //
+   // For io.await/io.state/io.spawn/JoinHandle.await args (`skip_expected_type`),
+@@ -790,6 +795,7 @@ compute_compile_time_signature :: (
+     arg_values : ArgValues,
+     callee_env : Environment,
+     runtime_param_tys : ArrayList(TypeValue),
++    param_ct_flags : ArrayList(bool),
+     exn : Exception
+   ) -> String
+ )({
+@@ -843,6 +849,32 @@ compute_compile_time_signature :: (
+     },
+     _ => ()
+   );
++  // Include compile-time regular parameters (`comptime(K) : Type` args):
++  // their VALUES are part of the specialization identity. Mirrors TS
++  // helper.ts:2155-2164 (`parameters.some isCompileTimeOnly` block) — this
++  // block was omitted in the Phase-3 port (the per-param comptime flags
++  // weren't threaded here yet), so e.g. `_node_insert(i32, bool, ...)` and
++  // `_node_insert(String, u8, ...)` would have collided on one sig.
++  {
++    (cpi : usize) = usize(0);
++    n_cp := param_ct_flags.len();
++    while(cpi < n_cp, {
++      is_cp := match(param_ct_flags.get(cpi),.Some(f) => f,.None => false);
++      if(is_cp && (cpi < arg_values.args.len()), {
++        cp_sig := match(
++          arg_values.args.get(cpi),
++          .Some(cp_ae) => match(
++            cp_ae.value,
++            .Some(cp_v) => sanitize_for_sig(value_to_signature_string(cp_v)),
++            .None => String.from("unknown")
++          ),
++          .None => String.from("unknown")
++        );
++        parts.push(cp_sig);
++      });
++      cpi = (cpi + usize(1));
++    });
++  };
+   // Implicit argument values (given/using handlers — always compile-time)
+   match(
+     arg_values.implicit_args,
+@@ -1246,17 +1278,35 @@ create_specialized_function_inline :: (
+         },
+         .None => ()
+       );
+-      // Build runtime parameter types from regular args
+-      // Phase 3 simplification: all regular params are treated as runtime.
+-      // This means we track all regular arg types for cache differentiation.
++      // Split regular args by the per-param `comptime(...)` modifier —
++      // mirrors TS's isCompileTimeOnly parameter model: a COMPTIME arg's
++      // VALUE joins the compile-time cache key (and the sig, via
++      // compute_compile_time_signature's compile-time-regular-params
++      // block); ONLY runtime args contribute runtime param types. The
++      // former "Phase 3 simplification" (ALL regular args → runtime)
++      // poisoned every comptime-Type-param specialization: the spec's
++      // registered type kept `Type` params (emission skipped as generic /
++      // `// Unknown type: Type` C params) and call sites passed Type args
++      // as runtime C args (the imm_map/imm_set/sorted_* family, repro
++      // issues/repros/imm-map-unspecialized-comptime-helper.yo).
++      spec_pct := get_func_param_comptime(func_id.clone());
+       (ai : usize) = usize(0);
+       n_a := arg_values.args.len();
+       while(ai < n_a, {
++        ai_is_ct := match(spec_pct.get(ai),.Some(f) => f,.None => false);
+         match(
+           arg_values.args.get(ai),
+-          .Some(ae) => {
++          .Some(ae) => if(ai_is_ct, {
++            match(
++              ae.value,
++              .Some(ct_v) => compile_time_args.push(ct_v),
++              // A comptime param with no value is an upstream soft-fail; keep
++              // the key positionally stable so lookup/store stay consistent.
++              .None => compile_time_args.push(EvalValue.UnitVal)
++            );
++          }, {
+             runtime_param_tys.push(ae.arg_type);
+-          },
++          }),
+           .None => ()
+         );
+         ai = (ai + usize(1));
+@@ -1272,23 +1322,41 @@ create_specialized_function_inline :: (
+       // gates never register such a spec. Return the ORIGINAL value
+       // unspecialized — the later non-degenerate pass mints the good spec and
+       // re-stamps the call site.
++      // Declared param types for the RUNTIME params only (comptime-flagged
++      // positions dropped) — positional with runtime_param_tys, for the
++      // degenerate check here and the spec-type registration below.
++      decl_runtime_pts := ArrayList(TypeValue).new();
++      match(
++        func_type,
++        .Func({ param_types : drp_pt }) => {
++          (drpi : usize) = usize(0);
++          while(drpi < drp_pt.len(), {
++            drp_is_ct := match(spec_pct.get(drpi),.Some(f) => f,.None => false);
++            if(!(drp_is_ct), {
++              match(
++                drp_pt.get(drpi),
++                .Some(dpt) => {
++                  decl_runtime_pts.push(dpt);
++                },
++                .None => ()
++              );
++            });
++            drpi = (drpi + usize(1));
++          });
++        },
++        _ => ()
++      );
+       {
+         (degenerate_unit_arg : bool) = false;
+-        match(
+-          func_type,
+-          .Func({ param_types : dg_pt }) => {
+-            (dgi : usize) = usize(0);
+-            while((dgi < runtime_param_tys.len()) && !(degenerate_unit_arg), {
+-              rpt_d := match(runtime_param_tys.get(dgi),.Some(t) => t,.None => t_unit());
+-              decl_d := match(dg_pt.get(dgi),.Some(t) => t,.None => t_unit());
+-              if((is_unit_type(rpt_d) && !(is_unit_type(decl_d))) && !(type_contains_some_type(decl_d)), {
+-                degenerate_unit_arg = true;
+-              });
+-              dgi = (dgi + usize(1));
+-            });
+-          },
+-          _ => ()
+-        );
++        (dgi : usize) = usize(0);
++        while((dgi < runtime_param_tys.len()) && !(degenerate_unit_arg), {
++          rpt_d := match(runtime_param_tys.get(dgi),.Some(t) => t,.None => t_unit());
++          decl_d := match(decl_runtime_pts.get(dgi),.Some(t) => t,.None => t_unit());
++          if((is_unit_type(rpt_d) && !(is_unit_type(decl_d))) && !(type_contains_some_type(decl_d)), {
++            degenerate_unit_arg = true;
++          });
++          dgi = (dgi + usize(1));
++        });
+         if(degenerate_unit_arg, {
+           return(original_func_val);
+         });
+@@ -1384,7 +1452,7 @@ create_specialized_function_inline :: (
+           // Cache miss: create the specialization
+           // ------------------------------------------------------------------
+           // Compute specialized func_id
+-          sig := compute_compile_time_signature(func_type, arg_values, callee_env, runtime_param_tys, exn);
++          sig := compute_compile_time_signature(func_type, arg_values, callee_env, runtime_param_tys, spec_pct, exn);
+           // Resolved-return segment — must vary exactly when the cache-key
+           // extra value above varies, so distinct receivers get distinct
+           // emitted func_ids (same gate).
+@@ -1550,9 +1618,24 @@ create_specialized_function_inline :: (
+           // used below to keep a closure param CALLABLE during body eval.
+           decl_param_types := match(func_type,.Func({ param_types : dpt }) => dpt, _ => ArrayList(TypeValue).new());
+           (rbp_i : usize) = usize(0);
++          // Runtime-list cursor: runtime_param_tys now EXCLUDES comptime
++          // params, so positions diverge from `params` for comptime-param
++          // functions — advance this only on runtime params.
++          (rbp_rt_i : usize) = usize(0);
+           n_rbp := params.len();
+           while(rbp_i < n_rbp, {
+             p_label := match(params.get(rbp_i),.Some(l) => l,.None => String.from(""));
++            // A `comptime(...)` param keeps the VALUE binding try_to_call
++            // made (e.g. `K = i32` as a TypeVal) — the body needs it as a
++            // TYPE. The folded-const rebind below would have DESTROYED it
++            // (a TypeVal is a "known constant" → rebound to UnknownVal, so
++            // `RBNode(K, V)` in the body soft-failed and the emitted body
++            // went hollow). Mirrors TS binding compile-time args as values.
++            rbp_is_ct := match(spec_pct.get(rbp_i),.Some(f) => f,.None => false);
++            if(rbp_is_ct, {
++              rbp_i = (rbp_i + usize(1));
++              continue;
++            });
+             cur_is_folded_const := {
+               pvars := get_variables_from_env(callee_env, p_label);
+               npv := pvars.len();
+@@ -1600,7 +1683,7 @@ create_specialized_function_inline :: (
+               // the bound variable's.
+               (bind_pt_cl : TypeValue) = decl_pt.clone();
+               match(
+-                runtime_param_tys.get(rbp_i),
++                runtime_param_tys.get(rbp_rt_i),
+                 .Some(cap_ty) => {
+                   fresh_some_id := `${closure_some_id}_capbind_${type_key(cap_ty)}`;
+                   match(
+@@ -1652,7 +1735,7 @@ create_specialized_function_inline :: (
+               );
+             }, if(cur_is_folded_const, {
+               match(
+-                runtime_param_tys.get(rbp_i),
++                runtime_param_tys.get(rbp_rt_i),
+                 .Some(p_ty) => {
+                   _rb := add_variable_to_env(
+                     callee_env,
+@@ -1670,6 +1753,7 @@ create_specialized_function_inline :: (
+                 .None => ()
+               );
+             }));
++            rbp_rt_i = (rbp_rt_i + usize(1));
+             rbp_i = (rbp_i + usize(1));
+           });
+           // CLONE the body with FRESH ids for this specialization. Each
+@@ -1866,18 +1950,39 @@ create_specialized_function_inline :: (
+           match(
+             func_type,
+             .Func({
+-              param_types : sp_pt,
+               implicit_types : sp_it,
+               where_types : sp_wt,
+               result : sp_res_b,
+               meta : __fm5
+             }) => {
+-              sp_pl := __fm5.*.param_labels;
++              // Runtime-only projections of the positional per-param lists
++              // (labels / is_ref / is_owning): the spec's registered type
++              // carries ONLY runtime params (comptime ones are folded into
++              // the spec), and codegen zips these lists with param_types for
++              // the C prototype and call-site `&` placement — they must stay
++              // mutually aligned. Mirrors TS specializedType.parameters =
++              // runtime parameters only.
++              sp_pl_all := __fm5.*.param_labels;
++              sp_pir_all := __fm5.*.param_is_ref;
++              sp_pio_all := __fm5.*.param_is_owning;
++              sp_pl := ArrayList(String).new();
++              sp_pir := ArrayList(bool).new();
++              sp_pio := ArrayList(bool).new();
++              {
++                (spf_i : usize) = usize(0);
++                while(spf_i < sp_pl_all.len(), {
++                  spf_is_ct := match(spec_pct.get(spf_i),.Some(f) => f,.None => false);
++                  if(!(spf_is_ct), {
++                    sp_pl.push(match(sp_pl_all.get(spf_i),.Some(l) => l,.None => String.new()));
++                    sp_pir.push(match(sp_pir_all.get(spf_i),.Some(b) => b,.None => false));
++                    sp_pio.push(match(sp_pio_all.get(spf_i),.Some(b) => b,.None => false));
++                  });
++                  spf_i = (spf_i + usize(1));
++                });
++              };
+               sp_il := __fm5.*.implicit_labels;
+               sp_isp := __fm5.*.implicit_spreads;
+               sp_rico := __fm5.*.result_is_comptime_only;
+-              sp_pir := __fm5.*.param_is_ref;
+-              sp_pio := __fm5.*.param_is_owning;
+               sp_rir := __fm5.*.result_is_ref;
+               sp_hv := __fm5.*.has_variadic;
+               sp_ie := __fm5.*.is_extern;
+@@ -1899,7 +2004,7 @@ create_specialized_function_inline :: (
+                 // unit-typed arg against a concrete non-unit declared param
+                 // (`assert(flag : bool, ...)` emitted `void flag`;
+                 // issues/repros/void-param-assert-open-env.yo).
+-                declared_pt := match(sp_pt.get(spi),.Some(t) => t,.None => t_unit());
++                declared_pt := match(decl_runtime_pts.get(spi),.Some(t) => t,.None => t_unit());
+                 use_ty := if(is_unit_type(rpt) && !(is_unit_type(declared_pt)), {
+                   resolved_decl := evaluate_function_parameter_type_again(declared_pt, callee_env, ctx);
+                   if(type_contains_some_type(resolved_decl) || is_unit_type(resolved_decl), rpt, resolved_decl)
+@@ -3637,7 +3742,30 @@ try_to_call_function_with_arguments :: (
+         .None => func_type
+       );
+       callee_own_generic := _func_type_has_runtime_some_param(callee_own_type);
+-      is_func_generic := ((((fl.len() > usize(0)) || (il.len() > usize(0))) || fv_has_forall) || callee_own_generic);
++      // `comptime(...)` params make the function generic too (TS
++      // guards.ts:466 hasCompileTimeParams; the flags ride the func-id
++      // side table, invisible to the type-shape checks above).
++      fv_has_ct_param := {
++        fvc_flags := match(
++          func_val,
++          .Some(fvc) => match(fvc,.FuncVal(__fvdc, _) => get_func_param_comptime(__fvdc.*.func_id.clone()), _ => ArrayList(bool).new()),
++          .None => ArrayList(bool).new()
++        );
++        (fvc_i : usize) = usize(0);
++        (fvc_any : bool) = false;
++        while((fvc_i < fvc_flags.len()) && !(fvc_any), {
++          match(
++            fvc_flags.get(fvc_i),
++            .Some(f) => if(f, {
++              fvc_any = true;
++            }),
++            .None => ()
++          );
++          fvc_i = (fvc_i + usize(1));
++        });
++        fvc_any
++      };
++      is_func_generic := (((((fl.len() > usize(0)) || (il.len() > usize(0))) || fv_has_forall) || callee_own_generic) || fv_has_ct_param);
+       spec_template_type := if(
+         callee_own_generic && !(_func_type_has_runtime_some_param(func_type)),
+         callee_own_type,
+@@ -3682,9 +3810,30 @@ try_to_call_function_with_arguments :: (
+           .Some(fv) => match(fv,.FuncVal(_, _) => true, _ => false),
+           .None => false
+         );
++        // DIRECT self-recursion (callee IS the innermost specialization):
++        // forward-reference the in-progress spec, exactly like the mutual
++        // case — TS makes no distinction (helper.ts:1850-1856 matches both,
++        // 1999 builds `{...functionValue, funcId: specializedFuncId}`).
++        // Previously yo-self SKIPPED here ("left to the recur machinery"),
++        // which only covers literal `recur(...)` bodies — an explicit
++        // self-call (`_node_insert(K, V, child, ...)` in std/imm/map.yo's
++        // Branch arm) then kept the ORIGINAL FuncVal and the call site
++        // emitted the BARE generic fid (undeclared — the imm collections
++        // residual).
++        if(is_recursive_spec && is_concrete_fv, {
++          match(
++            ctx.currently_specializing_function,
++            .Some(rec_info) => {
++              spec_func_val = Option(EvalValue).Some(
++                _build_forward_ref_funcval(func_val, rec_info.specialized_func_id.clone())
++              );
++            },
++            .None => ()
++          );
++        });
+         match(
+           mutual_info,
+-          .Some(minfo) => if(is_concrete_fv, {
++          .Some(minfo) => if(is_concrete_fv && spec_func_val.is_none(), {
+             spec_func_val = Option(EvalValue).Some(
+               _build_forward_ref_funcval(func_val, minfo.specialized_func_id.clone())
+             );
+diff --git a/yo-self/evaluator/exprs/property_access.yo b/yo-self/evaluator/exprs/property_access.yo
+index 07b40581f..7557392ba 100644
+--- a/yo-self/evaluator/exprs/property_access.yo
++++ b/yo-self/evaluator/exprs/property_access.yo
+@@ -14,6 +14,7 @@
+ //! - `comptimeRef` setting for pointer-through-struct access — skipped (Phase 3).
+ //! - `ModuleVal.isLoading` check — skipped (no such flag in yo-self).
+ pragma(Pragma.AllowUnsafe);
++open(import("std/fmt"));
+ open(import("std/string"));
+ { ArrayList } :: import("std/collections/array_list");
+ {
+@@ -483,6 +484,10 @@ evaluate_property_access :: (
+   ctx.expected_type = old_expected_type;
+   // Update env from the evaluated object's ExprInfo.
+   obj_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(object_expr));
++  if(ast_expr_is_atom(property_expr) && (ast_expr_token(property_expr).value == "insert"), {
++    __probe_oty := match(obj_info_opt,.Some(poi) => type_to_string(poi.ty),.None => String.from("noinfo"));
++    println(`PROBE pa-entry insert objty=${__probe_oty}`);
++  });
+   match(
+     obj_info_opt,
+     .Some(oi) => {
+@@ -842,6 +847,9 @@ Raw pointer operations may dereference invalid memory.`,
+       // Only resolve when exactly 1 candidate — multiple candidates are deferred to
+       // function.yo which can disambiguate by argument types.
+       generic_methods_su := find_methods_from_generic_impls(type_val_inner, prop_name_su, env);
++      if(prop_name_su == "insert", {
++        println(`PROBE pa-su insert recv=${type_to_string(type_val_inner)} cands=${generic_methods_su.len().to_string()}`);
++      });
+       if(generic_methods_su.len() == usize(1), {
+         method_su := match(
+           generic_methods_su.get(usize(0)),

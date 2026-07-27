@@ -1,25 +1,11 @@
 open(import("std/fmt"));
-{ ArrayList } :: import("std/collections/array_list");
-make_list :: (fn(n : usize) -> ArrayList(usize))({
-  out := ArrayList(usize).new();
-  (k : usize) = usize(0);
-  while(k < n, {
-    out.push(k);
-    k = (k + usize(1));
-  });
-  out
-});
 main :: (fn() -> unit)({
-  (i : usize) = usize(0);
-  (hits : usize) = usize(0);
-  while(i < usize(3), {
-    // An OWNED temp (the ArrayList returned by make_list) created inside the
-    // RHS of a short-circuit `||` in a loop body: the scope-end drop for the
-    // temp is emitted in the OUTER scope where the temp was never declared.
-    flagged := ((i == usize(0)) || (make_list(i).len() > usize(1)));
-    if(flagged, { hits = (hits + usize(1)); });
-    i = (i + usize(1));
-  });
-  println(`${hits}`);
+  x := 42;
+  p := &(x);
+  q := &(x);
+  a := unsafe((usize)(p));
+  b := unsafe((usize)(q));
+  println(a == b);
+  ()
 });
 export(main);

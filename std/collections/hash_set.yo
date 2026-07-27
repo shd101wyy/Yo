@@ -84,7 +84,7 @@ impl(
             data_ptr := *(T)(data_void_ptr);
             i := usize(0);
             while(i < capacity, i = (i + usize(1)), {
-              (ctrl_ptr &+ i).* = CTRL_EMPTY;
+              (ctrl_ptr.add(i)).* = CTRL_EMPTY;
             });
             .Ok(
               Self(
@@ -167,13 +167,13 @@ impl(
     data_ptr := Self._data_ptr(self);
     while(probe < self.capacity, probe = (probe + usize(1)), {
       probe_index := ((index + probe) % self.capacity);
-      ctrl_byte := (ctrl_ptr &+ probe_index).*;
+      ctrl_byte := (ctrl_ptr.add(probe_index)).*;
       cond(
         (ctrl_byte == CTRL_EMPTY) => {
           return(.None);
         },
         (ctrl_byte == h2) => {
-          stored_element := (data_ptr &+ probe_index).*;
+          stored_element := (data_ptr.add(probe_index)).*;
           cond(
             (stored_element == element) => {
               return(.Some(probe_index));
@@ -196,7 +196,7 @@ impl(
     ctrl_ptr := Self._ctrl_ptr(self);
     while(probe < self.capacity, probe = (probe + usize(1)), {
       probe_index := ((index + probe) % self.capacity);
-      ctrl_byte := (ctrl_ptr &+ probe_index).*;
+      ctrl_byte := (ctrl_ptr.add(probe_index)).*;
       cond(
         ((ctrl_byte == CTRL_EMPTY) || (ctrl_byte == CTRL_DELETED)) => {
           return(probe_index);
@@ -226,17 +226,17 @@ impl(
         ctrl_ptr := Self._ctrl_ptr(self);
         data_ptr := Self._data_ptr(self);
         while(i < self.capacity, i = (i + usize(1)), {
-          ctrl_byte := (ctrl_ptr &+ i).*;
+          ctrl_byte := (ctrl_ptr.add(i)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              element := (data_ptr &+ i).*;
+              element := (data_ptr.add(i)).*;
               hash := element.hash();
               h2 := h2_hash(hash);
               new_index := Self._find_insert_slot(new_set, hash);
               new_ctrl_ptr := Self._ctrl_ptr(new_set);
               new_data_ptr := Self._data_ptr(new_set);
-              (new_ctrl_ptr &+ new_index).* = h2;
-              consume((new_data_ptr &+ new_index).* = element);
+              (new_ctrl_ptr.add(new_index)).* = h2;
+              consume((new_data_ptr.add(new_index)).* = element);
               new_set.size = (new_set.size + usize(1));
             },
             true => ()
@@ -248,10 +248,10 @@ impl(
           Type.contains_rc_type(T) => {
             j := usize(0);
             while(j < self.capacity, j = (j + usize(1)), {
-              ctrl_byte := (ctrl_ptr &+ j).*;
+              ctrl_byte := (ctrl_ptr.add(j)).*;
               cond(
                 ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                  element_ptr := (data_ptr &+ j);
+                  element_ptr := data_ptr.add(j);
                   unsafe.drop(element_ptr.*);
                 },
                 true => ()
@@ -305,8 +305,8 @@ impl(
             index := Self._find_insert_slot(self, hash);
             ctrl_ptr := Self._ctrl_ptr(self);
             data_ptr := Self._data_ptr(self);
-            (ctrl_ptr &+ index).* = h2;
-            consume((data_ptr &+ index).* = element);
+            (ctrl_ptr.add(index)).* = h2;
+            consume((data_ptr.add(index)).* = element);
             self.size = (self.size + usize(1));
             .Ok(true)
           }
@@ -340,13 +340,13 @@ impl(
         cond(
           Type.contains_rc_type(T) => {
             data_ptr := Self._data_ptr(self);
-            element_ptr := (data_ptr &+ index);
+            element_ptr := data_ptr.add(index);
             unsafe.drop(element_ptr.*);
           },
           true => ()
         );
         ctrl_ptr := Self._ctrl_ptr(self);
-        (ctrl_ptr &+ index).* = CTRL_DELETED;
+        (ctrl_ptr.add(index)).* = CTRL_DELETED;
         self.size = (self.size - usize(1));
         true
       },
@@ -377,10 +377,10 @@ impl(
         data_ptr := Self._data_ptr(self);
         i := usize(0);
         while(i < self.capacity, i = (i + usize(1)), {
-          ctrl_byte := (ctrl_ptr &+ i).*;
+          ctrl_byte := (ctrl_ptr.add(i)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              element_ptr := (data_ptr &+ i);
+              element_ptr := data_ptr.add(i);
               unsafe.drop(element_ptr.*);
             },
             true => ()
@@ -392,7 +392,7 @@ impl(
     ctrl_ptr := Self._ctrl_ptr(self);
     i := usize(0);
     while(i < self.capacity, i = (i + usize(1)), {
-      (ctrl_ptr &+ i).* = CTRL_EMPTY;
+      (ctrl_ptr.add(i)).* = CTRL_EMPTY;
     });
     self.size = usize(0);
   }),
@@ -409,10 +409,10 @@ impl(
         data_ptr := Self._data_ptr(self);
         is_sub := true;
         while(i < self.capacity, i = (i + usize(1)), {
-          ctrl_byte := (ctrl_ptr &+ i).*;
+          ctrl_byte := (ctrl_ptr.add(i)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              element := (data_ptr &+ i).*;
+              element := (data_ptr.add(i)).*;
               contains_result := other.contains(element);
               cond(
                 (contains_result == false) => {
@@ -447,10 +447,10 @@ impl(
     data_ptr := Self._data_ptr(smaller);
     result := true;
     while(i < smaller.capacity, i = (i + usize(1)), {
-      ctrl_byte := (ctrl_ptr &+ i).*;
+      ctrl_byte := (ctrl_ptr.add(i)).*;
       cond(
         ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-          element := (data_ptr &+ i).*;
+          element := (data_ptr.add(i)).*;
           contains_result := larger.contains(element);
           cond(
             (contains_result == true) => {
@@ -492,10 +492,10 @@ impl(
         ctrl_ptr := Self._ctrl_ptr(self);
         data_ptr := Self._data_ptr(self);
         while(i < self.capacity, i = (i + usize(1)), {
-          ctrl_byte := (ctrl_ptr &+ i).*;
+          ctrl_byte := (ctrl_ptr.add(i)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              element := (data_ptr &+ i).*;
+              element := (data_ptr.add(i)).*;
               result_set.add(element);
             },
             true => ()
@@ -505,10 +505,10 @@ impl(
         other_ctrl_ptr := Self._ctrl_ptr(other);
         other_data_ptr := Self._data_ptr(other);
         while(j < other.capacity, j = (j + usize(1)), {
-          ctrl_byte := (other_ctrl_ptr &+ j).*;
+          ctrl_byte := (other_ctrl_ptr.add(j)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              element := (other_data_ptr &+ j).*;
+              element := (other_data_ptr.add(j)).*;
               result_set.add(element);
             },
             true => ()
@@ -534,10 +534,10 @@ impl(
         ctrl_ptr := Self._ctrl_ptr(smaller);
         data_ptr := Self._data_ptr(smaller);
         while(i < smaller.capacity, i = (i + usize(1)), {
-          ctrl_byte := (ctrl_ptr &+ i).*;
+          ctrl_byte := (ctrl_ptr.add(i)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              element := (data_ptr &+ i).*;
+              element := (data_ptr.add(i)).*;
               cond(
                 (larger.contains(element)) => {
                   _ := result_set.add(element);
@@ -566,10 +566,10 @@ impl(
         ctrl_ptr := Self._ctrl_ptr(self);
         data_ptr := Self._data_ptr(self);
         while(i < self.capacity, i = (i + usize(1)), {
-          ctrl_byte := (ctrl_ptr &+ i).*;
+          ctrl_byte := (ctrl_ptr.add(i)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              element := (data_ptr &+ i).*;
+              element := (data_ptr.add(i)).*;
               contains_result := other.contains(element);
               cond(
                 (contains_result == false) => {
@@ -599,10 +599,10 @@ impl(
         ctrl_ptr := Self._ctrl_ptr(self);
         data_ptr := Self._data_ptr(self);
         while(i < self.capacity, i = (i + usize(1)), {
-          ctrl_byte := (ctrl_ptr &+ i).*;
+          ctrl_byte := (ctrl_ptr.add(i)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              element := (data_ptr &+ i).*;
+              element := (data_ptr.add(i)).*;
               contains_result := other.contains(element);
               cond(
                 (contains_result == false) => {
@@ -618,10 +618,10 @@ impl(
         other_ctrl_ptr := Self._ctrl_ptr(other);
         other_data_ptr := Self._data_ptr(other);
         while(j < other.capacity, j = (j + usize(1)), {
-          ctrl_byte := (other_ctrl_ptr &+ j).*;
+          ctrl_byte := (other_ctrl_ptr.add(j)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              element := (other_data_ptr &+ j).*;
+              element := (other_data_ptr.add(j)).*;
               contains_result := self.contains(element);
               cond(
                 (contains_result == false) => {
@@ -658,10 +658,10 @@ impl(
                 .Some(data_ptr) => {
                   i := usize(0);
                   while(i < self.capacity, i = (i + usize(1)), {
-                    ctrl_byte := (ctrl_ptr &+ i).*;
+                    ctrl_byte := (ctrl_ptr.add(i)).*;
                     cond(
                       ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                        element_ptr := (data_ptr &+ i);
+                        element_ptr := data_ptr.add(i);
                         unsafe.drop(element_ptr.*);
                       },
                       true => ()
@@ -713,10 +713,10 @@ impl(
           data_ptr := self._set.data.unwrap();
           result := Option(T).None;
           while((self._index < self._set.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ self._index).*;
+            ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result =.Some((data_ptr &+ self._index).*);
+                result =.Some((data_ptr.add(self._index)).*);
               },
               true => ()
             );
@@ -759,10 +759,10 @@ impl(
           data_ptr := self._set.data.unwrap();
           result := Option(*(T)).None;
           while((self._index < self._set.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ self._index).*;
+            ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result =.Some(data_ptr &+ self._index);
+                result =.Some(data_ptr.add(self._index));
               },
               true => ()
             );
@@ -802,13 +802,13 @@ impl(
           .Some(data_ptr) => {
             (i : usize) = usize(0);
             while(i < self.capacity, {
-              ctrl_byte := (ctrl_ptr &+ i).*;
+              ctrl_byte := (ctrl_ptr.add(i)).*;
               // Full slot iff the SwissTable control high bit is clear (a full byte
               // stores the 7-bit h2 hash); EMPTY (255) and DELETED (254) both set it.
               // Uses the control-bit directly so the trace body needs no module-level
               // constant in scope.
               if((ctrl_byte & u8(128)) == u8(0), {
-                tracer.visit(data_ptr &+ i);
+                tracer.visit(data_ptr.add(i));
               });
               i = (i + usize(1));
             });

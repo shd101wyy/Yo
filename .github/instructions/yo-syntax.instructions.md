@@ -484,7 +484,7 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 - **`while(comptime(cond), body)`** explicitly opts into compile-time loop unrolling. Requires `cond` to be a compile-time-known value. The evaluator will error if it detects an infinite loop (e.g., `while(comptime(true), ...)` with no `break`/`return`/`unwind`).
 - If you use a comptime-only (`::`) variable in a bare `while` condition (without `comptime()`), the compiler will **error**: the condition would never change at runtime, causing an infinite loop.
 - `assert`/`panic` live in `std/assert` (`{ assert, panic } :: import("std/assert");`) — not prelude-ambient. Messages accept any `ToString` type (template strings OK); `assert(cond)` uses a default message. The diverging builtin for value-position arms is `__yo_panic("str only")`.
-- Pointer operators are the `&`-prefixed family: identity `&==` / `&!=`, ordering `&<`, `&<=`, `&>`, `&>=`, arithmetic `&+`, `&-` (offset by `usize`), difference `&/` (→ `isize`). Plain `==` does NOT exist for typed pointers (`*(u8) == *(u8)` fails overload resolution) — use `p &== q` for pointer identity. Comparisons are safe; arithmetic requires `unsafe(...)`.
+- Pointer comparison is plain `==`/`!=`/`<`/`<=`/`>`/`>=` (Eq/Ord impls on `*(T)`, address identity). Pointer arithmetic is METHODS: `p.add(n)`, `p.sub(n)` (offset by `usize` elements), `p.offset_from(q)` (signed element distance → `isize`). The former `&`-prefixed operators (`&==`, `&+`, `&/`, …) are retired. Comparisons are safe; arithmetic methods require `unsafe(...)`.
 
 ## `unsafe(...)` and `pragma(Pragma.AllowUnsafe);` for raw pointer operations
 
@@ -503,10 +503,10 @@ main :: (fn() -> unit)({
 Inside an unsafe-capable file, the following operations require an explicit `unsafe(...)` wrap (so the unsafe surface stays greppable):
 
 - Pointer dereference: `p.*` (read), `p.* = v` (write)
-- Pointer arithmetic: `&+`, `&-`, `&/`
+- Pointer arithmetic: `.add(n)`, `.sub(n)`, `.offset_from(q)`
 - `consume(p.* = v)` (deref-and-init)
 
-Operations that stay safe (no wrap needed): `&(x)` to take an address, passing/storing/returning pointers, pointer comparison (`&==`, `&<`, etc.), and pointer-type casts (`*(u8)(p)`).
+Operations that stay safe (no wrap needed): `&(x)` to take an address, passing/storing/returning pointers, pointer comparison (`==`, `<`, etc.), and pointer-type casts (`*(u8)(p)`).
 
 `unsafe(expr)` is a regular builtin call taking exactly one argument — the same shape as `return(...)`, `consume(...)`. It's a compile-time marker only; at codegen it lowers to its inner expression.
 
@@ -598,7 +598,7 @@ match(
   self._ptr,
   // SAFETY: idx bounds-checked above (idx < self._length);
   // _ptr points at the Rc-managed heap buffer.
-  .Some(_ptr) => (_ptr &+ idx),
+  .Some(_ptr) => (_ptr.add(idx)),
   .None => __yo_panic("ArrayList: empty")
 )
 ```

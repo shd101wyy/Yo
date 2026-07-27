@@ -36,9 +36,9 @@ test("copyfile copies file contents", {
   buf := *(u8)(buf_uninit.as_ptr());
   rd := io.await(file.read(dst_fd, buf, u32(32), u64(0)), io);
   assert(rd == i32(data_len));
-  assert((buf &+ usize(0)).* == u8(99));
-  assert((buf &+ usize(4)).* == u8(102));
-  assert((buf &+ usize(12)).* == u8(97));
+  assert((buf.add(usize(0))).* == u8(99));
+  assert((buf.add(usize(4))).* == u8(102));
+  assert((buf.add(usize(12))).* == u8(97));
   c2 := io.await(file.close(dst_fd), io);
   assert(c2 == i32(0));
   io.await(dir.unlink(AT_FDCWD, dst_path, i32(0)), io);
@@ -80,9 +80,9 @@ test("sendfile transfers bytes", {
   buf := *(u8)(buf_uninit.as_ptr());
   rd := io.await(file.read(dst_fd, buf, u32(32), u64(0)), io);
   assert(rd == i32(data_len));
-  assert((buf &+ usize(0)).* == u8(115));
-  assert((buf &+ usize(4)).* == u8(102));
-  assert((buf &+ usize(10)).* == u8(107));
+  assert((buf.add(usize(0))).* == u8(115));
+  assert((buf.add(usize(4))).* == u8(102));
+  assert((buf.add(usize(10))).* == u8(107));
   c4 := io.await(file.close(dst_fd), io);
   assert(c4 == i32(0));
   io.await(dir.unlink(AT_FDCWD, dst_path, i32(0)), io);

@@ -466,8 +466,8 @@ test("BufReader read returns bytes from file", {
     .Ok(n) => {
       unsafe(printf("  read %d bytes\n", n));
       assert(n == i32(5), "should read 5 bytes");
-      assert((buf &+ usize(0)).* == u8(97), "first byte should be 'a'");
-      assert((buf &+ usize(4)).* == u8(101), "last byte should be 'e'");
+      assert((buf.add(usize(0))).* == u8(97), "first byte should be 'a'");
+      assert((buf.add(usize(4))).* == u8(101), "last byte should be 'e'");
     },
     .Err(e) => assert(false, "should not error")
   );
@@ -542,8 +542,8 @@ test("BufReader read partial then remaining", {
       unsafe(printf("  second read: %d bytes\n", n));
       assert(n == i32(6), "should read remaining 6 bytes");
       // Verify it reads " world"
-      assert((buf &+ usize(0)).* == u8(32), "first byte should be space");
-      assert((buf &+ usize(5)).* == u8(100), "last byte should be 'd'");
+      assert((buf.add(usize(0))).* == u8(32), "first byte should be space");
+      assert((buf.add(usize(5))).* == u8(100), "last byte should be 'd'");
     },
     .Err(e) => assert(false, "second read failed")
   );

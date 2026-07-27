@@ -57,10 +57,10 @@ lookup_host :: (fn(host : String, io : Io) -> Impl(Future(ArrayList(IpAddr), IoE
             (family == AF_INET) => {
               // Extract IPv4 address bytes
               // sockaddr_in: family(2) + port(2) + addr(4)
-              a := (addr_ptr &+ usize(4)).*;
-              b := (addr_ptr &+ usize(5)).*;
-              c := (addr_ptr &+ usize(6)).*;
-              d := (addr_ptr &+ usize(7)).*;
+              a := (addr_ptr.add(usize(4))).*;
+              b := (addr_ptr.add(usize(5))).*;
+              c := (addr_ptr.add(usize(6))).*;
+              d := (addr_ptr.add(usize(7))).*;
               addrs.push(.V4(a, b, c, d));
             },
             true => ()

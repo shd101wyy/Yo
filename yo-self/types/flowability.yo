@@ -45,7 +45,7 @@ open(import("std/string"));
 { is_type_val } :: import("../value.yo");
 { EvalContext } :: import("../evaluator/context.yo");
 { TypeValue } :: import("./definitions.yo");
-{ is_function_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("./guards.yo");
+{ is_function_type, is_reference_struct_type, is_atomic_reference_struct_type, is_pointer_type } :: import("./guards.yo");
 { type_may_provide_slice_source, type_representation_contains_raw_ptr, type_contains_rc_type }
 :: import("./utils.yo");
 /// A 1-element mutable box flagging that an error thrown during a swallowed
@@ -320,10 +320,14 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
     });
     return(true);
   });
-  // Pointer arithmetic: `base &+ off` / `base &- off` yields a pointer into the
-  // SAME storage as `base`. Flowable iff `base` is flowable.
-  if(ast_expr_is_fn_call_of(expr, "&+", Option(usize).Some(usize(2))) ||
-    ast_expr_is_fn_call_of(expr, "&-", Option(usize).Some(usize(2))), {
+  // Pointer arithmetic: `base.add(off)` / `base.sub(off)` (formerly the
+  // `&+`/`&-` operators — plans/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md)
+  // yields a pointer into the SAME storage as `base`. Flowable iff `base`
+  // is flowable. GATED on the receiver's evaluated type being a raw
+  // pointer — `add`/`sub` are ordinary method names on other types. The
+  // direct builtin forms keep the positional-arg rule.
+  if(ast_expr_is_fn_call_of(expr, "__yo_ptr_add", Option(usize).None) ||
+    ast_expr_is_fn_call_of(expr, "__yo_ptr_sub", Option(usize).None), {
     base := match(
       call_args.get(usize(0)),
       .Some(a) => a,
@@ -333,6 +337,35 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
     );
     return(recur(base, ctx, opts));
   });
+  {
+    fa_callee := match(expr,.FnCall(_, fa_f, _, _, _) => Option(AstExpr).Some(fa_f), _ => Option(AstExpr).None);
+    match(
+      fa_callee,
+      .Some(fa_fn) => if(ast_expr_is_fn_call_of(fa_fn, ".", Option(usize).Some(usize(2))) && (call_args.len() == usize(1)), {
+        fa_recv := match(fa_fn,.FnCall(_, _, fa_fargs, _, _) => fa_fargs.get(usize(0)), _ => Option(AstExpr).None);
+        fa_member := match(fa_fn,.FnCall(_, _, fa_fargs2, _, _) => fa_fargs2.get(usize(1)), _ => Option(AstExpr).None);
+        fa_name := match(
+          fa_member,
+          .Some(fa_m) => if(ast_expr_is_atom(fa_m), ast_expr_token(fa_m).value, String.new()),
+          .None => String.new()
+        );
+        if((fa_name == "add") || (fa_name == "sub"), {
+          match(
+            fa_recv,
+            .Some(fa_r) => match(
+              expr_info_table_get(ctx.expr_info_table, ast_expr_id(fa_r)),
+              .Some(fa_ri) => if(is_pointer_type(fa_ri.ty), {
+                return(recur(fa_r, ctx, opts));
+              }),
+              .None => ()
+            ),
+            .None => ()
+          );
+        });
+      }),
+      .None => ()
+    );
+  };
   // Enum/variant construction: `.Variant(args…)` — `call.func` is a `.`/1 call
   // or a `.`-typed atom. Flowable iff every arg whose representation carries a
   // raw pointer is flowable. ALSO the QUALIFIED applied form `Enum.Variant(args)`

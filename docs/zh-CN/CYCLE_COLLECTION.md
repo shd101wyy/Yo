@@ -471,7 +471,7 @@ impl(generic(T : Type), ArrayList(T),
         .Some(base) => {
           (i : usize) = usize(0);
           while(i < self._length, {
-            tracer.visit(base &+ i);  // 传入元素的槽位指针
+            tracer.visit(base.add(i));  // 传入元素的槽位指针
             i = (i + usize(1));
           });
         },

@@ -55,7 +55,7 @@ impl(
     while(i < self._len, i = (i + usize(1)), {
       idx := ((self._head + i) % self._capacity);
       buf := self._buf.unwrap();
-      consume((new_buf &+ i).* = (buf &+ idx).*);
+      consume((new_buf.add(i)).* = (buf.add(idx)).*);
     });
     // Drop old elements for RC types before freeing old buffer
     // (the copy above duped each element, so old slots still hold references)
@@ -65,7 +65,7 @@ impl(
         while(j < self._len, j = (j + usize(1)), {
           old_idx := ((self._head + j) % self._capacity);
           old_buf := self._buf.unwrap();
-          unsafe.drop((old_buf &+ old_idx).*);
+          unsafe.drop((old_buf.add(old_idx)).*);
         });
       },
       true => ()
@@ -87,7 +87,7 @@ impl(
       true => ()
     );
     buf := self._buf.unwrap();
-    consume((buf &+ self._tail).* = val);
+    consume((buf.add(self._tail)).* = val);
     self._tail = ((self._tail + usize(1)) % self._capacity);
     self._len = (self._len + usize(1));
   }),
@@ -102,7 +102,7 @@ impl(
       true => (self._head - usize(1))
     );
     buf := self._buf.unwrap();
-    consume((buf &+ self._head).* = val);
+    consume((buf.add(self._head)).* = val);
     self._len = (self._len + usize(1));
   }),
   // Remove and return the front element.
@@ -111,7 +111,7 @@ impl(
       (self._len == usize(0)) =>.None,
       true => {
         buf := self._buf.unwrap();
-        element_ptr := (buf &+ self._head);
+        element_ptr := buf.add(self._head);
         val := element_ptr.*;
         unsafe.drop(element_ptr.*);
         self._head = ((self._head + usize(1)) % self._capacity);
@@ -130,7 +130,7 @@ impl(
           true => (self._tail - usize(1))
         );
         buf := self._buf.unwrap();
-        element_ptr := (buf &+ self._tail);
+        element_ptr := buf.add(self._tail);
         val := element_ptr.*;
         unsafe.drop(element_ptr.*);
         self._len = (self._len - usize(1));
@@ -145,7 +145,7 @@ impl(
       true => {
         buf := self._buf.unwrap();
         idx := ((self._head + index) % self._capacity);
-        .Some((buf &+ idx).*)
+        .Some((buf.add(idx)).*)
       }
     )
   )
@@ -163,7 +163,7 @@ impl(
               i := usize(0);
               while(i < self._len, i = (i + usize(1)), {
                 idx := ((self._head + i) % self._capacity);
-                unsafe.drop((p &+ idx).*);
+                unsafe.drop((p.add(idx)).*);
               });
             },
             true => ()
@@ -198,7 +198,7 @@ impl(
         true => {
           idx := ((self._deque._head + self._pos) % self._deque._capacity);
           buf := self._deque._buf.unwrap();
-          value := (buf &+ idx).*;
+          value := (buf.add(idx)).*;
           self._pos = (self._pos + usize(1));
           self._remaining = (self._remaining - usize(1));
           .Some(value)
@@ -237,7 +237,7 @@ impl(
         true => {
           idx := ((self._deque._head + self._pos) % self._deque._capacity);
           buf := self._deque._buf.unwrap();
-          element_ptr := (buf &+ idx);
+          element_ptr := buf.add(idx);
           self._pos = (self._pos + usize(1));
           self._remaining = (self._remaining - usize(1));
           .Some(element_ptr)
@@ -262,7 +262,7 @@ impl(
       assert(idx < self._len, "Deque: index out of bounds");
       buf := self._buf.unwrap();
       physical_idx := ((self._head + idx) % self._capacity);
-      buf &+ physical_idx
+      buf.add(physical_idx)
     })
   )
 );
@@ -285,7 +285,7 @@ impl(
           (k : usize) = usize(0);
           while(k < self._len, {
             slot := ((self._head + k) % self._capacity);
-            tracer.visit(base &+ slot);
+            tracer.visit(base.add(slot));
             k = (k + usize(1));
           });
         },

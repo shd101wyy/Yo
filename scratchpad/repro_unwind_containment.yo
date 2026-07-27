@@ -1,0 +1,18 @@
+{ Exception } :: import("std/error");
+open(import("std/string"));
+open(import("std/fmt"));
+deep :: (fn(exn : Exception) -> unit)({
+  exn.throw(dyn(String.from("boom")));
+  println("deep: after throw");
+});
+helper :: (fn(exn_outer : Exception) -> unit)({
+  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  deep(inner_exn);
+  println("helper: after deep");
+});
+main :: (fn() -> unit)({
+  outer_exn := Exception(throw : ((_err) -> unwind(())));
+  helper(outer_exn);
+  println("main: after helper");
+});
+export(main);

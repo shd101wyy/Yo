@@ -1,0 +1,16 @@
+open(import("std/fmt"));
+
+GenericCb :: (fn(comptime(F) : Type) -> comptime(Type))(
+  struct(value : i32, cb : F)
+);
+
+main :: (fn() -> unit)({
+  obj := GenericCb(Impl(Fn(x : i32) -> i32))(
+    value : i32(7),
+    cb : ((x) => (x * i32(3)))
+  );
+  result := obj.cb(i32(4));
+  println(`result=${result.to_string()} value=${obj.value.to_string()}`);
+});
+
+export(main);

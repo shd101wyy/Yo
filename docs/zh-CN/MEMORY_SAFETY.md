@@ -52,15 +52,15 @@ main :: (fn() -> unit)({
 
 在没有 `pragma(Pragma.AllowUnsafe);` 的文件中，下列每一项都是编译错误。每个错误都附带"请改用"提示。
 
-| 构造                                  | 诊断（简短）                                                                     | 安全替代方案                                                                   |
-| ------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| 参数、字段或返回值中的 `*(T)` 类型    | "raw pointer types are not available in safe code"                               | 自有集合（`ArrayList`/`String`）、`inout(name) : T`、引用语义类型（`ref(struct(...))`/`ref(enum(...))`），或标准库包装 |
-| `&(expr)` 取地址                      | "this expression has type `*(T)`, which is not available in safe code"           | `inout(name) : T` 参数，或直接传自有集合                                         |
-| `unsafe(...)` 调用                    | "`unsafe(...)` is not available in safe code"                                    | 使用标准库的安全 API，或在确实需要原始操作时加 `pragma(Pragma.AllowUnsafe);`   |
-| `asm(...)` 块                         | "inline assembly is not available in safe code"                                  | 同上                                                                           |
-| `extern(...)` / `c_include(...)` 声明 | "extern FFI declarations are not available in safe code"                         | 调用标准库包装（如 `std/sys`、`std/fs`）                                       |
-| 指针算术（`&+`、`&-`、`&/`）          | "pointer arithmetic requires raw pointers, which are not available in safe code" | 在 `ArrayList(T)` / `Array(T, N)` 上使用索引                                   |
-| 在指针上 `consume(p.* = v)`           | "`consume` on a pointer deref requires raw pointers"                             | 对安全类型使用 `:=` 进行所有权转移                                             |
+| 构造                                                | 诊断（简短）                                                                     | 安全替代方案                                                                                                           |
+| --------------------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| 参数、字段或返回值中的 `*(T)` 类型                  | "raw pointer types are not available in safe code"                               | 自有集合（`ArrayList`/`String`）、`inout(name) : T`、引用语义类型（`ref(struct(...))`/`ref(enum(...))`），或标准库包装 |
+| `&(expr)` 取地址                                    | "this expression has type `*(T)`, which is not available in safe code"           | `inout(name) : T` 参数，或直接传自有集合                                                                               |
+| `unsafe(...)` 调用                                  | "`unsafe(...)` is not available in safe code"                                    | 使用标准库的安全 API，或在确实需要原始操作时加 `pragma(Pragma.AllowUnsafe);`                                           |
+| `asm(...)` 块                                       | "inline assembly is not available in safe code"                                  | 同上                                                                                                                   |
+| `extern(...)` / `c_include(...)` 声明               | "extern FFI declarations are not available in safe code"                         | 调用标准库包装（如 `std/sys`、`std/fs`）                                                                               |
+| 指针算术（`.add(n)`、`.sub(n)`、`.offset_from(q)`） | "pointer arithmetic requires raw pointers, which are not available in safe code" | 在 `ArrayList(T)` / `Array(T, N)` 上使用索引                                                                           |
+| 在指针上 `consume(p.* = v)`                         | "`consume` on a pointer deref requires raw pointers"                             | 对安全类型使用 `:=` 进行所有权转移                                                                                     |
 
 原则：**任何可能让用户写出 UB 的构造都被门控。** 用户既然无法构造原始指针，就无法解引用 —— 就这样。
 
@@ -136,13 +136,13 @@ copy_bytes :: (fn(dst : *(u8), src : *(u8), n : usize) -> unit)({
 
 在特权文件内，每一个可能触发 UB 的操作都必须出现在 `unsafe(...)` 调用中：
 
-| 操作                | 示例                                                  |
-| ------------------- | ----------------------------------------------------- |
-| 指针解引用（读）    | `unsafe(p.*)`                                         |
-| 指针解引用（写）    | `unsafe(p.* = v)`                                     |
-| `consume(p.* = v)`  | `unsafe(consume(p.* = v))`                            |
-| 指针算术            | `unsafe(p &+ n)`、`unsafe(p &- n)`、`unsafe(p &/ q)`  |
-| extern "c" 函数调用 | `unsafe(strlen(cstr))`、`unsafe(memcpy(dst, src, n))` |
+| 操作                | 示例                                                               |
+| ------------------- | ------------------------------------------------------------------ |
+| 指针解引用（读）    | `unsafe(p.*)`                                                      |
+| 指针解引用（写）    | `unsafe(p.* = v)`                                                  |
+| `consume(p.* = v)`  | `unsafe(consume(p.* = v))`                                         |
+| 指针算术            | `unsafe(p.add(n))`、`unsafe(p.sub(n))`、`unsafe(p.offset_from(q))` |
+| extern "c" 函数调用 | `unsafe(strlen(cstr))`、`unsafe(memcpy(dst, src, n))`              |
 
 这个包装是**纯编译时标记** —— 代码生成时会还原为内部表达式，所以没有运行时开销。它存在的目的是审计精度：`yo unsafe-report` 可以精确地指出发生 unsafe 操作的行号，而不只是列出文件。审计者 grep `unsafe(` 就能看到每一个可能触发 UB 的位置。
 
@@ -152,7 +152,7 @@ copy_bytes :: (fn(dst : *(u8), src : *(u8), n : usize) -> unit)({
 - 把 `*(T)` 传给函数
 - 把 `*(T)` 存进 struct 字段
 - 返回 `*(T)`
-- 指针比较：`p &== q`、`p &< q` 等
+- 指针比较：`p == q`、`p < q` 等
 - 指针类型转换：`*(u8)(p)`
 - `asm(...)` 块（`asm` 关键字本身就是标记）
 - `extern(...)` / `c_include(...)` _声明_（只有*调用处*需要包装）
@@ -167,7 +167,7 @@ match(
   // SAFETY: idx has been bounds-checked above (idx < self._length);
   // _ptr points at the Rc-managed heap buffer, alive while self
   // holds the Rc.
-  .Some(_ptr) => (_ptr &+ idx),
+  .Some(_ptr) => (_ptr.add(idx)),
   .None => panic("ArrayList: index on empty list")
 )
 ```
@@ -204,7 +204,7 @@ Top extern callees (by unsafe-wrapped call-site count):
      ...
 
 Findings (file:line:col):
-  std/collections/array_list.yo:521:24: unsafe(arith) — .Some(_ptr) => unsafe(_ptr &+ pos),
+  std/collections/array_list.yo:521:24: unsafe(arith) — .Some(_ptr) => unsafe(_ptr.add(pos)),
     SAFETY: assert above bounds `pos < self._length` and the
   ...
 ```

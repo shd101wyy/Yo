@@ -67,17 +67,17 @@ test("Unix stream socket echo", {
   unsafe(printf("  received = %d\n", received));
   assert(received == i32(11), "recv length mismatch");
   // Verify "Hello Unix!"
-  assert((recv_buf &+ usize(0)).* == u8(72), "byte 0 mismatch");
-  assert((recv_buf &+ usize(1)).* == u8(101), "byte 1 mismatch");
-  assert((recv_buf &+ usize(2)).* == u8(108), "byte 2 mismatch");
-  assert((recv_buf &+ usize(3)).* == u8(108), "byte 3 mismatch");
-  assert((recv_buf &+ usize(4)).* == u8(111), "byte 4 mismatch");
-  assert((recv_buf &+ usize(5)).* == u8(32), "byte 5 mismatch");
-  assert((recv_buf &+ usize(6)).* == u8(85), "byte 6 mismatch");
-  assert((recv_buf &+ usize(7)).* == u8(110), "byte 7 mismatch");
-  assert((recv_buf &+ usize(8)).* == u8(105), "byte 8 mismatch");
-  assert((recv_buf &+ usize(9)).* == u8(120), "byte 9 mismatch");
-  assert((recv_buf &+ usize(10)).* == u8(33), "byte 10 mismatch");
+  assert((recv_buf.add(usize(0))).* == u8(72), "byte 0 mismatch");
+  assert((recv_buf.add(usize(1))).* == u8(101), "byte 1 mismatch");
+  assert((recv_buf.add(usize(2))).* == u8(108), "byte 2 mismatch");
+  assert((recv_buf.add(usize(3))).* == u8(108), "byte 3 mismatch");
+  assert((recv_buf.add(usize(4))).* == u8(111), "byte 4 mismatch");
+  assert((recv_buf.add(usize(5))).* == u8(32), "byte 5 mismatch");
+  assert((recv_buf.add(usize(6))).* == u8(85), "byte 6 mismatch");
+  assert((recv_buf.add(usize(7))).* == u8(110), "byte 7 mismatch");
+  assert((recv_buf.add(usize(8))).* == u8(105), "byte 8 mismatch");
+  assert((recv_buf.add(usize(9))).* == u8(120), "byte 9 mismatch");
+  assert((recv_buf.add(usize(10))).* == u8(33), "byte 10 mismatch");
   free(.Some(*(void)(recv_buf)));
   free(.Some(*(void)(peer_buf)));
   free(.Some(*(void)(peer_len)));

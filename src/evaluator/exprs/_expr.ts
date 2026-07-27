@@ -1291,39 +1291,34 @@ ${exprToString(expr)}`,
       // va_start
       return evaluateVaStart({ expr, env, context: { ...context } });
     } else if (
-      exprIsFunctionCallOf(expr, "&+", 2) ||
-      exprIsFunctionCallOf(expr, "&-", 2) ||
-      exprIsFunctionCallOf(expr, "&/", 2) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_add) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_sub) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_diff)
     ) {
       // Memory safety gate: pointer arithmetic requires `unsafe(...)`.
-      // See plans/MEMORY_SAFETY.md. Pointer comparison (&==, &<, etc.
-      // and the __yo_ptr_eq family) stays safe — addresses are just
-      // data. Files under std/, yo-self/, tests/, and
+      // See plans/MEMORY_SAFETY.md. Pointer comparison (`==`, `<`, etc.
+      // via the Eq/Ord impls and the __yo_ptr_eq family) stays safe —
+      // addresses are just data. Files under std/, yo-self/, tests/, and
       // auto-generated:// are implicitly unsafe-capable (Phase C will
       // replace this with the explicit pragma mechanism).
       //
-      // We gate on BOTH the operator-name (&+, &-, &/) and the
-      // underlying builtin (__yo_ptr_add, etc.). The operator-name
-      // gate fires at the user's call site (token in user file); the
-      // builtin gate catches direct __yo_ptr_add calls (rare in user
-      // code). For the operator case, the inner builtin call lives
-      // in the prelude impl body — implicitly unsafe-capable by path
-      // — so it does NOT fire the builtin gate redundantly.
+      // This branch catches DIRECT builtin calls (rare in user code).
+      // The `p.add(n)` / `p.sub(n)` / `p.offset_from(q)` METHOD calls
+      // (plans/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md — formerly the
+      // `&+`/`&-`/`&/` operators) are gated at method resolution
+      // (calls/function.ts), where the receiver type is known; the
+      // builtin call inside the prelude impl body is implicitly
+      // unsafe-capable by path, so it cannot fire here on the user's
+      // behalf.
       if (
         !context.unsafeContext &&
         !isImplicitlyUnsafeCapableFile(expr.token.modulePath)
       ) {
-        const fnName =
-          exprIsFunctionCallOf(expr, "&+", 2) ||
-          exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_add)
-            ? "&+"
-            : exprIsFunctionCallOf(expr, "&-", 2) ||
-                exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_sub)
-              ? "&-"
-              : "&/";
+        const fnName = exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_add)
+          ? "__yo_ptr_add"
+          : exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_sub)
+            ? "__yo_ptr_sub"
+            : "__yo_ptr_diff";
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `Pointer arithmetic ('${fnName}') requires 'unsafe(...)'.

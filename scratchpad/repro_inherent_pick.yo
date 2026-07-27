@@ -1,0 +1,21 @@
+open(import("std/fmt"));
+DelegateV :: struct(n : i32);
+DelegatePickStr :: trait(
+  pick : (fn(self : Self, x : str) -> i32)
+);
+impl(
+  DelegateV,
+  pick : (fn(self : Self, x : DelegateV) -> i32)(i32(1))
+);
+impl(
+  DelegateV,
+  DelegatePickStr(
+    pick : (fn(self : Self, x : str) -> i32)(self.pick(self) + i32(1))
+  )
+);
+main :: (fn() -> unit)({
+  v := DelegateV(n : i32(0));
+  r := v.pick("s");
+  println(`${r}`);
+});
+export(main);

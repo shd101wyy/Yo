@@ -5527,35 +5527,57 @@ impl(*(void), Ord(*(void))(
   (>=) : ((lhs, rhs) -> __yo_ptr_gte(lhs, rhs))
 ));
 */
+// Pointer operations, Rust-style (plans/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md):
+// comparison is plain Eq/Ord (address identity — same as C and Rust's raw
+// pointers; note ref-semantics OBJECT types keep VALUE equality via their
+// own Eq impls), arithmetic is explicit METHODS so offsetting stays
+// typographically loud inside unsafe(...) blocks. The former `&`-prefixed
+// operator family (`&==`, `&+`, `&/`, …) is retired.
 impl(
   generic(T : Type),
   *(T),
-  (&+) : (fn(self : Self, offset : usize) -> Self)(
-    __yo_ptr_add(self, offset)
+  /// Offset forward by `count` elements (formerly `p &+ count`).
+  add : (fn(self : Self, count : usize) -> Self)(
+    __yo_ptr_add(self, count)
   ),
-  (&-) : (fn(self : Self, offset : usize) -> Self)(
-    __yo_ptr_sub(self, offset)
+  /// Offset backward by `count` elements (formerly `p &- count`).
+  sub : (fn(self : Self, count : usize) -> Self)(
+    __yo_ptr_sub(self, count)
   ),
-  (&==) : (fn(self : Self, another : Self) -> bool)(
-    __yo_ptr_eq(self, another)
-  ),
-  (&!=) : (fn(self : Self, another : Self) -> bool)(
-    __yo_ptr_neq(self, another)
-  ),
-  (&<) : (fn(self : Self, another : Self) -> bool)(
-    __yo_ptr_lt(self, another)
-  ),
-  (&<=) : (fn(self : Self, another : Self) -> bool)(
-    __yo_ptr_lte(self, another)
-  ),
-  (&>) : (fn(self : Self, another : Self) -> bool)(
-    __yo_ptr_gt(self, another)
-  ),
-  (&>=) : (fn(self : Self, another : Self) -> bool)(
-    __yo_ptr_gte(self, another)
-  ),
-  (&/) : (fn(self : Self, another : Self) -> isize)(
-    __yo_ptr_diff(self, another)
+  /// Signed element distance from `origin` to `self` (formerly `self &/ origin`).
+  /// Both pointers must point into the same allocation.
+  offset_from : (fn(self : Self, origin : Self) -> isize)(
+    __yo_ptr_diff(self, origin)
+  )
+);
+impl(
+  generic(T : Type),
+  *(T),
+  Eq(*(T))(
+    (==) : (fn(lhs : Self, rhs : *(T)) -> bool)(
+      __yo_ptr_eq(lhs, rhs)
+    ),
+    (!=) : (fn(lhs : Self, rhs : *(T)) -> bool)(
+      __yo_ptr_neq(lhs, rhs)
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  *(T),
+  Ord(*(T))(
+    (<) : (fn(lhs : Self, rhs : *(T)) -> bool)(
+      __yo_ptr_lt(lhs, rhs)
+    ),
+    (<=) : (fn(lhs : Self, rhs : *(T)) -> bool)(
+      __yo_ptr_lte(lhs, rhs)
+    ),
+    (>) : (fn(lhs : Self, rhs : *(T)) -> bool)(
+      __yo_ptr_gt(lhs, rhs)
+    ),
+    (>=) : (fn(lhs : Self, rhs : *(T)) -> bool)(
+      __yo_ptr_gte(lhs, rhs)
+    )
   )
 );
 /// Array
@@ -5697,12 +5719,12 @@ impl(
   slice_copy : (fn(self : Self, r : Range(usize)) -> Self)({
     e := cond((r.end > __yo_str_len(self)) => __yo_str_len(self), true => r.end);
     st := cond((r.start > e) => e, true => r.start);
-    __yo_str_from_raw_parts(__yo_str_ptr(self) &+ st, e - st)
+    __yo_str_from_raw_parts(__yo_str_ptr(self).add(st), e - st)
   }),
   slice_copy_inclusive : (fn(self : Self, r : RangeInclusive(usize)) -> Self)({
     e := cond(((r.end + usize(1)) > __yo_str_len(self)) => __yo_str_len(self), true => (r.end + usize(1)));
     st := cond((r.start > e) => e, true => r.start);
-    __yo_str_from_raw_parts(__yo_str_ptr(self) &+ st, e - st)
+    __yo_str_from_raw_parts(__yo_str_ptr(self).add(st), e - st)
   })
 );
 impl(

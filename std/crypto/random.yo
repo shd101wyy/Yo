@@ -80,7 +80,7 @@ random_bytes :: (fn(buf : RawSlice(u8), exn : Exception) -> unit)({
           (remaining > usize(256)) => usize(256),
           true => remaining
         );
-        ret := __yo_getentropy(buf_ptr &+ offset, chunk);
+        ret := __yo_getentropy(buf_ptr.add(offset), chunk);
         cond(
           (ret < i32(0)) => {
             exn.throw(dyn(CryptoError.Unavailable));

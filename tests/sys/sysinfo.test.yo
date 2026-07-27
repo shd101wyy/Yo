@@ -4,7 +4,7 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio"));
 sysinfo_io :: import("std/sys/sysinfo");
 field_non_empty :: (fn(buf : *(u8), offset : usize) -> bool)(
-  (buf &+ offset).* != u8(0)
+  (buf.add(offset)).* != u8(0)
 );
 test("sysinfo uname fills required fields", {
   uts_uninit := MaybeUninit(Array(u8, sysinfo_io.UTSNAME_SIZE)).new();

@@ -12,22 +12,22 @@ test("spawn and waitpid", {
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe failed");
-  read_fd := (pipefd &+ usize(0)).*;
-  write_fd := (pipefd &+ usize(1)).*;
+  read_fd := (pipefd.add(usize(0))).*;
+  write_fd := (pipefd.add(usize(1))).*;
   argv_uninit := MaybeUninit(Array(?*(u8), usize(5))).new();
   argv := *(?*(u8))(argv_uninit.as_ptr());
   cond(
     (platform == Platform.Windows) => {
-      (argv &+ usize(0)).* =.Some(*(u8)("cmd.exe"));
-      (argv &+ usize(1)).* =.Some(*(u8)("/C"));
-      (argv &+ usize(2)).* =.Some(*(u8)("echo"));
-      (argv &+ usize(3)).* =.Some(*(u8)("yo_proc_test"));
-      (argv &+ usize(4)).* =.None;
+      (argv.add(usize(0))).* =.Some(*(u8)("cmd.exe"));
+      (argv.add(usize(1))).* =.Some(*(u8)("/C"));
+      (argv.add(usize(2))).* =.Some(*(u8)("echo"));
+      (argv.add(usize(3))).* =.Some(*(u8)("yo_proc_test"));
+      (argv.add(usize(4))).* =.None;
     },
     true => {
-      (argv &+ usize(0)).* =.Some(*(u8)("echo"));
-      (argv &+ usize(1)).* =.Some(*(u8)("yo_proc_test"));
-      (argv &+ usize(2)).* =.None;
+      (argv.add(usize(0))).* =.Some(*(u8)("echo"));
+      (argv.add(usize(1))).* =.Some(*(u8)("yo_proc_test"));
+      (argv.add(usize(2))).* =.None;
     }
   );
   file_path := cond(
@@ -49,18 +49,18 @@ test("spawn and waitpid", {
   );
   assert(rd == expected_len, "read length mismatch");
   // Verify "yo_proc_test" (first 12 bytes same on all platforms)
-  assert((buf &+ usize(0)).* == u8(121), "byte 0 mismatch");
-  assert((buf &+ usize(1)).* == u8(111), "byte 1 mismatch");
-  assert((buf &+ usize(2)).* == u8(95), "byte 2 mismatch");
-  assert((buf &+ usize(3)).* == u8(112), "byte 3 mismatch");
-  assert((buf &+ usize(4)).* == u8(114), "byte 4 mismatch");
-  assert((buf &+ usize(5)).* == u8(111), "byte 5 mismatch");
-  assert((buf &+ usize(6)).* == u8(99), "byte 6 mismatch");
-  assert((buf &+ usize(7)).* == u8(95), "byte 7 mismatch");
-  assert((buf &+ usize(8)).* == u8(116), "byte 8 mismatch");
-  assert((buf &+ usize(9)).* == u8(101), "byte 9 mismatch");
-  assert((buf &+ usize(10)).* == u8(115), "byte 10 mismatch");
-  assert((buf &+ usize(11)).* == u8(116), "byte 11 mismatch");
+  assert((buf.add(usize(0))).* == u8(121), "byte 0 mismatch");
+  assert((buf.add(usize(1))).* == u8(111), "byte 1 mismatch");
+  assert((buf.add(usize(2))).* == u8(95), "byte 2 mismatch");
+  assert((buf.add(usize(3))).* == u8(112), "byte 3 mismatch");
+  assert((buf.add(usize(4))).* == u8(114), "byte 4 mismatch");
+  assert((buf.add(usize(5))).* == u8(111), "byte 5 mismatch");
+  assert((buf.add(usize(6))).* == u8(99), "byte 6 mismatch");
+  assert((buf.add(usize(7))).* == u8(95), "byte 7 mismatch");
+  assert((buf.add(usize(8))).* == u8(116), "byte 8 mismatch");
+  assert((buf.add(usize(9))).* == u8(101), "byte 9 mismatch");
+  assert((buf.add(usize(10))).* == u8(115), "byte 10 mismatch");
+  assert((buf.add(usize(11))).* == u8(116), "byte 11 mismatch");
   c2 := io.await(file.close(read_fd), io);
   assert(c2 == i32(0), "close read end failed");
   status := io.await(process.waitpid(pid, i32(0)), io);

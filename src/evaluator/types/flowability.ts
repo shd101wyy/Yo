@@ -50,6 +50,7 @@ import type { FunctionType } from "../../types/definitions";
 import {
   isAtomicReferenceStructType,
   isFunctionType,
+  isPtrType,
   isReferenceStructType,
   isSomeType,
 } from "../../types/guards";
@@ -283,19 +284,41 @@ export function isFlowableExpr(
     return true;
   }
 
-  // Pointer arithmetic: `base &+ offset` / `base &- offset` (only legal
-  // in `pragma(Pragma.AllowUnsafe)` files) yields a pointer into the SAME
-  // storage as `base`, displaced by an integer index. The result is
-  // flowable iff the base pointer is flowable — the offset is a plain
-  // integer and introduces no new storage root. Without this, an
-  // assignment like `result = .Some(data_ptr &+ i)` in a hand-written
-  // unsafe iterator (e.g. std/collections/hash_map.yo) is wrongly rejected
-  // even though `data_ptr` roots back to a `ref(self)` field.
+  // Pointer arithmetic: `base.add(offset)` / `base.sub(offset)` (only
+  // legal in `pragma(Pragma.AllowUnsafe)` files; formerly the `&+`/`&-`
+  // operators — plans/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md) yields a
+  // pointer into the SAME storage as `base`, displaced by an integer
+  // index. The result is flowable iff the base pointer is flowable — the
+  // offset is a plain integer and introduces no new storage root. Without
+  // this, an assignment like `result = .Some(data_ptr.add(i))` in a
+  // hand-written unsafe iterator (e.g. std/collections/hash_map.yo) is
+  // wrongly rejected even though `data_ptr` roots back to a `ref(self)`
+  // field. GATED on the receiver's evaluated type being a raw pointer —
+  // `add`/`sub` are ordinary method names on other types, and those calls
+  // return fresh values (not flowable through the receiver). The direct
+  // builtin forms (`__yo_ptr_add`/`__yo_ptr_sub`) keep the old
+  // positional-arg rule.
   if (
-    exprIsFunctionCallOf(call, "&+", 2) ||
-    exprIsFunctionCallOf(call, "&-", 2)
+    exprIsFunctionCallOf(call, BuiltinFunctions.__yo_ptr_add) ||
+    exprIsFunctionCallOf(call, BuiltinFunctions.__yo_ptr_sub)
   ) {
     return isFlowableExpr(call.args[0]!, options);
+  }
+  if (
+    exprIsFunctionCall(call.func) &&
+    exprIsFunctionCallOf(call.func, ".", 2) &&
+    call.args.length === 1
+  ) {
+    const recv = (call.func as FnCallExpr).args[0]!;
+    const member = (call.func as FnCallExpr).args[1]!;
+    const memberName = exprIsAtom(member) ? member.token.value : "";
+    if (
+      (memberName === "add" || memberName === "sub") &&
+      recv.$?.type &&
+      isPtrType(recv.$.type)
+    ) {
+      return isFlowableExpr(recv, options);
+    }
   }
 
   // Enum/variant construction: `.Variant(args...)`. The callee is the

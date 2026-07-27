@@ -58,13 +58,13 @@ do_stuff :: (fn(p : *(i32)) -> i32)(
 
 #### What requires `unsafe(...)`
 
-| Operation                   | Example               | Why                                     |
-| --------------------------- | --------------------- | --------------------------------------- |
-| Pointer dereference (read)  | `p.*`                 | May read freed/invalid memory           |
-| Pointer dereference (write) | `p.* = v`             | May write through dangling ptr          |
-| `consume(p.* = v)`          | initialization-assign | Same as write deref                     |
-| Pointer arithmetic          | `p &+ n`, `p &- n`    | Result usually destined to deref        |
-| Pointer difference          | `p &/ q`              | Assumes both point into the same object |
+| Operation                   | Example                | Why                                     |
+| --------------------------- | ---------------------- | --------------------------------------- |
+| Pointer dereference (read)  | `p.*`                  | May read freed/invalid memory           |
+| Pointer dereference (write) | `p.* = v`              | May write through dangling ptr          |
+| `consume(p.* = v)`          | initialization-assign  | Same as write deref                     |
+| Pointer arithmetic          | `p.add(n)`, `p.sub(n)` | Result usually destined to deref        |
+| Pointer difference          | `p.offset_from(q)`     | Assumes both point into the same object |
 
 #### What stays safe (no `unsafe(...)` wrap needed)
 
@@ -74,7 +74,7 @@ do_stuff :: (fn(p : *(i32)) -> i32)(
 | Pass `*(T)` to a function    | `foo(&(x))`                 | Caller doesn't deref               |
 | Store `*(T)` in a struct     | `Iter(_ptr : *(T), ...)`    | Storing data isn't UB              |
 | Return `*(T)`                | `(fn() -> *(T))(...)`       | Same                               |
-| Pointer comparison           | `(p &< q)`, `(p &== q)`     | Comparing addresses is harmless    |
+| Pointer comparison           | `(p < q)`, `(p == q)`       | Comparing addresses is harmless    |
 | Cast pointer types           | `*(u8)(p)`                  | Casting an address is harmless     |
 | Cast `comptime_string` → ptr | `*(u8)("hello")`            | Already supported, stays safe      |
 | `asm(...)` blocks            | `asm("..." : : : "memory")` | Implicitly unsafe — no wrap needed |
@@ -131,7 +131,7 @@ In a file without the unsafe privilege, the following are compile errors:
 | `unsafe(...)` call                                                               | `error: 'unsafe(...)' is not available in safe code. This operation requires 'pragma(Pragma.AllowUnsafe);'.`   |
 | `asm(...)` block                                                                 | `error: inline assembly is not available in safe code.`                                                        |
 | `extern fn` declaration                                                          | `error: extern FFI declarations are not available in safe code. Call stdlib wrappers (e.g. 'std/sys').`        |
-| Pointer arithmetic operators (`&+`, `&-`, `&/`, etc.)                            | `error: pointer arithmetic requires raw pointers, which are not available in safe code.`                       |
+| Pointer arithmetic operators (`.add(n)`, `.sub(n)`, `.offset_from(q)`, etc.)     | `error: pointer arithmetic requires raw pointers, which are not available in safe code.`                       |
 | `consume(p.* = v)` on a pointer deref                                            | `error: 'consume' on a pointer deref requires raw pointers, which are not available in safe code.`             |
 
 Each error includes a "what to use instead" hint pointing at the safe alternative.
@@ -388,9 +388,9 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
 - [x] In the evaluator, add an `unsafeContext: boolean` flag on the evaluation context. Push `true` when entering `unsafe(...)`, restore on exit.
 - [x] Gate the following operations: emit `error: <op> requires 'unsafe(...)'` if the context flag is false.
   - Pointer deref (`.*` on a `*(T)`) — in `property-access.ts`
-  - `__yo_ptr_add` / `__yo_ptr_sub` / `__yo_ptr_diff` calls — in `_expr.ts` dispatcher. Gates `&+`, `&-`, `&/` transitively (those dispatch through these builtins).
+  - `__yo_ptr_add` / `__yo_ptr_sub` / `__yo_ptr_diff` calls — in `_expr.ts` dispatcher. Gates `.add(n)`, `.sub(n)`, `.offset_from(q)` transitively (those dispatch through these builtins).
   - `consume(p.* = v)` — gated automatically via the LHS deref evaluation
-- [x] Pointer comparison (`&<`, `&>`, `&==`, `&!=`, `&<=`, `&>=`) stays safe — addresses are just data.
+- [x] Pointer comparison (`<`, `>`, `==`, `!=`, `<=`, `>=` via the Eq/Ord impls) stays safe — addresses are just data.
 - [x] Codegen: `unsafe(expr)` lowers to its inner expression. Pure compile-time marker.
 - [x] ~~**MVP adjustment (path-based bypass)**~~ — removed in Phase C; the gate now consults a per-file registry populated by `pragma(...)` calls. `auto-generated://...` URIs remain as a transitive bypass (macro/derive expansions inherit privilege from their callsite).
 - [x] `tests/unsafe.test.yo` — 8 positive tests for `unsafe(...)`: read/write/arithmetic deref, begin-block, transparency, nesting, cond/match wrap.
@@ -420,7 +420,7 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
   - `&(expr)` address-of — gated in `src/evaluator/builtins/ptr-fns.ts:evaluateAddressCall`. Fires at the construction site, so the diagnostic points at the `&` rather than at a downstream use.
   - `asm(...)` builtin — already gated in `src/evaluator/builtins/asm.ts`.
   - `extern(...)` declarations — already gated in `src/evaluator/exprs/extern.ts`.
-  - Pointer arithmetic operators (`&+`, `&-`, `&/`) — already gated in `src/evaluator/exprs/_expr.ts`. Pointer comparison (`&==`, `&<`, …) intentionally stays safe per design — comparing addresses can't violate memory safety.
+  - Pointer arithmetic operators (`.add(n)`, `.sub(n)`, `.offset_from(q)`) — already gated in `src/evaluator/exprs/_expr.ts`. Pointer comparison (`==`, `<`, …) intentionally stays safe per design — comparing addresses can't violate memory safety.
   - `consume(p.* = v)` — gated transitively via the inner `.* ` deref gate in `property-access.ts`.
   - Pragma re-added by `scripts/add-pragma-for-pointer-decls.ts` to every file under `std/`, `yo-self/`, and `tests/` whose source mentions `*(...)` or `&(...)`. The trim pass (`scripts/trim-pragma.ts`) had removed it from files using only pointer-type declarations; the new structural gates require it everywhere a raw-pointer-typed expression appears.
 - [x] **Diagnostic messages match the "What Safe Code Cannot Do" table.** Each gate's error names the rejected construct, suggests the safe alternative (Slice(T), ref(name) : T, stdlib wrapper), and tells the user how to opt into unsafe-capability if they really need it. Tests in `tests/safe_code_structural_gates.test.yo` (`comptime_expect_error` for each of the five structural rejections + a positive runtime guardrail using `inout`) and `src/tests/unsafe-gate.test.ts`.
@@ -611,7 +611,7 @@ impl(forall(T : Type), ArrayList(T),
       (i >= self._length) => .None,
       true => match(self._ptr,
         // SAFETY: i < _length, _ptr points to allocated buffer of _capacity ≥ _length
-        .Some(p) => .Some(unsafe((p &+ i).*)),
+        .Some(p) => .Some(unsafe((p.add(i)).*)),
         .None => .None
       )
     )
@@ -632,7 +632,7 @@ strlen :: (fn(s : *(u8)) -> usize)(
     p := s;
     while((p.* != u8(0)), {
       n = (n + usize(1));
-      p = (p &+ 1);
+      p = (p.add(1));
     });
     n
   })
@@ -706,7 +706,7 @@ Considered. Rejected because a warning that doesn't block compilation is easy to
 - **Logic errors.** Memory safety only prevents UB, not bugs.
 - **Resource leaks** beyond what `object` + `___drop` handle. Orthogonal.
 - **Data races across threads.** `Send` / `Iso(T)` / `Arc(T)` handle this; orthogonal.
-- **Pointer arithmetic past array bounds in `unsafe(...)`-capable code.** `unsafe(p &+ n)` is permitted; bounds are the programmer's problem at that point.
+- **Pointer arithmetic past array bounds in `unsafe(...)`-capable code.** `unsafe(p.add(n))` is permitted; bounds are the programmer's problem at that point.
 
 The honest framing: **`unsafe(...)` makes the unsafe surface auditable; the privilege gate keeps user code outside it entirely.** Combined with `object` being the default for ownership, this gets Yo to roughly Swift/Go's safety level — strictly better than C, comparable to other widely-adopted memory-safe languages, strictly weaker than Rust.
 
@@ -754,7 +754,7 @@ Resolved decisions:
 
 Phase ordering (foundation → leaves):
 
-1. **Phase A** ✅ — `unsafe(...)` marker. Gates `.*` deref, `&+`/`&-`/`&/` arithmetic, and `consume(p.* = v)`.
+1. **Phase A** ✅ — `unsafe(...)` marker. Gates `.*` deref, `.add`/`.sub`/`.offset_from` arithmetic, and `consume(p.* = v)`.
 2. **Phase B** ✅ — `ref(name) : T` parameter form. Used as the safe in-place-mutation primitive for user code, and as the replacement for `*(Self)` receivers in stdlib trait method signatures.
 3. **Phase C** ✅ — privilege gate + `pragma(Pragma.AllowUnsafe);` builtin + `Pragma` enum in prelude. Gates `unsafe(...)`, `asm(...)`, and `extern fn` declarations on the calling file's pragma. Pragma added to every `std/`/`yo-self/`/`tests/` file.
 4. **Phase D** ✅ — Hash, Clone, ToString, and Iterator traits migrated to `ref(self) : Self` (or `inout(self)` where state needs to mutate). Derive macros updated; ArrayList/HashMap/String/imm.List impls updated; bulk migration of `(&(x)).clone()` → `x.clone()` (29 yo-self files). Iterator migration is documented in `plans/ITERATOR_REDESIGN.md`.

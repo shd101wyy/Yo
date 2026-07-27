@@ -99,12 +99,12 @@ _sha256_block :: (fn(block : *(u8), h : *(u32)) -> unit)({
     w(i) =
       (
         (
-          (u32((block &+ off).*) << u32(24)) |
-            (u32((block &+ (off + usize(1))).*) << u32(16))
+          (u32((block.add(off)).*) << u32(24)) |
+            (u32((block.add(off + usize(1))).*) << u32(16))
         ) |
           (
-            (u32((block &+ (off + usize(2))).*) << u32(8)) |
-              u32((block &+ (off + usize(3))).*)
+            (u32((block.add(off + usize(2))).*) << u32(8)) |
+              u32((block.add(off + usize(3))).*)
           )
       );
   });
@@ -114,14 +114,14 @@ _sha256_block :: (fn(block : *(u8), h : *(u32)) -> unit)({
     w(i) = (((s1 + w(i - usize(7))) + s0) + w(i - usize(16)));
   });
   // Compression
-  a := (h &+ usize(0)).*;
-  b := (h &+ usize(1)).*;
-  c := (h &+ usize(2)).*;
-  d := (h &+ usize(3)).*;
-  e := (h &+ usize(4)).*;
-  f := (h &+ usize(5)).*;
-  g := (h &+ usize(6)).*;
-  hh := (h &+ usize(7)).*;
+  a := (h.add(usize(0))).*;
+  b := (h.add(usize(1))).*;
+  c := (h.add(usize(2))).*;
+  d := (h.add(usize(3))).*;
+  e := (h.add(usize(4))).*;
+  f := (h.add(usize(5))).*;
+  g := (h.add(usize(6))).*;
+  hh := (h.add(usize(7))).*;
   i2 := usize(0);
   while(i2 < usize(64), i2 = (i2 + usize(1)), {
     t1 := ((((hh + _ep1(e)) + _ch(e, f, g)) + _K(i2)) + w(i2));
@@ -135,14 +135,14 @@ _sha256_block :: (fn(block : *(u8), h : *(u32)) -> unit)({
     b = a;
     a = (t1 + t2);
   });
-  (h &+ usize(0)).* = ((h &+ usize(0)).* + a);
-  (h &+ usize(1)).* = ((h &+ usize(1)).* + b);
-  (h &+ usize(2)).* = ((h &+ usize(2)).* + c);
-  (h &+ usize(3)).* = ((h &+ usize(3)).* + d);
-  (h &+ usize(4)).* = ((h &+ usize(4)).* + e);
-  (h &+ usize(5)).* = ((h &+ usize(5)).* + f);
-  (h &+ usize(6)).* = ((h &+ usize(6)).* + g);
-  (h &+ usize(7)).* = ((h &+ usize(7)).* + hh);
+  (h.add(usize(0))).* = ((h.add(usize(0))).* + a);
+  (h.add(usize(1))).* = ((h.add(usize(1))).* + b);
+  (h.add(usize(2))).* = ((h.add(usize(2))).* + c);
+  (h.add(usize(3))).* = ((h.add(usize(3))).* + d);
+  (h.add(usize(4))).* = ((h.add(usize(4))).* + e);
+  (h.add(usize(5))).* = ((h.add(usize(5))).* + f);
+  (h.add(usize(6))).* = ((h.add(usize(6))).* + g);
+  (h.add(usize(7))).* = ((h.add(usize(7))).* + hh);
 });
 // ============================================================================
 // Sha256 streaming state

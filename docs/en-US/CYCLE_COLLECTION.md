@@ -481,7 +481,7 @@ impl(generic(T : Type), ArrayList(T),
         .Some(base) => {
           (i : usize) = usize(0);
           while(i < self._length, {
-            tracer.visit(base &+ i);  // pass the element's SLOT POINTER
+            tracer.visit(base.add(i));  // pass the element's SLOT POINTER
             i = (i + usize(1));
           });
         },

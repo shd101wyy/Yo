@@ -52,15 +52,15 @@ The `for` macro iterates by value (`(item) => …` calls `.into_iter()` under th
 
 Each of the following is a compile error in a file without `pragma(Pragma.AllowUnsafe);`. Each error includes a "use this instead" hint.
 
-| Construct                                               | Diagnostic (short)                                                               | Safe alternative                                                                                 |
-| ------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `*(T)` type expression in a parameter, field, or return | "raw pointer types are not available in safe code"                               | owned collections (`ArrayList`/`String`), `inout(name) : T`, an `object` type, or a stdlib wrapper |
-| `&(expr)` address-of                                    | "this expression has type `*(T)`, which is not available in safe code"           | `inout(name) : T` parameter, or pass the owned collection                                          |
-| `unsafe(...)` call                                      | "`unsafe(...)` is not available in safe code"                                    | Use the stdlib's safe API, or add `pragma(Pragma.AllowUnsafe);` if you genuinely need raw ops    |
-| `asm(...)` block                                        | "inline assembly is not available in safe code"                                  | Same                                                                                             |
-| `extern(...)` / `c_include(...)` declaration            | "extern FFI declarations are not available in safe code"                         | Call a stdlib wrapper (e.g., `std/sys`, `std/fs`)                                                |
-| Pointer arithmetic (`&+`, `&-`, `&/`)                   | "pointer arithmetic requires raw pointers, which are not available in safe code" | Indexing on `ArrayList(T)` / `Array(T, N)`                                                       |
-| `consume(p.* = v)` on a pointer                         | "`consume` on a pointer deref requires raw pointers"                             | Use `:=` for ownership transfer of safe types                                                    |
+| Construct                                                    | Diagnostic (short)                                                               | Safe alternative                                                                                   |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `*(T)` type expression in a parameter, field, or return      | "raw pointer types are not available in safe code"                               | owned collections (`ArrayList`/`String`), `inout(name) : T`, an `object` type, or a stdlib wrapper |
+| `&(expr)` address-of                                         | "this expression has type `*(T)`, which is not available in safe code"           | `inout(name) : T` parameter, or pass the owned collection                                          |
+| `unsafe(...)` call                                           | "`unsafe(...)` is not available in safe code"                                    | Use the stdlib's safe API, or add `pragma(Pragma.AllowUnsafe);` if you genuinely need raw ops      |
+| `asm(...)` block                                             | "inline assembly is not available in safe code"                                  | Same                                                                                               |
+| `extern(...)` / `c_include(...)` declaration                 | "extern FFI declarations are not available in safe code"                         | Call a stdlib wrapper (e.g., `std/sys`, `std/fs`)                                                  |
+| Pointer arithmetic (`.add(n)`, `.sub(n)`, `.offset_from(q)`) | "pointer arithmetic requires raw pointers, which are not available in safe code" | Indexing on `ArrayList(T)` / `Array(T, N)`                                                         |
+| `consume(p.* = v)` on a pointer                              | "`consume` on a pointer deref requires raw pointers"                             | Use `:=` for ownership transfer of safe types                                                      |
 
 The principle: **anything that could let a user write UB is gated.** If the user can't construct a raw pointer, they can't dereference one — full stop.
 
@@ -137,13 +137,13 @@ copy_bytes :: (fn(dst : *(u8), src : *(u8), n : usize) -> unit)({
 
 Inside a privileged file, every UB-capable operation must appear inside an `unsafe(...)` call:
 
-| Operation                   | Example                                               |
-| --------------------------- | ----------------------------------------------------- |
-| Pointer dereference (read)  | `unsafe(p.*)`                                         |
-| Pointer dereference (write) | `unsafe(p.* = v)`                                     |
-| `consume(p.* = v)`          | `unsafe(consume(p.* = v))`                            |
-| Pointer arithmetic          | `unsafe(p &+ n)`, `unsafe(p &- n)`, `unsafe(p &/ q)`  |
-| Extern "c" function call    | `unsafe(strlen(cstr))`, `unsafe(memcpy(dst, src, n))` |
+| Operation                   | Example                                                            |
+| --------------------------- | ------------------------------------------------------------------ |
+| Pointer dereference (read)  | `unsafe(p.*)`                                                      |
+| Pointer dereference (write) | `unsafe(p.* = v)`                                                  |
+| `consume(p.* = v)`          | `unsafe(consume(p.* = v))`                                         |
+| Pointer arithmetic          | `unsafe(p.add(n))`, `unsafe(p.sub(n))`, `unsafe(p.offset_from(q))` |
+| Extern "c" function call    | `unsafe(strlen(cstr))`, `unsafe(memcpy(dst, src, n))`              |
 
 The wrap is a **compile-time marker only** — it lowers to its inner expression at codegen time, so there's no runtime cost. The purpose is audit precision: `yo unsafe-report` can point at the exact line where unsafety happens, instead of just listing the file. Reviewers grep for `unsafe(` and see every UB-capable site.
 
@@ -153,7 +153,7 @@ Operations that are NOT gated (addresses are just data; moving them around doesn
 - Passing `*(T)` to a function
 - Storing `*(T)` in a struct field
 - Returning `*(T)`
-- Pointer comparison: `p &== q`, `p &< q`, etc.
+- Pointer comparison: `p == q`, `p < q`, etc. (Eq/Ord impls on `*(T)`, address identity)
 - Pointer type casts: `*(u8)(p)`
 - `asm(...)` blocks (the `asm` keyword is itself the marker)
 - `extern(...)` / `c_include(...)` _declarations_ (only the _call sites_ need wrapping)
@@ -168,7 +168,7 @@ match(
   // SAFETY: idx has been bounds-checked above (idx < self._length);
   // _ptr points at the Rc-managed heap buffer, alive while self
   // holds the Rc.
-  .Some(_ptr) => (_ptr &+ idx),
+  .Some(_ptr) => (_ptr.add(idx)),
   .None => panic("ArrayList: index on empty list")
 )
 ```
@@ -205,7 +205,7 @@ Top extern callees (by unsafe-wrapped call-site count):
      ...
 
 Findings (file:line:col):
-  std/collections/array_list.yo:521:24: unsafe(arith) — .Some(_ptr) => unsafe(_ptr &+ pos),
+  std/collections/array_list.yo:521:24: unsafe(arith) — .Some(_ptr) => unsafe(_ptr.add(pos)),
     SAFETY: assert above bounds `pos < self._length` and the
   ...
 ```

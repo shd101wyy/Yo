@@ -26,8 +26,8 @@ test("fcntl setfl toggles O_NONBLOCK on pipe", {
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0));
-  read_fd := (pipefd &+ usize(0)).*;
-  write_fd := (pipefd &+ usize(1)).*;
+  read_fd := (pipefd.add(usize(0))).*;
+  write_fd := (pipefd.add(usize(1))).*;
   flags_before := fcntl_io.getfl(read_fd);
   unsafe(printf("  flags_before = %d\n", flags_before));
   assert(flags_before >= i32(0));
@@ -69,8 +69,8 @@ test("fcntl getfd/setfd toggles FD_CLOEXEC", {
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0));
-  read_fd := (pipefd &+ usize(0)).*;
-  write_fd := (pipefd &+ usize(1)).*;
+  read_fd := (pipefd.add(usize(0))).*;
+  write_fd := (pipefd.add(usize(1))).*;
   fd_flags_before := fcntl_io.getfd(read_fd);
   unsafe(printf("  fd_flags_before = %d\n", fd_flags_before));
   assert(fd_flags_before >= i32(0));

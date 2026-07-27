@@ -1,0 +1,10 @@
+pragma(Pragma.AllowUnsafe);
+main :: (fn() -> unit)({
+  uninit_arr := MaybeUninit(Array(i32, usize(2))).new();
+  p := uninit_arr.as_ptr();
+  (p.*)(0) = 1;
+  arr := uninit_arr.assume_init();
+  arr2 := uninit_arr.assume_init();
+  ()
+});
+export(main);

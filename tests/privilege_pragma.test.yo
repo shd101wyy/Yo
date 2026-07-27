@@ -37,8 +37,8 @@ test("AllowUnsafe + unsafe(pointer arith) walks an array", {
     // prove pointer arithmetic walks element-by-element.
     ptr := unsafe(&(arr(count)));
     if(count > usize(0), {
-      base := unsafe(ptr &- count);
-      via_arith := unsafe(base &+ count);
+      base := unsafe(ptr.sub(count));
+      via_arith := unsafe(base.add(count));
       assert(unsafe(via_arith.*) == unsafe(ptr.*), "&+ and &- round-trip to the same element");
     });
     sum = (sum + unsafe(ptr.*));

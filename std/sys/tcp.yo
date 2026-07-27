@@ -123,12 +123,12 @@ make_sockaddr_in :: (fn(ip : *(u8), port : u16) -> SockAddr)({
   buf := *(u8)(malloc(size).unwrap());
   i := usize(0);
   while(runtime(i < size), {
-    (buf &+ i).* = u8(0);
+    (buf.add(i)).* = u8(0);
     i = (i + usize(1));
   });
   __yo_sockaddr_set_family(buf, u16(AF_INET));
   __yo_sockaddr_in_set_port(buf, port);
-  __yo_inet_pton(AF_INET, ip, buf &+ usize(4));
+  __yo_inet_pton(AF_INET, ip, buf.add(usize(4)));
   SockAddr(buf, u32(size))
 });
 // Create an IPv6 socket address (sockaddr_in6) from an IP string and port.
@@ -139,12 +139,12 @@ make_sockaddr_in6 :: (fn(ip : *(u8), port : u16) -> SockAddr)({
   buf := *(u8)(malloc(size).unwrap());
   i := usize(0);
   while(runtime(i < size), {
-    (buf &+ i).* = u8(0);
+    (buf.add(i)).* = u8(0);
     i = (i + usize(1));
   });
   __yo_sockaddr_set_family(buf, u16(AF_INET6));
   __yo_sockaddr_in6_set_port(buf, port);
-  __yo_inet_pton(AF_INET6, ip, buf &+ usize(8));
+  __yo_inet_pton(AF_INET6, ip, buf.add(usize(8)));
   SockAddr(buf, u32(size))
 });
 // Create an IPv4 socket address for INADDR_ANY (0.0.0.0) with a given port.
@@ -154,7 +154,7 @@ make_sockaddr_in_any :: (fn(port : u16) -> SockAddr)({
   buf := *(u8)(malloc(size).unwrap());
   i := usize(0);
   while(runtime(i < size), {
-    (buf &+ i).* = u8(0);
+    (buf.add(i)).* = u8(0);
     i = (i + usize(1));
   });
   __yo_sockaddr_set_family(buf, u16(AF_INET));
@@ -169,7 +169,7 @@ make_sockaddr_in_loopback :: (fn(port : u16) -> SockAddr)({
   buf := *(u8)(malloc(size).unwrap());
   i := usize(0);
   while(runtime(i < size), {
-    (buf &+ i).* = u8(0);
+    (buf.add(i)).* = u8(0);
     i = (i + usize(1));
   });
   __yo_sockaddr_set_family(buf, u16(AF_INET));

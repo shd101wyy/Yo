@@ -79,7 +79,7 @@ impl(generic(T : Type), ArrayList(T), Index(usize)(
   index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
     assert((idx < self._length), "ArrayList: index out of bounds");
     match(self._ptr,
-      .Some(_ptr) => (_ptr &+ idx),
+      .Some(_ptr) => (_ptr.add(idx)),
       .None => panic("ArrayList: index on empty list")
     )
   })

@@ -79,7 +79,7 @@ make_sockaddr_un :: (fn(path : *(u8)) -> UnixAddr)({
       buf := *(u8)(malloc(size).unwrap());
       i := usize(0);
       while(runtime(i < size), {
-        (buf &+ i).* = u8(0);
+        (buf.add(i)).* = u8(0);
         i = (i + usize(1));
       });
       __yo_sockaddr_set_family(buf, u16(AF_UNIX));

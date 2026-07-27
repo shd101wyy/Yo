@@ -36,11 +36,11 @@ test("async openat, read, close", {
   unsafe(printf("  read result = %d\n", read_result));
   assert(read_result > i32(0));
   // "Hello from Yo async I/O!\n" - check first 5 bytes: H=72, e=101, l=108, l=108, o=111
-  assert((buf &+ usize(0)).* == u8(72));
-  assert((buf &+ usize(1)).* == u8(101));
-  assert((buf &+ usize(2)).* == u8(108));
-  assert((buf &+ usize(3)).* == u8(108));
-  assert((buf &+ usize(4)).* == u8(111));
+  assert((buf.add(usize(0))).* == u8(72));
+  assert((buf.add(usize(1))).* == u8(101));
+  assert((buf.add(usize(2))).* == u8(108));
+  assert((buf.add(usize(3))).* == u8(108));
+  assert((buf.add(usize(4))).* == u8(111));
   close_result := io.await(close(afd), io);
   unsafe(printf("  close result = %d\n", close_result));
   assert(close_result == i32(0));
@@ -71,9 +71,9 @@ test("async write and read back", {
   unsafe(printf("  read back result = %d\n", read_result));
   assert(read_result == i32(24));
   // Check: H=72, space=32 after "Hello", f=102
-  assert((buf &+ usize(0)).* == u8(72));
-  assert((buf &+ usize(5)).* == u8(32));
-  assert((buf &+ usize(6)).* == u8(102));
+  assert((buf.add(usize(0))).* == u8(72));
+  assert((buf.add(usize(5))).* == u8(32));
+  assert((buf.add(usize(6))).* == u8(102));
   close2 := io.await(close(rfd), io);
   assert(close2 == i32(0));
   free(.Some(*(void)(buf)));
