@@ -66,7 +66,7 @@ open(import("std/fmt"));
 { Token, TokenKind, string_is_operator } :: import("../../token.yo");
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
-{ attach_temp_variable_to_expr, set_expr_as_consumed, set_expr_as_needs_to_call_dup } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, set_expr_as_consumed, set_expr_as_needs_to_call_dup, parse_raw_int } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -4435,6 +4435,59 @@ Fix: wrap the call:
             ),
             .None => ()
           );
+          // Resolve remaining ARRAY LENGTH VARIABLES from the call's
+          // comptime ARG VALUES (label -> IntLit): a comptime-RETURN
+          // comptime-param fn (`fn(comptime(n) : usize) ->
+          // comptime(Array(i32, n))`) stamps its declared return here, and
+          // the length var `n` is bound by THIS call's literal argument.
+          // TS stamps the CTFE result value's own type
+          // (helper.ts:1782 returnType = nextReturnValue.type); yo-self's
+          // type_of_eval_value is lossy for ArrayVal, so recover the
+          // concrete type from the declared shape + args instead
+          // (scratchpad/ra6_comptime_return_repro.yo — arr3 stayed
+          // Array(i32, n) and every use FTT'd).
+          {
+            _rlv :: (fn(rl_t : TypeValue, rl_labels : ArrayList(String), rl_infos : ArrayList(ExprInfo)) -> TypeValue)(
+              match(
+                rl_t,
+                .Array(rl_elem, rl_len, rl_var) => cond(
+                  (rl_var.len() > usize(0)) => {
+                    (rl_out : TypeValue) = rl_t;
+                    (rl_i : usize) = usize(0);
+                    while(rl_i < rl_labels.len(), {
+                      rl_nm := match(rl_labels.get(rl_i),.Some(l) => l,.None => String.from(""));
+                      if(rl_nm == rl_var, {
+                        match(
+                          rl_infos.get(rl_i),
+                          .Some(rl_info) => match(
+                            rl_info.value,
+                            .Some(rl_v) => match(
+                              rl_v,
+                              .IntLit(rl_raw) => match(
+                                parse_raw_int(rl_raw),
+                                .Some(rl_n) => {
+                                  rl_out = TypeValue.Array(recur(rl_elem, rl_labels, rl_infos), usize(rl_n), String.from(""));
+                                },
+                                .None => ()
+                              ),
+                              _ => ()
+                            ),
+                            .None => ()
+                          ),
+                          .None => ()
+                        );
+                      });
+                      rl_i = (rl_i + usize(1));
+                    });
+                    rl_out
+                  },
+                  true => TypeValue.Array(recur(rl_elem, rl_labels, rl_infos), rl_len, rl_var)
+                ),
+                _ => rl_t
+              )
+            );
+            resolved_ret_ct = _rlv(resolved_ret_ct, fv_param_labels, evaled_arg_infos);
+          };
           out_ct := new_expr_info(ct_result.caller_env, resolved_ret_ct);
           out_ct.value = Option(EvalValue).Some(ct_result.value);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ct);
