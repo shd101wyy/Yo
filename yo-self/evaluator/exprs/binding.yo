@@ -150,10 +150,30 @@ evaluate_binding :: (
     ),
     .None => t_unit()
   );
-  // Array types with inferred length are not allowed in type annotations.
-  // NOTE: yo-self TypeValue.Array stores length as `usize` (always concrete),
-  // so this check only applies when a future `UnknownLen` variant is added.
-  // (TS: `isArrayType(t) && isUnknownValue(t.length)` — skipped for now.)
+  // Array types with inferred length are not allowed in type annotations
+  // (TS binding.ts:76: `isArrayType(t) && isUnknownValue(t.length)`). The
+  // `_` placeholder is value-position-only (`arr := Array(i32, _)(1,2,3)`).
+  // yo-self's `_` path (evaluator/types/array.yo) mints a length_var named
+  // `_array_length_*` — gate on that prefix so legitimate generic-impl
+  // length variables (`Array(T, U)`) in other positions are unaffected.
+  // Without this, the array.test.yo cee that EXPECTS this rejection
+  // evaluated successfully and emptied the whole batch main.
+  match(
+    user_defined_type,
+    .Array(_, _, udt_lvar) => if(udt_lvar.starts_with("_array_length_"), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(rhs),
+            `Array type with inferred length '_' is not allowed in type annotations.\nUse explicit length like 'Array(i32, 3)' or omit the type annotation and initialize with 'arr := Array(i32, _)(1, 2, 3)'`,
+            false,
+            .None
+          )
+        )
+      );
+    }),
+    _ => ()
+  );
   // Prohibit void type.
   prohibit_void_type(user_defined_type, ast_expr_token(rhs), exn);
   // Strip optional `comptime(...)` wrapper from lhs.
