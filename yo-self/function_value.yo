@@ -19,6 +19,7 @@
 //! `FuncValueId` from src/function-value.ts).
 open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 { Frame } :: import("./env.yo");
 { TypeValue } :: import("./types/definitions.yo");
 { t_unit } :: import("./types/creators.yo");
@@ -288,6 +289,21 @@ get_closure_body_type :: (fn(func_id : String) -> Option(TypeValue))(
 register_func_type :: (fn(func_id : String, func_ty : TypeValue) -> unit)({
   g_func_type_registry.set(func_id.clone(), func_ty);
 });
+// ---------------------------------------------------------------------------
+// Unemittable-fn side-table
+// ---------------------------------------------------------------------------
+/// fids whose DEFINITION was rejected by a validation AFTER registration
+/// (e.g. the regular-fn-no-outer-capture check throwing from inside a
+/// `comptime_expect_error`): TS discards the definition on throw; yo-self's
+/// mutable registries keep it and codegen would emit a body referencing
+/// undeclared outer variables. should_skip_function_codegen consults this.
+(g_unemittable_fns : HashSet(String)) = HashSet(String).new();
+mark_fn_unemittable :: (fn(func_id : String) -> unit)({
+  _g := g_unemittable_fns.add(func_id.clone());
+});
+is_fn_unemittable :: (fn(func_id : String) -> bool)(
+  g_unemittable_fns.contains(func_id.clone())
+);
 /// The recorded `Func` type for `func_id`, or `t_unit()` if none was registered.
 get_func_type :: (fn(func_id : String) -> TypeValue)(
   match(
@@ -326,6 +342,7 @@ register_func_parameters_frame :: (fn(func_id : String, frame : Frame) -> unit)(
 get_func_parameters_frame :: (fn(func_id : String) -> Option(Frame))(
   g_func_parameters_frame.get(func_id.clone())
 );
+export(mark_fn_unemittable, is_fn_unemittable);
 export(
   mark_as_control_fn,
   is_control_fn,

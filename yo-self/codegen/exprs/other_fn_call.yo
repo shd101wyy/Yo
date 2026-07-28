@@ -1755,11 +1755,39 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           pi = (pi + usize(1));
         });
         cast.push_str("))");
+        // Cast each runtime arg to its corresponding parameter type —
+        // mirrors TS other-fn-call.ts:1647-1656 (castedArgsList). Without
+        // it a type-erased evidence-record call passes raw values into
+        // `void*` slots: `((i32 (*)(i32, void*))exn.throw)(x, 666)` was an
+        // int-to-pointer clang error (the algebraic_effects generic
+        // struct-record handler family).
+        (casted_args : String) = args_list.clone();
+        if((args_list.len() > usize(0)) && (npt > usize(0)), {
+          fa_parts := _split_top_level_args_list(args_list.clone());
+          if(fa_parts.len() == npt, {
+            (fa_out : String) = String.new();
+            (fa_i : usize) = usize(0);
+            while(fa_i < npt, {
+              if(fa_i > usize(0), {
+                fa_out.push_str(", ");
+              });
+              fa_pt := match(param_types.get(fa_i),.Some(t) => get_type_string(t, context.base),.None => String.from("void*"));
+              fa_part := match(fa_parts.get(fa_i),.Some(x) => x,.None => String.new());
+              fa_out.push_str("(");
+              fa_out.push_string(fa_pt);
+              fa_out.push_str(")(");
+              fa_out.push_string(fa_part);
+              fa_out.push_str(")");
+              fa_i = (fa_i + usize(1));
+            });
+            casted_args = fa_out;
+          });
+        });
         o := String.from("((");
         o.push_string(cast);
         o.push_string(func_code.clone());
         o.push_str(")(");
-        o.push_string(args_list.clone());
+        o.push_string(casted_args);
         o.push_str("))");
         arm_out = o;
       });

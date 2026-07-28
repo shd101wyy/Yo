@@ -13,7 +13,7 @@ open(import("std/string"));
 { type_contains_some_type_for_codegen_param, type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { AstExpr } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
-{ get_func_type, is_effect_record_member, is_closure_fn, is_io_async_sm_closure } :: import("../../function_value.yo");
+{ get_func_type, is_effect_record_member, is_closure_fn, is_io_async_sm_closure, is_fn_unemittable } :: import("../../function_value.yo");
 { CodeGenContext, get_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField, is_function_value_with_only_builtin_yo_inline_function_call, find_returned_async_block, type_key } :: import("../utils/index.yo");
 /// One evidence parameter threaded into a function that uses effect-record
 /// evidence passing. Mirrors the `EvidenceParameter` interface.
@@ -468,6 +468,13 @@ should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : E
   // declarations.ts:172 / generation.ts:690; the registry is populated only
   // on the FSM path (closures with await analysis).
   if(!(is_user_main) && is_io_async_sm_closure(func_id.clone()), {
+    return(true);
+  });
+  // Definition rejected by a post-registration validation (e.g. the
+  // regular-fn-no-outer-capture check inside a comptime_expect_error):
+  // TS discards it on throw; yo-self keeps the registration — skip the
+  // emission (its callers were dropped by the same throw).
+  if(!(is_user_main) && is_fn_unemittable(func_id.clone()), {
     return(true);
   });
   body := _func_value_body(value);
