@@ -110,6 +110,26 @@ set_propagate_def_time_errors :: (fn(on : bool) -> unit)({
 });
 /// True iff def-time body-eval errors should propagate (set during a
 /// `comptime_expect_error` argument eval).
+/// comptime_expect_error OBSERVATION channel: the non-raw eval wrapper
+/// (_evaluate_expression_wrapper) has NO outer exn and SWALLOWS throws; a
+/// validation raised beneath it during a cee's propagate-mode clone eval
+/// (e.g. the regular-fn-no-outer-capture check) therefore never reached the
+/// cee's local exn — cee then wrongly threw "Expected compile error..."
+/// through the OUTER exn, abandoning the enclosing begin. The wrapper sets
+/// this flag instead (only in propagate mode); the cee helper counts a set
+/// flag as an observed throw. TS needs none of this: it has no swallowing
+/// wrapper — JS exceptions propagate to the cee try/catch natively.
+(g_cee_observed_error_box : ArrayList(bool)) = ArrayList(bool).new();
+set_cee_observed_error :: (fn() -> unit)({
+  g_cee_observed_error_box.clear();
+  g_cee_observed_error_box.push(true);
+});
+clear_cee_observed_error :: (fn() -> unit)({
+  g_cee_observed_error_box.clear();
+});
+cee_observed_error :: (fn() -> bool)(
+  match(g_cee_observed_error_box.get(usize(0)),.Some(b) => b,.None => false)
+);
 propagate_def_time_errors :: (fn() -> bool)(
   match(g_propagate_def_time_errors_box.get(usize(0)),.Some(v) => v,.None => false)
 );
@@ -981,5 +1001,8 @@ export(
   require_ref_own_argument_exclusivity,
   require_valid_ref_argument_places,
   set_propagate_def_time_errors,
-  propagate_def_time_errors
+  propagate_def_time_errors,
+  set_cee_observed_error,
+  clear_cee_observed_error,
+  cee_observed_error
 );

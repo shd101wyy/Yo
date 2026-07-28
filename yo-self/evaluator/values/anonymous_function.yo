@@ -1206,6 +1206,32 @@ evaluate_anonymous_function_implementation :: (
   if(mark_closure_for_codegen, {
     should_defer_body = false;
   });
+  // CTL handlers (`throw : (ctl(generic(ResumeType), ...) -> ResumeType)`)
+  // must also FORCE body evaluation: nothing else ever evaluates the body
+  // (the def-eval is deferred by the SomeT param; the ctl inline eval only
+  // runs when the handler VALUE reaches a call, which a def-eval'd callee
+  // taking the record as a PARAM never does), so codegen had no ExprInfos
+  // and emitted `// Failed to transpile return(resume_val);` — the handler
+  // then returned garbage at runtime (algebraic_effects generic
+  // struct-record family, issues/yo-self-algebraic-effects-two-roots.md).
+  // Params bind at their (erased) declared types — exactly the void*
+  // convention the emitted C uses; the def-eval-wall swallow keeps a
+  // failing body harmless. TS needs no equivalent: its codegen emits
+  // simple bodies from AST + types without per-node eval infos.
+  ctl_force := match(
+    function_type,
+    .Func({ meta : __fmc9 }) => __fmc9.*.is_control,
+    _ => false
+  );
+  // NOT inside a comptime_expect_error clone eval (propagate mode): the
+  // force exists to stamp body ExprInfos for EMISSION, which rejected
+  // cee code never reaches — and forcing there made the capture-check
+  // throw propagate past the cee catch and abandon the enclosing begin
+  // (the cee_regular_fn_capture_reject corpus DIFF: trailing println
+  // dropped).
+  if(ctl_force && !(propagate_def_time_errors()), {
+    should_defer_body = false;
+  });
   if(!(should_defer_body), {
     // A separate preliminary FuncVal for the body-eval context (EvalValue is
     // not Clone; `func_val` above is consumed by the ExprInfo below). Same

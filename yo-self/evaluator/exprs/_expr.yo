@@ -6,6 +6,7 @@
 //! The profiler instrumentation from the TypeScript version is omitted (Node.js-specific).
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
+{ propagate_def_time_errors, set_cee_observed_error } :: import("../../types/flowability.yo");
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { Exception } :: import("std/error");
@@ -1014,6 +1015,12 @@ _evaluate_expression_wrapper :: (
   exn := Exception(
     throw : (
       (err) -> {
+        // cee observation: in propagate mode (a comptime_expect_error
+        // clone eval) a swallowed throw must still be OBSERVABLE — see
+        // flowability.yo's cee_observed_error channel.
+        if(propagate_def_time_errors(), {
+          set_cee_observed_error();
+        });
         unwind(make_err_expr());
       }
     )

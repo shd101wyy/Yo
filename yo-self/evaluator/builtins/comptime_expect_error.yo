@@ -27,7 +27,7 @@ open(import("std/string"));
 { EvalValue, value_to_string } :: import("../../value.yo");
 { expr_info_table_get, new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ set_propagate_def_time_errors } :: import("../../types/flowability.yo");
+{ set_propagate_def_time_errors, set_cee_observed_error, clear_cee_observed_error, cee_observed_error } :: import("../../types/flowability.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 /// Evaluate `arg_expr` and report whether it THREW a compile error. Uses
 /// `evaluate_expression_raw` (which propagates via `exn`) under a LOCAL
@@ -47,8 +47,14 @@ _comptime_expect_error_arg_threw :: (
       (_err) -> unwind(true)
     )
   );
+  clear_cee_observed_error();
   _r := evaluate_expression_raw(arg_expr, env, ctx, local_exn);
-  false
+  // The non-raw wrapper swallows throws raised beneath it (it has no outer
+  // exn); in propagate mode it records them on the observation channel —
+  // count that as an observed compile error (see flowability.yo).
+  observed := cee_observed_error();
+  clear_cee_observed_error();
+  observed
 });
 evaluate_comptime_expect_error :: (
   fn(
