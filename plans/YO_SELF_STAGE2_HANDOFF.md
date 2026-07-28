@@ -7,6 +7,22 @@ nothing below needs re-litigating._
 ## Where things stand
 
 - **#70 (`s2 test ./yo-self/tests`): DONE — 61/61.**
+- **Pointer-comparison dispatch fixed (`a23013161`, 2026-07-28) — full
+  TIER 2 green incl. FIXPOINT.** Trait `==`/`<`/… on pointer receivers
+  collected the deref-bucket candidate (`Eq(i32).==`), first-hit-wins
+  threw `unify(i32, *(i32))`, and the ptr/unsafe batch mains went hollow.
+  Fix in env.yo: the TS:1451 receiver-compat filter rule (NARROWED to
+  pointer receivers — unconditional broke derived-Eq enum bodies, caught
+  by TIER 1) + a post-filter generic-impl retry so `impl(generic(T),
+*(T), Eq/Ord(*(T)))` is reachable when the deref bucket had only wrong
+  candidates. **`ptr` + `unsafe` flip genuinely GREEN** (markers=0) →
+  expected score 139 GREEN / 27 HOLLOW / 17 RED. The `||`-LHS ptr-eq
+  miscompile issue is believed fixed by the same root (standalone shape
+  verified; string.yo's direct-builtin workaround stays for perf).
+  Corpus regression test `ptr_comparison_trait_dispatch.yo` (**corpus
+  baseline 144**). Full diagnosis:
+  `issues/yo-self-ptr-comparison-trait-dispatch-unify-throw.md`.
+
 - **#69 (`s2 test ./tests`): 137 GREEN / 29 HOLLOW / 17 RED of 183.**
   Measured 2026-07-28 (`/tmp/hs_dbc`, s1 = `/tmp/ws_s1` from `b3a0b8804`).
   vs the 2026-07-27 sweep (138/28/17, `/tmp/hs_pa` at `59c5fe1fa`):
