@@ -394,3 +394,19 @@ source order, not from the headline error count. Two headline errors in this
 list are pure cascade (`use of undeclared identifier 'result'` x10 in imm_map;
 the `__yo_t6` vs `int` pile in closure_capture_rc_leak) and would have sent a
 fixer to the wrong place.
+
+## UPDATE 2026-07-28 — the round2 param-model WIP patch is STALE
+
+Attempted re-application of `scratchpad/round2_param_model_wip.patch` against
+post-cluster-B/ptr/closure/algebraic-effects HEAD: `evaluator/calls/helper.yo`
+rejects **15/15 hunks** (the file absorbed four fix batches since the patch
+was cut) and `function.yo` rejects 3/12. A half-applied state is
+untrustworthy — REVERTED. The comptime-param-model fix for the
+imm_map/imm_set/sync-mutex `__unknown__Type__` family needs a FRESH
+implementation against current HEAD, using the patch only as a design
+reference (its applied-clean `collection.yo` piece —
+`_is_generic_unspecialized_func` treating comptime-param fns as
+unspecialized, TS guards.ts:466 hasCompileTimeParams — is the right
+signature-side start; the call-site half is excluding comptime args from the
+emitted runtime C arg list). Keep the HOLLOW-GREEN HAZARD discipline: these
+files already emit markers, so flips must be marker-checked against TS.
