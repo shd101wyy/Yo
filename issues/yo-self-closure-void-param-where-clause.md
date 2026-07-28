@@ -119,3 +119,21 @@ NEXT candidates:
    route-agnostic.
    The flat-lookup fallback stays in /tmp/yb (fires nowhere yet, harmless);
    workspace has only the landed fn-route fix.
+
+## UPDATE 3: call-site half placed on the WRONG call path
+
+Added the call-site re-typing to helper.yo try_to_call (post-Step-7, before
+Step 8) via shared `_retype_closure_and_reeval` — it never fires for the
+method route (`__YCS` probe silent for ALL closures): the `f(item)` call
+during for_each's spec body eval routes through **function.yo's FuncVal arm**
+(the SECOND call path — the yo-self default-args side-table lesson: "TWO call
+paths need it"). At the mint, `cc_ae.arg_type` and `.parameter_type` are both
+the unresolved `F : (Fn(A) -> unit)` wrapper (probed) — no concrete source
+there on the method route.
+
+NEXT: mirror the call-site block onto function.yo's FuncVal arm (args are
+evaluated there as `evaled_arg_infos` with concrete `.ty`; the callee FuncVal
+is `cv`). Guards as in helper.yo: get_closure_capture_info(fid).is_some() +
+registered params SomeT-bearing + ret concrete + all arg infos concrete →
+`_retype_closure_and_reeval` (export it from helper.yo or move it to a shared
+module). Probes to strip in /tmp/yb: **YAT (mint), **YCS (helper call site).
