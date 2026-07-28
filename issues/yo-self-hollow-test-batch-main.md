@@ -1028,3 +1028,30 @@ fresh); (b) the module's top-level begin eval takes a different route
 `_trial_eval_fn_body` ENTRY with env.module_path, gated on
 "selftest_batch" — fires in compile path but not test path ⇒ deferral
 decision; fires in both ⇒ table mystery reopens.
+
+## CORRECTION (2026-07-28 ~23:35) — the "nondeterminism" was a measurement bug
+
+Every "0 markers" result in the isolation matrix above came from detached
+`nohup bash -c '...'` scripts using `grep -c \"Failed to transpile\"` —
+inside single-quoted bash -c, the ESCAPED quotes become literal: the
+pattern is `"Failed` (with a quote), the remaining words become bogus
+file args, and the printed `filename:0` was the count of a
+never-matching pattern. Direct (properly quoted) reruns show the batch
+dispatch marker is a STABLE, DETERMINISTIC 1 across binaries, paths,
+allocators, and runs. The sweep script (single-quoted pattern) was
+correct the whole time; ad-hoc checks were not. The e1096c1b4 commit
+message's "array 12/12 with ZERO FTT markers" is WRONG on the marker
+half (the 12/12 pass-count remains vacuous); the value-generic fix
+itself is still real (per-arm bisect used VALID greps: arms 1/2/3/5
+genuinely flipped ftt 1→0 individually).
+
+STATE: one deterministic bug — the batch main's body def-eval NEVER runs
+(id 60506 never stamped, nothing thrown, YSW-TOP silent, 3 YTRIAL-ENTER
+fire for batch-module fns but apparently not for main). NEXT: extend
+YTRIAL-ENTER to print the body expr id and compare against main's body
+id; then find the gate that skips main's def-eval (should_defer_body /
+the top-level `main ::` binding route).
+
+LESSON (measurement): never escape double-quotes inside single-quoted
+bash -c grep patterns — use `grep -c 'Failed to transpile'` (single
+quotes) or a single unquoted word.
