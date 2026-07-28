@@ -159,3 +159,47 @@ assoc bindings at the mint) — a subsystem port, not a patch. The landed
 fn-route fix (9ea932e72) stands on its own. All experimental call-site
 blocks REVERTED from /tmp/yb (both measured non-firing; no speculative
 code kept).
+
+## associatedTypeConstraints PORT PLAN (2026-07-29 ~07:15, refined)
+
+TS mechanism (read in full):
+
+- STORE: trait-type.ts:53-116 — applying `Iterator(Item := X)` collects
+  `associatedTypeConstraints: [{label, constraintType}]` ON the TraitType.
+- CONSUME: trait-checking.ts:240-322 `checkAssociatedTypeConstraints`
+  inside typeImplementsTrait — resolve the TARGET's actual assoc type
+  (its trait fields, else findAssociatedTypeFromGenericImpls), compat-
+  check, then **synthesizeTypes(constraintType, resolvedType) → binds
+  A := i32 into the returned env** (typeImplementsTrait returns env!).
+
+yo-self implementation (decided after exploring alternatives):
+
+1. ADD `assoc_constraint_labels : ArrayList(String)` +
+   `assoc_constraint_types : ArrayList(Self)` to TraitT
+   (types/definitions.yo). ArrayList(String)/ArrayList(Self) already in
+   the type graph — no patch-self-shell hazard. Migration: labeled
+   `.TraitT({...})` patterns need NOTHING; positional `.TraitT(p1..p8)`
+   patterns get two trailing `_`; constructions (TypeValue.TraitT(...))
+   get two empty lists (python-mechanical; ANCHOR EACH EDIT UNIQUELY —
+   see the wrong-if lesson).
+2. try_to_specialize_trait_type (evaluator/calls/trait_type.yo:~205)
+   RETURNS a rebuilt TraitT carrying the evaluated `:=` bindings
+   (labels + TypeValues are already validated/evaluated there — the
+   discard comment marks the exact spot).
+3. Port checkAssociatedTypeConstraints into evaluator/trait_checking.yo
+   (type_implements_trait's path) incl. the synthesize binding; the
+   \_find_associated_type_from_generic_impls STUB (trait_checking.yo:429,
+   always-false) must become real — resolve via the generic-impl
+   registry's assoc-type members (find_methods_from_generic_impls
+   machinery already matches impls; assoc members are fields).
+4. Consumers that then work: the for_each mint's where-clause
+   `Self <: Iterator(Item := A)` binds A in the mint env → the closure
+   re-typing (\_retype_closure_and_reeval, landed 9ea932e72) fires on the
+   method route. Validate with tests/array.test.yo arms 6+7 (the batch
+   goes fully GREEN) and the closure_capture_rc_leak RED.
+
+Positional-site counts at plan time: `.TraitT(` non-labeled ≈ see grep
+in transcript; constructions `TypeValue.TraitT(` few. Where-clause
+validation entry points: validate_where_constraints_for_call
+(helper.yo), trait_checking.yo type_implements_trait, and impl.yo's
+where check (~702).
