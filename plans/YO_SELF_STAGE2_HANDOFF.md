@@ -73,8 +73,9 @@ nothing below needs re-litigating._
   `comptime_param_value_spec.yo` (**baseline 147**). Full chain narrative:
   `issues/yo-self-69-red-list-map.md`. sync/mutex + btree/ordered_map
   REDs not yet re-checked; walker exit-crash fix landed separately
-  (`ea7493470`, TS codegen bug filed). TIER 2 pending for this batch
-  (next in cadence).
+  (`ea7493470`, TS codegen bug filed). **TIER 2 GREEN incl. STRICT
+  FIXPOINT** (2026-07-28, `/tmp/gates_cps_t2.log`: stage2 hollow=1
+  baseline, clang rc=0, stage3 rc=0, FIXPOINT_HOLDS).
 
 - **#69 (`s2 test ./tests`): 139 GREEN / 29 HOLLOW / 15 RED of 183.**
   Measured 2026-07-28 post-`3df73bcad` (`/tmp/hs_cps`): vs `/tmp/hs_ae` —
