@@ -1097,3 +1097,23 @@ Landed this arc: cee annotation rejection (binding.yo), length-var
 codegen-generic classification (helper/guards/declarations), comptime-
 param body DEFERRAL (function_type.yo) — each TIER-1-green; array
 single-batch peeled from "whole dispatch dead" to this ONE residual.
+
+## Arm-4 residual isolated (2026-07-29 ~06:15): comptime-RETURN comptime-param fns
+
+The remaining single marker of the array single-batch is
+`comptime_return_array :: (fn(comptime(n) : usize) -> comptime(Array(i32, n)))(...)`
+— standalone 1-min repro `scratchpad/ra6_comptime_return_repro.yo`
+(2 FTT markers; the runtime + begin/bare variants are all FIXED and
+covered by scratchpad/ra_repro.yo). This routes through the CTFE gate
+(comptime-only return) — evaluate_comptime_fn_call executes
+`Array(i32,10).fill(30)` and the call site gets a COMPTIME ArrayVal;
+the FTT is in materializing that comptime array result (or the .fill
+CTFE) at codegen. NEXT: run the repro under a YSW-probe binary
+(/tmp/yh recipe) for the exact message, then chase the comptime-array
+materialization path (codegen/exprs/array vs the CTFE result stamping).
+
+Fixed so far in this peel (each TIER-1-green, pushed): cee annotation
+rejection; length-var codegen-generic classification; comptime-param
+body deferral; rte fallback gate on the CORRECT if (the length-var
+condition had landed on the zs-subst gate — replace-first hazard;
+scripted edits must anchor on UNIQUE context).
