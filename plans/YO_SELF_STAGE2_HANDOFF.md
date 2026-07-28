@@ -23,6 +23,18 @@ nothing below needs re-litigating._
   baseline 144**). Full diagnosis:
   `issues/yo-self-ptr-comparison-trait-dispatch-unify-throw.md`.
 
+- **Closure re-typing for where-clause params landed (`9ea932e72`) — full
+  TIER 2 green incl. FIXPOINT** (2026-07-28). Mint-side occurrence-subst
+  from forall_args + closure-body RE-EVAL under concrete types (fn route;
+  corpus test `closure_where_clause_param.yo`, **baseline 145**). The
+  METHOD route (`into_iter().for_each`) is BLOCKED on the
+  associatedTypeConstraints port (`Item := A` bindings validated but
+  DISCARDED — trait_type.yo:49-51); both call-site re-typing attempts
+  measured non-firing — full map in
+  `issues/yo-self-closure-void-param-where-clause.md`. algebraic_effects:
+  evidence-arg cast fixed in /tmp/yb (unlanded), cee half-registered
+  handler mapped — `issues/yo-self-algebraic-effects-two-roots.md`.
+
 - **#69 (`s2 test ./tests`): 139 GREEN / 27 HOLLOW / 17 RED of 183.**
   Measured 2026-07-28 post-`a23013161` (`/tmp/hs_pcmp`): **`ptr` +
   `unsafe` flipped HOLLOW → GREEN** (the pointer-comparison dispatch fix),
