@@ -387,7 +387,13 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       open.push_str(" {");
       // Mark the code position so a SUPERSEDED original whose body fails to
       // transpile can be stubbed post-emission (see the check after the body).
-      stub_mark := em.code.len();
+      // BYTE index (as_bytes() returns the internal buffer handle, O(1)):
+      // the former `em.code.len()` counted CHARS — an O(total-code) walk
+      // per function — and the post-body check below sliced the WHOLE
+      // accumulated buffer char-indexed, making the emit O(code x
+      // functions). `sample` attributed 75% of a stage2 emit to that one
+      // substring call.
+      stub_mark_b := em.code.as_bytes().len();
       em.emit_string_line(open);
       // Forward-shell thunk: if this func_id is a shell that was redirected to a
       // real method (a forward-ref/recursive impl method, e.g. parser.yo's
@@ -519,9 +525,50 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       // references (fn pointers) stay linkable, and a reachable stub aborting
       // at runtime is a visible bug, not a silent one. Emittable originals
       // (thread_spawn's) are left exactly as emitted.
-      emitted_fn := em.code.substring(stub_mark, em.code.len());
-      if(emitted_fn.contains("// Failed to transpile") && fid_fully_specialized(func_id.clone()), {
-        em.code = em.code.substring(usize(0), stub_mark);
+      // Suffix-only FTT scan over BYTES — no substring materialization, no
+      // char re-walk of the prefix. The needle is ASCII so byte search is
+      // exact.
+      (stub_found_ftt : bool) = false;
+      {
+        sb := em.code.as_bytes();
+        total_b := sb.len();
+        needle := String.from("// Failed to transpile");
+        nb := needle.as_bytes();
+        nlen := nb.len();
+        if(total_b >= (stub_mark_b + nlen), {
+          (si : usize) = stub_mark_b;
+          last_start := (total_b - nlen);
+          while((si <= last_start) && !(stub_found_ftt), {
+            (mi : usize) = usize(0);
+            (all_eq : bool) = true;
+            while((mi < nlen) && all_eq, {
+              a := match(sb.get(si + mi),.Some(b0) => b0,.None => u8(0));
+              b := match(nb.get(mi),.Some(b1) => b1,.None => u8(1));
+              if(a != b, {
+                all_eq = false;
+              });
+              mi = (mi + usize(1));
+            });
+            if(all_eq, {
+              stub_found_ftt = true;
+            });
+            si = (si + usize(1));
+          });
+        });
+      };
+      if(stub_found_ftt && fid_fully_specialized(func_id.clone()), {
+        // RARE path (superseded generic original): rebuild the prefix from
+        // bytes once. Byte-exact equivalent of the former char-indexed
+        // `substring(0, stub_mark)` — stub_mark_b was taken at the same
+        // buffer position.
+        pb := em.code.as_bytes();
+        prefix_bytes := ArrayList(u8).new();
+        (pi : usize) = usize(0);
+        while(pi < stub_mark_b, {
+          prefix_bytes.push(match(pb.get(pi),.Some(b2) => b2,.None => u8(0)));
+          pi = (pi + usize(1));
+        });
+        em.code = String.from_bytes(prefix_bytes);
         em.emit_string_line(open.clone());
         em.emit_string_line(String.from("  abort(); /* superseded generic original: all call sites dispatch a specialization */"));
         em.emit_string_line(String.from("}"));
