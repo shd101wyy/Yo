@@ -445,7 +445,20 @@ and gate the batch:
 - Bisect a TIER-2 failure with 2-minute s1 builds. Do not go back to
   one-gate-per-commit.
 
-### Iteration-speed rules (adopted 2026-07-28 — measured costs)
+### Iteration-speed rules
+
+- **One build must answer the whole question**: pack EVERY plausible probe
+  into a single diag build (e.g. tag ALL 63 return sites of a fn at once,
+  mechanically via python), never one-hypothesis-per-build — each s1
+  rebuild costs ~8 min.
+- **Input-side first**: with a built s1, experiments via crafted .yo
+  inputs (+ comptime_print state dumps) cycle in ~30 s. Rebuild the
+  compiler only when the probe must live inside it.
+- **Parallel variant builds** for A/B compiler bisects — never sequential.
+- **Measurement hygiene**: never `\"pattern\"` inside single-quoted
+  `bash -c` — the escaped quotes become literal and grep counts a
+  never-matching pattern (a day of phantom "nondeterminism").
+  (adopted 2026-07-28 — measured costs)
 
 One probe cycle = ~2.5 min (s1 emit ~73 s + clang -O2 ~45 s + repro; -O1 is
 NOT faster, -O0 stays banned). The floor is fixed until incremental
