@@ -495,7 +495,22 @@ should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : E
   skip_unemittable := (!(is_user_main) && (((!(is_erm)) && is_function_type_hard_generic(function_type)) || _func_has_expr_param(function_type)));
   skip1 := ((!(is_user_main) && (!(is_effectful) && (!(has_evidence) && !(is_erm)))) && (is_function_type_hard_generic(function_type) || (_func_result_is_comptime_only(function_type) || is_function_value_with_only_builtin_yo_inline_function_call(value).is_some())));
   has_generic_params := ((!(is_user_main) && (!(is_effectful) && !(is_erm))) && _func_has_generic_params(function_type));
-  has_generic_return := type_contains_some_type_for_codegen_param(ret, ArrayList(String).new());
+  // Array with an UNRESOLVED length variable (`Array(i32, n)`) has no C
+  // rendering (`// Unknown type:` ate the prototype line — array.test
+  // batch clang errors); treat it as a generic return like a SomeT one.
+  _ret_has_len_var :: (fn(rl_t : TypeValue) -> bool)(
+    match(
+      rl_t,
+      .Array(rl_elem, _, rl_var) => cond(
+        (rl_var.len() > usize(0)) => true,
+        true => recur(rl_elem)
+      ),
+      .Pointer(rl_p) => recur(rl_p),
+      .IsoT(rl_i) => recur(rl_i),
+      _ => false
+    )
+  );
+  has_generic_return := (type_contains_some_type_for_codegen_param(ret, ArrayList(String).new()) || _ret_has_len_var(ret));
   returns_plain_impl := _returns_plain_impl(ret);
   skip2 := (has_generic_params || ((has_generic_return && !(returns_plain_impl)) && !(is_erm)));
   // A specialization whose RESULT type is a comptime-only type (comptime_int/

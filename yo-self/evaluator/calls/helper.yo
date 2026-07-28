@@ -1294,6 +1294,25 @@ _reeval_closure_body_swallow :: (
 ///
 /// Mirrors the core (pre-effects) of `createSpecializedFunctionInline` in
 /// `src/evaluator/calls/helper.ts`.
+/// TRUE when the type (shallowly recursively) contains an Array with an
+/// UNRESOLVED length variable (`Array(i32, n)` — a value-generic length).
+/// Such a type is generic for codegen even though it carries NO SomeT, so
+/// the return-type re-evaluation fallback must fire for it too (the
+/// comptime-value-param family: `fn(comptime(n) : usize) -> Array(i32, n)`
+/// specs otherwise kept the unresolved return and emitted
+/// `// Unknown type:` into the C prototype).
+_type_has_array_len_var :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Array(alv_elem, _, alv_var) => cond(
+      (alv_var.len() > usize(0)) => true,
+      true => recur(alv_elem)
+    ),
+    .Pointer(alv_p) => recur(alv_p),
+    .IsoT(alv_i) => recur(alv_i),
+    _ => false
+  )
+);
 /// Trial-evaluate a declared return-type EXPR in the mint env (SWALLOWING —
 /// the local `->` exn cannot capture, so a failing eval just leaves `out`
 /// empty). On success pushes the evaluated TypeValue. Port shape of TS
@@ -1760,7 +1779,7 @@ create_specialized_function_inline :: (
           // (function.yo:1348-1370): match each SomeT in the declared return
           // to a forall name and substitute the inferred forall_args value at
           // the occurrence's own recorded level.
-          if(get_all_some_types(spec_ret_ty).len() > usize(0), {
+          if((get_all_some_types(spec_ret_ty).len() > usize(0)) || _type_has_array_len_var(spec_ret_ty), {
             zdecl_ret := match(func_type,.Func({ result : zr }) => zr, _ => t_unit());
             zret_somes := get_all_some_types(zdecl_ret);
             if(zret_somes.len() > usize(0), {
@@ -1855,7 +1874,7 @@ create_specialized_function_inline :: (
                 match(
                   rte_out.get(usize(0)),
                   .Some(rte_ty) => {
-                    if((get_all_some_types(rte_ty).len() == usize(0)) && !(is_unit_type(rte_ty)), {
+                    if(((get_all_some_types(rte_ty).len() == usize(0)) && !(_type_has_array_len_var(rte_ty))) && !(is_unit_type(rte_ty)), {
                       spec_ret_ty = rte_ty;
                       rte_adopted = true;
                     });

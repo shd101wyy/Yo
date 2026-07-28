@@ -573,6 +573,15 @@ is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
                 .TypeUni(_) => {
                   found = true;
                 },
+                // An Array with an UNRESOLVED length variable
+                // (`Array(i32, n)` — value-generic length) has no valid C
+                // rendering either: the prototype printed
+                // `// Unknown type: Array(i32, n)` and ate the line
+                // (array.test batch clang errors). Same classification as
+                // TS guards.ts hasCompileTimeParams reaching the length.
+                .Array(_, _, hg_lvar) => if(hg_lvar.len() > usize(0), {
+                  found = true;
+                }),
                 _ => ()
               ),
               .None => ()
