@@ -1055,3 +1055,25 @@ the top-level `main ::` binding route).
 LESSON (measurement): never escape double-quotes inside single-quoted
 bash -c grep patterns — use `grep -c 'Failed to transpile'` (single
 quotes) or a single unquoted word.
+
+## Return-site trace result (2026-07-28 late): ZERO of 63 `return(expr);`
+
+sites fire for the match id — evaluate_match exits via a NON-`return(expr)`
+path (the tail expression, `return(<other node>)`, or an err-expr return).
+Next probe (batch into ONE build): tag fn ENTRY (id-gated), every
+`return(` regardless of argument, and the tail — plus stamp-check at exit.
+PAUSED here — user re-prioritized to s2 PERFORMANCE (2026-07-28 ~23:45).
+
+## State 2026-07-29 ~05:00 (post array fixes)
+
+Landed: annotation-position Array(T,\_) rejection + length-var
+codegen-generic classification (array.test 12/12 clean under the
+BATTERY's default-parallel batch split). BUT under `--parallel 1` (ONE
+batch, all 13 arms — what the sweep runs) the dispatch STILL FTTs
+deterministically (3x matrix): another arm (or arm interaction) kills
+the single-batch shape. Score unchanged 139/28/16. NEXT: YSW-FT
+message probe on the current tree, `test tests/array.test.yo
+--parallel 1`, read the message following the batch main's def-eval —
+same recipe that found the cee killer. NOTE: batch SPLITTING differs by
+--parallel (worker count), so sweep-vs-battery marker counts can
+legitimately differ — always reproduce with --parallel 1.
