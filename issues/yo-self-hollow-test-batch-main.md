@@ -1117,3 +1117,15 @@ rejection; length-var codegen-generic classification; comptime-param
 body deferral; rte fallback gate on the CORRECT if (the length-var
 condition had landed on the zs-subst gate — replace-first hazard;
 scripted edits must anchor on UNIQUE context).
+
+## Peel consolidated (2026-07-29 ~06:25)
+
+Per-arm matrix with the current binary: arms 0-5 and 8-11 ALL CLEAN
+(ftt=0). Remaining: **arms 6 + 7 only** — the `for(arr, x => ...)`
+array-iteration closures, i.e. the KNOWN associatedTypeConstraints-
+blocked closure-method front (issues/yo-self-closure-void-param-
+where-clause.md). Fixed this arc (all TIER-1-green, pushed): cee
+annotation rejection; length-var codegen-generic classification;
+comptime-param body deferral; rte fallback gate correction; CTFE-gate
+length-var-from-args stamping. array.test goes genuinely GREEN once the
+for/into_iter closure route lands.
