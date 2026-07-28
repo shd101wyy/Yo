@@ -436,3 +436,27 @@ ORDER OF WORK: (3) first — the eval-side unify root unblocks the
 specializations, which likely dissolves (2); then land (1)+(2 splice guard)
 together. The TypeUni guard alone only trades one clang error for another —
 DO NOT land it in isolation.
+
+## ROUTING HYPOTHESIS (2026-07-28, minimal repro /tmp/imm_repro.yo — 2-min cycle)
+
+Even the MINIMAL `Map(i32,i32).new().insert(...)` fails self-compiled: the
+emitted insert spec's body calls `_node_insert(K, V, root, ...)` — the
+ORIGINAL — FTT'd by the skipped-callee degrade and SPLICED into a temp
+initializer. `_node_insert` declares EXPLICIT `comptime(K) : Type,
+comptime(V) : Type` value-position params followed by runtime params
+(std/imm/map.yo:369). No discriminating eval error is swallowed (the two
+list.yo `Incompatible types (reversed._head)` messages are a separate known
+cause): the specialization is skipped SILENTLY — hypothesis: a call with
+explicit comptime params + RUNTIME remaining args routes to the CTFE path
+(evaluate_comptime_fn_call), which bails on the runtime args ("Failed to
+call the function for compile-time…", present in the GLOBAL noise set), and
+no runtime specialization is ever minted; TS classifies this shape as
+isFunctionSpecializable and mints a runtime spec keyed on the comptime args
+(the mint plumbing exists in yo-self — create_specialized takes
+compile_time_args — only the ROUTING is missing). NEXT: find the call-site
+classification (comptime_fn.yo vs function.yo's FuncVal arm) for a callee
+with param_comptime flags + runtime args, and mirror TS's
+isFunctionSpecializable routing; then the emission must DROP comptime args
+from the C arg list (they are not runtime params of the spec).
+Also fix alongside: the temp-initializer FTT SPLICE (`__yo_tN tmp = //
+comment`) — the same degrade-splice class as assignment.yo's.
