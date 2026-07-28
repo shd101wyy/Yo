@@ -972,3 +972,41 @@ wrapper's Fn trait at the mint) measured DEAD post-dyn-fix and was removed
 Corpus regression tests: `tests/codegen-bootstrap/dyn_box_closure_binding.yo`
 (the c03 block runs end-to-end), `dyn_box_same_shape_captures.yo`
 (corpus baseline now 143). TIER 1 green; TIER 2 in flight.
+
+## Batch-dispatch hollow — isolation matrix (2026-07-28 night)
+
+The remaining 1-marker hollow (array/imm files) is the batch main's
+dispatch match FTT'ing — isolated hard:
+
+| path                                 | binary                       | markers                                                |
+| ------------------------------------ | ---------------------------- | ------------------------------------------------------ |
+| `compile` (standalone, batch source) | release                      | **0 (6/6 runs, robust to MallocScribble/PreScribble)** |
+| `compile`                            | ASan build                   | 1 (5/5) — no ASan violations                           |
+| `test` (in-process synth+compile)    | release                      | 1 (4/4 matrix; ONE anomalous 0 observed earlier)       |
+| `test`                               | diag build (eprintln probes) | 1                                                      |
+| `compile`                            | diag build                   | 0                                                      |
+
+Facts: (a) the FTT text is emitted by generation.yo site-1 — the MATCH
+NODE HAS NO ExprInfo at codegen time in the test path; (b) ALL FOUR
+swallow sites instrumented (wrapper YSW, \_trial_eval_fn_body YSW-FT,
+\_trial_eval_anon_body YSW-ANON, try_populate_expr_info_table YSW-TOP) —
+the test-path YSW set is IDENTICAL to the compile-path set (comm -23
+empty) and YSW-TOP never fires: NO eval error distinguishes the paths;
+(c) eval outcome therefore stamps the match in one path and not the
+other WITHOUT any throw, OR the codegen reads a DIFFERENT table than the
+eval wrote.
+
+NEXT (fresh session): trace table identity — in main.yo compare what
+`run_test`'s inner compile passes to codegen vs `run_compile` standalone:
+which ExprInfoTable/EvalContext instance evaluates the batch main's body
+(def-time trial eval stamps fn-body infos) and which table
+`context.base.get_expr_info` reads at emission. Suspect: run_test's
+pipeline builds a second context/table (or re-parses the batch) so the
+def-eval-era stamps land in a table the emitter never sees — id-keyed
+lookup misses. A cheap probe: eprintln the TABLE SIZE + the match expr id
+at (1) end of batch main's def-eval, (2) emission entry, in both paths.
+
+ALSO: the ASan-build compile-path divergence (1 vs release 0) is
+UNEXPLAINED — different binary, same source; consistent with residual
+layout-sensitivity (the corruption class), but the test-path mechanism
+above is the reproducible, attackable half.
