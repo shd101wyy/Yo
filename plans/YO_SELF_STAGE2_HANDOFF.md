@@ -50,8 +50,23 @@ nothing below needs re-litigating._
   first; the TypeUni hard-generic guard is in /tmp/yb UNLANDED — do not
   land in isolation).
 
-- **#69 (`s2 test ./tests`): 139 GREEN / 27 HOLLOW / 17 RED of 183.**
-  Measured 2026-07-28 post-`a23013161` (`/tmp/hs_pcmp`): **`ptr` +
+- **#69 (`s2 test ./tests`): 138 GREEN / 27 HOLLOW / 18 RED of 183.**
+  Measured 2026-07-28 post-`c592f9920` (`/tmp/hs_ae`): the ONLY move vs
+  `/tmp/hs_pcmp` is **`fs/walker` GREEN → RED (rc=139, ZERO-byte log)** —
+  deterministic (re-reproduced standalone). Crash report
+  (`~/Library/Logs/DiagnosticReports/ws_s1-2026-07-28-152358.ips`): SIGSEGV
+  inside a `___dispose` during `__yo_cleanup_thread_gc` on the **exit path**
+  (`run_test → run_compile → exit → __cxa_finalize`), i.e. the compile
+  FAILED (exit was called), the exit-time GC cleanup then crashed, and the
+  crash pre-empts stdio flush — hence the empty log (rc=139 masks the real
+  rc/error; recover the error with `script -q /tmp/x.log <bin> test …`,
+  which line-buffers stdout). algebraic_effects stayed RED but for a NEW
+  reason: batch-1 clang error `use of undeclared identifier 'fn_yo_id_7500'`
+  — `void* handler = fn_yo_id_7500;` references a handler fn whose emission
+  was skipped (shape matches the new unemittable-fn side-table skipping a
+  handler that IS used, or ctl_force marking — investigate before the next
+  batch).
+  Prior sweep (139/27/17, `/tmp/hs_pcmp` post-`a23013161`): **`ptr` +
   `unsafe` flipped HOLLOW → GREEN** (the pointer-comparison dispatch fix),
   no other movement vs `/tmp/hs_dbc`. Prior sweep (137/29/17, `/tmp/hs_dbc`
   at `b3a0b8804`) details below.

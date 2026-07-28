@@ -989,6 +989,18 @@ require_valid_ref_argument_places :: (
   });
 });
 
+/// Record a def-time swallowed throw for the cee observation channel.
+/// Lives HERE (a plain module fn) instead of inline in the wrapper's `->`
+/// handler: a branch inside that capture-free handler miscompiles under the
+/// TS codegen (heap corruption surfacing later in the async emitter — the
+/// fs/walker rc=139 regression; see
+/// issues/yo-ts-codegen-branch-in-effect-handler-corruption.md). The handler
+/// body must stay straight-line calls.
+note_def_time_swallow :: (fn() -> unit)({
+  if(propagate_def_time_errors(), {
+    set_cee_observed_error();
+  });
+});
 export(
   FlowOptions,
   flow_options_default,
@@ -1006,3 +1018,5 @@ export(
   clear_cee_observed_error,
   cee_observed_error
 );
+
+export(note_def_time_swallow);
