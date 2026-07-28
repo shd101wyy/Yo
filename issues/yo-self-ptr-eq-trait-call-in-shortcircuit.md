@@ -44,3 +44,17 @@ Restore the trait call in string.yo's fast path, run
 `YO_SELF_BIN=<s1> scripts/diff-test.sh tests/codegen-bootstrap/short_circuit_rc_temp_drop.yo --release`,
 inspect the self-emitted C for the `||` temp-drop sequence around the
 specialized `Eq(*(T))` `==`.
+
+## UPDATE 2026-07-28 — believed FIXED by `a23013161`
+
+The dispatch root is fixed: trait `==`/`>` on pointer receivers now resolves
+to the `Eq(*(T))`/`Ord(*(T))` impls (receiver-compat filter + post-filter
+generic-impl retry in env.yo; see
+issues/yo-self-ptr-comparison-trait-dispatch-unify-throw.md). A standalone
+repro of this issue's shape — pointer `==` as `||` LHS with RC String temps
+in both arms — now compiles and runs correctly self-compiled
+(`/tmp/porq.yo`, TS and s1 both `ok`). The exact original recipe (restore
+string.yo's trait-call fast path + diff-test short_circuit_rc_temp_drop)
+has NOT been re-run; the `__yo_ptr_eq` local-extern workaround in
+std/string/string.yo STAYS regardless — it skips dispatch in the hottest
+path in the compiler (also why it was measured faster).
