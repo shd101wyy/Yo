@@ -1077,3 +1077,23 @@ message probe on the current tree, `test tests/array.test.yo
 same recipe that found the cee killer. NOTE: batch SPLITTING differs by
 --parallel (worker count), so sweep-vs-battery marker counts can
 legitimately differ — always reproduce with --parallel 1.
+
+## Array single-batch residual — MINIMAL REPRO (2026-07-29 ~06:00)
+
+`scratchpad/ra_repro.yo` (1-min cycle, standalone):
+`return_array :: (fn(comptime(n) : usize) -> Array(i32, n))(begin(return(Array(i32, n).fill(10)), ()))`
+then `arr2 := return_array(5); assert(arr2.len() == 5)`. TS: evaluator
+OK. Self-hosted (dfr_s1 era): 3 FTT markers, hollow run. The call's
+RETURN comes back `unit` → `arr2 : unit` → `len()` fails → the batch's
+one remaining swallow ("Cannot unify: Expected bool, Given unit" at the
+assert). Chase: does the comptime-param spec trigger fire for the
+VALUE-arg call (IntLit 5 passes the known-gate); does the mint's
+return re-eval resolve `Array(i32, n)` with n:=IntLit(5) (the
+\_type_has_array_len_var gate + early binding should); does the
+call-site adoption stamp it. Probe recipe as before (YIMM tags on the
+trigger/mint + YSW-FT), now ~1-min repro cycles with the fast binary.
+
+Landed this arc: cee annotation rejection (binding.yo), length-var
+codegen-generic classification (helper/guards/declarations), comptime-
+param body DEFERRAL (function_type.yo) — each TIER-1-green; array
+single-batch peeled from "whole dispatch dead" to this ONE residual.

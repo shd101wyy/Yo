@@ -1,0 +1,11 @@
+{ assert } :: import("std/assert");
+return_array :: (fn(comptime(n) : usize) -> Array(i32, n))(begin(
+  return((Array(i32, n).fill)(10)),
+  ()
+));
+main :: (fn() -> unit)({
+  arr2 := return_array(5);
+  assert(arr2.len() == 5);
+  assert(arr2(0) == 10);
+});
+export(main);
