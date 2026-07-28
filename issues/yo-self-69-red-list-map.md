@@ -460,3 +460,77 @@ isFunctionSpecializable routing; then the emission must DROP comptime args
 from the C arg list (they are not runtime params of the spec).
 Also fix alongside: the temp-initializer FTT SPLICE (`__yo_tN tmp = //
 comment`) — the same degrade-splice class as assignment.yo's.
+
+## COMPTIME-PARAM SPEC CHAIN — measured & partially built (2026-07-28, /tmp/yb UNLANDED)
+
+The routing hypothesis was CONFIRMED and refined. Five coordinated pieces
+are implemented in /tmp/yb (all validated on /tmp/imm_repro.yo, ~10-min
+diag cycles); the eval layer is now THROUGH and the front moved to C-type
+identity:
+
+1. **Trigger** (function.yo `_evaluate_funcval_runtime_call` ~1626): the
+   spec trigger was `forall_names.len()>0 || closure-param soft-generic` —
+   explicit `comptime(K) : Type` fns have NEITHER, so no spec was ever
+   minted (TS: isFunctionTypeGeneric counts p.isCompileTimeOnly,
+   guards.ts:466). Added `ou_spec_comptime_params`: any
+   get_func_param_comptime flag AND every flagged arg's value compile-time
+   KNOWN (TypeVal with no SomeTs; UnknownVal rejects) AND not control fn.
+2. **Call-site C args** (function.yo arg loop ~3390): runtime_arg_exprs
+   push now gated on !param_comptime[ai] (TS helper.ts:343/397) — the
+   TypeVal arg was previously spliced into the C call as an FTT comment.
+3. **Mint split** (helper.yo create_specialized): comptime-param arg VALUES
+   join compile_time_args (cache key splits per instantiation — TS
+   helper.ts:2233); runtime_param_tys keeps ALL args (index alignment is
+   load-bearing across the mint's per-param loops); the REGISTERED spec
+   type + param_labels/is_ref/is_owning filter comptime indices OUT (C
+   signature carries runtime params only); comptime params bind
+   COMPILE-TIME into the mint env EARLY — before return resolution — via a
+   dedicated loop (binding them only in the rbp loop ran AFTER spec_ret_ty
+   and left `Pair(K,V)` unresolvable).
+4. **Return-type re-eval** (NEW side-table + helper): yo-self resolved the
+   spec return by SUBSTITUTION over the def-era TypeValue
+   (evaluate*function_return_type_again = \_resolve_some_types_deep), which
+   keeps the def-era instantiation instance — the body's own `Pair(K,V)`
+   CTFE calls mint/fetch the MEMOIZED canonical instance → TWO lineages of
+   the same instantiation → "Incompatible type with expected type"
+   (match.yo) at map.yo:242. TS RE-EVALUATES functionType.return.typeExpr
+   in the specialized env (evaluateFunctionReturnTypeAgain,
+   function.ts:2822) so both routes hit the same ctor memo. Port:
+   `g_func_return_type_expr` side-table (register in
+   evaluator/types/function.yo fn-type eval; copy* in
+   calls/function_type.yo like the defaults) + `_trial_eval_ret_type_expr`
+   swallowing re-eval in the mint; adopt only a CONCRETE (SomeT-free,
+   non-unit) result.
+5. **Self-scope for the re-eval**: a `Self`-returning method (ptr
+   `add -> Self`) re-evaluated `Self` under the CALLER's stale
+   ctx.self_type (insert's Map(i32,i32)) and adopted it as the spec return
+   → "\*(Pair(i32,i32))" vs "Map(i32,i32)" unify failure INSIDE the .add
+   spec body (probes: self binding + ctx.self_type were CORRECT at body
+   eval; only the early rte ran under the stale self). Fix: around the
+   rte eval, set ctx.self_type from arg0's arg_type when params[0]=="self"
+   (TS passes functionType.SelfType). Restored after.
+
+STATE after all five: repro FTT 4 → 2; compile now fails LOUDLY at clang
+with C-IDENTITY mismatches — `__yo_t36 child = <__yo_t2 expr>` etc.: TWO C
+typedefs for the SAME MapNode(i32,i32)/Pair(i32,i32)/Option era, and the
+recur-route recursive spec's C name still embeds PLACEHOLDER return args
+(`..._ret_gs_yo_id_5468_2185_2186`). This is exactly the P3 remainder
+(memory: yo-self-p3-recursive-instantiation-identity): codegen
+type-collection + C-identity for recursive-generic specs.
+
+NEXT: (a) find why type collection assigns two typedefs to the two
+same-instantiation TypeValue instances that still coexist (the recursive
+spec's param/return era vs the memoized era — likely the recur forward-ref
+spec type built from def-era types); (b) the enum-identity dedup
+(g_enum_sig_keys) keys include payload type ids, so the cascade doesn't
+merge — consider keying through resolved instantiation identity; (c) strip
+ALL diag probes (YSWALLOW/YIMM/YUNIFY/YCTFE/YSELF eprintlns in \_expr.yo,
+function_type.yo, anonymous_function.yo, function.yo, helper.yo, match.yo,
+synthesizer.yo, comptime_fn.yo) before landing; (d) TIER 1 with the
+/tmp/yb TypeUni guards included (land together).
+
+Diag technique that cracked it: batch probes per build (YIMM-CT trigger
+fire, YIMM-ENTER/SIG/BODYEVAL/BODYOK mint lifecycle, YSWALLOW at all three
+swallow sites, YUNIFY with type_key + struct field counts at the
+synthesizer tag-mismatch throw, YSELF env-binding dump at a specific fid) —
+each build isolates exactly one link of the chain.
