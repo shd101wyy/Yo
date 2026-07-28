@@ -93,3 +93,29 @@ minted during the spec body eval with A-era copies).
 
 Probes still in /tmp/yb helper.yo: `__YCW` (forall dump) — strip before
 landing. TIER 1 NOT yet run on this batch.
+
+## UPDATE 2: fn-route SOLVED (9ea932e72); method route still open
+
+The landed mint-side re-typing fixes the FN route
+(`apply_each(src, closure)` — corpus test closure_where_clause_param.yo).
+The METHOD route (`src.into_iter().for_each(closure)`, repro /tmp/wcf2.yo)
+still emits `void* x`: at ITS mint, `A` is recoverable from NEITHER
+`arg_values.forall_args` (entries are non-TypeVal — `A:=<nonty>
+F:=<nonty>`, probed) NOR a flat `get_variables_from_env(callee_env, "A")`
+name lookup. Resolving the occurrence via
+evaluate_function_parameter_type_again SIGSEGVs deterministically (the
+SomeT's constraint graph is cyclic: `Iterator(Item := A)` references A —
+the substitute-cycle class; do NOT retry that).
+
+On the method route `for_each` is a TRAIT-DEFAULT method: `A` binds via
+`where(Self <: Iterator(Item := A))` matched against the receiver's
+Iterator impl (Item = i32) — the assoc-type/where machinery, not env names.
+NEXT candidates:
+
+1. Find where the method-route spec resolves `Item := A` (where-clause
+   registration / assoc bindings) and harvest A from there.
+2. Alternative: hook the re-typing at the `f(v)` CALL inside the spec body
+   eval (the closure FuncVal call path) where `v : i32` is concrete —
+   route-agnostic.
+   The flat-lookup fallback stays in /tmp/yb (fires nowhere yet, harmless);
+   workspace has only the landed fn-route fix.
