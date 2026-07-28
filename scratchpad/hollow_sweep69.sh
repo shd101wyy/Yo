@@ -16,13 +16,21 @@ touch "$RESULTS"
 for t in $(find tests -name '*.test.yo' | sort); do
   grep -q "^$t " "$RESULTS" && continue
   d=$(dirname "$t"); n=$(echo "$t" | tr '/' '_')
+  # Remove STALE batch artifacts from the PREVIOUS file first — the marker
+  # count below globs the directory, and a leftover batch .c from another
+  # test file phantom-hollowed clean files (the sweep previously read a
+  # HARDCODED batch_1.bin.c, which for some files was the prior file's).
+  rm -f "$d"/.yo_selftest_batch_*
   YO_KEEP_BATCH=1 timeout "$TIMEOUT_S" "$BIN" test "$t" --parallel 1 > "$OUT/$n.log" 2>&1
   rc=$?
-  c="$d/.yo_selftest_batch_1.bin.c"
   hollow=NA; markers=NA
-  if [ -f "$c" ]; then
-    markers=$(grep -c 'Failed to transpile\|Unknown type:' "$c")
-    if sed -n '/^void __yo_user_main() {/,/^}/p' "$c" | grep -q 'Failed to transpile'; then hollow=1; else hollow=0; fi
+  batch_cs=$(ls "$d"/.yo_selftest_batch_*.bin.c 2>/dev/null)
+  if [ -n "$batch_cs" ]; then
+    markers=$(cat $batch_cs | grep -c 'Failed to transpile\|Unknown type:')
+    hollow=0
+    for c in $batch_cs; do
+      if sed -n '/^void __yo_user_main() {/,/^}/p' "$c" | grep -q 'Failed to transpile'; then hollow=1; fi
+    done
   fi
   summary=$(grep -oE '[0-9]+ passed' "$OUT/$n.log" | tail -1)
   if [ "$rc" -eq 0 ] && [ "$hollow" = "0" ]; then verdict=GREEN

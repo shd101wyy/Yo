@@ -556,3 +556,41 @@ Two more pieces closed it after the snapshot above:
 VALIDATED: corpus 147/147 (new file comptime_param_value_spec.yo; 0 DIFF,
 0 SELF-FAIL), std 153/153, battery green, imm_map.test.yo 21/21,
 imm_set.test.yo 19/19 — both formerly RED. sync/mutex not yet re-checked.
+
+## GenericImplMatch refactor attempt — CRASHED, reverted (2026-07-28 late)
+
+Per the faithful-port directive, the landed value-binding side-channel
+(e1096c1b4, `g_last_match_binding_vals`) was refactored to TS's exact shape
+— `try_match_generic_impl` returning a `GenericImplMatch` struct
+(`bindings` + `value_vals`, mirroring GenericImplMatchResult's
+substitutions/valueSubstitutions, impl.ts:2199) with declared-type retyping
+(impl.ts:2464) and cap_tys threading into \_funcval_bind_foralls. The
+refactored build SEGV'd `check ./std` (NULL+8 in
+`process_unquotes_in_expr` under `_trial_eval_fn_body` —
+`gm2_s1-2026-07-28-211003.ips`) — unrelated quote machinery, i.e. a
+MISEMISSION triggered by the new shapes (suspects: Option(2-field-RC-
+struct) unwound through the try_match exn handler — the branch-in-handler
+corruption class; or the double-match on `mb_opt` (fixed, still crashed)).
+REVERTED to the landed TIER-1-green side-channel version; the semantics
+already match TS (values flow, declared-type at injection). Follow-up:
+reproduce the misemission minimally (a fn returning
+Option(struct(ArrayList, ArrayList)) via handler unwind), fix the codegen
+root, THEN re-apply the faithful shape.
+
+## Sweep nondeterminism discovered (2026-07-28 late)
+
+array.test.yo batch markers FLIP RUN-TO-RUN with the SAME binary and
+command (0 vs 1 markers; 4-run matrix all-1 after an earlier clean run) —
+the latent corruption class affects DEF-EVAL OUTCOMES, not just crashes.
+walker/bufio RED↔GREEN oscillation across sweeps is the same class
+(exit-path `__yo_decr_rc` cleanup crashes, zero-byte logs). Sweep scores
+now carry ±2-3 files of corruption noise; the class is the top blocker for
+honest scoring. ASan build exists (/tmp/asan_s1) but `check ./std` under
+ASan exhausts even an 8 GiB main stack (zero-byte log, rc=139 — the -O0
+frame class); next: ASan on a SMALL crashing input, or
+MallocStackLogging/lldb per the ExprInfo-UAF workflow
+(memory: yo-self-macro-dispatch-corruption-fixed).
+
+Also: sweep gate fixed (stale-batch pollution — hardcoded batch_1.bin.c;
+now rm + glob, scratchpad/hollow_sweep69.sh). Fixed-gate score at
+e1096c1b4: 139/28/16.
