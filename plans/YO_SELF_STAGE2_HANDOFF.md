@@ -6,6 +6,22 @@ nothing below needs re-litigating._
 
 ## Where things stand
 
+- **Array-family peel arc COMPLETE (2026-07-29 early, five TIER-1-green
+  commits, batch TIER 2 GREEN incl. STRICT FIXPOINT):** cee
+  annotation-position `Array(T,_)` rejection (binding.yo); length-var
+  types classified codegen-generic (helper/guards/declarations);
+  comptime-param fn body DEFERRAL (TS isFunctionTypeGeneric parity);
+  the rte fallback gate corrected (the len-var condition had landed on
+  the WRONG same-text `if` — anchor scripted edits on UNIQUE context);
+  CTFE-gate stamping resolves array length vars from the call's IntLit
+  args. **array.test.yo: 10 of 12 arms genuinely fixed** (1-min repros
+  in scratchpad/ra_repro.yo + ra6_comptime_return_repro.yo). Remaining
+  arms 6+7 = the `for(arr, closure)` route — **the
+  associatedTypeConstraints port is now THE gating front**: because the
+  batch dispatch is all-or-nothing, many hollow files' LAST arms are
+  for/into_iter closures, so that one port unlocks file-level flips
+  across the board. Score holds 139/28/16 until then.
+
 - **PERFORMANCE GOAL MET (2026-07-29, `8c8064d2b` + `0ad2e6299`): stage2
   emit 2265 s → 165 s (13.7×) — the self-hosted emit is now ~2.4× FASTER
   than the TS compiler (~400 s).** Three `sample`-attributed levers: (1)
