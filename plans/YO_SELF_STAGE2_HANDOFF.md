@@ -23,8 +23,11 @@ nothing below needs re-litigating._
   baseline 144**). Full diagnosis:
   `issues/yo-self-ptr-comparison-trait-dispatch-unify-throw.md`.
 
-- **#69 (`s2 test ./tests`): 137 GREEN / 29 HOLLOW / 17 RED of 183.**
-  Measured 2026-07-28 (`/tmp/hs_dbc`, s1 = `/tmp/ws_s1` from `b3a0b8804`).
+- **#69 (`s2 test ./tests`): 139 GREEN / 27 HOLLOW / 17 RED of 183.**
+  Measured 2026-07-28 post-`a23013161` (`/tmp/hs_pcmp`): **`ptr` +
+  `unsafe` flipped HOLLOW → GREEN** (the pointer-comparison dispatch fix),
+  no other movement vs `/tmp/hs_dbc`. Prior sweep (137/29/17, `/tmp/hs_dbc`
+  at `b3a0b8804`) details below.
   vs the 2026-07-27 sweep (138/28/17, `/tmp/hs_pa` at `59c5fe1fa`):
   **`ref_closure_capture` flipped RED → GREEN** (the cluster-B chain);
   walker + bufio green in-run. The three DOWN moves are **NOT cluster-B
