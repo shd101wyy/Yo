@@ -32,7 +32,8 @@ open(import("std/fmt"));
   ast_expr_is_atom_of,
   ast_expr_to_string,
   make_err_expr,
-  clone_expr_fresh_ids
+  clone_expr_fresh_ids,
+  wrap_body_in_begin
 } :: import("../../expr.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 {
@@ -1263,6 +1264,17 @@ _build_forward_ref_funcval :: (
 );
 // ---------------------------------------------------------------------------
 // create_specialized_function_inline
+/// Containment shell for the mint-side closure-body RE-EVALUATION (see the
+/// call site in create_specialized_function_inline): the swallow handler is a
+/// capture-free `->` unwind, which exits THIS fn only — same pattern as
+/// function_type.yo's `_trial_eval_fn_body`.
+_reeval_closure_body_swallow :: (
+  fn(body : AstExpr, benv : Environment, ctx : EvalContext) -> unit
+)({
+  rcb_exn := Exception(throw : ((_rcb_e) -> unwind(())));
+  rcb_out := evaluate_expression_raw(wrap_body_in_begin(body), benv, ctx, rcb_exn);
+  rcb_out;
+});
 // ---------------------------------------------------------------------------
 /// Create (or retrieve from cache) a specialized version of a generic function
 /// with compile-time arguments bound.
@@ -2242,13 +2254,220 @@ create_specialized_function_inline :: (
                     cc_ae.value,
                     .Some(cc_v) => match(
                       cc_v,
-                      .FuncVal(cc_fvd, _) => match(
-                        get_closure_capture_info(cc_fvd.*.func_id.clone()),
-                        .Some(cc_info) => {
-                          closure_cap_ty = Option(TypeValue).Some(cc_info.capture_type);
-                        },
-                        .None => ()
-                      ),
+                      .FuncVal(cc_fvd, cc_capvals) => {
+                        match(
+                          get_closure_capture_info(cc_fvd.*.func_id.clone()),
+                          .Some(cc_info) => {
+                            closure_cap_ty = Option(TypeValue).Some(cc_info.capture_type);
+                          },
+                          .None => ()
+                        );
+                        // MINT-SIDE closure-type re-registration (the eval-order
+                        // wall workaround; issues/yo-self-closure-void-param-
+                        // where-clause.md): a closure passed to a where-clause-
+                        // constrained `f : F` param is CREATED before the
+                        // foralls bind (yo-self evaluates all args first), so
+                        // its registered type keeps the no-expected placeholder
+                        // params (`fn(x : x) -> _ret`) and the C signature
+                        // emits `void*`. TS types it contextually at check time
+                        // with `A := i32` already bound. HERE the mint env has
+                        // the bindings: when the current registration still
+                        // carries SomeT params, pull the declared param F's Fn
+                        // trait (its own required traits, then the callee-env
+                        // where-clause), resolve each trait param/result
+                        // through callee_env, and re-register the closure's
+                        // type with the concrete signature — REBUILDING from
+                        // the existing registration's meta (t_func_simple
+                        // would drop the flags).
+                        cw_fid := cc_fvd.*.func_id.clone();
+                        cw_cur := get_func_type(cw_fid.clone());
+                        (cw_cur_generic : bool) = false;
+                        match(
+                          cw_cur,
+                          .Func({ param_types : cw_cur_pt, result : cw_cur_ret }) => {
+                            if(get_all_some_types(cw_cur_ret).len() > usize(0), {
+                              cw_cur_generic = true;
+                            });
+                            (cw_gi : usize) = usize(0);
+                            while(cw_gi < cw_cur_pt.len(), {
+                              match(
+                                cw_cur_pt.get(cw_gi),
+                                .Some(cw_gt) => if(get_all_some_types(cw_gt).len() > usize(0), {
+                                  cw_cur_generic = true;
+                                }),
+                                .None => ()
+                              );
+                              cw_gi = (cw_gi + usize(1));
+                            });
+                          },
+                          _ => ()
+                        );
+                        if(cw_cur_generic && is_some_type(declared_pt), {
+                          match(
+                            extract_fn_trait_from_type(declared_pt),
+                            .Some(cw_ftt) => match(
+                              cw_ftt,
+                              .FnTraitT(_, _, cw_cpt, cw_cres, _, _, _) => {
+                                // Resolve the trait's generic occurrences by
+                                // NAME + OCCURRENCE-LEVEL from the inferred
+                                // forall_args (the ys_ret-bridge pattern):
+                                // env NAME resolution cannot see the trait's
+                                // own `A` copy (Gap-6 lineage split — measured
+                                // `A := i32` present in forall_args while
+                                // evaluate_..._again left `A` unresolved).
+                                cw_s := subst_new();
+                                (cw_oi : usize) = usize(0);
+                                while(cw_oi < cw_cpt.len(), {
+                                  cw_ot := match(cw_cpt.get(cw_oi),.Some(x) => x,.None => t_unit());
+                                  cw_occ := get_all_some_types(cw_ot);
+                                  (cw_oj : usize) = usize(0);
+                                  while(cw_oj < cw_occ.len(), {
+                                    match(
+                                      cw_occ.get(cw_oj),
+                                      .Some(cw_st) => match(
+                                        cw_st,
+                                        .SomeT(_, cw_st_nm, cw_st_lvl, _, _, _, _, _, _, _, _) => {
+                                          (cw_bi : usize) = usize(0);
+                                          while(cw_bi < forall_names.len(), {
+                                            cw_bn := match(forall_names.get(cw_bi),.Some(n) => n,.None => String.new());
+                                            if((cw_bn == cw_st_nm) && (cw_bi < arg_values.forall_args.len()), {
+                                              match(
+                                                arg_values.forall_args.get(cw_bi),
+                                                .Some(cw_fae) => match(
+                                                  cw_fae.value,
+                                                  .Some(cw_fav) => match(
+                                                    cw_fav,
+                                                    .TypeVal(cw_fat) => if((!(is_some_type(cw_fat))) && (get_all_some_types(cw_fat).len() == usize(0)), {
+                                                      subst_add(cw_s, cw_st_nm.clone(), cw_st_lvl, cw_fat.clone());
+                                                    }),
+                                                    _ => ()
+                                                  ),
+                                                  .None => ()
+                                                ),
+                                                .None => ()
+                                              );
+                                            });
+                                            cw_bi = (cw_bi + usize(1));
+                                          });
+                                        },
+                                        _ => ()
+                                      ),
+                                      .None => ()
+                                    );
+                                    cw_oj = (cw_oj + usize(1));
+                                  });
+                                  cw_oi = (cw_oi + usize(1));
+                                });
+                                cw_new_pts := ArrayList(TypeValue).new();
+                                (cw_all_conc : bool) = true;
+                                (cw_pi : usize) = usize(0);
+                                while(cw_pi < cw_cpt.len(), {
+                                  cw_pt0 := match(cw_cpt.get(cw_pi),.Some(x) => x,.None => t_unit());
+                                  cw_pt_res := substitute(cw_s, cw_pt0);
+                                  if(get_all_some_types(cw_pt_res).len() > usize(0), {
+                                    cw_all_conc = false;
+                                  });
+                                  cw_new_pts.push(cw_pt_res);
+                                  cw_pi = (cw_pi + usize(1));
+                                });
+                                cw_ret_res := substitute(cw_s, cw_cres);
+                                if(get_all_some_types(cw_ret_res).len() > usize(0), {
+                                  cw_all_conc = false;
+                                });
+                                if(cw_all_conc, {
+                                  match(
+                                    cw_cur,
+                                    .Func({
+                                      forall_types : cw_fts,
+                                      implicit_types : cw_its,
+                                      where_types : cw_wts,
+                                      meta : cw_fm
+                                    }) => {
+                                      register_func_type(
+                                        cw_fid.clone(),
+                                        TypeValue.Func(cw_fts, cw_new_pts, cw_its, cw_wts, cw_ret_res, cw_fm)
+                                      );
+                                    },
+                                    _ => ()
+                                  );
+                                  // RE-EVALUATE the closure body under the now-
+                                  // concrete parameter types: the creation-time
+                                  // eval ran with the placeholder params (the
+                                  // mark_closure_for_codegen carve-out forces
+                                  // body eval even for SomeT params), so the
+                                  // body's ExprInfos reference placeholder-era
+                                  // specs (`out.push(x)` keyed on the
+                                  // unresolved copy — the undeclared-function
+                                  // residual). Same trial-eval swallow shape as
+                                  // _trial_eval_fn_body; the body nodes are the
+                                  // ORIGINAL ones codegen walks, so the fresh
+                                  // infos overwrite the stale ones in place.
+                                  cw_benv := Environment.new(callee_env.module_path);
+                                  (cw_cvi : usize) = usize(0);
+                                  while(cw_cvi < cc_fvd.*.cap_names.len(), {
+                                    cw_cn := match(cc_fvd.*.cap_names.get(cw_cvi),.Some(x) => x,.None => String.new());
+                                    cw_ct := match(cc_fvd.*.cap_tys.get(cw_cvi),.Some(x) => x,.None => t_unit());
+                                    // TYPE captures (generic bindings) stay
+                                    // comptime; VALUE captures bind as RUNTIME
+                                    // UnknownVals — binding their comptime
+                                    // values made the re-evaluated body's
+                                    // reads comptime and codegen emitted
+                                    // `/* skip generating value */` for the
+                                    // receiver argument.
+                                    (cw_cv : Option(EvalValue)) = Option(EvalValue).Some(EvalValue.UnknownVal(cw_ct.clone(), true));
+                                    (cw_has_cv : bool) = false;
+                                    match(
+                                      cc_capvals.get(cw_cvi),
+                                      .Some(x) => match(
+                                        x,
+                                        .TypeVal(_) => {
+                                          cw_cv = Option(EvalValue).Some(x);
+                                          cw_has_cv = true;
+                                        },
+                                        _ => ()
+                                      ),
+                                      .None => ()
+                                    );
+                                    _cwa := add_variable_to_env(
+                                      cw_benv,
+                                      cw_cn,
+                                      cw_ct,
+                                      cw_cv,
+                                      cw_has_cv,
+                                      false,
+                                      false,
+                                      false,
+                                      synthetic_token(cw_cn, callee_env.module_path)
+                                    );
+                                    cw_cvi = (cw_cvi + usize(1));
+                                  });
+                                  _cwf := cw_benv.push_frame(false);
+                                  (cw_pvi : usize) = usize(0);
+                                  while(cw_pvi < cc_fvd.*.params.len(), {
+                                    cw_pn := match(cc_fvd.*.params.get(cw_pvi),.Some(x) => x,.None => String.new());
+                                    cw_pt2 := match(cw_new_pts.get(cw_pvi),.Some(x) => x,.None => t_unit());
+                                    _cwp := add_variable_to_env(
+                                      cw_benv,
+                                      cw_pn,
+                                      cw_pt2,
+                                      Option(EvalValue).Some(EvalValue.UnknownVal(cw_pt2.clone(), true)),
+                                      false,
+                                      false,
+                                      false,
+                                      false,
+                                      synthetic_token(cw_pn, callee_env.module_path)
+                                    );
+                                    cw_pvi = (cw_pvi + usize(1));
+                                  });
+                                  _reeval_closure_body_swallow(cc_fvd.*.body, cw_benv, ctx);
+                                });
+                              },
+                              _ => ()
+                            ),
+                            .None => ()
+                          );
+                        });
+                      },
                       _ => ()
                     ),
                     .None => ()
