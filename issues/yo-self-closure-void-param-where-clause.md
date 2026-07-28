@@ -137,3 +137,25 @@ is `cv`). Guards as in helper.yo: get_closure_capture_info(fid).is_some() +
 registered params SomeT-bearing + ret concrete + all arg infos concrete →
 `_retype_closure_and_reeval` (export it from helper.yo or move it to a shared
 module). Probes to strip in /tmp/yb: **YAT (mint), **YCS (helper call site).
+
+## UPDATE 4 — method route BLOCKED on the associatedTypeConstraints port
+
+Both call-site re-typing attempts measured NON-FIRING for the method route
+(probes silent on helper try_to_call AND function.yo's FuncVal arm): during
+for_each's spec body eval, `f(item)` never reaches either call path with the
+closure FuncVal as callee (f is bound per the runtime-param convention, and
+the body's f-call is typed without a FuncVal dispatch). The only remaining
+`A` source at the mint is the where-clause `Self <: Iterator(Item := A)`
+matched against the receiver's Iterator impl — and yo-self DISCARDS
+`Item := X` bindings at trait specialization (trait_type.yo:49-51:
+"constraint validated but NOT stored in TraitT — associatedTypeConstraints
+deferred to Phase 3"). The linkage needed to recover `A := i32` does not
+exist as data.
+
+CONCLUSION: the method-route shape (into_iter().for_each and the rest of
+closure_capture_rc_leak) requires porting TS's associatedTypeConstraints
+(store `Item := A` on the trait app; unify against the receiver impl's
+assoc bindings at the mint) — a subsystem port, not a patch. The landed
+fn-route fix (9ea932e72) stands on its own. All experimental call-site
+blocks REVERTED from /tmp/yb (both measured non-firing; no speculative
+code kept).
