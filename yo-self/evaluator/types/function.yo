@@ -304,6 +304,32 @@ copy_func_param_comptime :: (fn(from_id : String, to_id : String) -> unit)({
     .None => ()
   );
 });
+// Side-table: the declared RETURN TYPE EXPRESSION (the normalized `-> RET`
+// AST), keyed/copied like the defaults (fn-type-expr id → FuncVal id). TS
+// carries this on the type itself (`functionType.return.typeExpr`) and
+// specialization RE-EVALUATES it in the specialized env
+// (evaluateFunctionReturnTypeAgain, function.ts:2822) so a generic
+// instantiation in the return (`*(Pair(K, V))`) routes through the SAME
+// memoized type-constructor as the body's own calls — one instantiation
+// lineage. yo-self's substitution-based re-resolution kept the def-era
+// instance and split the lineage (the imm_map `_alloc_pairs` expected/actual
+// struct-id mismatch).
+(g_func_return_type_expr : HashMap(String, AstExpr)) = HashMap(String, AstExpr).new();
+register_func_return_type_expr :: (fn(func_id : String, e : AstExpr) -> unit)({
+  g_func_return_type_expr.set(func_id.clone(), e);
+});
+copy_func_return_type_expr :: (fn(from_id : String, to_id : String) -> unit)({
+  match(
+    g_func_return_type_expr.get(from_id.clone()),
+    .Some(e) => {
+      g_func_return_type_expr.set(to_id.clone(), e.clone());
+    },
+    .None => ()
+  );
+});
+get_func_return_type_expr :: (fn(func_id : String) -> Option(AstExpr))(
+  g_func_return_type_expr.get(func_id.clone())
+);
 get_func_param_comptime :: (fn(func_id : String) -> ArrayList(bool))(
   match(g_func_param_comptime.get(func_id.clone()),.Some(f) => f,.None => ArrayList(bool).new())
 );
@@ -3729,6 +3755,9 @@ evaluate_function_type :: (
   // Per-param comptime flags (same two-step re-keying as the defaults) so the
   // call site can lower comptime-only args passed to RUNTIME params.
   register_func_param_comptime(ast_expr_id(expr).to_string(), param_comptime_flags);
+  // Keep the declared return-type EXPR for specialization-time re-evaluation
+  // (see the side-table comment above; TS functionType.return.typeExpr).
+  register_func_return_type_expr(ast_expr_id(expr).to_string(), return_type_expr.clone());
   // Register the per-parameter default-value EXPRESSIONS (parallel to the
   // values above) so codegen can EMIT an omitted default as a C argument.
   register_func_param_default_exprs(ast_expr_id(expr).to_string(), param_default_exprs);
@@ -4164,6 +4193,9 @@ export(
   register_func_param_comptime,
   copy_func_param_comptime,
   get_func_param_comptime,
+  register_func_return_type_expr,
+  copy_func_return_type_expr,
+  get_func_return_type_expr,
   register_func_param_default_exprs,
   copy_func_param_default_exprs,
   get_func_param_default_exprs,

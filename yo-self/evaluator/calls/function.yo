@@ -1621,9 +1621,57 @@ _evaluate_funcval_runtime_call :: (
   // (ctl/effect-handler) functions are excluded — the effect system handles
   // them.
   ou_spec_soft_generic := match(callee_func_type_opt,.Some(spec_ft) => ((is_function_type_generic(spec_ft) && !(is_control_fn(func_id_fv.clone()))) && _func_type_has_closure_param(spec_ft)),.None => false);
+  // EXPLICIT-COMPTIME-PARAM functions (`fn(comptime(K) : Type, node : ...)`,
+  // e.g. std/imm/map.yo `_node_insert`) are generic WITHOUT foralls: TS's
+  // `isFunctionTypeGeneric` counts `p.isCompileTimeOnly` params (guards.ts:466)
+  // so TS mints a runtime specialization keyed on the comptime arg VALUES.
+  // yo-self's trigger below only fired on foralls/closure params, so these
+  // calls fell through to the non-specializing path — no spec was ever minted
+  // and the C call site spliced an FTT comment (the imm_map/imm_set RED
+  // family, issues/yo-self-69-red-list-map.md). Fire when the callee has a
+  // comptime-flagged param and every flagged arg's value is compile-time
+  // KNOWN with no unresolved SomeT (a validation-pass SomeT TypeVal must not
+  // mint — it would cache-key junk); control fns stay excluded (TS guard).
+  ou_ct_flags := get_func_param_comptime(func_id_fv.clone());
+  (ou_spec_comptime_params : bool) = false;
+  {
+    (ou_any_ct : bool) = false;
+    (ou_all_known : bool) = true;
+    (ou_cti : usize) = usize(0);
+    while(ou_cti < ou_ct_flags.len(), {
+      ou_ct := match(ou_ct_flags.get(ou_cti),.Some(f) => f,.None => false);
+      if(ou_ct, {
+        ou_any_ct = true;
+        match(
+          evaled_arg_infos.get(ou_cti),
+          .Some(ou_ainfo) => match(
+            ou_ainfo.value,
+            .Some(ou_v) => match(
+              ou_v,
+              .TypeVal(ou_tv) => if(get_all_some_types(ou_tv).len() > usize(0), {
+                ou_all_known = false;
+              }),
+              .UnknownVal(_, _) => {
+                ou_all_known = false;
+              },
+              _ => ()
+            ),
+            .None => {
+              ou_all_known = false;
+            }
+          ),
+          .None => {
+            ou_all_known = false;
+          }
+        );
+      });
+      ou_cti = (ou_cti + usize(1));
+    });
+    ou_spec_comptime_params = ((ou_any_ct && ou_all_known) && !(is_control_fn(func_id_fv.clone())));
+  };
   // Supersession counting — see expr_info.yo g_fid_rtcalls/g_fid_specs.
   record_fid_rtcall(func_id_fv.clone());
-  if((forall_names.len() > usize(0)) || ou_spec_soft_generic, {
+  if(((forall_names.len() > usize(0)) || ou_spec_soft_generic) || ou_spec_comptime_params, {
     // Bind `Self` to the concrete static dot-receiver around the
     // specialization so a STATIC generic-impl method's body (e.g.
     // `ArrayList(u8).new`'s `Self(...)` construction) re-evaluates with
@@ -1770,6 +1818,28 @@ _evaluate_funcval_runtime_call :: (
     );
     spec_fv := create_specialized_function_inline(cv, spec_ct, spec_av, fresh_env, env, ctx, exn);
     spec_fid := match(spec_fv,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
+    if(ou_spec_comptime_params, {
+      // COMPTIME-PARAM callee: this arm's `resolved_ret` came from the
+      // DECLARED return (no foralls to substitute), which is the DEF-ERA
+      // instantiation instance (e.g. the module-eval MapNode enum id) —
+      // while the mint RE-EVALUATED the return-type expr in the bound env
+      // and registered the MEMOIZED canonical instance. Stamping the call
+      // site (and hence locals bound from it) with the def-era instance
+      // splits the C-type identity ("__yo_t36 child = <__yo_t2 expr>" —
+      // two typedefs for one MapNode(i32,i32)). Adopt the mint's registered
+      // return when it is concrete.
+      match(
+        get_func_type(spec_fid.clone()),
+        .Func({ result : mint_ret_ct }) => {
+          if((get_all_some_types(mint_ret_ct).len() == usize(0)) && !(is_unit_type(mint_ret_ct)), {
+            resolved_ret = mint_ret_ct.clone();
+            out_rt.ty = resolved_ret;
+            out_rt.value = Option(EvalValue).Some(_call_result_unknown(resolved_ret, env));
+          });
+        },
+        _ => ()
+      );
+    });
     // helper.yo's create_specialized registers the specialized type but
     // resolves its RETURN type via evaluate_function_return_type_again,
     // which does NOT resolve a generic-result SomeT (frame-level mismatch)
@@ -3388,6 +3458,14 @@ Fix: wrap the call:
           ctx.is_inside_io_async_call = true;
         });
         runtime_arg_exprs := ArrayList(AstExpr).new();
+        // Per-param comptime flags: an explicit `comptime(K) : Type` arg is NOT
+        // a C argument — TS pushes to runtimeArgExprsInOrder only when
+        // `!parameter.isCompileTimeOnly` (helper.ts:343/397). Unconditional
+        // collection spliced the TypeVal arg into the C call as an FTT comment
+        // (`__yo_tN tmp = // Failed to transpile _node_insert(K, V, ...)` — the
+        // imm_map/imm_set family). The specialized callee's registered type
+        // drops comptime params symmetrically (helper.yo create_specialized).
+        rt_ct_flags_args := get_func_param_comptime(func_id_fv.clone());
         (ai : usize) = usize(0);
         while(ai < n_a, {
           arg_expr := match(args.get(ai),.Some(a) => a,.None => make_err_expr());
@@ -3570,7 +3648,10 @@ Fix: wrap the call:
               }
             );
             _push_arg := evaled_arg_infos.push(arg_info);
-            _push_rt := runtime_arg_exprs.push(evaled_arg);
+            rt_arg_is_ct := match(rt_ct_flags_args.get(ai),.Some(f) => f,.None => false);
+            if(!(rt_arg_is_ct), {
+              _push_rt := runtime_arg_exprs.push(evaled_arg);
+            });
             // Step 4b own-consume (port of helper.ts:411-451 / helper.yo:543):
             // this inline FuncVal arg loop BYPASSES
             // try_to_call_function_with_arguments, so `own(...)` params never

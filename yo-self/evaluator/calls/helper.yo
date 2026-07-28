@@ -125,6 +125,7 @@ open(import("std/fmt"));
   get_func_param_defaults,
   get_func_param_default_exprs,
   get_func_param_comptime,
+  get_func_return_type_expr,
   get_func_where_constraints,
   WhereConstraintEntry,
   collect_wrapper_trait_somes
@@ -1293,6 +1294,35 @@ _reeval_closure_body_swallow :: (
 ///
 /// Mirrors the core (pre-effects) of `createSpecializedFunctionInline` in
 /// `src/evaluator/calls/helper.ts`.
+/// Trial-evaluate a declared return-type EXPR in the mint env (SWALLOWING —
+/// the local `->` exn cannot capture, so a failing eval just leaves `out`
+/// empty). On success pushes the evaluated TypeValue. Port shape of TS
+/// `evaluateFunctionReturnTypeAgain` (function.ts:2822): re-EVALUATING the
+/// expr (vs substituting the def-era TypeValue) routes generic instantiations
+/// in the return (`*(Pair(K, V))`) through the SAME memoized type-constructor
+/// as the body's own calls — one instantiation lineage (the imm_map
+/// `_alloc_pairs` expected/actual struct-id split).
+_trial_eval_ret_type_expr :: (
+  fn(ret_texpr : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(TypeValue)) -> unit
+)({
+  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  evaluated := evaluate_expression_raw(ret_texpr, env, ctx, inner_exn);
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+    .Some(rte_ei) => match(
+      rte_ei.value,
+      .Some(rte_v) => match(
+        rte_v,
+        .TypeVal(rte_t) => {
+          out.push(rte_t);
+        },
+        _ => ()
+      ),
+      .None => ()
+    ),
+    .None => ()
+  );
+});
 create_specialized_function_inline :: (
   fn(
     original_func_val : EvalValue,
@@ -1363,12 +1393,30 @@ create_specialized_function_inline :: (
       // Build runtime parameter types from regular args
       // Phase 3 simplification: all regular params are treated as runtime.
       // This means we track all regular arg types for cache differentiation.
+      // EXCEPTION (TS helper.ts:2233-2237): an explicit `comptime(K) : Type`
+      // param's arg is a COMPILE-TIME value — its VALUE joins the cache key
+      // (else `_node_insert(i32, ...)` and `_node_insert(String, ...)` collide
+      // on identical TypeUni arg types and share one spec). The arg TYPE still
+      // goes into runtime_param_tys to preserve the index alignment every
+      // later per-param loop in this fn relies on; the REGISTERED spec type
+      // filters these indices out (see the spec_param_types loop below).
+      spec_param_ct_flags := get_func_param_comptime(func_id.clone());
       (ai : usize) = usize(0);
       n_a := arg_values.args.len();
       while(ai < n_a, {
         match(
           arg_values.args.get(ai),
           .Some(ae) => {
+            sp_ai_ct := match(spec_param_ct_flags.get(ai),.Some(f) => f,.None => false);
+            if(sp_ai_ct, {
+              match(
+                ae.value,
+                .Some(ct_v) => {
+                  compile_time_args.push(ct_v);
+                },
+                .None => ()
+              );
+            });
             runtime_param_tys.push(ae.arg_type);
           },
           .None => ()
@@ -1405,6 +1453,46 @@ create_specialized_function_inline :: (
         );
         if(degenerate_unit_arg, {
           return(original_func_val);
+        });
+      };
+      // Bind explicit `comptime(K) : Type` params into the mint env EARLY —
+      // BEFORE the return-type re-evaluation below (TS binds
+      // compileTimeArgValues into specializedEnv before
+      // evaluateFunctionReturnTypeAgain, helper.ts:2330-2378). Binding them
+      // only in the param-binding loop (which runs AFTER spec_ret_ty) left
+      // `Pair(K, V)` in the declared return unresolvable at re-eval time, so
+      // the mint fell back to the def-era SomeT instance and split the
+      // instantiation lineage.
+      {
+        (ectp_i : usize) = usize(0);
+        while(ectp_i < params.len(), {
+          ectp_ct := match(spec_param_ct_flags.get(ectp_i),.Some(f) => f,.None => false);
+          if(ectp_ct, {
+            ectp_label := match(params.get(ectp_i),.Some(l) => l,.None => String.from(""));
+            match(
+              arg_values.args.get(ectp_i),
+              .Some(ectp_ae) => match(
+                ectp_ae.value,
+                .Some(ectp_v) => {
+                  ectp_ty := match(ectp_v,.TypeVal(_) => TypeValue.TypeUni(usize(0)), _ => ectp_ae.arg_type);
+                  _ectp := add_variable_to_env(
+                    callee_env,
+                    ectp_label,
+                    ectp_ty,
+                    Option(EvalValue).Some(ectp_v),
+                    true,
+                    false,
+                    false,
+                    false,
+                    synthetic_token(ectp_label, callee_env.module_path)
+                  );
+                },
+                .None => ()
+              ),
+              .None => ()
+            );
+          });
+          ectp_i = (ectp_i + usize(1));
         });
       };
       // Distinguish specializations by the RESOLVED RETURN TYPE when the
@@ -1717,6 +1805,67 @@ create_specialized_function_inline :: (
               });
             });
           });
+          // TS-faithful return resolution (see _trial_eval_ret_type_expr): with
+          // the mint env fully bound (foralls + comptime params), RE-EVALUATE
+          // the declared return-type EXPR so instantiations route through the
+          // memoized type constructor — same lineage as the body's calls.
+          // Adopt CONSERVATIVELY: only a concrete (SomeT-free, non-unit)
+          // result overrides the substitution-based resolution above — and
+          // ONLY as a FALLBACK when that resolution still carries SomeTs
+          // (the comptime-param family: substitution kept the def-era
+          // instance). When substitution already produced a concrete return
+          // (the forall/method route, e.g. HashMap's `-> Option(V)`), keep
+          // it: replacing it re-registered a DIFFERENT instantiation era
+          // than the dot-route call-site stamp and clang rejected the
+          // temp initializer (the hashmap_overwrite_no_leak SELF-FAIL).
+          (rte_adopted : bool) = false;
+          if(get_all_some_types(spec_ret_ty).len() > usize(0), {
+            match(
+              get_func_return_type_expr(func_id.clone()),
+              .Some(rte_expr) => {
+                rte_prev_fnty := ctx.is_evaluating_function_type;
+                ctx.is_evaluating_function_type = true;
+                // `Self` in the return expr must resolve to THIS method's
+                // receiver, not the CALLER's stale ctx.self_type (TS passes
+                // functionType.SelfType into evaluateFunctionReturnTypeAgain).
+                // Mirror the mint's instance-method self reconstruction here:
+                // params[0] == "self" → the receiver ARG's type IS Self.
+                // Static dot-calls already had ctx.self_type set by the
+                // dispatcher. Without this, ptr `add -> Self` minted inside
+                // `insert`'s spec adopted Map(i32,i32) (caller-era Self) as
+                // its return and the spec body failed to unify against
+                // *(Pair(i32,i32)).
+                rte_prev_self := ctx.self_type;
+                {
+                  rte_p0_is_self := match(params.get(usize(0)),.Some(l) => (l == "self"),.None => false);
+                  if(rte_p0_is_self, {
+                    match(
+                      arg_values.args.get(usize(0)),
+                      .Some(rte_rcv) => {
+                        ctx.self_type = Option(TypeValue).Some(rte_rcv.arg_type);
+                      },
+                      .None => ()
+                    );
+                  });
+                };
+                rte_out := ArrayList(TypeValue).new();
+                _trial_eval_ret_type_expr(clone_expr_fresh_ids(rte_expr), callee_env, ctx, rte_out);
+                ctx.self_type = rte_prev_self;
+                ctx.is_evaluating_function_type = rte_prev_fnty;
+                match(
+                  rte_out.get(usize(0)),
+                  .Some(rte_ty) => {
+                    if((get_all_some_types(rte_ty).len() == usize(0)) && !(is_unit_type(rte_ty)), {
+                      spec_ret_ty = rte_ty;
+                      rte_adopted = true;
+                    });
+                  },
+                  .None => ()
+                );
+              },
+              .None => ()
+            );
+          });
           prev_spec := ctx.currently_specializing_function;
           // Push onto the FULL specializing stack BEFORE moving the originals into
           // the single slot. The stack catches MUTUAL recursion (f→g→f) that the
@@ -1858,6 +2007,14 @@ create_specialized_function_inline :: (
           n_rbp := params.len();
           while(rbp_i < n_rbp, {
             p_label := match(params.get(rbp_i),.Some(l) => l,.None => String.from(""));
+            // Explicit `comptime(K) : Type` param: already bound COMPILE-TIME
+            // to the arg's value by the early-binding loop above (before the
+            // return-type re-eval) — skip the runtime-placeholder machinery.
+            sp_rbp_ct := match(spec_param_ct_flags.get(rbp_i),.Some(f) => f,.None => false);
+            if(sp_rbp_ct, {
+              rbp_i = (rbp_i + usize(1));
+              continue;
+            });
             cur_is_folded_const := {
               pvars := get_variables_from_env(callee_env, p_label);
               npv := pvars.len();
@@ -2226,6 +2383,18 @@ create_specialized_function_inline :: (
               (spec_param_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
               (spi : usize) = usize(0);
               while(spi < runtime_param_tys.len(), {
+                // Explicit `comptime(K) : Type` params are NOT C parameters:
+                // TS's specializedType keeps only runtimeParameters
+                // (helper.ts:2218-2255). Skip them here — and filter the
+                // per-param meta arrays identically below — so the registered
+                // spec type's C signature carries runtime params only. The
+                // call site drops the matching args (function.yo's
+                // runtime_arg_exprs gate), keeping arity in agreement.
+                sp_spi_ct := match(spec_param_ct_flags.get(spi),.Some(f) => f,.None => false);
+                if(sp_spi_ct, {
+                  spi = (spi + usize(1));
+                  continue;
+                });
                 rpt := match(runtime_param_tys.get(spi),.Some(t) => t,.None => t_unit());
                 // Prefer the RESOLVED DECLARED param type when it is concrete
                 // and the ARG type degenerated to unit: TS's specializedType
@@ -2488,6 +2657,12 @@ create_specialized_function_inline :: (
                 spi = (spi + usize(1));
               });
               (spec_result : TypeValue) = evaluate_function_return_type_again(sp_res_b, callee_env, ctx);
+              // Keep the REGISTERED return in the same lineage as the
+              // pre-body-eval adoption above — the expected type the body was
+              // checked against and the registered C return type must agree.
+              if(rte_adopted, {
+                spec_result = spec_ret_ty.clone();
+              });
               // Same subst-by-occurrence as spec_ret_ty above: the env NAME
               // binding cannot resolve the SomeT copy inside `List(U)`.
               // Collect occurrences from the RETURN and every PARAM type —
@@ -2707,6 +2882,24 @@ create_specialized_function_inline :: (
                 ),
                 .None => ()
               );
+              // Filter the per-param meta arrays by the same comptime flags as
+              // the spec_param_types loop above — labels/is_ref/is_owning must
+              // stay index-aligned with the (comptime-filtered) param types.
+              (sp_pl_f : ArrayList(String)) = ArrayList(String).new();
+              (sp_pir_f : ArrayList(bool)) = ArrayList(bool).new();
+              (sp_pio_f : ArrayList(bool)) = ArrayList(bool).new();
+              {
+                (sp_mi : usize) = usize(0);
+                while(sp_mi < sp_pl.len(), {
+                  sp_mi_ct := match(spec_param_ct_flags.get(sp_mi),.Some(f) => f,.None => false);
+                  if(!(sp_mi_ct), {
+                    sp_pl_f.push(match(sp_pl.get(sp_mi),.Some(l) => l,.None => String.new()));
+                    sp_pir_f.push(match(sp_pir.get(sp_mi),.Some(b) => b,.None => false));
+                    sp_pio_f.push(match(sp_pio.get(sp_mi),.Some(b) => b,.None => false));
+                  });
+                  sp_mi = (sp_mi + usize(1));
+                });
+              };
               spec_type := TypeValue.Func(
                 ArrayList(TypeValue).new(),
                 spec_param_types,
@@ -2716,12 +2909,12 @@ create_specialized_function_inline :: (
                 box(
                   FuncMeta(
                     forall_labels : ArrayList(String).new(),
-                    param_labels : sp_pl,
+                    param_labels : sp_pl_f,
                     implicit_labels : sp_il,
                     implicit_spreads : sp_isp,
                     result_is_comptime_only : sp_rico,
-                    param_is_ref : sp_pir,
-                    param_is_owning : sp_pio,
+                    param_is_ref : sp_pir_f,
+                    param_is_owning : sp_pio_f,
                     result_is_ref : sp_rir,
                     has_variadic : sp_hv,
                     is_extern : sp_ie,

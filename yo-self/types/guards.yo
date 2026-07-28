@@ -565,6 +565,14 @@ is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
                     found = true;
                   });
                 },
+                // A `comptime(K) : Type` param (the type UNIVERSE) can never
+                // be a runtime C parameter — the prototype renders
+                // `// Unknown type: Type K` ("invalid storage class
+                // specifier", the imm_map/imm_set family). Same
+                // classification as TS guards.ts:466 hasCompileTimeParams.
+                .TypeUni(_) => {
+                  found = true;
+                },
                 _ => ()
               ),
               .None => ()

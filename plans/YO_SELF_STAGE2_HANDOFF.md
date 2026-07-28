@@ -44,11 +44,33 @@ nothing below needs re-litigating._
   validations and cee emptied the enclosing main). algebraic_effects RED →
   rc=0 with ALL 72 assertions running (markers 7 → 2 stray). Corpus
   regression test `cee_regular_fn_capture_reject.yo` (**baseline 146**).
-  Full mechanism: `issues/yo-self-algebraic-effects-two-roots.md`. #69
-  re-sweep in flight; imm_map fresh 3-link chain mapped in
-  `issues/yo-self-69-red-list-map.md` (eval-side usize/Type unify root
-  first; the TypeUni hard-generic guard is in /tmp/yb UNLANDED — do not
-  land in isolation).
+  Full mechanism: `issues/yo-self-algebraic-effects-two-roots.md`.
+
+- **Comptime-param specialization chain landed (2026-07-28) — TIER 1 green
+  (corpus 147/147, std 153/153, battery green); imm_map 21/21 + imm_set
+  19/19 GREEN self-compiled (both formerly RED).** Seven coordinated
+  pieces: (1) spec trigger for explicit `comptime(K) : Type` param fns
+  (TS isFunctionTypeGeneric counts isCompileTimeOnly params); (2)
+  runtime_arg_exprs gated on !param_comptime (comptime args are not C
+  args); (3) mint split — comptime arg VALUES into compile_time_args
+  (cache key), registered spec type + labels/is_ref/is_owning filter
+  comptime indices, comptime params bound compile-time EARLY (before
+  return resolution); (4) `g_func_return_type_expr` side-table + mint-time
+  RE-EVALUATION of the declared return expr (TS
+  evaluateFunctionReturnTypeAgain — substitution kept the def-era
+  instantiation and split the lineage); (5) Self-scoped re-eval
+  (receiver-arg type, not the caller's stale ctx.self_type); (6)
+  call-site return adoption in the comptime-trigger arm (locals stamped
+  the def-era enum → two C typedefs for one MapNode(i32,i32)); (7) the
+  re-eval is a FALLBACK only — replacing already-concrete forall-route
+  returns desynced HashMap's dot-route stamps (caught by TIER 1
+  SELF-FAIL). Includes the formerly-unlanded TypeUni hard-generic guards
+  (types/guards.yo + codegen collection). Corpus regression test
+  `comptime_param_value_spec.yo` (**baseline 147**). Full chain narrative:
+  `issues/yo-self-69-red-list-map.md`. sync/mutex + btree/ordered_map
+  REDs not yet re-checked; walker exit-crash fix landed separately
+  (`ea7493470`, TS codegen bug filed). TIER 2 pending for this batch
+  (next in cadence).
 
 - **#69 (`s2 test ./tests`): 138 GREEN / 27 HOLLOW / 18 RED of 183.**
   Measured 2026-07-28 post-`c592f9920` (`/tmp/hs_ae`): the ONLY move vs

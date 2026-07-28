@@ -534,3 +534,25 @@ fire, YIMM-ENTER/SIG/BODYEVAL/BODYOK mint lifecycle, YSWALLOW at all three
 swallow sites, YUNIFY with type_key + struct field counts at the
 synthesizer tag-mismatch throw, YSELF env-binding dump at a specific fid) —
 each build isolates exactly one link of the chain.
+
+## LANDED (2026-07-28) — chain complete, imm_map/imm_set GREEN self-compiled
+
+Two more pieces closed it after the snapshot above:
+
+6. **Call-site return adoption** (function.yo, comptime-trigger arm): the
+   arm's `resolved_ret` for a comptime-param callee is the DECLARED def-era
+   instance (no foralls to substitute) — locals bound from the call
+   (`child := _branch_child_at(...)`) stamped the def-era enum and clang got
+   TWO typedefs for one MapNode(i32,i32) (`__yo_t36 child = <__yo_t2 expr>`).
+   After the mint, adopt the mint's REGISTERED return into
+   resolved_ret/out_rt when concrete.
+7. **Fallback gate on the return re-eval**: adopting the re-evaluated
+   return UNCONDITIONALLY re-registered a different instantiation era for
+   already-concrete forall/method-route returns (HashMap `-> Option(V)`)
+   and desynced from the dot-route call-site stamp —
+   hashmap_overwrite_no_leak SELF-FAILED at TIER 1. The re-eval now runs
+   ONLY when the substitution-based `spec_ret_ty` still carries SomeTs.
+
+VALIDATED: corpus 147/147 (new file comptime_param_value_spec.yo; 0 DIFF,
+0 SELF-FAIL), std 153/153, battery green, imm_map.test.yo 21/21,
+imm_set.test.yo 19/19 — both formerly RED. sync/mutex not yet re-checked.

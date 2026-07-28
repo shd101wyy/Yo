@@ -32,6 +32,7 @@ open(import("std/string"));
 { EvalContext, ArgValues, ArgEntry, VarArgEntry } :: import("../../evaluator/context.yo");
 { find_methods_from_generic_impls } :: import("../../evaluator/values/impl.yo");
 { create_specialized_function_inline } :: import("../../evaluator/calls/helper.yo");
+{ get_func_param_comptime } :: import("../../evaluator/types/function.yo");
 // Auto-derived ___dispose synthesis (collect_dispose_methods): synthesize the
 // recursive RC-field-drop function from the struct's fields, parse + evaluate it,
 // register it as the type's ___dispose method. Mirrors TS evaluator/types/utils.ts
@@ -284,13 +285,59 @@ _any_expr_param :: (fn(tys : ArrayList(TypeValue)) -> bool)({
 /// param). Codegen skips it and emits only the monomorphizations / macro
 /// expansions the evaluator records. Mirrors TS isFunctionSpecializable &&
 /// !specializedType (+ macros are never emitted).
-_is_generic_unspecialized_func :: (fn(v : EvalValue) -> bool)(
+_is_generic_unspecialized_func :: (fn(v : EvalValue) -> bool)({
+  // A function with any `comptime(...)` param is generic-unspecialized too
+  // (TS guards.ts:466 hasCompileTimeParams): its ORIGINAL can never be a
+  // valid C function — a `comptime(K) : Type` param renders
+  // `// Unknown type: Type K` in the prototype ("invalid storage class
+  // specifier" clang errors — the imm_map/imm_set family). Specializations
+  // mint fresh func_ids with no comptime flags registered (the side table
+  // is sparse), so they are never misclassified here.
+  ct_flags := get_func_param_comptime(_func_val_id(v));
+  (has_ct_param : bool) = false;
+  (ct_i : usize) = usize(0);
+  while(ct_i < ct_flags.len(), {
+    match(
+      ct_flags.get(ct_i),
+      .Some(f) => if(f, {
+        has_ct_param = true;
+      }),
+      .None => ()
+    );
+    ct_i = (ct_i + usize(1));
+  });
+  if(has_ct_param, {
+    return(true);
+  });
   match(
     get_func_type(_func_val_id(v)),
-    .Func({ param_types, meta : __fm2 }) => ((__fm2.*.forall_labels.len() > usize(0)) || _any_expr_param(param_types)),
+    .Func({ param_types, meta : __fm2 }) => {
+      // TYPE-level half of the same rule: a param whose TYPE is the type
+      // universe (`comptime(K) : Type` whose comptime flag never reached
+      // the sparse side table — e.g. a nested helper minted during
+      // instantiation) renders `// Unknown type: Type K` in C. Same
+      // classification as TS hasCompileTimeParams.
+      (has_type_param : bool) = false;
+      (tp_i : usize) = usize(0);
+      while(tp_i < param_types.len(), {
+        match(
+          param_types.get(tp_i),
+          .Some(tp_t) => match(
+            tp_t,
+            .TypeUni(_) => {
+              has_type_param = true;
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+        tp_i = (tp_i + usize(1));
+      });
+      (has_type_param || (__fm2.*.forall_labels.len() > usize(0))) || _any_expr_param(param_types)
+    },
     _ => false
   )
-);
+});
 /// True if any regular parameter type CONTAINS a SomeType (i.e. the function is
 /// still genuinely generic / unspecialized in its signature). Used to gate the
 /// `expr_contains_unknown_value` collection skip: a SPECIALIZED function has
