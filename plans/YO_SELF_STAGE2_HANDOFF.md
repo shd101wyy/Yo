@@ -72,9 +72,16 @@ nothing below needs re-litigating._
   (`ea7493470`, TS codegen bug filed). TIER 2 pending for this batch
   (next in cadence).
 
-- **#69 (`s2 test ./tests`): 138 GREEN / 27 HOLLOW / 18 RED of 183.**
-  Measured 2026-07-28 post-`c592f9920` (`/tmp/hs_ae`): the ONLY move vs
-  `/tmp/hs_pcmp` is **`fs/walker` GREEN → RED (rc=139, ZERO-byte log)** —
+- **#69 (`s2 test ./tests`): 139 GREEN / 29 HOLLOW / 15 RED of 183.**
+  Measured 2026-07-28 post-`3df73bcad` (`/tmp/hs_cps`): vs `/tmp/hs_ae` —
+  **walker RED → GREEN** (the branch-free-handler fix), **imm_map +
+  imm_set RED → HOLLOW** (rc=0, ALL 21/19 assertions pass; ONE residual
+  line-anchored FTT marker each in an unreached helper — chase with
+  `YO_KEEP_BATCH=1` and grep the batch .c). Best RED count yet (18 → 15).
+  TIER 2 for this batch launched (chained after the sweep,
+  `/tmp/gates_cps_t2.log`).
+  Prior (`/tmp/hs_ae`, post-`c592f9920`): 138/27/18; the ONLY move vs
+  `/tmp/hs_pcmp` was **`fs/walker` GREEN → RED (rc=139, ZERO-byte log)** —
   deterministic (re-reproduced standalone). Crash report
   (`~/Library/Logs/DiagnosticReports/ws_s1-2026-07-28-152358.ips`): SIGSEGV
   inside a `___dispose` during `__yo_cleanup_thread_gc` on the **exit path**
