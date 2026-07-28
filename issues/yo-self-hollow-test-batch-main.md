@@ -1010,3 +1010,21 @@ ALSO: the ASan-build compile-path divergence (1 vs release 0) is
 UNEXPLAINED — different binary, same source; consistent with residual
 layout-sensitivity (the corruption class), but the test-path mechanism
 above is the reproducible, attackable half.
+
+## Narrowed further (2026-07-28 ~23:20)
+
+Probe run (id-gated on the match node, id 60506): **ZERO YSTAMP, 7× YGET
+found=false** (across table states tlen=51587/51649), no swallowed error
+at ANY of the four instrumented sites, YSW-TOP silent. Conclusion: in the
+TEST path the batch `main`'s BODY DEF-EVAL NEVER RUNS AT ALL (nothing
+ever stamps the match; nothing throws). In the COMPILE path it runs and
+stamps (markers=0). The divergence is therefore in whether
+`try_to_implement_function_by_function_type` → `_trial_eval_fn_body`
+fires for the batch main — suspects: (a) should_defer_body decided
+differently under test-path ctx/env state (e.g. `g_cached_prelude_env`
+pre-populated by the test-file processing — the compile path builds it
+fresh); (b) the module's top-level begin eval takes a different route
+(per-expr continue?) in-process. NEXT PROBE (one build): eprintln at
+`_trial_eval_fn_body` ENTRY with env.module_path, gated on
+"selftest_batch" — fires in compile path but not test path ⇒ deferral
+decision; fires in both ⇒ table mystery reopens.
