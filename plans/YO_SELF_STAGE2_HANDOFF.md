@@ -326,10 +326,30 @@ and gate the batch:
 - **TIER 1 — `scratchpad/gates_fast.sh` (~12 min)**: repros, the 20-file
   battery WITH per-file hollow detection, corpus diff-test, `check ./std`. Run
   on every change while assembling a batch.
-- **TIER 2 — `scratchpad/gates_perf1.sh` (~75 min)**: adds stage2, clang,
-  stage3, STRICT_FIXPOINT. Run ONCE per batch, immediately before pushing.
+- **TIER 2 — `scratchpad/gates_perf1.sh` (~110 min)**: adds stage2, clang,
+  stage3, STRICT_FIXPOINT. Run ONCE per 2-3 landed (TIER-1-green, committed)
+  fixes, and always before pushing. Launch DETACHED (`nohup … & disown` + a
+  done-file) — harness background tasks 30-min-plus get killed on this box.
 - Bisect a TIER-2 failure with 2-minute s1 builds. Do not go back to
   one-gate-per-commit.
+
+### Iteration-speed rules (adopted 2026-07-28 — measured costs)
+
+One probe cycle = ~2.5 min (s1 emit ~73 s + clang -O2 ~45 s + repro; -O1 is
+NOT faster, -O0 stays banned). The floor is fixed until incremental
+compilation (ROADMAP Phase 2); minimize the NUMBER of cycles instead:
+
+1. **Batch probes** — never rebuild for one eprintln. Instrument every open
+   question of the current hypothesis set in ONE build, with distinct tags
+   (`__YA`/`__YB`/…), and print a noise BASELINE from a passing file to
+   `comm -23` against.
+2. **No wakeup gaps on short jobs** — block in-turn on anything under ~10
+   min; reserve scheduled wakeups for TIER 2 / sweeps / stage emits.
+3. **Standing diag-s1** — after each landed batch, build one diagnostic s1
+   with the three swallow-site prints baked in and keep it around; most
+   diagnosis then needs zero extra builds.
+4. **Parallel variant builds** — bisections and A/B experiments build
+   concurrently in /tmp/yb2 + /tmp/yb3 (the machine handles 2-3 clangs).
 
 Green baselines: corpus **PASS 143 / DIFF 0** (141 before the two
 `dyn_box_*` regression tests were added 2026-07-28; 140 before
