@@ -65,3 +65,31 @@ candidates, in preference order:
 - Workspace is CLEAN of this front (nothing landed).
 - The sweep with the ptr-comparison fix is at /tmp/hs_pcmp (check
   /tmp/hs_pcmp_done).
+
+## UPDATE (same session, later): mint-side re-registration WORKS — one residual
+
+Implemented in /tmp/yb helper.yo (create_specialized's closure-arg block,
+after `get_closure_capture_info`): when the closure's registered type still
+has SomeT params/result and the DECLARED param F is a SomeT whose
+required-traits carry the Fn trait, substitute the trait's param/result
+occurrences by NAME + OCCURRENCE-LEVEL from `forall_names`/
+`arg_values.forall_args` (measured: `A := i32` IS there; env NAME resolution
+via evaluate_function_parameter_type_again CANNOT see the trait's `A` copy —
+Gap-6 lineage), and `register_func_type` the concrete signature rebuilt from
+the EXISTING registration's Func fields (meta preserved).
+
+RESULT on /tmp/wcf.yo: `closure_yo_id_5050(void* ctx, int32_t x)` — concrete
+(was `void* x`); apply_each's spec emits and is called correctly; the
+int-to-pointer error is GONE.
+
+RESIDUAL (still rc=1): inside apply*each's spec body, the nested
+`items.get(i)` call references `yo_id_3122*..._rtparam1_1964_...`(an
+ArrayList(i32).get spec keyed on UNRESOLVED SomeT 1964) which is never
+emitted → undeclared-function. Same family as the c03 "registered spec kept
+a generic type" class but for a nested method spec inside the outer spec's
+body eval. NEXT: probe that spec's registered type / why 1964 stays
+unresolved (likely the`?(T)`Option return or the index param of`get`
+minted during the spec body eval with A-era copies).
+
+Probes still in /tmp/yb helper.yo: `__YCW` (forall dump) — strip before
+landing. TIER 1 NOT yet run on this batch.
