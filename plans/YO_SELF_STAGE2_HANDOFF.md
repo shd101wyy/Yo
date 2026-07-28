@@ -35,6 +35,21 @@ nothing below needs re-litigating._
   evidence-arg cast fixed in /tmp/yb (unlanded), cee half-registered
   handler mapped — `issues/yo-self-algebraic-effects-two-roots.md`.
 
+- **algebraic_effects family landed (`91ff0327b` + `c592f9920`) — full
+  TIER 2 green incl. FIXPOINT** (2026-07-28): evidence-arg per-part casts,
+  the unemittable-fn side-table for cee-rejected handlers, ctl-handler
+  def-time body force-eval (gated off in cee propagate mode), and the cee
+  OBSERVATION channel (the non-raw wrapper records swallowed throws so
+  comptime_expect_error can see them — the wrapper otherwise silently ate
+  validations and cee emptied the enclosing main). algebraic_effects RED →
+  rc=0 with ALL 72 assertions running (markers 7 → 2 stray). Corpus
+  regression test `cee_regular_fn_capture_reject.yo` (**baseline 146**).
+  Full mechanism: `issues/yo-self-algebraic-effects-two-roots.md`. #69
+  re-sweep in flight; imm_map fresh 3-link chain mapped in
+  `issues/yo-self-69-red-list-map.md` (eval-side usize/Type unify root
+  first; the TypeUni hard-generic guard is in /tmp/yb UNLANDED — do not
+  land in isolation).
+
 - **#69 (`s2 test ./tests`): 139 GREEN / 27 HOLLOW / 17 RED of 183.**
   Measured 2026-07-28 post-`a23013161` (`/tmp/hs_pcmp`): **`ptr` +
   `unsafe` flipped HOLLOW → GREEN** (the pointer-comparison dispatch fix),
