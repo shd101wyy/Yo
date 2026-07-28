@@ -1838,7 +1838,7 @@ create_specialized_function_inline :: (
           // than the dot-route call-site stamp and clang rejected the
           // temp initializer (the hashmap_overwrite_no_leak SELF-FAIL).
           (rte_adopted : bool) = false;
-          if(get_all_some_types(spec_ret_ty).len() > usize(0), {
+          if((get_all_some_types(spec_ret_ty).len() > usize(0)) || _type_has_array_len_var(spec_ret_ty), {
             match(
               get_func_return_type_expr(func_id.clone()),
               .Some(rte_expr) => {
