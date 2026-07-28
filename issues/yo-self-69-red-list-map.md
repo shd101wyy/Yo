@@ -410,3 +410,29 @@ unspecialized, TS guards.ts:466 hasCompileTimeParams — is the right
 signature-side start; the call-site half is excluding comptime args from the
 emitted runtime C arg list). Keep the HOLLOW-GREEN HAZARD discipline: these
 files already emit markers, so flips must be marker-checked against TS.
+
+## FRESH MEASUREMENT 2026-07-28 (post four landed batches)
+
+imm_map is down to **markers=1** (was 13) — most of the old call-site face is
+gone. Remaining chain, measured in /tmp/yb:
+
+1. `yo_id_5125(// Unknown type: Type K, ...)` prototype+definition — FIXED by
+   a `TypeUni` param case in `is_function_type_hard_generic` (types/guards.yo;
+   the TS guards.ts:466 hasCompileTimeParams classification; also mirrored in
+   collection.yo's `_is_generic_unspecialized_func` + a comptime-flag check —
+   all in /tmp/yb, UNLANDED).
+2. With (1), the next face surfaces: an EMITTED spec body calls
+   `_node_insert(K, V, root, ...)` — the ORIGINAL comptime-param fn — with
+   comptime Type args in the C arg list; the skipped-callee degrade FTTs the
+   call but SPLICES into a temp initializer
+   (`__yo_t69 tmp = // Failed to transpile ...` — another decl-splice site,
+   same class as the fixed assignment.yo one).
+3. The batch `main` is ALSO one whole-match FTT (eval-side abandonment) — the
+   `Cannot unify "usize" and "Type"` hollow-cause family from the handoff
+   table, which is what prevents `_node_insert` from specializing in the
+   first place.
+
+ORDER OF WORK: (3) first — the eval-side unify root unblocks the
+specializations, which likely dissolves (2); then land (1)+(2 splice guard)
+together. The TypeUni guard alone only trades one clang error for another —
+DO NOT land it in isolation.
