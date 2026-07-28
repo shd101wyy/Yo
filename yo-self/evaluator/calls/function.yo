@@ -62,7 +62,7 @@ open(import("std/fmt"));
 { get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_variadic_param } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
-{ t_unit, t_type, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator } :: import("../../token.yo");
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
@@ -1324,6 +1324,25 @@ _funcval_bind_foralls :: (
             cap_vals.get(fcap_i),
             .Some(cvv) => match(
               cvv,
+              // VALUE binder capture (`generic(U : usize)` := IntLit, injected
+              // by _inject_forall_captures): bind the VALUE at usize so the
+              // body's `return(U)` yields the number, not a type.
+              .IntLit(civ_raw) => {
+                fa_bound_names.push(fa_name.clone());
+                fa_bound_types.push(t_usize());
+                _add_forall_cap_v := add_variable_to_env(
+                  fresh_env,
+                  fa_name.clone(),
+                  t_usize(),
+                  Option(EvalValue).Some(EvalValue.IntLit(civ_raw.clone())),
+                  true,
+                  false,
+                  false,
+                  false,
+                  synthetic_token(fa_name, env.module_path)
+                );
+                fa_bound = true;
+              },
               .TypeVal(ctb) => {
                 cap_ty := ctb;
                 fa_bound_names.push(fa_name.clone());

@@ -61,7 +61,7 @@ open(import("std/string"));
   type_id_or_empty
 } :: import("./type_trait_methods.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_type, t_some_t } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_some_t, t_usize } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type } :: import("../../types/guards.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, subst_set_self, substitute } :: import("../../types/substitution.yo");
@@ -358,6 +358,18 @@ register_negative_impl :: (fn(type_id : String, trait_id : String) -> unit)({
 /// `synthesize_types`. Returns `.None` if the param stayed abstract (`SomeT`).
 /// Used by `try_match_generic_impl` to surface the unification result so the
 /// dispatcher can bind the impl's type params in the method body.
+// Side-channel for VALUE-level generic bindings (`generic(U : usize)` array
+// lengths): `try_match_generic_impl`'s bindings list is TYPE-only (an
+// ArrayList(TypeValue) cannot carry the IntLit 5), so the match loop ALSO
+// records each binder's VALUE here (UnitVal for type binders, the IntLit for
+// value binders, index-aligned with the returned bindings).
+// `find_methods_from_generic_impls` snapshots it right after a successful
+// match and `_inject_forall_captures` injects the IntLit as the capture value
+// — previously it injected TypeVal(usize) (the binder's DECLARED type), so
+// `Array(T, U).len`'s body `return(U)` returned a TYPE ("Return type
+// mismatch. Expected usize, but got Type" — the array-family hollow).
+// Single-threaded evaluator; cleared at each try_match entry.
+(g_last_match_binding_vals : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
 _resolve_one_forall_binding :: (
   fn(expected_env : Environment, fa_some : TypeValue, fa_name : String) -> Option(TypeValue)
 )({
@@ -639,15 +651,41 @@ try_match_generic_impl :: (
   // Synthesis succeeded — collect the concrete binding for each generic param
   // (in declaration order). If any param stayed abstract, there is no match.
   bindings := ArrayList(TypeValue).new();
+  g_last_match_binding_vals.clear();
   (all_bound : bool) = true;
   (vi : usize) = usize(0);
   while((vi < n_forall) && all_bound, {
     fa_name2 := match(entry.forall_names.get(vi),.Some(n) => n,.None => String.from(""));
     fa_some2 := match(entry.forall_some_types.get(vi),.Some(s) => s,.None => t_unit());
+    // VALUE side-channel (see g_last_match_binding_vals): a value binder's
+    // IntLit lives on the env var the synthesizer bound; record it
+    // index-aligned with `bindings`.
+    (fa_val2 : EvalValue) = EvalValue.UnitVal;
+    {
+      fv_vars := get_variables_from_env(synth_result.expected_env, fa_name2);
+      if(fv_vars.len() > usize(0), {
+        match(
+          fv_vars.get(fv_vars.len() - usize(1)),
+          .Some(fv_var) => match(
+            fv_var.value,
+            .Some(fv_v) => match(
+              fv_v,
+              .IntLit(fv_raw) => {
+                fa_val2 = EvalValue.IntLit(fv_raw.clone());
+              },
+              _ => ()
+            ),
+            .None => ()
+          ),
+          .None => ()
+        );
+      });
+    };
     match(
       _resolve_one_forall_binding(synth_result.expected_env, fa_some2, fa_name2),
       .Some(t) => {
         _b := bindings.push(t);
+        g_last_match_binding_vals.push(fa_val2);
       },
       .None => {
         // Structural field synthesis left this param abstract: the receiver
@@ -660,6 +698,7 @@ try_match_generic_impl :: (
           _bind_forall_from_type_args(entry.receiver_type_pattern, resolved_concrete, fa_some2),
           .Some(t2) => {
             _b2 := bindings.push(t2);
+            g_last_match_binding_vals.push(EvalValue.UnitVal);
           },
           .None => {
             all_bound = false;
@@ -841,7 +880,8 @@ _inject_forall_captures :: (
   fn(
     method_val : Option(EvalValue),
     forall_names : ArrayList(String),
-    bindings : ArrayList(TypeValue)
+    bindings : ArrayList(TypeValue),
+    binding_vals : ArrayList(EvalValue)
   ) -> Option(EvalValue)
 )(
   match(
@@ -876,8 +916,27 @@ _inject_forall_captures :: (
           fa_n := match(forall_names.get(fi2),.Some(n) => n,.None => String.from(""));
           fa_t := match(bindings.get(fi2),.Some(t) => t,.None => t_unit());
           _a2 := new_cns.push(fa_n);
-          _b2 := new_cts.push(t_type());
-          _c2 := new_cvs.push(EvalValue.TypeVal(fa_t));
+          // VALUE binder (`generic(U : usize)`): inject the VALUE (IntLit)
+          // at its declared type — injecting TypeVal(usize) made the body's
+          // `U` a TYPE (the array-family "expected usize, got Type").
+          (fa_is_val : bool) = false;
+          match(
+            binding_vals.get(fi2),
+            .Some(bv) => match(
+              bv,
+              .IntLit(bv_raw) => {
+                fa_is_val = true;
+                _b2v := new_cts.push(t_usize());
+                _c2v := new_cvs.push(EvalValue.IntLit(bv_raw.clone()));
+              },
+              _ => ()
+            ),
+            .None => ()
+          );
+          if(!(fa_is_val), {
+            _b2 := new_cts.push(t_type());
+            _c2 := new_cvs.push(EvalValue.TypeVal(fa_t));
+          });
           fi2 = (fi2 + usize(1));
         });
         Option(EvalValue).Some(
@@ -965,6 +1024,29 @@ find_methods_from_generic_impls :: (
           ei = (ei + usize(1));
         }, {
           match_bindings := match(mb_opt,.Some(b) => b,.None => ArrayList(TypeValue).new());
+          // Snapshot the value side-channel before anything can clobber it.
+          match_binding_vals := ArrayList(EvalValue).new();
+          {
+            (mbv_i : usize) = usize(0);
+            while(mbv_i < g_last_match_binding_vals.len(), {
+              match(
+                g_last_match_binding_vals.get(mbv_i),
+                .Some(mbv) => match(
+                  mbv,
+                  .IntLit(mbv_raw) => {
+                    match_binding_vals.push(EvalValue.IntLit(mbv_raw.clone()));
+                  },
+                  _ => {
+                    match_binding_vals.push(EvalValue.UnitVal);
+                  }
+                ),
+                .None => {
+                  match_binding_vals.push(EvalValue.UnitVal);
+                }
+              );
+              mbv_i = (mbv_i + usize(1));
+            });
+          };
           // Found a matching impl — search for the method field.
           n_fields := entry.field_names.len();
           (fi : usize) = usize(0);
@@ -1015,7 +1097,7 @@ find_methods_from_generic_impls :: (
               results.push(
                 MethodCandidate(
                   method_type : substitute(spec_s, ftype),
-                  method_value : _inject_forall_captures(fvalue, entry.forall_names, match_bindings),
+                  method_value : _inject_forall_captures(fvalue, entry.forall_names, match_bindings, match_binding_vals),
                   source_trait_id : entry.trait_key.clone()
                 )
               );
