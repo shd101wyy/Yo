@@ -33,3 +33,28 @@ FIX DIRECTION: at the capture-check throw site (anonymous_function.yo
 skip-for-codegen (needs a small fid side-table consulted by
 should_skip_function_codegen, or reuse an existing "unemittable" mark if one
 exists). Probes \_\_YCAP still in /tmp/yb — strip before landing.
+
+## UPDATE: root B is deeper — the capture-check throw ESCAPES the cee
+
+Probed (`__YTHROW` at the check's throw, `__YCATCH` at
+`_comptime_expect_error_arg_threw`'s local exn, `__YCEE` at the cee tail):
+for `/tmp/ae_b.yo` the throw fires ONCE, the cee's local exn NEVER catches,
+and the cee tail is NEVER reached — the handler's anon-fn evaluation happens
+on a pass whose threaded `exn` is the enclosing begin's (main's), NOT the
+cee clone eval's. Result: the cee statement AND everything after it in main
+abandon (`// Failed to transpile comptime_expect_error(...)` + dropped
+`println`) — in the standalone repro main is EMPTY, so rc=0 was VACUOUS.
+
+**LANDED-STATE WARNING**: `tests/codegen-bootstrap/cee_regular_fn_capture_reject.yo`
+(landed in `91ff0327b`) therefore DIFFs on HEAD (missing stdout) — TIER 1's
+corpus gate is RED on HEAD until this is fixed. The unemittable-mark half is
+correct (C compiles); the throw-containment half is the open piece.
+
+NEXT: find which pass evaluates the ctl-handler ctor field with the outer
+exn (candidates: the effect-record registration path for ctl fields, a
+struct-ctor arg eval that threads a stored/statement-level exn instead of
+the propagated one, or main's def-time trial evaluating the cee arg OUTSIDE
+`_comptime_expect_error_arg_threw`). Probes **YTHROW/**YCATCH/\_\_YCEE still
+in /tmp/yb (with the ctl_force + propagate-mode gate — ctl_force verified
+fixing ae_a end-to-end and algebraic_effects rc=0 with all 72 tests
+running, markers 7 → 2).
