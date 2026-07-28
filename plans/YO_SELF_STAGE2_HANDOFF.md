@@ -6,6 +6,23 @@ nothing below needs re-litigating._
 
 ## Where things stand
 
+- **PERFORMANCE GOAL MET (2026-07-29, `8c8064d2b` + `0ad2e6299`): stage2
+  emit 2265 s → 165 s (13.7×) — the self-hosted emit is now ~2.4× FASTER
+  than the TS compiler (~400 s).** Three `sample`-attributed levers: (1)
+  \_evaluate_expression's FnCall dispatch length-gated (170 keyword checks
+  → integer compares; was the #1 `==` caller); (2) the capture-tracking
+  inner test replaced by find_variable_in_env_at's found-frame index (was
+  a per-identifier frames×vars rescan); (3) generate_function's
+  superseded-stub check byte-indexed (was a char-indexed slice of the
+  WHOLE code buffer per function — O(code×fns), 75% of the emit).
+  Validated: TIER 1 corpus 147/147 0-DIFF + TIER 2 STRICT FIXPOINT.
+  **TIER 2 now runs in ~25 min (was ~110).** DEAD ENDS (measured): hashed
+  keyword map (−26%: hashing every identifier loses to length-first
+  rejection); single 40-min A/B emit timings are ±20% noise — use
+  same-workload before/after on the SAME quiet box, or interleaved short
+  proxies. check ./std is INSENSITIVE to these levers (~26 s throughout) —
+  never proxy emit perf with check.
+
 - **Array(T,\_) inference + value-generic impl bindings landed
   (`ab622e91b` + `e1096c1b4`, 2026-07-28) — TIER 2 GREEN incl. STRICT
   FIXPOINT** (`/tmp/gates_arrvg_t2.log`: stage2 rc=0, clang rc=0, stage3
