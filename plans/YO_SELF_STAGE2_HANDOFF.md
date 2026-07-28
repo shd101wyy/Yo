@@ -47,8 +47,12 @@ nothing below needs re-litigating._
   Full mechanism: `issues/yo-self-algebraic-effects-two-roots.md`.
 
 - **Comptime-param specialization chain landed (2026-07-28) — TIER 1 green
-  (corpus 147/147, std 153/153, battery green); imm_map 21/21 + imm_set
-  19/19 GREEN self-compiled (both formerly RED).** Seven coordinated
+  (corpus 147/147, std 153/153, battery green); imm_map + imm_set flip
+  RED → HOLLOW (they now COMPILE and the corpus repro runs REAL
+  assertions; the batch "21/21 passed" is VACUOUS — the shared
+  batch-dispatch marker below empties every batch main, so per-test
+  assertions don't execute; the 3df73bcad commit message's "GREEN
+  self-compiled 21/21" overstates this).** Seven coordinated
   pieces: (1) spec trigger for explicit `comptime(K) : Type` param fns
   (TS isFunctionTypeGeneric counts isCompileTimeOnly params); (2)
   runtime_arg_exprs gated on !param_comptime (comptime args are not C
@@ -75,49 +79,66 @@ nothing below needs re-litigating._
 - **#69 (`s2 test ./tests`): 139 GREEN / 29 HOLLOW / 15 RED of 183.**
   Measured 2026-07-28 post-`3df73bcad` (`/tmp/hs_cps`): vs `/tmp/hs_ae` —
   **walker RED → GREEN** (the branch-free-handler fix), **imm_map +
-  imm_set RED → HOLLOW** (rc=0, ALL 21/19 assertions pass; ONE residual
-  line-anchored FTT marker each in an unreached helper — chase with
-  `YO_KEEP_BATCH=1` and grep the batch .c). Best RED count yet (18 → 15).
-  TIER 2 for this batch launched (chained after the sweep,
-  `/tmp/gates_cps_t2.log`).
-  Prior (`/tmp/hs_ae`, post-`c592f9920`): 138/27/18; the ONLY move vs
-  `/tmp/hs_pcmp` was **`fs/walker` GREEN → RED (rc=139, ZERO-byte log)** —
-  deterministic (re-reproduced standalone). Crash report
-  (`~/Library/Logs/DiagnosticReports/ws_s1-2026-07-28-152358.ips`): SIGSEGV
-  inside a `___dispose` during `__yo_cleanup_thread_gc` on the **exit path**
-  (`run_test → run_compile → exit → __cxa_finalize`), i.e. the compile
-  FAILED (exit was called), the exit-time GC cleanup then crashed, and the
-  crash pre-empts stdio flush — hence the empty log (rc=139 masks the real
-  rc/error; recover the error with `script -q /tmp/x.log <bin> test …`,
-  which line-buffers stdout). algebraic_effects stayed RED but for a NEW
-  reason: batch-1 clang error `use of undeclared identifier 'fn_yo_id_7500'`
-  — `void* handler = fn_yo_id_7500;` references a handler fn whose emission
-  was skipped (shape matches the new unemittable-fn side-table skipping a
-  handler that IS used, or ctl_force marking — investigate before the next
-  batch).
-  Prior sweep (139/27/17, `/tmp/hs_pcmp` post-`a23013161`): **`ptr` +
-  `unsafe` flipped HOLLOW → GREEN** (the pointer-comparison dispatch fix),
-  no other movement vs `/tmp/hs_dbc`. Prior sweep (137/29/17, `/tmp/hs_dbc`
-  at `b3a0b8804`) details below.
-  vs the 2026-07-27 sweep (138/28/17, `/tmp/hs_pa` at `59c5fe1fa`):
-  **`ref_closure_capture` flipped RED → GREEN** (the cluster-B chain);
-  walker + bufio green in-run. The three DOWN moves are **NOT cluster-B
-  regressions — all verified identical under the pre-batch binary**; they
-  are migration/take-on-era surface first measured by this sweep (hs_pa
-  predates `8acde607a`/`340c05b9e`): `algebraic_effects` HOLLOW → RED
-  (batch C now emits more and hits 2 clang errors: evidence-record
-  `exn.throw` called with raw int where the type-erased param is `void*`,
-  and an undeclared `outer_val` return), `ptr` + `unsafe` GREEN → HOLLOW
-  (the whole batch `main` degrades — trait-dispatched pointer COMPARISONS
-  via the migration's `Ord(*(T))` generic impl never emit; repro
-  `/tmp/ptr_repro.yo`, 10 markers, bisect cleared all five cluster-B
-  pieces). Also diagnosed: `closure_capture_rc_leak` RED is the closure
-  `void* x` param class — closures whose expected carries no Fn trait
-  still take the `_synthesize_default_func_type` placeholder path (the
-  dyn(box(...)) fix only covers that shape).
-  History (2026-07-27): `imm_list`/`imm_vec` flipped hollow → GREEN
-  (value-generic chain), `sync/once` RED → GREEN, `impl` RED → rc=0
-  partial-hollow, `module_struct_unification` (10/10) and `atomic_object`
+  imm_set RED → HOLLOW**. Best RED count yet (18 → 15).
+  **THE SHARED 1-MARKER HOLLOW ROOT IS IDENTIFIED (2026-07-28): the
+  synthesized batch main's dispatch
+  `match(__yo_batch_env.env.get(\`YO_TEST_INDEX\`), …)` FTTs under the
+  self-hosted compiler** — verified byte-identical marker in imm*map AND
+  array batch .c (`YO_KEEP_BATCH=1`). The batch main is therefore EMPTY:
+  every per-test spawn exits rc=0 without executing, so "N passed" from
+  batch runs is VACUOUS for the whole 1-marker hollow family (~most of
+  the 29 HOLLOWs). Fixing this ONE root makes those batches genuinely
+  execute — the single biggest remaining lever on #69 (some files may
+  then genuinely fail and need real fixes). REFINED (same day): the
+  dispatch SHAPE itself is fine — a clean repro of the exact batch main
+  (+ `open(import("std/fmt"))`) compiles ftt=0 and dispatches correctly;
+  the re-serialized `*(assert : assert) :: import(...)`non-test form is
+also fine. The dispatch is an ALL-OR-NOTHING AMPLIFIER: the whole
+match/cond is ONE expression, so ANY single test body failing def-eval
+FTTs the ENTIRE dispatch and every test in the file goes vacuous. The
+per-file killers are per-family eval gaps, enumerable per file by the
+PER-ARM BISECT:`YO*KEEP_BATCH=1 <s1> test <file>`, save the batch .yo,
+then compile per-arm variants (keep only arm k) and record FTT counts
+(/tmp/bisect_arms.py — ~40s/arm, no rebuild). First matrix (ARRAY's
+batch, 12 arms): 10/12 arms FTT INDIVIDUALLY (only 3 and 8 clean) —
+array's hollow is a family-wide `Array(i32, *)`/ array-literal era
+gap, not one bad test. Next: per-arm diag-s1 on array arm 0 (smallest),
+and the same matrix for imm_map's own batch (BEWARE: stale batch files
+from earlier runs match the`tests/.yo*selftest_batch*_.yo`glob — rm
+them before the keep-batch run).
+TIER 2 for this batch launched (chained after the sweep,`/tmp/gates_cps_t2.log`).
+Prior (`/tmp/hs_ae`, post-`c592f9920`): 138/27/18; the ONLY move vs
+`/tmp/hs_pcmp` was **`fs/walker` GREEN → RED (rc=139, ZERO-byte log)** —
+deterministic (re-reproduced standalone). Crash report
+(`~/Library/Logs/DiagnosticReports/ws_s1-2026-07-28-152358.ips`): SIGSEGV
+inside a `**\_dispose`during`**yo_cleanup_thread_gc` on the **exit path**
+(`run_test → run_compile → exit → \_\_cxa_finalize`), i.e. the compile
+FAILED (exit was called), the exit-time GC cleanup then crashed, and the
+crash pre-empts stdio flush — hence the empty log (rc=139 masks the real
+rc/error; recover the error with `script -q /tmp/x.log <bin> test …`,
+which line-buffers stdout). algebraic_effects stayed RED but for a NEW
+reason: batch-1 clang error `use of undeclared identifier 'fn_yo_id_7500'`—`void_ handler = fn_yo_id_7500;`references a handler fn whose emission
+was skipped (shape matches the new unemittable-fn side-table skipping a
+handler that IS used, or ctl_force marking — investigate before the next
+batch).
+Prior sweep (139/27/17,`/tmp/hs_pcmp` post-`a23013161`): **`ptr`+`unsafe`flipped HOLLOW → GREEN** (the pointer-comparison dispatch fix),
+no other movement vs`/tmp/hs_dbc`. Prior sweep (137/29/17, `/tmp/hs_dbc`at`b3a0b8804`) details below.
+vs the 2026-07-27 sweep (138/28/17, `/tmp/hs_pa`at`59c5fe1fa`):
+**`ref_closure_capture`flipped RED → GREEN** (the cluster-B chain);
+walker + bufio green in-run. The three DOWN moves are **NOT cluster-B
+regressions — all verified identical under the pre-batch binary**; they
+are migration/take-on-era surface first measured by this sweep (hs_pa
+predates`8acde607a`/`340c05b9e`): `algebraic_effects`HOLLOW → RED
+(batch C now emits more and hits 2 clang errors: evidence-record`exn.throw`called with raw int where the type-erased param is`void*`,
+and an undeclared `outer_val`return),`ptr`+`unsafe`GREEN → HOLLOW
+(the whole batch`main`degrades — trait-dispatched pointer COMPARISONS
+via the migration's`Ord(*(T))`generic impl never emit; repro`/tmp/ptr_repro.yo`, 10 markers, bisect cleared all five cluster-B
+pieces). Also diagnosed: `closure_capture_rc_leak`RED is the closure`void\* x`param class — closures whose expected carries no Fn trait
+still take the`\_synthesize_default_func_type`placeholder path (the
+dyn(box(...)) fix only covers that shape).
+History (2026-07-27):`imm_list`/`imm_vec`flipped hollow → GREEN
+(value-generic chain),`sync/once`RED → GREEN,`impl`RED → rc=0
+partial-hollow,`module_struct_unification`(10/10) and`atomic_object`
   (21/21) hollow → GREEN.
 - **Batch 5 (specialization-mint emission chain, helper.yo) is TIER 2 green
   incl. FIXPOINT** (2026-07-27, `/tmp/t2_b12.log`; the gate-1 walker rc=139
