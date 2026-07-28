@@ -6,6 +6,25 @@ nothing below needs re-litigating._
 
 ## Where things stand
 
+- **Array(T,\_) inference + value-generic impl bindings landed
+  (`ab622e91b` + `e1096c1b4`, 2026-07-28) — TIER 2 GREEN incl. STRICT
+  FIXPOINT** (`/tmp/gates_arrvg_t2.log`: stage2 rc=0, clang rc=0, stage3
+  rc=0, FIXPOINT_HOLDS; TIER 1 corpus 147/147 + std 153/153 on both).
+  array.test.yo self-compiled 12/12 with 0 batch markers in the clean
+  validation run — BUT the batch markers are RUN-TO-RUN NONDETERMINISTIC
+  (0↔1 with identical command+binary): the latent corruption class now
+  flips DEF-EVAL OUTCOMES, not just crashes (walker/bufio RED↔GREEN
+  oscillation is the same class). **Root-causing that corruption is the
+  top-priority next front — it gates honest scoring of everything else.**
+  ASan `check ./std` exhausts even an 8 GiB stack (zero-byte log); next
+  attempts: ASan on a SMALL nondeterministic input (array.test batch
+  compile), or MallocStackLogging/lldb per the ExprInfo-UAF workflow. The
+  TS-faithful GenericImplMatch struct-return refactor CRASHED (misemission
+  in quote machinery) and is REVERTED pending that root cause — see
+  issues/yo-self-69-red-list-map.md tail. index.test.yo HOLLOW→RED
+  (undeclared spec fns in batch C) also unattributed — re-check after the
+  corruption root.
+
 - **#70 (`s2 test ./yo-self/tests`): DONE — 61/61.**
 - **Pointer-comparison dispatch fixed (`a23013161`, 2026-07-28) — full
   TIER 2 green incl. FIXPOINT.** Trait `==`/`<`/… on pointer receivers
