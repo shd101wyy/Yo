@@ -190,6 +190,16 @@ evaluate_open :: (
     .None => false
   );
   is_struct_t := is_struct_type(arg_ty);
+  // The module's source-namespace STRUCT TYPE carries each export's DECLARED
+  // type: `anonymous_module.yo:516-517` pushes `field_labels`/`field_types` in
+  // lockstep with the StructVal's `module_names`/`module_vals`, so index `i` in
+  // the is_module loop below lines up. TS reads the field type straight off the
+  // struct type (`src/evaluator/exprs/open.ts:68` + `:74`) instead of
+  // reconstructing it from the value; these two arrays are how yo-self gets at
+  // the same data. Empty on the cycle / no-loader path, where
+  // `LoadModuleResult.module_type` is `.Unit`.
+  ty_labels := match(arg_ty,.Struct({ field_labels : tls }) => tls, _ => ArrayList(String).new());
+  ty_types := match(arg_ty,.Struct({ field_types : tts }) => tts, _ => ArrayList(TypeValue).new());
   cond(
     is_module => {
       // Iterate module fields (parallel `names` / `values`).
@@ -210,9 +220,33 @@ evaluate_open :: (
               // specialized to `(void)` instead of `(String v)` and failed to
               // transpile). Mirrors TS, where the open'd value carries its own
               // `.type`. Named imports already bind via the real Func type.
+              // A module-VALUED member (a nested `impl({…})` module, or a
+              // comptime struct constant) must take the DECLARED type recorded
+              // on the namespace struct type. `type_of_eval_value`'s
+              // `.StructVal` arm rebuilds a nested module's type by recursing
+              // over its field VALUES (value.yo:937) and has NO `.FuncVal` arm,
+              // so every function member of that nested module fell to the
+              // `_ => t_unit()` catch-all. `open(import("std/env"))` therefore
+              // bound `env` under a struct type whose `get`/`set` members were
+              // `unit`; `env.get(name)` resolved to `unit` and `try_to_call`
+              // soft-fell without throwing, surfacing two expressions later as
+              // "Cannot unify incompatible types: bool vs unit" at the
+              // `assert(result.is_some(), …)` — which hollowed the whole batch.
+              // The declared type keeps the real `fn(...)` members at any depth.
+              // Only consulted when the label at the same index matches, so a
+              // desynced namespace type can never mis-type a member.
+              declared_ty_opt := cond(
+                match(ty_labels.get(i),.Some(tl) => (tl == field_name),.None => false) => ty_types.get(i),
+                true => Option(TypeValue).None
+              );
               field_ty := match(
                 field_val,
                 .FuncVal(__fvd1, _) => get_func_type(__fvd1.*.func_id),
+                .StructVal(_, _, _) => match(
+                  declared_ty_opt,
+                  .Some(declared_ty) => declared_ty,
+                  .None => type_of_eval_value(field_val)
+                ),
                 _ => type_of_eval_value(field_val)
               );
               _added := add_variable_to_env(

@@ -741,6 +741,37 @@ Raw pointer operations may dereference invalid memory.`,
               if(_try_resolve_associated_type(type_val_inner, variant_name_tv, expr, property_expr, env, ctx), {
                 return(expr);
               });
+              // Still unresolved — consult the GENERIC-impl registry before
+              // erroring. `Option(i32).unwrap` comes from
+              // `impl(generic(T : Type), Option(T), unwrap : …)`, which lives in
+              // the generic-impl registry, NOT the id-keyed trait-methods
+              // registry that `_try_resolve_associated_type` consults — so a
+              // METHOD call on a comptime Option/Result fell through to
+              // enum-VARIANT resolution and threw `Enum variant "unwrap" not
+              // found in enum`. Mirrors TS `findMethodsFromGenericImpls`
+              // (property-access.ts:478-499); the same guard the struct/union
+              // branch already has below. Resolve only a SINGLE candidate —
+              // multiple are left unresolved so function.yo can disambiguate by
+              // argument types (TS sets `expr.$ = undefined` there).
+              generic_methods_en := find_methods_from_generic_impls(type_val_inner, variant_name_tv.clone(), env);
+              if(generic_methods_en.len() == usize(1), {
+                method_en := match(
+                  generic_methods_en.get(usize(0)),
+                  .Some(m) => m,
+                  .None => {
+                    return(expr);
+                  }
+                );
+                out_gm_en := new_expr_info(env, method_en.method_type);
+                out_gm_en.value = method_en.method_value;
+                out_gm_en.is_accessing_property = Option(bool).Some(true);
+                expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_gm_en);
+                expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_gm_en);
+                return(expr);
+              });
+              if(generic_methods_en.len() > usize(1), {
+                return(expr);
+              });
               exn.throw(
                 dyn(
                   format_error_message(
