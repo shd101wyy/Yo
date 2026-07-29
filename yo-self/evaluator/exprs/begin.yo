@@ -2186,6 +2186,19 @@ evaluate_begin_expression :: (
     out_info.index_method_type = last_info.index_method_type;
     out_info.index_method_value = last_info.index_method_value;
   });
+  // Same shared-id clobber: `&(xs(i))` — an address-of whose operand resolves
+  // through the Index trait — is stamped `is_index_trait_address_of` by
+  // evaluate_address_call (builtins/ptr_fns.yo, mirroring ptr-fns.ts:198).
+  // Codegen's generate_address_of reads it to emit the index method's returned
+  // pointer DIRECTLY; without it the operand is auto-dereffed into a stack temp
+  // whose address is then returned — a dangling pointer (`uint8_t t = *idx_fn(..);
+  // return &t;`). That is exactly what String's `Index.index` body
+  // (`.Some(bytes) => &(bytes(idx))`, std/string/string.yo:2397) emitted, so
+  // `s(i) = ...` byte writes silently mutated a dead temp. Carry it across
+  // whenever the result node IS the inner node.
+  if((ast_expr_id(expr) == ast_expr_id(last_expr)) && last_info.is_index_trait_address_of.is_some(), {
+    out_info.is_index_trait_address_of = last_info.is_index_trait_address_of;
+  });
   // Same shared-id clobber: the begin-tail ownership pass above may have
   // attached a deferred `___dup` to the tail's ExprInfo (non-owning local
   // shared out — e.g. `.Ok(map) => map`). Losing it un-balances the owner's

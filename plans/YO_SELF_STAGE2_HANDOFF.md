@@ -6,6 +6,27 @@ nothing below needs re-litigating._
 
 ## Where things stand
 
+- **2026-07-29: for_macro_borrow RED→GREEN — the begin shared-id clobber
+  dropped `is_index_trait_address_of`. Score 141 GREEN / 26 HOLLOW / 16
+  RED.** `evaluate_begin_expression` wraps a NON-begin expr (an unbraced
+  match/cond arm body, a bare fn body) in a 1-element list holding **the same
+  node**, so its fresh `out_info` clobbers the inner expression's ExprInfo on
+  the shared `ast_expr_id`. TS never collides — `begin.ts:1027-1046`
+  synthesises the begin node with `args: [cloneExpr(expr)]`. yo-self cannot
+  copy that (it materialises no begin node; codegen dispatches on the
+  expression's shape), so it carries fields across selectively — and the
+  address-of marker was missing from that list. Consequence: String's
+  `Index.index` body (`.Some(bytes) => &(bytes(idx))`) lost the flag, so
+  `generate_address_of` fell through to its rvalue temp-spill and emitted
+  `uint8_t t = *idx_fn(..); return &t;` — **the address of a dead stack
+  local**. Every `s(i) = …` byte write mutated a dead slot. Fix = carry the
+  field (`begin.yo:2189`). Verified: emitted C now forwards the pointer
+  exactly like TS; `tests/for_macro_borrow.test.yo` 13/13 with
+  markers=0/hollow=0. The **class** is open — `issues/yo-self-begin-shared-id-clobber.md`
+  lists the four instances found so far, the still-latent fields, and the
+  proposed durable fix (invert the merge: start from `last_info`, clear what
+  the begin level must own, instead of a whitelist).
+
 - **2026-07-29 (`29974c0ea`): associatedTypeConstraints port + value-generic
   stamped-return chain LANDED — score 140 GREEN / 26 HOLLOW / 17 RED.**
   Sweep-verified flips: array, atomic_object, imm_list, imm_vec,
