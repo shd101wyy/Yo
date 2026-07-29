@@ -1,6 +1,8 @@
 # yo-self: operator-module `Call` overload picks the RUNTIME candidate
 
-Status: FIX IN FLIGHT (yo-self/evaluator/calls/function.yo `_try_expand_call_overload`)
+Status: FIXED for comptime-literal operands (f9ad9a121,
+yo-self/evaluator/calls/function.yo `_try_expand_call_overload`). The
+unrestricted rule is still blocked — see "The preference MUST be gated" below.
 
 ## Symptom
 
@@ -113,12 +115,11 @@ survived the trial calls, if exactly ONE has a comptime-only return
 (`Func.meta.result_is_comptime_only`), it wins; otherwise fall through to the
 existing comptime-parameter tiebreak.
 
-Documented deviation: TS also drops comptime candidates when any ARGUMENT is a
-runtime-only `UnknownValue`. yo-self has no shared evaluated-arg list at that
-point (each trial evaluates its own fresh-id arg clones), and the trial filter
-already rejects a comptime candidate that cannot bind a runtime argument to a
-`comptime(...)` parameter — runtime `-(y)` on an `i32` still selects `neg`
-(covered by `tests/operator_grouping.test.yo`).
+TS's companion guard — drop the comptime candidates when any ARGUMENT is a
+runtime-only `UnknownValue` — cannot be expressed at that point in yo-self,
+because each trial evaluates its own fresh-id arg CLONES and there is no shared
+evaluated-arg list. That guard turns out to be beside the point anyway: see the
+next section for what actually has to gate the rule.
 
 ## The preference MUST be gated on foldable operands
 
