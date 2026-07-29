@@ -65,6 +65,7 @@ open(import("std/string"));
 { is_io_async_call } :: import("../async/await_analysis.yo");
 { expr_tree_contains_return } :: import("../../expr_traversal.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
+{ synthesize_types, TypePair, SynthesizeOptions } :: import("../types/synthesizer.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_flowable_expr, flow_options_default, FlowOptions }
 :: import("../../types/flowability.yo");
@@ -511,6 +512,34 @@ collect_dup_calls_conservatively :: (fn(expr : AstExpr, ctx : EvalContext) -> Du
   res := _new_dup_calls_result();
   _search_dup_calls(expr, res, ctx);
   res
+});
+// ---------------------------------------------------------------------------
+// _try_synthesize_return_type
+// ---------------------------------------------------------------------------
+/// Trial-run `synthesize_types(expected, given)` for the begin return-type
+/// check (begin.ts:1607-1618 / 1646-1657 wrap the call in try/catch). Returns
+/// `false` when synthesis threw, so the caller can run the compatibility
+/// fallback. With a SomeT expected, a successful synthesis BINDS the type
+/// variable's name in the env (synthesizer.yo, mirroring synthesizer.ts:
+/// 457-490).
+_try_synthesize_return_type :: (
+  fn(
+    expected_ty : TypeValue,
+    given_ty : TypeValue,
+    env : Environment
+  ) -> bool
+)({
+  local_exn := Exception(throw : ((_err) -> unwind(false)));
+  _sr := synthesize_types(
+    expected_ty,
+    env,
+    given_ty,
+    env,
+    ArrayList(TypePair).new(),
+    Option(SynthesizeOptions).None,
+    local_exn
+  );
+  true
 });
 // ---------------------------------------------------------------------------
 // _check_keyword_position
@@ -1877,8 +1906,15 @@ evaluate_begin_expression :: (
   last_info := match(last_info_opt,.Some(li) => li,.None => new_expr_info(env, TypeValue.Unit));
   return_type := last_info.ty;
   // -------------------------------------------------------------------------
-  // Return-type compatibility check (partial port — synthesize_types deferred)
+  // Return-type compatibility check (begin.ts:1602-1680)
   // -------------------------------------------------------------------------
+  // TS FIRST tries `synthesizeTypes(expected, given)` (begin.ts:1607-1618) —
+  // with a SomeT expected this BINDS the type variable's name in the env
+  // (synthesizer.ts:457-490); handles shapes like [i32; n] vs [i32; 5]. Only
+  // when synthesis THROWS does TS fall back to the raw compatibility check +
+  // the mismatch error. NOTE: this alone does NOT fix the io.async
+  // `return(<binop>)` void-result bug — there the GIVEN side is already the
+  // same bare SomeT (see issues/yo-self-io-async-return-binop-void.md).
   is_return_ctrl := has_control_flow(last_info.control_flow,.Return);
   if(is_return_ctrl, {
     match(
@@ -1897,23 +1933,52 @@ evaluate_begin_expression :: (
                   ft,
                   .Func({ result : result_box }) => {
                     expected_ret := result_box;
-                    compat := are_types_compatible(return_type, expected_ret);
-                    if(!(is_some_type(expected_ret)) && !(compat), {
-                      exn.throw(
-                        dyn(
-                          format_error_message(
-                            ast_expr_token(last_expr),
-                            `Return type mismatch. Expected type "${type_to_string(expected_ret)}", but got "${type_to_string(return_type)}".`,
-                            false,
-                            .None
+                    synth_ok := _try_synthesize_return_type(expected_ret, return_type, env);
+                    if(!(synth_ok), {
+                      compat := are_types_compatible(return_type, expected_ret);
+                      if(!(is_some_type(expected_ret)) && !(compat), {
+                        exn.throw(
+                          dyn(
+                            format_error_message(
+                              ast_expr_token(last_expr),
+                              `Return type mismatch. Expected type "${type_to_string(expected_ret)}", but got "${type_to_string(return_type)}".`,
+                              false,
+                              .None
+                            )
                           )
-                        )
-                      );
+                        );
+                      });
                     });
                   },
                   _ => ()
                 );
               }
+            );
+          },
+          .AsyncBlock => {
+            // begin.ts:1642-1680 — async-block kind synthesizes against the
+            // surrounding EXPECTED type instead of a declared fn return.
+            match(
+              ctx.expected_type,
+              .Some(et) => {
+                as_synth_ok := _try_synthesize_return_type(et.ty, return_type, env);
+                if(!(as_synth_ok), {
+                  as_compat := are_types_compatible(return_type, et.ty);
+                  if(!(is_some_type(et.ty)) && !(as_compat), {
+                    exn.throw(
+                      dyn(
+                        format_error_message(
+                          ast_expr_token(last_expr),
+                          `Return type mismatch. Expected type "${type_to_string(et.ty)}", but got "${type_to_string(return_type)}".`,
+                          false,
+                          .None
+                        )
+                      )
+                    );
+                  });
+                });
+              },
+              .None => ()
             );
           },
           _ => ()

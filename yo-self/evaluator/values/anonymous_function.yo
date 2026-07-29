@@ -1379,7 +1379,27 @@ evaluate_anonymous_function_implementation :: (
           match(
             expr_info_table_get(ctx.expr_info_table, ast_expr_id(anon_eb)),
             .Some(body_info2) => {
-              body_ty := body_info2.ty;
+              (body_ty : TypeValue) = body_info2.ty;
+              // TS anonymous-function.ts:975-978 — the body type might be a
+              // SomeT whose resolved_concrete was set during evaluation
+              // ("e.g., when the last expression is a binary op whose result
+              // inherits the expected SomeType but has been resolved to a
+              // concrete type"). A `return(x + y)` body types exactly so (the
+              // return arg is evaluated against the fn's `_ret` SomeT —
+              // begin.ts:1157-1165). Unwrap it BEFORE the concreteness gate,
+              // or the refinement is skipped and the closure's return / the
+              // io.async future result lower to void*.
+              match(
+                body_ty,
+                .SomeT({ resolved_concrete : bt_cell }) => match(
+                  bt_cell.get(usize(0)),
+                  .Some(bt_rc) => {
+                    body_ty = bt_rc;
+                  },
+                  .None => ()
+                ),
+                _ => ()
+              );
               has_some := get_all_some_types(body_ty.clone()).len();
               if(has_some == usize(0), {
                 // SOURCE labels (actual_param_labels), NOT the expected type's
