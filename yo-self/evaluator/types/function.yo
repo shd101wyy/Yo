@@ -31,7 +31,9 @@ open(import("std/fmt"));
   BK_FN,
   BK_UNSAFE_FN,
   BK_CTL,
-  BK_TUPLE
+  BK_TUPLE,
+  BF_REQUIRES,
+  BF_ENSURES
 }
 :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_some_resolved_concrete, register_some_resolved_concrete, adopt_receiver_struct_instance } :: import("../../expr_info.yo");
@@ -422,6 +424,68 @@ get_func_where_constraints :: (fn(func_id : String) -> ArrayList(WhereConstraint
     .None => ArrayList(WhereConstraintEntry).new()
   )
 );
+// ---------------------------------------------------------------------------
+// Phase-0 contract-clause side-tables (plans/FORMAL_VERIFICATION.md).
+// ---------------------------------------------------------------------------
+/// `fn(...)`-type-expression id (then the FuncVal id via the same two-step as
+/// the defaults) → the signature's `requires(...)` predicate expressions.
+/// TS stores these as `FunctionType.requiresExprs`
+/// (src/types/definitions.ts:865); yo-self's `TypeValue.Func` cannot carry
+/// AstExprs (definitions.yo must not depend on expr.yo — see the
+/// where-constraints table above), so they live here and are read by the
+/// body-wrapping lowering in `evaluator/builtins/contracts.yo`.
+(g_func_requires_exprs : HashMap(String, ArrayList(AstExpr))) =
+  HashMap(String, ArrayList(AstExpr)).new();
+/// Same, for `ensures(...)`. Mirrors `FunctionType.ensuresExprs`
+/// (src/types/definitions.ts:875).
+(g_func_ensures_exprs : HashMap(String, ArrayList(AstExpr))) =
+  HashMap(String, ArrayList(AstExpr)).new();
+/// Register the signature's `requires(...)` predicates. No-op when empty
+/// (keeps the table sparse, like the where-constraints table).
+register_func_requires_exprs :: (fn(func_id : String, preds : ArrayList(AstExpr)) -> unit)({
+  if(preds.len() > usize(0), {
+    g_func_requires_exprs.set(func_id.clone(), preds);
+  });
+});
+/// Register the signature's `ensures(...)` predicates. No-op when empty.
+register_func_ensures_exprs :: (fn(func_id : String, preds : ArrayList(AstExpr)) -> unit)({
+  if(preds.len() > usize(0), {
+    g_func_ensures_exprs.set(func_id.clone(), preds);
+  });
+});
+/// Re-key both contract tables from the fn-type-expr id to the FuncVal id.
+copy_func_contract_exprs :: (fn(from_id : String, to_id : String) -> unit)({
+  match(
+    g_func_requires_exprs.get(from_id.clone()),
+    .Some(preds) => {
+      g_func_requires_exprs.set(to_id.clone(), preds);
+    },
+    .None => ()
+  );
+  match(
+    g_func_ensures_exprs.get(from_id.clone()),
+    .Some(preds) => {
+      g_func_ensures_exprs.set(to_id.clone(), preds);
+    },
+    .None => ()
+  );
+});
+/// Return the `requires(...)` predicates for `func_id` (empty when none).
+get_func_requires_exprs :: (fn(func_id : String) -> ArrayList(AstExpr))(
+  match(
+    g_func_requires_exprs.get(func_id.clone()),
+    .Some(preds) => preds,
+    .None => ArrayList(AstExpr).new()
+  )
+);
+/// Return the `ensures(...)` predicates for `func_id` (empty when none).
+get_func_ensures_exprs :: (fn(func_id : String) -> ArrayList(AstExpr))(
+  match(
+    g_func_ensures_exprs.get(func_id.clone()),
+    .Some(preds) => preds,
+    .None => ArrayList(AstExpr).new()
+  )
+);
 /// Append (label, trait, negated) entries for every required/negative trait
 /// carried on `ty` when it is a SomeT (the where clause mutated the param
 /// placeholder's lists in place). No-op for non-SomeT types.
@@ -499,7 +563,14 @@ FuncParamsResult :: struct(
   implicit_params : ArrayList(FuncParam),
   where_clause_exprs : ArrayList(AstExpr),
   has_variadic : bool,
-  variadic_param : FuncParam
+  variadic_param : FuncParam,
+  /// Phase-0 `requires(...)` predicates extracted from the parameter list.
+  /// TS returns these on the FunctionType (function.ts:2273); yo-self carries
+  /// them out here so `evaluate_function_type` can register the side-table.
+  /// Appended last so existing positional constructions only need trailing args.
+  requires_exprs : ArrayList(AstExpr),
+  /// Phase-0 `ensures(...)` predicates (same rationale).
+  ensures_exprs : ArrayList(AstExpr)
 );
 // ---------------------------------------------------------------------------
 // Local helpers
@@ -628,6 +699,50 @@ _is_dots_atom :: (fn(expr : AstExpr) -> bool)(
       tok.value == "..."
     )
   )
+);
+// ---------------------------------------------------------------------------
+// Phase 0 of plans/FORMAL_VERIFICATION.md: canonical signature clause order.
+// Each parameter belongs to an ordered "zone"; zones must appear
+// non-decreasing left-to-right:
+//   generic(0) -> regular params (1) -> where(2) -> requires(3) -> ensures(4)
+// Mirrors the `zoneOf` / `zoneLabels` block in
+// `src/evaluator/types/function.ts:1700-1743`.
+// ---------------------------------------------------------------------------
+/// The clause zone of a parameter expression.
+_clause_zone :: (fn(e : AstExpr) -> usize)(
+  cond(
+    ast_expr_is_fn_call_of(e, BK_GENERIC, Option(usize).None) => usize(0),
+    ast_expr_is_fn_call_of(e, BK_WHERE, Option(usize).None) => usize(2),
+    ast_expr_is_fn_call_of(e, BF_REQUIRES, Option(usize).None) => usize(3),
+    ast_expr_is_fn_call_of(e, BF_ENSURES, Option(usize).None) => usize(4),
+    true => usize(1)
+  )
+);
+/// The diagnostic name of a parameter expression's clause (TS `zoneOf().name`).
+_clause_name :: (fn(e : AstExpr) -> String)(
+  cond(
+    ast_expr_is_fn_call_of(e, BK_GENERIC, Option(usize).None) => String.from("generic(...)"),
+    ast_expr_is_fn_call_of(e, BK_WHERE, Option(usize).None) => String.from("where(...)"),
+    ast_expr_is_fn_call_of(e, BF_REQUIRES, Option(usize).None) => String.from("requires(...)"),
+    ast_expr_is_fn_call_of(e, BF_ENSURES, Option(usize).None) => String.from("ensures(...)"),
+    true => String.from("parameter")
+  )
+);
+/// The zone label used in the "Move X before Y" hint (TS `zoneLabels`).
+_zone_label :: (fn(zone : usize) -> String)(
+  cond(
+    (zone == usize(0)) => String.from("generic(...)"),
+    (zone == usize(1)) => String.from("regular parameters"),
+    (zone == usize(2)) => String.from("where(...)"),
+    (zone == usize(3)) => String.from("requires(...)"),
+    true => String.from("ensures(...)")
+  )
+);
+/// True when `e` is a Phase-0 contract clause (`requires(...)`/`ensures(...)`).
+/// Such clauses are NOT runtime parameters: every parameter pass skips them.
+_is_contract_clause :: (fn(e : AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, BF_REQUIRES, Option(usize).None) ||
+    ast_expr_is_fn_call_of(e, BF_ENSURES, Option(usize).None)
 );
 /// Add a where-clause trait constraint directly to a SomeType's constraint lists.
 /// Since `required_trait_types` in SomeT is an `ArrayList(TypeValue)` (object =
@@ -2827,6 +2942,127 @@ evaluate_function_parameters :: (
     });
   });
   // --------------------------------------------------------------------------
+  // Pass 2b — Phase 0 of plans/FORMAL_VERIFICATION.md: enforce the canonical
+  // signature clause order, then extract the contract clauses.
+  // Mirrors src/evaluator/types/function.ts:1700-1783.
+  // --------------------------------------------------------------------------
+  (max_zone : usize) = usize(0);
+  (max_name : String) = String.from("generic(...)");
+  (zi : usize) = usize(0);
+  while(zi < param_exprs.len(), {
+    z_expr := match(param_exprs.get(zi),.Some(e) => e,.None => make_err_expr());
+    zi = (zi + usize(1));
+    z_zone := _clause_zone(z_expr);
+    z_name := _clause_name(z_expr);
+    if(z_zone < max_zone, {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(z_expr),
+            `${z_name} appears after ${max_name} in the function signature. The canonical clause order is: generic(...), parameters, where(...), requires(...), ensures(...). Move ${z_name} before ${_zone_label(max_zone)}.`,
+            false,
+            .None
+          )
+        )
+      );
+    });
+    if(z_zone > max_zone, {
+      max_zone = z_zone;
+      max_name = z_name;
+    });
+  });
+  // Each contract builtin may appear at most once in a signature (single-call
+  // rule: `requires(P1, P2, ...)`). Zero-argument forms are rejected.
+  (requires_exprs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+  (ensures_exprs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+  (seen_requires : bool) = false;
+  (seen_ensures : bool) = false;
+  (ci : usize) = usize(0);
+  while(ci < param_exprs.len(), {
+    c_expr := match(param_exprs.get(ci),.Some(e) => e,.None => make_err_expr());
+    ci = (ci + usize(1));
+    if(ast_expr_is_fn_call_of(c_expr, BF_REQUIRES, Option(usize).None), {
+      c_args := _fn_call_args(c_expr);
+      if(c_args.len() == usize(0), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(c_expr),
+              String.from("'requires(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no precondition."),
+              false,
+              .None
+            )
+          )
+        );
+      });
+      if(seen_requires, {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(c_expr),
+              String.from("Multiple 'requires(...)' clauses in the same signature are a syntax error. Combine the predicates into one call: 'requires(P1, P2, ...)'."),
+              false,
+              .None
+            )
+          )
+        );
+      });
+      seen_requires = true;
+      (cri : usize) = usize(0);
+      while(cri < c_args.len(), {
+        match(
+          c_args.get(cri),
+          .Some(p) => {
+            requires_exprs.push(p);
+          },
+          .None => ()
+        );
+        cri = (cri + usize(1));
+      });
+      continue;
+    });
+    if(ast_expr_is_fn_call_of(c_expr, BF_ENSURES, Option(usize).None), {
+      e_args := _fn_call_args(c_expr);
+      if(e_args.len() == usize(0), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(c_expr),
+              String.from("'ensures(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no postcondition."),
+              false,
+              .None
+            )
+          )
+        );
+      });
+      if(seen_ensures, {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(c_expr),
+              String.from("Multiple 'ensures(...)' clauses in the same signature are a syntax error. Combine the predicates into one call: 'ensures(Q1, Q2, ...)'."),
+              false,
+              .None
+            )
+          )
+        );
+      });
+      seen_ensures = true;
+      (cei : usize) = usize(0);
+      while(cei < e_args.len(), {
+        match(
+          e_args.get(cei),
+          .Some(p) => {
+            ensures_exprs.push(p);
+          },
+          .None => ()
+        );
+        cei = (cei + usize(1));
+      });
+      continue;
+    });
+  });
+  // --------------------------------------------------------------------------
   // Pass 3 — pre-add all comptime parameters to env (so where clauses can ref them)
   // --------------------------------------------------------------------------
   (pre_added_indices : ArrayList(usize)) = ArrayList(usize).new();
@@ -2835,11 +3071,15 @@ evaluate_function_parameters :: (
     param_expr := match(param_exprs.get(pi3),.Some(e) => e,.None => make_err_expr());
     (current_idx : usize) = pi3;
     pi3 = (pi3 + usize(1));
-    // Skip generic, using, where, ...
+    // Skip generic, using, where, ..., and Phase-0 contract clauses
+    // (requires/ensures). The contract clauses are recognized here so they
+    // don't get treated as runtime parameters; their bodies are lowered later
+    // by `wrap_function_body_with_contracts`.
     if(ast_expr_is_fn_call_of(param_expr, BK_GENERIC, Option(usize).None) ||
       ast_expr_is_fn_call_of(param_expr, "using", Option(usize).None) ||
         ast_expr_is_fn_call_of(param_expr, BK_WHERE, Option(usize).None) ||
-          ast_expr_is_fn_call_of(param_expr, "...", Option(usize).None), {
+          ast_expr_is_fn_call_of(param_expr, "...", Option(usize).None) ||
+            _is_contract_clause(param_expr), {
       continue;
     });
     ct_info := extract_comptime_parameter_info(param_expr);
@@ -2890,7 +3130,27 @@ evaluate_function_parameters :: (
   // --------------------------------------------------------------------------
   (pending_constraints : ArrayList(PendingConstraint)) = ArrayList(PendingConstraint).new();
   if(param_exprs.len() > usize(0), {
-    last_param := match(param_exprs.get(param_exprs.len() - usize(1)),.Some(e) => e,.None => make_err_expr());
+    // `where` must come at the end of the signature, but Phase-0 contract
+    // clauses (requires/ensures) may follow it. Scan from the end past any
+    // trailing contract clauses to find the where clause.
+    // Mirrors src/evaluator/types/function.ts:1863-1878.
+    (where_idx : usize) = (param_exprs.len() - usize(1));
+    (where_scanning : bool) = true;
+    while(where_scanning, {
+      cand := match(param_exprs.get(where_idx),.Some(e) => e,.None => make_err_expr());
+      cond(
+        !(_is_contract_clause(cand)) => {
+          where_scanning = false;
+        },
+        (where_idx == usize(0)) => {
+          where_scanning = false;
+        },
+        true => {
+          where_idx = (where_idx - usize(1));
+        }
+      );
+    });
+    last_param := match(param_exprs.get(where_idx),.Some(e) => e,.None => make_err_expr());
     if(ast_expr_is_fn_call_of(last_param, BK_WHERE, Option(usize).None), {
       where_args := _fn_call_args(last_param);
       // Copy where_args to where_clause_exprs
@@ -2944,20 +3204,18 @@ evaluate_function_parameters :: (
     if(ast_expr_is_fn_call_of(param_expr, "using", Option(usize).None), {
       continue;
     });
-    // Skip where clause (already processed in pass 4)
+    // Skip where clause (already processed in pass 4). Clause ordering —
+    // including "where may only be followed by requires/ensures" — is
+    // validated up front by the zone check in pass 2b, so no positional check
+    // is needed here. Mirrors src/evaluator/types/function.ts:1924-1933.
     if(ast_expr_is_fn_call_of(param_expr, BK_WHERE, Option(usize).None), {
-      if(!(current_i == (param_exprs.len() - usize(1))), {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(param_expr),
-              String.from("The where clause must be the last parameter in the function signature."),
-              false,
-              .None
-            )
-          )
-        );
-      });
+      continue;
+    });
+    // Skip Phase-0 contract clauses (requires/ensures). They were extracted in
+    // pass 2b; their predicates are lowered into the body by
+    // `wrap_function_body_with_contracts`.
+    // Mirrors src/evaluator/types/function.ts:1934-1943.
+    if(_is_contract_clause(param_expr), {
       continue;
     });
     // Variadic parameter: ... or ...(name)
@@ -3233,7 +3491,9 @@ evaluate_function_parameters :: (
             implicit_params,
             where_clause_exprs,
             has_variadic,
-            variadic_param
+            variadic_param,
+            requires_exprs,
+            ensures_exprs
           )
         )
       );
@@ -3243,7 +3503,7 @@ evaluate_function_parameters :: (
       _retry_errors := parse_where_clause_constraints(one_failed, env_mut, ctx, false, exn);
     });
   });
-  FuncParamsResult(params, forall_params, implicit_params, where_clause_exprs, has_variadic, variadic_param)
+  FuncParamsResult(params, forall_params, implicit_params, where_clause_exprs, has_variadic, variadic_param, requires_exprs, ensures_exprs)
 });
 // Helper to get a param expr for error reporting
 param_exprs_for_error :: (fn(arg_list : ArrayList(AstExpr), idx : usize) -> Option(AstExpr))(
@@ -3765,6 +4025,12 @@ evaluate_function_type :: (
   // under the FuncVal id by try_to_implement_function_by_function_type) so the
   // call site can validate bound concrete types against them.
   register_func_where_constraints(ast_expr_id(expr).to_string(), where_constraint_entries);
+  // Register the Phase-0 contract predicates (keyed like the defaults; re-keyed
+  // under the FuncVal id by try_to_implement_function_by_function_type) so the
+  // body-wrapping lowering can splice them into the function body.
+  // Mirrors function.ts:2273-2274 storing them on the FunctionType.
+  register_func_requires_exprs(ast_expr_id(expr).to_string(), params_result.requires_exprs);
+  register_func_ensures_exprs(ast_expr_id(expr).to_string(), params_result.ensures_exprs);
   // Register the variadic parameter's name/type (see the side table above).
   if(params_result.has_variadic, {
     register_func_variadic_param(
@@ -4209,4 +4475,11 @@ export(
   copy_func_where_constraints,
   get_func_where_constraints,
   WhereConstraintEntry
+);
+export(
+  register_func_requires_exprs,
+  register_func_ensures_exprs,
+  copy_func_contract_exprs,
+  get_func_requires_exprs,
+  get_func_ensures_exprs
 );

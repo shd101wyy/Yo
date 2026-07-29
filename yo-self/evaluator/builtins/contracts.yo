@@ -26,6 +26,10 @@ open(import("std/fmt"));
   BF_GHOST,
   BF_GHOST_FN,
   BF_OLD,
+  BK_BEGIN,
+  BF_COMPTIME_ASSERT,
+  alloc_global_expr_id,
+  clone_expr_fresh_ids,
   make_err_expr
 } :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
@@ -34,6 +38,8 @@ open(import("std/fmt"));
 { EvalContext } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 { t_unit } :: import("../../types/creators.yo");
+{ Token, TokenKind } :: import("../../token.yo");
+{ file_has_pragma } :: import("../memory_safety.yo");
 { ArrayList } :: import("std/collections/array_list");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -88,19 +94,47 @@ _evaluate_contract_marker :: (
 });
 /// `requires(...)` in expression position — no-op marker. Mirrors
 /// `evaluateRequires`.
-evaluate_requires :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+/// Reject a zero-argument contract marker in expression position.
+/// Mirrors the `args.length === 0` guards in
+/// `src/evaluator/builtins/contracts.ts:96-137`.
+_reject_zero_arg_marker :: (fn(expr : AstExpr, message : String, exn : Exception) -> unit)({
+  n := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a.len(),
+    .Atom(_, _) => usize(0)
+  );
+  if(n == usize(0), {
+    exn.throw(dyn(format_error_message(ast_expr_token(expr), message, false,.None)));
+  });
+});
+evaluate_requires :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
+  _reject_zero_arg_marker(
+    expr,
+    String.from("'requires(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no precondition."),
+    exn
+  );
   _evaluate_contract_marker(expr, env, ctx, exn)
-);
+});
 /// `ensures(...)` in expression position — no-op marker. Mirrors
 /// `evaluateEnsures`.
-evaluate_ensures :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+evaluate_ensures :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
+  _reject_zero_arg_marker(
+    expr,
+    String.from("'ensures(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no postcondition."),
+    exn
+  );
   _evaluate_contract_marker(expr, env, ctx, exn)
-);
+});
 /// `invariant(...)` — no-op marker (loop placement checked in `while`; SMT
 /// discharge is a later phase). Mirrors `evaluateInvariant`.
-evaluate_invariant :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+evaluate_invariant :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
+  _reject_zero_arg_marker(
+    expr,
+    String.from("'invariant(...)' with zero arguments is a syntax error."),
+    exn
+  );
   _evaluate_contract_marker(expr, env, ctx, exn)
-);
+});
 /// `ghost(...)` — ghost-binding marker, transparent in Phase 0. Mirrors
 /// `evaluateGhost`.
 evaluate_ghost :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
@@ -177,5 +211,364 @@ evaluate_old :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : 
   });
   _evaluate_transparent_unary(expr, env, ctx, exn)
 });
+// ---------------------------------------------------------------------------
+// Phase 0 task #6 of plans/FORMAL_VERIFICATION.md: lower the `requires(...)` /
+// `ensures(...)` clauses extracted from a function signature into runtime
+// `assert(P, msg)` / `comptime_assert(P, msg)` calls woven into the body.
+// 1:1 port of `wrapFunctionBodyWithContracts` in
+// `src/evaluator/builtins/contracts.ts:390-502`.
+//
+// Lowering shape (all four combinations):
+//   no contracts     -> <body> (unchanged)
+//   requires only    -> { assert(R1); ...; <body> }
+//   ensures only     -> { result := (<body>); assert(E1); ...; result }
+//   both             -> { assert(R1); ...; result := (<body>); assert(E1); ...; result }
+// ---------------------------------------------------------------------------
+/// The identifier bound to a function's return value inside `ensures(...)`.
+/// Mirrors `RESULT_IDENTIFIER` (contracts.ts:238).
+_RESULT_IDENTIFIER :: "result";
+/// Build a synthetic atom borrowing `src_tok`'s source position so diagnostics
+/// point at the user's contract clause. Mirrors `synthAtom` (contracts.ts:245).
+_synth_atom :: (fn(value : String, kind : TokenKind, src_tok : Token) -> AstExpr)(
+  AstExpr.Atom(
+    alloc_global_expr_id(),
+    Token(
+      kind : kind,
+      value : value,
+      row : src_tok.row,
+      column : src_tok.column,
+      character : src_tok.character,
+      module_path : src_tok.module_path.clone(),
+      input : src_tok.input.clone()
+    )
+  )
+);
+/// JSON-escape `s` for embedding in a synthetic string-literal token. yo-self's
+/// `evaluate_string_literal` runs `decode_str_lit_escapes(tok.value)`, which
+/// assumes the raw token value INCLUDES the surrounding double quotes — the
+/// same round-trip TS gets from `JSON.stringify` (contracts.ts:274).
+_synth_string_token_value :: (fn(s : String) -> String)({
+  sb := StringBuilder.new();
+  sb.write_byte(u8(0x22));
+  {
+    it := s.chars();
+    while(true, {
+      r := match(it.next(),.Some(x) => x,.None => break);
+      cond(
+        (r.char == u32(0x5C)) => {
+          sb.write_byte(u8(0x5C));
+          sb.write_byte(u8(0x5C));
+        },
+        (r.char == u32(0x22)) => {
+          sb.write_byte(u8(0x5C));
+          sb.write_byte(u8(0x22));
+        },
+        (r.char == u32(0x0A)) => {
+          sb.write_byte(u8(0x5C));
+          sb.write_byte(u8(0x6E));
+        },
+        (r.char == u32(0x0D)) => {
+          sb.write_byte(u8(0x5C));
+          sb.write_byte(u8(0x72));
+        },
+        (r.char == u32(0x09)) => {
+          sb.write_byte(u8(0x5C));
+          sb.write_byte(u8(0x74));
+        },
+        true => {
+          sb.write_rune(r);
+        }
+      );
+    });
+  };
+  sb.write_byte(u8(0x22));
+  sb.to_string()
+});
+/// Build a synthetic `assert(pred, "<label>: <pred-src>")` (or
+/// `comptime_assert(...)`) call. `label_pred` supplies the human-readable
+/// message text; `pred` is what actually gets checked (it may have had
+/// `old(...)` rewritten to snapshot references).
+/// Mirrors `buildAssertCall` (contracts.ts:260-283).
+_build_assert_call :: (
+  fn(
+    pred : AstExpr,
+    label_pred : AstExpr,
+    label : String,
+    assert_fn_name : String
+  ) -> AstExpr
+)({
+  pred_tok := ast_expr_token(pred);
+  msg := `${label}: ${ast_expr_to_string(label_pred)}`;
+  msg_expr := _synth_atom(
+    _synth_string_token_value(msg),
+    TokenKind.StringLit,
+    pred_tok.clone()
+  );
+  args := ArrayList(AstExpr).new();
+  args.push(pred);
+  args.push(msg_expr);
+  AstExpr.FnCall(
+    alloc_global_expr_id(),
+    _synth_atom(assert_fn_name, TokenKind.Identifier, pred_tok.clone()),
+    args,
+    false,
+    pred_tok
+  )
+});
+/// Build a synthetic `name := value` (runtime) or `name :: value` (comptime)
+/// binding. Comptime functions need `::` because a `:=` runtime binding is
+/// rejected inside a compile-time-only function body.
+/// Mirrors `buildBinding` (contracts.ts:290-312).
+_build_binding :: (fn(name : String, value : AstExpr, src_tok : Token, op : String) -> AstExpr)({
+  bind_tok := Token(
+    kind : TokenKind.Identifier,
+    value : op,
+    row : src_tok.row,
+    column : src_tok.column,
+    character : src_tok.character,
+    module_path : src_tok.module_path.clone(),
+    input : src_tok.input.clone()
+  );
+  args := ArrayList(AstExpr).new();
+  args.push(_synth_atom(name, TokenKind.Identifier, src_tok));
+  args.push(value);
+  AstExpr.FnCall(
+    alloc_global_expr_id(),
+    AstExpr.Atom(alloc_global_expr_id(), bind_tok.clone()),
+    args,
+    true,
+    bind_tok
+  )
+});
+/// Monotonic counter for `old(...)` entry-snapshot names. A module-level global
+/// rather than TS's local `counter` closure variable: `_hoist_old_in` is a
+/// `recur`-style self-recursive function and yo-self cannot thread an
+/// `inout(usize)` accumulator through `recur`. Snapshot names only need to be
+/// unique WITHIN one wrapped body, and a monotonic global is strictly stronger.
+(g_contract_old_counter : usize) = usize(0);
+/// Rewrite `old(expr)` occurrences inside one `ensures` predicate: each is
+/// hoisted into an entry-time snapshot binding `__yo_contract_old_K := expr`
+/// pushed onto `snapshots`, and the `old(expr)` node is replaced by a
+/// reference to that snapshot.
+/// Mirrors the `rewrite` closure of `hoistOldExpressions` (contracts.ts:328-360).
+_hoist_old_in :: (
+  fn(
+    e : AstExpr,
+    snapshots : ArrayList(AstExpr),
+    bind_op : String
+  ) -> AstExpr
+)(
+  match(
+    e,
+    .Atom(_, _) => e,
+    .FnCall(_, f_box, f_args, f_infix, f_tok) => cond(
+      ast_expr_is_fn_call_of(e, BF_OLD,.Some(usize(1))) => {
+        inner := recur(
+          match(f_args.get(usize(0)),.Some(x) => x,.None => make_err_expr()),
+          snapshots,
+          bind_op.clone()
+        );
+        snap_name := `__yo_contract_old_${g_contract_old_counter.to_string()}`;
+        g_contract_old_counter = (g_contract_old_counter + usize(1));
+        snapshots.push(
+          _build_binding(snap_name.clone(), inner, f_tok.clone(), bind_op.clone())
+        );
+        _synth_atom(snap_name, TokenKind.Identifier, f_tok.clone())
+      },
+      true => {
+        new_args := ArrayList(AstExpr).new();
+        (hi : usize) = usize(0);
+        while(hi < f_args.len(), {
+          match(
+            f_args.get(hi),
+            .Some(a) => {
+              new_args.push(recur(a, snapshots, bind_op.clone()));
+            },
+            .None => ()
+          );
+          hi = (hi + usize(1));
+        });
+        AstExpr.FnCall(
+          alloc_global_expr_id(),
+          recur(f_box, snapshots, bind_op.clone()),
+          new_args,
+          f_infix,
+          f_tok.clone()
+        )
+      }
+    )
+  )
+);
+/// Splice the contract predicates into `body`.
+///
+/// `is_comptime_fn` selects `comptime_assert` + `::` over `assert` + `:=`
+/// (mirrors `fnType.return.isCompileTimeOnly`). `returns_unit` suppresses the
+/// `result` binding (a `void result = ...` would be invalid C).
+/// Returns `body` unchanged when there are no contracts, or when the body's
+/// file declared `pragma(Pragma.NoContracts);`.
+wrap_function_body_with_contracts :: (
+  fn(
+    body : AstExpr,
+    requires_exprs : ArrayList(AstExpr),
+    ensures_exprs : ArrayList(AstExpr),
+    is_comptime_fn : bool,
+    returns_unit : bool
+  ) -> AstExpr
+)({
+  if((requires_exprs.len() == usize(0)) && (ensures_exprs.len() == usize(0)), {
+    return(body);
+  });
+  body_tok := ast_expr_token(body);
+  // Honor `pragma(Pragma.NoContracts);` — erase contract clauses entirely.
+  // Mirrors contracts.ts:406-409.
+  if(file_has_pragma(Option(String).Some(body_tok.module_path.clone()), Pragma.NoContracts), {
+    return(body);
+  });
+  assert_fn_name := cond(
+    is_comptime_fn => String.from(BF_COMPTIME_ASSERT),
+    true => String.from("assert")
+  );
+  bind_op := cond(is_comptime_fn => String.from("::"), true => String.from(":="));
+  // requires asserts. `clone_expr_fresh_ids` gives each spliced predicate its
+  // own node ids: yo-self keys ExprInfo by node id (expr.yo:307-313), so
+  // reusing the signature's nodes would alias table entries across
+  // specializations. TS gets fresh `$` slots for free from object identity.
+  requires_asserts := ArrayList(AstExpr).new();
+  (ri : usize) = usize(0);
+  while(ri < requires_exprs.len(), {
+    match(
+      requires_exprs.get(ri),
+      .Some(p) => {
+        requires_asserts.push(
+          _build_assert_call(
+            clone_expr_fresh_ids(p.clone()),
+            p,
+            String.from("requires failed"),
+            assert_fn_name.clone()
+          )
+        );
+      },
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  begin_atom := _synth_atom(String.from(BK_BEGIN), TokenKind.Identifier, body_tok.clone());
+  // No ensures: prepend the requires asserts to the body.
+  if(ensures_exprs.len() == usize(0), {
+    new_args := ArrayList(AstExpr).new();
+    (ai : usize) = usize(0);
+    while(ai < requires_asserts.len(), {
+      match(
+        requires_asserts.get(ai),
+        .Some(a) => {
+          new_args.push(a);
+        },
+        .None => ()
+      );
+      ai = (ai + usize(1));
+    });
+    if(ast_expr_is_fn_call_of(body, BK_BEGIN, Option(usize).None), {
+      body_args := match(
+        body,
+        .FnCall(_, _, ba, _, _) => ba,
+        .Atom(_, _) => ArrayList(AstExpr).new()
+      );
+      (bi : usize) = usize(0);
+      while(bi < body_args.len(), {
+        match(
+          body_args.get(bi),
+          .Some(a) => {
+            new_args.push(a);
+          },
+          .None => ()
+        );
+        bi = (bi + usize(1));
+      });
+    }, {
+      new_args.push(body);
+    });
+    return(
+      AstExpr.FnCall(alloc_global_expr_id(), begin_atom, new_args, false, body_tok.clone())
+    );
+  });
+  // Ensures present: hoist `old(...)` snapshots, then build the wrapped body.
+  snapshots := ArrayList(AstExpr).new();
+  ensures_asserts := ArrayList(AstExpr).new();
+  (ei : usize) = usize(0);
+  while(ei < ensures_exprs.len(), {
+    match(
+      ensures_exprs.get(ei),
+      .Some(p) => {
+        rewritten := _hoist_old_in(clone_expr_fresh_ids(p.clone()), snapshots, bind_op.clone());
+        // label_pred is the ORIGINAL predicate (still shows `old(...)`).
+        ensures_asserts.push(
+          _build_assert_call(
+            rewritten,
+            p,
+            String.from("ensures failed"),
+            assert_fn_name.clone()
+          )
+        );
+      },
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  out_args := ArrayList(AstExpr).new();
+  (si : usize) = usize(0);
+  while(si < snapshots.len(), {
+    match(
+      snapshots.get(si),
+      .Some(a) => {
+        out_args.push(a);
+      },
+      .None => ()
+    );
+    si = (si + usize(1));
+  });
+  (qi : usize) = usize(0);
+  while(qi < requires_asserts.len(), {
+    match(
+      requires_asserts.get(qi),
+      .Some(a) => {
+        out_args.push(a);
+      },
+      .None => ()
+    );
+    qi = (qi + usize(1));
+  });
+  if(returns_unit, {
+    // Unit return: `result` is not useful and `void result = ...` is invalid C.
+    // Run the body as a statement, then the ensures asserts.
+    out_args.push(body);
+  }, {
+    out_args.push(
+      _build_binding(
+        String.from(_RESULT_IDENTIFIER),
+        body,
+        body_tok.clone(),
+        bind_op.clone()
+      )
+    );
+  });
+  (fi : usize) = usize(0);
+  while(fi < ensures_asserts.len(), {
+    match(
+      ensures_asserts.get(fi),
+      .Some(a) => {
+        out_args.push(a);
+      },
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  if(!(returns_unit), {
+    out_args.push(
+      _synth_atom(String.from(_RESULT_IDENTIFIER), TokenKind.Identifier, body_tok.clone())
+    );
+  });
+  AstExpr.FnCall(alloc_global_expr_id(), begin_atom, out_args, false, body_tok.clone())
+});
 export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_ghost);
 export(evaluate_ghost_fn, evaluate_old);
+export(wrap_function_body_with_contracts);

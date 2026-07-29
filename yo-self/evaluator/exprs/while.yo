@@ -16,7 +16,10 @@ open(import("std/string"));
   ast_expr_is_atom_of,
   ast_expr_is_fn_call_of,
   make_err_expr,
-  BK_COMPTIME
+  BK_COMPTIME,
+  BK_BEGIN,
+  BK_WHILE,
+  BF_INVARIANT
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -49,6 +52,90 @@ open(import("std/string"));
 /// Phase 2 stub: fixed at 10000 (no YO_MAX_COMPTIME_LOOP_ITERATIONS env var).
 /// Mirrors the `MAX_COMPTIME_LOOP_ITERATIONS` IIFE in `src/evaluator/exprs/while.ts`.
 MAX_COMPTIME_LOOP_ITERATIONS :: usize(10000);
+// ---------------------------------------------------------------------------
+// Phase 0 of plans/FORMAL_VERIFICATION.md §A2: loop invariants must appear as
+// the first statement of the loop body. 1:1 port of
+// `enforceLoopInvariantPlacement` / `walkForMisplacedInvariant`
+// (src/evaluator/exprs/while.ts:106-166).
+// ---------------------------------------------------------------------------
+/// Recursively reject any `invariant(...)` call inside an expression. Used to
+/// scan cond/match branches, nested begin blocks, and non-first statements.
+/// Does NOT descend into nested `while(...)` bodies — those are checked by
+/// their own `_enforce_loop_invariant_placement` call.
+_walk_for_misplaced_invariant :: (fn(expr : AstExpr, exn : Exception) -> unit)({
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    .Atom(_, _) => return(())
+  );
+  if(ast_expr_is_fn_call_of(expr, BF_INVARIANT, Option(usize).None), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          String.from("'invariant(...)' must be the first statement of the enclosing 'while(...)' loop body. It cannot appear inside cond/match branches, nested blocks, or as a non-first statement."),
+          false,
+          .None
+        )
+      )
+    );
+  });
+  if(ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None), {
+    return(());
+  });
+  (wi : usize) = usize(0);
+  while(wi < args.len(), {
+    match(
+      args.get(wi),
+      .Some(sub) => {
+        recur(sub, exn);
+      },
+      .None => ()
+    );
+    wi = (wi + usize(1));
+  });
+});
+/// Enforce that `invariant(...)` appears only as the first statement of a
+/// loop body.
+_enforce_loop_invariant_placement :: (fn(body_expr : AstExpr, exn : Exception) -> unit)({
+  stmts := cond(
+    ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None) => match(
+      body_expr,
+      .FnCall(_, _, a, _, _) => a,
+      .Atom(_, _) => ArrayList(AstExpr).new()
+    ),
+    true => {
+      single := ArrayList(AstExpr).new();
+      single.push(body_expr);
+      single
+    }
+  );
+  (si : usize) = usize(0);
+  while(si < stmts.len(), {
+    stmt := match(stmts.get(si),.Some(s) => s,.None => make_err_expr());
+    idx := si;
+    si = (si + usize(1));
+    is_inv := ast_expr_is_fn_call_of(stmt, BF_INVARIANT, Option(usize).None);
+    cond(
+      (is_inv && (idx == usize(0))) => (),
+      is_inv => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(stmt),
+              String.from("'invariant(...)' must be the first statement of a 'while(...)' loop body. Move this invariant to the top of the loop body, before any other statements."),
+              false,
+              .None
+            )
+          )
+        );
+      },
+      true => {
+        _walk_for_misplaced_invariant(stmt, exn);
+      }
+    );
+  });
+});
 // ---------------------------------------------------------------------------
 // Helper: _body_has_any_terminator_guaranteed / _body_has_any_terminator_possible
 // ---------------------------------------------------------------------------
@@ -161,6 +248,10 @@ evaluate_while :: (
     step_opt_inner := match(all_args.get(usize(1)),.Some(e) => e,.None => make_err_expr());
     step_expr_opt = Option(AstExpr).Some(step_opt_inner);
   });
+  // Phase 0 invariant-placement rule: inside a `while(...)` body,
+  // `invariant(...)` may only appear as the first statement of the loop body.
+  // See plans/FORMAL_VERIFICATION.md §A2 / while.ts:206-211.
+  _enforce_loop_invariant_placement(body_expr, exn);
   // Detect comptime() modifier on the condition.
   // Re-detected on each recursive call so the AST stays clean across evaluations.
   raw_cond_expr := match(all_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());

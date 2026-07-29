@@ -23,7 +23,7 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr, wrap_body_in_begin } :: import("../../expr.yo");
-{ copy_func_param_defaults, copy_func_param_default_exprs, copy_func_param_comptime, get_func_param_comptime, copy_func_return_type_expr, copy_macro_registration, get_func_variadic_param, copy_func_variadic_param, copy_func_where_constraints, get_func_where_constraints, WhereConstraintEntry } :: import("../types/function.yo");
+{ copy_func_param_defaults, copy_func_param_default_exprs, copy_func_param_comptime, get_func_param_comptime, copy_func_return_type_expr, copy_macro_registration, get_func_variadic_param, copy_func_variadic_param, copy_func_where_constraints, get_func_where_constraints, WhereConstraintEntry, get_func_requires_exprs, get_func_ensures_exprs, copy_func_contract_exprs } :: import("../types/function.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -35,7 +35,8 @@ open(import("std/string"));
 { Environment, add_variable_to_env, add_parameter_to_env, synthetic_token, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr } :: import("../../types/creators.yo");
-{ is_type_0, is_some_type } :: import("../../types/guards.yo");
+{ is_type_0, is_some_type, is_unit_type } :: import("../../types/guards.yo");
+{ wrap_function_body_with_contracts } :: import("../builtins/contracts.yo");
 { EvalValue, FuncValData, create_unknown_val, create_type_value } :: import("../../value.yo");
 { type_contains_some_type_for_codegen_param } :: import("../trait_checking.yo");
 {
@@ -493,7 +494,29 @@ try_to_implement_function_by_function_type :: (
           )
         );
       });
-      body_expr := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+      body_expr_raw := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+      // Phase 0 task #6 of plans/FORMAL_VERIFICATION.md: splice
+      // `assert(P, msg)` / `comptime_assert(P, msg)` calls into the body for
+      // each `requires(...)` / `ensures(...)` predicate declared in the
+      // signature. Must happen BEFORE the body is moved into the FuncVal (and
+      // before the def-time-eval clone below) so every downstream consumer —
+      // def-time eval, specialization, codegen — sees the wrapped body.
+      // The predicates ride the fn-type-expr-id side-table registered by
+      // `evaluate_function_type`; the callee slot of `(fn(...))(body)` IS that
+      // expr, the same key the `copy_*` re-keying below uses.
+      // Mirrors the wrap call at src/evaluator/calls/function-type.ts:402.
+      contract_key := match(
+        expr,
+        .FnCall(_, ck_ft_box, _, _, _) => ast_expr_id(ck_ft_box).to_string(),
+        .Atom(_, _) => String.from("")
+      );
+      body_expr := wrap_function_body_with_contracts(
+        body_expr_raw,
+        get_func_requires_exprs(contract_key.clone()),
+        get_func_ensures_exprs(contract_key.clone()),
+        result_is_comptime_only,
+        is_unit_type(result_box)
+      );
       // Build param_type_names: for each param type, use the SomeT name (for generic
       // binding at call time) if the param type is a generic type variable, else "".
       param_type_names := ArrayList(String).new();
@@ -657,6 +680,7 @@ try_to_implement_function_by_function_type :: (
           copy_func_variadic_param(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
           copy_macro_registration(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
           copy_func_where_constraints(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
+          copy_func_contract_exprs(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
         },
         .Atom(_, _) => ()
       );
