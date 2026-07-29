@@ -4,7 +4,10 @@
 # Defaults reproduce perf round 1 (920c2876d + a92e7c9a5).
 # The stage2 emit duration is the REAL metric for codegen rounds — derive it
 # from mtime(/tmp/$P_stage2.c) - mtime(/tmp/$P_std.log). Round-1 baseline:
-# stage2 46.8 min, stage3 37.9 min.
+# stage2 46.8 min, stage3 37.9 min. CURRENT (2026-07-29, after the emit-perf
+# rounds): stage2 3.4 min, stage3 3.5 min, WHOLE CHAIN ~15 min (battery ~6,
+# corpus ~3.5, check ./std 0.5). Do not quote the round-1 numbers as the cost
+# of a gate run.
 set -u
 cd /Users/yiyiwang/Workspace/Yo || exit 2
 S1=${S1:-/tmp/port_s1}

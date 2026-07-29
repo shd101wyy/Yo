@@ -3625,6 +3625,7 @@ try_to_call_function_with_arguments :: (
         regular_start = usize(1);
       });
       // For method calls, generic may appear at index 1 (self is at 0).
+      (skip_arg_idx : Option(usize)) = Option(usize).None;
       if((!(has_f0)) && (is_method_call && (arg_exprs.len() > usize(1))), {
         has_f1 := match(
           arg_exprs.get(usize(1)),
@@ -3634,7 +3635,14 @@ try_to_call_function_with_arguments :: (
         if(has_f1, {
           fa1 := match(arg_exprs.get(usize(1)),.Some(a) => a,.None => make_err_expr());
           forall_args_opt =.Some(_h_get_fn_call_args(fa1));
-          // Phase 3: no arg reordering needed; self is still at adjusted_args[0].
+          // The `generic(...)` node must be REMOVED from the middle of the
+          // regular-arg list, keeping the receiver at index 0 — TS does
+          // `argExprs = [argExprs[0]!, ...argExprs.slice(2)]`
+          // (src/evaluator/calls/helper.ts:956). Leaving it in shifted every
+          // parameter association by one (and pushed the type argument into
+          // the emitted C call), so `container.map(generic(B), f)` never
+          // type-checked (tests/higher_kinded_types.test.yo:91).
+          skip_arg_idx = Option(usize).Some(usize(1));
         });
       });
       // ----------------------------------------------------------------
@@ -3646,10 +3654,13 @@ try_to_call_function_with_arguments :: (
       (ai : usize) = regular_start;
       while(ai < n_total, {
         a := match(arg_exprs.get(ai),.Some(x) => x,.None => make_err_expr());
-        if(ast_expr_is_fn_call_of(a, "using", Option(usize).None), {
-          using_args_opt =.Some(_h_get_fn_call_args(a));
-        }, {
-          adjusted_args.push(a);
+        is_skipped_forall := match(skip_arg_idx,.Some(si) => (si == ai),.None => false);
+        if(!(is_skipped_forall), {
+          if(ast_expr_is_fn_call_of(a, "using", Option(usize).None), {
+            using_args_opt =.Some(_h_get_fn_call_args(a));
+          }, {
+            adjusted_args.push(a);
+          });
         });
         ai = (ai + usize(1));
       });

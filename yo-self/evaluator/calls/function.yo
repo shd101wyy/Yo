@@ -480,7 +480,8 @@ _trial_call_overload_candidate :: (
     args : ArrayList(AstExpr),
     callee_env : Environment,
     ctx : EvalContext,
-    ok_out : ArrayList(bool)
+    ok_out : ArrayList(bool),
+    conc_out : ArrayList(bool)
   ) -> unit
 )({
   trial_exn := Exception(throw : ((_err) -> unwind(())));
@@ -512,6 +513,39 @@ _trial_call_overload_candidate :: (
     true,
     trial_exn
   );
+  // Report whether EVERY argument evaluated to a comptime LITERAL value during
+  // this trial (`IntLit` / `FloatLit` / `StrLit`). The comptime-candidate
+  // preference below only applies then — see the DEVIATION note at that site
+  // for why the bootstrap cannot yet honour the language's
+  // comptime-beats-runtime rule for every operand shape. Reading the CLONES
+  // keeps the real exprs' ExprInfo untouched.
+  {
+    (all_conc : bool) = true;
+    (cci : usize) = usize(0);
+    while(cci < cloned_args.len(), {
+      ca := match(cloned_args.get(cci),.Some(x) => x,.None => make_err_expr());
+      ca_conc := match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(ca)),
+        .Some(cinfo) => match(
+          cinfo.value,
+          .Some(cv) => match(
+            cv,
+            .IntLit(_) => true,
+            .FloatLit(_) => true,
+            .StrLit(_) => true,
+            _ => false
+          ),
+          .None => false
+        ),
+        .None => false
+      );
+      if(!(ca_conc), {
+        all_conc = false;
+      });
+      cci = (cci + usize(1));
+    });
+    conc_out.push(all_conc);
+  };
   ok_out.push(true);
 });
 /// Build the C-call argument list for a receiver method candidate: prepend the
@@ -581,7 +615,7 @@ _select_matching_overload :: (
         .Some(cv) => {
           trial_args := _build_receiver_call_args(base.is_static, cand.needs_pointer_conversion, base.receiver_expr.clone(), args);
           ok := ArrayList(bool).new();
-          _trial_call_overload_candidate(cv, cand.ty, func_expr.clone(), func_expr.clone(), trial_args, env, ctx, ok);
+          _trial_call_overload_candidate(cv, cand.ty, func_expr.clone(), func_expr.clone(), trial_args, env, ctx, ok, ArrayList(bool).new());
           if(ok.len() > usize(0), {
             sel = Option(ReceiverMethodResult).Some(
               ReceiverMethodResult(
@@ -764,14 +798,19 @@ _try_expand_call_overload :: (
   old_checking_ph := ctx.is_in_function_call_checking_phase;
   ctx.is_in_function_call_checking_phase = true;
   successes := ArrayList(usize).new();
+  foldable := ArrayList(usize).new();
   (cand_i : usize) = usize(0);
   while(cand_i < cand_vals.len(), {
     cv2 := match(cand_vals.get(cand_i),.Some(v) => v,.None => EvalValue.UnitVal);
     ct2 := match(cand_tys.get(cand_i),.Some(t) => t,.None => t_unit());
     ok_out := ArrayList(bool).new();
-    _trial_call_overload_candidate(cv2, ct2, call_expr, func_expr, args, env, ctx, ok_out);
+    conc_out := ArrayList(bool).new();
+    _trial_call_overload_candidate(cv2, ct2, call_expr, func_expr, args, env, ctx, ok_out, conc_out);
     if(ok_out.len() > usize(0), {
       successes.push(cand_i);
+      if(match(conc_out.get(usize(0)),.Some(c) => c,.None => false), {
+        foldable.push(cand_i);
+      });
     });
     cand_i = (cand_i + usize(1));
   });
@@ -779,10 +818,61 @@ _try_expand_call_overload :: (
   if(successes.len() == usize(0), {
     return(());
   });
+  // PRIMARY rule (TS function.ts:1737-1751): a COMPTIME-RETURNING candidate
+  // wins outright when exactly one survives — "Comptime function call has
+  // higher priority than normal function call. So this way we eagerly
+  // evaluate the function call that can be done at the compile-time."
+  // The prelude's operator modules list the RUNTIME overload FIRST
+  // (`Call :: (neg, comptime_neg)`), so without this rule `-(50.75)` selected
+  // the runtime `neg`; its return `_Self` binds to the literal's default
+  // RUNTIME type (comptime_float lowered to f64 for a non-comptime param), and
+  // a runtime-return call yields an `UnknownVal` without executing its body —
+  // `f64(-(50.75))` then died with "Got runtime value. Please consider using
+  // ':=' instead of '::'" (tests/comptime.test.yo arms 1-5 / 8-11, whose whole
+  // batch dispatch went hollow because the def-eval aborted there).
+  // BOOTSTRAP-ONLY NARROWING (tracked in
+  // issues/yo-self-comptime-overload-preference.md): the rule above is applied
+  // only to candidates whose trial reported every operand a comptime LITERAL
+  // (`IntLit`/`FloatLit`/`StrLit`) — the operand class TS's own second tiebreak
+  // is written for (`3 > 4`: "prefer fn(comptime_int, comptime_int) -> bool").
+  // Two yo-self gaps block the unrestricted rule, and both produced BROKEN C
+  // (an FTT comment INSIDE the enclosing expression) when it was applied
+  // verbatim:
+  //   1. yo-self's comptime route attaches no `runtime_arg_exprs_in_order`, so
+  //      a preferred comptime candidate whose CTFE cannot fold leaves codegen
+  //      nothing to emit. TS keeps emitting the ordinary call in that case
+  //      (measured: `!((s.is_empty)())` in tests/imm_string.test.yo — a runtime
+  //      call result is an ordinary, NOT runtime-only, UnknownVal in BOTH
+  //      compilers, so neither TS's `hasRuntimeUnknownArg` guard
+  //      (function.ts:1734) nor the trial filter rejects the candidate).
+  //   2. `!((Var.is_owning_the_rc_value)(x))` inside the `iso(...)` macro
+  //      expansion (measured: tests/iso, tests/rc). The operand's value LOOKS
+  //      concrete (a `BoolVal` from the `__yo_var_is_owning_the_rc_value`
+  //      builtin), yet preferring the comptime overload still produced an FTT
+  //      where the runtime overload had folded the whole `cond` chain. Not yet
+  //      isolated — the same shape written by hand folds fine, so it is
+  //      context-dependent.
+  // Removing the narrowing is gated on (1) — attach the runtime arg exprs +
+  // result temp on a non-folding comptime result, exactly as the infix-operator
+  // block does at its `op_result_is_runtime` branch — and on identifying (2).
+  ct_successes := ArrayList(usize).new();
+  {
+    (csi : usize) = usize(0);
+    while(csi < foldable.len(), {
+      s_ct_idx := match(foldable.get(csi),.Some(i) => i,.None => usize(0));
+      s_ct_ty := match(cand_tys.get(s_ct_idx),.Some(t) => t,.None => t_unit());
+      if(match(s_ct_ty,.Func({ meta : __sm1 }) => __sm1.*.result_is_comptime_only, _ => false), {
+        ct_successes.push(s_ct_idx);
+      });
+      csi = (csi + usize(1));
+    });
+  };
   // Tiebreak (TS function.ts:1664-1681): among multiple matches prefer the
   // single candidate with comptime parameter types, if exactly one exists.
   (winner_idx : usize) = match(successes.get(usize(0)),.Some(i) => i,.None => usize(0));
-  if(successes.len() > usize(1), {
+  if(ct_successes.len() == usize(1), {
+    winner_idx = match(ct_successes.get(usize(0)),.Some(i) => i,.None => winner_idx);
+  }, if(successes.len() > usize(1), {
     comptime_hits := ArrayList(usize).new();
     (si : usize) = usize(0);
     while(si < successes.len(), {
@@ -812,7 +902,7 @@ _try_expand_call_overload :: (
     if(comptime_hits.len() == usize(1), {
       winner_idx = match(comptime_hits.get(usize(0)),.Some(i) => i,.None => winner_idx);
     });
-  });
+  }));
   winner_val := match(cand_vals.get(winner_idx),.Some(v) => v,.None => EvalValue.UnitVal);
   winner_ty := match(cand_tys.get(winner_idx),.Some(t) => t,.None => t_unit());
   // Overwrite the callee's ExprInfo with the winner so the FuncVal arm of
