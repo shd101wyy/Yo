@@ -55,6 +55,26 @@ nothing below needs re-litigating._
   `scratchpad/gates_perf1.sh` (stage2 46.8 min) are historical, do not quote
   them when planning.
 
+- **2026-07-30: HONEST SCORE 156 GREEN / 21 HOLLOW / 8 RED** (185 files;
+  `/tmp/hs_final/results.txt`, measured on `efbf4d0eb`). The HOLLOW and RED SETS
+  are byte-identical to the previous sweep — the +2 GREEN are the two new test
+  files. So this round moved ARMS, not whole files: `tests/comptime.test.yo` needs
+  BOTH of its last two arms (22 and 26) before it flips. The one earlier
+  discrepancy is settled: `impl_fn_field_rejection` fails identically under the
+  pre-session binary, so the older "155/21/7" record was a measurement
+  difference, not a regression.
+
+  Round total: 11 of `tests/comptime.test.yo`'s 13 originally-failing arms fixed
+  across `f9ad9a121` (comptime-overload preference + int-overflow check),
+  `2f7d2d9f4` (unsigned-domain overflow), `4e9cfc2dd` (comptime pointer places),
+  `efbf4d0eb` (runtime-only call results) and the operator no-match widening.
+  Remaining: arm 22 (`issues/yo-self-comptime-pointer-place.md` Stage 2 — TS's
+  shared-cell `PtrValue.targetValue: [Value]` / `Variable.value: Value[]`) and
+  arm 26 (`issues/yo-self-cee-in-function-body.md` — the trait-field
+  comptime-return validation is written but rejects the prelude's own
+  `ComptimeNegate`; blocked on where-clause constraint VISIBILITY, next step
+  recorded there).
+
 - **2026-07-29: ASSOCIATED-TYPE REGISTRATION FIX (`0226c4865`) —
   score 155 GREEN / 21 HOLLOW / 7 RED.** THE foundational fix under three
   symptom families: `_substitute_self_in_method_ty` mapped only `Self`,

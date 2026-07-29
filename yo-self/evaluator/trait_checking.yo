@@ -1709,6 +1709,33 @@ find_some_type_missing_comptime_constraint :: (
               });
               i = (i + usize(1));
             });
+            // TS checks the WHERE-CLAUSE constraints too
+            // (trait-checking.ts:696-704 ->
+            // `getWhereClauseConstraintsForSomeType`). A constraint written as
+            // `where(Self.Output <: Comptime)` lives in the env frame, NOT on
+            // the SomeType's own `required_trait_types`, so omitting this step
+            // rejected the prelude's own `ComptimeNegate` (whose `neg` returns
+            // `comptime(Self.Output)` under exactly that where clause).
+            if(!(has_comptime), {
+              match(
+                get_where_clause_constraints_for_some_type(env, ty.clone()),
+                .Some(wcc) => {
+                  wc_reqs := wcc.required_traits;
+                  (wi : usize) = usize(0);
+                  while(wi < wc_reqs.len(), {
+                    match(
+                      wc_reqs.get(wi),
+                      .Some(wc_t) => if(_trait_type_id(wc_t) == _trait_type_id(comptime_trait), {
+                        has_comptime = true;
+                      }),
+                      .None => ()
+                    );
+                    wi = (wi + usize(1));
+                  });
+                },
+                .None => ()
+              );
+            });
             if(!(has_comptime), {
               return(Option(TypeValue).Some(ty));
             });

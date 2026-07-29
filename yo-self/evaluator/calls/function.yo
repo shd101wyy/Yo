@@ -2204,7 +2204,20 @@ evaluate_function_call :: (
     // receiver is `unit` (5), a bare SomeT `T` (2) or an anonymous struct (1) —
     // never a primitive. Those three shapes still fall through, so generic and
     // def-time contexts are untouched.
-    if((op_methods.len() == usize(0)) && (is_primitive_type(receiver_ty) && !(is_unit_type(receiver_ty))), {
+    //
+    // TYPE-HIERARCHY receivers are in the hard-error set too. `i32 == i32`
+    // compares two TYPES: the receiver is `TypeUni`, the prelude gives `Type`
+    // only `impl(Type, Comptime())` plus the module fns `Type.eq`/`Type.neq`
+    // (no `Eq(Type)` impl), and `is_primitive_type` has no `.TypeUni` case — so
+    // the call fell through to the callee-atom soft fallback and produced an
+    // `UnknownVal(unit)` instead of throwing as TS does (function.ts:1776/1827
+    // "No matching call found with arguments:"). A `comptime_expect_error`
+    // wrapped around it then saw no error, and its own throw was swallowed by
+    // the def-time trial wall, hollowing the batch
+    // (tests/comptime.test.yo arms 26/27,
+    // issues/yo-self-cee-in-function-body.md). `TypeUni` was never in the
+    // measured sample above.
+    if((op_methods.len() == usize(0)) && ((is_primitive_type(receiver_ty) && !(is_unit_type(receiver_ty))) || is_type_hierarchy_type(receiver_ty)), {
       exn.throw(
         dyn(
           format_error_message(
