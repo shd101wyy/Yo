@@ -64,7 +64,7 @@ open(import("std/fmt"));
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator } :: import("../../token.yo");
-{ EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val } :: import("../../value.yo");
+{ EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, create_runtime_unknown_val_with_name } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
 { attach_temp_variable_to_expr, set_expr_as_consumed, set_expr_as_needs_to_call_dup, parse_raw_int } :: import("../utils.yo");
 {
@@ -127,10 +127,22 @@ MACRO_DISPATCH_ENABLED :: true;
 /// type-expecting builtin in TS; in yo-self `types.first()` on an unknown
 /// variadic ComptimeList(Type) did exactly that
 /// (tests/variadic_comptime.test.yo). Template-free name (hot path).
+/// RUNTIME-ONLY, because that is what TS models: a call whose return type is not
+/// `comptime(...)` leaves `expr.$.value` UNDEFINED (helper.ts:1752 assigns
+/// `returnValue` only inside `if (functionType.return.isCompileTimeOnly)`).
+/// yo-self carries a placeholder instead, so the flag has to say "TS would have
+/// had no value here" — otherwise the ported "Cannot assign runtime argument to
+/// compile-time parameter" check (helper.yo, <- helper.ts:467-478) cannot fire
+/// and the operator modules' COMPTIME overload wrongly type-checks against a
+/// runtime operand (`!((s.is_empty)())` selecting `comptime_not`, whose only
+/// parameter is `comptime(self)`, then emits a 0-argument call to an undeclared
+/// comptime helper). TS hit exactly this and applied exactly this remedy for
+/// `recur` — recur.ts:90-107 and
+/// issues/fixed/recur-runtime-result-not-marked-runtime-only.md.
 _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
   nm := String.from("call_result_");
   nm.push_string(random_id(env.module_path));
-  create_unknown_val_with_name(ty, nm)
+  create_runtime_unknown_val_with_name(ty, nm)
 });
 { format_error_message } :: import("../../error.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places } :: import("../../types/flowability.yo");
@@ -514,11 +526,9 @@ _trial_call_overload_candidate :: (
     trial_exn
   );
   // Report whether EVERY argument evaluated to a comptime LITERAL value during
-  // this trial (`IntLit` / `FloatLit` / `StrLit`). The comptime-candidate
-  // preference below only applies then — see the DEVIATION note at that site
-  // for why the bootstrap cannot yet honour the language's
-  // comptime-beats-runtime rule for every operand shape. Reading the CLONES
-  // keeps the real exprs' ExprInfo untouched.
+  // this trial (`IntLit` / `FloatLit` / `StrLit`). See the note at the
+  // preference site for the ONE remaining shape that still needs this gate.
+  // Reading the CLONES keeps the real exprs' ExprInfo untouched.
   {
     (all_conc : bool) = true;
     (cci : usize) = usize(0);
@@ -830,31 +840,31 @@ _try_expand_call_overload :: (
   // `f64(-(50.75))` then died with "Got runtime value. Please consider using
   // ':=' instead of '::'" (tests/comptime.test.yo arms 1-5 / 8-11, whose whole
   // batch dispatch went hollow because the def-eval aborted there).
-  // BOOTSTRAP-ONLY NARROWING (tracked in
-  // issues/yo-self-comptime-overload-preference.md): the rule above is applied
+  // The trial filter above now carries most of the weight: a comptime candidate
+  // whose `comptime(...)` parameter is fed a RUNTIME argument fails its trial
+  // (helper.yo's "Cannot assign runtime argument to compile-time parameter", a
+  // port of helper.ts:467-478), because runtime call results are marked
+  // RUNTIME-ONLY (`_call_result_unknown`) — the remedy TS applied for the same
+  // symptom in issues/fixed/recur-runtime-result-not-marked-runtime-only.md.
+  // That alone fixed `!((s.is_empty)())` (tests/imm_string, imm_list, prelude).
+  // TS's extra `hasRuntimeUnknownArg` guard (function.ts:1734) cannot be
+  // expressed here — each trial evaluates its own fresh-id arg CLONES, so there
+  // is no shared evaluated-arg list — and is subsumed by that filter.
+  //
+  // ONE shape still needs the operand gate below, so the preference is applied
   // only to candidates whose trial reported every operand a comptime LITERAL
-  // (`IntLit`/`FloatLit`/`StrLit`) — the operand class TS's own second tiebreak
-  // is written for (`3 > 4`: "prefer fn(comptime_int, comptime_int) -> bool").
-  // Two yo-self gaps block the unrestricted rule, and both produced BROKEN C
-  // (an FTT comment INSIDE the enclosing expression) when it was applied
-  // verbatim:
-  //   1. yo-self's comptime route attaches no `runtime_arg_exprs_in_order`, so
-  //      a preferred comptime candidate whose CTFE cannot fold leaves codegen
-  //      nothing to emit. TS keeps emitting the ordinary call in that case
-  //      (measured: `!((s.is_empty)())` in tests/imm_string.test.yo — a runtime
-  //      call result is an ordinary, NOT runtime-only, UnknownVal in BOTH
-  //      compilers, so neither TS's `hasRuntimeUnknownArg` guard
-  //      (function.ts:1734) nor the trial filter rejects the candidate).
-  //   2. `!((Var.is_owning_the_rc_value)(x))` inside the `iso(...)` macro
-  //      expansion (measured: tests/iso, tests/rc). The operand's value LOOKS
-  //      concrete (a `BoolVal` from the `__yo_var_is_owning_the_rc_value`
-  //      builtin), yet preferring the comptime overload still produced an FTT
-  //      where the runtime overload had folded the whole `cond` chain. Not yet
-  //      isolated — the same shape written by hand folds fine, so it is
-  //      context-dependent.
-  // Removing the narrowing is gated on (1) — attach the runtime arg exprs +
-  // result temp on a non-folding comptime result, exactly as the infix-operator
-  // block does at its `op_result_is_runtime` branch — and on identifying (2).
+  // (`IntLit`/`FloatLit`/`StrLit`), the operand class TS's own second tiebreak
+  // is written for (`3 > 4`). The holdout is a RUNTIME binding whose operand is a
+  // CONCRETE comptime query:
+  //     x := Box(i32)(99);
+  //     b := !(Var.is_owning_the_rc_value(x));   // broken C without the gate
+  //     b :: !(Var.is_owning_the_rc_value(x));   // folds either way
+  // `Var.is_owning_the_rc_value` is a macro in std/prelude.yo wrapping the
+  // `__yo_var_is_owning_the_rc_value` builtin, so the operand's value IS
+  // concrete and the trial rightly accepts the comptime candidate — but its CTFE
+  // then produces nothing emittable in a runtime position (it reaches codegen
+  // through the `iso(...)` macro's `cond` guard in tests/iso and tests/rc).
+  // Tracked in issues/yo-self-comptime-overload-preference.md.
   ct_successes := ArrayList(usize).new();
   {
     (csi : usize) = usize(0);

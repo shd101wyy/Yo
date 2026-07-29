@@ -883,6 +883,22 @@ create_unknown_val_with_name :: (fn(ty : TypeValue, name : String) -> EvalValue)
     true => EvalValue.UnknownVal(ty, false)
   )
 );
+/// `create_unknown_val_with_name`, but RUNTIME-ONLY: the placeholder stands for a
+/// value that only exists at run time. TS has no such value at all — a call whose
+/// return is not `comptime(...)` leaves `expr.$.value` UNDEFINED
+/// (`helper.ts:1752`, assigned only inside `if (functionType.return.isCompileTimeOnly)`)
+/// — so the flag is yo-self's marker for "TS would have had no value here", and it
+/// is what makes the ported "Cannot assign runtime argument to compile-time
+/// parameter" check (helper.yo, ← helper.ts:467-478) fire. TS applies exactly this
+/// remedy for the same symptom at `recur.ts:90-107`
+/// (issues/fixed/recur-runtime-result-not-marked-runtime-only.md).
+create_runtime_unknown_val_with_name :: (fn(ty : TypeValue, name : String) -> EvalValue)(
+  cond(
+    is_type_0(ty) =>
+      EvalValue.TypeVal(t_some_t(name, usize(0))),
+    true => EvalValue.UnknownVal(ty, true)
+  )
+);
 /// The result of evaluating a single `AstExpr` node.
 EvalResult :: ref(
   struct(
@@ -964,7 +980,8 @@ export(
   is_type_value,
   create_unknown_val,
   create_runtime_unknown_val,
-  create_unknown_val_with_name
+  create_unknown_val_with_name,
+  create_runtime_unknown_val_with_name
 );
 export(eval_value_eq);
 // ---------------------------------------------------------------------------

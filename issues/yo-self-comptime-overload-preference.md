@@ -178,6 +178,46 @@ generic operator modules whose parameter types are the SomeT `_Self`.
 `_trial_call_overload_candidate` gained a `conc_out` out-param that reads the
 CLONED args' ExprInfo after the trial, so the real exprs stay untouched.
 
+## The `is_empty` half is now fixed at its real root
+
+yo-self gave every RUNTIME call result an ordinary, NON-runtime-only
+`UnknownVal` (`_call_result_unknown`), where TS leaves `expr.$.value`
+**undefined** for any call whose return is not `comptime(...)`
+(`helper.ts:1752` assigns `returnValue` only inside
+`if (functionType.return.isCompileTimeOnly)`). That is why yo-self's otherwise
+verbatim port of "Cannot assign runtime argument to compile-time parameter"
+(helper.yo ← helper.ts:467-478) accepted `(s.is_empty)()` for
+`comptime(self)`: TS FAILS that trial and therefore never even considers the
+comptime overload.
+
+Marking runtime call results runtime-only is exactly the remedy TS applied for
+the same symptom in `recur.ts:90-107` — its comment names this bug:
+
+> Otherwise overload resolution at the call site of `recur(...)` may incorrectly
+> prefer a comptime overload (e.g. `comptime_not` over runtime `not` for
+> `!recur(...)`), producing malformed C with a 0-arg comptime function call.
+
+(see `issues/fixed/recur-runtime-result-not-marked-runtime-only.md`.) With the
+marking in place, `tests/imm_string`, `tests/imm_list` and `tests/prelude` are
+green even with the preference applied to EVERY survivor — measured.
+
+**One holdout keeps the literal gate**, and it is not a runtime operand at all:
+
+```rust
+x := Box(i32)(99);
+b := !(Var.is_owning_the_rc_value(x));   // RUNTIME binding → broken C
+b :: !(Var.is_owning_the_rc_value(x));   // comptime binding → folds
+```
+
+The operand's value IS concrete (a `BoolVal` from the
+`__yo_var_is_owning_the_rc_value` builtin, reached through the std/prelude macro),
+so the trial rightly accepts the comptime candidate — but in a RUNTIME position
+its CTFE yields nothing emittable. That reaches codegen through the `iso(...)`
+macro's `cond` guard, which is why `tests/iso` and `tests/rc` were the files that
+caught it. Next step for removing the gate entirely: find why that CTFE does not
+fold in a runtime position (bisected to arm 2 of `tests/iso.test.yo`,
+`isolated := ^(x)`).
+
 **To remove the narrowing** (the language rule is that a comptime call always
 wins — `1 + 2` must fold to `3`), fix the single blocker: when a
 comptime-preferred call's CTFE does NOT fold, attach
