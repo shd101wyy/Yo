@@ -65,6 +65,7 @@ open(import("std/string"));
 { is_some_type, is_function_type, is_expr_type } :: import("../../types/guards.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, subst_set_self, substitute } :: import("../../types/substitution.yo");
+{ get_all_some_types } :: import("../../types/utils.yo");
 { random_id } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
 { EvalValue, FuncValData, create_type_value } :: import("../../value.yo");
@@ -1422,6 +1423,58 @@ _find_self_level_in_method_ty :: (
     _ => Option(usize).None
   )
 );
+/// Substitute a trait entry's already-evaluated ASSOCIATED TYPES (e.g.
+/// `Output : i32`) into a method's function type, alongside the `Self`
+/// substitution below. TS evaluates `Self.Output` at impl registration
+/// with the entry's bindings in scope, so its stored method type carries
+/// the CONCRETE type; yo-self's trait-definition eval leaves an `Output`
+/// SomeT in the stored type, which (a) keeps every call-site return
+/// resolution symbolic (`ret_b=Output`, 539× in an 8-line io.async
+/// program), and (b) lets Step-10 expected-synthesis POLLUTE the callee
+/// env: the unresolved `Output` unifies with the caller's ambient expected
+/// SomeT and the return re-eval launders the caller's `_ret` into the call
+/// result (issues/yo-self-io-async-return-binop-void.md).
+_substitute_assoc_in_method_ty :: (
+  fn(
+    method_ty : TypeValue,
+    labels : ArrayList(String),
+    types : ArrayList(TypeValue)
+  ) -> TypeValue
+)({
+  if(labels.len() == usize(0), {
+    return(method_ty);
+  });
+  somes := get_all_some_types(method_ty);
+  s := subst_new();
+  (n_added : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < somes.len(), {
+    match(
+      somes.get(i),
+      .Some(st) => match(
+        st,
+        .SomeT(_, snm, slvl, _, _, _, _, _, _, _, _) => {
+          (j : usize) = usize(0);
+          while(j < labels.len(), {
+            lbl := match(labels.get(j),.Some(l) => l,.None => String.from(""));
+            if(lbl == snm, {
+              subst_add(s, snm.clone(), slvl, match(types.get(j),.Some(t) => t,.None => t_unit()));
+              n_added = (n_added + usize(1));
+            });
+            j = (j + usize(1));
+          });
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(n_added == usize(0), {
+    return(method_ty);
+  });
+  substitute(s, method_ty)
+});
 /// Substitute the trait's `Self` type variable with the concrete receiver
 /// type throughout a method's function type. This mirrors TS's
 /// `SelfType: receiverType` substitution at impl registration: the stored
@@ -2526,7 +2579,18 @@ evaluate_module_value :: (
               // substitution at impl registration.
               expected_method_ty_resolved := match(
                 expected_method_ty,
-                .Some(t) => Option(TypeValue).Some(_substitute_self_in_method_ty(t, receiver_ty)),
+                // Also substitute the entry's already-evaluated associated
+                // types (Output : i32 etc., accumulated in field order in
+                // ctx.current_impl_trait_field_labels/types) so the lambda's
+                // registered type carries the CONCRETE return, mirroring TS
+                // registration — see _substitute_assoc_in_method_ty.
+                .Some(t) => Option(TypeValue).Some(
+                  _substitute_assoc_in_method_ty(
+                    _substitute_self_in_method_ty(t, receiver_ty),
+                    ctx.current_impl_trait_field_labels,
+                    ctx.current_impl_trait_field_types
+                  )
+                ),
                 .None => Option(TypeValue).None
               );
               saved2 := ctx.expected_type;
