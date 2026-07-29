@@ -6,6 +6,37 @@ nothing below needs re-litigating._
 
 ## Where things stand
 
+- **2026-07-29: BATCH CAMPAIGN — all 42 failing files root-caused by
+  MEASUREMENT, not inspection. Score 145 GREEN / 27 HOLLOW / 11 RED
+  (`e798f7ff4`, TIER 2 green incl. FIXPOINT).** Two tools now do the
+  triage, both committed:
+
+  - `scratchpad/capture_markers.sh` — runs each failing file ONCE, serially,
+    saving its batch `.c` + log to an output dir so many readers can work the
+    evidence concurrently. Necessary because `YO_KEEP_BATCH=1` writes
+    `.yo_selftest_batch_*` into the TEST FILE'S OWN DIRECTORY: two `test`
+    invocations in one directory clobber each other's artifacts (this has
+    already caused phantom-hollow readings once).
+  - `scratchpad/swallow_sweep.sh` — sweeps a PROBE-INSTRUMENTED s1 to recover
+    the SWALLOWED def-time error per hollow file. This is the only thing that
+    works: a hollow file's single `Failed to transpile` marker IS the whole
+    batch dispatch expression, so the marker text names nothing.
+    **Always take a GREEN-file NOISE BASELINE and subtract it** — `Incompatible
+types:`, `Failed to evaluate right-hand side of assignment:
+(reversed._head)`, `use of moved value` and the universal
+    `__yo_expr_to_string` `__DBG_A` all occur in PASSING files, and
+    imm_map/imm_set inherit two of them from imm_string. Four candidate "root
+    causes" were disqualified this way.
+
+  Full map (every RED family + every hollow file's real blocker + the noise
+  table + the reproduction recipe): `issues/yo-self-hollow-root-cause-map.md`.
+  Landed from it so far: the `___dispose` deep-SomeT filter (4 RED→GREEN:
+  btree_map, ordered_map, priority_queue, sync/channel) and the
+  `comptime_str`→`*(u8)` assignment coercion (string/string, sys/file).
+  **LESSON: error shape ≠ root cause.** All five `call to undeclared function`
+  files looked like one family; `index` had a SECOND independent root (the
+  unported ComptimeIndex dispatch) and went RED→HOLLOW, not GREEN.
+
 - **2026-07-29: for_macro_borrow RED→GREEN — the begin shared-id clobber
   dropped `is_index_trait_address_of`. Score 141 GREEN / 26 HOLLOW / 16
   RED.** `evaluate_begin_expression` wraps a NON-begin expr (an unbraced

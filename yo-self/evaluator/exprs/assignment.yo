@@ -72,6 +72,7 @@ open(import("std/string"));
 } :: import("../../types/guards.yo");
 {
   convert_comptime_type_to_runtime_type,
+  convert_comptime_type_to_runtime_type_with_expected,
   get_value_of_some_type_from_env
 } :: import("../../types/env_lookup.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
@@ -446,7 +447,26 @@ evaluate_assignment :: (
     // Step 4 — Type compatibility check
     (prop_rhs_type : TypeValue) = prop_rhs_info.ty;
     if(!((is_comptime_int_type(expected_ty) || is_comptime_float_type(expected_ty)) || is_comptime_string_type(expected_ty)), {
-      prop_rhs_type = convert_comptime_type_to_runtime_type(prop_rhs_type, env);
+      // Pass the EXPECTED type: TS threads `expectedType: expectedType`
+      // (assignment.ts:976-982) so a `comptime_str` assigned into a `*(u8)` /
+      // `*(char)` target converts to THAT pointer type rather than defaulting
+      // to `str` (types/utils.ts:963-979). Without the hint the check below
+      // compares `*(u8)` against `str` and rejects
+      // `(path : *(u8)) = "…"` — the C-string-literal form.
+      prop_rhs_type = convert_comptime_type_to_runtime_type_with_expected(
+        prop_rhs_type,
+        Option(TypeValue).Some(expected_ty),
+        env
+      );
+      // TS also passes `expr: rhs`, and the helper stores the result on
+      // `expr.$.convertedRuntimeType` (types/utils.ts:985-988). Codegen needs
+      // it: generate_comptime_value emits a StrLit as the `__yo_str` struct
+      // when the type it is handed is str/comptime_str, and as a bare C string
+      // literal otherwise — so without this a `*(u8)` target still gets the
+      // struct form and the C assignment is ill-typed.
+      if((is_comptime_int_type(prop_rhs_info.ty) || is_comptime_float_type(prop_rhs_info.ty)) || is_comptime_string_type(prop_rhs_info.ty), {
+        prop_rhs_info.converted_runtime_type = Option(TypeValue).Some(prop_rhs_type.clone());
+      });
     });
     if(!(are_types_compatible(expected_ty, prop_rhs_type)), {
       exp_str := type_to_string(expected_ty);
@@ -916,7 +936,19 @@ evaluate_assignment :: (
   (rhs_type : TypeValue) = rhs_info.ty;
   // Convert comptime types to runtime types when the variable is not comptime-only.
   if(!(variable.is_compile_time_only), {
-    rhs_type = convert_comptime_type_to_runtime_type(rhs_type, env);
+    // Expected-type-aware (TS assignment.ts:360-366 passes
+    // `expectedType: variable.type`): a `comptime_str` assigned to a
+    // `*(u8)` / `*(char)` variable becomes that pointer type, not `str`.
+    rhs_type = convert_comptime_type_to_runtime_type_with_expected(
+      rhs_type,
+      Option(TypeValue).Some(variable.ty),
+      env
+    );
+    // Mirror TS's `expr: rhs` side-effect (types/utils.ts:985-988) — see the
+    // property-assignment site above for why codegen needs it.
+    if((is_comptime_int_type(rhs_info.ty) || is_comptime_float_type(rhs_info.ty)) || is_comptime_string_type(rhs_info.ty), {
+      rhs_info.converted_runtime_type = Option(TypeValue).Some(rhs_type.clone());
+    });
   });
   // Type-compatibility check.
   if(!(are_types_compatible(variable.ty, rhs_type)), {
