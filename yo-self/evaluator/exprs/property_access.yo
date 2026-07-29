@@ -535,10 +535,30 @@ Raw pointer operations may dereference invalid memory.`,
             .Some(ov_deref) => {
               match(
                 ov_deref,
-                .PtrVal(target_box, _) => {
+                .PtrVal(target_box, ptr_tgt_idx) => {
                   // Compile-time pointer: dereference to the pointed-to value.
+                  // TS indexes the target when it is an aggregate —
+                  // `dereferencedValue = target.elements[objectValue.targetIndex]`
+                  // (property-access.ts:329-334) — and stamps
+                  // `ptrTargetValue`/`ptrTargetIndex` so a later `p.* = v` has a
+                  // place to write (consumed by assignment.ts:1150-1173).
+                  // yo-self dropped the index, so `p.*` read the whole
+                  // aggregate and `p.* = v` had no place at all; its
+                  // `ComptimeRef.ArrayRef(elements, index)` IS that pair, and
+                  // assignment.yo's Step 6 already consumes it.
+                  (deref_val : EvalValue) = target_box;
+                  (deref_place : Option(ComptimeRef)) = Option(ComptimeRef).None;
+                  match(
+                    target_box,
+                    .ArrayVal(deref_elems) => {
+                      deref_val = match(deref_elems.get(ptr_tgt_idx),.Some(de) => de,.None => target_box);
+                      deref_place = Option(ComptimeRef).Some(ComptimeRef.ArrayRef(deref_elems, ptr_tgt_idx));
+                    },
+                    _ => ()
+                  );
                   out_ptr := new_expr_info(env, resolved_base);
-                  out_ptr.value = Option(EvalValue).Some(target_box);
+                  out_ptr.value = Option(EvalValue).Some(deref_val);
+                  out_ptr.comptime_ref = deref_place;
                   out_ptr.origin_type = Option(TypeValue).Some(ot);
                   out_ptr.is_accessing_property = Option(bool).Some(true);
                   out_ptr.source_variable = match(

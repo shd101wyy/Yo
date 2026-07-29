@@ -81,3 +81,31 @@ when explicit type args were supplied (helper.ts:1470, :1499).
    inference path for the no-explicit-args case.
 4. Populate `ArgValues.forall_args` from those values so the downstream
    specialization keys and substitutions see them.
+
+## Landed (884e0beff) and what is still open
+
+The peel + forall binding is ported in the inline FuncVal arm, so
+`echo(generic(i32), i32(7))` type-checks and runs. `tests/explicit_type_args.test.yo`
+covers the positive shapes (plain generic call, `where`-clause call, comptime
+call) and is GREEN under both compilers.
+
+Still open:
+
+1. **The negative case is hollow in a test-batch arm.**
+   `comptime_expect_error(pick(generic(i32), u8(1), u8(2)))` — where
+   `generic(i32)` fixes `T` so a `u8` argument must be rejected — passes under
+   TS and passes STANDALONE under s1 (`markers=0`), but inside a generated batch
+   arm it leaves `__yo_user_main` hollow. Note the contrast:
+   `tests/comptime_overflow.test.yo` has eight `comptime_expect_error` arms and
+   is green in batch, so this is NOT the general cee-in-batch class — the
+   trigger is cee + an explicit type argument. Parked as a comment in
+   `tests/explicit_type_args.test.yo` so the file's other arms keep running.
+2. **`tests/spec/contracts_phase0.test.yo` arms 2/18 and
+   `tests/higher_kinded_types.test.yo` remain hollow** with the peel landed
+   (measured: both `hollow=1 markers=1`), so each has a further, separate root.
+   For hkt the next suspects are the HKT-kinded binder
+   (`generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type)`) — the
+   peel binds `F` to whatever `Option` evaluates to, and TS additionally
+   kind-checks the supplied argument via `synthesizeTypes` +
+   `areTypesCompatible` (helper.ts:1195-1245), which yo-self's Step 6 does not —
+   and the method form `container.map(generic(B), f)`.

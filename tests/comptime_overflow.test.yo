@@ -1,0 +1,76 @@
+//! Compile-time integer overflow is an ERROR, not a silent wrap.
+//!
+//! `add` / `sub` / `mul` on comptime values are checked against the target
+//! type's range before the value is built (`checkOverflow` in
+//! `src/evaluator/builtins/comptime-numeric-fns.ts`, `check_int_overflow` in
+//! `yo-self/evaluator/builtins/comptime_numeric_fns.yo`). The bootstrap carries
+//! comptime integers as `i64` rather than a bignum, so the 64-bit UNSIGNED
+//! cases need their own domain — the "must be ACCEPTED" arms below are the
+//! regression guards for that (a signed-domain test reports a false overflow on
+//! any u64 value above `i64::MAX`).
+//!
+//! `comptime_int` itself is unbounded and is deliberately NOT range-checked.
+{ assert } :: import("std/assert");
+
+test("signed overflow at the type boundary is rejected", {
+  comptime_expect_error(over_i8 :: (i8(127) + i8(1)));
+  comptime_expect_error(under_i8 :: (i8(-(128)) - i8(1)));
+  comptime_expect_error(over_i16 :: (i16(32767) + i16(1)));
+  comptime_expect_error(under_i16 :: (i16(-(32768)) - i16(1)));
+  comptime_expect_error(over_i32 :: (i32(2147483647) + i32(1)));
+  comptime_expect_error(under_i32 :: (i32(-(2147483648)) - i32(1)));
+  comptime_expect_error(mul_i8 :: (i8(50) * i8(25)));
+  comptime_expect_error(mul_i32 :: (i32(100000) * i32(100000)));
+});
+
+test("unsigned overflow and underflow are rejected", {
+  comptime_expect_error(over_u8 :: (u8(255) + u8(1)));
+  comptime_expect_error(under_u8 :: (u8(0) - u8(1)));
+  comptime_expect_error(over_u16 :: (u16(65535) + u16(1)));
+  comptime_expect_error(under_u16 :: (u16(0) - u16(1)));
+  comptime_expect_error(under_u32 :: (u32(0) - u32(1)));
+  comptime_expect_error(mul_u8 :: (u8(200) * u8(2)));
+  // usize/u64 underflow: 0 - 1 has no representation in the unsigned domain.
+  comptime_expect_error(under_usize :: (usize(0) - usize(1)));
+  comptime_expect_error(under_u64 :: (u64(0) - u64(1)));
+});
+
+test("values in range are accepted — including 64-bit unsigned above i64::MAX", {
+  // Every one of these is a VALID result. They are the guard against checking
+  // 64-bit unsigned arithmetic in the signed domain, where the i64 the
+  // bootstrap holds is the u64 bit pattern: `9223372036854775807 + 1000`
+  // signed-wraps but is a perfectly good u64.
+  big_u64 :: u64(9223372036854775807);
+  big_sum :: (big_u64 + u64(1000));
+  comptime_assert(big_sum > big_u64, "u64 just past i64::MAX still grows");
+  big_diff :: (big_sum - u64(1000));
+  comptime_assert(big_diff == big_u64, "u64 subtraction round-trips");
+  big_usize :: usize(9223372036854775807);
+  usize_sum :: (big_usize + usize(1));
+  comptime_assert(usize_sum > big_usize, "usize just past i64::MAX still grows");
+  // Boundaries that must NOT be reported.
+  max_i8 :: (i8(126) + i8(1));
+  comptime_assert(max_i8 == i8(127), "i8 MAX is reachable");
+  min_i8 :: (i8(-(127)) - i8(1));
+  comptime_assert(min_i8 == i8(-(128)), "i8 MIN is reachable");
+  max_u8 :: (u8(254) + u8(1));
+  comptime_assert(max_u8 == u8(255), "u8 MAX is reachable");
+  zero_u8 :: (u8(1) - u8(1));
+  comptime_assert(zero_u8 == u8(0), "u8 zero is reachable");
+  // comptime_int is unbounded — no range to exceed.
+  big_ct :: (1000000 * 1000000);
+  comptime_assert(big_ct > 0, "comptime_int multiplication is unchecked");
+});
+
+test("the checks do not fire on runtime arithmetic", {
+  // Only COMPILE-TIME arithmetic is range-checked; a runtime `+` keeps C's
+  // wrapping semantics and must not be rejected at compile time.
+  x := i8(127);
+  y := i8(1);
+  sum := (x + y);
+  assert(sum == i8(-(128)), "runtime i8 addition wraps at the C level");
+  u := u8(255);
+  one := u8(1);
+  usum := (u + one);
+  assert(usum == u8(0), "runtime u8 addition wraps at the C level");
+});

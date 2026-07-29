@@ -50,3 +50,30 @@ test("unary negation of typed values (runtime and comptime)", {
   f :: (fn(v : i32) -> i32)(-(v));
   assert(f(i32(7)) == i32(-(7)), "runtime negation in a fn body");
 });
+
+test("a negation feeding a numeric cast stays compile-time", {
+  // Regression: `f64(-(50.75))` — negation INSIDE the cast. The operand is a
+  // `comptime_float` literal, so the prelude's `(-)` module must select its
+  // COMPTIME overload (`Call :: (neg, comptime_neg)` lists the runtime one
+  // first). Selecting the runtime `neg` instead binds its `_Self` return to the
+  // literal's default runtime type and yields an UnknownVal without executing
+  // the body, so the cast saw no compile-time value and the `::` binding failed
+  // with "Got runtime value. Please consider using ':=' instead of '::'".
+  // See issues/yo-self-comptime-overload-preference.md.
+  neg_f64 :: f64(-(50.75));
+  comptime_assert(neg_f64 < f64(0.0), "f64(-(50.75)) is a comptime negative");
+  neg_f32 :: f32(-(50.75));
+  comptime_assert(neg_f32 < f32(0.0), "f32(-(50.75)) is a comptime negative");
+  neg_i32 :: i32(-(50));
+  comptime_assert(neg_i32 == i32(-(50)), "i32(-(50)) is a comptime negative");
+  // Same value reached through a BINDING rather than inline.
+  half :: -(50.75);
+  via_binding :: f64(half);
+  comptime_assert(via_binding == neg_f64, "casting a negated comptime binding");
+  // The negation must still work in a RUNTIME position (where the comptime
+  // overload cannot fold): `!`/`-` on a runtime value keeps the runtime path.
+  r := i32(7);
+  assert(-(r) == i32(-(7)), "runtime negation is unaffected");
+  b := (r > i32(0));
+  assert(!(b) == false, "runtime logical-not is unaffected");
+});
