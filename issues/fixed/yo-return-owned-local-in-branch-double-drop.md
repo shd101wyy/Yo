@@ -107,10 +107,14 @@ increment and producing an infinite loop. The fingerprint in the emitted C is a
 `// Execute remaining code from while loop body` section immediately followed by
 `while_loop_N_continue:` with nothing between.
 
-**The same bug shape exists in the port** — `yo-self/codegen/exprs/return.yo`
-has the consumed-var escape call without the exclusion filter. That must be
-ported for fidelity before `fs/dir` can be expected to pass under a
-self-rebuilt s1; this fix only repairs the compiler that _builds_ s1.
+The same fix is **ported** to `yo-self/codegen/exprs/return.yo` in the same
+commit, so a self-rebuilt s1 no longer reproduces it either. Yo has no optional
+parameters, so `exclude : Option(HashSet(String))` is passed explicitly at all
+five call sites (`.None` where TS omits the argument).
+
+Note this does not by itself prove `fs/dir` passes: repairing the compiler that
+_builds_ s1 removes the freed-list read, and the port keeps a rebuilt s1 correct,
+but the file has to be re-measured to confirm nothing else blocks it.
 
 ## Verification
 
