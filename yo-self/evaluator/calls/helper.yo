@@ -1301,18 +1301,61 @@ _reeval_closure_body_swallow :: (
 /// comptime-value-param family: `fn(comptime(n) : usize) -> Array(i32, n)`
 /// specs otherwise kept the unresolved return and emitted
 /// `// Unknown type:` into the C prototype).
-_type_has_array_len_var :: (fn(t : TypeValue) -> bool)(
-  match(
-    t,
-    .Array(alv_elem, _, alv_var) => cond(
-      (alv_var.len() > usize(0)) => true,
-      true => recur(alv_elem)
-    ),
-    .Pointer(alv_p) => recur(alv_p),
-    .IsoT(alv_i) => recur(alv_i),
-    _ => false
+/// Depth-bounded core of `_type_has_array_len_var`: struct/enum stamps can
+/// wrap the len-var-bearing Array field (`_ArrayIter(T, N)._arr : Array(T,
+/// N)`), and struct graphs can be recursive — bound the descent instead of
+/// tracking visited ids.
+_type_has_array_len_var_d :: (fn(t : TypeValue, d : usize) -> bool)(
+  cond(
+    (d > usize(6)) => false,
+    true => match(
+      t,
+      .Array(alv_elem, _, alv_var) => cond(
+        (alv_var.len() > usize(0)) => true,
+        true => recur(alv_elem, d + usize(1))
+      ),
+      .Pointer(alv_p) => recur(alv_p, d + usize(1)),
+      .IsoT(alv_i) => recur(alv_i, d + usize(1)),
+      .Struct({ field_types : alv_fts }) => {
+        (alv_found : bool) = false;
+        (alv_i2 : usize) = usize(0);
+        while((alv_i2 < alv_fts.len()) && !(alv_found), {
+          match(
+            alv_fts.get(alv_i2),
+            .Some(alv_ft) => if(recur(alv_ft, d + usize(1)), {
+              alv_found = true;
+            }),
+            .None => ()
+          );
+          alv_i2 = (alv_i2 + usize(1));
+        });
+        alv_found
+      },
+      .EnumT({ variant_fields : alv_vfs }) => {
+        (alv_found2 : bool) = false;
+        (alv_vi : usize) = usize(0);
+        while((alv_vi < alv_vfs.len()) && !(alv_found2), {
+          alv_vf := match(alv_vfs.get(alv_vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+          (alv_vj : usize) = usize(0);
+          while((alv_vj < alv_vf.len()) && !(alv_found2), {
+            match(
+              alv_vf.get(alv_vj),
+              .Some(alv_vt) => if(recur(alv_vt, d + usize(1)), {
+                alv_found2 = true;
+              }),
+              .None => ()
+            );
+            alv_vj = (alv_vj + usize(1));
+          });
+          alv_vi = (alv_vi + usize(1));
+        });
+        alv_found2
+      },
+      _ => false
+    )
   )
 );
+_type_has_array_len_var :: (fn(t : TypeValue) -> bool)(_type_has_array_len_var_d(t, usize(0)));
 /// Trial-evaluate a declared return-type EXPR in the mint env (SWALLOWING —
 /// the local `->` exn cannot capture, so a failing eval just leaves `out`
 /// empty). On success pushes the evaluated TypeValue. Port shape of TS
@@ -3326,7 +3369,7 @@ validate_where_constraints_for_call :: (
     // Marker traits only: a TraitT none of whose fields is function-typed.
     trait_is_marker := match(
       wce.trait_ty,
-      .TraitT(_, _, _, tr_ftys, _, _, _, _) => {
+      .TraitT(_, _, _, tr_ftys, _, _, _, _, _, _) => {
         (tm_i : usize) = usize(0);
         (tm_has_method : bool) = false;
         while((tm_i < tr_ftys.len()) && !(tm_has_method), {
@@ -4366,6 +4409,45 @@ try_to_call_function_with_arguments :: (
       // Step 9: Evaluate return type.
       // ----------------------------------------------------------------
       (return_type : TypeValue) = evaluate_function_return_type_again(ret_b, callee_env_m, ctx);
+      // Step 9b (rte re-eval): when the type-level resolution above still
+      // carries SomeTs or an Array length var (a value-generic stamped
+      // return like `-> _ArrayIter(T, N)`, whose def-era nominal cannot be
+      // re-stamped by substitution), re-evaluate the declared return-type
+      // EXPRESSION in the bound callee env. TS's
+      // evaluateFunctionReturnTypeAgain IS an expr re-eval (helper.ts:1282)
+      // — it re-invokes the comptime type constructor with the bound N
+      // value; yo-self's type-level walk cannot, so the rte side-table
+      // supplies the expr (same mechanism as the create_specialized mint).
+      if((get_all_some_types(return_type).len() > usize(0)) || _type_has_array_len_var(return_type), {
+        match(
+          func_val,
+          .Some(rte_fv9) => match(
+            rte_fv9,
+            .FuncVal(__fvd13, _) => match(
+              get_func_return_type_expr(__fvd13.*.func_id.clone()),
+              .Some(rte_expr9) => {
+                rte9_prev := ctx.is_evaluating_function_type;
+                ctx.is_evaluating_function_type = true;
+                rte9_out := ArrayList(TypeValue).new();
+                _trial_eval_ret_type_expr(clone_expr_fresh_ids(rte_expr9), callee_env_m, ctx, rte9_out);
+                ctx.is_evaluating_function_type = rte9_prev;
+                match(
+                  rte9_out.get(usize(0)),
+                  .Some(rte9_ty) => {
+                    if(((get_all_some_types(rte9_ty).len() == usize(0)) && !(_type_has_array_len_var(rte9_ty))) && !(is_unit_type(rte9_ty)), {
+                      return_type = rte9_ty;
+                    });
+                  },
+                  .None => ()
+                );
+              },
+              .None => ()
+            ),
+            _ => ()
+          ),
+          .None => ()
+        );
+      });
       // Step 10: Synthesize return type against the caller's expected type.
       if(ctx.expected_type.is_some(), {
         match(
@@ -4856,4 +4938,5 @@ export(generate_deferred_drop_expressions);
 export(value_to_signature_string);
 export(compute_compile_time_signature);
 export(create_specialized_function_inline);
+export(_type_has_array_len_var);
 export(evaluate_ctl_function_body_inline);

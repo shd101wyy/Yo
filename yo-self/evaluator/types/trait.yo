@@ -344,7 +344,7 @@ _apply_single_constraint_for_trait :: (
   if(res.is_self, {
     match(
       trait_ty,
-      .TraitT(_, _, _, _, _, _, sc, nc) => {
+      .TraitT(_, _, _, _, _, _, sc, nc, _, _) => {
         if(is_negated, {
           nc.push(trait_ty2);
         }, {
@@ -535,7 +535,7 @@ _parse_trait_where_clauses :: (
       if(res.is_self, {
         match(
           trait_ty,
-          .TraitT(_, _, _, _, _, _, sc, nc) => {
+          .TraitT(_, _, _, _, _, _, sc, nc, _, _) => {
             if(is_neg, {
               nc.push(trait_ty2);
             }, {
@@ -734,7 +734,7 @@ _evaluate_trait_field :: (
     .Some(expected_tt) => {
       match(
         expected_tt,
-        .TraitT(_, _, _, fts, _, _, _, _) => {
+        .TraitT(_, _, _, fts, _, _, _, _, _, _) => {
           match(
             fts.get(trait_field_index),
             .Some(ft) => {
@@ -1118,7 +1118,9 @@ evaluate_trait_type :: (
     trait_id,
     Option(TypeValue).None,
     self_constraints,
-    neg_self_constraints
+    neg_self_constraints,
+    ArrayList(String).new(),
+    ArrayList(TypeValue).new()
   );
   // Push a scoped env frame for trait evaluation
   env_mut.push_frame(false);
@@ -1200,7 +1202,7 @@ evaluate_trait_type :: (
       ctx.expected_type,
       .Some(et) => match(
         et.ty,
-        .TraitT(_, _, _, _, _, _, _, _) => Option(TypeValue).Some(et.ty),
+        .TraitT(_, _, _, _, _, _, _, _, _, _) => Option(TypeValue).Some(et.ty),
         _ => Option(TypeValue).None
       ),
       .None => Option(TypeValue).None

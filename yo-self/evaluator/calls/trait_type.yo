@@ -65,20 +65,23 @@ try_to_specialize_trait_type :: (
   // Extract field labels and assoc_type_names from TraitT.
   field_labels := match(
     trait_type,
-    .TraitT(_, _, labels, _, _, _, _, _) => labels,
+    .TraitT(_, _, labels, _, _, _, _, _, _, _) => labels,
     _ => ArrayList(String).new()
   );
   assoc_type_names := match(
     trait_type,
-    .TraitT(_, an, _, _, _, _, _, _) => an,
+    .TraitT(_, an, _, _, _, _, _, _, _, _) => an,
     _ => ArrayList(String).new()
   );
   trait_name := match(
     trait_type,
-    .TraitT(n, _, _, _, _, _, _, _) => n,
+    .TraitT(n, _, _, _, _, _, _, _, _, _) => n,
     _ => String.from("unknown")
   );
   (caller_env : Environment) = caller_env_in;
+  // Collected `Item := X` bindings (TS `associatedTypeConstraints`).
+  atc_labels := ArrayList(String).new();
+  atc_types := ArrayList(TypeValue).new();
   n_args := arg_exprs.len();
   (j : usize) = usize(0);
   while(j < n_args, {
@@ -204,11 +207,29 @@ try_to_specialize_trait_type :: (
       );
     });
     caller_env = match(evaluated_info_opt,.Some(info) => info.env,.None => caller_env);
+    // Store the binding (TS trait-type.ts: associatedTypeConstraints.push).
+    constraint_ty := match(
+      evaluated_info_opt,
+      .Some(info) => match(
+        info.value,
+        .Some(v) => match(v,.TypeVal(tv) => tv, _ => TypeValue.Unit),
+        .None => TypeValue.Unit
+      ),
+      .None => TypeValue.Unit
+    );
+    atc_labels.push(label_tok.clone());
+    atc_types.push(constraint_ty);
     j = (j + usize(1));
   });
-  // NOTE: associatedTypeConstraints cannot be stored in yo-self's TraitT yet.
-  // Return the original trait type unchanged. Phase 3 will add constraint storage.
-  TraitSpecializationResult(specialized_trait_type : trait_type, caller_env : caller_env)
+  // Specialized TraitType — same identity, with the constraints added
+  // (TS: `{ ...traitType, associatedTypeConstraints }`).
+  specialized_trait_type := match(
+    trait_type,
+    .TraitT(n, atns, fls, fts, tid, ic, sc, nsc, _, _) =>
+      TypeValue.TraitT(n, atns, fls, fts, tid, ic, sc, nsc, atc_labels, atc_types),
+    _ => trait_type
+  );
+  TraitSpecializationResult(specialized_trait_type : specialized_trait_type, caller_env : caller_env)
 });
 /// Bind `arg_exprs` to the fields of `trait_type` to produce a trait-value instance.
 ///
@@ -231,17 +252,17 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   // Extract field labels and types from TraitT.
   field_labels := match(
     trait_type,
-    .TraitT(_, _, labels, _, _, _, _, _) => labels,
+    .TraitT(_, _, labels, _, _, _, _, _, _, _) => labels,
     _ => ArrayList(String).new()
   );
   field_types := match(
     trait_type,
-    .TraitT(_, _, _, types, _, _, _, _) => types,
+    .TraitT(_, _, _, types, _, _, _, _, _, _) => types,
     _ => ArrayList(TypeValue).new()
   );
   trait_name := match(
     trait_type,
-    .TraitT(n, _, _, _, _, _, _, _) => n,
+    .TraitT(n, _, _, _, _, _, _, _, _, _) => n,
     _ => String.from("unknown")
   );
   n_fields := field_labels.len();

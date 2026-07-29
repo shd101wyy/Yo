@@ -323,7 +323,7 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
           o
         })
       },
-      .TraitT(tnm, tatn, tfl, tft, tid, tisc, tsc, tnsc) => {
+      .TraitT(tnm, tatn, tfl, tft, tid, tisc, tsc, tnsc, tatcl, tatct) => {
         tok := String.from("Tr:");
         tok.push_string(tid.clone());
         if(_contains(visited, tok.clone()), tok, {
@@ -360,6 +360,18 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
             match(tnsc.get(inc),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
             o.push_str(",");
             inc = (inc + usize(1));
+          });
+          // Associated-type constraints (`Item := X`) distinguish otherwise
+          // same-id trait applications — key them like the constraint lists.
+          o.push_str("|");
+          o.push_string(_join_strings(tatcl.clone()));
+          o.push_str("|");
+          natc := tatct.len();
+          (iatc : usize) = usize(0);
+          while(iatc < natc, {
+            match(tatct.get(iatc),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+            o.push_str(",");
+            iatc = (iatc + usize(1));
           });
           o.push_str("}");
           o

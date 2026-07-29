@@ -57,9 +57,15 @@ open(import("std/string"));
   mark_concrete_impl_being_registered : impl_mark_concrete_impl_being_registered,
   unmark_concrete_impl_being_registered : impl_unmark_concrete_impl_being_registered,
   has_negative_impl,
-  get_trait_key
+  get_trait_key,
+  find_associated_type_from_generic_impls
 }
 :: import("./values/impl.yo");
+{
+  synthesize_types,
+  TypePair,
+  SynthesizeOptions
+} :: import("./types/synthesizer.yo");
 { type_id_or_empty } :: import("./values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // Auto-derived trait registry (folded from former
@@ -133,7 +139,7 @@ register_type_trait_value :: (fn(type_id : String, trait_ty : TypeValue) -> unit
 _trait_type_id :: (fn(ty : TypeValue) -> String)(
   match(
     ty,
-    .TraitT(_, _, _, _, id, _, _, _) => id,
+    .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
     .FnTraitT(base_name, _, _, _, _, _, _) => base_name,
     .FutureTraitT(base_name, _, _, _, _) => base_name,
     _ => String.from("")
@@ -424,9 +430,8 @@ type_implements_acyclic_builtin :: (fn(ty : TypeValue) -> Option(bool))(
 _find_matching_generic_impl :: (fn(target : TypeValue, trait_ty : TypeValue, env : Environment) -> bool)(
   find_matching_generic_impl(target, trait_ty, env)
 );
-/// Phase 3 stub for `findAssociatedTypeFromGenericImpls`.
-/// Always returns false.
-_find_associated_type_from_generic_impls :: (fn(_target : TypeValue, _prop_name : String, _env : Environment) -> bool)(false);
+// `findAssociatedTypeFromGenericImpls` is real now — imported from
+// `values/impl.yo` as `find_associated_type_from_generic_impls`.
 /// Returns true if (type_id, trait_id) is currently being registered.
 /// Delegates to the registry in `evaluator/values/impl.yo` (where TS
 /// keeps `currentlyRegisteringConcreteImpls`). Used to handle recursive
@@ -441,26 +446,106 @@ _is_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) -
 // ---------------------------------------------------------------------------
 // _check_associated_type_constraints
 // ---------------------------------------------------------------------------
-/// Check if a concrete type satisfies associated type constraints on a trait.
+/// Bind SomeTypes in `constraint_ty` against `resolved_ty` and return the
+/// updated env — the `synthesizeTypes(constraintType, resolvedType)` call in
+/// TS `checkAssociatedTypeConstraints` (trait-checking.ts:315-320). Returns
+/// `.None` when synthesis throws (compat already passed, so a throw here is
+/// a no-binding situation, not an error).
+_assoc_synth_env :: (
+  fn(
+    constraint_ty : TypeValue,
+    resolved_ty : TypeValue,
+    env : Environment
+  ) -> Option(Environment)
+)({
+  exn_s := Exception(
+    throw : (
+      (err) -> {
+        err;
+        unwind(Option(Environment).None);
+      }
+    )
+  );
+  checked := ArrayList(TypePair).new();
+  sr := synthesize_types(
+    constraint_ty,
+    env,
+    resolved_ty,
+    env,
+    checked,
+    Option(SynthesizeOptions).None,
+    exn_s
+  );
+  Option(Environment).Some(sr.expected_env)
+});
+/// Check if a concrete type satisfies associated type constraints on a
+/// specialized trait — e.g. for `Iterator(Item := i32)`, verify the target's
+/// `Iterator.Item` resolves to `i32`. Propagates SomeType bindings produced by
+/// matching constraint types against resolved associated types (`Item := A`
+/// against `Item = i32` binds `A := i32` via `synthesize_types`).
 ///
-/// Phase 3 stub: associated type constraints from the generic impl registry are
-/// not yet checked (step 2 is skipped). Only direct field checks and the
-/// compatibility check are performed.
+/// Mirrors `checkAssociatedTypeConstraints` in `src/evaluator/trait-checking.ts:240`.
 ///
-/// Mirrors `checkAssociatedTypeConstraints` in `src/evaluator/trait-checking.ts`.
+/// Adaptation: TS step 1 reads `targetType.trait.fields` (concrete trait VALUES
+/// attached to the type). yo-self's concrete registry (`g_type_trait_registry`)
+/// stores only trait TYPES, so the associated-type VALUE is resolved through the
+/// generic impl registry (`find_associated_type_from_generic_impls`), which is
+/// where every std iterator/collection impl registers.
 _check_associated_type_constraints :: (
   fn(
-    _target_type : TypeValue,
-    _trait_type : TypeValue,
+    target_type : TypeValue,
+    trait_type : TypeValue,
     env : Environment
   ) -> AssocTypeCheckResult
-)(
-  // Phase 3 stub: the full implementation needs the generic impl registry to
-  // resolve associated types. For now, conservatively return satisfied=true
-  // (permissive — avoids false-negative rejections at the cost of not catching
-  // mismatched associated types until Phase 3).
-  AssocTypeCheckResult(satisfied : true, env : env)
-);
+)({
+  atc_labels := match(
+    trait_type,
+    .TraitT(_, _, _, _, _, _, _, _, l, _) => l,
+    _ => ArrayList(String).new()
+  );
+  atc_types := match(
+    trait_type,
+    .TraitT(_, _, _, _, _, _, _, _, _, t) => t,
+    _ => ArrayList(TypeValue).new()
+  );
+  n_atc := atc_labels.len();
+  if(n_atc == usize(0), {
+    return(AssocTypeCheckResult(satisfied : true, env : env));
+  });
+  (cur_env : Environment) = env;
+  (ok : bool) = true;
+  (ci : usize) = usize(0);
+  while((ci < n_atc) && ok, {
+    label := match(atc_labels.get(ci),.Some(l) => l,.None => String.from(""));
+    constraint_ty := match(atc_types.get(ci),.Some(t) => t,.None => TypeValue.Unit);
+    // Resolve the target's associated type from the generic impl registry
+    // (TS steps 1+2; see the adaptation note above).
+    resolved_opt := find_associated_type_from_generic_impls(target_type, label, cur_env);
+    match(
+      resolved_opt,
+      .None => {
+        ok = false;
+      },
+      .Some(resolved) => {
+        if(!(are_types_compatible(constraint_ty, resolved)), {
+          ok = false;
+        }, {
+          // Propagate SomeType bindings from constraint matching
+          // (`Item := A` resolved to `i32` → binds A := i32).
+          match(
+            _assoc_synth_env(constraint_ty, resolved, cur_env),
+            .Some(e2) => {
+              cur_env = e2;
+            },
+            .None => ()
+          );
+        });
+      }
+    );
+    ci = (ci + usize(1));
+  });
+  AssocTypeCheckResult(satisfied : ok, env : cur_env)
+});
 // ---------------------------------------------------------------------------
 // type_implements_trait
 // ---------------------------------------------------------------------------
@@ -608,7 +693,13 @@ type_implements_trait :: (
   type_id := _type_id_for_trait_check(target);
   if(!(type_id.is_empty()), {
     if(is_type_registered_as_trait(type_id, trait_type, env), {
-      return(TraitCheckResult(implemented : true, env : env));
+      // Associated-type constraints (`Iterator(Item := A)`) must hold and
+      // their bindings propagate (TS trait-checking.ts:418-431). On failure
+      // TS `continue`s to the later steps rather than rejecting outright.
+      assoc_result_reg := _check_associated_type_constraints(target, trait_type, env);
+      if(assoc_result_reg.satisfied, {
+        return(TraitCheckResult(implemented : true, env : assoc_result_reg.env));
+      });
     });
   });
   // 4b. On-demand re-derivation fallback for auto-derived markers.
@@ -729,7 +820,7 @@ type_implements_trait :: (
         // selfConstraints of the required trait.
         match(
           req_trait,
-          .TraitT(_, _, _, _, _, _, self_constraints, _) => {
+          .TraitT(_, _, _, _, _, _, self_constraints, _, _, _) => {
             ns := self_constraints.len();
             (j : usize) = usize(0);
             while(j < ns, {
@@ -911,7 +1002,14 @@ type_implements_trait :: (
   // Pop the guard key.
   last_idx := (g_trait_check_recursion_guard.len() - usize(1));
   g_trait_check_recursion_guard.remove(last_idx);
-  TraitCheckResult(implemented : result, env : env)
+  if(!(result), {
+    return(TraitCheckResult(implemented : false, env : env));
+  });
+  // Associated-type constraints on the matched trait (TS trait-checking.ts:
+  // 545-553): `Iterator(Item := A)` must resolve the target's `Item` and the
+  // returned env carries the `A := <concrete>` binding.
+  assoc_result := _check_associated_type_constraints(target, trait_type, env);
+  TraitCheckResult(implemented : assoc_result.satisfied, env : assoc_result.env)
 });
 // ---------------------------------------------------------------------------
 // type_implements_trait_bool
@@ -946,7 +1044,7 @@ check_self_constraints_violation_msg :: (
 )({
   match(
     trait_type,
-    .TraitT(name, _, _, _, _, _, self_constraints, neg_self_constraints) => {
+    .TraitT(name, _, _, _, _, _, self_constraints, neg_self_constraints, _, _) => {
       // Check positive constraints (must implement).
       np := self_constraints.len();
       (ip : usize) = usize(0);

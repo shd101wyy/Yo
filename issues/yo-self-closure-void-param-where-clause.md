@@ -203,3 +203,30 @@ in transcript; constructions `TypeValue.TraitT(` few. Where-clause
 validation entry points: validate_where_constraints_for_call
 (helper.yo), trait_checking.yo type_implements_trait, and impl.yo's
 where check (~702).
+
+## UPDATE 5 — associatedTypeConstraints port LANDED (2026-07-29)
+
+Steps 1-3 executed: TraitT carries `assoc_constraint_labels` +
+`assoc_constraint_types` (46 positional patterns auto-migrated `, _, _`;
+constructions get empty lists; carry-through rebuilds — subtype_of,
+initialization_assignment, substitution, intern — bind and pass; intern key
+gained a constraints section). try_to_specialize_trait_type stores the
+evaluated `:=` bindings (same identity, constraints replaced — TS
+trait-type.ts:116). checkAssociatedTypeConstraints ported into
+trait_checking.yo (`_check_associated_type_constraints` real now) with
+`find_associated_type_from_generic_impls` in values/impl.yo (registry match →
+substitute bindings into the stored assoc field value — the yo-self
+equivalent of TS's traitTypeArgExpr re-eval); wired at type_implements_trait
+steps 4 (registered-trait) and 8 (generic-impl), with synthesize-based
+`A := <concrete>` env binding (in-place via add_variable_to_env).
+
+Known gap (documented adaptation): CONCRETE impls register only the base
+trait type (no assoc values), so a `T <: Iterator(Item := X)` check against a
+concrete-impl target resolves Item only via generic impls; if a test with a
+concrete Iterator impl + `Item :=` constraint surfaces, port TS step 1
+(targetType.trait.fields) by storing assoc values at concrete registration.
+
+The array arms 6/7 (for-closure route) turned out to be gated NOT by this
+port but by the value-generic stamp chain — see
+issues/yo-self-value-generic-stamp-return-chain.md. tests/array.test.yo is
+now GENUINELY green (12/12, batch FTT=0).

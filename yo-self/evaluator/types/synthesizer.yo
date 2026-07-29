@@ -197,7 +197,7 @@ synthesis_type_id :: (fn(ty : TypeValue) -> String)(
     ty,
     .Struct({ id }) => id,
     .EnumT(id, _, _, _, _, _, _, _, _) => id,
-    .TraitT(_, _, _, _, id, _, _, _) => id,
+    .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
     .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id,
     _ => type_to_string_key(ty)
   )
@@ -599,7 +599,7 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
       });
       res
     },
-    .TraitT(_, _, _, field_types, _, _, _, _) => {
+    .TraitT(_, _, _, field_types, _, _, _, _, _, _) => {
       (res : bool) = false;
       i := usize(0);
       while((i < field_types.len()) && !(res), {
@@ -1667,11 +1667,11 @@ _synthesize_types_impl :: (
   });
   // Case: TraitT + TraitT (same constructor)
   if(is_trait_type(expected_ty) && is_trait_type(given_ty), {
-    exp_trait_id := match(expected_ty,.TraitT(_, _, _, _, id, _, _, _) => id, _ => ``);
-    giv_trait_id := match(given_ty,.TraitT(_, _, _, _, id, _, _, _) => id, _ => ``);
+    exp_trait_id := match(expected_ty,.TraitT(_, _, _, _, id, _, _, _, _, _) => id, _ => ``);
+    giv_trait_id := match(given_ty,.TraitT(_, _, _, _, id, _, _, _, _, _) => id, _ => ``);
     if(exp_trait_id == giv_trait_id, {
-      exp_ft := match(expected_ty,.TraitT(_, _, _, fts, _, _, _, _) => fts, _ => ArrayList(TypeValue).new());
-      giv_ft := match(given_ty,.TraitT(_, _, _, fts, _, _, _, _) => fts, _ => ArrayList(TypeValue).new());
+      exp_ft := match(expected_ty,.TraitT(_, _, _, fts, _, _, _, _, _, _) => fts, _ => ArrayList(TypeValue).new());
+      giv_ft := match(given_ty,.TraitT(_, _, _, fts, _, _, _, _, _, _) => fts, _ => ArrayList(TypeValue).new());
       n := exp_ft.len();
       (i : usize) = usize(0);
       while(i < n, {

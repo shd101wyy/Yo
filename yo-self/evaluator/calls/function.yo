@@ -117,7 +117,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ try_to_call_function_with_arguments, resolve_param_types_from_expected, validate_where_constraints_for_call, create_specialized_function_inline } :: import("./helper.yo");
+{ try_to_call_function_with_arguments, resolve_param_types_from_expected, validate_where_constraints_for_call, create_specialized_function_inline, _type_has_array_len_var } :: import("./helper.yo");
 { get_func_type, register_func_type } :: import("../../function_value.yo");
 { create_unknown_val, create_unknown_val_with_name } :: import("../../value.yo");
 /// Named call-result unknown: promotes a Type-universe result to
@@ -1837,7 +1837,12 @@ _evaluate_funcval_runtime_call :: (
     );
     spec_fv := create_specialized_function_inline(cv, spec_ct, spec_av, fresh_env, env, ctx, exn);
     spec_fid := match(spec_fv,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
-    if(ou_spec_comptime_params, {
+    // A resolved_ret still carrying an Array LENGTH VAR (a value-generic
+    // stamped return, e.g. `-> _ArrayIter(T, N)`) is a def-era instance
+    // substitution cannot re-stamp — adopt the mint's rte-re-evaluated
+    // return exactly like the comptime-param family below.
+    ou_ret_lenvar := _type_has_array_len_var(resolved_ret);
+    if(ou_spec_comptime_params || ou_ret_lenvar, {
       // COMPTIME-PARAM callee: this arm's `resolved_ret` came from the
       // DECLARED return (no foralls to substitute), which is the DEF-ERA
       // instantiation instance (e.g. the module-eval MapNode enum id) —
@@ -1900,7 +1905,9 @@ _evaluate_funcval_runtime_call :: (
       _ => usize(0)
     );
     cand_ret_somes := get_all_some_types(resolved_ret).len();
-    is_ret_regression := ((cand_ret_somes > usize(0)) && (base_ret_somes == usize(0)));
+    // A len-var-bearing candidate must never clobber the mint's registered
+    // return either (the value-generic counterpart of the SomeT rule).
+    is_ret_regression := (((cand_ret_somes > usize(0)) && (base_ret_somes == usize(0))) || _type_has_array_len_var(resolved_ret));
     spec_ty_fixed := if(is_ret_regression, base_spec_ty, spec_ty_candidate);
     if(!(is_ret_regression), {
       register_func_type(spec_fid.clone(), spec_ty_fixed);
@@ -3001,7 +3008,7 @@ Fix: wrap the call:
           // ----------------------------------------------------------------
           // Trait specialization (Item := T) or implementation.
           // ----------------------------------------------------------------
-          .TraitT(_, _, _, _, _, _, _, _) => {
+          .TraitT(_, _, _, _, _, _, _, _, _, _) => {
             (has_spec : bool) = false;
             (spec_i : usize) = usize(0);
             while((spec_i < args.len()) && !(has_spec), {

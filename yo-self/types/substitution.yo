@@ -212,7 +212,9 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
           id : tid,
           is_concrete : ic,
           self_constraints : scons,
-          neg_self_constraints : ncons
+          neg_self_constraints : ncons,
+          assoc_constraint_labels : atcl,
+          assoc_constraint_types : atct
         ) =>
           // Cycle guard: self-referential traits (e.g. a method returning
           // `Dyn(SelfTrait)`) form a cyclic TypeValue graph. If we are already
@@ -230,7 +232,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
                 new_fts.push(recur(s, elem));
                 i = (i + usize(1));
               });
-              .TraitT(n, atns, fls, new_fts, tid, ic, scons, ncons)
+              .TraitT(n, atns, fls, new_fts, tid, ic, scons, ncons, atcl, atct)
             }
           ),
         // SomeT — check substitution first; if not found, recurse into constraints.

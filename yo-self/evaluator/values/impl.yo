@@ -274,7 +274,7 @@ unmark_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String
 get_trait_key :: (fn(trait_ty : TypeValue) -> String)(
   match(
     trait_ty,
-    .TraitT(_, _, _, _, id, _, _, _) => id,
+    .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
     .FnTraitT(base_name, _, _, _, _, _, _) => base_name,
     .FutureTraitT(base_name, _, _, _, _) => base_name,
     _ => String.from("")
@@ -1112,6 +1112,126 @@ find_methods_from_generic_impls :: (
   });
   results
 });
+/// Find an associated type from generic impls for a concrete type — e.g.
+/// resolve `Item` for a type whose `Iterator` comes from
+/// `impl(generic(T, N), _ArrayIter(T, N), Iterator(Item : T, ...))`.
+///
+/// Mirrors `findAssociatedTypeFromGenericImpls` in
+/// `src/evaluator/values/impl.ts:1911`.
+///
+/// Adaptation: TS re-evaluates the impl's trait-type ARG EXPRESSION
+/// (`impl.traitTypeArgExprs[i]`) in an env carrying the matched substitutions.
+/// yo-self stores impl fields already EVALUATED (`entry.field_values`), so the
+/// equivalent is `substitute()` of the matched bindings into the stored
+/// `TypeVal` — the same mechanism `find_methods_from_generic_impls` uses to
+/// specialize method types lazily.
+find_associated_type_from_generic_impls :: (
+  fn(
+    concrete_type : TypeValue,
+    property_name : String,
+    env : Environment
+  ) -> Option(TypeValue)
+)({
+  // Resolve SomeT.
+  (resolved : TypeValue) = concrete_type;
+  if(is_some_type(concrete_type), {
+    r := get_value_of_some_type_from_env(env, concrete_type);
+    if(!(is_some_type(r)), {
+      resolved = r;
+    });
+  });
+  (found : Option(TypeValue)) = Option(TypeValue).None;
+  // Iterate all key buckets (TS: `genericImplRegistry.entries()`).
+  n_keys := g_impl_registry_keys.len();
+  (ki : usize) = usize(0);
+  while((ki < n_keys) && found.is_none(), {
+    // No `continue` in these registry loops — see
+    // issues/codegen-continue-in-while-heap-corruption.md.
+    entry_list := match(
+      g_impl_registry_entry_lists.get(ki),
+      .Some(l) => l,
+      .None => ArrayList(GenericImplEntry).new()
+    );
+    n_entries := entry_list.len();
+    (ei : usize) = usize(0);
+    while((ei < n_entries) && found.is_none(), {
+      (entry_opt : Option(GenericImplEntry)) = entry_list.get(ei);
+      match(
+        entry_opt,
+        .Some(entry) => {
+          // Pre-filter: a NON-FUNCTION field with this name must exist
+          // (TS: `fields.findIndex(f => f.label === propertyName &&
+          // !isFunctionType(f.type))`). Cheap check before the expensive
+          // `try_match_generic_impl`.
+          (field_idx : usize) = usize(0);
+          (has_field : bool) = false;
+          n_pf := entry.field_names.len();
+          (pfi : usize) = usize(0);
+          while((pfi < n_pf) && !(has_field), {
+            name_matches := match(
+              entry.field_names.get(pfi),
+              .Some(pfn) => (pfn == property_name),
+              .None => false
+            );
+            if(name_matches, {
+              ty_is_fn := match(
+                entry.field_types.get(pfi),
+                .Some(ft) => is_function_type(ft),
+                .None => true
+              );
+              if(!(ty_is_fn), {
+                has_field = true;
+                field_idx = pfi;
+              });
+            });
+            pfi = (pfi + usize(1));
+          });
+          if(has_field, {
+            mb_opt := try_match_generic_impl(resolved, entry, env);
+            match(
+              mb_opt,
+              .Some(match_bindings) => {
+                // Substitute the impl's generic bindings into the stored
+                // associated-type value.
+                fvalue_opt := entry.field_values.get(field_idx);
+                match(
+                  fvalue_opt,
+                  .Some(fvalue) => match(
+                    fvalue,
+                    .TypeVal(tvb) => {
+                      spec_s := subst_new();
+                      (sb_i : usize) = usize(0);
+                      while(sb_i < entry.forall_names.len(), {
+                        sb_name := match(entry.forall_names.get(sb_i),.Some(n) => n,.None => String.from(""));
+                        sb_some := match(entry.forall_some_types.get(sb_i),.Some(s2) => s2,.None => t_unit());
+                        sb_ty := match(match_bindings.get(sb_i),.Some(t) => t,.None => t_unit());
+                        match(
+                          sb_some,
+                          .SomeT(_, _, lvl, _, _, _, _, _, _, _, _) => subst_add(spec_s, sb_name, lvl, sb_ty),
+                          _ => ()
+                        );
+                        sb_i = (sb_i + usize(1));
+                      });
+                      subst_set_self(spec_s, entry.receiver_type_pattern, resolved);
+                      found = Option(TypeValue).Some(substitute(spec_s, tvb));
+                    },
+                    _ => ()
+                  ),
+                  .None => ()
+                );
+              },
+              .None => ()
+            );
+          });
+        },
+        .None => ()
+      );
+      ei = (ei + usize(1));
+    });
+    ki = (ki + usize(1));
+  });
+  found
+});
 /// Resolve a trait-name expression to its base `TraitT` TypeValue
 /// by env lookup. Handles both atom names (e.g. `LogicalNot`) and
 /// parametric trait shapes (`ComptimeAdd(comptime_int)` →
@@ -1152,7 +1272,7 @@ _try_lookup_trait_type :: (
             ev,
             .TypeVal(tb) => match(
               tb,
-              .TraitT(_, _, _, _, _, _, _, _) => {
+              .TraitT(_, _, _, _, _, _, _, _, _, _) => {
                 atom_result = Option(TypeValue).Some(tb);
               },
               _ => ()
@@ -1187,7 +1307,7 @@ _try_lookup_trait_type :: (
         ev,
         .TypeVal(tb) => match(
           tb,
-          .TraitT(_, _, _, _, _, _, _, _) => Option(TypeValue).Some(tb),
+          .TraitT(_, _, _, _, _, _, _, _, _, _) => Option(TypeValue).Some(tb),
           _ => Option(TypeValue).None
         ),
         _ => Option(TypeValue).None
@@ -1210,7 +1330,7 @@ _trait_field_type_by_label :: (
     .None => Option(TypeValue).None,
     .Some(t) => match(
       t,
-      .TraitT(_, _, labels, types, _, _, _, _) => {
+      .TraitT(_, _, labels, types, _, _, _, _, _, _) => {
         (i : usize) = usize(0);
         (found : Option(TypeValue)) = Option(TypeValue).None;
         n := labels.len();
@@ -2234,7 +2354,7 @@ evaluate_module_value :: (
             .Some(neg_trait_ty) => {
               has_method := match(
                 neg_trait_ty,
-                .TraitT(_, _, _, ftys, _, _, _, _) => {
+                .TraitT(_, _, _, ftys, _, _, _, _, _, _) => {
                   (mi : usize) = usize(0);
                   (hm : bool) = false;
                   while((mi < ftys.len()) && !(hm), {
@@ -2698,6 +2818,7 @@ export(register_negative_generic_impl, find_matching_negative_generic_impl);
 export(try_match_generic_impl);
 export(find_matching_generic_impl);
 export(find_methods_from_generic_impls);
+export(find_associated_type_from_generic_impls);
 export(is_concrete_impl_being_registered);
 export(mark_concrete_impl_being_registered);
 export(unmark_concrete_impl_being_registered);

@@ -1,11 +1,20 @@
-open(import("std/fmt"));
+open(import("std/assert"));
 main :: (fn() -> unit)({
-  x := 42;
-  p := &(x);
-  q := &(x);
-  a := unsafe((usize)(p));
-  b := unsafe((usize)(q));
-  println(a == b);
-  ()
+  arr0 := Array(i32, 0)();
+  count0 := usize(0);
+  for(arr0, (x) => {
+    consume(x);
+    count0 = (count0 + usize(1));
+  });
+  assert(count0 == usize(0), "empty array should yield no elements");
+  arr := array(i32(10), i32(20), i32(30));
+  sum := i32(0);
+  count := usize(0);
+  for(arr, (x) => {
+    sum = (sum + x);
+    count = (count + usize(1));
+  });
+  assert(count == usize(3), "should yield 3 elements");
+  assert(sum == i32(60), "sum should be correct");
 });
 export(main);

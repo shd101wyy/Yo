@@ -11,6 +11,7 @@ open(import("std/string"));
 { TypeValue } :: import("./definitions.yo");
 { type_to_string } :: import("./string.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
+{ is_type_hierarchy_type, is_unit_type } :: import("./guards.yo");
 (g_struct_cfid_keys : HashMap(String, String)) = HashMap(String, String).new();
 
 // Enum structural-signature dedup (the enum analogue of g_struct_cfid_keys).
@@ -134,17 +135,46 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
         // C name, order-dependent per emit. Long keys are ugly but correct.
         ((scfid.len() > usize(0)) && (stas.len() > usize(0))) => {
           key := `gs_${scfid.clone()}`;
+          (tk_has_uni : bool) = false;
           (ti : usize) = usize(0);
           while(ti < stas.len(), {
             match(
               stas.get(ti),
               .Some(ta) => {
+                // `Type` AND `unit` argument slots are value-erased: a comptime
+                // VALUE argument (`N : usize`) has no TypeValue representation,
+                // so the stamp records `unit` (fresh re-stamps) or `Type`
+                // (def-era binder) in its slot.
+                if(is_type_hierarchy_type(ta) || is_unit_type(ta), {
+                  tk_has_uni = true;
+                });
                 key.push_str("_");
                 key.push_string(recur(ta, depth + usize(1)));
               },
               .None => ()
             );
             ti = (ti + usize(1));
+          });
+          // VALUE-generic stamps: a `Type` argument slot erases the VALUE —
+          // `_ArrayIter(i32, 0)` and `_ArrayIter(i32, 3)` both render
+          // `[i32, Type]` (a comptime usize is not representable as a
+          // TypeValue argument), so keying by (cfid, args) alone collapsed
+          // the two layouts onto ONE C type (`._arr = self` with a
+          // 3-element self against a 0-element member). Append the FIELD
+          // structure, which carries the distinguishing Array length.
+          if(tk_has_uni, {
+            (tkf : usize) = usize(0);
+            while(tkf < sfts.len(), {
+              match(
+                sfts.get(tkf),
+                .Some(tk_ft) => {
+                  key.push_str("_f");
+                  key.push_string(recur(tk_ft, depth + usize(1)));
+                },
+                .None => ()
+              );
+              tkf = (tkf + usize(1));
+            });
           });
           // Record the cfid-key for this struct id so cfid-empty copies use
           // it — but ONLY while the sid maps to ONE instantiation key. When a

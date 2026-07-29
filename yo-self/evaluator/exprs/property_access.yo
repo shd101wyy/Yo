@@ -982,7 +982,7 @@ Raw pointer operations may dereference invalid memory.`,
     });
     // --- TypeVal + TraitT -------------------------------------------------
     // Phase 3 skip: receiverType block (TS lines 651-723).
-    is_plain_trait_type := match(type_val_inner,.TraitT(_, _, _, _, _, _, _, _) => true, _ => false);
+    is_plain_trait_type := match(type_val_inner,.TraitT(_, _, _, _, _, _, _, _, _, _) => true, _ => false);
     if(is_plain_trait_type, {
       if(!(is_valid_variable_name(property_expr)), {
         exn.throw(
@@ -1012,7 +1012,7 @@ Raw pointer operations may dereference invalid memory.`,
       // add if a concrete-impl witness shape surfaces.
       tt_recv_opt := match(
         type_val_inner,
-        .TraitT(_, _, _, _, _, ic, _, _) => ic,
+        .TraitT(_, _, _, _, _, ic, _, _, _, _) => ic,
         _ => Option(TypeValue).None
       );
       match(
@@ -1048,12 +1048,12 @@ Raw pointer operations may dereference invalid memory.`,
       );
       tt_labels := match(
         type_val_inner,
-        .TraitT(_, _, labels, _, _, _, _, _) => labels,
+        .TraitT(_, _, labels, _, _, _, _, _, _, _) => labels,
         _ => ArrayList(String).new()
       );
       tt_types := match(
         type_val_inner,
-        .TraitT(_, _, _, types, _, _, _, _) => types,
+        .TraitT(_, _, _, types, _, _, _, _, _, _) => types,
         _ => ArrayList(TypeValue).new()
       );
       fidx_tt := find_first_field_index(tt_labels, prop_name_tt.clone());
@@ -1126,12 +1126,12 @@ Raw pointer operations may dereference invalid memory.`,
           if(is_trait_type(st_trait), {
             st_labels := match(
               st_trait,
-              .TraitT(_, _, labels, _, _, _, _, _) => labels,
+              .TraitT(_, _, labels, _, _, _, _, _, _, _) => labels,
               _ => ArrayList(String).new()
             );
             st_types := match(
               st_trait,
-              .TraitT(_, _, _, types, _, _, _, _) => types,
+              .TraitT(_, _, _, types, _, _, _, _, _, _) => types,
               _ => ArrayList(TypeValue).new()
             );
             st_fidx := find_first_field_index(st_labels, st_prop_name.clone());
