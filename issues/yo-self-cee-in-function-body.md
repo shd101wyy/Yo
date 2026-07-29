@@ -115,3 +115,26 @@ to the same SomeType id (`src/env.ts:441-451`), which yo-self's
 too: TS runs the validation after the pending constraints are applied, and
 yo-self's retry block is `_drop_where_constraint_failures`, which discards
 rather than applies.
+
+### Second attempt, also reverted (both facts measured)
+
+Adding a `Self.<Assoc>` fast path to `_get_or_create_some_ty_for_trait` — look
+the associated type up by LABEL in the trait's own scoped frame, where the field
+loop binds it as a `TypeVal(SomeT)` (the `already_bound` block in
+`evaluate_trait`) — did NOT make the constraint visible: with the trait-field
+validation on, `check ./std` still reported the same `ComptimeNegate` rejection
+(15/153). So the failure is upstream of the resolver's dot branch. Three
+candidates remain, in the order worth testing:
+
+1. `env_mut` is REPLACED wholesale in this file (`env_mut.frames =
+te_info.env.frames` etc. in the constraint path), so the frame that received
+   the `Output` binding may no longer be reachable when the retry runs.
+2. `_lhs_should_defer_for_pending` defers the constraint on the FIRST pass and
+   the retry re-enters through `_drop_where_constraint_failures`, whose local
+   handler swallows whatever still fails — so a resolver fix has to be verified
+   INSIDE that path, not just in `_parse_trait_where_clauses`.
+3. The where-clause LHS `Self.Output` may not arrive as a 2-arg `BF_DOT` call.
+
+Recommended next move: build one probe binary that prints, at the retry site,
+`ast_expr_to_string(lhs_expr)` plus whether `get_variables_from_env(env_mut,
+"Output")` finds anything. That single probe distinguishes all three.
