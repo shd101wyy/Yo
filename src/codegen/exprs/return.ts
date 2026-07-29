@@ -415,7 +415,8 @@ export function generateConsumedVarDropsForEscape(
   indent: string,
   context: FunctionGenerationContext,
   expr: Expr,
-  skipEnvCheck: boolean = false
+  skipEnvCheck: boolean = false,
+  excludeVarNames?: ReadonlySet<string>
 ): void {
   if (
     !context.consumedVarPendingDrops ||
@@ -424,9 +425,19 @@ export function generateConsumedVarDropsForEscape(
     return;
   }
 
+  // Variables already released earlier in this same escape sequence (the
+  // caller's own deferred drops). Re-releasing one here is a double free.
+  const pendingDrops =
+    excludeVarNames && excludeVarNames.size > 0
+      ? context.consumedVarPendingDrops.filter((dropExpr) => {
+          const varName = getDeferredDropTargetAtomName(dropExpr);
+          return !varName || !excludeVarNames.has(varName);
+        })
+      : context.consumedVarPendingDrops;
+
   const dropsToEmit =
     expr.$?.env && !skipEnvCheck
-      ? context.consumedVarPendingDrops.filter((dropExpr) => {
+      ? pendingDrops.filter((dropExpr) => {
           const varName = getDeferredDropTargetAtomName(dropExpr);
           if (!varName) return false;
           const variables = getVariablesFromEnv(expr.$!.env, varName);
@@ -458,7 +469,7 @@ export function generateConsumedVarDropsForEscape(
           }
           return true;
         })
-      : [...context.consumedVarPendingDrops];
+      : [...pendingDrops];
 
   if (dropsToEmit.length > 0) {
     context.emitter.emitLine(
@@ -644,6 +655,21 @@ export function generateReturn(
       );
     }
 
+    // Record which variables this return's own deferred drops release, so the
+    // consumed-var escape drops below cannot release any of them a second time.
+    // See the comment at the generateConsumedVarDropsForEscape call.
+    // Both lists are collected — the same pair generatePendingDeferredDrops
+    // treats as "already dropped" (see alreadyDroppedVars above).
+    const droppedByThisReturn = new Set<string>();
+    for (const dropExpr of expr.$.deferredDropExpressions ?? []) {
+      const varName = getDeferredDropTargetAtomName(dropExpr);
+      if (varName) droppedByThisReturn.add(varName);
+    }
+    for (const dropExpr of expr.$.earlyReturnOnlyDeferredDropExpressions ??
+      []) {
+      const varName = getDeferredDropTargetAtomName(dropExpr);
+      if (varName) droppedByThisReturn.add(varName);
+    }
     if (expr.$.deferredDropExpressions) {
       generateDeferredDropExpressions(expr, indent, context);
     }
@@ -717,8 +743,22 @@ export function generateReturn(
     // and puts its drop expression in consumedVarPendingDrops (for escape paths).
     // On an early return-with-dup path, the original is still alive and must be
     // freed after we've created the dup'd copy for the caller.
+    //
+    // But a variable can appear BOTH in this return's own deferredDropExpressions
+    // and in consumedVarPendingDrops — e.g. `return(out)` for an OWNED local
+    // inside a branch: `out` is dup'd for the caller (rc 1->2), the return's own
+    // deferred drop releases the local (2->1, correct), and then the consumed-var
+    // escape drop released it AGAIN (1->0), so the function returned a FREED
+    // pointer. Exclude anything already dropped just above — a second release of
+    // the same variable in one return sequence can only ever be a double free.
     if (handledDeferredDup) {
-      generateConsumedVarDropsForEscape(indent, functionContext, expr);
+      generateConsumedVarDropsForEscape(
+        indent,
+        functionContext,
+        expr,
+        false,
+        droppedByThisReturn
+      );
     }
 
     if (isUnitType(expr.$.type)) {

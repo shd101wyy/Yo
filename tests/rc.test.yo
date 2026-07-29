@@ -407,3 +407,30 @@ test("Test early return of reassigned RC variable does not leak", {
   // If the RC is wrong (leak), ASAN will report it.
   assert(rc(s) == 1, "rc(s) should be 1 after early return");
 });
+test("Returning an OWNED RC local from inside a branch is not double-dropped", {
+  // The `return(out)` below dups `out` for the caller (rc 1 -> 2) and the
+  // early-return path must release the local exactly once (2 -> 1). Codegen
+  // used to emit that release TWICE — once from the return's
+  // earlyReturnOnlyDeferredDropExpressions and again from the consumed-var
+  // escape drops — so rc hit 0, the buffer was freed, and the caller received a
+  // dangling pointer. See issues/fixed/yo-return-owned-local-in-branch-double-drop.md.
+  build :: (fn(early : bool) -> ArrayList(i32))({
+    out := ArrayList(i32).new();
+    if(early, {
+      out.push(i32(7));
+      return(out);
+    });
+    out.push(i32(2));
+    out.push(i32(3));
+    out
+  });
+  a := build(true);
+  assert(a.len() == usize(1), "early-return branch should yield 1 element");
+  assert(a(usize(0)) == i32(7), "the surviving element should be 7");
+  assert(rc(a) == 1, "rc(a) should be 1 — dup for the caller, one release of the local");
+  b := build(false);
+  assert(b.len() == usize(2), "fallthrough should yield 2 elements");
+  assert(b(usize(0)) == i32(2), "b(0) should be 2");
+  assert(b(usize(1)) == i32(3), "b(1) should be 3");
+  assert(rc(b) == 1, "rc(b) should be 1");
+});

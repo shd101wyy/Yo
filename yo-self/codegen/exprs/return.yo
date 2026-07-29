@@ -9,9 +9,7 @@
 //! DEFERRED (documented): async state-machine return completion + ctl-handler
 //! resume (Phase 5 — emitAsyncFutureCompletion / continuation_variables not
 //! ported; gated on in_async_state_machine = .None for the corpus); the
-//! `early_return_only_deferred_drop_expressions` ExprInfo field is absent in
-//! yo-self → generate_early_return_only_... is a no-op; the inout-param
-//! shadow guard uses Variable.isRef which yo-self lacks → treated as false
+//! inout-param shadow guard uses Variable.isRef which yo-self lacks → false
 //! (inside the deferred-dup block, which is empty for the no-RC corpus).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
@@ -349,7 +347,13 @@ generate_pending_deferred_drops :: (fn(indent : String, context : FunctionGenera
 );
 /// Generate drops for consumed variables on unwind/escape paths. Mirrors
 /// `generateConsumedVarDropsForEscape`.
-generate_consumed_var_drops_for_escape :: (fn(indent : String, context : FunctionGenerationContext, expr : AstExpr, skip_env_check : bool) -> unit)(
+///
+/// `exclude` names variables already released earlier in this same escape
+/// sequence (the caller's own deferred drops); re-releasing one here would be a
+/// double free. TS spells this as an optional trailing `excludeVarNames`
+/// parameter — Yo has no optional parameters, so every call site passes it
+/// explicitly (`.None` where TS omits it).
+generate_consumed_var_drops_for_escape :: (fn(indent : String, context : FunctionGenerationContext, expr : AstExpr, skip_env_check : bool, exclude : Option(HashSet(String))) -> unit)(
   match(
     context.consumed_var_pending_drops,
     .Some(pending) => if(pending.len() > usize(0), {
@@ -362,20 +366,35 @@ generate_consumed_var_drops_for_escape :: (fn(indent : String, context : Functio
         match(
           pending.get(i),
           .Some(de) => {
-            keep := if(
-              !(use_env),
-              true,
-              match(
+            // Excluded (already released by the caller's own drops) — skip
+            // before the env/initialization guards below.
+            excluded := match(
+              exclude,
+              .Some(ex) => match(
                 get_deferred_drop_target_atom_name(de),
-                .Some(var_name) => match(
-                  context.base.get_expr_info(expr),
-                  .Some(ei) => {
-                    variables := get_variables_from_env(ei.env, var_name);
-                    if(variables.len() == usize(0), false, match(_resolve_drop_target_in_scope(de, variables, ast_expr_token(expr), context),.Some(lv) => match(lv.initialized_at_token,.Some(_) => true,.None => false),.None => false))
-                  },
-                  .None => false
-                ),
+                .Some(vn) => ex.contains(vn),
                 .None => false
+              ),
+              .None => false
+            );
+            keep := if(
+              excluded,
+              false,
+              if(
+                !(use_env),
+                true,
+                match(
+                  get_deferred_drop_target_atom_name(de),
+                  .Some(var_name) => match(
+                    context.base.get_expr_info(expr),
+                    .Some(ei) => {
+                      variables := get_variables_from_env(ei.env, var_name);
+                      if(variables.len() == usize(0), false, match(_resolve_drop_target_in_scope(de, variables, ast_expr_token(expr), context),.Some(lv) => match(lv.initialized_at_token,.Some(_) => true,.None => false),.None => false))
+                    },
+                    .None => false
+                  ),
+                  .None => false
+                )
               )
             );
             if(keep, {
@@ -715,6 +734,59 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
         }),
         .None => ()
       );
+      // Record which variables THIS return's own deferred drops release, so the
+      // consumed-var escape drops below cannot release any of them a second
+      // time. Same pair `generate_pending_deferred_drops` treats as already
+      // dropped. Mirrors return.ts's `droppedByThisReturn`.
+      dropped_by_this_return := HashSet(String).new();
+      match(
+        context.base.get_expr_info(expr),
+        .Some(rei) => {
+          match(
+            rei.deferred_drop_expressions,
+            .Some(dds) => {
+              (ddi : usize) = usize(0);
+              while(ddi < dds.len(), {
+                match(
+                  dds.get(ddi),
+                  .Some(de) => match(
+                    get_deferred_drop_target_atom_name(de),
+                    .Some(vn) => {
+                      _a := dropped_by_this_return.add(vn);
+                    },
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                ddi = (ddi + usize(1));
+              });
+            },
+            .None => ()
+          );
+          match(
+            rei.early_return_only_deferred_drop_expressions,
+            .Some(eds) => {
+              (edi : usize) = usize(0);
+              while(edi < eds.len(), {
+                match(
+                  eds.get(edi),
+                  .Some(de) => match(
+                    get_deferred_drop_target_atom_name(de),
+                    .Some(vn) => {
+                      _a := dropped_by_this_return.add(vn);
+                    },
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                edi = (edi + usize(1));
+              });
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
       generate_deferred_drop_expressions(expr, indent.clone(), context);
       generate_early_return_only_deferred_drop_expressions(expr, indent.clone(), context);
       // Async state-machine return: complete the Future instead of emitting a
@@ -771,8 +843,21 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
         Option(HashSet(String)).None
       );
       generate_pending_deferred_drops(indent.clone(), context, expr, false, false, false, returned_own);
+      // A variable can appear BOTH in this return's own deferred/early-return
+      // drops and in `consumed_var_pending_drops` — e.g. `return(out)` for an
+      // OWNED local inside a branch: `out` is dup'd for the caller (rc 1->2),
+      // the early-return drop releases the local (2->1, correct), and then the
+      // consumed-var escape drop released it AGAIN (1->0), so the function
+      // returned a FREED pointer. Exclude anything already dropped just above —
+      // a second release of the same variable in one return sequence can only
+      // ever be a double free. Mirrors the same fix in return.ts; see
+      // issues/fixed/yo-return-owned-local-in-branch-double-drop.md (this is
+      // what made tests/fs/dir.test.yo HANG: state_code_gen.yo's
+      // `return(remaining_exprs)` handed back a freed ArrayList, so the async
+      // state machine read `after.len()` as 0 and dropped a while-loop's
+      // post-await tail — including the loop increment).
       if(handled_deferred_dup, {
-        generate_consumed_var_drops_for_escape(indent.clone(), context, expr, false);
+        generate_consumed_var_drops_for_escape(indent.clone(), context, expr, false, Option(HashSet(String)).Some(dropped_by_this_return));
       });
       if(is_unit, {
         return(String.from("return"));
@@ -961,7 +1046,7 @@ emit_effect_unwind_check :: (fn(indent : String, context : FunctionGenerationCon
     // END-of-scope env which leaks live locals here. Closes the per-call
     // callee_env leak on the __yo_effect_escaped path (stage-2 fixpoint).
     generate_pending_deferred_drops(inner.clone(), context, expr, false, true, true, Option(HashSet(String)).None);
-    generate_consumed_var_drops_for_escape(inner.clone(), context, expr, false);
+    generate_consumed_var_drops_for_escape(inner.clone(), context, expr, false, Option(HashSet(String)).None);
     ret_ty := match(context.current_function_type,.Some(ft) => match(ft,.Func({ result : r }) => r, _ => t_unit()),.None => t_unit());
     if(is_handler_installation, {
       em.emit_string_line(`${inner.clone()}__yo_effect_escaped = 0;`);
@@ -1011,7 +1096,7 @@ generate_unwind :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
     );
     _emit_effect_handler_param_drops(context, indent.clone());
     generate_pending_deferred_drops(indent.clone(), context, expr, false, true, true, Option(HashSet(String)).None);
-    generate_consumed_var_drops_for_escape(indent.clone(), context, expr, true);
+    generate_consumed_var_drops_for_escape(indent.clone(), context, expr, true, Option(HashSet(String)).None);
     emit_async_future_escape(em, indent.clone(), Option(String).None, Option(String).Some(context.base.current_function_name.clone()));
     return(String.from(""));
   });
@@ -1023,7 +1108,7 @@ generate_unwind :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
       _emit_effect_handler_param_drops(context, indent.clone());
       generate_pending_deferred_drops(indent.clone(), context, expr, false, true, true, Option(HashSet(String)).None);
       if(!(context.is_effect_record_member_function), {
-        generate_consumed_var_drops_for_escape(indent.clone(), context, expr, true);
+        generate_consumed_var_drops_for_escape(indent.clone(), context, expr, true, Option(HashSet(String)).None);
       });
       _unwind_dummy_return(indent.clone(), context)
     },
@@ -1032,7 +1117,7 @@ generate_unwind :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
       _emit_effect_handler_param_drops(context, indent.clone());
       generate_pending_deferred_drops(indent.clone(), context, expr, false, true, true, Option(HashSet(String)).None);
       if(!(context.is_effect_record_member_function), {
-        generate_consumed_var_drops_for_escape(indent.clone(), context, expr, true);
+        generate_consumed_var_drops_for_escape(indent.clone(), context, expr, true, Option(HashSet(String)).None);
       });
       has_evidence := match(context.current_evidence_params,.Some(ep) => (ep.len() > usize(0)),.None => false);
       if(context.is_effect_record_member_function || has_evidence, {
