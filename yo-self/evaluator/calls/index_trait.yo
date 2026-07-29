@@ -301,7 +301,19 @@ _find_index_method :: (
                         .Some(b) => b,
                         .None => false
                       );
-                      p1_compatible := are_types_compatible(p1, arg_type);
+                      // `are_types_compatible(actual, expected)` — the ARGUMENT's type is the
+                      // actual, the parameter's declared type is the expected. Passing
+                      // them the other way round made the parameter type the "actual",
+                      // so the comptime widening arms (types/compatibility.yo:124-146 for
+                      // ComptimeInt, :171-190 for ComptimeString) — which all key off
+                      // `actual` — never fired: `l(0)` on a `ComptimeIndex(usize)` impl was
+                      // rejected with "Type does not implement Index for the given argument
+                      // type" while `l(usize(0))` worked. TS spells the same check
+                      // `areTypesCompatible({type: idxParam.type}, {type: argType})`
+                      // (index-trait.ts:404-406), but ITS first position is `expected` and
+                      // its second is `given` — the opposite order from yo-self's, so a
+                      // faithful port must swap.
+                      p1_compatible := are_types_compatible(arg_type, p1);
                       ret_is_ptr := is_pointer_type(ret_ty);
                       if(((p0_is_ptr || p0_is_ref) && p1_compatible) && ret_is_ptr, {
                         found = Option(_IndexMethodEntry).Some(m);
@@ -837,7 +849,19 @@ _find_comptime_index_method :: (
                         .Some(b) => b,
                         .None => false
                       );
-                      p1_compatible := are_types_compatible(p1, arg_type);
+                      // `are_types_compatible(actual, expected)` — the ARGUMENT's type is the
+                      // actual, the parameter's declared type is the expected. Passing
+                      // them the other way round made the parameter type the "actual",
+                      // so the comptime widening arms (types/compatibility.yo:124-146 for
+                      // ComptimeInt, :171-190 for ComptimeString) — which all key off
+                      // `actual` — never fired: `l(0)` on a `ComptimeIndex(usize)` impl was
+                      // rejected with "Type does not implement Index for the given argument
+                      // type" while `l(usize(0))` worked. TS spells the same check
+                      // `areTypesCompatible({type: idxParam.type}, {type: argType})`
+                      // (index-trait.ts:404-406), but ITS first position is `expected` and
+                      // its second is `given` — the opposite order from yo-self's, so a
+                      // faithful port must swap.
+                      p1_compatible := are_types_compatible(arg_type, p1);
                       ret_is_ptr := is_pointer_type(ci_result);
                       if(((p0_is_ptr || p0_is_ref) && p1_compatible) && ret_is_ptr, {
                         // Comptime-parameter gate (TS index-trait.ts:414).

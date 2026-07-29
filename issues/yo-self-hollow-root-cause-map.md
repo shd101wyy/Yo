@@ -127,7 +127,8 @@ ComptimeIndex(usize)(...))` (std/prelude.yo:5819-5829) — and the argument `0`
    in a `main`): TS emits **0** `Failed to transpile`, s1 emits **2**. Use this
    rather than the whole test file.
 
-   **Both obvious hypotheses are ELIMINATED — do not re-check them:**
+   **RESOLVED (see below). Root: argument order.** The two obvious hypotheses
+   were both wrong; keeping them recorded because each cost a probe:
 
    - `are_types_compatible(usize, comptime_int)` is **not** the problem. The
      ComptimeInt widening arm (`types/compatibility.yo:124-146`) explicitly
@@ -148,6 +149,56 @@ ComptimeIndex(usize)(...))` (std/prelude.yo:5819-5829) — and the argument `0`
    the `find_methods_from_generic_impls` callback -> `try_match_generic_impl`)
    and compare against TS's equivalent, rather than touching either of the two
    sites above.
+
+#### Root of #3 FOUND: `are_types_compatible` argument order
+
+`_find_index_method` and `_find_comptime_index_method`
+(yo-self/evaluator/calls/index_trait.yo:304, :840) called
+
+    are_types_compatible(p1, arg_type)      // p1 = the PARAMETER's declared type
+
+but yo-self's signature is `are_types_compatible(actual, expected)`
+(types/compatibility.yo:934) — so the _parameter_ type was passed as the
+"actual". Every comptime widening arm keys off `actual`
+(`is_comptime_int_type(actual)` at :124, `is_comptime_string_type(actual)` at
+:171), so with `actual = usize` none of them fired and the check fell through to
+the tag comparison: `usize != comptime_int` -> reject -> "Type does not implement
+Index for the given argument type".
+
+TS spells the same check `areTypesCompatible({type: idxParam.type}, {type: argType})`
+(index-trait.ts:404-406) — but **TS's first position is `expected` and its second
+is `given`**, the opposite of yo-self's. So the faithful port must SWAP the
+arguments, not copy the order. Fixed to `are_types_compatible(arg_type, p1)`.
+
+The discriminator that found it, in three cheap compiles (no probe build needed):
+
+| probe                                                                                                | result    | conclusion                         |
+| ---------------------------------------------------------------------------------------------------- | --------- | ---------------------------------- |
+| `l.len()` / `l.get(usize(0))` — same generic impl, same `where(T <: Comptime)`, NOT Index-dispatched | 0 markers | the impl and where-clause are fine |
+| `l(usize(0))` — Index dispatch, argument already `usize`                                             | 0 markers | the Index path itself is fine      |
+| `l(0)` — Index dispatch, argument `comptime_int`                                                     | 2 markers | **only the argument TYPE matters** |
+
+Effect on `tests/index.test.yo`: **hollow=1 markers=1 -> hollow=0 markers=0**.
+The evaluator side of that file is now complete for the first time. It is still
+RED, on a FOURTH root:
+
+4. **STILL OPEN — comptime index-assignment emits the folded value as an lvalue.**
+   5 clang errors, all of the shape `0 = 42;`, `10 = 99;`, `1 = 100;` — codegen
+   emitted the LHS's folded comptime VALUE on the left of an assignment. These
+   come from `l(0) = 99` on a `ComptimeList`, which must be a COMPILE-TIME-ONLY
+   assignment emitting no C at all.
+
+   The machinery exists and is not the problem: assignment.yo's Step 6
+   (`lhs_info.comptime_ref`, :680-708) mutates the shared list in place and sets
+   `is_comptime_only_prop = true`, mirroring assignment.ts:1175-1194. The gap is
+   that `comptime_ref` is never POPULATED for a ComptimeList index result — TS's
+   `tryComptimeCustomTypeIndex` PtrVal-deref block builds a ComptimeRef only for
+   the array / struct / tuple target shapes (index-trait.ts:551-579), yet
+   assignment.ts:1183 has a `case "comptime_list"`, so something upstream must
+   build a `ComptimeListRef`. Find what produces it in TS (start at
+   `__yo_comptime_list_index` in src/evaluator/builtins/comptime-index-fns.ts:188)
+   and mirror it — do NOT add a case to the deref block on the assumption it
+   belongs there.
 
 ### Other still-open items re-confirmed
 
