@@ -80,6 +80,74 @@ usually the error a `cee`*wanted*. The unambiguous defect signal in that family 
 (`Cannot unify incompatible types:`) — the truncated head matches known noise. Re-read the full
 multi-line message out of `/tmp/swal/<mangled>.log` before treating any of these as a defect.
 
+## UPDATE 2026-07-29 (later) — measured after five fixes landed
+
+Re-measured with a FRESH probe build (`/tmp/s1_swal3`, built from the tree at
+commit `2b70886da`). Landed since the table above: the `___dispose` deep-SomeT
+filter, the `comptime_str`->`*(u8)` coercion, `open()` declared-type lookup,
+generic-impl methods on enum receivers, the `return(<owned RC local>)`
+double-drop fix, the anonymous-fn no-expected-type throw, and the ComptimeIndex
+custom-type dispatch port. Score **150 GREEN / 23 HOLLOW / 10 RED**.
+
+### `tests/index.test.yo` has THREE independent roots, not one
+
+This file is the clearest case of "error shape != root cause" in the whole
+campaign. Each fix removed exactly one layer and revealed the next:
+
+1. **`call to undeclared function 'yo_id_NNNN'`** (RED) — the shallow-vs-deep
+   `type_contains_some_type` on the `___dispose` path. FIXED (`e798f7ff4`);
+   the file went RED -> HOLLOW, _not_ GREEN, while the four sibling files with
+   the identical clang error did flip.
+2. **`comptime_expect_error` saw no error** — `ComptimeIndex` custom-type
+   dispatch was an explicit unported stub, so `p(usize(2))` fell through to the
+   RUNTIME `Index` impl whose out-of-bounds arm is a runtime panic rather than a
+   compile error. FIXED (`2b70886da`), verified on an isolated repro (markers
+   1 -> 0). The file stayed HOLLOW.
+3. **STILL OPEN — `ComptimeList` indexing with a `comptime_int` literal.**
+   Batch test #29:
+
+   ```rust
+   l :: ComptimeList(i32)(10, 20, 30);
+   comptime_assert(l(0) == 10, "l(0) should be 10");
+   l(0) = 99;
+   ```
+
+   Swallowed error (`__DBG_F`, the fatal one):
+   `Type does not implement Index for the given argument type.`
+   accompanied by 8x `__DBG_W Cannot unify incompatible types: "comptime_int"
+and "usize"`. That pairing is the lead: `ComptimeList(T)`'s impl is
+   **generic** — `impl(generic(T : Type), where(T <: Comptime), ComptimeList(T),
+ComptimeIndex(usize)(...))` (std/prelude.yo:5819-5829) — and the argument `0`
+   is `comptime_int`, so the `ComptimeIndex(usize)` trait-argument match appears
+   to be strict where it must widen. TS accepts it: `are_types_compatible`
+   widens `comptime_int` -> `usize` (`findComptimeIndexMethod`,
+   index-trait.ts:404-408).
+
+   Minimal differential (`/tmp/clist.yo`, 8 lines — the three statements above
+   in a `main`): TS emits **0** `Failed to transpile`, s1 emits **2**. Use this
+   rather than the whole test file.
+
+   Next probe: instrument `_find_all_index_methods` /
+   `_find_comptime_index_method` (yo-self/evaluator/calls/index_trait.yo:175,
+   :808) to report whether the generic impl is FOUND at all, and if so whether
+   `are_types_compatible(usize, comptime_int)` or the trait-argument match is
+   what rejects it. Do not assume which — the two candidate causes need
+   different fixes.
+
+### Other still-open items re-confirmed
+
+- `tests/algebraic_effects.test.yo` — now **hollow=0** (71 tests genuinely pass)
+  with ONE real failure, "Test zero-arg unwind exits unit function". Its
+  remaining FTT'd arms are `ctl` handler assignments
+  (`(raise : Raise) = (() -> { unwind(); })`), which are a SEPARATE pre-existing
+  gap: verified by running the pre-change and post-change s1 on that shape
+  standalone — identical 1 marker, while TS compiles and runs it. The
+  ctl-handler assignment path does not set `ctx.expected_type`.
+- `tests/prelude.test.yo` — a design exists but is deliberately NOT applied: its
+  own author found a second independent blocker (`try_into` fails with a SINGLE
+  impl and no overloading involved), so the patch would touch a hot dispatch
+  path without flipping the file.
+
 ## RED files, for completeness (from `scratchpad/capture_markers.sh`)
 
 | Family (first clang error)                                                                                                                                                      | Files                                                                                                                            |
