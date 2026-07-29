@@ -1,7 +1,10 @@
 # yo-self: unary `-` on a TYPED value is broken in BOTH the CTFE and runtime paths
 
-**Status:** OPEN. Pre-existing (reproduces on the 2026-07-29 tree before the
-contracts port). Only `-(comptime_int literal)` works, via the
+**Status:** FIXED by `0226c4865` (associated-type substitution at trait-impl
+registration) — BOTH layers cleared: the CTFE repro compiles rc=0 and the
+runtime repro compiles AND runs. Regression test: tests/operator_grouping.test.yo
+"unary negation of typed values". Original analysis below. Was pre-existing
+(reproduced on the 2026-07-29 tree before the contracts port). Only `-(comptime_int literal)` works, via the
 `ComptimeNegate` impl on `comptime_int` (`__yo_comptime_int_neg`) — which is
 why the gap survived: tests overwhelmingly negate literals.
 

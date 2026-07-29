@@ -1,6 +1,10 @@
 # yo-self: io.async closure with `return(<binary op>)` tail → Future output degrades to unit/void
 
-**Status:** OPEN — root PINPOINTED by probes (recipe below), fix not yet landed.
+**Status:** FIXED by `0226c4865` — the Step-10 pollution required an UNRESOLVED
+`Output` in the registered trait-impl method type; associated-type substitution
+at registration removes it. thread.test.yo (7 passed) + worker.test.yo (8
+passed) RED->GREEN, markers=0 hollow=0. Probe evidence below kept for the
+methodology.
 Files: `tests/thread.test.yo`, `tests/worker.test.yo` (both RED, rc=1, 1 marker,
 `variable has incomplete type 'void'` at the awaited-result declaration).
 

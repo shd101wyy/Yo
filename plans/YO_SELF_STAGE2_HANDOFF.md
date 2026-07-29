@@ -6,6 +6,27 @@ nothing below needs re-litigating._
 
 ## Where things stand
 
+- **2026-07-29 (latest): ASSOCIATED-TYPE REGISTRATION FIX (`0226c4865`) —
+  score 155 GREEN / 21 HOLLOW / 7 RED.** THE foundational fix under three
+  symptom families: `_substitute_self_in_method_ty` mapped only `Self`,
+  leaving `Output` a bare SomeT in every registered trait-impl method type
+  (539 unresolved-return call sites in an 8-line io.async program — now 0).
+  Consequences fixed: (a) `Self.Output` returns stayed symbolic at every
+  call site; (b) Step-10 expected-synthesis bound the unresolved `Output`
+  to a caller's ambient `_ret` SomeT and the return re-eval laundered it
+  out as the call's result. Flips: **thread + worker RED→GREEN** (the
+  void-typed-await family — `issues/fixed/yo-self-io-async-return-binop-void.md`
+  keeps the full 5-probe-build evidence trail), **both unary-neg layers**
+  (`issues/fixed/yo-self-unary-neg-dispatch.md`; regression test added to
+  `tests/operator_grouping.test.yo`, 4/4 both compilers). STILL hollow
+  after this: `contracts_phase0` (arms 2/18 = generic fn + where +
+  requires, arm 8 = cond-wrapped `invariant()` under cee — all TS-green
+  standalone differentials, empty-error class; per-arm splitter recipe
+  proven in /tmp/cp0_arms) and `comptime` (own remaining arm, re-measure).
+  NEW issue filed: `issues/yo-self-comptime-const-batch-undeclared.md`
+  (`G :: <ctfe call>` in a batch arm → undeclared C identifier; batch-arm
+  context only).
+
 - **2026-07-29 (later): contracts + comptime_ref chains LANDED — score
   153 GREEN / 21 HOLLOW / 9 RED** (from 150/23/10: index RED→GREEN,
   pragma_no_contracts + pragma_verify HOLLOW→GREEN; commits `8796f5734`,

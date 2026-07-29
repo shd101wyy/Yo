@@ -6,6 +6,7 @@
 //! require explicit parentheses (otherwise a parse error — that rejection is
 //! exercised by the parser-level test in `src/tests/operator-grouping.test.ts`).
 open(import("std/string"));
+{ assert } :: import("std/assert");
 
 test("same-operator chains left-associate", {
   // `+` and `*` are associative, so these mainly confirm the chain parses:
@@ -31,4 +32,21 @@ test("comparison chaining is rejected", {
   // cannot observe; that rejection is covered by the std/tests/yo-self migration
   // itself, where every such site now requires explicit parentheses.)
   comptime_expect_error(1 < 2 < 3);
+});
+
+test("unary negation of typed values (runtime and comptime)", {
+  // Regression: unary `-` on a TYPED value (not a comptime_int literal)
+  // dispatches through the prelude's generic `(neg)` whose trait return is
+  // `Self.Output`. The self-hosted compiler used to leave `Output`
+  // unresolved in registered trait-impl method types, breaking BOTH the
+  // CTFE path (`Return type mismatch: got "Output"`) and runtime codegen
+  // (`return // Failed to transpile -(y);`). See
+  // issues/fixed/yo-self-unary-neg-dispatch.md.
+  y := i32(50);
+  z := -(y);
+  assert(z == i32(-(50)), "runtime negation of an i32 variable");
+  abs :: (fn(comptime(x) : i32) -> comptime(i32))(cond((x >= i32(0)) => x, true => -(x)));
+  comptime_assert(abs(i32(-(50))) == i32(50), "CTFE negation of a comptime i32 param");
+  f :: (fn(v : i32) -> i32)(-(v));
+  assert(f(i32(7)) == i32(-(7)), "runtime negation in a fn body");
 });
