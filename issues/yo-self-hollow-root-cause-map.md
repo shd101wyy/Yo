@@ -127,12 +127,27 @@ ComptimeIndex(usize)(...))` (std/prelude.yo:5819-5829) — and the argument `0`
    in a `main`): TS emits **0** `Failed to transpile`, s1 emits **2**. Use this
    rather than the whole test file.
 
-   Next probe: instrument `_find_all_index_methods` /
-   `_find_comptime_index_method` (yo-self/evaluator/calls/index_trait.yo:175,
-   :808) to report whether the generic impl is FOUND at all, and if so whether
-   `are_types_compatible(usize, comptime_int)` or the trait-argument match is
-   what rejects it. Do not assume which — the two candidate causes need
-   different fixes.
+   **Both obvious hypotheses are ELIMINATED — do not re-check them:**
+
+   - `are_types_compatible(usize, comptime_int)` is **not** the problem. The
+     ComptimeInt widening arm (`types/compatibility.yo:124-146`) explicitly
+     lists `.Usize => true`, so the parameter check in `_find_index_method`
+     passes. (It is gated on `require_exact` being false — worth confirming the
+     index path does not set it, but the arm exists.)
+   - The `Cannot unify incompatible types` throw site is a **faithful port**.
+     yo-self's synthesizer fallback (`evaluator/types/synthesizer.yo:1979-1994`)
+     compares raw type TAGS and throws; TS's `synthesizeTypes`
+     (`src/evaluator/types/synthesizer.ts:1076-1088`) does _exactly_ the same.
+     So the bug is NOT in the comparison.
+
+   Therefore the divergence is **upstream**: TS never reaches that fallback with
+   `(usize, comptime_int)`, and yo-self does. The next probe should find out WHY
+   — either TS's caller widens/coerces the argument type before synthesizing the
+   trait argument, or an earlier `synthesizeTypes` case intercepts the pair. Walk
+   the generic-impl match path (`get_receiver_methods_by_name_from_env` ->
+   the `find_methods_from_generic_impls` callback -> `try_match_generic_impl`)
+   and compare against TS's equivalent, rather than touching either of the two
+   sites above.
 
 ### Other still-open items re-confirmed
 
