@@ -35,6 +35,7 @@ open(import("std/string"));
   ast_expr_is_fn_call_of,
   ast_expr_is_atom,
   make_err_expr,
+  ast_expr_to_string,
   wrap_body_in_begin,
   BK_TUPLE
 } :: import("../../expr.yo");
@@ -560,18 +561,36 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   // Resolve the expected type from context.
   // -------------------------------------------------------------------------
-  // When no `expected_type` is provided (e.g. inside a parametric trait
-  // impl that the bootstrap evaluator can't fully resolve), synthesize a
-  // fresh polymorphic Func type — SomeT for each param and a SomeT
-  // return — so the body can still typecheck. TS reference throws here;
-  // the bootstrap is more lenient because real failures surface later
-  // anyway, and this avoids choking on prelude impls whose surrounding
-  // context can't be resolved syntactically. Tracked in
-  // `issues/yo-self-evaluator-gaps.md` §5c.
+  // No expected type in context is a HARD ERROR, exactly as in TS
+  // (anonymous-function.ts:190-196): an anonymous-function literal has no type
+  // of its own, so there is nothing to check its parameters and body against.
+  // TS throws for `->`, `=>` and `=>>` alike, so this gate is operator-agnostic.
+  //
+  // The former leniency (`_synthesize_default_func_type`, which built an
+  // all-`SomeT` Func and DISCARDED the user's parameter annotations) is what
+  // produced the `use of undeclared identifier fn_yo_id_NNNN` clang error in
+  // tests/algebraic_effects.test.yo: the synthesized FuncVal gets registered, so
+  // codegen/exprs/comptime_value.yo emits its c_name, while
+  // should_skip_function_codegen (codegen/functions/declarations.yo:462, via
+  // is_function_type_hard_generic / has_generic_return) suppresses BOTH its
+  // prototype and its body. It also made that file's `comptime_expect_error`
+  // for "lambda with unwind needs an explicit ctl annotation" pass vacuously.
   expected_ty := match(
     ctx.expected_type,
     .Some(etc) => etc.ty,
-    .None => _synthesize_default_func_type(param_decl, env)
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            tok,
+            `Expected a function type, got:\n${ast_expr_to_string(expr)}`,
+            false,
+            .None
+          )
+        )
+      );
+      TypeValue.Unit
+    }
   );
   // For closures passed to generic functions (e.g. io.async), the callee's
   // env carries generic bindings (E=Io, T=i32). Extract it so the closure's
