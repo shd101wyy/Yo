@@ -6,7 +6,56 @@ nothing below needs re-litigating._
 
 ## Where things stand
 
-- **2026-07-29 (latest): ASSOCIATED-TYPE REGISTRATION FIX (`0226c4865`) —
+- **2026-07-29 (latest): COMPTIME-OVERLOAD PREFERENCE + COMPTIME
+  INT-OVERFLOW CHECK (`f9ad9a121`) — 8 of `tests/comptime.test.yo`'s 13
+  failing arms flip (f64, i8, i16, i32, i64, u16, u32, usize); full TIER 2
+  green incl. STRICT_FIXPOINT, and GATE 0's long-standing KNOWN-RED
+  `imm-map-unspecialized-comptime-helper` now compiles AND runs.** Two
+  faithful-port gaps:
+
+  1. `_try_expand_call_overload` had only TS's SECOND tiebreak (prefer
+     comptime PARAMETER types, function.ts:1664), which never fires for the
+     prelude's operator modules because their params are the SomeT `_Self`.
+     TS's PRIMARY rule (function.ts:1737-1751, "Comptime function call has
+     higher priority than normal function call" — the rule that makes
+     `1 + 2` fold to `3`) was missing, so `-(50.75)` chose the runtime
+     `neg`, `_Self` lowered to the literal's default runtime type `f64`, and
+     a runtime-return call yields `UnknownVal` WITHOUT executing its body →
+     `f64(-(50.75))` = "Got runtime value". Landed GATED to comptime-literal
+     operands; the unrestricted rule broke 5 green files
+     (`!(runtime_bool)`) and is blocked on emitting the ordinary call for a
+     non-folding comptime result — full analysis + both witnesses in
+     `issues/yo-self-comptime-overload-preference.md`.
+  2. `make_int_val` silently CLAMPED; TS `checkOverflow` THROWS
+     (comptime-numeric-fns.ts:564/600/636). Ported as `check_int_overflow` +
+     `_i64_op_wrapped` (yo-self comptime ints are i64, not BigInt).
+     u64/usize above i64::MAX stay unchecked → arm 10 still hollow.
+
+  Also: helper.yo now REMOVES a method-call `generic(...)` from the arg list
+  (TS helper.ts:956); the inline FuncVal arm still lacks the peel entirely →
+  `issues/yo-self-explicit-call-site-generic-args.md`, which also CORRECTS
+  the earlier mis-attribution of `contracts_phase0` arms 2/18 to the
+  contracts port (they fail identically with no contract clause).
+
+  **Two method corrections worth more than the fixes:**
+
+  - **NOISE BASELINE** — every file importing `std/string/string` (i.e.
+    nearly all, via std/assert → std/fmt/to_string) swallows exactly one
+    `Cannot unify incompatible types: "usize" and "u8"`. It caused two wrong
+    root-cause attributions this session. Subtract it.
+    `issues/yo-self-std-string-swallowed-unify-noise.md`.
+  - **Move a failing statement to MODULE level to SEE the swallowed error** —
+    module begin exprs are not wrapped in the def-time swallow. A 3-second
+    `check` replaces a probe build. And count FTT markers UNANCHORED (or
+    full-compile and let clang judge): a failing sub-expression emits its
+    comment MID-LINE, which `grep '^\s*// Failed'` reports as zero.
+
+  **Gate cost is now ~15 min end-to-end** (battery ~6, corpus ~3.5,
+  `check ./std` 0.5, stage2 emit 3.4, stage3 3.5) — the round-1 numbers in
+  `scratchpad/gates_perf1.sh` (stage2 46.8 min) are historical, do not quote
+  them when planning.
+
+- **2026-07-29: ASSOCIATED-TYPE REGISTRATION FIX (`0226c4865`) —
   score 155 GREEN / 21 HOLLOW / 7 RED.** THE foundational fix under three
   symptom families: `_substitute_self_in_method_ty` mapped only `Self`,
   leaving `Output` a bare SomeT in every registered trait-impl method type
