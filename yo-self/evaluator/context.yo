@@ -24,7 +24,7 @@ open(import("std/string"));
 { EvalValue } :: import("../value.yo");
 { Environment, Variable, _frame_positions } :: import("../env.yo");
 { AstExpr } :: import("../expr.yo");
-{ PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new } :: import("../expr_info.yo");
+{ PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, ComptimeRef } :: import("../expr_info.yo");
 { Token } :: import("../token.yo");
 // ---------------------------------------------------------------------------
 // PathCollection now imported from ../expr_info.yo (Phase 2k)
@@ -496,7 +496,11 @@ IndexCallResult :: ref(
     index_method_value : Option(EvalValue),
     caller_env : Environment,
     /// Compile-time index, if known (for array element assignment).
-    index : Option(usize)
+    index : Option(usize),
+    /// Compile-time element/field reference produced by a ComptimeIndex
+    /// dispatch, enabling `p(0) = v` and `&(p(0))` at compile time.
+    /// Mirrors `IndexCallResult.comptimeRef` (src/evaluator/context.ts:449).
+    comptime_ref : Option(ComptimeRef)
   )
 );
 // ---------------------------------------------------------------------------

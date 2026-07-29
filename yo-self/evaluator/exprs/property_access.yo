@@ -31,7 +31,8 @@ open(import("std/string"));
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
-  expr_info_table_set
+  expr_info_table_set,
+  ComptimeRef
 } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
@@ -1417,10 +1418,12 @@ Raw pointer operations may dereference invalid memory.`,
                   _ => {
                     // Dereference through PtrVal before field selection.
                     (resolved_lbl : EvalValue) = ov_lbl;
+                    (lbl_via_ptr : bool) = false;
                     match(
                       ov_lbl,
                       .PtrVal(tgt_box, _) => {
                         resolved_lbl = tgt_box;
+                        lbl_via_ptr = true;
                       },
                       _ => ()
                     );
@@ -1436,6 +1439,20 @@ Raw pointer operations may dereference invalid memory.`,
                             out_lbl.value = Option(EvalValue).Some(create_unknown_val(ft_lbl));
                           }
                         );
+                        // Field access THROUGH A COMPTIME POINTER is a mutable
+                        // compile-time PLACE: record it so `&(self.x)` can build a
+                        // comptime PtrVal and `p(0) = v` can write in place.
+                        // Mirrors TS property-access.ts:1081-1096
+                        // (`if (isPtrValue(objectExprValue))` -> comptimeRef
+                        // {kind:"struct"|"tuple"}). Without it the ComptimeIndex
+                        // `index` body's `&(self.x)` evaluates to NO value and CTFE
+                        // throws "Function body is not evaluated correctly.
+                        // Expected to return a compile-time known value."
+                        if(lbl_via_ptr, {
+                          out_lbl.comptime_ref = Option(ComptimeRef).Some(
+                            ComptimeRef.TupleRef(flds_l, fi_lbl)
+                          );
+                        });
                       },
                       .StructVal(_, _, sflds_l) => {
                         match(
@@ -1447,6 +1464,12 @@ Raw pointer operations may dereference invalid memory.`,
                             out_lbl.value = Option(EvalValue).Some(create_unknown_val(ft_lbl));
                           }
                         );
+                        // See the TupleVal arm above (TS property-access.ts:1084-1090).
+                        if(lbl_via_ptr, {
+                          out_lbl.comptime_ref = Option(ComptimeRef).Some(
+                            ComptimeRef.StructRef(sflds_l, fi_lbl)
+                          );
+                        });
                       },
                       _ => {
                         out_lbl.value = Option(EvalValue).Some(create_unknown_val(ft_lbl));

@@ -4650,6 +4650,11 @@ Fix: wrap the call:
           // Mirrors TS function.ts:2790-2791.
           out_idx_rt.index_method_type = match(idx_result_rt.index_method_type,.Some(imt) => Option(TypeValue).Some(imt),.None => Option(TypeValue).None);
           out_idx_rt.index_method_value = idx_result_rt.index_method_value;
+          // ComptimeIndex place-reference (mirrors TS function.ts:2793
+          // `comptimeRef,` in the index-result `expr.$`): lets
+          // `p(0) = v` write the struct field and `&(p(0))` build a comptime
+          // pointer.
+          out_idx_rt.comptime_ref = idx_result_rt.comptime_ref;
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx_rt);
           // Attach a NON-owning temp to the index result (TS function.ts:2810
           // `attachTempVariableToExpr(expr, false)`): the element is a borrow
@@ -5043,6 +5048,9 @@ Fix: wrap the call:
             // Mirrors TS function.ts:2790-2791.
             out_idx.index_method_type = match(idx_result.index_method_type,.Some(imt) => Option(TypeValue).Some(imt),.None => Option(TypeValue).None);
             out_idx.index_method_value = idx_result.index_method_value;
+            // ComptimeIndex place-reference — see the FuncVal-callee index arm
+            // above (TS function.ts:2820).
+            out_idx.comptime_ref = idx_result.comptime_ref;
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx);
             // Attach a NON-owning temp (TS function.ts:2810) — see the
             // FuncVal-callee index arm above for the full rationale.

@@ -10,14 +10,14 @@
 //!
 //! Phase 3u simplifications:
 //!   - _check_range_type: uses struct name heuristic (no CTFE resolution)
-//!   - Custom type ComptimeIndex: not yet implemented (Phase 4)
+//!   - Custom type ComptimeIndex: dispatched via _try_comptime_custom_type_index
 //!   - has_index_impl: Array fast path + trait-field/registry method lookup
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { str_lit_unquote_bytes } :: import("../../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
-{ Environment, get_receiver_methods_by_name_from_env } :: import("../../env.yo");
+{ Environment, get_receiver_methods_by_name_from_env, add_variable_to_env, synthetic_token } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_ptr } :: import("../../types/creators.yo");
 { is_array_type, is_pointer_type, is_trait_type } :: import("../../types/guards.yo");
@@ -27,21 +27,32 @@ open(import("std/string"));
   is_str_lit,
   is_struct_val,
   is_int_lit,
+  is_func_val,
   is_unknown_val,
   create_unknown_val,
   create_runtime_unknown_val
 } :: import("../../value.yo");
-{ EvalContext, IndexCallResult, ExpectedTypeCtx } :: import("../context.yo");
+{
+  EvalContext,
+  IndexCallResult,
+  ExpectedTypeCtx,
+  ArgEntry,
+  ArgValues,
+  VarArgEntry
+} :: import("../context.yo");
 {
   ExprInfo,
   new_expr_info,
-  expr_info_table_get
+  expr_info_table_get,
+  ComptimeRef
 } :: import("../../expr_info.yo");
 { format_error_message } :: import("../../error.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { try_to_call_function_with_arguments } :: import("./helper.yo");
+{ get_func_param_comptime } :: import("../types/function.yo");
+{ evaluate_comptime_fn_call } :: import("./comptime_fn.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // Private types
@@ -413,7 +424,8 @@ _try_comptime_element_access :: (
                     index_method_type : Option(TypeValue).None,
                     index_method_value : Option(EvalValue).None,
                     caller_env : caller_env,
-                    index : Option(usize).Some(idx_usize)
+                    index : Option(usize).Some(idx_usize),
+                    comptime_ref : Option(ComptimeRef).None
                   )
                 )
               );
@@ -436,7 +448,8 @@ _try_comptime_element_access :: (
           index_method_type : Option(TypeValue).None,
           index_method_value : Option(EvalValue).None,
           caller_env : caller_env,
-          index : Option(usize).None
+          index : Option(usize).None,
+          comptime_ref : Option(ComptimeRef).None
         )
       )
     }),
@@ -451,7 +464,8 @@ _try_comptime_element_access :: (
           index_method_type : Option(TypeValue).None,
           index_method_value : Option(EvalValue).None,
           caller_env : caller_env,
-          index : Option(usize).None
+          index : Option(usize).None,
+          comptime_ref : Option(ComptimeRef).None
         )
       )
     }
@@ -719,7 +733,8 @@ _try_comptime_string_index :: (
     index_method_type : Option(TypeValue).None,
     index_method_value : Option(EvalValue).None,
     caller_env : caller_env,
-    index : Option(usize).None
+    index : Option(usize).None,
+    comptime_ref : Option(ComptimeRef).None
   )
 });
 // ---------------------------------------------------------------------------
@@ -765,6 +780,374 @@ _specialize_index_method :: (
     },
     .None => ()
   );
+});
+// ---------------------------------------------------------------------------
+// _find_comptime_index_method
+// ---------------------------------------------------------------------------
+/// Find a ComptimeIndex `index` method for a type. Same signature shape as
+/// `_find_index_method` — `(self : *(Self) | inout(self) : Self, idx : ArgType)
+/// -> *(Output)` — but BOTH parameters must carry the `comptime(...)` modifier.
+///
+/// Mirrors `findComptimeIndexMethod` (src/evaluator/calls/index-trait.ts:382-420).
+///
+/// TS reads the flag straight off the type: `selfParam.isCompileTimeOnly &&
+/// idxParam.isCompileTimeOnly` (index-trait.ts:414). yo-self's `TypeValue.Func`
+/// / `FuncMeta` carry NO per-parameter comptime bit (only `param_is_ref` /
+/// `param_is_owning`) — the `comptime(name) : T` parameter modifier rides the
+/// func-id-keyed side table `g_func_param_comptime`
+/// (evaluator/types/function.yo:269-336): registered under the `fn(...)`
+/// type-expression id by `evaluate_function_type`
+/// (types/function.yo:3757) and re-keyed under the FuncVal id by
+/// `try_to_implement_function_by_function_type`
+/// (calls/function_type.yo:655). So the flags are read through the
+/// candidate's METHOD VALUE (its FuncVal `func_id`) — which TS needs anyway
+/// (`isFunctionValue(comptimeMethod.value)`, index-trait.ts:459). A candidate
+/// with no FuncVal value has no registered flags and can never match; the
+/// table is SPARSE (only registered when some parameter is comptime), so a
+/// plain runtime `Index` impl reads back an empty list and is skipped.
+_find_comptime_index_method :: (
+  fn(
+    concrete_type : TypeValue,
+    arg_type : TypeValue,
+    env : Environment
+  ) -> Option(_IndexMethodEntry)
+)({
+  methods := _find_all_index_methods(concrete_type, env);
+  n := methods.len();
+  (i : usize) = usize(0);
+  (found : Option(_IndexMethodEntry)) = Option(_IndexMethodEntry).None;
+  while((i < n) && found.is_none(), {
+    match(
+      methods.get(i),
+      .Some(m) => {
+        match(
+          m.method_type,
+          .Func({ param_types, result : ci_result, meta : __cifm1 }) => {
+            ci_param_is_ref := __cifm1.*.param_is_ref;
+            if(param_types.len() == usize(2), {
+              match(
+                param_types.get(usize(0)),
+                .Some(p0) => {
+                  match(
+                    param_types.get(usize(1)),
+                    .Some(p1) => {
+                      p0_is_ptr := is_pointer_type(p0);
+                      p0_is_ref := match(
+                        ci_param_is_ref.get(usize(0)),
+                        .Some(b) => b,
+                        .None => false
+                      );
+                      p1_compatible := are_types_compatible(p1, arg_type);
+                      ret_is_ptr := is_pointer_type(ci_result);
+                      if(((p0_is_ptr || p0_is_ref) && p1_compatible) && ret_is_ptr, {
+                        // Comptime-parameter gate (TS index-trait.ts:414).
+                        ci_flags := match(
+                          m.method_value,
+                          .Some(mv) => match(
+                            mv,
+                            .FuncVal(__cifvd1, _) => get_func_param_comptime(__cifvd1.*.func_id.clone()),
+                            _ => ArrayList(bool).new()
+                          ),
+                          .None => ArrayList(bool).new()
+                        );
+                        self_is_ct := match(ci_flags.get(usize(0)),.Some(b) => b,.None => false);
+                        idx_is_ct := match(ci_flags.get(usize(1)),.Some(b) => b,.None => false);
+                        if(self_is_ct && idx_is_ct, {
+                          found = Option(_IndexMethodEntry).Some(m);
+                        });
+                      });
+                    },
+                    .None => ()
+                  );
+                },
+                .None => ()
+              );
+            });
+          },
+          _ => ()
+        );
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+// ---------------------------------------------------------------------------
+// _try_comptime_custom_type_index
+// ---------------------------------------------------------------------------
+/// Try to dispatch `value(arg)` through ComptimeIndex for a CUSTOM type
+/// (struct / enum / tuple / ComptimeList — anything that is neither a comptime
+/// array nor a comptime string). When a comptime value like `p :: Point(3, 4)`
+/// is indexed with `p(0)`, the ComptimeIndex `index` method is EXECUTED at
+/// compile time. Returns `.None` to fall through to runtime dispatch.
+///
+/// Mirrors `tryComptimeCustomTypeIndex` (src/evaluator/calls/index-trait.ts:427-620).
+///
+/// yo-self deltas, all forced by representation differences:
+///   * TS sets up the callee env as `pushEnvFrame(fnType.env)`; yo-self's
+///     `TypeValue.Func` carries no env, so the definition-time scope is
+///     rebuilt from the FuncVal's flat capture snapshot
+///     (`cap_names`/`cap_tys`/`cap_vals`) exactly as the ordinary FuncVal call
+///     path does (calls/function.yo:3913-3933) — that IS yo-self's `fnType.env`.
+///   * TS's `{...context, isValidatingFunctionDefinition: undefined}` spread
+///     becomes save / set-false / restore on the shared mutable `ctx` (the
+///     idiom `evaluate_comptime_fn_call` itself uses for its own context
+///     overrides, calls/comptime_fn.yo:762-816). It is LOAD-BEARING: without
+///     it `evaluate_comptime_fn_call` computes `ctx.is_executing =
+///     !is_validating_function_definition` = false and
+///     `evaluate_comptime_assert` takes its non-executing branch
+///     (builtins/comptime_assert.yo:59), so an out-of-bounds ComptimeIndex arm
+///     never throws and `comptime_expect_error(p(usize(2)))` reports
+///     "Expected compile error, but the expression was evaluated successfully".
+///     A throw skips the restore, but every enclosing swallow already restores
+///     it (`evaluate_comptime_expect_error` snapshots it explicitly,
+///     builtins/comptime_expect_error.yo:107/135, and the def-time trial eval
+///     runs on a COPIED EvalContext, calls/function_type.yo:724).
+///   * TS returns `undefined` for a runtime argument (`!evaluatedArgExpr.$.value`);
+///     yo-self represents a runtime argument as `Some(UnknownVal(...))`, so the
+///     unknown case is rejected explicitly — otherwise CTFE's own unknown-arg
+///     gate (comptime_fn.yo:572-583) would hand back an `UnknownVal` and this
+///     function would swallow the runtime dispatch path.
+_try_comptime_custom_type_index :: (
+  fn(
+    expr : AstExpr,
+    arg_expr : AstExpr,
+    self_value : EvalValue,
+    value_type : TypeValue,
+    caller_env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> Option(IndexCallResult)
+)({
+  // Evaluate the argument (TS index-trait.ts:441-450).
+  evaluated_arg := evaluate_expression(arg_expr, caller_env, ctx);
+  arg_info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg)),
+    .Some(i) => i,
+    .None => {
+      return(Option(IndexCallResult).None);
+    }
+  );
+  arg_value := match(
+    arg_info.value,
+    .Some(v) => v,
+    .None => {
+      return(Option(IndexCallResult).None);
+    }
+  );
+  // Runtime argument — fall through (see the header note on UnknownVal).
+  if(is_unknown_val(arg_value), {
+    return(Option(IndexCallResult).None);
+  });
+  ct_caller_env := arg_info.env;
+  arg_type := arg_info.ty;
+  // Find a ComptimeIndex method (TS index-trait.ts:456-465).
+  ct_method := match(
+    _find_comptime_index_method(value_type, arg_type, ct_caller_env),
+    .Some(m) => m,
+    .None => {
+      return(Option(IndexCallResult).None);
+    }
+  );
+  ct_fn_type := ct_method.method_type;
+  // TS index-trait.ts:459 `!isFunctionValue(comptimeMethod.value)` -> fall through.
+  if(ct_method.method_value.is_none(), {
+    return(Option(IndexCallResult).None);
+  });
+  ct_fn_value := match(ct_method.method_value,.Some(mv) => mv,.None => EvalValue.UnitVal);
+  if(!(is_func_val(ct_fn_value)), {
+    return(Option(IndexCallResult).None);
+  });
+  // The return type must be `*(Output)` (TS index-trait.ts:539-545).
+  ct_ret_type := match(ct_fn_type,.Func({ result : ct_r }) => ct_r, _ => t_unit());
+  if(!(is_pointer_type(ct_ret_type)), {
+    return(Option(IndexCallResult).None);
+  });
+  output_ty := match(ct_ret_type,.Pointer(ct_pt) => ct_pt, _ => ct_ret_type);
+  // Comptime pointer to self for the first argument (TS index-trait.ts:475-476).
+  self_ptr_type := t_ptr(value_type);
+  self_ptr_value := EvalValue.PtrVal(self_value, usize(0));
+  ct_p0_ty := match(
+    ct_fn_type,
+    .Func({ param_types : ct_pts0 }) => match(ct_pts0.get(usize(0)),.Some(t) => t,.None => t_unit()),
+    _ => t_unit()
+  );
+  ct_p1_ty := match(
+    ct_fn_type,
+    .Func({ param_types : ct_pts1 }) => match(ct_pts1.get(usize(1)),.Some(t) => t,.None => t_unit()),
+    _ => t_unit()
+  );
+  ct_p0_label := match(
+    ct_fn_type,
+    .Func({ meta : __cifm2 }) => match(__cifm2.*.param_labels.get(usize(0)),.Some(l) => l,.None => String.from("self")),
+    _ => String.from("self")
+  );
+  ct_p1_label := match(
+    ct_fn_type,
+    .Func({ meta : __cifm3 }) => match(__cifm3.*.param_labels.get(usize(1)),.Some(l) => l,.None => String.from("idx")),
+    _ => String.from("idx")
+  );
+  // Rebuild the method's definition-time scope from its capture snapshot, then
+  // push a frame with `self` / `idx` bound (TS index-trait.ts:481-508).
+  ct_cap_names := match(ct_fn_value,.FuncVal(__cifvd2, _) => __cifvd2.*.cap_names, _ => ArrayList(String).new());
+  ct_cap_tys := match(ct_fn_value,.FuncVal(__cifvd3, _) => __cifvd3.*.cap_tys, _ => ArrayList(TypeValue).new());
+  ct_cap_vals := match(ct_fn_value,.FuncVal(_, __cicv) => __cicv, _ => ArrayList(EvalValue).new());
+  ct_module_path := ct_caller_env.module_path;
+  ct_callee_env := Environment.new(ct_module_path);
+  (ct_ci : usize) = usize(0);
+  while(ct_ci < ct_cap_names.len(), {
+    ct_cn := match(ct_cap_names.get(ct_ci),.Some(nm) => nm,.None => String.from(""));
+    ct_cty := match(ct_cap_tys.get(ct_ci),.Some(t) => t,.None => t_unit());
+    ct_cv := match(ct_cap_vals.get(ct_ci),.Some(v) => Option(EvalValue).Some(v),.None => Option(EvalValue).None);
+    ct_cv_is_ct := match(ct_cv,.Some(_) => true,.None => false);
+    _ct_add_cap := add_variable_to_env(
+      ct_callee_env,
+      ct_cn.clone(),
+      ct_cty,
+      ct_cv,
+      ct_cv_is_ct,
+      false,
+      false,
+      false,
+      synthetic_token(ct_cn, ct_module_path)
+    );
+    ct_ci = (ct_ci + usize(1));
+  });
+  _ct_frame := ct_callee_env.push_frame(false);
+  ct_param_token := ast_expr_token(
+    match(expr,.FnCall(_, ct_func_slot, _, _, _) => ct_func_slot,.Atom(_, _) => expr)
+  );
+  _ct_add_self := add_variable_to_env(
+    ct_callee_env,
+    ct_p0_label.clone(),
+    ct_p0_ty,
+    Option(EvalValue).Some(self_ptr_value),
+    true,
+    false,
+    false,
+    false,
+    ct_param_token
+  );
+  _ct_add_idx := add_variable_to_env(
+    ct_callee_env,
+    ct_p1_label.clone(),
+    ct_p1_ty,
+    Option(EvalValue).Some(arg_value),
+    true,
+    false,
+    false,
+    false,
+    ct_param_token
+  );
+  ct_args := ArrayList(ArgEntry).new();
+  _ct_a0 := ct_args.push(
+    ArgEntry(
+      value : Option(EvalValue).Some(self_ptr_value),
+      parameter_type : ct_p0_ty,
+      arg_type : self_ptr_type
+    )
+  );
+  _ct_a1 := ct_args.push(
+    ArgEntry(
+      value : Option(EvalValue).Some(arg_value),
+      parameter_type : ct_p1_ty,
+      arg_type : arg_type
+    )
+  );
+  ct_arg_values := ArgValues(
+    forall_args : ArrayList(ArgEntry).new(),
+    args : ct_args,
+    implicit_args : Option(ArrayList(ArgEntry)).None,
+    variadic_args : ArrayList(VarArgEntry).new()
+  );
+  // Execute the ComptimeIndex method (TS index-trait.ts:510-535). The
+  // validation override is what makes the body actually run — see the header.
+  ct_saved_validating := ctx.is_validating_function_definition;
+  ctx.is_validating_function_definition = false;
+  ct_result := evaluate_comptime_fn_call(
+    Option(AstExpr).Some(match(expr,.FnCall(_, ct_func_slot2, _, _, _) => ct_func_slot2,.Atom(_, _) => expr)),
+    ct_fn_type,
+    ct_fn_value,
+    ct_arg_values,
+    ct_caller_env,
+    ct_callee_env,
+    ctx,
+    exn
+  );
+  ctx.is_validating_function_definition = ct_saved_validating;
+  ct_return_value := ct_result.value;
+  // Also record the RUNTIME index method for codegen (TS index-trait.ts:578-583
+  // and 601-605).
+  ct_rt_method := _find_index_method(value_type, arg_type, ct_caller_env);
+  ct_rt_method_type := match(ct_rt_method,.Some(rm) => Option(TypeValue).Some(rm.method_type),.None => Option(TypeValue).None);
+  ct_rt_method_value := match(ct_rt_method,.Some(rm) => rm.method_value,.None => Option(EvalValue).None);
+  // A PtrVal return derefs to the pointed-at element/field and yields the
+  // ComptimeRef that makes `p(0) = v` and `&(p(0))` comptime places
+  // (TS index-trait.ts:549-576).
+  //
+  // NOTE: yo-self's `&(self.x)` builds `PtrVal(ArrayVal(field_values), i)` —
+  // it wraps the struct's field list in an `ArrayVal` "to enable indexed
+  // access" (builtins/ptr_fns.yo:151) — so the ArrayVal arm below is the one
+  // that fires for a struct receiver, and `ComptimeRef.ArrayRef` over the
+  // SHARED `field_values` handle mutates the struct in place exactly as
+  // `StructRef` would (exprs/assignment.yo:672-678). The StructVal / TupleVal
+  // arms are ported for the paths that hand back an unwrapped target.
+  match(
+    ct_return_value,
+    .PtrVal(ct_target, ct_index) => {
+      (ct_deref : EvalValue) = ct_target;
+      (ct_cref : Option(ComptimeRef)) = Option(ComptimeRef).None;
+      match(
+        ct_target,
+        .ArrayVal(ct_elements) => {
+          ct_deref = match(ct_elements.get(ct_index),.Some(e) => e,.None => ct_target);
+          ct_cref = Option(ComptimeRef).Some(ComptimeRef.ArrayRef(ct_elements, ct_index));
+        },
+        .StructVal(_, _, ct_fields_s) => {
+          ct_deref = match(ct_fields_s.get(ct_index),.Some(e) => e,.None => ct_target);
+          ct_cref = Option(ComptimeRef).Some(ComptimeRef.StructRef(ct_fields_s, ct_index));
+        },
+        .TupleVal(ct_fields_t) => {
+          ct_deref = match(ct_fields_t.get(ct_index),.Some(e) => e,.None => ct_target);
+          ct_cref = Option(ComptimeRef).Some(ComptimeRef.TupleRef(ct_fields_t, ct_index));
+        },
+        _ => ()
+      );
+      return(
+        Option(IndexCallResult).Some(
+          IndexCallResult(
+            value : Option(EvalValue).Some(ct_deref),
+            ty : output_ty,
+            ptr_type : ct_ret_type,
+            index_method_type : ct_rt_method_type,
+            index_method_value : ct_rt_method_value,
+            caller_env : ct_caller_env,
+            index : Option(usize).None,
+            comptime_ref : ct_cref
+          )
+        )
+      );
+    },
+    _ => ()
+  );
+  // Not a PtrVal (e.g. an UnknownVal from a skipped CTFE, or a builtin like
+  // `__yo_comptime_list_index` that returns the element directly)
+  // — TS index-trait.ts:598-616. TS propagates `result.comptimeRef` here;
+  // yo-self's `ComptimeFnCallResult` has no such field yet (documented gap,
+  // calls/comptime_fn.yo:14), so this arm surfaces no ComptimeRef.
+  Option(IndexCallResult).Some(
+    IndexCallResult(
+      value : Option(EvalValue).Some(ct_return_value),
+      ty : output_ty,
+      ptr_type : ct_ret_type,
+      index_method_type : ct_rt_method_type,
+      index_method_value : ct_rt_method_value,
+      caller_env : ct_caller_env,
+      index : Option(usize).None,
+      comptime_ref : Option(ComptimeRef).None
+    )
+  )
 });
 // ---------------------------------------------------------------------------
 // try_to_call_with_index_trait
@@ -869,8 +1252,30 @@ try_to_call_with_index_trait :: (
     },
     .None => ()
   );
-  // 5. Custom comptime type (ComptimeIndex): not yet implemented in Phase 3u.
-  //    Fall through to runtime dispatch.
+  // 5. Comptime values of CUSTOM types (structs, enums, tuples, ComptimeList):
+  //    try ComptimeIndex dispatch. Handles types like `Point` that implement
+  //    `ComptimeIndex(usize)`. Mirrors TS index-trait.ts:255-274.
+  match(
+    self_value,
+    .Some(sv_ct) => if((!(is_unknown_val(sv_ct)) && array_val.is_none()) && string_raw_opt.is_none(), {
+      match(
+        _try_comptime_custom_type_index(
+          expr,
+          arg_expr,
+          sv_ct,
+          value_type,
+          caller_env,
+          ctx,
+          exn
+        ),
+        .Some(ct_r) => {
+          return(ct_r);
+        },
+        .None => ()
+      );
+    }),
+    .None => ()
+  );
   // 6. Runtime path: evaluate arg to get its type
   evaluated_arg := evaluate_expression(arg_expr, caller_env, ctx);
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
@@ -908,7 +1313,8 @@ try_to_call_with_index_trait :: (
         index_method_type : Option(TypeValue).None,
         index_method_value : Option(EvalValue).None,
         caller_env : updated_env,
-        index : Option(usize).None
+        index : Option(usize).None,
+        comptime_ref : Option(ComptimeRef).None
       )
     );
   });
@@ -973,7 +1379,8 @@ try_to_call_with_index_trait :: (
     index_method_type : Option(TypeValue).Some(method.method_type),
     index_method_value : spec_method_value,
     caller_env : updated_env,
-    index : Option(usize).None
+    index : Option(usize).None,
+    comptime_ref : Option(ComptimeRef).None
   )
 });
 // ---------------------------------------------------------------------------
