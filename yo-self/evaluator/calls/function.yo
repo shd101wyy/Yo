@@ -1198,7 +1198,15 @@ _funcval_bind_foralls :: (
     expected_param_types : ArrayList(TypeValue),
     declared_param_types : ArrayList(TypeValue),
     param_ct_flags : ArrayList(bool),
-    forall_kinds : ArrayList(TypeValue)
+    forall_kinds : ArrayList(TypeValue),
+    // Type arguments supplied EXPLICITLY at the call site (`f(generic(i32), x)`),
+    // already evaluated by the peel in the inline FuncVal arm and paired with
+    // the callee's forall label by position. A binder found here skips
+    // inference entirely, mirroring TS's `!forallArgsExpr` guards
+    // (helper.ts:1470, :1499).
+    pre_forall_names : ArrayList(String),
+    pre_forall_vals : ArrayList(EvalValue),
+    pre_forall_types : ArrayList(TypeValue)
   ) -> unit
 )({
   // Structural-inference scratch env, built LAZILY on the first generic the
@@ -1210,6 +1218,40 @@ _funcval_bind_foralls :: (
     n_ptn := param_type_names.len();
     (ptn_i : usize) = usize(0);
     (fa_bound : bool) = false;
+    // An EXPLICIT call-site type argument wins outright: bind it and leave
+    // `fa_bound` set so the name-match loop below and all three inference
+    // fallbacks are skipped for this binder (TS: the whole inference block is
+    // guarded by `!forallArgsExpr`, helper.ts:1470 / :1499).
+    {
+      (pfa_i : usize) = usize(0);
+      while((pfa_i < pre_forall_names.len()) && !(fa_bound), {
+        pf_name := match(pre_forall_names.get(pfa_i),.Some(n) => n,.None => String.from(""));
+        if(pf_name == fa_name, {
+          pf_val := match(pre_forall_vals.get(pfa_i),.Some(v) => v,.None => EvalValue.UnitVal);
+          pf_ty := match(pre_forall_types.get(pfa_i),.Some(t) => t,.None => t_unit());
+          // A TYPE argument binds as a `TypeVal` at `Type` (the same shape the
+          // name-match arm below produces); a VALUE argument for a
+          // value-generic (`generic(N : usize)`) keeps its own declared type.
+          pf_decl_ty := match(pf_val,.TypeVal(_) => TypeValue.TypeUni(usize(0)), _ => pf_ty.clone());
+          pf_bound_ty := match(pf_val,.TypeVal(pf_tb) => pf_tb, _ => pf_ty.clone());
+          _add_pre_forall := add_variable_to_env(
+            fresh_env,
+            fa_name.clone(),
+            pf_decl_ty,
+            Option(EvalValue).Some(pf_val),
+            true,
+            false,
+            false,
+            false,
+            synthetic_token(fa_name.clone(), env.module_path)
+          );
+          fa_bound_names.push(fa_name.clone());
+          fa_bound_types.push(pf_bound_ty);
+          fa_bound = true;
+        });
+        pfa_i = (pfa_i + usize(1));
+      });
+    };
     while((ptn_i < n_ptn) && (!(fa_bound)), {
       ptn := match(param_type_names.get(ptn_i),.Some(n) => n,.None => String.from(""));
       if(ptn == fa_name, {
@@ -3263,7 +3305,7 @@ Fix: wrap the call:
         func_id_fv := __fvm7.*.func_id;
         n_p := param_names.len();
         n_ev := evidence_names.len();
-        n_a := args.len();
+        (n_a : usize) = args.len();
         // ------------------------------------------------------------------
         // Partial application with `_` placeholder (port of TS
         // function.ts:580-766). A comptime-returning callee called with `_`
@@ -3405,6 +3447,75 @@ Fix: wrap the call:
         // `value`). Looked up by this FuncVal's id (see
         // evaluator/types/function.yo). `fv_param_types` carries the
         // declared regular-param types for the omitted-binding fallback.
+        // Explicit call-site type application `f(generic(i32), x)` — port of
+        // TS helper.ts:937-961 (peel the `generic(...)` node off the regular
+        // argument list before the arity check) + :1070-1090 (bind each forall
+        // parameter from it instead of inferring). yo-self's OTHER call path
+        // already carries this (helper.yo Step 1 / Step 6); this inline arm
+        // counted `generic(i32)` as a regular argument and died in the arity
+        // check below with "Argument count mismatch: expected 1, got 2"
+        // (issues/yo-self-explicit-call-site-generic-args.md). Only the index-0
+        // form is handled here: this arm never prepends a receiver — the method
+        // path builds `all_args` and routes through
+        // `try_to_call_function_with_arguments`, whose index-1 variant is the
+        // one ported in helper.yo.
+        // Placed AFTER the partial-application block above on purpose: TS runs
+        // its `_`-hole logic in function.ts:607-616, i.e. BEFORE the peel, so
+        // `f(generic(i32), _)` must still see the raw argument count.
+        (fv_args : ArrayList(AstExpr)) = args;
+        fv_pre_forall_names := ArrayList(String).new();
+        fv_pre_forall_vals := ArrayList(EvalValue).new();
+        fv_pre_forall_tys := ArrayList(TypeValue).new();
+        (fv_forall_arg_exprs : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
+        if(match(args.get(usize(0)),.Some(a0) => ast_expr_is_fn_call_of(a0, "generic", Option(usize).None),.None => false), {
+          fv_g_node := match(args.get(usize(0)),.Some(a0) => a0,.None => make_err_expr());
+          fv_g_args := match(fv_g_node,.FnCall(_, _, g_as, _, _) => g_as,.Atom(_, _) => ArrayList(AstExpr).new());
+          fv_forall_arg_exprs = Option(ArrayList(AstExpr)).Some(fv_g_args);
+          fv_peeled := ArrayList(AstExpr).new();
+          {
+            (pk : usize) = usize(1);
+            while(pk < args.len(), {
+              match(
+                args.get(pk),
+                .Some(pa) => {
+                  fv_peeled.push(pa);
+                },
+                .None => ()
+              );
+              pk = (pk + usize(1));
+            });
+          };
+          fv_args = fv_peeled;
+          n_a = fv_args.len();
+          // Evaluate each supplied type argument in the CALLER env and pair it
+          // with the callee's forall label BY POSITION. `_` means "keep
+          // inferring" (TS helper.ts:1071-1078).
+          {
+            (gi : usize) = usize(0);
+            while(gi < fv_g_args.len(), {
+              if(gi < forall_names.len(), {
+                fv_g_arg := match(fv_g_args.get(gi),.Some(x) => x,.None => make_err_expr());
+                if(!(ast_expr_is_atom_of(fv_g_arg, "_")), {
+                  fv_g_evaled := evaluate_expression_raw(fv_g_arg, env, ctx, exn);
+                  match(
+                    expr_info_table_get(ctx.expr_info_table, ast_expr_id(fv_g_evaled)),
+                    .Some(fv_g_info) => match(
+                      fv_g_info.value,
+                      .Some(fv_g_val) => {
+                        fv_pre_forall_names.push(match(forall_names.get(gi),.Some(n) => n,.None => String.from("")));
+                        fv_pre_forall_vals.push(fv_g_val);
+                        fv_pre_forall_tys.push(fv_g_info.ty);
+                      },
+                      .None => ()
+                    ),
+                    .None => ()
+                  );
+                });
+              });
+              gi = (gi + usize(1));
+            });
+          };
+        });
         fv_defaults := get_func_param_defaults(func_id_fv.clone());
         // Parallel default-value EXPRESSIONS: the omitted-default splice
         // below (after the arg loop) clones + evaluates these so an omitted
@@ -3535,11 +3646,7 @@ Fix: wrap the call:
         // `Box(Tree)` left `.Atom` with no expected enum type → "Failed to
         // infer enum variant type".
         fv_func_type := match(callee_info_opt,.Some(ci) => ci.ty,.None => t_unit());
-        fv_has_explicit_forall := match(
-          args.get(usize(0)),
-          .Some(a0) => ast_expr_is_fn_call_of(a0, "generic", Option(usize).None),
-          .None => false
-        );
+        fv_has_explicit_forall := fv_forall_arg_exprs.is_some();
         (resolved_param_types : ArrayList(TypeValue)) = fv_param_types;
         (rpt_from_expected : bool) = false;
         if(((forall_names.len() > usize(0)) && !(fv_has_explicit_forall)) && ctx.expected_type.is_some(), {
@@ -3584,7 +3691,7 @@ Fix: wrap the call:
         rt_ct_flags_args := get_func_param_comptime(func_id_fv.clone());
         (ai : usize) = usize(0);
         while(ai < n_a, {
-          arg_expr := match(args.get(ai),.Some(a) => a,.None => make_err_expr());
+          arg_expr := match(fv_args.get(ai),.Some(a) => a,.None => make_err_expr());
           // Quoted parameter: bind the raw argument AST as an `Expr` value
           // WITHOUT evaluating it (TS helper.ts:350). The early-continue
           // shape matches the TS original; the 2026-06-07 corruption it was
@@ -4088,7 +4195,10 @@ Fix: wrap the call:
             callee_info_opt,
             .Some(fk_ci) => match(fk_ci.ty,.Func({ forall_types : fk_fts }) => fk_fts, _ => ArrayList(TypeValue).new()),
             .None => ArrayList(TypeValue).new()
-          )
+          ),
+          fv_pre_forall_names,
+          fv_pre_forall_vals,
+          fv_pre_forall_tys
         );
         // v4.1: validate the PLACES bound to ref parameters (after argument
         // evaluation so the chain types are resolved). Mirrors TS
@@ -4098,12 +4208,12 @@ Fix: wrap the call:
           fv_param_labels,
           fv_param_is_ref,
           fv_param_is_owning,
-          args,
+          fv_args,
           env,
           ctx,
           exn
         );
-        require_valid_ref_argument_places(fv_param_is_ref, args, env, ctx, exn);
+        require_valid_ref_argument_places(fv_param_is_ref, fv_args, env, ctx, exn);
         // Bind regular params. Params at index >= n_supplied_reg were
         // omitted at the call site (they have `?= default`s); bind each to
         // its recorded default value (typed by its declared type) so the
@@ -4246,7 +4356,7 @@ Fix: wrap the call:
           (vidx : usize) = n_p;
           while(vidx < n_supplied_reg, {
             match(
-              args.get(vidx),
+              fv_args.get(vidx),
               .Some(varg) => {
                 _vp := velems.push(EvalValue.ExprVal(clone_expr_fresh_ids(varg)));
               },
