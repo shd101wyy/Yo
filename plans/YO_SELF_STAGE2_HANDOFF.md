@@ -6,6 +6,38 @@ nothing below needs re-litigating._
 
 ## Where things stand
 
+- **2026-07-29 (`29974c0ea`): associatedTypeConstraints port + value-generic
+  stamped-return chain LANDED — score 140 GREEN / 26 HOLLOW / 17 RED.**
+  Sweep-verified flips: array, atomic_object, imm_list, imm_vec,
+  module_struct_unification GREEN; ref_closure_capture + sync/once
+  RED→GREEN; imm_map/imm_set RED→HOLLOW (10/5 markers → 1). Three
+  UN-MASKINGS (were hollow-vacuous, now fail loudly — NOT regressions):
+  algebraic_effects + index RED on the KNOWN undeclared-spec-fn family;
+  for_macro_borrow RED on ONE genuine test ("String byte index writes
+  mutate in place" — passes standalone under both compilers, fails only
+  in batch context; next front).
+
+  - The atc port: TraitT +2 fields (assoc_constraint_labels/types),
+    try_to_specialize_trait_type stores `:=` bindings,
+    `_check_associated_type_constraints` real via NEW
+    `find_associated_type_from_generic_impls` (impl.yo — registry match +
+    substitute the stored assoc field value), wired at
+    type_implements_trait steps 4+8 with synthesize-based `A := conc`
+    env binding. Concrete-impl assoc values remain a documented gap
+    (issues/yo-self-closure-void-param-where-clause.md UPDATE 5).
+  - The value-generic chain (the ACTUAL array gate;
+    issues/yo-self-value-generic-stamp-return-chain.md): (1)
+    `_type_has_array_len_var` descends Struct/EnumT fields; (2)
+    try_to_call **Step 9b** re-evaluates the return-type EXPR when
+    type-level resolution keeps SomeTs/len vars (TS's
+    evaluateFunctionReturnTypeAgain IS an expr re-eval — substitution
+    cannot re-stamp comptime-fn nominals); FuncVal-arm mirror; (3)
+    type_key: `Type` AND `unit` type_argument slots are VALUE-ERASED →
+    append per-field keys (the `_ArrayIter(i32,0)`/`(i32,3)` one-C-type
+    collapse).
+  - closure_capture_rc_leak advanced to its NEXT layer (F3 void\*-param
+    family).
+
 - **Array-family peel arc COMPLETE (2026-07-29 early, five TIER-1-green
   commits, batch TIER 2 GREEN incl. STRICT FIXPOINT):** cee
   annotation-position `Array(T,_)` rejection (binding.yo); length-var
