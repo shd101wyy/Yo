@@ -6,6 +6,44 @@ nothing below needs re-litigating._
 
 ## Where things stand
 
+- **2026-07-29 (later): contracts + comptime_ref chains LANDED — score
+  153 GREEN / 21 HOLLOW / 9 RED** (from 150/23/10: index RED→GREEN,
+  pragma_no_contracts + pragma_verify HOLLOW→GREEN; commits `8796f5734`,
+  `ef8d196e4`, `6e916fe17`; each batch TIER-2 green incl. STRICT_FIXPOINT —
+  arithmetic from per-file honest-gate measurements, full sweep pending).
+
+  - **`tests/index.test.yo` RED→GREEN after its FOURTH root** (48 passed,
+    markers=0 hollow=0): `ComptimeFnCallResult` gained the `comptime_ref`
+    field TS propagates out of every CTFE call (comptime-fn.ts:297 →
+    index-trait.ts:615), and `_try_comptime_element_access`'s ArrayVal arm
+    now builds `ComptimeRef.ArrayRef` (TS index-trait.ts:870). Bonus: the
+    known-RED repro `issues/repros/imm-map-unspecialized-comptime-helper.yo`
+    now compiles AND runs.
+  - **Contracts port applied** (the design agent applied its own patch; 818
+    insertions over 5 files; side-tables `g_func_requires_exprs`/
+    `g_func_ensures_exprs` keyed by fn-type-expr id, re-keyed to FuncVal id).
+    `spec/pragma_no_contracts` + `spec/pragma_verify` RED→GREEN.
+    `spec/contracts_phase0` rc=0 with 31 arms dispatching but STILL hollow=1
+    on ONE arm whose root is NOT contracts (verified by removing the clause):
+    **unary `-` on a typed value is broken in s1** — CTFE leaves the Negate
+    assoc type `Output` unresolved (`Return type mismatch. Expected "i32",
+got "Output"` — the SAME root as `tests/comptime.test.yo`'s hollow), and
+    the runtime path FTTs at codegen (`return // Failed to transpile -(y);`).
+    Full matrix: `issues/yo-self-unary-neg-dispatch.md`.
+  - **thread/worker (void-typed-await) root PINPOINTED, not yet fixed:**
+    `io.async((io : Io) => { return(x + y); })` — the intrinsic
+    `__yo_op_add`'s own generic `T` never binds from its i32 args under an
+    ambient SomeT expected, and the unresolved T becomes the closure's body
+    type → Future output unit → `void _temp = ;`. Bare-tail bodies work
+    (the io.async expected-clear covers them); `return(<binop>)` does not.
+    Probe matrix + next probe: `issues/yo-self-io-async-return-binop-void.md`.
+    Two faithful-port gaps found by the hunt ARE landed (begin.yo's deferred
+    return-type `synthesize_types`, incl. the async-block arm; the
+    anonymous_function.yo SomeT resolved-cell unwrap) — necessary but not
+    sufficient.
+  - Also filed: `issues/yo-self-hollow-root-cause-map.md` updated — index's
+    fourth root RESOLVED with the two-break producer-chain analysis.
+
 - **2026-07-29: `return(<owned RC local>)` inside a branch was DOUBLE-DROPPED —
   a miscompile in the GROUND-TRUTH TypeScript compiler (`967786ec5`). Score
   150 GREEN / 23 HOLLOW / 10 RED.** `out` is dup'd for the caller, so the
