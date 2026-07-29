@@ -437,7 +437,12 @@ _try_comptime_element_access :: (
                     index_method_value : Option(EvalValue).None,
                     caller_env : caller_env,
                     index : Option(usize).Some(idx_usize),
-                    comptime_ref : Option(ComptimeRef).None
+                    // TS index-trait.ts:870 — comptimeRef: { kind: "array",
+                    // arrayValue, index } makes `arr(i) = v` a comptime place.
+                    // `elements` is the SHARED handle destructured from the
+                    // ArrayVal, so mutation through the ref lands in the
+                    // binding (same as builtins/comptime_index_fns.yo:643).
+                    comptime_ref : Option(ComptimeRef).Some(ComptimeRef.ArrayRef(elements, idx_usize))
                   )
                 )
               );
@@ -1157,9 +1162,8 @@ _try_comptime_custom_type_index :: (
   );
   // Not a PtrVal (e.g. an UnknownVal from a skipped CTFE, or a builtin like
   // `__yo_comptime_list_index` that returns the element directly)
-  // — TS index-trait.ts:598-616. TS propagates `result.comptimeRef` here;
-  // yo-self's `ComptimeFnCallResult` has no such field yet (documented gap,
-  // calls/comptime_fn.yo:14), so this arm surfaces no ComptimeRef.
+  // — TS index-trait.ts:598-616: propagate `result.comptimeRef` from the
+  // comptime function call so `l(0) = v` treats the result as a comptime place.
   Option(IndexCallResult).Some(
     IndexCallResult(
       value : Option(EvalValue).Some(ct_return_value),
@@ -1169,7 +1173,7 @@ _try_comptime_custom_type_index :: (
       index_method_value : ct_rt_method_value,
       caller_env : ct_caller_env,
       index : Option(usize).None,
-      comptime_ref : Option(ComptimeRef).None
+      comptime_ref : ct_result.comptime_ref
     )
   )
 });

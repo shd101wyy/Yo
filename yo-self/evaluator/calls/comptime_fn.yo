@@ -11,7 +11,6 @@
 //!   - The per-function cache lives in `g_comptime_fn_caches` (not on
 //!     `FuncVal.calledComptimeFunctionCaches`) to avoid circular imports.
 //!   - No `cloneExpr` needed (Yo uses ExprInfoTable — AST re-evaluation is safe).
-//!   - No `comptimeRef` in the return (skipped for Phase 3a).
 //!   - No `funcName` / `typeName` back-patching (TypeValue is pure enum in Yo).
 //!   - No `functionValue` field back-patching (not in Yo TypeValue).
 //!   - SomeType id comparison uses `SomeT.id` for exact identity.
@@ -19,7 +18,7 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr, clone_expr_fresh_ids } :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, ComptimeRef } :: import("../../expr_info.yo");
 { Variable, Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t } :: import("../../types/creators.yo");
@@ -420,7 +419,8 @@ evaluate_comptime_fn_call :: (
       ComptimeFnCallResult(
         value : _ctfe_unknown(return_type, caller_env),
         caller_env : caller_env,
-        callee_env : callee_env
+        callee_env : callee_env,
+        comptime_ref : Option(ComptimeRef).None
       )
     );
   });
@@ -464,7 +464,8 @@ evaluate_comptime_fn_call :: (
       ComptimeFnCallResult(
         value : _ctfe_unknown(return_type, caller_env),
         caller_env : caller_env,
-        callee_env : callee_env
+        callee_env : callee_env,
+        comptime_ref : Option(ComptimeRef).None
       )
     );
   });
@@ -580,7 +581,8 @@ evaluate_comptime_fn_call :: (
       ComptimeFnCallResult(
         value : _ctfe_unknown(return_type, caller_env),
         caller_env : caller_env,
-        callee_env : callee_env
+        callee_env : callee_env,
+        comptime_ref : Option(ComptimeRef).None
       )
     );
   });
@@ -734,7 +736,8 @@ evaluate_comptime_fn_call :: (
         ComptimeFnCallResult(
           value : cached_val,
           caller_env : caller_env,
-          callee_env : callee_env
+          callee_env : callee_env,
+          comptime_ref : Option(ComptimeRef).None
         )
       );
     },
@@ -982,7 +985,9 @@ evaluate_comptime_fn_call :: (
   ComptimeFnCallResult(
     value : final_return_value,
     caller_env : caller_env,
-    callee_env : out_callee_env
+    callee_env : out_callee_env,
+    // TS comptime-fn.ts:297 — comptimeRef: evaluatedFunctionBody.$.comptimeRef.
+    comptime_ref : body_info.comptime_ref
   )
 });
 export(evaluate_comptime_fn_call);

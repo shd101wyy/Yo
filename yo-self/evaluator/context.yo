@@ -420,7 +420,12 @@ ComptimeFnCallResult :: ref(
   struct(
     value : EvalValue,
     caller_env : Environment,
-    callee_env : Environment
+    callee_env : Environment,
+    /// ComptimeRef from the evaluated function body, so callers (e.g. the
+    /// ComptimeIndex dispatch) can treat the result as a comptime place.
+    /// Mirrors `comptimeRef: evaluatedFunctionBody.$.comptimeRef`
+    /// (TS comptime-fn.ts:297).
+    comptime_ref : Option(ComptimeRef)
   )
 );
 // ---------------------------------------------------------------------------

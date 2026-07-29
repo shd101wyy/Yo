@@ -182,23 +182,35 @@ Effect on `tests/index.test.yo`: **hollow=1 markers=1 -> hollow=0 markers=0**.
 The evaluator side of that file is now complete for the first time. It is still
 RED, on a FOURTH root:
 
-4. **STILL OPEN — comptime index-assignment emits the folded value as an lvalue.**
-   5 clang errors, all of the shape `0 = 42;`, `10 = 99;`, `1 = 100;` — codegen
-   emitted the LHS's folded comptime VALUE on the left of an assignment. These
-   come from `l(0) = 99` on a `ComptimeList`, which must be a COMPILE-TIME-ONLY
-   assignment emitting no C at all.
+4. **RESOLVED — comptime index-assignment emitted the folded value as an lvalue.**
+   Was: 5 clang errors of the shape `0 = 42;`, `10 = 99;` — codegen emitted the
+   LHS's folded comptime VALUE on the left of an assignment, because
+   `comptime_ref` never reached the outer `l(0)` / `arr(i)` expression.
+   The consuming machinery (assignment.yo Step 6, :680-708) was indeed fine;
+   the producer chain had TWO independent breaks, both found by following the
+   recommendation above (start from what PRODUCES the ref in TS):
 
-   The machinery exists and is not the problem: assignment.yo's Step 6
-   (`lhs_info.comptime_ref`, :680-708) mutates the shared list in place and sets
-   `is_comptime_only_prop = true`, mirroring assignment.ts:1175-1194. The gap is
-   that `comptime_ref` is never POPULATED for a ComptimeList index result — TS's
-   `tryComptimeCustomTypeIndex` PtrVal-deref block builds a ComptimeRef only for
-   the array / struct / tuple target shapes (index-trait.ts:551-579), yet
-   assignment.ts:1183 has a `case "comptime_list"`, so something upstream must
-   build a `ComptimeListRef`. Find what produces it in TS (start at
-   `__yo_comptime_list_index` in src/evaluator/builtins/comptime-index-fns.ts:188)
-   and mirror it — do NOT add a case to the deref block on the assumption it
-   belongs there.
+   a. **`ComptimeFnCallResult` had no `comptime_ref` field** (a documented
+   Phase-3a skip, calls/comptime_fn.yo header). TS propagates
+   `evaluatedFunctionBody.$.comptimeRef` out of every CTFE call
+   (comptime-fn.ts:297) and the ComptimeIndex dispatch forwards it in the
+   non-PtrValue branch (index-trait.ts:615). The builtin
+   `__yo_comptime_list_index` DOES set the ref (comptime_index_fns.yo:356)
+   and begin DOES carry it to the body info (begin.yo:2139) — it died at the
+   call-result boundary. Fixed: field added (context.yo), populated from
+   `body_info.comptime_ref` at the final return + explicit `.None` on the
+   four early paths (faithful — TS's early returns omit it), and forwarded
+   in index_trait.yo's non-PtrVal arm. This fixed `l(0) = 99` on
+   ComptimeList: minimal repro 2 markers -> 0, runs rc=0.
+
+   b. **`_try_comptime_element_access`'s ArrayVal arm returned
+   `comptime_ref : .None`** where TS builds
+   `comptimeRef: { kind: "array", arrayValue, index }` (index-trait.ts:870).
+   This is the plain comptime-ARRAY path (`arr :: [1,2,3]; arr(i) = v`),
+   which never goes near ComptimeIndex dispatch. Fixed: build
+   `ComptimeRef.ArrayRef(elements, idx_usize)` over the SHARED destructured
+   handle (same pattern as builtins/comptime_index_fns.yo:643).
+   Differential `/tmp/carr.yo`: TS lvalue=0, s1 lvalue=1 -> 0.
 
 ### Other still-open items re-confirmed
 
