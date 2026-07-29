@@ -6,10 +6,38 @@ nothing below needs re-litigating._
 
 ## Where things stand
 
+- **2026-07-29: `return(<owned RC local>)` inside a branch was DOUBLE-DROPPED —
+  a miscompile in the GROUND-TRUTH TypeScript compiler (`967786ec5`). Score
+  150 GREEN / 23 HOLLOW / 10 RED.** `out` is dup'd for the caller, so the
+  early-return path must release the local exactly once; both
+  `generateEarlyReturnOnlyDeferredDropExpressions` (M3) and
+  `generateConsumedVarDropsForEscape` released it, so rc hit 0 and the
+  function returned a FREED pointer. `generatePendingDeferredDrops` had
+  already solved this exact collision for its own list via
+  `alreadyDroppedVars` (built from BOTH the deferred and early-return-only
+  lists); the consumed-var emitter had no such guard. It now takes
+  `excludeVarNames`. Ported to `yo-self/codegen/exprs/return.yo` too.
+  **This is what made `tests/fs/dir.test.yo` HANG** (rc=124):
+  `state_code_gen.yo`'s `return(remaining_exprs)` handed back a freed
+  `ArrayList(AstExpr)`, the caller read `after.len()` as 0, and the async FSM
+  omitted a while-loop's post-await tail — including the loop increment.
+  fs/dir RED→GREEN 12/12 markers=0. Full write-up:
+  `issues/fixed/yo-return-owned-local-in-branch-double-drop.md`.
+  **LESSON: instrument, don't infer.** The first fix attempt targeted
+  `deferredDropExpressions` and changed nothing; one temporary `console.error`
+  printed `droppedByThisReturn=[] consumed=["out"] earlyRet=["out"]` and named
+  the real list immediately.
+
+- **PRE-EXISTING, still open:** `./yo-cli test ./tests` is 1811/1812 — the one
+  failure is `basic.test.yo` `Test 'struct'` (batch context only,
+  `usize`-vs-`i32` on an allocator `count` param). It reproduces with the
+  return fix reverted, so it predates this campaign. The runner prints an
+  EMPTY error after `Failed to import module "…":`, which is why it looks
+  inscrutable; `issues/basic-test-struct-batch-count-usize-i32.md` has a
+  batch-capture recipe that surfaces the real message.
+
 - **2026-07-29: BATCH CAMPAIGN — all 42 failing files root-caused by
-  MEASUREMENT, not inspection. Score 145 GREEN / 27 HOLLOW / 11 RED
-  (`e798f7ff4`, TIER 2 green incl. FIXPOINT).** Two tools now do the
-  triage, both committed:
+  MEASUREMENT, not inspection.** Two tools now do the triage, both committed:
 
   - `scratchpad/capture_markers.sh` — runs each failing file ONCE, serially,
     saving its batch `.c` + log to an output dir so many readers can work the
@@ -30,9 +58,16 @@ types:`, `Failed to evaluate right-hand side of assignment:
 
   Full map (every RED family + every hollow file's real blocker + the noise
   table + the reproduction recipe): `issues/yo-self-hollow-root-cause-map.md`.
-  Landed from it so far: the `___dispose` deep-SomeT filter (4 RED→GREEN:
-  btree_map, ordered_map, priority_queue, sync/channel) and the
-  `comptime_str`→`*(u8)` assignment coercion (string/string, sys/file).
+  Landed from it so far, all TIER-1 verified per file:
+  the `___dispose` deep-SomeT filter (4 RED→GREEN: btree_map, ordered_map,
+  priority_queue, sync/channel); the `comptime_str`→`*(u8)` assignment
+  coercion (string/string 251 tests, sys/file); `open()` taking nested-module
+  field types from the DECLARED namespace struct type instead of rebuilding
+  them from the value (env — `type_of_eval_value` has no `.FuncVal` arm, so a
+  nested module's function members all became `unit`); and
+  `find_methods_from_generic_impls` on TypeVal+EnumT receivers
+  (comptime_option_result — `Option(i32).unwrap` was falling through to
+  enum-VARIANT resolution).
   **LESSON: error shape ≠ root cause.** All five `call to undeclared function`
   files looked like one family; `index` had a SECOND independent root (the
   unported ComptimeIndex dispatch) and went RED→HOLLOW, not GREEN.
