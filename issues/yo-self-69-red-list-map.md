@@ -912,3 +912,29 @@ Next-round leads:
    re-evaluate to Impl(Fn) wrappers) — likely perturbing the capture-era
    used by the closure param rebind. If slice 2 is retried, EXCLUDE params
    whose declared type carries an Fn-trait wrapper.
+
+## SLICE 2 LANDED (2026-07-31) — spec-mint param re-eval with Fn-trait exclusion
+
+The reverted slice-2 retried with the recorded refinement: in
+create_specialized_function_inline, comptime-Type-param functions
+re-evaluate each runtime param's stored declared TYPE EXPR in the bound
+mint env and overwrite runtime_param_tys with concrete results — EXCLUDING
+params whose declared type carries an Fn-trait wrapper (re-evaluating those
+perturbed the closure-capture era; the closure_where_clause_param corpus
+DIFF from the first attempt is GONE with the exclusion — corpus 149/0).
+Effect: the callee C signature no longer splits eras between same-typed
+params (imm_threading's `left : __yo_t43, right : __yo_t42` is unified).
+
+Slice 3 (call-site expected-type re-eval) was retried TWICE (with and
+without the param-level Fn-trait exclusion) and regressed
+closure_where_clause_param BOTH times — REVERTED again. The remaining
+imm-family face is the CALLER-ARG era: qualified enum ctor args
+(`Option(RBNode(K, V)).None`) evaluate in the caller body where the NODE
+arg era differs, producing invalid struct-to-struct casts at call sites.
+Root fix direction: recursive creation-side canonicalization through ctor
+ARGS (the gap-6 attempt-#8 lesson) — era agreement must recurse: two
+Option-memo entries split because their Node ARGUMENTS were different era
+instances of the same instantiation.
+
+Gates for slice 2: TIER 1 clean (corpus 149/0, std 153/153, battery
+baseline), TIER 2 clean (FIXPOINT_HOLDS), sweep 162/18/5 stable.

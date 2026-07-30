@@ -124,6 +124,7 @@ open(import("std/fmt"));
   evaluate_function_return_type_again,
   get_func_param_defaults,
   get_func_param_default_exprs,
+  get_func_param_type_exprs,
   get_func_param_comptime,
   get_func_return_type_expr,
   get_func_where_constraints,
@@ -437,6 +438,97 @@ CheckParamResult :: ref(
 // check_if_function_parameter_matches_argument
 // Phase 3 port of checkIfFunctionParameterMatchesArgument (helper.ts).
 // ---------------------------------------------------------------------------
+/// TRUE when the type (shallowly recursively) contains an Array with an
+/// UNRESOLVED length variable (`Array(i32, n)` — a value-generic length).
+/// Such a type is generic for codegen even though it carries NO SomeT, so
+/// the return-type re-evaluation fallback must fire for it too (the
+/// comptime-value-param family: `fn(comptime(n) : usize) -> Array(i32, n)`
+/// specs otherwise kept the unresolved return and emitted
+/// `// Unknown type:` into the C prototype).
+/// Depth-bounded core of `_type_has_array_len_var`: struct/enum stamps can
+/// wrap the len-var-bearing Array field (`_ArrayIter(T, N)._arr : Array(T,
+/// N)`), and struct graphs can be recursive — bound the descent instead of
+/// tracking visited ids.
+_type_has_array_len_var_d :: (fn(t : TypeValue, d : usize) -> bool)(
+  cond(
+    (d > usize(6)) => false,
+    true => match(
+      t,
+      .Array(alv_elem, _, alv_var) => cond(
+        (alv_var.len() > usize(0)) => true,
+        true => recur(alv_elem, d + usize(1))
+      ),
+      .Pointer(alv_p) => recur(alv_p, d + usize(1)),
+      .IsoT(alv_i) => recur(alv_i, d + usize(1)),
+      .Struct({ field_types : alv_fts }) => {
+        (alv_found : bool) = false;
+        (alv_i2 : usize) = usize(0);
+        while((alv_i2 < alv_fts.len()) && !(alv_found), {
+          match(
+            alv_fts.get(alv_i2),
+            .Some(alv_ft) => if(recur(alv_ft, d + usize(1)), {
+              alv_found = true;
+            }),
+            .None => ()
+          );
+          alv_i2 = (alv_i2 + usize(1));
+        });
+        alv_found
+      },
+      .EnumT({ variant_fields : alv_vfs }) => {
+        (alv_found2 : bool) = false;
+        (alv_vi : usize) = usize(0);
+        while((alv_vi < alv_vfs.len()) && !(alv_found2), {
+          alv_vf := match(alv_vfs.get(alv_vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+          (alv_vj : usize) = usize(0);
+          while((alv_vj < alv_vf.len()) && !(alv_found2), {
+            match(
+              alv_vf.get(alv_vj),
+              .Some(alv_vt) => if(recur(alv_vt, d + usize(1)), {
+                alv_found2 = true;
+              }),
+              .None => ()
+            );
+            alv_vj = (alv_vj + usize(1));
+          });
+          alv_vi = (alv_vi + usize(1));
+        });
+        alv_found2
+      },
+      _ => false
+    )
+  )
+);
+_type_has_array_len_var :: (fn(t : TypeValue) -> bool)(_type_has_array_len_var_d(t, usize(0)));
+/// Trial-evaluate a declared return-type EXPR in the mint env (SWALLOWING —
+/// the local `->` exn cannot capture, so a failing eval just leaves `out`
+/// empty). On success pushes the evaluated TypeValue. Port shape of TS
+/// `evaluateFunctionReturnTypeAgain` (function.ts:2822): re-EVALUATING the
+/// expr (vs substituting the def-era TypeValue) routes generic instantiations
+/// in the return (`*(Pair(K, V))`) through the SAME memoized type-constructor
+/// as the body's own calls — one instantiation lineage (the imm_map
+/// `_alloc_pairs` expected/actual struct-id split).
+_trial_eval_ret_type_expr :: (
+  fn(ret_texpr : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(TypeValue)) -> unit
+)({
+  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  evaluated := evaluate_expression_raw(ret_texpr, env, ctx, inner_exn);
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+    .Some(rte_ei) => match(
+      rte_ei.value,
+      .Some(rte_v) => match(
+        rte_v,
+        .TypeVal(rte_t) => {
+          out.push(rte_t);
+        },
+        _ => ()
+      ),
+      .None => ()
+    ),
+    .None => ()
+  );
+});
 /// Check that one function parameter matches its argument expression.
 /// Evaluates the arg, synthesizes type bindings into callee_env, and adds
 /// the parameter variable to callee_env.
@@ -1307,97 +1399,6 @@ _reeval_closure_body_swallow :: (
 ///
 /// Mirrors the core (pre-effects) of `createSpecializedFunctionInline` in
 /// `src/evaluator/calls/helper.ts`.
-/// TRUE when the type (shallowly recursively) contains an Array with an
-/// UNRESOLVED length variable (`Array(i32, n)` — a value-generic length).
-/// Such a type is generic for codegen even though it carries NO SomeT, so
-/// the return-type re-evaluation fallback must fire for it too (the
-/// comptime-value-param family: `fn(comptime(n) : usize) -> Array(i32, n)`
-/// specs otherwise kept the unresolved return and emitted
-/// `// Unknown type:` into the C prototype).
-/// Depth-bounded core of `_type_has_array_len_var`: struct/enum stamps can
-/// wrap the len-var-bearing Array field (`_ArrayIter(T, N)._arr : Array(T,
-/// N)`), and struct graphs can be recursive — bound the descent instead of
-/// tracking visited ids.
-_type_has_array_len_var_d :: (fn(t : TypeValue, d : usize) -> bool)(
-  cond(
-    (d > usize(6)) => false,
-    true => match(
-      t,
-      .Array(alv_elem, _, alv_var) => cond(
-        (alv_var.len() > usize(0)) => true,
-        true => recur(alv_elem, d + usize(1))
-      ),
-      .Pointer(alv_p) => recur(alv_p, d + usize(1)),
-      .IsoT(alv_i) => recur(alv_i, d + usize(1)),
-      .Struct({ field_types : alv_fts }) => {
-        (alv_found : bool) = false;
-        (alv_i2 : usize) = usize(0);
-        while((alv_i2 < alv_fts.len()) && !(alv_found), {
-          match(
-            alv_fts.get(alv_i2),
-            .Some(alv_ft) => if(recur(alv_ft, d + usize(1)), {
-              alv_found = true;
-            }),
-            .None => ()
-          );
-          alv_i2 = (alv_i2 + usize(1));
-        });
-        alv_found
-      },
-      .EnumT({ variant_fields : alv_vfs }) => {
-        (alv_found2 : bool) = false;
-        (alv_vi : usize) = usize(0);
-        while((alv_vi < alv_vfs.len()) && !(alv_found2), {
-          alv_vf := match(alv_vfs.get(alv_vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
-          (alv_vj : usize) = usize(0);
-          while((alv_vj < alv_vf.len()) && !(alv_found2), {
-            match(
-              alv_vf.get(alv_vj),
-              .Some(alv_vt) => if(recur(alv_vt, d + usize(1)), {
-                alv_found2 = true;
-              }),
-              .None => ()
-            );
-            alv_vj = (alv_vj + usize(1));
-          });
-          alv_vi = (alv_vi + usize(1));
-        });
-        alv_found2
-      },
-      _ => false
-    )
-  )
-);
-_type_has_array_len_var :: (fn(t : TypeValue) -> bool)(_type_has_array_len_var_d(t, usize(0)));
-/// Trial-evaluate a declared return-type EXPR in the mint env (SWALLOWING —
-/// the local `->` exn cannot capture, so a failing eval just leaves `out`
-/// empty). On success pushes the evaluated TypeValue. Port shape of TS
-/// `evaluateFunctionReturnTypeAgain` (function.ts:2822): re-EVALUATING the
-/// expr (vs substituting the def-era TypeValue) routes generic instantiations
-/// in the return (`*(Pair(K, V))`) through the SAME memoized type-constructor
-/// as the body's own calls — one instantiation lineage (the imm_map
-/// `_alloc_pairs` expected/actual struct-id split).
-_trial_eval_ret_type_expr :: (
-  fn(ret_texpr : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(TypeValue)) -> unit
-)({
-  inner_exn := Exception(throw : ((_err) -> unwind(())));
-  evaluated := evaluate_expression_raw(ret_texpr, env, ctx, inner_exn);
-  match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
-    .Some(rte_ei) => match(
-      rte_ei.value,
-      .Some(rte_v) => match(
-        rte_v,
-        .TypeVal(rte_t) => {
-          out.push(rte_t);
-        },
-        _ => ()
-      ),
-      .None => ()
-    ),
-    .None => ()
-  );
-});
 create_specialized_function_inline :: (
   fn(
     original_func_val : EvalValue,
@@ -1919,6 +1920,75 @@ create_specialized_function_inline :: (
               rhc_i = (rhc_i + usize(1));
             });
           };
+          // Slice 2 (the PARAM side of the era fix, RETRY with the recorded
+          // refinement): with the mint env fully bound, RE-EVALUATE each
+          // runtime param's declared TYPE EXPR (g_func_param_type_exprs; TS
+          // parameter.exprs.typeExpr via evaluateFunctionParameterTypeAgain)
+          // and OVERWRITE runtime_param_tys with a concrete result — so the
+          // placeholder rebind loop, the body eval and the registered
+          // spec_param_types all share the CACHE era instead of the
+          // per-call-site ARG era. Without it, two params declared with the
+          // SAME type expression (`left, right : Option(RBNode(K, V))`) took
+          // DIFFERENT eras from their args and the C signature split
+          // (imm_threading/imm_sorted_map). REFINEMENT vs the reverted first
+          // attempt: params whose DECLARED type carries an Fn-trait wrapper
+          // are EXCLUDED — re-evaluating those perturbed the closure-capture
+          // era the closure-param rebind relies on (the
+          // closure_where_clause_param corpus DIFF that reverted slice 2).
+          if(rte_has_ct_param, {
+            pte_exprs := get_func_param_type_exprs(func_id.clone());
+            if(pte_exprs.len() > usize(0), {
+              pte_prev_fnty := ctx.is_evaluating_function_type;
+              ctx.is_evaluating_function_type = true;
+              pte_prev_self := ctx.self_type;
+              {
+                pte_p0_is_self := match(params.get(usize(0)),.Some(l) => (l == "self"),.None => false);
+                if(pte_p0_is_self, {
+                  match(
+                    arg_values.args.get(usize(0)),
+                    .Some(pte_rcv) => {
+                      ctx.self_type = Option(TypeValue).Some(pte_rcv.arg_type);
+                    },
+                    .None => ()
+                  );
+                });
+              };
+              pte_decl_pts := match(func_type,.Func({ param_types : pdp }) => pdp, _ => ArrayList(TypeValue).new());
+              (pte_i : usize) = usize(0);
+              while(pte_i < runtime_param_tys.len(), {
+                pte_ct := match(spec_param_ct_flags.get(pte_i),.Some(f) => f,.None => false);
+                pte_is_fn_carrier := match(
+                  pte_decl_pts.get(pte_i),
+                  .Some(pte_dpt) => extract_fn_trait_from_type(pte_dpt).is_some(),
+                  .None => false
+                );
+                if(!(pte_ct) && !(pte_is_fn_carrier), {
+                  match(
+                    pte_exprs.get(pte_i),
+                    .Some(pte_e_opt) => match(
+                      pte_e_opt,
+                      .Some(pte_e) => {
+                        pte_out := ArrayList(TypeValue).new();
+                        _trial_eval_ret_type_expr(clone_expr_fresh_ids(pte_e), callee_env, ctx, pte_out);
+                        match(
+                          pte_out.get(usize(0)),
+                          .Some(pte_t) => if(((get_all_some_types(pte_t).len() == usize(0)) && !(is_unit_type(pte_t))) && !(_type_has_array_len_var(pte_t)), {
+                            runtime_param_tys(pte_i) = pte_t;
+                          }),
+                          .None => ()
+                        );
+                      },
+                      .None => ()
+                    ),
+                    .None => ()
+                  );
+                });
+                pte_i = (pte_i + usize(1));
+              });
+              ctx.self_type = pte_prev_self;
+              ctx.is_evaluating_function_type = pte_prev_fnty;
+            });
+          });
           if(((get_all_some_types(spec_ret_ty).len() > usize(0)) || _type_has_array_len_var(spec_ret_ty)) || rte_has_ct_param, {
             match(
               get_func_return_type_expr(func_id.clone()),
