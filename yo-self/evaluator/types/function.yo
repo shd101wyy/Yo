@@ -66,7 +66,7 @@ open(import("std/fmt"));
 { format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_valid_variable_name } :: import("../utils.yo");
-{ type_implements_trait_bool } :: import("../trait_checking.yo");
+{ type_implements_trait } :: import("../trait_checking.yo");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -1792,7 +1792,16 @@ validate_concrete_type_constraints :: (
           )
         );
       });
-      implemented := type_implements_trait_bool(concrete_type, tv, env_mut);
+      // Use the FULL type_implements_trait (not the Bool wrapper) so bindings
+      // produced during trait satisfaction — synthesizing `A := i32`,
+      // `B := i32` from `F <: (Fn(a : A) -> B)` against `fn(x : i32) -> i32`
+      // — propagate back into `env_mut`. TS threads `envAfterCheck` the same
+      // way (function.ts:979-987 and 1598-1603); discarding it left A/B as
+      // SomeTs and the method body specialized a shadow struct
+      // ("Type mismatch for type member \"_f\"").
+      tc_res := type_implements_trait(concrete_type, tv, env_mut);
+      implemented := tc_res.implemented;
+      env_mut.frames = tc_res.env.frames;
       if(negated, {
         if(implemented, {
           exn.throw(

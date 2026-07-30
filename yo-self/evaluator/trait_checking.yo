@@ -684,7 +684,19 @@ type_implements_trait :: (
     if(!(are_types_compatible(fn_trait_call_ty, target)), {
       return(TraitCheckResult(implemented : false, env : env));
     });
-    return(TraitCheckResult(implemented : true, env : env));
+    // Binding propagation (TS trait-checking.ts:377-394): synthesize the
+    // trait's call type against the target fn so SomeTs in parameter/return
+    // positions (`Fn(a : A) -> B` against `fn(x : i32) -> i32`) get BOUND in
+    // the returned env. Discarding this env left `A`/`B` unresolved and the
+    // method body specialized a shadow struct ("Type mismatch for type
+    // member \"_f\"" — tests/where_clause_fn_inference,
+    // tests/iterator_combinators).
+    syn_env := match(
+      _assoc_synth_env(fn_trait_call_ty, target, env),
+      .Some(se) => se,
+      .None => env
+    );
+    return(TraitCheckResult(implemented : true, env : syn_env));
   });
   // 4. Direct trait field match — the auto-derive registry stores the type's
   // derived trait VALUES; match `trait_type` against them by identity

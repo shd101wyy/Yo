@@ -252,3 +252,28 @@ BIN=/tmp/s1_swal OUT=/tmp/swalbase LIST=/tmp/greenbase.txt scratchpad/swallow_sw
 
 Both sweeps write batch artifacts into each test file's own directory, so they must run
 **serially** — never two `test` invocations against one directory.
+
+## UPDATE 2026-07-30 (call-site where-clause round) — `_f` root PARTIALLY closed
+
+`iterator_combinators` / `where_clause_fn_inference` (`Type mismatch for type
+member "_f"`): the TS mechanism is commit `c85db1dcd` — validateConcreteTypeConstraints
+must THREAD the env returned by typeImplementsTrait (bindings from synthesizing
+`Fn(a : A) -> B` against the concrete `fn(x : i32) -> i32`). Two faithful
+sub-ports LANDED (gated green):
+
+- `trait_checking.yo` step 3 (Fn-trait satisfaction) now runs
+  `synthesize_types` on the trait's call type vs the target fn and returns the
+  binding env (was a "Phase 3 TODO" returning env unchanged).
+- `types/function.yo` `validate_concrete_type_constraints` now uses the FULL
+  `type_implements_trait` and threads `tc_res.env.frames` back into `env_mut`
+  (was the Bool wrapper, discarding bindings).
+
+Measured on the module-level repro (`local_map_to` + annotation): the
+validator IS reached with `concrete=fn(x : i32) -> i32` vs `Fn(a : A) -> B`
+(probe `__DBG_VC`), the synthesis SUCCEEDS (`__DBG_S3 syn_ok=true`) — and the
+"\_f" mismatch STILL occurs: `Expected: fn(x : i32) -> i32, Got: F : (Fn(A) ->
+B)`. The instantiated `LocalMapIter(Self, A, B, F)` member type resolves while
+the ARGUMENT `f`'s SomeT `F` stays bare — a per-call SomeT identity split (the
+Gap-6 class), i.e. the binding lands on one SomeT instance/cell and the struct
+member check reads another. Next step is on the SPECIALIZATION side (which
+F instance the body's struct-literal check reads), not in the validators.
