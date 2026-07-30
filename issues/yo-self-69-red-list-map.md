@@ -594,3 +594,36 @@ MallocStackLogging/lldb per the ExprInfo-UAF workflow
 Also: sweep gate fixed (stale-batch pollution — hardcoded batch_1.bin.c;
 now rm + glob, scratchpad/hollow_sweep69.sh). Fixed-gate score at
 e1096c1b4: 139/28/16.
+
+## UPDATE 2026-07-30 — algebraic_effects GREEN; derive_clone_complex scoped
+
+- `algebraic_effects` FLIPPED GREEN (zero-arg `unwind()` port, begin.yo — see
+  the handoff §2.4 note). REDs now 7.
+
+- `derive_clone_complex` standalone repro (25 lines, scratchpad `dcc1.yo`,
+  inline here): recursive enum + `derive(TreeNode, Clone)`:
+
+  ```rust
+  TreeNode :: enum(Leaf(value : i32), Branch(left : Box(Self), right : Box(Self)));
+  derive(TreeNode, Clone);
+  // build a Branch, clone it, match on the clone
+  ```
+
+  TS: compiles and runs. s1: clang `argument may not have 'void' type`.
+  The emitted C shows the EXACT break: TreeNode's derived clone
+  (`fn_yo_id_4707(__yo_t0* self)`) is emitted CORRECTLY, but inside the
+  Box(TreeNode) clone specialization (prelude `box(self.*.clone())`), the
+  recursive call site emits `fn_yo_id_4707();` — NO args — with its result
+  read from a `void _temp = ;` and passed as `(void)(_temp)` into a `box`
+  specialization whose `V` resolved to unit (`(void value)` param). So while
+  Box(TreeNode).clone's body was evaluated, `self.*.clone()` — a call to the
+  IN-PROGRESS TreeNode Clone impl — typed as UNIT with no arg plumbing, and
+  `box(...)`'s V synthesized from that unit. TS types the same call from the
+  trait signature (`clone : fn(self : Self) -> Self` ⇒ TreeNode).
+
+  Next probe: where `self.*.clone()` resolves during the in-progress
+  registration (the `is_concrete_impl_being_registered` window) — the method
+  lookup that returns a unit-typed result instead of the declared
+  trait-method type with Self := TreeNode. The fix is at that lookup: return
+  the trait-signature type for in-progress concrete impls (TS parity), not
+  unit.
