@@ -1,0 +1,67 @@
+open(import("std/assert"));
+Node :: (
+  fn(comptime(K) : Type, where(K <: (Eq(K), Ord(K), Send))) -> comptime(Type)
+)(
+  atomic(
+    ref(
+      struct(
+        _key : K,
+        _left : Option(Self),
+        _right : Option(Self)
+      )
+    )
+  )
+);
+Map :: (
+  fn(comptime(K) : Type, where(K <: (Eq(K), Ord(K), Send))) -> comptime(Type)
+)(
+  struct(_root : Option(Node(K)), _len : usize)
+);
+mk :: (
+  fn(
+    comptime(K) : Type,
+    key : K,
+    left : Option(Node(K)),
+    right : Option(Node(K)),
+    where(K <: (Eq(K), Ord(K), Send))
+  ) -> Node(K)
+)(
+  Node(K)(_key : key, _left : left, _right : right)
+);
+ins :: (
+  fn(
+    comptime(K) : Type,
+    node : Option(Node(K)),
+    key : K,
+    where(K <: (Eq(K), Ord(K), Send))
+  ) -> Node(K)
+)(
+  match(
+    node,
+    .None => mk(K, key, Option(Node(K)).None, Option(Node(K)).None),
+    .Some(h) => cond(
+      (key < h._key) => mk(K, h._key, Option(Node(K)).Some(recur(K, h._left, key)), h._right),
+      (h._key < key) => mk(K, h._key, h._left, Option(Node(K)).Some(recur(K, h._right, key))),
+      true => mk(K, key, h._left, h._right)
+    )
+  )
+);
+insert :: (
+  fn(comptime(K) : Type, m : Map(K), key : K, where(K <: (Eq(K), Ord(K), Send))) -> Map(K)
+)({
+  new_root := ins(K, m._root, key);
+  Map(K)(_root : Option(Node(K)).Some(new_root), _len : (m._len + usize(1)))
+});
+main :: (fn() -> unit)({
+  (m : Map(i32)) = Map(i32)(_root : Option(Node(i32)).None, _len : usize(0));
+  m = insert(i32, m, i32(5));
+  m = insert(i32, m, i32(3));
+  m = insert(i32, m, i32(8));
+  assert(m._len == usize(3), "len 3");
+  match(
+    m._root,
+    .Some(r) => assert(r._key == i32(5), "root key"),
+    .None => assert(false, "expected root")
+  );
+});
+export(main);

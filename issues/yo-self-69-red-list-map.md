@@ -745,3 +745,33 @@ one flip. impl_fn_field_rejection 5/5 = TS parity.
 closure_capture_rc_leak (same family, different face) stays RED: its errors
 are `passing 'int32_t' to parameter of type 'void *'` at closure CALL sites
 — the closure PARAM model, not the field model. 3 markers.
+
+## SCOPING 2026-07-30 (cont.) — imm_sorted_map family: 65-line VALID repro
+
+`issues/repros/comptime-ctor-memo-split-map-insert.yo` (TS rc=0 + runs; s23
+rc=139 with 3 clang type-mismatch errors + FTT cascade). Shape: comptime
+type ctors `Node(K)`/`Map(K)` with where clauses, `mk`/`ins(recur)`/`insert`
+helpers with `comptime(K) : Type` params, main driving
+`Map(i32)` + 3 inserts.
+
+Measured split: `Map(i32)` instantiated TWICE with different struct ids —
+`struct_yo_id_4785` (`__yo_t3`, the insert specialization's return/param
+rendering, spec name `..._rtparam1_gs_yo_id_4657_i32_..._ret_gs_yo_id_4657_1363`)
+vs `struct_yo_id_4806` (`__yo_t0`, main's `Map(i32)(...)` constructor). The
+insert spec RETURNS `__yo_t3` but internally constructs `__yo_t0`; main
+assigns the result into an `__yo_t0` local → "initializing '**yo_t3' with
+'**yo_t0'". The CTFE instantiation memo for `Map(i32)` missed between the
+def/spec path and the main-body path.
+
+Hypothesis (gap-6 attempt-#8 "fix creation side" territory): the memo key
+includes the ctor's func_id, and the specialization path evaluates a CLONED
+ctor reference with a different fid (same class as the trait-ctor-fid and
+impl-bindings-sig fixes earlier in this campaign) — OR the where-clause
+trait-check env perturbs the key. Next probe: print the memo key at the
+comptime-fn CTFE cache (comptime_fn.yo) for ctor name Map — one build
+answers which component diverges.
+
+Same root should cover imm_sorted_map (markers=1), imm_sorted_set
+(markers=1), imm_threading (rc=1 clang type mismatches on
+left/right params: enum_yo_id_7187 vs enum_yo_id_10301 inside ONE \_new_node
+spec signature), and plausibly sync/mutex's 2 markers.
