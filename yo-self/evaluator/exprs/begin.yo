@@ -1747,66 +1747,113 @@ evaluate_begin_expression :: (
           );
         });
         return_expr = Option(AstExpr).Some(expr_to_eval);
-        esc_arg := match(
+        esc_n_args := match(
           expr_to_eval,
-          .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
-          .Atom(_, _) => make_err_expr()
+          .FnCall(_, _, esc_args0, _, _) => esc_args0.len(),
+          .Atom(_, _) => usize(0)
         );
+        // At most one argument (TS begin.ts:1446-1451).
+        if(esc_n_args > usize(1), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr_to_eval),
+                String.from("The \"unwind\" keyword accepts at most one argument."),
+                false,
+                .None
+              )
+            )
+          );
+        });
         enclosing_ret := match(
           ctx.enclosing_function_return_type,
           .Some(t) => t,
           .None => TypeValue.Unit
         );
-        // Propagate the enclosing function's return type as the expected type.
-        old_expected := ctx.expected_type;
-        ctx.expected_type = Option(ExpectedTypeCtx).Some(
-          ExpectedTypeCtx(ty : enclosing_ret, env : env)
-        );
-        evaluated_esc_arg := evaluate_expression_raw(esc_arg, env, ctx, exn);
-        ctx.expected_type = old_expected;
-        esc_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_esc_arg));
-        if(esc_info_opt.is_none(), {
-          exn.throw(
-            dyn(
-              format_error_message(
-                ast_expr_token(esc_arg),
-                String.from("Unwind expression is not evaluated correctly."),
-                false,
-                .None
+        // Zero-arg `unwind()` — unwind with unit (TS begin.ts:1454-1479):
+        // type-check unit against the enclosing return type, stamp a
+        // unit-typed ExprInfo carrying the Unwind control flow, and stop the
+        // block. The with-arg path below fed a make_err_expr() into
+        // evaluation here, so `unwind();` never stamped and codegen emitted
+        // "// Failed to transpile unwind();" — the handler then fell
+        // through instead of exiting (tests/algebraic_effects.test.yo
+        // "Test zero-arg unwind exits unit function", the file's one
+        // genuinely failing test).
+        if(esc_n_args == usize(0), {
+          if(!(is_some_type(enclosing_ret)) && !(are_types_compatible(TypeValue.Unit, enclosing_ret)), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(expr_to_eval),
+                  `Incompatible type for \`escape\` argument:\n- Expected (enclosing function return type): ${type_to_string(enclosing_ret)}\n- Got: ${type_to_string(TypeValue.Unit)}`,
+                  false,
+                  .None
+                )
               )
-            )
+            );
+          });
+          out_esc0 := new_expr_info(env, TypeValue.Unit);
+          out_esc0.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Unwind));
+          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out_esc0);
+          last_expr = expr_to_eval;
+          done = true;
+        }, {
+          esc_arg := match(
+            expr_to_eval,
+            .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+            .Atom(_, _) => make_err_expr()
           );
-        });
-        esc_info := match(esc_info_opt,.Some(ei) => ei,.None => new_expr_info(env, TypeValue.Unit));
-        // Type-check unwind value against the enclosing return type.
-        // Skip when the enclosing return type is an unresolved SomeType.
-        esc_compat := are_types_compatible(esc_info.ty, enclosing_ret);
-        if(!(is_some_type(enclosing_ret)) && !(esc_compat), {
-          exn.throw(
-            dyn(
-              format_error_message(
-                ast_expr_token(esc_arg),
-                `Incompatible type for \`unwind\` argument:\n- Expected: ${type_to_string(enclosing_ret)}\n- Got: ${type_to_string(esc_info.ty)}`,
-                false,
-                .None
+          // Propagate the enclosing function's return type as the expected type.
+          old_expected := ctx.expected_type;
+          ctx.expected_type = Option(ExpectedTypeCtx).Some(
+            ExpectedTypeCtx(ty : enclosing_ret, env : env)
+          );
+          evaluated_esc_arg := evaluate_expression_raw(esc_arg, env, ctx, exn);
+          ctx.expected_type = old_expected;
+          esc_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_esc_arg));
+          if(esc_info_opt.is_none(), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(esc_arg),
+                  String.from("Unwind expression is not evaluated correctly."),
+                  false,
+                  .None
+                )
               )
-            )
+            );
+          });
+          esc_info := match(esc_info_opt,.Some(ei) => ei,.None => new_expr_info(env, TypeValue.Unit));
+          // Type-check unwind value against the enclosing return type.
+          // Skip when the enclosing return type is an unresolved SomeType.
+          esc_compat := are_types_compatible(esc_info.ty, enclosing_ret);
+          if(!(is_some_type(enclosing_ret)) && !(esc_compat), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(esc_arg),
+                  `Incompatible type for \`unwind\` argument:\n- Expected: ${type_to_string(enclosing_ret)}\n- Got: ${type_to_string(esc_info.ty)}`,
+                  false,
+                  .None
+                )
+              )
+            );
+          });
+          attach_temp_variable_to_expr(evaluated_esc_arg, true, ctx);
+          env = match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_esc_arg)),
+            .Some(ei) => ei.env,
+            .None => env
           );
+          out := new_expr_info(env, esc_info.ty);
+          out.value = esc_info.value;
+          out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Unwind));
+          out.path_collection = esc_info.path_collection;
+          out.variable_name = esc_info.variable_name;
+          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
+          last_expr = expr_to_eval;
+          done = true;
         });
-        attach_temp_variable_to_expr(evaluated_esc_arg, true, ctx);
-        env = match(
-          expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_esc_arg)),
-          .Some(ei) => ei.env,
-          .None => env
-        );
-        out := new_expr_info(env, esc_info.ty);
-        out.value = esc_info.value;
-        out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Unwind));
-        out.path_collection = esc_info.path_collection;
-        out.variable_name = esc_info.variable_name;
-        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
-        last_expr = expr_to_eval;
-        done = true;
       },
       // -------------------------------------------------------------------
       // Normal expression evaluation

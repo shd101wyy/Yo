@@ -12,21 +12,22 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 157 GREEN / 20 HOLLOW / 8 RED of 185 test files**, measured
-with `scratchpad/hollow_sweep69.sh` after the call-site where-clause round
-(2026-07-30, flipped `inherent_first_resolution`; results at
-`/tmp/hs_s7/results.txt`; regenerate before trusting it — /tmp is volatile).
+**Honest score: 158 GREEN / 20 HOLLOW / 7 RED of 185 test files**, measured
+with `scratchpad/hollow_sweep69.sh` after the zero-arg-unwind round
+(2026-07-30, flipped `inherent_first_resolution` then `algebraic_effects`;
+results at `/tmp/hs_s21/results.txt`; regenerate before trusting it — /tmp is
+volatile).
 
 Green baselines every change must preserve:
 
-| gate                    | baseline                                                                                                        |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------- |
-| corpus diff-test        | **PASS 148 / DIFF 0**                                                                                           |
-| `check ./std`           | **153/153**                                                                                                     |
-| `check ./yo-self`       | last recorded **304/304** (a re-check was phantom-killed at ~15 min; slow, verify with `YO_MAIN_STACK_MB=4096`) |
-| stage2 real FTT markers | **1** (line-anchored grep — the `unwind()` marker)                                                              |
-| stage2 → stage3         | **FIXPOINT_HOLDS** (byte-identical)                                                                             |
-| GATE-0 repros           | all three compile **and run** rc=0                                                                              |
+| gate                    | baseline                                                                                                         |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| corpus diff-test        | **PASS 148 / DIFF 0**                                                                                            |
+| `check ./std`           | **153/153**                                                                                                      |
+| `check ./yo-self`       | last recorded **304/304** (a re-check was phantom-killed at ~15 min; slow, verify with `YO_MAIN_STACK_MB=4096`)  |
+| stage2 real FTT markers | **0** (line-anchored grep — the historical `unwind()` marker is FIXED: zero-arg `unwind()` now stamps, begin.yo) |
+| stage2 → stage3         | **FIXPOINT_HOLDS** (byte-identical)                                                                              |
+| GATE-0 repros           | all three compile **and run** rc=0                                                                               |
 
 `sys/bufio` and `thread` are FLAKY on this machine (intermittent SIGSEGV with a
 ZERO-byte log — the phantom-kill signature). Re-run before believing either.
@@ -166,12 +167,19 @@ the s1 binary, and TS rc=1 vs s1 rc=0 localises the missing check in minutes.
 
 ### 2.4 The 8 REDs
 
-Cluster-mapped in `issues/yo-self-69-red-list-map.md`. Current list with marker
+Cluster-mapped in `issues/yo-self-69-red-list-map.md`. `algebraic_effects`
+FLIPPED GREEN 2026-07-30 (72/72 run and pass): the failing test was zero-arg
+`unwind()` — begin.yo's unwind arm had no zero-arg path (`return` had one) and
+fed a `make_err_expr()` into evaluation, so the handler body never stamped;
+ported TS begin.ts:1446-1479 (at-most-one-arg check + unit-typed Unwind
+stamp). That same marker was the stage2 self-compile's LAST real FTT marker —
+stage2 is now marker-free. 12 markers remain inside the file's cee-rejected
+emission paths (all tests genuinely pass; same half-registered-fn class as
+issues/yo-self-algebraic-effects-two-roots.md root B). Current list with marker
 counts from the last sweep:
 
 | file                               | markers | note                                                                                                                                     |
 | ---------------------------------- | ------: | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `algebraic_effects`                |      13 | largest marker count of any file — start here for volume                                                                                 |
 | `closure_capture_rc_leak`          |       3 | the closure `void*`-param family                                                                                                         |
 | `sync/mutex`                       |       2 | —                                                                                                                                        |
 | `imm_sorted_map`, `imm_sorted_set` |       1 | the parameter-type-expression side table (architectural)                                                                                 |
