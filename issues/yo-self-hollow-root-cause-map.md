@@ -277,3 +277,22 @@ the ARGUMENT `f`'s SomeT `F` stays bare — a per-call SomeT identity split (the
 Gap-6 class), i.e. the binding lands on one SomeT instance/cell and the struct
 member check reads another. Next step is on the SPECIALIZATION side (which
 F instance the body's struct-literal check reads), not in the validators.
+
+## 2026-07-30 — fmt.test.yo hollow bisected: `(1 + 2).to_string()` in a `:=` binding
+
+fmt.test.yo (markers=1) hollows on arm 2 ("Test template strings") alone.
+Sub-bisected: literal (`${123}`) and variable (`${n}`) interpolations are
+CLEAN; only the parenthesized-EXPRESSION interpolation `${(1 + 2)}` FTTs —
+and the desugared form reproduces WITHOUT templates:
+
+    s := (1 + 2).to_string();   // 5-line repro, TS green, self FTTs
+    (issues/repros/comptime-expr-to-string-runtime-binding.yo)
+
+`check` on the repro is CLEAN (evaluator OK) — the failure only occurs in
+COMPILE mode (executing def-eval of main), and the swallow prints nothing.
+Pre-existing (same on s30/s31). Next probe: print the caught error at the
+def-eval swallow (\_expr.yo:1017 wrapper) for this compile — one build
+answers what throws. Suspect family: `.to_string()` method resolution on a
+FOLDED comptime_int expression result (not a literal token, not a
+variable) — the comptime-receiver retry may mis-route for expression
+receivers in executing mode.
