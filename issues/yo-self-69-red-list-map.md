@@ -983,15 +983,38 @@ markers 0 (same pair), imm_sorted_map markers 1, sync/mutex markers 2.
 ## 2026-07-31 — closure_capture_rc_leak scoped: the **unknown**Type\_\_ face lives here
 
 9-line repro `issues/repros/iterator-any-closure-void-param.yo` (TS green,
-self clang "passing 'int32_t' to parameter of type 'void _'"):
+self clang "passing 'int32*t' to parameter of type 'void *'"):
 `src.into_iter().any((x) => (x == needle(usize(0))))`. The emitted `any`
 spec is `yo_id_2798__unknown__Type___unknown__Type__rtparam0_...` — the
 Iterator GENERIC-IMPL's own generics (T/Item) ride the spec signature
-UNRESOLVED (the old imm_map cluster-2 face), so the pred param's
+UNRESOLVED (the old imm*map cluster-2 face), so the pred param's
 `Impl(Fn(a : T) -> bool)` keeps `a` a SomeT and the closure impl fn's x
-param renders `void_` while the body call passes the concrete i32.
+param renders `void*` while the body call passes the concrete i32.
 Root to chase: the generic-impl method specialization must bind the impl
 generics from the RECEIVER instantiation (Iter(i32) → T := i32) into the
 spec's compile-time args — TS embeds them in the impl-method funcId
 (impl.ts:1551); yo-self's impl-bindings-sig machinery covers the RECURSION
 guard but evidently not the spec-arg binding for this route.
+
+### closure_capture_rc_leak fix attempt #1 REJECTED (2026-07-31, measured)
+
+Attempted: in try_to_call's Step-6 forall-placeholder loop, adopt a
+CONCRETE TypeVal binding already present in callee_env (the Step-4
+capture from \_inject_forall_captures) instead of shadowing it with an
+UnknownVal placeholder. Probe findings along the way:
+
+- the adoption LOOKUP finds a binding (n_found=1 for every stamped
+  forall), but the LAST binding is the self-binding MARKER
+  (`T := SomeT(T)`) recreated by the marker loop — it shadows Step 4;
+- scanning ALL same-name bindings (newest-first, skipping SomeTs) STILL
+  found no concrete TypeVal → the `any` FuncVal reaching THIS dispatch
+  carries NO injected captures at all. The `src.into_iter().any(...)`
+  route resolves the method somewhere OTHER than
+  find_methods_from_generic_impls (suspect: the type-trait registry entry
+  from a CONCRETE registration path, or a cached spec) — the injection
+  never happened for it.
+  Next probe for the follow-up round: at the `any` dispatch
+  (\_try_find_receiver_method / \_select_matching_overload), print WHICH
+  lookup source produced the method entry and whether its FuncVal has
+  cap_names — that tells where to inject (or where to bind the impl
+  generics from the receiver instantiation, mirroring TS impl.ts:1551).
