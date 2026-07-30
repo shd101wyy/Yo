@@ -296,3 +296,24 @@ answers what throws. Suspect family: `.to_string()` method resolution on a
 FOLDED comptime_int expression result (not a literal token, not a
 variable) — the comptime-receiver retry may mis-route for expression
 receivers in executing mode.
+
+### Probe result (format_error_message probe, one build)
+
+The swallowed error for `s := (1 + 2).to_string()` is:
+
+    Cannot unify incompatible types: Expected "comptime_int", Given "i32"
+
+thrown from calls/function.yo's unconditional arg-type check (~line 1619).
+Note the ORDER: the PARAM type is comptime_int and the ARG is i32 — the
+method resolution selected the COMPTIME_INT `to_string` overload while the
+receiver argument had already been lowered comptime_int → i32 (the runtime
+`:=` binding context). TS resolves i32's runtime to_string here. Two
+candidate fixes for the next round: (a) the receiver-method comptime-retry
+should not pick the comptime_int overload when the receiver is being
+lowered for a runtime binding — check what TS's getReceiverMethods does
+with the comptime→runtime conversion ORDER; (b) the arg-check's comptime
+exemption tests the ARG only — TS's convertComptimeTypeToRuntimeType
+lowering happens before the check on BOTH sides. Verify against
+issues/repros/comptime-expr-to-string-runtime-binding.yo; the same face
+plausibly covers several of the 19 hollows (template-heavy files:
+prelude, basic, fn — all use `${(expr)}` shapes).
