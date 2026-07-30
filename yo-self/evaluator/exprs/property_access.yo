@@ -1195,17 +1195,47 @@ Raw pointer operations may dereference invalid memory.`,
               st_fidx,
               .Some(st_fi) => {
                 st_ft := match(st_types.get(st_fi),.Some(t) => t,.None => t_unit());
-                // For assoc-type fields (declared `Item : Type` etc.)
-                // synthesise a TypeVal wrapping a fresh SomeT placeholder
-                // so downstream type-expression evaluators see a concrete
-                // TypeValue. Mirrors TS `field.unassignedSomeType` →
-                // `createTypeValue(unassignedSomeType)` flow at
-                // property-access.ts:445-456.
-                placeholder_ty := if(
-                  is_type_0(st_ft),
-                  t_some_t(st_prop_name.clone(), env.frames.len()),
-                  st_ft
-                );
+                // For assoc-type fields (declared `Item : Type` etc.): TS
+                // returns the field's SINGLE `unassignedSomeType`
+                // (property-access.ts:445-456), so every `Self.Output` names
+                // ONE SomeType object. yo-self's stand-in for that per-field
+                // storage is the trait-definition scoped frame, where the
+                // field loop binds the assoc label to its SomeT — resolve
+                // THROUGH the env binding before minting, or each access
+                // creates a fresh identity and a where-clause
+                // `Self.Output <: Comptime` lands on a SomeT the trait's
+                // field types never carry (the arm-26 split: env `Output#84`
+                // carried the constraint, field types carried `Output#85`
+                // with an empty required list).
+                (placeholder_ty : TypeValue) = st_ft;
+                if(is_type_0(st_ft), {
+                  (st_env_bound : Option(TypeValue)) = Option(TypeValue).None;
+                  st_env_vars := get_variables_from_env(env, st_prop_name);
+                  if(st_env_vars.len() > usize(0), {
+                    match(
+                      st_env_vars.get(st_env_vars.len() - usize(1)),
+                      .Some(st_ev) => match(
+                        st_ev.value,
+                        .Some(st_evv) => match(
+                          st_evv,
+                          .TypeVal(st_evt) => {
+                            if(is_some_type(st_evt), {
+                              st_env_bound = Option(TypeValue).Some(st_evt);
+                            });
+                          },
+                          _ => ()
+                        ),
+                        .None => ()
+                      ),
+                      .None => ()
+                    );
+                  });
+                  placeholder_ty = match(
+                    st_env_bound,
+                    .Some(st_bt) => st_bt,
+                    .None => t_some_t(st_prop_name.clone(), env.frames.len())
+                  );
+                });
                 ev_st := if(
                   is_type_0(st_ft),
                   create_type_value(placeholder_ty),

@@ -12,7 +12,10 @@
 //! Phase 2az known stubs / skips:
 //!   - `selfType.trait = traitType` skipped — SomeT has no `trait` field in yo-self
 //!   - `attachTraitToReceiverType` for Runtime trait skipped
-//!   - `findSomeTypeMissingComptimeConstraint` check skipped (same as function.yo)
+//!   - `findSomeTypeMissingComptimeConstraint` RETURN-side check ported (TS
+//!     trait.ts:1074-1102, after the pending-constraint retry); the PARAMETER
+//!     side (trait.ts:1104-1123) is still skipped — trait-field fn types do
+//!     not register per-param comptime flags
 //!   - Function parameter annotation validation skipped (no exprs stored in TraitT fields)
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
@@ -42,9 +45,11 @@ open(import("std/fmt"));
 { EvalValue, create_type_value, create_unknown_val, is_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_some_t, generate_some_type_id } :: import("../../types/creators.yo");
-{ is_some_type, is_trait_type } :: import("../../types/guards.yo");
+{ is_some_type, is_trait_type, is_function_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
+{ get_all_some_types } :: import("../../types/utils.yo");
+{ find_some_type_missing_comptime_constraint } :: import("../trait_checking.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
 { is_valid_variable_name } :: import("../utils.yo");
@@ -1341,6 +1346,63 @@ evaluate_trait_type :: (
     );
     ctx.self_type = old_self_type;
     ctx.self_trait_type = old_self_trait_type;
+  });
+  // Validate comptime function types in trait fields. Mirrors TS
+  // trait.ts:1074-1102 — and, like TS, this MUST run after the pending
+  // where-clause retry above: `Self.Output <: Comptime` lands on the assoc
+  // SomeT only then (and only reaches the field types at all because
+  // `Self.Output` resolves to the ONE env-bound assoc SomeT — see the
+  // property_access.yo assoc branch). Only the RETURN side is ported; the
+  // parameter side (trait.ts:1104-1123) needs the per-param comptime side
+  // table, which trait FIELD fn-types do not register — no known witness.
+  (vf_i : usize) = usize(0);
+  while(vf_i < field_types.len(), {
+    vf_ty := match(
+      field_types.get(vf_i),
+      .Some(t) => t,
+      .None => {
+        vf_i = (vf_i + usize(1));
+        continue;
+      }
+    );
+    if(is_function_type(vf_ty), {
+      match(
+        vf_ty,
+        .Func(_, _, _, _, vf_ret, vf_meta) => {
+          // Deep contains-SomeT check: yo-self's `type_contains_some_type` is
+          // SHALLOW (bare SomeT / TypeAppT only) — `*(Output)` walks right
+          // past it. TS's typeContainsSomeType recurses (utils.ts:526+); the
+          // deep equivalent here is get_all_some_types (whose collector
+          // descends Pointer/Array/Func/...).
+          if(vf_meta.*.result_is_comptime_only && (get_all_some_types(vf_ret).len() > usize(0)), {
+            match(
+              find_some_type_missing_comptime_constraint(vf_ret, env_mut),
+              .Some(vf_missing) => {
+                vf_label := match(field_labels.get(vf_i),.Some(l) => l,.None => String.from("?"));
+                vf_missing_name := match(
+                  vf_missing,
+                  .SomeT(id : _, name : vf_mn) => vf_mn,
+                  _ => type_to_string(vf_missing)
+                );
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(expr),
+                      `Return type "${type_to_string(vf_ret)}" in trait field "${vf_label}" is used with "comptime" but type parameter "${type_to_string(vf_missing)}" does not implement the Comptime trait. Add "${vf_missing_name} <: Comptime" to the where clause.`,
+                      false,
+                      .None
+                    )
+                  )
+                );
+              },
+              .None => ()
+            );
+          });
+        },
+        _ => ()
+      );
+    });
+    vf_i = (vf_i + usize(1));
   });
   // Pop the scoped env frame
   env_mut.pop_frame();

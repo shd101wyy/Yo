@@ -138,3 +138,51 @@ te_info.env.frames` etc. in the constraint path), so the frame that received
 Recommended next move: build one probe binary that prints, at the retry site,
 `ast_expr_to_string(lhs_expr)` plus whether `get_variables_from_env(env_mut,
 "Output")` finds anything. That single probe distinguishes all three.
+
+## 2026-07-30 round — steps 2 is LANDED; the arm's residue is a DIFFERENT family
+
+The probe recommended above was built and answered everything in one run:
+
+- `__DBG_P retry=(Self.Output) <: Comptime lhs=[... dot2=true] output_var=somet:84`
+  — the retry DOES see an env-bound `Output` SomeT (candidate 1 refuted) and
+  the LHS IS a 2-arg dot call (candidate 3 refuted).
+- ZERO `__DBG_P2 swallowed=` lines — the retry parse SUCCEEDS (candidate 2's
+  "still fails inside `_drop_where_constraint_failures`" also refuted).
+- `__DBG_P4 field=neg somes: Self#83(req=1) Output#85(req=0)` with
+  `output_var=somet:84` — **the real root: SomeT identity split.** The env
+  bound `Output#84` (which received the retried constraint) while the field's
+  return type carried a separately-minted `Output#85` whose required list
+  stayed empty.
+
+**Fix 1 (identity, creation side):** `property_access.yo`'s SomeT
+associated-type branch minted a FRESH placeholder SomeT per `Self.Output`
+access, where TS returns the field's single `unassignedSomeType`
+(property-access.ts:445-456). It now resolves through the trait-definition
+scoped frame's binding of the label (the yo-self stand-in for that per-field
+storage) before minting. After the fix the field types and the env share ONE
+`Output` SomeT and the retried constraint is visible to field-type walkers.
+
+**Fix 2 (the validation itself):** the trait-field comptime-RETURN validation
+(TS trait.ts:1074-1102) is re-applied in `evaluate_trait_type`, AFTER the
+pending-constraint retry, gated on a DEEP contains-SomeT check
+(`get_all_some_types(...).len() > 0` — yo-self's `type_contains_some_type` is
+SHALLOW and walks right past `*(Output)`). `check ./std` stays **153/153**
+(prelude's `ComptimeNegate` now passes — the false positive that killed both
+earlier attempts is gone). Module-level twins behave exactly like TS:
+
+- BAD (`-> comptime(*(Self.Output))`, no `Self.Output <: Comptime`): REJECTED.
+- GOOD (constraint present): accepted.
+- The full arm-26 sequence inside a fn that IS CALLED at module level: cee
+  observes the error, GOOD accepted — parity with TS.
+
+**Why arm 26 is STILL hollow (measured, new family):** inside `main`'s
+DEF-TIME TRIAL, the statement `MyBad :: (fn(comptime(Idx) : Type, ...) ->
+comptime(Trait))(trait(...))` **never reaches anonymous-function creation at
+all** — a `__DBG_V9` probe at `anonymous_function.yo`'s defer decision fired
+760 times during the repro compile, every one from `std/prelude.yo`, none from
+the repro module. So the trait body is never evaluated in the trial, the cee's
+argument "evaluates successfully", and the cee throws its own "Expected
+compile error..." into main's wall (`__DBG_F` confirmed exactly that one
+swallow). The remaining work is therefore NOT in trait validation: it is the
+trial-mode evaluation of `::` comptime-fn bindings (likely shared with
+`issues/yo-self-comptime-const-batch-undeclared.md`'s batch-arm context).
