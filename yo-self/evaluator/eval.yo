@@ -319,7 +319,7 @@ eval_identifier :: (fn(tok : Token, env : Environment) -> Option(EvalResult))({
         env.lookup(tok.value),
         .Some(var) =>
           match(
-            var.value,
+            var.value.get(usize(0)),
             .Some(v) =>.Some(eval_result(v, var.ty)),
             .None =>.Some(eval_result(.VarRef(tok.value), var.ty))
           ),
@@ -793,7 +793,7 @@ handle_array_push_mutation :: (
                     .None => Option(EvalResult).None,
                     .Some(var_m) =>
                       match(
-                        var_m.value,
+                        var_m.value.get(usize(0)),
                         .None => Option(EvalResult).None,
                         .Some(var_ev_m) =>
                           match(
@@ -873,7 +873,7 @@ handle_struct_field_mutation :: (
                             .None => Option(EvalResult).None,
                             .Some(recv_var) =>
                               match(
-                                recv_var.value,
+                                recv_var.value.get(usize(0)),
                                 .None => Option(EvalResult).None,
                                 .Some(recv_ev) =>
                                   match(
@@ -3867,11 +3867,11 @@ handle_method_dispatch :: (
       );
       maybe_mval := match(
         env.lookup(qn),
-        .Some(mv) => mv.value,
+        .Some(mv) => mv.value.get(usize(0)),
         .None =>
           match(
             env.lookup(mname),
-            .Some(mv2) => mv2.value,
+            .Some(mv2) => mv2.value.get(usize(0)),
             .None => Option(EvalValue).None
           )
       );
@@ -4123,7 +4123,7 @@ evaluate_module_body :: (fn(exprs : ArrayList(AstExpr), env : Environment) -> Op
                                 env.lookup(name_tok.value.clone()),
                                 .Some(var) => {
                                   exported_val := match(
-                                    var.value,
+                                    var.value.get(usize(0)),
                                     .Some(v) => v,
                                     .None => EvalValue.VarRef(name_tok.value.clone())
                                   );
@@ -4458,7 +4458,7 @@ eval_float_cmp :: (fn(fval : String, lv : EvalResult, rv : EvalResult) -> Option
 eval_float_neg :: (fn(v : EvalResult) -> Option(EvalResult))({
   v_ty := v.ty;
   match(
-    v.value,
+    v.value.get(usize(0)),
     .FloatLit(raw) => {
       a := match(
         parse_raw_float(raw),
@@ -5197,7 +5197,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                     .None => (),
                                     .Some(sh_var) =>
                                       match(
-                                        sh_var.value,
+                                        sh_var.value.get(usize(0)),
                                         .None => (),
                                         .Some(sh_arr_ev) =>
                                           match(
@@ -5528,7 +5528,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                                       cap_names_f.push(v.name);
                                                       cap_tys_f.push(v.ty);
                                                       cap_val_f := match(
-                                                        v.value,
+                                                        v.value.get(usize(0)),
                                                         .Some(actual) => actual,
                                                         .None => EvalValue.VarRef(v.name)
                                                       );
@@ -6361,7 +6361,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                 }
               );
               match(
-                v.value,
+                v.value.get(usize(0)),
                 .BoolVal(b) =>.Some(eval_result(.BoolVal(!(b)), t_bool())),
                 _ => Option(EvalResult).None
               )
@@ -6388,7 +6388,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                 is_eval_int_type(v.ty) => {
                   v_ty := v.ty;
                   match(
-                    v.value,
+                    v.value.get(usize(0)),
                     .IntLit(raw) => {
                       a := match(
                         parse_raw_int(raw),
@@ -6514,8 +6514,11 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                             (deref_tok.value == "*") =>
                               match(
                                 recv_res.value,
-                                .PtrVal(inner_box, _) =>
-                                  .Some(eval_result(inner_box, type_of_eval_value(inner_box))),
+                                .PtrVal(inner_cell, _) => match(
+                                  inner_cell.get(usize(0)),
+                                  .Some(inner0) =>.Some(eval_result(inner0, type_of_eval_value(inner0))),
+                                  .None => Option(EvalResult).None
+                                ),
                                 _ => Option(EvalResult).None
                               ),
                             true =>
@@ -6777,7 +6780,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                               },
                               .Some(cv) =>
                                 match(
-                                  cv.value,
+                                  cv.value.get(usize(0)),
                                   .BoolVal(b) =>
                                     cond(
                                       (!(b)) => {
@@ -6792,7 +6795,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                           .Some(bv) => {
                                             last = bv;
                                             match(
-                                              bv.value,
+                                              bv.value.get(usize(0)),
                                               .ReturnVal(_, _) => {
                                                 keep_going = false;
                                               },
@@ -7090,7 +7093,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                 .None => Option(EvalResult).None,
                 .Some(rfv) =>
                   match(
-                    rfv.value,
+                    rfv.value.get(usize(0)),
                     .None => Option(EvalResult).None,
                     .Some(func_val_r) =>
                       match(
@@ -7450,7 +7453,13 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                     recur(box_arg, env),
                     .None => Option(EvalResult).None,
                     .Some(box_res) =>
-                      .Some(eval_result(.PtrVal(box_res.value, usize(0)), box_res.ty))
+                      .Some(
+                        eval_result({
+                          pe_cell := ArrayList(EvalValue).new();
+                          pe_cell.push(box_res.value);
+                          EvalValue.PtrVal(pe_cell, usize(0))
+                        }, box_res.ty)
+                      )
                   )
               ),
             // -----------------------------------------------------------------
@@ -7811,7 +7820,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                     cap_names_f.push(v.name);
                                     cap_tys_f.push(v.ty);
                                     cap_val_f := match(
-                                      v.value,
+                                      v.value.get(usize(0)),
                                       .Some(actual) => actual,
                                       .None => EvalValue.VarRef(v.name)
                                     );
@@ -7949,7 +7958,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                   .Some(v_m) => {
                                     cn_m.push(v_m.name);
                                     ct_m.push(v_m.ty);
-                                    cv_m.push(match(v_m.value,.Some(a) => a,.None => EvalValue.VarRef(v_m.name)));
+                                    cv_m.push(match(v_m.value.get(usize(0)),.Some(a) => a,.None => EvalValue.VarRef(v_m.name)));
                                   },
                                   .None => ()
                                 );
@@ -8120,7 +8129,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                     .None => Option(EvalResult).None,
                     .Some(var) =>
                       match(
-                        var.value,
+                        var.value.get(usize(0)),
                         .None => Option(EvalResult).None,
                         .Some(func_val) =>
                           match(

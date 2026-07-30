@@ -153,15 +153,20 @@ EvalValue :: ref(
     ///
     /// A compile-time pointer to a value.
     ///
-    /// `target` is a `Box(EvalValue)` holding the pointed-to value (or `ArrayVal`
-    /// for array-element pointers). `index` is the element index within the
-    /// target (0 for simple variable pointers).
+    /// `target_value` is a SINGLE-ELEMENT list holding the pointed-to value —
+    /// the SAME list object as the source variable's value cell, so mutations
+    /// through the pointer are visible to reads of the original (mutable
+    /// reference semantics; the arm-22 comptime scalar-pointer model). For
+    /// simple variables, `target_value(0)` is the value directly and
+    /// `target_index` is 0. For array-element pointers like `&(arr(2))`,
+    /// `target_value(0)` is the `ArrayVal` and `target_index` is 2.
     ///
     /// Equality is always `false` for pointers (alias identity is not portable
     /// in the compile-time evaluator context).
     ///
-    /// Mirrors TypeScript's `PtrValue`.
-    PtrVal(target : Self, index : usize),
+    /// Mirrors TypeScript's `PtrValue` (src/value.ts:180-196:
+    /// `targetValue: [Value]` + `targetIndex`).
+    PtrVal(target_value : ArrayList(Self), target_index : usize),
     /// A compile-time trait object value.
     ///
     /// `ty_name` is the trait type name (e.g. `"Display"`).
@@ -698,22 +703,26 @@ value_to_string :: (fn(v : EvalValue) -> String)(
         true => `[${parts_arr}]`
       )
     },
-    .PtrVal(target, index) =>
+    .PtrVal(target_value, target_index) =>
       match(
-        target,
-        .ArrayVal(elems) =>
-          match(
-            elems.get(index),
-            .Some(e) => {
-              es_ptr := recur(e);
-              `<ptr to ${es_ptr}>`
-            },
-            .None => String.from("<ptr to ?>")
-          ),
-        _ => {
-          ts_ptr := recur(target);
-          `<ptr to ${ts_ptr}>`
-        }
+        target_value.get(usize(0)),
+        .Some(cell0) => match(
+          cell0,
+          .ArrayVal(elems) =>
+            match(
+              elems.get(target_index),
+              .Some(e) => {
+                es_ptr := recur(e);
+                `<ptr to ${es_ptr}>`
+              },
+              .None => String.from("<ptr to ?>")
+            ),
+          _ => {
+            ts_ptr := recur(cell0);
+            `<ptr to ${ts_ptr}>`
+          }
+        ),
+        .None => String.from("<ptr to ?>")
       ),
     .TraitVal(ty_name, field_names, field_values) => {
       parts_tr := String.from("");

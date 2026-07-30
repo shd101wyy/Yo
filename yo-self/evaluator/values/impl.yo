@@ -407,7 +407,7 @@ _resolve_one_forall_binding :: (
   });
   last_nvar := match(name_vars.get(n_nvars - usize(1)),.Some(v) => v,.None => return(Option(TypeValue).None));
   match(
-    last_nvar.value,
+    last_nvar.value.get(usize(0)),
     .Some(ev) => match(
       ev,
       .TypeVal(b) => cond(
@@ -689,7 +689,7 @@ try_match_generic_impl :: (
         match(
           fv_vars.get(fv_vars.len() - usize(1)),
           .Some(fv_var) => match(
-            fv_var.value,
+            fv_var.value.get(usize(0)),
             .Some(fv_v) => match(
               fv_v,
               .IntLit(fv_raw) => {
@@ -1289,7 +1289,7 @@ _try_lookup_trait_type :: (
       match(
         vars.get(vars.len() - usize(1)),
         .Some(last_v) => match(
-          last_v.value,
+          last_v.value.get(usize(0)),
           .Some(ev) => match(
             ev,
             .TypeVal(tb) => match(

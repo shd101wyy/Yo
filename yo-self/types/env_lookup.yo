@@ -148,7 +148,7 @@ _lookup_by_frame :: (fn(env : Environment, fl : usize, name : String) -> Option(
                 cond(
                   (var.name == name) =>
                     match(
-                      var.value,
+                      var.value.get(usize(0)),
                       .Some(val) =>
                         cond(
                           _is_type_eval_value(val) => {
@@ -226,7 +226,7 @@ _was_self_bound :: (fn(env : Environment, name : String, id_to_find : String) ->
               cond(
                 (var.name == name) =>
                   match(
-                    var.value,
+                    var.value.get(usize(0)),
                     .Some(val) =>
                       cond(
                         _is_type_eval_value(val) => {
@@ -275,7 +275,7 @@ get_trait_type_from_env :: (fn(env : Environment, trait_name : String) -> Option
         }
       );
       match(
-        last.value,
+        last.value.get(usize(0)),
         .Some(val) =>
           cond(
             _is_type_eval_value(val) => {
@@ -325,7 +325,7 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
               },
               .Some(last_var) =>
                 match(
-                  last_var.value,
+                  last_var.value.get(usize(0)),
                   .None => {
                     result = current;
                     done = true;

@@ -44,6 +44,7 @@ open(import("std/string"));
 {
   Environment,
   Variable,
+  value_cell_of,
   make_err_variable,
   get_variables_from_env,
   get_all_variables_from_env,
@@ -192,7 +193,7 @@ make_variable_with_value :: (
     ty : v.ty,
     is_compile_time_only : v.is_compile_time_only,
     frame_level : v.frame_level,
-    value : new_value,
+    value : value_cell_of(new_value),
     is_owning_the_rc_value : v.is_owning_the_rc_value,
     is_owning_the_same_rc_value_as : v.is_owning_the_same_rc_value_as,
     is_reassignable : v.is_reassignable,
@@ -498,8 +499,8 @@ evaluate_assignment :: (
             .Some(v) => v,
             .None => make_err_variable(env)
           );
-          if(pc_var.is_compile_time_only && pc_var.value.is_some(), {
-            pc_cur_val := match(pc_var.value,.Some(v) => v,.None => EvalValue.UnitVal);
+          if(pc_var.is_compile_time_only && pc_var.value.get(usize(0)).is_some(), {
+            pc_cur_val := match(pc_var.value.get(usize(0)),.Some(v) => v,.None => EvalValue.UnitVal);
             if(prop_rhs_info.value.is_some(), {
               is_comptime_only_prop = true;
             });
@@ -560,21 +561,21 @@ evaluate_assignment :: (
                       (is_same_val : bool) = false;
                       if(av.is_compile_time_only, {
                         is_same_val = match(
-                          av.value,
+                          av.value.get(usize(0)),
                           .Some(avv) => eval_value_eq(avv, pc_cur_val),
                           .None => false
                         );
                       });
                       if(is_same_val, {
                         new_ref_opt := match(
-                          av.value,
+                          av.value.get(usize(0)),
                           .Some(av_inner) => match(
                             av_inner,
                             .StructVal(tn, fnames, fvals) =>
                               Option(EvalValue).Some(EvalValue.StructVal(tn, fnames, rebuild_list_with_index(fvals, fi_us, pc_rhs_val))),
-                            _ => av.value
+                            _ => av.value.get(usize(0))
                           ),
-                          .None => av.value
+                          .None => av.value.get(usize(0))
                         );
                         update_existing_variable(env, av, make_variable_with_value(av, new_ref_opt));
                       });
@@ -588,14 +589,14 @@ evaluate_assignment :: (
                           pc_cur_val,
                           .StructVal(tn, fnames, fvals) =>
                             Option(EvalValue).Some(EvalValue.StructVal(tn, fnames, rebuild_list_with_index(fvals, fi_us, pc_rhs_val))),
-                          _ => pc_var.value
+                          _ => pc_var.value.get(usize(0))
                         ),
                       true =>
                         match(
                           pc_cur_val,
                           .TupleVal(fvals) =>
                             Option(EvalValue).Some(EvalValue.TupleVal(rebuild_list_with_index(fvals, fi_us, pc_rhs_val))),
-                          _ => pc_var.value
+                          _ => pc_var.value.get(usize(0))
                         )
                     );
                     update_existing_variable(env, pc_var, make_variable_with_value(pc_var, new_vs_opt));
@@ -613,9 +614,9 @@ evaluate_assignment :: (
                       cond(
                         (arr_idx_us < elems.len()) =>
                           Option(EvalValue).Some(EvalValue.ArrayVal(rebuild_list_with_index(elems, arr_idx_us, pc_rhs_arr))),
-                        true => pc_var.value
+                        true => pc_var.value.get(usize(0))
                       ),
-                    _ => pc_var.value
+                    _ => pc_var.value.get(usize(0))
                   );
                   update_existing_variable(env, pc_var, make_variable_with_value(pc_var, new_arr_opt));
                 });
@@ -1026,7 +1027,7 @@ evaluate_assignment :: (
     ty : rhs_type,
     is_compile_time_only : updated_variable.is_compile_time_only,
     frame_level : updated_variable.frame_level,
-    value : value_to_store,
+    value : value_cell_of(value_to_store),
     // A `ref` binding/parameter NEVER owns: writing through the borrow
     // stores into the OWNER's storage. Mirrors TS assignment.ts
     // (`variable.isRef ? false : typeContainsRcType(...)`) — flipping a
@@ -1089,7 +1090,7 @@ evaluate_assignment :: (
   }, {
     // NOTE: This should return the original value of lhs.
     expr_info := new_expr_info(env, variable.ty);
-    expr_info.value = variable.value;
+    expr_info.value = variable.value.get(usize(0));
     expr_info.is_compile_time_only_assignment =.Some(variable.is_compile_time_only);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
     // This temp variable is used to hold the old value of lhs.

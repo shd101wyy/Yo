@@ -188,9 +188,9 @@ _try_resolve_associated_type :: (
       match(
         spec_vars.get(n_spec - usize(1)),
         .Some(last_spec) => {
-          if(is_type_value(last_spec.value), {
+          if(is_type_value(last_spec.value.get(usize(0))), {
             match(
-              last_spec.value,
+              last_spec.value.get(usize(0)),
               .Some(spec_tv) => {
                 out_spec := new_expr_info(env, type_of_eval_value(spec_tv));
                 out_spec.value = Option(EvalValue).Some(spec_tv);
@@ -535,26 +535,36 @@ Raw pointer operations may dereference invalid memory.`,
             .Some(ov_deref) => {
               match(
                 ov_deref,
-                .PtrVal(target_box, ptr_tgt_idx) => {
+                .PtrVal(target_cell, ptr_tgt_idx) => {
                   // Compile-time pointer: dereference to the pointed-to value.
                   // TS indexes the target when it is an aggregate —
                   // `dereferencedValue = target.elements[objectValue.targetIndex]`
                   // (property-access.ts:329-334) — and stamps
                   // `ptrTargetValue`/`ptrTargetIndex` so a later `p.* = v` has a
                   // place to write (consumed by assignment.ts:1150-1173).
-                  // yo-self dropped the index, so `p.*` read the whole
-                  // aggregate and `p.* = v` had no place at all; its
-                  // `ComptimeRef.ArrayRef(elements, index)` IS that pair, and
-                  // assignment.yo's Step 6 already consumes it.
-                  (deref_val : EvalValue) = target_box;
+                  // yo-self's `ComptimeRef.ArrayRef(list, index)` IS that pair
+                  // (assignment.yo's Step 6 writes `list(index) = rhs`), so:
+                  //   * aggregate pointee — place = (elements, index);
+                  //   * SCALAR pointee (arm 22) — place = (the CELL itself,
+                  //     target_index): writing `p.* = v` stores into the same
+                  //     single-element list the source variable reads.
+                  target0 := match(
+                    target_cell.get(usize(0)),
+                    .Some(t0) => t0,
+                    .None => EvalValue.UnitVal
+                  );
+                  (deref_val : EvalValue) = target0;
                   (deref_place : Option(ComptimeRef)) = Option(ComptimeRef).None;
                   match(
-                    target_box,
+                    target0,
                     .ArrayVal(deref_elems) => {
-                      deref_val = match(deref_elems.get(ptr_tgt_idx),.Some(de) => de,.None => target_box);
+                      deref_val = match(deref_elems.get(ptr_tgt_idx),.Some(de) => de,.None => target0);
                       deref_place = Option(ComptimeRef).Some(ComptimeRef.ArrayRef(deref_elems, ptr_tgt_idx));
                     },
-                    _ => ()
+                    _ => {
+                      deref_val = match(target_cell.get(ptr_tgt_idx),.Some(dt) => dt,.None => target0);
+                      deref_place = Option(ComptimeRef).Some(ComptimeRef.ArrayRef(target_cell, ptr_tgt_idx));
+                    }
                   );
                   out_ptr := new_expr_info(env, resolved_base);
                   out_ptr.value = Option(EvalValue).Some(deref_val);
@@ -919,9 +929,9 @@ Raw pointer operations may dereference invalid memory.`,
           match(
             spec_vars.get(n_spec - usize(1)),
             .Some(last_spec) => {
-              if(is_type_value(last_spec.value), {
+              if(is_type_value(last_spec.value.get(usize(0))), {
                 match(
-                  last_spec.value,
+                  last_spec.value.get(usize(0)),
                   .Some(spec_tv) => {
                     spec_tv_ty := type_of_eval_value(spec_tv);
                     out_spec_su := new_expr_info(env, spec_tv_ty);
@@ -1215,7 +1225,7 @@ Raw pointer operations may dereference invalid memory.`,
                     match(
                       st_env_vars.get(st_env_vars.len() - usize(1)),
                       .Some(st_ev) => match(
-                        st_ev.value,
+                        st_ev.value.get(usize(0)),
                         .Some(st_evv) => match(
                           st_evv,
                           .TypeVal(st_evt) => {
@@ -1475,8 +1485,20 @@ Raw pointer operations may dereference invalid memory.`,
                     (lbl_via_ptr : bool) = false;
                     match(
                       ov_lbl,
-                      .PtrVal(tgt_box, _) => {
-                        resolved_lbl = tgt_box;
+                      // The pointee lives at target_value(target_index) — the
+                      // "optional faithfulness completion" noted in
+                      // issues/yo-self-comptime-pointer-place.md: TS indexes
+                      // first (property-access.ts:1066-1073).
+                      .PtrVal(tgt_cell_l, tgt_idx_l) => {
+                        resolved_lbl = match(
+                          tgt_cell_l.get(usize(0)),
+                          .Some(t0l) => match(
+                            t0l,
+                            .ArrayVal(t0l_elems) => match(t0l_elems.get(tgt_idx_l),.Some(t0e) => t0e,.None => t0l),
+                            _ => t0l
+                          ),
+                          .None => ov_lbl
+                        );
                         lbl_via_ptr = true;
                       },
                       _ => ()

@@ -30,6 +30,13 @@ open(import("std/string"));
 { evaluate_expression } :: import("../exprs/expr.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { Exception } :: import("std/error");
+/// A fresh single-element PtrVal cell (TS `[value]` literal at the
+/// createPtrValue call sites).
+_cell1 :: (fn(v : EvalValue) -> ArrayList(EvalValue))({
+  c := ArrayList(EvalValue).new();
+  c.push(v);
+  c
+});
 { panic, assert } :: import("std/assert");
 evaluate_address_call :: (
   fn(
@@ -137,20 +144,24 @@ evaluate_address_call :: (
   pointer_type := t_ptr(arg_type);
   // Determine compile-time pointer value from comptimeRef.
   comptime_ref_opt := arg_info.comptime_ref;
+  // Each arm wraps the AGGREGATE value in a FRESH single-element cell (TS
+  // ptr-fns.ts:141-168 `createPtrValue(ptrType, [comptimeRef.arrayValue],
+  // index)`); aliasing is preserved through the aggregate's SHARED inner
+  // elements list, and `target_index` selects the element within it.
   ptr_val_from_comptime_ref := match(
     comptime_ref_opt,
     .Some(cref) => Option(EvalValue).Some(
       match(
         cref,
         .ArrayRef(elements, index) =>
-          EvalValue.PtrVal(EvalValue.ArrayVal(elements), index),
+          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(elements)), index),
         .ComptimeListRef(elements, index) =>
-          EvalValue.PtrVal(EvalValue.ComptimeListVal(elements), index),
+          EvalValue.PtrVal(_cell1(EvalValue.ComptimeListVal(elements)), index),
         .StructRef(field_values, field_index) =>
           // Treat field_values as an array to enable indexed access.
-          EvalValue.PtrVal(EvalValue.ArrayVal(field_values), field_index),
+          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(field_values)), field_index),
         .TupleRef(fields, field_index) =>
-          EvalValue.PtrVal(EvalValue.ArrayVal(fields), field_index)
+          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(fields)), field_index)
       )
     ),
     .None => Option(EvalValue).None
@@ -163,10 +174,15 @@ evaluate_address_call :: (
     .Some(_) => ptr_val_from_comptime_ref,
     .None => match(
       arg_info.source_variable,
-      .Some(src_var) => match(
-        src_var.value,
-        .Some(sv) => Option(EvalValue).Some(EvalValue.PtrVal(sv, usize(0))),
-        .None => Option(EvalValue).None
+      // Hand the variable's OWN value cell to the pointer (TS
+      // ptr-fns.ts:172 `createPtrValue(pointerType, sourceVariable.value)`)
+      // — writes through `p.*` land in the SAME list the variable reads,
+      // the arm-22 mutable-reference semantics. Empty cell = runtime
+      // variable (TS `sourceVariable.value` undefined) — no comptime place.
+      .Some(src_var) => if(
+        src_var.value.len() > usize(0),
+        Option(EvalValue).Some(EvalValue.PtrVal(src_var.value, usize(0))),
+        Option(EvalValue).None
       ),
       .None => Option(EvalValue).None
     )

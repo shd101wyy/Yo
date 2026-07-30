@@ -52,7 +52,21 @@ ZERO-byte log — the phantom-kill signature). Re-run before believing either.
 file flips only when BOTH remaining arms pass, because the generated batch
 dispatch is one all-or-nothing expression.
 
-**Arm 22 "Test comptime Ptr value" — needs TS's shared-cell value model.**
+**Arm 22 — DONE (2026-07-30): the shared-cell value model is LANDED.**
+`PtrVal(target_value : ArrayList(EvalValue), target_index)`,
+`Variable.value : ArrayList(EvalValue)` (via `value_cell_of`, empty = TS
+undefined), ptr_fns hands the variable's own cell, property_access stamps
+the scalar place as `ComptimeRef.ArrayRef(cell, index)`. All six arm-22
+sub-blocks + arm 23 + tests/index.test.yo (48/48) pass standalone; TIER 1 +
+TIER 2 + sweep clean. Arm 26 is ALSO done standalone (a26trial/a26both pass
+— the batch-arm family fix covered the trial-mode `::` binding).
+**comptime.test.yo remains hollow on ONE residue**: arm 26 in the BATCH
+context — a `comptime_expect_error` under a RUNTIME cond arm FTTs the whole
+dispatch. 30-line valid repro: `issues/repros/cee-in-runtime-cond-arm.yo`
+(TS green, self emits 1 FTT on the cond). Fix that repro and the file
+should flip.
+
+Original arm-22 plan (now landed, kept for reference):
 Full scoping in `issues/yo-self-comptime-pointer-place.md` (Stage 2). Steps:
 
 1. `PtrVal(target : EvalValue, index : usize)` → `PtrVal(target_value :

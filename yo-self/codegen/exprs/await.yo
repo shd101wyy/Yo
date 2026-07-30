@@ -137,7 +137,7 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : String, context 
     match(
       implicit_vars.get(k),
       .Some(v) => match(
-        v.value,
+        v.value.get(usize(0)),
         .Some(val) => if(is_struct_val(val), {
           field_names := match(val,.StructVal(_, fns, _) => fns, _ => ArrayList(String).new());
           field_values := match(val,.StructVal(_, _, fvs) => fvs, _ => ArrayList(EvalValue).new());

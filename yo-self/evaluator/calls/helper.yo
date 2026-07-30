@@ -353,7 +353,7 @@ validate_function_return_type :: (
                     all_vars.get(j),
                     .Some(var) => {
                       match(
-                        var.value,
+                        var.value.get(usize(0)),
                         .Some(ev) => {
                           match(
                             ev,
@@ -930,7 +930,7 @@ compute_compile_time_signature :: (
               (n_v > usize(0)) => {
                 env_val := match(
                   vars.get(n_v - usize(1)),
-                  .Some(vr) => vr.value,
+                  .Some(vr) => vr.value.get(usize(0)),
                   .None => Option(EvalValue).None
                 );
                 match(
@@ -2122,7 +2122,7 @@ create_specialized_function_inline :: (
                 (npv == usize(0)) => false,
                 true => match(
                   pvars.get(npv - usize(1)),
-                  .Some(pv) => match(pv.value,.Some(vv) => !(is_unknown_val(vv)),.None => false),
+                  .Some(pv) => match(pv.value.get(usize(0)),.Some(vv) => !(is_unknown_val(vv)),.None => false),
                   .None => false
                 )
               )
@@ -2421,7 +2421,7 @@ create_specialized_function_inline :: (
                 env_vars.get(n_ev - usize(1)),
                 .Some(ev) => {
                   match(
-                    ev.value,
+                    ev.value.get(usize(0)),
                     .Some(v) => {
                       new_cap_names.push(label);
                       new_cap_tys.push(ev.ty);
@@ -3179,7 +3179,7 @@ evaluate_ctl_function_body_inline :: (
               if(caller_var.is_compile_time_only, {
                 // Skip plain function values (only types, modules, traits need to cross).
                 is_fn_val := match(
-                  caller_var.value,
+                  caller_var.value.get(usize(0)),
                   .Some(cv3) => match(cv3,.FuncVal(_, _) => true, _ => false),
                   .None => false
                 );
@@ -3190,7 +3190,7 @@ evaluate_ctl_function_body_inline :: (
                       specialized_env,
                       caller_var.name.clone(),
                       caller_var.ty,
-                      caller_var.value,
+                      caller_var.value.get(usize(0)),
                       true,
                       false,
                       false,
@@ -3433,7 +3433,7 @@ validate_where_constraints_for_call :: (
       match(
         lhs_vars.get(lhs_vars.len() - usize(1)),
         .Some(lhs_var) => match(
-          lhs_var.value,
+          lhs_var.value.get(usize(0)),
           .Some(lv) => match(
             lv,
             .TypeVal(bound_tb) => {
@@ -3529,7 +3529,7 @@ reapply_where_clause_exprs_for_call :: (
                     match(
                       wge_vars.get(wge_vars.len() - usize(1)),
                       .Some(wge_var) => match(
-                        wge_var.value,
+                        wge_var.value.get(usize(0)),
                         .Some(wge_val) => {
                           if(!(is_type_val(wge_val)), {
                             wce_state_ok = false;
@@ -4145,7 +4145,7 @@ try_to_call_function_with_arguments :: (
                         match(
                           tb_existing.get(tb_existing.len() - usize(1)),
                           .Some(tb_var) => match(
-                            tb_var.value,
+                            tb_var.value.get(usize(0)),
                             .Some(tb_val) => if(is_type_val(tb_val), {
                               match(
                                 tb_val,
@@ -4191,7 +4191,7 @@ try_to_call_function_with_arguments :: (
                           match(
                             eb_existing.get(eb_existing.len() - usize(1)),
                             .Some(eb_var) => match(
-                              eb_var.value,
+                              eb_var.value.get(usize(0)),
                               .Some(eb_val) => if(is_type_val(eb_val), {
                                 match(
                                   eb_val,
@@ -4478,7 +4478,7 @@ try_to_call_function_with_arguments :: (
             last_v_opt,
             .Some(last_v) => {
               match(
-                last_v.value,
+                last_v.value.get(usize(0)),
                 .Some(v) => {
                   // TS helper.ts:1464-1494 (unported until now): propagate
                   // resolvedConcreteType from a generic SomeType back before
@@ -4776,7 +4776,7 @@ try_to_call_function_with_arguments :: (
                     )
                 ), {
                   found_given = true;
-                  given_val = gv.value;
+                  given_val = gv.value.get(usize(0));
                   given_ty = gv.ty;
                   given_name = gv.name;
                 });

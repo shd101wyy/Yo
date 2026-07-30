@@ -1493,7 +1493,7 @@ use_id :: (fn(generic(T : Type),
       }
     );
     match(
-      v.value,
+      v.value.get(usize(0)),
       .Some(ev) => {
         match(
           ev,
@@ -1541,7 +1541,7 @@ use_id :: (fn(generic(T : Type),
     existing_where_var,
     .Some(wv) => {
       // Variable pre-created by where clause — reuse its SomeT
-      existing_some_ty := match(wv.value,.Some(ev) => match(ev,.TypeVal(b) => b, _ => TypeValue.Unit),.None => TypeValue.Unit);
+      existing_some_ty := match(wv.value.get(usize(0)),.Some(ev) => match(ev,.TypeVal(b) => b, _ => TypeValue.Unit),.None => TypeValue.Unit);
       // If assigned_value is a SomeT, merge traits from it
       match(
         assigned_value,
@@ -1598,7 +1598,7 @@ use_id :: (fn(generic(T : Type),
         label_expr,
         .Some(le) => {
           le_info := new_expr_info(env_mut, actual_param_type);
-          le_info.value =.Some(match(wv.value,.Some(v) => v,.None => EvalValue.UnitVal));
+          le_info.value =.Some(match(wv.value.get(usize(0)),.Some(v) => v,.None => EvalValue.UnitVal));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(le), le_info);
         },
         .None => ()
@@ -1614,7 +1614,7 @@ use_id :: (fn(generic(T : Type),
             label_expr,
             .Some(le) => {
               le_info := new_expr_info(env_mut, actual_param_type);
-              le_info.value = pv.value;
+              le_info.value = pv.value.get(usize(0));
               expr_info_table_set(ctx.expr_info_table, ast_expr_id(le), le_info);
             },
             .None => ()
@@ -1938,7 +1938,7 @@ apply_single_trait_constraint :: (
     });
     last_var := match(existing_vars.get(existing_vars.len() - usize(1)),.Some(v) => v,.None => return(false));
     match(
-      last_var.value,
+      last_var.value.get(usize(0)),
       .Some(ev) => {
         match(
           ev,
@@ -2102,7 +2102,7 @@ parse_where_clause_constraints :: (
       if(existing_vars.len() > usize(0), {
         last_v := match(existing_vars.get(existing_vars.len() - usize(1)),.Some(v) => v,.None => return(pending_traits));
         match(
-          last_v.value,
+          last_v.value.get(usize(0)),
           .Some(ev) => {
             match(
               ev,
@@ -2748,7 +2748,7 @@ evaluate_function_parameters :: (
             );
           },
           .Some(row_var) => {
-            e_val := row_var.value;
+            e_val := row_var.value.get(usize(0));
             (eff_row_handled : bool) = false;
             match(
               e_val,
@@ -4044,7 +4044,7 @@ evaluate_function_type :: (
         match(
           ct_vars.get(ct_vars.len() - usize(1)),
           .Some(ct_var) => match(
-            ct_var.value,
+            ct_var.value.get(usize(0)),
             .Some(cv) => match(
               cv,
               .TypeVal(ct_tb) => _collect_where_constraints_from_some_t(wpp.label, ct_tb, where_constraint_entries),

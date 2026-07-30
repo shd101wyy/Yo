@@ -60,6 +60,7 @@ open(import("std/string"));
 {
   Environment,
   Variable,
+  value_cell_of,
   Frame,
   new_frame,
   get_variables_from_env,
@@ -159,7 +160,7 @@ attach_temp_variable_to_expr :: (
               true => _is_owning_rc
             );
             existing_var.ty = effective_ty;
-            existing_var.value = cond(preserved_rc => Option(EvalValue).None, true => var_value);
+            existing_var.value = value_cell_of(cond(preserved_rc => Option(EvalValue).None, true => var_value));
             existing_var.is_compile_time_only = cond(preserved_rc => false, true => is_ctonly);
             existing_var.is_owning_the_rc_value = preserved_rc;
             // Update origin_type if not already set.
@@ -1260,7 +1261,7 @@ merge_and_check_envs :: (
           if(has_reassignment, {
             new_id := generate_variable_id(env.module_path, var_name);
             base_var.id = new_id;
-            base_var.value = Option(EvalValue).None;
+            base_var.value = value_cell_of(Option(EvalValue).None);
             base_var.is_owning_the_same_rc_value_as = Option(Box(Variable)).None;
           });
           var_j = (var_j + usize(1));
@@ -1286,7 +1287,7 @@ _try_resolve_last_var :: (fn(vars : ArrayList(Variable)) -> Option(EvalValue))(
       vars.get(vars.len() - usize(1)),
       .None => Option(EvalValue).None,
       .Some(last) => match(
-        last.value,
+        last.value.get(usize(0)),
         .None => Option(EvalValue).None,
         .Some(v) => cond(
           ((is_unknown_val(v)) || (is_var_ref(v))) => Option(EvalValue).None,

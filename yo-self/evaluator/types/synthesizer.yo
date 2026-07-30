@@ -23,6 +23,7 @@ open(import("std/string"));
 {
   Environment,
   Variable,
+  value_cell_of,
   get_variables_from_env,
   add_variable_to_env,
   update_existing_variable,
@@ -289,7 +290,7 @@ _bind_some_type :: (
       // (non-SomeT values) carry no id, so they fall through to the frame
       // check below.
       found_slot_someid := match(
-        old_var.value,
+        old_var.value.get(usize(0)),
         .Some(ov) => match(ov,.TypeVal(ovt) => match(ovt,.SomeT({ id : ovid }) => ovid, _ => String.from("")), _ => String.from("")),
         .None => String.from("")
       );
@@ -318,7 +319,7 @@ _bind_some_type :: (
         ty : ty,
         is_compile_time_only : old_var.is_compile_time_only,
         frame_level : old_var.frame_level,
-        value : Option(EvalValue).Some(val),
+        value : value_cell_of(Option(EvalValue).Some(val)),
         is_owning_the_rc_value : old_var.is_owning_the_rc_value,
         is_owning_the_same_rc_value_as : old_var.is_owning_the_same_rc_value_as,
         is_reassignable : old_var.is_reassignable,
@@ -1737,7 +1738,7 @@ _synthesize_types_impl :: (
         match(
           lvar_vars.get(lvar_vars.len() - usize(1)),
           .Some(lvar_var) => {
-            lvar_var.value = Option(EvalValue).Some(EvalValue.IntLit(giv_len.to_string()));
+            lvar_var.value = value_cell_of(Option(EvalValue).Some(EvalValue.IntLit(giv_len.to_string())));
           },
           .None => ()
         );

@@ -996,7 +996,11 @@ _try_comptime_custom_type_index :: (
   output_ty := match(ct_ret_type,.Pointer(ct_pt) => ct_pt, _ => ct_ret_type);
   // Comptime pointer to self for the first argument (TS index-trait.ts:475-476).
   self_ptr_type := t_ptr(value_type);
-  self_ptr_value := EvalValue.PtrVal(self_value, usize(0));
+  // Fresh 1-elem cell around self (TS index-trait.ts:472
+  // `createPtrValue(selfPtrType, [selfValue])`).
+  self_ptr_cell := ArrayList(EvalValue).new();
+  self_ptr_cell.push(self_value);
+  self_ptr_value := EvalValue.PtrVal(self_ptr_cell, usize(0));
   ct_p0_ty := match(
     ct_fn_type,
     .Func({ param_types : ct_pts0 }) => match(ct_pts0.get(usize(0)),.Some(t) => t,.None => t_unit()),
@@ -1124,7 +1128,8 @@ _try_comptime_custom_type_index :: (
   // arms are ported for the paths that hand back an unwrapped target.
   match(
     ct_return_value,
-    .PtrVal(ct_target, ct_index) => {
+    .PtrVal(ct_target_cell, ct_index) => {
+      ct_target := match(ct_target_cell.get(usize(0)),.Some(t0) => t0,.None => EvalValue.UnitVal);
       (ct_deref : EvalValue) = ct_target;
       (ct_cref : Option(ComptimeRef)) = Option(ComptimeRef).None;
       match(

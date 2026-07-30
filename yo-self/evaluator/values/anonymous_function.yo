@@ -315,7 +315,7 @@ _subst_some_types_from_env :: (fn(ty : TypeValue, env2 : Environment, allow : Ar
         match(
           ss_found.get(ss_bi),
           .Some(sv) => match(
-            sv.value,
+            sv.value.get(usize(0)),
             .Some(sval) => match(
               sval,
               .TypeVal(stv) => if(!(is_some_type(stv)), {
@@ -910,7 +910,7 @@ evaluate_anonymous_function_implementation :: (
                   cap_names.push(cv.name);
                   cap_tys.push(cv.ty);
                   cap_val := match(
-                    cv.value,
+                    cv.value.get(usize(0)),
                     .Some(actual) => actual,
                     .None => EvalValue.VarRef(cv.name)
                   );
@@ -1014,7 +1014,7 @@ evaluate_anonymous_function_implementation :: (
           match(
             _st_bind_vars.get(_st_bi),
             .Some(sv) => match(
-              sv.value,
+              sv.value.get(usize(0)),
               .Some(sval) => match(
                 sval,
                 .TypeVal(stv) => if(!(is_some_type(stv)), {

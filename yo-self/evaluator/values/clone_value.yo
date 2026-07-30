@@ -43,11 +43,25 @@ clone_value :: (fn(v : EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
     // ReturnVal — recursively clone the wrapped value
     .ReturnVal(val : val_box, ty : ty) =>
       EvalValue.ReturnVal(val : recur(val_box, preserve_pointer_refs), ty : ty.clone()),
-    // PtrVal — preserve or deep-clone depending on flag
-    .PtrVal(target : tgt_box, index : idx) =>
+    // PtrVal — preserve or deep-clone depending on flag. Preserving keeps
+    // the SAME cell (reference semantics); cloning mints a FRESH 1-elem cell
+    // around the cloned pointee (TS clone-value.ts:90-120, minus the
+    // targetValueMapping dedup — yo-self has no identity-keyed map for
+    // ArrayList cells; CTFE-check isolation only needs the copy).
+    .PtrVal(target_value : tgt_cell, target_index : idx) =>
       cond(
         (preserve_pointer_refs) => v,
-        true => EvalValue.PtrVal(target : recur(tgt_box, preserve_pointer_refs), index : idx)
+        true => {
+          cv_new_cell := ArrayList(EvalValue).new();
+          match(
+            tgt_cell.get(usize(0)),
+            .Some(cv_p0) => {
+              cv_new_cell.push(recur(cv_p0, preserve_pointer_refs));
+            },
+            .None => ()
+          );
+          EvalValue.PtrVal(target_value : cv_new_cell, target_index : idx)
+        }
       ),
     // EnumVal — recursively clone each field
     .EnumVal(variant : vname, fields : flds) => {

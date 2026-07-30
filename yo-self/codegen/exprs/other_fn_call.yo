@@ -358,7 +358,7 @@ _c_func_name :: (fn(func_id : String, context : FunctionGenerationContext) -> Op
 _arg_fn_value_c_name :: (fn(env : Environment, name : String, context : FunctionGenerationContext) -> Option(String))({
   vars := get_variables_from_env(env, name);
   m := vars.len();
-  if(m == usize(0), Option(String).None, match(vars.get(m - usize(1)),.Some(v) => match(v.value,.Some(val) => if(is_func_val(val), match(val,.FuncVal(__fvd1, _) => _c_func_name(__fvd1.*.func_id, context), _ => Option(String).None), Option(String).None),.None => Option(String).None),.None => Option(String).None))
+  if(m == usize(0), Option(String).None, match(vars.get(m - usize(1)),.Some(v) => match(v.value.get(usize(0)),.Some(val) => if(is_func_val(val), match(val,.FuncVal(__fvd1, _) => _c_func_name(__fvd1.*.func_id, context), _ => Option(String).None), Option(String).None),.None => Option(String).None),.None => Option(String).None))
 });
 /// Whether the last binding for `name` is compile-time-only.
 _last_is_comptime_only :: (fn(env : Environment, name : String) -> bool)({
@@ -789,7 +789,7 @@ _call_is_handler_installation :: (fn(func_ei : ExprInfo, function_type : TypeVal
   install1 := if(is_direct_handler, {
     callee_fid := match(func_ei.value,.Some(v) => _func_val_id(v),.None => String.new());
     match(
-      find_innermost_frame_with_given_variable(env, (v : Variable) => match(v.value,.Some(val) => (is_func_val(val) && (_func_val_id(val) == callee_fid.clone())),.None => false)),
+      find_innermost_frame_with_given_variable(env, (v : Variable) => match(v.value.get(usize(0)),.Some(val) => (is_func_val(val) && (_func_val_id(val) == callee_fid.clone())),.None => false)),
       .Some(fidx) => ((fidx > fdfl) && match(env.frames.get(fidx),.Some(fr) => fr.is_begin_block,.None => false)),
       .None => false
     )

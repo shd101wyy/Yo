@@ -209,7 +209,7 @@ evaluate_identifier_and_operator :: (
   );
   // Check initialization (unless it's a function type or type value — mutual recursion)
   if((variable.initialized_at_token == Option(Token).None) && throw_error_on_undefined, {
-    if(!(is_function_type(variable.ty) || is_type_value(variable.value)), {
+    if(!(is_function_type(variable.ty) || is_type_value(variable.value.get(usize(0)))), {
       exn.throw(
         dyn(
           format_error_message(
@@ -226,7 +226,7 @@ evaluate_identifier_and_operator :: (
   // Treat them as runtime values so operators like | use runtime BitOr.
   // NOTE: `is_extern` is not yet ported to yo-self; skip this special-case
   // and always use the variable's compile-time value.
-  resolved_value := variable.value;
+  resolved_value := variable.value.get(usize(0));
   // Build ExprInfo
   info := new_expr_info(env, variable.ty);
   info.value = resolved_value;

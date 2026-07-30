@@ -76,3 +76,26 @@ Optional faithfulness completion (not needed for arms 22/23): the SECOND deref
 site in `property_access.yo` ("Dereference through PtrVal before field
 selection") also drops the index, where TS indexes first
 (`property-access.ts:1066-1073`).
+
+## Stage 2 LANDED (2026-07-30)
+
+The shared-cell model from the table above is implemented:
+
+- `PtrVal(target_value : ArrayList(EvalValue), target_index : usize)` —
+  value.yo, all 8 consumer sites ported (eval.yo x2, index_trait.yo x2,
+  clone_value.yo — fresh-cell deep clone, no targetValueMapping dedup —
+  comptime_index_fns.yo, ptr_fns.yo, property_access.yo BOTH deref sites,
+  including the "optional faithfulness completion").
+- `Variable.value : ArrayList(EvalValue)` via `value_cell_of` (env.yo);
+  ~70 reader/writer/construction sites swept tree-wide. The single-file
+  `check` does NOT catch stale `match(v.value, .Some…)` readers — only the
+  full main.yo build does; the sweep was grep-driven + build-error-chased.
+- ptr_fns.yo address-of hands the variable's OWN cell (TS ptr-fns.ts:172);
+  comptimeRef arms wrap the aggregate in a fresh 1-elem cell (TS :141-168).
+- The scalar place is `ComptimeRef.ArrayRef(cell, target_index)` — the
+  existing assignment.yo Step-6 consumer already writes `cell(idx) = rhs`.
+
+Verified: a22min (scalar write), a22full (all six arm-22 sub-blocks incl.
+double pointers + comptime-fn ptr params), a23 (array-element writes),
+tests/index.test.yo 48/48 (the regression guard). TIER 1 + TIER 2
+(FIXPOINT_HOLDS) + sweep 160/20/5 all clean.
