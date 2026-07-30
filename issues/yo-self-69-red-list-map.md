@@ -1018,3 +1018,21 @@ UnknownVal placeholder. Probe findings along the way:
   lookup source produced the method entry and whether its FuncVal has
   cap_names — that tells where to inject (or where to bind the impl
   generics from the receiver instantiation, mirroring TS impl.ts:1551).
+
+### closure_capture_rc_leak — dispatch source IDENTIFIED (probe, 2026-07-31)
+
+The `any` hit is a TRAIT DEFAULT method: hits=1, source_trait_id EMPTY,
+and the FuncVal carries 658 captures (the Iterator trait-definition module
+env snapshot) — NOT the generic-impl injected-captures path at all. `any`
+is an Iterator `?=` default; the defaults-fill registration
+(impl.yo `get_trait_default` -> register_type_trait_method with
+`_substitute_self_in_method_ty(d_ty, receiver_ty)`) ran for the GENERIC
+impl receiver `Iter(T)`, so the registered method type's
+`pred : Impl(Fn(a : ...) -> bool)` still carries the unresolved
+T/Self.Item, and the closure param renders `void*`. Fix direction: at a
+CONCRETE receiver dispatch of a trait-default entry whose ty still carries
+the generic-impl's SomeTs, substitute them from the receiver instantiation
+(Iter(i32) -> T := i32) before the call — either at the registry lookup
+(env.yo receiver-methods, using MethodEntry.self_type) or by registering
+per-concrete-receiver default entries at generic-impl MATCH time (the
+find_matching_generic_impl route already derives the bindings).
