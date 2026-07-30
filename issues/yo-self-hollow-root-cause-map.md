@@ -361,3 +361,19 @@ comptime_str-vs-String pair deliberately keeps throwing (untested).
 
 basic/fn/prelude/closure remain hollow with their own markers (4/3/1/1) —
 different roots (the missing-validation family, task list #2).
+
+## 2026-07-31 — prelude.test.yo bisected: TWO faces (arms 1 and 3 of 4)
+
+- Arm 1 "TryFrom/TryInto traits": minimal repro
+  `issues/repros/tryfrom-two-impls-static-dispatch.yo` (TS green, self 3
+  FTTs) — a struct with TWO parameterized-trait impls `TryFrom(i32)` +
+  `TryFrom(i64)`; the static call `EvenNumber.try_from(i64(10))` FTTs.
+  FE-probe signal: SIX repeated "Cannot unify incompatible enum types:
+  <enum:2403> vs <enum:3135>" — two Result-INSTANTIATION eras split
+  between the two impls (each impl's `Result(Self, Error)` instantiated
+  separately; the call site unifies against the wrong era). Same identity
+  class as the imm-family; likely fixable via the trait-method Result
+  memo/canonicalization rather than dispatch.
+- Arm 3 "MaybeUninit": contains `comptime_expect_error(arr2 :=
+uninit_arr.assume_init())` — consume-after-use validation the port
+  doesn't throw yet (the missing-validation family, task #2).

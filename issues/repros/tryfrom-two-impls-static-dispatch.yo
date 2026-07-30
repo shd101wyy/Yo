@@ -1,0 +1,35 @@
+open(import("std/assert"));
+main :: (fn() -> unit)({
+  EvenNumber :: struct(value : i32);
+  impl(
+    EvenNumber,
+    TryFrom(i32)(
+      Error : str,
+      try_from : (
+        value ->
+          cond(
+            ((value % 2) == 0) =>.Ok(EvenNumber(value)),
+            true =>.Err("odd i32")
+          )
+      )
+    )
+  );
+  impl(
+    EvenNumber,
+    TryFrom(i64)(
+      Error : str,
+      try_from : (
+        value ->
+          cond(
+            ((value % i64(2)) == i64(0)) =>.Ok(EvenNumber(i32(value))),
+            true =>.Err("odd i64")
+          )
+      )
+    )
+  );
+  x := EvenNumber.try_from(i32(10));
+  assert(x.is_ok(), "i32 ok");
+  y := EvenNumber.try_from(i64(10));
+  assert(y.is_ok(), "i64 ok");
+});
+export(main);
