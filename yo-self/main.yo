@@ -794,7 +794,16 @@ check_single_file :: (
       true,
       local_exn
     );
-    g_cached_prelude_env = Option(Environment).Some(prelude_env);
+    // Populate-once (the doc on g_cached_prelude_env). REPLACING an existing
+    // cached env — e.g. when a directory sweep reaches std/prelude.yo as a
+    // target AFTER the run_check pre-load — forks the type universe: every
+    // later file clones the NEW prelude (fresh FuncVal/trait ids) while
+    // demand-loaded modules stay cached from the OLD lineage, so an id-keyed
+    // check like `K <: Eq(K)` mints a trait no registered impl can match
+    // ("Type String does not implement required trait ...").
+    if(g_cached_prelude_env.is_none(), {
+      g_cached_prelude_env = Option(Environment).Some(prelude_env);
+    });
     println(`check: ${input_path} — evaluator OK`);
     return(true);
   });

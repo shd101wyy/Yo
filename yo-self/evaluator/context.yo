@@ -175,8 +175,9 @@ ComptimeFnCacheEntry :: ref(
 /// One cached specialization of a generic function.
 ///
 /// Mirrors `SpecializedFunctionCache` on TypeScript's `FunctionValue`.
-/// Stored globally in `EvalContext.specialized_fn_caches` (keyed by `func_id`)
-/// rather than on `FuncVal`, to avoid updating ~24 pattern-match sites.
+/// Stored in the module-global `g_specialized_fn_caches` (calls/helper.yo,
+/// keyed by `func_id`) rather than on `FuncVal`, to avoid updating ~24
+/// pattern-match sites while matching TS's process-wide cache lifetime.
 SpecializedFunctionCache :: ref(
   struct(
     /// The compile-time argument values (generic + implicit + comptime params)
@@ -309,14 +310,7 @@ EvalContext :: ref(
     /// in-flight bindings live on the context, consulted by
     /// property_access's working-trait associated-type fallback.
     current_impl_trait_field_labels : ArrayList(String),
-    current_impl_trait_field_types : ArrayList(TypeValue),
-    /// Specialization cache — per-function buckets keyed by `func_id`.
-    ///
-    /// Stored here (rather than on `FuncVal`) to avoid FuncVal pattern-match
-    /// explosion.  Each entry holds all cached specializations for one generic
-    /// function.  Mirrors `specializedFunctionCaches` on TypeScript's
-    /// `FunctionValue`.
-    specialized_fn_caches : ArrayList(SpecializedFunctionCacheEntry)
+    current_impl_trait_field_types : ArrayList(TypeValue)
   )
 );
 /// Create a minimal execution context with sensible defaults.
@@ -359,8 +353,7 @@ eval_context_new :: (fn(std_path : String, module_path : String) -> EvalContext)
     expr_info_table : expr_info_table_new(),
     comptime_fn_caches : ArrayList(ComptimeFnCacheEntry).new(),
     current_impl_trait_field_labels : ArrayList(String).new(),
-    current_impl_trait_field_types : ArrayList(TypeValue).new(),
-    specialized_fn_caches : ArrayList(SpecializedFunctionCacheEntry).new()
+    current_impl_trait_field_types : ArrayList(TypeValue).new()
   )
 );
 // ---------------------------------------------------------------------------

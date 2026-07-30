@@ -405,13 +405,44 @@ register_func_where_constraints :: (fn(func_id : String, entries : ArrayList(Whe
     g_func_where_constraints.set(func_id.clone(), entries);
   });
 });
+/// Call-site RE-APPLICATION needs the original constraint EXPRESSIONS: TS
+/// re-applies `FunctionType.whereClauseExprs` at every call once parameters
+/// are bound (helper.ts:1515-1530 → applyWhereClauseConstraints). The
+/// evaluated `WhereConstraintEntry` form above cannot express a PARAMETERIZED
+/// trait — `K <: Eq(K)` must be re-evaluated with the call's concrete `K` to
+/// yield `Eq(String)`. Keyed and re-keyed exactly like the entries table.
+(g_func_where_clause_exprs : HashMap(String, ArrayList(AstExpr))) =
+  HashMap(String, ArrayList(AstExpr)).new();
+/// Register the where-clause constraint expressions for a function.
+/// No-op when the function has none (keeps the table sparse).
+register_func_where_clause_exprs :: (fn(func_id : String, exprs : ArrayList(AstExpr)) -> unit)({
+  if(exprs.len() > usize(0), {
+    g_func_where_clause_exprs.set(func_id.clone(), exprs);
+  });
+});
+/// Return the where-clause constraint expressions for `func_id` (empty when none).
+get_func_where_clause_exprs :: (fn(func_id : String) -> ArrayList(AstExpr))(
+  match(
+    g_func_where_clause_exprs.get(func_id.clone()),
+    .Some(exprs) => exprs,
+    .None => ArrayList(AstExpr).new()
+  )
+);
 /// Copy a registered where-constraints entry from `from_id` to `to_id`
 /// (re-key from the fn-type-expr id to the FuncVal id). No-op when absent.
+/// Also re-keys the where-clause EXPRESSIONS table (the two travel together).
 copy_func_where_constraints :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_func_where_constraints.get(from_id.clone()),
     .Some(entries) => {
       g_func_where_constraints.set(to_id.clone(), entries);
+    },
+    .None => ()
+  );
+  match(
+    g_func_where_clause_exprs.get(from_id.clone()),
+    .Some(exprs) => {
+      g_func_where_clause_exprs.set(to_id.clone(), exprs);
     },
     .None => ()
   );
@@ -4025,6 +4056,9 @@ evaluate_function_type :: (
   // under the FuncVal id by try_to_implement_function_by_function_type) so the
   // call site can validate bound concrete types against them.
   register_func_where_constraints(ast_expr_id(expr).to_string(), where_constraint_entries);
+  // Register the where-clause EXPRESSIONS too (TS functionType.whereClauseExprs)
+  // for the call-site re-application — see the exprs side-table comment above.
+  register_func_where_clause_exprs(ast_expr_id(expr).to_string(), params_result.where_clause_exprs);
   // Register the Phase-0 contract predicates (keyed like the defaults; re-keyed
   // under the FuncVal id by try_to_implement_function_by_function_type) so the
   // body-wrapping lowering can splice them into the function body.
@@ -4474,6 +4508,7 @@ export(
   register_func_where_constraints,
   copy_func_where_constraints,
   get_func_where_constraints,
+  get_func_where_clause_exprs,
   WhereConstraintEntry
 );
 export(

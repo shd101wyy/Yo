@@ -127,6 +127,8 @@ open(import("std/fmt"));
   get_func_param_comptime,
   get_func_return_type_expr,
   get_func_where_constraints,
+  get_func_where_clause_exprs,
+  apply_where_clause_constraints,
   WhereConstraintEntry,
   collect_wrapper_trait_somes
 } :: import("../types/function.yo");
@@ -1010,6 +1012,17 @@ compute_compile_time_signature :: (
 // ---------------------------------------------------------------------------
 // Specialization cache helpers
 // ---------------------------------------------------------------------------
+/// Global specialization-cache store, keyed by `func_id`. TS keeps each
+/// function's `specializedFunctionCaches` ON the FunctionValue OBJECT
+/// (helper.ts:2264/2885), so it is shared by every caller across the whole
+/// process via the module cache. yo-self's value semantics cannot hang it on
+/// `FuncVal`; a per-EvalContext list (the old home) is NOT equivalent — in
+/// `check`/`test` mode every file gets a fresh ctx, so a prelude comptime fn
+/// like `Eq(String)` RE-specialized per file, minting a fresh trait id that no
+/// longer matched the id its concrete impls registered under ("Type String
+/// does not implement required trait Eq(String)"). Module-global storage keyed
+/// by the stable func_id is the same-lifetime equivalent of TS's model.
+(g_specialized_fn_caches : ArrayList(SpecializedFunctionCacheEntry)) = ArrayList(SpecializedFunctionCacheEntry).new();
 /// Look up a cached specialization by `func_id` and compile-time args.
 ///
 /// Returns `Some(specialized_func_val)` if a matching cache entry is found,
@@ -1023,11 +1036,11 @@ _find_specialization_cache :: (
     caller_env : Environment
   ) -> Option(EvalValue)
 )({
-  n_entries := ctx.specialized_fn_caches.len();
+  n_entries := g_specialized_fn_caches.len();
   (ei : usize) = usize(0);
   (result : Option(EvalValue)) = Option(EvalValue).None;
   while((ei < n_entries) && result.is_none(), {
-    entry_opt := ctx.specialized_fn_caches.get(ei);
+    entry_opt := g_specialized_fn_caches.get(ei);
     match(
       entry_opt,
       .Some(entry) => {
@@ -1106,11 +1119,11 @@ _store_specialization_cache :: (
     env : env
   );
   // Find existing entry for this func_id
-  n_entries := ctx.specialized_fn_caches.len();
+  n_entries := g_specialized_fn_caches.len();
   (ei : usize) = usize(0);
   (found : bool) = false;
   while((ei < n_entries) && !(found), {
-    entry_opt := ctx.specialized_fn_caches.get(ei);
+    entry_opt := g_specialized_fn_caches.get(ei);
     match(
       entry_opt,
       .Some(entry) => {
@@ -1128,7 +1141,7 @@ _store_specialization_cache :: (
     // Create new entry
     new_caches := ArrayList(SpecializedFunctionCache).new();
     new_caches.push(new_cache);
-    ctx.specialized_fn_caches.push(
+    g_specialized_fn_caches.push(
       SpecializedFunctionCacheEntry(
         func_id : func_id,
         caches : new_caches
@@ -3445,6 +3458,95 @@ validate_where_constraints_for_call :: (
     wcl_i = (wcl_i + usize(1));
   });
 });
+/// Re-apply the function's where-clause constraint EXPRESSIONS in the bound
+/// callee env — the faithful port of TS re-applying
+/// `functionType.whereClauseExprs` at every call site (helper.ts:1515-1530 →
+/// applyWhereClauseConstraints). Re-evaluating the expr is what the evaluated
+/// `WhereConstraintEntry` table above cannot do: a PARAMETERIZED trait
+/// constraint (`K <: Eq(K)`, `P <: Pattern`) resolves against the call's
+/// concrete binding (`Eq(String)`), and a concrete-bound LHS then takes
+/// `validate_concrete_type_constraints`'s hard error ("Type i32 does not
+/// implement required trait Pattern"). Exprs are cloned with fresh ids (TS
+/// cloneExpr clears `$`; yo-self's ExprInfo side table is keyed by id).
+/// Called from BOTH call paths, like `validate_where_constraints_for_call`.
+reapply_where_clause_exprs_for_call :: (
+  fn(
+    func_id : String,
+    callee_env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  wce_exprs := get_func_where_clause_exprs(func_id);
+  if(wce_exprs.len() > usize(0), {
+    // Guard (mirrors TS's own early-apply guard, helper.ts:1375-1393, adapted
+    // for yo-self's extra inline-FuncVal call path which TS does not have):
+    // only re-apply when every atom LHS that IS bound in callee_env is bound
+    // to a TYPE value. On a spec-cache-hit reuse the forall params (`U`, `V`)
+    // are not re-bound as TypeVals, and running the parse there throws a
+    // spurious 'Expected type for left-hand side of where clause constraint,
+    // got variable "U"' (second `zip_with` call in tests/imm_vec). An UNBOUND
+    // LHS is fine — the parse creates a fresh SomeT for it, as TS does.
+    (wce_state_ok : bool) = true;
+    (wcg_i : usize) = usize(0);
+    while((wcg_i < wce_exprs.len()) && wce_state_ok, {
+      match(
+        wce_exprs.get(wcg_i),
+        .Some(wge) => {
+          if(ast_expr_is_fn_call_of(wge, "<:",.Some(usize(2))), {
+            wge_args := _h_get_fn_call_args(wge);
+            match(
+              wge_args.get(usize(0)),
+              .Some(wge_lhs) => {
+                if(ast_expr_is_atom(wge_lhs), {
+                  wge_vars := get_variables_from_env(callee_env, ast_expr_token(wge_lhs).value);
+                  if(wge_vars.len() > usize(0), {
+                    match(
+                      wge_vars.get(wge_vars.len() - usize(1)),
+                      .Some(wge_var) => match(
+                        wge_var.value,
+                        .Some(wge_val) => {
+                          if(!(is_type_val(wge_val)), {
+                            wce_state_ok = false;
+                          });
+                        },
+                        .None => {
+                          wce_state_ok = false;
+                        }
+                      ),
+                      .None => ()
+                    );
+                  });
+                });
+              },
+              .None => ()
+            );
+          });
+        },
+        .None => ()
+      );
+      wcg_i = (wcg_i + usize(1));
+    });
+    if(wce_state_ok, {
+      cloned_wces := ArrayList(AstExpr).new();
+      (wce_i : usize) = usize(0);
+      while(wce_i < wce_exprs.len(), {
+        match(
+          wce_exprs.get(wce_i),
+          .Some(we) => {
+            cloned_wces.push(clone_expr_fresh_ids(we));
+          },
+          .None => ()
+        );
+        wce_i = (wce_i + usize(1));
+      });
+      wce_prev := ctx.is_evaluating_function_type;
+      ctx.is_evaluating_function_type = true;
+      apply_where_clause_constraints(cloned_wces, callee_env, ctx, exn);
+      ctx.is_evaluating_function_type = wce_prev;
+    });
+  });
+});
 /// Resolve a function's parameter types by synthesizing its `generic` parameters
 /// from the expected return type. For the FuncVal-arm call path (`function.yo`),
 /// which sets each argument's expected type from the DECLARED parameter type —
@@ -4411,7 +4513,10 @@ try_to_call_function_with_arguments :: (
         func_val,
         .Some(wfv) => match(
           wfv,
-          .FuncVal(__fvd12, _) => validate_where_constraints_for_call(__fvd12.*.func_id.clone(), callee_env_m, tok, exn),
+          .FuncVal(__fvd12, _) => {
+            validate_where_constraints_for_call(__fvd12.*.func_id.clone(), callee_env_m, tok, exn);
+            reapply_where_clause_exprs_for_call(__fvd12.*.func_id.clone(), callee_env_m, ctx, exn);
+          },
           _ => ()
         ),
         .None => ()
@@ -4943,6 +5048,7 @@ export(try_to_call_function_with_arguments);
 export(resolve_param_types_from_expected);
 export(check_if_function_parameter_matches_argument);
 export(validate_where_constraints_for_call);
+export(reapply_where_clause_exprs_for_call);
 export(extract_function_value);
 export(validate_function_return_type);
 export(generate_deferred_drop_expressions);

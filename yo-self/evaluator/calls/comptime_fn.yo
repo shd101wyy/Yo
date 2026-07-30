@@ -18,7 +18,7 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr, clone_expr_fresh_ids } :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, ComptimeRef } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, register_trait_ctor_fid, ComptimeRef } :: import("../../expr_info.yo");
 { Variable, Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t } :: import("../../types/creators.yo");
@@ -947,6 +947,15 @@ evaluate_comptime_fn_call :: (
           TypeValue.Struct(sid, stamped_name, slabels, stypes, sref, satomic, snt, func_id_str, inst_type_args, false)
         )
       }, return_value),
+      // Trait returns: record the constructor funcId so the generic-impl
+      // registry can key `Eq(Box(i32))` and `Eq(Box(T))` into ONE bucket
+      // (TS comptime-fn.ts:266-276 stamping `returnedType.functionValue`,
+      // consumed by getBaseTraitKey). Side-table only — TraitT carries no
+      // fid field; first stamp wins inside the register fn.
+      .TraitT(_, _, _, _, ct_trait_id, _, _, _, _, _) => {
+        register_trait_ctor_fid(ct_trait_id.clone(), func_id_str.clone());
+        return_value
+      },
       _ => return_value
     ),
     _ => return_value

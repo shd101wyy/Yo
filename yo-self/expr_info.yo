@@ -592,6 +592,29 @@ register_struct_ctor_fid :: (fn(struct_id : String, ctor_fid : String) -> unit)(
 lookup_struct_ctor_fid :: (fn(struct_id : String) -> Option(String))(
   g_struct_ctor_fids.get(struct_id)
 );
+/// Trait counterpart of the struct ctor-fid table. TS stamps
+/// `returnedType.functionValue = functionValue` on EVERY type a comptime fn
+/// returns, traits included (comptime-fn.ts:266-276), and the generic-impl
+/// registry keys parameterized traits by that constructor's funcId
+/// (`getBaseTraitKey`, impl.ts:1042-1050) — so `Eq(Box(T))` and `Eq(Box(i32))`
+/// share one bucket. yo-self's `TraitT` cannot carry the fid; the id-keyed
+/// table is the same object-identity surrogate as the struct table above.
+/// First stamp wins (TS guards with `if (!returnedType.functionValue)`).
+(g_trait_ctor_fids : HashMap(String, String)) = HashMap(String, String).new();
+/// Record the constructor funcId for the trait with `trait_id` (first wins).
+register_trait_ctor_fid :: (fn(trait_id : String, ctor_fid : String) -> unit)({
+  match(
+    g_trait_ctor_fids.get(trait_id.clone()),
+    .Some(_) => (),
+    .None => {
+      g_trait_ctor_fids.set(trait_id, ctor_fid);
+    }
+  );
+});
+/// The constructor funcId stamped for `trait_id`, if any.
+lookup_trait_ctor_fid :: (fn(trait_id : String) -> Option(String))(
+  g_trait_ctor_fids.get(trait_id)
+);
 /// Effective constructor func_id of a struct type: the carried
 /// `constructor_func_id`, falling back to the id-keyed stamp table (a
 /// self-recursive shell or memoized instantiation may predate the ctor
@@ -787,7 +810,15 @@ export(record_method_callee_type, lookup_method_callee_type);
 export(record_method_callee_value, lookup_method_callee_value);
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_type);
 export(register_some_resolved_concrete, lookup_some_resolved_concrete);
-export(register_struct_ctor_fid, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance);
+export(
+  register_struct_ctor_fid,
+  register_trait_ctor_fid,
+  lookup_trait_ctor_fid,
+  lookup_struct_ctor_fid,
+  struct_effective_ctor_fid,
+  struct_fully_concrete_instance,
+  adopt_receiver_struct_instance
+);
 export(record_fid_rtcall, record_fid_spec, fid_fully_specialized);
 export(record_macro_expansion, lookup_macro_expansion);
 export(record_module_level_init_expr, get_module_level_init_exprs);

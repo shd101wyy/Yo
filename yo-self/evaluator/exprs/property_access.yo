@@ -57,7 +57,7 @@ open(import("std/string"));
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 { TokenKind } :: import("../../token.yo");
 { Exception } :: import("std/error");
-{ find_methods_from_generic_impls, MethodCandidate, get_trait_key }
+{ find_methods_from_generic_impls, MethodCandidate, get_base_trait_key }
 :: import("../values/impl.yo");
 { get_type_trait_methods_by_name, type_id_or_empty }
 :: import("../values/type_trait_methods.yo");
@@ -1070,7 +1070,11 @@ Raw pointer operations may dereference invalid memory.`,
       match(
         tt_recv_opt,
         .Some(tt_recv_ty) => {
-          tt_trait_key := get_trait_key(type_val_inner);
+          // Base key: entry.trait_key is now the constructor funcId for
+          // parameterized traits (get_base_trait_key), so the witness filter
+          // must query with the same key (TS findMethodFromGenericImplForTrait
+          // uses getBaseTraitKey, impl.ts:2045).
+          tt_trait_key := get_base_trait_key(type_val_inner);
           tt_cands := find_methods_from_generic_impls(tt_recv_ty, prop_name_tt.clone(), env);
           (tt_ci : usize) = usize(0);
           while(tt_ci < tt_cands.len(), {

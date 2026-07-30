@@ -117,7 +117,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ try_to_call_function_with_arguments, resolve_param_types_from_expected, validate_where_constraints_for_call, create_specialized_function_inline, _type_has_array_len_var } :: import("./helper.yo");
+{ try_to_call_function_with_arguments, resolve_param_types_from_expected, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, _type_has_array_len_var } :: import("./helper.yo");
 { get_func_type, register_func_type } :: import("../../function_value.yo");
 { create_unknown_val, create_unknown_val_with_name } :: import("../../value.yo");
 /// Named call-result unknown: promotes a Type-universe result to
@@ -4425,6 +4425,11 @@ Fix: wrap the call:
         // helper.yo must run here too. Rejects e.g. `Mutex(NonSendObj)`
         // against `where(T <: Send)`.
         validate_where_constraints_for_call(func_id_fv.clone(), fresh_env, tok, exn);
+        // Where-clause EXPR re-application (TS helper.ts:1515). Internally
+        // guarded: a spec-cache-hit reuse leaves the forall params bound to
+        // non-type values in `fresh_env`, and the guard skips that state
+        // (see reapply_where_clause_exprs_for_call in helper.yo).
+        reapply_where_clause_exprs_for_call(func_id_fv.clone(), fresh_env, ctx, exn);
         // Set function body context on ctx.
         // We need the declared return type from the callee's type (if available).
         ret_type := match(

@@ -41,7 +41,8 @@ open(import("std/string"));
   new_expr_info,
   expr_info_table_get,
   expr_info_table_set,
-  lookup_some_resolved_concrete
+  lookup_some_resolved_concrete,
+  lookup_trait_ctor_fid
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -279,6 +280,24 @@ get_trait_key :: (fn(trait_ty : TypeValue) -> String)(
     .FnTraitT(base_name, _, _, _, _, _, _) => base_name,
     .FutureTraitT(base_name, _, _, _, _) => base_name,
     _ => String.from("")
+  )
+);
+/// Base-trait key for the GENERIC-impl registry: the trait constructor's
+/// funcId when the trait came from a comptime fn (`Eq(K)` → Eq's fid), else
+/// the trait's own key. Mirrors TS `getBaseTraitKey` (impl.ts:1042-1050) —
+/// per-instantiation trait ids (`Eq(Box(T))` vs `Eq(Box(i32))`) must land in
+/// ONE registry bucket, keyed by the constructor. Everything id-keyed
+/// (negative impls, concrete registrations) keeps `get_trait_key`, as TS
+/// keeps `traitType.id` there.
+get_base_trait_key :: (fn(trait_ty : TypeValue) -> String)(
+  match(
+    trait_ty,
+    .TraitT(_, _, _, _, gb_id, _, _, _, _, _) => match(
+      lookup_trait_ctor_fid(gb_id),
+      .Some(gb_fid) => gb_fid,
+      .None => gb_id
+    ),
+    _ => get_trait_key(trait_ty)
   )
 );
 /// Register a new generic impl entry.
@@ -768,7 +787,7 @@ find_matching_generic_impl :: (
     env : Environment
   ) -> bool
 )({
-  key := get_trait_key(trait_type);
+  key := get_base_trait_key(trait_type);
   if(key.is_empty(), {
     return(false);
   });
@@ -2183,7 +2202,7 @@ evaluate_module_value :: (
           _ => ()
         );
         g_entry := GenericImplEntry(
-          get_trait_key(g_trait_ty),
+          get_base_trait_key(g_trait_ty),
           // 1. trait_key — the trait's own key, NOT the inherent "" key
           forall_names,
           // 2. forall_names
@@ -2881,6 +2900,7 @@ export(register_generic_impl);
 export(register_negative_generic_impl, find_matching_negative_generic_impl);
 export(try_match_generic_impl);
 export(find_matching_generic_impl);
+export(get_base_trait_key);
 export(find_methods_from_generic_impls);
 export(find_associated_type_from_generic_impls);
 export(is_concrete_impl_being_registered);
