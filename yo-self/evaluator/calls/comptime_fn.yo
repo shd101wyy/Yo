@@ -18,7 +18,7 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr, clone_expr_fresh_ids } :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, register_trait_ctor_fid, ComptimeRef } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, lookup_struct_ctor_fid, register_trait_ctor_fid, ComptimeRef } :: import("../../expr_info.yo");
 { Variable, Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t } :: import("../../types/creators.yo");
@@ -34,6 +34,7 @@ open(import("std/string"));
   create_unknown_val,
   create_unknown_val_with_name,
   register_enum_cfid,
+  lookup_enum_cfid,
   value_to_string
 } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
@@ -74,6 +75,94 @@ open(import("std/string"));
 //   - Otherwise: use standard type compatibility.
 // For non-TypeVal arguments: use eval_value_eq.
 // ---------------------------------------------------------------------------
+/// ERA-equivalence for CTFE cache identity (depth-bounded): two type values
+/// are the SAME instantiation when their ids match — or when they are ERA
+/// INSTANCES of one instantiation: same constructor fid AND (for structs)
+/// pairwise era-equal type_arguments. This is the CREATION-side
+/// canonicalization (the gap-6 attempt-#8 lesson): without it,
+/// `Option(Node-era-A)` and `Option(Node-era-B)` landed in SEPARATE memo
+/// entries whenever Node itself had split eras, so callers and callees kept
+/// diverging one level up (the imm_sorted_map/imm_threading caller-arg
+/// struct-to-struct casts). Enums carry no type_arguments; their cfid match
+/// falls back to pairwise era-equal variant FIELD lists. Concrete same-shape
+/// but different-ctor types still take the EXACT fallback (the Bucket/ME
+/// cache-collision hazard).
+_ctfe_types_era_equal :: (fn(aty : TypeValue, bty : TypeValue, d : usize) -> bool)({
+  if(d > usize(6), {
+    return(are_types_compatible_exact(aty, bty));
+  });
+  a_sid := match(aty,.Struct({ id : x }) => x, _ => String.from(""));
+  b_sid := match(bty,.Struct({ id : x }) => x, _ => String.from(""));
+  if((a_sid.len() > usize(0)) && (a_sid == b_sid), {
+    return(true);
+  });
+  a_eid := match(aty,.EnumT(x, _, _, _, _, _, _, _, _) => x.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
+  b_eid := match(bty,.EnumT(x, _, _, _, _, _, _, _, _) => x.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
+  if((a_eid.len() > usize(0)) && (a_eid == b_eid), {
+    return(true);
+  });
+  // Struct era instances: same ctor fid + era-equal type arguments.
+  if((a_sid.len() > usize(0)) && (b_sid.len() > usize(0)), {
+    a_cf := match(lookup_struct_ctor_fid(a_sid),.Some(f) => f,.None => String.from(""));
+    b_cf := match(lookup_struct_ctor_fid(b_sid),.Some(f) => f,.None => String.from(""));
+    if((a_cf.len() > usize(0)) && (a_cf == b_cf), {
+      a_ta := match(aty,.Struct({ type_arguments : t }) => t, _ => ArrayList(TypeValue).new());
+      b_ta := match(bty,.Struct({ type_arguments : t }) => t, _ => ArrayList(TypeValue).new());
+      if((a_ta.len() == b_ta.len()) && (a_ta.len() > usize(0)), {
+        (tai : usize) = usize(0);
+        (ta_ok : bool) = true;
+        while((tai < a_ta.len()) && ta_ok, {
+          at2 := match(a_ta.get(tai),.Some(t) => t,.None => t_unit());
+          bt2 := match(b_ta.get(tai),.Some(t) => t,.None => t_unit());
+          if(!(recur(at2, bt2, d + usize(1))), {
+            ta_ok = false;
+          });
+          tai = (tai + usize(1));
+        });
+        if(ta_ok, {
+          return(true);
+        });
+      });
+    });
+    return(are_types_compatible_exact(aty, bty));
+  });
+  // Enum era instances: same cfid + era-equal variant field lists.
+  if((a_eid.len() > usize(0)) && (b_eid.len() > usize(0)), {
+    a_ecf := lookup_enum_cfid(a_eid);
+    b_ecf := lookup_enum_cfid(b_eid);
+    if((a_ecf.len() > usize(0)) && (a_ecf == b_ecf), {
+      a_vf := match(aty,.EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+      b_vf := match(bty,.EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+      if(a_vf.len() == b_vf.len(), {
+        (vfi : usize) = usize(0);
+        (vf_ok : bool) = true;
+        while((vfi < a_vf.len()) && vf_ok, {
+          a_fl := match(a_vf.get(vfi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+          b_fl := match(b_vf.get(vfi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+          if(a_fl.len() != b_fl.len(), {
+            vf_ok = false;
+          }, {
+            (ffi : usize) = usize(0);
+            while((ffi < a_fl.len()) && vf_ok, {
+              af2 := match(a_fl.get(ffi),.Some(t) => t,.None => t_unit());
+              bf2 := match(b_fl.get(ffi),.Some(t) => t,.None => t_unit());
+              if(!(recur(af2, bf2, d + usize(1))), {
+                vf_ok = false;
+              });
+              ffi = (ffi + usize(1));
+            });
+          });
+          vfi = (vfi + usize(1));
+        });
+        if(vf_ok, {
+          return(true);
+        });
+      });
+    });
+    return(are_types_compatible_exact(aty, bty));
+  });
+  are_types_compatible_exact(aty, bty)
+});
 _ctfe_args_equal :: (
   fn(
     cached_av : EvalValue,
@@ -125,6 +214,11 @@ _ctfe_args_equal :: (
           // Either side contains a SomeT inside: require exact structural match
           (type_contains_some_type(aty) || type_contains_some_type(bty)) =>
             are_types_compatible_exact(aty, bty),
+          // ERA INSTANCES of one instantiation (same ctor fid + era-equal
+          // args/fields) memo-hit — see _ctfe_types_era_equal. This is what
+          // keeps Option(Node-era-A) and Option(Node-era-B) in ONE memo
+          // entry so eras converge instead of propagating upward.
+          _ctfe_types_era_equal(aty, bty, usize(0)) => true,
           // Concrete types: require EXACT match for cache identity, NOT lenient
           // compatibility. Mirrors TS comptime-fn.ts:159-164 (`requireExactMatch
           // =true`). Lenient `are_types_compatible` treats two distinct
@@ -642,9 +736,40 @@ evaluate_comptime_fn_call :: (
         all_arg_vals.get(sc_i),
         .Some(sc_v) => match(
           sc_v,
-          .TypeVal(sc_t) => if(type_contains_some_type(sc_t), {
-            should_cache = false;
-          }),
+          .TypeVal(sc_t) => {
+            if(type_contains_some_type(sc_t), {
+              should_cache = false;
+            });
+            // DEEP check one level: a struct ARG whose type_arguments carry
+            // SomeTs is a DEF-ERA instance (itself a nocache mint) —
+            // `type_contains_some_type` is SHALLOW and walks right past
+            // type_arguments, so `Option(RBNode(K, V))` at DEF time (arg =
+            // the K/V-SomeT-argumented Node instance) got CACHED, and every
+            // later CONCRETE `Option(RBNode(i32, i32))` lookup missed
+            // against it (era mismatch) while OTHER def-time evaluations
+            // HIT it — splitting one logical Option instantiation into two
+            // C enums (`__yo_t42`/`__yo_t43`, the imm_threading
+            // struct-to-struct casts). Never cache on def-era args.
+            if(should_cache, {
+              match(
+                sc_t,
+                .Struct({ type_arguments : sc_ta }) => {
+                  (sc_tai : usize) = usize(0);
+                  while((sc_tai < sc_ta.len()) && should_cache, {
+                    match(
+                      sc_ta.get(sc_tai),
+                      .Some(sc_tat) => if(is_some_type(sc_tat) || type_contains_some_type(sc_tat), {
+                        should_cache = false;
+                      }),
+                      .None => ()
+                    );
+                    sc_tai = (sc_tai + usize(1));
+                  });
+                },
+                _ => ()
+              );
+            });
+          },
           _ => ()
         ),
         .None => ()

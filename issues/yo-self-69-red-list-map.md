@@ -938,3 +938,25 @@ instances of the same instantiation.
 
 Gates for slice 2: TIER 1 clean (corpus 149/0, std 153/153, battery
 baseline), TIER 2 clean (FIXPOINT_HOLDS), sweep 162/18/5 stable.
+
+## CREATION-SIDE CANONICALIZATION LANDED (2026-07-31) — 164/16/5
+
+Two pieces in comptime_fn.yo (the gap-6 attempt-#8 direction):
+
+1. `_ctfe_types_era_equal` (depth-bounded, wired into `_ctfe_args_equal`):
+   two type values are the SAME memo identity when their ids match OR they
+   are ERA INSTANCES of one instantiation — same ctor fid + pairwise
+   era-equal `type_arguments` (structs) / variant field lists (enums).
+   `Option(Node-era-A)` and `Option(Node-era-B)` now land in ONE memo entry.
+2. DEEP `should_cache` check: a struct ARG whose `type_arguments` carry
+   SomeTs is itself a DEF-ERA nocache mint — caching an instantiation keyed
+   on it POISONED later concrete lookups (`Option(RBNode(K, V))` cached at
+   def time; concrete lookups missed while other def-time evals hit it —
+   the t42/t43 split). Never cache on def-era args.
+
+Flips: collections/linked_list (69/69 = TS parity) and imm_set (19/19)
+HOLLOW -> GREEN. imm_sorted_set's FTT marker is GONE (markers 1 -> 0);
+the family's era count dropped 3 -> 2 — ONE caller-arg era pair remains
+(`(__yo_t13)((__yo_t17){...})` — the `.None` ctor args vs the callee
+params; needs one probe round to find which path still stamps the
+def-era). Gates: TIER 1 clean, TIER 2 FIXPOINT_HOLDS, sweep 164/16/5.

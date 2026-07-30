@@ -12,12 +12,13 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 161 GREEN / 19 HOLLOW / 5 RED of 185 test files**, measured
-with `scratchpad/hollow_sweep69.sh` after the comptime-arms round
-(2026-07-30, flipped `inherent_first_resolution`, `algebraic_effects`,
-`derive_clone_complex`, `impl_fn_field_rejection`, then `comptime` —
-§2.1 is COMPLETE; results at `/tmp/hsweep_pv8/results.txt`; regenerate
-before trusting it — /tmp is volatile).
+**Honest score: 164 GREEN / 16 HOLLOW / 5 RED of 185 test files**, measured
+with `scratchpad/hollow_sweep69.sh` after the creation-side-canonicalization
+round (2026-07-31; flips this campaign: inherent_first_resolution,
+algebraic_effects, derive_clone_complex, impl_fn_field_rejection, comptime,
+fmt, collections/linked_list, imm_set — §2.1 AND §2.2 are COMPLETE; results
+at `/tmp/hsweep_pvf/results.txt`; regenerate before trusting it — /tmp is
+volatile).
 
 Green baselines every change must preserve:
 
