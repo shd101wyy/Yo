@@ -403,3 +403,30 @@ Still unbisected: asm (own family, 829-line port parked), async_await,
 basic(4), fn(3), impl(4), imm_map/imm_set (param-model family),
 iter_filter_closure(2), iterator_combinators(2), contracts_phase0(1),
 type_reflection(24).
+
+### 2026-07-31 — the closure-combinator cluster REDUCES to the era-split root
+
+FE-probe on issues/repros/option-and-then-closure-arg.yo: the final
+swallowed error is `Last expression in "begin" is not evaluated correctly:
+(Option(B).None)` preceded by `Cannot unify incompatible enum types:
+<enum:2573> vs <enum:4262>` — B DOES bind (the \_synthesize_fn_traits path
+recurses into the Fn carrier result and the assoc-constraints port is
+landed); the failure is that and_then's signature/body `Option(B)` resolves
+by SUBSTITUTION into the DEF-era nocache Option mint while the call-era
+`Option(i32)` is a different instantiation — the SAME root as the
+imm_sorted_map family (ROOT CAUSE 2026-07-30 in
+issues/yo-self-69-red-list-map.md: substitution keeps def-era ids; TS
+re-evaluates type exprs through the ctor memo).
+
+CONSOLIDATION: the param/return type-expr re-evaluation work (slice 2+3,
+attempted and reverted with leads in the red-list map) now blocks BOTH:
+
+- 4 of the 5 REDs (imm_sorted_map/set, imm_threading, sync/mutex), and
+- the biggest hollow cluster (linked_list into_iter block,
+  where_clause_fn_inference, option_result_combinators' and_then arms,
+  iter_filter_closure, iterator_combinators — ~5 files).
+  It is the single highest-leverage remaining item; give it a dedicated
+  round starting from the slice-2 revert leads (era agreement: re-evaluate
+  params BEFORE the rebind loop so body/registered/caller eras converge, and
+  exclude Fn-trait-carrying params from the overwrite — the
+  closure_where_clause_param corpus DIFF).
