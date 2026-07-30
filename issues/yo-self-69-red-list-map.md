@@ -816,3 +816,35 @@ and canonicalize each against g_comptime_fn_caches:
 
 Witnesses: issues/repros/comptime-ctor-memo-split-map-insert.yo,
 tests/imm_sorted_map, imm_sorted_set, imm_threading, sync/mutex.
+
+### Implementation plan (param-type-expr re-evaluation, IN PROGRESS)
+
+The RETURN side already exists end-to-end: `register_func_return_type_expr`
+(types/function.yo:319-333, registered at ~4060, re-keyed via
+`copy_func_return_type_expr`) + the conservative adopt-on-SomeT-leftover
+re-evaluation in helper.yo:~1884-1930 (`_trial_eval_ret_type_expr`). The
+PARAM side is the missing half:
+
+1. `FuncParam` (types/function.yo:~540-583, 10 construction sites, single
+   file): append trailing `ty_expr : Option(AstExpr)` (the raw declared type
+   expr; TS `parameter.exprs.typeExpr`). Sites without a type expr pass
+   `.None`.
+2. Side table `g_func_param_type_exprs : HashMap(String,
+ArrayList(Option(AstExpr)))` + register/copy/get, mirroring
+   `register_func_param_default_exprs` exactly (including the FuncVal-id
+   re-key in calls/function_type.yo — grep copy_func_param_default_exprs
+   for the site).
+3. Register at evaluate_function_type's param loop (~4025-4063):
+   `param_type_exprs.push(pp.ty_expr)`.
+4. helper.yo create*specialized_function_inline's param resolution (the
+   evaluate_function_parameter_type_again call sites at ~527/740): mirror
+   the return-side block — when the substitution-resolved param type still
+   carries SomeTs (get_all_some_types > 0) or an array len var, look up the
+   stored param type expr by (callee func_id, param index), clone_expr*
+   fresh_ids, trial-evaluate in the bound callee env (swallow-guarded, same
+   `_trial_eval_ret_type_expr` shape), adopt a concrete TypeVal result.
+   Same self_type reconstruction as the return block if params[0]=="self".
+5. Witnesses: issues/repros/comptime-ctor-memo-split-map-insert.yo, then
+   imm_sorted_map/set, imm_threading, sync/mutex. Full TIER 1 + TIER 2 +
+   sweep. HOLLOW-GREEN HAZARD: these files emit markers today — marker-diff
+   any flip against TS.
