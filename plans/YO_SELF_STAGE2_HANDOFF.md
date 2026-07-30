@@ -113,12 +113,20 @@ emittable. It reaches codegen through the `iso(...)` macro's `cond` guard —
 bisected to arm 2 of `tests/iso.test.yo` (`isolated := ^(x)`). Full analysis and
 both witnesses: `issues/yo-self-comptime-overload-preference.md`.
 
-Steps: find why that CTFE does not fold in a runtime position; then widen
-`ct_successes` in `_try_expand_call_overload` from `foldable` back to
-`successes`, delete the `conc_out` plumbing in
-`_trial_call_overload_candidate`, and re-run the two witnesses
-(`tests/imm_string` for the already-fixed half, `tests/iso` + `tests/rc` for
-this one) plus TIER 2.
+UPDATE 2026-07-30: this gate is ALSO the root of the `NAME :: <ctfe call>`
+batch-arm family (type_reflection / contracts_phase0 / parts of comptime+fn) —
+a 6-line repro and a FULLY MAPPED removal attempt (both the fix that makes all
+six family repros pass INCLUDING the iso/rc holdout, and the exact corpus
+regression it causes plus its suspected root — the `get_func_param_comptime`
+side-table keying at trial time) are recorded in
+`issues/yo-self-comptime-overload-preference.md` §"2026-07-30 round". Start
+the next attempt from that section's LAST paragraph: fix the Step-5 rejection
+(helper.yo:672) for cloned/spec candidate ids, then widen `ct_successes` from
+`foldable` to `successes`, delete `conc_out`, AND port the comptime-priority
+rule into `_select_matching_overload` (the `.method()` picker needs it for
+`self.neg()` inside CTFE bodies). Witnesses: scratchpad `ba_m`-class repros
+(inline in the issue), `tests/iso`, `tests/rc`, `tests/imm_string`,
+`tests/codegen-bootstrap/enum_ne_dispatch.yo` (anti-witness), TIER 2.
 
 ### 2.3 The hollow cluster (21 files)
 

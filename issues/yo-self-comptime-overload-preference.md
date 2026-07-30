@@ -244,3 +244,63 @@ every survivor and re-run the two witnesses:
   skip the compiler's own `"// Failed to transpile"` string literals. For test
   and repro files, prefer a full compile (no `--skip-c-compiler`) so clang is
   the judge.
+
+## 2026-07-30 round — gate-removal attempt: measured, REVERTED (both directions mapped)
+
+The `NAME :: <ctfe call>` batch-arm family
+(issues/yo-self-comptime-const-batch-undeclared.md) was root-caused to THIS
+gate via a 6-line harness-free repro (seconds per compile cycle):
+
+```rust
+neg2 :: (fn(comptime(x) : i32) -> comptime(i32))(-(x));
+G :: neg2(i32(50));            // s1: use of undeclared identifier 'G'
+main :: (fn() -> unit)({ consume(G == i32(-(50))); });
+```
+
+Measured chain (probes **DBG_W5 / **DBG_G5): inside neg2's REAL CTFE the body
+`-(x)` selects the comptime candidate correctly at the Call-module site
+(`n_succ=2 n_ct=1 winner=1 ct_ret=true` — the literal gate was ALREADY the
+only blocker there, since `x` is a comptime VARIABLE, not a literal)… but the
+literal gate blocks it, the runtime `neg` wins, and its result is a
+non-executing UnknownVal → `neg2` returns unknown → `G ::` binds an unknown →
+every use emits a bare `G`. Discriminators: body `x` folds; body
+`(i32(0) - x)` folds (infix operators take the receiver-method block); ONLY
+prefix operator-module calls (`-(x)`, `!(x)`) lose the fold.
+
+Two changes were then built and measured TOGETHER (s14):
+
+1. widen `ct_successes` from `foldable` to `successes` + delete `conc_out`;
+2. port the SAME comptime-priority rule into `_select_matching_overload`
+   (the `.method()` overload picker takes the FIRST passing candidate — for
+   `self.neg()` on a comptime receiver that is the RUNTIME `Negate.neg`).
+
+Result: ALL SIX family repros compile AND run (incl. the original iso/rc
+holdout `b := !(Var.is_owning_the_rc_value(x))` — the runtime-only marking
+landed since the gate was written and now carries that case). BUT the corpus
+regressed PASS 148 → 144: enum_ne_dispatch, comptime_param_value_spec,
+nested_generic_trait_eq, short_circuit_rc_temp_drop — all
+`call to undeclared function 'fn_yo_id_78'` at prelude `not`'s body
+`!(self)`: with the gate gone, `comptime_not` is stamped for an UNKNOWN
+param `self`, and codegen calls a comptime fn that is never emitted.
+
+Why the trial filter does NOT reject comptime_not there (the open question
+for the next round): every checked binding site (evaluateFunctionParameters
+site 1, `_build_def_time_body_env`, anonymous_function's param loop) binds
+runtime params to `Option.None`, and helper.yo's Step-5 check DOES treat
+`.None` as runtime — so the rejection SHOULD fire. Prime suspect: the
+per-param comptime flag rides the `get_func_param_comptime` side table keyed
+by func id; if the lookup misses for the trial's candidate id (clone/spec
+re-keying), `is_ct_only` is false and Step 5 never runs. Verify with one
+probe at Step 5 (param_label + is_ct_only + arg_value kind) on
+tests/codegen-bootstrap/enum_ne_dispatch.yo.
+
+A repair attempt gating the preference on "every REAL arg's ExprInfo is a
+concrete value" fixed all four corpus files but broke the family repros
+again — the real args' ExprInfos are ABSENT at expansion time (args evaluate
+AFTER callee expansion), so the gate reads TS's `arg.$?.value` polarity
+BACKWARDS (TS: absent → no veto; prefer comptime). The next attempt must fix
+the Step-5 rejection (side-table keying) INSTEAD of gating the preference.
+
+Everything was REVERTED; the tree keeps the literal gate. Repro set for the
+next round: scratchpad wc*/ba\_* files (ba_m = minimal), plus
+tests/codegen-bootstrap/enum_ne_dispatch.yo as the anti-witness.
