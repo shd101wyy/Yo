@@ -12,12 +12,12 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 160 GREEN / 20 HOLLOW / 5 RED of 185 test files**, measured
-with `scratchpad/hollow_sweep69.sh` after the closure-field-resolution round
+**Honest score: 161 GREEN / 19 HOLLOW / 5 RED of 185 test files**, measured
+with `scratchpad/hollow_sweep69.sh` after the comptime-arms round
 (2026-07-30, flipped `inherent_first_resolution`, `algebraic_effects`,
-`derive_clone_complex`, then `impl_fn_field_rejection`; results at
-`/tmp/hsweep_pv3/results.txt`; regenerate before trusting it — /tmp is
-volatile).
+`derive_clone_complex`, `impl_fn_field_rejection`, then `comptime` —
+§2.1 is COMPLETE; results at `/tmp/hsweep_pv8/results.txt`; regenerate
+before trusting it — /tmp is volatile).
 
 Green baselines every change must preserve:
 
@@ -46,7 +46,7 @@ ZERO-byte log — the phantom-kill signature). Re-run before believing either.
 
 ## 2. Remaining work, in priority order
 
-### 2.1 `tests/comptime.test.yo` — 2 arms from GREEN
+### 2.1 `tests/comptime.test.yo` — DONE (GREEN, 28/28 = TS parity, 2026-07-30)
 
 11 of its 13 originally-failing arms were fixed in the 2026-07-29/30 round. The
 file flips only when BOTH remaining arms pass, because the generated batch
@@ -60,11 +60,17 @@ the scalar place as `ComptimeRef.ArrayRef(cell, index)`. All six arm-22
 sub-blocks + arm 23 + tests/index.test.yo (48/48) pass standalone; TIER 1 +
 TIER 2 + sweep clean. Arm 26 is ALSO done standalone (a26trial/a26both pass
 — the batch-arm family fix covered the trial-mode `::` binding).
-**comptime.test.yo remains hollow on ONE residue**: arm 26 in the BATCH
-context — a `comptime_expect_error` under a RUNTIME cond arm FTTs the whole
-dispatch. 30-line valid repro: `issues/repros/cee-in-runtime-cond-arm.yo`
-(TS green, self emits 1 FTT on the cond). Fix that repro and the file
-should flip.
+The last residue (a `comptime_expect_error` under a RUNTIME cond arm —
+`issues/repros/cee-in-runtime-cond-arm.yo`) is ALSO FIXED: yo-self's
+def-time body-eval defer had an extra `ft_has_ct_param` clause TS does not
+have (TS shouldDeferBodyEvaluation, function-type.ts:445-451, has NO
+comptime-param clause). Narrowed to VALUE-position comptime params only
+(the `fn(comptime(n) : usize) -> Array(i32, n)` return-mismatch case that
+motivated it — a recorded deviation); TYPE-position (`comptime(Idx) :
+Type`) bodies now trial-evaluate at definition like TS, so the cee observes
+the deliberate trait rejection. CAUTION for future measurement: a26trial-
+style "repro passes" checks were HOLLOW (the sole statement FTT'd and rc
+stayed 0) — always marker-check cee repros.
 
 Original arm-22 plan (now landed, kept for reference):
 Full scoping in `issues/yo-self-comptime-pointer-place.md` (Stage 2). Steps:

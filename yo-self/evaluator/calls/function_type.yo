@@ -612,12 +612,24 @@ try_to_implement_function_by_function_type :: (
       // was def-time-evaluated with `T` unbound → "expected type for element,
       // got T" (field.yo:293). Use the deep predicate so such methods defer.
       self_has_some_ft := match(ctx.self_type,.Some(st) => type_contains_some_type_for_codegen_param(st, ArrayList(String).new()),.None => false);
-      // COMPTIME value-position params (`fn(comptime(n) : usize) -> Array(i32, n)`)
+      // COMPTIME VALUE-position params (`fn(comptime(n) : usize) -> Array(i32, n)`)
       // make the fn GENERIC (TS isFunctionTypeGeneric counts
       // p.isCompileTimeOnly, guards.ts:466) — its body must DEFER like a
       // forall/SomeT one: def-time eval with `n` unresolved threw "Return
       // type mismatch. Expected Array(i32, n), got unit" and emptied the
       // array batch main (the single-batch shape).
+      //
+      // TYPE-position comptime params (`comptime(Idx) : Type`, a TypeUni) do
+      // NOT defer: TS's shouldDeferBodyEvaluation (function-type.ts:445-451)
+      // has NO comptime-param clause at all — it trial-evaluates such bodies
+      // at definition, which is what lets `comptime_expect_error` observe a
+      // deliberate rejection inside them (the arm-26 batch residue:
+      // `MyBad :: (fn(comptime(Idx) : Type, ...) -> comptime(Trait))(trait(...))`
+      // under a runtime cond arm never evaluated its trait body, the cee saw
+      // no error, threw its own, and the swallow FTT'd the whole dispatch —
+      // issues/repros/cee-in-runtime-cond-arm.yo). The value-position defer is
+      // kept as a recorded DEVIATION from TS (the unresolved-`n` return
+      // mismatch throws in yo-self where TS tolerates it).
       (ft_has_ct_param : bool) = false;
       match(
         expr,
@@ -625,9 +637,14 @@ try_to_implement_function_by_function_type :: (
           ct_flags_ft := get_func_param_comptime(ast_expr_id(ct_ft_box).to_string());
           (ct_fi : usize) = usize(0);
           while((ct_fi < ct_flags_ft.len()) && !(ft_has_ct_param), {
+            ct_is_typeuni := match(
+              param_types.get(ct_fi),
+              .Some(ct_pt) => match(ct_pt,.TypeUni(_) => true, _ => false),
+              .None => false
+            );
             match(
               ct_flags_ft.get(ct_fi),
-              .Some(cf) => if(cf, {
+              .Some(cf) => if(cf && !(ct_is_typeuni), {
                 ft_has_ct_param = true;
               }),
               .None => ()
