@@ -674,3 +674,52 @@ Corpus guard added: `tests/codegen-bootstrap/derive_clone_recursive_enum.yo`
 (the dcc1 repro, putchar-scored). Gates: TIER 1 clean (corpus 149 incl. the
 new fixture, DIFF 0; std 153/153; battery baseline), sweep 159/20/6,
 derive_clone_complex 15/15 passed hollow=0 markers=0 (TS parity 15).
+
+## SCOPING 2026-07-30 — the two next REDs, measured
+
+### imm_threading (RED, markers=0) = the comptime-param-model family
+
+The batch C fails on `passing '__yo_t43' to parameter of incompatible type
+'__yo_t42'` inside imm*sorted_map's node-ctor specialization
+`yo_id_7217_rtparam0_Type_rtparam1_Type*...`— K and V survive as RUNTIME`Type`C params, and the same logical`Option(Node)` minted TWO enum ids
+(`enum_yo_id_7187`vs`enum_yo_id_10301`) → two incompatible C structs. This
+is the SAME root as imm_sorted_map/imm_sorted_set (markers=1) and the
+handoff's priority-2 comptime-param model (`round2_param_model_wip.patch`
+design reference, needs fresh implementation). Fixing that family should
+flip imm_threading, imm_sorted_map, imm_sorted_set together (and likely
+sync/mutex's markers).
+
+### impl_fn_field_rejection (RED, markers=0) = generic-F struct field with Impl(Fn)
+
+14-line repro (scratchpad iffrB.yo): `GenericCb :: (fn(comptime(F) : Type) ->
+comptime(Type))(struct(value : i32, cb : F))` instantiated with
+`Impl(Fn(x : i32) -> i32)` and constructed with a bare lambda. The Dyn(Fn)
+field shape (workaround A) already WORKS standalone.
+
+Emitted C: field `void* cb;` but initializer `(__yo_t8){}` (the empty
+capture struct) → clang "initializing 'void \*' with \_\_yo_t21"; call site is
+a bare fn-ptr cast with NO capture arg. TS emits the field AS the capture
+struct type and calls `closure_id(&(obj.cb), 4)`.
+
+Probe findings (register_some_resolved_concrete + void*-fallback probes):
+ZERO global some-resolved registrations fire in the whole compile; the
+field's SomeT (`sid=1323 name=Impl`) falls back to void*. The lambda DOES
+take on the wrapper SomeT — but only via the PER-OBJECT resolved cell
+(anonymous_function.yo:1521-1590, `t_resolved_cell(cap_t)`, deliberately NOT
+the global registry: a global stamp measured hollow regressions in
+fs/file + fs/temp). The struct TYPE's field SomeT is a DIFFERENT instance of
+the same id with NO cell — TS bridges by object identity (the arg's expected
+type IS the field type object; stamping resolvedConcreteType mutates the one
+shared object read by both the struct typedef and the member call).
+
+Fix direction (next round): in the struct-construction member loop
+(calls/type.yo, after the arg eval at ~line 247), when `member_element.ty`
+is/contains a SomeT wrapping a CONCRETE-result Fn trait and the evaluated
+arg carries a capture type (info.capture_type / the taken-on wrapper cell),
+propagate the resolution to the FIELD instance — either stamp a resolved
+cell onto the struct type's stored field ty (needs the registered struct
+type value, not a copy) or register the GLOBAL id→capture mapping gated to
+this struct-member shape (narrower than the lambda-eval stamp that
+regressed fs/\*). Then verify the member-call site dispatches through
+impl_closure_call_map (`closure_fn(&obj.cb, args)`), mirroring the
+closure-param path. Same family as closure_capture_rc_leak (markers=3).
