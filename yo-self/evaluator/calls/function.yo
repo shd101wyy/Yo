@@ -525,10 +525,9 @@ _trial_call_overload_candidate :: (
     true,
     trial_exn
   );
-  // Report whether EVERY argument evaluated to a comptime LITERAL value during
-  // this trial (`IntLit` / `FloatLit` / `StrLit`). See the note at the
-  // preference site for the ONE remaining shape that still needs this gate.
-  // Reading the CLONES keeps the real exprs' ExprInfo untouched.
+  // Report whether EVERY argument evaluated to a CONCRETE comptime value
+  // during this trial. Reading the CLONES keeps the real exprs' ExprInfo
+  // untouched.
   {
     (all_conc : bool) = true;
     (cci : usize) = usize(0);
@@ -538,13 +537,17 @@ _trial_call_overload_candidate :: (
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(ca)),
         .Some(cinfo) => match(
           cinfo.value,
-          .Some(cv) => match(
-            cv,
-            .IntLit(_) => true,
-            .FloatLit(_) => true,
-            .StrLit(_) => true,
-            _ => false
-          ),
+          // CONCRETE comptime value (was: literal kinds only). An unknown
+          // operand (runtime param, match-on-runtime result, `||` over
+          // runtime operands...) is TS's "no value at all" — preferring a
+          // comptime candidate for it stamps a comptime FuncVal that
+          // codegen calls as an unemitted C fn (the stage2 self-compile
+          // broke on `!(match(param_ct_flags.get(i), ...))`). A concrete
+          // NON-literal value (a comptime param bound to IntVal inside a
+          // CTFE body — `-(x)` in `abs2`) must still take the preference,
+          // or `NAME :: <ctfe call>` bindings hold unknowns and emit bare
+          // undeclared C identifiers (the batch-arm family).
+          .Some(cv) => !(is_unknown_val(cv)),
           .None => false
         ),
         .None => false
@@ -615,9 +618,18 @@ _build_receiver_call_args :: (
 _select_matching_overload :: (
   fn(base : ReceiverMethodResult, args : ArrayList(AstExpr), func_expr : AstExpr, env : Environment, ctx : EvalContext) -> ReceiverMethodResult
 )({
-  (sel : Option(ReceiverMethodResult)) = Option(ReceiverMethodResult).None;
+  // Collect EVERY candidate whose trial passes (not just the first) so the
+  // comptime-priority rule below can run — TS filters to type-matching
+  // candidates (function.ts:1691) and THEN applies "comptime function call
+  // has higher priority" (function.ts:1737-1751). Without it,
+  // `self.neg()` on a comptime receiver picked the RUNTIME `Negate.neg`
+  // (registered before `ComptimeNegate.neg`), its result was a runtime
+  // UnknownVal, and every `NAME :: <ctfe call>` whose body used a prefix
+  // operator bound an unknown — the batch-arm undeclared-identifier family
+  // (issues/yo-self-comptime-const-batch-undeclared.md).
+  matching := ArrayList(usize).new();
   (hi : usize) = usize(0);
-  while((hi < base.all_hits.len()) && sel.is_none(), {
+  while(hi < base.all_hits.len(), {
     match(
       base.all_hits.get(hi),
       .Some(cand) => match(
@@ -627,17 +639,7 @@ _select_matching_overload :: (
           ok := ArrayList(bool).new();
           _trial_call_overload_candidate(cv, cand.ty, func_expr.clone(), func_expr.clone(), trial_args, env, ctx, ok, ArrayList(bool).new());
           if(ok.len() > usize(0), {
-            sel = Option(ReceiverMethodResult).Some(
-              ReceiverMethodResult(
-                method_val_opt : cand.value,
-                method_ty : cand.ty,
-                receiver_expr : base.receiver_expr.clone(),
-                is_static : base.is_static,
-                needs_pointer_conversion : cand.needs_pointer_conversion,
-                receiver_value : base.receiver_value,
-                all_hits : base.all_hits
-              )
-            );
+            matching.push(hi);
           });
         },
         .None => ()
@@ -646,7 +648,55 @@ _select_matching_overload :: (
     );
     hi = (hi + usize(1));
   });
-  match(sel,.Some(s) => s,.None => base)
+  if(matching.len() == usize(0), {
+    return(base);
+  });
+  (winner_hi : usize) = match(matching.get(usize(0)),.Some(i) => i,.None => usize(0));
+  // Comptime priority: exactly ONE comptime-returning match wins outright —
+  // GUARDED on the receiver's value being a CONCRETE comptime value. TS's
+  // params bind NO value, so its trial filter rejects comptime candidates for
+  // unknown receivers; yo-self's checking-pass ArgEntries carry ordinary
+  // UnknownVals in several body-eval contexts, and preferring comptime there
+  // stamps a comptime FuncVal that codegen then calls as an unemitted C
+  // function (measured: prelude `not`'s `!(self)` → `fn_yo_id_NN` undeclared
+  // in enum_ne_dispatch / nested_generic_trait_eq / 2 more corpus files).
+  (recv_concrete : bool) = match(
+    base.receiver_value,
+    .Some(rv) => !(is_unknown_val(rv)),
+    .None => false
+  );
+  ct_matches := ArrayList(usize).new();
+  if(recv_concrete, {
+    (mi : usize) = usize(0);
+    while(mi < matching.len(), {
+      m_idx := match(matching.get(mi),.Some(i) => i,.None => usize(0));
+      m_ct := match(
+        base.all_hits.get(m_idx),
+        .Some(mc) => match(mc.ty,.Func({ meta : __smm1 }) => __smm1.*.result_is_comptime_only, _ => false),
+        .None => false
+      );
+      if(m_ct, {
+        ct_matches.push(m_idx);
+      });
+      mi = (mi + usize(1));
+    });
+  });
+  if(ct_matches.len() == usize(1), {
+    winner_hi = match(ct_matches.get(usize(0)),.Some(i) => i,.None => winner_hi);
+  });
+  match(
+    base.all_hits.get(winner_hi),
+    .Some(w_cand) => ReceiverMethodResult(
+      method_val_opt : w_cand.value,
+      method_ty : w_cand.ty,
+      receiver_expr : base.receiver_expr.clone(),
+      is_static : base.is_static,
+      needs_pointer_conversion : w_cand.needs_pointer_conversion,
+      receiver_value : base.receiver_value,
+      all_hits : base.all_hits
+    ),
+    .None => base
+  )
 });
 /// ModuleT/Call overload dispatch — mirrors TS `function.ts:527-573` (the
 /// `isSourceNamespaceType` candidate expansion) + the checking phase at

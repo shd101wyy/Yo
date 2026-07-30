@@ -29,7 +29,8 @@ open(import("std/string"));
   EvalValue,
   is_bool_val,
   is_unknown_val,
-  create_unknown_val
+  create_unknown_val,
+  is_runtime_only_unknown_val
 } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_bool } :: import("../../types/creators.yo");
@@ -116,7 +117,18 @@ evaluate_and_or :: (
           },
           .Some(av) => {
             if(is_unknown_val(av), {
-              has_unknown = true;
+              // A RUNTIME-ONLY unknown is yo-self's stand-in for TS's "no
+              // value at all" (create_runtime_unknown_val) — classify it as
+              // RUNTIME. Folding it into `has_unknown` made the `||`/`&&`
+              // result an UNMARKED unknown, which downstream comptime
+              // overloads accept: `!((prev == key) || ...)` then preferred
+              // `comptime_not` and codegen called an unemitted comptime fn
+              // (tests/codegen-bootstrap/short_circuit_rc_temp_drop.yo).
+              if(is_runtime_only_unknown_val(av), {
+                has_runtime = true;
+              }, {
+                has_unknown = true;
+              });
             }, {
               if(is_bool_val(av), {
                 bv := match(av,.BoolVal(b) => b, _ => false);
