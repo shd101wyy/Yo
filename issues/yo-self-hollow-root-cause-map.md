@@ -377,3 +377,29 @@ different roots (the missing-validation family, task list #2).
 - Arm 3 "MaybeUninit": contains `comptime_expect_error(arr2 :=
 uninit_arr.assume_init())` — consume-after-use validation the port
   doesn't throw yet (the missing-validation family, task #2).
+
+## 2026-07-31 — §2.3 survey: full arm-bisection map of the 18 hollows (s34)
+
+Bisected with subset_arms.py; each line = the hollowing arms only.
+
+| file                      | hollow arms                                    | family                                                                   |
+| ------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------ |
+| fmt                       | FIXED (comptime-numeric synthesizer tolerance) |
+| prelude                   | 1, 3                                           | TryFrom Result-era split; MaybeUninit consume-validation                 |
+| closure                   | 2                                              | missing-validation (cee: capture-outlives)                               |
+| gadts                     | 1-9 (ALL but 0)                                | broad GADT gap                                                           |
+| higher_kinded_types       | 0,4,7,8,10,14,16-19                            | broad HKT gap                                                            |
+| collections/linked_list   | 63-68 (contiguous)                             | into_iter + for() — closure-combinator family                            |
+| where_clause_fn_inference | 0, 1 (both)                                    | assoc-type inference from Fn signature — the parked wcf `_f` SomeT split |
+| option_result_combinators | 3-6, 33-37, 53                                 | and_then/combinator closures — same family                               |
+
+The CLOSURE-COMBINATOR family (linked_list + wcfi + orc + the earlier
+iter_filter_closure/iterator_combinators) is the biggest single cluster.
+7-line repro: `issues/repros/option-and-then-closure-arg.yo` —
+`some_val.and_then((x) => Option(i32).Some(x * 2))` FTTs (TS green).
+This is the parked "wcf `_f` specialization-side SomeT split" work item.
+
+Still unbisected: asm (own family, 829-line port parked), async_await,
+basic(4), fn(3), impl(4), imm_map/imm_set (param-model family),
+iter_filter_closure(2), iterator_combinators(2), contracts_phase0(1),
+type_reflection(24).
