@@ -377,6 +377,51 @@ get_func_param_default_exprs :: (fn(func_id : String) -> ArrayList(Option(AstExp
     .None => ArrayList(Option(AstExpr)).new()
   )
 );
+/// Per-parameter declared TYPE expressions (the raw AST right of `:`), keyed
+/// like the defaults (fn-type-expr id, re-keyed under the FuncVal id by
+/// try_to_implement_function_by_function_type). TS `parameter.exprs.typeExpr`,
+/// consumed by evaluateFunctionParameterTypeAgain: the call site RE-EVALUATES
+/// the expr in the bound callee env so comptime type-constructor
+/// instantiations route through the memoized constructor (canonical ids)
+/// instead of substituting into the def-era nocache mint — the
+/// imm_sorted_map-family id split (issues/yo-self-69-red-list-map.md, ROOT
+/// CAUSE 2026-07-30). The list is parallel to the param order; `.None` for
+/// params without a written type.
+(g_func_param_type_exprs : HashMap(String, ArrayList(Option(AstExpr)))) =
+  HashMap(String, ArrayList(Option(AstExpr))).new();
+register_func_param_type_exprs :: (fn(func_id : String, exprs : ArrayList(Option(AstExpr))) -> unit)({
+  (any_te : bool) = false;
+  (tei : usize) = usize(0);
+  while((tei < exprs.len()) && !(any_te), {
+    match(
+      exprs.get(tei),
+      .Some(e) => if(e.is_some(), {
+        any_te = true;
+      }),
+      .None => ()
+    );
+    tei = (tei + usize(1));
+  });
+  if(any_te, {
+    g_func_param_type_exprs.set(func_id.clone(), exprs);
+  });
+});
+copy_func_param_type_exprs :: (fn(from_id : String, to_id : String) -> unit)({
+  match(
+    g_func_param_type_exprs.get(from_id.clone()),
+    .Some(exprs) => {
+      g_func_param_type_exprs.set(to_id.clone(), exprs);
+    },
+    .None => ()
+  );
+});
+get_func_param_type_exprs :: (fn(func_id : String) -> ArrayList(Option(AstExpr)))(
+  match(
+    g_func_param_type_exprs.get(func_id.clone()),
+    .Some(exprs) => exprs,
+    .None => ArrayList(Option(AstExpr)).new()
+  )
+);
 /// Where-clause constraint side table: `fn(...)`-type-expression id (then the
 /// FuncVal id via the same two-step as the defaults) → the function's
 /// where-clause constraints as (LHS param label, trait type, negated) triples.
@@ -579,7 +624,16 @@ FuncParam :: struct(
   /// value): codegen must EMIT an omitted default as a C argument, so the
   /// expr is carried into the default-expr side-table at registration. Appended
   /// last so existing positional constructions only need a trailing argument.
-  default_value_expr : Option(AstExpr)
+  default_value_expr : Option(AstExpr),
+  /// The parameter's declared TYPE expression (the raw AST right of `:`), or
+  /// `.None` when the param has no written type (default-only shorthand,
+  /// synthetic params). TS `parameter.exprs.typeExpr` — the call site
+  /// RE-EVALUATES it in the bound callee env so comptime type-constructor
+  /// instantiations (`Map(K)` with K := i32) route through the memoized
+  /// constructor and unify with the body's instantiations, instead of
+  /// substituting into the def-era nocache mint (the imm_sorted_map family's
+  /// id split; issues/yo-self-69-red-list-map.md ROOT CAUSE 2026-07-30).
+  ty_expr : Option(AstExpr)
 );
 /// Pending where-clause constraint that failed to evaluate.
 PendingConstraint :: struct(
@@ -1471,7 +1525,8 @@ use_id :: (fn(generic(T : Type),
           false,
           captured_default_value,
           is_param_ref,
-          default_value_expr
+          default_value_expr,
+          type_expr
         )
       )
     );
@@ -1656,7 +1711,8 @@ use_id :: (fn(generic(T : Type),
     false,
     captured_default_value,
     is_param_ref,
-    default_value_expr
+    default_value_expr,
+    type_expr
   )
 });
 // ---------------------------------------------------------------------------
@@ -2491,6 +2547,7 @@ evaluate_function_parameters :: (
     false,
     Option(EvalValue).None,
     false,
+    Option(AstExpr).None,
     Option(AstExpr).None
   );
   (find_variadic : bool) = false;
@@ -2582,6 +2639,7 @@ evaluate_function_parameters :: (
               false,
               Option(EvalValue).None,
               false,
+              Option(AstExpr).None,
               Option(AstExpr).None
             )
           );
@@ -2717,6 +2775,7 @@ evaluate_function_parameters :: (
                               false,
                               Option(EvalValue).None,
                               false,
+                              Option(AstExpr).None,
                               Option(AstExpr).None
                             )
                           );
@@ -2757,6 +2816,7 @@ evaluate_function_parameters :: (
                         true,
                         Option(EvalValue).None,
                         false,
+                        Option(AstExpr).None,
                         Option(AstExpr).None
                       )
                     );
@@ -2785,6 +2845,7 @@ evaluate_function_parameters :: (
                               false,
                               Option(EvalValue).None,
                               false,
+                              Option(AstExpr).None,
                               Option(AstExpr).None
                             )
                           );
@@ -2824,6 +2885,7 @@ evaluate_function_parameters :: (
                         true,
                         Option(EvalValue).None,
                         false,
+                        Option(AstExpr).None,
                         Option(AstExpr).None
                       )
                     );
@@ -2952,6 +3014,7 @@ evaluate_function_parameters :: (
         false,
         Option(EvalValue).None,
         false,
+        Option(AstExpr).None,
         Option(AstExpr).None
       );
       implicit_params.push(impl_param);
@@ -3399,6 +3462,7 @@ evaluate_function_parameters :: (
         false,
         Option(EvalValue).None,
         false,
+        Option(AstExpr).None,
         Option(AstExpr).None
       );
       // Add to env if named
@@ -4024,6 +4088,7 @@ evaluate_function_type :: (
   (ppi : usize) = usize(0);
   param_defaults := ArrayList(Option(EvalValue)).new();
   param_default_exprs := ArrayList(Option(AstExpr)).new();
+  param_type_exprs := ArrayList(Option(AstExpr)).new();
   param_comptime_flags := ArrayList(bool).new();
   quoted_param_indices := ArrayList(usize).new();
   while(ppi < params_result.params.len(), {
@@ -4041,6 +4106,7 @@ evaluate_function_type :: (
     param_is_owning.push(pp.is_owning_rc_value);
     param_defaults.push(pp.default_value);
     param_default_exprs.push(pp.default_value_expr);
+    param_type_exprs.push(pp.ty_expr);
     param_comptime_flags.push(pp.is_compile_time_only);
     if(pp.is_quote, {
       quoted_param_indices.push(ppi);
@@ -4061,6 +4127,9 @@ evaluate_function_type :: (
   // Register the per-parameter default-value EXPRESSIONS (parallel to the
   // values above) so codegen can EMIT an omitted default as a C argument.
   register_func_param_default_exprs(ast_expr_id(expr).to_string(), param_default_exprs);
+  // Per-parameter declared TYPE expressions (TS parameter.exprs.typeExpr) for
+  // specialization-time re-evaluation — see the side-table comment above.
+  register_func_param_type_exprs(ast_expr_id(expr).to_string(), param_type_exprs);
   // Register the where-clause constraints (keyed like the defaults; re-keyed
   // under the FuncVal id by try_to_implement_function_by_function_type) so the
   // call site can validate bound concrete types against them.
@@ -4507,6 +4576,9 @@ export(
   get_func_return_type_expr,
   register_func_param_default_exprs,
   copy_func_param_default_exprs,
+  register_func_param_type_exprs,
+  copy_func_param_type_exprs,
+  get_func_param_type_exprs,
   get_func_param_default_exprs,
   register_func_variadic_param,
   copy_func_variadic_param,
