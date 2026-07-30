@@ -116,7 +116,7 @@ validation (TS `src/evaluator/types/trait.ts:1074-1102`) and require
 `check ./std` to stay 153/153 — it is the false-positive detector, because the
 prelude's own `ComptimeNegate` is exactly the shape being validated.
 
-### 2.2 Remove the comptime-overload literal gate (one holdout)
+### 2.2 Remove the comptime-overload literal gate — DONE (2026-07-30)
 
 The language rule is that a comptime call always wins — `1 + 2` folds to `3`.
 TS's primary rule is ported (`function.ts:1737-1751`) but currently applies only

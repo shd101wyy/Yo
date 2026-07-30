@@ -33,6 +33,7 @@ open(import("std/string"));
 {
   EvalValue,
   create_unknown_val,
+  is_runtime_only_unknown_val,
   is_enum_val,
   is_unknown_val
 } :: import("../../value.yo");
@@ -861,6 +862,15 @@ evaluate_primitive_match :: (
     });
     out_val_pm := cond(
       scrutinee_val_opt.is_none() => Option(EvalValue).None,
+      // A match over a RUNTIME-ONLY scrutinee is a runtime result — mark it
+      // runtime-only so a comptime-only parameter cannot be filled with it
+      // (TS: a runtime match has NO `$.value` at all; a plain UnknownVal is
+      // yo-self's CTFE-analysis placeholder and would slip past helper.yo's
+      // Step-5 check — `!(match(param_ct_flags.get(i), ...))` then stamped
+      // comptime_not and the stage2 self-compile called an unemitted C fn,
+      // the FIXPOINT_BROKEN shape from the comptime-overload gate removal).
+      match(scrutinee_val_opt,.Some(sv_ro) => is_runtime_only_unknown_val(sv_ro),.None => false) =>
+        Option(EvalValue).Some(EvalValue.UnknownVal(rt_pm.clone(), true)),
       true => Option(EvalValue).Some(create_unknown_val(rt_pm))
     );
     result_ty_final_pm := cond(
@@ -2352,6 +2362,10 @@ Supported patterns:
     out_val_em := cond(
       scrutinee_val_opt.is_none() => Option(EvalValue).None,
       matched_body_val.is_some() => matched_body_val,
+      // Runtime-only scrutinee → runtime-only result (see the pattern-match
+      // twin above).
+      match(scrutinee_val_opt,.Some(sv_ro2) => is_runtime_only_unknown_val(sv_ro2),.None => false) =>
+        Option(EvalValue).Some(EvalValue.UnknownVal(rt_em.clone(), true)),
       true => Option(EvalValue).Some(create_unknown_val(rt_em))
     );
     result_ty_final_em := cond(

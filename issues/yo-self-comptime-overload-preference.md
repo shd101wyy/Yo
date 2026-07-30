@@ -304,3 +304,29 @@ the Step-5 rejection (side-table keying) INSTEAD of gating the preference.
 Everything was REVERTED; the tree keeps the literal gate. Repro set for the
 next round: scratchpad wc*/ba\_* files (ba_m = minimal), plus
 tests/codegen-bootstrap/enum_ne_dispatch.yo as the anti-witness.
+
+## 2026-07-30 (final) — GATE FULLY REMOVED. §2.2 COMPLETE.
+
+The mapped next attempt succeeded with ONE additional root fix:
+
+1. Widened `ct_successes` from `foldable` to `successes` and deleted the
+   whole `conc_out`/`foldable` side channel (the operand gate is gone).
+2. The Step-5 keying suspicion was REFUTED by measurement: the \_\_DBG_S5
+   probe showed ct-candidate trials looking up n_ct_flags=1 (the side table
+   HITS). The four-corpus s14 regression no longer reproduces — the
+   intervening rounds (runtime-only call-result marking, the
+   \_select_matching_overload comptime-priority port, the TYPE-position
+   defer change) had already closed it: enum_ne_dispatch outputs YNS,
+   corpus 149/0, ba_m runs, iso/rc/imm_string green.
+3. NEW root fix required by TIER 2: the stage2 self-compile broke on
+   `!(match(param_ct_flags.get(i), ...))` — a match over a RUNTIME-ONLY
+   scrutinee stamped a PLAIN UnknownVal (the CTFE-analysis placeholder),
+   which slipped past helper.yo Step 5 and let the widened preference stamp
+   comptime_not (unemitted C fn → FIXPOINT_BROKEN). Fixed in
+   exprs/match.yo: BOTH runtime-merge result sites now stamp
+   `UnknownVal(ty, true)` (runtime-only) when the scrutinee value is
+   runtime-only — TS parity (a runtime match has no `$.value` at all).
+
+Gates: TIER 1 clean (corpus 149/0, std 153/153, battery baseline incl.
+iso 3 / rc 16 — the historical holdout witnesses), TIER 2 clean (stage2
+hollow=0 + clang, stage3, FIXPOINT_HOLDS), sweep 161/19/5 stable.

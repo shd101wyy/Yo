@@ -492,8 +492,7 @@ _trial_call_overload_candidate :: (
     args : ArrayList(AstExpr),
     callee_env : Environment,
     ctx : EvalContext,
-    ok_out : ArrayList(bool),
-    conc_out : ArrayList(bool)
+    ok_out : ArrayList(bool)
   ) -> unit
 )({
   trial_exn := Exception(throw : ((_err) -> unwind(())));
@@ -525,40 +524,6 @@ _trial_call_overload_candidate :: (
     true,
     trial_exn
   );
-  // Report whether EVERY argument evaluated to a CONCRETE comptime value
-  // during this trial. Reading the CLONES keeps the real exprs' ExprInfo
-  // untouched.
-  {
-    (all_conc : bool) = true;
-    (cci : usize) = usize(0);
-    while(cci < cloned_args.len(), {
-      ca := match(cloned_args.get(cci),.Some(x) => x,.None => make_err_expr());
-      ca_conc := match(
-        expr_info_table_get(ctx.expr_info_table, ast_expr_id(ca)),
-        .Some(cinfo) => match(
-          cinfo.value,
-          // CONCRETE comptime value (was: literal kinds only). An unknown
-          // operand (runtime param, match-on-runtime result, `||` over
-          // runtime operands...) is TS's "no value at all" — preferring a
-          // comptime candidate for it stamps a comptime FuncVal that
-          // codegen calls as an unemitted C fn (the stage2 self-compile
-          // broke on `!(match(param_ct_flags.get(i), ...))`). A concrete
-          // NON-literal value (a comptime param bound to IntVal inside a
-          // CTFE body — `-(x)` in `abs2`) must still take the preference,
-          // or `NAME :: <ctfe call>` bindings hold unknowns and emit bare
-          // undeclared C identifiers (the batch-arm family).
-          .Some(cv) => !(is_unknown_val(cv)),
-          .None => false
-        ),
-        .None => false
-      );
-      if(!(ca_conc), {
-        all_conc = false;
-      });
-      cci = (cci + usize(1));
-    });
-    conc_out.push(all_conc);
-  };
   ok_out.push(true);
 });
 /// Build the C-call argument list for a receiver method candidate: prepend the
@@ -637,7 +602,7 @@ _select_matching_overload :: (
         .Some(cv) => {
           trial_args := _build_receiver_call_args(base.is_static, cand.needs_pointer_conversion, base.receiver_expr.clone(), args);
           ok := ArrayList(bool).new();
-          _trial_call_overload_candidate(cv, cand.ty, func_expr.clone(), func_expr.clone(), trial_args, env, ctx, ok, ArrayList(bool).new());
+          _trial_call_overload_candidate(cv, cand.ty, func_expr.clone(), func_expr.clone(), trial_args, env, ctx, ok);
           if(ok.len() > usize(0), {
             matching.push(hi);
           });
@@ -858,19 +823,14 @@ _try_expand_call_overload :: (
   old_checking_ph := ctx.is_in_function_call_checking_phase;
   ctx.is_in_function_call_checking_phase = true;
   successes := ArrayList(usize).new();
-  foldable := ArrayList(usize).new();
   (cand_i : usize) = usize(0);
   while(cand_i < cand_vals.len(), {
     cv2 := match(cand_vals.get(cand_i),.Some(v) => v,.None => EvalValue.UnitVal);
     ct2 := match(cand_tys.get(cand_i),.Some(t) => t,.None => t_unit());
     ok_out := ArrayList(bool).new();
-    conc_out := ArrayList(bool).new();
-    _trial_call_overload_candidate(cv2, ct2, call_expr, func_expr, args, env, ctx, ok_out, conc_out);
+    _trial_call_overload_candidate(cv2, ct2, call_expr, func_expr, args, env, ctx, ok_out);
     if(ok_out.len() > usize(0), {
       successes.push(cand_i);
-      if(match(conc_out.get(usize(0)),.Some(c) => c,.None => false), {
-        foldable.push(cand_i);
-      });
     });
     cand_i = (cand_i + usize(1));
   });
@@ -901,25 +861,19 @@ _try_expand_call_overload :: (
   // expressed here — each trial evaluates its own fresh-id arg CLONES, so there
   // is no shared evaluated-arg list — and is subsumed by that filter.
   //
-  // ONE shape still needs the operand gate below, so the preference is applied
-  // only to candidates whose trial reported every operand a comptime LITERAL
-  // (`IntLit`/`FloatLit`/`StrLit`), the operand class TS's own second tiebreak
-  // is written for (`3 > 4`). The holdout is a RUNTIME binding whose operand is a
-  // CONCRETE comptime query:
-  //     x := Box(i32)(99);
-  //     b := !(Var.is_owning_the_rc_value(x));   // broken C without the gate
-  //     b :: !(Var.is_owning_the_rc_value(x));   // folds either way
-  // `Var.is_owning_the_rc_value` is a macro in std/prelude.yo wrapping the
-  // `__yo_var_is_owning_the_rc_value` builtin, so the operand's value IS
-  // concrete and the trial rightly accepts the comptime candidate — but its CTFE
-  // then produces nothing emittable in a runtime position (it reaches codegen
-  // through the `iso(...)` macro's `cond` guard in tests/iso and tests/rc).
-  // Tracked in issues/yo-self-comptime-overload-preference.md.
+  // The historical operand gate (literal-only, then concrete-value-only via a
+  // `conc_out` side channel) is REMOVED (2026-07-30): the runtime-only
+  // marking of call results plus the trial filter now reject every case the
+  // gate protected against — measured on the once-regressing corpus set
+  // (enum_ne_dispatch, comptime_param_value_spec, nested_generic_trait_eq,
+  // short_circuit_rc_temp_drop) and the iso/rc holdout
+  // (`b := !(Var.is_owning_the_rc_value(x))`). History:
+  // issues/yo-self-comptime-overload-preference.md.
   ct_successes := ArrayList(usize).new();
   {
     (csi : usize) = usize(0);
-    while(csi < foldable.len(), {
-      s_ct_idx := match(foldable.get(csi),.Some(i) => i,.None => usize(0));
+    while(csi < successes.len(), {
+      s_ct_idx := match(successes.get(csi),.Some(i) => i,.None => usize(0));
       s_ct_ty := match(cand_tys.get(s_ct_idx),.Some(t) => t,.None => t_unit());
       if(match(s_ct_ty,.Func({ meta : __sm1 }) => __sm1.*.result_is_comptime_only, _ => false), {
         ct_successes.push(s_ct_idx);
