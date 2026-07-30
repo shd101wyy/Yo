@@ -15,6 +15,7 @@
 //! - `funcId` suffix and `specializedType` skipped (no FuncVal.funcId in yo-self).
 //! - Return types changed from `Option(AstExpr)` stub to correct result types.
 pragma(Pragma.AllowUnsafe);
+open(import("std/fmt"));
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -42,6 +43,13 @@ open(import("std/string"));
   ExpectedTypeCtx
 } :: import("../context.yo");
 { EvalValue, is_type_value, value_to_string } :: import("../../value.yo");
+{ is_function_type } :: import("../../types/guards.yo");
+{
+  MethodEntry,
+  register_provisional_trait_method,
+  clear_provisional_trait_methods,
+  type_id_or_empty
+} :: import("../values/type_trait_methods.yo");
 { set_expr_as_needs_to_call_dup } :: import("../utils.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { format_error_message } :: import("../../error.yo");
@@ -299,6 +307,50 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
     field_values.push(Option(EvalValue).None);
     i_init = (i_init + usize(1));
   });
+  // Extend the receiver type's trait methods BEFORE evaluating member
+  // expressions — the port of TS's receiver-trait splice
+  // (trait-type.ts:176-203, "Extend the receiverType trait"). A member body
+  // that calls back into this impl's own methods (recursive types:
+  // `TreeNode :: enum(..., Branch(left : Box(Self), ...))` +
+  // `derive(TreeNode, Clone)` — validating the derived clone specializes
+  // `Box(TreeNode).clone`, whose body calls `TreeNode.clone`) must find the
+  // method TYPE from the trait signature while the real `FuncVal` is still
+  // being evaluated. TS substitutes `SelfType: receiverType` on each
+  // function-typed field; yo-self carries the same via `MethodEntry.self_type`.
+  // Entries are provisional (`value : None`) and cleared after the member
+  // loop — the real registration happens in impl.yo once this returns.
+  receiver_ty_pv := match(
+    ctx.receiver_type,
+    .Some(rt) => rt,
+    .None => TypeValue.Unit
+  );
+  pv_type_id := type_id_or_empty(receiver_ty_pv);
+  trait_tid_pv := match(
+    trait_type,
+    .TraitT(_, _, _, _, tid, _, _, _, _, _) => tid,
+    _ => String.from("")
+  );
+  if(pv_type_id != "", {
+    (pvi : usize) = usize(0);
+    while(pvi < n_fields, {
+      pv_lbl := match(field_labels.get(pvi),.Some(l) => l,.None => String.from(""));
+      pv_ty := match(field_types.get(pvi),.Some(t) => t,.None => TypeValue.Unit);
+      if((pv_lbl != "") && is_function_type(pv_ty), {
+        register_provisional_trait_method(
+          pv_type_id.clone(),
+          MethodEntry(
+            label : pv_lbl.clone(),
+            ty : pv_ty,
+            value : Option(EvalValue).None,
+            source_trait_id : trait_tid_pv.clone(),
+            needs_pointer_conversion : false,
+            self_type : Option(TypeValue).Some(receiver_ty_pv)
+          )
+        );
+      });
+      pvi = (pvi + usize(1));
+    });
+  });
   (caller_env : Environment) = caller_env_in;
   // For each trait field, find the matching arg by label.
   (i : usize) = usize(0);
@@ -442,6 +494,12 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
     });
     i = (i + usize(1));
   }); // end outer field loop
+  // Member evaluation done — drop the provisional in-flight entries. The
+  // caller (impl.yo) registers the REAL entries (with concrete FuncVals)
+  // after this returns; clearing here keeps the two sets from coexisting.
+  if(pv_type_id != "", {
+    clear_provisional_trait_methods(pv_type_id);
+  });
   // Build result names for the TraitVal.
   (result_names : ArrayList(String)) = ArrayList(String).new();
   (k : usize) = usize(0);

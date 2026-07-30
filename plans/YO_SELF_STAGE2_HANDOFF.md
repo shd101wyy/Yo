@@ -12,17 +12,17 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 158 GREEN / 20 HOLLOW / 7 RED of 185 test files**, measured
-with `scratchpad/hollow_sweep69.sh` after the zero-arg-unwind round
-(2026-07-30, flipped `inherent_first_resolution` then `algebraic_effects`;
-results at `/tmp/hs_s21/results.txt`; regenerate before trusting it — /tmp is
-volatile).
+**Honest score: 159 GREEN / 20 HOLLOW / 6 RED of 185 test files**, measured
+with `scratchpad/hollow_sweep69.sh` after the provisional-trait-method round
+(2026-07-30, flipped `inherent_first_resolution`, `algebraic_effects`, then
+`derive_clone_complex`; results at `/tmp/hsweep_pv2/results.txt`; regenerate
+before trusting it — /tmp is volatile).
 
 Green baselines every change must preserve:
 
 | gate                    | baseline                                                                                                         |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| corpus diff-test        | **PASS 148 / DIFF 0**                                                                                            |
+| corpus diff-test        | **PASS 149 / DIFF 0** (incl. `derive_clone_recursive_enum.yo`, added 2026-07-30)                                 |
 | `check ./std`           | **153/153**                                                                                                      |
 | `check ./yo-self`       | last recorded **304/304** (a re-check was phantom-killed at ~15 min; slow, verify with `YO_MAIN_STACK_MB=4096`)  |
 | stage2 real FTT markers | **0** (line-anchored grep — the historical `unwind()` marker is FIXED: zero-arg `unwind()` now stamps, begin.yo) |
@@ -183,12 +183,19 @@ counts from the last sweep:
 | `closure_capture_rc_leak`          |       3 | the closure `void*`-param family                                                                                                         |
 | `sync/mutex`                       |       2 | —                                                                                                                                        |
 | `imm_sorted_map`, `imm_sorted_set` |       1 | the parameter-type-expression side table (architectural)                                                                                 |
-| `derive_clone_complex`             |       0 | C-level failure, no FTT markers                                                                                                          |
 | `imm_threading`                    |       0 | C-level failure, no FTT markers                                                                                                          |
 | `impl_fn_field_rejection`          |       0 | **pre-existing** — fails identically under a pre-session binary; C error `initializing 'void *' with an expression of incompatible type` |
 
 A marker count of 0 with rc=1 means the C is invalid for a reason OTHER than a
 dropped statement — read the clang error, do not go looking for FTT comments.
+
+`derive_clone_complex` FIXED 2026-07-30: the provisional trait-method
+registry — the port of TS's receiver-trait splice
+(trait-type.ts:176-203/512), consulted AFTER the real registry
+(fallback-when-empty; splice-ahead order shadowed same-impl sibling methods
+and miscompiled derive(Eq)'s `!=`→`==` inner dispatch). Full write-up +
+ordering lesson: issues/yo-self-69-red-list-map.md (2026-07-30 later
+update). Corpus guard: `tests/codegen-bootstrap/derive_clone_recursive_enum.yo`.
 
 ### 2.5 Parked / known-open
 

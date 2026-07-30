@@ -627,3 +627,50 @@ e1096c1b4: 139/28/16.
   trait-method type with Self := TreeNode. The fix is at that lookup: return
   the trait-signature type for in-progress concrete impls (TS parity), not
   unit.
+
+## UPDATE 2026-07-30 (later) — derive_clone_complex FIXED (GREEN). REDs now 6.
+
+Root cause (probes \_\_DBG_M7/M8/M9 — three diagnostic builds): the recursive
+`self.*.clone()` call inside the Box(TreeNode) clone specialization runs
+WHILE the derive-generated `impl(TreeNode, Clone(clone : ...))` is still
+evaluating its member bodies — the derived clone is NOT in the trait-method
+registry yet. The receiver-method lookup returned 0 hits, the call dispatch
+fell to the valueless-callee arm, and `try_to_call_function_with_arguments`'s
+non-Func soft fallback (helper.yo) typed the call as UNIT with an EMPTY
+runtime-arg list — exactly the emitted `fn_yo_id_4707();` + `void _temp = ;`
+
+- Box V=unit chain.
+
+TS's mechanism (the missing port piece): `tryToImplementTraitWithArgumentsBy
+TraitType` (trait-type.ts:176-203) splices the registering trait's method
+fields — with `SelfType := receiverType` substituted — into
+`receiverType.trait.fields` BEFORE evaluating member expressions, and
+restores them after (trait-type.ts:512). Object identity makes the in-flight
+signatures visible to every lookup during the window; the call is typed from
+the trait signature (`clone : fn(self : Self) -> Self` ⇒ TreeNode) even
+though the FuncVal is still being built. trait_type.yo's header even listed
+"`receiverType.trait` mutation skipped (Phase 3)".
+
+yo-self port (landed): a PROVISIONAL trait-method registry
+(`register/get/clear_provisional_trait_methods`, type_trait_methods.yo)
+keyed by receiver type id, entries `value : None` + Self-substituted `ty`.
+Populated in BOTH trait-ctor evaluation paths — impl.yo's member loop (the
+path derive-generated impls take; it collects colon pairs itself and never
+calls try_to_implement) and trait_type.yo's try_to_implement (direct trait
+ctor calls) — and cleared after each member loop plus a sweep at the impl's
+unmark site.
+
+CRITICAL ordering lesson (caught by TIER 1): consult provisional entries
+AFTER the real registry (fallback-when-empty), NOT TS's splice-ahead order.
+During member evaluation, earlier members of the same impl are already
+registered with concrete FuncVals — derive(Eq)'s `!=` body calls `==`,
+registered one iteration earlier. Splice-ahead shadowed that real method
+with the valueless in-flight entry and miscompiled the inner dispatch:
+corpus `enum_ne_dispatch.yo` DIFF (classify() returned 89 for every input)
+and tests/imm_string.test.yo rc=1 (batch C "expected expression"). With
+fallback ordering both are clean.
+
+Corpus guard added: `tests/codegen-bootstrap/derive_clone_recursive_enum.yo`
+(the dcc1 repro, putchar-scored). Gates: TIER 1 clean (corpus 149 incl. the
+new fixture, DIFF 0; std 153/153; battery baseline), sweep 159/20/6,
+derive_clone_complex 15/15 passed hollow=0 markers=0 (TS parity 15).

@@ -174,6 +174,70 @@ get_type_trait_methods_for_type :: (
     .None => ArrayList(MethodEntry).new()
   )
 );
+/// PROVISIONAL (in-flight) trait-method entries: the yo-self port of TS's
+/// receiver-trait splice in `tryToImplementTraitWithArgumentsByTraitType`
+/// (trait-type.ts:176-203). TS mutates `receiverType.trait.fields` BEFORE
+/// evaluating the impl's member expressions, so a member body that calls back
+/// into the impl's own methods (recursive types — `TreeNode` with
+/// `Box(Self)` fields under `derive(TreeNode, Clone)`: the derived clone
+/// validates `Box(TreeNode).clone`, whose body calls `TreeNode.clone`) finds
+/// the method TYPE from the trait signature while the real `FuncVal` is still
+/// being built. yo-self's value-semantics TypeValue can't be mutated in
+/// place, so the in-flight signatures live here, keyed by receiver type id,
+/// and are consulted FIRST by `get_receiver_methods_by_name_from_env`
+/// (mirroring TS splicing them AHEAD of existing fields). Entries carry
+/// `value : None` (TS: `assignedValue` still undefined during the window) and
+/// `self_type : Some(receiver)` (TS: `SelfType: receiverType` substitution).
+/// They are cleared when the member-evaluation loop finishes — the real
+/// registration (`register_type_trait_method`, with the concrete `FuncVal`)
+/// happens after `try_to_implement_trait_with_arguments_by_trait_type`
+/// returns, so provisional and final entries never coexist.
+(_provisional_trait_methods : HashMap(String, ArrayList(MethodEntry))) =
+  HashMap(String, ArrayList(MethodEntry)).new();
+register_provisional_trait_method :: (
+  fn(type_id : String, entry : MethodEntry) -> unit
+)({
+  match(
+    _provisional_trait_methods.get(type_id),
+    .Some(list) => {
+      list.push(entry);
+    },
+    .None => {
+      fresh := ArrayList(MethodEntry).new();
+      fresh.push(entry);
+      ___set := _provisional_trait_methods.set(type_id, fresh);
+    }
+  );
+});
+get_provisional_trait_methods_by_name :: (
+  fn(type_id : String, method_name : String) -> ArrayList(MethodEntry)
+)({
+  result := ArrayList(MethodEntry).new();
+  match(
+    _provisional_trait_methods.get(type_id),
+    .Some(all) => {
+      n := all.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          all.get(i),
+          .Some(entry) => {
+            if(entry.label == method_name, {
+              result.push(entry);
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .None => ()
+  );
+  result
+});
+clear_provisional_trait_methods :: (fn(type_id : String) -> unit)({
+  _provisional_trait_methods.remove(type_id);
+});
 /// Return only the method entries whose `label` matches
 /// `method_name`. Mirrors the inner `.find` / `.filter` calls inside
 /// TS `getTypeTraitMethodsByNameFromEnv`.
@@ -244,5 +308,8 @@ export(
   get_type_trait_methods_for_type,
   get_type_trait_methods_by_name,
   clear_type_trait_methods,
+  register_provisional_trait_method,
+  get_provisional_trait_methods_by_name,
+  clear_provisional_trait_methods,
   type_id_or_empty
 );

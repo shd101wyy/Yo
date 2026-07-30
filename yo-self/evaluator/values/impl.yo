@@ -59,6 +59,8 @@ open(import("std/string"));
   register_shell_redirect,
   get_type_trait_methods_by_name,
   get_trait_default,
+  register_provisional_trait_method,
+  clear_provisional_trait_methods,
   type_id_or_empty
 } :: import("./type_trait_methods.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -2558,6 +2560,49 @@ evaluate_module_value :: (
             ti2 = (ti2 + usize(1));
           });
         });
+        // In-flight method signatures BEFORE evaluating the member bodies —
+        // the impl-path port of TS's receiver-trait splice (trait-type.ts:
+        // 176-203 via evaluateImplFieldList; restored at trait-type.ts:512).
+        // A member body that calls back into this trait's own methods on the
+        // receiver (recursive types: `TreeNode :: enum(..., Branch(left :
+        // Box(Self), ...))` + `derive(TreeNode, Clone)` — validating the
+        // derived clone specializes `Box(TreeNode).clone`, whose body calls
+        // `TreeNode.clone`) must resolve the method TYPE from the trait
+        // signature while the real FuncVal is still being evaluated. Without
+        // it the lookup misses, the call degrades to the non-Func unit
+        // fallback, and codegen emits an argument-less void call
+        // (tests/derive_clone_complex.test.yo). Entries carry `value : None`
+        // (TS: assignedValue undefined during the window) and are cleared
+        // right after the member loop.
+        match(
+          current_trait_ty,
+          .Some(pv_ctt) => match(
+            pv_ctt,
+            .TraitT({ field_labels : pv_labels, field_types : pv_types, id : pv_trait_id }) => if(receiver_type_id != "", {
+              (pvfi : usize) = usize(0);
+              while(pvfi < pv_labels.len(), {
+                pv_lbl := match(pv_labels.get(pvfi),.Some(l) => l,.None => String.from(""));
+                pv_fty := match(pv_types.get(pvfi),.Some(t) => t,.None => TypeValue.Unit);
+                if((pv_lbl != "") && is_function_type(pv_fty), {
+                  register_provisional_trait_method(
+                    receiver_type_id.clone(),
+                    MethodEntry(
+                      label : pv_lbl.clone(),
+                      ty : _substitute_self_in_method_ty(pv_fty, receiver_ty),
+                      value : Option(EvalValue).None,
+                      source_trait_id : pv_trait_id.clone(),
+                      needs_pointer_conversion : false,
+                      self_type : Option(TypeValue).Some(receiver_ty)
+                    )
+                  );
+                });
+                pvfi = (pvfi + usize(1));
+              });
+            }),
+            _ => ()
+          ),
+          .None => ()
+        );
         // Register each collected colon-pair method expression.
         // Working-trait bindings: fields already evaluated for THIS trait
         // entry, visible to later fields' `Self.X` references — and scoped
@@ -2742,6 +2787,12 @@ evaluate_module_value :: (
           );
           mj = (mj + usize(1));
         });
+        // Member evaluation done — drop the in-flight signatures (the real
+        // entries were registered by the loop above / the defaults fill
+        // below). Mirrors TS restoring receiverType.trait (trait-type.ts:512).
+        if(receiver_type_id != "", {
+          clear_provisional_trait_methods(receiver_type_id);
+        });
         // Fill trait `?=` DEFAULT methods the impl did not override. The trait
         // definition registered each default FuncVal in the trait-defaults
         // side-table (trait.yo `register_trait_default`, keyed by trait id +
@@ -2832,6 +2883,13 @@ evaluate_module_value :: (
     );
     postri = (postri + usize(1));
   });
+  // Sweep any provisional in-flight trait-method entries for this receiver.
+  // Normally try_to_implement_trait_with_arguments_by_trait_type clears its
+  // own entries after its member loop; this catches a member-eval throw that
+  // was swallowed upstream (def-time trial walls) and skipped that clear —
+  // a stale valueless entry here would shadow the REAL registration in every
+  // later lookup (provisional entries are consulted first).
+  clear_provisional_trait_methods(receiver_type_id);
   // Restore self_type so the impl's parent scope sees its prior value.
   ctx.self_type = old_self_type;
   // Set ExprInfo on the impl expression and return.
