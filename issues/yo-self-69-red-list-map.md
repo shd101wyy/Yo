@@ -848,3 +848,28 @@ ArrayList(Option(AstExpr)))` + register/copy/get, mirroring
    imm_sorted_map/set, imm_threading, sync/mutex. Full TIER 1 + TIER 2 +
    sweep. HOLLOW-GREEN HAZARD: these files emit markers today — marker-diff
    any flip against TS.
+
+### SLICE 1 LANDED — return-side era fix (repro GREEN; family files unchanged)
+
+Widened the conservative return-type-expr re-eval gate in
+create_specialized_function_inline (helper.yo ~1897): explicit-comptime-
+Type-param functions ALWAYS take the re-eval — their def-era signature
+instantiations are nocache mints, so a fully-substituted "concrete" return
+is guaranteed non-canonical. The forall/method route (the
+hashmap_overwrite_no_leak hazard) keeps the old SomeT-leftover gate.
+Result: issues/repros/comptime-ctor-memo-split-map-insert.yo compiles AND
+runs. Gates: TIER 1 clean, TIER 2 clean (FIXPOINT_HOLDS), sweep 160/20/5
+(no flips, no regressions).
+
+REMAINING (slice 2, the param side): imm_threading's face is unchanged —
+`_new_node`'s spec takes `left : __yo_t43, right : __yo_t42` (two eras for
+one declared `Option(RBNode(K, V))`) because spec params come from ARG
+types (runtime_param_tys = ae.arg_type), and different call sites carry
+different eras. The stored param TYPE exprs (g_func_param_type_exprs,
+landed inert) are the fix: re-evaluate each param's declared type expr in
+the bound callee env — BEFORE the runtime-placeholder rebind loop, so the
+body eval and the registered spec_param_types share the same (cache) era.
+Adopt concrete results only, same swallow-guard as the return side, same
+rte_has_ct_param gate. Then the CALLERS' arg eras converge too (their
+exprs' types come from ctor calls / enclosing spec params, both cache-era
+after this).

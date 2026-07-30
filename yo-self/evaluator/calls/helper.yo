@@ -1894,7 +1894,32 @@ create_specialized_function_inline :: (
           // than the dot-route call-site stamp and clang rejected the
           // temp initializer (the hashmap_overwrite_no_leak SELF-FAIL).
           (rte_adopted : bool) = false;
-          if((get_all_some_types(spec_ret_ty).len() > usize(0)) || _type_has_array_len_var(spec_ret_ty), {
+          // Explicit-comptime-Type-param functions (`fn(comptime(K) : Type,
+          // ...)`) ALWAYS take the re-eval: their def-era signature
+          // instantiations are NOCACHE mints (the ctor arg contained the
+          // SomeT K), so a fully-substituted "concrete" return is
+          // guaranteed NON-canonical — a different instantiation era than
+          // the body's ctor calls (Map(i32) as struct 4785 vs 4806; the
+          // imm_sorted_map family, issues/yo-self-69-red-list-map.md ROOT
+          // CAUSE 2026-07-30). The hazard case that motivated the
+          // conservative gate (hashmap_overwrite_no_leak) is the
+          // FORALL/method route — no explicit comptime Type params — and
+          // keeps the old gate.
+          (rte_has_ct_param : bool) = false;
+          {
+            (rhc_i : usize) = usize(0);
+            while((rhc_i < spec_param_ct_flags.len()) && !(rte_has_ct_param), {
+              match(
+                spec_param_ct_flags.get(rhc_i),
+                .Some(f) => if(f, {
+                  rte_has_ct_param = true;
+                }),
+                .None => ()
+              );
+              rhc_i = (rhc_i + usize(1));
+            });
+          };
+          if(((get_all_some_types(spec_ret_ty).len() > usize(0)) || _type_has_array_len_var(spec_ret_ty)) || rte_has_ct_param, {
             match(
               get_func_return_type_expr(func_id.clone()),
               .Some(rte_expr) => {
