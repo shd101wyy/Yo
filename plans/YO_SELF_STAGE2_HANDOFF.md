@@ -12,11 +12,12 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 159 GREEN / 20 HOLLOW / 6 RED of 185 test files**, measured
-with `scratchpad/hollow_sweep69.sh` after the provisional-trait-method round
-(2026-07-30, flipped `inherent_first_resolution`, `algebraic_effects`, then
-`derive_clone_complex`; results at `/tmp/hsweep_pv2/results.txt`; regenerate
-before trusting it — /tmp is volatile).
+**Honest score: 160 GREEN / 20 HOLLOW / 5 RED of 185 test files**, measured
+with `scratchpad/hollow_sweep69.sh` after the closure-field-resolution round
+(2026-07-30, flipped `inherent_first_resolution`, `algebraic_effects`,
+`derive_clone_complex`, then `impl_fn_field_rejection`; results at
+`/tmp/hsweep_pv3/results.txt`; regenerate before trusting it — /tmp is
+volatile).
 
 Green baselines every change must preserve:
 
@@ -178,13 +179,12 @@ emission paths (all tests genuinely pass; same half-registered-fn class as
 issues/yo-self-algebraic-effects-two-roots.md root B). Current list with marker
 counts from the last sweep:
 
-| file                               | markers | note                                                                                                                                     |
-| ---------------------------------- | ------: | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `closure_capture_rc_leak`          |       3 | the closure `void*`-param family                                                                                                         |
-| `sync/mutex`                       |       2 | —                                                                                                                                        |
-| `imm_sorted_map`, `imm_sorted_set` |       1 | the parameter-type-expression side table (architectural)                                                                                 |
-| `imm_threading`                    |       0 | C-level failure, no FTT markers                                                                                                          |
-| `impl_fn_field_rejection`          |       0 | **pre-existing** — fails identically under a pre-session binary; C error `initializing 'void *' with an expression of incompatible type` |
+| file                               | markers | note                                                     |
+| ---------------------------------- | ------: | -------------------------------------------------------- |
+| `closure_capture_rc_leak`          |       3 | the closure `void*`-param family                         |
+| `sync/mutex`                       |       2 | —                                                        |
+| `imm_sorted_map`, `imm_sorted_set` |       1 | the parameter-type-expression side table (architectural) |
+| `imm_threading`                    |       0 | C-level failure, no FTT markers                          |
 
 A marker count of 0 with rc=1 means the C is invalid for a reason OTHER than a
 dropped statement — read the clang error, do not go looking for FTT comments.

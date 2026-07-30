@@ -723,3 +723,25 @@ this struct-member shape (narrower than the lambda-eval stamp that
 regressed fs/\*). Then verify the member-call site dispatches through
 impl_closure_call_map (`closure_fn(&obj.cb, args)`), mirroring the
 closure-param path. Same family as closure_capture_rc_leak (markers=3).
+
+## UPDATE 2026-07-30 (later still) — impl_fn_field_rejection FIXED (GREEN). REDs now 5.
+
+The scoping section above's fix direction landed: in calls/type.yo's
+struct-construction member loop (right after the arg eval), when the field
+type is a SomeT wrapping a CONCRETE-result FnTraitT and the evaluated arg
+carries a capture type (info.capture_type), register the capture struct as
+the FIELD SomeT id's resolved concrete (register_some_resolved_concrete).
+One narrow registration — the member call site then dispatches through the
+closure protocol without further changes (codegen resolves the field's
+SomeT to the capture struct via the global registry).
+
+The fs/file+fs/temp hazard from the lambda-eval global stamp does NOT recur:
+the gate here is the struct-member shape (concrete-result Fn wrapper +
+capture-carrying arg), not every wrapper take-on. Gates: TIER 1 clean
+(battery incl. fs/file 13 + fs/temp 7, corpus 149/0, std 153/153), TIER 2
+clean (stage2 hollow=0, stage3, FIXPOINT_HOLDS), sweep 160/20/5 with exactly
+one flip. impl_fn_field_rejection 5/5 = TS parity.
+
+closure_capture_rc_leak (same family, different face) stays RED: its errors
+are `passing 'int32_t' to parameter of type 'void *'` at closure CALL sites
+— the closure PARAM model, not the field model. 3 markers.
