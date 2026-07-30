@@ -1305,7 +1305,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
       extract_fn_trait_from_type(func_ei.ty),
       .Some(ftt) => match(
         ftt,
-        .FnTraitT(_, cpl, cpt, cr_box, _, _, _) => TypeValue.Func(
+        .FnTraitT(_, cpl, cpt, cr_box, _, _, _, cprf) => TypeValue.Func(
           ArrayList(TypeValue).new(),
           cpt,
           ArrayList(TypeValue).new(),
@@ -1318,7 +1318,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               implicit_labels : ArrayList(String).new(),
               implicit_spreads : ArrayList(bool).new(),
               result_is_comptime_only : false,
-              param_is_ref : ArrayList(bool).new(),
+              param_is_ref : cprf,
               param_is_owning : ArrayList(bool).new(),
               result_is_ref : false,
               has_variadic : false,

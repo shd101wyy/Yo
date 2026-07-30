@@ -141,6 +141,7 @@ evaluate_fn_trait_type :: (
   // Build the FnTraitT from the params_result
   call_param_labels := ArrayList(String).new();
   call_param_types := ArrayList(TypeValue).new();
+  call_param_is_ref := ArrayList(bool).new();
   (pi : usize) = usize(0);
   while(pi < params_result.params.len(), {
     p := match(
@@ -153,6 +154,7 @@ evaluate_fn_trait_type :: (
     );
     call_param_labels.push(p.label);
     call_param_types.push(p.ty);
+    call_param_is_ref.push(p.is_ref);
     pi = (pi + usize(1));
   });
   implicit_labels := ArrayList(String).new();
@@ -173,7 +175,7 @@ evaluate_fn_trait_type :: (
     implicit_spreads.push(ip.is_effect_row_spread);
     ii = (ii + usize(1));
   });
-  fn_trait_type := t_fn_trait(String.from(BK_FN_TRAIT), call_param_labels, call_param_types, return_type, implicit_labels, implicit_types, implicit_spreads);
+  fn_trait_type := t_fn_trait(String.from(BK_FN_TRAIT), call_param_labels, call_param_types, return_type, implicit_labels, implicit_types, implicit_spreads, call_param_is_ref);
   // Set expr info
   out_info := new_expr_info(env_mut, type_of_type(fn_trait_type));
   out_info.value =.Some(create_type_value(fn_trait_type));

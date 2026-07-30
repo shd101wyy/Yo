@@ -106,18 +106,23 @@ try_to_implement_closure_by_fn_module_type :: (
   // Extract param names and types from the FnTraitT.
   param_labels := match(
     fn_module_type,
-    .FnTraitT(_, pls, _, _, _, _, _) => pls,
+    .FnTraitT(_, pls, _, _, _, _, _, _) => pls,
     _ => ArrayList(String).new()
   );
   param_types := match(
     fn_module_type,
-    .FnTraitT(_, _, pts, _, _, _, _) => pts,
+    .FnTraitT(_, _, pts, _, _, _, _, _) => pts,
     _ => ArrayList(TypeValue).new()
   );
   result_type := match(
     fn_module_type,
-    .FnTraitT(_, _, _, rt_box, _, _, _) => rt_box,
+    .FnTraitT(_, _, _, rt_box, _, _, _, _) => rt_box,
     _ => t_unit()
+  );
+  param_is_ref_flags := match(
+    fn_module_type,
+    .FnTraitT(_, _, _, _, _, _, _, prf) => prf,
+    _ => ArrayList(bool).new()
   );
   // Push a new env frame for the closure parameters.
   (env : Environment) = caller_env;
@@ -133,7 +138,7 @@ try_to_implement_closure_by_fn_module_type :: (
     p_label := match(param_labels.get(pi),.Some(l) => l,.None => String.from("_p"));
     p_type := match(param_types.get(pi),.Some(t) => t,.None => t_unit());
     p_tok := synthetic_token(p_label.clone(), env.module_path);
-    add_variable_to_env(
+    p_var_opt := add_variable_to_env(
       env,
       p_label.clone(),
       p_type,
@@ -149,6 +154,22 @@ try_to_implement_closure_by_fn_module_type :: (
       // not implicit
       p_tok
     );
+    // Stamp is_ref from the Fn trait's `inout(...)` call params so the body's
+    // reads/writes go through the C pointer — same stamping as
+    // anonymous_function.yo's expected-type param loop (add_variable_to_env
+    // cannot set is_ref).
+    if(match(param_is_ref_flags.get(pi),.Some(b) => b,.None => false), {
+      match(
+        p_var_opt,
+        .Some(p_var) => {
+          p_var.is_ref = true;
+          // TS: `isReassignable: parameter.isRef` — see the
+          // anonymous_function.yo stamping.
+          p_var.is_reassignable = true;
+        },
+        .None => ()
+      );
+    });
     pi = (pi + usize(1));
   });
   // Build a synthetic Func type for create_function_body_evaluation_context.
@@ -171,8 +192,8 @@ try_to_implement_closure_by_fn_module_type :: (
         implicit_labels : ArrayList(String).new(),
         implicit_spreads : ArrayList(bool).new(),
         result_is_comptime_only : false,
-        // a runtime closure call type
-        param_is_ref : ArrayList(bool).new(),
+        // a runtime closure call type; `inout` call params carry through
+        param_is_ref : param_is_ref_flags.clone(),
         param_is_owning : ArrayList(bool).new(),
         // no `own` params in synthesized closure call type
         result_is_ref : false,

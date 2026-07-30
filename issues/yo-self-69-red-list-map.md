@@ -1095,3 +1095,47 @@ retry; that asymmetry is why the un-swallowed 6c throw hollowed batches only.
 Gates: TIER 1 identical to baseline (battery, corpus 149/0, std 153/153),
 TIER 2 full (stage2 hollow=0 + clang + stage3 + FIXPOINT_HOLDS), honest sweep
 **165 GREEN / 16 HOLLOW / 4 RED** (was 164/16/5; no composition regressions).
+
+### sync/mutex FIXED (2026-07-31) — 3/3 TRUE GREEN, markers=0
+
+Root: yo-self's `FnTraitT` flattens the call signature into the variant and
+had DROPPED the per-param `inout` flags TS keeps on `FnTraitType.callType`
+(its `FunctionType.parameters[].isRef`). A closure typed against
+`Impl(Fn(inout(v) : T) -> R)` (Mutex.with_lock's `body`) therefore bound `v`
+BY VALUE: `v = i32(99)` threw "Cannot reassign" (swallowed; surfaced
+downstream as `assert` "Expected bool / Given unit" because with_lock's
+result soft-fell), the closure body FTT'd, and its return R lowered `void*`.
+
+Landed as one port unit:
+
+1. `FnTraitT.call_param_is_ref : ArrayList(bool)` — new LAST variant field
+   (definitions.yo), threaded through t*fn_trait (creators.yo, new 8th arg),
+   fn_trait.yo (collects `p.is_ref` from evaluate_function_parameters — the
+   data was parsed all along and dropped), substitution.yo (carried), and
+   intern.yo (appended to the key string). 28 positional pattern sites gained
+   a trailing `*`.
+2. Every FnTraitT→Func conversion now carries the flags into
+   `FuncMeta.param_is_ref`: helper.yo norm_func_type,
+   anonymous_function.yo `_func_from_fn_trait`, closure_type.yo's synthetic
+   call type, codegen other_fn_call.yo.
+3. Closure param BINDING stamps both `is_ref` AND `is_reassignable` from the
+   flags — TS binds `isReassignable: parameter.isRef`
+   (anonymous-function.ts:560, helper.ts:585); yo-self stamped only is_ref
+   in the anon-fn path and nothing in closure_type.yo's loop.
+4. The L4 closure type RE-registration (anonymous_function.yo, the
+   concrete-body-type re-register) rebuilt with `t_func_simple`, whose
+   default meta ERASED the flags for every later (specialization-time) body
+   eval — now rebuilds from `corrected_func_type`'s meta.
+5. function.yo inline-arm `fv_param_is_ref` read only a `.Func` callee type;
+   a closure callee's type is the Fn TRAIT (or SomeT wrapping it) — added
+   the extract_fn_trait_from_type fallback.
+
+Diagnosis fact worth keeping: the visible unify error ("Expected bool /
+Given unit" at the cond arm) was the ASSERT downstream of the real failure —
+un-silencing `_trial_eval_fn_body`'s swallow (function_type.yo `inner_exn`,
+the \_\_DBG_F recipe in the handoff §3) is what surfaced the actual "Cannot
+reassign \"v\"" chain.
+
+Gates: TIER 1 baseline-identical (corpus 149/0, std 153/153), TIER 2 full
+(stage2 hollow=0 + clang + stage3 + FIXPOINT_HOLDS), honest sweep
+**166 GREEN / 16 HOLLOW / 3 RED** (was 165/16/4; hollow set unchanged).

@@ -565,7 +565,7 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
       });
       res
     },
-    .FnTraitT(_, _, call_param_types, call_result, _, _, _) => {
+    .FnTraitT(_, _, call_param_types, call_result, _, _, _, _) => {
       (res : bool) = false;
       i := usize(0);
       while((i < call_param_types.len()) && !(res), {
@@ -1048,25 +1048,25 @@ _synthesize_fn_traits :: (
   // `Future(i32,IoExn)` "Cannot unify unit and i32").
   exp_params := match(
     expected_ty,
-    .FnTraitT(_, _, pts, _, _, _, _) => pts,
+    .FnTraitT(_, _, pts, _, _, _, _, _) => pts,
     .Func({ param_types : pts }) => pts,
     _ => ArrayList(TypeValue).new()
   );
   giv_params := match(
     given_ty,
-    .FnTraitT(_, _, pts, _, _, _, _) => pts,
+    .FnTraitT(_, _, pts, _, _, _, _, _) => pts,
     .Func({ param_types : pts }) => pts,
     _ => ArrayList(TypeValue).new()
   );
   exp_result := match(
     expected_ty,
-    .FnTraitT(_, _, _, r, _, _, _) => r,
+    .FnTraitT(_, _, _, r, _, _, _, _) => r,
     .Func({ result : r }) => r,
     _ => TypeValue.Unit
   );
   giv_result := match(
     given_ty,
-    .FnTraitT(_, _, _, r, _, _, _) => r,
+    .FnTraitT(_, _, _, r, _, _, _, _) => r,
     .Func({ result : r }) => r,
     _ => TypeValue.Unit
   );

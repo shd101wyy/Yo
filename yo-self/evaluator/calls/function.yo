@@ -2698,7 +2698,7 @@ Fix: wrap the call:
             try_to_implement_function_by_function_type(expr, func_type, callee_env, ctx, exn)
           },
           // FnTraitT (Fn(A, B) -> C as a type) — try closure creation.
-          .FnTraitT(_, _, _, _, _, _, _) => {
+          .FnTraitT(_, _, _, _, _, _, _, _) => {
             result_opt := try_to_implement_closure_by_fn_module_type(
               expr,
               func_type,
@@ -3579,7 +3579,20 @@ Fix: wrap the call:
           .Some(ci) => match(
             ci.ty,
             .Func({ meta : __fm6 }) => __fm6.*.param_is_ref,
-            _ => ArrayList(bool).new()
+            // Closure callee: the variable's type is the Fn TRAIT (or a SomeT
+            // wrapping it), not a Func — read the trait's `inout` call-param
+            // flags so `body(self._value)` inside a specialized method binds
+            // the closure's `inout(v)` param as a ref (the sync/mutex
+            // with_lock write-through arm).
+            _ => match(
+              extract_fn_trait_from_type(ci.ty),
+              .Some(fv_ftt) => match(
+                fv_ftt,
+                .FnTraitT(_, _, _, _, _, _, _, fv_cprf) => fv_cprf,
+                _ => ArrayList(bool).new()
+              ),
+              .None => ArrayList(bool).new()
+            )
           ),
           .None => ArrayList(bool).new()
         );

@@ -322,7 +322,14 @@ TypeValue :: ref(
       call_result : Self,
       implicit_labels : ArrayList(String),
       implicit_types : ArrayList(Self),
-      implicit_spreads : ArrayList(bool)
+      implicit_spreads : ArrayList(bool),
+      /// Per-call-param `inout` flags, parallel to `call_param_labels`. TS
+      /// keeps the whole `callType: FunctionType` on `FnTraitType` (its
+      /// parameters carry `isRef`); yo-self flattens the call signature into
+      /// the variant, and dropping this flag made a closure typed against
+      /// `Impl(Fn(inout(v) : T) -> R)` bind `v` BY VALUE (the sync/mutex
+      /// `with_lock` write-through failure). Empty = all by-value.
+      call_param_is_ref : ArrayList(bool)
     ),
     /// Future-trait type with associated output and effects.
     FutureTraitT(

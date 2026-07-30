@@ -513,7 +513,7 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
         o.push_str("]");
         o
       },
-      .FnTraitT({ base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit, implicit_spreads : fnisp }) => {
+      .FnTraitT({ base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit, implicit_spreads : fnisp, call_param_is_ref : fncprf }) => {
         o := String.from("FT:");
         o.push_string(fnbn.clone());
         o.push_str("[");
@@ -540,6 +540,8 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
         });
         o.push_str("|");
         o.push_string(_join_bools(fnisp.clone()));
+        o.push_str("|");
+        o.push_string(_join_bools(fncprf.clone()));
         o.push_str("]");
         o
       },

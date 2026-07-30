@@ -2646,7 +2646,7 @@ create_specialized_function_inline :: (
                             extract_fn_trait_from_type(declared_pt),
                             .Some(cw_ftt) => match(
                               cw_ftt,
-                              .FnTraitT(_, _, cw_cpt, cw_cres, _, _, _) => {
+                              .FnTraitT(_, _, cw_cpt, cw_cres, _, _, _, _) => {
                                 // Resolve the trait's generic occurrences by
                                 // NAME + OCCURRENCE-LEVEL from the inferred
                                 // forall_args (the ys_ret-bridge pattern):
@@ -3804,7 +3804,7 @@ try_to_call_function_with_arguments :: (
       extract_fn_trait_from_type(func_type),
       .Some(ftt) => match(
         ftt,
-        .FnTraitT(_, cpl, cpt, cr_box, _, _, _) => TypeValue.Func(
+        .FnTraitT(_, cpl, cpt, cr_box, _, _, _, cprf) => TypeValue.Func(
           ArrayList(TypeValue).new(),
           cpt,
           ArrayList(TypeValue).new(),
@@ -3817,7 +3817,7 @@ try_to_call_function_with_arguments :: (
               implicit_labels : ArrayList(String).new(),
               implicit_spreads : ArrayList(bool).new(),
               result_is_comptime_only : false,
-              param_is_ref : ArrayList(bool).new(),
+              param_is_ref : cprf,
               param_is_owning : ArrayList(bool).new(),
               result_is_ref : false,
               has_variadic : false,

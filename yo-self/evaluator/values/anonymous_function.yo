@@ -240,7 +240,7 @@ _get_param_name_from_expr :: (fn(param_expr : AstExpr, fallback : String) -> Str
 _func_from_fn_trait :: (fn(ftt : TypeValue) -> TypeValue)(
   match(
     ftt,
-    .FnTraitT(_, cpl, cpt, cr_box, _, _, _) => TypeValue.Func(
+    .FnTraitT(_, cpl, cpt, cr_box, _, _, _, cprf) => TypeValue.Func(
       ArrayList(TypeValue).new(),
       // no generic types
       cpt,
@@ -256,8 +256,9 @@ _func_from_fn_trait :: (fn(ftt : TypeValue) -> TypeValue)(
           implicit_labels : ArrayList(String).new(),
           implicit_spreads : ArrayList(bool).new(),
           result_is_comptime_only : false,
-          // Fn-trait-derived closure type (runtime)
-          param_is_ref : ArrayList(bool).new(),
+          // Fn-trait-derived closure type (runtime); `inout` call params
+          // carry through (the with_lock write-through closure).
+          param_is_ref : cprf,
           param_is_owning : ArrayList(bool).new(),
           // no `own` params in Fn-trait closure type
           result_is_ref : false,
@@ -615,7 +616,7 @@ evaluate_anonymous_function_implementation :: (
   function_type_opt := match(
     expected_ty,
     .Func({ result : _ }) => Option(TypeValue).Some(expected_ty),
-    .FnTraitT(_, _, _, _, _, _, _) => Option(TypeValue).Some(_func_from_fn_trait(expected_ty)),
+    .FnTraitT(_, _, _, _, _, _, _, _) => Option(TypeValue).Some(_func_from_fn_trait(expected_ty)),
     .SomeT(_, _, _, _, _, _, _, _, _, _, _) => {
       fn_trait_opt := extract_fn_trait_from_type(expected_ty);
       match(
@@ -1061,6 +1062,10 @@ evaluate_anonymous_function_implementation :: (
         rp_v_opt,
         .Some(rp_v) => {
           rp_v.is_ref = true;
+          // TS binds `isReassignable: parameter.isRef`
+          // (anonymous-function.ts:560): assignment TO an `inout` param is
+          // the write-through (`v = i32(99)` in with_lock's closure).
+          rp_v.is_reassignable = true;
         },
         .None => ()
       );
@@ -1410,7 +1415,24 @@ evaluate_anonymous_function_implementation :: (
                 // referenced the source name (`io`) — "use of undeclared
                 // identifier 'io'" (issues/yo-self-async-emission-cluster.md
                 // item 2).
-                register_func_type(func_id.clone(), t_func_simple(actual_param_labels.clone(), param_types.clone(), body_ty.clone()));
+                //
+                // REBUILD from `corrected_func_type`'s meta, do NOT use
+                // t_func_simple — its default meta drops `param_is_ref`, and a
+                // closure typed against `Impl(Fn(inout(v) : T) -> R)` then
+                // re-registered with the flags erased binds `v` BY VALUE in
+                // the specialized body eval (the sync/mutex with_lock
+                // write-through arm: `v = i32(99)` FTT'd and `return v`
+                // skipped the deref).
+                rereg_ty := match(
+                  corrected_func_type.clone(),
+                  .Func(_l4ft, _l4pt, _l4it, _l4wt, _l4r, _l4m) => {
+                    _l4nm := _l4m.*.clone();
+                    _l4nm.param_labels = actual_param_labels.clone();
+                    TypeValue.Func(_l4ft.clone(), param_types.clone(), _l4it.clone(), _l4wt.clone(), body_ty.clone(), box(_l4nm))
+                  },
+                  _ => t_func_simple(actual_param_labels.clone(), param_types.clone(), body_ty.clone())
+                );
+                register_func_type(func_id.clone(), rereg_ty);
                 // Record the CONCRETE def-evaluated body type by FuncVal id.
                 // Consumed by check_and_add_argument's Step-6 synthesis
                 // (calls/helper.yo): a closure passed as a call ARGUMENT whose

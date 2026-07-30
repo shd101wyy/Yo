@@ -12,7 +12,7 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 165 GREEN / 16 HOLLOW / 4 RED of 185 test files**, measured
+**Honest score: 166 GREEN / 16 HOLLOW / 3 RED of 185 test files**, measured
 with `scratchpad/hollow_sweep69.sh` after the creation-side-canonicalization
 round (2026-07-31; flips this campaign: inherent_first_resolution,
 algebraic_effects, derive_clone_complex, impl_fn_field_rejection, comptime,
@@ -202,12 +202,18 @@ counts from the last sweep:
 
 | file                               | markers | note                                                     |
 | ---------------------------------- | ------: | -------------------------------------------------------- |
-| `sync/mutex`                       |       2 | —                                                        |
 | `imm_sorted_map`, `imm_sorted_set` |       1 | the parameter-type-expression side table (architectural) |
 | `imm_threading`                    |       0 | C-level failure, no FTT markers                          |
 
 A marker count of 0 with rc=1 means the C is invalid for a reason OTHER than a
 dropped statement — read the clang error, do not go looking for FTT comments.
+
+`sync/mutex` FIXED 2026-07-31 (3/3 TRUE GREEN, markers=0): `FnTraitT` had
+dropped the per-param `inout` flags TS keeps on `FnTraitType.callType` — new
+`call_param_is_ref` variant field threaded end-to-end, closure params stamped
+`is_ref` + `is_reassignable` (TS binds `isReassignable: parameter.isRef`),
+and the L4 closure-type re-registration now preserves meta (t_func_simple
+erased the flags). Write-up in issues/yo-self-69-red-list-map.md.
 
 `closure_capture_rc_leak` FIXED 2026-07-31 (7/7 TRUE GREEN, markers=0): the
 missing port was TS's EARLY where-clause application (helper.ts:1368) plus
