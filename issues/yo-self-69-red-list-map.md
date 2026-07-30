@@ -960,3 +960,22 @@ the family's era count dropped 3 -> 2 — ONE caller-arg era pair remains
 (`(__yo_t13)((__yo_t17){...})` — the `.None` ctor args vs the callee
 params; needs one probe round to find which path still stamps the
 def-era). Gates: TIER 1 clean, TIER 2 FIXPOINT_HOLDS, sweep 164/16/5.
+
+### Signature canonicalization attempt REJECTED (2026-07-31, measured)
+
+Extending canonicalize-via-memo into `value_to_signature_string` + the
+spec's `runtime_param_tys` push produced call-site spec names that no
+longer match the emitted specs ("call to undeclared function
+yo*id_2404_rtparam0*...") — corpus PASS 75 / SELF-FAIL 74. REVERTED.
+Lesson: partial canonicalization at the SIGNATURE layer desynchronizes the
+stamp/emission halves; era canonicalization is only safe where BOTH the
+producer and every consumer of the identity go through the same point (the
+memo comparison itself — the landed piece — is such a point; the
+signature string is NOT, because call-site stamps and spec registration
+compute it at different times with different memo states). A future
+attempt must canonicalize at type CREATION (substitute/instantiation
+return values), not at identity-string rendering.
+
+Current family state (s41, all landed): imm_sorted_set markers 0 (pure
+C-level face: ONE era pair `(__yo_t13)((__yo_t17){...})`), imm_threading
+markers 0 (same pair), imm_sorted_map markers 1, sync/mutex markers 2.
