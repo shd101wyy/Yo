@@ -317,3 +317,27 @@ lowering happens before the check on BOTH sides. Verify against
 issues/repros/comptime-expr-to-string-runtime-binding.yo; the same face
 plausibly covers several of the 19 hollows (template-heavy files:
 prelude, basic, fn — all use `${(expr)}` shapes).
+
+### Two fix attempts REJECTED (measured) — the unify throw is LOAD-BEARING
+
+1. helper.yo Step-10 skip for comptime-primitive returns: the yo-self
+   build itself broke with "Variable ToString not found" at error.yo's
+   derive — the prelude's own evaluation depends on that throw somewhere
+   (a trial that must FAIL to drive the correct binding/overload path).
+2. synthesizer tag-fallback tolerance (accept comptime-primitive vs
+   runtime-counterpart pairs): SAME failure, even narrowed to NUMERIC
+   pairs only. The comptime-vs-runtime unify failure is load-bearing in
+   prelude trials; suppressing it anywhere central diverges overload
+   selection.
+
+Open question for the next round: how does TS survive the IDENTICAL
+Step-10 synthesis (helper.ts:1573 synthesizeTypes(comptime_int-return,
+expected i32) has no try/catch and TS's tag fallback throws for distinct
+tags)? Leading hypothesis: in TS the winning comptime candidate's call is
+EXECUTED via the CTFE path and returns its concrete result BEFORE the
+Step-10 return synthesis runs (yo-self types the call through
+try_to_call's Step 10 first). Verify by tracing where TS's
+evaluateFunctionCall short-circuits for comptime executions — if so, the
+yo-self fix is to skip Step 10 only when the call has ALREADY produced a
+concrete comptime VALUE (result known, nothing to synthesize) — a
+value-presence gate, not a type-shape gate.
