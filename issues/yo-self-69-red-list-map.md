@@ -775,3 +775,44 @@ Same root should cover imm_sorted_map (markers=1), imm_sorted_set
 (markers=1), imm_threading (rc=1 clang type mismatches on
 left/right params: enum_yo_id_7187 vs enum_yo_id_10301 inside ONE \_new_node
 spec signature), and plausibly sync/mutex's 2 markers.
+
+## ROOT CAUSE 2026-07-30 — imm family: substitution keeps def-time ids; TS re-evaluates
+
+Probe (\_\_DBG_CT on g_comptime_fn_caches lookups, nodup3 repro): `Map(i32)`
+UNIFIES through the CTFE cache (1 MISS-cache + 2 HITs, fid=yo_id_4657) —
+the cache is not the problem. The split comes from the GENERIC evaluations:
+`Map(K)` / `Node(K)` with the constraint-carrying SomeT K are `nocache`
+mints (arg contains SomeType → should_cache=false), one fresh struct id per
+evaluation (Node: 7 nocache mints in the tiny repro). The insert
+specialization's param/return types are produced by SUBSTITUTING K:=i32
+into one of those def-time mints — substitution.yo's Struct arm rewrites
+field types but KEEPS the struct id — while the body's `Map(K)(...)` ctor
+call re-evaluates through the cache and gets the canonical id. Two ids for
+Map(i32) inside one function → the clang type mismatches.
+
+TS's mechanism: `evaluateFunctionParameterTypeAgain` re-evaluates the
+stored type EXPRESSION in the callee env — the `Map(K:=i32)` ctor call
+lands in calledComptimeFunctionCaches → canonical object. yo-self's port
+(types/function.yo:4183 header says this verbatim) substitutes instead,
+because `TypeValue.Func` keeps only pre-evaluated TypeValues.
+
+Fix design (creation-side canonicalization — the gap-6 attempt-#8 lesson):
+after `evaluate_function_parameter_type_again` (+ its return-type variant)
+substitutes, walk the result for ctor-stamped structs/enums
+(lookup_struct_ctor_fid / enum cfid) whose type arguments became CONCRETE,
+and canonicalize each against g_comptime_fn_caches:
+
+- cache HIT for (ctor_fid, concrete args) → replace with the cached
+  instantiation;
+- cache MISS → INSERT the substituted instance as the entry (first-wins),
+  so a later direct ctor call unifies with IT (order-independent).
+  No ctor re-invocation needed. Struct carries `type_arguments`; EnumT does
+  NOT — but the enum splits observed (imm*threading's Option pair) are
+  DOWNSTREAM of the struct split (Option's ARGS differed), so struct-level
+  canonicalization should collapse the chain. Import cycle note: types/
+  function.yo cannot import calls/comptime_fn.yo (comptime_fn imports it);
+  use the established fn-pointer injection pattern (set*...\_fn at evaluator
+  init) or host the canonicalizer in comptime_fn.yo and inject.
+
+Witnesses: issues/repros/comptime-ctor-memo-split-map-insert.yo,
+tests/imm_sorted_map, imm_sorted_set, imm_threading, sync/mutex.
