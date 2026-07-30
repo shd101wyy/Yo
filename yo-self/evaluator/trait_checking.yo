@@ -527,7 +527,15 @@ _check_associated_type_constraints :: (
         ok = false;
       },
       .Some(resolved) => {
-        if(!(are_types_compatible(constraint_ty, resolved)), {
+        // Argument ROLES matter: yo-self's signature is (actual, expected)
+        // while TS's is (expected, given) — TS passes expected=constraintType,
+        // given=resolvedType (trait-checking.ts:306-311), so the resolved
+        // associated type is the ACTUAL and the constraint is the EXPECTED.
+        // With the roles swapped, `Item := A` (constraint = unbound SomeT A)
+        // against resolved `i32` missed the concrete-vs-SomeT wildcard rule
+        // and the whole trait check reported "does not implement Iterator"
+        // (the tests/closure_capture_rc_leak `any` where-clause).
+        if(!(are_types_compatible(resolved, constraint_ty)), {
           ok = false;
         }, {
           // Propagate SomeType bindings from constraint matching

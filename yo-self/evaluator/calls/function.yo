@@ -5074,6 +5074,43 @@ Fix: wrap the call:
             );
             ai = (ai + usize(1));
           });
+          // Hand the CONCRETE receiver type to try_to_call through the
+          // ONE-SHOT `ctx.pending_method_self_type` channel — the port of
+          // TS's `functionType.SelfType` (impl.ts:1497 stamps
+          // `substitutions.get("Self")` on the matched method type;
+          // helper.ts:1015 then binds "Self" into calleeEnv). try_to_call
+          // consumes (reads + clears) it at entry, so nothing beyond its
+          // Step-5b Self binding ever sees the value — deliberately NOT
+          // `ctx.self_type`, which the whole body evaluation reads
+          // (repurposing it regressed fs/temp + sys/bufio at runtime).
+          // Instance receiver: its evaluated ExprInfo type, pointer
+          // auto-deref'd. Static receiver: the TypeVal itself.
+          if(method_info.is_static, {
+            match(
+              method_info.receiver_value,
+              .Some(m_rv) => match(
+                m_rv,
+                .TypeVal(m_rt) => {
+                  ctx.pending_method_self_type = Option(TypeValue).Some(m_rt);
+                },
+                _ => ()
+              ),
+              .None => ()
+            );
+          }, {
+            match(
+              expr_info_table_get(ctx.expr_info_table, ast_expr_id(method_info.receiver_expr)),
+              .Some(m_ri) => {
+                m_recv_ty := match(
+                  m_ri.ty,
+                  .Pointer(m_pt) => m_pt,
+                  _ => m_ri.ty
+                );
+                ctx.pending_method_self_type = Option(TypeValue).Some(m_recv_ty);
+              },
+              .None => ()
+            );
+          });
           call_result_m := try_to_call_function_with_arguments(
             method_info.method_val_opt,
             method_info.method_ty,
@@ -5087,6 +5124,7 @@ Fix: wrap the call:
             false,
             exn
           );
+          ctx.pending_method_self_type = Option(TypeValue).None;
           // Record the resolved/specialized method FuncVal in the non-destructive
           // method-callee VALUE side-table (keyed by this call's expr id) so
           // codegen's method-call dispatch can recover it — the callee dot-access

@@ -3734,6 +3734,44 @@ _func_type_has_runtime_some_param :: (fn(t : TypeValue) -> bool)(
     _ => false
   )
 );
+/// Apply early where-clause constraint exprs under a capture-free SWALLOW
+/// `Exception` (the `_trial_eval_ret_type_expr` idiom). The Step-6c early
+/// application is strictly ADDITIVE — it exists to bind constraint-derived
+/// generics (`Iterator(Item := A)` → `A`) before the argument loop; when a
+/// constraint's embedded generics are still UnknownVal placeholders the
+/// trait-application eval throws ("Expected type for associated type
+/// constraint"), and that throw must not fail the CALL (measured: the batch
+/// `__yo_user_main` validation pass has no retry, so an escaping throw
+/// hollows the whole file; a plain `main` recovers on the later
+/// specialization pass). Validation still happens at Step 8b.
+/// Collect every Atom token value in `e` into `out` (pre-order). Used by the
+/// Step-6c prebind to find which forall labels a constraint expr references.
+_collect_atom_names_into :: (fn(e : AstExpr, out : ArrayList(String)) -> unit)(
+  match(
+    e,
+    .Atom(_, a_tok) => {
+      out.push(a_tok.value.clone());
+    },
+    .FnCall(_, a_fn, a_args, _, _) => {
+      recur(a_fn, out);
+      (a_i : usize) = usize(0);
+      while(a_i < a_args.len(), {
+        match(
+          a_args.get(a_i),
+          .Some(a_sub) => recur(a_sub, out),
+          .None => ()
+        );
+        a_i = (a_i + usize(1));
+      });
+    }
+  )
+);
+_try_apply_early_where_clauses :: (
+  fn(constraint_exprs : ArrayList(AstExpr), callee_env : Environment, ctx : EvalContext) -> unit
+)({
+  eaw_exn := Exception(throw : ((_eaw_e) -> unwind(())));
+  apply_where_clause_constraints(constraint_exprs, callee_env, ctx, eaw_exn);
+});
 try_to_call_function_with_arguments :: (
   fn(
     func_val : Option(EvalValue),
@@ -3984,6 +4022,39 @@ try_to_call_function_with_arguments :: (
       );
       // Step 5: Push a new frame on callee_env for parameter bindings.
       callee_env.push_frame(false);
+      // Step 5b: Bind `Self` for METHOD calls — port of TS helper.ts:1015-1035
+      // (`if (functionType.SelfType) addVariableToEnv("Self", ...)`). TS
+      // stamps `SelfType` on the method's FunctionType when the impl match
+      // resolves it (impl.ts:1497 `substitutions.get("Self")` = the concrete
+      // receiver); yo-self's flattened Func type carries no such field, so
+      // the method-call site threads the receiver type through the
+      // ONE-SHOT `ctx.pending_method_self_type` (consumed above — cleared
+      // before anything else runs, so only this binding sees it). Binding it
+      // here lets the Step-6c early where-clause application below see
+      // `Self` bound — `where(Self <: Iterator(Item := A))` then resolves
+      // `A` from the concrete receiver before the closure argument is typed
+      // (tests/closure_capture_rc_leak).
+      sb_pending := ctx.pending_method_self_type;
+      ctx.pending_method_self_type = Option(TypeValue).None;
+      if(is_method_call, {
+        match(
+          sb_pending,
+          .Some(sb_st) => {
+            _sb := add_variable_to_env(
+              callee_env,
+              String.from("Self"),
+              t_type(),
+              Option(EvalValue).Some(create_type_value(sb_st)),
+              true,
+              false,
+              false,
+              false,
+              synthetic_token(String.from("Self"), callee_env.module_path)
+            );
+          },
+          .None => ()
+        );
+      });
       // ----------------------------------------------------------------
       // Step 6: Add generic params as UnknownVal placeholders (or resolve
       //         them from an explicit generic(…) argument).
@@ -4303,6 +4374,173 @@ try_to_call_function_with_arguments :: (
           .None => ()
         );
       });
+      // ----------------------------------------------------------------
+      // Step 6c: EARLY where-clause application — port of TS helper.ts:1368-
+      // 1408. TS applies ALL the where-clause constraint exprs before the
+      // argument loop when every `lhs <: rhs` LHS atom is a variable in
+      // calleeEnv, which binds method-level generics that are only derivable
+      // from a constraint — `where(Self <: Iterator(Item := A))` on the
+      // blanket Iterator combinators binds `A` from the CONCRETE receiver's
+      // impl — so a closure argument checked against `F : (Fn(item : A) ->
+      // bool)` types its params concretely instead of leaving SomeTs (the
+      // `void*` closure param; tests/closure_capture_rc_leak,
+      // issues/repros/iterator-any-closure-void-param.yo).
+      //
+      // ADAPTATION (not in TS): apply PER-EXPR, and only when the LHS's
+      // CURRENT binding is a TYPE value. TS's calleeEnv binds forall params
+      // as SomeType TYPE values, so its all-or-nothing "LHS exists" guard is
+      // safe; yo-self's Step 6 binds them as UnknownVal placeholders, and
+      // `apply_where_clause_constraints` on that state throws 'Expected type
+      // for left-hand side...' — measured hollowing EVERY `!`/`not` call
+      // body (`where(_Self <: LogicalNot)`; enum_ne_dispatch FTT, iso/rc
+      // rc=139, sys/bufio + imm_list/imm_string hollow). The same
+      // TypeVal-state condition already guards the Step-8b reapply. The
+      // Step-8b re-application after the argument loop still applies the
+      // full set once the foralls are concretely bound.
+      match(
+        func_val,
+        .Some(ew_fv) => match(
+          ew_fv,
+          .FuncVal(ew_fvd, _) => {
+            ew_exprs := get_func_where_clause_exprs(ew_fvd.*.func_id.clone());
+            if(ew_exprs.len() > usize(0), {
+              ew_apply := ArrayList(AstExpr).new();
+              (ew_i : usize) = usize(0);
+              while(ew_i < ew_exprs.len(), {
+                match(
+                  ew_exprs.get(ew_i),
+                  .Some(ew_e) => {
+                    if(ast_expr_is_fn_call_of(ew_e, "<:",.Some(usize(2))), {
+                      ew_args := _h_get_fn_call_args(ew_e);
+                      match(
+                        ew_args.get(usize(0)),
+                        .Some(ew_lhs) => {
+                          if(ast_expr_is_atom(ew_lhs), {
+                            ew_vars := get_variables_from_env(callee_env, ast_expr_token(ew_lhs).value);
+                            if(ew_vars.len() > usize(0), {
+                              match(
+                                ew_vars.get(ew_vars.len() - usize(1)),
+                                .Some(ew_var) => match(
+                                  ew_var.value.get(usize(0)),
+                                  .Some(ew_val) => {
+                                    if(is_type_val(ew_val), {
+                                      ew_apply.push(clone_expr_fresh_ids(ew_e));
+                                    });
+                                  },
+                                  .None => ()
+                                ),
+                                .None => ()
+                              );
+                            });
+                          });
+                        },
+                        .None => ()
+                      );
+                    });
+                  },
+                  .None => ()
+                );
+                ew_i = (ew_i + usize(1));
+              });
+              if(ew_apply.len() > usize(0), {
+                // PREBIND: any forall label the applied constraints reference
+                // that is still bound to the Step-6 UnknownVal placeholder is
+                // rebound (a NEW last binding) to a TypeVal of its signature
+                // SomeT — the state TS's calleeEnv is ALWAYS in: TS
+                // `createUnknownValue` returns `TypeVal(SomeType)` for a
+                // Type-typed forall (value.ts:547-560), which is why TS's
+                // trait-application eval accepts `Iterator(Item := A)` with
+                // `A` unresolved (it stores the SomeT and the constraint
+                // synthesis then binds it). Without this, the eval throws
+                // 'Expected type for associated type constraint "Item", got:
+                // A' and the arm hollows. Scoped to the labels the applied
+                // exprs actually name so every other call keeps the
+                // UnknownVal-last invariant untouched.
+                ew_names := ArrayList(String).new();
+                (ew_ni : usize) = usize(0);
+                while(ew_ni < ew_apply.len(), {
+                  match(
+                    ew_apply.get(ew_ni),
+                    .Some(ew_ae) => _collect_atom_names_into(ew_ae, ew_names),
+                    .None => ()
+                  );
+                  ew_ni = (ew_ni + usize(1));
+                });
+                (ew_fi : usize) = usize(0);
+                while(ew_fi < fl.len(), {
+                  ew_fl := match(fl.get(ew_fi),.Some(l) => l,.None => String.from(""));
+                  (ew_named : bool) = false;
+                  (ew_nj : usize) = usize(0);
+                  while((ew_nj < ew_names.len()) && !(ew_named), {
+                    match(
+                      ew_names.get(ew_nj),
+                      .Some(nn) => if(nn == ew_fl, {
+                        ew_named = true;
+                      }),
+                      .None => ()
+                    );
+                    ew_nj = (ew_nj + usize(1));
+                  });
+                  if(ew_named, {
+                    ew_fvars := get_variables_from_env(callee_env, ew_fl);
+                    (ew_is_unknown : bool) = false;
+                    match(
+                      ew_fvars.get(ew_fvars.len() - usize(1)),
+                      .Some(ew_fvar) => match(
+                        ew_fvar.value.get(usize(0)),
+                        .Some(ew_fval) => match(
+                          ew_fval,
+                          .UnknownVal(_, _) => {
+                            ew_is_unknown = true;
+                          },
+                          _ => ()
+                        ),
+                        .None => ()
+                      ),
+                      .None => ()
+                    );
+                    if(ew_is_unknown, {
+                      (ew_mi : usize) = usize(0);
+                      (ew_done : bool) = false;
+                      while((ew_mi < sig_some_types.len()) && !(ew_done), {
+                        match(
+                          sig_some_types.get(ew_mi),
+                          .Some(ew_mst) => {
+                            ew_mn := match(ew_mst,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
+                            if(ew_mn == ew_fl, {
+                              add_variable_to_env(
+                                callee_env,
+                                ew_fl.clone(),
+                                t_type(),
+                                Option(EvalValue).Some(create_type_value(ew_mst)),
+                                true,
+                                false,
+                                false,
+                                false,
+                                synthetic_token(ew_fl.clone(), callee_env.module_path)
+                              );
+                              ew_done = true;
+                            });
+                          },
+                          .None => ()
+                        );
+                        ew_mi = (ew_mi + usize(1));
+                      });
+                    });
+                  });
+                  ew_fi = (ew_fi + usize(1));
+                });
+                ew_prev := ctx.is_evaluating_function_type;
+                ctx.is_evaluating_function_type = true;
+                _try_apply_early_where_clauses(ew_apply, callee_env, ctx);
+                ctx.is_evaluating_function_type = ew_prev;
+              });
+            });
+          },
+          _ => ()
+        ),
+        .None => ()
+      );
       // ----------------------------------------------------------------
       // Step 7: Process regular parameters.
       // ----------------------------------------------------------------

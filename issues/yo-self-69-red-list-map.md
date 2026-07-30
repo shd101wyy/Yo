@@ -1036,3 +1036,62 @@ the generic-impl's SomeTs, substitute them from the receiver instantiation
 (env.yo receiver-methods, using MethodEntry.self_type) or by registering
 per-concrete-receiver default entries at generic-impl MATCH time (the
 find_matching_generic_impl route already derives the bindings).
+
+### closure_capture_rc_leak FIXED (2026-07-31) — 7/7 TRUE GREEN, markers=0
+
+The "trait default" scoping above was wrong in mechanism (right in effect):
+`any`/`all`/`fold`/`for_each` are methods of the prelude's BLANKET impl
+`impl(generic(I), where(I <: Iterator), I, ...)`, each with its OWN
+`generic(A, F)` binder and `where(Self <: Iterator(Item := A), F <: (Fn(item
+: A) -> bool))`. The receiver-side substitution (I/Self) was already correct;
+`A` is METHOD-level and only derivable from the where clause. TS binds it via
+the EARLY where-clause application (helper.ts:1368, before the argument
+loop), which yo-self had never ported — so the closure argument was typed
+with `A` unresolved and its C param rendered `void*`.
+
+Landed as four pieces (all in one commit):
+
+1. **`ctx.pending_method_self_type`** (context.yo) — ONE-SHOT carrier for the
+   method call's concrete receiver type; set at the method-call dispatch
+   (function.yo) just before `try_to_call_function_with_arguments`, consumed
+   (read+cleared) at its entry. This is the port channel for TS
+   `functionType.SelfType` (impl.ts:1497 stamps `substitutions.get("Self")`).
+   MEASURED REJECTION of the obvious alternative: threading through
+   `ctx.self_type` changes body-specialization behavior broadly — fs/temp
+   (7 runtime throws) + sys/bufio regressed; the one-shot channel fixed both.
+2. **Step 5b** (helper.yo try_to_call) — bind `Self` into callee_env from the
+   pending carrier (port of helper.ts:1015-1035).
+3. **Step 6c** (helper.yo) — EARLY where-clause application (port of
+   helper.ts:1368-1408) with three yo-self adaptations, each measured:
+   - PER-EXPR application gated on the LHS's current binding being a
+     TypeVal. TS's all-or-nothing "LHS exists in calleeEnv" guard is safe
+     because TS binds Type-typed foralls as `TypeVal(SomeType)`
+     (value.ts:547-560 createUnknownValue); yo-self Step 6 binds UnknownVal
+     placeholders, and applying `_Self <: LogicalNot` in that state throws —
+     hollowed EVERY `!`/`not` body (enum_ne_dispatch FTT, iso/rc rc=139,
+     bufio/imm_list/imm_string hollow).
+   - PREBIND: forall labels the applied exprs reference that are still
+     UnknownVal-bound get a new LAST binding `TypeVal(sig marker SomeT)` —
+     the state TS is always in — so `Iterator(Item := A)` evaluates instead
+     of throwing 'Expected type for associated type constraint "Item"'.
+   - SWALLOW guard (`_try_apply_early_where_clauses`, capture-free `->`
+     unwind): the early apply is strictly additive; Step 8b still validates.
+4. **trait_checking.yo `_check_associated_type_constraints`** — the compat
+   call had its argument ROLES swapped vs TS: yo-self's signature is
+   `(actual, expected)`, TS's is `(expected, given)`, and the port passed
+   `(constraint_ty, resolved)` — putting the unbound SomeT `A` on the ACTUAL
+   side, missing the concrete-vs-SomeT wildcard rule, and reporting
+   "<struct> does not implement required trait Iterator". Fixed to
+   `are_types_compatible(resolved, constraint_ty)`; the following
+   `synthesize_types(constraint, resolved)` then binds `A := i32`.
+
+Repro: `issues/repros/iterator-any-closure-void-param.yo`. Bisect fact worth
+keeping: EVERY single arm of the batch was hollow while the same statements
+passed as standalone `main`s/module exprs gave DIFFERENT errors — the plain
+`main` recovered because a failed first validation attempt is retried at
+specialization time, while the batch `__yo_user_main` validation pass has no
+retry; that asymmetry is why the un-swallowed 6c throw hollowed batches only.
+
+Gates: TIER 1 identical to baseline (battery, corpus 149/0, std 153/153),
+TIER 2 full (stage2 hollow=0 + clang + stage3 + FIXPOINT_HOLDS), honest sweep
+**165 GREEN / 16 HOLLOW / 4 RED** (was 164/16/5; no composition regressions).

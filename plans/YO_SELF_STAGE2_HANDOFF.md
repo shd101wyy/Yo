@@ -12,7 +12,7 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 164 GREEN / 16 HOLLOW / 5 RED of 185 test files**, measured
+**Honest score: 165 GREEN / 16 HOLLOW / 4 RED of 185 test files**, measured
 with `scratchpad/hollow_sweep69.sh` after the creation-side-canonicalization
 round (2026-07-31; flips this campaign: inherent_first_resolution,
 algebraic_effects, derive_clone_complex, impl_fn_field_rejection, comptime,
@@ -202,13 +202,20 @@ counts from the last sweep:
 
 | file                               | markers | note                                                     |
 | ---------------------------------- | ------: | -------------------------------------------------------- |
-| `closure_capture_rc_leak`          |       3 | the closure `void*`-param family                         |
 | `sync/mutex`                       |       2 | —                                                        |
 | `imm_sorted_map`, `imm_sorted_set` |       1 | the parameter-type-expression side table (architectural) |
 | `imm_threading`                    |       0 | C-level failure, no FTT markers                          |
 
 A marker count of 0 with rc=1 means the C is invalid for a reason OTHER than a
 dropped statement — read the clang error, do not go looking for FTT comments.
+
+`closure_capture_rc_leak` FIXED 2026-07-31 (7/7 TRUE GREEN, markers=0): the
+missing port was TS's EARLY where-clause application (helper.ts:1368) plus
+the `functionType.SelfType` → calleeEnv "Self" binding (helper.ts:1015),
+carried through the new one-shot `ctx.pending_method_self_type`; a swapped
+argument-role bug in `_check_associated_type_constraints`' compat call
+(constraint SomeT was passed as ACTUAL) blocked `Item := A` unification.
+Full write-up + measured rejections in issues/yo-self-69-red-list-map.md.
 
 `derive_clone_complex` FIXED 2026-07-30: the provisional trait-method
 registry — the port of TS's receiver-trait splice

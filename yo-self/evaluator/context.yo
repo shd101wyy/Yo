@@ -310,7 +310,15 @@ EvalContext :: ref(
     /// in-flight bindings live on the context, consulted by
     /// property_access's working-trait associated-type fallback.
     current_impl_trait_field_labels : ArrayList(String),
-    current_impl_trait_field_types : ArrayList(TypeValue)
+    current_impl_trait_field_types : ArrayList(TypeValue),
+    /// One-shot carrier for a method call's CONCRETE receiver type, set by
+    /// the method-call dispatch just before `try_to_call_function_with_arguments`
+    /// and consumed (read + cleared) at its entry — the port channel for TS's
+    /// `functionType.SelfType` (helper.ts:1015 binds "Self" into calleeEnv
+    /// from it). A dedicated field, NOT `self_type`: `self_type` is visible
+    /// to the whole body evaluation and repurposing it changed specialization
+    /// behavior broadly (measured: fs/temp + sys/bufio runtime regressions).
+    pending_method_self_type : Option(TypeValue)
   )
 );
 /// Create a minimal execution context with sensible defaults.
@@ -353,7 +361,8 @@ eval_context_new :: (fn(std_path : String, module_path : String) -> EvalContext)
     expr_info_table : expr_info_table_new(),
     comptime_fn_caches : ArrayList(ComptimeFnCacheEntry).new(),
     current_impl_trait_field_labels : ArrayList(String).new(),
-    current_impl_trait_field_types : ArrayList(TypeValue).new()
+    current_impl_trait_field_types : ArrayList(TypeValue).new(),
+    pending_method_self_type : Option(TypeValue).None
   )
 );
 // ---------------------------------------------------------------------------
