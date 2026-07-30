@@ -873,3 +873,42 @@ Adopt concrete results only, same swallow-guard as the return side, same
 rte_has_ct_param gate. Then the CALLERS' arg eras converge too (their
 exprs' types come from ctor calls / enclosing spec params, both cache-era
 after this).
+
+### SLICES 2+3 ATTEMPTED AND REVERTED (2026-07-30) — corpus DIFF
+
+Slice 2 (spec-mint param re-eval: overwrite runtime_param_tys from the
+stored param TYPE exprs, gated on rte_has_ct_param, concrete-only adoption)
+DID collapse the callee-signature split — imm_threading's
+`__yo_t43 left, __yo_t42 right` became a unified signature — but the CALL
+SITES kept their own era: the args are EXPLICIT `Option(RBNode(K, V)).None`
+constructions evaluated in the CALLER's body (not expected-type-driven), and
+codegen emitted invalid struct-to-struct casts
+(`(__yo_t42)((__yo_t43){ .tag = ... })`, "used type where arithmetic or
+pointer type is required").
+
+Slice 3 (call-site expected-type re-eval: a trailing `param_type_expr`
+param on check_if_function_parameter_matches_argument, passed only for
+comptime-Type-param callees) did NOT move that face — confirming the arg
+era comes from the caller-body EVALUATION of the qualified enum ctor, not
+from the expected type.
+
+TIER 1 on slices 2+3: corpus 148/1 — `closure_where_clause_param.yo`
+regressed to DIFF (ts_rc=0 self_rc=0, output mismatch). Family unchanged.
+Zero wins + one regression → REVERTED (slice 1 remains landed; the
+param-type-expr side table remains landed and inert).
+
+Next-round leads:
+
+1. The remaining split is between the CALLER-body era of
+   `Option(RBNode(K,V))` evaluations and the callee-signature era. Probe:
+   in the failing caller's spec, print the ctor-cache key/HIT-MISS for the
+   arg's `Option(...)` evaluation vs the callee's param re-eval — they
+   should both hit the same cache entry; find which one bypasses (suspect:
+   the caller's arg expr carries a DEF-TIME ExprInfo stamp that spec
+   re-evaluation reuses, or the value-side type comes from clone_value
+   preserving the def-era type).
+2. The closure_where_clause_param DIFF: slice 2's runtime_param_tys
+   overwrite also fires for closure-typed params (their declared exprs
+   re-evaluate to Impl(Fn) wrappers) — likely perturbing the capture-era
+   used by the closure param rebind. If slice 2 is retried, EXCLUDE params
+   whose declared type carries an Fn-trait wrapper.
