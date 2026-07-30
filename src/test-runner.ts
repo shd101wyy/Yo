@@ -15,7 +15,7 @@ import {
   isLiburingAvailable,
 } from "./compiler-utils";
 import { clearEnvContainingPrelude } from "./env";
-import { YoError } from "./error";
+import { describeThrown } from "./error";
 import { setEvaluatorDeadline } from "./evaluator/exprs/_expr";
 import { clearAllGlobalImplState } from "./evaluator/index";
 import {
@@ -497,9 +497,7 @@ function compileBatchedBinary(
     } catch (compileError) {
       moduleManager = null;
       cleanup();
-      throw new Error(
-        `Yo compilation error: ${compileError instanceof YoError ? compileError.toString() : compileError instanceof Error ? compileError.message : String(compileError)}`
-      );
+      throw new Error(`Yo compilation error: ${describeThrown(compileError)}`);
     } finally {
       setEvaluatorDeadline(undefined);
     }
@@ -700,9 +698,7 @@ __attribute__((constructor)) static void _yo_increase_stack_limit(void) {
       throw error;
     }
     cleanup();
-    throw new Error(
-      `Compilation error: ${error instanceof YoError ? error.toString() : error instanceof Error ? error.message : String(error)}`
-    );
+    throw new Error(`Compilation error: ${describeThrown(error)}`);
   }
 }
 

@@ -16,7 +16,7 @@ import type { StructValue } from "../value";
 import { extractDocComments, getDocCommentLookupKey } from "../doc/extractor";
 
 // Import extracted evaluator functions
-import { YoError, YoLexerError } from "../error";
+import { describeThrown } from "../error";
 import { preScanForSkipPrelude } from "./builtins/pragma";
 import type { LoadModuleFn } from "./context";
 import { evaluateAnonymousModuleBeginExprs } from "./values/anonymous-module";
@@ -99,7 +99,7 @@ export default class Evaluator {
       this.evaluateProgram(stdPath, loadModule);
     } catch (error) {
       throw new Error(
-        `Failed to import module "${modulePath}":\n${error instanceof YoError || error instanceof YoLexerError ? error.toString() : error instanceof Error ? error.message : String(error)}`
+        `Failed to import module "${modulePath}":\n${describeThrown(error)}`
       );
     }
   }
