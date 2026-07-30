@@ -1564,7 +1564,19 @@ _synthesize_types_impl :: (
     // proceed to the per-variant field unification below, which does the
     // real checking.
     (same_variants : bool) = false;
-    if((exp_enum_cf.len() == usize(0)) || (giv_enum_cf.len() == usize(0)), {
+    // Run the structural fallback whenever the id guard would otherwise
+    // reject — including when BOTH sides carry cfids that DIFFER. Two ERA
+    // INSTANCES of the same generic enum can carry different cfids (the
+    // ctor reference cloned per evaluation context stamps a different fid),
+    // and the id guard then threw "Cannot unify incompatible enum types"
+    // for Option(B)-def-era vs Option(i32)-call-era BEFORE the per-variant
+    // unification could bind B — the whole and_then/combinator hollow
+    // cluster (issues/repros/option-and-then-closure-arg.yo). Identical
+    // variant-name lists → proceed; the per-variant FIELD unification below
+    // still does the real structural checking (it throws on genuine
+    // mismatches), so a same-shaped-but-different enum pair cannot silently
+    // unify beyond what field recursion admits.
+    if((exp_enum_id != giv_enum_id) && !(same_enum_ctor), {
       exp_vn := match(exp_en_ty,.EnumT(_, _, vn, _, _, _, _, _, _) => vn, _ => ArrayList(String).new());
       giv_vn := match(giv_en_ty,.EnumT(_, _, vn, _, _, _, _, _, _) => vn, _ => ArrayList(String).new());
       if(exp_vn.len() == giv_vn.len(), {

@@ -430,3 +430,20 @@ attempted and reverted with leads in the red-list map) now blocks BOTH:
   params BEFORE the rebind loop so body/registered/caller eras converge, and
   exclude Fn-trait-carrying params from the overwrite — the
   closure_where_clause_param corpus DIFF).
+
+### SLICE LANDED (2026-07-31): enum-synthesis structural fallback widened
+
+The synthesizer's Enum+Enum id guard now runs the variant-name structural
+fallback whenever the ids differ AND the cfids don't match (was: only when
+either cfid was EMPTY) — two ERA INSTANCES of the same generic enum carry
+different cfids and were rejected before the per-variant field unification
+could bind the generic (`Option(B)`-def-era vs `Option(i32)`-call-era).
+Result: issues/repros/option-and-then-closure-arg.yo compiles AND runs.
+Gates: TIER 1 clean, TIER 2 FIXPOINT_HOLDS, sweep 162/18/5 stable.
+
+REMAINING for the cluster: the BATCH-shape arms still hollow (orc arms
+3/33/53 re-bisected hollow under s36 — another context layer, like the
+arm-26 batch residue), and the TryFrom repro moved to a NEW face
+(`fn_yo_id_4764(10)` call to an unemitted fn — the callee resolved but its
+emission is skipped; likely the specialization-collection side). The
+era-agreement work (slice 2/3 leads) remains the root item.
