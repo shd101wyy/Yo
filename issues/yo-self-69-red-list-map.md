@@ -979,3 +979,19 @@ return values), not at identity-string rendering.
 Current family state (s41, all landed): imm_sorted_set markers 0 (pure
 C-level face: ONE era pair `(__yo_t13)((__yo_t17){...})`), imm_threading
 markers 0 (same pair), imm_sorted_map markers 1, sync/mutex markers 2.
+
+## 2026-07-31 — closure_capture_rc_leak scoped: the **unknown**Type\_\_ face lives here
+
+9-line repro `issues/repros/iterator-any-closure-void-param.yo` (TS green,
+self clang "passing 'int32_t' to parameter of type 'void _'"):
+`src.into_iter().any((x) => (x == needle(usize(0))))`. The emitted `any`
+spec is `yo_id_2798__unknown__Type___unknown__Type__rtparam0_...` — the
+Iterator GENERIC-IMPL's own generics (T/Item) ride the spec signature
+UNRESOLVED (the old imm_map cluster-2 face), so the pred param's
+`Impl(Fn(a : T) -> bool)` keeps `a` a SomeT and the closure impl fn's x
+param renders `void_` while the body call passes the concrete i32.
+Root to chase: the generic-impl method specialization must bind the impl
+generics from the RECEIVER instantiation (Iter(i32) → T := i32) into the
+spec's compile-time args — TS embeds them in the impl-method funcId
+(impl.ts:1551); yo-self's impl-bindings-sig machinery covers the RECURSION
+guard but evidently not the spec-arg binding for this route.
