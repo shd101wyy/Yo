@@ -218,14 +218,14 @@ dropped statement — read the clang error, do not go looking for FTT comments.
 running nothing. Proven with a deliberate `assert(false)` probe (TS: "33 passed
 / 1 failed"; yo-self: "34 passed") — `issues/yo-self-hollow-test-batch-main.md`.
 
-| tool                            | what                                                                                                                     |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `scratchpad/hollow_sweep69.sh`  | honest score, all 185 files, resumable. **~8 min** (measured 2026-07-30 — the "~90 min" in older notes is pre-perf-work) |
-| `scratchpad/measure_one.sh`     | one file, same rules (`BIN=… T=… TAG=… bash scratchpad/measure_one.sh`)                                                  |
-| `scratchpad/split_arms.py`      | explode a `.test.yo` into standalone per-arm `main` files                                                                |
-| `scratchpad/subset_arms.py`     | rebuild a `.test.yo` with only chosen arms — the ONLY way to blame an arm, since all arms share one dispatch expression  |
-| `scratchpad/capture_markers.sh` | run many failing files serially, keeping each one's batch `.c` + log                                                     |
-| `scratchpad/swallow_sweep.sh`   | sweep a probe-instrumented s1 to recover the SWALLOWED def-time error per file                                           |
+| tool                            | what                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `scratchpad/hollow_sweep69.sh`  | honest score, all 185 files, resumable. **~8 min** (measured 2026-07-30 — the "~90 min" in older notes is pre-perf-work)                                                                                                                                                                                                                   |
+| `scratchpad/measure_one.sh`     | one file, same rules (`BIN=… T=… TAG=… bash scratchpad/measure_one.sh`)                                                                                                                                                                                                                                                                    |
+| `scratchpad/split_arms.py`      | explode a `.test.yo` into standalone per-arm `main` files. CAVEAT: only the preamble BEFORE the first `test(` is copied — module defs BETWEEN tests are DROPPED (type_reflection's `ColorR ::`), so confirm a failing arm against TS before believing it; relative `../std` imports break outside the repo — split into `tmp/`, not `/tmp` |
+| `scratchpad/subset_arms.py`     | rebuild a `.test.yo` with only chosen arms — the ONLY way to blame an arm, since all arms share one dispatch expression                                                                                                                                                                                                                    |
+| `scratchpad/capture_markers.sh` | run many failing files serially, keeping each one's batch `.c` + log                                                                                                                                                                                                                                                                       |
+| `scratchpad/swallow_sweep.sh`   | sweep a probe-instrumented s1 to recover the SWALLOWED def-time error per file                                                                                                                                                                                                                                                             |
 
 Four rules that cost real time to learn:
 
