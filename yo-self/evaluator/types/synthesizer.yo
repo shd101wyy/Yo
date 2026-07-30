@@ -33,7 +33,18 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { register_some_resolved_concrete, lookup_struct_ctor_fid } :: import("../../expr_info.yo");
 { type_value_tag, t_effects_row, t_usize, resolve_enum_shell } :: import("../../types/creators.yo");
-{ is_some_type, is_function_type, is_pointer_type } :: import("../../types/guards.yo");
+{
+  is_some_type,
+  is_function_type,
+  is_pointer_type,
+  is_comptime_int_type,
+  is_comptime_float_type
+} :: import("../../types/guards.yo");
+/// Runtime numeric (Int/Float of any width) — the lowering targets of
+/// comptime_int / comptime_float at a consuming boundary.
+_is_runtime_numeric :: (fn(t : TypeValue) -> bool)(
+  match(t,.Int(_, _) => true,.Float(_) => true, _ => false)
+);
 { TypeTag } :: import("../../types/tags.yo");
 {
   is_fn_trait_type,
@@ -1981,6 +1992,28 @@ _synthesize_types_impl :: (
   {
     exp_tag := type_value_tag(expected_ty);
     giv_tag := type_value_tag(given_ty);
+    // A comptime NUMERIC primitive against a runtime numeric is NOT a unify
+    // failure: the folded value is lowered at the consuming boundary
+    // (convert_comptime_type_to_runtime_type), and a comptime primitive
+    // carries no SomeTs to bind. Without this, `s := (1 + 2).to_string()` —
+    // the receiver `+` re-evaluated under to_string's expected i32 — threw
+    // "Cannot unify comptime_int and i32" from the comptime_add call's
+    // return-vs-expected synthesis (helper.yo Step 10) and hollowed every
+    // `${(expr)}` template statement (the fmt/basic/fn family;
+    // issues/repros/comptime-expr-to-string-runtime-binding.yo). The
+    // comptime_str-vs-String pair deliberately KEEPS throwing (untested
+    // whether prelude trials rely on it; numeric pairs suffice here).
+    ct_rt_pair := (
+      (is_comptime_int_type(expected_ty) || is_comptime_float_type(expected_ty))
+      && _is_runtime_numeric(given_ty)
+    );
+    rt_ct_pair := (
+      (is_comptime_int_type(given_ty) || is_comptime_float_type(given_ty))
+      && _is_runtime_numeric(expected_ty)
+    );
+    if(ct_rt_pair || rt_ct_pair, {
+      return(SynthesizeResult(expected_env : ee, given_env : ge));
+    });
     if(exp_tag != giv_tag, {
       exn.throw(
         dyn(

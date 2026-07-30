@@ -341,3 +341,23 @@ evaluateFunctionCall short-circuits for comptime executions — if so, the
 yo-self fix is to skip Step 10 only when the call has ALREADY produced a
 concrete comptime VALUE (result known, nothing to synthesize) — a
 value-presence gate, not a type-shape gate.
+
+### CORRECTION + FIX LANDED (2026-07-31) — fmt.test.yo GREEN
+
+The "two fix attempts REJECTED / unify throw is load-bearing" conclusion
+above was WRONG: all three attempts were tested against a locally-damaged
+tree (a probe cleanup had deleted error.yo's ORIGINAL `open(import(
+"std/fmt"))`, and a `git add -A` docs commit landed the broken file — every
+subsequent build failed with "Variable ToString not found", misattributed
+to the attempts; see the probe-cleanup-import-hazard memory). A clean-
+worktree bisect isolated the one-line diff; error.yo restored.
+
+On the repaired tree, the NUMERIC synthesizer tolerance works cleanly:
+comptime_int/comptime_float vs a runtime Int/Float in the tag fallback is
+accepted (nothing to bind; the folded value lowers at the consuming
+boundary). fmt.test.yo HOLLOW -> GREEN (3/3 = TS parity, markers=0), sweep
+162/18/5 with exactly one flip, TIER 1 clean, TIER 2 FIXPOINT_HOLDS. The
+comptime_str-vs-String pair deliberately keeps throwing (untested).
+
+basic/fn/prelude/closure remain hollow with their own markers (4/3/1/1) —
+different roots (the missing-validation family, task list #2).
