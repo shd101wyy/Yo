@@ -1,12 +1,50 @@
-# PRE-EXISTING: `tests/basic.test.yo` — `Test 'struct'` fails in BATCH mode only
+# FIXED: `tests/basic.test.yo` — `Test 'struct'` (`usize` vs `i32` on `count`)
 
-**Status:** OPEN. Pre-existing — not introduced by any change in the 2026-07-29
-bootstrap batch (verified: reproduces with `src/codegen/exprs/return.ts` reverted
-to HEAD, and every other change in that batch is under `yo-self/`, which
-`./yo-cli` does not use).
+**Status:** FIXED 2026-07-30 in `src/env.ts` (+ ported to `yo-self/env.yo`).
+`./yo-cli test ./tests` is now **2641 passed, 0 failed**.
 
-This is the only failure in `./yo-cli test ./tests --bail`: **1811 passed, 1
-failed**.
+## Root cause
+
+A method call on a `*(Self)` receiver resolved to the RAW POINTER's arithmetic
+intrinsic instead of the pointee's method of the same name.
+
+`getReceiverMethodsByNameFromEnv` (`src/env.ts`) looks up the generic-impl
+registry for the ORIGINAL (pointer) receiver BEFORE the pointee's own methods,
+and every later lookup is gated on `methods.length === 0` — so a hit there
+suppressed the pointee's methods entirely. That was harmless until the
+pointer-operator migration gave `*(T)` the plain methods `add`/`sub`/
+`offset_from` (`plans/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md`,
+`std/prelude.yo`'s `impl(generic(T : Type), *(T), add : (fn(self : Self, count :
+usize) -> Self), …)`). From then on
+
+```rust
+impl(generic(T : Type), MyStruct(T),
+  add : (fn(self : *(Self), value : T, where(T <: Add(T))) -> unit)({ … }),
+  another_add : (fn(self : *(Self), value : T, where(T <: Add(T))) -> unit)({
+    self.add(value);          // ← resolved to the POINTER's add(count : usize)
+  }));
+```
+
+reported `Failed to synthesize types for parameter "count": Expected "usize",
+Given "i32"` — `count` being the pointer intrinsic's parameter, which is why the
+error looked unrelated to the test.
+
+## Fix
+
+The pointer-level generic-impl methods are now HELD BACK for an ordinary method
+call and appended at the END of the candidate list, so the pointee's method wins
+and pointer arithmetic stays reachable whenever the pointee has no method of that
+name (`p.add(2)` on `*(i32)` — `i32` has the `(+)` operator, no `add` method).
+
+An INFIX OPERATOR keeps the original priority: the pointee almost always has its
+own `==`/`<`, so letting it be found first turns `p > q` into a comparison of the
+POINTED-TO values. Measured — doing this unconditionally broke
+`tests/ptr.test.yo` and `tests/unsafe.test.yo` at `q > p`.
+
+Regression test: `tests/codegen-bootstrap/pointer_receiver_method_shadowing.yo`
+(corpus baseline 147 → 148), which covers BOTH directions.
+
+## Historical detail (why it was hard to see)
 
 ## Symptom
 

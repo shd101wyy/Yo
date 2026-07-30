@@ -1575,14 +1575,45 @@ export function getReceiverMethodsByNameFromEnv({
   }
 
   // Check generic impl registry for the original receiver type (e.g., *(i32))
-  // This is needed for impls like `impl(generic(T : Type), *(T), Add(...))`
-  if (methods.length === 0 && receiverType !== dereferencedReceiverType) {
-    const genericMethods = findMethodsFromGenericImpls({
+  // This is needed for impls like `impl(generic(T : Type), *(T), Add(...))`.
+  //
+  // These are held back rather than pushed here: every lookup below is gated on
+  // `methods.length === 0`, so a hit at THIS point used to suppress the
+  // POINTEE's own methods entirely. Since the pointer-operator migration gave
+  // `*(T)` the plain methods `add`/`sub`/`offset_from`
+  // (plans/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md), that made a method call
+  // on a `*(Self)` receiver resolve to raw pointer ARITHMETIC whenever the
+  // pointee's method shared its name — `self.add(value)` inside
+  // `impl(generic(T), MyStruct(T), add : …)` reported "Failed to synthesize
+  // types for parameter \"count\": Expected usize, Given i32", the `count`
+  // being the pointer intrinsic's parameter (tests/basic.test.yo `Test
+  // 'struct'`).
+  //
+  // The hold-back applies to ORDINARY method calls only. An INFIX OPERATOR on a
+  // pointer receiver must keep resolving against the pointer's own trait impls
+  // (`impl(generic(T), *(T), Eq(*(T))/Ord(*(T)))`) — the pointee almost always
+  // has an `==`/`<` of its own, so letting it be found first turns `p > q` into
+  // a comparison of the POINTED-TO values. Measured: doing this unconditionally
+  // broke `tests/ptr.test.yo` and `tests/unsafe.test.yo` at `q > p`.
+  //
+  // For a non-operator call the deferred methods are appended at the END, so the
+  // pointee's own method wins and raw pointer arithmetic stays reachable
+  // whenever the pointee has no method of that name (`p.add(2)` on `*(i32)`,
+  // since `i32` has the `(+)` operator but no `add` method).
+  const pointerReceiverGenericMethods: typeof methods = [];
+  if (receiverType !== dereferencedReceiverType) {
+    const pointerLevel = findMethodsFromGenericImpls({
       concreteType: receiverType,
       methodName,
       env,
     });
-    methods.push(...genericMethods);
+    if (isInfixOperatorCall) {
+      if (methods.length === 0) {
+        methods.push(...pointerLevel);
+      }
+    } else {
+      pointerReceiverGenericMethods.push(...pointerLevel);
+    }
   }
 
   // Check if the dereferencedReceiverType itself has method that can be called
@@ -2199,6 +2230,14 @@ export function getReceiverMethodsByNameFromEnv({
    * // The line `return v.id();` has ambiguity problem.
    *
    */
+
+  // Blanket `impl(generic(T), *(T), …)` methods found for the POINTER receiver
+  // are the LAST resort for a non-operator call (see the note at their lookup
+  // above): the pointee's own method of that name wins, and pointer arithmetic
+  // is still reachable when the pointee has none.
+  if (pointerReceiverGenericMethods.length > 0) {
+    methods.push(...pointerReceiverGenericMethods);
+  }
 
   return filterMethodsByReceiverType(methods);
 }

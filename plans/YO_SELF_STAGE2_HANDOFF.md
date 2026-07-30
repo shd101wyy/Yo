@@ -1,820 +1,342 @@
 # yo-self bootstrap — handoff
 
-_Rewritten 2026-07-26 for handover; updated 2026-07-27 after the validation
-batch. Historical detail lives in `git log` of this file and in `issues/*.md`;
-nothing below needs re-litigating._
+_Rewritten 2026-07-30. Everything historical was removed: per-round narratives
+live in `git log` of this file and in `issues/*.md`. This document is only
+(1) where the campaign stands, (2) the remaining work as concrete steps,
+(3) how to measure honestly, and (4) the rules that must not be re-learned._
 
-## Where things stand
+The goal: make the self-hosted compiler (`yo-self/`) build and run `./tests`
+as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
-- **2026-07-29 (latest): COMPTIME-OVERLOAD PREFERENCE + COMPTIME
-  INT-OVERFLOW CHECK (`f9ad9a121`) — 8 of `tests/comptime.test.yo`'s 13
-  failing arms flip (f64, i8, i16, i32, i64, u16, u32, usize); full TIER 2
-  green incl. STRICT_FIXPOINT, and GATE 0's long-standing KNOWN-RED
-  `imm-map-unspecialized-comptime-helper` now compiles AND runs.** Two
-  faithful-port gaps:
+---
 
-  1. `_try_expand_call_overload` had only TS's SECOND tiebreak (prefer
-     comptime PARAMETER types, function.ts:1664), which never fires for the
-     prelude's operator modules because their params are the SomeT `_Self`.
-     TS's PRIMARY rule (function.ts:1737-1751, "Comptime function call has
-     higher priority than normal function call" — the rule that makes
-     `1 + 2` fold to `3`) was missing, so `-(50.75)` chose the runtime
-     `neg`, `_Self` lowered to the literal's default runtime type `f64`, and
-     a runtime-return call yields `UnknownVal` WITHOUT executing its body →
-     `f64(-(50.75))` = "Got runtime value". Landed GATED to comptime-literal
-     operands; the unrestricted rule broke 5 green files
-     (`!(runtime_bool)`) and is blocked on emitting the ordinary call for a
-     non-folding comptime result — full analysis + both witnesses in
-     `issues/yo-self-comptime-overload-preference.md`.
-  2. `make_int_val` silently CLAMPED; TS `checkOverflow` THROWS
-     (comptime-numeric-fns.ts:564/600/636). Ported as `check_int_overflow` +
-     `_i64_op_wrapped` (yo-self comptime ints are i64, not BigInt).
-     u64/usize above i64::MAX stay unchecked → arm 10 still hollow.
+## 1. Where the campaign stands
 
-  Also: helper.yo now REMOVES a method-call `generic(...)` from the arg list
-  (TS helper.ts:956); the inline FuncVal arm still lacks the peel entirely →
-  `issues/yo-self-explicit-call-site-generic-args.md`, which also CORRECTS
-  the earlier mis-attribution of `contracts_phase0` arms 2/18 to the
-  contracts port (they fail identically with no contract clause).
+**Honest score: 156 GREEN / 21 HOLLOW / 8 RED of 185 test files**, measured on
+`efbf4d0eb` with `scratchpad/hollow_sweep69.sh` (results kept at
+`/tmp/hs_final/results.txt`; regenerate before trusting it — /tmp is volatile).
 
-  **Two method corrections worth more than the fixes:**
+Green baselines every change must preserve:
 
-  - **NOISE BASELINE** — every file importing `std/string/string` (i.e.
-    nearly all, via std/assert → std/fmt/to_string) swallows exactly one
-    `Cannot unify incompatible types: "usize" and "u8"`. It caused two wrong
-    root-cause attributions this session. Subtract it.
-    `issues/yo-self-std-string-swallowed-unify-noise.md`.
-  - **Move a failing statement to MODULE level to SEE the swallowed error** —
-    module begin exprs are not wrapped in the def-time swallow. A 3-second
-    `check` replaces a probe build. And count FTT markers UNANCHORED (or
-    full-compile and let clang judge): a failing sub-expression emits its
-    comment MID-LINE, which `grep '^\s*// Failed'` reports as zero.
+| gate                    | baseline                                                                                                        |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------- |
+| corpus diff-test        | **PASS 148 / DIFF 0**                                                                                           |
+| `check ./std`           | **153/153**                                                                                                     |
+| `check ./yo-self`       | last recorded **304/304** (a re-check was phantom-killed at ~15 min; slow, verify with `YO_MAIN_STACK_MB=4096`) |
+| stage2 real FTT markers | **1** (line-anchored grep — the `unwind()` marker)                                                              |
+| stage2 → stage3         | **FIXPOINT_HOLDS** (byte-identical)                                                                             |
+| GATE-0 repros           | all three compile **and run** rc=0                                                                              |
 
-  **Gate cost is now ~15 min end-to-end** (battery ~6, corpus ~3.5,
-  `check ./std` 0.5, stage2 emit 3.4, stage3 3.5) — the round-1 numbers in
-  `scratchpad/gates_perf1.sh` (stage2 46.8 min) are historical, do not quote
-  them when planning.
+`sys/bufio` and `thread` are FLAKY on this machine (intermittent SIGSEGV with a
+ZERO-byte log — the phantom-kill signature). Re-run before believing either.
 
-- **2026-07-30: HONEST SCORE 156 GREEN / 21 HOLLOW / 8 RED** (185 files;
-  `/tmp/hs_final/results.txt`, measured on `efbf4d0eb`). The HOLLOW and RED SETS
-  are byte-identical to the previous sweep — the +2 GREEN are the two new test
-  files. So this round moved ARMS, not whole files: `tests/comptime.test.yo` needs
-  BOTH of its last two arms (22 and 26) before it flips. The one earlier
-  discrepancy is settled: `impl_fn_field_rejection` fails identically under the
-  pre-session binary, so the older "155/21/7" record was a measurement
-  difference, not a regression.
+---
 
-  Round total: 11 of `tests/comptime.test.yo`'s 13 originally-failing arms fixed
-  across `f9ad9a121` (comptime-overload preference + int-overflow check),
-  `2f7d2d9f4` (unsigned-domain overflow), `4e9cfc2dd` (comptime pointer places),
-  `efbf4d0eb` (runtime-only call results) and the operator no-match widening.
-  Remaining: arm 22 (`issues/yo-self-comptime-pointer-place.md` Stage 2 — TS's
-  shared-cell `PtrValue.targetValue: [Value]` / `Variable.value: Value[]`) and
-  arm 26 (`issues/yo-self-cee-in-function-body.md` — the trait-field
-  comptime-return validation is written but rejects the prelude's own
-  `ComptimeNegate`; blocked on where-clause constraint VISIBILITY, next step
-  recorded there).
+### Start here
 
-- **2026-07-29: ASSOCIATED-TYPE REGISTRATION FIX (`0226c4865`) —
-  score 155 GREEN / 21 HOLLOW / 7 RED.** THE foundational fix under three
-  symptom families: `_substitute_self_in_method_ty` mapped only `Self`,
-  leaving `Output` a bare SomeT in every registered trait-impl method type
-  (539 unresolved-return call sites in an 8-line io.async program — now 0).
-  Consequences fixed: (a) `Self.Output` returns stayed symbolic at every
-  call site; (b) Step-10 expected-synthesis bound the unresolved `Output`
-  to a caller's ambient `_ret` SomeT and the return re-eval laundered it
-  out as the call's result. Flips: **thread + worker RED→GREEN** (the
-  void-typed-await family — `issues/fixed/yo-self-io-async-return-binop-void.md`
-  keeps the full 5-probe-build evidence trail), **both unary-neg layers**
-  (`issues/fixed/yo-self-unary-neg-dispatch.md`; regression test added to
-  `tests/operator_grouping.test.yo`, 4/4 both compilers). STILL hollow
-  after this: `contracts_phase0` (arms 2/18 = generic fn + where +
-  requires, arm 8 = cond-wrapped `invariant()` under cee — all TS-green
-  standalone differentials, empty-error class; per-arm splitter recipe
-  proven in /tmp/cp0_arms) and `comptime` (own remaining arm, re-measure).
-  NEW issue filed: `issues/yo-self-comptime-const-batch-undeclared.md`
-  (`G :: <ctfe call>` in a batch arm → undeclared C identifier; batch-arm
-  context only).
+1. Read §5 (THE METHOD) and §3's four measurement rules — they are what the
+   round-to-round cost of this campaign actually depends on.
+2. Build an s1 (`~2-3 min`, §4) and reproduce the score for ONE file with
+   `scratchpad/measure_one.sh` before changing anything.
+3. Then take §2.1 (two arms from flipping a file), or §2.3's
+   missing-validation family if you want the cheapest possible first landing.
 
-- **2026-07-29 (later): contracts + comptime_ref chains LANDED — score
-  153 GREEN / 21 HOLLOW / 9 RED** (from 150/23/10: index RED→GREEN,
-  pragma_no_contracts + pragma_verify HOLLOW→GREEN; commits `8796f5734`,
-  `ef8d196e4`, `6e916fe17`; each batch TIER-2 green incl. STRICT_FIXPOINT —
-  arithmetic from per-file honest-gate measurements, full sweep pending).
+## 2. Remaining work, in priority order
 
-  - **`tests/index.test.yo` RED→GREEN after its FOURTH root** (48 passed,
-    markers=0 hollow=0): `ComptimeFnCallResult` gained the `comptime_ref`
-    field TS propagates out of every CTFE call (comptime-fn.ts:297 →
-    index-trait.ts:615), and `_try_comptime_element_access`'s ArrayVal arm
-    now builds `ComptimeRef.ArrayRef` (TS index-trait.ts:870). Bonus: the
-    known-RED repro `issues/repros/imm-map-unspecialized-comptime-helper.yo`
-    now compiles AND runs.
-  - **Contracts port applied** (the design agent applied its own patch; 818
-    insertions over 5 files; side-tables `g_func_requires_exprs`/
-    `g_func_ensures_exprs` keyed by fn-type-expr id, re-keyed to FuncVal id).
-    `spec/pragma_no_contracts` + `spec/pragma_verify` RED→GREEN.
-    `spec/contracts_phase0` rc=0 with 31 arms dispatching but STILL hollow=1
-    on ONE arm whose root is NOT contracts (verified by removing the clause):
-    **unary `-` on a typed value is broken in s1** — CTFE leaves the Negate
-    assoc type `Output` unresolved (`Return type mismatch. Expected "i32",
-got "Output"` — the SAME root as `tests/comptime.test.yo`'s hollow), and
-    the runtime path FTTs at codegen (`return // Failed to transpile -(y);`).
-    Full matrix: `issues/yo-self-unary-neg-dispatch.md`.
-  - **thread/worker (void-typed-await) root PINPOINTED, not yet fixed:**
-    `io.async((io : Io) => { return(x + y); })` — the intrinsic
-    `__yo_op_add`'s own generic `T` never binds from its i32 args under an
-    ambient SomeT expected, and the unresolved T becomes the closure's body
-    type → Future output unit → `void _temp = ;`. Bare-tail bodies work
-    (the io.async expected-clear covers them); `return(<binop>)` does not.
-    Probe matrix + next probe: `issues/yo-self-io-async-return-binop-void.md`.
-    Two faithful-port gaps found by the hunt ARE landed (begin.yo's deferred
-    return-type `synthesize_types`, incl. the async-block arm; the
-    anonymous_function.yo SomeT resolved-cell unwrap) — necessary but not
-    sufficient.
-  - Also filed: `issues/yo-self-hollow-root-cause-map.md` updated — index's
-    fourth root RESOLVED with the two-break producer-chain analysis.
+### 2.1 `tests/comptime.test.yo` — 2 arms from GREEN
 
-- **2026-07-29: `return(<owned RC local>)` inside a branch was DOUBLE-DROPPED —
-  a miscompile in the GROUND-TRUTH TypeScript compiler (`967786ec5`). Score
-  150 GREEN / 23 HOLLOW / 10 RED.** `out` is dup'd for the caller, so the
-  early-return path must release the local exactly once; both
-  `generateEarlyReturnOnlyDeferredDropExpressions` (M3) and
-  `generateConsumedVarDropsForEscape` released it, so rc hit 0 and the
-  function returned a FREED pointer. `generatePendingDeferredDrops` had
-  already solved this exact collision for its own list via
-  `alreadyDroppedVars` (built from BOTH the deferred and early-return-only
-  lists); the consumed-var emitter had no such guard. It now takes
-  `excludeVarNames`. Ported to `yo-self/codegen/exprs/return.yo` too.
-  **This is what made `tests/fs/dir.test.yo` HANG** (rc=124):
-  `state_code_gen.yo`'s `return(remaining_exprs)` handed back a freed
-  `ArrayList(AstExpr)`, the caller read `after.len()` as 0, and the async FSM
-  omitted a while-loop's post-await tail — including the loop increment.
-  fs/dir RED→GREEN 12/12 markers=0. Full write-up:
-  `issues/fixed/yo-return-owned-local-in-branch-double-drop.md`.
-  **LESSON: instrument, don't infer.** The first fix attempt targeted
-  `deferredDropExpressions` and changed nothing; one temporary `console.error`
-  printed `droppedByThisReturn=[] consumed=["out"] earlyRet=["out"]` and named
-  the real list immediately.
+11 of its 13 originally-failing arms were fixed in the 2026-07-29/30 round. The
+file flips only when BOTH remaining arms pass, because the generated batch
+dispatch is one all-or-nothing expression.
 
-- **PRE-EXISTING, still open:** `./yo-cli test ./tests` is 1811/1812 — the one
-  failure is `basic.test.yo` `Test 'struct'` (batch context only,
-  `usize`-vs-`i32` on an allocator `count` param). It reproduces with the
-  return fix reverted, so it predates this campaign. The runner prints an
-  EMPTY error after `Failed to import module "…":`, which is why it looks
-  inscrutable; `issues/basic-test-struct-batch-count-usize-i32.md` has a
-  batch-capture recipe that surfaces the real message.
+**Arm 22 "Test comptime Ptr value" — needs TS's shared-cell value model.**
+Full scoping in `issues/yo-self-comptime-pointer-place.md` (Stage 2). Steps:
 
-- **2026-07-29: BATCH CAMPAIGN — all 42 failing files root-caused by
-  MEASUREMENT, not inspection.** Two tools now do the triage, both committed:
+1. `PtrVal(target : EvalValue, index : usize)` → `PtrVal(target_value :
+ArrayList(Self), target_index : usize)` — a 1-element list as the shared
+   cell, the direct analogue of TS `PtrValue.targetValue: [Value]`
+   (`src/value.ts:180-196`). ~8 match/construct sites: `value.yo` (eq,
+   `value_to_string`), `eval.yo` ×2, `index_trait.yo` ×2, `clone_value.yo`,
+   `comptime_index_fns.yo`, `ptr_fns.yo`.
+2. `Variable.value : Option(EvalValue)` → `ArrayList(EvalValue)` (empty = TS
+   `undefined`), porting TS `src/env.ts:73-79` and its comment verbatim. ~43
+   construction sites in `env.yo` plus the `v.value` / `var.value` readers;
+   `match(v.value, .Some(x) => …)` becomes `match(v.value.get(usize(0)), …)`, so
+   most arms survive unchanged.
+3. `ptr_fns.yo`: pass the variable's OWN cell (`src_var.value`) instead of a
+   copy — TS `ptr-fns.ts:172`.
+4. `assignment.yo`: add the scalar arm to the place consumer —
+   TS `assignment.ts:1150-1173` writes `ptrTargetValue[0] = rhs`.
+5. Gate: `tests/comptime.test.yo` arm 22, plus `tests/index.test.yo` (48 passed)
+   as the runtime-Index-trait guard, then TIER 2.
 
-  - `scratchpad/capture_markers.sh` — runs each failing file ONCE, serially,
-    saving its batch `.c` + log to an output dir so many readers can work the
-    evidence concurrently. Necessary because `YO_KEEP_BATCH=1` writes
-    `.yo_selftest_batch_*` into the TEST FILE'S OWN DIRECTORY: two `test`
-    invocations in one directory clobber each other's artifacts (this has
-    already caused phantom-hollow readings once).
-  - `scratchpad/swallow_sweep.sh` — sweeps a PROBE-INSTRUMENTED s1 to recover
-    the SWALLOWED def-time error per hollow file. This is the only thing that
-    works: a hollow file's single `Failed to transpile` marker IS the whole
-    batch dispatch expression, so the marker text names nothing.
-    **Always take a GREEN-file NOISE BASELINE and subtract it** — `Incompatible
-types:`, `Failed to evaluate right-hand side of assignment:
-(reversed._head)`, `use of moved value` and the universal
-    `__yo_expr_to_string` `__DBG_A` all occur in PASSING files, and
-    imm_map/imm_set inherit two of them from imm_string. Four candidate "root
-    causes" were disqualified this way.
+This is mechanical but wide — give it its own round and its own gate.
 
-  Full map (every RED family + every hollow file's real blocker + the noise
-  table + the reproduction recipe): `issues/yo-self-hollow-root-cause-map.md`.
-  Landed from it so far, all TIER-1 verified per file:
-  the `___dispose` deep-SomeT filter (4 RED→GREEN: btree_map, ordered_map,
-  priority_queue, sync/channel); the `comptime_str`→`*(u8)` assignment
-  coercion (string/string 251 tests, sys/file); `open()` taking nested-module
-  field types from the DECLARED namespace struct type instead of rebuilding
-  them from the value (env — `type_of_eval_value` has no `.FuncVal` arm, so a
-  nested module's function members all became `unit`); and
-  `find_methods_from_generic_impls` on TypeVal+EnumT receivers
-  (comptime_option_result — `Option(i32).unwrap` was falling through to
-  enum-VARIANT resolution).
-  **LESSON: error shape ≠ root cause.** All five `call to undeclared function`
-  files looked like one family; `index` had a SECOND independent root (the
-  unported ComptimeIndex dispatch) and went RED→HOLLOW, not GREEN.
+**Arm 26 "Comptime SomeType constraint validation" — blocked on where-clause
+constraint VISIBILITY.** Two attempts were written and reverted this round; both
+rejections are measured. Read `issues/yo-self-cee-in-function-body.md` first —
+it lists the three remaining candidates. Recommended first move: ONE probe
+binary that prints, at the pending-constraint retry site in
+`yo-self/evaluator/types/trait.yo`, both `ast_expr_to_string(lhs_expr)` and
+whether `get_variables_from_env(env_mut, "Output")` finds anything. That single
+probe distinguishes all three candidates:
 
-- **2026-07-29: for_macro_borrow RED→GREEN — the begin shared-id clobber
-  dropped `is_index_trait_address_of`. Score 141 GREEN / 26 HOLLOW / 16
-  RED.** `evaluate_begin_expression` wraps a NON-begin expr (an unbraced
-  match/cond arm body, a bare fn body) in a 1-element list holding **the same
-  node**, so its fresh `out_info` clobbers the inner expression's ExprInfo on
-  the shared `ast_expr_id`. TS never collides — `begin.ts:1027-1046`
-  synthesises the begin node with `args: [cloneExpr(expr)]`. yo-self cannot
-  copy that (it materialises no begin node; codegen dispatches on the
-  expression's shape), so it carries fields across selectively — and the
-  address-of marker was missing from that list. Consequence: String's
-  `Index.index` body (`.Some(bytes) => &(bytes(idx))`) lost the flag, so
-  `generate_address_of` fell through to its rvalue temp-spill and emitted
-  `uint8_t t = *idx_fn(..); return &t;` — **the address of a dead stack
-  local**. Every `s(i) = …` byte write mutated a dead slot. Fix = carry the
-  field (`begin.yo:2189`). Verified: emitted C now forwards the pointer
-  exactly like TS; `tests/for_macro_borrow.test.yo` 13/13 with
-  markers=0/hollow=0. The **class** is open — `issues/yo-self-begin-shared-id-clobber.md`
-  lists the four instances found so far, the still-latent fields, and the
-  proposed durable fix (invert the merge: start from `last_info`, clear what
-  the begin level must own, instead of a whitelist).
+1. `env_mut` is replaced wholesale in that file (`env_mut.frames =
+te_info.env.frames`), so the frame holding the `Output` binding may be gone.
+2. The retry re-enters via `_drop_where_constraint_failures`, whose local
+   handler swallows what still fails — a resolver fix must be verified INSIDE
+   that path.
+3. The where-clause LHS `Self.Output` may not arrive as a 2-arg `BF_DOT` call.
 
-- **2026-07-29 (`29974c0ea`): associatedTypeConstraints port + value-generic
-  stamped-return chain LANDED — score 140 GREEN / 26 HOLLOW / 17 RED.**
-  Sweep-verified flips: array, atomic_object, imm_list, imm_vec,
-  module_struct_unification GREEN; ref_closure_capture + sync/once
-  RED→GREEN; imm_map/imm_set RED→HOLLOW (10/5 markers → 1). Three
-  UN-MASKINGS (were hollow-vacuous, now fail loudly — NOT regressions):
-  algebraic_effects + index RED on the KNOWN undeclared-spec-fn family;
-  for_macro_borrow RED on ONE genuine test ("String byte index writes
-  mutate in place" — passes standalone under both compilers, fails only
-  in batch context; next front).
+Once the constraint is visible, re-apply the trait-field comptime-return
+validation (TS `src/evaluator/types/trait.ts:1074-1102`) and require
+`check ./std` to stay 153/153 — it is the false-positive detector, because the
+prelude's own `ComptimeNegate` is exactly the shape being validated.
 
-  - The atc port: TraitT +2 fields (assoc_constraint_labels/types),
-    try_to_specialize_trait_type stores `:=` bindings,
-    `_check_associated_type_constraints` real via NEW
-    `find_associated_type_from_generic_impls` (impl.yo — registry match +
-    substitute the stored assoc field value), wired at
-    type_implements_trait steps 4+8 with synthesize-based `A := conc`
-    env binding. Concrete-impl assoc values remain a documented gap
-    (issues/yo-self-closure-void-param-where-clause.md UPDATE 5).
-  - The value-generic chain (the ACTUAL array gate;
-    issues/yo-self-value-generic-stamp-return-chain.md): (1)
-    `_type_has_array_len_var` descends Struct/EnumT fields; (2)
-    try_to_call **Step 9b** re-evaluates the return-type EXPR when
-    type-level resolution keeps SomeTs/len vars (TS's
-    evaluateFunctionReturnTypeAgain IS an expr re-eval — substitution
-    cannot re-stamp comptime-fn nominals); FuncVal-arm mirror; (3)
-    type_key: `Type` AND `unit` type_argument slots are VALUE-ERASED →
-    append per-field keys (the `_ArrayIter(i32,0)`/`(i32,3)` one-C-type
-    collapse).
-  - closure_capture_rc_leak advanced to its NEXT layer (F3 void\*-param
-    family).
+### 2.2 Remove the comptime-overload literal gate (one holdout)
 
-- **Array-family peel arc COMPLETE (2026-07-29 early, five TIER-1-green
-  commits, batch TIER 2 GREEN incl. STRICT FIXPOINT):** cee
-  annotation-position `Array(T,_)` rejection (binding.yo); length-var
-  types classified codegen-generic (helper/guards/declarations);
-  comptime-param fn body DEFERRAL (TS isFunctionTypeGeneric parity);
-  the rte fallback gate corrected (the len-var condition had landed on
-  the WRONG same-text `if` — anchor scripted edits on UNIQUE context);
-  CTFE-gate stamping resolves array length vars from the call's IntLit
-  args. **array.test.yo: 10 of 12 arms genuinely fixed** (1-min repros
-  in scratchpad/ra_repro.yo + ra6_comptime_return_repro.yo). Remaining
-  arms 6+7 = the `for(arr, closure)` route — **the
-  associatedTypeConstraints port is now THE gating front**: because the
-  batch dispatch is all-or-nothing, many hollow files' LAST arms are
-  for/into_iter closures, so that one port unlocks file-level flips
-  across the board. Score holds 139/28/16 until then.
+The language rule is that a comptime call always wins — `1 + 2` folds to `3`.
+TS's primary rule is ported (`function.ts:1737-1751`) but currently applies only
+when every operand is a comptime LITERAL. One witness keeps the gate:
 
-- **PERFORMANCE GOAL MET (2026-07-29, `8c8064d2b` + `0ad2e6299`): stage2
-  emit 2265 s → 165 s (13.7×) — the self-hosted emit is now ~2.4× FASTER
-  than the TS compiler (~400 s).** Three `sample`-attributed levers: (1)
-  \_evaluate_expression's FnCall dispatch length-gated (170 keyword checks
-  → integer compares; was the #1 `==` caller); (2) the capture-tracking
-  inner test replaced by find_variable_in_env_at's found-frame index (was
-  a per-identifier frames×vars rescan); (3) generate_function's
-  superseded-stub check byte-indexed (was a char-indexed slice of the
-  WHOLE code buffer per function — O(code×fns), 75% of the emit).
-  Validated: TIER 1 corpus 147/147 0-DIFF + TIER 2 STRICT FIXPOINT.
-  **TIER 2 now runs in ~25 min (was ~110).** DEAD ENDS (measured): hashed
-  keyword map (−26%: hashing every identifier loses to length-first
-  rejection); single 40-min A/B emit timings are ±20% noise — use
-  same-workload before/after on the SAME quiet box, or interleaved short
-  proxies. check ./std is INSENSITIVE to these levers (~26 s throughout) —
-  never proxy emit perf with check.
-
-- **Array(T,\_) inference + value-generic impl bindings landed
-  (`ab622e91b` + `e1096c1b4`, 2026-07-28) — TIER 2 GREEN incl. STRICT
-  FIXPOINT** (`/tmp/gates_arrvg_t2.log`: stage2 rc=0, clang rc=0, stage3
-  rc=0, FIXPOINT_HOLDS; TIER 1 corpus 147/147 + std 153/153 on both).
-  array.test.yo self-compiled 12/12 with 0 batch markers in the clean
-  validation run — BUT the batch markers are RUN-TO-RUN NONDETERMINISTIC
-  (0↔1 with identical command+binary): the latent corruption class now
-  flips DEF-EVAL OUTCOMES, not just crashes (walker/bufio RED↔GREEN
-  oscillation is the same class). **Root-causing that corruption is the
-  top-priority next front — it gates honest scoring of everything else.**
-  ASan `check ./std` exhausts even an 8 GiB stack (zero-byte log); next
-  attempts: ASan on a SMALL nondeterministic input (array.test batch
-  compile), or MallocStackLogging/lldb per the ExprInfo-UAF workflow. The
-  TS-faithful GenericImplMatch struct-return refactor CRASHED (misemission
-  in quote machinery) and is REVERTED pending that root cause — see
-  issues/yo-self-69-red-list-map.md tail. index.test.yo HOLLOW→RED
-  (undeclared spec fns in batch C) also unattributed — re-check after the
-  corruption root.
-
-- **#70 (`s2 test ./yo-self/tests`): DONE — 61/61.**
-- **Pointer-comparison dispatch fixed (`a23013161`, 2026-07-28) — full
-  TIER 2 green incl. FIXPOINT.** Trait `==`/`<`/… on pointer receivers
-  collected the deref-bucket candidate (`Eq(i32).==`), first-hit-wins
-  threw `unify(i32, *(i32))`, and the ptr/unsafe batch mains went hollow.
-  Fix in env.yo: the TS:1451 receiver-compat filter rule (NARROWED to
-  pointer receivers — unconditional broke derived-Eq enum bodies, caught
-  by TIER 1) + a post-filter generic-impl retry so `impl(generic(T),
-*(T), Eq/Ord(*(T)))` is reachable when the deref bucket had only wrong
-  candidates. **`ptr` + `unsafe` flip genuinely GREEN** (markers=0) →
-  expected score 139 GREEN / 27 HOLLOW / 17 RED. The `||`-LHS ptr-eq
-  miscompile issue is believed fixed by the same root (standalone shape
-  verified; string.yo's direct-builtin workaround stays for perf).
-  Corpus regression test `ptr_comparison_trait_dispatch.yo` (**corpus
-  baseline 144**). Full diagnosis:
-  `issues/yo-self-ptr-comparison-trait-dispatch-unify-throw.md`.
-
-- **Closure re-typing for where-clause params landed (`9ea932e72`) — full
-  TIER 2 green incl. FIXPOINT** (2026-07-28). Mint-side occurrence-subst
-  from forall_args + closure-body RE-EVAL under concrete types (fn route;
-  corpus test `closure_where_clause_param.yo`, **baseline 145**). The
-  METHOD route (`into_iter().for_each`) is BLOCKED on the
-  associatedTypeConstraints port (`Item := A` bindings validated but
-  DISCARDED — trait_type.yo:49-51); both call-site re-typing attempts
-  measured non-firing — full map in
-  `issues/yo-self-closure-void-param-where-clause.md`. algebraic_effects:
-  evidence-arg cast fixed in /tmp/yb (unlanded), cee half-registered
-  handler mapped — `issues/yo-self-algebraic-effects-two-roots.md`.
-
-- **algebraic_effects family landed (`91ff0327b` + `c592f9920`) — full
-  TIER 2 green incl. FIXPOINT** (2026-07-28): evidence-arg per-part casts,
-  the unemittable-fn side-table for cee-rejected handlers, ctl-handler
-  def-time body force-eval (gated off in cee propagate mode), and the cee
-  OBSERVATION channel (the non-raw wrapper records swallowed throws so
-  comptime_expect_error can see them — the wrapper otherwise silently ate
-  validations and cee emptied the enclosing main). algebraic_effects RED →
-  rc=0 with ALL 72 assertions running (markers 7 → 2 stray). Corpus
-  regression test `cee_regular_fn_capture_reject.yo` (**baseline 146**).
-  Full mechanism: `issues/yo-self-algebraic-effects-two-roots.md`.
-
-- **Comptime-param specialization chain landed (2026-07-28) — TIER 1 green
-  (corpus 147/147, std 153/153, battery green); imm_map + imm_set flip
-  RED → HOLLOW (they now COMPILE and the corpus repro runs REAL
-  assertions; the batch "21/21 passed" is VACUOUS — the shared
-  batch-dispatch marker below empties every batch main, so per-test
-  assertions don't execute; the 3df73bcad commit message's "GREEN
-  self-compiled 21/21" overstates this).** Seven coordinated
-  pieces: (1) spec trigger for explicit `comptime(K) : Type` param fns
-  (TS isFunctionTypeGeneric counts isCompileTimeOnly params); (2)
-  runtime_arg_exprs gated on !param_comptime (comptime args are not C
-  args); (3) mint split — comptime arg VALUES into compile_time_args
-  (cache key), registered spec type + labels/is_ref/is_owning filter
-  comptime indices, comptime params bound compile-time EARLY (before
-  return resolution); (4) `g_func_return_type_expr` side-table + mint-time
-  RE-EVALUATION of the declared return expr (TS
-  evaluateFunctionReturnTypeAgain — substitution kept the def-era
-  instantiation and split the lineage); (5) Self-scoped re-eval
-  (receiver-arg type, not the caller's stale ctx.self_type); (6)
-  call-site return adoption in the comptime-trigger arm (locals stamped
-  the def-era enum → two C typedefs for one MapNode(i32,i32)); (7) the
-  re-eval is a FALLBACK only — replacing already-concrete forall-route
-  returns desynced HashMap's dot-route stamps (caught by TIER 1
-  SELF-FAIL). Includes the formerly-unlanded TypeUni hard-generic guards
-  (types/guards.yo + codegen collection). Corpus regression test
-  `comptime_param_value_spec.yo` (**baseline 147**). Full chain narrative:
-  `issues/yo-self-69-red-list-map.md`. sync/mutex + btree/ordered_map
-  REDs not yet re-checked; walker exit-crash fix landed separately
-  (`ea7493470`, TS codegen bug filed). **TIER 2 GREEN incl. STRICT
-  FIXPOINT** (2026-07-28, `/tmp/gates_cps_t2.log`: stage2 hollow=1
-  baseline, clang rc=0, stage3 rc=0, FIXPOINT_HOLDS).
-
-- **#69 (`s2 test ./tests`): 139 GREEN / 29 HOLLOW / 15 RED of 183.**
-  Measured 2026-07-28 post-`3df73bcad` (`/tmp/hs_cps`): vs `/tmp/hs_ae` —
-  **walker RED → GREEN** (the branch-free-handler fix), **imm_map +
-  imm_set RED → HOLLOW**. Best RED count yet (18 → 15).
-  **THE SHARED 1-MARKER HOLLOW ROOT IS IDENTIFIED (2026-07-28): the
-  synthesized batch main's dispatch
-  `match(__yo_batch_env.env.get(\`YO_TEST_INDEX\`), …)` FTTs under the
-  self-hosted compiler** — verified byte-identical marker in imm*map AND
-  array batch .c (`YO_KEEP_BATCH=1`). The batch main is therefore EMPTY:
-  every per-test spawn exits rc=0 without executing, so "N passed" from
-  batch runs is VACUOUS for the whole 1-marker hollow family (~most of
-  the 29 HOLLOWs). Fixing this ONE root makes those batches genuinely
-  execute — the single biggest remaining lever on #69 (some files may
-  then genuinely fail and need real fixes). REFINED (same day): the
-  dispatch SHAPE itself is fine — a clean repro of the exact batch main
-  (+ `open(import("std/fmt"))`) compiles ftt=0 and dispatches correctly;
-  the re-serialized `*(assert : assert) :: import(...)`non-test form is
-also fine. The dispatch is an ALL-OR-NOTHING AMPLIFIER: the whole
-match/cond is ONE expression, so ANY single test body failing def-eval
-FTTs the ENTIRE dispatch and every test in the file goes vacuous. The
-per-file killers are per-family eval gaps, enumerable per file by the
-PER-ARM BISECT:`YO*KEEP_BATCH=1 <s1> test <file>`, save the batch .yo,
-then compile per-arm variants (keep only arm k) and record FTT counts
-(/tmp/bisect_arms.py — ~40s/arm, no rebuild). First matrix (ARRAY's
-batch, 12 arms): 10/12 arms FTT INDIVIDUALLY (only 3 and 8 clean) —
-array's hollow is a family-wide `Array(i32, *)`/ array-literal era
-gap, not one bad test. Next: per-arm diag-s1 on array arm 0 (smallest),
-and the same matrix for imm_map's own batch (BEWARE: stale batch files
-from earlier runs match the`tests/.yo*selftest_batch*_.yo`glob — rm
-them before the keep-batch run).
-TIER 2 for this batch launched (chained after the sweep,`/tmp/gates_cps_t2.log`).
-Prior (`/tmp/hs_ae`, post-`c592f9920`): 138/27/18; the ONLY move vs
-`/tmp/hs_pcmp` was **`fs/walker` GREEN → RED (rc=139, ZERO-byte log)** —
-deterministic (re-reproduced standalone). Crash report
-(`~/Library/Logs/DiagnosticReports/ws_s1-2026-07-28-152358.ips`): SIGSEGV
-inside a `**\_dispose`during`**yo_cleanup_thread_gc` on the **exit path**
-(`run_test → run_compile → exit → \_\_cxa_finalize`), i.e. the compile
-FAILED (exit was called), the exit-time GC cleanup then crashed, and the
-crash pre-empts stdio flush — hence the empty log (rc=139 masks the real
-rc/error; recover the error with `script -q /tmp/x.log <bin> test …`,
-which line-buffers stdout). algebraic_effects stayed RED but for a NEW
-reason: batch-1 clang error `use of undeclared identifier 'fn_yo_id_7500'`—`void_ handler = fn_yo_id_7500;`references a handler fn whose emission
-was skipped (shape matches the new unemittable-fn side-table skipping a
-handler that IS used, or ctl_force marking — investigate before the next
-batch).
-Prior sweep (139/27/17,`/tmp/hs_pcmp` post-`a23013161`): **`ptr`+`unsafe`flipped HOLLOW → GREEN** (the pointer-comparison dispatch fix),
-no other movement vs`/tmp/hs_dbc`. Prior sweep (137/29/17, `/tmp/hs_dbc`at`b3a0b8804`) details below.
-vs the 2026-07-27 sweep (138/28/17, `/tmp/hs_pa`at`59c5fe1fa`):
-**`ref_closure_capture`flipped RED → GREEN** (the cluster-B chain);
-walker + bufio green in-run. The three DOWN moves are **NOT cluster-B
-regressions — all verified identical under the pre-batch binary**; they
-are migration/take-on-era surface first measured by this sweep (hs_pa
-predates`8acde607a`/`340c05b9e`): `algebraic_effects`HOLLOW → RED
-(batch C now emits more and hits 2 clang errors: evidence-record`exn.throw`called with raw int where the type-erased param is`void*`,
-and an undeclared `outer_val`return),`ptr`+`unsafe`GREEN → HOLLOW
-(the whole batch`main`degrades — trait-dispatched pointer COMPARISONS
-via the migration's`Ord(*(T))`generic impl never emit; repro`/tmp/ptr_repro.yo`, 10 markers, bisect cleared all five cluster-B
-pieces). Also diagnosed: `closure_capture_rc_leak`RED is the closure`void\* x`param class — closures whose expected carries no Fn trait
-still take the`\_synthesize_default_func_type`placeholder path (the
-dyn(box(...)) fix only covers that shape).
-History (2026-07-27):`imm_list`/`imm_vec`flipped hollow → GREEN
-(value-generic chain),`sync/once`RED → GREEN,`impl`RED → rc=0
-partial-hollow,`module_struct_unification`(10/10) and`atomic_object`
-  (21/21) hollow → GREEN.
-- **Batch 5 (specialization-mint emission chain, helper.yo) is TIER 2 green
-  incl. FIXPOINT** (2026-07-27, `/tmp/t2_b12.log`; the gate-1 walker rc=139
-  was a zero-byte-log phantom kill). It resolved the canonical closure repro
-  but flipped no battery file by itself — re-sweep after the value-generic
-  chain lands.
-- **Value-generic chain landed (`6e9866bcb`) — full TIER 2 green incl.
-  FIXPOINT** (`/tmp/t2_vg.log`: stage2 hollow=6, stage3 rc=0,
-  FIXPOINT_HOLDS) — `generic(N : usize)` misbind fixed (see §3's "NEXT
-  LAYER CRACKED"); **imm_list flipped genuinely GREEN in the battery
-  (hollow flags 7 → 6)**; expected to flip imm_vec in the next sweep and
-  to feed the imm_set/imm_sorted_set REDs.
-- **fn-batch chain landed (`59c5fe1fa`) — full TIER 2 green incl. FIXPOINT**
-  (`/tmp/t2_pa.log`; stage2 real hollow=1 — the raw-count false alarm and the
-  gate-metric fix are in the issues file / `baa644c6b`;
-  TIER 1 green incl. corpus 141/0 + std 153/153 + battery at the new
-  6-flag baseline)\*\*: labeled-argument
-  peel + VALIDATION on both call routes (TS helper.ts:271-302), HKT partial
-  application (`Result(_, i32)` — TS function.ts:580-766), sequential
-  default-param env + `undefined`-arg defaults (TS helper.ts:323-344), and
-  four degraded-emission guards that keep batch C valid when eval throws
-  leave half-registered definitions (tail/return FTT, Dyn wrapper
-  resolved-inner gate, skipped-callee call FTT, `_binop` empty-operand
-  FTT). Full mechanism + fn/closure per-block killer maps in
-  `issues/yo-self-hollow-test-batch-main.md`. bufio flake has a THIRD mode:
-  a one-time nondeterministic `duplicate case value` in a state-dispose
-  switch (passes on retry).
-
-- **Pointer-operator migration landed (`8acde607a`) — full TIER 2 green
-  incl. FIXPOINT.** Pointer comparison is now plain `==`/`<`/… (Eq/Ord on
-  `*(T)`); arithmetic is `p.add(n)`/`p.sub(n)`/`p.offset_from(q)` under
-  `unsafe(...)`; the `&`-operator family is gone (556 sites rewritten —
-  REPROS AND TESTS MUST USE THE NEW SURFACE). A pre-existing yo-self bug
-  surfaced: trait-dispatched pointer `==` as a `||` LHS miscompiles
-  (issues/yo-self-ptr-eq-trait-call-in-shortcircuit.md — bisect + repro).
-  Also pre-existing and still open: `check yo-self/tests/await_analysis.test.yo`
-  FAILS at `8acde607a`'s parent too (SomeT-arity mismatch at :111) — triage
-  separately. Perf: token interning + String== ptr fast path landed
-  (`b00ff439e`, stage2 emit 42.0 → 38.4 min).
-
-- **Closure take-on-expected-type landed (`340c05b9e`) — full TIER 2 green
-  incl. FIXPOINT.** An Impl(Fn)-annotated BINDING's closure now records the
-  wrapper SomeT (capture struct in the value-scoped resolved cell — NOT the
-  global registry, which measured harmful in batch 5). Gated to
-  non-io.async + concrete Fn-trait result; helper.yo Step 7 now sets
-  `is_inside_io_async_call` (the TS helper.ts:1314 twin — this was why the
-  flag measured FALSE in earlier gate attempts). c01 + c06 repros compile
-  and run. Cluster-B frontier moved: `dyn(box(closure))` now fails at the
-  box-spec EMISSION (not eval); a decl-position FTT splice breakage was
-  found alongside (degrade staged).
-
-- **CLUSTER B SOLVED (`b3a0b8804`, 2026-07-28) — the dyn(box(closure))
-  five-fix chain; c03 repro COMPILES AND RUNS.** The enabler is the port
-  of TS dyn.ts:210-224 (`dyn(box(<closure>))` passes `Box(Impl-SomeT)` as
-  the box call's expected type → V binds the Fn-carrying wrapper → the
-  closure is contextually typed at creation). Plus: function.yo:1799
-  registration regression guard (it was CLOBBERING the mint's concrete
-  spec type — last-wins registry), the declared-param bridge in the mint
-  (return + mint-env halves; **name-guarded to true forall binders** — an
-  unguarded version substituted io.async's `""`-named Future wrapper and
-  crashed the async emitter, a REAL crash wearing the zero-byte-log
-  phantom signature), the dyn-wrapper payload-resolved C-name fallback,
-  and capture-struct nominal identity in exact compat (comptime-fn cache
-  collision between same-shaped captures). Full chain + probes in
-  `issues/yo-self-hollow-test-batch-main.md`. Corpus +2 regression tests
-  (**new corpus baseline 143**). **FULL TIER 2 GREEN incl. FIXPOINT**
-  (2026-07-28: corpus 143/0, std 153/153, stage2 rc=0 hollow=1 clang=0,
-  stage3 rc=0 markers=1, stage2/stage3 byte-identical). NOTE: the stage3
-  emit was killed THREE times as a harness background task (~25-40 min
-  in, zero-byte logs, machine phantom-kill class) — it completed only
-  when launched DETACHED (`nohup ... & disown` + a done-file to poll);
-  use that pattern for any 30-min-plus job on this box. #69 re-sweep in
-  flight.
-
-**Do not quote a bare "N passing" number.** 33 files used to be counted green
-while running NOTHING: yo-self emitted the test batch's whole `main` as a
-`// Failed to transpile …` comment, so the binary exited 0 and the harness
-scored every test a pass. Proven with a deliberate `assert(false)` probe (TS:
-"33 passed / 1 failed"; yo-self: "34 passed"). Details + reproducer:
-`issues/yo-self-hollow-test-batch-main.md`.
-
-Score honestly with **`scratchpad/hollow_sweep69.sh`** (resumable, 183 files,
-~90 min): a file is GREEN only if it exits 0 **and** its batch `main` is not a
-comment. Anything else is HOLLOW or RED.
-
-`sys/bufio` and `thread` are FLAKY on this machine — they SIGSEGV
-intermittently with a ZERO-byte log (the phantom-kill signature). Re-run before
-believing either result; measured 5/6 and 5/5 clean across repeats.
-
-## What to work on, in order
-
-### 1. The hollow cluster (32 files) — biggest and best-mapped
-
-The 32, as of the 2026-07-26 sweep:
-
-```
-algebraic_effects  array  asm  async_await  atomic_object  basic  closure
-collections/linked_list  comptime  comptime_option_result  env  fn
-for_macro_borrow  gadts  higher_kinded_types  imm_list  imm_vec  impl  index
-inherent_first_resolution  iter_filter_closure  iterator_combinators
-module_struct_unification  option_result_combinators  prelude
-spec/contracts_phase0  spec/pragma_no_contracts  spec/pragma_verify
-string/string  sys/file  type_reflection  where_clause_fn_inference
+```rust
+x := Box(i32)(99);
+b := !(Var.is_owning_the_rc_value(x));   // RUNTIME binding → broken C
+b :: !(Var.is_owning_the_rc_value(x));   // comptime binding → folds
 ```
 
-They hide roughly 950 reported assertions (`string/string` alone claims 251,
-`async_await` 116, `algebraic_effects` 72, `collections/linked_list` 69).
+The operand's value IS concrete (a `BoolVal` from the
+`__yo_var_is_owning_the_rc_value` builtin), so the trial rightly accepts the
+comptime candidate; in a runtime position its CTFE then yields nothing
+emittable. It reaches codegen through the `iso(...)` macro's `cond` guard —
+bisected to arm 2 of `tests/iso.test.yo` (`isolated := ^(x)`). Full analysis and
+both witnesses: `issues/yo-self-comptime-overload-preference.md`.
 
-Because the generated batch `main` is ONE `match` statement holding every test,
-a single evaluation failure anywhere in the file loses that statement's
-`ExprInfo` and codegen replaces the whole dispatch with a comment. Fixing one
-evaluator failure can flip an entire file; a file stays hollow until its LAST
-failure is fixed.
+Steps: find why that CTFE does not fold in a runtime position; then widen
+`ct_successes` in `_try_expand_call_overload` from `foldable` back to
+`successes`, delete the `conc_out` plumbing in
+`_trial_call_overload_candidate`, and re-run the two witnesses
+(`tests/imm_string` for the already-fixed half, `tests/iso` + `tests/rc` for
+this one) plus TIER 2.
 
-Every one of the 32 has at least one cause captured — this table is a complete
-work-list (from a diagnostic s1 printing every swallowed error; 16 messages
-common to all 32 are prelude noise and are excluded):
+### 2.3 The hollow cluster (21 files)
 
-| files | cause                                                                                                                    |
-| ----- | ------------------------------------------------------------------------------------------------------------------------ |
-| **8** | `Incompatible types:` — the closure-forall family (see §3)                                                               |
-| **6** | `Expected compile error, but the expression was evaluated successfully:`                                                 |
-| **3** | `Expected a label for function parameter, got requires(...)` — contracts                                                 |
-| 2     | `Expected enum type or primitive type for match expression, got unit`                                                    |
-| 2     | `Cannot unify incompatible types: "usize" and "Type"`                                                                    |
-| 2     | `Failed to evaluate right-hand side of assignment: (reversed._head)`                                                     |
-| 2     | `Type mismatch for type member "_f":`                                                                                    |
-| 1 ea. | 17 singles (asm unimplemented, `_` array length, `for(inout(x))`, `unwind` outside fn, `Variable "printf" not found`, …) |
+A hollow file exits 0 while running NOTHING: the batch `main` is a single
+`// Failed to transpile …` comment, so the harness scores every test a pass. One
+evaluation failure anywhere in the file loses the whole dispatch, so a file
+stays hollow until its LAST failure is fixed — and fixing one root can flip an
+entire file.
 
-The `comptime_expect_error` group is the cheapest: each is a missing
-VALIDATION (yo-self ACCEPTS what TS rejects) in an otherwise-green file.
-`ccd2dc498` (`operator_grouping`) proved the method; the 2026-07-27 batch
-`a71032468` worked the six. **Per-file state after the batch:**
+| file                                                |   markers | root as last measured                                                                                                                             |
+| --------------------------------------------------- | --------: | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `asm`                                               |         1 | **unported**: `evaluate_asm: not yet implemented`                                                                                                 |
+| `iter_filter_closure`                               |         2 | **unported**: TypeVal SomeT callee without FnTrait                                                                                                |
+| `type_reflection`                                   |        24 | **unported**: `__yo_type_get_info: unsupported type variant`                                                                                      |
+| `comptime`                                          |         1 | arms 22 + 26 — §2.1                                                                                                                               |
+| `higher_kinded_types`                               |         1 | explicit `generic(...)` peel landed but did not flip it: the HKT-kinded binder + the method form `container.map(generic(B), f)` remain            |
+| `spec/contracts_phase0`                             |         1 | arms 2/18 were the explicit-generic-arg root (peel landed, still hollow → another root); arm 8 is a cond-wrapped `invariant()` under cee          |
+| `basic`                                             |         4 | `x := 13` after `(x : i32) = 12` needs TS `addVariableToEnv` shadowing rules (the `Test 'struct'` half is fixed — see the pointer-receiver issue) |
+| `closure`, `fn`, `inherent_first_resolution`        |     1/3/1 | missing VALIDATIONS (yo-self accepts what TS rejects) — the cheapest family, see the recipe below                                                 |
+| `iterator_combinators`, `where_clause_fn_inference` |       2/1 | shared root: `Type mismatch for type member "_f":`                                                                                                |
+| `collections/linked_list`                           |         1 | `Type mismatch for type member "value":` + match-on-`unit`                                                                                        |
+| `option_result_combinators`                         |         1 | `Last expression in "begin" is not evaluated correctly:`                                                                                          |
+| `imm_map`, `imm_set`                                |         1 | after noise subtraction: `Cannot unify incompatible types:`                                                                                       |
+| `async_await`, `fmt`, `gadts`, `impl`, `prelude`    | 1/1/1/4/1 | see the per-file table in the root-cause map                                                                                                      |
 
-| file                        | state                                                                                                                                                                                                                                                                                                                                                                                                     |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `module_struct_unification` | **FLIPPED GREEN** (10/10) — `module(...)`/`Module` removed from yo-self (the TS Module→Struct unification's missing half)                                                                                                                                                                                                                                                                                 |
-| `atomic_object`             | **FLIPPED GREEN** (21/21) — atomic-Send enforcement ported (guarded to CONCRETE fields; see the divergence note in `enforce_atomic_object_send`)                                                                                                                                                                                                                                                          |
-| `impl`                      | hollow → RED → rc=0 partial-hollow (6/26). Both targets THROW correctly (Impl-divergent-return check in begin.yo + `v.pick("s")` via the arg-type-check); the C build is restored by the degraded `return (void*)0;` for unresolved-Impl returns (codegen/exprs/return.yo). The batch main still drops a region — same silent-abandonment class as §3                                                     |
-| `basic`                     | still hollow. `x = 12` outside a FN BODY now errors (assignment.yo); the WHILE twin is unportable (frame-level off-by-one, measured). NEXT failing cee: `x := 13` after `(x:i32)=12` — needs TS's `addVariableToEnv` no-shadowing/duplicate rules, a wide-blast-radius port                                                                                                                               |
-| `inherent_first_resolution` | still hollow. `f.m(true)` errors on HEAD; `s.starts_with(i32(5))` needs call-site where-clause validation WIDENED past marker traits, which first needs `type_implements_trait` fixed for concrete method-trait satisfaction (measured false negatives: `String <: Hash` ×14, `String <: Eq` ×12 over `check ./std` — widening today rejects valid std code)                                              |
-| `prelude`                   | still hollow. `impl(AnotherBox, Dispose(...))` now REJECTED (self-constraint hook); `assume_init()`-twice is BLOCKED on TS-parity env cloning for the call checking phase (`cloneEnvForCTFECheck`) — a consumed-state gate at the TS-mirror site (helper.ts:402) false-positives on yo-self's shared-env double evaluation (measured: hollows imm_string). Reverted; do not re-land without the env clone |
+The per-file evidence base is `issues/yo-self-hollow-root-cause-map.md`.
+**Re-measure before acting on it** — it is dated 2026-07-29 and this round
+superseded several of its entries (`comptime`'s `"Output"` root is fixed;
+`contracts_phase0`'s "requires clause" attribution was wrong — the trigger was
+the explicit `generic(...)` argument alone, verified by removing the contract
+clause; `comptime_option_result` has since flipped GREEN).
 
-**New known defect from the impl flip:** when a cee'd fn DEFINITION throws
-mid-body (e.g. at the second divergent `return`), yo-self's mutable
-registrations keep the half-evaluated fn and codegen emits a PARTIAL body —
-statements before the throw as real C (with the unresolved `Impl` return
-lowered to `void*`, so `return <int32_t temp>;` breaks clang), statements
-after as `// Failed to transpile`. TS discards the whole definition. Cheapest
-fix candidate: fn-body emitters treat a body containing ANY missing-ExprInfo
-statement as fully failed (whole-body comment), which is what already happens
-when the FIRST statement throws. Gate on corpus + battery + stage2 markers.
+Cheapest family first: **the missing-validation group.** Each is one check TS
+performs and yo-self does not, in an otherwise-green file. Recipe: put the
+offending expression in `src/tests/fixme.yo`, run `./yo-cli check` (TS) against
+the s1 binary, and TS rc=1 vs s1 rc=0 localises the missing check in minutes.
 
-Method that works: run the file under a DIAGNOSTIC s1 (below), find the
-`Expected compile error …` site, put the offending expression in
-`src/tests/fixme.yo`, and compare `./yo-cli compile` (TS) against the yo-self
-binary. TS rc=1 vs yo-self rc=0 localises the missing check in minutes.
+### 2.4 The 8 REDs
 
-#### Building a diagnostic s1 (the highest-value tool in this campaign)
+Cluster-mapped in `issues/yo-self-69-red-list-map.md`. Current list with marker
+counts from the last sweep:
 
-yo-self swallows evaluator errors in three places and emits
-`// Failed to transpile` instead. Un-silencing them turns "the file is hollow"
-into a precise error list. ~4 minutes end to end:
+| file                               | markers | note                                                                                                                                     |
+| ---------------------------------- | ------: | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `algebraic_effects`                |      13 | largest marker count of any file — start here for volume                                                                                 |
+| `closure_capture_rc_leak`          |       3 | the closure `void*`-param family                                                                                                         |
+| `sync/mutex`                       |       2 | —                                                                                                                                        |
+| `imm_sorted_map`, `imm_sorted_set` |       1 | the parameter-type-expression side table (architectural)                                                                                 |
+| `derive_clone_complex`             |       0 | C-level failure, no FTT markers                                                                                                          |
+| `imm_threading`                    |       0 | C-level failure, no FTT markers                                                                                                          |
+| `impl_fn_field_rejection`          |       0 | **pre-existing** — fails identically under a pre-session binary; C error `initializing 'void *' with an expression of incompatible type` |
+
+A marker count of 0 with rc=1 means the C is invalid for a reason OTHER than a
+dropped statement — read the clang error, do not go looking for FTT comments.
+
+### 2.5 Parked / known-open
+
+- `./yo-cli test ./tests` under **TS** is GREEN: **2641 passed, 0 failed**
+  (2026-07-30). The long-standing `basic.test.yo` `Test 'struct'` failure is
+  FIXED — a method call on a `*(Self)` receiver was resolving to the raw-pointer
+  `add(count : usize)` intrinsic instead of the pointee's own `add`; details and
+  the both-directions regression test in
+  `issues/basic-test-struct-batch-count-usize-i32.md`.
+- The test runner still prints `Failed to import module "…":` with **nothing
+  after the colon** when a generated batch module fails to compile. That empty
+  message is what made the above look unactionable for weeks; the capture recipe
+  in the same issue file is the workaround, and making the runner propagate the
+  inner error is a small, high-value fix on its own.
+- `issues/yo-self-std-string-swallowed-unify-noise.md` — one swallowed
+  `Cannot unify incompatible types: "usize" and "u8"` inside
+  `std/string/string`, present in nearly every file. Harmless today, but it is
+  the noise floor (see §3) and one std function body never completes its
+  definition-time validation.
+- `issues/yo-self-comptime-const-batch-undeclared.md` — `G :: <ctfe call>` in a
+  batch arm emits an undeclared C identifier (batch-arm context only).
+- `issues/yo-self-begin-shared-id-clobber.md` — the CLASS is open: `begin`
+  wraps a non-begin expr around the SAME node, so its `out_info` clobbers the
+  inner ExprInfo on the shared id. Four instances found; the proposed durable
+  fix is to invert the merge (start from `last_info`, clear what the begin level
+  must own) instead of maintaining a whitelist.
+- Side issues, not blockers: `issues/ts-early-return-nested-block-rc-drop.md`,
+  `issues/ts-constructor-result-drop-o0-crash.md`.
+
+---
+
+## 3. How to measure honestly
+
+**Never quote a bare "N passing".** 33 files were once counted green while
+running nothing. Proven with a deliberate `assert(false)` probe (TS: "33 passed
+/ 1 failed"; yo-self: "34 passed") — `issues/yo-self-hollow-test-batch-main.md`.
+
+| tool                            | what                                                                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `scratchpad/hollow_sweep69.sh`  | honest score, all 185 files, resumable. **~8 min** (measured 2026-07-30 — the "~90 min" in older notes is pre-perf-work) |
+| `scratchpad/measure_one.sh`     | one file, same rules (`BIN=… T=… TAG=… bash scratchpad/measure_one.sh`)                                                  |
+| `scratchpad/split_arms.py`      | explode a `.test.yo` into standalone per-arm `main` files                                                                |
+| `scratchpad/subset_arms.py`     | rebuild a `.test.yo` with only chosen arms — the ONLY way to blame an arm, since all arms share one dispatch expression  |
+| `scratchpad/capture_markers.sh` | run many failing files serially, keeping each one's batch `.c` + log                                                     |
+| `scratchpad/swallow_sweep.sh`   | sweep a probe-instrumented s1 to recover the SWALLOWED def-time error per file                                           |
+
+Four rules that cost real time to learn:
+
+1. **Subtract the NOISE BASELINE.** Any file importing `std/string/string`
+   (i.e. nearly all, via `std/assert` → `std/fmt/to_string`) swallows exactly
+   one `Cannot unify incompatible types: "usize" and "u8"`. It caused two wrong
+   root-cause attributions. Others (`__yo_expr_to_string`, `Incompatible
+types:`, `use of moved value`) occur in PASSING files — take a green-file
+   baseline and `comm -23` against it.
+2. **Move a failing statement to MODULE level to SEE the swallowed error.**
+   Module begin exprs are not wrapped in the def-time swallow, so a 3-second
+   `check` replaces a probe build. This is the single biggest speed-up in the
+   diagnosis loop.
+3. **Count FTT markers UNANCHORED, or full-compile and let clang judge.** A
+   failing sub-expression emits its comment MID-LINE
+   (`(bool)(// Failed to transpile …)`), which `grep '^\s*// Failed'` reports as
+   zero. The line-anchored form is correct ONLY for the stage2 self-compile
+   count, where it exists to skip the compiler's own string literals.
+4. **A `::` statement emitting `// Failed to transpile` means its node has NO
+   ExprInfo** — the enclosing body eval THREW there (`::` is a no-op emitter,
+   `codegen/exprs/generation.yo`). Everything after it in the body loses its
+   info too, so the FIRST marker names the real failure.
+   `comptime_assert` is a vacuous oracle when its argument is not a concrete bool.
+
+### Building a diagnostic s1
+
+yo-self swallows evaluator errors in FOUR places. Un-silencing them turns "the
+file is hollow" into a precise error list:
+
+| site                                                                 | tag suggestion |
+| -------------------------------------------------------------------- | -------------- |
+| `evaluator/exprs/_expr.yo` `_evaluate_expression_wrapper` catch-all  | `__DBG_W`      |
+| `evaluator/calls/function_type.yo` `_trial_eval_fn_body` `inner_exn` | `__DBG_F`      |
+| `evaluator/values/anonymous_function.yo` `inner_exn` (two sites)     | `__DBG_A`      |
+| `evaluator/builtins/comptime_expect_error.yo` `local_exn`            | `__DBG_C`      |
+
+Use DISTINCT tags — a single shared tag cannot tell the sites apart. Add
+`open(import("std/fmt"));` to any file you touch EXCEPT
+`yo-self/evaluator/calls/function.yo`, where `eprintln` is already in scope and
+the import collides with `ToString`.
+
+---
+
+## 4. Gates
 
 ```bash
-cp -R yo-self /tmp/ydiag && rm -rf /tmp/ydiag/tests /tmp/ydiag/yo-self-bin.c
+bun run build                                              # before any yo-cli work
+YO_MAIN_STACK_MB=4096 ./yo-cli compile yo-self/main.yo --release -o /tmp/s1
+S1=/tmp/s1 P=x bash scratchpad/gates_fast.sh               # TIER 1
+S1=/tmp/s1 P=x bash scratchpad/gates_perf1.sh              # TIER 2
+BIN=/tmp/s1 OUT=/tmp/hs bash scratchpad/hollow_sweep69.sh  # honest score
 ```
 
-Then add an `eprintln` before each of these three `unwind`s and rebuild with
-`./yo-cli compile /tmp/ydiag/main.yo --release -o /tmp/diag_s1`:
+Measured costs on this box (2026-07-30 — **older notes quote 8-min builds and a
+110-min TIER 2; both are pre-perf-work, do not plan around them**):
 
-| file (under `/tmp/ydiag/`)               | handler                                            |
-| ---------------------------------------- | -------------------------------------------------- |
-| `evaluator/exprs/_expr.yo:1018`          | `_evaluate_expression_wrapper`'s catch-all swallow |
-| `evaluator/calls/function_type.yo:222`   | `_trial_eval_fn_body`'s def-time trial swallow     |
-| `evaluator/values/anonymous_function.yo` | `_trial_eval_anon_body`'s equivalent               |
+| step                  | cost                                                                                  |
+| --------------------- | ------------------------------------------------------------------------------------- |
+| s1 build              | ~2-3 min                                                                              |
+| TIER 2, end to end    | **~15 min** (battery ~6, corpus ~3.5, `check ./std` 0.5, stage2 emit 3.4, stage3 3.5) |
+| honest 185-file sweep | ~8 min                                                                                |
 
-e.g. `(_err) -> { eprintln(\`\_\_DBG \${\_err.to_string()}\`); unwind(()) }`. Add
-`open(import("std/fmt"));`to any file you touch — EXCEPT`yo-self/evaluator/calls/function.yo`, where `eprintln`is already in scope and
-the import collides with`ToString`.
+TIER 2 is cheap enough now to run per landed fix — do that rather than batching
+several risky changes into one gate, because attribution is what costs time.
 
-Then `/tmp/diag_s1 test <file> --parallel 1 2>&1 | grep __DBG | sort -u`.
-Messages that appear for EVERY file are prelude-evaluation noise — ignore them;
-the discriminating ones are the work-list. Use DISTINCT tags per site (the
-2026-07-26 recipe used one `__DBG` for all three and could not tell them
-apart), and know there is a FOURTH, silent swallow the recipe misses:
-`_comptime_expect_error_arg_threw`'s `local_exn`
-(`evaluator/builtins/comptime_expect_error.yo`).
+`tests/index.test.yo` is NOT in the TIER-1 battery; run it explicitly whenever
+you touch address-of / Index-trait / comptime-place code.
 
-### 2. The soundness fix — LANDED
+**Never** run two `yo-cli test` invocations against the same directory
+concurrently (the batch artifacts `.yo_selftest_batch_*` live next to the test
+file and clobber each other — this has produced phantom-hollow readings). Never
+edit `yo-self/*.yo` while a gate is in GATE 4/5 (stage2/stage3 read the tree; a
+mid-run edit invalidates the fixpoint comparison). To measure a test file while
+a gate is running, copy it to a scratch dir and run it there.
 
-The arg-type-check fix (a call's arguments were never validated against the
-declared parameter types on the `_evaluate_funcval_runtime_call` path) landed
-in `a71032468` with the full validation batch; TIER 2 green, FIXPOINT HOLDS.
-History and the load-bearing function-type guard:
-`issues/yo-self-arg-type-check-bypassed.md`.
+---
 
-### 3. The closure-forall family (8 hollow files)
-
-Reproducer: `issues/repros/closure-arg-abandons-enclosing-begin.yo`. A closure
-passed as a call ARGUMENT leaves the callee's forall `U` unbound → the callee's
-def-time trial body eval hits `List(U)` → `(result : List(U)) = List(U).new()`
-throws.
-
-**MECHANISM CAPTURED + FIRST HALF LANDED 2026-07-27** (full detail in
-`issues/yo-self-hollow-test-batch-main.md`): the throw travels the
-SPECIALIZATION path (`create_specialized_function_inline` →
-`try_to_call_function_with_arguments`), which installs NO swallow, unwinds
-the CALLER's begin loop (the hollow blast radius), and is contained by the
-ENCLOSING fn's own def-time trial — whose handler is what a diag build
-prints (the source of every earlier misattribution).
-
-**LANDED (TIER 2 + FIXPOINT green):** the closure-body-type Step-6 binding —
-`register_closure_body_type` (function_value.yo, fed by
-values/anonymous_function.yo's concrete-body refine block, COMPTIME body
-types excluded) + the given-return substitution before Step-6 synthesize in
-check_and_add_argument (helper.yo). The canonical repro's markers went
-**2 → 0** (statements emitted for real, first time) and the blast radius is
-gone; battery/corpus/std all at baseline.
-
-**EMISSION HALF LANDED (batch 5, TIER 2 + FIXPOINT green 2026-07-27):** the
-specialization-mint chain in helper.yo (307 insertions) — subst-by-occurrence
-for `spec_ret_ty` and `spec_result` (SomeT occurrences collected from return
-AND all params, `subst_new`/`subst_add`/`substitute`), capture-struct closure
-param typing (`get_closure_capture_info`), the `cap_ty_fixed` rebind
-fallback, and the zb-loop mint-env forall binding. The canonical closure
-repro COMPILES AND RUNS. Two pieces measured harmful and dropped (see the
-issues file): the register-all-specializations collection helper
-(cycle_collector RC regression) and the wrapper-resolution stamp even
-TS-conditioned (fs/file + fs/temp went hollow).
-`issues/patches/spec-emission-second-half-wip.patch` is superseded — only
-its two REJECTED pieces remain of interest as documentation.
-
-**NEXT LAYER CRACKED (value-generic misbind, TIER 1 in flight 2026-07-27):**
-per-arm isolation showed every imm_list closure/generic arm now emits clean;
-the single batch-killer is `from_array` (`generic(N : usize)` + `Array(T,
-N)`) — three writers stamped `N := TypeVal(...)` (kind Type) so
-`with_capacity(N)` throws unify(usize, Type) on the unswallowed spec path.
-Fix chain (function.yo + helper.yo, full mechanism in
-`issues/yo-self-hollow-test-batch-main.md`): structural-fallback `.IntLit`
-propagation into fresh_env (the faithful port of TS calleeEnv carrying
-`N = <len> : usize` from synthesizer.ts:900-937), actual env VALUES in
-spec_forall_args (TS keys specs on compileTimeArgValues), and Type-kind
-guards on the two positional rebinds (receiver fallback + mint zb-loop; TS
-never rebinds foralls). r_fromarray/r_fromlist markers 2 → 0, run clean.
-Expected blast radius: imm_list + imm_vec hollow flips; feeds imm_set /
-imm_sorted_set REDs. The cheap emitted-C sed-instrumentation trick
-(setters/checks/containments/returns as ONE fprintf stream; never mix
-eprintln/fprintf probe channels; stdout is block-buffered under `&>`) is the
-tool that cracked all of this.
-
-**Four measured dead ends — do not repeat** (all in
-`issues/yo-self-hollow-test-batch-main.md`):
-
-1. `synthesizeTypes` on the closure return in `yo-self/evaluator/calls/closure_type.yo` (TS
-   closure-type.ts:186-196) — zero effect; that path is never taken for a
-   closure passed as an argument (it is `yo-self/evaluator/values/anonymous_function.yo`).
-2. Stamping the SomeType return from the body type (TS
-   anonymous-function.ts:963-988) — it FIRES (`ret=U rid=1975 body=i32`) and
-   Step 6 sees the resolution, yet the repro is unchanged.
-3. Widening the expected-type clear at `yo-self/evaluator/values/anonymous_function.yo:1243` — needed to
-   make (2) fire at all, not sufficient.
-4. Narrowing the unknown-arg CTFE gate (`yo-self/evaluator/calls/comptime_fn.yo:565-585`; TS has no such
-   gate) — clears the repro but regresses `imm_list` to SIGSEGV and clears no
-   hollow file.
-
-### 4. The 19 REDs
-
-Independent, cluster-mapped, no shared blocker:
-`issues/yo-self-69-red-list-map.md`.
-
-## Gates — tiered (adopted 2026-07-26)
-
-A landing costs ~75 min of gates while diagnosis costs minutes, so batch ports
-and gate the batch:
-
-- **TIER 1 — `scratchpad/gates_fast.sh` (~12 min)**: repros, the 20-file
-  battery WITH per-file hollow detection, corpus diff-test, `check ./std`. Run
-  on every change while assembling a batch.
-- **TIER 2 — `scratchpad/gates_perf1.sh` (~110 min)**: adds stage2, clang,
-  stage3, STRICT_FIXPOINT. Run ONCE per 2-3 landed (TIER-1-green, committed)
-  fixes, and always before pushing. Launch DETACHED (`nohup … & disown` + a
-  done-file) — harness background tasks 30-min-plus get killed on this box.
-- Bisect a TIER-2 failure with 2-minute s1 builds. Do not go back to
-  one-gate-per-commit.
-
-### Iteration-speed rules
-
-- **One build must answer the whole question**: pack EVERY plausible probe
-  into a single diag build (e.g. tag ALL 63 return sites of a fn at once,
-  mechanically via python), never one-hypothesis-per-build — each s1
-  rebuild costs ~8 min.
-- **Input-side first**: with a built s1, experiments via crafted .yo
-  inputs (+ comptime_print state dumps) cycle in ~30 s. Rebuild the
-  compiler only when the probe must live inside it.
-- **Parallel variant builds** for A/B compiler bisects — never sequential.
-- **Measurement hygiene**: never `\"pattern\"` inside single-quoted
-  `bash -c` — the escaped quotes become literal and grep counts a
-  never-matching pattern (a day of phantom "nondeterminism").
-  (adopted 2026-07-28 — measured costs)
-
-One probe cycle = ~2.5 min (s1 emit ~73 s + clang -O2 ~45 s + repro; -O1 is
-NOT faster, -O0 stays banned). The floor is fixed until incremental
-compilation (ROADMAP Phase 2); minimize the NUMBER of cycles instead:
-
-1. **Batch probes** — never rebuild for one eprintln. Instrument every open
-   question of the current hypothesis set in ONE build, with distinct tags
-   (`__YA`/`__YB`/…), and print a noise BASELINE from a passing file to
-   `comm -23` against.
-2. **No wakeup gaps on short jobs** — block in-turn on anything under ~10
-   min; reserve scheduled wakeups for TIER 2 / sweeps / stage emits.
-3. **Standing diag-s1** — after each landed batch, build one diagnostic s1
-   with the three swallow-site prints baked in and keep it around; most
-   diagnosis then needs zero extra builds.
-4. **Parallel variant builds** — bisections and A/B experiments build
-   concurrently in /tmp/yb2 + /tmp/yb3 (the machine handles 2-3 clangs).
-
-Green baselines: corpus **PASS 143 / DIFF 0** (141 before the two
-`dyn_box_*` regression tests were added 2026-07-28; 140 before
-`while_or_shortcircuit_owned_temp.yo`, 2026-07-27), `check ./std`
-**153/153**, battery at its counts AND its hollow flags
-(`module_struct_unification` and `atomic_object` are now hollow=0 GREEN;
-`imm_string` 28/hollow=0), stage2 real hollow markers **1**
-(line-anchored grep), **FIXPOINT HOLDS**.
-
-```bash
-bun run build                                             # before any yo-cli work
-./yo-cli compile yo-self/main.yo --release -o /tmp/s1     # s1 — ~2 MINUTES, not 10
-S1=/tmp/s1 P=x bash scratchpad/gates_fast.sh              # TIER 1
-S1=/tmp/s1 P=x bash scratchpad/gates_perf1.sh             # TIER 2
-BIN=/tmp/s1 OUT=/tmp/hs scratchpad/hollow_sweep69.sh      # honest 183-file score
-```
-
-Iterate in a scratch copy so a running gate never reads a half-edited tree:
-`cp -R yo-self /tmp/yb && ./yo-cli compile /tmp/yb/main.yo --release -o /tmp/yb_s1`.
-Add `open(import("std/fmt"));` to any file you put an `eprintln` in — except
-`yo-self/evaluator/calls/function.yo`, where `eprintln` is already in scope and the
-import collides with `ToString`.
-
-## THE METHOD (non-negotiable — proven over ~35 fix rounds)
+## 5. THE METHOD (non-negotiable — proven over ~40 fix rounds)
 
 1. **Faithful port first.** Find the TS behaviour (file:line) and port that
    shape. Where yo-self's model genuinely differs (value semantics vs TS object
    identity), document the divergence AND use the equivalent existing
    mechanism. Being broader OR narrower than TS both break the self-compile.
    Distrust yo-self comments claiming a port was impossible — several were
-   false.
+   false. If a faithful port regresses something, the regression is usually a
+   SECOND missing port, not a reason to narrow the first (this round: the
+   comptime-priority rule looked wrong until `_call_result_unknown` was found to
+   be missing TS's runtime-only marking).
 2. **Gate every change; revert on ANY regression.** Tiers above.
-3. **No hollow greens.** rc=0 proves nothing. Compare
-   `grep -c "Failed to transpile\|Unknown type:"` against the TS emit, and for
-   test files check the batch `main` specifically. **STRICT_FIXPOINT does NOT
-   catch hollowness** — a state once passed every gate including the fixpoint
-   while emitting 19 markers, because stage2 and stage3 drop the same
-   statements. ASan is also useless here (`yo-cli` silently skips
-   instrumentation); use `scratchpad/guardmalloc_corpus.sh`. Prove a gate can
-   FAIL before trusting it to pass.
-4. **Probe before fixing.** Measure, don't infer. Five of six fix attempts in
-   the 2026-07-26 session were measured dead ends; each cost minutes to
-   disprove and would have cost hours to debug after landing.
+3. **No hollow greens.** rc=0 proves nothing. **STRICT_FIXPOINT does NOT catch
+   hollowness** — a state once passed every gate including the fixpoint while
+   emitting 19 markers, because stage2 and stage3 drop the same statements.
+   ASan is useless here (`yo-cli` silently skips instrumentation); use
+   `scratchpad/guardmalloc_corpus.sh`. Prove a gate can FAIL before trusting it
+   to pass.
+4. **Probe before fixing; instrument, don't infer.** Most fix attempts that
+   skip this step are measured dead ends. One temporary `eprintln` naming the
+   actual list/type/value has repeatedly replaced hours of reasoning.
 5. **Never filter a trace on a bare identifier name.** The prelude defines `f`,
-   `x`, `m`; filtering on `callee == "f"` produced two wrong conclusions in one
-   session. Filter on a shape unique to the reproducer.
-6. **Long jobs die on this box.** rc=133/137/138/139 with a ZERO-byte log is a
-   phantom kill — retry before believing a crash. Never run two `test`
-   invocations over `./tests` concurrently; never edit `yo-self/*.yo` while a
-   build reads the tree; never swap a binary a sweep is running.
-7. `./yo-cli compile` cannot take `*.test.yo` — extract a standalone repro with
+   `x`, `m`. Filter on a shape unique to the reproducer.
+6. **One build must answer the whole question.** Pack every plausible probe into
+   a single diag build with distinct tags; never one-hypothesis-per-build.
+   Input-side experiments (crafted `.yo` files against an existing s1) cycle in
+   seconds — rebuild the compiler only when the probe must live inside it.
+7. **Long jobs die on this box.** rc=133/137/138/139 with a ZERO-byte log is a
+   phantom kill — retry before believing a crash.
+8. `./yo-cli compile` cannot take `*.test.yo` — extract a standalone repro with
    `main` + `export(main)`.
+9. **Anchor scripted edits on UNIQUE context.** A condition once landed on the
+   wrong same-text `if`. Assert `count == 1` in the patch script.
 
-## HARD-WON INVARIANTS (violate these and you re-live old sessions)
+---
+
+## 6. HARD-WON INVARIANTS (violate these and you re-live old sessions)
 
 - **Per-call / per-closure type identity is THE recurring theme** (Gap-6). Do
   not weaken `_freshen_io_builtin_callee`, the call-scoped forall rebinds +
-  lineage-identity gate (`yo-self/evaluator/types/synthesizer.yo`), the clfid spec-cache keying +
-  per-spec SomeT rebuild (`yo-self/evaluator/calls/helper.yo`), or receiver-instance Self
-  adoption (`yo-self/expr_info.yo`).
+  lineage-identity gate (`types/synthesizer.yo`), the clfid spec-cache keying +
+  per-spec SomeT rebuild (`calls/helper.yo`), or receiver-instance `Self`
+  adoption (`expr_info.yo`).
 - **`SomeT.resolved_concrete` is a SHARED-LINEAGE cell** — per-call resolutions
   must rebuild a FRESH SomeT + cell, never write the shared id last-wins.
 - **The shell pattern:** any walker of struct fields / enum variants may get a
@@ -822,56 +344,50 @@ import collides with `ToString`.
   `resolve_enum_shell(resolve_struct_shell(ty))` first.
 - **`Some(UnknownVal)` ≠ a value.** Every ported TS `if (expr.$.value)` gate
   needs an `is_unknown_val` guard.
+- **A runtime call result must be RUNTIME-ONLY** (`_call_result_unknown`). TS
+  has no value there at all, and the flag is what makes "Cannot assign runtime
+  argument to compile-time parameter" fire. Un-marking it silently re-enables
+  comptime overloads for runtime operands.
+- **Comptime integers are `i64`, not a bignum.** Any range/overflow reasoning
+  must treat u64/usize as BIT PATTERNS (a value above `i64::MAX` reads as
+  negative) — do the arithmetic in the unsigned domain for those types.
+  `tests/comptime_overflow.test.yo` guards both directions.
 - **Type-shape dispatch without a `Pointer` arm** silently no-ops for
   pointer-receiver methods.
 - **Chars vs bytes:** `String.len()` is CHARS; byte loops use
   `bytes_len()`/`byte_at()`.
 - **Retroactive envs:** ExprInfo envs share mutable Frames — "was X bound here"
   must use the emitter's C block-scope stack, not env lookups.
-- **`type_to_string` is bounded by a monotonic visited set** (2026-07-26). Do
-  not remove it: without it one render reached 6.8 GB RSS and hung six test
-  files for 1800 s each.
+- **`type_to_string` is bounded by a monotonic visited set.** Do not remove it:
+  without it one render reached 6.8 GB RSS and hung six test files for 1800 s.
 - Yo syntax: `:=` is immutable (reassign needs `(x : T) = …`); no forward refs;
   no nested match patterns; a single-expression `{ }` parses as a struct
-  literal; fn defs are `name :: (fn(...) -> T)({ ... })`.
-- **The type-parameter binder is `generic(T : Type)`, not `forall`** — renamed
-  2026-07-26 (`plans/FORALL_TO_GENERIC.md`). `forall`/`∀` are reserved and
-  rejected at lex time. Do not "fix" `generic` back. Internal identifiers
-  (`forall_labels`, `forall_types`, `forallParameters`) deliberately keep the
-  old name.
+  literal (add a `;`); fn defs are `name :: (fn(...) -> T)({ ... })`; adjacent
+  DIFFERENT operators need parentheses.
+- **The type-parameter binder is `generic(T : Type)`, not `forall`.**
+  `forall`/`∀` are reserved and rejected at lex time. Internal identifiers
+  (`forall_labels`, `forall_types`) deliberately keep the old name.
 - `./yo-cli fmt` every touched `.yo` before committing; lint-staged reformats
   `.md` on commit.
-- rc=139 at -O0 on deep recursion is stack exhaustion — use `--release` or
-  `YO_MAIN_STACK_MB=4096`.
+- rc=139 at `-O0` on deep recursion is stack exhaustion — use `--release` or
+  `YO_MAIN_STACK_MB=4096`. `-O0` stays banned.
 
-## Key locations
+---
 
-| path                                                    | what                                                                                      |
-| ------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `issues/yo-self-hollow-test-batch-main.md`              | the hollow-batch defect, causes, 4 dead ends                                              |
-| `issues/yo-self-arg-type-check-bypassed.md`             | the parked soundness fix                                                                  |
-| `issues/yo-self-69-red-list-map.md`                     | the 19 REDs, cluster-mapped                                                               |
-| `issues/yo-self-stub-inventory.md`                      | 311 unported/divergent findings, each with TS file:line                                   |
-| `issues/patches/arg-type-check-fix.patch`               | TIER-1-clean fix awaiting TIER 2                                                          |
-| `scratchpad/hollow_sweep69.sh`                          | honest 183-file scorer                                                                    |
-| `scratchpad/gates_fast.sh`, `scratchpad/gates_perf1.sh` | TIER 1 / TIER 2                                                                           |
-| `tests/codegen-bootstrap/`                              | the 140-file differential corpus                                                          |
-| agent auto-memory (outside the repo)                    | `MEMORY.md` in the agent memory dir indexes distilled lessons — recall before re-deriving |
+## 7. Key locations
 
-Note `tmp/` is a git-ignored scratch dir holding ~78 stale `*.test.yo` files; a
-bare `./yo-cli test` sweeps them up and they all fail. Ignore them, or pass an
-explicit path.
+| path                                                | what                                                              |
+| --------------------------------------------------- | ----------------------------------------------------------------- |
+| `issues/yo-self-hollow-root-cause-map.md`           | per-file evidence base for the hollow cluster + the noise table   |
+| `issues/yo-self-69-red-list-map.md`                 | the REDs, cluster-mapped                                          |
+| `issues/yo-self-hollow-test-batch-main.md`          | the hollow-batch defect itself + measured dead ends               |
+| `issues/yo-self-comptime-pointer-place.md`          | §2.1 arm 22 — Stage 2 scoping                                     |
+| `issues/yo-self-cee-in-function-body.md`            | §2.1 arm 26 — both reverted attempts, three candidates            |
+| `issues/yo-self-comptime-overload-preference.md`    | §2.2 — the literal gate and its one holdout                       |
+| `issues/yo-self-explicit-call-site-generic-args.md` | explicit `generic(...)` type application, what remains            |
+| `issues/yo-self-stub-inventory.md`                  | 311 unported/divergent findings, each with a TS file:line         |
+| `tests/codegen-bootstrap/`                          | the 148-file differential corpus (add a regression test per fix)  |
+| agent auto-memory (outside the repo)                | `MEMORY.md` indexes distilled lessons — recall before re-deriving |
 
-## Open side issues (not #69 blockers)
-
-- `issues/ts-early-return-nested-block-rc-drop.md` — TS frees an RC container
-  early-returned from a nested if-block.
-- `issues/ts-constructor-result-drop-o0-crash.md` — TS-side -O0 crash.
-- Broad anon-struct expected-type rule blocked by a stage-2 miscompile; the
-  narrow rule is committed and green.
-- `issues/ts-while-loop-body-drops-missing-guards.md` — FIXED both sides
-  2026-07-27 (TS while.ts + yo-self while_loop.yo, corpus test
-  `while_or_shortcircuit_owned_temp.yo`).
-- Intermittent rc=139 AFTER a correctly-printed impl-path error (2× then 6×
-  clean on `repro_dispose_nonrc`) — logs have content, so NOT the zero-byte
-  phantom signature. Watch item.
+`tmp/` is a git-ignored scratch dir with ~78 stale `*.test.yo` files; a bare
+`./yo-cli test` sweeps them up and they all fail. Pass an explicit path.
