@@ -775,3 +775,19 @@ with `needs_pointer_conversion : true` — mirroring the concrete-receiver
 filter at env.yo:2677-2708. Then function.yo wraps `&(b)`, Step 8 compares
 `*(bool)` vs `*(Impl-resolved)` and the pointer-children exact recursion
 completes via the unwrap arms already in the tree.
+
+### impl — probe round 3b addendum
+
+All lookup results DO flow through `_filter_receiver_methods` (env.yo:3522),
+yet the sh37 arm-1 probe (compat actual-SomeT vs Pointer/bool expected) got
+ZERO hits — so the `*(bool)`-self method entry that reaches Step 8 was NOT
+annotated by the filter's Rule-3 pass. Most likely the SomeT trait-walk
+entry's `ty` at FILTER time is the TRAIT-generic signature (`self : *(Self)`,
+pointee = SomeT ⇒ arm-1 guard `!is_some_type(expected)` skips, and compat
+SomeT-vs-SomeT likely returns true WITHOUT the flag being set... or Rule 3
+took the incompatible branch silently), and the \*(bool) concrete type is
+substituted LATER (self_type specialization in function.yo/helper.yo) — after
+the flag decision. NEXT PROBE: in function.yo's dot-dispatch (where
+method_info is taken), print method_info.method_ty + needs_pointer_conversion
+for method_name == "return_i32"; that says whether the flag was lost or never
+set, and which lookup branch produced the hit.
