@@ -861,3 +861,24 @@ dispatch emitter with a type where a value belongs — look at
 codegen/exprs/dyn or other_fn_call's trait-qualified branch for how the
 callee object expr is chosen (likely reads the method-callee side-table entry
 stamped by the NEW eval path and mis-classifies it as Dyn).
+
+### impl — WIP PARKED as a named git stash (end of 2026-07-31 session)
+
+The four eval fixes + probes are saved as **`stash@{0}` — "impl-onion-WIP:
+compat unwraps+hook, npc Self rule, synthesizer unwrap, wrap guard (sh43)"**.
+`git stash pop` (or `git stash apply stash@{0}`) restores the exact tree that
+built /tmp/sh43 (impl markers=0, RED at codegen). Do NOT land the bundle until
+the codegen layer is fixed — landing now flips impl HOLLOW → RED.
+
+Layer 6 (the codegen RED): the failing emission comes from
+`use_trait_b_explicit`'s `(T <: TraitDisambigB).get_number(self)` — the
+static-dispatch arm (function.yo:5239-5247) records the method-callee VALUE
+from `call_result_m.specialized_function_value` / `method_val_opt`, but for
+the trait-with-receiver static callee at SPEC time neither is a concrete
+FuncVal, so codegen's other_fn_call falls back to expression-emitting the
+callee → `__yo_t16.get_number` (the TypeVal's C type string) → clang error.
+Fix: at spec-time re-eval of the static trait-qualified call, resolve the
+CONCRETE impl's method FuncVal (T is bound by then —
+`get_type_trait_methods_by_name` on the bound receiver with the trait id
+filter) and record THAT; the plain `self.get_number()` sibling arm already
+does this correctly (it emitted `fn_yo_id_4990(self)`).
