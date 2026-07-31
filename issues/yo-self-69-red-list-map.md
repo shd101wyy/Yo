@@ -1374,3 +1374,38 @@ Direction candidates for the next session, in preference order:
    sides) before comparison, which was NOT part of any attempt yet.
 2. Post-return sweep: when a ctor call completes, rewrite its sid into any
    memo args recorded during its window (heavier, order-dependent).
+
+### probe round 6 (2026-07-31) — 3c coverage holes measured; the qualified-ctor lens
+
+- Option(RBNode-concrete) NEVER double-mints concrete memo entries (the
+  \_\_DBG_2ND census found second-concrete-entry mints only for an early
+  prelude ctor pair, none for Option) — the t39/t40 pair is NOT a memo
+  split. era-7695 is a def-era NOCACHE mint (SomeT args) whose id survives
+  SUBSTITUTION (K:=i32 substituted INTO it, id kept) — the ORIGINAL
+  "substitution keeps def-time ids" root, reaching the 4 sites as the
+  EXPECTED type.
+- The 3c dot-arg override cannot cover those sites: the callees there are
+  SPECIALIZED FuncVals — `get_func_param_comptime`/`get_func_param_type_
+exprs` are EMPTY under the spec fid (no side-table copy at spec re-key),
+  and `fv_param_types` holds the spec's RUNTIME params (comptime K/V
+  consumed, era-substituted types) — measured: every \_\_DBG_3C no-ct-type
+  fid had ctflags=0 (or flags without a Type param). Switching the gate to
+  Type-universe detection on fv_param_types was ALSO inert for the same
+  reason (no Type params left on a spec).
+- The 4 era-7695 expecteds most plausibly come from the QUALIFIED
+  constructions in sorted_map itself (`Option(RBNode(K, V)).Some(...)` /
+  `.None` at lines 161-163) whose RECEIVER `Option(RBNode(K, V))`
+  evaluates inside an already-substituted context — NOT from bare
+  shorthand args.
+
+NEXT SESSION START (sharpened): probe the QUALIFIED-ctor receiver eval —
+in property_access's 2-arg qualified arm (Type.Variant), when the receiver
+TypeVal is an EnumT, print its id + ctx flags for ids matching the Option
+eras; find whether the receiver value comes from (a) a fresh ctor-call eval
+(memo — should be canonical) or (b) an ExprInfo/env-recorded def-era
+instance. If (b): the fix is re-evaluating the receiver type expr at spec
+time (the same param-type-expr mechanism, applied to the RECEIVER of
+qualified enum constructions), or creation-side canonicalization at
+SUBSTITUTION time for ctor-stamped enums (substitute currently keeps
+enum ids — the recorded "canonicalize at type CREATION" lesson names
+exactly this point).
