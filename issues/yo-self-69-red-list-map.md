@@ -1317,3 +1317,26 @@ therefore never registers): prime suspects, in order —
    `final_return_value`, verify the completed cache entry is updated with the
    STAMPED value, not the raw body result. If it stores the raw result, every
    later cache HIT hands out the cfid-less twin — exactly the census.
+
+### hypothesis (1) FALSE — cache stores the STAMPED result; the cfid-less copies are the INCOMING ARGS
+
+Verified in evaluate_comptime_fn_call: the finalized cache entry stores
+`final_return_value` (the stamped instance), so cache HITs hand out stamped
+values. The census's cfid-less copies are the ARGUMENTS as they ARRIVE at
+Option-ctor call sites (`arg_values : all_arg_vals` stores them
+as-received): 65/107 Option calls receive an RBNode instance with EMPTY
+cfid even though every RBNode ctor RETURN is stamped. Remaining suspects
+for where a cfid-less RBNode instance is obtained instead of the ctor's
+return value:
+
+- env-bound copies (K/V/local bindings captured before the stamp);
+- ExprInfo reuse of a pre-stamp stamp (a type expr's recorded value);
+- intern_type splitting stamped/unstamped twins because the intern KEY
+  includes cfid (intern.yo ~254) — the unstamped twin stays canonical for
+  any path that interned first.
+  NEXT: probe the ARG SOURCE at an Option call receiving a cfid-less RBNode
+  (print whether the arg expr is an Atom (env lookup) vs FnCall (ctor call))
+  — one line in the census probe. If Atom: chase the binding site; if
+  FnCall: the ctor return path leaks the pre-stamp instance somewhere
+  (e.g. the `scfid non-empty -> return_value unchanged` branch when a
+  NESTED stamped instance carries a DIFFERENT sid).
