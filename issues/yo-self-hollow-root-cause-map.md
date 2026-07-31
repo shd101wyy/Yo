@@ -882,3 +882,18 @@ CONCRETE impl's method FuncVal (T is bound by then —
 `get_type_trait_methods_by_name` on the bound receiver with the trait id
 filter) and record THAT; the plain `self.get_number()` sibling arm already
 does this correctly (it emitted `fn_yo_id_4990(self)`).
+
+### impl — layer 6 attempt 1 (sh44, in stash@{0} v2)
+
+Added the trait-qualified concrete lookup to
+`get_type_trait_methods_by_name_from_env` (env.yo): a TraitT callee with
+`is_concrete : Some(R)` resolves R's methods filtered by source_trait_id.
+Measured: the C error PERSISTS unchanged — at DEF time `is_concrete` is the
+unresolved SomeT (lookup misses, falls through), and the SPEC-time call does
+not re-resolve the method-callee VALUE for this shape (codegen still emits
+the fallback `__yo_t16.get_number`). Next angle: find where the SPEC body
+re-eval processes this call (does the static arm run again with T bound? if
+so why is record_method_callee_value not overwriting?) — or fix at CODEGEN:
+other_fn_call's method dispatch could resolve the concrete impl method from
+the receiver arg's type + trait id at emission time. WIP now parked as
+stash@{0} ("impl-onion-WIP-v2").
