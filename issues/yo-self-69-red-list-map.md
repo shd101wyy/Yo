@@ -1174,3 +1174,22 @@ arg-driven ctor synthesis) for era instances of one instantiation.
 
 Gates: TIER 1 clean (corpus 149/0, std 153/153), TIER 2 FIXPOINT_HOLDS,
 sweep 166/16/3 unchanged.
+
+### try_to_call-side 3c mirror REJECTED (2026-07-31, measured — zero wins)
+
+Mirroring the landed inline-arm dot-arg expected override into
+check_if_function_parameter_matches_argument (a trailing expected_override
+param, computed at try_to_call's supplied-arg site with the same dot-form +
+Fn-exclusion + ct-Type-param gates) changed NOTHING: imm_threading stayed
+13 errors, sweep 166/16/3 identical, TIER 1 clean. REVERTED per zero-wins.
+Conclusion: the remaining `.Some(new_h)` face does NOT flow through either
+arg path's expected type — consistent with the construction-eval re-mint
+suspicion (the `.Variant(args)` arm stamps `func_type` = the CALLEE's
+evaluated EnumT; for `.Some(new_h)` that callee resolves era-7695 even when
+the surrounding expected is era-10755). NEXT PROBE (unchanged): the 1-arg
+shorthand-callee eval in property_access for `.Some` under a canonical
+expected — print the adopted vs emitted enum id; suspect the callee's
+ExprInfo is stamped ONCE at def-time and reused at spec time (the same
+no-retry-vs-retry asymmetry), or the expected reaching the CALLEE eval is
+the DEF-ERA declared param type from a path that bypasses both landed
+overrides.
