@@ -12,7 +12,10 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 171 GREEN / 14 HOLLOW / 0 RED of 185 test files** (closure +
+**Honest score: 172 GREEN / 12 HOLLOW / 1 RED of 185 test files** (impl
+flipped TRUE GREEN 6/6 and where_clause_fn_inference un-hollowed to a
+VISIBLE RED — 4 C type-identity errors, the instantiation-split class —
+in the same bundle, 2026-07-31 EOD; earlier same day: closure +
 spec/contracts_phase0
 flipped TRUE GREEN 2026-07-31, `ac78c38c3`; batches 2-3 `0b70765da` +
 `3661c85cd` fixed 5 more sub-roots in basic/fn without flips — the remaining

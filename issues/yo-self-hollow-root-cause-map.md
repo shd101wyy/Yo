@@ -1177,3 +1177,24 @@ moves to EMISSION (does other_fn_call's dot-callee route consult
 lookup_method_callee_value for THIS shape? is the recorded FuncVal's C fn
 ever emitted/registered with codegen?). WIP = stash@{0}
 "impl-onion-WIP-v12", binary /tmp/sh61. impl stands at 5/6 in-WIP.
+
+## 2026-07-31 EOD FINAL — impl.test.yo TRUE GREEN 6/6; bundle LANDED
+
+The 12-layer onion is complete and landed. Final layers: 9b = where-trait
+preference fed from the forall SomeT's required_trait_types; 9a = at the
+method-callee record site, when neither spec nor method value exists,
+unwrap the receiver's (possibly pointer-wrapped) SomeT resolution and
+record the CONCRETE impl's valued method entry.
+
+Bundle effects (sweep /tmp/sweep_impl): **172 GREEN / 12 HOLLOW / 1 RED.**
+
+- impl.test.yo: HOLLOW -> TRUE GREEN 6/6 at TS parity (markers=0 in
+  \_\_yo_user_main; 3 residual markers sit in never-called cee-rejected
+  specialization bodies — cleanliness TODO, not hollowness).
+- where_clause_fn_inference: HOLLOW -> RED (rc=138, hollow=0, markers=0 —
+  it now EVALUATES FULLY and fails with 4 visible C type-identity errors:
+  `__yo_t16 vs __yo_t34` / `__yo_t19 vs __yo_t27`, two typedefs per logical
+  type — the known instantiation-split class). This is the honest form of
+  its old hidden failure; it is now diagnosable by C error line.
+  Gates: battery 20/20 unchanged, corpus 149/0, std 153/153, stage2
+  hollow=0 + clang + stage3, STRICT_FIXPOINT HOLDS.

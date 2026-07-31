@@ -105,7 +105,9 @@ open(import("std/fmt"));
   expr_info_table_get,
   register_some_resolved_concrete,
   lookup_some_resolved_concrete,
-  adopt_receiver_struct_instance
+  adopt_receiver_struct_instance,
+  push_active_where_trait_ids,
+  pop_active_where_trait_ids
 } :: import("../../expr_info.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 {
@@ -2399,6 +2401,61 @@ create_specialized_function_inline :: (
           // Evaluate the function body in the specialized environment.
           // Uses the already-built callee_env (which has all type params and
           // regular params bound from try_to_call_function_with_arguments steps 4–11).
+          // Thread the fn's where-constraint trait ids to the overload
+          // selector for the duration of the spec body eval (see
+          // expr_info.yo g_active_where_trait_ids — the use_trait_b
+          // disambiguation).
+          spec_where_ids := ArrayList(String).new();
+          {
+            spec_wes := get_func_where_constraints(func_id.clone());
+            (swi : usize) = usize(0);
+            while(swi < spec_wes.len(), {
+              match(
+                spec_wes.get(swi),
+                .Some(swe) => {
+                  swe_id := match(swe.trait_ty,.TraitT(_, _, _, _, swe_tid, _, _, _, _, _) => swe_tid, _ => String.from(""));
+                  if(swe_id != "", {
+                    spec_where_ids.push(swe_id);
+                  });
+                },
+                .None => ()
+              );
+              swi = (swi + usize(1));
+            });
+            // `where(T <: Trait)` constraints usually live on the forall
+            // SomeT's required_trait_types (not the side table) — collect
+            // those too, from the fn type's forall + param SomeTs.
+            spec_all_sts := get_all_some_types(func_type);
+            (sws_i : usize) = usize(0);
+            while(sws_i < spec_all_sts.len(), {
+              match(
+                spec_all_sts.get(sws_i),
+                .Some(sws_t) => match(
+                  sws_t,
+                  .SomeT({ required_trait_types : sws_rtt }) => {
+                    (sws_ri : usize) = usize(0);
+                    while(sws_ri < sws_rtt.len(), {
+                      match(
+                        sws_rtt.get(sws_ri),
+                        .Some(sws_tr) => {
+                          sws_tid := match(sws_tr,.TraitT(_, _, _, _, sws_tid0, _, _, _, _, _) => sws_tid0, _ => String.from(""));
+                          if(sws_tid != "", {
+                            spec_where_ids.push(sws_tid);
+                          });
+                        },
+                        .None => ()
+                      );
+                      sws_ri = (sws_ri + usize(1));
+                    });
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+              sws_i = (sws_i + usize(1));
+            });
+          };
+          push_active_where_trait_ids(spec_where_ids);
           specialized_body := evaluate_begin_expression(
             cloned_body,
             callee_env,
@@ -2407,6 +2464,7 @@ create_specialized_function_inline :: (
             true,
             exn
           );
+          pop_active_where_trait_ids();
           // Snapshot the closure-spec capture recording BEFORE restoring.
           spec_recorded_caps := if(spec_is_closure, ctx.captured_variables, Option(HashMap(String, CapturedVarInfo)).None);
           // Restore context

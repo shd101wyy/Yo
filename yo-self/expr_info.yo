@@ -34,6 +34,7 @@ open(import("std/fmt"));
 { get_all_some_types } :: import("./types/utils.yo");
 { is_some_type } :: import("./types/guards.yo");
 { type_to_string } :: import("./types/string.yo");
+{ set_compat_lookup_some_resolved_fn } :: import("./types/compatibility.yo");
 { EvalValue } :: import("./value.yo");
 {
   AstExpr,
@@ -568,6 +569,12 @@ register_some_resolved_concrete :: (fn(some_id : String, ty : TypeValue) -> unit
 lookup_some_resolved_concrete :: (fn(some_id : String) -> Option(TypeValue))(
   g_some_resolved_concrete.get(some_id)
 );
+// Install the durable-registry lookup into compatibility.yo's given-SomeT
+// resolution unwrap (cycle breaker: types/ cannot import THIS file).
+_compat_some_resolved_init := (fn() -> bool)({
+  set_compat_lookup_some_resolved_fn(lookup_some_resolved_concrete);
+  true
+})();
 // Constructor-funcId stamp side-table, keyed by STRUCT ID. TS stamps
 // `returnedType.functionValue = functionValue` by MUTATING the shared type
 // object when a comptime type-constructor returns (comptime-fn.ts:270-277),
@@ -682,6 +689,28 @@ truncate_branch_group_stack :: (fn(depth : usize) -> unit)({
     ()
   });
 });
+/// Active where-constraint trait ids for the CURRENT specialization body
+/// eval — the only discriminator when a CONCRETE receiver carries two
+/// same-signature methods from different traits (impl.test.yo:
+/// `use_trait_b`'s `where(T <: TraitDisambigB)` must pick B's `get_number`;
+/// at spec time T is bound concrete so the SomeT walk's trait filter no
+/// longer applies — TS keeps the def-time constrained method identity).
+/// Stack of id lists; the TOP is the active spec's set, empty = none.
+(g_active_where_trait_ids : ArrayList(ArrayList(String))) = ArrayList(ArrayList(String)).new();
+push_active_where_trait_ids :: (fn(ids : ArrayList(String)) -> unit)({
+  g_active_where_trait_ids.push(ids);
+});
+pop_active_where_trait_ids :: (fn() -> unit)({
+  g_active_where_trait_ids.pop();
+  ()
+});
+active_where_trait_ids :: (fn() -> ArrayList(String))(
+  match(
+    g_active_where_trait_ids.get(g_active_where_trait_ids.len() - usize(1)),
+    .Some(top) => top,
+    .None => ArrayList(String).new()
+  )
+);
 /// True when a prior assignment record for `var_id` exists on the CURRENT
 /// control-flow path — i.e. outside every active group's completed-sibling
 /// window. This is the yo-self surrogate for TS's `variable.initializedAtToken`
@@ -957,6 +986,9 @@ export(
   get_arm_init_range,
   push_branch_group,
   begin_branch_group_arm,
+  push_active_where_trait_ids,
+  pop_active_where_trait_ids,
+  active_where_trait_ids,
   pop_branch_group,
   branch_group_stack_len,
   truncate_branch_group_stack,

@@ -40,6 +40,7 @@ open(import("std/fmt"));
   lookup_some_resolved_concrete,
   record_macro_expansion,
   record_fid_rtcall,
+  active_where_trait_ids,
   record_fid_spec,
   lookup_struct_ctor_fid,
   struct_effective_ctor_fid,
@@ -80,7 +81,7 @@ open(import("std/fmt"));
   ArgEntry,
   VarArgEntry
 } :: import("../context.yo");
-{ is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0 } :: import("../../types/guards.yo");
+{ is_pointer_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0 } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { is_control_fn } :: import("../types/control_fn_registry.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
@@ -617,6 +618,34 @@ _select_matching_overload :: (
     return(base);
   });
   (winner_hi : usize) = match(matching.get(usize(0)),.Some(i) => i,.None => usize(0));
+  // WHERE-CONSTRAINT preference: when the enclosing SPECIALIZATION carries
+  // where-clause traits (expr_info.yo g_active_where_trait_ids) and several
+  // matches have IDENTICAL signatures from DIFFERENT traits (DisambigPoint's
+  // two get_number impls), the constraint is the only discriminator — pick
+  // the first match whose source_trait_id is in the active set. TS keeps the
+  // def-time constrained method identity through specialization; yo-self's
+  // spec binds the receiver concrete so the SomeT walk's trait filter no
+  // longer applies (impl.test.yo use_trait_a/use_trait_b).
+  aw_ids := active_where_trait_ids();
+  if((aw_ids.len() > usize(0)) && (matching.len() > usize(1)), {
+    (aw_mi : usize) = usize(0);
+    (aw_done : bool) = false;
+    while((aw_mi < matching.len()) && !(aw_done), {
+      aw_idx := match(matching.get(aw_mi),.Some(i) => i,.None => usize(0));
+      aw_src := match(base.all_hits.get(aw_idx),.Some(c) => c.source_trait_id,.None => String.from(""));
+      if(aw_src != "", {
+        (aw_wi : usize) = usize(0);
+        while((aw_wi < aw_ids.len()) && !(aw_done), {
+          if(match(aw_ids.get(aw_wi),.Some(w) => (w == aw_src),.None => false), {
+            winner_hi = aw_idx;
+            aw_done = true;
+          });
+          aw_wi = (aw_wi + usize(1));
+        });
+      });
+      aw_mi = (aw_mi + usize(1));
+    });
+  });
   // Comptime priority: exactly ONE comptime-returning match wins outright —
   // GUARDED on the receiver's value being a CONCRETE comptime value. TS's
   // params bind NO value, so its trial filter rejects comptime candidates for
@@ -1785,7 +1814,41 @@ _evaluate_funcval_runtime_call :: (
   // function (e.g. Thread.spawn's `cb` → its capture struct). Control
   // (ctl/effect-handler) functions are excluded — the effect system handles
   // them.
-  ou_spec_soft_generic := match(callee_func_type_opt,.Some(spec_ft) => ((is_function_type_generic(spec_ft) && !(is_control_fn(func_id_fv.clone()))) && _func_type_has_closure_param(spec_ft)),.None => false);
+  // Soft-generic spec trigger: TS's guard is BARE
+  // `isFunctionTypeGeneric && !isControlFunction` (helper.ts:1911-1929);
+  // yo-self's closure-param narrowing left SomeT-param functions WITHOUT
+  // closure params on the rtcall path — the parametric-trait `!=` default
+  // (`lhs : Self, rhs : str`) called heterogeneously (`a != "abcd"`) then
+  // emitted the BASE body signature-mangled with no per-spec body eval, and
+  // its `(Self.(==))` had no stamped callee (impl.test.yo layer 8). Also
+  // fire when every SomeT-bearing param receives a CONCRETE-typed arg (the
+  // spec cache key is then junk-free — same care as the comptime-param
+  // clause below).
+  ou_spec_soft_generic := match(
+    callee_func_type_opt,
+    .Some(spec_ft) => cond(
+      !(is_function_type_generic(spec_ft)) => false,
+      is_control_fn(func_id_fv.clone()) => false,
+      _func_type_has_closure_param(spec_ft) => true,
+      true => {
+        (ou_sg_all_concrete : bool) = true;
+        ou_sg_pts := match(spec_ft,.Func({ param_types : ou_sg_p }) => ou_sg_p, _ => ArrayList(TypeValue).new());
+        (ou_sg_i : usize) = usize(0);
+        while(ou_sg_i < ou_sg_pts.len(), {
+          ou_sg_pt := match(ou_sg_pts.get(ou_sg_i),.Some(t) => t,.None => t_unit());
+          if(get_all_some_types(ou_sg_pt).len() > usize(0), {
+            ou_sg_aty := match(evaled_arg_infos.get(ou_sg_i),.Some(ai) => ai.ty,.None => t_unit());
+            if(get_all_some_types(ou_sg_aty).len() > usize(0), {
+              ou_sg_all_concrete = false;
+            });
+          });
+          ou_sg_i = (ou_sg_i + usize(1));
+        });
+        ou_sg_all_concrete
+      }
+    ),
+    .None => false
+  );
   // EXPLICIT-COMPTIME-PARAM functions (`fn(comptime(K) : Type, node : ...)`,
   // e.g. std/imm/map.yo `_node_insert`) are generic WITHOUT foralls: TS's
   // `isFunctionTypeGeneric` counts `p.isCompileTimeOnly` params (guards.ts:466)
@@ -5136,7 +5199,12 @@ Fix: wrap the call:
             // compatible value, wrap the receiver in `&(...)` so the self
             // argument type-checks (and codegen inserts the address-of).
             // Mirrors TS function.ts:332-358 building `&(receiverArg)`.
-            if(method_info.needs_pointer_conversion, {
+            recv_already_ptr := match(
+              expr_info_table_get(ctx.expr_info_table, ast_expr_id(method_info.receiver_expr)),
+              .Some(rap_i) => is_pointer_type(rap_i.ty),
+              .None => false
+            );
+            if(method_info.needs_pointer_conversion && !(recv_already_ptr), {
               recv_tok := ast_expr_token(method_info.receiver_expr);
               amp_atom := AstExpr.Atom(
                 alloc_global_expr_id(),
@@ -5230,7 +5298,69 @@ Fix: wrap the call:
             .None => match(
               method_info.method_val_opt,
               .Some(mv) => record_method_callee_value(ast_expr_id(expr), mv),
-              .None => ()
+              .None => {
+                // Impl(SomeT)-receiver method call: the SomeT trait walk's
+                // entry carries the trait DECL (no value) and no spec is
+                // minted (non-generic method type) — codegen then has no
+                // callee and splices an FTT INTO the consuming expression
+                // (`b.return_i32()` on an Impl(RetI32)-resolved receiver,
+                // impl.test.yo 9a). Resolve the CONCRETE impl's method
+                // value through the receiver's SomeT resolution
+                // (cell/registry) and record THAT.
+                rm_recv_ty0 := match(
+                  expr_info_table_get(ctx.expr_info_table, ast_expr_id(method_info.receiver_expr)),
+                  .Some(rm_ri) => rm_ri.ty,
+                  .None => t_unit()
+                );
+                // An explicitly-&'d receiver (`&(r).return_i32()`) carries
+                // `*(Impl(...))` — unwrap the pointer before the SomeT deref.
+                rm_recv_ty := match(
+                  rm_recv_ty0,
+                  .Pointer(rm_ptr_inner) => rm_ptr_inner,
+                  _ => rm_recv_ty0
+                );
+                rm_res := match(
+                  rm_recv_ty,
+                  .SomeT({ id : rm_sid, resolved_concrete : rm_cell }) => match(
+                    rm_cell.get(usize(0)),
+                    .Some(rm_rt) => Option(TypeValue).Some(rm_rt),
+                    .None => lookup_some_resolved_concrete(rm_sid)
+                  ),
+                  _ => Option(TypeValue).None
+                );
+                match(
+                  rm_res,
+                  .Some(rm_conc) => {
+                    rm_rid := type_id_or_empty(rm_conc);
+                    rm_name := match(
+                      func_expr,
+                      .FnCall(_, _, rm_dargs, _, _) => match(rm_dargs.get(usize(1)),.Some(rm_ne) => ast_expr_token(rm_ne).value,.None => String.from("")),
+                      .Atom(_, _) => String.from("")
+                    );
+                    if((rm_rid != "") && (rm_name != ""), {
+                      rm_entries := get_type_trait_methods_by_name(rm_rid, rm_name);
+                      (rm_ei : usize) = usize(0);
+                      (rm_done : bool) = false;
+                      while((rm_ei < rm_entries.len()) && !(rm_done), {
+                        match(
+                          rm_entries.get(rm_ei),
+                          .Some(rm_e) => match(
+                            rm_e.value,
+                            .Some(rm_ev) => {
+                              record_method_callee_value(ast_expr_id(expr), rm_ev);
+                              rm_done = true;
+                            },
+                            .None => ()
+                          ),
+                          .None => ()
+                        );
+                        rm_ei = (rm_ei + usize(1));
+                      });
+                    });
+                  },
+                  .None => ()
+                );
+              }
             )
           );
           // CTFE-execute comptime-returning methods. `try_to_call...`

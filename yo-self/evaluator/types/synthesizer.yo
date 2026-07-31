@@ -31,7 +31,7 @@ open(import("std/string"));
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ register_some_resolved_concrete, lookup_struct_ctor_fid } :: import("../../expr_info.yo");
+{ register_some_resolved_concrete, lookup_some_resolved_concrete, lookup_struct_ctor_fid } :: import("../../expr_info.yo");
 { type_value_tag, t_effects_row, t_usize, resolve_enum_shell } :: import("../../types/creators.yo");
 {
   is_some_type,
@@ -2027,6 +2027,45 @@ _synthesize_types_impl :: (
       return(SynthesizeResult(expected_env : ee, given_env : ge));
     });
     if(exp_tag != giv_tag, {
+      // A RESOLVED SomeT stands for its concrete on either side — an
+      // `Impl(RetI32)` receiver (resolution: bool) unifying against the impl
+      // method's `*(Self→bool)` self param reaches this fallback as
+      // (bool, Impl-SomeT). Mirror TS: given.resolvedConcreteType /
+      // getValueOfSomeTypeFromEnv resolve BEFORE declaring a mismatch
+      // (compatibility.ts:900-916; the synthesizer's SomeType arms assume
+      // unresolved vars). Retry the synthesis with the resolution.
+      giv_resolution := match(
+        given_ty,
+        .SomeT({ id : sg_id, resolved_concrete : sg_cell }) => match(
+          sg_cell.get(usize(0)),
+          .Some(sg_rt) => Option(TypeValue).Some(sg_rt),
+          .None => lookup_some_resolved_concrete(sg_id)
+        ),
+        _ => Option(TypeValue).None
+      );
+      match(
+        giv_resolution,
+        .Some(sg_rt2) => {
+          return(recur(expected_ty, ee, sg_rt2, ge, checked, opts, exn));
+        },
+        .None => ()
+      );
+      exp_resolution := match(
+        expected_ty,
+        .SomeT({ id : se_id, resolved_concrete : se_cell }) => match(
+          se_cell.get(usize(0)),
+          .Some(se_rt) => Option(TypeValue).Some(se_rt),
+          .None => lookup_some_resolved_concrete(se_id)
+        ),
+        _ => Option(TypeValue).None
+      );
+      match(
+        exp_resolution,
+        .Some(se_rt2) => {
+          return(recur(se_rt2, ee, given_ty, ge, checked, opts, exn));
+        },
+        .None => ()
+      );
       exn.throw(
         dyn(
           format_error_message(

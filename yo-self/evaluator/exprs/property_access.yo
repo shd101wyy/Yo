@@ -47,7 +47,7 @@ open(import("std/string"));
 } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_some_t, resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
-{ is_pointer_type, is_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_0 } :: import("../../types/guards.yo");
+{ is_pointer_type, is_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_0, is_function_type } :: import("../../types/guards.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
@@ -960,6 +960,33 @@ Raw pointer operations may dereference invalid memory.`,
       su_type_id := type_id_or_empty(type_val_inner);
       if(su_type_id != "", {
         registry_methods := get_type_trait_methods_by_name(su_type_id, prop_name_su);
+        // OVERLOAD DEFER — the struct-arm twin of
+        // _try_resolve_associated_type's rule (:216-231): when the type
+        // carries MULTIPLE fn-typed overloads of this member (HeteroEqW's
+        // `==` from Eq(HeteroEqW) AND Eq(str)), committing to the first
+        // valued entry stamps the WRONG overload; the enclosing call then
+        // takes the FuncVal path, unifies `str` against the Self-overload's
+        // param, throws, and the whole spec body FTTs (impl.test.yo
+        // heterogeneous `!=`, root-cause map layer 8). Leave the member
+        // UNRESOLVED so function.yo's dispatch runs
+        // _try_find_receiver_method + _select_matching_overload.
+        (su_fn_overloads : usize) = usize(0);
+        {
+          (su_oi : usize) = usize(0);
+          while(su_oi < registry_methods.len(), {
+            match(
+              registry_methods.get(su_oi),
+              .Some(su_om) => if(is_function_type(su_om.ty), {
+                su_fn_overloads = (su_fn_overloads + usize(1));
+              }),
+              .None => ()
+            );
+            su_oi = (su_oi + usize(1));
+          });
+        };
+        if(su_fn_overloads > usize(1), {
+          return(expr);
+        });
         if(registry_methods.len() > usize(0), {
           (rm_idx : usize) = usize(0);
           (rm_done : bool) = false;
@@ -1085,6 +1112,38 @@ Raw pointer operations may dereference invalid memory.`,
           // must query with the same key (TS findMethodFromGenericImplForTrait
           // uses getBaseTraitKey, impl.ts:2045).
           tt_trait_key := get_base_trait_key(type_val_inner);
+          // CONCRETE impls first (TS property-access.ts:651-849): a witness
+          // on a type with a direct `impl(R, Trait(...))` must resolve THAT
+          // impl's method — `(T <: TraitDisambigB).get_number(self)` at spec
+          // time (T bound to DisambigPoint) previously fell through the
+          // generic-impl-only scan below and stamped no VALUE, so codegen
+          // emitted the fallback `__yo_tN.get_number` type-name call
+          // (impl.test.yo DisambigPoint RED).
+          tt_trait_id := match(
+            type_val_inner,
+            .TraitT(_, _, _, _, tt_own_id, _, _, _, _, _) => tt_own_id,
+            _ => String.from("")
+          );
+          tt_recv_id := type_id_or_empty(tt_recv_ty);
+          if(tt_recv_id != "", {
+            tt_conc := get_type_trait_methods_by_name(tt_recv_id, prop_name_tt.clone());
+            (tt_ki : usize) = usize(0);
+            while(tt_ki < tt_conc.len(), {
+              match(
+                tt_conc.get(tt_ki),
+                .Some(tt_km) => if((tt_km.source_trait_id == tt_trait_id) || (tt_km.source_trait_id == tt_trait_key), {
+                  out_wc := new_expr_info(env, tt_km.ty);
+                  out_wc.value = tt_km.value;
+                  out_wc.is_accessing_property = Option(bool).Some(true);
+                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_wc);
+                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_wc);
+                  return(expr);
+                }),
+                .None => ()
+              );
+              tt_ki = (tt_ki + usize(1));
+            });
+          });
           tt_cands := find_methods_from_generic_impls(tt_recv_ty, prop_name_tt.clone(), env);
           (tt_ci : usize) = usize(0);
           while(tt_ci < tt_cands.len(), {

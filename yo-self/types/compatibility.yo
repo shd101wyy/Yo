@@ -109,6 +109,16 @@ CompatImplementsTraitFn :: (fn(t : TypeValue, trait_type : TypeValue) -> bool);
 set_compat_type_implements_trait_fn :: (fn(f : CompatImplementsTraitFn) -> unit)({
   g_compat_type_implements_trait_fn = Option(CompatImplementsTraitFn).Some(f);
 });
+/// Hook to `lookup_some_resolved_concrete` (expr_info.yo) — same cycle-breaker
+/// pattern. The given-SomeT resolution unwrap needs the DURABLE id-keyed
+/// registry: the def-time stamping often reaches only the registry, not every
+/// lineage cell copy already stored in variables/ExprInfos.
+CompatSomeResolvedFn :: (fn(some_id : String) -> Option(TypeValue));
+(g_compat_lookup_some_resolved : Option(CompatSomeResolvedFn)) =
+  Option(CompatSomeResolvedFn).None;
+set_compat_lookup_some_resolved_fn :: (fn(f : CompatSomeResolvedFn) -> unit)({
+  g_compat_lookup_some_resolved = Option(CompatSomeResolvedFn).Some(f);
+});
 // ---------------------------------------------------------------------------
 // Core implementation
 // ---------------------------------------------------------------------------
@@ -342,6 +352,70 @@ _compat_impl :: (
     if(unit_empty_struct, {
       return(true);
     });
+  });
+  // --- SomeType (actual) vs concrete (expected) ------------------------------
+  // TS compatibility.ts:900-916: a GIVEN SomeType that already carries a
+  // resolved concrete type is compatible when its RESOLUTION is — e.g. an
+  // `Impl(RetI32)` receiver resolved to `bool` flowing into an impl method's
+  // `self : *(bool)` (the receiver-methods filter and the self-param check
+  // both route here). requireExactMatch passes through, exactly as TS does,
+  // so the pointer-children exact recursion also benefits. Reads the lineage
+  // CELL (the value-semantics surrogate of TS's mutated type object).
+  if(is_some_type(actual) && !(is_some_type(expected)), {
+    match(
+      actual,
+      .SomeT({ id : a_res_id, resolved_concrete : a_res_cell }) => {
+        a_resolution := match(
+          a_res_cell.get(usize(0)),
+          .Some(a_res_ty) => Option(TypeValue).Some(a_res_ty),
+          .None => match(
+            g_compat_lookup_some_resolved,
+            .Some(a_res_lookup) => a_res_lookup(a_res_id),
+            .None => Option(TypeValue).None
+          )
+        );
+        match(
+          a_resolution,
+          .Some(a_res_ty2) => {
+            if(recur(a_res_ty2, expected, require_exact, visited), {
+              return(true);
+            });
+          },
+          .None => ()
+        );
+      },
+      _ => ()
+    );
+  });
+  // Symmetric unwrap: several yo-self call sites pass (param, arg) with the
+  // SomeT in the EXPECTED slot (e.g. helper.yo Step 8's self-param check:
+  // expected = `Impl(RetI32)` receiver arg... or the roles reversed). A
+  // resolved SomeT stands for its concrete either way.
+  if(is_some_type(expected) && !(is_some_type(actual)), {
+    match(
+      expected,
+      .SomeT({ id : e_res_id, resolved_concrete : e_res_cell }) => {
+        e_resolution := match(
+          e_res_cell.get(usize(0)),
+          .Some(e_res_ty) => Option(TypeValue).Some(e_res_ty),
+          .None => match(
+            g_compat_lookup_some_resolved,
+            .Some(e_res_lookup) => e_res_lookup(e_res_id),
+            .None => Option(TypeValue).None
+          )
+        );
+        match(
+          e_resolution,
+          .Some(e_res_ty2) => {
+            if(recur(actual, e_res_ty2, require_exact, visited), {
+              return(true);
+            });
+          },
+          .None => ()
+        );
+      },
+      _ => ()
+    );
   });
   // --- Tag mismatch ---------------------------------------------------------
   if(type_value_tag(actual) != type_value_tag(expected), {
@@ -938,4 +1012,4 @@ are_types_compatible_exact :: (fn(actual : TypeValue, expected : TypeValue) -> b
 are_function_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)(
   _compat_impl(actual, expected, false, ArrayList(String).new())
 );
-export(are_types_compatible, are_types_compatible_exact, are_function_types_compatible, set_compat_type_implements_trait_fn);
+export(are_types_compatible, are_types_compatible_exact, are_function_types_compatible, set_compat_type_implements_trait_fn, set_compat_lookup_some_resolved_fn);

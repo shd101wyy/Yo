@@ -71,7 +71,7 @@ open(import("std/string"));
 { get_all_some_types } :: import("../../types/utils.yo");
 { random_id } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
-{ EvalValue, FuncValData, create_type_value } :: import("../../value.yo");
+{ EvalValue, FuncValData, create_type_value, create_unknown_val } :: import("../../value.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
@@ -1520,6 +1520,20 @@ _substitute_self_in_method_ty :: (
 /// pre-pass is best-effort — TS `tryCreateForwardShell` wraps its
 /// evaluateExpression in try/catch and returns null on failure,
 /// impl.ts:533-547). Returns the evaluated Func TypeValue, or `.None`.
+/// Evaluate a per-impl MATERIALIZED trait-default body in a contained
+/// swallow (the def-eval-wall pattern): a failing body must not abort the
+/// enclosing impl evaluation — the shared default stays as fallback and the
+/// call site surfaces any genuine error. The eval stamps the CLONE's
+/// ExprInfos (Self is bound by the caller via ctx.self_type), which is what
+/// codegen needs to emit the per-impl default directly (impl.test.yo
+/// heterogeneous `!=` — see issues/yo-self-hollow-root-cause-map.md layer 8).
+_materialize_default_body :: (
+  fn(body : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
+)({
+  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  evaluated := evaluate_expression_raw(body, env, ctx, inner_exn);
+  out.push(evaluated);
+});
 _trial_eval_fn_type_head :: (
   fn(
     fn_type_expr : AstExpr,
@@ -2839,12 +2853,97 @@ evaluate_module_value :: (
                   match(
                     get_trait_default(dtf_trait_id.clone(), d_label.clone()),
                     .Some(d_val) => {
+                      d_sub_ty := _substitute_self_in_method_ty(d_ty, receiver_ty);
+                      // PER-IMPL MATERIALIZATION (TS trait-type.ts:418-489
+                      // materializes defaults in the impl's env where Self is
+                      // concrete): the shared default FuncVal's body was
+                      // evaluated at TRAIT-VALUE creation with Self UNBOUND —
+                      // its `Self.(==)` never resolved when the receiver had
+                      // multiple `==` overloads (the multi-overload defer needs
+                      // a bound receiver), and with a non-generic registered
+                      // type no call-time spec ever re-evaluates the body, so
+                      // codegen FTT'd (impl.test.yo heterogeneous `!=`,
+                      // root-cause map layer 8). Mint a fresh-id body clone and
+                      // evaluate it HERE with Self = the impl receiver and the
+                      // params bound at the Self-substituted types; a failing
+                      // materialization falls back to the shared default.
+                      d_reg_val := match(
+                        d_val,
+                        .FuncVal(d_fvd, d_cvs) => {
+                          d_fresh_id := (String.from("fn_") + random_id(env.module_path));
+                          d_body_clone := clone_expr_fresh_ids(d_fvd.*.body);
+                          d_fresh := EvalValue.FuncVal(
+                            box(
+                              FuncValData(
+                                forall_names : d_fvd.*.forall_names,
+                                params : d_fvd.*.params,
+                                param_type_names : d_fvd.*.param_type_names,
+                                evidence_params : d_fvd.*.evidence_params,
+                                body : d_body_clone.clone(),
+                                cap_names : d_fvd.*.cap_names,
+                                cap_tys : d_fvd.*.cap_tys,
+                                func_id : d_fresh_id.clone()
+                              )
+                            ),
+                            d_cvs
+                          );
+                          register_func_type(d_fresh_id.clone(), d_sub_ty.clone());
+                          d_saved_self := ctx.self_type;
+                          ctx.self_type = Option(TypeValue).Some(receiver_ty.clone());
+                          ___df := env.push_frame(false);
+                          d_pts := match(d_sub_ty,.Func({ param_types : d_ppts }) => d_ppts, _ => ArrayList(TypeValue).new());
+                          (d_pi : usize) = usize(0);
+                          while(d_pi < d_fvd.*.params.len(), {
+                            d_pn := match(d_fvd.*.params.get(d_pi),.Some(n) => n,.None => String.from(""));
+                            d_pt := match(d_pts.get(d_pi),.Some(t) => t,.None => t_unit());
+                            ___dpv := add_variable_to_env(
+                              env,
+                              d_pn,
+                              d_pt,
+                              Option(EvalValue).Some(create_unknown_val(d_pt)),
+                              false,
+                              false,
+                              false,
+                              false,
+                              synthetic_token(d_pn, env.module_path)
+                            );
+                            d_pi = (d_pi + usize(1));
+                          });
+                          d_out := ArrayList(AstExpr).new();
+                          _materialize_default_body(d_body_clone, env, ctx, d_out);
+                          env.pop_frame();
+                          ctx.self_type = d_saved_self;
+                          // Only adopt the clone when its body eval SUCCEEDED
+                          // (out non-empty); otherwise rebuild the shared
+                          // default from its own fields (EvalValue is not
+                          // Clone) so prior behavior is kept.
+                          cond(
+                            (d_out.len() > usize(0)) => d_fresh,
+                            true => EvalValue.FuncVal(
+                              box(
+                                FuncValData(
+                                  forall_names : d_fvd.*.forall_names,
+                                  params : d_fvd.*.params,
+                                  param_type_names : d_fvd.*.param_type_names,
+                                  evidence_params : d_fvd.*.evidence_params,
+                                  body : d_fvd.*.body,
+                                  cap_names : d_fvd.*.cap_names,
+                                  cap_tys : d_fvd.*.cap_tys,
+                                  func_id : d_fvd.*.func_id
+                                )
+                              ),
+                              d_cvs
+                            )
+                          )
+                        },
+                        _ => d_val
+                      );
                       register_type_trait_method(
                         receiver_type_id,
                         MethodEntry(
                           label : d_label.clone(),
-                          ty : _substitute_self_in_method_ty(d_ty, receiver_ty),
-                          value : Option(EvalValue).Some(d_val),
+                          ty : d_sub_ty,
+                          value : Option(EvalValue).Some(d_reg_val),
                           source_trait_id : type_id_or_empty(ctt2),
                           needs_pointer_conversion : false,
                           self_type : Option(TypeValue).None
