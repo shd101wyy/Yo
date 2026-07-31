@@ -108,7 +108,9 @@ make_effects_row_with :: (fn(effect_name : String) -> TypeValue)({
     has_variadic : false,
     is_extern : Option(String).None,
     extern_name : Option(String).None,
-    is_control : false
+    is_control : false,
+    variadic_label : Option(String).None,
+    variadic_comptime : false
   );
   fn_ty := TypeValue.Func(
     forall_types,
@@ -116,7 +118,8 @@ make_effects_row_with :: (fn(effect_name : String) -> TypeValue)({
     implicit_types,
     where_types,
     t_unit(),
-    box(meta)
+    box(meta),
+    ArrayList(TypeValue).new()
   );
   types.push(fn_ty);
   TypeValue.EffectsRowT(labels, types)

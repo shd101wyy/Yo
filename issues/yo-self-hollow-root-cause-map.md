@@ -1558,3 +1558,24 @@ a meta pair), populate at fn-type creation from the side table, append in
 \_ti_bind_function_info with is_comptime=true/is_variadic=true. Also
 re-measure the OTHER 23 markers after (they may be downstream of the same
 def-trial abort).
+
+### type_reflection — FIXED (TRUE GREEN 35/35 = TS): Func-variant variadic extension
+
+The FuncMeta/Func extension landed (the recorded "own round, wide but
+mechanical" step): `FuncMeta.variadic_label : Option(String)` +
+`variadic_comptime : bool` (FuncMeta cannot reference TypeValue — declared
+first, no forward refs — so the TYPE rides in a new trailing
+`Func.variadic_types : ArrayList(Self)`, 0-or-1). 27 TypeValue.Func
+constructor sites + 3 positional patterns + 21 FuncMeta constructions
+updated mechanically; substitute() recurses into variadic_types; the
+intern key renders them + the two meta fields; the fn-type mint
+(evaluator/types/function.yo) populates all three from params_result
+(HOISTED locals — a cond() inside a struct-literal argument trips
+"Frame level N has different number of values for different cases").
+\_ti_bind_function_info appends the variadic ParamInfo exactly as TS
+(type-fns.ts:1134). Batch main real; 24 residual markers sit in
+UNREFERENCED emitted fns (same GREEN-with-markers class as
+algebraic_effects).
+
+Gates: TIER 1 clean, stage2 markers 0, FIXPOINT_HOLDS, sweep
+**175 GREEN / 9 HOLLOW / 1 RED** — zero regressions.

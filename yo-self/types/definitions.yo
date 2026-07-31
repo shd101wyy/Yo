@@ -72,7 +72,17 @@ FuncMeta :: struct(
   /// `FunctionType.isControl`. A `ctl` value is FRAME-BOUND (its body may
   /// `unwind` out of the enclosing install frame) so it must not escape. Read
   /// by `type_is_control_bound` + the §4 escape-boundary checks.
-  is_control : bool
+  is_control : bool,
+  /// The variadic parameter's BINDING NAME (`...(xs : T)` → "xs"), when the
+  /// fn type has one. Mirrors `FunctionType.variadicParameter.label`. The
+  /// variadic TYPE cannot live here (FuncMeta is declared before TypeValue —
+  /// no forward references) — it rides in `Func.variadic_types` (0-or-1).
+  /// TypeInfo.Function reads both (type-fns.ts:1134 appends the variadic to
+  /// the ParamInfo list).
+  variadic_label : Option(String),
+  /// True when the variadic parameter is comptime (`...(xs : ComptimeList)`).
+  /// Mirrors `variadicParameter.isCompileTimeOnly`.
+  variadic_comptime : bool
 );
 derive(FuncMeta, Clone);
 /// The Yo type universe.
@@ -144,7 +154,13 @@ TypeValue :: ref(
       implicit_types : ArrayList(Self),
       where_types : ArrayList(Self),
       result : Self,
-      meta : Box(FuncMeta)
+      meta : Box(FuncMeta),
+      /// The variadic parameter's TYPE (0 or 1 elements — the ArrayList is a
+      /// poor man's Option(Self) since Self-typed Options are unavailable in
+      /// a variant position). Mirrors `FunctionType.variadicParameter.type`;
+      /// the label/comptime flags live in `FuncMeta.variadic_label` /
+      /// `variadic_comptime` (FuncMeta cannot reference TypeValue).
+      variadic_types : ArrayList(Self)
     ),
     // Named user-defined types ------------------------------------------------
     /// `id` uniquely identifies this struct definition (mirrors `StructType.id`

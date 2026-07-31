@@ -4209,6 +4209,14 @@ evaluate_function_type :: (
     );
     wci = (wci + usize(1));
   });
+  (mint_vlabel : Option(String)) = Option(String).None;
+  (mint_vcomptime : bool) = false;
+  vts_mint := ArrayList(TypeValue).new();
+  if(params_result.has_variadic, {
+    mint_vlabel = Option(String).Some(params_result.variadic_param.label.clone());
+    mint_vcomptime = params_result.variadic_param.is_compile_time_only;
+    vts_mint.push(params_result.variadic_param.ty);
+  });
   func_type := TypeValue.Func(
     forall_types,
     param_types,
@@ -4238,9 +4246,16 @@ evaluate_function_type :: (
         is_extern : Option(String).None,
         extern_name : Option(String).None,
         // is_control — true when the head was `ctl(...)` (mirrors isControl).
-        is_control : is_ctl_fn_type
+        is_control : is_ctl_fn_type,
+        // variadic_label / variadic_comptime — the variadic parameter's
+        // binding name + comptime flag (mirrors TS
+        // `FunctionType.variadicParameter.{label,isCompileTimeOnly}`); the
+        // TYPE rides in Func.variadic_types below.
+        variadic_label : mint_vlabel,
+        variadic_comptime : mint_vcomptime
       )
-    )
+    ),
+    vts_mint
   );
   // Set expr info on the expr
   out_info := new_expr_info(env_mut, type_of_type(func_type));

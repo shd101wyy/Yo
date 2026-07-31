@@ -169,7 +169,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
           .Tuple(labels, new_types)
         },
         // Recurse into Func (all type-bearing fields).
-        .Func({ forall_types : fts, param_types : pts, implicit_types : its, where_types : wts, result : ret, meta : __fm1 }) => {
+        .Func({ forall_types : fts, param_types : pts, implicit_types : its, where_types : wts, result : ret, meta : __fm1, variadic_types : vts }) => {
           new_fts := ArrayList(TypeValue).new();
           i := usize(0);
           while(i < fts.len(), {
@@ -198,9 +198,16 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
             new_wts.push(recur(s, elem));
             i = (i + usize(1));
           });
+          new_vts := ArrayList(TypeValue).new();
+          i = usize(0);
+          while(i < vts.len(), {
+            elem := match(vts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            new_vts.push(recur(s, elem));
+            i = (i + usize(1));
+          });
           // Preserve result_is_comptime_only + ref-tracking + variadic flag +
           // FFI metadata across substitution.
-          .Func(new_fts, new_pts, new_its, new_wts, recur(s, ret), __fm1)
+          .Func(new_fts, new_pts, new_its, new_wts, recur(s, ret), __fm1, new_vts)
         },
         // TraitT — recurse into field types. (Source-namespace structs go
         // through the Struct arm above.)

@@ -114,6 +114,9 @@ _meta_key :: (fn(m : FuncMeta) -> String)({
   out.push_string(m.is_extern.clone().unwrap_or(String.from("")));
   out.push_str("x");
   out.push_string(m.extern_name.clone().unwrap_or(String.from("")));
+  out.push_str("v");
+  out.push_string(m.variadic_label.clone().unwrap_or(String.from("")));
+  out.push_string(_b(m.variadic_comptime));
   out
 });
 // ---------------------------------------------------------------------------
@@ -202,7 +205,7 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
         o.push_str("]");
         o
       },
-      .Func({ forall_types : fa, param_types : pp, implicit_types : ii, where_types : ww, result : res, meta : m }) => {
+      .Func({ forall_types : fa, param_types : pp, implicit_types : ii, where_types : ww, result : res, meta : m, variadic_types : vv }) => {
         o := String.from("Fn[");
         na := fa.len();
         (ia : usize) = usize(0);
@@ -239,6 +242,14 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
         o.push_string(recur(res, depth + usize(1), visited));
         o.push_str("|");
         o.push_string(_meta_key(m.*.clone()));
+        o.push_str("|");
+        nv := vv.len();
+        (iv : usize) = usize(0);
+        while(iv < nv, {
+          match(vv.get(iv),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
+          o.push_str(",");
+          iv = (iv + usize(1));
+        });
         o.push_str("]");
         o
       },

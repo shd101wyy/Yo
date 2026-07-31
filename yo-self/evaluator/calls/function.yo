@@ -2095,7 +2095,8 @@ _evaluate_funcval_runtime_call :: (
         fx_it,
         fx_wt,
         resolved_ret.clone(),
-        fx_meta
+        fx_meta,
+        ArrayList(TypeValue).new()
       ),
       _ => base_spec_ty
     );
@@ -3503,9 +3504,12 @@ Fix: wrap the call:
                   has_variadic : false,
                   is_extern : Option(String).None,
                   extern_name : Option(String).None,
-                  is_control : false
+                  is_control : false,
+                  variadic_label : Option(String).None,
+                  variadic_comptime : false
                 )
-              )
+              ),
+              ArrayList(TypeValue).new()
             );
             pa_fid := `partial_${pa_id}`;
             register_func_type(pa_fid.clone(), pa_new_ty);

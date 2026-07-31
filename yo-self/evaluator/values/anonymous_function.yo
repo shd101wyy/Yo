@@ -270,8 +270,12 @@ _func_from_fn_trait :: (fn(ftt : TypeValue) -> TypeValue)(
           // Fn-trait-derived closure type is not FFI
           extern_name : Option(String).None,
           is_control : false // Fn-trait-derived closure type is `fn`, not `ctl`
+          ,
+          variadic_label : Option(String).None,
+          variadic_comptime : false
         )
-      )
+      ),
+      ArrayList(TypeValue).new()
     ),
     _ => TypeValue.Unit
   )
@@ -345,7 +349,7 @@ _subst_some_types_from_env :: (fn(ty : TypeValue, env2 : Environment, allow : Ar
         ss_new_pts.push(recur(ss_elem, env2, allow.clone()));
         ss_pi = (ss_pi + usize(1));
       });
-      TypeValue.Func(ss_fts.clone(), ss_new_pts, ss_its.clone(), ss_wts.clone(), recur(ss_ret, env2, allow.clone()), box(ss_fm.*.clone()))
+      TypeValue.Func(ss_fts.clone(), ss_new_pts, ss_its.clone(), ss_wts.clone(), recur(ss_ret, env2, allow.clone()), box(ss_fm.*.clone()), ArrayList(TypeValue).new())
     },
     _ => ty
   )
@@ -1121,10 +1125,10 @@ evaluate_anonymous_function_implementation :: (
   // `function_type` (used below for body-eval + the expr's ExprInfo) untouched.
   corrected_func_type := match(
     function_type.clone(),
-    .Func(_l3ft, _l3pt, _l3it, _l3wt, _l3r, _l3m) => {
+    .Func(_l3ft, _l3pt, _l3it, _l3wt, _l3r, _l3m, _) => {
       _l3nm := _l3m.*.clone();
       _l3nm.param_labels = actual_param_labels.clone();
-      TypeValue.Func(_l3ft.clone(), _l3pt.clone(), _l3it.clone(), _l3wt.clone(), _l3r.clone(), box(_l3nm))
+      TypeValue.Func(_l3ft.clone(), _l3pt.clone(), _l3it.clone(), _l3wt.clone(), _l3r.clone(), box(_l3nm), ArrayList(TypeValue).new())
     },
     _ => function_type.clone()
   );
@@ -1428,10 +1432,10 @@ evaluate_anonymous_function_implementation :: (
                 // skipped the deref).
                 rereg_ty := match(
                   corrected_func_type.clone(),
-                  .Func(_l4ft, _l4pt, _l4it, _l4wt, _l4r, _l4m) => {
+                  .Func(_l4ft, _l4pt, _l4it, _l4wt, _l4r, _l4m, _) => {
                     _l4nm := _l4m.*.clone();
                     _l4nm.param_labels = actual_param_labels.clone();
-                    TypeValue.Func(_l4ft.clone(), param_types.clone(), _l4it.clone(), _l4wt.clone(), body_ty.clone(), box(_l4nm))
+                    TypeValue.Func(_l4ft.clone(), param_types.clone(), _l4it.clone(), _l4wt.clone(), body_ty.clone(), box(_l4nm), ArrayList(TypeValue).new())
                   },
                   _ => t_func_simple(actual_param_labels.clone(), param_types.clone(), body_ty.clone())
                 );

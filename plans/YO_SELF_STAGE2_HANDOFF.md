@@ -12,7 +12,9 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 174 GREEN / 10 HOLLOW / 1 RED of 185 test files** (asm
+**Honest score: 175 GREEN / 9 HOLLOW / 1 RED of 185 test files** (type_reflection
+flipped TRUE GREEN 35/35 2026-08-01 — 4 TypeInfo arms + the Func-variant
+variadic extension; earlier: asm
 flipped TRUE GREEN 13/13 2026-08-01 — full two-part port: evaluator
 builtins/asm.yo + codegen exprs/asm.yo + -masm=intel wiring; earlier: gadts
 flipped TRUE GREEN 10/10 2026-08-01 — GADT match bypass + tca

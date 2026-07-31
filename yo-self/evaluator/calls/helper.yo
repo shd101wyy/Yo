@@ -803,7 +803,7 @@ check_if_function_parameter_matches_argument :: (
           match(
             get_closure_body_type(cb_fvd.*.func_id.clone()),
             .Some(cb_body_ty) => {
-              arg_type_for_synth = TypeValue.Func(cb_ft, cb_pt, cb_it, cb_wt, cb_body_ty, cb_meta);
+              arg_type_for_synth = TypeValue.Func(cb_ft, cb_pt, cb_it, cb_wt, cb_body_ty, cb_meta, ArrayList(TypeValue).new());
             },
             .None => ()
           );
@@ -2099,7 +2099,8 @@ create_specialized_function_inline :: (
               ft_it,
               ft_wt,
               spec_ret_ty.clone(),
-              ft_meta
+              ft_meta,
+              ArrayList(TypeValue).new()
             ),
             _ => func_type
           );
@@ -2794,7 +2795,7 @@ create_specialized_function_inline :: (
                                     }) => {
                                       register_func_type(
                                         cw_fid.clone(),
-                                        TypeValue.Func(cw_fts, cw_new_pts, cw_its, cw_wts, cw_ret_res, cw_fm)
+                                        TypeValue.Func(cw_fts, cw_new_pts, cw_its, cw_wts, cw_ret_res, cw_fm, ArrayList(TypeValue).new())
                                       );
                                     },
                                     _ => ()
@@ -3159,9 +3160,12 @@ create_specialized_function_inline :: (
                     has_variadic : sp_hv,
                     is_extern : sp_ie,
                     extern_name : sp_en,
-                    is_control : sp_ic
+                    is_control : sp_ic,
+                    variadic_label : Option(String).None,
+                    variadic_comptime : false
                   )
-                )
+                ),
+                ArrayList(TypeValue).new()
               );
               register_func_type(specialized_func_id.clone(), spec_type);
             },
@@ -3893,9 +3897,12 @@ try_to_call_function_with_arguments :: (
               has_variadic : false,
               is_extern : Option(String).None,
               extern_name : Option(String).None,
-              is_control : false
+              is_control : false,
+              variadic_label : Option(String).None,
+              variadic_comptime : false
             )
-          )
+          ),
+          ArrayList(TypeValue).new()
         ),
         _ => func_type
       ),

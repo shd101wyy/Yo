@@ -958,13 +958,16 @@ _ti_bind_function_info :: (
     implicit_labels : ArrayList(String),
     implicit_types : ArrayList(TypeValue),
     result_ty : TypeValue,
-    has_variadic : bool,
+    // The variadic parameter (0-or-1 in variadic_types; label/comptime from
+    // FuncMeta) — appended to the params list exactly as TS appends
+    // variadicParameter (type-fns.ts:1134).
+    variadic_types : ArrayList(TypeValue),
+    variadic_label : String,
+    variadic_comptime : bool,
     ctx : EvalContext,
     exn : Exception
   ) -> String
 )({
-  // Params (the variadic param, when present, is the LAST entry — TS appends
-  // variadicParameter to the params list; it is comptime by construction).
   param_vals := ArrayList(EvalValue).new();
   {
     (i : usize) = usize(0);
@@ -972,10 +975,18 @@ _ti_bind_function_info :: (
     while(i < n, {
       lbl := match(param_labels.get(i),.Some(l) => l,.None => String.new());
       pty := match(param_types.get(i),.Some(t) => t,.None => t_unit());
-      is_var := (has_variadic && (i == (n - usize(1))));
-      _p := param_vals.push(_ti_build_param_info(env_ptr, lbl, pty, is_var, is_var, ctx, exn));
+      _p := param_vals.push(_ti_build_param_info(env_ptr, lbl, pty, false, false, ctx, exn));
       i = (i + usize(1));
     });
+    match(
+      variadic_types.get(usize(0)),
+      .Some(vty) => {
+        _pv := param_vals.push(
+          _ti_build_param_info(env_ptr, variadic_label.clone(), vty, variadic_comptime, true, ctx, exn)
+        );
+      },
+      .None => ()
+    );
   };
   params_name := _ti_bind_comptime_list(env_ptr, param_vals, String.from("ParamInfo"), String.from("pl"), ctx, exn);
   ret_name := _ti_bind_type(env_ptr, result_ty, ctx);
@@ -1319,6 +1330,8 @@ evaluate_yo_type_get_info :: (
         ft_ilabels,
         ft_itypes,
         ft_result,
+        ArrayList(TypeValue).new(),
+        String.from("..."),
         false,
         ctx,
         exn
@@ -1349,7 +1362,7 @@ evaluate_yo_type_get_info :: (
       }
     },
     // === Function(info) === (type-fns.ts:849-856)
-    .Func({ forall_types : fn_fts, param_types : fn_pts, implicit_types : fn_its, result : fn_res, meta : fn_meta }) => {
+    .Func({ forall_types : fn_fts, param_types : fn_pts, implicit_types : fn_its, result : fn_res, meta : fn_meta, variadic_types : fn_vts }) => {
       fni_name := _ti_bind_function_info(
         local_env,
         fn_meta.*.param_labels,
@@ -1359,7 +1372,9 @@ evaluate_yo_type_get_info :: (
         fn_meta.*.implicit_labels,
         fn_its,
         fn_res,
-        fn_meta.*.has_variadic,
+        fn_vts,
+        match(fn_meta.*.variadic_label,.Some(vl) => vl.clone(),.None => String.from("...")),
+        fn_meta.*.variadic_comptime,
         ctx,
         exn
       );

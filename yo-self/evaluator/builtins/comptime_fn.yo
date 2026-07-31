@@ -381,9 +381,12 @@ evaluate_comptime_fn :: (
         has_variadic : match(func_type,.Func({ meta : m }) => m.*.has_variadic, _ => false),
         is_extern : match(func_type,.Func({ meta : m }) => m.*.is_extern, _ => Option(String).None),
         extern_name : match(func_type,.Func({ meta : m }) => m.*.extern_name, _ => Option(String).None),
-        is_control : match(func_type,.Func({ meta : m }) => m.*.is_control, _ => false)
+        is_control : match(func_type,.Func({ meta : m }) => m.*.is_control, _ => false),
+        variadic_label : Option(String).None,
+        variadic_comptime : false
       )
-    )
+    ),
+    ArrayList(TypeValue).new()
   );
   // Extract body_box and captures from the FuncVal.
   body_box := match(arg_val,.FuncVal(__fvd1, _) => __fvd1.*.body, _ => make_err_expr());
