@@ -1193,3 +1193,30 @@ ExprInfo is stamped ONCE at def-time and reused at spec time (the same
 no-retry-vs-retry asymmetry), or the expected reaching the CALLEE eval is
 the DEF-ERA declared param type from a path that bypasses both landed
 overrides.
+
+### imm-family probe round (2026-07-31, cont.) — the era pair pinned to TWO LIVE Option memo entries at SPEC time
+
+Probe data (imm_threading, **DBG_PA on the `.Some` shorthand-callee adoption
+with mode flags + **DBG_EC on the construction stamp + \_\_DBG_CT on memo
+hits):
+
+- The def-era side (enum_yo_id_7695) NEVER appears as a ctor-memo RESULT
+  (2980 memo events, zero 7695) — it is not a memo-bypass; it comes from a
+  memo entry only visible to SOME lookups.
+- BOTH eras reach `.Some(x)` args DURING SPECIALIZATION: 4 sites get
+  expected era-7695 and 1 site era-10755, all with valid=y exec=n spec=y.
+  Different CALLER SPECS resolve `Option(RBNode(K, V))` to DIFFERENT eras.
+- Conclusion: two LIVE Option-memo entries whose RBNode ARGUMENTS fail
+  `_ctfe_types_era_equal` — era-equality keys on constructor_func_id +
+  recursively era-equal type_arguments; the prime suspect is a
+  SUBSTITUTED/cloned RBNode instance with an EMPTY `constructor_func_id`
+  (cfid-less instances cannot era-match anything). NEXT PROBE: at the
+  `_ctfe_types_era_equal` struct arm, log the REJECTED pairs' cfids for
+  struct names matching RBNode — an empty cfid on one side confirms it;
+  the fix would be carrying `constructor_func_id` through
+  substitution.yo's Struct arm (it currently reconstructs field types but
+  may drop/keep the def instance's cfid — verify which).
+
+Landed this round (commit 1bfb8f10c): inline-arm dot-form arg expected
+override (imm_threading 17 -> 13 clang errors). Rejected this round
+(measured, reverted): the try_to_call-side mirror (zero wins).
