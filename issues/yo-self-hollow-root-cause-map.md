@@ -1139,3 +1139,29 @@ WIP = stash@{0} "impl-onion-WIP-v9", binary /tmp/sh54.
   provisional-method or where-walk cache).
   9a (`ret_boolean_i32` value bug) still untouched. WIP = stash@{0}
   "impl-onion-WIP-v10", binary /tmp/sh56.
+
+### impl — 9b FIXED (sh59): impl at 5/6
+
+The missing piece: `where(T <: Trait)` constraints live on the forall
+SomeT's required_trait_types, NOT the side table — the spec push in
+create_specialized now ALSO collects trait ids from
+get_all_some_types(func_type)'s SomeTs, and the \_select_matching_overload
+where-preference then picks TraitDisambigB's get_number.
+**"Test trait method disambiguation" PASSES — impl.test.yo = 5 passed /
+1 failed.**
+
+Last failure (9a): `bool _t = // Failed to transpile (b.return_i32)() ==
+(1);` — the assert's method call on the `Impl(RetI32)`-resolved-bool
+receiver FTTs at EMISSION (an FTT comment spliced INTO an expression —
+also yields invalid C locally but the file still runs the other tests).
+The call's method-callee VALUE was never recorded: for the module-level
+`b.return_i32()` call the receiver's SomeT resolution is registry-known
+(bool), the method entry from the SomeT trait walk carries the trait DECL
+(no value), and the concrete bool impl's return_i32 value must be
+resolved either at the call (record_method_callee_value with the
+resolution-deref'd receiver — same class as layers 3-5) or at emission.
+NEXT: probe what method_info.method_val_opt / the recorded callee value is
+for THIS call (gate on method name return_i32 + receiver Impl), then
+resolve the concrete impl's method value via the receiver's
+resolved_concrete before recording. WIP = stash@{0}
+"impl-onion-WIP-v11", binary /tmp/sh59.
