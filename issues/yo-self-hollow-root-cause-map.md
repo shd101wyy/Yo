@@ -618,3 +618,36 @@ whether this cond flows through initialization_assignment.yo with a
 different arm-eval entry entirely. The begin propagation change is likely
 still CORRECT (TS carries captureType on the block's result) — re-land it
 together with whatever makes the captures visible.
+
+## UPDATE 2026-07-31 — closure GREEN; basic/fn sub-arm bisect (post batch-2 fixes)
+
+Score after `ac78c38c3` (+ the in-flight batch-2): **170 GREEN / 15 HOLLOW**
+(sweep `/tmp/sweep_h17`; `tests/tmp_ifc/` stray fixture deleted).
+
+**closure.test.yo → TRUE GREEN 9/9** — Impl(...) reassignment rule + branch-group
+windows (`ac78c38c3`).
+
+**Batch-2 fixes (this round)**: `:=`/`x : T` no-shadowing rule; runtime-var strip
+in `_build_def_time_body_env` (TS keepTopLevelFrameAndComptimeVariablesFromEnv —
+fixed fn's outer-capture arm AND basic's outside-fn-init arm via "Variable not
+found" parity); while-loop init gate with `entry_frame_count` SNAPSHOT (the live
+frame-count read was why the first port was reverted); ctfe-body guard now reads
+Func meta `result_is_comptime_only` (was type-based, never fired); tuple compat
+label-free (TS structural rule) + assignment keeps DECLARED tuple type;
+comptime_expect_error restores per-frame VARIABLE COUNTS (a cee-thrown
+`(z : Point1) := (3,4)` stranded `z`); deferred-generic-return check ported for
+DIRECT `(fn(...))(body)` definitions (calls/function_type.yo) with throwaway
+trial FuncVal id + trial-abstract skip.
+
+**fn.test.yo — 1 root left**: anon-path deferred return check parked on the
+parameter-aliasing gap — see `issues/yo-self-fn-param-aliasing.md`.
+
+**basic.test.yo — 4 PRE-EXISTING single-arm roots left** (baseline-hollow too;
+masked by the all-or-nothing batch; bisected via subset_arms.py on /tmp/s2h25):
+
+| arm | test                   | swallowed error                                                          |
+| --- | ---------------------- | ------------------------------------------------------------------------ |
+| 12  | Test 'struct'          | `Cannot unify incompatible types: bool / unit` (assert on member access) |
+| 14  | Test 'union'           | `Failed to evaluate, got (v3.x)` — member access on impl-`new()` union   |
+| 18  | Test 'cond'            | `if(c, then : {...}, else : {...})` labeled-block macro form rejected    |
+| 24  | Test type availability | `y := Point2(6, 8)` should error (scope availability validation missing) |

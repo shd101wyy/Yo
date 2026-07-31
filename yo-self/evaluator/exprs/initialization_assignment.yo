@@ -40,7 +40,7 @@ open(import("std/string"));
   has_any_control_flow,
   path_collection_new
 } :: import("../../expr_info.yo");
-{ Environment, Variable, add_variable_to_env } :: import("../../env.yo");
+{ Environment, Variable, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -61,7 +61,7 @@ open(import("std/string"));
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_function_type_and_returns_comptime_value } :: import("../../types/guards.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { throw_rhs_contains_control_flow_expression_error } :: import("./assignment.yo");
@@ -606,6 +606,38 @@ Use \`::\` for compile-time definitions inside impl.`,
         match(lookup.get(key),.Some(v) => Option(String).Some(v),.None => Option(String).None)
       }
     );
+    // No-shadowing rule (TS env.ts:644-658, enforced inside addVariableToEnv):
+    // a `:=`/`::` binding may not reuse a name visible in ANY frame. yo-self
+    // keeps the check at the user binding-introduction sites instead of inside
+    // add_variable_to_env — that helper's 100+ internal callers correspond to
+    // TS sites passing `allowVariableShadowing: true` (params, type params,
+    // effect spreads). Temp names (`_` rename) are machine-unique, and
+    // `__yo_self` is TS's explicit exemption.
+    if(var_name != String.from("__yo_self"), {
+      shadow_existing := get_variables_from_env(env, var_name);
+      if(shadow_existing.len() > usize(0), {
+        match(
+          shadow_existing.get(shadow_existing.len() - usize(1)),
+          .Some(shadow_var) => {
+            sh_entries := ArrayList(TokenAndError).new();
+            sh_entries.push(
+              TokenAndError(
+                token : actual_lhs_tok,
+                error_message : `Failed to define variable "${var_name}":`
+              )
+            );
+            sh_entries.push(
+              TokenAndError(
+                token : shadow_var.token,
+                error_message : `Variable "${var_name}" is already defined here (variable shadowing is not allowed):`
+              )
+            );
+            exn.throw(dyn(format_error_messages(sh_entries, false,.None)));
+          },
+          .None => ()
+        );
+      });
+    });
     // Add variable to environment.
     new_var_opt := add_variable_to_env(
       env,

@@ -1,20 +1,19 @@
-open(import("std/assert"));
 main :: (fn() -> unit)({
-  arr0 := Array(i32, 0)();
-  count0 := usize(0);
-  for(arr0, (x) => {
-    consume(x);
-    count0 = (count0 + usize(1));
-  });
-  assert(count0 == usize(0), "empty array should yield no elements");
-  arr := array(i32(10), i32(20), i32(30));
-  sum := i32(0);
-  count := usize(0);
-  for(arr, (x) => {
-    sum = (sum + x);
-    count = (count + usize(1));
-  });
-  assert(count == usize(3), "should yield 3 elements");
-  assert(sum == i32(60), "sum should be correct");
+  Point1 :: struct(x : i32, y : i32);
+  Point2 :: struct(x : i32, y : i32);
+  x := Point1(3, 4);
+  (y : Point2) = _(5, 6);
+  comptime_expect_error(
+    (z : Point1) := (3, 4),
+    "error: type Mismatch"
+  );
+  Point3 :: Point1;
+  (z : Point2) = y;
+  (z2 : Point3) = x;
+  comptime_expect_error(
+    (z3 : Point2) = x,
+    "error: type Mismatch"
+  );
+  assert(x.x == 3);
 });
 export(main);

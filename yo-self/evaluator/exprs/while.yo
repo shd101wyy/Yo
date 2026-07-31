@@ -397,7 +397,7 @@ evaluate_while :: (
   // Evaluate the body with the loop-body context set so that break/continue
   // inside the body know they are inside a while loop.
   old_loop_body := ctx.is_evaluating_loop_body;
-  ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(LoopBodyCtx(kind : LoopKind.While, env : env));
+  ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(LoopBodyCtx(kind : LoopKind.While, env : env, entry_frame_count : env.frames.len()));
   evaluated_body := evaluate_begin_expression(body_expr, env, ctx, ArrayList(Variable).new(), false, exn);
   ctx.is_evaluating_loop_body = old_loop_body;
   // Require ExprInfo for the body.

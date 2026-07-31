@@ -21,6 +21,7 @@ open(import("std/string"));
   ast_expr_id,
   make_err_expr
 } :: import("../../expr.yo");
+{ ArrayList } :: import("std/collections/array_list");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { format_error_message } :: import("../../error.yo");
@@ -108,6 +109,28 @@ evaluate_comptime_expect_error :: (
   // (the algebraic_effects batch FTT). Restore env frame depth + the ctx
   // mode fields after the arg eval, success or throw.
   saved_frames_len := env.frames.len();
+  // Per-frame variable counts: an EXPECTED throw can strand a half-made
+  // binding in a surviving frame (e.g. `cee((z : Point1) := (3, 4))` adds
+  // `z` before the type-mismatch throw). TS's persistent envs discard the
+  // rejected child env wholesale; yo-self must truncate each surviving
+  // frame's variable list back, or the leftover shadows the NEXT `(z : T)`
+  // binding and mis-types every later use of the name.
+  saved_frame_var_counts := ArrayList(usize).new();
+  {
+    (sfv_i : usize) = usize(0);
+    while(sfv_i < env.frames.len(), {
+      match(
+        env.frames.get(sfv_i),
+        .Some(sfv_f) => {
+          saved_frame_var_counts.push(sfv_f.variables.len());
+        },
+        .None => {
+          saved_frame_var_counts.push(usize(0));
+        }
+      );
+      sfv_i = (sfv_i + usize(1));
+    });
+  };
   saved_is_executing := ctx.is_executing;
   saved_is_validating := ctx.is_validating_function_definition;
   saved_expected := ctx.expected_type;
@@ -177,6 +200,25 @@ evaluate_comptime_expect_error :: (
   while(env.frames.len() > saved_frames_len, {
     env.pop_frame();
   });
+  // Drop variables the (expected-to-fail) arg eval stranded in surviving
+  // frames — see the snapshot comment above.
+  {
+    (rfv_i : usize) = usize(0);
+    while(rfv_i < env.frames.len(), {
+      rfv_saved := match(saved_frame_var_counts.get(rfv_i),.Some(n) => n,.None => usize(0));
+      match(
+        env.frames.get(rfv_i),
+        .Some(rfv_f) => {
+          while(rfv_f.variables.len() > rfv_saved, {
+            rfv_f.variables.pop();
+            ()
+          });
+        },
+        .None => ()
+      );
+      rfv_i = (rfv_i + usize(1));
+    });
+  };
   truncate_branch_group_stack(saved_branch_groups);
   if(arg_threw, {
     out_unit := new_expr_info(env, t_unit());

@@ -80,7 +80,14 @@ LoopKind :: enum(While, For);
 LoopBodyCtx :: ref(
   struct(
     kind : LoopKind,
-    env : Environment
+    env : Environment,
+    // Frame count SNAPSHOT taken at loop entry. `env` is the live shared
+    // Environment whose frames list keeps growing during the body eval, so
+    // TS's `variable.frameLevel < isEvaluatingLoopBody.env.frames.length`
+    // (assignment.ts:543) must compare against this number, not env's
+    // current length — that live read is exactly why the first port of the
+    // while-loop init gate false-fired on body-locals and was reverted.
+    entry_frame_count : usize
   )
 );
 // ---------------------------------------------------------------------------

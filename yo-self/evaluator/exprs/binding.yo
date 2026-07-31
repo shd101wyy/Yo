@@ -26,7 +26,7 @@ open(import("std/fmt"));
   make_err_expr
 } :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
-{ Environment, add_variable_to_env } :: import("../../env.yo");
+{ Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind } :: import("../context.yo");
 { EvalValue, is_type_value, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -44,7 +44,7 @@ open(import("std/fmt"));
   type_prohibits_comptime_modifier,
   type_contains_rc_type
 } :: import("../../types/utils.yo");
-{ format_error_message, YoError } :: import("../../error.yo");
+{ format_error_message, format_error_messages, TokenAndError, YoError } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression } :: import("./expr.yo");
 { is_valid_variable_name } :: import("../utils.yo");
@@ -347,6 +347,34 @@ evaluate_binding :: (
     is_compile_time_only => Option(EvalValue).Some(create_unknown_val(user_defined_type)),
     true => Option(EvalValue).None
   );
+  // No-shadowing rule (TS env.ts:644-658, enforced inside addVariableToEnv) —
+  // same check as initialization_assignment.yo; see the comment there for why
+  // yo-self keeps it at the user binding-introduction sites.
+  if(variable_name != String.from("__yo_self"), {
+    shadow_existing := get_variables_from_env(env, variable_name);
+    if(shadow_existing.len() > usize(0), {
+      match(
+        shadow_existing.get(shadow_existing.len() - usize(1)),
+        .Some(shadow_var) => {
+          sh_entries := ArrayList(TokenAndError).new();
+          sh_entries.push(
+            TokenAndError(
+              token : ast_expr_token(lhs),
+              error_message : `Failed to define variable "${variable_name}":`
+            )
+          );
+          sh_entries.push(
+            TokenAndError(
+              token : shadow_var.token,
+              error_message : `Variable "${variable_name}" is already defined here (variable shadowing is not allowed):`
+            )
+          );
+          exn.throw(dyn(format_error_messages(sh_entries, false,.None)));
+        },
+        .None => ()
+      );
+    });
+  });
   // Add the variable to the environment.
   _var_opt := add_variable_to_env(
     env,

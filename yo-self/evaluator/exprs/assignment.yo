@@ -9,7 +9,6 @@
 //!
 //! Phase 3 stubs (not yet implemented):
 //!   - Ownership tracking (clone_value, find_rc_value_owner_relationship, etc.)
-//!   - Impl(SomeType) reassignment check
 //!   - attachTempVariableToExpr (no-op stub in utils.yo)
 //!   - synthesizeExprAndType (type-inference for unknown-length arrays)
 pragma(Pragma.AllowUnsafe);
@@ -72,7 +71,8 @@ open(import("std/string"));
   is_comptime_float_type,
   is_comptime_string_type,
   is_atomic_reference_struct_type,
-  is_some_type
+  is_some_type,
+  is_tuple_type
 } :: import("../../types/guards.yo");
 {
   convert_comptime_type_to_runtime_type,
@@ -991,6 +991,36 @@ evaluate_assignment :: (
   // a loop-entry frame count of 4, so the gate wrongly fired and the swallowed
   // throw dropped the loop from the emitted C (corpus DIFF).
   if(!(is_mutating_defined_variable), {
+    // While-loop twin (assignment.ts:541-555): a variable declared OUTSIDE
+    // the loop may not be first-initialised inside its body (the loop may run
+    // zero times, and iteration 2 would re-init). The first port of this gate
+    // was reverted: it read the LIVE shared env's frame count, which had
+    // grown past loop entry by the time the gate ran, so body-locals compared
+    // as "outside" (corpus DIFF on arraylist_index_call.yo). The
+    // entry_frame_count SNAPSHOT taken by while.yo restores TS's persistent-
+    // env semantics.
+    match(
+      ctx.is_evaluating_loop_body,
+      .Some(loop_ctx) => {
+        if(updated_variable.frame_level < loop_ctx.entry_frame_count, {
+          wl_entries := ArrayList(TokenAndError).new();
+          wl_entries.push(
+            TokenAndError(
+              token : ast_expr_token(lhs_resolved),
+              error_message : String.from("Cannot initialize a variable that is defined outside the while loop.")
+            )
+          );
+          wl_entries.push(
+            TokenAndError(
+              token : updated_variable.token,
+              error_message : String.from("Defined here:")
+            )
+          );
+          exn.throw(dyn(format_error_messages(wl_entries, false,.None)));
+        });
+      },
+      .None => ()
+    );
     match(
       ctx.is_evaluating_function_body_or_async_block,
       .Some(of_ctx) => match(
@@ -1069,7 +1099,15 @@ evaluate_assignment :: (
   new_variable := Variable(
     id : updated_variable.id,
     name : updated_variable.name,
-    ty : rhs_type,
+    // A labeled tuple declaration keeps its DECLARED type when a positional
+    // tuple flows in: TS's variableType is always the declared type (never
+    // the RHS), so `(t2 : Tuple(a : i32, ...)) = (1, ...)` still resolves
+    // `t2.a` afterwards. Scoped to tuples — yo-self otherwise deliberately
+    // adopts rhs_type (enum selected-variant, SomeT resolution riders).
+    ty : cond(
+      (is_tuple_type(updated_variable.ty) && is_tuple_type(rhs_type)) => updated_variable.ty,
+      true => rhs_type
+    ),
     is_compile_time_only : updated_variable.is_compile_time_only,
     frame_level : updated_variable.frame_level,
     value : value_cell_of(value_to_store),

@@ -405,11 +405,9 @@ _compat_impl :: (
         while(i < n, {
           at := match(atypes.get(i),.Some(v) => v,.None => TypeValue.Unit);
           et := match(etypes.get(i),.Some(v) => v,.None => TypeValue.Unit);
-          al := match(alabels.get(i),.Some(v) => v,.None => ``);
-          el := match(elabels.get(i),.Some(v) => v,.None => ``);
-          if(al != el, {
-            return(false);
-          });
+          // Labels are deliberately NOT compared — a Tuple is a structural
+          // type, so `(1, 3.4, true)` flows into `Tuple(a : i32, b : f64,
+          // c : bool)` (TS compatibility.ts:242-264 has the same rule).
           if(!(recur(at, et, require_exact, visited)), {
             return(false);
           });

@@ -318,7 +318,12 @@ is_comptime_only_type_simple :: (fn(t : TypeValue) -> bool)(
 is_function_type_and_returns_comptime_value :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Func({ result : r }) => is_comptime_only_type_simple(r),
+    // TS reads the RETURN SPEC FLAG (`functionType.return.isCompileTimeOnly`),
+    // not a property of the result type: `-> comptime(unit)` has a plain unit
+    // result type with the comptime-ness carried in the meta flag. The
+    // type-based test alone made every "runtime binding in a comptime-only
+    // fn body" gate silently never fire (tests/fn.test.yo).
+    .Func({ result : r, meta : __gm }) => (__gm.*.result_is_comptime_only || is_comptime_only_type_simple(r)),
     _ => false
   )
 );
