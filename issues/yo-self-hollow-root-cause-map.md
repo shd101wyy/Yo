@@ -480,3 +480,29 @@ bool + ...)` — the minted IterFilter's `_f` is the closure CAPTURE STRUCT
    required-traits on F (the shared registry SomeT instance collects a
    constraint per early-apply — cross-call pollution worth its own look).
    Same expected/got member-era family as the imm\_\* REDs.
+
+## imm_map hollow (2026-07-31, post-RED-list) — four era-equal extensions measured-inert, REVERTED
+
+The batch-dispatch marker's swallowed error (\_\_DBG_F): "Cannot unify
+incompatible types: Expected _(struct_yo_id_5382) Given _(struct_yo_id_8060)"
+at std/imm/map.yo:133 (`children.add(usize(i))` inside `_drop_children`),
+thrown by function.yo's conservative arg-type check. Probe facts:
+
+- BOTH sides carry the SAME constructor_func_id (yo_id_4807) — the pair is
+  two era instances of one ctor.
+- Attempted, each measured-inert against the file (still markers=1), all
+  REVERTED: (a) era-tolerance in the arg check (pointer-unwrapped
+  \_ctfe_types_era_equal before throwing); (b) instance-field cfid preference
+  in era-equal; (c) field-types fallback when type_arguments are empty;
+  (d) Pointer arm + same-cfid depth-cap heuristic. After ALL FOUR the pair
+  STILL rejected — the sides likely differ structurally beyond eras (a
+  def-era instance with SomeT-carrying fields vs the concrete one — the
+  SomeT-vs-concrete leaf has no era arm and exact-compat is false), i.e.
+  the same generic-vs-concrete distinction era-equality is DESIGNED to
+  preserve. The correct fix is upstream: `.add`'s declared `self : *(T)`
+  param type reaching this call as the def-era Pair mint — the same
+  declared-param-era class as the fixed imm family, but on a plain
+  variable arg where the dot-form gate doesn't (and shouldn't blindly)
+  apply. Next lens: WHY the `.add` receiver's expected/declared param is
+  the def-era instance in this spec — likely wants the param-type-expr
+  re-eval (slice 2) coverage for pointer-receiver METHODS.
