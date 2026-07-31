@@ -1403,3 +1403,24 @@ above: hook `canonicalize_instantiation(t, env)` in expr_info.yo, impl
 `_canonicalize_instantiation_impl` + `_ci_resolve_arg` (cell → registry →
 env-name channels) in comptime_fn.yo, applied at helper.yo's spec_ret_ty
 (~line 2049) and spec_result before register_func_type (~line 3175).
+
+## iter_filter_closure — hollowing error LOCATED (sh79 probe)
+
+The batch-main def trial dies at `match(result, ...)` with "Expected enum
+type or primitive type for match expression, got unit" where
+`result := filtered.next()` and `filtered := iter.filter(x => ...)`.
+I.e. the def-time call of prelude's `filter` (Iterator trait default →
+IterFilter(Self, F)) produces a value on which `.next()` resolves to UNIT.
+Same F-era instantiation-identity class as where_clause_fn_inference —
+the value's IterFilter type is an era clone whose method resolution/
+specialization misses. Routed through the **DBG_F swallow (fn-def trial of
+the batch main), NOT **DBG_A/\_\_DBG_W. iterator_combinators presumably
+shares this exactly (same IterFilter/IterMap defaults).
+
+Fix direction: the convergent creation-side design recorded in the
+where_clause_fn_inference rejection above (era-instance HIT inside the
+CTFE memo lookup itself, resolve-through-channels in \_ctfe_args_equal's
+bucket scan) — one dedicated round, expected to cover iter_filter_closure
+
+- iterator_combinators + re-fix where_clause_fn_inference without the
+  signature-patching regressions.
