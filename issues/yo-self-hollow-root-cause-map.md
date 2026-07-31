@@ -809,3 +809,14 @@ unify, plus possibly skip re-wrapping an already-&()'d receiver).
 probes: **DBG_F (function_type.yo), **DBG_CU (compatibility.yo + stamp in
 function_type.yo), \_\_DBG_MI (function.yo — also a stray fmt open + helper).
 Binary /tmp/sh40 = this exact tree.
+
+### impl — round 4 addendum: the unify pair shape
+
+The sh40 throw pairs expected="Box(i32)" (NO pointer) vs given="_(Impl :
+(RetI32))" (pointer) at synthesizer.yo's tag fallback (~line 2029). The param
+was `_(Self)`— either Self-substitution produced a bare`Box(i32)`(pointer
+lost) or the &()-wrap doubled/shifted for the arm-3 receiver that was ALREADY`&(r)`in source. NEXT PROBE: print (resolved_pt, arg_type) at helper.yo
+Step 6 for method_name return_i32 to see which side lost/gained the pointer;
+then either fix the *(Self) substitution to keep the wrap or skip npc when
+the receiver expr is already an`&(...)` call (function.yo:5139 wraps
+unconditionally — TS checks the receiver's shape first, function.ts:332-358).
