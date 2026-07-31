@@ -753,3 +753,25 @@ lookup hit) and compare the id against what the dts-stamping block
 registered (add a matching eprintln there). Tree WIP: both unwrap arms +
 hook (compatibility.yo, expr_info.yo init) + **DBG_F (function_type.yo) +
 \_\_DBG_CU (compatibility.yo) are UNCOMMITTED — gate before landing anything.
+
+### impl.test.yo — probe round 3 (sh38): the full chain is now pinned
+
+- The dts-stamping fires: `__DBG_CU stamp id=1487/1488/1489` (all three ret\_\*
+  fns' return SomeTs registered + cell-stamped).
+- The SYMMETRIC unwrap at helper.yo Step 8 RUNS and FINDS the resolution
+  (`expected-somet id=1487 cell=1 res_found=true`) — but
+  `recur(actual = *(bool), resolution = bool)` is a tag mismatch: the self
+  param is the POINTER and the receiver arg was never auto-ref'd.
+- Zero arm-1 hits proves `_filter_receiver_methods` (env.yo:2630, the pass
+  that sets `needs_pointer_conversion` via compat(receiver, pointee)) NEVER
+  runs for a SomeT receiver: the SomeT-receiver method lookup in
+  get_receiver_methods_by_name_from_env resolves methods through the TRAIT
+  walk (sets self_type, never the ptr flag).
+
+**THE FIX**: in the SomeT-receiver branch of the method lookup (env.yo), when
+the matched method's first param is `*(T)` and the receiver's RESOLUTION is
+compatible with T (the arm-1 unwrap makes this true), materialise the entry
+with `needs_pointer_conversion : true` — mirroring the concrete-receiver
+filter at env.yo:2677-2708. Then function.yo wraps `&(b)`, Step 8 compares
+`*(bool)` vs `*(Impl-resolved)` and the pointer-children exact recursion
+completes via the unwrap arms already in the tree.
