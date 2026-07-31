@@ -914,3 +914,14 @@ a trait default method body fails def-eval (Self=HeteroEqW at spec, `==` has
 TWO overloads: Eq(str) + Eq(HeteroEqW); selection by arg types stamps
 nothing). WIP parked as stash@{0} "impl-onion-WIP-v3" (includes all v1/v2
 fixes + this one + probes **DBG_F/**DBG_CU/**DBG_MI/**DBG_S6/\_\_DBG_ST).
+
+### impl — layer 7 probe note
+
+The `!=`-default FTT's error does NOT appear in the **DBG_F census (sh46) —
+the failing eval routes through a DIFFERENT swallow than \_trial_eval_fn_body.
+The overload-defer machinery for `Self.(==)` (property_access.yo:216-231,
+routes multi-overload Type.method to \_select_matching_overload) already
+exists, so the break is further along: probe the **DBG_A sites
+(values/anonymous_function.yo trial swallows) and the SPEC body-eval swallow
+for the trait-default fn (fn_yo_id_2242's spec) next. WIP = stash@{0}
+"impl-onion-WIP-v3" (unchanged from the previous parking).
