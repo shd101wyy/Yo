@@ -1261,3 +1261,21 @@ required-trait CONTENT, not the generation id). I.e. replace the closure
 GENERATION id components with the source key; keep everything else
 content-keyed. Entry points: types/intern.yo SomeT/Func arms; wherever the
 `cl1*...` name component is minted.
+
+## gadts — attempt 1 REJECTED (sh67, reverted)
+
+Ported TS match.ts:646-673's GADT bypass (skip cross-branch result
+unification, result = unrefined expected type) into evaluate_match's two
+unify blocks, gated on `get_gadt_variant_args(en_id).is_some() &&
+expected.is_some()`. Measured: ALL 9 arms still hollow — the bypass never
+fires. Root of the inertness: the gadt_registry keys by the enum
+INSTANTIATION id captured at constructor-body creation
+(types/enum.yo:574/634), but the def-time trial of `eval_value`'s body has
+scrutinee `v : Value(T)` with T an unbound SomeT — that instance was never
+created through the constructor body, so its en_id is not in the registry
+(or the instantiation is an unresolved TypeApp). NEXT: probe what
+`matched_type`/`en_id` IS at the match site during the eval_value def
+trial, then key the GADT lookup by the enum's DEFINITION identity (ctor
+fid via lookup_enum_cfid / struct_ctor_fid analog) instead of the instance
+id — mirroring TS, where isGadt lives ON the EnumType and survives
+substitution. Change reverted (zero-wins).
