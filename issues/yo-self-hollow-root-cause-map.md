@@ -820,3 +820,32 @@ Step 6 for method_name return_i32 to see which side lost/gained the pointer;
 then either fix the *(Self) substitution to keep the wrap or skip npc when
 the receiver expr is already an`&(...)` call (function.yo:5139 wraps
 unconditionally — TS checks the receiver's shape first, function.ts:332-358).
+
+### impl — round 5 (sh43): eval FIXED (markers=0), codegen layer now RED
+
+Landed in-tree (uncommitted): synthesizer.yo tag-fallback SomeT-resolution
+unwrap (both sides, recur-retry before the "Cannot unify" throw — fixed arms
+1/2), function.yo &-wrap guard (skip when the receiver ExprInfo ty is already
+a Pointer — fixed arm 3's _(_(Impl)) double-wrap). Batch main markers=0 —
+every impl.test.yo arm now EVALUATES. New blocker: the emitted C fails —
+`.bin.c:3153: use of undeclared identifier '__yo_t16'` + "operand of type
+**yo_t15 where arithmetic or pointer type is required" — the newly-reached
+`(b.return_i32)()` emission (auto-&'d Impl receiver) references a typedef
+that was never emitted. Fix lives in codegen (receiver lowering for
+npc-wrapped SomeT receivers — likely the &() emission or the method-callee
+self type). NEXT: compile the impl batch standalone, inspect .bin.c:3153's
+expression and which type **yo_t16 should have been, then find the emitter
+that skipped its typedef.
+
+**Full impl-onion recap (all fixes this thread, IN TREE UNCOMMITTED)**:
+
+1. compat: given/expected SomeT-resolution unwrap arms + registry hook
+   (compatibility.yo, expr_info.yo init).
+2. env.yo filter Rule 3: pointee-is-Self ⇒ needs_pointer_conversion=true —
+   verified as the direct port of TS env.ts:2005-2020.
+3. synthesizer.yo: resolution unwrap retry at the tag fallback.
+4. function.yo: skip &-wrap for already-pointer receivers.
+   Probes to strip before landing: **DBG_F (function_type.yo), **DBG_CU ×2
+   (compatibility.yo, function_type.yo), **DBG_MI + helper + fmt open
+   (function.yo), **DBG_S6 (helper.yo). Gate the batch with TIER 1 + sweep +
+   fixpoint after the codegen layer is fixed; impl target = 6/6 at TS parity.
