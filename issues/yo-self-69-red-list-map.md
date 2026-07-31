@@ -1139,3 +1139,38 @@ reassign \"v\"" chain.
 Gates: TIER 1 baseline-identical (corpus 149/0, std 153/153), TIER 2 full
 (stage2 hollow=0 + clang + stage3 + FIXPOINT_HOLDS), honest sweep
 **166 GREEN / 16 HOLLOW / 3 RED** (was 165/16/4; hollow set unchanged).
+
+## SLICE 3c LANDED (2026-07-31) — dot-arg era adoption; imm_threading 17 -> 13 clang errors
+
+The recorded caller-arg era pair attacked at the INLINE-arm arg loop
+(function.yo): for a comptime-Type-param callee, an argument whose expr is
+a leading-dot form — `.None` / `.Some(x)` variant shorthand AND `v.field`
+reads (MEASURED: shorthand-only left 17 errors, including field reads
+dropped to 13) — takes the RE-EVALUATED declared param TYPE EXPR
+(g_func_param_type_exprs, evaluated in the caller env where the enclosing
+spec binds K/V concrete) as its expected type. Params whose declared type
+carries an Fn-trait wrapper are EXCLUDED (the slice-2 refinement); the
+historical slice-3 regression witness closure_where_clause_param PASSES
+with this mechanism (diff-test 1/1) — the difference vs the twice-rejected
+slice 3 is (a) the inline-arm expected-type override instead of threading
+through check_if_function_parameter_matches_argument, and (b) the dot-form
+arg gate.
+
+Effect: the `.None` arg casts converged to SAME-type struct casts
+(`(__yo_t39)((__yo_t39){...})` — valid C, clang accepts same-type aggregate
+casts; verified TS emits the identical text and compiles because its pairs
+are same-type through newtype aliases). imm_threading clang errors 17 -> 13;
+family files still RED.
+
+REMAINING FACE (next round): `.Some(new_h)` constructions still emit the
+DEF-ERA enum (t40/enum_yo_id_7695) even when the expected type is the
+canonical era — the variant-construction eval re-mints from the ARG's type
+instead of adopting the expected enum instance (suspect: new_h carries the
+\_new_node spec's return era; note the spec NAME still shows MIXED eras
+per-param — rtparam5_enum_yo_id_7695 vs rtparam6_enum_yo_id_10755 — and an
+unresolved `ret_R_gs_yo_id_7598` return marker). Probe next: the
+`.Variant(args)` eval's enum-resolution order (expected-enum adoption vs
+arg-driven ctor synthesis) for era instances of one instantiation.
+
+Gates: TIER 1 clean (corpus 149/0, std 153/153), TIER 2 FIXPOINT_HOLDS,
+sweep 166/16/3 unchanged.

@@ -59,7 +59,7 @@ open(import("std/fmt"));
   snapshot_env
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_variadic_param } :: import("../types/function.yo");
+{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_variadic_param, get_func_param_type_exprs } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
@@ -117,7 +117,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ try_to_call_function_with_arguments, resolve_param_types_from_expected, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, _type_has_array_len_var } :: import("./helper.yo");
+{ try_to_call_function_with_arguments, resolve_param_types_from_expected, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type } :: import("../../function_value.yo");
 { create_unknown_val, create_unknown_val_with_name } :: import("../../value.yo");
 /// Named call-result unknown: promotes a Type-universe result to
@@ -3854,6 +3854,76 @@ Fix: wrap the call:
                 .None => ()
               );
             });
+            // SLICE 3c (imm-family caller-arg era): an ENUM-VARIANT
+            // SHORTHAND argument (`.None` / `.Some(x)`) of a comptime-Type-
+            // param callee takes the RE-EVALUATED declared param type as its
+            // expected type. The declared `Option(RBNode(K, V))` recorded on
+            // the FuncVal is a DEF-ERA nocache mint; substituting K/V keeps
+            // that era's enum id, while the callee's spec params re-evaluate
+            // through the ctor memo (slice 2) — the two eras met at the call
+            // as invalid struct casts (`(__yo_t39)((__yo_t40){...})`,
+            // imm_threading/imm_sorted_map/imm_sorted_set). Re-evaluating
+            // the stored param TYPE EXPR in the caller env (the enclosing
+            // spec binds K/V concrete) lands in the same memo entry the
+            // callee signature uses. GATED to variant-shorthand args — the
+            // broad form of this (slice 3, all args) twice regressed
+            // closure_where_clause_param; a `.Variant` shorthand cannot be a
+            // closure, so that face is unreachable here.
+            (vs_override : Option(TypeValue)) = Option(TypeValue).None;
+            {
+              vs_is_shorthand := cond(
+                ast_expr_is_atom(arg_expr_eff) => ast_expr_token(arg_expr_eff).value.starts_with("."),
+                true => match(
+                  arg_expr_eff,
+                  // `.Some(x)` variant shorthand AND `v.field` reads — a
+                  // callee atom starting with "." covers both; MEASURED
+                  // (imm_threading clang error count): shorthand-only left
+                  // 17 errors, including field-access args dropped it to
+                  // 13 — the field reads carry def-era types too.
+                  .FnCall(_, vs_f, _, _, _) => (ast_expr_is_atom(vs_f) && ast_expr_token(vs_f).value.starts_with(".")),
+                  _ => false
+                )
+              );
+              if(vs_is_shorthand && (ai < n_p), {
+                vs_ct_flags := get_func_param_comptime(func_id_fv.clone());
+                (vs_has_ct_type : bool) = false;
+                (vs_ci : usize) = usize(0);
+                while((vs_ci < vs_ct_flags.len()) && !(vs_has_ct_type), {
+                  vs_is_ct := match(vs_ct_flags.get(vs_ci),.Some(b) => b,.None => false);
+                  vs_pt := match(fv_param_types.get(vs_ci),.Some(t) => t,.None => t_unit());
+                  if(vs_is_ct && is_type_hierarchy_type(vs_pt), {
+                    vs_has_ct_type = true;
+                  });
+                  vs_ci = (vs_ci + usize(1));
+                });
+                vs_decl_pt := match(fv_param_types.get(ai),.Some(t) => t,.None => t_unit());
+                if(vs_has_ct_type && !(extract_fn_trait_from_type(vs_decl_pt).is_some()), {
+                  vs_exprs := get_func_param_type_exprs(func_id_fv.clone());
+                  match(
+                    vs_exprs.get(ai),
+                    .Some(vs_e_opt) => match(
+                      vs_e_opt,
+                      .Some(vs_e) => {
+                        vs_prev_fnty := ctx.is_evaluating_function_type;
+                        ctx.is_evaluating_function_type = true;
+                        vs_out := ArrayList(TypeValue).new();
+                        _trial_eval_ret_type_expr(clone_expr_fresh_ids(vs_e), env, ctx, vs_out);
+                        ctx.is_evaluating_function_type = vs_prev_fnty;
+                        match(
+                          vs_out.get(usize(0)),
+                          .Some(vs_t) => if(((get_all_some_types(vs_t).len() == usize(0)) && !(is_unit_type(vs_t))) && !(_type_has_array_len_var(vs_t)), {
+                            vs_override = Option(TypeValue).Some(vs_t);
+                          }),
+                          .None => ()
+                        );
+                      },
+                      .None => ()
+                    ),
+                    .None => ()
+                  );
+                });
+              });
+            };
             // Evaluate the arg with expectedType = the DECLARED PARAM TYPE
             // (helper.ts:330) — leaving the caller's expected type in place
             // leaked e.g. a single-expr fn body's expected `bool` into the
@@ -3861,31 +3931,35 @@ Fix: wrap the call:
             // unify(ArrayList(u8), bool) and the whole module failed.
             arg_saved_expected := ctx.expected_type;
             ctx.expected_type = match(
-              resolved_param_types.get(ai),
-              .Some(apt) => cond(
-                // Skip Type params (constructor args) AND unresolved
-                // SomeTs — TS passes the SPECIALIZED parameterType
-                // (helper.ts:330); when yo-self only has the generic
-                // declared type, an abstract expected mis-resolves
-                // enum-variant shorthands (".Table(...)" looked up in
-                // SomeT-T → "variant not found").
-                is_type_hierarchy_type(apt) => Option(ExpectedTypeCtx).None,
-                // Abstract SomeTs (bare type-param `T`) are skipped — an abstract
-                // expected mis-resolves enum-variant shorthands. EXCEPTION: a
-                // SomeT wrapping an Fn trait (`cb : Impl(Fn(...), Send)`) MUST be
-                // passed so the closure arg coerces through closure_type.yo and
-                // records its capture struct as the SomeT's resolvedConcreteType
-                // (needed for spawn/parallelism specialization). Mirrors TS
-                // passing the declared param type as the arg's expected type
-                // (helper.ts:330).
-                is_some_type(apt) => match(
-                  extract_fn_trait_from_type(apt),
-                  .Some(_) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : env)),
-                  .None => Option(ExpectedTypeCtx).None
+              vs_override,
+              .Some(vs_ovr) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : vs_ovr, env : env)),
+              .None => match(
+                resolved_param_types.get(ai),
+                .Some(apt) => cond(
+                  // Skip Type params (constructor args) AND unresolved
+                  // SomeTs — TS passes the SPECIALIZED parameterType
+                  // (helper.ts:330); when yo-self only has the generic
+                  // declared type, an abstract expected mis-resolves
+                  // enum-variant shorthands (".Table(...)" looked up in
+                  // SomeT-T → "variant not found").
+                  is_type_hierarchy_type(apt) => Option(ExpectedTypeCtx).None,
+                  // Abstract SomeTs (bare type-param `T`) are skipped — an abstract
+                  // expected mis-resolves enum-variant shorthands. EXCEPTION: a
+                  // SomeT wrapping an Fn trait (`cb : Impl(Fn(...), Send)`) MUST be
+                  // passed so the closure arg coerces through closure_type.yo and
+                  // records its capture struct as the SomeT's resolvedConcreteType
+                  // (needed for spawn/parallelism specialization). Mirrors TS
+                  // passing the declared param type as the arg's expected type
+                  // (helper.ts:330).
+                  is_some_type(apt) => match(
+                    extract_fn_trait_from_type(apt),
+                    .Some(_) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : env)),
+                    .None => Option(ExpectedTypeCtx).None
+                  ),
+                  true => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : env))
                 ),
-                true => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : env))
-              ),
-              .None => Option(ExpectedTypeCtx).None
+                .None => Option(ExpectedTypeCtx).None
+              )
             );
             evaled_arg := evaluate_expression_raw(arg_expr_eff, env, ctx, exn);
             ctx.expected_type = arg_saved_expected;
