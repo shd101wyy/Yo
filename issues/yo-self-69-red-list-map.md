@@ -1340,3 +1340,37 @@ return value:
   FnCall: the ctor return path leaks the pre-stamp instance somewhere
   (e.g. the `scfid non-empty -> return_value unchanged` branch when a
   NESTED stamped instance carries a DIFFERENT sid).
+
+### probe round 5 (2026-07-31) — the window identified
+
+ALL 65 cfid-less-arg Option-memo inserts happen at ctfe_depth >= 1 — INSIDE
+another type-constructor's body evaluation (the self-referential field
+`left : Option(RBNode(K, V))` evaluates `Option(<in-progress RBNode>)`
+while the enclosing RBNode instantiation has not returned/stamped). Both
+the entry MINTS and the four splitting COMPARISONS happen inside that
+window, before the return-path registration — so the two Option entries
+(def-era-arg vs concrete-pre-stamp-arg) are BOTH minted before any cfid is
+resolvable, and no post-hoc lookup fix can merge already-minted duplicate
+entries (why the inline-cfid and registry-stamp-always attempts were both
+inert). ALSO NOTE: the def-era side's Option arg has type_arguments [K, V]
+(SomeTs) vs the concrete [i32, i32] — era-equal CORRECTLY rejects that pair
+(generic-era vs concrete are different instantiations), so the split that
+matters may be between TWO CONCRETE-ARG entries minted in different
+windows; the next differentiator is logging BOTH entries' arg
+type_arguments at the moment the SECOND concrete entry is minted (a MISS
+whose bucket already holds an era-equal-rejected concrete-arg entry).
+
+Direction candidates for the next session, in preference order:
+
+1. TS-mechanism check: how does TS avoid two calledComptimeFunctionCaches
+   entries for Option(RBNode(i32,i32)) across the in-progress window? Its
+   temp-cache placeholder for the ENCLOSING RBNode call is a SomeType with
+   recursiveTypeRef, and the INNER Option(placeholder) call caches keyed on
+   THAT placeholder — when the outer call completes, TS's placeholder
+   OBJECT is resolved in place (shared object mutation), so the cached
+   Option entry's arg BECOMES the concrete instance. yo-self's value-
+   semantics port cannot mutate the stored arg — the equivalent is
+   resolving g_recursive_type_refs entries inside \_ctfe_args_equal (both
+   sides) before comparison, which was NOT part of any attempt yet.
+2. Post-return sweep: when a ctor call completes, rewrite its sid into any
+   memo args recorded during its window (heavier, order-dependent).
