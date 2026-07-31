@@ -1333,3 +1333,73 @@ inferred type via `(x : bool) = result`.
 Measured: mini repro 0 markers, compiled binary runs RC=0; full
 tests/gadts.test.yo with sh71: rc=0, markers=0, batch main real, **10
 passed = TS count exactly**.
+
+## where_clause_fn_inference RED — FIXED (memo-canonicalization of substituted instantiations)
+
+Probe ladder (sh72-sh77) that located it:
+
+- \_\_DBG_LM at the ctor memo (gate on field label `_f`, NOT the struct name —
+  names are EMPTY at mint, same trap as the gadts en_name gate): the ctor fid
+  is STABLE (yo_id_4971 for every call) and the CONCRETE instantiation memo
+  works (sid_5980 MINT once + HIT once per arm). The registry/bucket-split
+  theory was wrong.
+- The C split: **yo_t16 = memo instance 5980 (annotation route);
+  **yo_t34/\_\_yo_t27 = the DEF-ERA instance 4982 substituted per-arm — the
+  spec's return type. `substitute()` keeps the struct id, and the intern key
+  leads with the id, so the clone interns as a SECOND C struct.
+- TS has no such split because its specialized return type IS the memo object
+  (re-evaluated through the memoized constructor).
+
+Fix (creation-side canonicalization — the gap-6 attempt-#8 design realized):
+
+- expr_info.yo: `canonicalize_instantiation(t, env)` hook (cycle-breaker,
+  same pattern as the compat hook); comptime_fn.yo installs the impl.
+- comptime_fn.yo `_canonicalize_instantiation_impl`: a fully-concrete Struct
+  clone (ctor fid via lookup_struct_ctor_fid + type_arguments era-equal to a
+  memo entry's args) maps to the memo instance; miss keeps the clone, never
+  mints. type_arguments resolve through THREE channels in order: SomeT
+  lineage cell → id-keyed registry → **spec-env NAME lookup**
+  (get_value_of_some_type_from_env) — the where-inference binds B only in
+  the env (A resolved via the registry, B needed the env fallback; measured
+  one channel at a time).
+- helper.yo: applied at BOTH return-type computations — spec_ret_ty (the
+  body's expected type) AND spec_result (the REGISTERED C signature at
+  register_func_type, recomputed independently ~line 3175). Fixing only the
+  first left "returning '**yo_t16' from a function with incompatible result
+  type '**yo_t34'".
+
+Measured: where_clause_fn_inference RC=0, 0 markers, 2 passed (= TS).
+iterator_combinators + iter_filter_closure remain HOLLOW — their hollowing
+error routes through a different swallow (per the sh33 census); separate
+probe round needed.
+
+### where_clause_fn_inference attempt — REJECTED at the sweep gate (reverted)
+
+The canonicalization above DID fix the RED (2 passed, 0 markers, TIER 1
+clean, FIXPOINT_HOLDS) but the full honest sweep caught TWO regressions:
+
+- tests/array.test.yo RED rc=1: `returning '__yo_t19' from a function with
+incompatible result type '__yo_t18'` — the mirror image of the bug it
+  fixed: for that spec the BODY's returned instantiation is a THIRD era
+  that does NOT hit the ctor memo, so canonicalizing the SIGNATURE to the
+  memo instance created a new signature-vs-body mismatch.
+- tests/for_macro_borrow.test.yo RED rc=139 (SIGSEGV) — likely a
+  struct-layout mismatch at runtime from the same partial convergence.
+  (NOTE: the first sweep pass was killed mid-run and initially scored these
+  two as kill artifacts — logs truncated at "prelude — evaluator OK". The
+  re-sweep with clean logs proved them REAL. Never trust a RED from a killed
+  sweep pass without a clean re-measure — but never DISMISS one either.)
+
+Lesson for the dedicated round: canonicalizing only the two RETURN-type
+sites is NOT convergent — the body's instantiation must land in the same
+memo entry first. The complete design is creation-side: make the CTFE memo
+lookup itself treat "fully-concrete era instance of an existing entry"
+as a HIT (extend \_ctfe_args_equal / the bucket scan with the resolve-
+through-channels logic from \_ci_resolve_arg), so EVERY route — annotation,
+spec body, substituted return — receives the one memo instance and no
+after-the-fact patching of signatures is needed. The reverted diff was
+discarded (git checkout, never committed) — reconstruct from the design
+above: hook `canonicalize_instantiation(t, env)` in expr_info.yo, impl
+`_canonicalize_instantiation_impl` + `_ci_resolve_arg` (cell → registry →
+env-name channels) in comptime_fn.yo, applied at helper.yo's spec_ret_ty
+(~line 2049) and spec_result before register_func_type (~line 3175).
