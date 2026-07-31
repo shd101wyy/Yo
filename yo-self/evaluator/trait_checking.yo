@@ -66,7 +66,7 @@ open(import("std/string"));
   TypePair,
   SynthesizeOptions
 } :: import("./types/synthesizer.yo");
-{ type_id_or_empty } :: import("./values/type_trait_methods.yo");
+{ type_id_or_empty, get_type_trait_methods_by_name } :: import("./values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // Auto-derived trait registry (folded from former
 // `evaluator/types/trait_registry.yo`).
@@ -518,9 +518,46 @@ _check_associated_type_constraints :: (
   while((ci < n_atc) && ok, {
     label := match(atc_labels.get(ci),.Some(l) => l,.None => String.from(""));
     constraint_ty := match(atc_types.get(ci),.Some(t) => t,.None => TypeValue.Unit);
-    // Resolve the target's associated type from the generic impl registry
-    // (TS steps 1+2; see the adaptation note above).
-    resolved_opt := find_associated_type_from_generic_impls(target_type, label, cur_env);
+    // TS step 1: the target's OWN trait fields (a CONCRETE impl's
+    // `Item : i32` — TS reads `targetType.trait.fields[].assignedValue`,
+    // trait-checking.ts:257-286). yo-self's equivalent store is the
+    // type-trait-methods registry: impl-provided associated types are
+    // registered there under the receiver's type id with a TypeVal value
+    // (the same source property_access's assoc-type fallback (b) reads).
+    // Without this arm, a concrete impl's assoc constraint check fell
+    // through to the GENERIC-impl registry only and reported e.g.
+    // `CountIter <: Iterator(Item := A)` as unimplemented
+    // (tests/iter_filter_closure — the batch `filter` where-clause).
+    (resolved_opt : Option(TypeValue)) = Option(TypeValue).None;
+    {
+      atc_tid := type_id_or_empty(target_type);
+      if(atc_tid != "", {
+        atc_entries := get_type_trait_methods_by_name(atc_tid, label);
+        (ae_i : usize) = usize(0);
+        while((ae_i < atc_entries.len()) && resolved_opt.is_none(), {
+          match(
+            atc_entries.get(ae_i),
+            .Some(ae) => match(
+              ae.value,
+              .Some(aev) => match(
+                aev,
+                .TypeVal(ae_t) => {
+                  resolved_opt = Option(TypeValue).Some(ae_t);
+                },
+                _ => ()
+              ),
+              .None => ()
+            ),
+            .None => ()
+          );
+          ae_i = (ae_i + usize(1));
+        });
+      });
+    };
+    // TS step 2: the generic impl registry (see the adaptation note above).
+    if(resolved_opt.is_none(), {
+      resolved_opt = find_associated_type_from_generic_impls(target_type, label, cur_env);
+    });
     match(
       resolved_opt,
       .None => {

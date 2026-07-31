@@ -4188,6 +4188,44 @@ try_to_call_function_with_arguments :: (
         ftype := match(ft.get(fpi),.Some(t) => t,.None => t_unit());
         ftype_inner := match(ft.get(fpi),.Some(t) => t,.None => t_unit());
         (forall_val : EvalValue) = EvalValue.UnknownVal(ftype_inner, false);
+        // A Type-kinded forall whose SomeT occurs in the SIGNATURE binds as
+        // `TypeVal(that SomeT)` — the state TS's calleeEnv is ALWAYS in
+        // (`createUnknownValue` promotes a Type-level-0 slot to
+        // `TypeVal(SomeType)`, value.ts:547-560; yo-self's UnknownVal
+        // placeholder was the port divergence). This is what lets a
+        // generic-args type-constructor CALL inside a single-pass body
+        // validation EXECUTE (mint the generic-era struct) instead of
+        // short-circuiting to a `ctfe_result_*` SomeT that then throws as a
+        // callee ("TypeVal SomeT callee without FnTrait" — the
+        // tests/iter_filter_closure batch hollow: prelude `filter`'s
+        // `IterFilter(Self, F)(...)` with `F` an UnknownVal). Uses the SIG
+        // MARKER instance so synthesis keeps one SomeT identity; labels
+        // with no signature occurrence keep the UnknownVal placeholder
+        // (conservative — their machinery predates this).
+        if(match(ftype_inner,.TypeUni(fv_lv) => (fv_lv == usize(0)), _ => false), {
+          (fv_marker : Option(TypeValue)) = Option(TypeValue).None;
+          (fv_mi : usize) = usize(0);
+          while((fv_mi < sig_some_types.len()) && fv_marker.is_none(), {
+            match(
+              sig_some_types.get(fv_mi),
+              .Some(fv_mst) => {
+                fv_mn := match(fv_mst,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
+                if(fv_mn == flabel, {
+                  fv_marker = Option(TypeValue).Some(fv_mst);
+                });
+              },
+              .None => ()
+            );
+            fv_mi = (fv_mi + usize(1));
+          });
+          match(
+            fv_marker,
+            .Some(fv_found) => {
+              forall_val = create_type_value(fv_found);
+            },
+            .None => ()
+          );
+        });
         // If caller supplied explicit generic(…) args, try to resolve.
         match(
           forall_args_opt,

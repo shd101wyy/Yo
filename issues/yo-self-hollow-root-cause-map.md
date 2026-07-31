@@ -447,3 +447,36 @@ arm-26 batch residue), and the TryFrom repro moved to a NEW face
 (`fn_yo_id_4764(10)` call to an unemitted fn — the callee resolved but its
 emission is skipped; likely the specialization-collection side). The
 era-agreement work (slice 2/3 leads) remains the root item.
+
+## iter_filter_closure / iterator_combinators — two layers peeled (2026-07-31, markers 2→1)
+
+Layer-by-layer via the **DBG_F recipe (un-silence `_trial_eval_fn_body`'s
+swallow) on the batch `**yo_user_main`, which has NO retry (a plain `main`
+recovers at specialization time — the same asymmetry recorded for
+closure_capture_rc_leak):
+
+1. **"TypeVal SomeT callee without FnTrait"** at prelude `filter`'s
+   `IterFilter(Self, F)(...)`: with `F` bound to a Step-6 UnknownVal, the
+   ctor CTFE short-circuits (`any_arg_unknown`) to a `ctfe_result_*` SomeT,
+   and CALLING that placeholder throws. TS never enters this state — its
+   foralls are `TypeVal(SomeType)`, so the ctor body EXECUTES and mints a
+   generic-era struct (a real callable ctor). LANDED: Step-6 binds a
+   Type-kinded forall whose SomeT occurs in the signature as
+   `TypeVal(sig-marker SomeT)` (helper.yo; labels with no sig occurrence
+   keep UnknownVal). A ported permissive-ctor arm (TS function.ts:1427
+   unresolved-recursiveTypeRef) was tried first and REJECTED — it deferred
+   the missing type into `filtered.next()` → `match` on unit (rc 0→1).
+2. **"Type CountIter does not implement required trait Iterator"** from the
+   `filter` where-clause: `_check_associated_type_constraints` resolved the
+   target's `Item` ONLY through the generic-impl registry, so a CONCRETE
+   impl's assoc type (CountIter's `Item : i32`) was unfindable. LANDED: TS
+   step 1 (targetType.trait.fields assignedValue) maps to the type-trait-
+   methods registry — same source property_access's assoc-type fallback (b)
+   reads.
+3. **Remaining (markers=1)**: `Type mismatch for type member "_f": Expected
+<struct:capture_yo_id_NNNN> Got: F : (Fn(*(A)) -> bool + Fn(*(i32)) ->
+bool + ...)` — the minted IterFilter's `_f` is the closure CAPTURE STRUCT
+   while the arg still carries the SomeT F; note the DUPLICATED accumulated
+   required-traits on F (the shared registry SomeT instance collects a
+   constraint per early-apply — cross-call pollution worth its own look).
+   Same expected/got member-era family as the imm\_\* REDs.
