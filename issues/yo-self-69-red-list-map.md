@@ -1220,3 +1220,32 @@ hits):
 Landed this round (commit 1bfb8f10c): inline-arm dot-form arg expected
 override (imm_threading 17 -> 13 clang errors). Rejected this round
 (measured, reverted): the try_to_call-side mirror (zero wins).
+
+### cfid probe round 2 (2026-07-31) — the rejected pairs identified; inline-cfid preference measured-inert
+
+\_\_DBG_EE on `_ctfe_types_era_equal`'s struct arm (log cfid-mismatch
+rejections), imm_threading: among 7548 rejections (mostly legitimate —
+different ctors), the RBNode-relevant ones are
+
+    a=struct_yo_id_8531/yo_id_7598  b=struct_yo_id_10753/(EMPTY)
+    a=struct_yo_id_8496/yo_id_7598  b=struct_yo_id_10753/(EMPTY)
+
+— the CANONICAL RBNode(i32,i32) instance (10753) reached the comparison
+with NO ctor fid: `lookup_struct_ctor_fid` missed AND (measured by the
+inert fix below) the instance's own `constructor_func_id` field is empty
+in that copy. The b-side copy is a memo-arg-stored instance that predates
+the return-path cfid stamp (`register_struct_ctor_fid` fires only for
+cfid-LESS results at comptime_fn.yo:~1073; the stamped instance is a NEW
+TypeValue — earlier copies keep the empty field, exactly the "copies that
+predate this one" caveat in that code's own comment).
+
+ATTEMPTED + REVERTED (zero wins): era-equal preferring the instance's
+inline `constructor_func_id` over the registry — no change (13/11/7 clang
+errors across the family), confirming the offending copies carry NO cfid
+either way.
+
+NEXT ROUND direction: make the return-path stamp update the REGISTRY for
+ALL results (drop the `scfid.len() == 0` gate on register_struct_ctor_fid
+— registering sid→fid is idempotent and the registry is the lookup source
+era-equal uses), so pre-stamp copies stored in memo args become
+resolvable by id. One-line change; gate with the family + corpus.
