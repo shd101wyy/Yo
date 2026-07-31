@@ -1707,3 +1707,29 @@ TypeVal variable. NEXT PROBE (one build): at the zs_ret site, print
 env used by evaluate_function_return_type_again; then thread whichever
 env actually holds B into the zs fallback. The sh98 probe line to reuse:
 `__DBG_S6 param=... arg=...` at Step 6 in helper.yo (param_label == "f").
+
+### Family attempt (sh100): closure-body-type substitution in \_funcval_bind_foralls' structural fallback — REJECTED (inert, safe)
+
+Porting helper.yo Step 5.5's recorded-body-type substitution into the
+sp scratch-synthesis loop (function.yo ~1385) did not flip anything
+(canaries stay green). Three inert attempts now bracket the failure:
+B is not recoverable at (1) zs_ret via callee_env name lookup,
+(2) the sp structural synthesis even with the body type substituted.
+Combined with sh98 (param-side `f` resolves fully to
+`Impl(Fn(i32) -> enum:2444)` at helper's Step 6), the divergence is that
+the and_then call likely routes through the FuncVal-arm dispatch
+(function.yo) whose spec call passes `fresh_env` — NOT through helper's
+check_if_function_parameter_matches_argument path that bound B. The sh98
+\_\_DBG_S6 line may have come from a DIFFERENT call site (its enum id 2444
+differs from the stamped 2446!).
+
+NEXT PROBE (must be INSIDE \_funcval_bind_foralls, gated fa_name=="B"):
+print, per stage — pre-forall / name-match / structural fallback — whether
+fa_bound flipped, plus `sp_ty_for_synth` (is the closure arg's ExprInfo
+even a Func with a body type recorded?) and the se_vars lookup result.
+Suspect (a): the name-match loop `ptn == fa_name` binds B WRONGLY from a
+param-type-name coincidence before the structural stage runs; suspect
+(b): get_closure_body_type is empty at def-trial (the closure body wasn't
+def-time evaluated yet when and_then's args were checked — an ORDERING
+issue, in which case the fix is to trial-eval the closure arg's body
+before the forall binding, as TS does contextual typing at check time).
