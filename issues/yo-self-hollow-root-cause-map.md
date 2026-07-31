@@ -981,3 +981,25 @@ no fresh spec is minted there for a SomeT-Self default; compare with how the
 homogeneous case minted fn_yo_id_4997 (probe: print the taken branch + func id
 for op != on a HeteroEqW receiver). WIP = stash@{0} "impl-onion-WIP-v5"
 (binary /tmp/sh49).
+
+### impl — layer 8 DECISIVE probe (sh50)
+
+`__DBG_OP` at the operator-selection point:
+
+- homogeneous `a != c` → `chosen=0 nty=fn(lhs : HeteroEqW, rhs : HeteroEqW)
+generic=false fvid=fn_yo_id_4997` — the registered method VALUE is already
+  a per-impl/specialized FuncVal (4997) whose body emits correctly;
+- heterogeneous `a != "abcd"` → `chosen=1 nty=fn(lhs : HeteroEqW, rhs : str)
+generic=false fvid=fn_yo_id_2242` — the registered value is the SHARED
+  trait-default base whose body still references unresolved `Self`.
+
+Both trait-default fill sites (values/impl.yo:2192 generic-impl fill with
+forall stamping; :2840 concrete-impl fill) register the SHARED default
+`get_trait_default(...)` value — so 4997 was minted LATER by some
+call-time supersession for the Eq(HeteroEqW) entry that the Eq(str) entry
+never received. NEXT: find what minted + re-registered 4997 (search
+supersession/record_fid_spec/re-register paths for type_trait_methods
+entries), then apply the same treatment to every filled default (or mint
+per-impl body-clone FuncVals with fresh ids at BOTH fill sites). WIP =
+stash@{0} "impl-onion-WIP-v6" (binary /tmp/sh50 matches; \_\_DBG_OP probe
+included).
