@@ -1607,3 +1607,34 @@ identity, like the enum-cfid fix in the synthesizer). Then re-check ALL
 of: prelude, option_result_combinators, iter_filter_closure,
 iterator_combinators, imm_map, higher_kinded_types, where_clause RED with
 the one fix.
+
+### Family probe CONFIRMED (sh92): method registry misses the era-clone id
+
+`__DBG_MD miss method=is_some recv=<enum:enum_yo_id_2446> id=enum_yo_id_2446`
+at option_result_combinators arm 3: the result of `some_val.and_then(...)`
+is stamped with a def/spec-era Option instance id that has NO entries in
+the type-trait-methods registry (methods were registered under the memo
+instance's id). `_try_find_receiver_method` returns None → the call
+degrades to unit → `assert(unit)` kills the batch main.
+
+FIX DESIGN (the family's decisive round — execute in
+`get_receiver_methods_by_name_from_env` / env.yo, the central lookup):
+on a zero-hit lookup for an EnumT/Struct receiver, translate by
+DEFINITION identity + era-equality:
+
+1. cfid := lookup_enum_cfid(recv_id) (enums) / lookup_struct_ctor_fid
+   (structs); bail if empty.
+2. Candidate sibling ids: scan g_enum_cfids (value.yo) for ids with the
+   same cfid (add a small reverse-scan helper; the table is append-only).
+3. For each candidate: resolve id → TypeValue via the enum-final registry
+   (resolve_enum_shell / register_enum_final channel) and require
+   ERA-EQUALITY with the receiver (the \_ctfe_types_era_equal enum arm:
+   same cfid + pairwise era-equal variant FIELD lists) — this is what
+   keeps Option(i32) from borrowing Option(String)'s methods.
+4. On the first era-equal sibling with method entries, use them.
+   NOTE: this does NOT use the global SomeT resolution registry (the channel
+   that poisoned F-era attempts 3-4) — identity comes from cfid + structural
+   era-equality only. Probe stays: \_\_DBG_MD in calls/function.yo (strip
+   before landing). Re-measure after the fix: option_result_combinators,
+   prelude, iter_filter_closure, iterator_combinators, imm_map,
+   higher_kinded_types, where_clause_fn_inference — the whole family.
