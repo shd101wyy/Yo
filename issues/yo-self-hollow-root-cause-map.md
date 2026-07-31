@@ -1075,3 +1075,30 @@ Two candidate fixes for the NEXT round:
    Option 1 is smaller and matches TS (TS stamps nothing for unresolved
    overloaded members; its dispatch key is `!functionToCall.$?.type`).
    WIP unchanged = stash@{0} "impl-onion-WIP-v7", binary /tmp/sh51.
+
+### impl — layer 8 SOLVED (sh53); two runtime dispatch bugs remain (layers 9a/9b)
+
+The struct-arm multi-overload defer (property_access.yo:~962 — the missing
+twin of \_try_resolve_associated_type's rule; the arm committed to the FIRST
+valued registry entry) unblocked the whole chain: **impl.test.yo now
+COMPILES AND RUNS — 4 passed / 2 failed** (was 6 vacuous). The heterogeneous
+Eq arm (layer 7/8 target) PASSES.
+
+Remaining, both honest runtime dispatch bugs:
+
+- **9a "Test function that returns Impl"**: `Expected true from
+ret_boolean_i32` — `b.return_i32()` returns the wrong value for the
+  Impl(RetI32)-resolved-bool receiver (likely calls the wrong impl's
+  return_i32 or misroutes the receiver).
+- **9b "Test trait method disambiguation"**: `use_trait_b should dispatch to
+TraitDisambigB.get_number (returns y)` — at SPEC time the receiver is
+  CONCRETE (DisambigPoint) so the registry has TWO get_number entries and
+  first-wins picks TraitDisambigA's; the where(T <: TraitDisambigB)
+  constraint must filter (TS keeps the DEF-time constrained method identity
+  through specialization). Fix direction: preserve/thread the def-time
+  resolved method's source_trait_id through the spec body re-eval, or filter
+  the concrete lookup by the where-constraint trait when the receiver var is
+  a bound generic param.
+
+Cannot land yet: HOLLOW→RED in ledger terms until 9a/9b are fixed (target
+6/6 at TS parity). WIP = stash@{0} "impl-onion-WIP-v8", binary /tmp/sh53.
