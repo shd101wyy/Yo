@@ -601,3 +601,20 @@ basic/fn hollows: same family; their specific missing validations
 ("Cannot use `a` from outer scope" for generic fns; Array(i32,\_) length
 conflict — the latter should ALREADY fire via the new general check once
 its per-branch types differ; re-probe after arm-3 lands).
+
+### closure arm 3 (2026-07-31 cont.) — result-position rule still inert
+
+The cond-result Impl rule (cond.yo, landed with the side-channel) plus a
+begin tail-capture_type propagation (TRIED, REVERTED — zero wins) did not
+fire for `(c : Impl(F)) = cond(a => begin(..., closureA), ...)`. Facts:
+arms 1-2 (assignment-position) DO produce the error via the merge rule, so
+the multi-arm path runs for these conds; arm 3's arms contain NO
+assignments (log empty — merge rule correctly inert) and the RESULT rule's
+per-arm capture read came back empty even after propagating
+last_info.capture_type through begin's out_info. Next lens: whether the
+analysis-mode arm eval (cond.yo site 2, is_executing=false) registers
+closure captures at all (the lambda take-on may be gated on executing), or
+whether this cond flows through initialization_assignment.yo with a
+different arm-eval entry entirely. The begin propagation change is likely
+still CORRECT (TS carries captureType on the block's result) — re-land it
+together with whatever makes the captures visible.
