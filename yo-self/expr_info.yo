@@ -584,6 +584,44 @@ lookup_some_resolved_concrete :: (fn(some_id : String) -> Option(TypeValue))(
 // (Same durable-global pattern as g_some_resolved_concrete above.)
 (g_struct_ctor_fids : HashMap(String, String)) = HashMap(String, String).new();
 /// Record the constructor funcId stamped onto the struct with `struct_id`.
+// ---------------------------------------------------------------------------
+// Per-branch first-initialization log (cross-branch type checks).
+// ---------------------------------------------------------------------------
+/// One record per FIRST-INITIALIZATION assignment (`x = v` on a declared-but-
+/// uninitialized variable): the variable's id, the assigned type, and the
+/// RHS's closure capture struct when present. yo-self shares ONE mutable
+/// Variable object across cond/match arm environments, so per-branch
+/// assigned TYPES cannot be recovered from the env after the arms ran (the
+/// last write wins) — TS's persistent envs snapshot them naturally
+/// (expr.ts:1990-2094 reads the per-case matrix). The arms' evaluators
+/// (cond.yo / match.yo) record each arm's [start, end) window into this log
+/// keyed by the arm body's expr id; merge_and_check_envs consumes the
+/// windows for the cross-branch checks.
+BranchInitRecord :: ref(
+  struct(
+    var_id : String,
+    ty : TypeValue,
+    capture : Option(TypeValue)
+  )
+);
+(g_branch_init_log : ArrayList(BranchInitRecord)) = ArrayList(BranchInitRecord).new();
+record_branch_init :: (fn(var_id : String, ty : TypeValue, capture : Option(TypeValue)) -> unit)({
+  g_branch_init_log.push(BranchInitRecord(var_id : var_id, ty : ty, capture : capture));
+});
+branch_init_log_len :: (fn() -> usize)(g_branch_init_log.len());
+get_branch_init_record :: (fn(i : usize) -> Option(BranchInitRecord))(g_branch_init_log.get(i));
+/// Arm-body expr id -> [start, end) window into the log.
+(g_arm_init_ranges : HashMap(String, ArrayList(usize))) = HashMap(String, ArrayList(usize)).new();
+register_arm_init_range :: (fn(arm_expr_id : String, start : usize, end : usize) -> unit)({
+  rng := ArrayList(usize).new();
+  rng.push(start);
+  rng.push(end);
+  g_arm_init_ranges.set(arm_expr_id, rng);
+  ()
+});
+get_arm_init_range :: (fn(arm_expr_id : String) -> Option(ArrayList(usize)))(
+  g_arm_init_ranges.get(arm_expr_id)
+);
 register_struct_ctor_fid :: (fn(struct_id : String, ctor_fid : String) -> unit)({
   g_struct_ctor_fids.set(struct_id, ctor_fid);
   ()
@@ -812,6 +850,12 @@ export(register_extern_c_global, is_extern_c_global, get_extern_c_global_type);
 export(register_some_resolved_concrete, lookup_some_resolved_concrete);
 export(
   register_struct_ctor_fid,
+  record_branch_init,
+  branch_init_log_len,
+  get_branch_init_record,
+  register_arm_init_range,
+  get_arm_init_range,
+  BranchInitRecord,
   register_trait_ctor_fid,
   lookup_trait_ctor_fid,
   lookup_struct_ctor_fid,

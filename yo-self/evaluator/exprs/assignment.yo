@@ -39,7 +39,8 @@ open(import("std/string"));
   expr_info_table_get,
   ControlFlowFlags,
   has_any_control_flow,
-  control_flow_to_string
+  control_flow_to_string,
+  record_branch_init
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -1015,6 +1016,16 @@ evaluate_assignment :: (
       .None => ()
     );
   });
+  // Record FIRST-INITIALIZATIONS into the per-branch init log — consumed by
+  // merge_and_check_envs's cross-branch type checks (see expr_info.yo's
+  // BranchInitRecord: the shared mutable Variable cannot carry per-branch
+  // types). The RHS's closure capture struct rides along for the Impl(...)
+  // static-dispatch rule.
+  // Record EVERY assignment (not just first-inits): the shared Variable is
+  // stamped initialized by the FIRST arm's eval, so a sibling arm's
+  // first-per-branch assignment reads as a "reassignment" here. The merge
+  // keeps the LAST record per (arm window, var id).
+  record_branch_init(updated_variable.id.clone(), rhs_type, rhs_info.capture_type);
   // Store the RHS value for comptime-only variables; runtime vars don't carry a value.
   value_to_store := cond(
     (updated_variable.is_compile_time_only) => rhs_info.value,

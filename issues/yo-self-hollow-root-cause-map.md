@@ -567,3 +567,37 @@ do not today), or (b) a side-channel recording (var id, branch, assigned
 ty+capture) during arm evaluation, consumed by the merge. (b) fits the
 established side-table pattern. The check code itself (both rules) is in
 this commit's history — reusable once the snapshot channel exists.
+
+## missing-validation family — branch-init side-channel LANDED (2026-07-31); closure arms 1-2 of 5 now validate
+
+The design-(b) side-channel from the previous entry, implemented and
+gate-clean (TIER 1 corpus 149/0 + std 153/153, TIER 2 FIXPOINT_HOLDS,
+sweep 169/16/0 with zero composition changes):
+
+- expr_info.yo: `BranchInitRecord` log (var id, assigned ty, RHS closure
+  capture) + per-arm [start, end) windows keyed by arm-body expr id.
+- assignment.yo: EVERY assignment records (not just first-inits — the
+  shared Variable is stamped initialized by the FIRST arm, so sibling
+  arms' first-per-branch assignments read as reassignments).
+- cond.yo: both arm-eval sites register windows.
+- utils.yo merge_and_check_envs: consumes windows — last record per (arm,
+  var); Impl(...) static-dispatch rule compares CAPTURE STRUCT IDS
+  (nominal per closure — structural compat wrongly accepts two one-i32
+  captures) + the general cross-case initialized-type check (TS
+  expr.ts:2009-2094).
+
+MEASURED: tests/closure's expect-error arms 1-2 ("Test multiple expected
+errors" Impl different-capture conds) now produce the required error; the
+FILE stays hollow (markers=1) on arm 3 — `(c : Impl(F)) = cond(a =>
+closureA, b => closureB)` (the RESULT-position form). A cond-result rule
+comparing arm bodies' ExprInfo.capture_type was added but is INERT: a
+`begin(...)` arm body's ExprInfo does not carry the tail closure's
+capture_type. NEXT: propagate capture_type through begin's tail-expr
+ExprInfo merge (begin.yo), or read the arm's last-expr info directly in
+the cond-result rule. match.yo arms also need the window registration
+(only cond.yo instrumented so far) for the same checks on match arms.
+
+basic/fn hollows: same family; their specific missing validations
+("Cannot use `a` from outer scope" for generic fns; Array(i32,\_) length
+conflict — the latter should ALREADY fire via the new general check once
+its per-branch types differ; re-probe after arm-3 lands).

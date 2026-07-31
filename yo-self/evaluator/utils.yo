@@ -56,7 +56,13 @@ open(import("std/string"));
   make_err_expr,
   BF_DUP
 } :: import("../expr.yo");
-{ ExprInfo, ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
+{
+  ExprInfo,
+  ExprInfoTable,
+  expr_info_table_get,
+  get_arm_init_range,
+  get_branch_init_record
+} :: import("../expr_info.yo");
 {
   Environment,
   Variable,
@@ -84,6 +90,7 @@ open(import("std/string"));
 { EvalValue, is_unknown_val, is_type_value, is_var_ref } :: import("../value.yo");
 { TypeValue } :: import("../types/definitions.yo");
 { are_types_compatible } :: import("../types/compatibility.yo");
+{ type_to_string } :: import("../types/string.yo");
 { type_contains_rc_type } :: import("../types/utils.yo");
 { expr_info_table_set } :: import("../expr_info.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -1061,6 +1068,121 @@ merge_and_check_envs :: (
             ck = (ck + usize(1));
           });
           n_cases := case_envs.len();
+          // ---- Cross-branch type checks (TS expr.ts:2009-2094) ----
+          // Per-branch assigned types come from the branch-init LOG (see
+          // expr_info.yo BranchInitRecord) — yo-self's shared mutable
+          // Variable cannot carry them. Each body's [start,end) window was
+          // registered by the arm evaluator; records matching this
+          // variable's id give the per-branch (ty, capture).
+          {
+            cb_tys := ArrayList(TypeValue).new();
+            cb_caps := ArrayList(Option(TypeValue)).new();
+            cb_body_idx := ArrayList(usize).new();
+            (cb_i : usize) = usize(0);
+            while(cb_i < bodies.len(), {
+              cb_body := match(bodies.get(cb_i),.Some(b) => b,.None => make_err_expr());
+              match(
+                get_arm_init_range(ast_expr_id(cb_body).to_string()),
+                .Some(cb_rng) => {
+                  cb_s := match(cb_rng.get(usize(0)),.Some(x) => x,.None => usize(0));
+                  cb_e := match(cb_rng.get(usize(1)),.Some(x) => x,.None => usize(0));
+                  // LAST record per arm wins (an arm may assign repeatedly).
+                  (cb_found : bool) = false;
+                  (cb_ri : usize) = cb_s;
+                  while(cb_ri < cb_e, {
+                    match(
+                      get_branch_init_record(cb_ri),
+                      .Some(cb_rec) => if(cb_rec.var_id == base_var.id, {
+                        if(cb_found, {
+                          cb_tys(cb_tys.len() - usize(1)) = cb_rec.ty;
+                          cb_caps(cb_caps.len() - usize(1)) = cb_rec.capture;
+                        }, {
+                          cb_tys.push(cb_rec.ty);
+                          cb_caps.push(cb_rec.capture);
+                          cb_body_idx.push(cb_i);
+                          cb_found = true;
+                        });
+                      }),
+                      .None => ()
+                    );
+                    cb_ri = (cb_ri + usize(1));
+                  });
+                },
+                .None => ()
+              );
+              cb_i = (cb_i + usize(1));
+            });
+            if(cb_tys.len() > usize(1), {
+              cb_first_ty := match(cb_tys.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
+              cb_first_cap := match(cb_caps.get(usize(0)),.Some(c) => c,.None => Option(TypeValue).None);
+              (cb_k : usize) = usize(1);
+              while(cb_k < cb_tys.len(), {
+                cb_cur_ty := match(cb_tys.get(cb_k),.Some(t) => t,.None => TypeValue.Unit);
+                cb_cur_cap := match(cb_caps.get(cb_k),.Some(c) => c,.None => Option(TypeValue).None);
+                cb_tok := match(
+                  bodies.get(match(cb_body_idx.get(usize(0)),.Some(x) => x,.None => usize(0))),
+                  .Some(cb_b0) => ast_expr_token(cb_b0),
+                  .None => base_var.token
+                );
+                // Impl(...) static-dispatch rule: branches resolving to
+                // DIFFERENT concrete (capture) types must be rejected.
+                (cb_impl_conflict : bool) = false;
+                match(
+                  cb_first_cap,
+                  .Some(cb_fc) => match(
+                    cb_cur_cap,
+                    .Some(cb_cc) => {
+                      // Capture structs are NOMINAL per closure: two
+                      // different closures' captures are different concrete
+                      // types even when structurally identical (both
+                      // capture one i32) — compare struct IDs; yo-self's
+                      // structural compat wrongly accepts them.
+                      cb_id_conflict := match(
+                        cb_fc,
+                        .Struct({ id : cb_fid2 }) => match(
+                          cb_cc,
+                          .Struct({ id : cb_cid2 }) => ((cb_fid2.len() > usize(0)) && (cb_fid2 != cb_cid2)),
+                          _ => false
+                        ),
+                        _ => false
+                      );
+                      if(cb_id_conflict || !(are_types_compatible(cb_cc, cb_fc)), {
+                        cb_impl_conflict = true;
+                        cb_entries := ArrayList(TokenAndError).new();
+                        cb_entries.push(
+                          TokenAndError(
+                            token : cb_tok,
+                            error_message :
+                              `Variable "${base_var.name}" has type Impl(...) but different concrete types across branches.
+Impl(...) uses static dispatch and requires the same concrete type in all branches.
+Consider using Dyn(...) for dynamic dispatch if different concrete types are needed.`
+                          )
+                        );
+                        exn.throw(dyn(format_error_messages(cb_entries, false,.None)));
+                      });
+                    },
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                // General cross-case initialized-type compatibility.
+                if(!(cb_impl_conflict) && !(are_types_compatible(cb_cur_ty, cb_first_ty)), {
+                  cb_entries2 := ArrayList(TokenAndError).new();
+                  cb_entries2.push(
+                    TokenAndError(
+                      token : cb_tok,
+                      error_message :
+                        `Variable "${base_var.name}" has incompatible types across different cases:
+First initialization: ${type_to_string(cb_first_ty)}
+Conflicting initialization: ${type_to_string(cb_cur_ty)}`
+                    )
+                  );
+                  exn.throw(dyn(format_error_messages(cb_entries2, false,.None)));
+                });
+                cb_k = (cb_k + usize(1));
+              });
+            });
+          };
           // ---- Check initialized_at_token ----
           // Case 1: single branch, initialized there but not before → error
           if(n_cases == usize(1), {
