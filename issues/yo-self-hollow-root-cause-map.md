@@ -925,3 +925,20 @@ exists, so the break is further along: probe the **DBG_A sites
 (values/anonymous_function.yo trial swallows) and the SPEC body-eval swallow
 for the trait-default fn (fn_yo_id_2242's spec) next. WIP = stash@{0}
 "impl-onion-WIP-v3" (unchanged from the previous parking).
+
+### impl — layer 7 probe round 2 (sh48): NOT an eval throw
+
+sh48 carried ALL THREE swallow probes (**DBG_F, **DBG_A, \_\_DBG_W). None
+reports an error attributable to the `!=`-default arm — the census shows only
+known noise (expr_to_string, tuple member \_0/\_1, usize/u8). Conclusion: the
+`// Failed to transpile not((Self.(==))(lhs, rhs))` marker is NOT a swallowed
+eval throw. The spec-time eval of the default body SUCCEEDS but codegen
+cannot emit the node — the `(Self.(==))(lhs, rhs)` call's resolved callee
+(picked by \_select_matching_overload after property_access's multi-overload
+defer) is not recorded where codegen looks (record_method_callee_value under
+the CALL expr id the EMITTER walks — original FuncVal body AST vs the
+evaluated clone's ids, the classic original-vs-clone id mismatch that
+\_bridge_expr_info exists for). NEXT: in codegen, find which lookup fails for
+that node (other_fn_call's dot-callee dispatch); on the eval side, check
+whether the overload-selected call path stamps the ORIGINAL node id or a
+clone's. WIP = stash@{0} "impl-onion-WIP-v4" (binary /tmp/sh48 = this tree).
