@@ -58,46 +58,47 @@ MAX_COMPTIME_LOOP_ITERATIONS :: usize(10000);
 // `enforceLoopInvariantPlacement` / `walkForMisplacedInvariant`
 // (src/evaluator/exprs/while.ts:106-166).
 // ---------------------------------------------------------------------------
-/// Recursively reject any `invariant(...)` call inside an expression. Used to
-/// scan cond/match branches, nested begin blocks, and non-first statements.
+/// Find any `invariant(...)` call NESTED inside an expression (cond/match
+/// branches, nested begin blocks). Returns the offending node instead of
+/// throwing: an `exn.throw` from inside this recursive helper was measured
+/// INERT under the def-time trial exn chain (the escaped-flag early-return
+/// is not honored here — execution continued past the throw and the
+/// misplacement was never reported; tests/spec/contracts_phase0 arm 8).
+/// The caller (`evaluate_while`) throws from its own frame instead.
 /// Does NOT descend into nested `while(...)` bodies — those are checked by
 /// their own `_enforce_loop_invariant_placement` call.
-_walk_for_misplaced_invariant :: (fn(expr : AstExpr, exn : Exception) -> unit)({
+_find_misplaced_invariant :: (fn(expr : AstExpr) -> Option(AstExpr))({
   args := match(
     expr,
     .FnCall(_, _, a, _, _) => a,
-    .Atom(_, _) => return(())
+    .Atom(_, _) => return(Option(AstExpr).None)
   );
   if(ast_expr_is_fn_call_of(expr, BF_INVARIANT, Option(usize).None), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("'invariant(...)' must be the first statement of the enclosing 'while(...)' loop body. It cannot appear inside cond/match branches, nested blocks, or as a non-first statement."),
-          false,
-          .None
-        )
-      )
-    );
+    return(Option(AstExpr).Some(expr));
   });
   if(ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None), {
-    return(());
+    return(Option(AstExpr).None);
   });
+  (found : Option(AstExpr)) = Option(AstExpr).None;
   (wi : usize) = usize(0);
-  while(wi < args.len(), {
+  while((wi < args.len()) && found.is_none(), {
     match(
       args.get(wi),
       .Some(sub) => {
-        recur(sub, exn);
+        found = recur(sub);
       },
       .None => ()
     );
     wi = (wi + usize(1));
   });
+  found
 });
 /// Enforce that `invariant(...)` appears only as the first statement of a
-/// loop body.
-_enforce_loop_invariant_placement :: (fn(body_expr : AstExpr, exn : Exception) -> unit)({
+/// loop body. Returns the offending node and whether it was a NON-FIRST
+/// direct statement (true) or nested in a branch/block (false); the caller
+/// throws (see _find_misplaced_invariant on why no throw happens here).
+InvariantViolation :: struct(node : AstExpr, non_first_stmt : bool);
+_enforce_loop_invariant_placement :: (fn(body_expr : AstExpr) -> Option(InvariantViolation))({
   stmts := cond(
     ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None) => match(
       body_expr,
@@ -119,22 +120,20 @@ _enforce_loop_invariant_placement :: (fn(body_expr : AstExpr, exn : Exception) -
     cond(
       (is_inv && (idx == usize(0))) => (),
       is_inv => {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(stmt),
-              String.from("'invariant(...)' must be the first statement of a 'while(...)' loop body. Move this invariant to the top of the loop body, before any other statements."),
-              false,
-              .None
-            )
-          )
-        );
+        return(Option(InvariantViolation).Some(InvariantViolation(node : stmt, non_first_stmt : true)));
       },
       true => {
-        _walk_for_misplaced_invariant(stmt, exn);
+        match(
+          _find_misplaced_invariant(stmt),
+          .Some(bad) => {
+            return(Option(InvariantViolation).Some(InvariantViolation(node : bad, non_first_stmt : false)));
+          },
+          .None => ()
+        );
       }
     );
   });
+  Option(InvariantViolation).None
 });
 // ---------------------------------------------------------------------------
 // Helper: _body_has_any_terminator_guaranteed / _body_has_any_terminator_possible
@@ -250,8 +249,19 @@ evaluate_while :: (
   });
   // Phase 0 invariant-placement rule: inside a `while(...)` body,
   // `invariant(...)` may only appear as the first statement of the loop body.
-  // See plans/FORMAL_VERIFICATION.md §A2 / while.ts:206-211.
-  _enforce_loop_invariant_placement(body_expr, exn);
+  // See plans/FORMAL_VERIFICATION.md §A2 / while.ts:206-211. The helper
+  // RETURNS the violation and the throw happens here — see its doc comment.
+  match(
+    _enforce_loop_invariant_placement(body_expr),
+    .Some(inv_viol) => {
+      inv_msg := cond(
+        inv_viol.non_first_stmt => String.from("'invariant(...)' must be the first statement of a 'while(...)' loop body. Move this invariant to the top of the loop body, before any other statements."),
+        true => String.from("'invariant(...)' must be the first statement of the enclosing 'while(...)' loop body. It cannot appear inside cond/match branches, nested blocks, or as a non-first statement.")
+      );
+      exn.throw(dyn(format_error_message(ast_expr_token(inv_viol.node), inv_msg, false,.None)));
+    },
+    .None => ()
+  );
   // Detect comptime() modifier on the condition.
   // Re-detected on each recursive call so the AST stays clean across evaluations.
   raw_cond_expr := match(all_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());

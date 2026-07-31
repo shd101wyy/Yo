@@ -12,7 +12,12 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 169 GREEN / 16 HOLLOW / 0 RED of 185 test files**, measured
+**Honest score: 171 GREEN / 14 HOLLOW / 0 RED of 185 test files** (closure +
+spec/contracts_phase0
+flipped TRUE GREEN 2026-07-31, `ac78c38c3`; batches 2-3 `0b70765da` +
+`3661c85cd` fixed 5 more sub-roots in basic/fn without flips — the remaining
+hollow arms are bisected in `issues/yo-self-hollow-root-cause-map.md`; sweep
+at `/tmp/sweep_h27/results.txt`). Previous milestone: 169/16/0, measured
 with `scratchpad/hollow_sweep69.sh` after the creation-side-canonicalization
 round (2026-07-31; flips this campaign: inherent_first_resolution,
 algebraic_effects, derive_clone_complex, impl_fn_field_rejection, comptime,

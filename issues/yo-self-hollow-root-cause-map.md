@@ -651,3 +651,19 @@ masked by the all-or-nothing batch; bisected via subset_arms.py on /tmp/s2h25):
 | 14  | Test 'union'           | `Failed to evaluate, got (v3.x)` — member access on impl-`new()` union   |
 | 18  | Test 'cond'            | `if(c, then : {...}, else : {...})` labeled-block macro form rejected    |
 | 24  | Test type availability | `y := Point2(6, 8)` should error (scope availability validation missing) |
+
+## UPDATE 2026-07-31 (later) — contracts_phase0 TRUE GREEN via the INERT-THROW class
+
+**spec/contracts_phase0.test.yo → TRUE GREEN 31/31 at TS parity** (arm 8,
+invariant-in-cond-branch). Root was NOT a missing validation: the placement
+walker (`_walk_for_misplaced_invariant`, while.yo) was a faithful port and its
+`exn.throw` was REACHED — and measured INERT (probe showed execution continuing
+past the throw to sibling nodes; the escaped-flag early-return is not honored
+in that recursive-helper call shape). Fix: the walker/enforcer RETURN the
+offending node (`Option(InvariantViolation)`) and `evaluate_while` throws from
+its own frame.
+
+**LEVER for the remaining cee-saw-no-error hollows**: when a validation
+"exists but never fires", probe for the inert throw FIRST (eprintln after the
+throw — if it prints, restructure to return-then-throw-at-top). Candidates:
+basic arm 24 (type availability), fn arm 9's remaining route, gadts/impl arms.

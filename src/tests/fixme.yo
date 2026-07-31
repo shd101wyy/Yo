@@ -1,9 +1,11 @@
 main :: (fn() -> unit)({
-  fn2 :: (fn(generic(T : Type), value : T) -> T);
-  (comptime(identity2) : fn2) = (
-    value -> {
-      return(i32(0));
-    }
-  );
+  i := i32(0);
+  while(runtime(i < i32(3)), {
+    cond(
+      (i > i32(0)) => invariant(i >= i32(0)),
+      true => ()
+    );
+    i = (i + i32(1));
+  });
 });
 export(main);
