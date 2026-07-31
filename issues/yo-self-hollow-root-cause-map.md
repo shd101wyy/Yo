@@ -1506,3 +1506,28 @@ Port lessons (recorded in the syntax cheatsheet too):
 Gates: TIER 1 clean, FIXPOINT_HOLDS (stage2 hollow=0), sweep
 **174 GREEN / 10 HOLLOW / 1 RED** — asm GREEN 13 passed = TS exactly,
 zero regressions.
+
+## type_reflection — root LOCATED + scoped (markers 24 → 1 under the asm-port binary)
+
+Under sh86 the file is down to ONE hollow marker: the batch-main def trial
+dies at prelude:6260 `__yo_type_get_info(self)` with
+"**yo_type_get_info: unsupported type variant" (probe **DBG_F). yo-self's
+`evaluator/builtins/type_fns.yo` variant switch covers everything EXCEPT
+the four TS arms **Function / Trait / Dyn / SomeType**
+(type-fns.ts:849-928; the def-trial `self` is a SomeT, so the SomeType arm
+is what unblocks the batch main).
+
+Port infrastructure already exists (\_ti_bind_type, \_ti_eval_code,
+\_ti_bind_comptime_list, \_ti_bind_type_field_list). Needed helpers
+(type-fns.ts:965-1360): bindTempTraitInfoList (req/neg lists → TraitInfo),
+bindTempFunctionInfo (+ ParamInfo/ForallParamInfo/ImplicitParamInfo
+lists), bindTempTraitFieldInfoList, bindTempTraitKind (Normal/Fn/Future).
+
+HAZARD for the Function arm: the test asserts per-param `is_comptime` and
+`is_variadic` (arms at test:202-223), but yo-self's FuncMeta carries
+NEITHER — they live in expr-id-keyed side tables (get_func_param_comptime,
+get_func_variadic_param, evaluator/types/function.yo), unreachable from a
+bare TypeValue.Func. Same side-table-vs-type-carried divergence class as
+the F-era family. The SomeType/Dyn/Trait arms have no such gap — land
+those first (they may alone flip the file if the test's Function arms
+were among the 24 pre-shrunk markers — re-measure per arm after).
