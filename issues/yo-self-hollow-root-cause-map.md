@@ -791,3 +791,21 @@ the flag decision. NEXT PROBE: in function.yo's dot-dispatch (where
 method_info is taken), print method_info.method_ty + needs_pointer_conversion
 for method_name == "return_i32"; that says whether the flag was lost or never
 set, and which lookup branch produced the hit.
+
+### impl — probe round 4 (sh40): Self-pointee npc rule LANDS a layer; synthesizer unify is next
+
+env.yo `_filter_receiver_methods` Rule 3 now sets `needs_pointer_conversion`
+when the pointee is the trait's `Self` SomeT (a trait method's `*(Self)` self
+matches its own receiver by construction) — probe confirms `npc=true` and the
+`Expected *(bool), Got Impl` error is GONE. Next throw (arm 3,
+`r := ret_boxi32_i32(); (&(r).return_i32)()`):
+`Cannot unify incompatible types: "Box(i32)" and "*(Impl : (RetI32))"` —
+synthesize_types unifying the self param against the receiver arg needs the
+SAME SomeT-resolution unwrap the compat arms got (types/synthesizer.yo's
+unify, plus possibly skip re-wrapping an already-&()'d receiver).
+
+**Tree WIP (uncommitted, gate before landing)**: compat unwrap arms + hook
+(compatibility.yo + expr_info.yo init), Self-pointee npc rule (env.yo),
+probes: **DBG_F (function_type.yo), **DBG_CU (compatibility.yo + stamp in
+function_type.yo), \_\_DBG_MI (function.yo — also a stray fmt open + helper).
+Binary /tmp/sh40 = this exact tree.
