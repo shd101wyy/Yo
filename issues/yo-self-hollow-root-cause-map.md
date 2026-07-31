@@ -720,3 +720,21 @@ resolvedConcreteType (compatibility.ts:900-916). Fix candidates, in order:
 2. port compatibility.ts:900-916 (given-SomeT resolution unwrap) — needed
    anyway but insufficient alone here (bool vs \*(bool) still fails without
    the auto-ref).
+
+### impl.test.yo — deeper (2026-07-31 EOD, uncommitted WIP in tree)
+
+The compatibility.ts:900-916 given-SomeT resolution unwrap IS now written
+(types/compatibility.yo, + `set_compat_lookup_some_resolved_fn` hook installed
+from expr_info.yo's init — trait_checking.yo could NOT wire it: it has no
+expr_info import and adding one cycles). Measured: impl STILL throws
+`Type mismatch for parameter "self": Expected *(bool), Got Impl : (RetI32)`.
+Diagnosis: the receiver's `Impl(RetI32)` at the CALL SITE is a FRESH per-call
+SomeT instance (the ctl-throw hazard: per-call resolutions seed fresh SomeTs)
+whose id differs from the def-time-stamped declaration SomeT — so neither the
+lineage cell nor the id-keyed registry answers. NEXT: find where the call
+result type for `ret_boolean_i32()` rebuilds the return SomeT (function.yo
+resolved_ret / helper.yo return re-eval) and COPY the declaration SomeT's
+resolution (cell or registry) into the fresh instance's cell there — then the
+compat unwrap completes the chain. Tree state: compat unwrap + hook are IN THE
+TREE UNCOMMITTED along with the \_\_DBG_F probe (function_type.yo) — gate before
+landing; revert if the id-copy layer doesn't flip impl.
