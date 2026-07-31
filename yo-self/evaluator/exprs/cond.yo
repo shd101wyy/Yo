@@ -27,7 +27,10 @@ open(import("std/string"));
   has_any_control_flow,
   merge_control_flows,
   branch_init_log_len,
-  register_arm_init_range
+  register_arm_init_range,
+  push_branch_group,
+  begin_branch_group_arm,
+  pop_branch_group
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
@@ -408,6 +411,9 @@ evaluate_cond :: (
       return_bodies := ArrayList(AstExpr).new();
       (has_runtime_body_val : bool) = false;
       (nb_i : usize) = usize(0);
+      // Sibling-arm inits must not read as prior inits inside later arms
+      // (Impl reassignment rule) — group the arms' branch-init windows.
+      push_branch_group();
       while(nb_i < evaluated_conds.len(), {
         match(
           evaluated_conds.get(nb_i),
@@ -430,6 +436,7 @@ evaluate_cond :: (
               // Evaluate body with is_executing = false (analysis only).
               old_executing := ctx.is_executing;
               ctx.is_executing = false;
+              begin_branch_group_arm();
               bir_start_a := branch_init_log_len();
               evaluated_case_body := evaluate_begin_expression(
                 ec_item.case_body_expr,
@@ -563,6 +570,7 @@ evaluate_cond :: (
           }
         );
       });
+      pop_branch_group();
       // Merge all control-flow flags from the arms.
       final_cf := cond(
         (control_flows.len() > usize(0)) => Option(ControlFlowFlags).Some(merge_control_flows(control_flows)),

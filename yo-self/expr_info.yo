@@ -605,8 +605,25 @@ BranchInitRecord :: ref(
   )
 );
 (g_branch_init_log : ArrayList(BranchInitRecord)) = ArrayList(BranchInitRecord).new();
+/// var_id -> log indices of that variable's records. Keeps
+/// has_dominating_branch_init O(records-for-this-var × active groups) instead
+/// of a full-log scan per reassignment (the log spans the WHOLE compile).
+(g_branch_init_by_var : HashMap(String, ArrayList(usize))) = HashMap(String, ArrayList(usize)).new();
 record_branch_init :: (fn(var_id : String, ty : TypeValue, capture : Option(TypeValue)) -> unit)({
-  g_branch_init_log.push(BranchInitRecord(var_id : var_id, ty : ty, capture : capture));
+  idx := g_branch_init_log.len();
+  g_branch_init_log.push(BranchInitRecord(var_id : var_id.clone(), ty : ty, capture : capture));
+  match(
+    g_branch_init_by_var.get(var_id),
+    .Some(lst) => {
+      lst.push(idx);
+    },
+    .None => {
+      lst := ArrayList(usize).new();
+      lst.push(idx);
+      g_branch_init_by_var.set(var_id, lst);
+      ()
+    }
+  );
 });
 branch_init_log_len :: (fn() -> usize)(g_branch_init_log.len());
 get_branch_init_record :: (fn(i : usize) -> Option(BranchInitRecord))(g_branch_init_log.get(i));
@@ -622,6 +639,89 @@ register_arm_init_range :: (fn(arm_expr_id : String, start : usize, end : usize)
 get_arm_init_range :: (fn(arm_expr_id : String) -> Option(ArrayList(usize)))(
   g_arm_init_ranges.get(arm_expr_id)
 );
+/// Active branching-construct stack for the Impl(...) reassignment rule
+/// (TS assignment.ts:635-655). Each entry is a 2-element list
+/// [group_start, current_arm_start]: log records with index in
+/// [group_start, current_arm_start) were made by COMPLETED SIBLING ARMS of a
+/// cond that is still evaluating — TS's per-branch child envs make sibling
+/// inits invisible to each other, so a "was this variable already assigned on
+/// MY path?" query must skip them. Entries stranded by a thrown-through arm
+/// eval are truncated by comptime_expect_error's state restore; a stale
+/// entry's window is a fixed HISTORICAL range, so it can never exclude records
+/// appended after it.
+(g_branch_group_stack : ArrayList(ArrayList(usize))) = ArrayList(ArrayList(usize)).new();
+push_branch_group :: (fn() -> unit)({
+  entry := ArrayList(usize).new();
+  entry.push(g_branch_init_log.len());
+  entry.push(g_branch_init_log.len());
+  g_branch_group_stack.push(entry);
+});
+/// Mark the start of the NEXT arm in the innermost group: records made so far
+/// (by earlier sibling arms) become invisible to dominating-init queries.
+begin_branch_group_arm :: (fn() -> unit)({
+  match(
+    g_branch_group_stack.pop(),
+    .Some(old_entry) => {
+      entry := ArrayList(usize).new();
+      entry.push(match(old_entry.get(usize(0)),.Some(x) => x,.None => usize(0)));
+      entry.push(g_branch_init_log.len());
+      g_branch_group_stack.push(entry);
+    },
+    .None => ()
+  );
+});
+pop_branch_group :: (fn() -> unit)({
+  g_branch_group_stack.pop();
+  ()
+});
+branch_group_stack_len :: (fn() -> usize)(g_branch_group_stack.len());
+/// Drop stack entries stranded by a thrown-through arm evaluation.
+truncate_branch_group_stack :: (fn(depth : usize) -> unit)({
+  while(g_branch_group_stack.len() > depth, {
+    g_branch_group_stack.pop();
+    ()
+  });
+});
+/// True when a prior assignment record for `var_id` exists on the CURRENT
+/// control-flow path — i.e. outside every active group's completed-sibling
+/// window. This is the yo-self surrogate for TS's `variable.initializedAtToken`
+/// under per-branch child envs: the shared mutable Variable is stamped
+/// initialized by the FIRST arm, so the token alone cannot distinguish a
+/// sibling arm's init from a genuine same-path prior init.
+has_dominating_branch_init :: (fn(var_id : String) -> bool)({
+  (found : bool) = false;
+  match(
+    g_branch_init_by_var.get(var_id),
+    .Some(idxs) => {
+      (ii : usize) = usize(0);
+      while(ii < idxs.len(), {
+        i := match(idxs.get(ii),.Some(x) => x,.None => usize(0));
+        (excluded : bool) = false;
+        (gi : usize) = usize(0);
+        while(gi < g_branch_group_stack.len(), {
+          match(
+            g_branch_group_stack.get(gi),
+            .Some(g) => {
+              gs := match(g.get(usize(0)),.Some(x) => x,.None => usize(0));
+              ga := match(g.get(usize(1)),.Some(x) => x,.None => usize(0));
+              if((gs <= i) && (i < ga), {
+                excluded = true;
+              });
+            },
+            .None => ()
+          );
+          gi = (gi + usize(1));
+        });
+        if(!(excluded), {
+          found = true;
+        });
+        ii = (ii + usize(1));
+      });
+    },
+    .None => ()
+  );
+  found
+});
 register_struct_ctor_fid :: (fn(struct_id : String, ctor_fid : String) -> unit)({
   g_struct_ctor_fids.set(struct_id, ctor_fid);
   ()
@@ -855,6 +955,12 @@ export(
   get_branch_init_record,
   register_arm_init_range,
   get_arm_init_range,
+  push_branch_group,
+  begin_branch_group_arm,
+  pop_branch_group,
+  branch_group_stack_len,
+  truncate_branch_group_stack,
+  has_dominating_branch_init,
   BranchInitRecord,
   register_trait_ctor_fid,
   lookup_trait_ctor_fid,

@@ -40,7 +40,9 @@ open(import("std/string"));
   ControlFlowFlags,
   has_any_control_flow,
   control_flow_to_string,
-  record_branch_init
+  record_branch_init,
+  has_dominating_branch_init,
+  lookup_some_resolved_concrete
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -1015,6 +1017,38 @@ evaluate_assignment :: (
       ),
       .None => ()
     );
+  });
+  // Impl(...) reassignment rule (TS assignment.ts:635-655): a SomeType
+  // variable whose concrete type is already fixed (Impl uses static dispatch)
+  // cannot be reassigned. Generic type parameters WITHOUT a resolved concrete
+  // type stay reassignable. "Already assigned" must be judged on the CURRENT
+  // control-flow path: yo-self's shared mutable Variable is stamped
+  // initialized by the FIRST cond arm, so a sibling arm's own first
+  // assignment would false-positive here — has_dominating_branch_init
+  // consults cond.yo's branch-group windows to exclude sibling-arm records
+  // (TS's per-branch child envs make them invisible for free).
+  if(is_mutating_defined_variable, {
+    impl_resolved := match(
+      updated_variable.ty,
+      .SomeT(id : some_id, resolved_concrete : some_cell) => ((some_cell.len() > usize(0)) || lookup_some_resolved_concrete(some_id).is_some()),
+      _ => false
+    );
+    if(impl_resolved && has_dominating_branch_init(updated_variable.id), {
+      ra_entries := ArrayList(TokenAndError).new();
+      ra_entries.push(
+        TokenAndError(
+          token : ast_expr_token(lhs_resolved),
+          error_message : `Cannot reassign variable "${variable_name}" of type Impl(...).\nImpl(...) uses static dispatch and the concrete type is fixed at first assignment.\nConsider using Dyn(...) for dynamic dispatch if you need to reassign to different implementations.`
+        )
+      );
+      ra_entries.push(
+        TokenAndError(
+          token : match(updated_variable.initialized_at_token,.Some(t) => t,.None => updated_variable.token),
+          error_message : String.from("First assigned here:")
+        )
+      );
+      exn.throw(dyn(format_error_messages(ra_entries, false,.None)));
+    });
   });
   // Record FIRST-INITIALIZATIONS into the per-branch init log — consumed by
   // merge_and_check_envs's cross-branch type checks (see expr_info.yo's

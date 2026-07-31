@@ -25,7 +25,13 @@ open(import("std/string"));
 { EvalContext } :: import("../context.yo");
 { format_error_message } :: import("../../error.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
-{ expr_info_table_get, new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
+{
+  expr_info_table_get,
+  new_expr_info,
+  expr_info_table_set,
+  branch_group_stack_len,
+  truncate_branch_group_stack
+} :: import("../../expr_info.yo");
 { t_unit } :: import("../../types/creators.yo");
 { set_propagate_def_time_errors, set_cee_observed_error, clear_cee_observed_error, cee_observed_error } :: import("../../types/flowability.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -132,6 +138,9 @@ evaluate_comptime_expect_error :: (
   saved_gen_impl := ctx.is_evaluating_generic_impl_specialization;
   saved_spec := ctx.currently_specializing_function;
   saved_spec_stack := ctx.currently_specializing_function_stack;
+  // The expected throw can strand cond.yo's branch-group entries (push
+  // without pop) — truncate back to this depth after the arg eval.
+  saved_branch_groups := branch_group_stack_len();
   set_propagate_def_time_errors(true);
   arg_threw := _comptime_expect_error_arg_threw(arg_expr.clone(), env, ctx);
   set_propagate_def_time_errors(false);
@@ -168,6 +177,7 @@ evaluate_comptime_expect_error :: (
   while(env.frames.len() > saved_frames_len, {
     env.pop_frame();
   });
+  truncate_branch_group_stack(saved_branch_groups);
   if(arg_threw, {
     out_unit := new_expr_info(env, t_unit());
     out_unit.value = Option(EvalValue).Some(EvalValue.UnitVal);
