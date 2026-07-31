@@ -738,3 +738,18 @@ resolution (cell or registry) into the fresh instance's cell there — then the
 compat unwrap completes the chain. Tree state: compat unwrap + hook are IN THE
 TREE UNCOMMITTED along with the \_\_DBG_F probe (function_type.yo) — gate before
 landing; revert if the id-copy layer doesn't flip impl.
+
+### impl.test.yo — probe round 2 (sh37): instrument the SYMMETRIC arm next
+
+sh37 (tree + **DBG_CU probe on the ACTUAL-side unwrap, filtered to
+Pointer/bool expected): ZERO hits during tests/impl.test.yo — the
+actual-is-SomeT unwrap never runs for this failure. The failing compat is
+helper.yo Step 8 `are_types_compatible(final_pt = *(bool), arg_type =
+Impl(RetI32))` = (actual=\*(bool), expected=SomeT) — only the SYMMETRIC
+(expected-side) unwrap applies, and it still did not flip impl (markers=1),
+so its resolution lookup (cell + registry by expected SomeT id) missed too.
+NEXT: move the probe to the symmetric arm (print e_res_id, cell len,
+lookup hit) and compare the id against what the dts-stamping block
+registered (add a matching eprintln there). Tree WIP: both unwrap arms +
+hook (compatibility.yo, expr_info.yo init) + **DBG_F (function_type.yo) +
+\_\_DBG_CU (compatibility.yo) are UNCOMMITTED — gate before landing anything.
