@@ -3880,7 +3880,14 @@ Fix: wrap the call:
                   // (imm_threading clang error count): shorthand-only left
                   // 17 errors, including field-access args dropped it to
                   // 13 — the field reads carry def-era types too.
-                  .FnCall(_, vs_f, _, _, _) => (ast_expr_is_atom(vs_f) && ast_expr_token(vs_f).value.starts_with(".")),
+                  //
+                  // A FIELDED variant shorthand `.Some(x)` parses as
+                  // FnCall(func = FnCall(".", [Some]), args = [x]) — the
+                  // callee is the 1-arg DOT CALL, not an atom (measured:
+                  // every era-split `.Some(new_h)` arg SKIPPED this block
+                  // while its sibling bare `.None` args fired) — accept
+                  // that shape too.
+                  .FnCall(_, vs_f, _, _, _) => ((ast_expr_is_atom(vs_f) && ast_expr_token(vs_f).value.starts_with(".")) || ast_expr_is_fn_call_of(vs_f, BF_DOT,.Some(usize(1)))),
                   _ => false
                 )
               );

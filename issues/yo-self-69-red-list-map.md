@@ -1409,3 +1409,28 @@ qualified enum constructions), or creation-side canonicalization at
 SUBSTITUTION time for ctor-stamped enums (substitute currently keeps
 enum ids — the recorded "canonicalize at type CREATION" lesson names
 exactly this point).
+
+## imm FAMILY FIXED (2026-07-31) — imm_sorted_map 17/17, imm_sorted_set 18/18, imm_threading 30/30, ALL TRUE GREEN (TS parity, markers=0)
+
+The six probe rounds converged on a ONE-LINE shape-test gap in the landed
+slice-3c dot-arg override (function.yo inline arm): a FIELDED variant
+shorthand `.Some(x)` parses as `FnCall(func = FnCall(".", [Some]), args =
+[x])` — the callee is the 1-arg DOT CALL, not an atom — so the shape test
+(`callee atom starts with "."`) matched bare `.None` atoms and `v.field`
+reads but SKIPPED every `.Some(new_h)` argument (correlated in one log:
+each era-split `.Some` eval had NO `__DBG_3C try` line while its sibling
+args fired). Those args then took the DEF-ERA substituted declared param
+type as expected (era-7695), emitted the def-era enum, and met the
+callee's memo-era params as invalid struct-to-struct casts. Accepting the
+`FnCall(BF_DOT, 1-arg)` callee shape flips ALL THREE files to TS parity.
+
+Probe-round facts that survive (recorded above, all still true): the
+Option memo never double-mints concrete entries; era-7695 is a def-era
+nocache mint whose id survives substitution; the qualified
+`Option(...).Some` receivers were already canonical (memo era); the
+apparent cfid-less-copy trail was a red herring downstream of the
+expected-type era.
+
+Gates: TIER 1 clean (corpus 149/0, std 153/153, battery baseline), TIER 2
+full (stage2 hollow=0 + clang + stage3 + FIXPOINT_HOLDS), honest sweep
+**169 GREEN / 16 HOLLOW / 0 RED** — the RED list is EMPTY.

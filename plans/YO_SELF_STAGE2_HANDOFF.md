@@ -12,7 +12,7 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 166 GREEN / 16 HOLLOW / 3 RED of 185 test files**, measured
+**Honest score: 169 GREEN / 16 HOLLOW / 0 RED of 185 test files**, measured
 with `scratchpad/hollow_sweep69.sh` after the creation-side-canonicalization
 round (2026-07-31; flips this campaign: inherent_first_resolution,
 algebraic_effects, derive_clone_complex, impl_fn_field_rejection, comptime,
