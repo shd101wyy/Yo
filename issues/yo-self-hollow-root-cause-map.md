@@ -1474,3 +1474,35 @@ Two-part bounded feature port, no design risk:
    TS inline-asm C emitter (find it via `grep -rn asm src/codegen/`).
    Test: tests/asm.test.yo (13 arms, arch-conditional bodies; the batch main
    is hollow solely from the evaluate_asm stub throw at def time).
+
+## asm — FIXED (TRUE GREEN 13/13 = TS): full two-part port
+
+1. `yo-self/evaluator/builtins/asm.yo`: full port of asm.ts (829 lines) over
+   the stub — operand parsing (in/out/lateout/inout/inlateout/ref alias/
+   const_val/sym, named + explicit-register + raw() constraints, discard,
+   variable-target incl. UNINITIALIZED vars manually annotated), clobber
+   validation, asm_options, return-type inference (noreturn → enclosing fn
+   return; multi-out → positional-label Tuple), duplicate-name + placeholder
+   validation (hand-rolled scanner replacing the TS regex).
+2. `yo-self/codegen/exprs/asm.yo` (new, 1:1 with codegen/exprs/asm.ts):
+   constraint resolution tables, {N}/{name}/{name:mod} → %N/%[name]/%<mod>
+   template transform, const_val inline substitution, out/inout/discard temp
+   emission, GCC **asm** statement assembly, noreturn \_\_builtin_unreachable,
+   tuple return literal; clobber_abi expansion per arch. Wired into
+   generation.yo (replacing the TODO markers) + `-masm=intel` plumbed
+   through a codegen-utils global into main.yo's cc invocation
+   (mirrors codegen/index.ts:580-583).
+
+Port lessons (recorded in the syntax cheatsheet too):
+
+- **StrLit.raw keeps the quote delimiters**: every comptime-string read must
+  decode_str_lit_escapes + strip delimiters, or operand names/"templates"
+  silently mismatch ({result} vs "result" — the arm-4 hollow).
+- **A backtick literal WITHOUT interpolation is a `str`**: String.from()
+  on it fails the def-time check with a misleading location.
+- FnCall pattern is `(id, func, args, is_infix, token)` — `.FnCall(f, ...)`
+  grabs the ID.
+
+Gates: TIER 1 clean, FIXPOINT_HOLDS (stage2 hollow=0), sweep
+**174 GREEN / 10 HOLLOW / 1 RED** — asm GREEN 13 passed = TS exactly,
+zero regressions.

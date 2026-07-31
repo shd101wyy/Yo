@@ -12,7 +12,9 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 173 GREEN / 11 HOLLOW / 1 RED of 185 test files** (gadts
+**Honest score: 174 GREEN / 10 HOLLOW / 1 RED of 185 test files** (asm
+flipped TRUE GREEN 13/13 2026-08-01 — full two-part port: evaluator
+builtins/asm.yo + codegen exprs/asm.yo + -masm=intel wiring; earlier: gadts
 flipped TRUE GREEN 10/10 2026-08-01 — GADT match bypass + tca
 resolve-at-read + tca synthesis in the enum unify arm; earlier: impl
 flipped TRUE GREEN 6/6 and where_clause_fn_inference un-hollowed to a

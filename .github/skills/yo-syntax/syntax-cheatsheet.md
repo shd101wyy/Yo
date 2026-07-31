@@ -1050,6 +1050,24 @@ sep := `, `;
 lines.push(`**Implements:** ${sep.join(names)}`);
 ```
 
+### A backtick literal WITHOUT `${...}` interpolation is a `str`, not a `String`
+
+`String.from(`` `...` ``)` looks harmless but a backtick literal with no
+interpolation types as a plain `str`, and in some positions (e.g. a
+`format_error_message(tok, msg, ...)` argument chain inside a large fn)
+the def-time check reports a misleading `Cannot unify: Expected "String"
+Given "str"` pointing at the ENCLOSING fn's return type, not the literal.
+Use a double-quoted string (escape inner `"` as `\"`) for constant
+messages; reserve backticks for templates that actually interpolate.
+
+```rust
+// ❌ def-time check fails with a misleading location
+exn.throw(dyn(format_error_message(tok, String.from(`Cannot use "asm" here.`), false, .None)));
+
+// ✅ double-quoted with escapes
+exn.throw(dyn(format_error_message(tok, String.from("Cannot use \"asm\" here."), false, .None)));
+```
+
 ### Pushing RC struct fields into ArrayList does not need `.clone()`
 
 String (and other RC reference-semantics) fields of structs can be passed directly to `ArrayList.push()` — the RC bump happens automatically:

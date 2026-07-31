@@ -109,6 +109,7 @@ open(import("std/string"));
 { generate_yo_iso_extract, generate_yo_iso_dispose, is_iso_type_call, generate_iso_type_call } :: import("./iso.yo");
 { generate_yo_gc_collect, generate_yo_gc_trace_child } :: import("./gc.yo");
 { generate_panic } :: import("./panic.yo");
+{ generate_asm, generate_global_asm } :: import("./asm.yo");
 { generate_dyn_call } :: import("./dyn.yo");
 { generate_return, generate_unwind } :: import("./return.yo");
 { generate_yo_array_fill, generate_anonymous_array } :: import("./array_fns.yo");
@@ -450,8 +451,8 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, BF_YO_GC_TRACE_CHILD, Option(usize).None), return(generate_yo_gc_trace_child(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_RC, Option(usize).None), return(generate_rc_call(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_PANIC, Option(usize).None), return(generate_panic(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BF_ASM, Option(usize).None), return(String.from("/* TODO[codegen-port]: asm not yet ported */")));
-  if(ast_expr_is_fn_call_of(expr, BF_GLOBAL_ASM, Option(usize).None), return(String.from("/* TODO[codegen-port]: global_asm not yet ported */")));
+  if(ast_expr_is_fn_call_of(expr, BF_ASM, Option(usize).None), return(generate_asm(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_GLOBAL_ASM, Option(usize).None), return(generate_global_asm(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_TEST, Option(usize).None), return(String.from("/* test declaration skipped */")));
   if(ast_expr_is_fn_call_of(expr, BK_OP_AND, Option(usize).None), return(generate_op_and(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_OP_OR, Option(usize).None), return(generate_op_or(expr, indent.clone(), context)));

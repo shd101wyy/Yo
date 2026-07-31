@@ -56,8 +56,9 @@ _(env : proc_env) :: import("std/env");
 { EvalValue } :: import("./value.yo");
 { TypeValue } :: import("./types/definitions.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
-{ host_target, parse_target, TargetInfo, is_target_linux, is_target_windows } :: import("./target.yo");
+{ host_target, parse_target, TargetInfo, is_target_linux, is_target_windows, is_target_wasm } :: import("./target.yo");
 { compile_module } :: import("./codegen/codegen_c.yo");
+{ get_needs_intel_asm_syntax } :: import("./codegen/utils/index.yo");
 { panic, assert } :: import("std/assert");
 // Temporary C source path used during compilation.
 C_TMP :: "/tmp/yo_self_out.c";
@@ -1179,6 +1180,11 @@ run_compile :: (
   // -fwrapv: define signed overflow as two's-complement wrap (MEMORY_SAFETY.md
   // Limitation #6); without it the optimizer may exploit overflow-UB.
   cmd.arg(String.from("-fwrapv"));
+  // Inline assembly with intel_syntax needs the C compiler in Intel mode
+  // (mirrors codegen/index.ts:580-583; skipped for wasm targets).
+  if(get_needs_intel_asm_syntax() && !(is_target_wasm(target)), {
+    cmd.arg(String.from("-masm=intel"));
+  });
   // Optimization + warnings: explicit --optimize wins over --release; the
   // default and explicit `--optimize 0` use -O0 with the noisy warnings
   // suppressed (mirrors the TS option logic).

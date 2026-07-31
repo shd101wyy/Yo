@@ -41,6 +41,15 @@ open(import("std/string"));
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { Emitter } :: import("../../emitter.yo");
 { TargetInfo } :: import("../../target.yo");
+// Module-level mirror of `needs_intel_asm_syntax` (the per-run context flag):
+// main.yo builds the C-compiler command AFTER compile_module returns only the
+// C source, so the flag needs an out-of-band channel (TS reads it via
+// moduleManager.needsIntelAsmSyntax, codegen/index.ts:581).
+(g_needs_intel_asm_syntax : bool) = false;
+mark_needs_intel_asm_syntax :: (fn() -> unit)({
+  g_needs_intel_asm_syntax = true;
+});
+get_needs_intel_asm_syntax :: (fn() -> bool)(g_needs_intel_asm_syntax);
 { ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_type, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 {
   AstExpr,
@@ -1271,5 +1280,7 @@ export(
   get_deferred_dup_target_atom_name,
   get_deferred_drop_target_atom_name,
   is_deferred_drop_for_closure_capture,
-  find_returned_async_block
+  find_returned_async_block,
+  mark_needs_intel_asm_syntax,
+  get_needs_intel_asm_syntax
 );
