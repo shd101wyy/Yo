@@ -1102,3 +1102,20 @@ TraitDisambigB.get_number (returns y)` — at SPEC time the receiver is
 
 Cannot land yet: HOLLOW→RED in ledger terms until 9a/9b are fixed (target
 6/6 at TS parity). WIP = stash@{0} "impl-onion-WIP-v8", binary /tmp/sh53.
+
+### impl — 9b attempt 1 (sh54): where-preference channel wired, not reached
+
+Implemented: g_active_where_trait_ids stack (expr_info.yo), push/pop around
+create_specialized's body eval (helper.yo:~2405, ids from
+get_func_where_constraints(func_id)), preference in \_select_matching_overload
+(function.yo) picking a match whose source_trait_id is in the active set.
+Measured: use_trait_b STILL dispatches A (4/2 unchanged). Either the spec
+body's `self.get_number()` does not route through \_select_matching_overload
+(def-time stamp reuse? a different lookup takes ONE hit?), or the pushed id
+set was empty (verify get_func_where_constraints(FuncVal id) has the entries
+— they are registered under the fn-TYPE expr id and copied via
+copy_func_where_constraints). NEXT PROBE: eprintln in the preference block
+(aw_ids len + matching len + sources) AND at the push site (ids pushed),
+run impl test 4 isolated. 9a (`ret_boolean_i32` wrong value) untouched —
+needs its own probe (which return_i32 impl the call binds at spec time).
+WIP = stash@{0} "impl-onion-WIP-v9", binary /tmp/sh54.
