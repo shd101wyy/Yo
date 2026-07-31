@@ -1165,3 +1165,15 @@ for THIS call (gate on method name return_i32 + receiver Impl), then
 resolve the concrete impl's method value via the receiver's
 resolved_concrete before recording. WIP = stash@{0}
 "impl-onion-WIP-v11", binary /tmp/sh59.
+
+### impl — 9a attempt 1 (sh61): resolution-deref callee fallback insufficient
+
+Implemented at function.yo's record site: when neither spec nor method value
+exists, deref the receiver's SomeT resolution (cell/registry) and record the
+CONCRETE impl's valued method entry. Measured: 9a persists (5/6). NEXT
+probes (one build): print in the fallback (a) rm_res found?, (b) rm_rid +
+rm_entries count + any valued?; if values exist and are recorded, the gap
+moves to EMISSION (does other_fn_call's dot-callee route consult
+lookup_method_callee_value for THIS shape? is the recorded FuncVal's C fn
+ever emitted/registered with codegen?). WIP = stash@{0}
+"impl-onion-WIP-v12", binary /tmp/sh61. impl stands at 5/6 in-WIP.
