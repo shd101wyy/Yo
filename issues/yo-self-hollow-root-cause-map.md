@@ -1672,3 +1672,22 @@ call expr's ExprInfo), resolving B via the spec's OWN forall bindings
 option_result_combinators, prelude, iter_filter_closure,
 iterator_combinators, imm_map, higher_kinded_types, where_clause RED —
 with array.test.yo + for_macro_borrow.test.yo as the regression canaries.
+
+### Family probe FINAL datapoint (sh97): the receiver is literally `Option(B)`
+
+`__DBG_GI lookup recv=<enum:enum_yo_id_2446> somefield=B` /
+`MISS pattern=<enum:enum_yo_id_2430> psome=T` — the and_then call result
+was stamped with the DECLARED return `Option(B)` with B never bound. So
+the defect is UPSTREAM of the stamp: **B-inference from the
+`Impl(Fn(a : T) -> Option(B))` closure argument never ran (or failed
+silently) during the call's param unification** — TS binds B in
+callee_env by synthesizing the closure's actual type
+`fn(x:i32) -> Option(i32)` against the Fn-trait constraint carried by the
+Impl-SomeT wrapper, then the return re-eval reads B. Fix site: the
+param-vs-arg unification step in calls/helper.yo where an Impl-wrapped
+FnTraitT param meets a FuncVal/closure arg — the arg's RESULT type must
+synthesize against the trait's `call_result` (FnTraitT.call_result =
+Option(B)) in callee_env so `evaluate_function_return_type_again` resolves
+B. Verify with: option_result_combinators arm 3 (Option(B)), prelude arm 1
+(TryFrom — same shape via trait-method return), then the family + the
+array/for_macro canaries. All probes reverted; tree clean at this commit.
