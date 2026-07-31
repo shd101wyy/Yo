@@ -1249,3 +1249,19 @@ ALL results (drop the `scfid.len() == 0` gate on register_struct_ctor_fid
 — registering sid→fid is idempotent and the registry is the lookup source
 era-equal uses), so pre-stamp copies stored in memo args become
 resolvable by id. One-line change; gate with the family + corpus.
+
+### registry-stamp-always ALSO inert (2026-07-31, measured + reverted)
+
+Dropping the `scfid == ""` gate on `register_struct_ctor_fid` at the ctor
+return path changed nothing (13/11/7 clang errors unchanged) — so the
+empty-cfid 10753 copies in the four splitting comparisons exist BEFORE the
+RBNode ctor's return path runs at all: the comparisons fire DURING the
+ctor's own evaluation (the in-progress temp-cache window), where neither
+the inline stamp nor any registry write has happened yet. NEXT ROUND: log
+a stack/mode marker at the four rejections to see WHOSE memo lookup runs
+inside the RBNode ctor eval (suspect: the Option ctor call INSIDE
+RBNode's field types — `left : Option(RBNode(K, V))` — evaluating the
+self-referential field mints/compares Option entries while RBNode(i32,i32)
+is still in progress; if so, the fix is resolving the recursion
+placeholder in memo-arg comparisons via g_recursive_type_refs before
+era-equality, or deferring the entry finalization).
