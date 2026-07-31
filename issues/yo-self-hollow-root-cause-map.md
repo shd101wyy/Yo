@@ -1638,3 +1638,37 @@ DEFINITION identity + era-equality:
    before landing). Re-measure after the fix: option_result_combinators,
    prelude, iter_filter_closure, iterator_combinators, imm_map,
    higher_kinded_types, where_clause_fn_inference — the whole family.
+
+### Family probe COMPLETE (sh92-sh96): the defect layer is the CALL-RESULT STAMP
+
+Probe chain on option_result_combinators arm 3 (`result :=
+some_val.and_then(...)`; `result.is_some()` → unit):
+
+1. `is_some` dispatch misses: receiver `<enum:enum_yo_id_2446>` has no
+   registry entries — and NONE of the 77 sibling Option instantiations
+   have any either (`sibs=77`, all `methods=0`): Option's methods live in
+   the GENERIC-IMPL registry only, never per-instantiation. (The
+   era-sibling registry fallback built this round was therefore INERT —
+   reverted per zero-wins.)
+2. The generic-impl lookup IS reached; the prelude Option impl's entry has
+   receiver pattern `<enum:enum_yo_id_2430>` (its own def-era instance);
+   `try_match_generic_impl(2446, 2430)` MISSES with NO synthesis error —
+   the miss is the ALL-BOUND check after synthesis: the receiver is
+   `Option(B-SomeT)` — the and_then SPEC's return type stamped with B
+   still abstract — so `T := B-SomeT` "stays abstract" and
+   `_bind_forall_from_type_args` cannot help (EnumT carries no
+   type_arguments).
+
+CONCLUSION: every layer downstream behaves correctly; the defect is that
+the CALL SITE stamps the spec's era/abstract return type instead of the
+resolved (memo-instance) type. TS stamps the SUBSTITUTED return
+(Option(i32)). This is the same core as the where_clause RED (whose
+canonicalization fix DID work at that layer but was rejected for the
+two-site partial-application regressions). The decisive round must fix
+the ONE place the call result type is stamped after specialization
+(calls/helper.yo's call-result stamp — where spec_ret_ty flows to the
+call expr's ExprInfo), resolving B via the spec's OWN forall bindings
+(arg unification), NOT the global channels. Then rerun the family:
+option_result_combinators, prelude, iter_filter_closure,
+iterator_combinators, imm_map, higher_kinded_types, where_clause RED —
+with array.test.yo + for_macro_borrow.test.yo as the regression canaries.
