@@ -1033,3 +1033,23 @@ identical to the 4997 path. Apply the same to the generic-impl fill
 (:2192) if its forall-stamped path shows the same gap. This is TS parity:
 TS materializes defaults per impl from defaultValueExpr (trait-type.ts:
 418-489) in the impl's env where Self is concrete.
+
+### impl — layer 8 implementation round 1 (sh51): materialization wires, stamping still short
+
+The per-impl default materialization is IMPLEMENTED (values/impl.yo concrete
+fill + `_materialize_default_body` helper): the emitted C now shows the
+default under a FRESH id (`fn_yo_id_5025`, no rtparam mangle — the clone was
+adopted, so its body eval returned non-empty). But the body STILL FTTs at
+`not((Self.(==))(lhs, rhs))` — the materialization eval did not record a
+usable callee for the inner call. Hypothesis for the NEXT probe: during the
+clone's body eval, the deferred `Self.(==)` property access falls through to
+a soft stamp (UnknownVal) instead of NO value, so the call dispatch takes the
+.Some(value) arm (generic call path — no record_method_callee_value) instead
+of the .None arm that runs \_try_find_receiver_method +
+\_select_matching_overload. Probe: print which arm the inner call takes and
+what the callee ExprInfo holds during materialization (gate on
+ctx.self_type=HeteroEqW + method "=="). If confirmed, the fix is to make the
+multi-overload defer leave NO value (or route the .Some(UnknownVal-fn) case
+into receiver-method dispatch too — TS's `if (!functionToCall.$?.type)`
+equivalent treats unknown-valued fn callees as unresolved).
+WIP = stash@{0} "impl-onion-WIP-v7" (binary /tmp/sh51).
