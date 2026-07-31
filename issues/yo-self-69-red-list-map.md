@@ -1265,3 +1265,31 @@ self-referential field mints/compares Option entries while RBNode(i32,i32)
 is still in progress; if so, the fix is resolving the recursion
 placeholder in memo-arg comparisons via g_recursive_type_refs before
 era-equality, or deferring the entry finalization).
+
+### probe round 3 (2026-07-31) — reject noise separated; the intern-duplication lens
+
+- The mass of \_\_DBG_LK rejects (4851 at depth=0 for fid=Option-ctor with
+  given=canonical RBNode) is BENIGN bucket-scan noise: every lookup scans
+  all cached entries and the probe fired per non-matching entry. The true
+  signal remains the 4 cross-era comparisons where the STORED entry arg is
+  an RBNode-canonical-id copy with EMPTY constructor_func_id (inline field
+  AND registry both empty — two inert fixes proved it).
+- intern.yo's Struct KEY INCLUDES cfid (line ~254): a pre-stamp copy
+  (cfid="") and the return-path-stamped instance (cfid=fid) intern to TWO
+  canonical instances with the SAME struct id. Same-sid pairs short-circuit
+  TRUE in era-equal, so this only bites CROSS-id (def-era vs canonical)
+  pairs where the stored copy is the cfid-less twin.
+- registry-stamp-always was inert => the cfid-less 10753 copy is captured
+  by a route that never passes the ctor RETURN path at all (suspect: the
+  struct-decl eval INSIDE the ctor body mints the instance and something
+  stores that pre-return instance into another memo entry's arg_values
+  directly — e.g. the self-referential field `left : Option(RBNode(K, V))`
+  evaluating Option(in-progress-RBNode) during the RBNode body eval, whose
+  entry then holds the pre-stamp copy forever).
+
+NEXT ROUND START: log at Option-ctor memo INSERT time (the temp-cache push
+in evaluate_comptime_fn_call) the arg struct ids + their cfid state — find
+the insert that stores the cfid-less canonical-id copy, and either stamp
+cfid at struct-decl mint time (decl knows its enclosing ctor fid via
+ctx.currently_specializing/ctfe stack) or normalize memo-arg storage
+through the registry after the ctor returns.
