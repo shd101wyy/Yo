@@ -849,3 +849,15 @@ that skipped its typedef.
    (compatibility.yo, function_type.yo), **DBG_MI + helper + fmt open
    (function.yo), **DBG_S6 (helper.yo). Gate the batch with TIER 1 + sweep +
    fixpoint after the codegen layer is fixed; impl target = 6/6 at TS parity.
+
+### impl — round 5 addendum: the RED C decoded
+
+`.bin.c:3153` is `((int32_t (*)(void*))__yo_t16.get_number)((void*)(self))` —
+a Dyn-VTABLE dispatch emitted with the receiver TYPE's typedef name
+(`__yo_t16`, never even emitted) in the OBJECT slot. The enclosing fn is the
+DisambigPoint arm (trait-method disambiguation test). So the newly-evaluating
+disambiguation arm routes its trait-qualified method call into the dyn
+dispatch emitter with a type where a value belongs — look at
+codegen/exprs/dyn or other_fn_call's trait-qualified branch for how the
+callee object expr is chosen (likely reads the method-callee side-table entry
+stamped by the NEW eval path and mis-classifies it as Dyn).
