@@ -1459,3 +1459,18 @@ from the body's because the DEF-era instance is memoized under the
 def-trial's SomeT args; investigate why the body's call and the re-eval's
 call produce DIFFERENT keys in the same env first: probe the memo args of
 BOTH calls in one run).
+
+## asm — scoped (next dedicated round)
+
+Two-part bounded feature port, no design risk:
+
+1. Evaluator: port src/evaluator/builtins/asm.ts (829 lines) over the
+   55-line stub in yo-self/evaluator/builtins/asm.yo (evaluate_asm +
+   evaluate_global_asm — operand forms out/in/ref/const_val, named
+   operands, clobber, asm_options(volatile/intel_syntax), tuple multi-out,
+   arch gating, comptime_expect_error arm 6).
+2. Codegen: yo-self/codegen/exprs/generation.yo:453 emits
+   `/* TODO[codegen-port]: asm not yet ported */` for BF_ASM — port the
+   TS inline-asm C emitter (find it via `grep -rn asm src/codegen/`).
+   Test: tests/asm.test.yo (13 arms, arch-conditional bodies; the batch main
+   is hollow solely from the evaluate_asm stub throw at def time).
