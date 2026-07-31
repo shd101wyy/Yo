@@ -20,6 +20,7 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+open(import("std/fmt"));
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr, wrap_body_in_begin } :: import("../../expr.yo");
@@ -220,7 +221,14 @@ _trial_eval_fn_body :: (
   // over a propagating `exn`), so it always swallows. A deliberate
   // flow-soundness rejection sets `flow_violation_pending()` BEFORE throwing;
   // the def-time caller re-raises it via the real `exn` after this returns.
-  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  inner_exn := Exception(
+    throw : (
+      (_err) -> {
+        eprintln(`__DBG_F body-eval threw: ${_err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
   // Wrap a non-begin body in a synthetic `begin(...)` so even a bare-atom
   // body runs the begin-tail ownership pass (see wrap_body_in_begin and
   // _trial_eval_anon_body in values/anonymous_function.yo).

@@ -483,8 +483,8 @@ bool + ...)` — the minted IterFilter's `_f` is the closure CAPTURE STRUCT
 
 ## imm_map hollow (2026-07-31, post-RED-list) — four era-equal extensions measured-inert, REVERTED
 
-The batch-dispatch marker's swallowed error (\_\_DBG_F): "Cannot unify
-incompatible types: Expected _(struct_yo_id_5382) Given _(struct_yo_id_8060)"
+The batch-dispatch marker's swallowed error (\_\_DBG*F): "Cannot unify
+incompatible types: Expected *(struct*yo_id_5382) Given *(struct_yo_id_8060)"
 at std/imm/map.yo:133 (`children.add(usize(i))` inside `_drop_children`),
 thrown by function.yo's conservative arg-type check. Probe facts:
 
@@ -506,3 +506,36 @@ thrown by function.yo's conservative arg-type check. Probe facts:
   apply. Next lens: WHY the `.add` receiver's expected/declared param is
   the def-era instance in this spec — likely wants the param-type-expr
   re-eval (slice 2) coverage for pointer-receiver METHODS.
+
+## closure-combinator trio (2026-07-31, post-RED work) — member-check SomeT resolution attempted, net-negative, REVERTED
+
+The trio's shared face: `Type mismatch for type member "_f"` at the
+combinator struct mints (`IterFilter(Self, F)(_f : f)` etc.) — the arg
+carries the raw constrained SomeT `F : (Fn(A) -> B + Fn(i32) -> B ...)`
+(note the ACCUMULATED duplicate constraints — cross-call pollution of the
+shared registry SomeT instance) while the minted member is concrete.
+
+ATTEMPTED (reverted): resolving the ARG-side SomeT through its
+resolved_concrete cell / g_some_resolved_concrete registry before the
+member compat check (TS compares resolvedConcreteType). Measured:
+
+- iter_filter_closure: `_f` error GONE, next layer surfaced ("match on
+  unit" — `filtered.next()` typed unit at validation: filter's RESULT era
+  unresolved, the with_lock-class symptom);
+- iterator_combinators: UNCHANGED — its F has NO registered resolution at
+  all (the map/for_each closure's capture registration never fires for
+  this route);
+- where_clause_fn_inference: hollow -> RED rc=1 — accepting the previously
+  thrown case surfaces struct-era init/return mismatches in C
+  (t14-vs-t28), i.e. the throw was MASKING an era split downstream.
+
+CONCLUSION: the trio's root is F RESOLUTION (binding + era), not the
+member check; fixing the check alone converts hidden def-time throws into
+C-level era faces. The fix must make F resolve to ONE canonical era at
+binding time (the same family as the landed dot-arg override, but for
+closure-typed args of the blanket combinators). Entry point for next
+round: WHERE the combinator call binds F from the closure arg (the
+capture-registration path that fires for `filter` but evidently not for
+`map`), plus the constraint-accumulation hygiene on the shared registry
+SomeT (each early-where apply appends to the SAME instance's
+required_trait_types).
