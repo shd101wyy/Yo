@@ -1293,3 +1293,27 @@ the insert that stores the cfid-less canonical-id copy, and either stamp
 cfid at struct-decl mint time (decl knows its enclosing ctor fid via
 ctx.currently_specializing/ctfe stack) or normalize memo-arg storage
 through the registry after the ctor returns.
+
+### probe round 4 (2026-07-31) — memo-INSERT census
+
+\_\_DBG_INS at the temp-cache push (Option ctor, imm_threading): 107 inserts;
+65 store their RBNode arg with EMPTY cfid (INCLUDING the canonical
+RBNode(i32,i32) id) and 42 with cfid. The def-era ids (8531 etc.) ALSO
+insert cfid-less — but by REJECTION time the registry resolves THEM
+(8531 -> yo_id_7598) while the canonical id stays unresolved. So the
+return-path registration fires for the def-era mints but NOT for the
+canonical instance's mint — the canonical RBNode(i32,i32) instance is
+created by a route that never passes the ctor return-path stamp (and
+therefore never registers): prime suspects, in order —
+
+1. the memoized CACHE VALUE holds the pre-stamp body result (the stamp
+   builds a NEW TypeValue for the CALLER but the cache entry's `value`
+   keeps the unstamped one — check whether the return-path stamp also
+   updates `temp_cache.value`);
+2. a resolve_recursive_type_ref resolution returning the raw cached body
+   result;
+3. an ExprInfo-recorded instance from the body eval reused directly.
+   (1) is a one-line check: in evaluate_comptime_fn_call, after building
+   `final_return_value`, verify the completed cache entry is updated with the
+   STAMPED value, not the raw body result. If it stores the raw result, every
+   later cache HIT hands out the cfid-less twin — exactly the census.
