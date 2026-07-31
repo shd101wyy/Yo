@@ -1198,3 +1198,28 @@ Bundle effects (sweep /tmp/sweep_impl): **172 GREEN / 12 HOLLOW / 1 RED.**
   its old hidden failure; it is now diagnosable by C error line.
   Gates: battery 20/20 unchanged, corpus 149/0, std 153/153, stage2
   hollow=0 + clang + stage3, STRICT_FIXPOINT HOLDS.
+
+## where_clause_fn_inference RED — C-level evidence (2026-07-31 EOD, post-impl-landing)
+
+The 4 type-identity errors decode to TWO struct-id splits with IDENTICAL
+layouts `{ _inner : <iter>, _f : void* }`:
+
+- `struct_yo_id_4982` emitted as BOTH `__yo_t34` and `__yo_t27`
+- `struct_yo_id_5980` emitted as `__yo_t16` (the call site's temp type)
+  i.e. the same logical `Filter/Map(It, F)` instantiation exists as ONE
+  struct id per ERA (def-era 4982 vs call-era 5980) — the documented
+  `_f`-member F-BINDING ERA family (same root as the iterator_combinators +
+  iter_filter_closure hollows: one fix, three files). The C makes it
+  concrete: the instantiation memo key for a struct parameterized by a
+  CLOSURE FN TYPE (F) differs between the definition-time and call-time
+  evaluations, so `it1.filter(f)`'s declared temp type and the spec'd
+  callee's return type disagree.
+
+NEXT (opening move of the next round): probe the struct-instantiation memo
+— print the cache key when instantiating any struct whose fields contain
+`_f` (or whose ctor fid matches the Filter/Map constructors) during
+tests/where_clause_fn_inference.test.yo; compare the def-era and call-era
+keys to see WHICH component of F's identity diverges (fresh SomeT id, fn
+type param labels, or the closure's capture-struct id). Then canonicalize
+that component at CREATION (the Gap-6 attempt-8 lesson: fix the creation
+side, never post-hoc).
