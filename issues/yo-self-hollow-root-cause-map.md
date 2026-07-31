@@ -1223,3 +1223,17 @@ keys to see WHICH component of F's identity diverges (fresh SomeT id, fn
 type param labels, or the closure's capture-struct id). Then canonicalize
 that component at CREATION (the Gap-6 attempt-8 lesson: fix the creation
 side, never post-hoc).
+
+## F-era trio — attempt 1 REJECTED (sh65, reverted)
+
+Added a Func arm to `_ctfe_types_era_equal` (era-equal Funcs = same arity +
+pairwise era-equal params + era-equal result). Measured: the
+where_clause_fn_inference C splits are BYTE-IDENTICAL before/after — the
+`Filter(It, F)` type argument that splits the memo is NOT a bare Func type.
+Refined hypothesis: F arrives as an Impl-SomeT wrapper (per-era fresh SomeT
+id) or the closure's CAPTURE-STRUCT type — the era recur hits the SomeT/
+capture case, which has no arm, and falls to exact (ids differ) → split.
+The dedicated round MUST run the memo-key probe FIRST (print the actual
+type_arguments of struct 4982 vs 5980 at instantiation) before writing any
+arm — this rejection is the cost of skipping it. Change reverted
+(zero-wins rule).
