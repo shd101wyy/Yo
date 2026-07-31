@@ -1691,3 +1691,19 @@ Option(B)) in callee_env so `evaluate_function_return_type_again` resolves
 B. Verify with: option_result_combinators arm 3 (Option(B)), prelude arm 1
 (TryFrom — same shape via trait-method return), then the family + the
 array/for_macro canaries. All probes reverted; tree clean at this commit.
+
+### Family attempt (sh99): callee_env-by-NAME fallback in zs_ret — REJECTED (zero wins, zero regressions)
+
+Adding a callee_env NAME lookup as a binding source in the zs_ret
+occurrence-substitution did NOT resolve B (all six family files stay
+hollow; array/for_macro canaries stay green — the change is SAFE, just
+inert). Combined with the sh98 datapoint (param-side synthesis DID
+resolve `f` to `Impl(Fn(i32) -> <enum:2444>)`), the B binding must live
+in the env RETURNED by Step-6 synthesis (`synth.expected_env` →
+`callee_env_r`) which does NOT alias the `callee_env` the zs_ret block
+reads — OR B's binding is carried as a resolved-SomeT cell rather than a
+TypeVal variable. NEXT PROBE (one build): at the zs_ret site, print
+`get_variables_from_env(callee_env, "B").len()` AND the same against the
+env used by evaluate_function_return_type_again; then thread whichever
+env actually holds B into the zs fallback. The sh98 probe line to reuse:
+`__DBG_S6 param=... arg=...` at Step 6 in helper.yo (param_label == "f").
