@@ -700,3 +700,23 @@ markers 1 -> 0 (sh31 vs sh32). basic arm 24 stays hollow via ANOTHER sub-arm
 Probe binary recipe: current tree + the \_\_DBG_F un-silencing in
 calls/function_type.yo `_trial_eval_fn_body` (+ `open(import("std/fmt"))`).
 Remember the INERT-THROW lever for any "check exists but never fires" case.
+
+### impl.test.yo — analysis (2026-07-31 EOD)
+
+The 3× "All return statements must return the same concrete type" \_\_DBG_F
+lines are BENIGN (cee-expected errors made visible by propagate mode). The
+REAL root is test 2: `b := ret_boolean_i32(); b.return_i32()` throws
+`Type mismatch for parameter "self": Expected *(bool), Got Impl : (RetI32)`
+at helper.yo Step 8. The fn's return SomeT IS resolved (the dts-stamping
+block ran at def time: resolution = bool), but the METHOD-CALL receiver arg
+reaches the self-param check as the UNRESOLVED `Impl : (RetI32)` value type,
+not the auto-ref'd `*(bool)`. TS passes because its receiver arg at this
+point is pointer-shaped and its compat unwraps given-SomeType via
+resolvedConcreteType (compatibility.ts:900-916). Fix candidates, in order:
+
+1. the method-call receiver preparation (where self is auto-ref'd) should
+   deref the receiver's SomeT to its resolution (cell or
+   lookup_some_resolved_concrete) BEFORE building the self arg type;
+2. port compatibility.ts:900-916 (given-SomeT resolution unwrap) — needed
+   anyway but insufficient alone here (bool vs \*(bool) still fails without
+   the auto-ref).
