@@ -1003,3 +1003,33 @@ entries), then apply the same treatment to every filled default (or mint
 per-impl body-clone FuncVals with fresh ids at BOTH fill sites). WIP =
 stash@{0} "impl-onion-WIP-v6" (binary /tmp/sh50 matches; \_\_DBG_OP probe
 included).
+
+### impl — layer 8 SYNTHESIS (final): why 4997 works and 2242 does not
+
+Both defaults ARE per-instantiation FuncVals (Eq is parametric — each
+`Eq(HeteroEqW)` / `Eq(str)` instantiation evaluates its own `?=` lambda).
+The asymmetry is EVALUATION ORDER vs the overload-defer:
+
+- Eq(HeteroEqW)'s default body evaluated when HeteroEqW had ONE `==`
+  overload → `Self.(==)` resolved and stamped (→ 4997 emits perfectly);
+- Eq(str)'s default body evaluated when TWO `==` overloads existed →
+  property_access's multi-overload DEFER (property_access.yo:216-231)
+  returned unresolved, AND the fallback `_select_matching_overload` could
+  not run because the receiver is the UNBOUND trait Self at trait-value
+  creation → `Self.(==)` never stamped; with a non-generic registered ty no
+  call-time spec ever re-evaluates the body → rtcall emission FTTs.
+
+**THE FIX (bounded, at values/impl.yo:2838-2856 — the concrete-impl default
+fill)**: instead of registering the SHARED d*val, mint a PER-IMPL clone:
+fresh func_id, body = default body clone, evaluate the clone's body with
+ctx.self_type = receiver_ty and params bound at the SELF-SUBSTITUTED types
+(reuse create_function_body_evaluation_context + \_trial_eval_anon_body /
+the \_eval_and_register_rc_method pattern in codegen/functions/collection.yo
+which does EXACTLY this: eval a synthesized fn with Self bound, register
+FuncVal + method entry). Then register the clone as the method value. At
+that point Self=HeteroEqW and rhs : str are concrete, `\_select_matching*
+overload` picks Eq(str).==, stamps land, and codegen emits a direct call —
+identical to the 4997 path. Apply the same to the generic-impl fill
+(:2192) if its forall-stamped path shows the same gap. This is TS parity:
+TS materializes defaults per impl from defaultValueExpr (trait-type.ts:
+418-489) in the impl's env where Self is concrete.
