@@ -1053,3 +1053,25 @@ multi-overload defer leave NO value (or route the .Some(UnknownVal-fn) case
 into receiver-method dispatch too — TS's `if (!functionToCall.$?.type)`
 equivalent treats unknown-valued fn callees as unresolved).
 WIP = stash@{0} "impl-onion-WIP-v7" (binary /tmp/sh51).
+
+### impl — layer 8 round 1 confirmation (read-only trace)
+
+Confirmed structurally: function.yo's callee-value match has a catch-all
+`_ =>` arm at :4982 for "non-TypeValue, non-FunctionValue shape (e.g.
+UnknownValue)" — the generic RUNTIME-CALL path. A deferred multi-overload
+`Self.(==)` access gets a SOFT UnknownVal stamp from a later
+property_access fall-through arm, so the inner call dispatches into this
+catch-all (no record_method_callee_value) instead of the `.None` arm
+(:5151) that runs \_try_find_receiver_method + \_select_matching_overload.
+Two candidate fixes for the NEXT round:
+
+1. make the multi-overload defer leave NO ExprInfo value at all for
+   fn-typed registry fields (find the fall-through arm that soft-stamps
+   the UnknownVal for a TypeVal-receiver property access) — dispatch then
+   takes the .None arm and the existing machinery completes;
+2. OR at the head of the :4982 catch-all, when the callee expr is a
+   BF_DOT property access, first try \_try_find_receiver_method + selection
+   (mirror the .None arm) before falling to the runtime-call path.
+   Option 1 is smaller and matches TS (TS stamps nothing for unresolved
+   overloaded members; its dispatch key is `!functionToCall.$?.type`).
+   WIP unchanged = stash@{0} "impl-onion-WIP-v7", binary /tmp/sh51.
