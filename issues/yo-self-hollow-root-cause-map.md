@@ -1733,3 +1733,24 @@ param-type-name coincidence before the structural stage runs; suspect
 def-time evaluated yet when and_then's args were checked — an ORDERING
 issue, in which case the fix is to trial-eval the closure arg's body
 before the forall binding, as TS does contextual typing at check time).
+
+### Family probe (sh101): \_funcval_bind_foralls NEVER RUNS for B — wrong path entirely
+
+Staged probes inside \_funcval_bind_foralls (fa_name=="B") produced ZERO
+output on the orc3 subset: the def-trial `some_val.and_then(...)` call
+does not route through the FuncVal-arm forall binding at all. Combined
+with sh98 (a \_\_DBG_S6 "f" synthesis that fully resolved — evidently a
+DIFFERENT call/arm, its enum id 2444 ≠ the stamped 2446), the call is
+being typed by some path that stamps the DECLARED return directly
+(candidates: the def-trial non-executing method-call arm in
+calls/function.yo around `_call_result_unknown(call_result_m.return_type,
+...)`, or a trait-default dispatch in property_access/helper that skips
+specialization when is_executing=false).
+
+NEXT PROBE: at the method-call stamp (function.yo ~5460-5495, the out_m
+block), print — gated on the method name being "and_then" — which
+call_result_m.return_type arrives AND which internal path produced
+call_result_m (tag the FuncCallResult construction sites). Then make THAT
+path run the forall inference (or route it through the FuncVal arm).
+Every prior fix attempt patched paths the call never takes — this probe
+finally identifies the real one.
