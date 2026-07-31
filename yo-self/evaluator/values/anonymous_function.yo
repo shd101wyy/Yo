@@ -43,8 +43,10 @@ open(import("std/string"));
   ExprInfo,
   new_expr_info,
   expr_info_table_set,
-  expr_info_table_get
+  expr_info_table_get,
+  has_control_flow
 } :: import("../../expr_info.yo");
+{ are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { analyze_await_points, register_closure_await_analysis } :: import("../async/await_analysis.yo");
 { AwaitAnalysisResult } :: import("../async/await_analysis_types.yo");
 {
@@ -56,7 +58,7 @@ open(import("std/string"));
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ t_unit, t_some_t, t_func_simple, t_resolved_cell } :: import("../../types/creators.yo");
+{ t_unit, t_some_t, t_func_simple, t_resolved_cell, t_ptr } :: import("../../types/creators.yo");
 {
   EvalValue,
   FuncValData,
@@ -92,7 +94,7 @@ open(import("std/string"));
 { create_function_body_evaluation_context } :: import("../calls/function_type.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound } :: import("../../types/utils.yo");
-{ is_some_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
+{ is_some_type, is_unit_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 {
   clear_flow_violation,
@@ -1483,6 +1485,92 @@ evaluate_anonymous_function_implementation :: (
     // pop-then-create order. (Only the non-deferred path evaluates the body and
     // thus populates captures; a deferred generic closure has none → empty struct.)
     closure_body_caps = body_eval_ctx.captured_variables;
+  });
+  // Deferred generic body: TS trial-evaluates a CLONE to catch a concrete
+  // return against the declared generic return type (`(value -> i32(0))`
+  // checked against `fn(generic(T), value : T) -> T` must be rejected) —
+  // checkDeferredGenericReturnType, anonymous-function.ts:773. Twin of the
+  // direct-definition check in calls/function_type.yo — same skips: a trial
+  // that throws is silently skipped, a trial type carrying SomeTs or
+  // degenerating to unit cannot convict, and an expected bare SomeT that is
+  // not this fn's own forall is bound by the call site.
+  if(should_defer_body, {
+    dgc_ret := match(function_type,.Func({ result : dgc_r }) => dgc_r, _ => t_unit());
+    if(get_all_some_types(dgc_ret).len() > usize(0), {
+      dgc_fv := EvalValue.FuncVal(
+        box(
+          FuncValData(
+            forall_names : ArrayList(String).new(),
+            params : ArrayList(String).new(),
+            param_type_names : ArrayList(String).new(),
+            evidence_params : ArrayList(String).new(),
+            body : body_for_def_eval.clone(),
+            cap_names : ArrayList(String).new(),
+            cap_tys : ArrayList(TypeValue).new(),
+            // THROWAWAY id: reusing the real func_id let trial registrations
+            // shadow the real definition's (codegen emitted the trial clone).
+            func_id : random_id(env.module_path)
+          )
+        ),
+        ArrayList(EvalValue).new()
+      );
+      dgc_env := snapshot_env(env);
+      dgc_ctx := create_function_body_evaluation_context(function_type, dgc_fv, dgc_env, ctx);
+      dgc_out := ArrayList(AstExpr).new();
+      dgc_fv_was := flow_violation_pending();
+      _trial_eval_anon_body(body_for_def_eval.clone(), dgc_env, dgc_ctx, dgc_out);
+      if(!(dgc_fv_was) && flow_violation_pending(), {
+        clear_flow_violation();
+      });
+      match(
+        dgc_out.get(usize(0)),
+        .Some(dgc_body) => match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(dgc_body)),
+          .Some(dgc_info) => {
+            dgc_skip_cf := (has_control_flow(dgc_info.control_flow,.Unwind) && !(has_control_flow(dgc_info.control_flow,.Return)));
+            dgc_is_ref := match(function_type,.Func({ meta : __fmd1 }) => __fmd1.*.result_is_ref, _ => false);
+            dgc_expected := cond(
+              dgc_is_ref => t_ptr(dgc_ret),
+              true => dgc_ret
+            );
+            dgc_own_forall_skip := match(
+              dgc_expected,
+              .SomeT({ name : dgc_sname }) => {
+                (dgc_found : bool) = false;
+                (dgc_fi : usize) = usize(0);
+                while(dgc_fi < forall_labels.len(), {
+                  if(match(forall_labels.get(dgc_fi),.Some(l) => (l == dgc_sname),.None => false), {
+                    dgc_found = true;
+                  });
+                  dgc_fi = (dgc_fi + usize(1));
+                });
+                !(dgc_found)
+              },
+              _ => false
+            );
+            dgc_trial_ty := dgc_info.ty;
+            dgc_trial_abstract := (get_all_some_types(dgc_trial_ty).len() > usize(0));
+            dgc_trial_degenerate := (is_unit_type(dgc_trial_ty) && !(is_unit_type(dgc_expected)));
+            if((((!(dgc_skip_cf) && !(dgc_own_forall_skip)) && !(dgc_trial_abstract)) && !(dgc_trial_degenerate)) && !(are_types_compatible_exact(dgc_trial_ty, dgc_expected)), {
+              dgc_exp_str := type_to_string(dgc_expected);
+              dgc_got_str := type_to_string(dgc_trial_ty);
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    tok,
+                    `Incompatible function return type for:\n- Expected: ${dgc_exp_str}\n- Given  : ${dgc_got_str}`,
+                    false,
+                    .None
+                  )
+                )
+              );
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
   });
   // -------------------------------------------------------------------------
   // Restore the parameter frame.

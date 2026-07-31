@@ -2,11 +2,22 @@
 
 ## Status
 
-OPEN — the `checkDeferredGenericReturnType` port for the ANON path is written but
-parked (removed from `values/anonymous_function.yo`) because enabling it exposes
-this deeper gap and flips `tests/fn.test.yo` HOLLOW → RED. The direct-definition
-twin (`(fn(generic(T), value : T) -> T)(body)`) IS landed in
-`calls/function_type.yo` and works.
+PARTIALLY LANDED (batch-3, 2026-07-31): the spec-label fix and the anon-path
+check are both in. `create_specialized_function_inline` (helper.yo) now names
+the spec's C params after the FuncVal's OWN `params` when arity matches — the
+`return a;` mis-emission is gone (fn.test.yo no longer flips RED when its cee
+arms proceed). The anon-path `checkDeferredGenericReturnType` twin is landed in
+`values/anonymous_function.yo` with the same skips as the direct twin.
+
+STILL OPEN — the check does not FIRE for fn.test.yo test 9's actual shape:
+`(comptime(identity2) : fn2) = (value -> ...)` where `fn2 :: (fn(generic(T),
+value : T) -> T)` evaluates successfully under yo-self while TS rejects
+(verified: TS_RC=1, SELF_RC=0 on the minimal repro). The `value -> ...` against
+a fn-type VARIABLE routes through a different evaluator entry than
+try_to_create_anonymous_function's defer branch (candidates: closure_type.yo,
+or the assignment's expected-type flow) — find that route and apply the same
+check. fn.test.yo also has 4 more pre-existing hollow arms (11-14, bisected
+via subset_arms.py) needing their own diagnosis.
 
 ## The chain (measured on /tmp/sh22–sh24, 2026-07-31)
 

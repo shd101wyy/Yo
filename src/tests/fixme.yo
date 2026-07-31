@@ -1,19 +1,9 @@
 main :: (fn() -> unit)({
-  Point1 :: struct(x : i32, y : i32);
-  Point2 :: struct(x : i32, y : i32);
-  x := Point1(3, 4);
-  (y : Point2) = _(5, 6);
-  comptime_expect_error(
-    (z : Point1) := (3, 4),
-    "error: type Mismatch"
+  fn2 :: (fn(generic(T : Type), value : T) -> T);
+  (comptime(identity2) : fn2) = (
+    value -> {
+      return(i32(0));
+    }
   );
-  Point3 :: Point1;
-  (z : Point2) = y;
-  (z2 : Point3) = x;
-  comptime_expect_error(
-    (z3 : Point2) = x,
-    "error: type Mismatch"
-  );
-  assert(x.x == 3);
 });
 export(main);

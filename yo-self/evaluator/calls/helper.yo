@@ -2539,7 +2539,19 @@ create_specialized_function_inline :: (
               result : sp_res_b,
               meta : __fm5
             }) => {
-              sp_pl := __fm5.*.param_labels;
+              (sp_pl : ArrayList(String)) = __fm5.*.param_labels;
+              // The spec's C params must be named after the FuncVal's OWN
+              // (source) labels — the body references those. `func_type` here
+              // can be the DECLARED variable's type whose labels differ:
+              // `comptime(id) : (fn(comptime(T) : Type, x : T) -> T)` assigned
+              // `id = ((T, a) -> a)` emitted `bool ...(bool x) { return a; }`
+              // (clang: undeclared identifier). TS keeps the anon fn's
+              // original names on FunctionValue.type
+              // (function-type.ts:388-391 "the function body uses the
+              // original parameter names").
+              if(params.len() == sp_pl.len(), {
+                sp_pl = params.clone();
+              });
               sp_il := __fm5.*.implicit_labels;
               sp_isp := __fm5.*.implicit_spreads;
               sp_rico := __fm5.*.result_is_comptime_only;
