@@ -539,3 +539,31 @@ capture-registration path that fires for `filter` but evidently not for
 `map`), plus the constraint-accumulation hygiene on the shared registry
 SomeT (each early-where apply appends to the SAME instance's
 required_trait_types).
+
+## missing-validation family (closure/basic/fn) — merge-check port landed-inert, REVERTED (2026-07-31)
+
+The family's root: TS expr.ts:2009-2094 (cross-branch type compatibility in
+mergeAndCheckEnvs — BOTH the Impl(...) resolvedConcreteType static-dispatch
+rule and the general initialized-types check) is UNPORTED — yo-self's
+merge_and_check_envs collects `case_types` and never reads it. Ported the
+check + the assignment-side resolvedConcreteType stamp (assignment.ts:520,
+also unported); measured INERT because the inputs never materialize:
+
+1. The merge matrix rows for `closure : Impl(Fn(...))` show the IDENTICAL
+   bare declared SomeT for both cond arms (probe: `case-ty=Impl :
+(Fn(i32) -> i32)` twice, no resolved cells) — consistent with yo-self's
+   SHARED mutable Variable across arm envs (the second arm's write
+   overwrites the first; per-branch types cannot be recovered from the
+   shared object). TS's persistent envs snapshot per-branch state.
+2. The assignment-side stamp never fired: the closure assignment's
+   `rhs_info.ty` is NOT the declared SomeT (the .SomeT gate missed —
+   the RHS carries the closure's own type shape), so there is nothing to
+   stamp the capture onto at that point.
+
+To land this family the port needs per-branch TYPE snapshots: either
+(a) merge_and_check_envs collecting each arm's variable TY from the arm's
+recorded ExprInfo env SNAPSHOT frames (if those deep-copy Variables — they
+do not today), or (b) a side-channel recording (var id, branch, assigned
+ty+capture) during arm evaluation, consumed by the merge. (b) fits the
+established side-table pattern. The check code itself (both rules) is in
+this commit's history — reusable once the snapshot channel exists.
