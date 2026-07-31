@@ -1119,3 +1119,23 @@ copy_func_where_constraints). NEXT PROBE: eprintln in the preference block
 run impl test 4 isolated. 9a (`ret_boolean_i32` wrong value) untouched —
 needs its own probe (which return_i32 impl the call binds at spec time).
 WIP = stash@{0} "impl-onion-WIP-v9", binary /tmp/sh54.
+
+### impl — 9b attempt 2 (sh55/sh56): key facts for the next round
+
+- The disambiguation arm PASSES IN ISOLATION (subset arm: 1 passed) and
+  fails only in the BATCH — the wrong-dispatch is ORDER/STATE-dependent
+  (earlier tests' registry state changes the pick).
+- \__DBG_WP probes: the SELECTOR runs with matches=2 aw=0 (37×) — the spec
+  push NEVER fires: get_func_where_constraints(func_id) is EMPTY inside
+  create_specialized_function_inline for these fns (the constraint copy to
+  the FuncVal id may not cover this creation path), AND use_trait_\* are
+  GENERIC (deferred) so the def-time FLOW push (wired in sh56) doesn't
+  apply to them either — their bodies evaluate in the DEFERRED trial
+  (function_type.yo dg block, no push) and via create_specialized.
+- NEXT: (1) probe why get_func_where_constraints(FuncVal id) is empty at
+  spec (registration key vs copy timing); (2) add the push to the dg
+  deferred-trial block too; (3) investigate the batch-order dependence
+  (which earlier test's registrations flip the pick — likely the
+  provisional-method or where-walk cache).
+  9a (`ret_boolean_i32` value bug) still untouched. WIP = stash@{0}
+  "impl-onion-WIP-v10", binary /tmp/sh56.
