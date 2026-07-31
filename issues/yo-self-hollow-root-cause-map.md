@@ -966,3 +966,18 @@ operator dispatch decides spec-vs-rtcall (calls/function.yo operator arm →
 contain no generics" (rhs str is concrete, Self already bound → looks
 non-generic → rtcall) while the homogeneous pair triggered spec for a
 different reason. WIP parked again as stash@{0} (v4, tree unchanged).
+
+### impl — layer 8 attempt 1 (sh49): spec-trigger broadening measured-ineffective
+
+Broadened ou_spec_soft_generic to TS's bare guard (generic && !ctl, with a
+concrete-args condition replacing the closure-param narrowing) — the
+heterogeneous `!=` FTT is UNCHANGED. Conclusion: the `a != "abcd"` call does
+NOT route through the generic-call spec site (function.yo:~1848) at all — the
+OPERATOR dispatch arm (function.yo:2192+, get_receiver_methods_by_name for op
+"!=" → \_select_matching_overload) must have its own call/registration step
+that took the rtcall path. NEXT: trace that arm — find where the selected
+overload (the Eq(str) default) is CALLED/registered after selection, and why
+no fresh spec is minted there for a SomeT-Self default; compare with how the
+homogeneous case minted fn_yo_id_4997 (probe: print the taken branch + func id
+for op != on a HeteroEqW receiver). WIP = stash@{0} "impl-onion-WIP-v5"
+(binary /tmp/sh49).
