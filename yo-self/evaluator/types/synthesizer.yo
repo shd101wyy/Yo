@@ -67,6 +67,7 @@ _is_runtime_numeric :: (fn(t : TypeValue) -> bool)(
 :: import("../../types/env_lookup.yo");
 { type_to_string, type_to_string_key } :: import("../../types/string.yo");
 { EvalValue, lookup_enum_cfid } :: import("../../value.yo");
+{ get_gadt_type_constructor_args } :: import("./gadt_registry.yo");
 { format_error_message, ErrorKind } :: import("../../error.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
@@ -1651,6 +1652,36 @@ _synthesize_types_impl :: (
           fi = (fi + usize(1));
         });
         vi = (vi + usize(1));
+      });
+      // Also synthesize via the GADT type-constructor args
+      // (synthesizer.ts:738-756): for a GADT enum the variant field types
+      // are concrete and don't mention the type parameters (T appears only
+      // in `-> recur(...)`), so the field loop above binds NOTHING — the
+      // only carrier of `T := i32` is the instantiation's recorded
+      // type-constructor args ([SomeT T] on the def instance vs [i32] on
+      // the call-site instance).
+      exp_tca_sy := match(
+        get_gadt_type_constructor_args(exp_enum_id),
+        .Some(t) => t,
+        .None => ArrayList(TypeValue).new()
+      );
+      giv_tca_sy := match(
+        get_gadt_type_constructor_args(giv_enum_id),
+        .Some(t) => t,
+        .None => ArrayList(TypeValue).new()
+      );
+      tca_n_sy := cond(
+        (exp_tca_sy.len() < giv_tca_sy.len()) => exp_tca_sy.len(),
+        true => giv_tca_sy.len()
+      );
+      (tci_sy : usize) = usize(0);
+      while(tci_sy < tca_n_sy, {
+        et_sy := match(exp_tca_sy.get(tci_sy),.Some(t) => t,.None => TypeValue.Unit);
+        gt_sy := match(giv_tca_sy.get(tci_sy),.Some(t) => t,.None => TypeValue.Unit);
+        res_sy := _synthesize_call(et_sy, ee, gt_sy, ge, checked, opts, exn);
+        ee = res_sy.expected_env;
+        ge = res_sy.given_env;
+        tci_sy = (tci_sy + usize(1));
       });
     });
     return(SynthesizeResult(expected_env : ee, given_env : ge));

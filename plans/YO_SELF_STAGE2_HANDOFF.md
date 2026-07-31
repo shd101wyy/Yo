@@ -12,7 +12,9 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 172 GREEN / 12 HOLLOW / 1 RED of 185 test files** (impl
+**Honest score: 173 GREEN / 11 HOLLOW / 1 RED of 185 test files** (gadts
+flipped TRUE GREEN 10/10 2026-08-01 — GADT match bypass + tca
+resolve-at-read + tca synthesis in the enum unify arm; earlier: impl
 flipped TRUE GREEN 6/6 and where_clause_fn_inference un-hollowed to a
 VISIBLE RED — 4 C type-identity errors, the instantiation-split class —
 in the same bundle, 2026-07-31 EOD; earlier same day: closure +

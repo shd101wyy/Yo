@@ -1279,3 +1279,57 @@ trial, then key the GADT lookup by the enum's DEFINITION identity (ctor
 fid via lookup_enum_cfid / struct_ctor_fid analog) instead of the instance
 id — mirroring TS, where isGadt lives ON the EnumType and survives
 substitution. Change reverted (zero-wins).
+
+## gadts — attempt 2 (sh69): probe CORRECTED attempt 1's root-cause theory
+
+Probe (`__DBG_GM` at the match site, `__DBG_GR` at registration) on a
+standalone mini repro (scratchpad/gd/mini.yo) showed the registry-miss theory
+was WRONG: at eval*value's def-trial match site all three TS preconditions
+HOLD — `reg=HIT tca=Some(1) exp=T ty=<enum:enum_yo_id*...>`. The def trial
+then dies at the CROSS-BRANCH result unification (`Incompatible types:
+
+- Previous: i32 - Current : bool`at`.BoolVal(b) => b`) — i.e. the plain
+  consistency check runs where TS's isGadtMatch bypass would have kicked in.
+  (Attempt 1's bypass must have gated/patched the wrong spot; the batch-context
+  probe also showed the def trial dying silently before any match — mini vs
+  batch def-time behavior differs, worth remembering.)
+
+Fix (faithful port, all five TS pieces):
+
+1. `is_gadt_match_em` gate at match entry (match.ts:354-360), capturing the
+   ENTRY expected type (arm loop overwrites ctx.expected_type).
+2. `_gadt_refined_expected` helper (match.ts:93).
+3. Skip-unreachable-GADT-branch in BOTH arm loops (match.ts:459/747) via the
+   existing `_is_gadt_branch_reachable` — this is what lets the T=i32
+   SPECIALIZATION pass (BoolVal arm is skipped, not type-mismatched).
+4. GADT branch in BOTH result-consistency blocks (match.ts:646-676/1115-1140):
+   refined-verify per branch + pin result to unrefined expected.
+5. Final stamp prefers the gadt expected type (match.ts:1275-1279).
+
+### gadts attempt 2 — RESULT: TRUE GREEN (sh71, pending gates)
+
+Two more layers were needed beyond the five-piece match.yo port:
+
+6. **tca resolve-at-read** (`_gadt_resolve_tca_entry` in match.yo): TS
+   substitutes `EnumType.typeConstructorArgs` ON the type object at
+   specialization; yo-self's registry keys by enum id, which `substitute`
+   PRESERVES, so the specialized instance still maps to the def-time
+   `[SomeT T]`. Reading each tca entry through the SomeT resolution channel
+   (lineage cell → id-keyed registry) recovers `[i32]`. Applied at the
+   match-entry fetch AND inside `_is_gadt_branch_reachable`.
+7. **tca synthesis in the enum-vs-enum unify arm** (synthesizer.yo, port of
+   synthesizer.ts:738-756): in a GADT the type parameter appears ONLY in
+   `-> recur(...)` — variant fields are concrete — so the per-variant field
+   unification binds nothing and the call's return type T stayed an
+   UNRESOLVED SomeT (probe: `(rb : bool) = result` and `(r : i32) = result`
+   BOTH passed; `result == i32(42)` yielded unit). Unifying the two
+   instances' recorded tca lists binds `T := i32` exactly as TS does.
+
+Probe lesson (mini2-mini6 ladder): an unresolved-SomeT call result is
+INVISIBLE to assignment compat (SomeT wildcard) — probe with an OPERATOR
+(`==`), which degrades to unit, or force the error message to print the
+inferred type via `(x : bool) = result`.
+
+Measured: mini repro 0 markers, compiled binary runs RC=0; full
+tests/gadts.test.yo with sh71: rc=0, markers=0, batch main real, **10
+passed = TS count exactly**.
