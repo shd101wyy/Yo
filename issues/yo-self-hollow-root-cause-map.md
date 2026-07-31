@@ -942,3 +942,27 @@ evaluated clone's ids, the classic original-vs-clone id mismatch that
 that node (other_fn_call's dot-callee dispatch); on the eval side, check
 whether the overload-selected call path stamps the ORIGINAL node id or a
 clone's. WIP = stash@{0} "impl-onion-WIP-v4" (binary /tmp/sh48 = this tree).
+
+### impl — layer 8 pinned (sh48 C comparison): wrong specialization route
+
+The two `!=`-default specs took DIFFERENT routes:
+
+- homogeneous `a != c` → **fresh spec** `fn_yo_id_4997` (new func id, body
+  clone evaluated, `(Self.(==))` stamped to the Eq(HeteroEqW) impl
+  `yo_id_4998`) — emits perfectly;
+- heterogeneous `a != "abcd"` → **rtcall-mangled emission of the BASE**
+  (`fn_yo_id_2242_rtparam0_<struct>_rtparam1_str_ret_bool` — base trait-
+  default FuncVal id 2242 + signature mangle, the record_fid_rtcall path)
+  — the base body was emitted for the (HeteroEqW, str) signature WITHOUT a
+  per-signature body eval, so `(Self.(==))` has no stamped callee for the
+  Eq(str) overload → `// Failed to transpile`.
+
+FIX DIRECTION: the heterogeneous operator call site must produce a TRUE
+specialization (create_specialized_function_inline) like the homogeneous one,
+instead of registering a runtime call of the base. Find where the `!=`
+operator dispatch decides spec-vs-rtcall (calls/function.yo operator arm →
+\_select_matching_overload → the call/registration that follows) and why the
+(receiver, str) arg pair skips specialization — likely keyed on "params
+contain no generics" (rhs str is concrete, Self already bound → looks
+non-generic → rtcall) while the homogeneous pair triggered spec for a
+different reason. WIP parked again as stash@{0} (v4, tree unchanged).
