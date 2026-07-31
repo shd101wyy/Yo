@@ -897,3 +897,20 @@ so why is record_method_callee_value not overwriting?) — or fix at CODEGEN:
 other_fn_call's method dispatch could resolve the concrete impl method from
 the receiver arg's type + trait id at emission time. WIP now parked as
 stash@{0} ("impl-onion-WIP-v2").
+
+### impl — layer 6 SOLVED (sh46); layer 7 surfaced
+
+The concrete-impl witness scan in property_access.yo's TraitT-with-receiver
+arm (before the generic-impl scan, matching source_trait_id against BOTH the
+trait's own id and get_base_trait_key) FIXED the DisambigPoint RED — the
+`__yo_t16.get_number` clang error is GONE. This was exactly the gap the
+code's own comment predicted ("TS also scans CONCRETE impls first
+(ts:651-849) — add if a concrete-impl witness shape surfaces").
+
+Layer 7 (sh46's remaining C error, .bin.c:3184): the heterogeneous-Eq arm's
+trait `?=` DEFAULT for `!=` emits `return // Failed to transpile
+not((Self.(==))(lhs, rhs));` — a Self-qualified OPERATOR member access inside
+a trait default method body fails def-eval (Self=HeteroEqW at spec, `==` has
+TWO overloads: Eq(str) + Eq(HeteroEqW); selection by arg types stamps
+nothing). WIP parked as stash@{0} "impl-onion-WIP-v3" (includes all v1/v2
+fixes + this one + probes **DBG_F/**DBG_CU/**DBG_MI/**DBG_S6/\_\_DBG_ST).
