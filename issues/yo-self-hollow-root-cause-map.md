@@ -1579,3 +1579,31 @@ algebraic_effects).
 
 Gates: TIER 1 clean, stage2 markers 0, FIXPOINT_HOLDS, sweep
 **175 GREEN / 9 HOLLOW / 1 RED** — zero regressions.
+
+## CONVERGENCE (2026-08-01, post-175/9/1): the remaining hollows are ONE family
+
+Probed under sh91 (\_\_DBG_F): prelude arm 1 dies at `assert(x.is_ok())` with
+"Expected bool / Given unit" where `x := EvenNumber.try_from(i32(4))`;
+option_result_combinators arm 3 dies at `assert(result.is_some(), ...)`
+where `result := some_val.and_then(x => ...)`. Both are the SAME symptom
+as iter_filter_closure's `filtered.next() → unit`: **a def-trial method
+call on the RESULT of a generic/trait-method call returns unit** — the
+result's stamped type is an era clone / unresolved instance on which the
+next method dispatch silently misses. That is the SAME
+instantiation-era-identity root as the parked F-era trio and the
+where_clause RED. Likely also covers imm_map ("era pairs") and
+higher_kinded_types. The remaining independent hollows are only
+basic/fn/async_await's bisected arms.
+
+NEXT PROBE (the family's decisive round): instrument the METHOD-DISPATCH
+MISS — find where a `x.method()` call falls through to a unit stamp when
+the receiver type has no method entry (property_access.yo / calls
+dispatch), and print the receiver's type + id there. Run on
+option_result_combinators arm 3 (the smallest: Option(i32).and_then). The
+receiver's actual type tells whether the fix is (a) resolve the era clone
+to the memo instance at the CALL-RESULT stamp, or (b) make method lookup
+follow the ctor-fid channel (get_type_trait_methods keyed by definition
+identity, like the enum-cfid fix in the synthesizer). Then re-check ALL
+of: prelude, option_result_combinators, iter_filter_closure,
+iterator_combinators, imm_map, higher_kinded_types, where_clause RED with
+the one fix.
