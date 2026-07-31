@@ -1237,3 +1237,27 @@ The dedicated round MUST run the memo-key probe FIRST (print the actual
 type_arguments of struct 4982 vs 5980 at instantiation) before writing any
 arm — this rejection is the cost of skipping it. Change reverted
 (zero-wins rule).
+
+## F-era trio — memo-key probe result (sh66) + the real tension
+
+The **DBG*MK probe on the CTFE cache's near-miss comparison got ZERO hits
+during the RED file — the split never reaches that comparison (the two
+instantiations either key under DIFFERENT constructor func ids, or the
+divergence is in the TYPE-INTERN key, not the CTFE memo). Supporting
+evidence: the C type name embeds the closure GENERATION id
+(`...\_fn_x***i32**\_**i32_cl1_yo_id_4985`), and types/intern.yo's SomeT key
+DELIBERATELY includes the SomeT id (the statx single-effect-closure
+cluster fix at intern.yo:380-390 — id-only merging was wrong there, so
+full-content keying was chosen). The F-era split is the OTHER side of the
+same tension: per-era fresh SomeT/closure-generation ids in the F slot
+split the intern/instantiation identity for what is ONE source
+instantiation.
+
+The dedicated round's design task: canonicalize CLOSURE-DERIVED identity
+components by SOURCE POSITION (g*closure_fid_source exists precisely for
+this — anonymous_function.yo:1089) inside the intern key and the
+instantiation identity, WITHOUT reverting the statx fix (which needs the
+required-trait CONTENT, not the generation id). I.e. replace the closure
+GENERATION id components with the source key; keep everything else
+content-keyed. Entry points: types/intern.yo SomeT/Func arms; wherever the
+`cl1*...` name component is minted.
