@@ -1424,3 +1424,38 @@ bucket scan) — one dedicated round, expected to cover iter_filter_closure
 
 - iterator_combinators + re-fix where_clause_fn_inference without the
   signature-patching regressions.
+
+### F-era attempts 3 & 4 — REJECTED (sh80/sh81, reverted; family PARKED)
+
+Attempt 3 (sh80): substitution-LEVEL canonicalization — `_subst_canon` hook
+in substitution.yo's Struct arm (installed by comptime_fn.yo), mapping a
+fully-concrete substituted clone (cell→registry-resolved type_arguments,
+ctor-fid bucket scan) to the memo instance. Measured: array.test.yo rc=1
+with the SAME canary (`returning '__yo_t19' ... incompatible result type
+'__yo_t18'`) + for_macro_borrow rc=1 + where_clause rc=1; hollows
+unchanged. Root: the BODY's ctor call still MINTS its own era instance (its
+era'd args miss the memo), so mapping clones at creation converges only
+the routes that go through `substitute`.
+
+Attempt 4 (sh81): attempt 3 PLUS resolve-through-channels inside
+`_ctfe_args_equal` (both sides through the lineage-cell → id-registry
+chase before comparison, so era'd ctor calls memo-HIT). Measured: WORSE —
+array.test.yo rc=139 (SIGSEGV), for_macro_borrow/where_clause rc=1,
+hollows unchanged. Root: the GLOBAL resolution registry is context-
+poisoned (the documented IoExn hazard in \_resolve_some_types_deep) — a
+SomeT id resolved in one specialization context leaks into unrelated memo
+comparisons, collapsing instantiations that must stay distinct.
+
+VERDICT: the resolution-channel family of fixes is exhausted (4 rejected
+attempts, each measured against the array/for_macro_borrow canaries). The
+next attempt must NOT use the global registry as a comparison channel.
+Candidate direction: make the SPEC-body ctor call and the substituted
+return share identity by construction — e.g. thread the specialization's
+OWN Substitution map into the return-type computation so both routes call
+the ctor through the SAME memo key (TS: the return type IS re-evaluated
+through the ctor in the SAME env as the body — yo-self's
+evaluate_function_return_type_again exists but its instances era-split
+from the body's because the DEF-era instance is memoized under the
+def-trial's SomeT args; investigate why the body's call and the re-eval's
+call produce DIFFERENT keys in the same env first: probe the memo args of
+BOTH calls in one run).
