@@ -884,6 +884,230 @@ _ti_bind_variant_info_list :: (
   });
   _ti_bind_comptime_list(env_ptr, vi_vals, String.from("VariantInfo"), String.from("vl"), ctx, exn)
 });
+/// Build a ComptimeList(TraitInfo) from trait types and bind to a temp var
+/// (port of bindTempTraitInfoList, type-fns.ts:1330).
+_ti_bind_trait_info_list :: (
+  fn(
+    env_ptr : Environment,
+    trait_types : ArrayList(TypeValue),
+    prefix : String,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> String
+)({
+  values := ArrayList(EvalValue).new();
+  (i : usize) = usize(0);
+  while(i < trait_types.len(), {
+    tt := match(trait_types.get(i),.Some(t) => t,.None => t_unit());
+    tt_name := _ti_bind_type(env_ptr, tt, ctx);
+    code := String.from("TraitInfo(");
+    code.push_string(tt_name);
+    code.push_str(")");
+    match(
+      _ti_eval_code(env_ptr, code, ctx, exn),
+      .Some(v) => {
+        _p := values.push(v);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  {
+    pfx := String.from("trl_");
+    pfx.push_string(prefix);
+    _ti_bind_comptime_list(env_ptr, values, String.from("TraitInfo"), pfx, ctx, exn)
+  }
+});
+/// Build one ParamInfo value (port of the loop body in bindTempParamInfoList,
+/// type-fns.ts:1128).
+_ti_build_param_info :: (
+  fn(
+    env_ptr : Environment,
+    label : String,
+    ty : TypeValue,
+    is_comptime : bool,
+    is_variadic : bool,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> EvalValue
+)({
+  ty_name := _ti_bind_type(env_ptr, ty, ctx);
+  code := String.from("ParamInfo(\"");
+  code.push_string(_ti_escape_str(label));
+  code.push_str("\", ");
+  code.push_string(ty_name);
+  code.push_str(", ");
+  code.push_str(cond(is_comptime => "true", true => "false"));
+  code.push_str(", false, ");
+  code.push_str(cond(is_variadic => "true", true => "false"));
+  code.push_str(")");
+  match(_ti_eval_code(env_ptr, code, ctx, exn),.Some(v) => v,.None => EvalValue.UnitVal)
+});
+/// Build a FunctionInfo temp var from a call signature (port of
+/// bindTempFunctionInfo, type-fns.ts:1064). Sources per-param data from
+/// what the type value CARRIES (labels/types/foralls/implicits + variadic
+/// flag); yo-self keeps per-param comptime in an expr-id side table
+/// unreachable from a bare TypeValue — recorded gap in the map.
+_ti_bind_function_info :: (
+  fn(
+    env_ptr : Environment,
+    param_labels : ArrayList(String),
+    param_types : ArrayList(TypeValue),
+    forall_labels : ArrayList(String),
+    forall_types : ArrayList(TypeValue),
+    implicit_labels : ArrayList(String),
+    implicit_types : ArrayList(TypeValue),
+    result_ty : TypeValue,
+    has_variadic : bool,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> String
+)({
+  // Params (the variadic param, when present, is the LAST entry — TS appends
+  // variadicParameter to the params list; it is comptime by construction).
+  param_vals := ArrayList(EvalValue).new();
+  {
+    (i : usize) = usize(0);
+    n := param_types.len();
+    while(i < n, {
+      lbl := match(param_labels.get(i),.Some(l) => l,.None => String.new());
+      pty := match(param_types.get(i),.Some(t) => t,.None => t_unit());
+      is_var := (has_variadic && (i == (n - usize(1))));
+      _p := param_vals.push(_ti_build_param_info(env_ptr, lbl, pty, is_var, is_var, ctx, exn));
+      i = (i + usize(1));
+    });
+  };
+  params_name := _ti_bind_comptime_list(env_ptr, param_vals, String.from("ParamInfo"), String.from("pl"), ctx, exn);
+  ret_name := _ti_bind_type(env_ptr, result_ty, ctx);
+  // Foralls.
+  forall_vals := ArrayList(EvalValue).new();
+  {
+    (i : usize) = usize(0);
+    while(i < forall_types.len(), {
+      lbl := match(forall_labels.get(i),.Some(l) => l,.None => String.new());
+      fty := match(forall_types.get(i),.Some(t) => t,.None => t_unit());
+      fn_ty_name := _ti_bind_type(env_ptr, fty, ctx);
+      code := String.from("ForallParamInfo(\"");
+      code.push_string(_ti_escape_str(lbl));
+      code.push_str("\", ");
+      code.push_string(fn_ty_name);
+      code.push_str(")");
+      match(
+        _ti_eval_code(env_ptr, code, ctx, exn),
+        .Some(v) => {
+          _p := forall_vals.push(v);
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+  };
+  foralls_name := _ti_bind_comptime_list(env_ptr, forall_vals, String.from("ForallParamInfo"), String.from("fpl"), ctx, exn);
+  // Implicits.
+  implicit_vals := ArrayList(EvalValue).new();
+  {
+    (i : usize) = usize(0);
+    while(i < implicit_types.len(), {
+      lbl := match(implicit_labels.get(i),.Some(l) => l,.None => String.new());
+      ity := match(implicit_types.get(i),.Some(t) => t,.None => t_unit());
+      it_name := _ti_bind_type(env_ptr, ity, ctx);
+      code := String.from("ImplicitParamInfo(\"");
+      code.push_string(_ti_escape_str(lbl));
+      code.push_str("\", ");
+      code.push_string(it_name);
+      code.push_str(")");
+      match(
+        _ti_eval_code(env_ptr, code, ctx, exn),
+        .Some(v) => {
+          _p := implicit_vals.push(v);
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+  };
+  implicits_name := _ti_bind_comptime_list(env_ptr, implicit_vals, String.from("ImplicitParamInfo"), String.from("ipl"), ctx, exn);
+  fni_code := String.from("FunctionInfo(");
+  fni_code.push_string(params_name);
+  fni_code.push_str(", ");
+  fni_code.push_string(ret_name);
+  fni_code.push_str(", ");
+  fni_code.push_string(foralls_name);
+  fni_code.push_str(", ");
+  fni_code.push_string(implicits_name);
+  fni_code.push_str(", false)");
+  fni_name := `__ti_fni_${random_id(env_ptr.module_path)}`;
+  match(
+    _ti_eval_code(env_ptr, fni_code, ctx, exn),
+    .Some(v) => {
+      _add := add_variable_to_env(
+        env_ptr,
+        fni_name.clone(),
+        type_of_eval_value(v),
+        Option(EvalValue).Some(v),
+        true,
+        false,
+        false,
+        false,
+        synthetic_token(fni_name.clone(), env_ptr.module_path)
+      );
+    },
+    .None => ()
+  );
+  fni_name
+});
+/// Build the TraitFieldInfo list for a TraitT (port of
+/// bindTempTraitFieldInfoList, type-fns.ts:1237). A field is an ASSOCIATED
+/// TYPE when its label is in the trait's assoc_type_names (TS
+/// `field.unassignedSomeType`).
+_ti_bind_trait_field_info_list :: (
+  fn(
+    env_ptr : Environment,
+    field_labels : ArrayList(String),
+    field_types : ArrayList(TypeValue),
+    assoc_type_names : ArrayList(String),
+    ctx : EvalContext,
+    exn : Exception
+  ) -> String
+)({
+  values := ArrayList(EvalValue).new();
+  (i : usize) = usize(0);
+  while(i < field_labels.len(), {
+    lbl := match(field_labels.get(i),.Some(l) => l,.None => String.new());
+    fty := match(field_types.get(i),.Some(t) => t,.None => t_unit());
+    ft_name := _ti_bind_type(env_ptr, fty, ctx);
+    (is_assoc : bool) = false;
+    {
+      (ai : usize) = usize(0);
+      while(ai < assoc_type_names.len(), {
+        match(
+          assoc_type_names.get(ai),
+          .Some(an) => if(an == lbl, {
+            is_assoc = true;
+          }),
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+    };
+    code := String.from("TraitFieldInfo(\"");
+    code.push_string(_ti_escape_str(lbl));
+    code.push_str("\", ");
+    code.push_string(ft_name);
+    code.push_str(", ");
+    code.push_str(cond(is_assoc => "true", true => "false"));
+    code.push_str(")");
+    match(
+      _ti_eval_code(env_ptr, code, ctx, exn),
+      .Some(v) => {
+        _p := values.push(v);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  _ti_bind_comptime_list(env_ptr, values, String.from("TraitFieldInfo"), String.from("tfl"), ctx, exn)
+});
 // ---------------------------------------------------------------------------
 // Phase 3 builtin implementations
 // ---------------------------------------------------------------------------
@@ -1037,6 +1261,114 @@ evaluate_yo_type_get_info :: (
     .Union(_, labels, types) => {
       fl_name := _ti_bind_type_field_list(local_env, labels, types, ctx, exn);
       (String.from("TypeInfo.Union(") + fl_name) + String.from(")")
+    },
+    // === SomeType(name, required_traits, negative_traits, resolved_type) ===
+    // (type-fns.ts:896-930)
+    .SomeT({ name : st_name, required_trait_types : st_req, negative_trait_types : st_neg, resolved_concrete : st_res }) => {
+      req_name := _ti_bind_trait_info_list(local_env, st_req, String.from("req"), ctx, exn);
+      neg_name := _ti_bind_trait_info_list(local_env, st_neg, String.from("neg"), ctx, exn);
+      res_name := match(
+        st_res.get(usize(0)),
+        .Some(rt) => _ti_bind_type(local_env, rt, ctx),
+        .None => String.from("unit")
+      );
+      {
+        sc := String.from("TypeInfo.SomeType(\"");
+        sc.push_string(_ti_escape_str(st_name));
+        sc.push_str("\", ");
+        sc.push_string(req_name);
+        sc.push_str(", ");
+        sc.push_string(neg_name);
+        sc.push_str(", ");
+        sc.push_string(res_name);
+        sc.push_str(")");
+        sc
+      }
+    },
+    // === Dyn(required_traits, negative_traits) === (type-fns.ts:876-894)
+    .DynT(dt_req, _, dt_neg, _) => {
+      req_name := _ti_bind_trait_info_list(local_env, dt_req, String.from("req"), ctx, exn);
+      neg_name := _ti_bind_trait_info_list(local_env, dt_neg, String.from("neg"), ctx, exn);
+      {
+        dc := String.from("TypeInfo.Dyn(");
+        dc.push_string(req_name);
+        dc.push_str(", ");
+        dc.push_string(neg_name);
+        dc.push_str(")");
+        dc
+      }
+    },
+    // === Trait(fields, kind) === (type-fns.ts:858-874). yo-self splits TS's
+    // TraitType into TraitT / FnTraitT / FutureTraitT — one arm each.
+    .TraitT(_, tt_assoc_names, tt_flabels, tt_ftypes, _, _, _, _, _, _) => {
+      fl_name := _ti_bind_trait_field_info_list(local_env, tt_flabels, tt_ftypes, tt_assoc_names, ctx, exn);
+      {
+        tc := String.from("TypeInfo.Trait(");
+        tc.push_string(fl_name);
+        tc.push_str(", TraitKind.Normal)");
+        tc
+      }
+    },
+    .FnTraitT(_, ft_plabels, ft_ptypes, ft_result, ft_ilabels, ft_itypes, _, _) => {
+      fni_name := _ti_bind_function_info(
+        local_env,
+        ft_plabels,
+        ft_ptypes,
+        ArrayList(String).new(),
+        ArrayList(TypeValue).new(),
+        ft_ilabels,
+        ft_itypes,
+        ft_result,
+        false,
+        ctx,
+        exn
+      );
+      empty_fields := _ti_bind_comptime_list(local_env, ArrayList(EvalValue).new(), String.from("TraitFieldInfo"), String.from("tfl"), ctx, exn);
+      {
+        fc := String.from("TypeInfo.Trait(");
+        fc.push_string(empty_fields);
+        fc.push_str(", TraitKind.Fn(");
+        fc.push_string(fni_name);
+        fc.push_str("))");
+        fc
+      }
+    },
+    .FutureTraitT(_, fut_output, _, fut_etypes, _) => {
+      out_name := _ti_bind_type(local_env, fut_output, ctx);
+      eff_name := _ti_bind_trait_info_list(local_env, fut_etypes, String.from("eff"), ctx, exn);
+      empty_fields := _ti_bind_comptime_list(local_env, ArrayList(EvalValue).new(), String.from("TraitFieldInfo"), String.from("tfl"), ctx, exn);
+      {
+        uc := String.from("TypeInfo.Trait(");
+        uc.push_string(empty_fields);
+        uc.push_str(", TraitKind.Future(");
+        uc.push_string(out_name);
+        uc.push_str(", ");
+        uc.push_string(eff_name);
+        uc.push_str("))");
+        uc
+      }
+    },
+    // === Function(info) === (type-fns.ts:849-856)
+    .Func({ forall_types : fn_fts, param_types : fn_pts, implicit_types : fn_its, result : fn_res, meta : fn_meta }) => {
+      fni_name := _ti_bind_function_info(
+        local_env,
+        fn_meta.*.param_labels,
+        fn_pts,
+        fn_meta.*.forall_labels,
+        fn_fts,
+        fn_meta.*.implicit_labels,
+        fn_its,
+        fn_res,
+        fn_meta.*.has_variadic,
+        ctx,
+        exn
+      );
+      {
+        nc := String.from("TypeInfo.Function(");
+        nc.push_string(fni_name);
+        nc.push_str(")");
+        nc
+      }
     },
     _ => {
       exn.throw(

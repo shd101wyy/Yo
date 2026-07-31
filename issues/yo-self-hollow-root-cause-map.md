@@ -1531,3 +1531,30 @@ bare TypeValue.Func. Same side-table-vs-type-carried divergence class as
 the F-era family. The SomeType/Dyn/Trait arms have no such gap — land
 those first (they may alone flip the file if the test's Function arms
 were among the 24 pre-shrunk markers — re-measure per arm after).
+
+### type_reflection — 4 TypeInfo arms LANDED (no flip yet); variadic gap is the blocker
+
+Ported into evaluator/builtins/type_fns.yo (gated TIER 1 clean +
+FIXPOINT_HOLDS + sweep 174/10/1 zero-regression):
+
+- SomeType(name, req, neg, resolved) — resolved via the lineage cell.
+- Dyn(req, neg); Trait(fields, kind) across yo-self's THREE trait variants
+  (TraitT → Normal with TraitFieldInfo list, is_assoc = label ∈
+  assoc_type_names; FnTraitT → Fn(FunctionInfo) from the flattened call
+  signature; FutureTraitT → Future(output, effects)).
+- Function(FunctionInfo) with ParamInfo/ForallParamInfo/ImplicitParamInfo
+  lists + helpers (\_ti_bind_trait_info_list, \_ti_build_param_info,
+  \_ti_bind_function_info, \_ti_bind_trait_field_info_list).
+
+Remaining def-trial failure (probe sh89): "ComptimeList index out of
+bounds in \_\_yo_comptime_list_get" at prelude:5816 — the test reads
+`fi.params.get(usize(1))` (the VARIADIC param), but yo-self's
+TypeValue.Func does NOT carry the variadic parameter (label/type live in
+the get_func_variadic_param side table keyed by fn-type EXPR ID). TS
+carries variadicParameter ON FunctionType and appends it to params
+(type-fns.ts:1134). FIX (own round, wide but mechanical): extend FuncMeta
+with `variadic_label : Option(String)` + Func with the variadic type (or
+a meta pair), populate at fn-type creation from the side table, append in
+\_ti_bind_function_info with is_comptime=true/is_variadic=true. Also
+re-measure the OTHER 23 markers after (they may be downstream of the same
+def-trial abort).
