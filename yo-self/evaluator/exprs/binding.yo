@@ -45,6 +45,7 @@ open(import("std/fmt"));
   type_contains_rc_type
 } :: import("../../types/utils.yo");
 { format_error_message, format_error_messages, TokenAndError, YoError } :: import("../../error.yo");
+{ type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { Exception } :: import("std/error");
 { evaluate_expression } :: import("./expr.yo");
 { is_valid_variable_name } :: import("../utils.yo");
@@ -280,7 +281,10 @@ evaluate_binding :: (
     );
   });
   // Reject type annotations that require comptime but binding is runtime.
-  if(type_requires_comptime_modifier(user_defined_type) && !(is_compile_time_only), {
+  // Env-aware fallback for COMPOUND comptime-only types — see the twin gate
+  // in initialization_assignment.yo.
+  binding_requires_ct := (type_requires_comptime_modifier(user_defined_type) || (type_implements_comptime(user_defined_type, env) && !(type_implements_runtime_full(user_defined_type, env))));
+  if(binding_requires_ct && !(is_compile_time_only), {
     ty_str := type_to_string(user_defined_type);
     exn.throw(
       dyn(

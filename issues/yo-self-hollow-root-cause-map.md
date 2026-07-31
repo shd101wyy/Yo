@@ -667,3 +667,15 @@ its own frame.
 "exists but never fires", probe for the inert throw FIRST (eprintln after the
 throw — if it prints, restructure to return-then-throw-at-top). Candidates:
 basic arm 24 (type availability), fn arm 9's remaining route, gadts/impl arms.
+
+## UPDATE 2026-07-31 (later still) — env-aware comptime-only gate landed
+
+basic arm 24's Point2 SUB-ARM fixed: `y := Point2(6, 8)` for a struct of
+comptime_int fields now errors. Root: `type_requires_comptime_modifier`
+(types/utils.yo) is TAG-ONLY — compound comptime-only types never matched. The
+`:=` / `x : T` gates now fall back to the env-aware derivation
+(`type_implements_comptime && !type_implements_runtime_full`,
+trait_checking.yo), matching TS isComptimeOnlyType. Verified: minimal cee test
+markers 1 -> 0 (sh31 vs sh32). basic arm 24 stays hollow via ANOTHER sub-arm
+(the test has Point3 mixed-context, enum, and union sections) — re-probe with a
+\_\_DBG_F build for the next sub-root.

@@ -62,6 +62,7 @@ open(import("std/string"));
 { type_to_string } :: import("../../types/string.yo");
 { is_function_type_and_returns_comptime_value } :: import("../../types/guards.yo");
 { format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
+{ type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { throw_rhs_contains_control_flow_expression_error } :: import("./assignment.yo");
@@ -411,8 +412,15 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
       });
       lhs_type = pre_type;
     });
-    // Check comptime modifier requirements.
-    if(!(effective_is_compile_time_only) && type_requires_comptime_modifier(lhs_type), {
+    // Check comptime modifier requirements. The tag-only helper misses
+    // COMPOUND comptime-only types (a struct whose fields are all
+    // comptime_int, e.g. basic.test.yo's Point2) — TS's
+    // typeRequiresComptimeModifier is isComptimeOnlyType(type, env) =
+    // implementsComptime && !implementsRuntime with the auto-derive
+    // recursion (types/utils.ts:85-96). Use the env-aware derivation as
+    // the fallback after the cheap tag path.
+    lhs_requires_ct := (type_requires_comptime_modifier(lhs_type) || (type_implements_comptime(lhs_type, env) && !(type_implements_runtime_full(lhs_type, env))));
+    if(!(effective_is_compile_time_only) && lhs_requires_ct, {
       lhs_type_str := type_to_string(lhs_type);
       expr_str := ast_expr_to_string(expr);
       exn.throw(
