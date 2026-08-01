@@ -105,6 +105,7 @@ open(import("std/fmt"));
   expr_info_table_get,
   register_some_resolved_concrete,
   lookup_some_resolved_concrete,
+  unregister_some_resolved_concrete,
   adopt_receiver_struct_instance,
   push_active_where_trait_ids,
   pop_active_where_trait_ids
@@ -4462,6 +4463,33 @@ try_to_call_function_with_arguments :: (
           false,
           synthetic_token(flabel, callee_env.module_path)
         );
+        // This call now OWNS `flabel`: drop any resolution a PREVIOUS call left
+        // for the same signature SomeT in the durable id registry. TS mints a
+        // fresh SomeType per call for every forall binder (helper.ts:1047-1053),
+        // so a stale `B := i32` simply cannot exist there; yo-self reuses the one
+        // signature instance, and `_resolve_some_types_deep`'s registry fallback
+        // then silently pre-resolved the NEXT call's `Impl(Fn() -> B)` parameter
+        // to `Impl(Fn() -> i32)`. That flipped the closure onto the take-on path,
+        // which skips the Step-5.5 body-type substitution that binds `B` — so the
+        // second `map_or_else` in a batch main returned `unit`
+        // (tests/option_result_combinators arms 17+18; either arm alone was fine).
+        {
+          (fv_clear_i : usize) = usize(0);
+          while(fv_clear_i < sig_some_types.len(), {
+            match(
+              sig_some_types.get(fv_clear_i),
+              .Some(fv_cst) => match(
+                fv_cst,
+                .SomeT({ id : fv_cid, name : fv_cnm }) => if(fv_cnm == flabel, {
+                  unregister_some_resolved_concrete(fv_cid.clone());
+                }),
+                _ => ()
+              ),
+              .None => ()
+            );
+            fv_clear_i = (fv_clear_i + usize(1));
+          });
+        };
         fpi = (fpi + usize(1));
       });
       // ----------------------------------------------------------------

@@ -569,6 +569,18 @@ register_some_resolved_concrete :: (fn(some_id : String, ty : TypeValue) -> unit
 lookup_some_resolved_concrete :: (fn(some_id : String) -> Option(TypeValue))(
   g_some_resolved_concrete.get(some_id)
 );
+/// Drop any recorded resolution for `some_id`.
+///
+/// This registry is a DURABLE GLOBAL, but a function's own `generic(B : Type)`
+/// binder is NOT durable — TS mints a fresh `SomeType` for it on EVERY call
+/// (helper.ts:1047), so one call's `B := i32` can never be seen by the next.
+/// yo-self reuses the ONE signature instance, so the entry must be dropped when
+/// a call installs its own placeholder for that binder — see the Step-6 marker
+/// loop in `evaluator/calls/helper.yo`.
+unregister_some_resolved_concrete :: (fn(some_id : String) -> unit)({
+  g_some_resolved_concrete.remove(some_id);
+  ()
+});
 // Install the durable-registry lookup into compatibility.yo's given-SomeT
 // resolution unwrap (cycle breaker: types/ cannot import THIS file).
 _compat_some_resolved_init := (fn() -> bool)({
@@ -976,7 +988,7 @@ export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_
 export(record_method_callee_type, lookup_method_callee_type);
 export(record_method_callee_value, lookup_method_callee_value);
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_type);
-export(register_some_resolved_concrete, lookup_some_resolved_concrete);
+export(register_some_resolved_concrete, lookup_some_resolved_concrete, unregister_some_resolved_concrete);
 export(
   register_struct_ctor_fid,
   record_branch_init,
