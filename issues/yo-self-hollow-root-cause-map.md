@@ -2349,3 +2349,18 @@ closure-typed FIELD of the specialized receiver needs.
 
 Order for the next round is unchanged: re-apply the two evaluator changes
 (attempt 3), then this field-type stamp, then arms → sweep.
+
+#### Measured: the registration fix ALONE is inert (and safe)
+
+Applying step 1 (the `_try_lookup_trait_type` fast-path gate) WITHOUT step 2 (the
+third binding source) leaves all 8 remaining hollow files hollow, the RED red, and
+both era canaries green — `check ./yo-self` unchanged at 295/305. Expected: a
+correctly-parameterized constraint still has no consumer until the all-bound loop
+can bind from it. The two changes are only effective TOGETHER (attempt 3, which
+measured `hollow=0` on all three iter_filter arms), so do not try to land step 1
+on its own. Reverted again; the pair plus the field-type stamp is the next round's
+single unit of work.
+
+Also recorded for reuse: `scratchpad/hollow8.sh` measures the 8 hollow + the RED +
+the two canaries in one pass (~12 min) — the right cheap gate for any change aimed
+at this set, before paying for the full 186-file sweep.
