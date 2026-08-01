@@ -2579,3 +2579,33 @@ guard rejected or something else wearing a pointer's rendering — and that dete
 whether the fix is in the guard, in an unwrap before the arm, or in whatever produced
 the wrapped type upstream. Do NOT attempt another fix before that print: two attempts
 here have now been inert because the printed form was trusted over the tag.
+
+#### imm_map — the tag print RUNS CLEAN: the recorded pointer-pair root is WITHDRAWN
+
+Instrumented the generic fallthrough throw (synthesizer.yo:2104) to print the two
+guard booleans (`is_pointer_type` / `is_some_type`) for both sides, built, and ran
+`tests/imm_map.test.yo`. Result:
+
+- 3147 mismatches reach that throw, and their shapes are ordinary tag mismatches —
+  2450 neither-pointer, 445 `eptr=y gptr=n`, 252 `eptr=n gptr=y`.
+- **`eptr=y gptr=y` count is ZERO**, and the string `Cannot unify incompatible
+types` does not appear in that run's output at all.
+
+So the `*(<struct:5595>)` vs `*(<struct:9595>)` pair I attributed to imm_map is NOT
+what fails it under the current tree. The earlier harvest took the LAST `__DBG_F`
+line from a run of the OLDER probe binary (`/tmp/sh129`, built before the last
+landed fixes), and that attribution does not survive re-measurement. **The
+"imm_map = era identity behind a pointer" root recorded above is WITHDRAWN.**
+
+Two lessons for the next round, both cheap to honour:
+
+1. **Re-harvest with a CURRENT probe binary.** The harvest trick is still right, but
+   a probe binary built before subsequent landed fixes reports stale roots. Rebuild
+   the un-silenced-swallow binary from HEAD before trusting any of the eight roots
+   in the table above that have not been independently re-measured — the ones
+   confirmed against the current tree are `iter_filter_closure` (measured to
+   `hollow=0`) and `higher_kinded_types` (the TypeApp message, cross-checked against
+   both compilers' source).
+2. **`__DBG_F` last-line ≠ the batch main's error when other errors follow.** Pin it
+   by matching the printed source location to `.yo_selftest_batch_*.yo`, not by
+   position in the log.
