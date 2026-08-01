@@ -3065,3 +3065,52 @@ shared `.yo_selftest_batch_*` artifacts, exactly as `measure_one.sh`'s own heade
 warns. The file was re-measured three times in isolation, all `hollow=1`. Never
 measure and sweep the same directory concurrently, and treat any single
 surprising green as suspect until repeated with nothing else running.
+
+### Omitted struct DEFAULTS emitted the struct's own C type name — FIXED
+
+Independent live bug, found while retrying the `_` reroute but reachable without
+it. Standalone repro (`<bin> compile … --emit-c`, seconds):
+
+```rust
+Point :: struct((x : i32) ?= 7, (s : bool) ?= true);
+Q     :: struct(a : i32, (b : i32) ?= 5);
+p2 := Point();
+q  := Q(1);
+```
+
+|                  | `Point()`                        | `Q(1)`                     |
+| ---------------- | -------------------------------- | -------------------------- |
+| TS               | `{ .x = 7, .s = true }`          | `{ .a = 1, .b = 5 }`       |
+| yo-self (before) | `{ .x = __yo_t0, .s = __yo_t0 }` | `{ .a = 1, .b = __yo_t1 }` |
+| yo-self (after)  | `{ .x = 7, .s = true }`          | `{ .a = 1, .b = 5 }`       |
+
+Root, stated verbatim in yo-self's own module header
+(`yo-self/evaluator/calls/type.yo:11-13`): _"`TypeField.exprs.defaultValueExpr`
+doesn't exist in yo-self; when a field uses its default/assigned value,
+`runtimeArgExprsInOrder[i]` is set to the function callee expr as a placeholder
+(acceptable since codegen is not yet done)."_ Codegen IS done now, so codegen'ing
+the callee yields the struct's own C type name. TS sets the slot to
+`memberElement.exprs.defaultValueExpr ?? .assignedValueExpr`
+(`src/evaluator/calls/type.ts:206`).
+
+Fix: `evaluate_type_field` ALREADY parses both expressions into locals
+(`default_value_expr` / `assigned_value_expr`, field.yo:118-120) — they were just
+never stored. Added them to `TypeField` as DEFAULTED fields (so no existing
+`TypeField(...)` site changed), stored them, and used them in `type.yo`'s
+omitted-field branch. Stale header comment replaced.
+
+### The `_` reroute — REJECTED a FOURTH time; it is a chain, not a single blocker
+
+Retried after union construction, union methods and the defaults fix all landed.
+`basic` is no longer RED with it (rc=0), but arm 12 alone still is, now on yet
+another distinct C type mismatch (`initializing 'int32_t' with an expression of
+incompatible type '__yo_t26'`). Reverted again.
+
+Tally of what the reroute unmasked, in order, each one a real pre-existing defect
+that the hollow arm had been hiding: (1) `Self(x : 0)` union construction —
+FIXED; (2) union methods unresolvable — FIXED; (3) omitted struct defaults
+emitting the type name — FIXED; (4) an int-vs-struct mismatch, still open.
+**Do not re-apply the reroute as a step toward `basic`.** Drive arm 12 the other
+way round: keep fixing the gaps it exposes, one standalone repro at a time, and
+apply the reroute only once arm 12 is clean with it. Each cycle is cheap — the
+gaps all reproduce in a few lines via `compile --emit-c`, no test harness needed.

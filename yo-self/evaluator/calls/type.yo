@@ -368,8 +368,27 @@ try_to_call_type_with_arguments :: (
                 true => Option(EvalValue).None
               );
               values(ci) = default_val;
-              // Note: we can't set the real expr here (TypeField doesn't store exprs),
-              // so runtime_arg_exprs_in_order[ci] remains the function_callee_expr placeholder.
+              // Put the field's OWN default/assigned EXPRESSION in the runtime
+              // slot, exactly as TS does
+              // (`runtimeArgExprsInOrder[i] = memberElement.exprs.defaultValueExpr
+              // ?? memberElement.exprs.assignedValueExpr`, calls/type.ts:206).
+              // The slot used to keep the callee expr as a placeholder, which
+              // codegen then emitted as the struct's own C TYPE NAME —
+              // `Point()` became `(Point){ .x = __yo_t0, .y = __yo_t0 }` and
+              // `Point(13)` became `{ .x = 13, .y = __yo_t0 }`.
+              match(
+                field.default_value_expr,
+                .Some(dve) => {
+                  runtime_arg_exprs_in_order(ci) = dve;
+                },
+                .None => match(
+                  field.assigned_value_expr,
+                  .Some(ave) => {
+                    runtime_arg_exprs_in_order(ci) = ave;
+                  },
+                  .None => ()
+                )
+              );
             });
           },
           .None => ()
