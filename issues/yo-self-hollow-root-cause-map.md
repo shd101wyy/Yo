@@ -3293,3 +3293,88 @@ by turning the panic into a marker — that just moves an undefined C identifier
 downstream (the same class as blk12). Find why that enum is uncollected. Note the
 theme: the composite-generic path is exercised for the first time by this change, so
 expect more than one uncollected type there.
+
+---
+
+## 2026-08-01 — The return-type re-evaluation is NOT the lever for the RED (measured, 4 probe builds, REVERTED)
+
+**Faithful-port-first attempt.** TS calls `evaluateFunctionReturnTypeAgain`
+**unconditionally** (`src/evaluator/calls/helper.ts:1538`, no gate of any kind)
+and it re-evaluates the return-type **EXPRESSION**
+(`src/evaluator/types/function.ts:2836`). yo-self has that machinery in
+`_evaluate_funcval_runtime_call` (the block landed in `57f1d56bf`) but behind
+`(rre_wanted : bool) = (hkt_ret_binder || get_all_some_types(resolved_ret).len() > 0)`.
+An investigator argued the gate is measurably FALSE for
+`LocalMapIter(I, A, B, F)` — after substitution the FIELD types are concrete and
+the unresolved `A`/`B` survive only in `type_arguments`, which
+`get_all_some_types` does not walk. Removing the gate is therefore _the_ port,
+not a heuristic. It was tried. **Three findings, all measured; all three
+matter more than the attempt.**
+
+### FINDING 1 — ungating WITHOUT binding `Self` silently adopts WRONG types
+
+Probe (`/tmp/sh159`, `/tmp/sh160`: print on every firing where the re-evaluated
+type differs from the substituted one, plus `ast_expr_to_string` of the return
+expression). Ungated, on `scratchpad/w1/repro.yo` alone: **116 firings, 116
+divergent**, and every single divergence was a `Self`-mentioning expression:
+
+```
+19x  __DBG_RRE in=<struct:struct_yo_id_3338> got=String        expr=Self
+ 7x  __DBG_RRE in=String                     got=str           expr=Self
+ 4x  __DBG_RRE in=<enum:enum_yo_id_2991>     got=<enum:...3504> expr=Option(Self)
+ 2x… __DBG_RRE in=<enum:enum_yo_id_3350>     got=<enum:...4933> expr=Result(Self, StringError)
+```
+
+`in=String got=str` is a **silently wrong adopted return type** — it is
+SomeT-free and non-unit, so the conservative adoption test accepts it. Root:
+TS passes `SelfType: functionType.SelfType` into that re-evaluation
+(`function.ts:2850`); yo-self passed nothing, so `Self` resolved from whatever
+ambient binding `fresh_env`/`ctx` happened to carry.
+
+Binding the receiver (`_static_dot_receiver_self_type` /
+`_instance_dot_receiver_self_type`, already computed ~70 lines BELOW for the
+Gap-6 adopt step — hoisted above the block) around the trial eval collapsed
+**116 divergences to 1** (`in=Box(V) got=Box(T : (Clone)) expr=Box(V)`, which
+carries a SomeT and so is never adopted). **Anyone who ungates this block in
+future MUST bind `Self` first.**
+
+### FINDING 2 — the RED's call never reaches this arm at all
+
+With an unconditional key dump at the site (`/tmp/sh164`), `repro.yo` produces
+**119 firings and not one of them is `local_map_to`**: every fid is a low
+std/prelude/string id, and no key resembles
+`gs_yo_id_4973_gs_yo_id_3211_i32_1514_1515_fn_x___i32_____i32`. Also **0
+`TRIAL_EMPTY` and 0 `NO_EXPR`** — so the block is healthy, the call simply is
+not on this path.
+
+**This refutes the investigator's claim (b)** that the failing call is reached
+through the FuncVal arm's early return at `function.yo:4988` (it was inferred
+from the emitted specialization-name format, not measured). The C error is
+byte-identical before and after ungating:
+`returning '__yo_t9' … incompatible result type '__yo_t12'`. So the fix must go
+on the path that actually handles it — `evaluate_function_return_type_again` in
+`evaluator/types/function.yo`, which is where the corrected patch in
+`scratchpad/w1-v/patch_corrected.yo` puts it.
+
+### FINDING 3 — under the EXISTING gate, binding `Self` is inert
+
+A/B of emitted C, HEAD (`/tmp/sh155`) vs HEAD+Self-binding (`/tmp/sh165`), over
+the first 60 files of `tests/codegen-bootstrap`: **59 compared, 59
+byte-identical, 0 rc differences.** The gate only fires when substitution left
+SomeTs behind, and a `-> Self` return is already resolved by
+substitution + the adopt step, so no `Self`-mentioning expression reaches the
+block while the gate stands. Firings under the gate are real and DO adopt —
+`in=Box(V) got=<struct:struct_yo_id_5651>` and
+`in=*(<struct:5575>) got=*(<struct:5635>) expr=*(Pair(K, V))` (imm_map's own
+shape) — they are simply never `Self`-shaped.
+
+**Verdict: REVERTED (zero wins).** The ungate is inert for the RED and has a
+wide blast radius (every generic instantiation's C name churns); the Self
+binding is correct-but-inert under the gate. Recorded rather than landed.
+
+### Cost/benefit note for the next attempt
+
+Four probe builds at ~2.5 min each settled this — far cheaper than the ~10 min
+the file's own docs assume. Iterating with `--release` probe builds plus a
+seconds-long standalone repro is the right loop; the expensive part is only the
+sweep.
