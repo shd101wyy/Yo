@@ -2185,3 +2185,46 @@ Order the work as: add the binding source (2) as a THIRD fallback in the
 all-bound loop — leaving the existing where-ENFORCEMENT gating untouched, so no
 impl newly starts being rejected — then re-measure. That keeps the change purely
 additive, which is what the sweep can validate cheaply.
+
+### iter_filter_closure — attempt 1 REJECTED (where-clause binding source; zero wins, reverted)
+
+Implemented exactly the port sketched above and measured: all three arms STILL
+hollow, so it was reverted per the zero-wins rule. What was built (recoverable
+from this description — it is ~70 lines):
+
+- `impl.yo`: a second hook slot `TypeImplementsTraitEnvFn = (t, trait, env) ->
+Option(Environment)` (`Some(env)` = implemented, env carrying the bindings;
+  `Option(Environment)` rather than trait_checking's `TraitCheckResult` because
+  impl.yo cannot import that module), plus `set_type_implements_trait_env_fn`.
+- `trait_checking.yo`: `_implements_env_adapter` wrapping the EXISTING
+  env-returning `type_implements_trait` (`TraitCheckResult{implemented, env}`),
+  wired in `_trait_checking_init`.
+- `try_match_generic_impl`: a THIRD binding source in the all-bound loop, tried
+  only after both structural sources fail, and only for a where-constraint whose
+  trait carries THIS forall in `assoc_constraint_types` (`Item := A`): resolve the
+  constraint's LHS (`I`) in `synth_result.expected_env`, call the env hook, then
+  re-run `_resolve_one_forall_binding` in the RETURNED env.
+
+Since the arms did not change at all, the next question is WHICH of the four
+steps is the no-op. **NEXT PROBE (one build, four prints, all inside the new
+`.None` branch):** (1) did the branch run — print `fa_name2` + the
+where-constraint count; (2) for each constraint, whether
+`assoc_constraint_types` mentions `fa_some2` (print both ids — the forall SomeT
+in the ENTRY may be a different lineage copy than the one in the constraint
+trait, which would make `_same_some_type_id` always false and is the most likely
+culprit); (3) whether the LHS (`I`) resolved, and to what; (4) whether the hook
+was set and what it returned. Note `_check_associated_type_constraints`
+(trait_checking.yo:494) already does the real work and its doc comment even names
+`tests/iter_filter_closure` — so the machinery exists and this is a plumbing
+question, not a missing mechanism.
+
+Also worth trying instead of id-matching: match the assoc-constraint type to the
+forall by NAME (`A`), which sidesteps any lineage-copy mismatch.
+
+**Yo syntax hazard hit while doing this** (cost one build): a python-inserted
+helper whose text ended with the anchor line duplicated it —
+`try_match_generic_impl :: (try_match_generic_impl :: (` — and the parser failed
+with `undefined is not an object (evaluating 'tokens[index].type')`, i.e. an
+unbalanced-delimiter run-off, NOT a message pointing at the duplication. `yo-cli
+fmt <file>` reproduces it instantly and `check` reports a collapsed file count
+(205/305) — run fmt on every python-patched file BEFORE a 9-minute build.
