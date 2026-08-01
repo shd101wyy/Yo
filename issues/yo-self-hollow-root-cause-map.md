@@ -2058,3 +2058,39 @@ poisoning channel. Before blaming dispatch or the spec cache again, check
 whether the SECOND occurrence of a construct behaves differently from the FIRST
 (run the arms individually AND in pairs — that asymmetry is the cheapest
 signal in this whole campaign).
+
+## iter_filter_closure — root LOCATED (all 3 arms, one root): `.next()` on the returned IterFilter finds ZERO methods
+
+Swallowed def-time error (probe: un-silenced `_trial_eval_fn_body`, reverted):
+
+```
+Expected enum type or primitive type (integer, bool) for match expression, got unit
+  … match(result, .Some(v) => …)   ← `result := filtered.next()` typed UNIT
+```
+
+Dispatch probe at `_try_find_receiver_method` (reverted) gives the whole chain:
+
+```
+__DBG_IH filter recv=CountIter                 hits=1
+__DBG_IF filter ret=<struct:struct_yo_id_2933> out=<struct:struct_yo_id_2933>
+__DBG_IH next   recv=<struct:struct_yo_id_2933> hits=0      ← the defect
+```
+
+So `iter.filter(x => …)` is fine and returns the `IterFilter` instance 2933;
+`.next()` on THAT instance resolves to **no method at all**, so the call
+degrades to `unit` and the enclosing `match` throws. `next` for
+`IterFilter(I, F)` comes only from the blanket `impl(IterFilter(I,F),
+Iterator(...))`, so the failure is in the generic-impl fallback of
+`get_receiver_methods_by_name_from_env` (env.yo) → `try_match_generic_impl`
+(values/impl.yo) for that receiver.
+
+**NEXT PROBE:** in `try_match_generic_impl`, gated on the method/trait being
+`Iterator` and the receiver id being the IterFilter instance, print each forall
+name with whether it bound (`_resolve_one_forall_binding` /
+`_bind_forall_from_type_args`) plus the instance's recorded
+`type_arguments`. The prime suspect is `F` — the closure SomeT parameter: an
+IterFilter minted with `F` = the capture struct vs the impl pattern expecting the
+wrapper SomeT (or vice versa) leaves one forall unbound, and the all-bound check
+then rejects the impl. Note this is the same all-bound rejection shape recorded
+for the and_then investigation earlier in this file; the fix there was upstream,
+so re-measure before assuming.
