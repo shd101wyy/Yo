@@ -2822,3 +2822,46 @@ Discriminating variants (all measured):
 - `struct(a : i32, b : i32)` + `y.a` → still hollow, so it is not name-specific.
 - `(y : Point2) = _(x : 5, y : 6)` (NAMED fields) → **rc=1, a HARD error** rather than
   a hollow — likely the same root, louder.
+
+### basic arm 12 — ROOT FOUND and FIXED, but the fix turns the file RED; reverted
+
+Root (`yo-self/evaluator/exprs/_expr.yo`, the `_(...)` dispatch arm): TS reroutes
+`_` to a CONSTRUCTOR CALL of the expected type for EVERY concrete expected type —
+the anonymous-struct fallback runs only when there is no expected type or it is a
+SomeT (`src/evaluator/calls/function.ts:446-476`, guard `!expectedType ||
+isSomeType(expectedType.type)`). yo-self's guard carries an extra conjunct with no
+TS counterpart, `expected_is_anon_struct && !is_some_type(et_ty)`, so a NAMED
+expected struct falls through to `evaluate_anonymous_struct_value`, which mints a
+fresh struct whose positional fields are labelled `__field_<rand>`
+(`src/evaluator/values/anonymous-struct.ts:174` is where TS loses the name in
+_its_ fallback — the point is that TS never takes that fallback here). `y.x` then
+resolves to nothing and evaluates to `unit`.
+
+That narrowing is deliberate and documented —
+`issues/yo-self-anon-struct-literal-expected-type-ctor.md`, landed in `832fc672f`:
+the TS-faithful rule broke stage-2 self-emission (s2 SIGSEGV in the dup/drop
+optimizer at prelude eval, traced to the `ref(struct(min, max))` `IntRange`
+literal in `yo-self/types/utils.yo`).
+
+Measured with the guard restored to exactly TS's (`!(is_some_type(et_ty))`):
+
+- the 3-line repro flips `hollow=1` → `hollow=0`, 1 passed;
+- `check ./yo-self` unchanged at 295/305; all three canaries green; the other
+  seven files unchanged;
+- but **`tests/basic.test.yo` goes HOLLOW → RED** (`rc=1 markers=2`). Un-hollowing
+  the batch main exposes a SECOND, unrelated codegen gap that the hollow main had
+  been hiding:
+
+```c
+static inline __yo_t94 yo_id_6842() {
+  return // Failed to transpile Self(x : 0);
+}
+```
+
+i.e. `Self(x : 0)` — a named-argument constructor call on `Self` — does not emit.
+
+Reverted, because it leaves a file failing hard rather than merely vacuous. The
+change itself is correct and should be re-applied the moment `Self(x : 0)`
+emission is fixed; that is now the blocking item for `basic`, not the `_` guard.
+Do NOT re-apply it without also running the stage-2 fixpoint gate, which is the
+reason the narrowing exists at all.
