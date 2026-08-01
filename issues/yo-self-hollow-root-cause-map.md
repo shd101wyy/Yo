@@ -2084,13 +2084,31 @@ Iterator(...))`, so the failure is in the generic-impl fallback of
 `get_receiver_methods_by_name_from_env` (env.yo) → `try_match_generic_impl`
 (values/impl.yo) for that receiver.
 
-**NEXT PROBE:** in `try_match_generic_impl`, gated on the method/trait being
-`Iterator` and the receiver id being the IterFilter instance, print each forall
-name with whether it bound (`_resolve_one_forall_binding` /
-`_bind_forall_from_type_args`) plus the instance's recorded
-`type_arguments`. The prime suspect is `F` — the closure SomeT parameter: an
-IterFilter minted with `F` = the capture struct vs the impl pattern expecting the
-wrapper SomeT (or vice versa) leaves one forall unbound, and the all-bound check
-then rejects the impl. Note this is the same all-bound rejection shape recorded
-for the and_then investigation earlier in this file; the fix there was upstream,
-so re-measure before assuming.
+**Probe attempt 1 was VACUOUS — do not repeat the gate.** Probes were placed at
+all three failure exits of `try_match_generic_impl` (the `_root_shapes_could_match`
+prefilter, the synthesis-failure handler, and `all_bound = false`) gated on the
+receiver PATTERN being a struct NAMED "IterFilter". They printed NOTHING, which
+looked like "try_match is never reached" — but `IterFilter` is a comptime
+function returning an ANONYMOUS `struct(_inner : I, _f : F)` (std/prelude.yo:7829),
+so the pattern's struct name is empty and the gate could never fire. (Consistent
+with the dispatch probe printing the receiver as a bare
+`<struct:struct_yo_id_2933>` with no name.) Nothing was learned about whether the
+impl is reached; the earlier "never called" reading is withdrawn.
+
+**NEXT PROBE (corrected gate):** gate on the receiver pattern's
+`constructor_func_id` matching the `IterFilter` comptime fn, or structurally on
+its field labels being exactly `_inner` + `_f` — NOT on the struct name. Then
+print, at each of the three exits, which one fires; and in the `all_bound` loop
+print each forall (`I`, `A`, `F`) with whether `_resolve_one_forall_binding` or
+`_bind_forall_from_type_args` supplied it.
+
+Also worth checking in the same run, since it is upstream of try_match: the
+`has_field_with_name` pre-filter in `find_methods_from_generic_impls`
+(values/impl.yo) skips any entry whose `field_names` lack the method name — print
+the field_names of the entry whose pattern is the IterFilter struct to confirm
+`next` is actually there. And note this impl carries TWO where-clauses
+(`I <: Iterator(Item := A)`, `F <: Fn(item : *(A)) -> bool`) while its receiver
+pattern is a STRUCT, so the where-clause enforcement block in
+`try_match_generic_impl` (gated on `is_some_type(pattern)`, i.e. blanket impls
+only) deliberately does NOT run for it — that gate is a documented yo-self
+adaptation, worth re-reading before suspecting it.
