@@ -2490,3 +2490,38 @@ Confirm by instrumenting the TS side once (`YO_TRACE=1`-style print at every thr
 in the ownership pass while compiling just that arm), which costs one TS run and no
 yo-self build — the same counterfactual technique that settled the closure-return
 mechanism earlier in this file.
+
+### imm_map — root SCOPED (read-only): the synthesizer's STRUCT arm lacks the structural fallback its ENUM arm has
+
+Hollowing error: `Cannot unify incompatible types: "*(<struct:struct_yo_id_5595>)"
+and "*(<struct:struct_yo_id_9595>)"`. "Cannot unify" is the SYNTHESIZER's message
+(`evaluator/types/synthesizer.yo`), not `are_types_compatible`'s — so this is the
+struct-vs-struct arm rejecting two instantiations of the same generic struct.
+
+The two arms are ASYMMETRIC today:
+
+- **Struct arm** (synthesizer.yo, `same_constructor3`): accepts only when
+  `exp_id == giv_id` OR the two effective `constructor_func_id`s are equal (with the
+  `lookup_struct_ctor_fid` recovery for a pre-stamp empty cfid). If both sides carry
+  cfids that DIFFER — which happens when the ctor reference was cloned per
+  evaluation era and stamped a different fid — it THROWS.
+- **Enum arm**: has exactly the missing case. Its comment says it outright — "Run
+  the structural fallback whenever the id guard would otherwise reject — including
+  when BOTH sides carry cfids that DIFFER. Two ERA INSTANCES of the same generic
+  enum can carry different cfids … and the id guard then threw 'Cannot unify
+  incompatible enum types' for Option(B)-def-era vs Option(i32)-call-era" — and it
+  falls back to comparing variant-name lists, then lets the per-variant FIELD
+  unification do the real checking.
+
+So the candidate fix is a symmetry fix with an in-tree precedent: give the struct
+arm the same guarded structural fallback — identical `field_labels` (same length,
+same names in order) → proceed to the existing per-field unification instead of
+throwing. The field recursion still rejects genuine mismatches, so this cannot make
+two differently-shaped structs unify; it only stops rejecting on era-stamped
+identity, exactly as the enum arm already does.
+
+Why this is the most attractive remaining item: one site, an existing pattern to
+copy, and it plausibly also covers other era-identity failures (the same class the
+`array` / `for_macro_borrow` canaries guard). Gate it with those two canaries FIRST
+(they are the era-identity tripwires), then `scratchpad/hollow8.sh`, then the full
+sweep.
