@@ -2525,3 +2525,33 @@ copy, and it plausibly also covers other era-identity failures (the same class t
 `array` / `for_macro_borrow` canaries guard). Gate it with those two canaries FIRST
 (they are the era-identity tripwires), then `scratchpad/hollow8.sh`, then the full
 sweep.
+
+#### imm_map — struct-arm fallback attempt REJECTED (zero wins), and the message identifies the REAL throw site
+
+Applied the symmetric structural fallback to the synthesizer's struct arm and
+measured: `imm_map` still hollow, the other 7 unchanged, both era canaries green,
+`check` 295/305. Reverted per the zero-wins rule.
+
+The reason is in the message shape, which I mis-read before: the struct arm throws
+`"Cannot unify incompatible **struct** types"` and the enum arm `"… incompatible
+**enum** types"`, but the observed error is the GENERIC
+
+```
+Cannot unify incompatible types:
+Expected: "*(<struct:struct_yo_id_5595>)"
+Given: "*(<struct:struct_yo_id_9595>)"
+```
+
+which is the FINAL fallthrough throw at `evaluator/types/synthesizer.yo:2104` —
+reached only after every typed arm declined. So the two `*(...)` pointer types never
+reach the struct arm at all: the POINTER-vs-POINTER arm either does not exist for
+this shape or declines before recursing into the pointees.
+
+**NEXT STEP:** at synthesizer.yo:2104, print the two type TAGS (not just
+`type_to_string`) plus whether a Pointer-vs-Pointer arm exists earlier in the
+`recur` chain. If there is no `Pointer` arm that recurses into pointees, that is the
+whole defect and it is a small addition (recurse `pointee` vs `pointee`, mirroring
+TS `synthesizer.ts`'s `TypeTag.Ptr` case). If the arm exists, the pointees are
+reaching it and the struct-level rejection is happening one level down — in which
+case re-try the struct fallback but confirm FIRST (with the same print) that the
+labels really are identical, since that is what made this attempt inert.
