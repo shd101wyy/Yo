@@ -26,7 +26,8 @@ open(import("std/fmt"));
   ast_expr_is_fn_call_of,
   ast_expr_is_atom,
   ast_expr_is_atom_of,
-  BF_DOT
+  BF_DOT,
+  is_function_boundary_arrow
 } :: import("../../expr.yo");
 { is_auto_generated_expansion } :: import("../memory_safety.yo");
 {
@@ -60,7 +61,7 @@ open(import("std/fmt"));
   snapshot_env
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs } :: import("../types/function.yo");
+{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, evaluate_function_parameter_type_again } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
@@ -4073,6 +4074,115 @@ Fix: wrap the call:
                 });
               });
             };
+            // TS re-derives THIS parameter's type in the callee env immediately
+            // BEFORE evaluating the argument (helper.ts:304-317 ->
+            // evaluateFunctionParameterTypeAgain, types/function.ts:2687-2706),
+            // and its argument loop carries `calleeEnv` forward
+            // (helper.ts:1423-1446) — so the bindings synthesized from the
+            // EARLIER arguments are already visible. For
+            // `generic_fn(1, (x) -> (x + 1))` against
+            // `fn(generic(T), x : T, callback : (fn(v : T) -> T)) -> T`,
+            // argument 0 binds `T := i32`, so `callback`'s expected type is the
+            // CONCRETE `fn(v : i32) -> i32`, and newFunctionType spreads it onto
+            // the lambda (anonymous-function.ts:597-638).
+            //
+            // yo-self binds foralls only AFTER the whole argument loop
+            // (`_funcval_bind_foralls`), so the lambda was checked against the
+            // DECLARED `fn(v : T) -> T`, kept a hard-generic type of its own,
+            // and `should_skip_function_codegen`
+            // (codegen/functions/declarations.yo:462) dropped its DEFINITION
+            // while the call site still emitted its registry name — "use of
+            // undeclared identifier 'fn_yo_id_NNNN'". That this is the mechanism
+            // and not a yo-self quirk: TS fails with the SAME error when
+            // `callback` is declared BEFORE `x` (scratchpad/w2/c4.yo), because
+            // then `T` is unbound there for TS too. Its only protection is
+            // argument order.
+            //
+            // Deliberately narrow (a staging gate, NOT a TS-faithful condition —
+            // TS re-derives every parameter type unconditionally): only a
+            // function-boundary-arrow argument whose declared parameter type is
+            // a plain `.Func` carrying an unresolved binder, and only when the
+            // re-derivation lands a FULLY CONCRETE function type. A SomeT /
+            // `Impl(Fn)` parameter coerces through closure_type.yo instead, and
+            // widening this regressed codegen-bootstrap/closure_where_clause_param
+            // twice before.
+            if(vs_override.is_none() && (ai < n_p), {
+              lp_decl := match(fv_param_types.get(ai),.Some(t) => t,.None => t_unit());
+              lp_go := (
+                (is_function_boundary_arrow(arg_expr_eff) && is_function_type(lp_decl))
+                && (get_all_some_types(lp_decl).len() > usize(0))
+              );
+              if(lp_go, {
+                _lpf := env.push_frame(false);
+                lp_se := Environment.new(env.module_path);
+                lp_ct_flags := get_func_param_comptime(func_id_fv.clone());
+                (lp_j : usize) = usize(0);
+                while(lp_j < ai, {
+                  lp_dpt := match(fv_param_types.get(lp_j),.Some(t) => t,.None => t_unit());
+                  match(
+                    evaled_arg_infos.get(lp_j),
+                    .Some(lp_info) => {
+                      // Same comptime literal lowering `_funcval_bind_foralls`
+                      // applies (see the `fa_infer_ty` cond above): a
+                      // RUNTIME parameter must bind its forall to the
+                      // CONVERTED type, so `generic_fn(1, …)` infers
+                      // `T = i32` and not `T = comptime_int`. TS's inference
+                      // likewise sees the converted runtime type — its
+                      // specialization keys read `i32_idi32`. Measured
+                      // without this: the override came out as
+                      // `fn(v : comptime_int) -> comptime_int`.
+                      (lp_aty : TypeValue) = lp_info.ty;
+                      lp_j_ct := match(lp_ct_flags.get(lp_j),.Some(f) => f,.None => false);
+                      if((!(lp_j_ct)) && (is_comptime_int_type(lp_aty) || is_comptime_float_type(lp_aty)), {
+                        lp_aty = convert_comptime_type_to_runtime_type(lp_aty, env);
+                      });
+                      _funcval_try_synthesize_param(lp_dpt, lp_se, lp_aty, env);
+                    },
+                    .None => ()
+                  );
+                  lp_j = (lp_j + usize(1));
+                });
+                (lp_k : usize) = usize(0);
+                while(lp_k < forall_names.len(), {
+                  lp_fn := match(forall_names.get(lp_k),.Some(nm) => nm,.None => String.new());
+                  lp_vars := get_variables_from_env(lp_se, lp_fn.clone());
+                  if(lp_vars.len() > usize(0), {
+                    match(
+                      lp_vars.get(lp_vars.len() - usize(1)),
+                      .Some(lp_v) => match(
+                        lp_v.value.get(usize(0)),
+                        .Some(lp_val) => match(
+                          lp_val,
+                          .TypeVal(lp_tb) => if(!(is_some_type(lp_tb)), {
+                            add_variable_to_env(
+                              env,
+                              lp_fn.clone(),
+                              TypeValue.TypeUni(usize(0)),
+                              Option(EvalValue).Some(EvalValue.TypeVal(lp_tb.clone())),
+                              true,
+                              false,
+                              false,
+                              false,
+                              synthetic_token(lp_fn.clone(), env.module_path)
+                            );
+                            ()
+                          }),
+                          _ => ()
+                        ),
+                        .None => ()
+                      ),
+                      .None => ()
+                    );
+                  });
+                  lp_k = (lp_k + usize(1));
+                });
+                lp_res := evaluate_function_parameter_type_again(lp_decl, env, ctx);
+                env.pop_frame();
+                if(is_function_type(lp_res) && (get_all_some_types(lp_res).len() == usize(0)), {
+                  vs_override = Option(TypeValue).Some(lp_res);
+                });
+              });
+            });
             // Evaluate the arg with expectedType = the DECLARED PARAM TYPE
             // (helper.ts:330) — leaving the caller's expected type in place
             // leaked e.g. a single-expr fn body's expected `bool` into the

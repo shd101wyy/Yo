@@ -3378,3 +3378,70 @@ Four probe builds at ~2.5 min each settled this — far cheaper than the ~10 min
 the file's own docs assume. Iterating with `--release` probe builds plus a
 seconds-long standalone repro is the right loop; the expensive part is only the
 sweep.
+
+---
+
+## 2026-08-02 — LANDED: lambda argument to a generic callee's `fn(...)` parameter (fn blk12)
+
+**Defect.** `generic_fn(1, (x) -> (x + 1))` against
+`fn(generic(T : Type), x : T, callback : (fn(v : T) -> T)) -> T` failed to
+compile under yo-self: `error: use of undeclared identifier 'fn_yo_id_2995'`.
+TS compiles it and the binary runs. 8-line repro: `scratchpad/w2/c1.yo`.
+
+**Root.** yo-self evaluates ALL arguments and only then binds the `generic`
+parameters (`_funcval_bind_foralls`, after the argument loop closes). TS
+interleaves: it re-derives each parameter type in the callee env immediately
+BEFORE evaluating that argument (`src/evaluator/calls/helper.ts:304-317` →
+`evaluateFunctionParameterTypeAgain`, `src/evaluator/types/function.ts:2687-2706`)
+and carries `calleeEnv` forward across the loop
+(`helper.ts:1423-1446`). So argument 0 binds `T := i32`, and `callback`'s
+expected type is the CONCRETE `fn(v : i32) -> i32`, which
+`newFunctionType` spreads onto the lambda
+(`anonymous-function.ts:597-638`). yo-self bound nothing yet, so the lambda
+was checked against the declared `fn(v : T) -> T`, kept a hard-generic type of
+its own, and `should_skip_function_codegen`
+(`codegen/functions/declarations.yo:462`) dropped its DEFINITION while the call
+site still emitted its registry name.
+
+**Decisive evidence this is the mechanism, not a yo-self quirk:** TS fails with
+the SAME error when `callback` is declared BEFORE `x` (`scratchpad/w2/c4.yo`,
+`use of undeclared identifier 'fn_yo…_id_36'`) — TS's only protection is
+argument order. Verified: yo-self rc=1 and TS rc=1 on c4, i.e. parity.
+
+**Fix.** In the argument loop, when the argument is a function-boundary arrow
+and the declared parameter type is a plain `.Func` carrying an unresolved
+binder, synthesize from the EARLIER arguments into a scratch env, copy the
+binders that resolved to a non-SomeT into one call-local frame, and re-derive
+the parameter type through yo-self's OWN exported port of the TS function —
+`evaluate_function_parameter_type_again` (`evaluator/types/function.yo:4522`) —
+then use the result as the argument's expected type via the existing
+`vs_override` channel. Frame is popped immediately.
+
+**Second, necessary half — comptime literal lowering.** The first build produced
+`res=fn(v : comptime_int) -> comptime_int` and did NOT fix the repro. A RUNTIME
+parameter must bind its forall to the CONVERTED type
+(`convert_comptime_type_to_runtime_type`), exactly as the `fa_infer_ty` cond in
+`_funcval_bind_foralls` already does and gated the same way on
+`get_func_param_comptime`. With it: `res=fn(v : i32) -> i32`, matching TS's
+`i32_idi32` specialization keys.
+
+**The guard set is an invented STAGING GATE, not a TS-faithful condition.** TS
+re-derives every parameter type unconditionally; the "arrow ∧ plain `.Func` ∧
+has-SomeT ∧ result-fully-concrete" conjunction is risk-limiting, because
+widening it to SomeT / `Impl(Fn)` parameters (which coerce through
+`closure_type.yo`) regressed `codegen-bootstrap/closure_where_clause_param`
+twice in earlier rounds. Widening it later is a separate, measurable step.
+
+**Gates (all clean, `/tmp/sh169`):** c1 rc=1→rc=0 with a real definition emitted
+and the binary running; c4 TS-parity; `closure_where_clause_param` prints `ok`
+under both binaries; canaries `array` / `for_macro_borrow` /
+`closure_capture_rc_leak` GREEN; hollow8 identical to baseline; TIER-1 battery
+identical; corpus diff-test `PASS 148 DIFF 0 SELF-FAIL 1` — the same single
+pre-existing `closure_impl_fn_capture.yo` failure as HEAD; `check ./std`
+153/153; `check ./yo-self` 295/305.
+
+**Does NOT flip `fn` to GREEN.** `tests/fn.test.yo` stays `hollow=1`: its other
+blocker is blk10 (`x : Tuple(T, T)` — the shallow-vs-deep predicate), whose fix
+is measured but crashes `imm_map` and must be paired with the missing enum
+C-type registration. Score unchanged at 177/7/1; this removes one of `fn`'s two
+blockers and fixes a defect that had a standalone reproducer.
