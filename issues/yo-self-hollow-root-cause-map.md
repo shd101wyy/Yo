@@ -2390,3 +2390,38 @@ shared unit-degradation signature — bisect first, they may be one root).
 Reuse `scratchpad/hollow8.sh` (the 9-file ~12-minute gate) for any of them, and
 note the harvest trick itself: keep one un-silenced-swallow binary around, because
 every hollow file's root cause is one `grep __DBG_F | tail -1` away with no rebuild.
+
+### higher_kinded_types — root SCOPED (read-only): substitution keeps `TypeApp` symbolic instead of APPLYING it
+
+Hollowing error: `Expected enum type or primitive type (integer, bool) for match
+expression, got TypeApp(fn(T : Type) -> Type, [i32])` at
+`match(result, .Some(v) => …)` where `result := identity(generic(Option, i32), x)`.
+
+Read-only survey of BOTH compilers (no builds):
+
+- yo-self has **no TypeApp reduction anywhere**. Every `TypeAppT` site is
+  construction, structural traversal (`get_all_some_types`, the occurs check,
+  `type_contains_some_type`'s `=> true`), or a boolean test. In particular
+  `types/substitution.yo:347-355` substitutes INTO a `TypeAppT` and rebuilds
+  `TypeAppT(recur(constructor), new_args)` — it stays symbolic even when the
+  constructor has just become concrete.
+- TS does not reduce it _at the receiver_ either: `src/env.ts:1719` keeps
+  `TypeApplication` symbolic and finds METHODS through
+  `getWhereClauseConstraintsForTypeApplication`. And
+  `plans/HIGHER_KINDED_TYPES.md:223` states the intended equivalence rule
+  explicitly: **`TypeApp(F, [A]) ≡ ConcreteType` — only if the constructor is
+  resolved and the application yields ConcreteType.**
+
+So the missing mechanism is that equivalence/reduction: once `F` is bound to a
+real type constructor (here `Option`), `TypeApp(F, [A])` must APPLY it and become
+`Option(i32)`. The natural place is the `TypeAppT` arm of `substitute()` — when the
+substituted constructor is a concrete comptime type constructor, CALL it with the
+substituted args and return the result instead of a rebuilt `TypeAppT`.
+
+Constraint to plan around: `types/substitution.yo` cannot import the evaluator, so
+applying a comptime constructor needs the same hook pattern already used for
+`_g_find_methods_from_generic_impls_fn` / `g_type_implements_trait_fn` — a slot set
+from `evaluator/calls/comptime_fn.yo`'s init. Fall back to the current symbolic
+rebuild whenever the constructor is still a SomeT or the hook is unset, so nothing
+that works today changes. Gate with `scratchpad/hollow8.sh`, then the full sweep
+(substitution is used everywhere).
