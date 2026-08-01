@@ -2112,3 +2112,76 @@ pattern is a STRUCT, so the where-clause enforcement block in
 `try_match_generic_impl` (gated on `is_some_type(pattern)`, i.e. blanket impls
 only) deliberately does NOT run for it — that gate is a documented yo-self
 adaptation, worth re-reading before suspecting it.
+
+### iter_filter_closure — ROOT PINNED: the forall `A` is where-clause-only and never bound
+
+With a WORKING structural gate (the pattern is an anonymous `struct(_inner, _f)`,
+so match on the field labels, never the name) the chain is fully measured:
+
+```
+__DBG_IG  entry pattern=IF hasfield=true fields=,Item,next recv=<struct:2933>
+__DBG_IG    try_match=false
+__DBG_IG2 UNBOUND forall=A some=A
+__DBG_IG2 after-bindings all_bound=false nbind=1
+```
+
+The prelude impl (std/prelude.yo:7832) is
+
+```rust
+impl(
+  generic(I : Type, A : Type, F : Type),
+  where(I <: Iterator(Item := A), F <: (Fn(item : *(A)) -> bool)),
+  IterFilter(I, F),                      // = struct(_inner : I, _f : F)
+  Iterator(Item : A, next : …)
+)
+```
+
+`A` appears NOWHERE in the receiver pattern — it is determined ONLY by the
+where-clauses. So both binding sources yo-self has fail by construction:
+`_resolve_one_forall_binding` (nothing structural to unify) and
+`_bind_forall_from_type_args` (the instance's type_arguments are `[I, F]`). The
+all-bound check then rejects the impl, `.next()` finds zero methods, and the call
+degrades to `unit`.
+
+**TS's mechanism, verbatim (src/evaluator/values/impl.ts:2418-2435), and its
+comment names this exact case:**
+
+```ts
+// Use the full typeImplementsTrait (not Bool) so that bindings produced
+// during trait satisfaction (e.g. synthesizing `A=i32` from
+// `F <: Fn(item:A)->B` against `fn(item:i32)->i32`) are propagated back
+// into expectedEnv.  This is necessary for generic params that are only
+// constrained through where-clauses (not struct fields) to appear in the
+// final substitutions map …
+const { implemented, env: afterConstraintEnv } = typeImplementsTrait({
+  targetType: boundType,
+  traitType: actualConstraintTrait,
+  env: expectedEnv,
+});
+if (!implemented) return noMatch;
+expectedEnv = afterConstraintEnv; // ← this is what binds A
+```
+
+TS runs the where-constraint check for EVERY impl, threads `expectedEnv` through
+`typeImplementsTrait`, and takes the RETURNED env — so satisfying
+`I <: Iterator(Item := A)` against `CountIter` binds `A := i32`. It also
+re-evaluates the constraint's trait EXPRESSION in that env first (impl.ts:2355-
+2377), which is how `Iterator(Item := A)` becomes `Iterator(Item := i32)`.
+
+**Two yo-self gaps to close (next round, in this order):**
+
+1. `try_match_generic_impl`'s where-clause block is gated on
+   `is_some_type(entry.receiver_type_pattern)` — BLANKET impls only (a
+   deliberate, documented adaptation because yo-self's trait-implements
+   predicate is incomplete). `IterFilter(I, F)` is a struct pattern, so the
+   block never runs and no constraint can ever contribute a binding.
+2. yo-self's hook is `g_type_implements_trait_fn`, a BOOL predicate — it has no
+   env to propagate. Porting TS faithfully needs an env-returning variant (or a
+   narrower first step: for a where-constraint whose trait carries an
+   associated-type binding `Item := <forall SomeT>`, read that associated type
+   off the bound receiver's impl and bind the forall from it).
+
+Order the work as: add the binding source (2) as a THIRD fallback in the
+all-bound loop — leaving the existing where-ENFORCEMENT gating untouched, so no
+impl newly starts being rejected — then re-measure. That keeps the change purely
+additive, which is what the sweep can validate cheaply.
