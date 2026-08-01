@@ -2228,3 +2228,55 @@ with `undefined is not an object (evaluating 'tokens[index].type')`, i.e. an
 unbalanced-delimiter run-off, NOT a message pointing at the duplication. `yo-cli
 fmt <file>` reproduces it instantly and `check` reports a collapsed file count
 (205/305) — run fmt on every python-patched file BEFORE a 9-minute build.
+
+### iter_filter_closure — attempt 2 REJECTED, but it MEASURED the real root: the where-constraint is registered UNPARAMETERIZED
+
+Re-applied the third binding source with NAME matching (the recorded suspicion
+about lineage-copy ids) plus four diagnostics. All three arms unchanged, so
+reverted again — but the diagnostics identify the actual defect, one level
+upstream, and explain why NO binding source could ever have worked:
+
+```
+__DBG_W1 unbound forall=A nwc=1
+__DBG_W1   wc[0] lhs=I natc=0 mentions=false
+```
+
+Two facts, both from registration, not from matching:
+
+1. **`natc=0`** — the recorded constraint trait for `I <: Iterator(Item := A)`
+   carries an EMPTY `assoc_constraint_types`. The `Item := A` argument is gone,
+   so nothing links the constraint to the binder `A`.
+2. **`nwc=1`** — only ONE where-constraint was recorded, though the impl declares
+   TWO (`I <: Iterator(Item := A)` and `F <: (Fn(item : *(A)) -> bool)`). The
+   `Fn(...)` one is dropped entirely.
+
+Cause: `_collect_impl_where_constraints` resolves each constraint trait through
+`_try_lookup_trait_type` (values/impl.yo), whose FAST PATH walks the expression to
+its LEFTMOST ATOM (`Iterator`) and looks that bare name up in the env — returning
+the UNPARAMETERIZED `Iterator` TraitT and discarding the `Item := A` argument.
+The same path finds nothing for `Fn(item : *(A)) -> bool` (no atom-bound TraitT),
+which is why that constraint vanishes.
+
+TS does not have this problem because `whereConstraints` keeps the constraint
+EXPRESSION (`traitExpr`) and re-evaluates it in the unify env
+(src/evaluator/values/impl.ts:2355-2377), so `Iterator(Item := A)` becomes a
+SPECIALIZED trait whose associated-type constraint is `A`; satisfying it then
+binds `A` (impl.ts:2418-2435, the mechanism attempt 1/2 ported).
+
+**NEXT ROUND — fix registration first, then re-apply the (already-written) third
+source:**
+
+1. In `_try_lookup_trait_type`, do NOT take the atom fast path when the trait
+   expression is a CALL with arguments — evaluate the full expression in
+   `forall_env` (where each forall name is bound to its SomeT) and record the
+   resulting specialized `TraitT`. Keep the fast path for a bare atom.
+2. Verify with the same diagnostics that `natc` becomes 1 and `nwc` becomes 2 for
+   the IterFilter entry.
+3. Re-apply attempt 2's third binding source verbatim (env-propagating hook slot
+   in impl.yo + `_implements_env_adapter` over the existing
+   `type_implements_trait`, which already returns `TraitCheckResult{implemented,
+env}` + the `.None` fallback keyed on the constraint trait's
+   assoc-constraint NAME). It is correct by construction; it simply had no data.
+4. Gate: the arm scan, then the full sweep (this touches how EVERY generic impl's
+   where-constraints are recorded, so a regression would be broad — measure
+   before believing).
