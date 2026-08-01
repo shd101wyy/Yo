@@ -2322,3 +2322,30 @@ round: re-apply (1) + (2), then fix the `implClosureCallMap` key/registration fo
 a closure param bound inside a SPECIALIZED generic-impl method, then re-measure
 the arms, then gate with the full sweep (step (1) changes how EVERY generic impl's
 where-constraints are recorded — a regression there would be broad).
+
+#### iter_filter — codegen layer scoped (read-only, no build)
+
+The closure-call lookup side is NOT the bug. `other_fn_call.yo:1687` keys
+`impl_closure_call_map` off `resolve_some_type_to_concrete(callee_expr_info.ty)`,
+and that helper (closures.yo) already walks the SomeT chain to its END — per-object
+`resolved_concrete` cell first, then the id registry — so setter and lookup do use
+the same capture-struct key whenever the type HAS a resolution.
+
+Therefore `// Failed to transpile (self._f)(&(item))` means the field type reaching
+codegen (`self._f`, i.e. the impl's forall `F` on the specialized receiver) carries
+NO resolution in the specialized body: neither its cell nor the registry maps it to
+the capture struct, so `cc_id` stays the bare SomeT id, the map misses, and the
+emitter falls through to the fn-ptr cast (which cannot cast a capture struct).
+
+**So the remaining fix is on the SPECIALIZATION side, not the lookup side:** when
+`try_match_generic_impl` binds `F` (to the closure wrapper / capture struct) and the
+method is specialized for `IterFilter(I, F)`, that binding must reach the receiver
+instance's `_f` FIELD type — either by substituting the field types with the match
+bindings when minting the specialized receiver, or by stamping the field SomeT's
+`resolved_concrete` cell from the binding. Note the mint already does exactly this
+kind of stamp for a closure PARAMETER (helper.yo's per-spec `…_capbind_…` rebuild,
+which seeds a fresh cell with the capture struct) — the same treatment is what a
+closure-typed FIELD of the specialized receiver needs.
+
+Order for the next round is unchanged: re-apply the two evaluator changes
+(attempt 3), then this field-type stamp, then arms → sweep.
