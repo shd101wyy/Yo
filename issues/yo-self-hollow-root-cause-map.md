@@ -3445,3 +3445,63 @@ blocker is blk10 (`x : Tuple(T, T)` — the shallow-vs-deep predicate), whose fi
 is measured but crashes `imm_map` and must be paired with the missing enum
 C-type registration. Score unchanged at 177/7/1; this removes one of `fn`'s two
 blockers and fixes a defect that had a standalone reproducer.
+
+---
+
+## 2026-08-02 — imm_map's enum-registration abort reproduces on HEAD (independent of patch A)
+
+**New measurement.** `scratchpad/w5/per/entries.yo` (9 lines: build a
+`Map(i32,i32)`, call `.entries()`, assert the length) aborts under
+**HEAD's own binary** — this is NOT something the deep-predicate patch
+introduces:
+
+| binary                               | result                                                                                                                  |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `/tmp/sh169` (HEAD, 15f5a5faf)       | **rc=134** `get_enum_variant_c_name: no C type name found for enum <enum:enum_yo_id_8100>` / `enum type not registered` |
+| `/tmp/sh157` (HEAD + deep predicate) | rc=134, same abort, `enum_yo_id_8136`                                                                                   |
+| `./yo-cli` (TS)                      | **rc=0**                                                                                                                |
+
+`tests/imm_map.test.yo` reports rc=0/HOLLOW only because the batch's def-time
+eval swallows the failure; standalone it aborts. So this is very likely
+imm_map's own hollow root, and it is a **pre-existing RED-class defect** that
+the shallow predicate merely kept out of reach. That also means the earlier
+`HOLLOW → rc=134` flip was the deep predicate _unmasking_ this, exactly as
+recorded — but the abort itself needs no patch A to reproduce, so it can be
+fixed and gated on its own, cheaply.
+
+### Port difference at the panic site
+
+`src/codegen/utils/index.ts:835-847` `getEnumVariantCName` looks the enum up by
+its **stable id**:
+
+```ts
+const enumCName = context.types[enumType.id]?.cName;
+```
+
+`yo-self/codegen/utils/index.yo:1058` looks it up by the **structural**
+`type_key` via `get_type_c_name(type_key(enum_type))`, and `type_key` renders a
+generic instance as `gs_<ctor_fid>_<type_arguments>`
+(`types/type_key.yo:137`). So in TS every era/clone variant of the same enum
+finds the entry; in yo-self an instance whose `type_arguments` differ from the
+registered one misses. `entries` returns `List(Pair(K, V))` — a generic enum
+whose argument is itself a generic instance, i.e. exactly the composite shape
+where the two keys can diverge.
+
+yo-self already has the machinery for this: `register_type_alias` /
+`get_type_entry` ("the stable-identity dedup in `collect_type`",
+`codegen/utils/index.yo:313-330`) follow one alias level, and
+`stable_type_identity` is exported from `types/type_key.yo`. The abort means
+neither the primary key nor an alias exists for this instance.
+
+**Next step (not yet attempted):** determine whether the instance is never
+collected at all, or collected under a divergent key. If the latter, the
+faithful fix is an id-keyed fallback in the lookup, mirroring TS's
+`context.types[enumType.id]`. If the former, the gap is in `collect_type`'s
+reachability walk for a generic enum whose type argument is itself a generic
+instance. Do NOT turn the panic into a marker — that relocates an undefined C
+identifier downstream (the blk12 class).
+
+**Why this is the highest-value next target:** it is a standalone ~40 s repro,
+it plausibly flips `imm_map`, and it is the blocker that keeps the measured
+deep-predicate fix (which flips `fn` blk10 and imm_map's `remove`) from
+landing. One fix, two files.
