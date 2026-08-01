@@ -3192,3 +3192,24 @@ which is the only shape yo-self's collector currently walks
 (`ei.closure_function_value`, collection.yo:528) — must still be added to the
 emit set. This is the last of the four defects in `fn` arm 9 alongside blk10
 (tuple-generic parameter).
+
+#### blk12 — collection-site attempt REJECTED (inert); the arg is never VISITED
+
+Tried the obvious fix: in `codegen/functions/collection.yo`, extend the
+`ei.closure_function_value` branch with the documented `.None` fallback
+(`anonymous_function.yo` records the FuncVal on `info.value`), gated on
+`is_function_boundary_arrow(expr)` so only real `->` / `=>` / `(fn(…) -> T)(body)`
+lambdas are collected and a bare reference to a named generic function is not.
+
+Built and measured: **byte-identical failure** — `use of undeclared identifier
+'fn_yo_id_4978'` (and a second one for the `bool` instantiation). Reverted.
+
+That is a useful negative: the lambda's ExprInfo is not the problem, because the
+collector **never visits that argument expression at all**. The next probe should
+therefore be in the FnCall branch of `find_function_calls_in_expr`, not at the
+ExprInfo fallback — TS explicitly guards this case
+(`src/codegen/functions/collection.ts:389-400`): "Skip collecting functions that
+are generic and haven't been specialized. **BUT still recurse into args** — they
+may contain closure constructions … or other functions that". Check whether
+yo-self's corresponding early-out returns WITHOUT recursing into `args` for a
+generic-unspecialized callee; `generic_fn` is exactly that shape.
