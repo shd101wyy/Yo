@@ -2280,3 +2280,45 @@ env}` + the `.None` fallback keyed on the constraint trait's
 4. Gate: the arm scan, then the full sweep (this touches how EVERY generic impl's
    where-constraints are recorded, so a regression would be broad — measure
    before believing).
+
+### iter_filter_closure — attempt 3: the REGISTRATION FIX WORKS (hollowing GONE); next blocker is closure-call emission
+
+Applied both recorded steps together and measured. **The hollowing is
+eliminated** — all three arms go `hollow=1` → **`hollow=0`**: the batch main's
+def-time eval now succeeds, which means the blanket `Iterator` impl for
+`IterFilter(I, F)` finally MATCHES and `.next()` resolves to a real method.
+
+The two changes (reverted for now — see below, but they are RIGHT and should be
+re-applied first thing next round):
+
+1. **`_try_lookup_trait_type` (values/impl.yo) — the root.** Gate the atom fast
+   path on the TRAIT EXPRESSION itself being an atom:
+   `if(ast_expr_is_atom(trait_expr) && ast_expr_is_atom(head_expr), …)`.
+   Previously any parameterized trait expr (`Iterator(Item := A)`) walked to its
+   leftmost atom and returned the UNPARAMETERIZED `Iterator` TraitT, discarding
+   the arguments. The slow path right below it already evaluates the full
+   expression (that is yo-self's equivalent of TS keeping `traitExpr`) — the fix
+   is simply to stop short-circuiting past it.
+2. **The third binding source** in `try_match_generic_impl`'s all-bound loop,
+   plus the env-propagating hook (`TypeImplementsTraitEnvFn` slot +
+   `set_type_implements_trait_env_fn` in impl.yo, `_implements_env_adapter` over
+   the existing `type_implements_trait` in trait_checking.yo), keyed on the
+   constraint trait's assoc-constraint NAME matching the binder.
+
+**Why it was reverted:** with the impl matching, emission proceeds and hits TWO
+NEW failures downstream (arm0 `rc=1`, arms 1-2 SIGSEGV in the C compiler stage):
+
+- `// Failed to transpile (self._f)(&(item))` — the CLOSURE-PARAM CALL inside the
+  specialized blanket-impl body does not emit. This is precisely what this test
+  file's own header describes ("closure-call dispatch through
+  `implClosureCallMap` … both sides must walk the SomeType→concrete chain to its
+  end so the same key is used in setter and lookup"), so start there.
+- C type mismatches of the era-identity kind (`initializing '__yo_t21' with an
+expression of incompatible type '__yo_t15'`) around the same body.
+
+So the file's remaining distance is entirely in CODEGEN for the specialized
+blanket-impl body, not in the evaluator's impl matching. Sequence for the next
+round: re-apply (1) + (2), then fix the `implClosureCallMap` key/registration for
+a closure param bound inside a SPECIALIZED generic-impl method, then re-measure
+the arms, then gate with the full sweep (step (1) changes how EVERY generic impl's
+where-constraints are recorded — a regression there would be broad).
