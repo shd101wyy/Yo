@@ -60,7 +60,7 @@ open(import("std/fmt"));
   snapshot_env
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_variadic_param, get_func_param_type_exprs } :: import("../types/function.yo");
+{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
@@ -1719,6 +1719,81 @@ _evaluate_funcval_runtime_call :: (
   // inline FuncVal arm is yo-self's second call path and needs
   // the same resolution.
   resolved_ret = evaluate_function_return_type_again(resolved_ret, fresh_env, ctx);
+  // HKT: TS resolves a call's return type by RE-EVALUATING the declared
+  // return-type EXPRESSION in the callee env (helper.ts:1533-1546 ->
+  // types/function.ts:2822-2836), so `-> F(A)` with the type constructor
+  // `Option` bound to `F` routes through evaluate_function_call's ordinary
+  // comptime-call path and REDUCES to `Option(i32)`. TS builds a
+  // TypeApplication only while the callee is still an abstract SomeT with a
+  // kind function type (calls/function.ts:1345-1394); there is no TypeApp
+  // reduction function in TS at all. yo-self resolves by value-space
+  // substitution, which can never APPLY a constructor — and for an HKT binder
+  // it substitutes the FuncVal's TYPE into the constructor slot, which is the
+  // `TypeApp(fn(T : Type) -> Type, [i32])` that reaches match.yo. Run the same
+  // re-evaluation the mint already runs (helper.yo's rte block), gated on the
+  // DECLARED return mentioning a kind-annotated binder — the one shape
+  // substitution cannot resolve. Read the flag off `ret_type`, not
+  // `resolved_ret`: substitute() drops `kind_function_type` when it rebuilds an
+  // unsubstituted SomeT (types/substitution.yo).
+  (hkt_ret_binder : bool) = false;
+  {
+    hkt_somes := get_all_some_types(ret_type);
+    (hkt_i : usize) = usize(0);
+    while((hkt_i < hkt_somes.len()) && !(hkt_ret_binder), {
+      match(
+        hkt_somes.get(hkt_i),
+        .Some(hkt_st) => match(
+          hkt_st,
+          .SomeT({ kind_function_type : hkt_kft }) => match(
+            hkt_kft,
+            .Some(_) => {
+              hkt_ret_binder = true;
+            },
+            .None => ()
+          ),
+          _ => ()
+        ),
+        .None => ()
+      );
+      hkt_i = (hkt_i + usize(1));
+    });
+  };
+  // Generalized beyond the HKT binder to TS's actual rule. TS ALWAYS resolves a
+  // call's return type by re-evaluating the expression; yo-self resolves by
+  // substitution and only falls back here. So also re-evaluate whenever
+  // substitution left SomeTs behind — the same gate the MINT path uses
+  // (helper.yo's rte block). That is the case for a forall bindable only by a
+  // where clause: `local_map_to`'s `where(Self <: Iterator(Item := A),
+  // F <: (Fn(a : A) -> B))` DOES bind A and B in the callee env (measured), but
+  // substitution rewrites the DECLARED return's own SomeT copies, which are a
+  // different lineage, so `LocalMapIter(Self, A, B, F)` kept raw SomeT ids and
+  // minted a second instantiation of the constructor — two C structs with the
+  // same layout that do not typecheck against each other
+  // (tests/where_clause_fn_inference). Re-evaluating the EXPRESSION resolves
+  // A and B by NAME and routes the instantiation through the ctor memo, which
+  // is exactly what TS gets for free. Adoption stays conservative: only a
+  // SomeT-free, non-unit result overrides.
+  (rre_wanted : bool) = (hkt_ret_binder || (get_all_some_types(resolved_ret).len() > usize(0)));
+  if(rre_wanted, {
+    match(
+      get_func_return_type_expr(func_id_fv.clone()),
+      .Some(hkt_expr) => {
+        hkt_prev_fnty := ctx.is_evaluating_function_type;
+        ctx.is_evaluating_function_type = true;
+        hkt_out := ArrayList(TypeValue).new();
+        _trial_eval_ret_type_expr(clone_expr_fresh_ids(hkt_expr), fresh_env, ctx, hkt_out);
+        ctx.is_evaluating_function_type = hkt_prev_fnty;
+        match(
+          hkt_out.get(usize(0)),
+          .Some(hkt_ty) => if((get_all_some_types(hkt_ty).len() == usize(0)) && !(is_unit_type(hkt_ty)), {
+            resolved_ret = hkt_ty;
+          }),
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+  });
   // For functions returning a plain Impl(...) (SomeType), stamp the call
   // result's resolved-concrete from the callee BODY's def-time-evaluated
   // type — faithful port of function.ts:2080-2100 (`finalReturnType =

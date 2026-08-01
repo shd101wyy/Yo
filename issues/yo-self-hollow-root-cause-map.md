@@ -2609,3 +2609,216 @@ Two lessons for the next round, both cheap to honour:
 2. **`__DBG_F` last-line ≠ the batch main's error when other errors follow.** Pin it
    by matching the printed source location to `.yo_selftest_batch_*.yo`, not by
    position in the log.
+
+## HONEST RE-HARVEST (2026-08-01, probe binary /tmp/sh141 built from HEAD)
+
+Rebuilt the un-silenced-swallow binary from HEAD (the previous harvest used the
+stale `/tmp/sh129`) and pinned each file's error by MODULE PATH, not by log
+position — `scratchpad/harvest_roots.py` splits the log into swallow records and
+reports the one whose token location is in `.yo_selftest_batch_*.yo`;
+`scratchpad/caret_window.py` slices the giant one-line batch arm around the
+caret so the failing sub-expression is readable. Every file had exactly ONE
+in-batch record, so attribution is unambiguous this time.
+
+| file                        | throw location             | error                                                                                                     | failing sub-expression                                                                                                   |
+| --------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `where_clause_fn_inference` | batch arm (the `map` decl) | `Variable "A" not found.`                                                                                 | `LocalMapIter(Self, A, B, F)` in the return type of `map` — `A` occurs ONLY in `where(Self <: Iterator(Item := A))`      |
+| `iter_filter_closure`       | batch arm 0                | `Expected enum type or primitive type for match expression, got unit`                                     | `(filtered.next)()` → unit: the blanket `Iterator` impl for `IterFilter(I, F)` does not match                            |
+| `iterator_combinators`      | `std/prelude.yo:8015`      | `Type mismatch for type member "_f": Expected fn(item : i32) -> i32, Got F : (Fn(A) -> B + Fn(i32) -> B)` | `IterMap(Self, B, F)(_inner : self, _f : f)` — same `where(Self <: Iterator(Item := A), F <: Fn(a : A) -> B)` shape      |
+| `higher_kinded_types`       | batch arm 0                | `... got TypeApp(fn(T : Type) -> Type, [i32])`                                                            | `match(result, …)` where `result := identity(generic(Option, i32), x)`                                                   |
+| `async_await`               | batch arm 65               | `Expected Impl(Future(i32) Ctx : Ctx), Given Impl(Future(T) E : E)`                                       | `(task : Impl(Future(i32, Ctx))) = (io.async)((ctx : Ctx) => …)` — `T`/`E` never bound from the closure                  |
+| `prelude`                   | batch arm 1                | `Cannot unify: Expected "bool", Given "unit"`                                                             | `assert((x.is_ok)())` where `x := (EvenNumber.try_from)(i32(4))` — two `TryFrom` impls                                   |
+| `basic`                     | batch arm 12               | `Cannot unify: Expected "bool", Given "unit"`                                                             | `assert((y.x) == 5)` where `(y : Point2) = _(5, 6)` (underscore struct literal), after `(z : Point2) = y`                |
+| `fn`                        | batch arm 9                | `Cannot unify: Expected "bool", Given "unit"`                                                             | `assert(x == true)` where `comptime(id) : (fn(comptime(T) : Type, x : T) -> T); id = ((T, a) -> a); x := id(bool, true)` |
+| `imm_map`                   | `std/imm/map.yo:300`       | `Cannot unify: "*(<struct:5595>)" vs "*(<struct:9595>)"`                                                  | `_copy_pairs(K, V, new_ptr, coll._pairs_ptr, …)`                                                                         |
+
+**The single biggest finding: `where_clause_fn_inference` (the only RED),
+`iter_filter_closure` and `iterator_combinators` are ONE root — a forall that
+appears only in a `where` clause is never bound.** That is exactly what the
+recorded iter_filter "attempt 3" evaluator pair fixes
+(`scratchpad/apply_iterfilter_evaluator_half.py`), so that pair is worth up to
+three verdicts, not one.
+
+Corrections to the earlier (stale-binary) table, which must not be trusted:
+
+- `prelude`'s blocker is **arm 1** (the two-`TryFrom`-impls static call), not the
+  arm-3 `assume_init` move check. Arm 3 may surface only after arm 1 is fixed.
+- `basic` and `fn` share the _message_ but not the shape: `basic` is a field read
+  on an underscore-literal-initialised struct after an assignment, `fn` is a call
+  through a `comptime`-typed `fn(comptime(T) : Type, …)` variable. Bisect
+  separately; do not assume one root.
+- `imm_map` and `iterator_combinators` have NO in-batch swallow at all — their
+  last swallow is inside `std/`. Their `.yo_selftest_batch_` substring came from
+  C-compiler warnings appended to the record, not from the throw location. The
+  std-side def-time failure is still the root (it makes the method unusable, so
+  the call site in main emits the FTT marker), but the batch main itself is not
+  where the throw happens.
+
+### higher_kinded_types — TRUE GREEN (20/20 = TS), and it named the family root
+
+Landed fix: `yo-self/evaluator/calls/function.yo`, in the inline FuncVal call arm
+(`_evaluate_funcval_runtime_call`), right after
+`resolved_ret = evaluate_function_return_type_again(...)` — re-evaluate the
+declared return-type EXPRESSION in the bound callee env whenever the DECLARED
+return mentions a kind-annotated (HKT) binder. Script:
+`scratchpad/apply_hkt_ret_reeval.py`.
+
+Why that is the faithful port, and why the recorded root was wrong:
+
+- The failing type is `TypeApp(fn(T : Type) -> Type, [i32])`. A bare `SomeT`
+  prints as its own name, so the constructor slot is not an unresolved `F` left
+  symbolic by `types/substitution.yo` — it was OVERWRITTEN with the HKT binder's
+  FuncVal _type_ by the call-site substitution. `substitution.yo` is a bystander;
+  the previously-recorded "add a TypeApp reduction rule to substitute()" plan is
+  **withdrawn**.
+- There is no TypeApp reduction function anywhere in `src/`. TS reduces `F(A)` as
+  a SIDE EFFECT of re-evaluating the return-type EXPRESSION
+  (`src/evaluator/calls/helper.ts:1533-1546` →
+  `src/evaluator/types/function.ts:2822-2836`): with `Option` bound to `F`, the
+  expression is an ordinary comptime call and yields `Option(i32)`. TS builds a
+  TypeApplication only while the callee is still an abstract SomeT with
+  `kindFunctionType` (`src/evaluator/calls/function.ts:1345-1394`).
+- Reducing at the match scrutinee would be wrong — the variable would still carry
+  a TypeApplication into codegen, which `plans/HIGHER_KINDED_TYPES.md:98` forbids.
+- No hook slot is needed: `get_func_return_type_expr` +
+  `_trial_eval_ret_type_expr` are already in-tree and the MINT path already uses
+  them (helper.yo's rte block). Only the inline FuncVal arm was missing the step.
+
+Note for the next round: `types/substitution.yo` rebuilds an unsubstituted `SomeT`
+with `is_effects_row = false` and `kind_function_type = None` hardcoded, silently
+erasing both. The patch sidesteps it by reading the flag off the PRE-substitution
+`ret_type`, but that erasure is a latent defect worth its own issue.
+
+**The generalization this proves** (and the reason four files share a root):
+wherever yo-self resolves a call's return type by SUBSTITUTION instead of by
+RE-EVALUATING the return-type expression through the memoized constructor, it
+mints a second, def-era instance. TS has exactly one route. Confirmed instances:
+`higher_kinded_types` (fixed), `where_clause_fn_inference` (the C split
+`__yo_t16`/`__yo_t34` — same layout, different ctor-key), `iter_filter_closure`
+(`__yo_t21` vs `__yo_t15`), and the `_f`-member mismatch in
+`iterator_combinators`.
+
+#### where_clause_fn_inference — standalone repro + what the remaining gap IS
+
+`src/tests/fixme.yo` with lines 13-43 of the test plus
+`iter := it1.local_map_to(double)` (NO annotation) reproduces in SECONDS via
+`<yo-self-bin> compile src/tests/fixme.yo --emit-c --skip-c-compiler --release`:
+
+- TS → `LocalMapIter(ArrayListIter(i32), i32, i32, fn(x : i32) -> i32)`, ONE C struct.
+- yo-self → key `gs_<ctor>_gs_<ArrayListIter(i32)>_1499_1500_fn_x___i32_____i32_cl1_…`
+
+i.e. **A and B remain raw SomeT ids**. Both compilers emit `void* _f`, so the
+field lowering is NOT the problem — the two C structs differ only because the
+type ARGUMENTS differ.
+
+Measured and REJECTED this round (kept only because it is a faithful port that
+removes a real error, pending the full sweep): adding
+`reapply_where_clause_exprs_for_call` to `create_specialized_function_inline`
+before its `evaluate_function_return_type_again`
+(`scratchpad/apply_reapply_where_in_spec.py`, a port of TS helper.ts:1515-1529,
+which yo-self had on only one of its two call paths). It does NOT bind A/B —
+the repro's key is byte-identical before and after.
+
+That narrows the remaining gap sharply: the mint's rte block ALREADY re-evaluates
+the return-type expression and its gate (`spec_ret_ty still has SomeTs`) IS
+satisfied here, so either `A`/`B` are not bound BY NAME in `callee_env` at all,
+or the re-evaluated result still carries them. The next probe should print, in
+one build: (1) `validate_concrete_type_constraints` entry — concrete type, trait,
+`implemented`; (2) `_assoc_synth_env`'s label/constraint/resolved and whether it
+bound; (3) the mint rte block's `expr found?` and `type_to_string(rte_ty)`.
+
+#### The iter_filter evaluator half REGRESSES `closure_capture_rc_leak` — do not land it
+
+Full-sweep pass over the tree (iter_filter evaluator half +
+`reapply_where_clause_exprs_for_call` in the spec path + the HKT fix) caught
+`tests/closure_capture_rc_leak.test.yo` going **GREEN → HOLLOW**. That file was
+green in the 176/8/1 baseline and is not one of the eight. The prime suspect is
+step 1 of `scratchpad/apply_iterfilter_evaluator_half.py` — the
+`_try_lookup_trait_type` atom-fast-path gate — which changes how EVERY generic
+impl records a parameterized where-constraint; `trait_checking.yo`'s own comment
+names `closure_capture_rc_leak`'s `any` where clause as a case that path already
+had to be tuned for. Both changes were reverted; only the HKT fix was kept.
+Lesson re-confirmed: the ~12-minute `hollow8.sh` gate cannot see this class —
+only the full 186-file sweep can, because the regression lands on a file that was
+already green.
+
+#### Probe result (sh145): the where-clause bindings ARE produced; the RETURN TYPE is the gap
+
+Three prints (`scratchpad/probe_where_ab.py`) on the standalone repro:
+
+```
+__DBG_VC  concrete=<struct:…3233>        trait=Iterator        impl=y
+__DBG_VC  concrete=fn(x : i32) -> i32    trait=Fn(i32) -> i32  impl=y     <-- A,B already i32
+__DBG_ATC label=Item constraint=A    resolved=i32                          <-- A := i32 synthesized
+__DBG_ATC label=Item constraint=i32  resolved=i32
+n_wce distribution: 2183x 0, 216x 1, 2x 2                                  <-- the 2 IS local_map_to
+__DBG_RTE ... (exactly ONE line in the whole run, for Box(V) — never LocalMapIter)
+```
+
+So: the where-clause validation runs, `_check_associated_type_constraints` +
+`_assoc_synth_env` DO bind `A := i32` (and the trait then prints as the fully
+concrete `Fn(i32) -> i32`, so `B` binds too), and
+`reapply_where_clause_exprs_for_call` DOES see both constraints. Nothing is
+missing on the binding side — the recorded "A is never bound" reading is
+**superseded**.
+
+The gap is one step later: `local_map_to` is called through the inline FuncVal
+arm (`_evaluate_funcval_runtime_call`, evaluator/calls/function.yo), which
+resolves the return type by SUBSTITUTION only. Substitution rewrites the DECLARED
+return's own SomeT copies, a different lineage from the ones the where clause
+bound, so `LocalMapIter(Self, A, B, F)` keeps raw ids. The MINT path's
+return-type-EXPRESSION re-evaluation (helper.yo's rte block) — which would
+resolve A and B by NAME and route the instantiation through the ctor memo —
+never runs for this function.
+
+Fix under test: generalize the HKT re-evaluation gate in that same arm from
+"declared return mentions a kind-annotated binder" to the mint's own gate,
+"substitution left SomeTs behind". Same adoption condition (SomeT-free,
+non-unit result only).
+
+## Method upgrade: bisect ARMS with subset_arms.py, not by extracting to `main`
+
+Three files (`basic`, `fn`, `prelude`) looked like cross-arm state poisoning because
+their failing arm, extracted into `main :: (fn() -> unit)({ … })` and run through
+`check`, PASSES in both compilers. That reading was wrong. Rebuilding the file with
+`python3 scratchpad/subset_arms.py <file> <arm-index> <out>` — which keeps the arm
+inside its `test("…", { … })` wrapper — reproduces every one of them as a
+single-arm file in ~20-40 s:
+
+| file      | arm | single-arm verdict |
+| --------- | --- | ------------------ |
+| `prelude` | 1   | rc=0 hollow=1      |
+| `prelude` | 3   | rc=0 hollow=1      |
+| `basic`   | 12  | rc=0 hollow=1      |
+| `fn`      | 9   | rc=0 hollow=1      |
+
+So none of these needs the batch context — only the `test(...)` wrapper. Prefer this
+loop over any rebuild: it is ~1000x cheaper than a 10-minute yo-self build, and
+`/tmp/sh141` (the un-silenced-swallow probe) plus `scratchpad/caret_window.py` reads
+the real error straight out of the run. Confirms `prelude` needs BOTH arm 1 and
+arm 3 fixed, not one.
+
+### basic arm 12 — MINIMISED to three lines
+
+```rust
+{ assert } :: import("std/assert");
+test("v", {
+  Point2 :: struct(x : i32, y : i32);
+  (y : Point2) = _(5, 6);
+  assert((y.x) == 5);
+});
+```
+
+yo-self: `rc=0 hollow=1`, swallowed error `Cannot unify incompatible types:
+Expected "bool", Given "unit"` with the caret on the `assert` — i.e. `(y.x)`
+evaluated to `unit`. TS: passes.
+
+Discriminating variants (all measured):
+
+- `y := Point2(5, 6)` instead of the underscore literal → **GREEN**. The plain
+  constructor path is fine; the `_` implicit-constructor path is not.
+- `(y : Point2) = _(5, 6); assert(true);` (no field read) → **GREEN**. The literal
+  alone is fine; the FIELD READ on the resulting variable is what degrades.
+- `struct(a : i32, b : i32)` + `y.a` → still hollow, so it is not name-specific.
+- `(y : Point2) = _(x : 5, y : 6)` (NAMED fields) → **rc=1, a HARD error** rather than
+  a hollow — likely the same root, louder.
