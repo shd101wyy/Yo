@@ -1956,12 +1956,38 @@ clean; together they hollow. Verified pre-existing: the same pair hollows under
 the PRE-FIX binary (/tmp/sh104), so this is not a regression from the family
 work.
 
-Prime suspect, to probe next: the mint's closure-param rebind registers the
-capture struct on BOTH a per-spec fresh id AND the SHARED declared SomeT id
-(`register_some_resolved_concrete(closure_some_id, cap_ty)`,
-`evaluator/calls/helper.yo`). The code's own comment documents that hazard for
-the single-closure case ("the LAST specialization wins globally" — the
-arc/prelude capture-split repro); with two calls to the same two-closure method
-the second registration can overwrite what the first spec's body resolves
-through. Confirm by printing `closure_some_id` + `type_key(cap_ty)` for both
-calls before touching anything.
+**Characterized (probe: un-silenced `_trial_eval_fn_body`'s swallow in
+`evaluator/calls/function_type.yo`, reverted).** The batch main's def-time eval
+dies on:
+
+```
+Cannot unify incompatible types:
+Expected: "bool"
+Given: "unit"
+  … (result == i32(0)) …   ← the SECOND map_or_else call's result
+```
+
+i.e. the second call's RESULT TYPE is `unit` — the "method dispatch found
+nothing, so the call degrades to unit" signature this campaign has hit before
+(`_try_find_receiver_method` returning None). Two further measurements pin it:
+
+- **It is always the SECOND call, whichever it is.** Swapping the two arms
+  (None first) moves the failure to the other arm — the `Some`/`None` receiver
+  shape is irrelevant.
+- Either arm ALONE is clean, and the pair hollows under the pre-fix binary
+  (/tmp/sh104) too — so it is order-in-the-file, not the family work.
+
+So a per-call artifact of the FIRST `map_or_else` call is being reused by the
+second and makes its dispatch (or its result stamp) fail. Candidates, in the
+order worth probing: the specialization cache entry (both calls share receiver
+`Option(i32)`, `B := i32` and two same-shaped closure params — only the closure
+IDS differ, so check whether the key collapses them), the generic-impl match
+memo, and the mint's `register_some_resolved_concrete(closure_some_id, cap_ty)`
+on the SHARED declared SomeT id (the code's own comment documents "the LAST
+specialization wins globally" for the single-closure case — the arc/prelude
+capture-split repro). Probe recipe: in `_try_find_receiver_method`, print the
+receiver type key + `hits.len()` gated on the method name being `map_or_else`,
+for BOTH calls.
+
+Minimal repro kept at `/tmp/pair1718.test.yo` (regenerate with
+`python3 scratchpad/subset_arms.py tests/option_result_combinators.test.yo 17,18 <out>.test.yo`).
