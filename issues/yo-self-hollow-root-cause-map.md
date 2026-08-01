@@ -2924,3 +2924,91 @@ and updating the ~9 `FuncMeta(...)` construction sites. That IS the faithful
 place — TS keeps `isCompileTimeOnly` / `exprs.typeExpr` on the type object right
 next to `isRef` / `isOwningTheRcValue`, both of which yo-self already mirrors on
 `FuncMeta`. Do not substitute a structural or `type_to_string`-based key for it.
+
+### basic arm 14 — union support: CONSTRUCTION ported (fixes real cases); METHODS are a structural gap
+
+`tests/basic.test.yo` has a SECOND independent broken arm besides arm 12: arm 14
+("Test 'union'"). Isolated with `subset_arms.py`, it is `rc=1` on its own under
+the pre-fix binary, so it is not downstream of arm 12.
+
+**Part 1 — union CONSTRUCTION did not emit at all. Ported and measured.**
+yo-self emits union DECLARATIONS (`codegen/types/generation.yo`
+`generate_union_declaration`) but `generate_other_function_call` had no arm for a
+union-typed callee, so `SomeUnion(x : 12)` fell through to the generic fallback
+and emitted `// Failed to transpile SomeUnion(x : 12)` — invalid C. Ported TS's
+arm (`src/codegen/exprs/other-fn-call.ts:2468-2521`,
+`(cName){ .label = value }` for the single named member, with the temp-variable
+declaration) next to the existing value-struct arm.
+Script: `scratchpad/apply_union_construction.py`. Measured:
+
+| repro                                              | before | after     |
+| -------------------------------------------------- | ------ | --------- |
+| `SomeUnion(x : 12); (v1.x)`                        | `rc=1` | **GREEN** |
+| `SomeUnion(x : 12); _(x : xx) := v1` (destructure) | `rc=1` | **GREEN** |
+
+Field naming uses `sanitize_for_c_identifier(label, false)` to match
+`generate_union_declaration`; TS uses `getVariableNameForCodegen` there, but the
+compound literal must agree with yo-self's own declaration.
+
+**Part 2 — ANY method on a union is unresolvable. Structural, not ported.**
+Every one of these is still hollow after Part 1, and a struct with the identical
+shape is GREEN:
+
+```rust
+impl(SomeUnion, new : (fn() -> Self)(Self(x : 0)));       SomeUnion.new()      -> hollow
+impl(SomeUnion, new : (fn() -> SomeUnion)(SomeUnion(x:0))); SomeUnion.new()    -> hollow   (not a `Self` problem)
+impl(SomeUnion, get_five : (fn() -> i32)(i32(5)));        SomeUnion.get_five() -> hollow
+impl(SomeUnion, get_x : (fn(self : *(Self)) -> i32)(self.x)); u.get_x()        -> hollow
+impl(SomeStruct, new : (fn() -> Self)(Self(x : 0, y : true))); SomeStruct.new() -> GREEN
+```
+
+Root: `TypeValue.Union` is `Union(name, field_labels, field_types)`
+(`yo-self/types/definitions.yo:231`) — it carries **no `id` and no trait**. TS's
+`UnionType extends Type` so it has `id` (`src/types/definitions.ts:11-20`) AND a
+`trait : TraitType` "which contains the compile-time methods, properties, etc."
+(`:786-789`). Every impl-registration and method-lookup channel in yo-self is
+keyed by a type id, so an `impl(<union>, …)` has nowhere to register.
+
+Closing this needs `id` (and a methods channel) added to the `Union` variant plus
+every construction site updated, then impl registration and method lookup wired —
+the same class of multi-site change as the `origin_id : Option(String)` on
+`FuncMeta` that `fn` arm 9 needs. Both are the right faithful fix; neither is a
+one-anchor patch.
+
+**Consequence for `basic`:** it needs THREE things — the arm-12 `_` reroute, the
+arm-14 union construction (done), and union method resolution. It stays HOLLOW
+until all three land.
+
+### fn arm 9 — the STRUCTURAL fix landed the minimal repro; three unrelated blocks remain
+
+Implemented the `origin_id` channel described above, and it is cheaper than
+feared because Yo struct fields take defaults:
+
+1. `yo-self/types/definitions.yo` — `(origin_id : Option(String)) ?= Option(String).None`
+   appended to `FuncMeta`. **Defaulted, so none of the 22 existing
+   `FuncMeta(...)` construction sites needed touching.**
+2. `yo-self/evaluator/types/function.yo` — `evaluate_function_type` sets it to
+   `ast_expr_id(expr).to_string()`, the very key it has just registered every
+   side table under.
+3. `yo-self/evaluator/values/anonymous_function.yo` — reads it off the type it
+   was checked against and performs the same nine `copy_func_*` calls the `::`
+   path does. It rides along for free through the existing `_l3m.*.clone()`,
+   which is precisely TS's "spread the expected FunctionType".
+
+Measured: the 7-line minimal repro goes from `hollow=1` to **fully GREEN**
+(`rc=0 hollow=0 markers=0, 1 passed`) — the structural fix closes BOTH halves,
+unlike the earlier surgical name-lookup patch, which fixed only the evaluator and
+left emission at `rc=1`.
+
+`tests/fn.test.yo` itself stays HOLLOW: splitting arm 9 into its 13 blocks shows
+three MORE independent defects, all of which reproduce identically on the
+pre-change binary (so none is a regression):
+
+| block | source                                                                                 | verdict    |
+| ----- | -------------------------------------------------------------------------------------- | ---------- |
+| blk10 | `tuple_func :: (fn(generic(T, Y), x : Tuple(T, Y), a : T, b : Y) -> Tuple(T, Y))`      | `hollow=1` |
+| blk5  | `comptime_add :: (fn(x : i32, comptime(y) : i32) -> i32)(x + y)`                       | `rc=1`     |
+| blk12 | `generic_fn :: (fn(generic(T), x : T, callback : (fn(v : T) -> T)) -> T)(callback(x))` | `rc=1`     |
+
+Per-block files are reproducible in ~20 s each; the splitter that made them is
+worth reusing for any multi-block arm.
