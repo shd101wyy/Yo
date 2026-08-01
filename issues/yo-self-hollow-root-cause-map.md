@@ -2865,3 +2865,62 @@ change itself is correct and should be re-applied the moment `Self(x : 0)`
 emission is fixed; that is now the blocking item for `basic`, not the `_` guard.
 Do NOT re-apply it without also running the stage-2 fixpoint gate, which is the
 reason the narrowing exists at all.
+
+### fn arm 9 — ROOT FOUND: the anonymous-function path re-keys NONE of the func-id side tables
+
+Minimal repro (7 lines, `rc=0 hollow=1` under yo-self, GREEN under TS):
+
+```rust
+{ assert } :: import("std/assert");
+test("min", {
+  comptime(id) : (fn(comptime(T) : Type, x : T) -> T);
+  id = ((T, a) -> a);
+  x := id(i32, 12);
+  assert(x == 12);
+});
+```
+
+The single axis that flips it: writing the function with `::`
+(`id :: (fn(comptime(T) : Type, x : T) -> T)(x)`) is GREEN; the anonymous-function
+form is HOLLOW. `generic(T : Type)` instead of `comptime(T) : Type` is also GREEN.
+The symptom is NOT "returns unit" — the call's return type is left as the UNBOUND
+SomeT `T`, so `x == 12` finds no operator impl, types `unit`, and `assert(unit)`
+throws.
+
+Root: TS keeps `isCompileTimeOnly` and the param/return type EXPRESSIONS on the
+FunctionType itself, and its anonymous-function evaluator builds the new type by
+SPREADING the expected one (`anonymous-function.ts:597-638`), so they are
+inherited verbatim. yo-self keeps all of that in func-id-keyed SIDE TABLES
+registered under the `fn(...)` TYPE-EXPRESSION id
+(`evaluator/types/function.yo:4120-4132`). The `::` path re-keys them onto the
+FuncVal id (`evaluator/calls/function_type.yo:713-722`, nine `copy_func_*` calls);
+**`values/anonymous_function.yo` re-keys nothing** — it mints a fresh
+`fn_<random>` id and calls only `register_func_type`. So for an anonymous
+function `get_func_return_type_expr` and `get_func_param_comptime` are both
+empty.
+
+Second, independently visible face of the same gap, in emitted C:
+`comptime(f) : (fn(x : i32, comptime(y) : i32) -> i32); f = ((x, y) -> (x + y))`
+emits `fn(int32_t x, int32_t y)` — **the `comptime(y)` modifier is gone and `y` is
+a runtime C parameter** — while TS folds `y` into the specialization and the
+yo-self `::` form is correct.
+
+Attempted and REVERTED (zero verdict wins): a faithful port of TS's post-re-eval
+name fallback — `if (isSomeType(returnType)) getValueOfSomeTypeFromEnv(calleeEnv,
+returnType)` (`types/function.ts:2846`) — added to `_evaluate_funcval_runtime_call`
+after the return-type-expression re-eval. It DOES fix the evaluator half (the
+minimal repro goes `hollow=1` → `hollow=0`), but emission then hits the
+comptime-parameter face above and the repro turns `rc=1`; `tests/fn.test.yo`
+itself stays HOLLOW, and the three canaries stay green. Reverted.
+
+**The complete fix is structural and is the right next step:** re-key the side
+tables in `anonymous_function.yo` next to its `register_func_type`, exactly as
+`function_type.yo:713-722` does. It is blocked on a missing channel — the
+`from_id` is `ast_expr_id(<the fn(...) type expr>)` and nothing reachable there
+carries it (`ExpectedTypeCtx` is `{ ty, env }`; `FuncMeta` and `Variable` have no
+origin id; there is no reverse type→expr-id registry). Supplying it means adding
+an `origin_id : Option(String)` to `FuncMeta`, set in `evaluate_function_type`,
+and updating the ~9 `FuncMeta(...)` construction sites. That IS the faithful
+place — TS keeps `isCompileTimeOnly` / `exprs.typeExpr` on the type object right
+next to `isRef` / `isOwningTheRcValue`, both of which yo-self already mirrors on
+`FuncMeta`. Do not substitute a structural or `type_to_string`-based key for it.
