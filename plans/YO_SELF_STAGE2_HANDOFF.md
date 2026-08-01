@@ -12,8 +12,16 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 176 GREEN / 8 HOLLOW / 1 RED of 185 test files**
-(option_result_combinators flipped TRUE GREEN 54/54 2026-08-01 — FOUR unported
+**Honest score: 177 GREEN / 7 HOLLOW / 1 RED of 185 test files**
+(higher_kinded_types flipped TRUE GREEN 20/20 2026-08-01 — the inline FuncVal
+call arm now RE-EVALUATES the declared return-type EXPRESSION instead of
+substituting into it, which is how TS reduces `F(A)` to `Option(i32)`; there is
+no TypeApp reduction function in TS at all. Remaining HOLLOW: async_await,
+basic, fn, imm_map, iter_filter_closure, iterator_combinators, prelude;
+remaining RED: where_clause_fn_inference. Per-file roots, each re-harvested
+2026-08-01 against a probe binary built from HEAD, are in
+issues/yo-self-hollow-root-cause-map.md;
+earlier: option_result_combinators flipped TRUE GREEN 54/54 2026-08-01 — FOUR unported
 statements of the closure-return type-variable resolution, the recursive
 contains-SomeType test at cond's expected-type adoption, and a per-call
 unregister of the durable forall resolution; full chain in
