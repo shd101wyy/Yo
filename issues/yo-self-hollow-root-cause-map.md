@@ -1991,3 +1991,44 @@ for BOTH calls.
 
 Minimal repro kept at `/tmp/pair1718.test.yo` (regenerate with
 `python3 scratchpad/subset_arms.py tests/option_result_combinators.test.yo 17,18 <out>.test.yo`).
+
+### map_or_else pair — attempt 1 REJECTED (bare-SomeT return binding; zero wins, reverted)
+
+Probes (both reverted) narrowed the second-call failure precisely:
+
+- `_try_find_receiver_method` prints `hits=1` for BOTH calls with the same
+  receiver key `enum_yo_id_4475_i32` — **dispatch is fine**, the method is found
+  each time. (Earlier theories about registry/dispatch poisoning are dead.)
+- The specialization-cache probe shows the two calls arrive with DIFFERENT
+  runtime param types for the FIRST closure parameter (`default_fn`):
+  - call 1 `rts=|enum_yo_id_4475_i32|fn() -> B|1017`
+  - call 2 `rts=|enum_yo_id_4475_i32|1016|1017`
+    i.e. call 1's `() => i32(0)` still types as a plain **`Func` with an
+    unresolved `B` return**, while call 2's TAKES ON the `Impl(Fn() -> B)` wrapper
+    (`1016`). Both calls are cache MISSES, so it is not spec reuse.
+
+That asymmetry is the whole phenomenon: with a plain `Func` the call's Step-5.5
+closure-body-type substitution fires and binds `B`; with the wrapper it does
+not. The take-on gate flips between the two calls because the wrapper's Fn-trait
+result is resolved by then (`_resolve_some_types_deep` registers each resolution
+into the GLOBAL `g_some_resolved_concrete` on the way).
+
+**Attempt 1 (rejected):** extend the closure-return synthesis
+(anonymous_function.yo) to the BARE type-variable shape — TS
+anonymous-function.ts:965-988, which is genuinely unported — so `-> B` binds
+like `-> Option(B)` does. Built and measured: the pair STILL hollows, unchanged.
+Reverted per the zero-wins rule. So the missing binding for call 2 is NOT the
+closure's own return unification; look instead at what the take-on path does to
+`default_fn`'s ARG type before Step 6 (the wrapper's own Fn-trait result is
+already `-> i32` by then, so synthesis has nothing left to bind `B` FROM — the
+binding must come from the wrapper's resolved result, i.e. a
+`synthesize(Impl(Fn() -> B)declared, Impl(Fn() -> i32)arg)` that yo-self skips
+because both sides are SomeTs with the SAME id, synthesizer.yo:1290's
+id-equality branch).
+
+**NEXT:** print, for call 2's `default_fn` param, the DECLARED param type and
+the ARG type side by side at Step 6 (helper.yo). If declared is
+`Impl(Fn() -> B)` and arg is `Impl(Fn() -> i32)` with the same wrapper id, the
+fix is to let the same-id branch still recurse through the Fn-trait when the two
+carriers' results DIFFER (TS's `expected.type.id !== given.type.id` guard exists
+only to skip a pure self-match; a resolved-vs-unresolved pair is not one).
