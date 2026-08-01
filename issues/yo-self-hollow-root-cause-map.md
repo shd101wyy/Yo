@@ -2425,3 +2425,35 @@ from `evaluator/calls/comptime_fn.yo`'s init. Fall back to the current symbolic
 rebuild whenever the constructor is still a SomeT or the hook is unset, so nothing
 that works today changes. Gate with `scratchpad/hollow8.sh`, then the full sweep
 (substitution is used everywhere).
+
+### prelude arm 3 — root REFRAMED: it is use-after-move on an `own(self)` RECEIVER, not MaybeUninit logic
+
+`assume_init` is declared `(fn(own(self) : Self) -> BaseType)` (std/prelude.yo:7569),
+so `comptime_expect_error(arr2 := (uninit_arr.assume_init)())` must be rejected by
+the MOVE checker — there is no MaybeUninit-specific validation to write. yo-self
+already has the machinery (`set_expr_as_consumed` in evaluator/utils.yo throws
+`use of moved value` when the variable has a `consumed_at_token` and
+`allow_consume_again` is false).
+
+**A one-flag theory was CHECKED AND IS WRONG — do not try it.** yo-self's
+owned-parameter consume (helper.yo:799/802) passes `allow_consume_again = true`,
+and it looked like the culprit — but TS passes `true` at BOTH of its corresponding
+sites (src/evaluator/calls/helper.ts:432/445), each with the explicit comment
+"Allow to consume again here is necessary." So yo-self is FAITHFUL there and
+flipping the flag would diverge from TS (and would likely break every legitimate
+move-into-call).
+
+The live hypothesis is the RECEIVER path instead: `own(self)` is the method
+receiver (argIndex 0), and TS's `setExprAsConsumed` DEFAULTS
+`allowConsumeAgain = false` (src/expr.ts:2377, checked at :2423). So in TS the
+receiver's consume presumably goes through a call that takes the default and
+therefore rejects the second `assume_init`, whereas yo-self funnels the receiver
+through the same owned-ARG block that deliberately allows re-consumption.
+
+**NEXT STEP (cheap, read-only first):** find which TS call site consumes a dot-call
+RECEIVER for an `own(self)` method and what flag it passes; then find yo-self's
+corresponding receiver handling (the method-call arm in evaluator/calls/function.yo
+that builds args from `receiver_expr`) and check whether the receiver is consumed at
+all, and with which flag. Only then change anything — and gate with
+`scratchpad/hollow8.sh` plus the full sweep, since every move-into-call in the
+corpus exercises this path.
