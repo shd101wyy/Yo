@@ -3213,3 +3213,25 @@ are generic and haven't been specialized. **BUT still recurse into args** — th
 may contain closure constructions … or other functions that". Check whether
 yo-self's corresponding early-out returns WITHOUT recursing into `args` for a
 generic-unspecialized callee; `generic_fn` is exactly that shape.
+
+#### blk12 — CORRECTED root: not collection, not emission-filter policy — the lambda's own type stays generic
+
+Following the negative result above: the undeclared name in the C error IS the
+registry's `sanitize_for_c_identifier(func_id)`, so the lambda IS collected and
+registered — the call site emits its name from the registry. What never happens
+is the DEFINITION, and the reason is `should_skip_function_codegen`
+(`yo-self/codegen/functions/declarations.yo:462`): `skip_unemittable` / `skip1`
+drop any function whose type `is_function_type_hard_generic`.
+
+The lambda's recorded type is hard-generic because yo-self evaluates the argument
+`(x) -> (x + 1)` against the DECLARED parameter type `(fn(v : T) -> T)` with `T`
+still unbound, so its own type stays `fn(v : T) -> T`. TS's emitted lambda is
+`static inline int32_t fn_yo…_id_36(int32_t x)` — fully concrete — because at
+that call site the expected parameter type is already `fn(v : i32) -> i32` and
+`newFunctionType` SPREADS it (anonymous-function.ts:597-638).
+
+So this is the same theme as the `origin_id` fix, one level along: an anonymous
+function must be checked against the RESOLVED expected parameter type, not the
+declared one. Do NOT attack it at the collector (measured inert) or by loosening
+the hard-generic emission skip (that would emit an unspecialized body — invalid
+C). Fix where the argument's expected type is computed.
