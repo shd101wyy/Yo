@@ -3235,3 +3235,61 @@ function must be checked against the RESOLVED expected parameter type, not the
 declared one. Do NOT attack it at the collector (measured inert) or by loosening
 the hard-generic emission skip (that would emit an unspecialized body — invalid
 C). Fix where the argument's expected type is computed.
+
+### fn arm 9 blk10 — ROOT FOUND (shallow-vs-deep predicate) and FIX MEASURED, but it CRASHES imm_map
+
+Minimal repro (4 lines, hollow under yo-self, 1 passed under TS):
+
+```rust
+test("t", {
+  f :: (fn(generic(T : Type), x : Tuple(T, T)) -> T)(x.0);
+  t1 := f((12, 13));
+});
+```
+
+Swallowed error: `Cannot unify incompatible types: Expected "Tuple(0 : T, 1 : T)",
+Given "Tuple(0 : i32, 1 : i32)"`.
+
+Natural experiment that isolates it exactly (all fine under TS):
+
+| param type                          | yo-self |
+| ----------------------------------- | ------- |
+| `x : T`                             | works   |
+| `x : Option(T)`                     | works   |
+| `x : Tuple(T, T)`                   | HOLLOW  |
+| `x : Array(T, 2)`                   | HOLLOW  |
+| `x : Tuple(i32, i32)` (non-generic) | works   |
+
+`Option(T)` survives only because it is a `TypeAppT`, for which the SHALLOW
+`type_contains_some_type` answers `true`. Root: the arg-type gate in
+`_evaluate_funcval_runtime_call` (yo-self/evaluator/calls/function.yo ~1630) calls
+the shallow predicate, so a COMPOSITE generic slot reads as non-generic and the gate
+compares the RAW declared type against the argument. TS's `typeContainsSomeType`
+RECURSES through Array / Tuple / Struct / Enum-variant / Union / Function / Ptr
+(src/types/utils.ts:525-535) — and TS needs no guard here at all, because it
+synthesizes and RE-EVALUATES the parameter type before comparing
+(src/evaluator/calls/helper.ts:620-666), so it compares `Tuple(i32,i32)` against
+`Tuple(i32,i32)`. This is the recorded _shallow-vs-deep predicate mis-port_ class.
+
+Swapping both call sites to the existing exported `type_contains_some_type_deep`
+was built and measured:
+
+- blk10 → **rc=0 hollow=0 (FIXED)**; the standalone `Tuple(T,T)` repro → 0 markers.
+- **BUT tests/imm_map.test.yo regressed from HOLLOW (rc=0) to rc=134, `Abort trap: 6`:**
+  `get_enum_variant_c_name: no C type name found for enum <enum:enum_yo_id_8136>` →
+  `__yo_panic("enum type not registered")` (yo-self/codegen/utils/index.yo:1058).
+  A/B confirmed against the same binaries: sh155 hollow, sh157 abort.
+
+So "deep can only make the guard true more often, therefore it strictly removes
+throws" is correct AT THE GATE but wrong in consequence — removing the throw lets
+imm_map proceed into a path whose enum instantiation was never registered as a C
+type, and the compiler aborts. A crash is worse than a hollow, and blk10 alone does
+not flip `fn` (blk12 still holds it), so this was REVERTED.
+
+**To land it, pair it with the enum registration.** The abort is itself a genuine
+find, previously MASKED by the shallow predicate: some enum instantiation reaching
+codegen on the composite-generic path is not in the type registry. Do not "fix" it
+by turning the panic into a marker — that just moves an undefined C identifier
+downstream (the same class as blk12). Find why that enum is uncollected. Note the
+theme: the composite-generic path is exercised for the first time by this change, so
+expect more than one uncollected type there.
