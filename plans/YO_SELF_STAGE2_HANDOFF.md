@@ -12,7 +12,12 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 175 GREEN / 9 HOLLOW / 1 RED of 185 test files** (type_reflection
+**Honest score: 176 GREEN / 8 HOLLOW / 1 RED of 185 test files**
+(option_result_combinators flipped TRUE GREEN 54/54 2026-08-01 — FOUR unported
+statements of the closure-return type-variable resolution, the recursive
+contains-SomeType test at cond's expected-type adoption, and a per-call
+unregister of the durable forall resolution; full chain in
+issues/yo-self-hollow-root-cause-map.md; earlier: type_reflection
 flipped TRUE GREEN 35/35 2026-08-01 — 4 TypeInfo arms + the Func-variant
 variadic extension; earlier: asm
 flipped TRUE GREEN 13/13 2026-08-01 — full two-part port: evaluator
