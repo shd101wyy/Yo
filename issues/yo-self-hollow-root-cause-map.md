@@ -2364,3 +2364,29 @@ single unit of work.
 Also recorded for reuse: `scratchpad/hollow8.sh` measures the 8 hollow + the RED +
 the two canaries in one pass (~12 min) — the right cheap gate for any change aimed
 at this set, before paying for the full 186-file sweep.
+
+## ALL 8 remaining hollows — swallowed error captured for each (zero builds)
+
+Harvested by re-running the already-built un-silenced-swallow binary (the
+`_trial_eval_fn_body` probe binary from this session) over each file and taking the
+LAST `__DBG_F` line, which is the batch main's own failure. This converts the
+remaining set from "8 unexplained" into a queue with named roots:
+
+| file                   | swallowed error                                                                                                               | reading                                                                                                                                                                                                                                                            |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `prelude` arm 1        | `Cannot unify: Expected "bool", Given "unit"` at the `assert((x.is_ok)())` region, where `x := (EvenNumber.try_from)(i32(4))` | the STATIC trait-method call degraded to `unit`. The type has TWO `TryFrom` impls (`TryFrom(i32)`, `TryFrom(i64)`) — overload selection among impls of the same trait for a static method.                                                                         |
+| `prelude` arm 3        | `Expected compile error, but the expression was evaluated successfully: arr2 := (uninit_arr.assume_init)()`                   | a MISSING VALIDATION (the older missing-validation family): a second `assume_init` on an already-consumed `MaybeUninit` must be rejected. Self-contained.                                                                                                          |
+| `iterator_combinators` | `Type mismatch for type member "_f": Expected fn(item : i32) -> i32, Got F : (Fn(A) -> B + Fn(i32) -> B)`                     | the closure FIELD of a map/filter iterator keeps the impl's constrained `F` (two accumulated Fn constraints) instead of the concrete closure fn type — same `_f`-field-vs-forall shape as iter_filter's codegen layer, one level earlier (evaluator, not codegen). |
+| `imm_map`              | `Cannot unify: Expected "*(<struct:struct_yo_id_5595>)", Given "*(<struct:struct_yo_id_9595>)"`                               | pure ERA IDENTITY: two instantiations of the same struct behind a pointer. The struct structural-dedup in `types/type_key.yo` is codegen-only; this one throws in the EVALUATOR.                                                                                   |
+| `higher_kinded_types`  | `Expected enum type or primitive type for match expression, got TypeApp(fn(T : Type) -> Type, [i32])`                         | a `TypeApplication` reached `match` unreduced — `identity(generic(Option, i32), x)`'s result type is `TypeApp(Option, [i32])` where it must be the applied `Option(i32)`. Needs the TypeApp reduction at the match scrutinee (or at the call's return stamp).      |
+| `basic`, `fn`          | `Cannot unify: Expected "bool", Given "unit"`                                                                                 | the same "call degraded to unit" signature as prelude arm 1 — bisect each to its arm before assuming a shared root (task #2's missing-validation family notes may already cover them).                                                                             |
+| `iter_filter_closure`  | (root already pinned above — evaluator half fixed and measured; codegen field-type stamp remains)                             |                                                                                                                                                                                                                                                                    |
+
+**Cheapest next targets, in order:** `higher_kinded_types` (one unreduced
+TypeApplication — a single well-defined reduction point), `prelude` arm 3 (a
+missing validation, no type machinery), then `prelude` arm 1 / `basic` / `fn` (the
+shared unit-degradation signature — bisect first, they may be one root).
+
+Reuse `scratchpad/hollow8.sh` (the 9-file ~12-minute gate) for any of them, and
+note the harvest trick itself: keep one un-silenced-swallow binary around, because
+every hollow file's root cause is one `grep __DBG_F | tail -1` away with no rebuild.
