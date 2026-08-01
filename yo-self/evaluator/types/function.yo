@@ -4252,7 +4252,16 @@ evaluate_function_type :: (
         // `FunctionType.variadicParameter.{label,isCompileTimeOnly}`); the
         // TYPE rides in Func.variadic_types below.
         variadic_label : mint_vlabel,
-        variadic_comptime : mint_vcomptime
+        variadic_comptime : mint_vcomptime,
+        // origin_id — this `fn(...)` TYPE EXPRESSION's id, the key under which
+        // every side table above (param comptime flags, param type exprs,
+        // return type expr, defaults, where clauses, contracts) was just
+        // registered. Carrying it ON the type is what lets a consumer that only
+        // ever sees the TYPE — an anonymous function checked against it —
+        // re-key those tables onto its own FuncVal id, the way the `::` path
+        // does explicitly. TS needs no such channel because the data lives on
+        // its FunctionType and its anonymous-function evaluator spreads it.
+        origin_id : Option(String).Some(ast_expr_id(expr).to_string())
       )
     ),
     vts_mint

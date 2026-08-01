@@ -62,6 +62,16 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
     .EnumT(id, _, _, _, _, _, _, _, _) => id,
     .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
     .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id,
+    // A union's `name` IS its unique id: evaluate_union_type mints
+    // `union_<random_id>` and passes it as the name (evaluator/types/union.yo),
+    // and the binding rename replaces it with the declared name consistently on
+    // both the registration and the lookup side. Without this arm the id was
+    // empty, so `impl(<union>, …)` registered NOTHING and every union method —
+    // static or instance — was unresolvable (tests/basic.test.yo arm 14), while
+    // the identical struct form worked. TS has no such gap: `UnionType extends
+    // Type` so it carries an `id` like every other type
+    // (src/types/definitions.ts:11-20).
+    .Union({ name : un_id }) => un_id,
     // Primitive types get stable synthetic ids so `impl(usize, ...)`,
     // `impl(i32, ...)`, etc. can register `MAX`/`MIN`/operator methods
     // in the trait-methods registry — without an id the registration

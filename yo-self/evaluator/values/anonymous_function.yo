@@ -48,6 +48,17 @@ open(import("std/fmt"));
   has_control_flow
 } :: import("../../expr_info.yo");
 { are_types_compatible_exact } :: import("../../types/compatibility.yo");
+{
+  copy_func_param_defaults,
+  copy_func_param_default_exprs,
+  copy_func_param_type_exprs,
+  copy_func_param_comptime,
+  copy_func_return_type_expr,
+  copy_func_variadic_param,
+  copy_macro_registration,
+  copy_func_where_constraints,
+  copy_func_contract_exprs
+} :: import("../types/function.yo");
 { analyze_await_points, register_closure_await_analysis } :: import("../async/await_analysis.yo");
 { AwaitAnalysisResult } :: import("../async/await_analysis_types.yo");
 {
@@ -1164,6 +1175,35 @@ evaluate_anonymous_function_implementation :: (
       TypeValue.Func(_l3ft.clone(), _l3pt.clone(), _l3it.clone(), _l3wt.clone(), _l3r.clone(), box(_l3nm), ArrayList(TypeValue).new())
     },
     _ => function_type.clone()
+  );
+  // Re-key the func-id SIDE TABLES from the `fn(...)` type expression this
+  // anonymous function was checked against, onto THIS FuncVal's id — the same
+  // nine copies `try_to_implement_function_by_function_type` does for the `::`
+  // form (evaluator/calls/function_type.yo). yo-self keeps
+  // `is_compile_time_only`, the per-parameter type exprs and the return-type
+  // expr in tables keyed by that expression's id; the anonymous-function path
+  // minted a fresh `fn_<random>` id and copied NOTHING, so a
+  // `comptime(T) : Type` parameter/return was simply lost: the call's return
+  // stayed an unbound SomeT (`x := id(i32, 12)` then had no `==` impl and typed
+  // `unit` — tests/fn.test.yo arm 9), and a `comptime(y) : i32` parameter was
+  // emitted as a RUNTIME C parameter. TS needs no copy: `newFunctionType` is a
+  // SPREAD of the expected FunctionType (anonymous-function.ts:597-638), so
+  // both ride along. `origin_id` is yo-self's channel for the same thing and
+  // travels with the meta through the `.clone()` just above.
+  match(
+    match(corrected_func_type,.Func({ meta : _oid_m }) => _oid_m.*.origin_id, _ => Option(String).None),
+    .Some(_oid) => {
+      copy_func_param_defaults(_oid.clone(), func_id.clone());
+      copy_func_param_default_exprs(_oid.clone(), func_id.clone());
+      copy_func_param_type_exprs(_oid.clone(), func_id.clone());
+      copy_func_param_comptime(_oid.clone(), func_id.clone());
+      copy_func_return_type_expr(_oid.clone(), func_id.clone());
+      copy_func_variadic_param(_oid.clone(), func_id.clone());
+      copy_macro_registration(_oid.clone(), func_id.clone());
+      copy_func_where_constraints(_oid.clone(), func_id.clone());
+      copy_func_contract_exprs(_oid.clone(), func_id.clone());
+    },
+    .None => ()
   );
   register_func_type(func_id.clone(), corrected_func_type);
   // Phase 5/3 (closure codegen): an io.async `=>` closure must carry the

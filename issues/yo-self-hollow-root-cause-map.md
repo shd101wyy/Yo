@@ -3012,3 +3012,56 @@ pre-change binary (so none is a regression):
 
 Per-block files are reproducible in ~20 s each; the splitter that made them is
 worth reusing for any multi-block arm.
+
+### Union METHODS — FIXED by one line; `type_id_or_empty` had no `.Union` arm
+
+The "structural gap" recorded above was wrong in its cost estimate, though right
+about the cause. A union does NOT need a new id field: `evaluate_union_type`
+already mints `union_${random_id(module_path)}` and passes it as the union's
+**`name`** (`yo-self/evaluator/types/union.yo:65`), so the unique id was there all
+along. What was missing is that `type_id_or_empty`
+(`yo-self/evaluator/values/type_trait_methods.yo:58`) — the function every
+impl-registration and method-lookup channel keys off — has arms for Struct,
+EnumT, TraitT, SomeT and the primitives but **none for Union**, so it returned
+the empty string and `impl(<union>, …)` registered nothing.
+
+Adding `.Union({ name : un_id }) => un_id` fixes it. Measured under a build that
+also has the union-construction port:
+
+| repro                                                                       | before | after        |
+| --------------------------------------------------------------------------- | ------ | ------------ |
+| `impl(SomeUnion, get_five : (fn() -> i32)(i32(5)))`; `SomeUnion.get_five()` | hollow | **GREEN**    |
+| `impl(SomeUnion, new : (fn() -> Self)(Self(x : 0)))`; `SomeUnion.new()`     | hollow | **GREEN**    |
+| `impl(SomeUnion, new : (fn() -> SomeUnion)(...))`; `SomeUnion.new()`        | hollow | **GREEN**    |
+| **`tests/basic.test.yo` arm 14 in full**                                    | hollow | **GREEN**    |
+| `impl(SomeUnion, get_x : (fn(self : *(Self)) -> i32)(self.x))`; `u.get_x()` | hollow | still hollow |
+
+So static union methods and `Self(...)` construction inside them work; the
+INSTANCE-method receiver path (`self : *(Self)` on a union) is still open and is
+the one remaining union item.
+
+### basic arm 12 — the `_` reroute REJECTED a third time; it keeps unmasking the next gap
+
+With union construction AND union methods landed, the `Self(x : 0)` blocker
+recorded earlier is gone — so the TS-faithful `_` reroute was retried. It still
+turns arm 12 from HOLLOW into RED, now on a THIRD, different gap: a struct with
+DEFAULTED fields emits the C TYPE NAME in place of each default value.
+
+```c
+__yo_t21 p  = (__yo_t21){ .x = 2,  .y = 1 };            // Point(y : 1, x : 2)  — correct
+__yo_t21 p2 = (__yo_t21){ .x = __yo_t21, .y = __yo_t21 };  // Point()           — WRONG
+__yo_t21 p3 = (__yo_t21){ .x = 13, .y = __yo_t21 };        // Point(13)         — WRONG
+```
+
+That is the `runtime_arg_exprs_in_order` / omitted-default misalignment the
+value-struct arm's own comment already warns about, and it is pre-existing — it
+was simply unreachable while the arm hollowed earlier. Sequence for arm 12 is
+therefore: fix omitted-default emission FIRST, then re-apply the reroute.
+
+**Measurement hazard hit this round, worth stating loudly:** a `measure_one.sh`
+run against `tests/` while a full sweep was ALSO running over `tests/` produced a
+false `hollow=0 markers=0 33 passed` for `basic` — the two runs collide over the
+shared `.yo_selftest_batch_*` artifacts, exactly as `measure_one.sh`'s own header
+warns. The file was re-measured three times in isolation, all `hollow=1`. Never
+measure and sweep the same directory concurrently, and treat any single
+surprising green as suspect until repeated with nothing else running.

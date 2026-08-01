@@ -82,7 +82,22 @@ FuncMeta :: struct(
   variadic_label : Option(String),
   /// True when the variadic parameter is comptime (`...(xs : ComptimeList)`).
   /// Mirrors `variadicParameter.isCompileTimeOnly`.
-  variadic_comptime : bool
+  variadic_comptime : bool,
+  /// AST id of the `fn(...)` TYPE EXPRESSION this function type was evaluated
+  /// from, when there is one. yo-self keeps `is_compile_time_only`, the
+  /// per-parameter type exprs and the return-type expr in func-id-keyed SIDE
+  /// TABLES registered under that expression's id
+  /// (evaluator/types/function.yo). The `::` path re-keys them onto the FuncVal
+  /// id (evaluator/calls/function_type.yo); an ANONYMOUS function checked
+  /// against an expected function type mints its own id and had no way to reach
+  /// them, so a `comptime(T) : Type` parameter/return was lost. TS needs no such
+  /// channel — `isCompileTimeOnly` and `exprs.typeExpr` live ON the
+  /// FunctionType, and its anonymous-function evaluator SPREADS the expected
+  /// type (anonymous-function.ts:597-638) so they are inherited verbatim. This
+  /// field is yo-self's equivalent: it travels with the type through the same
+  /// `meta.clone()` the spread models. Defaulted so the 20+ existing
+  /// construction sites are unaffected.
+  (origin_id : Option(String)) ?= Option(String).None
 );
 derive(FuncMeta, Clone);
 /// The Yo type universe.
