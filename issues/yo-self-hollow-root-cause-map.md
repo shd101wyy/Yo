@@ -1915,3 +1915,53 @@ above covers.
 plus `ast_expr_id(anon_eb)`, and — when `anon_eb` is a `begin` FnCall — the id
 and ExprInfo type of its LAST arg. That distinguishes "the cond really is typed
 `Option(B)` by a fourth path" from "`anon_eb` is not the node I assume".
+
+### Family layer 3 SOLVED: `type_contains_some_type` was never made recursive
+
+Arms 4 and 53 (a closure whose body is a `cond` returning the generic type) were
+NOT a cond-typing bug and NOT a receiver-adoption bug — the seven
+`expr_info_table_set` sites in `evaluator/exprs/cond.yo` and the
+`adopt_receiver_struct_instance` exit all probed NEGATIVE. The probes were
+VACUOUS, and that was the clue: they were gated on
+`type_contains_some_type(...)`, which is exactly the predicate the cond's own
+expected-type adoption is gated on.
+
+`yo-self/types/utils.yo`'s `type_contains_some_type` is **TOP-LEVEL ONLY** — it
+answers for a bare `SomeT` / `TypeAppT` and returns `false` for every composite.
+TS's `typeContainsSomeType` (src/types/utils.ts:477-566) recurses through Array,
+Tuple, Struct, **Enum variant fields**, Union, Function and Ptr. So for
+`Option(B)` yo-self answered "no SomeTypes here", and the cond's guard
+`!type_contains_some_type(expected)` — a direct port of TS cond.ts:225-227 /
+263-265, which calls the RECURSIVE one — let the cond ADOPT the generic expected
+type. The closure's body type then came out as its own declared `Option(B)`,
+layer 1's concrete-body gate declined, and `B` was never bound.
+
+yo-self already carries the faithful predicate: `type_contains_some_type_deep`
+(same file, reuses `get_all_some_types` for the recursion and
+`type_contains_some_type` for TS's extern / resolved-concrete / Impl(Fn) /
+Impl(Future) carve-outs). Its doc says it is deliberately NOT swapped in
+everywhere — but the three cond adoption guards are precisely the sites where TS
+uses the recursive semantics, so they are now `_deep`.
+
+**Measured:** tests/option_result_combinators goes to **54/54 arms clean** and
+the file is back to `rc=0` (the C-level failure introduced by making the earlier
+layers work is gone).
+
+### option_result_combinators — remaining hollow is a DIFFERENT, PRE-EXISTING root
+
+With every arm individually clean the FILE is still hollow. Bisected to a
+minimal pair: **arms 17 + 18** — two `map_or_else` calls (the only two-closure-
+parameter method in the file), on `Some` and on `None`. Either arm ALONE is
+clean; together they hollow. Verified pre-existing: the same pair hollows under
+the PRE-FIX binary (/tmp/sh104), so this is not a regression from the family
+work.
+
+Prime suspect, to probe next: the mint's closure-param rebind registers the
+capture struct on BOTH a per-spec fresh id AND the SHARED declared SomeT id
+(`register_some_resolved_concrete(closure_some_id, cap_ty)`,
+`evaluator/calls/helper.yo`). The code's own comment documents that hazard for
+the single-closure case ("the LAST specialization wins globally" — the
+arc/prelude capture-split repro); with two calls to the same two-closure method
+the second registration can overwrite what the first spec's body resolves
+through. Confirm by printing `closure_some_id` + `type_key(cap_ty)` for both
+calls before touching anything.
