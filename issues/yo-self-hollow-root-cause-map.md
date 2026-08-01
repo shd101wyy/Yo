@@ -3114,3 +3114,81 @@ emitting the type name — FIXED; (4) an int-vs-struct mismatch, still open.
 way round: keep fixing the gaps it exposes, one standalone repro at a time, and
 apply the reroute only once arm 12 is clean with it. Each cycle is cheap — the
 gaps all reproduce in a few lines via `compile --emit-c`, no test harness needed.
+
+### Comptime VALUE parameters collapsed onto one specialization — a SILENT WRONG ANSWER
+
+Found while working `fn` arm 9 blk5. Standalone repro, compiles cleanly under both
+compilers; TS's binary passes, yo-self's **fails the assertion**:
+
+```rust
+comptime_add :: (fn(x : i32, comptime(y) : i32) -> i32)(x + y);
+a := comptime_add(1, 1);   // 2
+b := comptime_add(3, 2);   // 5
+```
+
+yo-self emitted ONE specialization for both calls —
+`yo_id_4973_rtparam0_i32_rtparam1_i32_ret_i32(int32_t x) { return x + 1; }` —
+so `comptime_add(3, 2)` returned 4. TS emits `comptime_add_1_…` and
+`comptime_add_2_…`, with the comptime VALUE in the name.
+
+Root: `compute_compile_time_signature` (evaluator/calls/helper.yo) includes forall
+type arguments, implicit args and runtime param TYPES, but has no counterpart to
+TS's third block (src/evaluator/calls/helper.ts:2154-2163):
+
+```ts
+  // Include compile-time regular parameters
+  functionType.parameters.forEach((param, index) => {
+    if (param.isCompileTimeOnly && index < argValues.args.length) { … }
+  });
+```
+
+So two calls differing only in a comptime VALUE produced the same signature and
+shared one specialized func id. Ported it. yo-self keeps the per-parameter
+comptime flags in a func-id side table rather than on the parameter, so the flags
+are threaded in from the caller — which already reads them
+(`spec_param_ct_flags`, one call site).
+
+Measured: two distinct specializations (`…_1_…` / `…_2_…`), the repro binary
+passes, and `fn` arm 9 blk5 goes `rc=1` → `rc=0`. This is the third of the four
+defects in that arm; `tests/fn.test.yo` still needs blk10 (tuple-generic
+parameter) and blk12 (a `(fn(v : T) -> T)` callback parameter).
+
+Worth stressing: this class does NOT show up as hollow or red. It compiles, runs,
+and returns the wrong number. The honest sweep cannot see it — only differential
+execution against TS can.
+
+### fn arm 9 blk12 — an anonymous fn passed as a PLAIN fn-pointer callback is never emitted
+
+Standalone repro (TS compiles and runs; yo-self fails at the C compiler):
+
+```rust
+generic_fn :: (fn(generic(T : Type), x : T, callback : (fn(v : T) -> T)) -> T)(callback(x));
+a := generic_fn(1, (x) -> (x + 1));
+```
+
+yo-self:
+
+```
+error: use of undeclared identifier 'fn_yo_id_4978'
+  … = yo_id_4973_…_cl1_fn_yo_id_4978((int32_t)(1), (void*)(fn_yo_id_4978));
+```
+
+The specialized callee IS declared and defined, and it correctly takes an
+`int32_t (*callback)(int32_t v)`. What is missing is the LAMBDA ITSELF: yo-self
+references `fn_yo_id_4978` in the argument (and embeds its name in the
+specialization key) but never emits a definition for it. TS emits exactly that
+function —
+
+```c
+static inline int32_t fn_yo6f45cce5_id_36(int32_t x);          // forward decl
+static inline int32_t fn_yo6f45cce5_id_36(int32_t x) { … }     // definition
+… fn_…_idfn_yo6f45cce5_id_35((int32_t)(1), (void*)(fn_yo6f45cce5_id_36));
+```
+
+so the fix is in function COLLECTION (`yo-self/codegen/functions/collection.yo`),
+not in the call-site emitter: an anonymous function passed as a plain
+`(fn(v : T) -> T)` value — i.e. NOT an `Impl(Fn)` closure with a capture struct,
+which is the only shape yo-self's collector currently walks
+(`ei.closure_function_value`, collection.yo:528) — must still be added to the
+emit set. This is the last of the four defects in `fn` arm 9 alongside blk10
+(tuple-generic parameter).

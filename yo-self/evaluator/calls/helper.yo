@@ -1090,6 +1090,7 @@ compute_compile_time_signature :: (
     arg_values : ArgValues,
     callee_env : Environment,
     runtime_param_tys : ArrayList(TypeValue),
+    param_comptime : ArrayList(bool),
     exn : Exception
   ) -> String
 )({
@@ -1165,6 +1166,40 @@ compute_compile_time_signature :: (
     },
     .None => ()
   );
+  // Compile-time REGULAR parameters — a `comptime(y) : i32` value parameter.
+  // Faithful port of TS's third block (helper.ts:2154-2163):
+  //
+  //   functionType.parameters.forEach((param, index) => {
+  //     if (param.isCompileTimeOnly && index < argValues.args.length) { … }
+  //   });
+  //
+  // yo-self had no counterpart, so the signature carried only TYPES and two
+  // calls that differ solely in a comptime VALUE collapsed onto ONE
+  // specialization — a SILENT WRONG ANSWER, not a compile error:
+  // `comptime_add :: (fn(x : i32, comptime(y) : i32) -> i32)(x + y)` emitted a
+  // single `yo_id_…(int32_t x) { return x + 1; }`, so `comptime_add(3, 2)`
+  // returned 4. yo-self keeps the per-parameter comptime flags in a func-id
+  // side table rather than on the parameter, so they are threaded in from the
+  // caller, which already reads them.
+  n_pc := param_comptime.len();
+  n_ar := arg_values.args.len();
+  (pci : usize) = usize(0);
+  while(pci < n_pc, {
+    is_ct := match(param_comptime.get(pci),.Some(b) => b,.None => false);
+    if(is_ct && (pci < n_ar), {
+      ct_sig := match(
+        arg_values.args.get(pci),
+        .Some(ae) => match(
+          ae.value,
+          .Some(v) => sanitize_for_sig(value_to_signature_string(v)),
+          .None => String.from("unknown")
+        ),
+        .None => String.from("unknown")
+      );
+      parts.push(ct_sig);
+    });
+    pci = (pci + usize(1));
+  });
   // Runtime parameter types — disambiguates specializations with the same
   // compile-time args but different concrete runtime param types (e.g.
   // `println(generic(T), v : T)` over `str` vs `i32`: the generic T part may
@@ -1764,7 +1799,7 @@ create_specialized_function_inline :: (
           // Cache miss: create the specialization
           // ------------------------------------------------------------------
           // Compute specialized func_id
-          sig := compute_compile_time_signature(func_type, arg_values, callee_env, runtime_param_tys, exn);
+          sig := compute_compile_time_signature(func_type, arg_values, callee_env, runtime_param_tys, spec_param_ct_flags, exn);
           // Resolved-return segment — must vary exactly when the cache-key
           // extra value above varies, so distinct receivers get distinct
           // emitted func_ids (same gate).
