@@ -2032,3 +2032,29 @@ the ARG type side by side at Step 6 (helper.yo). If declared is
 fix is to let the same-id branch still recurse through the Fn-trait when the two
 carriers' results DIFFER (TS's `expected.type.id !== given.type.id` guard exists
 only to skip a pure self-match; a resolved-vs-unresolved pair is not one).
+
+## option_result_combinators — TRUE GREEN (54/54 = TS); score 175 -> 176 GREEN
+
+Root (attempt 2, LANDED `bd04feafe`): `g_some_resolved_concrete` is a DURABLE
+global keyed by SomeT id, but a function's own `generic(B : Type)` binder is not
+durable — TS mints a fresh SomeType for it on every call (helper.ts:1047-1053).
+yo-self reuses the one signature instance, so call 1's `B := i32` survived into
+call 2, whose parameter `Impl(Fn() -> B)` then pre-resolved to
+`Impl(Fn() -> i32)` via `_resolve_some_types_deep`'s registry fallback. A
+concrete Fn-trait result flips the closure argument onto the TAKE-ON path, which
+skips the Step-5.5 closure-body-type substitution that binds `B` — so the second
+call's return stayed unbound and the statement typed `unit`.
+
+Fix: `unregister_some_resolved_concrete(id)` (expr_info.yo), called from the
+Step-6 forall-placeholder loop in helper.yo for each signature SomeT whose name
+is the binder being installed. The call that installs the placeholder OWNS that
+binder.
+
+Sweep after: **176 GREEN / 8 HOLLOW / 1 RED**, exactly one file changed class.
+
+**Generalizable lesson for the remaining hollows:** any durable id-keyed side
+table that mirrors a TS field which TS re-creates per call is a cross-call
+poisoning channel. Before blaming dispatch or the spec cache again, check
+whether the SECOND occurrence of a construct behaves differently from the FIRST
+(run the arms individually AND in pairs — that asymmetry is the cheapest
+signal in this whole campaign).
