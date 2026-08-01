@@ -531,6 +531,75 @@ _trial_eval_ret_type_expr :: (
     .None => ()
   );
 });
+/// Replace the `call_result` of an `Impl(Fn(...) -> R)` carrier (or a bare
+/// `FnTraitT`) with `new_result`, but only where the current result is not
+/// itself a type variable and DOES contain one — i.e. exactly the
+/// `-> Option(B)` shape.
+///
+/// This is the value-semantics stand-in for TS anonymous-function.ts:1010-1012.
+/// There, `functionType` IS the parameter type's `isFn.callType` object, so
+/// `functionType.return.type = evaluatedBodyReturnType` rewrites the PARAMETER
+/// TYPE in place: after the argument is evaluated, TS's parameter type reads
+/// `Impl(Fn(a : i32) -> Option(i32))`, and the specialized body therefore types
+/// `f(value)` with the CANONICAL `Option(i32)`. yo-self types are values, so
+/// the caller re-applies the refinement explicitly. Without it the specialized
+/// body types `f(value)` as the def-era `Option(B)` and yo-self's codegen
+/// aborts with "no C type name found for <enum:…>" — substitution keeps the
+/// def-era enum id, so only the closure's own (canonical) body type will do.
+_refine_one_fn_trait_result :: (fn(ftt : TypeValue, new_result : TypeValue) -> TypeValue)(
+  match(
+    ftt,
+    .FnTraitT(rw_bn, rw_cpl, rw_cpt, rw_cr, rw_il, rw_it, rw_is, rw_cpr) => cond(
+      ((!(is_some_type(rw_cr))) && (get_all_some_types(rw_cr).len() > usize(0))) => TypeValue.FnTraitT(
+        rw_bn,
+        rw_cpl,
+        rw_cpt,
+        new_result,
+        rw_il,
+        rw_it,
+        rw_is,
+        rw_cpr
+      ),
+      true => ftt
+    ),
+    _ => ftt
+  )
+);
+/// True iff `ty` carries an Fn-trait whose result is the refinable
+/// `-> Option(B)` shape (not itself a type variable, but containing one).
+_wrapper_fn_result_needs_refine :: (fn(ty : TypeValue) -> bool)(
+  match(
+    extract_fn_trait_from_type(ty),
+    .Some(nr_ftt) => match(
+      nr_ftt,
+      .FnTraitT({ call_result : nr_cr }) => ((!(is_some_type(nr_cr))) && (get_all_some_types(nr_cr).len() > usize(0))),
+      _ => false
+    ),
+    .None => false
+  )
+);
+_refine_wrapper_fn_result :: (fn(ty : TypeValue, new_result : TypeValue) -> TypeValue)(
+  match(
+    ty,
+    .SomeT(rf_id, rf_nm, rf_fl, rf_pt, rf_rtt, rf_rtl, rf_ntt, rf_ntl, rf_ier, rf_kft, rf_rc) => {
+      new_rtt := ArrayList(TypeValue).new();
+      (rf_i : usize) = usize(0);
+      while(rf_i < rf_rtt.len(), {
+        match(
+          rf_rtt.get(rf_i),
+          .Some(rf_t) => {
+            new_rtt.push(_refine_one_fn_trait_result(rf_t, new_result));
+          },
+          .None => ()
+        );
+        rf_i = (rf_i + usize(1));
+      });
+      TypeValue.SomeT(rf_id, rf_nm, rf_fl, rf_pt, new_rtt, rf_rtl, rf_ntt, rf_ntl, rf_ier, rf_kft, rf_rc)
+    },
+    .FnTraitT(_, _, _, _, _, _, _, _) => _refine_one_fn_trait_result(ty, new_result),
+    _ => ty
+  )
+);
 /// Check that one function parameter matches its argument expression.
 /// Evaluates the arg, synthesizes type bindings into callee_env, and adds
 /// the parameter variable to callee_env.
@@ -785,6 +854,36 @@ check_if_function_parameter_matches_argument :: (
   // (anonymous-function.ts:963-988 mutates the closure's type in place). No
   // effect unless the arg value is a FuncVal whose given fn-type return is a
   // SomeT and a concrete body type was registered.
+  // The PARAMETER-side twin of the same TS mutation (anonymous-function.ts:
+  // 1010-1012, which writes through to the parameter type's Fn-trait callType —
+  // see _refine_wrapper_fn_result): a closure argument whose def-evaluated body
+  // type is concrete pins the Fn-trait carrier's `-> Option(B)` to that
+  // CANONICAL instance, on BOTH sides (TS's two sides are one shared object, so
+  // they can never disagree). `resolved_pt` is what Step 7 re-evaluates and
+  // Step 9 binds `f` with, so this is what makes the specialized body — and the
+  // C it emits — use `Option(i32)`.
+  match(
+    arg_value,
+    .Some(av_pr) => match(
+      av_pr,
+      .FuncVal(pr_fvd, _) => match(
+        get_closure_body_type(pr_fvd.*.func_id.clone()),
+        .Some(pr_body_ty) => if((!(is_some_type(pr_body_ty))) && (get_all_some_types(pr_body_ty).len() == usize(0)), {
+          resolved_pt = _refine_wrapper_fn_result(resolved_pt, pr_body_ty.clone());
+          if(_wrapper_fn_result_needs_refine(arg_type), {
+            arg_type = _refine_wrapper_fn_result(arg_type, pr_body_ty);
+            // …and through the arg's RECORDED type, which is what codegen reads:
+            // TS's rewrite lands on the shared Fn-trait object, so the closure
+            // expression's own `expr.$.type` reports the concrete result too.
+            arg_info.ty = arg_type;
+          });
+        }),
+        .None => ()
+      ),
+      _ => ()
+    ),
+    .None => ()
+  );
   (arg_type_for_synth : TypeValue) = arg_type;
   match(
     arg_value,
@@ -2211,6 +2310,24 @@ create_specialized_function_inline :: (
             // SomeT's resolved concrete so get_type_string(SomeT) lowers to it
             // (utils/index.yo:760).
             decl_pt := match(decl_param_types.get(rbp_i),.Some(t) => t,.None => TypeValue.Unit);
+            // Prefer the CALL's resolved parameter type over the pristine
+            // declared one. TS's parameter object is mutated in place by the
+            // closure's return rewrite (anonymous-function.ts:1010-1012), so by
+            // the time it specializes, the declared type ALREADY reads
+            // `Impl(Fn(a : i32) -> Option(i32))`. yo-self's declared type stays
+            // def-era, and rebuilding the closure param from it re-installed
+            // `-> Option(B)`: the spec body then typed `f(value)` with the
+            // def-era instance and codegen had no C type for it (the
+            // Option/Result-combinator family's last layer). Only taken when the
+            // resolved type still carries an Fn-trait carrier, so the
+            // capture-struct rebuild below is unaffected.
+            match(
+              arg_values.args.get(rbp_i),
+              .Some(rp_ae) => if(match(rp_ae.parameter_type,.SomeT({ id : _ }) => extract_fn_trait_from_type(rp_ae.parameter_type).is_some(), _ => false), {
+                decl_pt = rp_ae.parameter_type;
+              }),
+              .None => ()
+            );
             closure_some_id := match(
               decl_pt,
               .SomeT({ id : sid }) => match(extract_fn_trait_from_type(decl_pt),.Some(_) => sid,.None => String.from("")),
@@ -4911,17 +5028,34 @@ try_to_call_function_with_arguments :: (
                   // spec_ret_ty stayed `List(U)` and emission's
                   // has_generic_return gate silently dropped the spec.
                   (v_out : EvalValue) = v;
+                  // The env WRITE-BACK half of helper.ts:1471-1493: TS replaces
+                  // the calleeEnv binding itself (`updateExistingVariable`, value
+                  // `[concreteTypeValue]`) — "Without this,
+                  // evaluateFunctionReturnTypeAgain would re-evaluate the return
+                  // type and still see T as SomeType instead of i32". That is
+                  // exactly the Option/Result-combinator family's defect: the
+                  // closure argument's body/return unification stamps `B := i32`
+                  // on the lineage cell (anonymous_function.yo
+                  // _synth_nested_return_somes), but Step 9 resolves `Option(B)`
+                  // through the ENV, which still held the self-bound `B`.
+                  (wb_from_cell : bool) = false;
+                  (wb_plain : bool) = false;
                   match(
                     v,
                     .TypeVal(v_tb) => match(
                       v_tb,
-                      .SomeT({ id : ex_sid, resolved_concrete : ex_cell }) => {
+                      .SomeT({ id : ex_sid, resolved_concrete : ex_cell, required_trait_types : ex_rtt }) => {
                         (ex_res : Option(TypeValue)) = Option(TypeValue).None;
                         if(ex_cell.len() > usize(0), {
                           ex_res = ex_cell.get(ex_cell.len() - usize(1));
+                          wb_from_cell = true;
                         }, {
                           ex_res = lookup_some_resolved_concrete(ex_sid);
                         });
+                        // TS gates the write-back on the type variable carrying NO
+                        // trait constraints (helper.ts:1480-1482) — a constrained
+                        // `Impl(...)` wrapper must keep its SomeT binding.
+                        wb_plain = (ex_rtt.len() == usize(0));
                         match(
                           ex_res,
                           .Some(ex_c) => {
@@ -4934,6 +5068,18 @@ try_to_call_function_with_arguments :: (
                     ),
                     _ => ()
                   );
+                  // Restricted to the CELL channel (not the id registry — that
+                  // global table is shared across calls and would leak a sibling
+                  // call's resolution) and to a binding in the call's OWN top
+                  // frame, so the update pops with the frame instead of becoming
+                  // a durable write-through in yo-self's mutable env model (the
+                  // rule _bind_some_type follows for the same reason).
+                  wb_top_frame := ((callee_env_m.frames.len() > usize(0)) && (last_v.frame_level == (callee_env_m.frames.len() - usize(1))));
+                  if(((wb_from_cell && wb_plain) && wb_top_frame) && !(match(v_out,.TypeVal(wb_t) => is_some_type(wb_t), _ => true)), {
+                    wb_cell := ArrayList(EvalValue).new();
+                    wb_cell.push(v_out);
+                    last_v.value = wb_cell;
+                  });
                   forall_arg_vals.push(
                     ArgEntry(
                       value :.Some(v_out),

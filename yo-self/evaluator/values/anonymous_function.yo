@@ -97,6 +97,7 @@ open(import("std/fmt"));
 { get_all_some_types, type_is_control_bound } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
+{ synthesize_types, SynthesizeOptions, TypePair } :: import("../types/synthesizer.yo");
 {
   clear_flow_violation,
   flow_violation_pending,
@@ -372,6 +373,38 @@ _trial_eval_anon_body :: (
   // always routes through evaluateBeginExpression; see wrap_body_in_begin).
   evaluated := evaluate_expression_raw(wrap_body_in_begin(body), env, ctx, inner_exn);
   out.push(evaluated);
+});
+/// Unify a declared return type that CONTAINS type variables (`Option(B)`)
+/// against the concrete body type, binding each nested type variable in
+/// `expected_env`.
+///
+/// TS does this for the side effect on the shared SomeType object
+/// (`setResolvedConcreteType`, anonymous-function.ts:1004-1008) and then
+/// harvests it into the call's calleeEnv at helper.ts:1471-1493. yo-self routes
+/// the SAME net effect through the env in one step: `expected_env` IS the
+/// caller-side `ctx.expected_type.env` — the call's own callee env — so the
+/// binding lands exactly where `evaluate_function_return_type_again` reads it.
+///
+/// Going through the env rather than the lineage cell / id registry is what
+/// makes this PER CALL. Those channels are keyed on the SomeT's identity, and a
+/// prelude signature's `B` is ONE instance shared by every call of the method
+/// (TS mints a fresh `B` per call at helper.ts:1047), so stamping them made
+/// `opt.and_then(x => Option(String).Some(…))` inherit the previous call's
+/// `B := i32` — measured as a specialized `and_then` declared `-> Option(i32)`
+/// whose closure returned `Option(String)` (a C type error in
+/// tests/option_result_combinators arm 6).
+///
+/// A genuine mismatch must not fail the definition-time evaluation — TS's own
+/// compatibility check downstream reports it — so the throw is swallowed by
+/// unwinding THIS helper.
+_synth_nested_return_somes :: (
+  fn(ret_ty : TypeValue, body_ty : TypeValue, expected_env : Environment, given_env : Environment) -> unit
+)({
+  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  nrs_checked := ArrayList(TypePair).new();
+  (nrs_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
+  synthesize_types(ret_ty, expected_env, body_ty, given_env, nrs_checked, nrs_opts, inner_exn);
+  ()
 });
 /// Evaluate a closure-parameter type annotation, swallowing eval errors
 /// (mirrors the try/catch around anonymous-function.ts:448). On success —
@@ -1360,6 +1393,53 @@ evaluate_anonymous_function_implementation :: (
             )
           );
         });
+        // TS anonymous-function.ts:992-1015: when the declared return type
+        // CONTAINS SomeTypes but is not itself one (`Option(B)` — the comment
+        // there names this very shape) and the body evaluated to a fully
+        // concrete type, synthesize the declared return against the body type
+        // with `setResolvedConcreteType`, so every NESTED type variable carries
+        // its resolution. TS relies on object identity: the `B` inside the
+        // closure's `-> Option(B)` IS the callee signature's `B`, so stamping it
+        // is what lets `helper.ts:1464` propagate `B := i32` into calleeEnv and
+        // `evaluateFunctionReturnTypeAgain` resolve `Option(B)` → `Option(i32)`.
+        // yo-self binds them in the call's own callee env instead — see
+        // _synth_nested_return_somes for why the identity channels (the shared
+        // `resolved_concrete` cell / id registry) are wrong here.
+        //
+        // Without this the whole Option/Result-combinator family hollowed: the
+        // closure TAKES ON the expected `Impl(Fn(a : T) -> Option(B))` wrapper
+        // (ts:1183-1252), so the call's Step-6 synthesis sees a SomeT — not a
+        // Func — on the given side and skips the Fn-trait recursion that would
+        // otherwise bind `B` (synthesizer.yo's `is_function_type(given_ty)`
+        // guard, the same one TS has). TS binds `B` here instead, at the
+        // closure's own body/return unification.
+        match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(anon_eb)),
+          .Some(nrs_info) => {
+            nrs_body_ty := nrs_info.ty;
+            nrs_ret_ty := match(function_type,.Func({ result : nrs_r }) => nrs_r, _ => t_unit());
+            nrs_ret_nested := ((!(is_some_type(nrs_ret_ty))) && (get_all_some_types(nrs_ret_ty).len() > usize(0)));
+            nrs_body_concrete := ((!(is_some_type(nrs_body_ty))) && (get_all_some_types(nrs_body_ty).len() == usize(0)));
+            if(nrs_ret_nested && nrs_body_concrete, {
+              _synth_nested_return_somes(nrs_ret_ty, nrs_body_ty, expected_type_env, body_eval_env);
+              // TS ts:1012-1014 completes the mechanism by REPLACING the
+              // declared return with the body type on both function types
+              // (`functionType.return.type = evaluatedBodyReturnType`). In
+              // yo-self this is load-bearing for codegen, not just tidiness:
+              // resolving `B` by SUBSTITUTION keeps the def-era enum id, so a
+              // left-in-place `Option(B)` reaches lowering as an instance that
+              // was never collected ("get_type_string: no C type name found for
+              // <enum:…>"). The body type is the CANONICAL memoized instance.
+              function_type = match(
+                function_type,
+                .Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, _, nrs_m, nrs_vt) => TypeValue.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, nrs_body_ty, nrs_m, nrs_vt),
+                _ => function_type
+              );
+              register_func_type(func_id.clone(), function_type);
+            });
+          },
+          .None => ()
+        );
         // Phase 5: for an `io.async(closure)`, run the await-point analysis on the
         // body and record it on the body's ExprInfo when it has awaits — the
         // async-FSM codegen reads `await_analysis` to choose the state-machine path

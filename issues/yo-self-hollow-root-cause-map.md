@@ -1754,3 +1754,164 @@ call_result_m (tag the FuncCallResult construction sites). Then make THAT
 path run the forall inference (or route it through the FuncVal arm).
 Every prior fix attempt patched paths the call never takes — this probe
 finally identifies the real one.
+
+### Family ROOT CAUSE FOUND (sh104–sh107 probe ladder): two unported TS mechanisms
+
+The probe chain ended at `try_to_call_function_with_arguments` Step 9 and then
+walked BACKWARDS to the actual cause. Measured facts, in order:
+
+| probe            | output                                                                                             | reading                                                                                                                                                                                                                                                                                             |
+| ---------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| sh104 `__DBG_S9` | `unresolved-ret fid=yo_id_2447 ty=<enum:2446> rte=y`                                               | the return-type EXPR side-table IS populated; the rescue re-eval is not the gap                                                                                                                                                                                                                     |
+| sh105 `__DBG_SA` | `st nm=B id=1000 fl=3 cell=0 res=B nvars=2`                                                        | `B` is UNBOUND in `callee_env_m`, and its shared `resolved_concrete` cell is EMPTY                                                                                                                                                                                                                  |
+| sh105 `__DBG_SB` | `rte-eval produced ty=<enum:5942> somes=1`                                                         | the rte re-eval mints a FRESH instance that still carries `B` — consistent with "B unbound", not with "wrong expr"                                                                                                                                                                                  |
+| sh107 `__DBG_SC` | `var[0] fl=1 slot=B slot_id=1000` / `var[1] fl=1 slot=B slot_id=1000`                              | both `B` bindings are the SELF-BOUND markers in the call's own top frame; nothing ever rebound them                                                                                                                                                                                                 |
+| sh107 `__DBG_S6` | `f pt_some=y ntraits=1 t0=Fn(i32) -> <enum:2444> as_fn=n argsynth=Impl : (Fn(i32) -> <enum:2444>)` | **the discriminator**: the closure argument TOOK ON the expected `Impl(Fn(a : T) -> Option(B))` wrapper, so the given side is a SomeT — not a `Func` — and synthesizer.yo:1349's `is_fn_trait_type(exp_trait) && is_function_type(given_ty)` guard skips the Fn-trait recursion that would bind `B` |
+
+TS has the SAME take-on behaviour (anonymous-function.ts:1183-1252) and the SAME
+id-equality skip (synthesizer.ts:386) — it binds `B` somewhere else entirely,
+in two steps yo-self had never ported:
+
+1. **anonymous-function.ts:992-1015** — after the closure body is evaluated,
+   when the declared return CONTAINS type variables but is not itself one
+   (the comment there literally names `Option(B)`) and the body type is fully
+   concrete: `synthesizeTypes(declaredReturn, bodyType, [], {setResolvedConcreteType: true})`,
+   then `functionType.return.type = newFunctionType.return.type = bodyType`.
+   The synthesis exists purely for its side effect — stamping
+   `B.resolvedConcreteType = i32` on the SHARED SomeType object.
+   `anonymous_function.yo` did not call `synthesize_types` AT ALL.
+2. **helper.ts:1464-1494** — after the argument loop, for every forall label
+   whose calleeEnv binding is still a SomeT that now carries a
+   `resolvedConcreteType` (and has NO trait constraints), REPLACE the binding
+   (`updateExistingVariable`, value `[concreteTypeValue]`). TS's own comment:
+   "Without this, evaluateFunctionReturnTypeAgain would re-evaluate the return
+   type and still see T as SomeType instead of i32." yo-self had ported only
+   the _extraction_ half of this (into `forall_arg_vals`), never the env
+   write-back.
+
+Independently corroborated by an instrumented TS run (probes at helper.ts:385/
+392/621/1470/1486/1538, anonymous-function.ts:758/1004, synthesizer.ts:244/457/
+727/746, then reverted): counterfactually disabling synthesizer.ts:463 makes TS
+report `returnType=Option(B)` — i.e. TS reproduces yo-self's bug exactly.
+
+Why `Option.map` works and `Option.and_then` does not: `map`'s parameter is
+`Impl(Fn(a : T) -> B)` whose Fn-trait RESULT is a bare SomeT, so yo-self's
+take-on gate (`w_has_concrete_fn`, anonymous_function.yo) declines and the
+closure keeps its `Func` type → the Fn-trait recursion runs. `and_then`'s
+result `Option(B)` is an EnumT, which the shallow gate reads as concrete.
+
+**Port landed (yo-self side):** `_synth_nested_return_somes` +
+the return rewrite in `anonymous_function.yo`, and the cell-sourced env
+write-back at helper.yo Step 8 (restricted to the CELL channel — never the
+global id registry — and to a binding in the call's OWN top frame, so it pops
+with the frame instead of becoming a durable write-through).
+
+sh108 (parts 1+2 only) measured: `__DBG_BB bind B src_id=1000 ty=i32` — B is
+bound, `__DBG_S9` stops firing, and the specialization key becomes
+`…rtparam0_enum_yo_id_4475_i32…ret_enum_yo_id_4475_i32` (the canonical
+`Option(i32)` memo instance). It then aborted in yo-self's own codegen:
+`get_type_string: no C type name found for <enum:enum_yo_id_2444> (key=enum_yo_id_2444_1000)`
+— resolving `B` by SUBSTITUTION keeps the def-era enum id, so the closure's
+left-in-place `Option(B)` reached lowering uncollected. That is exactly what
+TS's third statement (`functionType.return.type = bodyType`) prevents, so it
+was ported too (sh109).
+
+### Family layer 2 (sh115–sh119): the port is FOUR statements, not two
+
+The two unported mechanisms above are necessary but not sufficient. Each extra
+layer was pinned by turning yo-self's own codegen panic into a locatable
+marker — `_lookup_named_c_type` returning `"__yo_MISSING_TYPE"` instead of
+`__yo_panic` (probe only, reverted), which put the defect on ONE C line:
+
+```
+__yo_MISSING_TYPE _file____User_temp_6631 = closure_yo_id_5937(&(f), value);
+```
+
+so every later step measured a specific type rather than guessing. The four
+statements TS executes, and where yo-self needed each:
+
+1. **anonymous-function.ts:1004** — synthesize declared-return-vs-body for the
+   nested type variables. yo-self: `_synth_nested_return_somes`, bound in the
+   call's own callee env (`ctx.expected_type.env`) rather than through
+   `set_resolved_concrete_type`. **The identity channels are WRONG here**: a
+   prelude signature's `B` is ONE instance shared by every call (TS mints a
+   fresh `B` per call at helper.ts:1047), so stamping the lineage cell / id
+   registry made arm 6 (`and_then(x => Option(String).Some(…))`) inherit arm 3's
+   `B := i32` — measured as a specialized `and_then` declared `-> Option(i32)`
+   whose closure returned `Option(String)` (C: `initializing '__yo_t13' with an
+expression of incompatible type '__yo_t8'`). Routing through the env is
+   per-call by construction and needs no write-back at Step 8.
+2. **anonymous-function.ts:1012** — `functionType.return.type = bodyType`.
+   Load-bearing for codegen, not tidiness: resolving `B` by SUBSTITUTION keeps
+   the def-era enum id, so a left-in-place `Option(B)` reaches lowering as an
+   instance that was never collected. The body type is the CANONICAL memo
+   instance.
+3. **the same statement, seen through the PARAMETER type** — TS's
+   `functionType` IS the parameter type's `isFn.callType` object, so the write
+   also updates `f`'s declared type (TS's own trace: "this is why helper.ts's
+   parameterType itself prints Option(i32) after the arg evaluation"). yo-self
+   values can't alias, so `_refine_wrapper_fn_result` re-applies it to
+   `resolved_pt`, `arg_type`, and `arg_info.ty` (the last is what codegen reads).
+4. **the specialization's closure-param rebind** (helper.yo, mint): it rebuilt
+   the wrapper SomeT from `func_type`'s PRISTINE declared param type, undoing
+   (3) inside the spec body — `f` measured as `Impl(Fn(i32) -> <enum:2444>)` at
+   the body eval. Now prefers the call's `ArgEntry.parameter_type`.
+
+**Measured with all four (probe-free /tmp/s1fam2):** the arm-level scan of
+tests/option_result_combinators (`scratchpad/arm_scan.sh` over per-arm subsets)
+goes to **52/54 arms clean**; `tests/array` + `tests/for_macro_borrow` (the
+era-identity canaries) stay green; `check ./yo-self` stays 295/305 (identical to
+HEAD — the 10 are the known-heavy files).
+
+**Still blocked — the next layer:** arms 4 and 53, the only two that fail, are
+both a closure whose BODY IS A `cond` returning the generic type
+(`x => cond(x > 100 => Option(i32).Some(x*2), true => Option(i32).None)`). There
+the closure's body type measures as the DECLARED `Option(B)` (probe:
+`__DBG_NR fid=closure_yo_id_5937 ret=<enum:2444> body=<enum:2444> bconc=false`),
+so layer 1's gate correctly declines and `B` is never bound. Probes placed at
+ALL THREE `result_ty` sites in `evaluator/exprs/cond.yo`, and at the
+`adopt_receiver_struct_instance` exit in `evaluate_function_return_type_again`,
+produced NOTHING for this shape — so the generic type is NOT coming from the
+cond's own typing nor from receiver adoption. **NEXT PROBE:** print the body
+node's kind + `ast_expr_to_string` alongside `nrs_body_ty` at the
+`_synth_nested_return_somes` gate, to identify which node in
+`begin(cond(...))` carries `<enum:2444>` — the begin takes `last_info.ty`
+verbatim (begin.yo:1953/2247, no coercion), so one of the two must be recording
+it, and the cond probes rule the cond out only for the paths that record a
+SomeT-CONTAINING `result_ty`.
+
+The other family files do NOT share this root: an arm-level scan shows
+tests/prelude blocked by arms 1 (TryFrom/TryInto) and 3 (MaybeUninit), and
+tests/iter_filter_closure blocked in ALL THREE arms — separate roots, to be
+scoped individually.
+
+### Family layer 3 (arms 4 & 53) — SCOPED, root NOT yet located
+
+The two remaining orc arms are a closure whose body is a `cond` returning the
+generic type. Measured: the closure's body type equals the DECLARED return
+EXACTLY (`ret=<enum:2444> body=<enum:2444> bconc=false`), so layer 1's
+concrete-body gate correctly declines and `B` stays unbound for this shape.
+
+Ruled OUT by probes (all negative — do not re-investigate):
+
+- the three value-path `result_ty` sites in `evaluator/exprs/cond.yo`
+  (:362/:397/:678) — a probe gated on `type_contains_some_type(result_ty)`
+  printed NOTHING for this shape;
+- `adopt_receiver_struct_instance` at the exit of
+  `evaluate_function_return_type_again` — a probe gated on "adoption introduced
+  SomeTs" printed NOTHING;
+- the all-arms-control-flow branch (cond.yo:713) — its return-bodies-first
+  precedence IS faithfully ported (TS cond.ts:502-503), and arm 4's arms carry
+  no `return` anyway.
+
+`begin` is a pass-through here (`return_type := last_info.ty`, no coercion —
+begin.yo:1953/2247; and for a single-expression body the begin SHARES the inner
+node's id and re-records that same type, begin.yo:2264-2284). So the generic type
+is recorded by whichever node `anon_eb` resolves to, through a path none of the
+above covers.
+
+**NEXT PROBE:** at the `_synth_nested_return_somes` gate
+(`values/anonymous_function.yo`), print `ast_expr_to_string(anon_eb)` (truncated)
+plus `ast_expr_id(anon_eb)`, and — when `anon_eb` is a `begin` FnCall — the id
+and ExprInfo type of its LAST arg. That distinguishes "the cond really is typed
+`Option(B)` by a fourth path" from "`anon_eb` is not the node I assume".
