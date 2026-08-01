@@ -2457,3 +2457,36 @@ that builds args from `receiver_expr`) and check whether the receiver is consume
 all, and with which flag. Only then change anything — and gate with
 `scratchpad/hollow8.sh` plus the full sweep, since every move-into-call in the
 corpus exercises this path.
+
+#### prelude arm 3 — dead ends eliminated (read-only); the open question is precise
+
+Ruled OUT this round, all by grep, no builds:
+
+- **No MaybeUninit logic in TS's evaluator at all.** `grep -rn maybe_uninit src/evaluator/`
+  returns NOTHING; the builtins are declared in `src/expr.ts:1277` and are IDENTITY
+  at codegen (`src/codegen/exprs/inline-fns.ts:226`). So there is no
+  initialization-state tracking to port — the rejection must come from a GENERIC
+  check.
+- **TS's only consumed-value check is at CONSUME time**, in `src/expr.ts:2423`
+  (`if (variableToConsume.consumedAtToken && !allowConsumeAgain)`), with the flag
+  defaulting to `false` at `:2377`.
+- **But both of TS's call-path consume sites pass `true`** (helper.ts:432/445,
+  "Allow to consume again here is necessary"), and helper.ts has NO other
+  `setExprAsConsumed` call. The remaining TS callers are `iso.ts`, `drop.ts`,
+  `consume.ts` — none on a plain `own(self)` method-call path.
+- yo-self DOES have a `use of moved value` diagnostic (evaluator/utils.yo:419), but
+  it sits on a path parameterised by `rhs` — i.e. a binding-RHS read, not a general
+  variable read.
+
+So the open question is now sharp: **which TS check rejects the second
+`uninit_arr.assume_init()`?** Candidates, in the order worth grepping: (a) a
+read-side check somewhere other than the evaluator (the flow/ownership pass —
+`requireValidRefArgumentPlaces` / the `own`-capture tracking), (b) the `inout`
+borrow of the earlier `p := uninit_arr.as_ptr()` conflicting with the later move,
+or (c) `comptime_expect_error` catching an error the test does not actually care
+about (in which case the yo-self gap is that NOTHING at all errors there).
+
+Confirm by instrumenting the TS side once (`YO_TRACE=1`-style print at every throw
+in the ownership pass while compiling just that arm), which costs one TS run and no
+yo-self build — the same counterfactual technique that settled the closure-return
+mechanism earlier in this file.
