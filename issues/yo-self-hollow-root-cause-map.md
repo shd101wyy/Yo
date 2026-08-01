@@ -2555,3 +2555,27 @@ TS `synthesizer.ts`'s `TypeTag.Ptr` case). If the arm exists, the pointees are
 reaching it and the struct-level rejection is happening one level down — in which
 case re-try the struct fallback but confirm FIRST (with the same print) that the
 labels really are identical, since that is what made this attempt inert.
+
+#### imm_map — one more dead end closed: the Pointer arm EXISTS and is in the SAME function as the throw
+
+Checked (read-only): `_synthesize_types_impl` (synthesizer.yo:1160) contains BOTH the
+Pointer-vs-Pointer arm (:1758, which recurses into the pointees via
+`_synthesize_call`) AND the generic fallthrough throw (:2104). Same function, arm
+first. So the pointer case is not missing and it is not an unreachable-arm ordering
+bug.
+
+That leaves exactly one reading: when the throw fires with two `*(struct …)` types,
+`is_pointer_type` returned FALSE for at least one of them — the arm's own guard
+declined. Most likely the type is not a plain `.Pointer` at that moment (a
+`SomeT`/`IsoT`/`TypeAppT` wrapper that renders as `*(…)` via `type_to_string`, or a
+Pointer whose pointee is behind a wrapper), so the tag test fails while the printed
+form looks like a pointer.
+
+**NEXT STEP (one print, decisive):** at synthesizer.yo:2104 print
+`type_value_tag(expected_ty)` and `type_value_tag(given_ty)` (the tag helper is
+already imported in that module as `type_value_tag`) alongside the existing
+`type_to_string`s. The tags say immediately whether these are `Pointer`s that the
+guard rejected or something else wearing a pointer's rendering — and that determines
+whether the fix is in the guard, in an unwrap before the arm, or in whatever produced
+the wrapped type upstream. Do NOT attempt another fix before that print: two attempts
+here have now been inert because the printed form was trusted over the tag.
