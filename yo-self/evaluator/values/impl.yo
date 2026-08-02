@@ -596,6 +596,12 @@ _bind_forall_from_type_args :: (
   });
   Option(TypeValue).None
 });
+/// In-module forward hook to `find_associated_type_from_generic_impls`
+/// (defined BELOW; it mutually recurses with try_match_generic_impl via the
+/// method finder, and Yo has no forward references). Installed by the
+/// module-level statement right after the finder's definition.
+FindAssocFromImplsFn :: (fn(t : TypeValue, label : String, env : Environment) -> Option(TypeValue));
+(g_find_assoc_from_impls_fn : Option(FindAssocFromImplsFn)) = Option(FindAssocFromImplsFn).None;
 try_match_generic_impl :: (
   fn(
     concrete_type : TypeValue,
@@ -785,12 +791,174 @@ try_match_generic_impl :: (
             g_last_match_binding_vals.push(EvalValue.UnitVal);
           },
           .None => {
-            all_bound = false;
+            // THIRD recovery — through a where-constraint's ASSOCIATED-TYPE
+            // binding: a forall that appears ONLY as `Trait(Item := A)` in
+            // the entry's where clause (the bare-`I` blanket's `A`) is
+            // normally bound by the where-pass's FULL trait check, but a
+            // REPEAT check of the same (subject, trait) pair can satisfy the
+            // enforcement through registered/marker short-circuits that do
+            // not re-synthesize `A` (3-deep chained combinators:
+            // `IterTake(IterSkip(MyRange))`, iterator_combinators arms
+            // 16-18). Recover it directly: find the assoc label tied to this
+            // forall, resolve the bound where-SUBJECT's assoc type from the
+            // generic-impl registry, and bind that.
+            (wcr_bound : Option(TypeValue)) = Option(TypeValue).None;
+            {
+              (wcr_j : usize) = usize(0);
+              n_wcr := entry.where_constraint_traits.len();
+              while((wcr_j < n_wcr) && wcr_bound.is_none(), {
+                wcr_trait := match(entry.where_constraint_traits.get(wcr_j),.Some(t) => t,.None => t_unit());
+                wcr_subj := match(entry.where_constraint_some_types.get(wcr_j),.Some(t) => t,.None => t_unit());
+                match(
+                  wcr_trait,
+                  .TraitT(_, _, _, _, _, _, _, _, wcr_alabels, wcr_atypes) => {
+                    (wcr_k : usize) = usize(0);
+                    while((wcr_k < wcr_alabels.len()) && wcr_bound.is_none(), {
+                      wcr_cty := match(wcr_atypes.get(wcr_k),.Some(t) => t,.None => t_unit());
+                      wcr_is_this_forall := match(
+                        wcr_cty,
+                        .SomeT(name : wcr_cnm) => (wcr_cnm == fa_name2),
+                        _ => false
+                      );
+                      if(wcr_is_this_forall, {
+                        wcr_lbl := match(wcr_alabels.get(wcr_k),.Some(l) => l,.None => String.new());
+                        wcr_subj_nm := match(wcr_subj,.SomeT(name : wsn) => wsn, _ => String.new());
+                        match(
+                          _resolve_one_forall_binding(match_env, wcr_subj, wcr_subj_nm),
+                          .Some(wcr_subj_bound) => {
+                            // Registry first: the durable assoc registration
+                            // (tmgi success tail above) stores the subject's
+                            // resolved assoc types; the generic-impl finder
+                            // below re-runs tmgi and fails on exactly the
+                            // repeat paths this recovery exists for.
+                            {
+                              wcr_tid := type_id_or_empty(wcr_subj_bound);
+                              if(wcr_tid.len() > usize(0), {
+                                wcr_regs := get_type_trait_methods_by_name(wcr_tid, wcr_lbl.clone());
+                                (wcr_ri : usize) = usize(0);
+                                while((wcr_ri < wcr_regs.len()) && wcr_bound.is_none(), {
+                                  match(
+                                    wcr_regs.get(wcr_ri),
+                                    .Some(wcr_re) => match(
+                                      wcr_re.value,
+                                      .Some(wcr_rev) => match(
+                                        wcr_rev,
+                                        .TypeVal(wcr_ret) => if(!(is_some_type(wcr_ret)), {
+                                          wcr_bound = Option(TypeValue).Some(wcr_ret);
+                                        }),
+                                        _ => ()
+                                      ),
+                                      .None => ()
+                                    ),
+                                    .None => ()
+                                  );
+                                  wcr_ri = (wcr_ri + usize(1));
+                                });
+                              });
+                            };
+                            match(
+                              g_find_assoc_from_impls_fn,
+                              .Some(wcr_f) => if(wcr_bound.is_none(), {
+                                match(
+                                  wcr_f(wcr_subj_bound, wcr_lbl, match_env),
+                                  .Some(wcr_res) => if(!(is_some_type(wcr_res)), {
+                                    wcr_bound = Option(TypeValue).Some(wcr_res);
+                                  }),
+                                  .None => ()
+                                );
+                              }),
+                              .None => ()
+                            );
+                          },
+                          .None => ()
+                        );
+                      });
+                      wcr_k = (wcr_k + usize(1));
+                    });
+                  },
+                  _ => ()
+                );
+                wcr_j = (wcr_j + usize(1));
+              });
+            };
+            match(
+              wcr_bound,
+              .Some(wcr_t) => {
+                _b3 := bindings.push(wcr_t);
+                g_last_match_binding_vals.push(EvalValue.UnitVal);
+              },
+              .None => {
+                all_bound = false;
+              }
+            );
           }
         );
       }
     );
     vi = (vi + usize(1));
+  });
+  // DURABLE assoc-type registration at first success (TS model: impl fields
+  // live ON the type). A repeat full trait check of the same (record, trait)
+  // pair can satisfy enforcement through registered/marker short-circuits
+  // that never re-run the where-pass binding synthesis, so the impl's
+  // where-only foralls (`A` in `Iterator(Item := A)`) stay unbound on
+  // repeat paths (iterator_combinators arms 16-18, the 3-deep chains).
+  // Registering the SUBSTITUTED, fully-concrete associated types under the
+  // record's type id lets every later resolution channel (step-4 assoc
+  // check, find_associated_type_from_generic_impls step 1, my wcr recovery)
+  // read them from the registry directly. Concrete-only + deduped.
+  if(all_bound, {
+    dar_tid := type_id_or_empty(resolved_concrete);
+    if(dar_tid.len() > usize(0), {
+      dar_s := subst_new();
+      (dar_i : usize) = usize(0);
+      while(dar_i < entry.forall_names.len(), {
+        dar_name := match(entry.forall_names.get(dar_i),.Some(n) => n,.None => String.new());
+        dar_some := match(entry.forall_some_types.get(dar_i),.Some(s2) => s2,.None => t_unit());
+        dar_ty := match(bindings.get(dar_i),.Some(t) => t,.None => t_unit());
+        match(
+          dar_some,
+          .SomeT(_, _, dar_lvl, _, _, _, _, _, _, _, _) => subst_add(dar_s, dar_name, dar_lvl, dar_ty),
+          _ => ()
+        );
+        dar_i = (dar_i + usize(1));
+      });
+      subst_set_self(dar_s, entry.receiver_type_pattern, resolved_concrete);
+      (dar_fi : usize) = usize(0);
+      while(dar_fi < entry.field_names.len(), {
+        dar_lbl := match(entry.field_names.get(dar_fi),.Some(l) => l,.None => String.new());
+        dar_fty := match(entry.field_types.get(dar_fi),.Some(t) => t,.None => t_unit());
+        if((dar_lbl.len() > usize(0)) && !(is_function_type(dar_fty)), {
+          match(
+            entry.field_values.get(dar_fi),
+            .Some(dar_fv) => match(
+              dar_fv,
+              .TypeVal(dar_tvb) => {
+                dar_res := substitute(dar_s, dar_tvb);
+                if((get_all_some_types(dar_res).len() == usize(0)) && !(is_some_type(dar_res)), {
+                  if(get_type_trait_methods_by_name(dar_tid.clone(), dar_lbl.clone()).len() == usize(0), {
+                    register_type_trait_method(
+                      dar_tid.clone(),
+                      MethodEntry(
+                        label : dar_lbl.clone(),
+                        ty : t_type(),
+                        value : Option(EvalValue).Some(create_type_value(dar_res)),
+                        source_trait_id : get_base_trait_key(entry.trait_type),
+                        needs_pointer_conversion : false,
+                        self_type : Option(TypeValue).None
+                      )
+                    );
+                  });
+                });
+              },
+              _ => ()
+            ),
+            .None => ()
+          );
+        });
+        dar_fi = (dar_fi + usize(1));
+      });
+    });
   });
   cond(
     all_bound => Option(ArrayList(TypeValue)).Some(bindings),
@@ -1273,6 +1441,9 @@ find_associated_type_from_generic_impls :: (
   });
   found
 });
+// Install the in-module forward hook (see g_find_assoc_from_impls_fn above
+// try_match_generic_impl).
+g_find_assoc_from_impls_fn = Option(FindAssocFromImplsFn).Some(find_associated_type_from_generic_impls);
 /// Resolve a trait-name expression to its base `TraitT` TypeValue
 /// by env lookup. Handles both atom names (e.g. `LogicalNot`) and
 /// parametric trait shapes (`ComptimeAdd(comptime_int)` →

@@ -27,7 +27,6 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
 { TypeValue, FuncMeta } :: import("../types/definitions.yo");
-{ type_key } :: import("../types/type_key.yo");
 { is_function_type, is_some_type, is_pointer_type, is_struct_type, is_extern_type_name } :: import("../types/guards.yo");
 {
   is_fn_trait_type,
@@ -1043,9 +1042,13 @@ type_implements_trait :: (
   // check of the same trait through a chained combinator record
   // (`IterTake(IterSkip(MyRange)) <: Iterator` → where-pass →
   // `IterSkip(MyRange) <: Iterator`) self-collided and returned false
-  // (iterator_combinators arms 16-18). type_key(target) is the yo-self
-  // stand-in for TS's unique type id.
-  guard_key := type_key(target).concat(`:`).concat(_trait_type_id(trait_type));
+  // (iterator_combinators arms 16-18). `_type_id_for_trait_check` is the
+  // yo-self stand-in for TS's unique type id. NOT type_key: type_key is
+  // STATEFUL codegen machinery (it registers g_struct_cfid_keys entries);
+  // calling it from eval-phase trait checks poisoned the cfid registry and
+  // split the whole imm-container family's C identities (measured
+  // 2026-08-03: imm_map/imm_set/imm_sorted_*/linked_list all RED).
+  guard_key := _type_id_for_trait_check(target).concat(`:`).concat(_trait_type_id(trait_type));
   // Recursion guard: return false if already checking this pair.
   (already_checking : bool) = false;
   gn := g_trait_check_recursion_guard.len();
