@@ -63,7 +63,7 @@ open(import("std/string"));
   clear_provisional_trait_methods,
   type_id_or_empty
 } :: import("./type_trait_methods.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ FuncMeta, TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_some_t, t_usize } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type } :: import("../../types/guards.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
@@ -1460,6 +1460,52 @@ _substitute_assoc_in_method_ty :: (
   });
   substitute(s, method_ty)
 });
+/// Re-keying helper: `fi.ty` carries the TRAIT-DECLARED param labels
+/// (`lhs`/`rhs` for an Eq method), but the impl's closure BODY was written
+/// against the FuncVal's OWN param names (`self`/`other`). The C emitter
+/// derives the signature's parameter names from get_func_type's
+/// param_labels, so re-keying the raw fi.ty emitted `fn(lhs, rhs)` around a
+/// body referencing self/other ('use of undeclared identifier' —
+/// tests/env.test.yo PathBuf Eq, tests/string/rune.test.yo). Rebuild the
+/// meta with the VALUE's param names (arity permitting) before registering.
+_retype_with_value_param_labels :: (fn(ty : TypeValue, fv : EvalValue) -> TypeValue)({
+  fv_params := match(fv,.FuncVal(__rvd, _) => __rvd.*.params, _ => return(ty));
+  match(
+    ty,
+    .Func({ forall_types : rw_fts, param_types : rw_pts, implicit_types : rw_its, where_types : rw_wts, result : rw_res, meta : rw_m, variadic_types : rw_vts }) => {
+      if(rw_m.*.param_labels.len() != fv_params.len(), {
+        return(ty);
+      });
+      TypeValue.Func(
+        rw_fts,
+        rw_pts,
+        rw_its,
+        rw_wts,
+        rw_res,
+        box(
+          FuncMeta(
+            forall_labels : rw_m.*.forall_labels,
+            param_labels : fv_params,
+            implicit_labels : rw_m.*.implicit_labels,
+            implicit_spreads : rw_m.*.implicit_spreads,
+            result_is_comptime_only : rw_m.*.result_is_comptime_only,
+            param_is_ref : rw_m.*.param_is_ref,
+            param_is_owning : rw_m.*.param_is_owning,
+            result_is_ref : rw_m.*.result_is_ref,
+            has_variadic : rw_m.*.has_variadic,
+            is_extern : rw_m.*.is_extern,
+            extern_name : rw_m.*.extern_name,
+            is_control : rw_m.*.is_control,
+            variadic_label : rw_m.*.variadic_label,
+            variadic_comptime : rw_m.*.variadic_comptime
+          )
+        ),
+        rw_vts
+      )
+    },
+    _ => ty
+  )
+});
 _substitute_self_in_method_ty :: (
   fn(method_ty : TypeValue, self_concrete : TypeValue) -> TypeValue
 )({
@@ -2746,7 +2792,7 @@ evaluate_module_value :: (
                             // Self-substituted signature (see the fresh-
                             // registration branch below for the rationale).
                             if(real_fid.len() > usize(0), {
-                              register_func_type(real_fid.clone(), fi.ty);
+                              register_func_type(real_fid.clone(), _retype_with_value_param_labels(fi.ty, method_val));
                             });
                             updated_shell = true;
                           });
@@ -2775,7 +2821,7 @@ evaluate_module_value :: (
                       match(
                         method_val,
                         .FuncVal(__reg_fvd, _) => {
-                          register_func_type(__reg_fvd.*.func_id.clone(), fi.ty);
+                          register_func_type(__reg_fvd.*.func_id.clone(), _retype_with_value_param_labels(fi.ty, method_val));
                         },
                         _ => ()
                       );
