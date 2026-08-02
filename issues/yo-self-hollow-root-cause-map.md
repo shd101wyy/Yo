@@ -3679,3 +3679,69 @@ TIER-1 battery identical; corpus `PASS 148 DIFF 0 SELF-FAIL 1` (same
 pre-existing file); `check ./std` 153/153; `check ./yo-self` 295/305.
 **Flips no file on its own** — landed as a verified partial correctness fix that
 narrows the constrained-`F` search to the trait-application memo.
+
+---
+
+## 2026-08-02 — CORRECTION: the constrained-`F` root is REFUTED (twice), and delta A/B is a canary-killer
+
+Two independent agents plus an adversarial verifier re-measured the
+`iter_filter_closure` / `iterator_combinators` family. Three corrections, all
+counter-measured:
+
+**1. Trait-bound accumulation was never this family's cause.** The dedup landed
+earlier today works — `grep -o "F____Fn[A-Za-z0-9_]*"` on the emitted C now
+yields exactly ONE distinct key with one `Fn(*(A)) -> bool` bound (it used to
+show three). `scratchpad/w1/repro6.yo` **still fails identically**. So my own
+commit's claim that the dedup "points the constrained-F family at the
+trait-application memo" is WRONG. The recorded hypothesis at
+`issues/yo-self-hollow-root-cause-map.md:3672` is dead.
+
+**2. The `__impl_fn` closure-identity theory is also refuted.** yo-self does
+pass two different `F`s to the same constructor where TS passes one
+(`src/evaluator/values/anonymous-function.ts:1206-1213` builds an `__impl_fn`
+SomeType wrapper with `resolvedConcreteType = captureType`, which yo-self
+explicitly did not port — see the note at `anonymous_function.yo:1763`). That
+observation is real, but it is NOT load-bearing: `v1_namedfn.yo` replaces the
+closure with a top-level `gt2 :: fn(x : *(i32)) -> bool` — no capture struct, 3
+CTFE rows instead of 4, ONE struct id, no `__impl_fn` in TS's success path — and
+HEAD still fails, now as `// Failed to transpile (filtered.next)()`.
+
+**3. The actual discriminator is a GENERIC/WHERE-CLAUSE IMPL OVER A
+COMPTIME-CONSTRUCTED STRUCT** — not closures, not `F`, not `filter`, not
+generic-method return types. Tightest repro (`v5_direct.yo`, reproduces on HEAD
+and on a freshly rebuilt HEAD):
+
+```rust
+MyWrap :: (fn(comptime(I) : Type) -> comptime(Type))(struct(_inner : I));
+impl(generic(I, A), where(I <: Iterator(Item := A)), MyWrap(I), Iterator(...));
+// built directly, no generic method involved:
+w := MyWrap(CountIter)(_inner : iter);
+w.next()   // => `// Failed to transpile (w.next)()`
+```
+
+No closure, no generic method, no two-struct split (ONE struct id). Control
+`v8_mono.yo` writes the same impl MONOMORPHICALLY on `MyWrap(CountIter)` →
+HEAD rc=0, 0 markers, binary runs. A second repro `v4_take.yo`
+(`iter.take(usize(2)).next()`) hollows with 3 markers and never mints
+`IterTake(CountIter)` through the CTFE memo at all.
+
+**4. DO NOT apply the "ungate + accept unconditionally" deltas
+(`helper.yo:2129` / `helper.yo:2165`).** Measured on all three canaries in
+isolated dirs:
+
+| binary              | array                 | for_macro_borrow      | closure_capture_rc_leak |
+| ------------------- | --------------------- | --------------------- | ----------------------- |
+| HEAD                | rc=0 / 0 markers      | rc=0 / 0 markers      | rc=0 / 0 markers        |
+| + memo-resolve only | rc=0 / 0 markers      | rc=0 / 0 markers      | rc=0 / 0 markers        |
+| + **A/B ungate**    | **rc=1, 12 C errors** | **rc=1, 12 C errors** | **rc=1, 4 C errors**    |
+
+First error `call to undeclared function 'yo_id_3196'` — removing the SomeT-free
+acceptance filter unmasks era-mismatched ids. This is the third time this
+session that "the change only removes a restriction" turned out to be unsafe.
+Attribution is clean: the memo-resolve half alone is canary-neutral.
+
+**5. GATING METHODOLOGY FIX.** `./yo-cli check ./yo-self` prints `— FAILED` for
+genuinely failing files while emitting **zero** `error in` lines. Any gate that
+greps `error in` reads clean on a broken tree. Use the trailing
+`N/M file(s) passed` count (or count `FAILED`). Teeth verified: injected parse
+error → rc=1 FAILED; injected type error → rc=1 FAILED.
