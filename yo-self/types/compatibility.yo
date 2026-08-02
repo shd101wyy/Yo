@@ -16,7 +16,7 @@ open(import("std/string"));
 { TypeValue } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell } :: import("./creators.yo");
 { is_int_type, is_float_type, is_some_type, is_dyn_type } :: import("./guards.yo");
-{ type_contains_some_type } :: import("./utils.yo");
+{ type_contains_some_type, get_all_some_types } :: import("./utils.yo");
 { TypeTag } :: import("./tags.yo");
 {
   is_comptime_int_type,
@@ -122,6 +122,58 @@ set_compat_lookup_some_resolved_fn :: (fn(f : CompatSomeResolvedFn) -> unit)({
 // ---------------------------------------------------------------------------
 // Core implementation
 // ---------------------------------------------------------------------------
+/// TRUE when every type argument nested in a SomeT constraint list's
+/// Fn/Future trait CARRIERS is SomeT-free (deep). Gate for the narrow
+/// same-named-wrapper structural acceptance in `_compat_impl`'s SomeT arm —
+/// an unresolved carrier argument (`Future(T, E)`) must keep the strict
+/// name+frame-level rule, else a genuinely different instantiation could be
+/// accepted. Non-carrier constraints (plain TraitT) carry no arguments and
+/// are compared by the pairwise recursion itself.
+_wrapper_carrier_args_concrete :: (fn(rtts : ArrayList(TypeValue)) -> bool)({
+  (ok : bool) = true;
+  (i : usize) = usize(0);
+  while((i < rtts.len()) && ok, {
+    rtt := match(rtts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+    match(
+      rtt,
+      .FnTraitT(call_param_types : cc_pts, call_result : cc_cr) => {
+        (j : usize) = usize(0);
+        while((j < cc_pts.len()) && ok, {
+          match(
+            cc_pts.get(j),
+            .Some(pt) => if(get_all_some_types(pt).len() > usize(0), {
+              ok = false;
+            }),
+            .None => ()
+          );
+          j = (j + usize(1));
+        });
+        if(ok && (get_all_some_types(cc_cr).len() > usize(0)), {
+          ok = false;
+        });
+      },
+      .FutureTraitT(output : cc_fo, effect_types : cc_fets) => {
+        if(get_all_some_types(cc_fo).len() > usize(0), {
+          ok = false;
+        });
+        (k : usize) = usize(0);
+        while((k < cc_fets.len()) && ok, {
+          match(
+            cc_fets.get(k),
+            .Some(ft) => if(get_all_some_types(ft).len() > usize(0), {
+              ok = false;
+            }),
+            .None => ()
+          );
+          k = (k + usize(1));
+        });
+      },
+      _ => ()
+    );
+    i = (i + usize(1));
+  });
+  ok
+});
 _compat_impl :: (
   fn(
     actual : TypeValue,
@@ -802,10 +854,45 @@ _compat_impl :: (
       .TraitT(name : ename) => (aname == ename),
       _ => false
     ),
-    // SomeT: name + frame_level identity (Phase 2f: no env resolution)
-    .SomeT(name : aname, frame_level : alvl) => match(
+    // SomeT: name + frame_level identity (Phase 2f: no env resolution) —
+    // extended with a NARROW structural acceptance for same-NAMED wrappers
+    // minted at different frames whose constraint-carrier arguments are all
+    // CONCRETE (`Impl : (Future(i32, Io))` written at a binding annotation
+    // vs the same wrapper produced by the callee's return-type resolution).
+    // TS resolves both sides through env (compatibility.ts:676-796 + :916,
+    // getValueOfSomeTypeFromEnv); yo-self's `_compat_impl` carries no env,
+    // so two such wrappers compared as unequal even when they PRINT
+    // identically (tests/async_await.test.yo arm 65; scratchpad/t5/
+    // B_io_variant.yo). The acceptance is deliberately narrower than the
+    // refuted full port of the TS SomeT rule (whose unguarded trait-SUBSET
+    // walk self-recursed unboundedly in stage 2): it requires equal names,
+    // equal-length NON-EMPTY constraint lists, and every Fn/Future carrier
+    // argument SomeT-FREE — the pairwise recursion below then only ever
+    // descends into concrete types and terminates.
+    .SomeT(name : aname, frame_level : alvl, required_trait_types : artt) => match(
       expected,
-      .SomeT(name : ename, frame_level : elvl) => ((aname == ename) && (alvl == elvl)),
+      .SomeT(name : ename, frame_level : elvl, required_trait_types : ertt) => cond(
+        ((aname == ename) && (alvl == elvl)) => true,
+        true => {
+          (xw_ok : bool) = (
+            ((aname == ename) && (artt.len() == ertt.len()))
+            && (
+              (artt.len() > usize(0))
+              && (_wrapper_carrier_args_concrete(artt) && _wrapper_carrier_args_concrete(ertt))
+            )
+          );
+          (xw_i : usize) = usize(0);
+          while((xw_i < artt.len()) && xw_ok, {
+            xa := match(artt.get(xw_i),.Some(t) => t,.None => TypeValue.Unit);
+            xe := match(ertt.get(xw_i),.Some(t) => t,.None => TypeValue.Unit);
+            if(!(recur(xa, xe, require_exact, visited)), {
+              xw_ok = false;
+            });
+            xw_i = (xw_i + usize(1));
+          });
+          xw_ok
+        }
+      ),
       _ => false
     ),
     // -----------------------------------------------------------------------

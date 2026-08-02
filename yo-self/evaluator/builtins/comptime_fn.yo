@@ -412,6 +412,13 @@ evaluate_comptime_fn :: (
     ctfe_result,
     .Some(cft) => {
       // CTFE succeeded — return the function with the comptime type.
+      // NOTE: TS returns a NEW FunctionValue with `${funcId}_comptime`
+      // (ctfe-analysis.ts:159-172) so the comptime version's caches never
+      // collide with the runtime version's (fn.test.yo arm 11 layer 2).
+      // That mint was attempted 2026-08-02 and REVERTED: with the distinct
+      // id, arm 11 evaluates further but codegen emits the comptime body's
+      // params as undeclared C identifiers ('use of undeclared identifier
+      // x') — the mint must land PAIRED with comptime-body codegen support.
       out_info := new_expr_info(env, cft);
       out_info.value = Option(EvalValue).Some(arg_val);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);

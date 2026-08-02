@@ -4412,6 +4412,55 @@ collect_wrapper_trait_somes :: (fn(wrapper : TypeValue) -> ArrayList(TypeValue))
     rtt := match(rtts.get(i),.Some(t) => t,.None => t_unit());
     match(
       rtt,
+      // Future carrier — `Impl(Future(T, E))`. Without this arm the type
+      // variables living ONLY inside the Future trait's arguments were
+      // invisible here, so Step 9's `_resolve_some_types_deep` returned the
+      // raw declared `Impl(Future(T, E))` even though Step 6b had already
+      // bound `T := i32` / `E := Io` in callee_env from the annotation —
+      // the assignment's compat check then rejected two identically-
+      // printing Impl SomeTs (tests/async_await.test.yo arm 65;
+      // scratchpad/t5/B_io_variant.yo). Mirrors TS, where
+      // evaluateFunctionReturnTypeAgain re-evaluates the return-type
+      // EXPRESSION and the `Future(T, E)` application re-reads T/E from
+      // calleeEnv. The no-expected case is unaffected: an unbound T/E
+      // resolves to itself and the substitution below no-ops, so the async
+      // pipeline's unresolved-SomeT registrations keep their identity.
+      .FutureTraitT({ output : fut_out, effect_types : fut_ets }) => {
+        fo_inner := get_all_some_types(fut_out);
+        (foi : usize) = usize(0);
+        while(foi < fo_inner.len(), {
+          match(
+            fo_inner.get(foi),
+            .Some(s) => {
+              acc.push(s);
+            },
+            .None => ()
+          );
+          foi = (foi + usize(1));
+        });
+        (fei : usize) = usize(0);
+        while(fei < fut_ets.len(), {
+          match(
+            fut_ets.get(fei),
+            .Some(fet) => {
+              fe_inner := get_all_some_types(fet);
+              (fej : usize) = usize(0);
+              while(fej < fe_inner.len(), {
+                match(
+                  fe_inner.get(fej),
+                  .Some(s2) => {
+                    acc.push(s2);
+                  },
+                  .None => ()
+                );
+                fej = (fej + usize(1));
+              });
+            },
+            .None => ()
+          );
+          fei = (fei + usize(1));
+        });
+      },
       .FnTraitT({ call_param_types : cpts, call_result : cr, implicit_types : its }) => {
         (cj : usize) = usize(0);
         while(cj < cpts.len(), {
