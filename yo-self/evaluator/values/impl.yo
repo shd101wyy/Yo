@@ -155,12 +155,13 @@ _stamp_impl_forall_on_method :: (fn(v : EvalValue, names : ArrayList(String)) ->
 // nominal id, since HashMap(String, ...) would itself depend on generic-impl
 // resolution.
 //
-// A function-pointer slot (`g_type_implements_trait_fn`) is provided as an
-// indirection back to `trait_checking.yo:type_implements_trait_bool` to
+// A function-pointer slot (`g_type_implements_trait_full_fn`) is provided as
+// an indirection back to `trait_checking.yo:type_implements_trait` to
 // break the natural circular dependency — trait_checking.yo imports the
 // registry to check matches, but the registry needs the trait checker to
-// validate where-clause constraints. trait_checking.yo installs the pointer
-// in its init block via `set_type_implements_trait_fn`.
+// validate where-clause constraints (and to BIND where-clause-only generic
+// params). trait_checking.yo installs the pointer in its init block via
+// `set_type_implements_trait_full_fn`.
 // ---------------------------------------------------------------------------
 /// One registered generic impl.
 /// Mirrors `GenericImpl` in `src/evaluator/values/impl.ts`.
@@ -199,15 +200,26 @@ GenericImplEntry :: struct(
 (g_impl_registry_keys : ArrayList(String)) = ArrayList(String).new();
 (g_impl_registry_entry_lists : ArrayList(ArrayList(GenericImplEntry))) =
   ArrayList(ArrayList(GenericImplEntry)).new();
-/// Type of `type_implements_trait_bool` from trait_checking.yo.
-TypeImplementsTraitFn :: (fn(t : TypeValue, trait_type : TypeValue, env : Environment) -> bool);
-/// Global slot — set once by `set_type_implements_trait_fn` (called from
-/// trait_checking.yo after `type_implements_trait` is defined).
-(g_type_implements_trait_fn : Option(TypeImplementsTraitFn)) =
-  Option(TypeImplementsTraitFn).None;
-/// Install the function pointer (called from trait_checking.yo init block).
-set_type_implements_trait_fn :: (fn(f : TypeImplementsTraitFn) -> unit)({
-  g_type_implements_trait_fn = Option(TypeImplementsTraitFn).Some(f);
+/// ENV-RETURNING variant of the hook — the port of TS's full
+/// `typeImplementsTrait` (`{ implemented, env }`). `TraitCheckResult` lives in
+/// trait_checking.yo (importing it here would be circular), so the adapter
+/// pushes the post-constraint env into `env_out` slot 0 and returns the
+/// implemented flag. `try_match_generic_impl`'s where-constraint pass needs
+/// the env: trait satisfaction is what BINDS a generic param that appears
+/// only in a where clause (impl.ts:2425-2432 and its comment — "necessary for
+/// generic params that are only constrained through where-clauses").
+TypeImplementsTraitFullFn :: (
+  fn(
+    t : TypeValue,
+    trait_type : TypeValue,
+    env : Environment,
+    env_out : ArrayList(Environment)
+  ) -> bool
+);
+(g_type_implements_trait_full_fn : Option(TypeImplementsTraitFullFn)) =
+  Option(TypeImplementsTraitFullFn).None;
+set_type_implements_trait_full_fn :: (fn(f : TypeImplementsTraitFullFn) -> unit)({
+  g_type_implements_trait_full_fn = Option(TypeImplementsTraitFullFn).Some(f);
 });
 /// Type of `register_type_trait_value` from trait_checking.yo. Records that a
 /// type implements a trait VALUE (by its base id) so `Type.impls(T, Trait)`
@@ -374,8 +386,7 @@ register_negative_impl :: (fn(type_id : String, trait_id : String) -> unit)({
 // Phase 3.5 simplifications vs TypeScript:
 // - No `valueSubstitutions` (only type params supported).
 // - No struct env fallback for erasure (simpler struct lookup).
-// - Where-clause constraints skipped (no `g_type_implements_trait_fn` check
-//   yet beyond returning true if function pointer is set).
+// - No `valueSubstitutions` beyond the IntLit side-channel.
 /// Resolve the concrete type bound to one `generic` param after a successful
 /// `synthesize_types`. Returns `.None` if the param stayed abstract (`SomeT`).
 /// Used by `try_match_generic_impl` to surface the unification result so the
@@ -670,6 +681,64 @@ try_match_generic_impl :: (
     opts,
     exn_match
   );
+  // Where-constraint pass — port of impl.ts:2337-2432, which runs BEFORE the
+  // substitution extraction. Checking a constraint with the FULL env-returning
+  // type_implements_trait is what BINDS a generic param that appears ONLY in
+  // the where clause, not in the receiver pattern's fields: for
+  // `impl(generic(I, A), where(I <: Iterator(Item := A)), MyWrap(I), ...)`,
+  // field synthesis binds I := CountIter but `A` is bound by satisfying
+  // `CountIter <: Iterator(Item := A)` (synthesizes A := i32 into the env).
+  // Without this the bindings loop below saw `A` abstract, set
+  // all_bound = false, and the impl silently never matched — `w.next()` had
+  // no ExprInfo and codegen dropped the statement (issues/repros/v5_direct.yo,
+  // the tests/iter_filter_closure + iterator_combinators family).
+  //
+  // ENFORCEMENT stays scoped to BLANKET impls (bare-SomeT receiver pattern),
+  // exactly as before: a blanket matches every type, so its where-clause is
+  // the only thing keeping it off non-satisfying types; specific-pattern
+  // impls already constrain via their pattern, and enforcing their clauses
+  // would wrongly exclude them wherever the trait-implements predicate has a
+  // load-order false negative (e.g. `String <: Hash` breaking
+  // `HashMap(String, _).new()`). TS enforces all — its predicate is complete;
+  // this scoping is the safe yo-self adaptation. The BINDINGS, however, are
+  // taken for every impl.
+  (match_env : Environment) = synth_result.expected_env;
+  (wc_ok : bool) = true;
+  {
+    (wcj : usize) = usize(0);
+    n_wcj := entry.where_constraint_some_types.len();
+    while((wcj < n_wcj) && wc_ok, {
+      wcj_some := match(entry.where_constraint_some_types.get(wcj),.Some(sm) => sm,.None => t_unit());
+      wcj_trait := match(entry.where_constraint_traits.get(wcj),.Some(tr) => tr,.None => t_unit());
+      wcj_name := match(wcj_some,.SomeT(_, nm, _, _, _, _, _, _, _, _, _) => nm, _ => ``);
+      match(
+        _resolve_one_forall_binding(match_env, wcj_some, wcj_name),
+        .Some(wcj_bound) => match(
+          g_type_implements_trait_full_fn,
+          .Some(wcj_f) => {
+            wcj_env_out := ArrayList(Environment).new();
+            wcj_impl := wcj_f(wcj_bound, wcj_trait, match_env, wcj_env_out);
+            match(
+              wcj_env_out.get(usize(0)),
+              .Some(wcj_e2) => {
+                match_env = wcj_e2;
+              },
+              .None => ()
+            );
+            if(!(wcj_impl) && is_some_type(entry.receiver_type_pattern), {
+              wc_ok = false;
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      wcj = (wcj + usize(1));
+    });
+  };
+  if(!(wc_ok), {
+    return(Option(ArrayList(TypeValue)).None);
+  });
   // Synthesis succeeded — collect the concrete binding for each generic param
   // (in declaration order). If any param stayed abstract, there is no match.
   bindings := ArrayList(TypeValue).new();
@@ -684,7 +753,7 @@ try_match_generic_impl :: (
     // index-aligned with `bindings`.
     (fa_val2 : EvalValue) = EvalValue.UnitVal;
     {
-      fv_vars := get_variables_from_env(synth_result.expected_env, fa_name2);
+      fv_vars := get_variables_from_env(match_env, fa_name2);
       if(fv_vars.len() > usize(0), {
         match(
           fv_vars.get(fv_vars.len() - usize(1)),
@@ -704,7 +773,7 @@ try_match_generic_impl :: (
       });
     };
     match(
-      _resolve_one_forall_binding(synth_result.expected_env, fa_some2, fa_name2),
+      _resolve_one_forall_binding(match_env, fa_some2, fa_name2),
       .Some(t) => {
         _b := bindings.push(t);
         g_last_match_binding_vals.push(fa_val2);
@@ -729,49 +798,6 @@ try_match_generic_impl :: (
       }
     );
     vi = (vi + usize(1));
-  });
-  // Where-clause check (mirrors TS `tryMatchGenericImpl`, impl.ts:2425-2432): a
-  // concrete type bound to a where-constrained generic param MUST implement the
-  // constraint trait, else this impl does NOT match. Without this, a blanket
-  // `impl(generic(I), where(I <: Iterator), I, into_iter -> Self)` matches every
-  // type and its method shadows the receiver's own (e.g. `ArrayList.into_iter()`
-  // resolves to the blanket `-> Self` instead of `-> ArrayListIter`, so
-  // `.next()` then finds nothing). `g_type_implements_trait_fn` is the
-  // trait_checking.yo hook; if unset (None) we conservatively skip the check.
-  // Enforce where-clause constraints ONLY for BLANKET impls — those whose
-  // receiver pattern is a bare type variable (`impl(generic(I), where(I <:
-  // Iterator), I, ...)`). A blanket matches EVERY type, so its where-clause is
-  // the only thing keeping it off non-satisfying types (the Iterator blanket
-  // shadowing a collection's own method). Specific-pattern impls (`ArrayList(T)`,
-  // `HashMap(K,V)`) already constrain via their pattern; enforcing THEIR
-  // where-clauses here would wrongly exclude them whenever the trait-implements
-  // predicate is incomplete — e.g. a load-order false-negative on `String <:
-  // Hash` would break `HashMap(String, _).new()`. (TS enforces all where-clauses,
-  // but its predicate is complete; this scoping is the safe yo-self adaptation.)
-  if(all_bound && is_some_type(entry.receiver_type_pattern), {
-    (wci : usize) = usize(0);
-    n_wc := entry.where_constraint_some_types.len();
-    while((wci < n_wc) && all_bound, {
-      wc_some := match(entry.where_constraint_some_types.get(wci),.Some(s) => s,.None => t_unit());
-      wc_trait := match(entry.where_constraint_traits.get(wci),.Some(t) => t,.None => t_unit());
-      wc_name := match(wc_some,.SomeT(_, nm, _, _, _, _, _, _, _, _, _) => nm, _ => ``);
-      // Resolve the bound type the SAME way as the bindings loop above (with the
-      // name-based fallback), not a plain env lookup — else the binding may stay
-      // abstract and the check is silently skipped. A concrete binding that does
-      // NOT implement the constraint trait fails the match.
-      match(
-        _resolve_one_forall_binding(synth_result.expected_env, wc_some, wc_name),
-        .Some(bound_ty) => match(
-          g_type_implements_trait_fn,
-          .Some(f) => if(!(f(bound_ty, wc_trait, env)), {
-            all_bound = false;
-          }),
-          .None => ()
-        ),
-        .None => ()
-      );
-      wci = (wci + usize(1));
-    });
   });
   cond(
     all_bound => Option(ArrayList(TypeValue)).Some(bindings),
@@ -1307,7 +1333,15 @@ _try_lookup_trait_type :: (
       );
     });
   });
-  if(atom_result.is_some(), {
+  // Honor the fast path ONLY when the constraint is a BARE atom
+  // (`I <: Iterator`). For a CALL (`Iterator(Item := A)`), the leftmost-atom
+  // walk found the base TraitT and silently DROPPED the application's
+  // type/assoc-type arguments — the where-pass then checked `CountIter <:
+  // Iterator` (vacuously true) instead of `CountIter <: Iterator(Item := A)`,
+  // so the where-clause-only param `A` was never synthesized and the impl
+  // never matched (issues/repros/v5_direct.yo). TS keeps the full constraint
+  // trait AND its expr (impl.ts stores whereConstraints with traitExpr).
+  if(atom_result.is_some() && ast_expr_is_atom(trait_expr), {
     return(atom_result);
   });
   // Parametric traits (e.g. `ComptimeEq(comptime_int)`) are produced by
@@ -3051,8 +3085,8 @@ _impl_generic_impl_fallback_init := (fn() -> bool)({
 })();
 export(evaluate_module_value);
 export(GenericImplEntry, MethodCandidate);
-export(TypeImplementsTraitFn);
-export(set_type_implements_trait_fn, set_register_trait_value_fn, set_check_self_constraints_fn, get_trait_key);
+export(TypeImplementsTraitFullFn);
+export(set_type_implements_trait_full_fn, set_register_trait_value_fn, set_check_self_constraints_fn, get_trait_key);
 export(register_generic_impl);
 export(register_negative_generic_impl, find_matching_negative_generic_impl);
 export(try_match_generic_impl);

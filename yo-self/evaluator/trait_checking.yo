@@ -50,7 +50,7 @@ open(import("std/string"));
 {
   find_matching_generic_impl,
   find_matching_negative_generic_impl,
-  set_type_implements_trait_fn,
+  set_type_implements_trait_full_fn,
   set_register_trait_value_fn,
   set_check_self_constraints_fn,
   is_concrete_impl_being_registered,
@@ -1847,8 +1847,23 @@ unmark_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String
 _compat_implements_adapter :: (fn(t : TypeValue, trait_type : TypeValue) -> bool)(
   type_implements_trait_bool(t, trait_type, Environment.new(String.from("")))
 );
+/// Adapter for impl.yo's env-returning hook: `TraitCheckResult` cannot be
+/// imported there (circular), so the post-constraint env travels via the
+/// `env_out` slot and the flag is the return value.
+_type_implements_trait_full_adapter :: (
+  fn(
+    t : TypeValue,
+    trait_type : TypeValue,
+    env : Environment,
+    env_out : ArrayList(Environment)
+  ) -> bool
+)({
+  r := type_implements_trait(t, trait_type, env);
+  env_out.push(r.env);
+  r.implemented
+});
 _trait_checking_init := (fn() -> bool)({
-  set_type_implements_trait_fn(type_implements_trait_bool);
+  set_type_implements_trait_full_fn(_type_implements_trait_full_adapter);
   set_register_trait_value_fn(register_type_trait_value);
   set_check_self_constraints_fn(check_self_constraints_violation_msg);
   set_compat_type_implements_trait_fn(_compat_implements_adapter);

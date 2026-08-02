@@ -4510,7 +4510,37 @@ try_to_call_function_with_arguments :: (
             .Some(fv_found) => {
               forall_val = create_type_value(fv_found);
             },
-            .None => ()
+            .None => {
+              // No SIGNATURE occurrence — the label appears only in the
+              // where clause (`take : fn(generic(A), self : Self, n : usize,
+              // where(Self <: Iterator(Item := A))) -> IterTake(Self)`;
+              // `get_all_some_types(func_type)` returns NOTHING for it). TS
+              // still binds a TypeVal: `createUnknownValue` PROMOTES every
+              // Type-level-0 slot to a fresh SomeType (value.ts:547-560), so
+              // its trait-application eval accepts `Iterator(Item := A)` and
+              // the constraint synthesis then binds A from the receiver's
+              // impl. yo-self's UnknownVal placeholder made that eval throw
+              // 'Expected type for associated type constraint "Item"',
+              // hollowing every take/skip/enumerate/zip combinator call
+              // (v4_take repro; tests/iterator_combinators). Mint the fresh
+              // per-call SomeT here — id keyed by the call expr so two calls
+              // never share a lineage.
+              forall_val = create_type_value(
+                TypeValue.SomeT(
+                  `${flabel}_wcforall_${ast_expr_id(expr).to_string()}`,
+                  flabel.clone(),
+                  usize(0),
+                  t_type(),
+                  ArrayList(TypeValue).new(),
+                  ArrayList(usize).new(),
+                  ArrayList(TypeValue).new(),
+                  ArrayList(usize).new(),
+                  false,
+                  Option(TypeValue).None,
+                  ArrayList(TypeValue).new()
+                )
+              );
+            }
           );
         });
         // If caller supplied explicit generic(…) args, try to resolve.
