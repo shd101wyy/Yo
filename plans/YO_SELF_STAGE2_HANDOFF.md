@@ -32,8 +32,8 @@ measurements.
 | remaining file                  | one-line status                                                                                  |
 | ------------------------------- | ------------------------------------------------------------------------------------------------ |
 | `iter_filter_closure`           | **GREEN 2026-08-03** — closure-`F` identity split SOLVED (§3.1)                                  |
-| `iterator_combinators` (HOLLOW) | 16/19 arms real; arms 16–18 = chained-combinator assoc-binding loss (§3.1)                       |
-| `fn`                            | arms 9/11L1/12/13 fixed; arm 11 LAYER 2 + arm 14 remain, both need CODEGEN pairs (§3.2)          |
+| `iterator_combinators` (HOLLOW) | 18/19 arms real; arm 18 = the env-frame-sharing forall leak (§3.1, same root as §3.4)            |
+| `fn`                            | arm 11 FULLY fixed; arm 14 remains (shared-Variable/deferred-re-eval design, §3.2)               |
 | `basic`                         | arm 12: A2 LANDED 2026-08-03 (g4_min miscompile fixed); A1 reroute stays VETOED (§3.3)           |
 | `async_await`                   | arm 65: binding layer FIXED 2026-08-03; next = the shared-wrapper-cell io.await poisoning (§3.4) |
 
@@ -76,10 +76,12 @@ a ZERO-byte log — the phantom-kill signature). Re-run before believing either.
    ./yo-cli compile yo-self/main.yo --release -o /tmp/s1
    BIN=/tmp/s1 T=tests/iterator_combinators.test.yo TAG=x bash scratchpad/measure_one.sh
    ```
-3. The open roots, in value order: iterator_combinators arms 16-18
-   (§3.1 remainder — the chained-combinator assoc-binding loss), the
-   io.await shared-wrapper poisoning (§3.4), fn arm 11's CTFE executor gap
-   (§3.2), and the stage-2 dyn residual (§3.5 — the fixpoint blocker).
+3. The open roots, in value order: **the env-frame-sharing leak** (ONE
+   root behind BOTH iterator_combinators arm 18 (§3.1) and async arm-65
+   layer 4 (§3.4) — fix direction: call-scoped frames or per-call forall
+   freshening, TS helper.ts:1047), then fn arm 14 (§3.2), basic arm 12's
+   A1 replacement (§3.3), and the stage-2 dyn residual (§3.5 — the
+   fixpoint blocker).
 
 ---
 
@@ -98,24 +100,25 @@ trait-check recursion-guard re-key — is documented in
 that were HIT and fixed along the way (dyn/"Impl"/nameless wrapper
 exclusions, `->`-handler exclusion, multi-closure last-writer-wins).
 
-**Remaining (one root):** arms 16–18 — 3-deep chained combinators calling a
-bare-`I` blanket method (`skip(20).take(15).count()`): repeat full trait
-checks of the same nested record lose the `Item := A` binding after the
-first success registers state — `issues/yo-self-chained-combinator-assoc-binding.md`
-has the measured mechanism and the suggested fix direction.
+**Arms 16/17 FIXED** (`17a8192ae`: durable assoc-type registration at tmgi
+success + registry-first forall recovery + the PURE-ID trait-check guard
+key — never type_key, which is stateful and poisoned the imm family's cfid
+registry). **Remaining (one root): arm 18** — the sibling-method forall
+NAME leak (`filter`'s `F` binding leaks through a persistent shared env
+frame into `fold`'s param resolution) — the SAME env-frame-sharing leak
+that blocks async arm-65 layer 4 (§3.4); measured mechanism in
+`issues/yo-self-chained-combinator-assoc-binding.md`.
 Corpus gained `iter_filter_multi_closure.yo` + `iter_map_closure.yo` (154).
 
 ### 3.2 `fn` — ONE arm left (arm 14)
 
-- **Arm 11 layer 2:** the `${func_id}_comptime` FuncVal mint LANDED
-  2026-08-03, paired with `mark_fn_unemittable` (the codegen pair the
-  2026-08-02 attempt lacked — comptime calls fold at CTFE so no C call
-  site can exist; suppressing emission removes the undeclared-identifier
-  regression). Arm 11 still hollows on its NEXT layer: the CALL
-  `result :: comptime_factorial(12)` reports "Expected compile-time value
-  … Got runtime value" — the CTFE-execution route doesn't execute the
-  minted comptime version's body (probe-verified 2026-08-03; the mint +
-  registered comptime type are in place, the executor is the gap).
+- **Arm 11: FULLY FIXED** (`acc984cb3`): the `${func_id}_comptime` mint
+  paired with `mark_fn_unemittable` + ALL `copy_func_*` side tables, plus
+  the CTFE runtime-only-unknown REWRAP in the ct route (under validation
+  the body is not executed — TS parity — and the leaked runtime marker
+  tripped yo-self's `::` gate where TS's `!rhsValue` gate accepts). NOTE:
+  the arm is vacuous at TS-PARITY (a wrong comptime_assert constant passes
+  BOTH compilers under validation).
 - **Arm 14:** patch D (the `_()` reroute widening for expected Func types)
   remains vetoed-unless-paired with the forward-referenced-comptime-fn
   codegen fix (`use of undeclared identifier 'is_odd'`) — see
