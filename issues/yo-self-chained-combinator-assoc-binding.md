@@ -59,3 +59,35 @@ step 1 of the assoc check.
 Canaries for this work: iterator_combinators arms 16/17/18 subsets
 (`python3 scratchpad/subset_arms.py tests/iterator_combinators.test.yo 16 …`),
 plus the full TIER 1 battery (the trait-check guard is global).
+
+---
+
+## 2026-08-03 UPDATE — arms 16/17 FIXED (17a8192ae); arm 18's root isolated
+
+Arms 16 and 17 flip via (a) the pure-id trait-check guard key
+(`_type_id_for_trait_check`, NOT type_key — type_key registers
+g_struct_cfid_keys entries and poisoned the imm family's C identities) and
+(b) DURABLE assoc-type registration at tmgi success + a registry-first
+third forall-recovery channel in the bindings loop.
+
+**Arm 18 (still hollow) is a DIFFERENT root** — a name-keyed forall
+resolution leak between sibling blanket methods:
+`.filter(p => …).fold(0, (acc, x) => …)` — fold's closure receives
+FILTER's `F : (Fn(*(i32)) -> bool)` as its expected type
+("Anonymous function: expected 1 regular parameters, got 2").
+Probe-measured chain hops (env_lookup `_do_chain_resolve`):
+`F 1204 -> 1250` and `F 1272 -> 1250` — fold's/other Fs name-resolve to
+FILTER's F(1250), whose `F := TypeVal(F-1250)` binding sits in a frame
+that stays visible to the SIBLING call's param resolution (in one hop the
+env had nvars=1 — ONLY filter's binding visible, i.e. a PERSISTENT shared
+frame, not fold's own callee frame). yo-self's ownership check
+(`_was_self_bound`) passes because fold's F WAS self-bound elsewhere, and
+the LAST-binding-wins name lookup picks the leaked entry. TS never faces
+it: per-call forall freshening (helper.ts:1047) makes the callee's own
+binding the last one.
+
+Next step: find which write puts filter's `F := TypeVal(F)` into the
+persistent frame (Step-6 synthesis add_variable_to_env frame targeting, or
+the where-pass adapter's env.frames swap), and scope it to the call frame —
+the same class as the "call-scoped rebinds (67acb7390) + lineage-identity
+gate (92b27f68b)" fixes.
