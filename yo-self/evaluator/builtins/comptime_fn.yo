@@ -30,7 +30,8 @@ open(import("std/string"));
   FuncOrAsyncBlockCtx,
   FuncOrAsyncBlockKind
 } :: import("../context.yo");
-{ EvalValue, is_func_val, create_unknown_val } :: import("../../value.yo");
+{ EvalValue, FuncValData, is_func_val, create_unknown_val } :: import("../../value.yo");
+{ register_func_type, mark_fn_unemittable } :: import("../../function_value.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { is_function_type_and_returns_comptime_value } :: import("../../types/guards.yo");
@@ -411,16 +412,33 @@ evaluate_comptime_fn :: (
   match(
     ctfe_result,
     .Some(cft) => {
-      // CTFE succeeded — return the function with the comptime type.
-      // NOTE: TS returns a NEW FunctionValue with `${funcId}_comptime`
-      // (ctfe-analysis.ts:159-172) so the comptime version's caches never
+      // CTFE succeeded — return a NEW FunctionValue with `${funcId}_comptime`
+      // (TS ctfe-analysis.ts:159-172) so the comptime version's caches never
       // collide with the runtime version's (fn.test.yo arm 11 layer 2).
-      // That mint was attempted 2026-08-02 and REVERTED: with the distinct
-      // id, arm 11 evaluates further but codegen emits the comptime body's
-      // params as undeclared C identifiers ('use of undeclared identifier
-      // x') — the mint must land PAIRED with comptime-body codegen support.
+      // CODEGEN PAIR (the 2026-08-02 attempt regressed without it): the
+      // comptime clone is marked UNEMITTABLE — its calls fold to values at
+      // CTFE, so no C call site can exist, while an emitted body referenced
+      // its params as raw undeclared C identifiers.
+      ct_fid := match(arg_val,.FuncVal(__fvd9, _) => __fvd9.*.func_id.clone(), _ => String.new());
+      (out_val : EvalValue) = arg_val;
+      if(ct_fid.len() > usize(0), {
+        ct_new_id := `${ct_fid}_comptime`;
+        ct_new_data := FuncValData(
+          forall_names : match(arg_val,.FuncVal(__fvda, _) => __fvda.*.forall_names, _ => ArrayList(String).new()),
+          params : match(arg_val,.FuncVal(__fvdb, _) => __fvdb.*.params, _ => ArrayList(String).new()),
+          param_type_names : match(arg_val,.FuncVal(__fvdc, _) => __fvdc.*.param_type_names, _ => ArrayList(String).new()),
+          evidence_params : match(arg_val,.FuncVal(__fvdd, _) => __fvdd.*.evidence_params, _ => ArrayList(String).new()),
+          body : body_box,
+          cap_names : cap_names,
+          cap_tys : cap_tys,
+          func_id : ct_new_id.clone()
+        );
+        register_func_type(ct_new_id.clone(), cft.clone());
+        mark_fn_unemittable(ct_new_id.clone());
+        out_val = EvalValue.FuncVal(box(ct_new_data), cap_vals);
+      });
       out_info := new_expr_info(env, cft);
-      out_info.value = Option(EvalValue).Some(arg_val);
+      out_info.value = Option(EvalValue).Some(out_val);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
       expr
     },
