@@ -53,6 +53,55 @@ _is_in_used :: (fn(used : ArrayList(usize), idx : usize) -> bool)({
   });
   false
 });
+/// Walk a SomeT's resolution-cell chain (cycle-guarded) to its terminal.
+/// Returns the input unchanged when the chain doesn't terminate concrete.
+/// Used by the Future-effect comparison + the wrapper-carrier concreteness
+/// gate: io.async's returned `Impl(Future(i32, E))` carries the effect slot
+/// as the `E` SomeT whose CELL resolves to the concrete bundle — comparing
+/// or gating on the raw SomeT rejected `Impl(Future(i32, Ctx))` annotations
+/// (the async_await arm-65 family).
+_resolve_cell_chain :: (fn(t_in : TypeValue) -> TypeValue)({
+  (cur : TypeValue) = t_in;
+  (seen : ArrayList(String)) = ArrayList(String).new();
+  (walk : bool) = true;
+  while(walk, {
+    match(
+      cur,
+      .SomeT(id : rcc_id, resolved_concrete : rcc_rc) => {
+        (revisit : bool) = false;
+        (ri : usize) = usize(0);
+        while(ri < seen.len(), {
+          match(
+            seen.get(ri),
+            .Some(rs) => if(rs == rcc_id, {
+              revisit = true;
+            }),
+            .None => ()
+          );
+          ri = (ri + usize(1));
+        });
+        if(revisit, {
+          walk = false;
+        }, {
+          seen.push(rcc_id.clone());
+          match(
+            rcc_rc.get(usize(0)),
+            .Some(nx) => {
+              cur = nx;
+            },
+            .None => {
+              walk = false;
+            }
+          );
+        });
+      },
+      _ => {
+        walk = false;
+      }
+    );
+  });
+  if(is_some_type(cur), t_in, cur)
+});
 // Flatten effects arrays into out_labels / out_types, expanding EffectsRowT spreads.
 // ArrayList is RC-shared — mutations to out_* are visible to the caller.
 _flatten_effects :: (
@@ -153,14 +202,21 @@ _wrapper_carrier_args_concrete :: (fn(rtts : ArrayList(TypeValue)) -> bool)({
         });
       },
       .FutureTraitT(output : cc_fo, effect_types : cc_fets) => {
-        if(get_all_some_types(cc_fo).len() > usize(0), {
+        // TOP-LEVEL SomeT check only (after cell resolution): the gate's
+        // purpose is to reject a RAW forall carrier arg (`Future(T, E)`
+        // unresolved), not a concrete effect bundle that merely CONTAINS
+        // nested SomeTs (an effect struct's ctl members carry ResumeType
+        // SomeTs by construction — a deep SomeT-freeness test rejected
+        // every annotated `Impl(Future(_, Ctx))` binding, the async_await
+        // arm-65 family).
+        if(is_some_type(_resolve_cell_chain(cc_fo)), {
           ok = false;
         });
         (k : usize) = usize(0);
         while((k < cc_fets.len()) && ok, {
           match(
             cc_fets.get(k),
-            .Some(ft) => if(get_all_some_types(ft).len() > usize(0), {
+            .Some(ft) => if(is_some_type(_resolve_cell_chain(ft)), {
               ok = false;
             }),
             .None => ()
@@ -881,6 +937,7 @@ _compat_impl :: (
               && (_wrapper_carrier_args_concrete(artt) && _wrapper_carrier_args_concrete(ertt))
             )
           );
+
           (xw_i : usize) = usize(0);
           while((xw_i < artt.len()) && xw_ok, {
             xa := match(artt.get(xw_i),.Some(t) => t,.None => TypeValue.Unit);
@@ -1053,19 +1110,23 @@ _compat_impl :: (
           if(flat_a_types.len() != flat_e_types.len(), {
             return(false);
           });
-          // Order-independent set matching
+          // Order-independent set matching by effect TYPE only. TS compares
+          // Future effects structurally by type (compatibility.ts:516-529 —
+          // a single optional effect, no label anywhere); yo-self's label
+          // equality requirement rejected `Impl(Future(i32, Ctx))` (declared
+          // label "Ctx") against io.async's return (its declared effect
+          // forall label "E", resolved to the same Ctx) — the whole
+          // async_await arm-65 family threw at the binding and hollowed.
           used := ArrayList(usize).new();
           ei := usize(0);
           while(ei < flat_e_types.len(), {
             et := match(flat_e_types.get(ei),.Some(v) => v,.None => TypeValue.Unit);
-            el := match(flat_e_labels.get(ei),.Some(v) => v,.None => ``);
             found := false;
             ai := usize(0);
             while(ai < flat_a_types.len(), {
               if(!(_is_in_used(used, ai)), {
                 at := match(flat_a_types.get(ai),.Some(v) => v,.None => TypeValue.Unit);
-                al := match(flat_a_labels.get(ai),.Some(v) => v,.None => ``);
-                if((al == el) && recur(et, at, require_exact, visited), {
+                if(recur(_resolve_cell_chain(et), _resolve_cell_chain(at), require_exact, visited), {
                   used.push(ai);
                   found = true;
                 });
