@@ -13,9 +13,14 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 181 GREEN / 4 HOLLOW / 0 RED of 185 test files** (2026-08-03,
-after the closure-F round; hollow: async_await, basic, fn,
-iterator_combinators). The 2026-08-02 evening sweep measured 180/4/1.
+**Honest score: 181 GREEN / 4 HOLLOW / 0 RED of 185 test files** — verified
+by the closing full sweep at `d3a5264b3` (/tmp/hs*final2). Hollow:
+async_await, basic, fn, iterator_combinators — each down to ONE diagnosed
+root (§3). The 2026-08-02 evening sweep measured 180/4/1.
+SWEEP HYGIENE: clean `tests/\*\*/.yo_selftest_batch*\*` before a sweep — a
+stale batch from a prior gate run smears phantom hollow markers across the
+whole sweep (measured: a corrupted sweep read 156/29 on a tree whose true
+score was 181/4/0).
 
 **Day's flips:** `prelude` HOLLOW→GREEN (4/4, both arms fixed);
 `imm_map` HOLLOW→GREEN **with teeth** (injected `assert(false)` in the
@@ -129,18 +134,25 @@ structs) remains REFUTED as land-able by its adversarial verifier.
 
 ### 3.4 `async_await` arm 65
 
-The evaluator layer was fixed in `e8517dd43`; TWO MORE layers were fixed
-2026-08-03 in types/compatibility.yo (Future effect matching by TYPE not
-label; `_wrapper_carrier_args_concrete` gates on top-level SomeT-ness after
-cell resolution) — the `(task : Impl(Future(i32, Ctx)))` BINDING now passes.
-The arm still hollows on the layer after that: `io.await(task, ctx)`'s
-`fut` param resolves to the CLOSURE's Fn type through a poisoned shared
-wrapper cell — fully diagnosed with fix directions in
-`issues/yo-self-io-await-shared-wrapper-poisoning.md` (the previously
-recorded "io.await dropped at codegen" was this eval throw, swallowed).
-Also note yo-self stays more lenient than TS on `B_io_i64.yo` (TS rejects
-the mismatched annotation; yo-self accepts) — divergence recorded, not a
-regression.
+Five layers total, four FIXED 2026-08-03: the binding layer
+(compatibility.yo — Future effect matching by TYPE not label; top-level
+carrier gate; `8bbf90deb`), the poisoned-lineage guard
+(`_resolve_some_types_deep` never adopts a bare-Fn resolution for a
+Future-required wrapper, but continues into nested substitution), and the
+generic-fn-type check defer with the ported `all_paths_unwind`
+(`809de09ad`). **Layer 4 (the per-call `E := bundle` binding) was REVERTED
+after a stage-2 A/B chain (`d3a5264b3`)** — every variant (global
+synthesizer, io-arg-scoped synthesis, even a pure `add_variable_to_env` of
+`E`) leaks through SHARED callee-env frames into the Io struct's
+member-type renders during the stage-2 self-compile and ABORTS emission
+("get_type_string: no C type name found for IoExn"). The env-frame-sharing
+leak is the SAME root as iterator_combinators arm 18 (§3.1) and is the
+single highest-leverage remaining item — both issue files cross-link it
+with the fix direction (call-scoped frames or TS-style per-call forall
+freshening, helper.ts:1047). The arm-65 mechanism is PROVEN: the
+extraction (`tmp/a65/a65.test.yo`) was GREEN with any layer-4 variant in
+place. Also note yo-self stays more lenient than TS on `B_io_i64.yo` —
+divergence recorded, not a regression.
 
 ### 3.5 stage-2 dyn-capture residual (the fixpoint blocker)
 
