@@ -19,6 +19,8 @@
 //!   - `create_function_body_evaluation_context`: IMPLEMENTED (Phase 3c).
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
+open(import("std/fmt"));
+_(env : fnty_env) :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -224,7 +226,20 @@ _trial_eval_fn_body :: (
   // over a propagating `exn`), so it always swallows. A deliberate
   // flow-soundness rejection sets `flow_violation_pending()` BEFORE throwing;
   // the def-time caller re-raises it via the real `exn` after this returns.
-  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  // YO_DEBUG_SWALLOW=1 prints every def-time-trial swallowed error to stderr
+  // — the fastest way to see WHY a test arm hollows (measure-rule 4's
+  // module-level extraction without the extraction). The handler is a
+  // capture-free `->`, so the gate reads the process env directly.
+  inner_exn := Exception(
+    throw : (
+      (_err) -> {
+        if(fnty_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
+          eprintln(`[swallow] ${_err.to_string()}`);
+        });
+        unwind(());
+      }
+    )
+  );
   // Wrap a non-begin body in a synthetic `begin(...)` so even a bare-atom
   // body runs the begin-tail ownership pass (see wrap_body_in_begin and
   // _trial_eval_anon_body in values/anonymous_function.yo).

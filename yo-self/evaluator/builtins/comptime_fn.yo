@@ -32,6 +32,18 @@ open(import("std/string"));
 } :: import("../context.yo");
 { EvalValue, FuncValData, is_func_val, create_unknown_val } :: import("../../value.yo");
 { register_func_type, mark_fn_unemittable } :: import("../../function_value.yo");
+{
+  copy_func_param_defaults,
+  copy_func_param_default_exprs,
+  copy_func_param_type_exprs,
+  copy_func_param_comptime,
+  copy_func_param_assigned_values,
+  copy_func_return_type_expr,
+  copy_macro_registration,
+  copy_func_variadic_param,
+  copy_func_where_constraints,
+  copy_func_contract_exprs
+} :: import("../types/function.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { is_function_type_and_returns_comptime_value } :: import("../../types/guards.yo");
@@ -435,6 +447,21 @@ evaluate_comptime_fn :: (
         );
         register_func_type(ct_new_id.clone(), cft.clone());
         mark_fn_unemittable(ct_new_id.clone());
+        // yo-self keys the per-fn metadata in SIDE TABLES by fid (TS carries
+        // it inline on the FunctionValue) — the comptime clone needs the full
+        // set or evaluate_comptime_fn_call executes it as a metadata-less fn
+        // (params not comptime-flagged, no return-type expr, …) and the CTFE
+        // result degrades to a runtime UnknownVal (fn arm 11 layer 3).
+        copy_func_param_defaults(ct_fid.clone(), ct_new_id.clone());
+        copy_func_param_default_exprs(ct_fid.clone(), ct_new_id.clone());
+        copy_func_param_type_exprs(ct_fid.clone(), ct_new_id.clone());
+        copy_func_param_comptime(ct_fid.clone(), ct_new_id.clone());
+        copy_func_param_assigned_values(ct_fid.clone(), ct_new_id.clone());
+        copy_func_return_type_expr(ct_fid.clone(), ct_new_id.clone());
+        copy_macro_registration(ct_fid.clone(), ct_new_id.clone());
+        copy_func_variadic_param(ct_fid.clone(), ct_new_id.clone());
+        copy_func_where_constraints(ct_fid.clone(), ct_new_id.clone());
+        copy_func_contract_exprs(ct_fid.clone(), ct_new_id.clone());
         out_val = EvalValue.FuncVal(box(ct_new_data), cap_vals);
       });
       out_info := new_expr_info(env, cft);

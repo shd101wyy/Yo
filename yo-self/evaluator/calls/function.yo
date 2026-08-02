@@ -121,7 +121,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { TypeField, get_struct_fields } :: import("../types/field.yo");
 { try_to_call_function_with_arguments, resolve_param_types_from_expected, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type } :: import("../../function_value.yo");
-{ create_unknown_val, create_unknown_val_with_name } :: import("../../value.yo");
+{ create_unknown_val, create_unknown_val_with_name, is_runtime_only_unknown_val } :: import("../../value.yo");
 /// Named call-result unknown: promotes a Type-universe result to
 /// `TypeVal(SomeT)`. TS names every result UnknownValue (variableName is
 /// REQUIRED for Type-typed slots — createUnknownValue throws otherwise,
@@ -5164,7 +5164,24 @@ Fix: wrap the call:
             resolved_ret_ct = _rlv(resolved_ret_ct, fv_param_labels, evaled_arg_infos);
           };
           out_ct := new_expr_info(ct_result.caller_env, resolved_ret_ct);
-          out_ct.value = Option(EvalValue).Some(ct_result.value);
+          // A RUNTIME-ONLY UnknownVal here means the CTFE body was NOT
+          // executed (validation mode: comptime_fn.yo:908 mirrors TS
+          // comptime-fn.ts:223 `isExecuting: validating ? false : true`) and
+          // an inner short-circuit (recur / call placeholder) leaked its
+          // runtime marker through the body's value merge. TS's equivalent
+          // value is a plain UnknownValue, which the `::` gate ACCEPTS
+          // (initialization-assignment.ts:325 throws only on NO value) —
+          // rewrap as an unmarked unknown of the call's comptime type, else
+          // `result :: comptime_factorial(12)` throws "Expected compile-time
+          // value" during the def-time trial and hollows its arm
+          // (fn.test.yo arm 11 layer 3). Type-constructor results are
+          // TypeVals and never runtime-marked, so this only fires for the
+          // value-returning comptime-fn shape.
+          (ct_out_val : EvalValue) = ct_result.value;
+          if(is_runtime_only_unknown_val(ct_out_val) && !(is_type_hierarchy_type(resolved_ret_ct)), {
+            ct_out_val = create_unknown_val(resolved_ret_ct);
+          });
+          out_ct.value = Option(EvalValue).Some(ct_out_val);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ct);
           param_vars;
           return(expr);

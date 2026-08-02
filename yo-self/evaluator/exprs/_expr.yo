@@ -546,6 +546,22 @@ _evaluate_expression :: (
               .Struct({ name : et_sname, is_source_namespace : et_sns }) => ((et_sname.len() == usize(0)) && !(et_sns)),
               _ => false
             );
+            // NOTE (fn.test.yo arm 14, measured 2026-08-03): widening this
+            // gate to expected FUNC types (patch D) FIXES the eval layer —
+            // `is_even = _(cond(...))` under `comptime(is_even) : (fn(n :
+            // i32) -> bool)` becomes a function-definition call — but the
+            // file then goes RED on the DOCUMENTED codegen pair: is_even's
+            // def-time body eval runs while `is_odd` is still valueless
+            // (forward ref), the call records no FuncVal, and codegen's
+            // fn-pointer fallback emits the raw identifier
+            // (`use of undeclared identifier 'is_odd'`). TS survives because
+            // its env snapshots SHARE mutable Variable objects — the later
+            // `is_odd = _(...)` fills the value the recorded env already
+            // points at; yo-self's def-time body env is a fresh COPY
+            // (_build_def_time_body_env), so the recorded env stays stale.
+            // Land patch D together with either shared-Variable def-env
+            // threading or a deferred re-eval of comptime fn bodies at
+            // assignment.
             if(
               expected_is_anon_struct && !(is_some_type(et_ty)),
               evaluate_function_call(expr, env, type_of_type(et_ty), Option(EvalValue).Some(EvalValue.TypeVal(et_ty)), ctx, exn),
