@@ -100,7 +100,7 @@ first success registers state — `issues/yo-self-chained-combinator-assoc-bindi
 has the measured mechanism and the suggested fix direction.
 Corpus gained `iter_filter_multi_closure.yo` + `iter_map_closure.yo` (154).
 
-### 3.2 `fn` — two arms left, both need codegen pairs
+### 3.2 `fn` — ONE arm left (arm 14)
 
 - **Arm 11 layer 2:** the `${func_id}_comptime` FuncVal mint LANDED
   2026-08-03, paired with `mark_fn_unemittable` (the codegen pair the
