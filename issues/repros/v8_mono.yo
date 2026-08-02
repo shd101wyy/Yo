@@ -1,0 +1,32 @@
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+CountIter :: struct(_count : i32, _max : i32);
+impl(
+  CountIter,
+  Iterator(
+    Item : i32,
+    next : (fn(inout(self) : Self) -> Option(i32))(
+      cond(
+        (self._count >= self._max) =>.None,
+        true => {
+          val := self._count;
+          self._count = (self._count + i32(1));
+          .Some(val)
+        }
+      )
+    )
+  )
+);
+MyWrap :: (fn(comptime(I) : Type) -> comptime(Type))(struct(_inner : I));
+impl(
+  MyWrap(CountIter),
+  Iterator(Item : i32, next : (fn(inout(self) : Self) -> Option(i32))(self._inner.next()))
+);
+main :: (fn() -> unit)({
+  iter := CountIter(i32(0), i32(5));
+  w := MyWrap(CountIter)(_inner : iter);
+  r := w.next();
+  match(r,.None => assert(false, "n"),.Some(v) => assert(v == i32(0), "s"));
+  ()
+});
+export(main);

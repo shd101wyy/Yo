@@ -910,11 +910,22 @@ type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
 /// (`_id_already_visited` is defined earlier, before `_type_refs_back_to_cyclic`.)
 _collect_some_types_into :: (
   fn(
-    ty : TypeValue,
+    ty_in : TypeValue,
     acc : ArrayList(TypeValue),
     visited_ids : ArrayList(String)
   ) -> unit
-)(
+)({
+  // Resolve struct/enum SHELLS before walking — the SAME convention
+  // `type_key` (types/type_key.yo:86) and `stable_type_identity`
+  // (types/type_key.yo:505) already follow, and creators.yo:559-568 mandates
+  // for every FIELD-READING site (`_type_contains_rc_inner` below calls
+  // itself the fifth shell-consumption site; this is the sixth). A recursive
+  // generic (`ListNode(T)`) leaks a 0-FIELD struct shell into its enclosing
+  // type, so an unresolved walk sees no fields and reports "no SomeTs" for a
+  // type whose rendered key still carries raw SomeT ids — codegen then never
+  // collects the concrete instance and `get_enum_variant_c_name` aborts
+  // (tests: scratchpad/t2/v1_empty.yo, an empty `std/imm/map` suffices).
+  ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   match(
     ty,
     .SomeT(_, _, _, _, _, _, _, _, _, _, _) => {
@@ -1001,8 +1012,8 @@ _collect_some_types_into :: (
       });
     },
     _ => ()
-  )
-);
+  );
+});
 /// Collect all SomeT (generic type variable) instances found anywhere in `ty`.
 /// Returns an ArrayList containing each SomeT found (in pre-order traversal).
 /// Phase 3: does not track visited types (safe for acyclic TypeValue trees).

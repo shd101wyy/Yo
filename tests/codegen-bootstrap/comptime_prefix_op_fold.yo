@@ -1,0 +1,22 @@
+// Regression: the CTFE route must stamp the call's return type from the
+// resolved instantiation, not the raw declared SomeT
+// (issues/yo-self-ctfe-route-return-type-unresolved.md).
+// `nv`'s type must be f32 (TS: helper.ts:1782 returnType = value.type);
+// with the raw `_Self` every assert below was swallowed/vacuous.
+{ assert } :: import("std/assert");
+a :: f32(100.5);
+nv :: -(f32(50.75));
+neg_sum :: (nv + a);
+neg_diff :: (nv - a);
+neg_prod :: (nv * f32(2.0));
+neg_quot :: (nv / f32(2.0));
+comptime_assert(nv < f32(0.0));
+comptime_assert(neg_sum == (f32(49.75)));
+comptime_assert(neg_diff == (-(f32(151.25))));
+comptime_assert(neg_prod == (-(f32(101.5))));
+comptime_assert(neg_quot == (-(f32(25.375))));
+main :: (fn() -> unit)({
+  assert(nv == (-(f32(50.75))), "nv");
+  assert(neg_sum == (f32(49.75)), "sum");
+});
+export(main);

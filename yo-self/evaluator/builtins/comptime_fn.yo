@@ -155,13 +155,14 @@ _analyze_ctfe_capability :: (
   ctx_p.is_analyzing_ctfe_capability = true;
   ctx_p.force_compile_time_bindings = true;
   ctx_p.is_executing = true;
-  // NOTE: We use .None for func_type here because begin.yo only calls
-  // is_evaluating_function_body_or_async_block.is_some() — it does not
-  // read func_type — so we can keep func_type available for the return value.
+  // `evaluate_recur` DOES read func_type (recur.yo:128 hard-errors on .None),
+  // so it must carry the function type — TS ctfe-analysis.ts:183-188 sets
+  // `type: comptimeFunctionType` here for exactly that reason ("Use the
+  // compile-time function value for recur").
   ctx_p.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(
     FuncOrAsyncBlockCtx(
       kind : FuncOrAsyncBlockKind.FunctionBody,
-      func_type : Option(TypeValue).None,
+      func_type : Option(TypeValue).Some(func_type),
       func_value : Option(EvalValue).Some(func_value),
       eval_env : snapshot_env(ctfe_env)
     )

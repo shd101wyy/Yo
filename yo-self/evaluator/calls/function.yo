@@ -711,7 +711,8 @@ _try_expand_call_overload :: (
     call_expr : AstExpr,
     args : ArrayList(AstExpr),
     env : Environment,
-    ctx : EvalContext
+    ctx : EvalContext,
+    exn : Exception
   ) -> unit
 )({
   info := match(
@@ -866,6 +867,23 @@ _try_expand_call_overload :: (
   });
   ctx.is_in_function_call_checking_phase = old_checking_ph;
   if(successes.len() == usize(0), {
+    // TS replaces the function list with exactly the `Call` tuple's elements
+    // (function.ts:553-587) and, when none matches, throws "No matching call
+    // found" (function.ts:1827-1834). yo-self's pre-pass previously no-op'd
+    // here, letting the source-namespace struct callee fall through to the
+    // struct path — which silently ACCEPTED e.g. `add(4, 5, 6, 7)` against a
+    // `Call :: (add2, add3)` module (tests/fn.test.yo arm 13, hollow batch).
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(call_expr),
+          `No matching call found with arguments:
+${ast_expr_to_string(call_expr)}`,
+          false,
+          .None
+        )
+      )
+    );
     return(());
   });
   // PRIMARY rule (TS function.ts:1737-1751): a COMPTIME-RETURNING candidate
@@ -2729,7 +2747,7 @@ evaluate_function_call :: (
   // (an `impl({...})` operator module), select the winning `Call` candidate
   // and overwrite the callee's ExprInfo so the FuncVal arm below performs
   // the real call. No-op otherwise. See `_try_expand_call_overload`.
-  _try_expand_call_overload(evaluated_callee, expr, args, env, ctx);
+  _try_expand_call_overload(evaluated_callee, expr, args, env, ctx, exn);
   callee_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_callee));
   callee_value_raw := match(
     callee_info_opt,
@@ -4999,6 +5017,58 @@ Fix: wrap the call:
             .Some(recv_self) => _resolve_array_length_vars_from_self(ret_type, recv_self),
             .None => ret_type
           );
+          // TS stamps the CTFE call's return type from the RESULT VALUE
+          // (`returnType = nextReturnValue.type`, helper.ts:1782), whose type
+          // params are already concrete because TS values carry their type.
+          // yo-self values do not (value.yo:939 `type_of_eval_value` is
+          // lossy), so recover the equivalent the way the runtime FuncVal arm
+          // does (`_evaluate_funcval_runtime_call`): substitute the foralls
+          // bound from THIS call's arguments (fa_bound_names/fa_bound_types,
+          // filled by `_funcval_bind_foralls`), resolve the remainder from
+          // fresh_env, and adopt only a fully-resolved result (the Step-9b
+          // acceptance rule). Without this a comptime OPERATOR call kept its
+          // raw declared SomeT as the call type — `nv :: -(f32(50.75))`
+          // bound nv to a CONCRETE -50.75 whose type stayed
+          // `_Self : (Comptime + ComptimeNegate)`, every later dispatch on nv
+          // failed (swallowed at def time), and the comptime_asserts over it
+          // passed VACUOUSLY inside test arms (tests/comptime.test.yo arm 0's
+          // negative-number block; scratchpad m5/m9 repros).
+          if(get_all_some_types(resolved_ret_ct).len() > usize(0), {
+            (ct_res_ret : TypeValue) = resolved_ret_ct;
+            if(fa_bound_names.len() > usize(0), {
+              ct_ret_somes := get_all_some_types(ct_res_ret);
+              s_ct_ret := subst_new();
+              (s_ct_any : bool) = false;
+              (ctsi : usize) = usize(0);
+              while(ctsi < ct_ret_somes.len(), {
+                ct_rst := match(ct_ret_somes.get(ctsi),.Some(t) => t,.None => t_unit());
+                match(
+                  ct_rst,
+                  .SomeT(_, ct_rst_name, ct_rst_lvl, _, _, _, _, _, _, _, _) => {
+                    (ct_bni : usize) = usize(0);
+                    while(ct_bni < fa_bound_names.len(), {
+                      ct_bn := match(fa_bound_names.get(ct_bni),.Some(x) => x,.None => String.from(""));
+                      if(ct_bn == ct_rst_name, {
+                        ct_bt := match(fa_bound_types.get(ct_bni),.Some(t) => t,.None => t_unit());
+                        subst_add(s_ct_ret, ct_rst_name.clone(), ct_rst_lvl, ct_bt);
+                        s_ct_any = true;
+                      });
+                      ct_bni = (ct_bni + usize(1));
+                    });
+                  },
+                  _ => ()
+                );
+                ctsi = (ctsi + usize(1));
+              });
+              if(s_ct_any, {
+                ct_res_ret = substitute(s_ct_ret, ct_res_ret);
+              });
+            });
+            ct_res_ret = evaluate_function_return_type_again(ct_res_ret, fresh_env, ctx);
+            if(get_all_some_types(ct_res_ret).len() == usize(0), {
+              resolved_ret_ct = ct_res_ret;
+            });
+          });
           // Gap-6 attempt #8(a), CTFE route: this arm stamps the call result
           // for comptime-executed calls (`List(i32).new()` lands here) — the
           // declared-`Self` return is the impl's PATTERN-ERA instance here

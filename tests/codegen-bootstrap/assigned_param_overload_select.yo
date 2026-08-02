@@ -1,0 +1,11 @@
+{ assert } :: import("std/assert");
+Num :: struct(value : i32);
+impl(Num, TryInto(i32)(Error : str, try_into : ((self, _) ->.Ok(self.value))));
+impl(Num, TryInto(i64)(Error : str, try_into : ((self, _) ->.Ok(i64(self.value)))));
+main :: (fn() -> unit)({
+  n := Num(value : 10);
+  b := n.try_into(i64).unwrap();
+  assert(b == i64(10));
+  ();
+});
+export(main);
