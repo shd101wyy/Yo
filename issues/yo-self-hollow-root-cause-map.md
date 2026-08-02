@@ -3463,9 +3463,9 @@ introduces:
 
 `tests/imm_map.test.yo` reports rc=0/HOLLOW only because the batch's def-time
 eval swallows the failure; standalone it aborts. So this is very likely
-imm_map's own hollow root, and it is a **pre-existing RED-class defect** that
+imm*map's own hollow root, and it is a **pre-existing RED-class defect** that
 the shallow predicate merely kept out of reach. That also means the earlier
-`HOLLOW → rc=134` flip was the deep predicate _unmasking_ this, exactly as
+`HOLLOW → rc=134` flip was the deep predicate \_unmasking* this, exactly as
 recorded — but the abort itself needs no patch A to reproduce, so it can be
 fixed and gated on its own, cheaply.
 
@@ -3505,3 +3505,127 @@ identifier downstream (the blk12 class).
 it plausibly flips `imm_map`, and it is the blocker that keeps the measured
 deep-predicate fix (which flips `fn` blk10 and imm_map's `remove`) from
 landing. One fix, two files.
+
+---
+
+## 2026-08-02 — CORRECTION: the enum abort is not a registration/keying gap
+
+The previous section attributed `entries.yo`'s
+`get_enum_variant_c_name: enum type not registered` to a port difference in the
+LOOKUP (TS keys `context.types[enumType.id]` by stable id; yo-self keys by the
+structural `type_key`). **That reading is wrong.** A probe that prints the
+missing key at the panic site settles it:
+
+```
+__DBG_EK missing_key=enum_yo_id_8100_R#struct_yo_id_8098_gs_yo_id_5022_2597_2598_enum_yo_id_8100
+__DBG_EK stable=…_value:struct_yo_id_8094_key:K : (…)_value:V : (Send + …)__next:enum_yo_id_8100
+```
+
+`gs_yo_id_5022_**2597_2598**` — the `Pair(K, V)` argument slot still carries
+**raw SomeT ids**, and the stable identity still renders the fields as
+`key:K` / `value:V`. The enum is not mis-keyed and not merely uncollected: the
+instance reaching codegen is **genuinely unresolved**, so no id-keyed lookup
+would have found it either — there is nothing correct to find. It is the same
+disease as the where-clause RED (a generic instantiation whose `type_arguments`
+keep raw SomeTs), surfacing in codegen instead of in a C type mismatch.
+
+The lookup-key difference between TS and yo-self is real and still worth noting,
+but it is not this bug's root, and "register the missing enum" is the wrong
+fix. Task #13 is re-scoped accordingly.
+
+**Incidental find, worth its own investigation:** that `stable=` render shows the
+same constraint appended ~30 times —
+`(== : fn(lhs : Self, rhs : K) -> bool, …) + Hash + Send + (== …) + Hash + Send + …`
+and `V : (Send + Send + Send × 32)`. Trait bounds are being ACCUMULATED without
+dedup on this path. That is almost certainly the same mechanism behind the
+constrained-`F` family (`F : (Fn(A) -> bool + Fn(i32) -> bool + Fn(i32) -> bool)`)
+recorded as `iter_filter_closure`'s root and `iterator_combinators`' first
+blocker. A dedup at the accumulation site may be worth more than one file.
+
+### Root of the constraint accumulation (found, not yet applied)
+
+`yo-self/evaluator/types/function.yo:840` `_add_where_clause_constraint` pushes
+**unconditionally**:
+
+```
+        required_trait_types.push(trait_ty);
+        required_trait_levels.push(usize(0));
+```
+
+TS dedups by trait id at the same point — `src/env.ts:392-425`
+`addWhereClauseConstraintToEnv`:
+
+```ts
+const targetList = isNegated ? entry.negativeTraits : entry.requiredTraits;
+if (!targetList.some((t) => t.id === traitType.id)) {
+  targetList.push(traitType);
+}
+```
+
+and dedups AGAIN on read via `requiredIds` / `negativeIds` Sets in
+`getWhereClauseConstraintsForSomeType` (`src/env.ts:428-475`). yo-self does
+neither, and because a SomeT's `required_trait_types` list is shared by
+reference, every re-validation of the same where clause appends another copy —
+hence `Send + Send + … × 32`. A straightforward mis-port with a one-line fix at
+the push site (plus the read-side dedup for faithfulness). Not yet applied:
+the tree is being held to match `/tmp/sh171` for the RED fix's sweep.
+
+---
+
+## 2026-08-02 — LANDED: where_clause_fn_inference RED → GREEN (178/7/0, RED list empty)
+
+**Root.** A forall that occurs ONLY as a generic instantiation's _type argument_
+is invisible to every SomeT collector, so it is never a substitution-map key.
+`LocalMapIter(I, A, B, F) :: struct(_inner : I, _f : F)` — `A` and `B` appear in
+no field, they live only in `Struct.type_arguments`, and `type_key` renders an
+instance as `gs_<ctor_fid>_<type_arguments>` (`types/type_key.yo:137`). So the
+signature's raw-arg clone and the body's constructed instance became two C
+structs with identical layout: `returning '__yo_t9' … incompatible result type
+'__yo_t12'`.
+
+This is yo-self completing its OWN mechanism, not a new heuristic:
+`substitute()` is already type-argument-aware (`types/substitution.yo:290-298`,
+"keeping them aligned with the substituted fields") — only the map BUILDER was
+not. TS has no counterpart defect because it never substitutes into an
+instantiation; it re-evaluates the return-type expression, and its
+`getAllSomeTypes` (`src/types/utils.ts:813-864`) is likewise fields-only.
+
+**Fix.** `_collect_type_arg_somes` + `_resolve_type_arg_somes` in
+`evaluator/types/function.yo`, applied at the tail of
+`evaluate_function_return_type_again` — the central exit that all eight
+spec-signature/return stamping sites funnel through. Resolution uses the same
+three channels `_resolve_some_types_deep` already uses at that very site (env by
+name → the SomeT's shared resolved-concrete cell → the id-keyed
+`lookup_some_resolved_concrete` registry). The registry channel is REQUIRED: the
+recorded measurement is that `A` is reachable only there.
+
+Applied **AFTER** `adopt_receiver_struct_instance`, never before:
+`adopt`'s tyarg gate (`expr_info.yo:857-890`) treats an unresolved ret tyarg as
+a wildcard and requires a resolved one to match by rendered type, so
+concretising first could flip a passing adopt to `.None` and silently switch off
+the Gap-6 attempt-#8(a) fix. Carries a `visited_ids` cycle guard (a recursive
+struct type is a CYCLIC TypeValue graph) and `.Func`/`.Tuple`/`.Pointer`/
+`.Array`/`.IsoT`/`.EnumT` arms.
+
+**Deliberately NOT widening `get_all_some_types` itself** — it feeds the
+hard-generic emission skip, `type_contains_some_type_deep`, the cycle-GC root
+decision and `is_ret_regression`; counting a type-argument SomeT there would
+flip unrelated decisions.
+
+**Measured.** Specialization key `ret_gs_yo_id_4973_gs_yo_id_3211_i32_**1500_1501**_fn…`
+→ `…_i32_**i32_i32**_fn…`, matching TS. Repro compiles and the binary runs.
+`tests/where_clause_fn_inference.test.yo` `rc=0 hollow=0 markers=0`, **2 passed
+for 2 arms under BOTH compilers** (not a hollow green).
+
+**Gates.** Full 186-file honest sweep: **178 GREEN / 7 HOLLOW / 0 RED**, up from
+177/7/1 with no file moving the wrong way. TIER-1 battery identical to baseline;
+corpus diff-test `PASS 148 DIFF 0 SELF-FAIL 1` (the same pre-existing
+`closure_impl_fn_capture.yo`); `check ./std` 153/153; `check ./yo-self` 295/305;
+canaries `array` / `for_macro_borrow` / `closure_capture_rc_leak` GREEN.
+
+**Does not fix** `iterator_combinators` (its remaining blocker is the
+constrained-`F` family) or `imm_map`'s `entries` abort (its `K`/`V` arrive
+unresolved by a different path). Credit: the corrected patch came from an
+adversarial verifier that rejected the first version for omitting the registry
+channel, the cycle guard, and the `.Func`/`.Tuple` arms, and for placing the
+call before the adopt instead of after.

@@ -4529,6 +4529,184 @@ evaluate_function_parameter_type_again :: (
   _resolve_some_types_deep(param_type, callee_env)
 );
 // ---------------------------------------------------------------------------
+/// Has `cta_id` already been walked on this branch? Mirrors
+/// `_id_already_visited` in types/utils.yo (not exported, so re-stated here).
+_cta_seen :: (fn(cta_v : ArrayList(String), cta_id : String) -> bool)({
+  (cta_k : usize) = usize(0);
+  (cta_found : bool) = false;
+  while((cta_k < cta_v.len()) && !(cta_found), {
+    match(
+      cta_v.get(cta_k),
+      .Some(cta_e) => if(cta_e == cta_id, {
+        cta_found = true;
+      }),
+      .None => ()
+    );
+    cta_k = (cta_k + usize(1));
+  });
+  cta_found
+});
+/// Collect the SomeTs that live ONLY in a generic instantiation's
+/// `type_arguments` — the yo-self-only slot standing in for TS's
+/// `StructType.env` (types/definitions.yo:212). `get_all_some_types` walks
+/// FIELD types only, a faithful mirror of TS's `getAllSomeTypes`
+/// (src/types/utils.ts:813-864), which has nothing more to walk: TS never
+/// substitutes into an instantiation, it RE-EVALUATES the return-type
+/// EXPRESSION (src/evaluator/types/function.ts:2836, called unconditionally
+/// from src/evaluator/calls/helper.ts:1538). yo-self resolves by substitution,
+/// and `substitute()` DOES rewrite `type_arguments`
+/// (types/substitution.yo:290-298) — the gap is only in the MAP, so a forall
+/// occurring solely as an instantiation ARGUMENT is never a substitution key.
+/// `type_key` keys an instance as `gs_<ctor_fid>_<type_arguments>`
+/// (types/type_key.yo:137), so a raw SomeT in an argument slot emits a SECOND
+/// C struct with the same layout (tests/where_clause_fn_inference).
+///
+/// `visited_ids` is the same cycle guard `_collect_some_types_into` needs
+/// (types/utils.yo:961) — a recursive struct type is a CYCLIC TypeValue graph
+/// and an unguarded walk both recurses forever and re-visits shared subtrees
+/// exponentially.
+_collect_type_arg_somes :: (
+  fn(ty : TypeValue, acc : ArrayList(TypeValue), visited_ids : ArrayList(String)) -> unit
+)(
+  match(
+    ty,
+    .Struct({ id : cta_sid, field_types : cta_fts, type_arguments : cta_args }) => {
+      if(_cta_seen(visited_ids, cta_sid), {
+        return(());
+      });
+      if(cta_sid.len() > usize(0), {
+        visited_ids.push(cta_sid.clone());
+      });
+      (cta_a : usize) = usize(0);
+      while(cta_a < cta_args.len(), {
+        match(
+          cta_args.get(cta_a),
+          .Some(cta_at) => {
+            if(is_some_type(cta_at), {
+              acc.push(cta_at);
+            });
+            recur(cta_at, acc, visited_ids);
+          },
+          .None => ()
+        );
+        cta_a = (cta_a + usize(1));
+      });
+      (cta_f : usize) = usize(0);
+      while(cta_f < cta_fts.len(), {
+        match(cta_fts.get(cta_f),.Some(cta_ft) => recur(cta_ft, acc, visited_ids),.None => ());
+        cta_f = (cta_f + usize(1));
+      });
+    },
+    .EnumT(cta_eid, _, _, cta_vfs, _, _, _, _, _) => {
+      if(_cta_seen(visited_ids, cta_eid), {
+        return(());
+      });
+      if(cta_eid.len() > usize(0), {
+        visited_ids.push(cta_eid.clone());
+      });
+      (cta_v : usize) = usize(0);
+      while(cta_v < cta_vfs.len(), {
+        cta_vf := match(cta_vfs.get(cta_v),.Some(vf) => vf,.None => ArrayList(TypeValue).new());
+        (cta_j : usize) = usize(0);
+        while(cta_j < cta_vf.len(), {
+          match(cta_vf.get(cta_j),.Some(cta_vt) => recur(cta_vt, acc, visited_ids),.None => ());
+          cta_j = (cta_j + usize(1));
+        });
+        cta_v = (cta_v + usize(1));
+      });
+    },
+    .Func({ param_types : cta_pts, result : cta_res }) => {
+      (cta_p : usize) = usize(0);
+      while(cta_p < cta_pts.len(), {
+        match(cta_pts.get(cta_p),.Some(cta_pt) => recur(cta_pt, acc, visited_ids),.None => ());
+        cta_p = (cta_p + usize(1));
+      });
+      recur(cta_res, acc, visited_ids);
+    },
+    .Tuple(_, field_types : cta_tfs) => {
+      (cta_t : usize) = usize(0);
+      while(cta_t < cta_tfs.len(), {
+        match(cta_tfs.get(cta_t),.Some(cta_tt) => recur(cta_tt, acc, visited_ids),.None => ());
+        cta_t = (cta_t + usize(1));
+      });
+    },
+    .Pointer(pointee : cta_p2) => recur(cta_p2, acc, visited_ids),
+    .Array(element : cta_e, _, _) => recur(cta_e, acc, visited_ids),
+    .IsoT(child : cta_c) => recur(cta_c, acc, visited_ids),
+    _ => ()
+  )
+);
+/// Resolve those type-argument SomeTs through the SAME three channels
+/// `_resolve_some_types_deep` already uses at this very site (env by name →
+/// the SomeT's own shared resolved-concrete cell → the id-keyed
+/// `lookup_some_resolved_concrete` registry). The registry channel is REQUIRED:
+/// the measured record for this call (issues/yo-self-hollow-root-cause-map.md
+/// "A resolved via the registry, B needed the env fallback") says `A` is
+/// reachable only there. It is a RESOLUTION channel, exactly as
+/// `_resolve_some_types_deep` uses it — NOT a memo-COMPARISON channel, which is
+/// what F-era attempt 4 did inside `_ctfe_args_equal` and what the recorded
+/// verdict forbids.
+_resolve_type_arg_somes :: (fn(ty : TypeValue, env : Environment) -> TypeValue)({
+  targ_somes := ArrayList(TypeValue).new();
+  tas_visited := ArrayList(String).new();
+  _collect_type_arg_somes(ty, targ_somes, tas_visited);
+  if(targ_somes.len() == usize(0), {
+    return(ty);
+  });
+  tas_s := subst_new();
+  (tas_bound_any : bool) = false;
+  (tas_i : usize) = usize(0);
+  while(tas_i < targ_somes.len(), {
+    match(
+      targ_somes.get(tas_i),
+      .Some(tas_st) => {
+        (tas_r : TypeValue) = get_value_of_some_type_from_env(env, tas_st);
+        if(is_some_type(tas_r), {
+          match(
+            tas_st,
+            .SomeT({ resolved_concrete : tas_cell }) => match(
+              tas_cell.get(usize(0)),
+              .Some(tas_c) => {
+                tas_r = tas_c;
+              },
+              .None => ()
+            ),
+            _ => ()
+          );
+        });
+        if(is_some_type(tas_r), {
+          match(
+            tas_r,
+            .SomeT({ id : tas_rid }) => match(
+              lookup_some_resolved_concrete(tas_rid),
+              .Some(tas_g) => {
+                tas_r = tas_g;
+              },
+              .None => ()
+            ),
+            _ => ()
+          );
+        });
+        if(!(is_some_type(tas_r)), {
+          match(
+            tas_st,
+            .SomeT(_, tas_name, tas_lvl, _, _, _, _, _, _, _, _) => {
+              subst_add(tas_s, tas_name, tas_lvl, tas_r);
+              tas_bound_any = true;
+            },
+            _ => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    tas_i = (tas_i + usize(1));
+  });
+  cond(
+    tas_bound_any => substitute(tas_s, ty),
+    true => ty
+  )
+});
 // evaluate_function_return_type_again
 // ---------------------------------------------------------------------------
 /// Re-evaluate (resolve) a function's return type at call site.
@@ -4558,7 +4736,7 @@ evaluate_function_return_type_again :: (
   // the resolved return is a same-ctor, tyarg-compatible sibling (TS gets
   // this natively from `context.SelfType = dereferencedReceiverType`). This
   // is the CENTRAL exit every spec-signature/return stamping funnels through.
-  match(
+  (rr_out : TypeValue) = match(
     _ctx.self_type,
     .Some(rr_recv) => match(
       adopt_receiver_struct_instance(resolved, rr_recv),
@@ -4566,7 +4744,13 @@ evaluate_function_return_type_again :: (
       .None => resolved
     ),
     .None => resolved
-  )
+  );
+  // Applied AFTER the adopt, never before: `adopt_receiver_struct_instance`'s
+  // tyarg gate (expr_info.yo:857-890) treats an UNRESOLVED ret tyarg as a
+  // wildcard and requires a RESOLVED one to match the receiver's by rendered
+  // type, so concretising first could flip a currently-passing adopt to
+  // `.None` and silently switch off the Gap-6 attempt-#8(a) fix.
+  _resolve_type_arg_somes(rr_out, callee_env)
 });
 // ---------------------------------------------------------------------------
 // Exports
