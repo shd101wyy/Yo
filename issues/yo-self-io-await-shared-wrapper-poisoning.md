@@ -53,7 +53,7 @@ measure with the batch-marker method, never rc.
 
 ---
 
-## 2026-08-03 UPDATE — layers 3, 4 and 5 fixed; arm-65 extraction GREEN
+## 2026-08-03 UPDATE — layers 3 and 5 fixed; layer 4 BLOCKED on the env-frame-sharing leak
 
 Landed on top of the two compat fixes above:
 
@@ -62,12 +62,22 @@ Landed on top of the two compat fixes above:
    resolution — but resolution CONTINUES with the raw wrapper as the base so
    the nested-substitution path still rebuilds it from env-bound carrier
    SomeTs. (First version returned early and skipped the rebuild — measured.)
-4. **Single-effect direct synthesis** (synthesizer.yo
-   `_synthesize_future_traits`): `_synthesize_implicit_params` pairs effects
-   by `synthesis_type_id` EQUALITY, which can never match an UNBOUND effect
-   forall (`E`) against a concrete bundle (`Ctx`) — mirror TS's
-   one-optional-effect model with a direct `_synthesize_call` when both
-   sides have exactly one effect and the expected one is a bare SomeT.
+4. ~~Single-effect direct synthesis~~ — **REVERTED after stage-2 A/B**.
+   THREE variants were built and each measured to ABORT the stage-2
+   self-emit with `get_type_string: no C type name found for IoExn`:
+   (a) globally in `_synthesize_future_traits`; (b) scoped to io-builtin
+   call args (`skip_expected_type`) via `synthesize_types`; (c) the same
+   scope via a PURE `add_variable_to_env` binding of `E` (no resolution-cell
+   contact). Even (c) breaks: the callee env's FRAMES are shared with
+   persistent envs, so the per-call `E := IoExn` binding leaks into later
+   name-keyed renders of the Io struct's member types, minting an
+   instantiation key mid-emission that collection never registered. This is
+   the SAME env-frame-sharing leak as iterator_combinators arm 18's sibling
+   `F` (issues/yo-self-chained-combinator-assoc-binding.md) — layer 4 is
+   BLOCKED until call-frame bindings stop leaking into shared frames (or
+   per-call forall freshening lands, TS helper.ts:1047). The mechanism
+   itself is proven: with any variant in place the arm-65 extraction is
+   GREEN (0 markers, 1 passed).
 5. **Generic-fn-type check defer + all-paths-unwind relaxation**
    (expr_traversal.yo `all_paths_unwind` port; binding.yo
    `set_defer_generic_fn_type_check`; assignment.yo deferred recheck —
@@ -76,13 +86,11 @@ Landed on top of the two compat fixes above:
    `Raise :: (ctl(generic(T), …) -> T)` is accepted when the handler body
    provably always unwinds.
 
-`tmp/a65/a65.test.yo` (the arm-65 extraction) is GREEN: 0 markers, 1 passed.
+## Remaining
 
-## Remaining (the next onion layer)
-
-The FULL async_await batch still hollows one batch: a def-time swallow
-`Cannot unify incompatible struct types: "Ctx" and <struct:struct_yo_id_N>`
-— multiple test arms each declare a LOCAL `Ctx :: struct(…)` and the batch
-context appears to collide their identities (or an annotation-era Ctx vs a
-specialized instance). No source anchor in the swallow (1:1) — bisect with
-`subset_arms.py` + `YO_DEBUG_SWALLOW=1` next round.
+- **Layer 4** (the `E` binding): blocked as described above; the env-leak
+  fix unlocks BOTH this and iterator_combinators arm 18.
+- After layer 4, the next observed layer was a def-time
+  `Cannot unify incompatible struct types: "Ctx" and <struct:…>` (per-arm
+  local `Ctx` structs in the batch context) — bisect with `subset_arms.py`
+  - `YO_DEBUG_SWALLOW=1`.

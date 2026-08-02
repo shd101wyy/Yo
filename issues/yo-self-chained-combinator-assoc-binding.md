@@ -91,3 +91,16 @@ persistent frame (Step-6 synthesis add_variable_to_env frame targeting, or
 the where-pass adapter's env.frames swap), and scope it to the call frame —
 the same class as the "call-scoped rebinds (67acb7390) + lineage-identity
 gate (92b27f68b)" fixes.
+
+---
+
+## 2026-08-03 late: the SAME leak blocks async_await arm-65 layer 4
+
+Binding io.await's `E := <bundle>` per call — even as a PURE
+`add_variable_to_env` into the callee env, no cell contact — leaks into
+later name-keyed renders of the Io struct's member types during the STAGE-2
+self-compile and aborts emission (three variants measured; see
+issues/yo-self-io-await-shared-wrapper-poisoning.md). Fixing this
+env-frame-sharing leak (call-scoped frames, or TS-style per-call forall
+freshening — helper.ts:1047) unlocks BOTH arm 18 and arm-65 layer 4. It is
+now the single highest-leverage remaining root.
