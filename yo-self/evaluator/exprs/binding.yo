@@ -49,6 +49,13 @@ open(import("std/fmt"));
 { Exception } :: import("std/error");
 { evaluate_expression } :: import("./expr.yo");
 { is_valid_variable_name } :: import("../utils.yo");
+/// Deferred-check flag for the generic-fn-type rule (see the gate below and
+/// exprs/assignment.yo). Module-global because EvalContext field additions
+/// ripple through every explicit constructor; evaluation is single-threaded.
+(g_defer_generic_fn_type_check : bool) = false;
+set_defer_generic_fn_type_check :: (fn(v : bool) -> unit)({
+  g_defer_generic_fn_type_check = v;
+});
 // ---------------------------------------------------------------------------
 // Return type
 // ---------------------------------------------------------------------------
@@ -312,8 +319,12 @@ evaluate_binding :: (
     );
   });
   variable_name := ast_expr_token(lhs).value;
-  // Reject runtime vars with generic function types.
-  if((!(is_compile_time_only)) && (is_function_type(user_defined_type) && is_function_type_generic(user_defined_type)), {
+  // Reject runtime vars with generic function types — DEFERRABLE: exprs/
+  // assignment.yo sets the flag around its typed-binding eval and re-runs
+  // the check itself after the RHS is evaluated, relaxing it for ctl
+  // handlers whose body ALWAYS unwinds (TS binding.ts:160
+  // `deferGenericFnTypeCheckToAssignment` + assignment.ts:447-470).
+  if(((!(is_compile_time_only)) && !(g_defer_generic_fn_type_check)) && (is_function_type(user_defined_type) && is_function_type_generic(user_defined_type)), {
     ty_str := type_to_string(user_defined_type);
     exn.throw(
       dyn(
@@ -427,3 +438,4 @@ evaluate_binding :: (
   )
 });
 export(BindingResult, evaluate_binding);
+export(set_defer_generic_fn_type_check);

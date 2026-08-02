@@ -4529,9 +4529,49 @@ _resolve_some_types_deep :: (
   fn(ty : TypeValue, env : Environment) -> TypeValue
 )({
   if(is_some_type(ty), {
-    r := get_value_of_some_type_from_env(env, ty);
+    (r : TypeValue) = get_value_of_some_type_from_env(env, ty);
+    // POISONED-LINEAGE guard: a wrapper whose OWN required traits include
+    // Future must never resolve to a bare Func — io.async's declared return
+    // `Impl(Future(T, E))` and io.await's `fut` param share ONE wrapper cell
+    // lineage (substitution copies cell handles), and the async return-stamp
+    // bridge writes the CLOSURE's Fn type into it; adopting that here made
+    // io.await's `fut` param type `fn(e : Ctx) -> i32` and the arg check
+    // threw (async_await arm 65 —
+    // issues/yo-self-io-await-shared-wrapper-poisoning.md). TS's equivalent
+    // resolution is per-call-freshened and cannot cross-contaminate.
+    (rsd_fut_poisoned : bool) = false;
+    if(!(is_some_type(r)) && is_function_type(r), {
+      match(
+        ty,
+        .SomeT({ required_trait_types : rsd_rtt }) => {
+          (rsd_i : usize) = usize(0);
+          while((rsd_i < rsd_rtt.len()) && !(rsd_fut_poisoned), {
+            match(
+              rsd_rtt.get(rsd_i),
+              .Some(rsd_rt) => match(
+                rsd_rt,
+                .FutureTraitT(base_name : _) => {
+                  rsd_fut_poisoned = true;
+                },
+                _ => ()
+              ),
+              .None => ()
+            );
+            rsd_i = (rsd_i + usize(1));
+          });
+        },
+        _ => ()
+      );
+    });
+    // A poisoned resolution is NOT adopted, but resolution CONTINUES with
+    // the raw wrapper as the base so the nested-substitution path below can
+    // still rebuild it from the env-bound carrier SomeTs (T := i32,
+    // E := Ctx from the arg synthesis).
+    if(rsd_fut_poisoned, {
+      r = ty;
+    });
     // Wrapper resolved to a concrete type → done.
-    if(!(is_some_type(r)), {
+    if((!(is_some_type(r))) && !(rsd_fut_poisoned), {
       return(r);
     });
     // The wrapper is still an unbound SomeT (e.g. `Impl(Fn(e : E) -> T)` whose

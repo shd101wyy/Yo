@@ -50,3 +50,39 @@ the Fn type instead of the Future wrapper.
 
 Repro: `tmp/a65/a65.test.yo` (single-arm extraction of async_await arm 65);
 measure with the batch-marker method, never rc.
+
+---
+
+## 2026-08-03 UPDATE — layers 3, 4 and 5 fixed; arm-65 extraction GREEN
+
+Landed on top of the two compat fixes above:
+
+3. **Poisoned-lineage guard** (types/function.yo `_resolve_some_types_deep`):
+   a wrapper whose OWN required traits include Future never ADOPTS a bare-Fn
+   resolution — but resolution CONTINUES with the raw wrapper as the base so
+   the nested-substitution path still rebuilds it from env-bound carrier
+   SomeTs. (First version returned early and skipped the rebuild — measured.)
+4. **Single-effect direct synthesis** (synthesizer.yo
+   `_synthesize_future_traits`): `_synthesize_implicit_params` pairs effects
+   by `synthesis_type_id` EQUALITY, which can never match an UNBOUND effect
+   forall (`E`) against a concrete bundle (`Ctx`) — mirror TS's
+   one-optional-effect model with a direct `_synthesize_call` when both
+   sides have exactly one effect and the expected one is a bare SomeT.
+5. **Generic-fn-type check defer + all-paths-unwind relaxation**
+   (expr_traversal.yo `all_paths_unwind` port; binding.yo
+   `set_defer_generic_fn_type_check`; assignment.yo deferred recheck —
+   TS binding.ts:160 / assignment.ts:438-470 / expr-traversal.ts:116):
+   `(raise : Raise) = ((msg) -> { …; unwind(()); })` with
+   `Raise :: (ctl(generic(T), …) -> T)` is accepted when the handler body
+   provably always unwinds.
+
+`tmp/a65/a65.test.yo` (the arm-65 extraction) is GREEN: 0 markers, 1 passed.
+
+## Remaining (the next onion layer)
+
+The FULL async_await batch still hollows one batch: a def-time swallow
+`Cannot unify incompatible struct types: "Ctx" and <struct:struct_yo_id_N>`
+— multiple test arms each declare a LOCAL `Ctx :: struct(…)` and the batch
+context appears to collide their identities (or an annotation-era Ctx vs a
+specialized instance). No source anchor in the swallow (1:1) — bisect with
+`subset_arms.py` + `YO_DEBUG_SWALLOW=1` next round.

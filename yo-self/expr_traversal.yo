@@ -32,7 +32,8 @@ open(import("std/string"));
   BK_BREAK,
   BK_RETURN,
   BK_COND,
-  BK_MATCH
+  BK_MATCH,
+  BK_BEGIN
 } :: import("./expr.yo");
 { is_io_await_call, is_io_async_call } :: import("./evaluator/async/await_analysis.yo");
 /// Traverse an evaluated expression tree checking for an `unwind` usage.
@@ -347,9 +348,104 @@ expr_contains_await :: (fn(expr : AstExpr) -> bool)(
     }
   )
 );
+/// TRUE when EVERY control path through the evaluated body terminates in
+/// `unwind(...)` (or a diverging builtin: `__yo_panic` / `abort` /
+/// `unreachable`) — i.e. the caller can never receive a normal return value.
+///
+/// Used by exprs/assignment.yo to relax the "Runtime variables with generic
+/// function types are not allowed" check for ctl handlers whose body always
+/// unwinds: the generic-quantified return is never delivered through the C
+/// function pointer, so the ABI mismatch the rule guards against is moot.
+///
+/// Conservative (false when unprovable); honors function/closure boundaries
+/// like `evaluated_body_contains_unwind`. `return(...)` counts as a NORMAL
+/// delivery (false). Mirrors `allPathsUnwind` (src/expr-traversal.ts:116).
+all_paths_unwind :: (fn(e : AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => false,
+    .FnCall(_, apw_func, apw_args, _, _) => {
+      if(ast_expr_is_fn_call_of(e, BF_UNWIND,.None), {
+        return(true);
+      });
+      if(ast_expr_is_fn_call_of(e, BK_RETURN,.None), {
+        return(false);
+      });
+      match(
+        apw_func,
+        .Atom(_, apw_ftok) => {
+          if(((apw_ftok.value == "__yo_panic") || (apw_ftok.value == "abort")) || (apw_ftok.value == "unreachable"), {
+            return(true);
+          });
+        },
+        _ => ()
+      );
+      if(is_function_boundary_arrow(e), {
+        return(false);
+      });
+      if(ast_expr_is_fn_call_of(e, BK_BEGIN,.None), {
+        (apw_i : usize) = usize(0);
+        while(apw_i < apw_args.len(), {
+          match(
+            apw_args.get(apw_i),
+            .Some(apw_a) => if(recur(apw_a), {
+              return(true);
+            }),
+            .None => ()
+          );
+          apw_i = (apw_i + usize(1));
+        });
+        return(false);
+      });
+      apw_is_match := ast_expr_is_fn_call_of(e, BK_MATCH,.None);
+      if(ast_expr_is_fn_call_of(e, BK_COND,.None) || apw_is_match, {
+        (apw_has_default : bool) = false;
+        (apw_all_unwind : bool) = true;
+        (apw_has_arm : bool) = false;
+        (apw_j : usize) = if(apw_is_match, usize(1), usize(0));
+        while(apw_j < apw_args.len(), {
+          apw_arm := match(apw_args.get(apw_j),.Some(a) => a,.None => make_err_expr());
+          if(ast_expr_is_fn_call_of(apw_arm, "=>",.None), {
+            apw_arm_args := match(apw_arm,.FnCall(_, _, aa, _, _) => aa,.Atom(_, _) => ArrayList(AstExpr).new());
+            if(apw_arm_args.len() >= usize(2), {
+              apw_has_arm = true;
+              match(
+                apw_arm_args.get(usize(0)),
+                .Some(apw_c) => match(
+                  apw_c,
+                  .Atom(_, apw_ctok) => if((apw_ctok.value == "true") || (apw_ctok.value == "_"), {
+                    apw_has_default = true;
+                  }),
+                  _ => ()
+                ),
+                .None => ()
+              );
+              match(
+                apw_arm_args.get(usize(1)),
+                .Some(apw_b) => if(!(recur(apw_b)), {
+                  apw_all_unwind = false;
+                }),
+                .None => ()
+              );
+            });
+          });
+          apw_j = (apw_j + usize(1));
+        });
+        return((apw_has_arm && apw_has_default) && apw_all_unwind);
+      });
+      if(ast_expr_is_fn_call_of(e, "if",.None) && (apw_args.len() >= usize(3)), {
+        apw_then := match(apw_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+        apw_else := match(apw_args.get(usize(2)),.Some(a) => a,.None => make_err_expr());
+        return(recur(apw_then) && recur(apw_else));
+      });
+      false
+    }
+  )
+);
 export(
   evaluated_body_contains_unwind,
   expr_tree_contains_return,
   expr_contains_loop_terminator,
-  expr_contains_await
+  expr_contains_await,
+  all_paths_unwind
 );

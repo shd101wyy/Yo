@@ -1143,6 +1143,25 @@ _synthesize_future_traits :: (
     opts,
     exn
   );
+  // SINGLE-EFFECT direct synthesis: `_synthesize_implicit_params` pairs
+  // entries by `synthesis_type_id` EQUALITY, which can never match an
+  // UNBOUND effect forall (`E`) against a concrete bundle (`Ctx`) — so
+  // io.await's `Impl(Future(T, E))` param never bound `E` from an
+  // ANNOTATION-lineage arg (`(task : Impl(Future(i32, Ctx)))`) and the arg
+  // check rejected the raw wrapper (async_await arm 65 layer 4). TS's
+  // Future model carries ONE optional effect and synthesizes
+  // expected.effect.type vs given.effect.type DIRECTLY
+  // (helper via compatibility.ts:516-529's shape) — mirror that for the
+  // exactly-one-effect-each shape when the expected effect is a bare SomeT.
+  if((exp_et.len() == usize(1)) && (giv_et.len() == usize(1)), {
+    sfe_exp := match(exp_et.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
+    sfe_giv := match(giv_et.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
+    if(is_some_type(sfe_exp) && !(is_some_type(sfe_giv)), {
+      sfe_res := _synthesize_call(sfe_exp, ee, sfe_giv, ge, checked, opts, exn);
+      ee = sfe_res.expected_env;
+      ge = sfe_res.given_env;
+    });
+  });
   SynthesizeResult(expected_env : ee, given_env : ge)
 });
 // ---------------------------------------------------------------------------

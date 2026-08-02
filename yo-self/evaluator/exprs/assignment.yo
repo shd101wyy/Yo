@@ -72,7 +72,9 @@ open(import("std/string"));
   is_comptime_string_type,
   is_atomic_reference_struct_type,
   is_some_type,
-  is_tuple_type
+  is_tuple_type,
+  is_function_type,
+  is_function_type_generic
 } :: import("../../types/guards.yo");
 {
   convert_comptime_type_to_runtime_type,
@@ -86,7 +88,8 @@ open(import("std/string"));
 { type_representation_contains_raw_ptr, type_contains_rc_type } :: import("../../types/utils.yo");
 { format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
-{ evaluate_binding } :: import("./binding.yo");
+{ evaluate_binding, set_defer_generic_fn_type_check } :: import("./binding.yo");
+{ all_paths_unwind } :: import("../../expr_traversal.yo");
 {
   require_expr_not_consumed,
   throw_expr_is_implicit_variable_error,
@@ -761,8 +764,11 @@ evaluate_assignment :: (
       variable_name = ast_expr_token(lhs).value.clone();
     },
     true => {
-      // Typed binding: (x : T) = rhs
+      // Typed binding: (x : T) = rhs — defer the generic-fn-type check to
+      // the deferred recheck after the RHS eval below (TS assignment.ts:210).
+      set_defer_generic_fn_type_check(true);
       binding := evaluate_binding(lhs, env, ctx, exn);
+      set_defer_generic_fn_type_check(false);
       binding_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(binding.expr));
       match(
         binding_info_opt,
@@ -861,6 +867,45 @@ evaluate_assignment :: (
     );
   });
   rhs_info := match(rhs_info_opt,.Some(i) => i,.None => new_expr_info(env, t_unit()));
+  // Deferred generic-fn-type check (TS assignment.ts:438-470): reject a
+  // runtime variable with a GENERIC function type unless the bound lambda's
+  // body provably ALWAYS unwinds — such a ctl handler never delivers its
+  // generic'd return through the C fn pointer, so the ABI mismatch the rule
+  // guards against is moot (the `Exception { throw : ctl(generic(ResumeType),
+  // …) }` shape as a local binding; async_await "unwind in async closure").
+  if((!(variable.is_compile_time_only)) && (is_function_type(variable.ty) && is_function_type_generic(variable.ty)), {
+    (dgc_proven : bool) = false;
+    match(
+      rhs_info.value,
+      .Some(dgc_v) => match(
+        dgc_v,
+        .FuncVal(dgc_fvd, _) => {
+          dgc_proven = all_paths_unwind(dgc_fvd.*.body);
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+    if(!(dgc_proven), {
+      dgc_ty_str := type_to_string(variable.ty);
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(lhs_resolved),
+            `Runtime variables with generic function types are not allowed:
+${dgc_ty_str}
+
+Generic functions must be compile-time known to enable monomorphization. Consider using:
+comptime(${variable_name}) : ${dgc_ty_str}
+
+(Carve-out: a ctl handler whose body always unwinds is accepted automatically; the analysis did not see an all-paths-unwind body.)`,
+            false,
+            .None
+          )
+        )
+      );
+    });
+  });
   env.frames = rhs_info.env.frames;
   env.module_path = rhs_info.env.module_path;
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
