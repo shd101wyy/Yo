@@ -1,424 +1,377 @@
 # yo-self bootstrap — handoff
 
-_Rewritten 2026-07-30. Everything historical was removed: per-round narratives
-live in `git log` of this file and in `issues/*.md`. This document is only
-(1) where the campaign stands, (2) the remaining work as concrete steps,
-(3) how to measure honestly, and (4) the rules that must not be re-learned._
+_Rewritten 2026-08-02. Completed work was deleted, not archived: per-round
+narratives live in `git log` of this file and in `issues/*.md`. This document is
+only (1) where the campaign stands, (2) what to do next, (3) how to measure
+honestly, and (4) the rules that must not be re-learned._
 
-The goal: make the self-hosted compiler (`yo-self/`) build and run `./tests`
-as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
+**Goal:** make the self-hosted compiler (`yo-self/`) build and run `./tests` as
+correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ---
 
 ## 1. Where the campaign stands
 
-**Honest score: 177 GREEN / 7 HOLLOW / 1 RED of 185 test files**
-(higher_kinded_types flipped TRUE GREEN 20/20 2026-08-01 — the inline FuncVal
-call arm now RE-EVALUATES the declared return-type EXPRESSION instead of
-substituting into it, which is how TS reduces `F(A)` to `Option(i32)`; there is
-no TypeApp reduction function in TS at all. Remaining HOLLOW: async_await,
-basic, fn, imm_map, iter_filter_closure, iterator_combinators, prelude;
-remaining RED: where_clause_fn_inference. Per-file roots, each re-harvested
-2026-08-01 against a probe binary built from HEAD, are in
-issues/yo-self-hollow-root-cause-map.md;
-earlier: option_result_combinators flipped TRUE GREEN 54/54 2026-08-01 — FOUR unported
-statements of the closure-return type-variable resolution, the recursive
-contains-SomeType test at cond's expected-type adoption, and a per-call
-unregister of the durable forall resolution; full chain in
-issues/yo-self-hollow-root-cause-map.md; earlier: type_reflection
-flipped TRUE GREEN 35/35 2026-08-01 — 4 TypeInfo arms + the Func-variant
-variadic extension; earlier: asm
-flipped TRUE GREEN 13/13 2026-08-01 — full two-part port: evaluator
-builtins/asm.yo + codegen exprs/asm.yo + -masm=intel wiring; earlier: gadts
-flipped TRUE GREEN 10/10 2026-08-01 — GADT match bypass + tca
-resolve-at-read + tca synthesis in the enum unify arm; earlier: impl
-flipped TRUE GREEN 6/6 and where_clause_fn_inference un-hollowed to a
-VISIBLE RED — 4 C type-identity errors, the instantiation-split class —
-in the same bundle, 2026-07-31 EOD; earlier same day: closure +
-spec/contracts_phase0
-flipped TRUE GREEN 2026-07-31, `ac78c38c3`; batches 2-3 `0b70765da` +
-`3661c85cd` fixed 5 more sub-roots in basic/fn without flips — the remaining
-hollow arms are bisected in `issues/yo-self-hollow-root-cause-map.md`; sweep
-at `/tmp/sweep_h27/results.txt`). Previous milestone: 169/16/0, measured
-with `scratchpad/hollow_sweep69.sh` after the creation-side-canonicalization
-round (2026-07-31; flips this campaign: inherent_first_resolution,
-algebraic_effects, derive_clone_complex, impl_fn_field_rejection, comptime,
-fmt, collections/linked_list, imm_set — §2.1 AND §2.2 are COMPLETE; results
-at `/tmp/hsweep_pvf/results.txt`; regenerate before trusting it — /tmp is
-volatile).
+**Honest score: 178 GREEN / 7 HOLLOW / 0 RED of 185 test files.**
+Full sweep 2026-08-02, results at `/tmp/sw171/results.txt` (regenerate — `/tmp`
+is volatile).
+
+**The RED list is empty.** Every remaining failure is HOLLOW: the file exits 0
+while running _nothing_, because the generated batch `main` is a single
+`// Failed to transpile` comment and the harness scores every test a pass.
+
+| remaining HOLLOW file                         | one-line status                                                   |
+| --------------------------------------------- | ----------------------------------------------------------------- |
+| `prelude`                                     | **root found, patch verified — start here (§3.1)**                |
+| `imm_map`                                     | **root found, patch verified, but does not flip the file (§3.2)** |
+| `iter_filter_closure`, `iterator_combinators` | shared root, twice refuted, now well-localized (§3.3)             |
+| `fn`                                          | **five** independent arms, not reachable soon (§3.4)              |
+| `basic`, `async_await`                        | one arm each, roots identified (§3.5)                             |
 
 Green baselines every change must preserve:
 
-| gate                    | baseline                                                                                                         |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| corpus diff-test        | **PASS 149 / DIFF 0** (incl. `derive_clone_recursive_enum.yo`, added 2026-07-30)                                 |
-| `check ./std`           | **153/153**                                                                                                      |
-| `check ./yo-self`       | last recorded **304/304** (a re-check was phantom-killed at ~15 min; slow, verify with `YO_MAIN_STACK_MB=4096`)  |
-| stage2 real FTT markers | **0** (line-anchored grep — the historical `unwind()` marker is FIXED: zero-arg `unwind()` now stamps, begin.yo) |
-| stage2 → stage3         | **FIXPOINT_HOLDS** (byte-identical)                                                                              |
-| GATE-0 repros           | all three compile **and run** rc=0                                                                               |
+| gate              | baseline                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------ |
+| honest sweep      | **178 GREEN / 7 HOLLOW / 0 RED**                                                                       |
+| corpus diff-test  | **PASS 148 / DIFF 0 / SELF-FAIL 1** (`closure_impl_fn_capture.yo` is a known pre-existing failure)     |
+| `check ./std`     | **153/153**                                                                                            |
+| `check ./yo-self` | **295/305** (the 10 failures are pre-existing: `evaluator/eval.yo:4461` + 9 cascading circular-import) |
+| canaries          | `array` 12, `for_macro_borrow` 13, `closure_capture_rc_leak` 7 — all rc=0, 0 markers                   |
+| stage2 → stage3   | FIXPOINT_HOLDS (byte-identical)                                                                        |
 
 `sys/bufio` and `thread` are FLAKY on this machine (intermittent SIGSEGV with a
 ZERO-byte log — the phantom-kill signature). Re-run before believing either.
 
 ---
 
-### Start here
+## 2. Start here
 
-1. Read §5 (THE METHOD) and §3's four measurement rules — they are what the
+1. Read **§5 (THE METHOD)** and **§4's measurement rules**. They are what the
    round-to-round cost of this campaign actually depends on.
-2. Build an s1 (`~2-3 min`, §4) and reproduce the score for ONE file with
-   `scratchpad/measure_one.sh` before changing anything.
-3. Then take §2.1 (two arms from flipping a file), or §2.3's
-   missing-validation family if you want the cheapest possible first landing.
+2. Build a binary (~2.5 min) and reproduce ONE file's score before changing
+   anything:
+   ```bash
+   bun run build
+   ./yo-cli compile yo-self/main.yo --release -o /tmp/s1
+   BIN=/tmp/s1 T=tests/prelude.test.yo TAG=x bash scratchpad/measure_one.sh
+   ```
+3. Take **§3.1 (`prelude`)** — it is the only remaining file with a verified,
+   ready-to-apply patch.
 
-## 2. Remaining work, in priority order
+**Full evidence for everything in §3 is in `issues/handoff-2026-08-02/`** — ten
+reports, each a scope investigation paired with an adversarial verification.
+Read the `*-VERIFY.md` **before** acting on its `*-scope.md`: four of the five
+verifiers materially corrected or refuted their scope report, and one caught a
+patch that would have broken all three canaries.
 
-### 2.1 `tests/comptime.test.yo` — DONE (GREEN, 28/28 = TS parity, 2026-07-30)
+### Recommended order
 
-11 of its 13 originally-failing arms were fixed in the 2026-07-29/30 round. The
-file flips only when BOTH remaining arms pass, because the generated batch
-dispatch is one all-or-nothing expression.
+| #   | work                                                 | expected outcome                                                     | cost                                         |
+| --- | ---------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------- |
+| 1   | §3.1 `prelude` assigned-value overload guard         | un-hollows arm 1, exposes a second layer (9 undeclared-fn errors)    | patch is written & verified; 1 build + gates |
+| 2   | §3.2 `imm_map` shell resolution                      | fixes a real abort + unblocks §3.4 arm 9; does **not** flip the file | 2-line fix, verified, no regression          |
+| 3   | §3.4 arm 9 deep-predicate swap, re-measured after #2 | flips one of `fn`'s five arms                                        | 1 build; **must** re-check `imm_map`         |
+| 4   | §3.3 the generic-impl-over-comptime-struct root      | would flip TWO files                                                 | unsolved; hardest and highest value          |
+| 5   | §3.5 / rest of §3.4                                  | one arm each                                                         | unscoped                                     |
 
-**Arm 22 — DONE (2026-07-30): the shared-cell value model is LANDED.**
-`PtrVal(target_value : ArrayList(EvalValue), target_index)`,
-`Variable.value : ArrayList(EvalValue)` (via `value_cell_of`, empty = TS
-undefined), ptr_fns hands the variable's own cell, property_access stamps
-the scalar place as `ComptimeRef.ArrayRef(cell, index)`. All six arm-22
-sub-blocks + arm 23 + tests/index.test.yo (48/48) pass standalone; TIER 1 +
-TIER 2 + sweep clean. Arm 26 is ALSO done standalone (a26trial/a26both pass
-— the batch-arm family fix covered the trial-mode `::` binding).
-The last residue (a `comptime_expect_error` under a RUNTIME cond arm —
-`issues/repros/cee-in-runtime-cond-arm.yo`) is ALSO FIXED: yo-self's
-def-time body-eval defer had an extra `ft_has_ct_param` clause TS does not
-have (TS shouldDeferBodyEvaluation, function-type.ts:445-451, has NO
-comptime-param clause). Narrowed to VALUE-position comptime params only
-(the `fn(comptime(n) : usize) -> Array(i32, n)` return-mismatch case that
-motivated it — a recorded deviation); TYPE-position (`comptime(Idx) :
-Type`) bodies now trial-evaluate at definition like TS, so the cee observes
-the deliberate trait rejection. CAUTION for future measurement: a26trial-
-style "repro passes" checks were HOLLOW (the sole statement FTT'd and rc
-stayed 0) — always marker-check cee repros.
+Items 1–3 are mechanical and independently gated. Item 4 is where the real
+design work is: it is the only remaining root worth two files, and both prior
+theories about it are dead (§3.3).
 
-Original arm-22 plan (now landed, kept for reference):
-Full scoping in `issues/yo-self-comptime-pointer-place.md` (Stage 2). Steps:
+---
 
-1. `PtrVal(target : EvalValue, index : usize)` → `PtrVal(target_value :
-ArrayList(Self), target_index : usize)` — a 1-element list as the shared
-   cell, the direct analogue of TS `PtrValue.targetValue: [Value]`
-   (`src/value.ts:180-196`). ~8 match/construct sites: `value.yo` (eq,
-   `value_to_string`), `eval.yo` ×2, `index_trait.yo` ×2, `clone_value.yo`,
-   `comptime_index_fns.yo`, `ptr_fns.yo`.
-2. `Variable.value : Option(EvalValue)` → `ArrayList(EvalValue)` (empty = TS
-   `undefined`), porting TS `src/env.ts:73-79` and its comment verbatim. ~43
-   construction sites in `env.yo` plus the `v.value` / `var.value` readers;
-   `match(v.value, .Some(x) => …)` becomes `match(v.value.get(usize(0)), …)`, so
-   most arms survive unchanged.
-3. `ptr_fns.yo`: pass the variable's OWN cell (`src_var.value`) instead of a
-   copy — TS `ptr-fns.ts:172`.
-4. `assignment.yo`: add the scalar arm to the place consumer —
-   TS `assignment.ts:1150-1173` writes `ptrTargetValue[0] = rhs`.
-5. Gate: `tests/comptime.test.yo` arm 22, plus `tests/index.test.yo` (48 passed)
-   as the runtime-Index-trait guard, then TIER 2.
+## 3. The seven remaining files
 
-This is mechanical but wide — give it its own round and its own gate.
+### 3.1 `prelude` — root found, patch verified. DO THIS FIRST.
 
-**Arm 26 "Comptime SomeType constraint validation" — blocked on where-clause
-constraint VISIBILITY.** Two attempts were written and reverted this round; both
-rejections are measured. Read `issues/yo-self-cee-in-function-body.md` first —
-it lists the three remaining candidates. Recommended first move: ONE probe
-binary that prints, at the pending-constraint retry site in
-`yo-self/evaluator/types/trait.yo`, both `ast_expr_to_string(lhs_expr)` and
-whether `get_variables_from_env(env_mut, "Output")` finds anything. That single
-probe distinguishes all three candidates:
+`issues/handoff-2026-08-02/03-prelude-arm1-scope.md` + `04-…-VERIFY.md`.
 
-1. `env_mut` is replaced wholesale in that file (`env_mut.frames =
-te_info.env.frames`), so the frame holding the `Output` binding may be gone.
-2. The retry re-enters via `_drop_where_constraint_failures`, whose local
-   handler swallows what still fails — a resolver fix must be verified INSIDE
-   that path.
-3. The where-clause LHS `Self.Output` may not arrive as a 2-arg `BF_DOT` call.
-
-Once the constraint is visible, re-apply the trait-field comptime-return
-validation (TS `src/evaluator/types/trait.ts:1074-1102`) and require
-`check ./std` to stay 153/153 — it is the false-positive detector, because the
-prelude's own `ComptimeNegate` is exactly the shape being validated.
-
-### 2.2 Remove the comptime-overload literal gate — DONE (2026-07-30)
-
-The language rule is that a comptime call always wins — `1 + 2` folds to `3`.
-TS's primary rule is ported (`function.ts:1737-1751`) but currently applies only
-when every operand is a comptime LITERAL. One witness keeps the gate:
+**Root: yo-self never ported overload disambiguation by ASSIGNED VALUE.**
+`std/prelude.yo:7639-7647` declares
 
 ```rust
-x := Box(i32)(99);
-b := !(Var.is_owning_the_rc_value(x));   // RUNTIME binding → broken C
-b :: !(Var.is_owning_the_rc_value(x));   // comptime binding → folds
+try_into : (fn(self : Self, (comptime(_To) : Type) = To) -> Result(To, Self.Error))
 ```
 
-The operand's value IS concrete (a `BoolVal` from the
-`__yo_var_is_owning_the_rc_value` builtin), so the trial rightly accepts the
-comptime candidate; in a runtime position its CTFE then yields nothing
-emittable. It reaches codegen through the `iso(...)` macro's `cond` guard —
-bisected to arm 2 of `tests/iso.test.yo` (`isolated := ^(x)`). Full analysis and
-both witnesses: `issues/yo-self-comptime-overload-preference.md`.
+`= To` is an _assigned_ value, not a default (`?=`). Two impls (`TryInto(i32)`,
+`TryInto(i64)`) therefore expose `try_into` overloads whose parameter _types_
+are byte-identical; the assigned value is the ONLY discriminator. yo-self has no
+such guard (`grep -rn "Value mismatch for parameter" yo-self/` → 0 hits) so both
+candidates survive and it takes the first-declared.
 
-UPDATE 2026-07-30: this gate is ALSO the root of the `NAME :: <ctfe call>`
-batch-arm family (type_reflection / contracts_phase0 / parts of comptime+fn) —
-a 6-line repro and a FULLY MAPPED removal attempt (both the fix that makes all
-six family repros pass INCLUDING the iso/rc holdout, and the exact corpus
-regression it causes plus its suspected root — the `get_func_param_comptime`
-side-table keying at trial time) are recorded in
-`issues/yo-self-comptime-overload-preference.md` §"2026-07-30 round". Start
-the next attempt from that section's LAST paragraph: fix the Step-5 rejection
-(helper.yo:672) for cloned/spec candidate ids, then widen `ct_successes` from
-`foldable` to `successes`, delete `conc_out`, AND port the comptime-priority
-rule into `_select_matching_overload` (the `.method()` picker needs it for
-`self.neg()` inside CTFE bodies). Witnesses: scratchpad `ba_m`-class repros
-(inline in the issue), `tests/iso`, `tests/rc`, `tests/imm_string`,
-`tests/codegen-bootstrap/enum_ne_dispatch.yo` (anti-witness), TIER 2.
+TS does it at `src/evaluator/calls/helper.ts:481-497`, whose comment names this
+exact case (`TryInto(i32) vs TryInto(i64)`). The value IS already computed in
+yo-self (`evaluator/types/function.yo:1226-1258`) but is only used to seed the
+def-time binding and then discarded; `FuncParam` has no `assigned_value` field.
 
-### 2.3 The hollow cluster (21 files)
+**Verified by the verifier, independently re-measured:** markers 1 → 0, `b`
+changes from `int32_t` to `int64_t` (matching TS); declaration-order swap flips
+the answer with zero type-level change (proving it is selection, not typing);
+canary emitted C **byte-identical**; all 17 anchors `count == 1`; check has teeth
+(two injected errors both gave rc=1 + FAILED).
 
-A hollow file exits 0 while running NOTHING: the batch `main` is a single
-`// Failed to transpile …` comment, so the harness scores every test a pass. One
-evaluation failure anywhere in the file loses the whole dispatch, so a file
-stays hollow until its LAST failure is fixed — and fixing one root can flip an
-entire file.
+**Known follow-on:** arm 1 goes `hollow=1 → hollow=0` but then `rc=1` with nine
+`call to undeclared function 'fn_yo_id_…'` errors. That is a _second_ layer, not
+a regression — un-hollowing exposes it. Budget for it.
 
-| file                                                |   markers | root as last measured                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| --------------------------------------------------- | --------: | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `asm`                                               |         1 | **unported**: `evaluate_asm: not yet implemented`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `iter_filter_closure`                               |         2 | **unported**: TypeVal SomeT callee without FnTrait                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `type_reflection`                                   |        24 | **unported**: `__yo_type_get_info: unsupported type variant`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `comptime`                                          |         1 | arms 22 + 26 — §2.1                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `higher_kinded_types`                               |         1 | explicit `generic(...)` peel landed but did not flip it: the HKT-kinded binder + the method form `container.map(generic(B), f)` remain                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `spec/contracts_phase0`                             |         1 | arms 2/18 were the explicit-generic-arg root (peel landed, still hollow → another root); arm 8 is a cond-wrapped `invariant()` under cee                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `basic`                                             |         4 | `x := 13` after `(x : i32) = 12` needs TS `addVariableToEnv` shadowing rules (the `Test 'struct'` half is fixed — see the pointer-receiver issue)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `closure`, `fn`                                     |       1/3 | missing VALIDATIONS (yo-self accepts what TS rejects). `inherent_first_resolution` FLIPPED GREEN by the call-site where-clause re-application round (`issues/fixed/yo-self-callsite-where-clause-validation.md` — read it before touching this family; it maps 4 sub-roots incl. the prelude-env fork and the generic-impl base-trait key). Per-arm split (2026-07-30, all TS-clean): closure arm 2 = Impl-var reassign validation; fn arms 0/9/11/12/13/14 = outer-scope hiding in plain fn bodies, comptime fn-type bindings, `comptime_fn()`, runtime-arg-to-comptime-fn cees, arg-count cee, mutual-recursion `_()` forward closures; basic arms 2/4/6/12/14/18/19/24/25/26 = outer-init + shadowing (needs TS `addVariableToEnv` port: ~100 call sites, TS exempts 19 with `allowVariableShadowing: true`), tuple destructuring, nominal-struct cees, union ctor, labeled `then:/else:`, or-patterns + negative literals, comptime_int struct fields, match-Option-begin, for-range sum |
-| `iterator_combinators`, `where_clause_fn_inference` |       2/1 | shared root: `Type mismatch for type member "_f":`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `collections/linked_list`                           |         1 | `Type mismatch for type member "value":` + match-on-`unit`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `option_result_combinators`                         |         1 | `Last expression in "begin" is not evaluated correctly:`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `imm_map`, `imm_set`                                |         1 | after noise subtraction: `Cannot unify incompatible types:`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `async_await`, `fmt`, `gadts`, `impl`, `prelude`    | 1/1/1/4/1 | see the per-file table in the root-cause map                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+### 3.2 `imm_map` — root found and patch verified, but it does NOT flip the file
 
-The per-file evidence base is `issues/yo-self-hollow-root-cause-map.md`.
-**Re-measure before acting on it** — it is dated 2026-07-29 and this round
-superseded several of its entries (`comptime`'s `"Output"` root is fixed;
-`contracts_phase0`'s "requires clause" attribution was wrong — the trigger was
-the explicit `generic(...)` argument alone, verified by removing the contract
-clause; `comptime_option_result` has since flipped GREEN).
+`issues/handoff-2026-08-02/09-imm-map-entries-scope.md` + `10-…-VERIFY.md`.
 
-Cheapest family first: **the missing-validation group.** Each is one check TS
-performs and yo-self does not, in an otherwise-green file. Recipe: put the
-offending expression in `src/tests/fixme.yo`, run `./yo-cli check` (TS) against
-the s1 binary, and TS rc=1 vs s1 rc=0 localises the missing check in minutes.
+**Root: `_collect_some_types_into` (`yo-self/types/utils.yo:911`) walks
+`field_types` / `variant_fields` without resolving struct/enum SHELLS.** This
+violates an invariant already recorded in §6 of this document. `_type_contains_rc_inner`
+in the same file already does `resolve_enum_shell(resolve_struct_shell(ty))` and
+calls itself "the fifth shell-consumption site"; this is the sixth.
 
-### 2.4 The 8 REDs
+Repro: `scratchpad/t2/v1_empty.yo` (8 lines, an EMPTY map suffices) → rc=134
+`get_enum_variant_c_name: no C type name found for enum`. TS rc=0.
 
-Cluster-mapped in `issues/yo-self-69-red-list-map.md`. `algebraic_effects`
-FLIPPED GREEN 2026-07-30 (72/72 run and pass): the failing test was zero-arg
-`unwind()` — begin.yo's unwind arm had no zero-arg path (`return` had one) and
-fed a `make_err_expr()` into evaluation, so the handler body never stamped;
-ported TS begin.ts:1446-1479 (at-most-one-arg check + unit-typed Unwind
-stamp). That same marker was the stage2 self-compile's LAST real FTT marker —
-stage2 is now marker-free. 12 markers remain inside the file's cee-rejected
-emission paths (all tests genuinely pass; same half-registered-fn class as
-issues/yo-self-algebraic-effects-two-roots.md root B). Current list with marker
-counts from the last sweep:
+**The verifier split the patch and measured each half** — the lever is the
+0-field **struct** shell of `ListNode`:
 
-| file                               | markers | note                                                     |
-| ---------------------------------- | ------: | -------------------------------------------------------- |
-| `imm_sorted_map`, `imm_sorted_set` |       1 | the parameter-type-expression side table (architectural) |
-| `imm_threading`                    |       0 | C-level failure, no FTT markers                          |
+| half                        | result            |
+| --------------------------- | ----------------- |
+| `resolve_struct_shell` only | **rc=0, fixed**   |
+| `resolve_enum_shell` only   | rc=134, unchanged |
 
-A marker count of 0 with rc=1 means the C is invalid for a reason OTHER than a
-dropped statement — read the clang error, do not go looking for FTT comments.
+No regression: 10 test files identical both sides, and 7/7 working programs emit
+**byte-identical C**. `check ./yo-self` 295/305 unchanged.
 
-`sync/mutex` FIXED 2026-07-31 (3/3 TRUE GREEN, markers=0): `FnTraitT` had
-dropped the per-param `inout` flags TS keeps on `FnTraitType.callType` — new
-`call_param_is_ref` variant field threaded end-to-end, closure params stamped
-`is_ref` + `is_reassignable` (TS binds `isReassignable: parameter.isRef`),
-and the L4 closure-type re-registration now preserves meta (t_func_simple
-erased the flags). Write-up in issues/yo-self-69-red-list-map.md.
+**But it does not flip `imm_map`.** The verifier proved this with a teeth-probe:
+injecting `assert(false)` into the `entries` arm shows TS = 20 passed / 1 failed,
+while yo-self = 21 passed / `✓` both before AND after the patch. That arm is
+hollow for a different reason. Land the fix (it is correct and cheap) but do
+**not** count it as a flip, and then find the arm's actual hollow root.
 
-`closure_capture_rc_leak` FIXED 2026-07-31 (7/7 TRUE GREEN, markers=0): the
-missing port was TS's EARLY where-clause application (helper.ts:1368) plus
-the `functionType.SelfType` → calleeEnv "Self" binding (helper.ts:1015),
-carried through the new one-shot `ctx.pending_method_self_type`; a swapped
-argument-role bug in `_check_associated_type_constraints`' compat call
-(constraint SomeT was passed as ACTUAL) blocked `Item := A` unification.
-Full write-up + measured rejections in issues/yo-self-69-red-list-map.md.
+**Do not repeat two dead ends:** this is NOT a registration or lookup-keying gap
+(an earlier note blaming `context.types[enumType.id]` vs the structural
+`type_key` was measured wrong and retracted), and the type-argument fix landed
+in `e40d924f4` does not reach it.
 
-`derive_clone_complex` FIXED 2026-07-30: the provisional trait-method
-registry — the port of TS's receiver-trait splice
-(trait-type.ts:176-203/512), consulted AFTER the real registry
-(fallback-when-empty; splice-ahead order shadowed same-impl sibling methods
-and miscompiled derive(Eq)'s `!=`→`==` inner dispatch). Full write-up +
-ordering lesson: issues/yo-self-69-red-list-map.md (2026-07-30 later
-update). Corpus guard: `tests/codegen-bootstrap/derive_clone_recursive_enum.yo`.
+### 3.3 `iter_filter_closure` + `iterator_combinators` — shared root, twice refuted
 
-### 2.5 Parked / known-open
+`issues/handoff-2026-08-02/01-iter-filter-scope.md` + `02-…-VERIFY.md`.
 
-- `./yo-cli test ./tests` under **TS** is GREEN: **2641 passed, 0 failed**
-  (2026-07-30). The long-standing `basic.test.yo` `Test 'struct'` failure is
-  FIXED — a method call on a `*(Self)` receiver was resolving to the raw-pointer
-  `add(count : usize)` intrinsic instead of the pointee's own `add`; details and
-  the both-directions regression test in
-  `issues/basic-test-struct-batch-count-usize-i32.md`.
-- The test runner still prints `Failed to import module "…":` with **nothing
-  after the colon** when a generated batch module fails to compile. That empty
-  message is what made the above look unactionable for weeks; the capture recipe
-  in the same issue file is the workaround, and making the runner propagate the
-  inner error is a small, high-value fix on its own.
-- `issues/yo-self-std-string-swallowed-unify-noise.md` — one swallowed
-  `Cannot unify incompatible types: "usize" and "u8"` inside
-  `std/string/string`, present in nearly every file. Harmless today, but it is
-  the noise floor (see §3) and one std function body never completes its
-  definition-time validation.
-- `issues/yo-self-comptime-const-batch-undeclared.md` — `G :: <ctfe call>` in a
-  batch arm emits an undeclared C identifier (batch-arm context only).
-- `issues/yo-self-begin-shared-id-clobber.md` — the CLASS is open: `begin`
-  wraps a non-begin expr around the SAME node, so its `out_info` clobbers the
-  inner ExprInfo on the shared id. Four instances found; the proposed durable
-  fix is to invert the merge (start from `last_info`, clear what the begin level
-  must own) instead of maintaining a whitelist.
-- Side issues, not blockers: `issues/ts-early-return-nested-block-rc-drop.md`,
-  `issues/ts-constructor-result-drop-o0-crash.md`.
+**Two roots are dead. Do not re-derive them:**
+
+1. **Trait-bound accumulation / constrained-`F` is NOT the cause.** The dedup
+   landed 2026-08-02 works — the emitted C now shows ONE distinct `F` key where
+   it showed three — and `scratchpad/w1/repro6.yo` still fails byte-identically.
+2. **The `__impl_fn` closure-identity theory is NOT the cause.** yo-self really
+   does pass two different `F`s where TS passes one wrapper
+   (`src/evaluator/values/anonymous-function.ts:1206-1213`, unported — see the
+   note at `anonymous_function.yo:1763`), but replacing the closure with a
+   top-level named fn removes the capture struct _and_ the two-struct split
+   entirely, and HEAD still fails.
+
+**The actual discriminator: a GENERIC / WHERE-CLAUSE IMPL OVER A
+COMPTIME-CONSTRUCTED STRUCT.** Tightest repro (`v5_direct.yo` — no closure, no
+generic method, ONE struct id):
+
+```rust
+MyWrap :: (fn(comptime(I) : Type) -> comptime(Type))(struct(_inner : I));
+impl(generic(I, A), where(I <: Iterator(Item := A)), MyWrap(I), Iterator(...));
+w := MyWrap(CountIter)(_inner : iter);
+w.next()          // => `// Failed to transpile (w.next)()`
+```
+
+Control `v8_mono.yo` writes the same impl monomorphically on `MyWrap(CountIter)`
+→ rc=0, 0 markers, binary runs. A second repro `v4_take.yo`
+(`iter.take(usize(2)).next()`) hollows with 3 markers and never mints
+`IterTake(CountIter)` through the CTFE memo at all.
+
+> **DANGER — measured canary-killer.** Do NOT ungate `helper.yo:2129` /
+> `helper.yo:2165` (the "still contains SomeType" gate and the SomeT-free
+> acceptance filter). With them removed, **all three canaries go rc=1** with
+> `call to undeclared function 'yo_id_3196'` — removing the acceptance filter
+> unmasks era-mismatched ids. This is the third time this session that "the
+> change only removes a restriction" proved unsafe in a compiler.
+
+### 3.4 `fn` — five independent arms, not reachable soon
+
+`issues/handoff-2026-08-02/05-fn-five-arms-scope.md` + `06-…-VERIFY.md`.
+
+`tests/fn.test.yo` has **five** hollow arms, not one. Roots harvested with an
+un-silenced-swallow probe: baseline noise is 34 `__DBG_F` lines and every hollow
+arm had exactly 35 — the 35th is the root.
+
+| arm | root                                                                                                             |
+| --- | ---------------------------------------------------------------------------------------------------------------- |
+| 9   | `Cannot unify: Expected "Tuple(0:T,1:Y)" Given "Tuple(0:i32,1:bool)"` (the shallow-vs-deep predicate, see below) |
+| 11  | `recur: missing function type in context`                                                                        |
+| 12  | `Expected compile error, but the expression was evaluated successfully`                                          |
+| 13  | module-`Call` overloading: `add(4, 5, 6, 7)`                                                                     |
+| 14  | mutual recursion: `Expected fn(n:i32)->bool, Given <struct:…>`                                                   |
+
+With all five fixes applied, arms 9/12/13 go clean, 11 is still hollow (second
+layer) and 14 is hollow=0 but rc=1 at the codegen layer. **So `fn` needs two
+more roots beyond these five.** Treat it as a multi-round project, not a fix.
+
+**Arm 9's fix is known but must be PAIRED.** Swapping
+`type_contains_some_type` → `type_contains_some_type_deep` at the two arg-type
+gate sites in `evaluator/calls/function.yo` fixes it (yo-self's predicate is
+TOP-LEVEL ONLY, `types/utils.yo:856`, "Phase 2 partial port"; TS's recurses,
+`src/types/utils.ts:477-568`). Measured consequence: it flips `imm_map` from
+HOLLOW to **rc=134 abort**, because it unmasks the §3.2 shell bug. Land §3.2
+first, then re-measure this.
+
+### 3.5 `basic` arm 12 and `async_await` arm 65
+
+`issues/handoff-2026-08-02/07-basic12-async65-scope.md` + `08-…-VERIFY.md`.
+
+- **`basic` arm 12** — the "`_` reroute" is a CHAIN of gaps, not one blocker;
+  four attempts were rejected and three unmasked defects fixed along the way. A
+  16-line repro with no `_` anywhere (`scratchpad/w6/g4_min.yo`) shows two
+  sibling blocks each declaring a local `S` and `C :: Tuple(S)`, which yo-self
+  collapses to ONE tuple type where TS emits two. Confirm whether that IS arm
+  12's root before building on it.
+- **`async_await` arm 65** — the recorded root ("T/E never bound from the
+  closure") is REFUTED. The return type is _supposed_ to stay generic; the throw
+  is the assignment's type-compatibility check rejecting two `Impl(...)`
+  SomeTypes **that print identically** (`Expected: Impl : (ToString)` /
+  `Given: Impl : (ToString)`). Nothing to do with async, closures, or
+  `closure_type.yo`. A 10-line non-async repro is at `scratchpad/w4/w1.yo`.
 
 ---
 
-## 3. How to measure honestly
+## 4. How to measure honestly
 
 **Never quote a bare "N passing".** 33 files were once counted green while
-running nothing. Proven with a deliberate `assert(false)` probe (TS: "33 passed
-/ 1 failed"; yo-self: "34 passed") — `issues/yo-self-hollow-test-batch-main.md`.
+running nothing (`issues/yo-self-hollow-test-batch-main.md`).
 
-| tool                            | what                                                                                                                                                                                                                                                                                                                                       |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `scratchpad/hollow_sweep69.sh`  | honest score, all 185 files, resumable. **~8 min** (measured 2026-07-30 — the "~90 min" in older notes is pre-perf-work)                                                                                                                                                                                                                   |
-| `scratchpad/measure_one.sh`     | one file, same rules (`BIN=… T=… TAG=… bash scratchpad/measure_one.sh`)                                                                                                                                                                                                                                                                    |
-| `scratchpad/split_arms.py`      | explode a `.test.yo` into standalone per-arm `main` files. CAVEAT: only the preamble BEFORE the first `test(` is copied — module defs BETWEEN tests are DROPPED (type_reflection's `ColorR ::`), so confirm a failing arm against TS before believing it; relative `../std` imports break outside the repo — split into `tmp/`, not `/tmp` |
-| `scratchpad/subset_arms.py`     | rebuild a `.test.yo` with only chosen arms — the ONLY way to blame an arm, since all arms share one dispatch expression                                                                                                                                                                                                                    |
-| `scratchpad/capture_markers.sh` | run many failing files serially, keeping each one's batch `.c` + log                                                                                                                                                                                                                                                                       |
-| `scratchpad/swallow_sweep.sh`   | sweep a probe-instrumented s1 to recover the SWALLOWED def-time error per file                                                                                                                                                                                                                                                             |
+Hollow check — the only definition that counts:
 
-Four rules that cost real time to learn:
+```bash
+rm -f <dir>/.yo_selftest_batch_*
+YO_KEEP_BATCH=1 /tmp/s1 test <file> --parallel 1
+sed -n '/^void __yo_user_main() {/,/^}/p' <dir>/.yo_selftest_batch_1.bin.c \
+  | grep -c 'Failed to transpile'
+```
 
-1. **Subtract the NOISE BASELINE.** Any file importing `std/string/string`
-   (i.e. nearly all, via `std/assert` → `std/fmt/to_string`) swallows exactly
-   one `Cannot unify incompatible types: "usize" and "u8"`. It caused two wrong
-   root-cause attributions. Others (`__yo_expr_to_string`, `Incompatible
-types:`, `use of moved value`) occur in PASSING files — take a green-file
-   baseline and `comm -23` against it.
-2. **Move a failing statement to MODULE level to SEE the swallowed error.**
+| tool                           | what                                                                      |
+| ------------------------------ | ------------------------------------------------------------------------- |
+| `scratchpad/hollow_sweep69.sh` | honest score, all 185 files, resumable. **~40 min**                       |
+| `scratchpad/measure_one.sh`    | one file, same rules                                                      |
+| `scratchpad/hollow8.sh`        | the 7 hollows + the RED slot + 3 canaries, ~13 min                        |
+| `scratchpad/subset_arms.py`    | rebuild a `.test.yo` with only chosen arms — the ONLY way to blame an arm |
+| `scratchpad/swallow_sweep.sh`  | recover the SWALLOWED def-time error per file                             |
+
+Rules that each cost real time to learn:
+
+1. **Score `check` by the trailing `N/M file(s) passed` count.** Two grep rules
+   have now false-passed: `tail -1` lands on the prelude's "evaluator OK" line,
+   and `grep -c 'error in'` reads **zero** on a broken tree because `check`
+   prints `— FAILED`, never `error in`. Verified 2026-08-02.
+2. **Reproduce an arm with `subset_arms.py`, keeping the `test(...)` wrapper.**
+   Extracting an arm into a plain `main` FALSE-PASSES.
+3. **Subtract the NOISE BASELINE.** Any file importing `std/string/string`
+   (nearly all, via `std/assert`) swallows exactly one
+   `Cannot unify incompatible types: "usize" and "u8"`. It caused two wrong
+   attributions. Take a green-file baseline and `comm -23` against it.
+4. **Move a failing statement to MODULE level to SEE the swallowed error.**
    Module begin exprs are not wrapped in the def-time swallow, so a 3-second
-   `check` replaces a probe build. This is the single biggest speed-up in the
-   diagnosis loop.
-3. **Count FTT markers UNANCHORED, or full-compile and let clang judge.** A
-   failing sub-expression emits its comment MID-LINE
-   (`(bool)(// Failed to transpile …)`), which `grep '^\s*// Failed'` reports as
-   zero. The line-anchored form is correct ONLY for the stage2 self-compile
-   count, where it exists to skip the compiler's own string literals.
-4. **A `::` statement emitting `// Failed to transpile` means its node has NO
-   ExprInfo** — the enclosing body eval THREW there (`::` is a no-op emitter,
-   `codegen/exprs/generation.yo`). Everything after it in the body loses its
-   info too, so the FIRST marker names the real failure.
-   `comptime_assert` is a vacuous oracle when its argument is not a concrete bool.
+   `check` replaces a probe build. Biggest single speed-up in the loop.
+5. **Count FTT markers UNANCHORED.** A failing sub-expression emits its comment
+   MID-LINE (`(bool)(// Failed to transpile …)`), which `grep '^\s*// Failed'`
+   reports as zero.
+6. **A `::` statement emitting `// Failed to transpile` means its node has NO
+   ExprInfo** — the enclosing body eval THREW there. Everything after it loses
+   its info too, so the FIRST marker names the real failure.
+7. **Never run two `yo-cli test` invocations against the same directory
+   concurrently.** The `.yo_selftest_batch_*` artifacts live next to the test
+   file and clobber each other; this has produced phantom-hollow readings AND a
+   false GREEN. A `hollow=NA` anywhere in a gate means the whole run is
+   contaminated, not that one file is bad.
 
-### Building a diagnostic s1
+**Building a diagnostic binary.** yo-self swallows evaluator errors in four
+places; un-silencing them turns "the file is hollow" into a precise error list.
+Use DISTINCT tags — one shared tag cannot tell the sites apart.
 
-yo-self swallows evaluator errors in FOUR places. Un-silencing them turns "the
-file is hollow" into a precise error list:
+| site                                                                 | tag       |
+| -------------------------------------------------------------------- | --------- |
+| `evaluator/exprs/_expr.yo` `_evaluate_expression_wrapper` catch-all  | `__DBG_W` |
+| `evaluator/calls/function_type.yo` `_trial_eval_fn_body` `inner_exn` | `__DBG_F` |
+| `evaluator/values/anonymous_function.yo` `inner_exn` (two sites)     | `__DBG_A` |
+| `evaluator/builtins/comptime_expect_error.yo` `local_exn`            | `__DBG_C` |
 
-| site                                                                 | tag suggestion |
-| -------------------------------------------------------------------- | -------------- |
-| `evaluator/exprs/_expr.yo` `_evaluate_expression_wrapper` catch-all  | `__DBG_W`      |
-| `evaluator/calls/function_type.yo` `_trial_eval_fn_body` `inner_exn` | `__DBG_F`      |
-| `evaluator/values/anonymous_function.yo` `inner_exn` (two sites)     | `__DBG_A`      |
-| `evaluator/builtins/comptime_expect_error.yo` `local_exn`            | `__DBG_C`      |
-
-Use DISTINCT tags — a single shared tag cannot tell the sites apart. Add
-`open(import("std/fmt"));` to any file you touch EXCEPT
-`yo-self/evaluator/calls/function.yo`, where `eprintln` is already in scope and
-the import collides with `ToString`.
+Add `open(import("std/fmt"));` to any file you touch EXCEPT
+`evaluator/calls/function.yo`, where `eprintln` is already in scope and the
+import collides with `ToString`.
 
 ---
 
-## 4. Gates
+## 5. Gates
 
 ```bash
 bun run build                                              # before any yo-cli work
-YO_MAIN_STACK_MB=4096 ./yo-cli compile yo-self/main.yo --release -o /tmp/s1
-S1=/tmp/s1 P=x bash scratchpad/gates_fast.sh               # TIER 1
-S1=/tmp/s1 P=x bash scratchpad/gates_perf1.sh              # TIER 2
-BIN=/tmp/s1 OUT=/tmp/hs bash scratchpad/hollow_sweep69.sh  # honest score
+./yo-cli compile yo-self/main.yo --release -o /tmp/s1      # ~2.5 min
+S1=/tmp/s1 P=x bash scratchpad/gates_fast.sh               # TIER 1, ~12 min
+BIN=/tmp/s1 TAG=x bash scratchpad/hollow8.sh               # the 7 + canaries, ~13 min
+BIN=/tmp/s1 OUT=/tmp/hs bash scratchpad/hollow_sweep69.sh  # honest score, ~40 min
 ```
 
-Measured costs on this box (2026-07-30 — **older notes quote 8-min builds and a
-110-min TIER 2; both are pre-perf-work, do not plan around them**):
+The full sweep is **mandatory** before claiming a flip: the GREEN→HOLLOW
+regression class is invisible to the 12-file gate (it bit this campaign once —
+`closure_capture_rc_leak` regressed silently).
 
-| step                  | cost                                                                                  |
-| --------------------- | ------------------------------------------------------------------------------------- |
-| s1 build              | ~2-3 min                                                                              |
-| TIER 2, end to end    | **~15 min** (battery ~6, corpus ~3.5, `check ./std` 0.5, stage2 emit 3.4, stage3 3.5) |
-| honest 185-file sweep | ~8 min                                                                                |
-
-TIER 2 is cheap enough now to run per landed fix — do that rather than batching
-several risky changes into one gate, because attribution is what costs time.
+Never edit `yo-self/*.yo` while a gate is running: stage2/stage3 read the tree
+and a mid-run edit invalidates the fixpoint comparison. Building during a sweep
+also causes CPU contention and timeout-induced false REDs. To measure a test
+file while a gate runs, copy it to a scratch dir and run it there.
 
 `tests/index.test.yo` is NOT in the TIER-1 battery; run it explicitly whenever
 you touch address-of / Index-trait / comptime-place code.
 
-**Never** run two `yo-cli test` invocations against the same directory
-concurrently (the batch artifacts `.yo_selftest_batch_*` live next to the test
-file and clobber each other — this has produced phantom-hollow readings). Never
-edit `yo-self/*.yo` while a gate is in GATE 4/5 (stage2/stage3 read the tree; a
-mid-run edit invalidates the fixpoint comparison). To measure a test file while
-a gate is running, copy it to a scratch dir and run it there.
-
 ---
 
-## 5. THE METHOD (non-negotiable — proven over ~40 fix rounds)
+## 6. THE METHOD (non-negotiable — proven over ~45 fix rounds)
 
 1. **Faithful port first.** Find the TS behaviour (file:line) and port that
    shape. Where yo-self's model genuinely differs (value semantics vs TS object
-   identity), document the divergence AND use the equivalent existing
-   mechanism. Being broader OR narrower than TS both break the self-compile.
-   Distrust yo-self comments claiming a port was impossible — several were
-   false. If a faithful port regresses something, the regression is usually a
-   SECOND missing port, not a reason to narrow the first (this round: the
-   comptime-priority rule looked wrong until `_call_result_unknown` was found to
-   be missing TS's runtime-only marking).
-2. **Gate every change; revert on ANY regression.** Tiers above.
-3. **No hollow greens.** rc=0 proves nothing. **STRICT_FIXPOINT does NOT catch
-   hollowness** — a state once passed every gate including the fixpoint while
-   emitting 19 markers, because stage2 and stage3 drop the same statements.
-   ASan is useless here (`yo-cli` silently skips instrumentation); use
-   `scratchpad/guardmalloc_corpus.sh`. Prove a gate can FAIL before trusting it
-   to pass.
-4. **Probe before fixing; instrument, don't infer.** Most fix attempts that
-   skip this step are measured dead ends. One temporary `eprintln` naming the
-   actual list/type/value has repeatedly replaced hours of reasoning.
-5. **Never filter a trace on a bare identifier name.** The prelude defines `f`,
+   identity), document the divergence AND use the equivalent existing mechanism.
+   Being broader OR narrower than TS both break the self-compile. Distrust
+   yo-self comments claiming a port was impossible — several were false. If a
+   faithful port regresses something, the regression is usually a SECOND missing
+   port, not a reason to narrow the first.
+2. **"It only removes a restriction" is NEVER a safety argument in a compiler.**
+   Removing a rejection unmasks whatever the rejection was hiding. This has now
+   bitten three times in one session (the deep predicate → `imm_map` abort; the
+   ungated re-eval → wrong adopted types; the A/B ungate → all three canaries).
+   Gate it like any other change.
+3. **Gate every change; revert on ANY regression — and on zero wins.** An inert
+   change is churn that hides the next real signal.
+4. **No hollow greens.** rc=0 proves nothing, and STRICT_FIXPOINT does NOT catch
+   hollowness (a state once passed every gate while emitting 19 markers, because
+   stage2 and stage3 drop the same statements). Prove a gate can FAIL before
+   trusting it to pass. ASan is useless here (`yo-cli` silently skips
+   instrumentation); use `scratchpad/guardmalloc_corpus.sh`.
+5. **The honest sweep cannot detect WRONG ANSWERS** — they are neither hollow
+   nor red. One landed fix this campaign was a silent miscompilation
+   (`comptime_add(3, 2)` returned 4) found only by running a standalone repro
+   under both compilers. The score is an upper bound on correctness.
+6. **Probe before fixing; instrument, don't infer.** Most fix attempts that skip
+   this are measured dead ends. One temporary `eprintln` naming the actual
+   list/type/value has repeatedly replaced hours of reasoning.
+7. **One build must answer the whole question.** Pack every plausible probe into
+   a single build with distinct tags. Input-side experiments (crafted `.yo`
+   files against an existing binary) cycle in seconds — rebuild only when the
+   probe must live inside the compiler.
+8. **Never filter a trace on a bare identifier name.** The prelude defines `f`,
    `x`, `m`. Filter on a shape unique to the reproducer.
-6. **One build must answer the whole question.** Pack every plausible probe into
-   a single diag build with distinct tags; never one-hypothesis-per-build.
-   Input-side experiments (crafted `.yo` files against an existing s1) cycle in
-   seconds — rebuild the compiler only when the probe must live inside it.
-7. **Long jobs die on this box.** rc=133/137/138/139 with a ZERO-byte log is a
-   phantom kill — retry before believing a crash.
-8. `./yo-cli compile` cannot take `*.test.yo` — extract a standalone repro with
-   `main` + `export(main)`.
-9. **Anchor scripted edits on UNIQUE context.** A condition once landed on the
-   wrong same-text `if`. Assert `count == 1` in the patch script.
+9. **Anchor scripted edits on UNIQUE context.** Assert `count == 1` in the patch
+   script — a condition once landed on the wrong same-text `if`.
+10. **Long jobs die on this box.** rc=133/137/138/139 with a ZERO-byte log is a
+    phantom kill — retry before believing a crash.
+11. `./yo-cli compile` cannot take `*.test.yo` — extract a standalone repro with
+    `main` + `export(main)`.
 
 ---
 
-## 6. HARD-WON INVARIANTS (violate these and you re-live old sessions)
+## 7. HARD-WON INVARIANTS (violate these and you re-live old sessions)
 
-- **Per-call / per-closure type identity is THE recurring theme** (Gap-6). Do
-  not weaken `_freshen_io_builtin_callee`, the call-scoped forall rebinds +
+- **Per-call / per-closure type identity is THE recurring theme** (Gap-6). Do not
+  weaken `_freshen_io_builtin_callee`, the call-scoped forall rebinds +
   lineage-identity gate (`types/synthesizer.yo`), the clfid spec-cache keying +
   per-spec SomeT rebuild (`calls/helper.yo`), or receiver-instance `Self`
   adoption (`expr_info.yo`).
@@ -426,17 +379,23 @@ a gate is running, copy it to a scratch dir and run it there.
   must rebuild a FRESH SomeT + cell, never write the shared id last-wins.
 - **The shell pattern:** any walker of struct fields / enum variants may get a
   recursive-`Self` SHELL (empty lists) — call
-  `resolve_enum_shell(resolve_struct_shell(ty))` first.
+  `resolve_enum_shell(resolve_struct_shell(ty))` first. **§3.2 is the sixth site
+  to be bitten by this.** When you write a new type walker, do it up front.
+- **`substitute()` preserves the struct/enum id** (`types/substitution.yo:301`)
+  and is type-argument-aware, but the map BUILDER is not: a forall occurring
+  only as an instantiation ARGUMENT is invisible to `get_all_some_types`, which
+  walks FIELDS only. That was the last RED (`e40d924f4`).
+- **TS never substitutes into a type — it RE-EVALUATES the type EXPRESSION.**
+  There is no TypeApp reduction function in TS at all; reduction is a side
+  effect of expression re-evaluation through the memoized comptime constructor.
+  Substitution can never APPLY a constructor.
 - **`Some(UnknownVal)` ≠ a value.** Every ported TS `if (expr.$.value)` gate
   needs an `is_unknown_val` guard.
-- **A runtime call result must be RUNTIME-ONLY** (`_call_result_unknown`). TS
-  has no value there at all, and the flag is what makes "Cannot assign runtime
-  argument to compile-time parameter" fire. Un-marking it silently re-enables
-  comptime overloads for runtime operands.
-- **Comptime integers are `i64`, not a bignum.** Any range/overflow reasoning
-  must treat u64/usize as BIT PATTERNS (a value above `i64::MAX` reads as
-  negative) — do the arithmetic in the unsigned domain for those types.
-  `tests/comptime_overflow.test.yo` guards both directions.
+- **A runtime call result must be RUNTIME-ONLY** (`_call_result_unknown`). TS has
+  no value there at all, and the flag is what makes "Cannot assign runtime
+  argument to compile-time parameter" fire.
+- **Comptime integers are `i64`, not a bignum.** Range/overflow reasoning must
+  treat u64/usize as BIT PATTERNS (a value above `i64::MAX` reads as negative).
 - **Type-shape dispatch without a `Pointer` arm** silently no-ops for
   pointer-receiver methods.
 - **Chars vs bytes:** `String.len()` is CHARS; byte loops use
@@ -446,12 +405,13 @@ a gate is running, copy it to a scratch dir and run it there.
 - **`type_to_string` is bounded by a monotonic visited set.** Do not remove it:
   without it one render reached 6.8 GB RSS and hung six test files for 1800 s.
 - Yo syntax: `:=` is immutable (reassign needs `(x : T) = …`); no forward refs;
-  no nested match patterns; a single-expression `{ }` parses as a struct
-  literal (add a `;`); fn defs are `name :: (fn(...) -> T)({ ... })`; adjacent
-  DIFFERENT operators need parentheses.
+  no nested match patterns; a single-expression `{ }` parses as a struct literal
+  (add a `;`); fn defs are `name :: (fn(...) -> T)({ ... })`; adjacent DIFFERENT
+  operators need parentheses; **`if(...)`/`cond(...)` cannot be a call argument
+  or appear inside a string interpolation** ("Frame level N has different number
+  of values for different cases") — hoist into a local first.
 - **The type-parameter binder is `generic(T : Type)`, not `forall`.**
-  `forall`/`∀` are reserved and rejected at lex time. Internal identifiers
-  (`forall_labels`, `forall_types`) deliberately keep the old name.
+  `forall`/`∀` are reserved and rejected at lex time.
 - `./yo-cli fmt` every touched `.yo` before committing; lint-staged reformats
   `.md` on commit.
 - rc=139 at `-O0` on deep recursion is stack exhaustion — use `--release` or
@@ -459,20 +419,17 @@ a gate is running, copy it to a scratch dir and run it there.
 
 ---
 
-## 7. Key locations
+## 8. Key locations
 
-| path                                                | what                                                              |
-| --------------------------------------------------- | ----------------------------------------------------------------- |
-| `issues/yo-self-hollow-root-cause-map.md`           | per-file evidence base for the hollow cluster + the noise table   |
-| `issues/yo-self-69-red-list-map.md`                 | the REDs, cluster-mapped                                          |
-| `issues/yo-self-hollow-test-batch-main.md`          | the hollow-batch defect itself + measured dead ends               |
-| `issues/yo-self-comptime-pointer-place.md`          | §2.1 arm 22 — Stage 2 scoping                                     |
-| `issues/yo-self-cee-in-function-body.md`            | §2.1 arm 26 — both reverted attempts, three candidates            |
-| `issues/yo-self-comptime-overload-preference.md`    | §2.2 — the literal gate and its one holdout                       |
-| `issues/yo-self-explicit-call-site-generic-args.md` | explicit `generic(...)` type application, what remains            |
-| `issues/yo-self-stub-inventory.md`                  | 311 unported/divergent findings, each with a TS file:line         |
-| `tests/codegen-bootstrap/`                          | the 148-file differential corpus (add a regression test per fix)  |
-| agent auto-memory (outside the repo)                | `MEMORY.md` indexes distilled lessons — recall before re-deriving |
+| path                                       | what                                                                       |
+| ------------------------------------------ | -------------------------------------------------------------------------- |
+| `issues/handoff-2026-08-02/`               | **the ten reports behind §3** — read each `-VERIFY` before its `-scope`    |
+| `issues/yo-self-hollow-root-cause-map.md`  | per-file evidence base + the noise table + every measured dead end         |
+| `issues/yo-self-hollow-test-batch-main.md` | the hollow-batch defect itself                                             |
+| `issues/yo-self-stub-inventory.md`         | 311 unported/divergent findings, each with a TS file:line                  |
+| `tests/codegen-bootstrap/`                 | the 149-file differential corpus (add a regression test per fix)           |
+| `scratchpad/apply_*.py`                    | landed and reverted patch scripts, each with its evidence in the docstring |
+| agent auto-memory (outside the repo)       | `MEMORY.md` indexes distilled lessons — recall before re-deriving          |
 
-`tmp/` is a git-ignored scratch dir with ~78 stale `*.test.yo` files; a bare
-`./yo-cli test` sweeps them up and they all fail. Pass an explicit path.
+`tmp/` is a git-ignored scratch dir with stale `*.test.yo` files; a bare
+`./yo-cli test` sweeps them up and they all fail. Always pass an explicit path.
