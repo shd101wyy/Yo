@@ -50,7 +50,7 @@ open(import("std/fmt"));
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args (TS helper.ts:411-451). utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ set_expr_as_consumed, set_expr_as_needs_to_call_dup } :: import("../utils.yo");
+{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, are_values_equal } :: import("../utils.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { Token } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
@@ -129,6 +129,7 @@ open(import("std/fmt"));
   get_func_param_default_exprs,
   get_func_param_type_exprs,
   get_func_param_comptime,
+  get_func_param_assigned_values,
   get_func_return_type_expr,
   get_func_where_constraints,
   get_func_where_clause_exprs,
@@ -618,7 +619,11 @@ check_if_function_parameter_matches_argument :: (
     caller_env : Environment,
     ctx : EvalContext,
     runtime_arg_exprs_in_order : ArrayList(AstExpr),
-    exn : Exception
+    exn : Exception,
+    /// The parameter's `= <value>` ASSIGNED value, or `.None`. Appended last
+    /// with a default so existing call sites need no change. See the Step-5b
+    /// guard below (TS helper.ts:481-497).
+    (param_assigned_value : Option(EvalValue)) ?= Option(EvalValue).None
   ) -> CheckParamResult
 )({
   // Step 1: Strip "label: value" colon-label wrapper from arg if present,
@@ -841,6 +846,47 @@ check_if_function_parameter_matches_argument :: (
       );
     });
   });
+  // Step 5b: assigned-value check — 1:1 with TS helper.ts:481-497.
+  //
+  //   // If the parameter has an assignedValue, check that the argument value
+  //   // matches it. This is used for overload resolution based on value
+  //   // matching (e.g., TryInto(i32) vs TryInto(i64)).
+  //   if (parameter.assignedValue && evaluatedArgExpr.$?.value) { ... }
+  //
+  // Two impls of the same parameterized trait give the receiver TWO methods
+  // with IDENTICAL parameter types — `try_into(self : Self, comptime(_To) :
+  // Type)` for both `TryInto(i32)` and `TryInto(i64)` (std/prelude.yo:7639-
+  // 7647). Nothing else can tell them apart, so without this throw the
+  // checking phase keeps both candidates and the FIRST-declared impl wins:
+  // `x.try_into(i64)` returned `Result(i32, str)` and the following
+  // `assert(b == i64(10))` then found no `i32 == i64` and was dropped as
+  // `// Failed to transpile` (tests/prelude.test.yo arm 1, hollow batch).
+  // `are_values_equal` is the port of TS `areValuesEqual`, whose Type/Type
+  // branch compares with `areTypesCompatible(..., requireExactMatch = true)`
+  // (value.ts:699-705) — `are_types_compatible_exact` here.
+  match(
+    param_assigned_value,
+    .Some(pav) => match(
+      arg_value,
+      .Some(agv) => {
+        (pav_matches : bool) = are_values_equal(pav, callee_env_r, agv, caller_env_r);
+        if(!(pav_matches), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(actual_arg),
+                `Value mismatch for parameter "${param_label}"`,
+                false,
+                .None
+              )
+            )
+          );
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
   // Closure-argument return refinement for Step-6 synthesis: a closure whose
   // OWN declared return never resolved (still `-> U`, a SomeT) contributes
   // nothing to the callee's generic binding — synthesize binds the callee's
@@ -4174,6 +4220,17 @@ try_to_call_function_with_arguments :: (
         ),
         .None => ArrayList(bool).new()
       );
+      // Parallel to call_param_comptime: the per-param `= <value>` ASSIGNED
+      // values, so Step 5b can reject a mismatching argument (helper.ts:481).
+      call_param_assigned := match(
+        func_val,
+        .Some(fvv4) => match(
+          fvv4,
+          .FuncVal(__fvd14, _) => get_func_param_assigned_values(__fvd14.*.func_id.clone()),
+          _ => ArrayList(Option(EvalValue)).new()
+        ),
+        .None => ArrayList(Option(EvalValue)).new()
+      );
       (n_required : usize) = n_params;
       if(call_param_defaults.len() == n_params, {
         (nr : usize) = usize(0);
@@ -4995,7 +5052,8 @@ try_to_call_function_with_arguments :: (
           caller_env_m,
           ctx,
           rt_args,
-          exn
+          exn,
+          match(call_param_assigned.get(pi),.Some(a) => a,.None => Option(EvalValue).None)
         );
         callee_env_m = pr.callee_env;
         caller_env_m = pr.caller_env;

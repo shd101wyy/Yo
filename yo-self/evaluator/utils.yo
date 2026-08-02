@@ -89,7 +89,7 @@ open(import("std/string"));
 :: import("../utils.yo");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref } :: import("../value.yo");
 { TypeValue } :: import("../types/definitions.yo");
-{ are_types_compatible } :: import("../types/compatibility.yo");
+{ are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
 { type_contains_rc_type } :: import("../types/utils.yo");
 { expr_info_table_set } :: import("../expr_info.yo");
@@ -1511,6 +1511,18 @@ are_values_equal :: (
       },
       // val2 is UnknownVal: not equal to a concrete value.
       .UnknownVal(_, _) => false,
+      // Two TYPE values compare by EXACT type compatibility, not structurally
+      // (TS value.ts:699-705: `areTypesCompatible(expected, given, /* exact */
+      // true)`; val1 is the expected side, and yo-self's argument order is
+      // (actual, expected)). Overload selection on `= <value>` type
+      // parameters relies on this branch (helper.ts:481-497 → calls/helper.yo
+      // Step 5b): `TryInto(i32).try_into` vs `TryInto(i64).try_into` differ
+      // ONLY in the assigned `_To` value.
+      .TypeVal(ty2) => match(
+        val1,
+        .TypeVal(ty1) => are_types_compatible_exact(ty2, ty1),
+        _ => (val1 == val2)
+      ),
       // Both concrete: structural equality.
       _ => (val1 == val2)
     )

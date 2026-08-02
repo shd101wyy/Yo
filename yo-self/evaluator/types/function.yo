@@ -268,6 +268,53 @@ get_func_param_defaults :: (fn(func_id : String) -> ArrayList(Option(EvalValue))
     .None => ArrayList(Option(EvalValue)).new()
   )
 );
+// Per-parameter `= <value>` ASSIGNED values (TS `FunctionParameter
+// .assignedValue`). `TypeValue.Func`/`FuncMeta` carry no per-param assigned
+// value, so — like the defaults and the comptime flags above — it rides a
+// func-id-keyed side table, keyed/copied fn-type-expr id -> FuncVal id.
+// The call site (helper.yo) reads it to replicate TS helper.ts:481-497: an
+// argument whose value differs from the parameter's assigned value REJECTS
+// the candidate. That rejection is the only thing that distinguishes two
+// impls of the same parameterized trait — `TryInto(i32).try_into` and
+// `TryInto(i64).try_into` have identical parameter TYPES
+// (`self : Self, comptime(_To) : Type`) and differ only in `_To`'s assigned
+// value (std/prelude.yo:7645).
+(g_func_param_assigned_values : HashMap(String, ArrayList(Option(EvalValue)))) =
+  HashMap(String, ArrayList(Option(EvalValue))).new();
+register_func_param_assigned_values :: (fn(func_id : String, assigned : ArrayList(Option(EvalValue))) -> unit)({
+  // Keep the table sparse — only register when at least one param has one.
+  (any_assigned : bool) = false;
+  (i : usize) = usize(0);
+  while((i < assigned.len()) && !(any_assigned), {
+    match(
+      assigned.get(i),
+      .Some(a) => if(a.is_some(), {
+        any_assigned = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(any_assigned, {
+    g_func_param_assigned_values.set(func_id.clone(), assigned);
+  });
+});
+copy_func_param_assigned_values :: (fn(from_id : String, to_id : String) -> unit)({
+  match(
+    g_func_param_assigned_values.get(from_id.clone()),
+    .Some(assigned) => {
+      g_func_param_assigned_values.set(to_id.clone(), assigned);
+    },
+    .None => ()
+  );
+});
+get_func_param_assigned_values :: (fn(func_id : String) -> ArrayList(Option(EvalValue)))(
+  match(
+    g_func_param_assigned_values.get(func_id.clone()),
+    .Some(assigned) => assigned,
+    .None => ArrayList(Option(EvalValue)).new()
+  )
+);
 // Per-parameter `is_compile_time_only` flags (the `comptime(name) : T` param
 // modifier). `TypeValue.Func`/`FuncMeta` do NOT carry a per-param comptime bit
 // (only `param_is_ref`/`param_is_owning`), so — like the defaults above — it
@@ -633,7 +680,15 @@ FuncParam :: struct(
   /// constructor and unify with the body's instantiations, instead of
   /// substituting into the def-era nocache mint (the imm_sorted_map family's
   /// id split; issues/yo-self-69-red-list-map.md ROOT CAUSE 2026-07-30).
-  ty_expr : Option(AstExpr)
+  ty_expr : Option(AstExpr),
+  /// The parameter's `= <value>` ASSIGNED value (TS `FunctionParameter
+  /// .assignedValue`, definitions.ts:432), or `.None` for a normal parameter.
+  /// Only `comptime` parameters may carry one, so it is always a `TypeVal`.
+  /// The call site uses it to REJECT an argument that does not equal it —
+  /// this is how two impls of the same parameterized trait are told apart
+  /// (`TryInto(i32)` vs `TryInto(i64)`; helper.ts:481-497). Defaulted so the
+  /// synthetic `FuncParam(...)` constructions need no change.
+  (assigned_value : Option(EvalValue)) ?= Option(EvalValue).None
 );
 /// Pending where-clause constraint that failed to evaluate.
 PendingConstraint :: struct(
@@ -1754,7 +1809,8 @@ use_id :: (fn(generic(T : Type),
     captured_default_value,
     is_param_ref,
     default_value_expr,
-    type_expr
+    type_expr,
+    assigned_value
   )
 });
 // ---------------------------------------------------------------------------
@@ -4132,6 +4188,7 @@ evaluate_function_type :: (
   param_default_exprs := ArrayList(Option(AstExpr)).new();
   param_type_exprs := ArrayList(Option(AstExpr)).new();
   param_comptime_flags := ArrayList(bool).new();
+  param_assigned_values := ArrayList(Option(EvalValue)).new();
   quoted_param_indices := ArrayList(usize).new();
   while(ppi < params_result.params.len(), {
     pp := match(
@@ -4150,6 +4207,7 @@ evaluate_function_type :: (
     param_default_exprs.push(pp.default_value_expr);
     param_type_exprs.push(pp.ty_expr);
     param_comptime_flags.push(pp.is_compile_time_only);
+    param_assigned_values.push(pp.assigned_value);
     if(pp.is_quote, {
       quoted_param_indices.push(ppi);
     });
@@ -4163,6 +4221,9 @@ evaluate_function_type :: (
   // Per-param comptime flags (same two-step re-keying as the defaults) so the
   // call site can lower comptime-only args passed to RUNTIME params.
   register_func_param_comptime(ast_expr_id(expr).to_string(), param_comptime_flags);
+  // Per-param `= <value>` assigned values (same two-step re-keying) so the
+  // call site can reject a mismatching argument (TS helper.ts:481-497).
+  register_func_param_assigned_values(ast_expr_id(expr).to_string(), param_assigned_values);
   // Keep the declared return-type EXPR for specialization-time re-evaluation
   // (see the side-table comment above; TS functionType.return.typeExpr).
   register_func_return_type_expr(ast_expr_id(expr).to_string(), return_type_expr.clone());
@@ -4821,6 +4882,9 @@ export(
   register_func_param_comptime,
   copy_func_param_comptime,
   get_func_param_comptime,
+  register_func_param_assigned_values,
+  copy_func_param_assigned_values,
+  get_func_param_assigned_values,
   register_func_return_type_expr,
   copy_func_return_type_expr,
   get_func_return_type_expr,
