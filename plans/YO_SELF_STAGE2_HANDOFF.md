@@ -24,24 +24,25 @@ entries arm → 20p/1f, matching TS); `iter_filter_closure` HOLLOW→honest RED;
 Eleven fix commits: `a1bd4e355..4047555d8` — each message carries its
 measurements.
 
-| remaining file                                               | one-line status                                                                                         |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| `iter_filter_closure` (RED), `iterator_combinators` (HOLLOW) | ONE root left: the closure-`F` identity split — see `issues/yo-self-closure-f-identity-split.md` (§3.1) |
-| `fn`                                                         | arms 9/11L1/12/13 fixed; arm 11 LAYER 2 + arm 14 remain, both need CODEGEN pairs (§3.2)                 |
-| `basic`                                                      | arm 12: A1 reroute VETOED by its verifier; A2 gated on a stage-2 control (§3.3)                         |
-| `async_await`                                                | arm 65: evaluator layer fixed; next layer = the pre-existing `io.await(task, io)` drop (§3.4)           |
+| remaining file                  | one-line status                                                                               |
+| ------------------------------- | --------------------------------------------------------------------------------------------- |
+| `iter_filter_closure`           | **GREEN 2026-08-03** — closure-`F` identity split SOLVED (§3.1)                               |
+| `iterator_combinators` (HOLLOW) | 16/19 arms real; arms 16–18 = chained-combinator assoc-binding loss (§3.1)                    |
+| `fn`                            | arms 9/11L1/12/13 fixed; arm 11 LAYER 2 + arm 14 remain, both need CODEGEN pairs (§3.2)       |
+| `basic`                         | arm 12: A1 reroute VETOED by its verifier; A2 gated on a stage-2 control (§3.3)               |
+| `async_await`                   | arm 65: evaluator layer fixed; next layer = the pre-existing `io.await(task, io)` drop (§3.4) |
 
 Green baselines every change must preserve:
 
-| gate                    | baseline                                                                                                        |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------- |
-| honest sweep            | **180 GREEN / 4 HOLLOW / 1 RED** (the RED is `iter_filter_closure`, honest)                                     |
-| corpus diff-test        | **PASS 151 / DIFF 0 / SELF-FAIL 1** (152 total; `closure_impl_fn_capture.yo` is the known one)                  |
-| `check ./std`           | **153/153**                                                                                                     |
-| `check ./yo-self`       | **295/305** (10 pre-existing: `evaluator/eval.yo` + 9 cascading circular-import)                                |
-| canaries                | `array` 12, `for_macro_borrow` 13, `closure_capture_rc_leak` 7 — all rc=0, 0 markers                            |
-| stage2 emit             | rc=0, **hollow=0** (`YO_MAIN_STACK_MB=4096 <bin> compile yo-self/main.yo --release --emit-c --skip-c-compiler`) |
-| stage2 clang / fixpoint | **BROKEN — 4 PRE-EXISTING dyn-capture cast errors** (see below). Do NOT treat as your regression                |
+| gate                    | baseline                                                                                                                                      |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| honest sweep            | **181 GREEN / 4 HOLLOW / 0 RED** as of 2026-08-03 (`iter_filter_closure` flipped GREEN; hollow: async_await, basic, fn, iterator_combinators) |
+| corpus diff-test        | **PASS 153 / DIFF 0 / SELF-FAIL 1** (154 total incl. the two new iter closure files; `closure_impl_fn_capture.yo` is the known one)           |
+| `check ./std`           | **153/153**                                                                                                                                   |
+| `check ./yo-self`       | **295/305** (10 pre-existing: `evaluator/eval.yo` + 9 cascading circular-import)                                                              |
+| canaries                | `array` 12, `for_macro_borrow` 13, `closure_capture_rc_leak` 7 — all rc=0, 0 markers                                                          |
+| stage2 emit             | rc=0, **hollow=0** (`YO_MAIN_STACK_MB=4096 <bin> compile yo-self/main.yo --release --emit-c --skip-c-compiler`)                               |
+| stage2 clang / fixpoint | **BROKEN — 4 PRE-EXISTING dyn-capture cast errors** (see below). Do NOT treat as your regression                                              |
 
 **The fixpoint gate's recorded FIXPOINT_HOLDS was STALE.** Measured with the
 `784b72ded` baseline binary on the `784b72ded` tree: stage-2 emit SIGBUS'd
@@ -78,30 +79,37 @@ a ZERO-byte log — the phantom-kill signature). Re-run before believing either.
 
 ## 3. The remaining roots
 
-### 3.1 closure-`F` identity split — `iter_filter_closure` (RED) + `iterator_combinators` (HOLLOW)
+### 3.1 closure-`F` identity split — SOLVED 2026-08-03
 
-**Everything else in this family was fixed** (`994b34099`): a generic/
-where-clause impl over a comptime-constructed struct now matches
-(`issues/repros/v5_direct.yo`, `v4_take`, `v1_namedfn` all run). What
-remains is exactly the closure case: `iter.filter(x => …)` /
-`.map(x => …)`.
+`iter_filter_closure` is GREEN (3 passed, 0 markers) and
+`iterator_combinators` runs 16/19 arms for real (was: entire batch hollow).
+The six-part fix stack — `__impl_fn` mint with FRESH-cell (not in-place)
+per-call identity, the type_key arg-slot resolution hop, Step-9 per-call
+substitution into def-era nominal return records, the bare-SomeT closure
+return unify, the codegen closure-call routing (`cc_early_hit`), and the
+trait-check recursion-guard re-key — is documented in
+`issues/fixed/yo-self-closure-f-identity-split.md` with all the hazards
+that were HIT and fixed along the way (dyn/"Impl"/nameless wrapper
+exclusions, `->`-handler exclusion, multi-closure last-writer-wins).
 
-Read `issues/yo-self-closure-f-identity-split.md` — it has the repro, the
-TS mechanism (`__impl_fn`, anonymous-function.ts:1203-1216), the two
-measured dead ends (do NOT re-derive: the `_ctfe_args_equal` memo hack and
-the helper.yo:2129/:2165 ungate — the latter kills all three canaries), the
-one measured-zero-wins attempt (capbind at the forall name-match, reverted),
-and the io_async hazards any `__impl_fn` port must respect.
+**Remaining (one root):** arms 16–18 — 3-deep chained combinators calling a
+bare-`I` blanket method (`skip(20).take(15).count()`): repeat full trait
+checks of the same nested record lose the `Item := A` binding after the
+first success registers state — `issues/yo-self-chained-combinator-assoc-binding.md`
+has the measured mechanism and the suggested fix direction.
+Corpus gained `iter_filter_multi_closure.yo` + `iter_map_closure.yo` (154).
 
 ### 3.2 `fn` — two arms left, both need codegen pairs
 
-- **Arm 11 layer 2:** the `${func_id}_comptime` FuncVal mint (TS
-  ctfe-analysis.ts:159-172) was built and measured 2026-08-02: it fixes the
-  cache collision but codegen then emits the comptime body's params as
-  undeclared C identifiers (`use of undeclared identifier 'x'`) — arm 11
-  progressed but the FILE went red, so it was REVERTED (the revert note
-  with the pairing requirement sits in `builtins/comptime_fn.yo`). Land it
-  PAIRED with comptime-body codegen support.
+- **Arm 11 layer 2:** the `${func_id}_comptime` FuncVal mint LANDED
+  2026-08-03, paired with `mark_fn_unemittable` (the codegen pair the
+  2026-08-02 attempt lacked — comptime calls fold at CTFE so no C call
+  site can exist; suppressing emission removes the undeclared-identifier
+  regression). Arm 11 still hollows on its NEXT layer: the CALL
+  `result :: comptime_factorial(12)` reports "Expected compile-time value
+  … Got runtime value" — the CTFE-execution route doesn't execute the
+  minted comptime version's body (probe-verified 2026-08-03; the mint +
+  registered comptime type are in place, the executor is the gap).
 - **Arm 14:** patch D (the `_()` reroute widening for expected Func types)
   remains vetoed-unless-paired with the forward-referenced-comptime-fn
   codegen fix (`use of undeclared identifier 'is_odd'`) — see
@@ -111,23 +119,26 @@ and the io_async hazards any `__impl_fn` port must respect.
 ### 3.3 `basic` arm 12
 
 Two stacked roots (`issues/handoff-2026-08-02/07` + `06`, note the name
-swap): A1 (the `_()` reroute for NAMED expected structs) was REFUTED as
-land-able by its adversarial verifier — a deliberate scope-narrowing with a
-recorded s2 SIGSEGV. A2 (`stable_type_identity`'s missing Tuple arm) is
-separable and fixes the g4_min repro alone, but its stage-2 control was
-never solo-completed. With the `4047555d8` cycle guard landed, re-run that
-control before deciding (the crash signature the verifier hit — 7×
-`get_type_string` recursion — is exactly what the guard now bounds).
+swap): **A2 (the `_stable_identity_at` Tuple arm) LANDED 2026-08-03** —
+its stage-2 control passed post-cycle-guard (emit rc=0, hollow=0, clang
+errors == 4 unchanged) and `scratchpad/t5/A_g4_min.yo` (the tuple
+layout-aliasing MISCOMPILE) now compiles and runs. Arm 12 itself still
+hollows on the OTHER stacked root: A1 (the `_()` reroute for NAMED expected
+structs) remains REFUTED as land-able by its adversarial verifier.
 
 ### 3.4 `async_await` arm 65
 
-The evaluator layer was fixed in `e8517dd43` (Future-carrier args resolve at
-Step 9; narrow same-name wrapper compat — `scratchpad/w4/w1.yo` and
-`scratchpad/t5/B_io_variant.yo` now pass `check`). The arm still hollows on
-its NEXT layer: `result := io.await(task, io)` is dropped at codegen —
-pre-existing (identical under the morning baseline binary). Also note
-yo-self stays more lenient than TS on `B_io_i64.yo` (TS rejects the
-mismatched annotation; yo-self accepts) — divergence recorded, not a
+The evaluator layer was fixed in `e8517dd43`; TWO MORE layers were fixed
+2026-08-03 in types/compatibility.yo (Future effect matching by TYPE not
+label; `_wrapper_carrier_args_concrete` gates on top-level SomeT-ness after
+cell resolution) — the `(task : Impl(Future(i32, Ctx)))` BINDING now passes.
+The arm still hollows on the layer after that: `io.await(task, ctx)`'s
+`fut` param resolves to the CLOSURE's Fn type through a poisoned shared
+wrapper cell — fully diagnosed with fix directions in
+`issues/yo-self-io-await-shared-wrapper-poisoning.md` (the previously
+recorded "io.await dropped at codegen" was this eval throw, swallowed).
+Also note yo-self stays more lenient than TS on `B_io_i64.yo` (TS rejects
+the mismatched annotation; yo-self accepts) — divergence recorded, not a
 regression.
 
 ### 3.5 stage-2 dyn-capture residual (the fixpoint blocker)
