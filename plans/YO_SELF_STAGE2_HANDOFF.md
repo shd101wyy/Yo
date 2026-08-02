@@ -46,7 +46,7 @@ ZERO-byte log — the phantom-kill signature). Re-run before believing either.
 
 ## 2. Start here
 
-1. Read **§5 (THE METHOD)** and **§4's measurement rules**. They are what the
+1. Read **§6 (THE METHOD)** and **§4's measurement rules**. They are what the
    round-to-round cost of this campaign actually depends on.
 2. Build a binary (~2.5 min) and reproduce ONE file's score before changing
    anything:
@@ -120,7 +120,7 @@ a regression — un-hollowing exposes it. Budget for it.
 
 **Root: `_collect_some_types_into` (`yo-self/types/utils.yo:911`) walks
 `field_types` / `variant_fields` without resolving struct/enum SHELLS.** This
-violates an invariant already recorded in §6 of this document. `_type_contains_rc_inner`
+violates an invariant already recorded in §7 of this document. `_type_contains_rc_inner`
 in the same file already does `resolve_enum_shell(resolve_struct_shell(ty))` and
 calls itself "the fifth shell-consumption site"; this is the sixth.
 
