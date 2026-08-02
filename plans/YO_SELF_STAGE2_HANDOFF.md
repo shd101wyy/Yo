@@ -13,9 +13,9 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 180 GREEN / 4 HOLLOW / 1 RED of 185 test files.**
-Full sweep 2026-08-02 evening at `/tmp/hs_p16/results.txt` (regenerate —
-`/tmp` is volatile). Morning baseline was 178/7/0.
+**Honest score: 181 GREEN / 4 HOLLOW / 0 RED of 185 test files** (2026-08-03,
+after the closure-F round; hollow: async_await, basic, fn,
+iterator_combinators). The 2026-08-02 evening sweep measured 180/4/1.
 
 **Day's flips:** `prelude` HOLLOW→GREEN (4/4, both arms fixed);
 `imm_map` HOLLOW→GREEN **with teeth** (injected `assert(false)` in the
@@ -24,13 +24,13 @@ entries arm → 20p/1f, matching TS); `iter_filter_closure` HOLLOW→honest RED;
 Eleven fix commits: `a1bd4e355..4047555d8` — each message carries its
 measurements.
 
-| remaining file                  | one-line status                                                                               |
-| ------------------------------- | --------------------------------------------------------------------------------------------- |
-| `iter_filter_closure`           | **GREEN 2026-08-03** — closure-`F` identity split SOLVED (§3.1)                               |
-| `iterator_combinators` (HOLLOW) | 16/19 arms real; arms 16–18 = chained-combinator assoc-binding loss (§3.1)                    |
-| `fn`                            | arms 9/11L1/12/13 fixed; arm 11 LAYER 2 + arm 14 remain, both need CODEGEN pairs (§3.2)       |
-| `basic`                         | arm 12: A1 reroute VETOED by its verifier; A2 gated on a stage-2 control (§3.3)               |
-| `async_await`                   | arm 65: evaluator layer fixed; next layer = the pre-existing `io.await(task, io)` drop (§3.4) |
+| remaining file                  | one-line status                                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `iter_filter_closure`           | **GREEN 2026-08-03** — closure-`F` identity split SOLVED (§3.1)                                  |
+| `iterator_combinators` (HOLLOW) | 16/19 arms real; arms 16–18 = chained-combinator assoc-binding loss (§3.1)                       |
+| `fn`                            | arms 9/11L1/12/13 fixed; arm 11 LAYER 2 + arm 14 remain, both need CODEGEN pairs (§3.2)          |
+| `basic`                         | arm 12: A2 LANDED 2026-08-03 (g4_min miscompile fixed); A1 reroute stays VETOED (§3.3)           |
+| `async_await`                   | arm 65: binding layer FIXED 2026-08-03; next = the shared-wrapper-cell io.await poisoning (§3.4) |
 
 Green baselines every change must preserve:
 
@@ -71,9 +71,10 @@ a ZERO-byte log — the phantom-kill signature). Re-run before believing either.
    ./yo-cli compile yo-self/main.yo --release -o /tmp/s1
    BIN=/tmp/s1 T=tests/iterator_combinators.test.yo TAG=x bash scratchpad/measure_one.sh
    ```
-3. The highest-value open root is **§3.1 (closure-`F`)** — worth two files.
-   The stage-2 dyn residual (§3.5) is the other structural item; they are
-   likely the SAME family (dyn(Fn) wrapper resolution cycles).
+3. The open roots, in value order: iterator_combinators arms 16-18
+   (§3.1 remainder — the chained-combinator assoc-binding loss), the
+   io.await shared-wrapper poisoning (§3.4), fn arm 11's CTFE executor gap
+   (§3.2), and the stage-2 dyn residual (§3.5 — the fixpoint blocker).
 
 ---
 
