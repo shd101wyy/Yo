@@ -419,6 +419,27 @@ require_expr_not_consumed :: (
         v.consumed_at_token,
         .None => (),
         .Some(consumed_tok) => {
+          // RE-EVALUATION exemption: when the recorded move site IS this very
+          // token, the "move" came from an earlier evaluation of the SAME
+          // expression node (yo-self re-evaluates a call node when it becomes
+          // the receiver/argument of an enclosing call; TS's immutable env
+          // threading means its re-evaluations read the PRE-consumption env —
+          // its ownership block even carries the note "Allow to consume again
+          // here is necessary"). A genuine use-after-move always has a
+          // DIFFERENT move site, which TS distinguishes the same way its
+          // error output does. Without this, `v1_copy.concat(v2).len()`
+          // reported 'use of moved value' with BOTH carets on the same
+          // token (tests/imm_vec arms 14/17, surfaced by the Step-4a port).
+          same_site := (
+            (
+              (consumed_tok.*.row == ast_expr_token(rhs).row)
+              && (consumed_tok.*.column == ast_expr_token(rhs).column)
+            )
+            && (consumed_tok.*.module_path == ast_expr_token(rhs).module_path)
+          );
+          if(same_site, {
+            return(());
+          });
           entries := ArrayList(TokenAndError).new();
           entries.push(
             TokenAndError(

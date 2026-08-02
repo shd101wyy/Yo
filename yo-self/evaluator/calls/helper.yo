@@ -50,7 +50,7 @@ open(import("std/fmt"));
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args (TS helper.ts:411-451). utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, are_values_equal } :: import("../utils.yo");
+{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, are_values_equal, require_expr_not_consumed } :: import("../utils.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { Token } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
@@ -785,6 +785,15 @@ check_if_function_parameter_matches_argument :: (
   if(!(is_ct_only), {
     runtime_arg_exprs_in_order.push(evaled_arg);
   });
+  // Step 4a: the argument variable must not already be CONSUMED (moved) —
+  // TS helper.ts:400-401 `requireExprNotConsumed(evaluatedArgExpr,
+  // callerEnv)`, UNCONDITIONAL (not gated on ownership). yo-self had the
+  // 1:1 checker (utils.yo require_expr_not_consumed) but never called it
+  // from the call path — only from assignments — so calling
+  // `uninit.assume_init()` twice (own(self), consumed on the first call)
+  // passed `check`, `comptime_expect_error` saw no error, and prelude
+  // arm 3 hollowed its whole batch (handoff §3.1-§7).
+  require_expr_not_consumed(evaled_arg, caller_env_r, ctx, exn);
   // Step 4b: Move-ownership for an OWNED parameter (mirrors src/evaluator/calls/
   // helper.ts:411-451). If the arg already owns the RC value → MOVE it (consume,
   // no dup). If borrowed/non-owning → materialize an owned copy via `___dup` and
@@ -792,7 +801,16 @@ check_if_function_parameter_matches_argument :: (
   // PARAMETER taking ownership — borrow/`inout` params never consume/dup their arg.
   // NOTE: the own(self)-captured-variable tracking (`ctx.own_consumed_captures`,
   // TS helper.ts:419-428) is deferred until a thread-spawn capture test needs it.
-  if(param_is_owning && (!(is_ct_only)), {
+  // NOT during the CHECKING PHASE: a trial call (overload selection /
+  // _trial_call_overload_candidate) runs this helper against the REAL caller
+  // env; TS's `callerEnv = setExprAsConsumed(...)` threads an IMMUTABLE env
+  // copy, so a trial's consumption dies with the trial — yo-self's
+  // set_expr_as_consumed mutates the shared Variable in place, so a trial
+  // consumption LEAKED into the real pass and Step 4a then rejected the same
+  // statement that had "moved" the value ('use of moved value: `v1_copy` /
+  // value moved here' both pointing at the SAME line — tests/imm_vec arms
+  // 14/17, surfaced by the Step-4a port).
+  if((param_is_owning && (!(is_ct_only))) && !(ctx.is_in_function_call_checking_phase), {
     match(
       arg_info.variable_name,
       .None => (),
