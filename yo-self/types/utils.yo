@@ -1024,6 +1024,106 @@ get_all_some_types :: (fn(ty : TypeValue) -> ArrayList(TypeValue))({
   _collect_some_types_into(ty, acc, visited_ids);
   acc
 });
+/// True iff `ty` contains at least one SomeT and EVERY contained SomeT
+/// resolves — through its resolution-cell chain, cycle-guarded — to a
+/// non-SomeT terminal that itself contains no SomeTs. Used by the call
+/// return-type acceptance rules: a result like `IterFilter(CountIter, F)`
+/// where `F → __impl_fn → <capture struct>` is codegen-concrete (type_key
+/// hops the same chain) even though `get_all_some_types` is non-empty.
+/// Conservative on any unresolved or cyclic chain (returns false).
+type_somes_all_resolve_concrete :: (fn(ty : TypeValue) -> bool)({
+  somes := get_all_some_types(ty);
+  // ALSO walk a struct instantiation's `type_arguments`: get_all_some_types
+  // deliberately skips them, but a nominal record's identity (type_key) is
+  // keyed by them — a raw forall hiding ONLY there (map's `B` in
+  // `IterMap(I, B, F)`) makes the record codegen-ambiguous even when every
+  // field type resolves.
+  match(
+    ty,
+    .Struct({ type_arguments : sarc_tas }) => {
+      (sarc_ti : usize) = usize(0);
+      while(sarc_ti < sarc_tas.len(), {
+        match(
+          sarc_tas.get(sarc_ti),
+          .Some(sarc_ta) => {
+            if(is_some_type(sarc_ta), {
+              somes.push(sarc_ta);
+            }, {
+              sarc_inner := get_all_some_types(sarc_ta);
+              (sarc_ii : usize) = usize(0);
+              while(sarc_ii < sarc_inner.len(), {
+                match(
+                  sarc_inner.get(sarc_ii),
+                  .Some(sarc_is) => {
+                    somes.push(sarc_is);
+                    ()
+                  },
+                  .None => ()
+                );
+                sarc_ii = (sarc_ii + usize(1));
+              });
+            });
+          },
+          .None => ()
+        );
+        sarc_ti = (sarc_ti + usize(1));
+      });
+    },
+    _ => ()
+  );
+  if(somes.len() == usize(0), {
+    return(false);
+  });
+  (ok : bool) = true;
+  (i : usize) = usize(0);
+  while((i < somes.len()) && ok, {
+    st := match(somes.get(i),.Some(t) => t,.None => TypeValue.Unit);
+    (cur : TypeValue) = st;
+    (seen : ArrayList(String)) = ArrayList(String).new();
+    (walk : bool) = true;
+    (terminal_concrete : bool) = false;
+    while(walk, {
+      match(
+        cur,
+        .SomeT(sarc_id, _, _, _, _, _, _, _, _, _, sarc_rc) => {
+          (revisit : bool) = false;
+          (si : usize) = usize(0);
+          while(si < seen.len(), {
+            match(
+              seen.get(si),
+              .Some(sid) => if(sid == sarc_id, {
+                revisit = true;
+              }),
+              .None => ()
+            );
+            si = (si + usize(1));
+          });
+          if(revisit, {
+            walk = false;
+          }, {
+            seen.push(sarc_id.clone());
+            match(
+              sarc_rc.get(usize(0)),
+              .Some(nx) => {
+                cur = nx;
+              },
+              .None => {
+                walk = false;
+              }
+            );
+          });
+        },
+        _ => {
+          terminal_concrete = (get_all_some_types(cur).len() == usize(0));
+          walk = false;
+        }
+      );
+    });
+    ok = (ok && terminal_concrete);
+    i = (i + usize(1));
+  });
+  ok
+});
 /// STRUCTURALLY RECURSIVE "contains a codegen SomeType" test.
 ///
 /// `type_contains_some_type` above is TOP-LEVEL ONLY (see this module's header):
@@ -1579,6 +1679,7 @@ export(can_type_form_rc_cycle, buffer_element_type);
 export(type_requires_inference);
 export(type_contains_some_type);
 export(get_all_some_types);
+export(type_somes_all_resolve_concrete);
 export(type_contains_some_type_deep);
 export(get_size_of_type, get_alignment_of_type);
 export(type_representation_contains_raw_ptr, type_may_provide_slice_source);

@@ -59,7 +59,8 @@ open(import("std/fmt"));
 { type_key } :: import("../../types/type_key.yo");
 {
   get_all_some_types,
-  type_contains_some_type
+  type_contains_some_type,
+  type_somes_all_resolve_concrete
 } :: import("../../types/utils.yo");
 { is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0 } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
@@ -151,6 +152,7 @@ open(import("std/fmt"));
   is_closure_fn,
   register_closure_capture_info,
   get_closure_capture_info,
+  find_closure_fid_by_capture_struct_id,
   ClosureCaptureInfo
 } :: import("../../function_value.yo");
 { enrich_captured_variables, create_capture_type_and_value, FuncCapturedVarInfo } :: import("../utils/closure.yo");
@@ -4126,8 +4128,57 @@ try_to_call_function_with_arguments :: (
       .None => func_type
     )
   );
+  // Second normalization chance: a closure-typed FIELD call can arrive with
+  // the callee typed as the BARE capture struct, or as a SomeT whose
+  // resolution chain terminates in it (the where-clause `F` family — TS keeps
+  // the Impl(Fn) wrapper on field types, helper.ts:2242-2252, so its call
+  // route always extracts the Fn; yo-self field stamps can lose it). Recover
+  // the Func signature via the capture-struct → closure-fid reverse lookup.
+  // Without this the call falls into the non-Func soft fallback below, which
+  // records EMPTY runtime args → codegen emits the closure call with no
+  // arguments.
+  (norm_func_type2 : TypeValue) = norm_func_type;
+  if(!(is_function_type(norm_func_type2)), {
+    (nf2_cur : TypeValue) = func_type;
+    (nf2_hops : usize) = usize(0);
+    (nf2_walk : bool) = true;
+    while(nf2_walk && (nf2_hops < usize(32)), {
+      match(
+        nf2_cur,
+        .SomeT(_, _, _, _, _, _, _, _, _, _, nf2_rc) => match(
+          nf2_rc.get(usize(0)),
+          .Some(nf2_next) => {
+            nf2_cur = nf2_next;
+            nf2_hops = (nf2_hops + usize(1));
+          },
+          .None => {
+            nf2_walk = false;
+          }
+        ),
+        _ => {
+          nf2_walk = false;
+        }
+      );
+    });
+    match(
+      nf2_cur,
+      .Struct({ id : nf2_sid }) => if(nf2_sid.len() > usize(0), {
+        match(
+          find_closure_fid_by_capture_struct_id(nf2_sid),
+          .Some(nf2_fid) => {
+            nf2_ft := get_func_type(nf2_fid);
+            if(is_function_type(nf2_ft), {
+              norm_func_type2 = nf2_ft;
+            });
+          },
+          .None => ()
+        );
+      }),
+      _ => ()
+    );
+  });
   match(
-    norm_func_type,
+    norm_func_type2,
     .Func({ forall_types : ft, param_types : pt, implicit_types : it, where_types : wt, result : ret_b, meta : __fm8 }) => {
       fl := __fm8.*.forall_labels;
       pl := __fm8.*.param_labels;
@@ -5288,6 +5339,130 @@ try_to_call_function_with_arguments :: (
       // Step 9: Evaluate return type.
       // ----------------------------------------------------------------
       (return_type : TypeValue) = evaluate_function_return_type_again(ret_b, callee_env_m, ctx);
+      // Per-call forall substitution INTO a def-era NOMINAL return record.
+      // A generic method's declared return can be pre-instantiated at
+      // definition time into ONE Struct record (`IterFilter(Self, F)` →
+      // one struct id) whose forall slots hold the shared def-era SomeTs.
+      // evaluate_function_return_type_again resolves by NAME through the env
+      // and cannot rewrite a nominal, so every call stamped the SAME record —
+      // codegen merged all callers onto one C type while each specialized
+      // callee returned its own (iter_filter_closure, 3 closure arms). TS
+      // never faces this: its returnType is rebuilt per call from the
+      // freshened declared type. Recover per-call identity by substituting
+      // (declared-param SomeT name → THIS call's recorded arg type, at each
+      // return-occurrence's recorded level — the calls/function.yo s_ret
+      // pattern), adopting only a fully-resolving result.
+      {
+        s9_ret_somes := get_all_some_types(return_type);
+        // Also collect SomeTs hiding in a nominal record's `type_arguments`
+        // (get_all_some_types skips them by design; the record's C identity
+        // is keyed by them — map's `B` lives ONLY there).
+        match(
+          return_type,
+          .Struct({ type_arguments : s9_ctas }) => {
+            (s9_cti : usize) = usize(0);
+            while(s9_cti < s9_ctas.len(), {
+              match(
+                s9_ctas.get(s9_cti),
+                .Some(s9_cta) => if(is_some_type(s9_cta), {
+                  s9_ret_somes.push(s9_cta);
+                }),
+                .None => ()
+              );
+              s9_cti = (s9_cti + usize(1));
+            });
+          },
+          _ => ()
+        );
+        if(s9_ret_somes.len() > usize(0), {
+          s9 := subst_new();
+          (s9_any : bool) = false;
+          (s9_added : ArrayList(String)) = ArrayList(String).new();
+          (s9_pi : usize) = usize(0);
+          while(s9_pi < pt.len(), {
+            match(
+              pt.get(s9_pi),
+              .Some(s9_pt) => match(
+                s9_pt,
+                .SomeT(_, s9_pnm, _, _, _, _, _, _, _, _, _) => {
+                  match(
+                    arg_vals.get(s9_pi),
+                    .Some(s9_ae) => {
+                      (s9_ri : usize) = usize(0);
+                      while(s9_ri < s9_ret_somes.len(), {
+                        match(
+                          s9_ret_somes.get(s9_ri),
+                          .Some(s9_rst) => match(
+                            s9_rst,
+                            .SomeT(_, s9_rnm, s9_rlvl, _, _, _, _, _, _, _, _) => if(s9_rnm == s9_pnm, {
+                              subst_add(s9, s9_rnm.clone(), s9_rlvl, s9_ae.arg_type);
+                              s9_added.push(s9_rnm.clone());
+                              s9_any = true;
+                            }),
+                            _ => ()
+                          ),
+                          .None => ()
+                        );
+                        s9_ri = (s9_ri + usize(1));
+                      });
+                    },
+                    .None => ()
+                  );
+                },
+                _ => ()
+              ),
+              .None => ()
+            );
+            s9_pi = (s9_pi + usize(1));
+          });
+          // Second source: a return-record SomeT bound ONLY in the callee env
+          // (e.g. map's `B` — bound by the `F <: Fn(A) -> B` where-check from
+          // the closure's result, never a declared param type). Resolve the
+          // remaining occurrences from callee_env_m by name.
+          {
+            s9_ri2 := usize(0);
+            (s9_ri2m : usize) = s9_ri2;
+            while(s9_ri2m < s9_ret_somes.len(), {
+              match(
+                s9_ret_somes.get(s9_ri2m),
+                .Some(s9_rst2) => match(
+                  s9_rst2,
+                  .SomeT(_, s9_rnm2, s9_rlvl2, _, _, _, _, _, _, _, _) => {
+                    (s9_seen2 : bool) = false;
+                    (s9_si2 : usize) = usize(0);
+                    while(s9_si2 < s9_added.len(), {
+                      match(
+                        s9_added.get(s9_si2),
+                        .Some(s9_an) => if(s9_an == s9_rnm2, {
+                          s9_seen2 = true;
+                        }),
+                        .None => ()
+                      );
+                      s9_si2 = (s9_si2 + usize(1));
+                    });
+                    if(!(s9_seen2), {
+                      s9_env_res := get_value_of_some_type_from_env(callee_env_m, s9_rst2);
+                      if(!(is_some_type(s9_env_res)), {
+                        subst_add(s9, s9_rnm2.clone(), s9_rlvl2, s9_env_res);
+                        s9_any = true;
+                      });
+                    });
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+              s9_ri2m = (s9_ri2m + usize(1));
+            });
+          };
+          if(s9_any, {
+            s9_cand := substitute(s9, return_type);
+            if((get_all_some_types(s9_cand).len() == usize(0)) || type_somes_all_resolve_concrete(s9_cand), {
+              return_type = s9_cand;
+            });
+          });
+        });
+      };
       // Step 9b (rte re-eval): when the type-level resolution above still
       // carries SomeTs or an Array length var (a value-generic stamped
       // return like `-> _ArrayIter(T, N)`, whose def-era nominal cannot be
@@ -5297,7 +5472,11 @@ try_to_call_function_with_arguments :: (
       // — it re-invokes the comptime type constructor with the bound N
       // value; yo-self's type-level walk cannot, so the rte side-table
       // supplies the expr (same mechanism as the create_specialized mint).
-      if((get_all_some_types(return_type).len() > usize(0)) || _type_has_array_len_var(return_type), {
+      // Skip the re-eval when the current return_type is already
+      // codegen-concrete via resolution cells (see calls/function.yo
+      // rre_wanted): the by-NAME re-eval would clobber the per-call
+      // closure-`F` identity with the where-clause-bound bare fn type.
+      if(((get_all_some_types(return_type).len() > usize(0)) && !(type_somes_all_resolve_concrete(return_type))) || _type_has_array_len_var(return_type), {
         match(
           func_val,
           .Some(rte_fv9) => match(
@@ -5312,8 +5491,11 @@ try_to_call_function_with_arguments :: (
                 ctx.is_evaluating_function_type = rte9_prev;
                 match(
                   rte9_out.get(usize(0)),
+                  // Acceptance loosened for the closure-`F` family (see
+                  // calls/function.yo rre block): SomeTs that ALL resolve
+                  // concretely through their cells are codegen-concrete.
                   .Some(rte9_ty) => {
-                    if(((get_all_some_types(rte9_ty).len() == usize(0)) && !(_type_has_array_len_var(rte9_ty))) && !(is_unit_type(rte9_ty)), {
+                    if((((get_all_some_types(rte9_ty).len() == usize(0)) || type_somes_all_resolve_concrete(rte9_ty)) && !(_type_has_array_len_var(rte9_ty))) && !(is_unit_type(rte9_ty)), {
                       return_type = rte9_ty;
                     });
                   },

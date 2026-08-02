@@ -11,7 +11,7 @@ open(import("std/string"));
 { TypeValue } :: import("./definitions.yo");
 { type_to_string } :: import("./string.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
-{ is_type_hierarchy_type, is_unit_type } :: import("./guards.yo");
+{ is_type_hierarchy_type, is_unit_type, is_some_type } :: import("./guards.yo");
 (g_struct_cfid_keys : HashMap(String, String)) = HashMap(String, String).new();
 
 // Enum structural-signature dedup (the enum analogue of g_struct_cfid_keys).
@@ -65,6 +65,68 @@ _lookup_or_register_enum_sig :: (fn(sig : String, full_key : String) -> String)(
 // O(distinct types on path) and is MORE precise than depth truncation (each
 // distinct type still gets a distinct key), so C-type identity is preserved.
 (g_tk_visited : ArrayList(String)) = ArrayList(String).new();
+/// Resolve a SomeT TYPE-ARGUMENT slot through its resolution-cell chain
+/// (cycle-guarded) before keying. Bare-id keying of argument slots split one
+/// logical instantiation into two C types whenever two records held the same
+/// resolution behind DIFFERENT SomeT identities — the closure-F family:
+/// `IterFilter(CountIter, F)` minted once with the where-clause forall `F`
+/// and once with the synthetic `__impl_fn` wrapper, both resolving to the
+/// SAME capture struct. Scoped to argument slots only: a top-level SomeT
+/// (dyn/box closure wrappers) keys by its own id — hopping there over-merged
+/// the wrapper's fat call/data struct with the capture struct.
+_tk_resolve_arg_slot :: (fn(t_in : TypeValue) -> TypeValue)({
+  (cur : TypeValue) = t_in;
+  (seen : ArrayList(String)) = ArrayList(String).new();
+  (walk : bool) = true;
+  while(walk, {
+    match(
+      cur,
+      .SomeT({ id : ras_id, name : ras_nm, resolved_concrete : ras_rc }) => {
+        // Annotation-era wrappers (reserved name "Impl" —
+        // builtins/impl_constraint.yo) and the dyn-coercion wrappers (minted
+        // NAMELESS, values/dyn.yo:336) keep their OWN identity: the dyn/box
+        // closure machinery lowers them to a distinct fat call/data C struct,
+        // and hopping to the capture struct merged the two ("no member named
+        // 'call'" across the dyn corpus). Only where-clause foralls and the
+        // synthetic `__impl_fn` hop.
+        if((ras_nm == "Impl") || (ras_nm.len() == usize(0)), {
+          return(t_in);
+        });
+        (revisit : bool) = false;
+        (ri : usize) = usize(0);
+        while(ri < seen.len(), {
+          match(
+            seen.get(ri),
+            .Some(rs) => if(rs == ras_id, {
+              revisit = true;
+            }),
+            .None => ()
+          );
+          ri = (ri + usize(1));
+        });
+        if(revisit, {
+          walk = false;
+        }, {
+          seen.push(ras_id.clone());
+          match(
+            ras_rc.get(usize(0)),
+            .Some(nx) => {
+              cur = nx;
+            },
+            .None => {
+              walk = false;
+            }
+          );
+        });
+      },
+      _ => {
+        walk = false;
+      }
+    );
+  });
+  // An unresolved chain keeps the ORIGINAL slot (bare-id keying as before).
+  if(is_some_type(cur), t_in, cur)
+});
 _tk_seen :: (fn(id : String) -> bool)({
   n := g_tk_visited.len();
   (i : usize) = usize(0);
@@ -140,7 +202,10 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
           while(ti < stas.len(), {
             match(
               stas.get(ti),
-              .Some(ta) => {
+              .Some(ta_raw) => {
+                // Resolve a SomeT slot through its cell chain first (the
+                // closure-F identity repair — see _tk_resolve_arg_slot).
+                ta := _tk_resolve_arg_slot(ta_raw);
                 // `Type` AND `unit` argument slots are value-erased: a comptime
                 // VALUE argument (`N : usize`) has no TypeValue representation,
                 // so the stamp records `unit` (fresh re-stamps) or `Type`
@@ -354,6 +419,14 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
         })
       })
     },
+    // NOTE: a SomeT keys by its OWN id — NOT through its resolution cell. A
+    // blanket resolved-hop here was measured to over-merge: the dyn/box
+    // closure-wrapper family keys the WRAPPER SomeT as a distinct C type (the
+    // fat call/data struct) whose id-keyed identity must NOT collapse onto
+    // the capture struct ("no member named 'call'" across the dyn corpus).
+    // The closure-F identity split is instead repaired where it actually
+    // occurs: the Struct arm resolves SomeT TYPE-ARGUMENT slots through
+    // their cells (see _tk_resolve_arg_slot below).
     .SomeT({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
     .TraitT({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
     // Key a Dyn by its trait IDS (each trait keyed by the stable TraitT arm
@@ -574,6 +647,38 @@ _stable_identity_at :: (fn(t : TypeValue, depth : usize) -> String)({
       out := String.from("*(");
       out.push_string(recur(pointee, depth + usize(1)));
       out.push_str(")");
+      out
+    },
+    // Tuple: parity with `type_key`'s Tuple arm — RECURSE into the field
+    // types. Without this arm a tuple fell to `type_to_string`, which renders
+    // a Struct field by NAME, so two sibling blocks each declaring a local
+    // `S` and `C :: Tuple(S)` both rendered `Tuple(0 : S)` — collect_type then
+    // ALIASED the second tuple's type_key onto the first's C type and emitted
+    // one `__yo_tN` for two different layouts (basic.test.yo arm 12; the
+    // handoff-2026-08-02/07 A2 patch, re-landed after the get_type_string
+    // cycle guard removed the stage-2 crash that blocked its control run).
+    .Tuple(sti_labels, sti_fts) => {
+      out := String.from("tup");
+      (sti_i : usize) = usize(0);
+      while(sti_i < sti_fts.len(), {
+        out.push_str("_");
+        match(
+          sti_labels.get(sti_i),
+          .Some(sti_l) => if(sti_l.len() > usize(0), {
+            out.push_string(sti_l.clone());
+            out.push_str(":");
+          }),
+          .None => ()
+        );
+        match(
+          sti_fts.get(sti_i),
+          .Some(sti_ft) => {
+            out.push_string(recur(sti_ft, depth + usize(1)));
+          },
+          .None => ()
+        );
+        sti_i = (sti_i + usize(1));
+      });
       out
     },
     _ => type_to_string(t)

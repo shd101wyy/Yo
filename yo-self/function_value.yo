@@ -138,6 +138,38 @@ register_closure_capture_info :: (fn(func_id : String, info : ClosureCaptureInfo
   g_closure_capture_info.set(func_id.clone(), info);
 });
 /// The recorded capture info for `func_id`, if any.
+/// Reverse lookup: capture-struct id → the closure func_id that registered it.
+/// Used by the call path when a closure-typed FIELD's recorded type reached
+/// the call as the BARE capture struct (the where-clause `F` family): the
+/// struct id recovers the closure fid, whose registered func type carries the
+/// callable Func signature. Linear scan — only reached on the non-Func callee
+/// miss path.
+find_closure_fid_by_capture_struct_id :: (fn(struct_id : String) -> Option(String))({
+  it := g_closure_capture_info.keys();
+  (out : Option(String)) = Option(String).None;
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(fid) => match(
+        g_closure_capture_info.get(fid.clone()),
+        .Some(ci) => match(
+          ci.capture_type,
+          .Struct({ id : csid }) => if(csid == struct_id, {
+            out = Option(String).Some(fid.clone());
+            go = false;
+          }),
+          _ => ()
+        ),
+        .None => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  out
+});
 get_closure_capture_info :: (fn(func_id : String) -> Option(ClosureCaptureInfo))({
   fid_info := g_closure_capture_info.get(func_id.clone());
   // Cross-generation fallback: prefer the LARGEST capture struct any
@@ -351,6 +383,7 @@ export(
   ClosureCaptureInfo,
   register_closure_capture_info,
   get_closure_capture_info,
+  find_closure_fid_by_capture_struct_id,
   mark_as_effect_record_member,
   mark_io_async_sm_closure,
   is_io_async_sm_closure,

@@ -48,22 +48,44 @@ check_variable_is_closure_captured :: (
 resolve_some_type_to_concrete :: (fn(t : TypeValue) -> TypeValue)({
   (cur : TypeValue) = t;
   (go : bool) = true;
+  // Cycle guard by VISITED SomeT id — not by type_key equality: type_key's
+  // SomeT arm hops through the resolution cell, so a resolved SomeT keys
+  // EQUAL to its own resolution and the old `type_key(rct) == type_key(cur)`
+  // check stopped the walk one hop short (Piece C then keyed the closure-call
+  // map by the SomeT id instead of the capture struct id — the fold-closure
+  // fn-pointer-cast miss).
+  (rsc_seen : ArrayList(String)) = ArrayList(String).new();
   while(go && is_some_type(cur), {
     sid := match(cur,.SomeT({ id : i }) => i, _ => String.from(""));
-    // Per-object resolved concrete first (survives clone/substitute/intern);
-    // global table as fallback.
-    own_rc := match(cur,.SomeT({ resolved_concrete : orc }) => orc.get(usize(0)), _ => Option(TypeValue).None);
-    match(
-      match(own_rc,.Some(o1) => Option(TypeValue).Some(o1),.None => lookup_some_resolved_concrete(sid)),
-      .Some(rct) => if(type_key(rct) == type_key(cur), {
-        go = false;
-      }, {
-        cur = rct;
-      }),
-      .None => {
-        go = false;
-      }
-    );
+    (rsc_revisit : bool) = false;
+    (rsc_i : usize) = usize(0);
+    while(rsc_i < rsc_seen.len(), {
+      match(
+        rsc_seen.get(rsc_i),
+        .Some(rsc_s) => if(rsc_s == sid, {
+          rsc_revisit = true;
+        }),
+        .None => ()
+      );
+      rsc_i = (rsc_i + usize(1));
+    });
+    if(rsc_revisit, {
+      go = false;
+    }, {
+      rsc_seen.push(sid.clone());
+      // Per-object resolved concrete first (survives clone/substitute/intern);
+      // global table as fallback.
+      own_rc := match(cur,.SomeT({ resolved_concrete : orc }) => orc.get(usize(0)), _ => Option(TypeValue).None);
+      match(
+        match(own_rc,.Some(o1) => Option(TypeValue).Some(o1),.None => lookup_some_resolved_concrete(sid)),
+        .Some(rct) => {
+          cur = rct;
+        },
+        .None => {
+          go = false;
+        }
+      );
+    });
   });
   cur
 });

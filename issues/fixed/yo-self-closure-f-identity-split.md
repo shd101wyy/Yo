@@ -63,3 +63,58 @@ i32 / Got F : (Fn(A) -> B)`.
 - `helper.yo:2375` arc-spawn-capture-split: per-spec SomeT rebuild must stay.
 - Canary set: iter_filter_closure, iterator_combinators, io_async corpus,
   issues/repros/arc-spawn-capture-split.yo, closure_capture_rc_leak.
+
+---
+
+## RESOLVED 2026-08-03
+
+Fixed by a six-part stack (all measured on `scratchpad/w1/repro6.yo` /
+`repro8.yo` (3 closures) / `repro9.yo` (map), then gated on TIER 1):
+
+1. **`__impl_fn` mint** (anonymous_function.yo adoption block): when the
+   wrapper's Fn bound comes from a where clause — discriminated by wrapper
+   NAME (`!= "Impl"` and non-empty; yo-self merges where-bounds into the
+   SomeT's own trait lists so TS's requiredTraits-membership test can't
+   discriminate) — mint the synthetic `__impl_fn` SomeT
+   (requiredTraits=[Fn], cell=capture struct) and record the arg as a COPY
+   of the wrapper with a FRESH cell seeded with it. NOT an in-place stamp:
+   yo-self's `F` shares ONE cell across every call of the generic fn, so
+   TS's in-place stamp semantics (per-call freshened object) map to the
+   fresh-cell copy, and the per-call identity travels via the recorded arg
+   type → `fa_bound`/Step-9. Nameless dyn-coercion wrappers are excluded
+   (the dyn/box pipeline reads the cell expecting the capture directly).
+2. **type_key arg-slot resolution** (`_tk_resolve_arg_slot`): struct
+   `type_arguments` SomeT slots key through their resolution-cell chain
+   (cycle-guarded; "Impl"/nameless wrappers excluded — hopping them merged
+   the dyn fat call/data struct with the capture struct).
+3. **Step-9 per-call substitution into a def-era NOMINAL return record**
+   (helper.yo): substitute (declared-param SomeT name → this call's
+   recorded arg type) + (remaining SomeTs → callee-env bindings) into the
+   return type; adopt only a fully-resolving result
+   (`type_somes_all_resolve_concrete`, which also walks type_arguments).
+4. **Bare-SomeT closure-return unify** (anonymous_function.yo): `-> B`
+   (map's output forall) binds B := body type in the call's callee env —
+   gated to true closures (`=>`; `->` effect handlers' ResumeType must stay
+   unresolved) and non-io.async.
+5. **Codegen closure-call routing** (other_fn_call.yo `cc_early_hit` +
+   closures.yo): a callee whose type resolves to a REGISTERED capture
+   struct bypasses the `!is_function_type` gate and the named-FuncVal
+   direct call; the Func signature is recovered from the FuncVal / map
+   entry / capture-struct reverse lookup, with an AST-arg fallback when
+   the specialized body's recorded runtime args are empty. Also fixed
+   `resolve_some_type_to_concrete`'s fixed-point check (type_key equality
+   → visited-id set; the arg-slot hop made a resolved SomeT key EQUAL to
+   its resolution, stopping the walk one hop short).
+6. **Trait-check recursion-guard key** (trait_checking.yo): TS keys by
+   `targetType.id`; yo-self's `_trait_type_id` renders "" for struct
+   targets, so nested same-trait checks through chained combinator records
+   self-collided → key by `type_key(target)` instead. Plus the
+   resolvedConcreteType-chain hop in `extract_fn_trait_from_type`
+   (TS trait-checking.ts:914-921, the noted "Phase 3" gap) and a
+   capture-struct → closure-fid reverse lookup (function_value.yo) feeding
+   try_to_call's second normalization.
+
+Result: `tests/iter_filter_closure.test.yo` GREEN (3 passed, 0 markers);
+`tests/iterator_combinators.test.yo` 16/19 arms real (was 0/19 — the whole
+batch hollow). Arms 16–18 (3-deep chained combinators) remain hollow — see
+`issues/yo-self-chained-combinator-assoc-binding.md`.

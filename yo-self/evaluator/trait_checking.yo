@@ -27,6 +27,7 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
 { TypeValue, FuncMeta } :: import("../types/definitions.yo");
+{ type_key } :: import("../types/type_key.yo");
 { is_function_type, is_some_type, is_pointer_type, is_struct_type, is_extern_type_name } :: import("../types/guards.yo");
 {
   is_fn_trait_type,
@@ -1036,7 +1037,15 @@ type_implements_trait :: (
     return(TraitCheckResult(implemented : true, env : env));
   });
   // 8. Generic impl registry — delegated to impl.yo via _find_matching_generic_impl.
-  guard_key := _trait_type_id(target).concat(`:`).concat(_trait_type_id(trait_type));
+  // Guard key: TS uses `targetType.id` (unique per type instance,
+  // trait-checking.ts:531). `_trait_type_id` renders "" for STRUCT/enum
+  // targets, so every struct-vs-<trait> check shared ONE key — any nested
+  // check of the same trait through a chained combinator record
+  // (`IterTake(IterSkip(MyRange)) <: Iterator` → where-pass →
+  // `IterSkip(MyRange) <: Iterator`) self-collided and returned false
+  // (iterator_combinators arms 16-18). type_key(target) is the yo-self
+  // stand-in for TS's unique type id.
+  guard_key := type_key(target).concat(`:`).concat(_trait_type_id(trait_type));
   // Recursion guard: return false if already checking this pair.
   (already_checking : bool) = false;
   gn := g_trait_check_recursion_guard.len();
@@ -1374,28 +1383,78 @@ extract_fn_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
   match(
     ty,
     .FnTraitT(base_name : _) => Option(TypeValue).Some(ty),
-    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
-      n := required_trait_types.len();
-      (i : usize) = usize(0);
-      while(i < n, {
-        t := match(
-          required_trait_types.get(i),
-          .Some(v) => v,
-          .None => {
-            i = (i + usize(1));
-            continue;
+    .SomeT(_, _, _, _, _, _, _, _, _, _, _) => {
+      // Walk the SomeT and its resolvedConcreteType chain (TS
+      // trait-checking.ts:907-921): a where-clause `F` whose Fn bound was
+      // stripped by freshening still resolves through `__impl_fn` (which
+      // carries the Fn in ITS required list). Iterative with a visited-id
+      // list — resolution cells can cycle in yo-self (the get_type_string
+      // SIGBUS family), and TS's finite-chain recursion has no guard to port.
+      (eft_cur : TypeValue) = ty;
+      (eft_seen : ArrayList(String)) = ArrayList(String).new();
+      (eft_out : Option(TypeValue)) = Option(TypeValue).None;
+      (eft_going : bool) = true;
+      while(eft_going, {
+        match(
+          eft_cur,
+          .SomeT(eft_id, _, _, _, eft_rtt, _, _, _, _, _, eft_rc) => {
+            n := eft_rtt.len();
+            (i : usize) = usize(0);
+            while((i < n) && eft_out.is_none(), {
+              match(
+                eft_rtt.get(i),
+                .Some(t) => match(
+                  t,
+                  .FnTraitT(base_name : _) => {
+                    eft_out = Option(TypeValue).Some(t);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+              i = (i + usize(1));
+            });
+            if(eft_out.is_some(), {
+              eft_going = false;
+            }, {
+              (eft_revisit : bool) = false;
+              (si : usize) = usize(0);
+              while(si < eft_seen.len(), {
+                match(
+                  eft_seen.get(si),
+                  .Some(sid) => if(sid == eft_id, {
+                    eft_revisit = true;
+                  }),
+                  .None => ()
+                );
+                si = (si + usize(1));
+              });
+              if(eft_revisit, {
+                eft_going = false;
+              }, {
+                eft_seen.push(eft_id.clone());
+                match(
+                  eft_rc.get(usize(0)),
+                  .Some(eft_next) => {
+                    eft_cur = eft_next;
+                  },
+                  .None => {
+                    eft_going = false;
+                  }
+                );
+              });
+            });
+          },
+          .FnTraitT(base_name : _) => {
+            eft_out = Option(TypeValue).Some(eft_cur);
+            eft_going = false;
+          },
+          _ => {
+            eft_going = false;
           }
         );
-        match(
-          t,
-          .FnTraitT(base_name : _) => {
-            return(Option(TypeValue).Some(t));
-          },
-          _ => ()
-        );
-        i = (i + usize(1));
       });
-      Option(TypeValue).None
+      eft_out
     },
     .DynT(required_trait_types, _, _, _) => {
       n := required_trait_types.len();

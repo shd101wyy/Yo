@@ -71,7 +71,7 @@ open(import("std/fmt"));
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ t_unit, t_some_t, t_func_simple, t_resolved_cell, t_ptr } :: import("../../types/creators.yo");
+{ t_unit, t_some_t, t_func_simple, t_resolved_cell, t_ptr, generate_some_type_id } :: import("../../types/creators.yo");
 {
   EvalValue,
   FuncValData,
@@ -1461,8 +1461,24 @@ evaluate_anonymous_function_implementation :: (
             nrs_body_ty := nrs_info.ty;
             nrs_ret_ty := match(function_type,.Func({ result : nrs_r }) => nrs_r, _ => t_unit());
             nrs_ret_nested := ((!(is_some_type(nrs_ret_ty))) && (get_all_some_types(nrs_ret_ty).len() > usize(0)));
+            // BARE-SomeT declared return (`-> B`, map's output forall): TS
+            // binds it through object identity at the plain body/declared
+            // compat check (the closure's `B` IS the signature's `B`, so
+            // setResolvedConcreteType propagates); yo-self's env channel
+            // must handle it here or `B` never binds anywhere — the caller's
+            // return record keeps a raw `B` slot and method dispatch on it
+            // leaves the blanket impl's `B` forall abstract
+            // (iterator_combinators arm 0 / repro9). io.async closures are
+            // excluded: their declared `T` result must stay unresolved for
+            // the sync-future registration (the wrapper-adoption hazard).
+            // `->` effect handlers are excluded too: their declared result is
+            // the per-call-site `ResumeType` SomeT, which other machinery
+            // freshens — eagerly binding it here broke the effect-handler
+            // corpus (dyn_error_throw_ioerror / effect_handler_unwind_emit:
+            // handler `err` params emitted as undeclared identifiers).
+            nrs_ret_bare := ((is_some_type(nrs_ret_ty) && is_creating_closure) && !(ctx.is_inside_io_async_call));
             nrs_body_concrete := ((!(is_some_type(nrs_body_ty))) && (get_all_some_types(nrs_body_ty).len() == usize(0)));
-            if(nrs_ret_nested && nrs_body_concrete, {
+            if((nrs_ret_nested || nrs_ret_bare) && nrs_body_concrete, {
               _synth_nested_return_somes(nrs_ret_ty, nrs_body_ty, expected_type_env, body_eval_env);
               // TS ts:1012-1014 completes the mechanism by REPLACING the
               // declared return with the body type on both function types
@@ -1781,16 +1797,20 @@ evaluate_anonymous_function_implementation :: (
   if(is_creating_closure && !(ctx.is_inside_io_async_call), {
     match(
       expected_ty,
-      .SomeT(w_id, w_nm, w_fl, w_pt, w_rtt, w_rtl, w_ntt, w_ntl, w_ier, w_kft, _) => {
+      .SomeT(w_id, w_nm, w_fl, w_pt, w_rtt, w_rtl, w_ntt, w_ntl, w_ier, w_kft, w_rc) => {
         match(
           closure_capture_type,
           .Some(cap_t) => {
             (w_has_concrete_fn : bool) = false;
+            (w_fn_trait : Option(TypeValue)) = Option(TypeValue).None;
             (wf_i : usize) = usize(0);
             while(wf_i < w_rtt.len(), {
               match(
                 w_rtt.get(wf_i),
                 .Some(w_rt) => if(is_fn_trait_type(w_rt), {
+                  if(w_fn_trait.is_none(), {
+                    w_fn_trait = Option(TypeValue).Some(w_rt);
+                  });
                   match(
                     w_rt,
                     .FnTraitT({ call_result : w_cr }) => if(!(is_some_type(w_cr)), {
@@ -1803,21 +1823,93 @@ evaluate_anonymous_function_implementation :: (
               );
               wf_i = (wf_i + usize(1));
             });
-            if(w_has_concrete_fn, {
-              final_lambda_ty = TypeValue.SomeT(
-                w_id,
-                w_nm,
-                w_fl,
-                w_pt,
-                w_rtt,
-                w_rtl,
-                w_ntt,
-                w_ntl,
-                w_ier,
-                w_kft,
-                t_resolved_cell(cap_t)
-              );
-            });
+            // TS anonymous-function.ts:1195-1216 (`__impl_fn`): when the
+            // wrapper's Fn bound comes from a WHERE CLAUSE (TS:
+            // `!wrapperHasFnInRequired`), setting resolved = the bare capture
+            // struct would strip the Fn trait info and subsequent where-clause
+            // checks would fail. TS mints a synthetic `Impl(Fn(...))` SomeT
+            // (`__impl_fn`, requiredTraits=[expectedFnTraitType],
+            // resolvedConcreteType=captureType) and stamps it as F's resolved
+            // concrete IN PLACE — one stable F identity at the return-type
+            // mint, the body construction and the arg check.
+            // yo-self divergence: the where-bound has already been MERGED into
+            // `w_rtt` (the where-clause binding arc), so TS's
+            // requiredTraits-membership test cannot discriminate. Annotation
+            // wrappers are minted with the RESERVED name "Impl"
+            // (builtins/impl_constraint.yo:171; synthesizer.yo:501 documents
+            // the reservation) — any other name means a generic type variable
+            // whose Fn bound arrived via a where clause.
+            // Exclude the reserved annotation name "Impl" AND the NAMELESS
+            // dyn-coercion wrappers (values/dyn.yo:336): the dyn/box pipeline
+            // reads the wrapper's cell expecting the CAPTURE STRUCT directly
+            // (ne_box_inner_ty), so an interposed `__impl_fn` level broke the
+            // whole dyn corpus ("no member named 'call'").
+            w_fn_from_where := ((w_nm != "Impl") && ((w_nm.len() > usize(0)) && w_fn_trait.is_some()));
+            cond(
+              w_fn_from_where => match(
+                w_fn_trait,
+                .Some(eft) => {
+                  impl_rtt := ArrayList(TypeValue).new();
+                  impl_rtt.push(eft.clone());
+                  impl_rtl := ArrayList(usize).new();
+                  impl_rtl.push(usize(0));
+                  impl_fn_wrapper := TypeValue.SomeT(
+                    generate_some_type_id(),
+                    String.from("__impl_fn"),
+                    usize(0),
+                    TypeValue.TypeUni(usize(0)),
+                    impl_rtt,
+                    impl_rtl,
+                    ArrayList(TypeValue).new(),
+                    ArrayList(usize).new(),
+                    false,
+                    Option(TypeValue).None,
+                    t_resolved_cell(cap_t)
+                  );
+                  // PER-CALL identity: TS stamps `wrapperType.resolvedConcrete
+                  // Type = implFnWrapper` in place, but ITS wrapperType is a
+                  // per-call freshened object. yo-self's `F` here shares ONE
+                  // resolution cell across every call of the generic fn
+                  // (substitution copies the cell HANDLE), so an in-place
+                  // stamp makes the LAST closure win for every caller
+                  // (measured: iter_filter_closure's three arms all rendered
+                  // the third arm's capture struct). Seed a FRESH cell on the
+                  // recorded COPY instead — the arg's recorded type feeds
+                  // `fa_bound`, so the caller's return-type substitution and
+                  // the body specialization both see THIS call's `__impl_fn`.
+                  final_lambda_ty = TypeValue.SomeT(
+                    w_id,
+                    w_nm,
+                    w_fl,
+                    w_pt,
+                    w_rtt,
+                    w_rtl,
+                    w_ntt,
+                    w_ntl,
+                    w_ier,
+                    w_kft,
+                    t_resolved_cell(impl_fn_wrapper)
+                  );
+                },
+                .None => ()
+              ),
+              w_has_concrete_fn => {
+                final_lambda_ty = TypeValue.SomeT(
+                  w_id,
+                  w_nm,
+                  w_fl,
+                  w_pt,
+                  w_rtt,
+                  w_rtl,
+                  w_ntt,
+                  w_ntl,
+                  w_ier,
+                  w_kft,
+                  t_resolved_cell(cap_t)
+                );
+              },
+              true => ()
+            );
           },
           .None => ()
         );

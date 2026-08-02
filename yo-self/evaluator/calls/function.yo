@@ -88,7 +88,7 @@ open(import("std/fmt"));
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_contains_some_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ get_all_some_types } :: import("../../types/utils.yo");
+{ get_all_some_types, type_somes_all_resolve_concrete } :: import("../../types/utils.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, MethodEntry } :: import("../values/type_trait_methods.yo");
 { evaluate_comptime_fn_call, resolve_recursive_type_ref } :: import("./comptime_fn.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -1797,7 +1797,15 @@ _evaluate_funcval_runtime_call :: (
   // A and B by NAME and routes the instantiation through the ctor memo, which
   // is exactly what TS gets for free. Adoption stays conservative: only a
   // SomeT-free, non-unit result overrides.
-  (rre_wanted : bool) = (hkt_ret_binder || (get_all_some_types(resolved_ret).len() > usize(0)));
+  // Do NOT re-evaluate when the substituted result is already
+  // codegen-concrete (every SomeT resolves through its cell): the re-eval
+  // resolves foralls by NAME in the callee env, where a where-clause-bound
+  // `F` holds the closure's BARE fn type — the SAME value for every call —
+  // so it would clobber the per-call `F → __impl_fn → <capture>` identity
+  // the substitution just stamped (iter_filter_closure: all three arms'
+  // returns collapsed onto one C record while each specialized callee
+  // returned its own).
+  (rre_wanted : bool) = (hkt_ret_binder || ((get_all_some_types(resolved_ret).len() > usize(0)) && !(type_somes_all_resolve_concrete(resolved_ret))));
   if(rre_wanted, {
     match(
       get_func_return_type_expr(func_id_fv.clone()),
@@ -1809,7 +1817,14 @@ _evaluate_funcval_runtime_call :: (
         ctx.is_evaluating_function_type = hkt_prev_fnty;
         match(
           hkt_out.get(usize(0)),
-          .Some(hkt_ty) => if((get_all_some_types(hkt_ty).len() == usize(0)) && !(is_unit_type(hkt_ty)), {
+          // Accept a SomeT-free result, OR one whose SomeTs ALL resolve
+          // concretely through their cells (the closure-`F` family:
+          // `IterFilter(Self, F)` with the per-call `F → __impl_fn →
+          // <capture struct>` — codegen's type_key hops the same chain, so
+          // the result is C-concrete; rejecting it left the caller stamped
+          // with the SHARED unresolved `F`, merging every arm's return onto
+          // ONE C type while each specialized callee returned its own).
+          .Some(hkt_ty) => if(((get_all_some_types(hkt_ty).len() == usize(0)) || type_somes_all_resolve_concrete(hkt_ty)) && !(is_unit_type(hkt_ty)), {
             resolved_ret = hkt_ty;
           }),
           .None => ()
