@@ -3629,3 +3629,53 @@ unresolved by a different path). Credit: the corrected patch came from an
 adversarial verifier that rejected the first version for omitting the registry
 channel, the cycle guard, and the `.Func`/`.Tuple` arms, and for placing the
 call before the adopt instead of after.
+
+---
+
+## 2026-08-02 — LANDED (partial): dedup trait bounds on the SomeT push site
+
+`_add_where_clause_constraint` (`evaluator/types/function.yo`) pushed
+UNCONDITIONALLY into a SomeT's `required_trait_types` / `negative_trait_types`.
+Those arrays are shared by REFERENCE, so every re-validation of the same where
+clause appended another copy.
+
+TS dedups by `traitType.id` at BOTH of its write sites — `src/env.ts:420-423`
+(env-frame constraints) and `src/evaluator/types/function.ts:656-682` (merging
+into a SomeType's own lists). yo-self already ported the first faithfully
+(`env.yo:1883`, same id scan) and has the read-side twin (`_merge_trait_list`,
+`env.yo:1846`); this SomeT push was the one site that kept appending.
+
+**Measured at the `entries.yo` codegen panic** (probe printing
+`stable_type_identity` of the offending enum), before → after:
+
+| bound                                  | before | after              |
+| -------------------------------------- | ------ | ------------------ |
+| `Hash`                                 | ~30    | **1**              |
+| `Send`                                 | ~64    | **2**              |
+| `== : fn(lhs : Self, rhs : K) -> bool` | 33     | **33 (unchanged)** |
+
+So the fix works for NAMED traits and does nothing for the third row — and that
+is the useful finding.
+
+### Why the `==` bound survives: anonymous traits get a FRESH id per validation
+
+`Hash` and `Send` are named traits with stable ids, so id-comparison collapses
+them. `(== : fn(lhs : Self, rhs : K) -> bool, != : …)` is the structural trait
+produced by applying `Eq(K)` — and it is re-minted with a NEW id on every
+validation, so 33 copies means 33 distinct ids and no id-based dedup (TS's
+included) can ever collapse them. TS does not hit this because `Eq(K)` is an
+ordinary comptime call routed through the memoized constructor, so it yields
+the SAME trait instance every time. This is the same "re-evaluation through the
+memo vs. re-minting" theme as the type-argument RED.
+
+**That is almost certainly the constrained-`F` root** recorded for
+`iter_filter_closure` (`F : (Fn(A) -> bool + Fn(i32) -> bool + Fn(i32) -> bool)`)
+and as `iterator_combinators`' first blocker: an impl's accumulated `F` that no
+longer matches the concrete closure type. Next step is the trait-application
+memo, not more dedup.
+
+**Gates:** hollow8 identical to baseline (178/7/0 unchanged, canaries GREEN);
+TIER-1 battery identical; corpus `PASS 148 DIFF 0 SELF-FAIL 1` (same
+pre-existing file); `check ./std` 153/153; `check ./yo-self` 295/305.
+**Flips no file on its own** — landed as a verified partial correctness fix that
+narrows the constrained-`F` search to the trait-application memo.

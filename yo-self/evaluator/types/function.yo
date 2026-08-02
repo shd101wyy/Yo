@@ -837,6 +837,33 @@ _is_contract_clause :: (fn(e : AstExpr) -> bool)(
 /// Mirrors `addWhereClauseConstraintToEnv` from TypeScript, but using in-place
 /// mutation instead of env-frame constraint map (yo-self's SomeT stores constraints
 /// directly in required_trait_types / negative_trait_types ArrayLists).
+/// The identity TS compares trait bounds by (`traitType.id`). Restated here
+/// because env.yo's `_trait_type_id` (env.yo:1837) is private.
+_wcc_trait_id :: (fn(t : TypeValue) -> String)(
+  match(
+    t,
+    .TraitT(_, _, _, _, wcc_tid, _, _, _, _, _) => wcc_tid,
+    _ => String.from("")
+  )
+);
+/// True iff `list` already holds a trait with the same id as `trait_ty`.
+_wcc_has_trait :: (fn(list : ArrayList(TypeValue), trait_ty : TypeValue) -> bool)({
+  wcc_want := _wcc_trait_id(trait_ty);
+  wcc_n := list.len();
+  (wcc_found : bool) = false;
+  (wcc_i : usize) = usize(0);
+  while((wcc_i < wcc_n) && !(wcc_found), {
+    match(
+      list.get(wcc_i),
+      .Some(wcc_e) => if(_wcc_trait_id(wcc_e) == wcc_want, {
+        wcc_found = true;
+      }),
+      .None => ()
+    );
+    wcc_i = (wcc_i + usize(1));
+  });
+  wcc_found
+});
 _add_where_clause_constraint :: (
   fn(
     some_ty : TypeValue,
@@ -847,12 +874,27 @@ _add_where_clause_constraint :: (
   match(
     some_ty,
     .SomeT(_, _, _, _, required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels, _, _, _) => {
+      // Dedup by trait id before appending. A SomeT's trait lists are shared by
+      // REFERENCE, so re-validating the same where clause used to append another
+      // copy every time — measured at the entries.yo codegen panic, one SomeT's
+      // identity rendered as `V : (Send + Send + ... x32)` and a `==`/`Hash`
+      // bound repeated ~30 times. TS dedups by `traitType.id` at both of its
+      // write sites: src/env.ts:420-423 for env-frame constraints, and
+      // src/evaluator/types/function.ts:656-682 when merging into a SomeType's
+      // own `requiredTraits`/`negativeTraits`. yo-self already ports the first
+      // (env.yo:1883 `add_where_clause_constraint_to_env`, same id scan) and has
+      // the read-side twin (`_merge_trait_list`, env.yo:1846); this SomeT-list
+      // push was the one site that kept appending.
       if(is_negated, {
-        negative_trait_types.push(trait_ty);
-        negative_trait_levels.push(usize(0));
+        if(!(_wcc_has_trait(negative_trait_types, trait_ty)), {
+          negative_trait_types.push(trait_ty);
+          negative_trait_levels.push(usize(0));
+        });
       }, {
-        required_trait_types.push(trait_ty);
-        required_trait_levels.push(usize(0));
+        if(!(_wcc_has_trait(required_trait_types, trait_ty)), {
+          required_trait_types.push(trait_ty);
+          required_trait_levels.push(usize(0));
+        });
       });
     },
     _ => ()
