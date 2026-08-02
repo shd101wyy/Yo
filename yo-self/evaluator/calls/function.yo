@@ -86,7 +86,7 @@ open(import("std/fmt"));
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { is_control_fn } :: import("../types/control_fn_registry.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ type_contains_some_type } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types } :: import("../../types/utils.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, MethodEntry } :: import("../values/type_trait_methods.yo");
@@ -1646,12 +1646,17 @@ _evaluate_funcval_runtime_call :: (
                   // `fn(e : E2) -> T2  vs  fn(e : LogBundle) -> unit` and two
                   // siblings, breaking async_await and
                   // codegen-bootstrap/effect_polymorphism_forall_infer.
+                  // DEEP predicate here (TS typeContainsSomeType recurses,
+                  // src/types/utils.ts:477-568; yo-self's top-level-only
+                  // variant read `Tuple(0:T,1:Y)` as CONCRETE and this gate
+                  // then wrongly rejected `Tuple(T,Y)` vs `Tuple(i32,bool)`
+                  // — tests/fn.test.yo arm 9, generic tuple_func).
                   _ac_p_generic := (
-                    (is_some_type(_ac_pty) || type_contains_some_type(_ac_pty))
+                    (is_some_type(_ac_pty) || type_contains_some_type_deep(_ac_pty))
                     || is_function_type(_ac_pty)
                   );
                   _ac_a_generic := (
-                    (is_some_type(_ac_aty) || type_contains_some_type(_ac_aty))
+                    (is_some_type(_ac_aty) || type_contains_some_type_deep(_ac_aty))
                     || is_function_type(_ac_aty)
                   );
                   _ac_a_comptime := (
