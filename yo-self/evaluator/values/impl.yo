@@ -200,11 +200,11 @@ GenericImplEntry :: struct(
 (g_impl_registry_keys : ArrayList(String)) = ArrayList(String).new();
 (g_impl_registry_entry_lists : ArrayList(ArrayList(GenericImplEntry))) =
   ArrayList(ArrayList(GenericImplEntry)).new();
-/// ENV-RETURNING variant of the hook — the port of TS's full
+/// ENV-THREADING variant of the hook — the port of TS's full
 /// `typeImplementsTrait` (`{ implemented, env }`). `TraitCheckResult` lives in
 /// trait_checking.yo (importing it here would be circular), so the adapter
-/// pushes the post-constraint env into `env_out` slot 0 and returns the
-/// implemented flag. `try_match_generic_impl`'s where-constraint pass needs
+/// writes the post-constraint bindings into the caller's env IN PLACE and
+/// returns the implemented flag. `try_match_generic_impl`'s where-constraint pass needs
 /// the env: trait satisfaction is what BINDS a generic param that appears
 /// only in a where clause (impl.ts:2425-2432 and its comment — "necessary for
 /// generic params that are only constrained through where-clauses").
@@ -212,8 +212,7 @@ TypeImplementsTraitFullFn :: (
   fn(
     t : TypeValue,
     trait_type : TypeValue,
-    env : Environment,
-    env_out : ArrayList(Environment)
+    env : Environment
   ) -> bool
 );
 (g_type_implements_trait_full_fn : Option(TypeImplementsTraitFullFn)) =
@@ -716,15 +715,9 @@ try_match_generic_impl :: (
         .Some(wcj_bound) => match(
           g_type_implements_trait_full_fn,
           .Some(wcj_f) => {
-            wcj_env_out := ArrayList(Environment).new();
-            wcj_impl := wcj_f(wcj_bound, wcj_trait, match_env, wcj_env_out);
-            match(
-              wcj_env_out.get(usize(0)),
-              .Some(wcj_e2) => {
-                match_env = wcj_e2;
-              },
-              .None => ()
-            );
+            // The adapter writes the post-constraint bindings into match_env
+            // IN PLACE (env.frames swap) — see the hook's doc above.
+            wcj_impl := wcj_f(wcj_bound, wcj_trait, match_env);
             if(!(wcj_impl) && is_some_type(entry.receiver_type_pattern), {
               wc_ok = false;
             });

@@ -1847,19 +1847,24 @@ unmark_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String
 _compat_implements_adapter :: (fn(t : TypeValue, trait_type : TypeValue) -> bool)(
   type_implements_trait_bool(t, trait_type, Environment.new(String.from("")))
 );
-/// Adapter for impl.yo's env-returning hook: `TraitCheckResult` cannot be
-/// imported there (circular), so the post-constraint env travels via the
-/// `env_out` slot and the flag is the return value.
+/// Adapter for impl.yo's env-threading hook: `TraitCheckResult` cannot be
+/// imported there (circular), so the post-constraint bindings are written
+/// into the CALLER's env IN PLACE (`env.frames = r.env.frames` — the same
+/// pattern apply_where_clause_constraints uses at types/function.yo) and the
+/// flag is the return value. An earlier version returned the env through an
+/// `ArrayList(Environment)` out-param — a NOVEL container instantiation over
+/// the compiler's own cyclic Environment type, whose C prototype rendering
+/// self-recursed unboundedly in get_type_string and SIGBUS'd every stage-2
+/// self-emit (issues/yo-self-arraylist-environment-prototype-recursion.md).
 _type_implements_trait_full_adapter :: (
   fn(
     t : TypeValue,
     trait_type : TypeValue,
-    env : Environment,
-    env_out : ArrayList(Environment)
+    env : Environment
   ) -> bool
 )({
   r := type_implements_trait(t, trait_type, env);
-  env_out.push(r.env);
+  env.frames = r.env.frames;
   r.implemented
 });
 _trait_checking_init := (fn() -> bool)({
