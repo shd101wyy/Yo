@@ -1408,76 +1408,6 @@ _trait_field_type_by_label :: (
     )
   )
 );
-/// Find the frame level of the trait's `Self` type variable inside a
-/// method's function type. All `Self` occurrences in one trait share the
-/// same `(name, frame_level)` (evaluate_trait_type creates a single Self
-/// SomeT), so scanning the parameter types — then the result type — for
-/// the first `SomeT` named "Self" yields the level we need to build a
-/// substitution. Returns `.None` when the method type mentions no `Self`.
-_find_self_level_in_method_ty :: (
-  fn(method_ty : TypeValue) -> Option(usize)
-)(
-  match(
-    method_ty,
-    .Func({ param_types : pts, result : ret }) => {
-      (found : Option(usize)) = Option(usize).None;
-      (i : usize) = usize(0);
-      while((i < pts.len()) && found.is_none(), {
-        match(
-          pts.get(i),
-          .Some(p) => match(
-            p,
-            .SomeT(_, n, lvl, _, _, _, _, _, _, _, _) => {
-              if(n == "Self", {
-                found = Option(usize).Some(lvl);
-              });
-            },
-            // `self : *(Self)` — the pointer-receiver form every by-ref trait
-            // method uses. Without this case the finder returns `.None`, no
-            // substitution happens, the impl method registers as
-            // `fn(self : *(Self))` (hard-generic), and the dyn vtable
-            // generator stubs its wrapper with abort() ("impl fn skipped").
-            // Same landmine family as type_id_or_empty's missing Pointer case.
-            .Pointer(pointee) => match(
-              pointee,
-              .SomeT(_, pn, plvl, _, _, _, _, _, _, _, _) => {
-                if(pn == "Self", {
-                  found = Option(usize).Some(plvl);
-                });
-              },
-              _ => ()
-            ),
-            _ => ()
-          ),
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-      if(found.is_none(), {
-        match(
-          ret,
-          .SomeT(_, n, lvl, _, _, _, _, _, _, _, _) => {
-            if(n == "Self", {
-              found = Option(usize).Some(lvl);
-            });
-          },
-          .Pointer(rpointee) => match(
-            rpointee,
-            .SomeT(_, rn, rlvl, _, _, _, _, _, _, _, _) => {
-              if(rn == "Self", {
-                found = Option(usize).Some(rlvl);
-              });
-            },
-            _ => ()
-          ),
-          _ => ()
-        );
-      });
-      found
-    },
-    _ => Option(usize).None
-  )
-);
 /// Substitute a trait entry's already-evaluated ASSOCIATED TYPES (e.g.
 /// `Output : i32`) into a method's function type, alongside the `Self`
 /// substitution below. TS evaluates `Self.Output` at impl registration
@@ -1530,26 +1460,46 @@ _substitute_assoc_in_method_ty :: (
   });
   substitute(s, method_ty)
 });
-/// Substitute the trait's `Self` type variable with the concrete receiver
-/// type throughout a method's function type. This mirrors TS's
-/// `SelfType: receiverType` substitution at impl registration: the stored
-/// method type carries no `Self` SomeT, so the call-site parameter check
-/// compares concrete types directly (rather than relying on call-time
-/// SomeT synthesis, which fails for `Self` because the SomeT's frame level
-/// is the stale trait-definition frame, not the callee frame).
 _substitute_self_in_method_ty :: (
   fn(method_ty : TypeValue, self_concrete : TypeValue) -> TypeValue
-)(
-  match(
-    _find_self_level_in_method_ty(method_ty),
-    .Some(lvl) => {
-      s := subst_new();
-      subst_add(s, String.from("Self"), lvl, self_concrete);
-      substitute(s, method_ty)
-    },
-    .None => method_ty
+)({
+  // Substitute EVERY `Self` occurrence at its OWN frame level.
+  // `_find_self_level_in_method_ty` looked only at TOP-LEVEL param slots
+  // (bare `Self` / `*(Self)`), so a method with no Self PARAM —
+  // `try_from : (fn(value : _Self) -> Result(Self, Self.Error))` — was never
+  // substituted at all: it registered with the raw trait-declared return,
+  // codegen's should_skip_function_codegen treated the fully concrete impl
+  // method as hard-generic (its return still contained the `Self` SomeT),
+  // and the direct call site referenced a never-emitted fid ('call to
+  // undeclared function fn_yo_id_…' — prelude arm 1's TryFrom calls;
+  // scratchpad/mine/p8gate/r6tf.yo). `get_all_some_types` walks params,
+  // return, foralls, and (shell-resolved) nested instances, so a Self
+  // buried inside a composite return is found too — TS never needs this
+  // because trait registration mutates the SHARED Self object in place.
+  self_somes := get_all_some_types(method_ty);
+  s := subst_new();
+  (any_self : bool) = false;
+  (ssi : usize) = usize(0);
+  while(ssi < self_somes.len(), {
+    match(
+      self_somes.get(ssi),
+      .Some(sst) => match(
+        sst,
+        .SomeT(_, ss_n, ss_lvl, _, _, _, _, _, _, _, _) => if(ss_n == "Self", {
+          subst_add(s, String.from("Self"), ss_lvl, self_concrete.clone());
+          any_self = true;
+        }),
+        _ => ()
+      ),
+      .None => ()
+    );
+    ssi = (ssi + usize(1));
+  });
+  cond(
+    any_self => substitute(s, method_ty),
+    true => method_ty
   )
-);
+});
 /// Trial-evaluate a fn-type head expression, swallowing any error (the
 /// pre-pass is best-effort — TS `tryCreateForwardShell` wraps its
 /// evaluateExpression in try/catch and returns null on failure,
@@ -2792,6 +2742,12 @@ evaluate_module_value :: (
                             ex_entry.ty = fi.ty;
                             ex_entry.value = Option(EvalValue).Some(method_val);
                             ex_entry.source_trait_id = String.from("");
+                            // Re-key the fid's registered func TYPE to the
+                            // Self-substituted signature (see the fresh-
+                            // registration branch below for the rationale).
+                            if(real_fid.len() > usize(0), {
+                              register_func_type(real_fid.clone(), fi.ty);
+                            });
                             updated_shell = true;
                           });
                         },
@@ -2800,6 +2756,29 @@ evaluate_module_value :: (
                       sh_ei = (sh_ei + usize(1));
                     });
                     if(!(updated_shell), {
+                      // Re-register the method FuncVal's func TYPE as the
+                      // Self-SUBSTITUTED signature (`fi.ty`) — the type the
+                      // registry entry carries. The fid's table entry was
+                      // stamped at closure-mint time with the raw trait-
+                      // declared type (`fn(value : _Self) -> Result(Self,
+                      // Self.Error)`), whose SomeTs made codegen's
+                      // should_skip_function_codegen treat a fully CONCRETE
+                      // impl method as hard-generic and skip its emission —
+                      // while the call site still emitted the direct
+                      // `fn_<fid>` call ('call to undeclared function',
+                      // prelude arm 1 / assigned_param_overload_select.yo).
+                      // The default-method path already does this
+                      // (register_func_type at the d_fresh mint above); this
+                      // is the colon-pair-method twin. TS needs no re-key:
+                      // its FunctionValue.type IS the shared substituted
+                      // object.
+                      match(
+                        method_val,
+                        .FuncVal(__reg_fvd, _) => {
+                          register_func_type(__reg_fvd.*.func_id.clone(), fi.ty);
+                        },
+                        _ => ()
+                      );
                       register_type_trait_method(
                         receiver_type_id,
                         MethodEntry(

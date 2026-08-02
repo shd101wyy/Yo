@@ -5590,7 +5590,45 @@ try_to_call_function_with_arguments :: (
         .None => func_type
       );
       callee_own_generic := _func_type_has_runtime_some_param(callee_own_type);
-      is_func_generic := ((((fl.len() > usize(0)) || (il.len() > usize(0))) || fv_has_forall) || callee_own_generic);
+      // TS `isFunctionTypeGeneric` (guards.ts:457) ALSO counts COMPTIME
+      // PARAMS (`parameters.some(p => p.isCompileTimeOnly)`), excluding only
+      // comptime-RETURNING functions (those are CTFE'd, guards.ts:462-464).
+      // A trait-impl method like `try_into : (fn(self : Self,
+      // (comptime(_To) : Type) = To) -> Result(To, Self.Error))` has fl=0
+      // (its generics are trait-level), no impl foralls, and no runtime SomeT
+      // param — but its comptime param makes each call site a distinct
+      // instantiation. Without this the call skipped specialization and
+      // emitted a DIRECT call to the abstract fid, which codegen never emits
+      // ('call to undeclared function fn_yo_id_…' — prelude arm 1's
+      // trait-impl-closure emission gap;
+      // tests/codegen-bootstrap/assigned_param_overload_select.yo).
+      fv_result_ct := match(func_type,.Func({ meta : __fm12 }) => __fm12.*.result_is_comptime_only, _ => false);
+      (fv_has_ct_param : bool) = false;
+      if(!(fv_result_ct), {
+        match(
+          func_val,
+          .Some(fvcp) => match(
+            fvcp,
+            .FuncVal(__fvd16, _) => {
+              cfp_flags := get_func_param_comptime(__fvd16.*.func_id.clone());
+              (cfp_i : usize) = usize(0);
+              while((cfp_i < cfp_flags.len()) && !(fv_has_ct_param), {
+                match(
+                  cfp_flags.get(cfp_i),
+                  .Some(cfp_f) => if(cfp_f, {
+                    fv_has_ct_param = true;
+                  }),
+                  .None => ()
+                );
+                cfp_i = (cfp_i + usize(1));
+              });
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+      });
+      is_func_generic := (((((fl.len() > usize(0)) || (il.len() > usize(0))) || fv_has_forall) || callee_own_generic) || fv_has_ct_param);
       spec_template_type := if(
         callee_own_generic && !(_func_type_has_runtime_some_param(func_type)),
         callee_own_type,
