@@ -284,8 +284,12 @@ jobs:
           version: "latest"
 
       - name: Install wasmtime
+        # Pin the version: the installer's "latest release" lookup hits the
+        # GitHub API unauthenticated and gets rate-limited on shared runners
+        # ("Could not download Wasmtime version '{'"), leaving wasmtime
+        # uninstalled and every test failing with "exit code undefined".
         run: |
-          curl https://wasmtime.dev/install.sh -sSf | bash
+          curl https://wasmtime.dev/install.sh -sSf | bash -s -- --version v47.0.3
           echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
 
       - name: Setup Bun
