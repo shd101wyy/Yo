@@ -541,9 +541,19 @@ _evaluate_expression :: (
           ctx.expected_type,
           .Some(et) => {
             et_ty := et.ty;
+            // TS-faithful scope (function.ts:446-476): reroute for EVERY
+            // concrete expected STRUCT — named or anonymous — not just
+            // unnamed ones. The named-struct narrowing existed for two
+            // downstream gaps that are both fixed now: `Self(x : 0)`
+            // named-arg union construction emits (measured green), and the
+            // dup/drop optimizer is implemented (the s2 SIGSEGV of
+            // issues/yo-self-anon-struct-literal-expected-type-ctor.md).
+            // Re-measured against the full battery + stage-2 gate on
+            // re-application. Source-namespace structs (modules) keep the
+            // fallback.
             expected_is_anon_struct := match(
               et_ty,
-              .Struct({ name : et_sname, is_source_namespace : et_sns }) => ((et_sname.len() == usize(0)) && !(et_sns)),
+              .Struct({ is_source_namespace : et_sns }) => !(et_sns),
               _ => false
             );
             // NOTE (fn.test.yo arm 14, measured 2026-08-03): widening this
