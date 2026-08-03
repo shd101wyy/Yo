@@ -119,3 +119,37 @@ the Io member types' effect slot at eval time (the \_bake_record_slots
 pattern applied to the effect wrapper), or make the collection pass visit
 the concrete `Future(unit, IoExn)` instantiation that the E binding makes
 reachable.
+
+## 2026-08-03 last round — two more containments measured, root sharpened to LAZY-EMISSION SPEC MINT
+
+Two bounded fixes built and measured against the stage-2 gate, both aborting
+identically (emit rc=134, "no C type name found for IoExn"), both reverted:
+
+1. **opts=None on the single-effect synthesis** (no resolved-concrete cell/
+   registry stamping; pure env binding — the (c)-equivalent re-measured on
+   the current tree): still aborts. The drift is NOT through the shared
+   per-lineage cell.
+2. **Layout-faithful structural keys** (type_key's never-registered-sid
+   structural fallback keying RUNTIME fields only): still aborts — the Io
+   effect struct's fn-typed members ARE its runtime fields; the drift is in
+   their RENDERS (a rebuilt IoExn instance with `E := IoExn` substituted
+   into member fn types).
+
+Sharpened mechanism: `current_function=yo_id_749xxx` is a specialization
+minted DURING C emission (lazy call-site spec) whose param/local types hold
+the REBUILT IoExn instance — collection ran before this spec existed, so no
+key registration can ever precede the lookup. The abort is therefore
+structural: **E-binding → downstream member-type rebuild → lazily-minted
+spec at emission → uncollected key**.
+
+Fix directions for the next session, in order of principle:
+
+- **Collection-time pre-specialization**: make the collection pass force the
+  specs that emission will lazily mint (TS collects after full evaluation,
+  so nothing mints late there).
+- **On-demand collection**: let `_lookup_named_c_type`'s miss path COLLECT
+  the type (register key + emit typedef into the pre-pass buffer) instead of
+  panicking — the emitters are split-buffered, so a late typedef has a home.
+- Era-stable nominal keys need a genericity side-table (a bare
+  `struct_decl_` sid cannot be keyed id-only: Bucket(K,V) instances share
+  the decl sid with genuinely different layouts).
