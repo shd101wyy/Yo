@@ -3745,3 +3745,27 @@ genuinely failing files while emitting **zero** `error in` lines. Any gate that
 greps `error in` reads clean on a broken tree. Use the trailing
 `N/M file(s) passed` count (or count `FAILED`). Teeth verified: injected parse
 error → rc=1 FAILED; injected type error → rc=1 FAILED.
+
+## 2026-08-03 late — basic FULLY GREEN (33/33); fn arm 14 pair re-measured (SIGSEGV), still the blocker
+
+basic.test.yo flipped via five roots (commit "flip basic.test.yo"): the
+match-compat arg-order swap (arm 19), the comptime-while unroll port (arm
+26), the macro quote-param label strip (arm 18), the struct/enum
+availability validation + Tuple/Array requires-comptime recursion + the
+pointee-following pointer rules (arm 24, with the arms-10/11 regression
+caught and fixed), and the label-aware enum dedup key (the batch-level
+MyResult/ResultInt merge).
+
+fn.test.yo's ONLY remaining hollow is arm 14 (mutual recursion). The
+documented pair was re-attempted this round: patch D (widen the `_`
+reroute to expected Func) + shared-Variable def-env threading
+(_build_def_time_body_env pushing the caller's Variable OBJECTS instead of
+flattening copies — the TS function-type.ts:499 model). Measured: the
+single-arm subset SIGSEGVs (rc=139 — the shared objects create cyclic
+traversals somewhere in the eval/RC layer), and the full file still emits
+the raw `is_odd` identifier (the fn-pointer fallback doesn't consult the
+recorded env's later fill even when shared). Both reverted. The remaining
+fix direction from the original analysis is the OTHER alternative:
+deferred re-eval of comptime fn bodies at assignment (re-evaluate is_even's
+recorded body once `is_odd = _(...)` lands), which sidesteps both the
+cyclic sharing and the stale-snapshot problem.
