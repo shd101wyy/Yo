@@ -754,14 +754,40 @@ can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(
 /// with a diagnostic if it was not collected. Mirrors the `context.types[...]`
 /// lookup + throw inside getTypeString's Tuple/Struct/Union/Enum arm.
 /// (Defined before get_type_string — Yo has no forward references.)
+// --- on-demand late-type declaration hook (set by codegen_c at init) -------
+// A specialization minted DURING C emission (lazy call-site spec) can carry a
+// type instance the collection pass never saw — collection ran before the
+// spec existed, so no pre-registration can precede the lookup (the stage-2
+// arm-65 "no C type name found for IoExn" abort). The hook aliases the
+// drifted key to the existing nominal entry (or collects + declares a
+// genuinely-new type into the DECLARATIONS buffer, which the three-buffer
+// emitter places before all function code).
+OnDemandDeclareFn :: (fn(t : TypeValue, context : CodeGenContext) -> unit);
+(g_on_demand_declare_fn : Option(OnDemandDeclareFn)) = Option(OnDemandDeclareFn).None;
+set_on_demand_declare_fn :: (fn(f : OnDemandDeclareFn) -> unit)({
+  g_on_demand_declare_fn = Option(OnDemandDeclareFn).Some(f);
+  ()
+});
 _lookup_named_c_type :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
   match(
     context.get_type_c_name(type_key(t)),
     .Some(c_name) => c_name,
     .None => {
-      // panic requires a `str`; the dynamic type name goes to stderr.
-      eprintln(`get_type_string: no C type name found for ${type_to_string(t)} (type not collected before lowering; current_function=${context.current_function_name}, key=${type_key(t)})`);
-      __yo_panic("get_type_string: type not registered in context.types (see stderr)")
+      // ON-DEMAND recovery: alias/collect the late type, then retry.
+      match(
+        g_on_demand_declare_fn,
+        .Some(odf) => odf(t, context),
+        .None => ()
+      );
+      match(
+        context.get_type_c_name(type_key(t)),
+        .Some(c_name2) => c_name2,
+        .None => {
+          // panic requires a `str`; the dynamic type name goes to stderr.
+          eprintln(`get_type_string: no C type name found for ${type_to_string(t)} (type not collected before lowering; current_function=${context.current_function_name}, key=${type_key(t)})`);
+          __yo_panic("get_type_string: type not registered in context.types (see stderr)")
+        }
+      )
     }
   )
 );
@@ -1319,5 +1345,6 @@ export(
   is_deferred_drop_for_closure_capture,
   find_returned_async_block,
   mark_needs_intel_asm_syntax,
-  get_needs_intel_asm_syntax
+  get_needs_intel_asm_syntax,
+  set_on_demand_declare_fn
 );

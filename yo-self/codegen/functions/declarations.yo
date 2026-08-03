@@ -12,6 +12,7 @@ open(import("std/string"));
 { type_contains_some_type } :: import("../../types/utils.yo");
 { type_contains_some_type_for_codegen_param, type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { AstExpr } :: import("../../expr.yo");
+{ lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { EvalValue } :: import("../../value.yo");
 { get_func_type, is_effect_record_member, is_closure_fn, is_io_async_sm_closure, is_fn_unemittable } :: import("../../function_value.yo");
 { CodeGenContext, get_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField, is_function_value_with_only_builtin_yo_inline_function_call, find_returned_async_block, type_key } :: import("../utils/index.yo");
@@ -413,7 +414,21 @@ _func_has_generic_params :: (fn(ft : TypeValue) -> bool)(
         match(
           param_types.get(i),
           .Some(pt) => if(type_contains_some_type_for_codegen_param(pt, ArrayList(String).new()), {
-            found = true;
+            // A RESOLVABLE top-level wrapper SomeT is NOT generic for
+            // codegen: get_type_string lowers it through its resolution
+            // cell / the id-keyed registry (utils/index.yo:980-990) — TS
+            // reads the same information off the SomeType object's
+            // resolvedConcreteType. Skipping such fns dropped
+            // `test_unwind(task : Impl(Future(i32, Ctx)), ...)` and the
+            // call site degraded to the statement FTT (async_await arm 72).
+            pt_resolvable := match(
+              pt,
+              .SomeT({ id : ghp_id, resolved_concrete : ghp_rc }) => ((ghp_rc.len() > usize(0)) || lookup_some_resolved_concrete(ghp_id).is_some()),
+              _ => false
+            );
+            if(!(pt_resolvable), {
+              found = true;
+            });
           }),
           .None => ()
         );

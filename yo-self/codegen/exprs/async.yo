@@ -2388,7 +2388,22 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
     closure_evidence_args = `, ${_join_names(shim_args)}`;
   });
   sync_set_effect_function_name := `${struct_name.clone()}_set_effect`;
+  // A SYNC future has no await-analysis state to consult (TS async.ts:1949
+  // comment) — but this emission can run NESTED inside another state
+  // machine's generation, where context.state_machine_variables still holds
+  // the ENCLOSING sm's captured variables. The setter's effect-label
+  // mappings then route to the OUTER sm's var_<id> members, which this
+  // sync struct does not have ("no member named 'var_NNN'" — the
+  // async_await batch, arms nesting io.async inside io.async handlers).
+  // Clear the sm-vars around the sync setter so the mappings resolve
+  // against the sync future's own capture type only.
+  sync_saved_smv := context.state_machine_variables;
+  sync_saved_smfa := context.state_machine_field_aliases;
+  context.state_machine_variables = Option(HashMap(String, CapturedVariable)).None;
+  context.state_machine_field_aliases = Option(HashMap(String, String)).None;
   generate_future_effect_setter(struct_name.clone(), sync_set_effect_function_name.clone(), future_trait_type, eff_capture_type, context, match(sync_param_slots.get(usize(0)),.Some(s) => Option(SyncParamSlot).Some(s),.None => Option(SyncParamSlot).None));
+  context.state_machine_variables = sync_saved_smv;
+  context.state_machine_field_aliases = sync_saved_smfa;
   em.emit_declaration_line("");
   // Resume function — calls the closure with the embedded capture data.
   em.emit_declaration_string_line(`void ${resume_function_name.clone()}(void* ptr) {`);

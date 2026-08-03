@@ -18,21 +18,22 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../types/definitions.yo");
+{ type_key } :: import("../types/type_key.yo");
 { EvalValue } :: import("../value.yo");
 { TargetInfo } :: import("../target.yo");
 { ExprInfoTable, lookup_some_resolved_concrete } :: import("../expr_info.yo");
 { Emitter } :: import("../emitter.yo");
-{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, set_lookup_some_resolved_concrete } :: import("../types/guards.yo");
+{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_newtype_type, set_lookup_some_resolved_concrete } :: import("../types/guards.yo");
 { type_contains_some_type, type_contains_some_type_deep, can_type_form_rc_cycle } :: import("../types/utils.yo");
 { Exception } :: import("std/error");
 { Environment } :: import("../env.yo");
 { EvalContext } :: import("../evaluator/context.yo");
-{ CodeGenContext } :: import("./utils/index.yo");
+{ CodeGenContext, set_on_demand_declare_fn, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum } :: import("./utils/index.yo");
 { FunctionGenerationContext } :: import("./functions/context.yo");
 { collect_required_functions, collect_trace_methods_from_generic_impls, collect_dispose_methods, register_find_function_calls_in_expr } :: import("./functions/collection.yo");
-{ collect_required_types, collect_pointer_pointees, register_collect_type } :: import("./types/collection.yo");
+{ collect_type, collect_required_types, collect_pointer_pointees, register_collect_type } :: import("./types/collection.yo");
 { collect_c_includes, emit_c_includes } :: import("./c/collection.yo");
-{ generate_type_declarations, generate_dyn_box_types } :: import("./types/generation.yo");
+{ generate_type_declarations, generate_dyn_box_types, generate_struct_declaration, generate_enum_declaration, generate_tuple_declaration, generate_union_declaration } :: import("./types/generation.yo");
 { fixup_dyn_impl_keys } :: import("./utils/fixup.yo");
 { generate_function_declarations } :: import("./functions/declarations.yo");
 { generate_all_functions, generate_main_wrapper, emit_module_level_variable_declarations } :: import("./functions/generation.yo");
@@ -43,6 +44,100 @@ open(import("std/string"));
 { register_fsm_emitters_impl } :: import("./async/state_code_gen.yo");
 /// True if any field of the struct contains a SomeType (generic). Mirrors the
 /// `!type.fields.some(field => typeContainsSomeType(field.type))` guard.
+/// On-demand recovery for a type first seen DURING emission (a lazily-minted
+/// call-site specialization's param/local type — see the hook comment in
+/// utils/index.yo). Tier 1: when exactly ONE registered entry shares the
+/// nominal id, alias the drifted key to it (a fresh mint would SPLIT the C
+/// identity). Tier 2: genuinely-new type — collect + append fwd typedef +
+/// body to the declarations buffer.
+_on_demand_collect_and_declare :: (fn(t : TypeValue, context : CodeGenContext) -> unit)({
+  odk := type_key(t);
+  od_sid := match(
+    t,
+    .Struct({ id : od_s_id, is_source_namespace : od_s_ns }) => if(od_s_ns, String.new(), od_s_id.clone()),
+    .EnumT(od_e_id, _, _, _, _, _, _, _, _) => od_e_id.clone(),
+    _ => String.new()
+  );
+  if(od_sid.len() > usize(0), {
+    (od_hit : Option(String)) = Option(String).None;
+    (od_count : usize) = usize(0);
+    od_keys := context.types.keys();
+    (od_go : bool) = true;
+    while(od_go, {
+      match(
+        od_keys.next(),
+        .Some(od_tid) => match(
+          context.types.get(od_tid.clone()),
+          .Some(od_entry) => {
+            od_esid := match(
+              od_entry.ty,
+              .Struct({ id : od_es_id, is_source_namespace : od_es_ns }) => if(od_es_ns, String.new(), od_es_id.clone()),
+              .EnumT(od_ee_id, _, _, _, _, _, _, _, _) => od_ee_id.clone(),
+              _ => String.new()
+            );
+            if((od_esid.len() > usize(0)) && (od_esid == od_sid), {
+              od_count = (od_count + usize(1));
+              od_hit = Option(String).Some(od_tid.clone());
+            });
+          },
+          .None => ()
+        ),
+        .None => {
+          od_go = false;
+        }
+      );
+    });
+    if(od_count == usize(1), {
+      match(
+        od_hit,
+        .Some(od_target) => {
+          context.register_type_alias(odk.clone(), od_target);
+          return(());
+        },
+        .None => ()
+      );
+    });
+  });
+  collect_type(t, context);
+  match(
+    context.get_type_entry(odk),
+    .Some(od_e) => {
+      od_cn := od_e.c_name.clone();
+      od_ty := od_e.ty;
+      od_is_struct := match(od_ty,.Struct({ is_source_namespace : od_ns }) => !(od_ns), _ => false);
+      od_is_enum := match(od_ty,.EnumT(_, _, _, _, _, _, _, _, _) => true, _ => false);
+      od_is_tuple := match(od_ty,.Tuple(_, _) => true, _ => false);
+      od_is_union := match(od_ty,.Union(_, _, _) => true, _ => false);
+      od_need_fwd := cond(
+        od_is_struct => !(
+          is_newtype_type(od_ty) && match(od_ty,.Struct({ field_types : od_fts }) => (od_fts.len() == usize(1)), _ => false)
+        ),
+        od_is_enum => !(can_optimize_as_nullable_pointer(od_ty).is_some() || can_optimize_as_simple_enum(od_ty)),
+        true => false
+      );
+      if(od_need_fwd, {
+        od_l := String.from("typedef struct ");
+        od_l.push_string(od_cn.clone());
+        od_l.push_str("_struct ");
+        od_l.push_string(od_cn.clone());
+        od_l.push_str("; // Forward declaration (on-demand)");
+        context.emitter.emit_declaration_string_line(od_l);
+      });
+      cond(
+        od_is_struct => generate_struct_declaration(od_ty, od_cn.clone(), context),
+        od_is_enum => generate_enum_declaration(od_ty, od_cn.clone(), context),
+        od_is_tuple => generate_tuple_declaration(od_ty, od_cn.clone(), context),
+        od_is_union => generate_union_declaration(od_ty, od_cn.clone(), context),
+        true => ()
+      );
+    },
+    .None => ()
+  );
+});
+/// Install the on-demand hook. Called at codegen init (next to register_collect_type).
+register_on_demand_declare :: (fn() -> unit)({
+  set_on_demand_declare_fn(_on_demand_collect_and_declare);
+});
 _struct_has_generic_field :: (fn(ty : TypeValue) -> bool)(
   match(
     ty,
@@ -187,6 +282,7 @@ static void __yo_dispose_dispatch(void* ptr) {
 compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception) -> String)({
   // Wire the mutual-recursion indirections before any collection / body walk.
   register_collect_type();
+  register_on_demand_declare();
   register_find_function_calls_in_expr();
   register_generate_expr();
   // Register the FSM await/cond/match/while emitter indirections.

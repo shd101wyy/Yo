@@ -2562,6 +2562,31 @@ create_specialized_function_inline :: (
               _ => String.from("")
             );
             is_closure_param := (closure_some_id.len() > usize(0));
+            // FUTURE-wrapper param (`task : Impl(Future(T, E))`): register
+            // the DECLARED wrapper's id → the ARG's wrapper type, so
+            // get_type_string on the spec's param chains through the arg
+            // wrapper's async-block registration to the concrete sm struct
+            // (the closure capbind's analog for futures). Without this the
+            // spec's param stays an unresolvable SomeT, the emission gate
+            // skips the fn, and every call site degrades to the statement
+            // FTT (async_await arm 72: `test_unwind(task, io)`).
+            if(!(is_closure_param), {
+              match(
+                decl_pt,
+                .SomeT({ id : fw_id }) => if(extract_future_trait_from_type(decl_pt).is_some(), {
+                  match(
+                    runtime_param_tys.get(rbp_i),
+                    .Some(fw_arg) => if(is_some_type(fw_arg) && (
+                      match(fw_arg,.SomeT({ id : fw_aid }) => (fw_aid != fw_id), _ => false)
+                    ), {
+                      register_some_resolved_concrete(fw_id.clone(), fw_arg);
+                    }),
+                    .None => ()
+                  );
+                }),
+                _ => ()
+              );
+            });
             if(is_closure_param, {
               // Bind the param to a PER-SPEC REBUILD of the declared SomeT
               // (fresh id + own resolved cell seeded with THIS spec's capture
