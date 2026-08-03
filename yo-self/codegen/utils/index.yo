@@ -834,6 +834,36 @@ _some_t_requires_future :: (fn(t : TypeValue) -> bool)(
   )
 );
 
+/// The `FutureTraitT` among a SomeT's required traits, if any (the trait
+/// carried by `Impl(Future(T, E))`). Companion to `_some_t_requires_future`;
+/// local structural extraction so this foundational module does not import
+/// the evaluator's trait_checking (TS `extractFutureTraitFromType`).
+_extract_future_trait_of_some_t :: (fn(t : TypeValue) -> Option(TypeValue))(
+  match(
+    t,
+    .SomeT({ required_trait_types : eft_rtts }) => {
+      (eft_found : Option(TypeValue)) = Option(TypeValue).None;
+      (eft_i : usize) = usize(0);
+      n := eft_rtts.len();
+      while((eft_i < n) && eft_found.is_none(), {
+        match(
+          eft_rtts.get(eft_i),
+          .Some(eft_rt) => match(
+            eft_rt,
+            .FutureTraitT(_, _, _, _, _) => {
+              eft_found = Option(TypeValue).Some(eft_rt);
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+        eft_i = (eft_i + usize(1));
+      });
+      eft_found
+    },
+    _ => Option(TypeValue).None
+  )
+);
 /// Remove all `*` bytes from a C type string. Mirrors TS `childTypeCName
 /// .replace(/\*/g, "")` used to build the clean Iso type name (a by-value C
 /// identifier can't contain `*`; sanitize would otherwise turn it into `_u42_`).
@@ -1004,19 +1034,40 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
         match(
           context.get_type_c_name(type_key(t)),
           .Some(cn) => cn,
-          // A FUTURE-implementing SomeType with no registration is an
-          // unregistered EXTERN future (an async-runtime extern like
-          // `__yo_async_waitpid_start` returns the generic runtime future) —
-          // lower it to `__yo_io_future_t*`, not `void*`, so wrapper fns and
-          // sync-await polling sites read `->state`/`->result` on the real
-          // struct. Mirrors TS getTypeString case 3 (utils/index.ts:615:
-          // "Fallback - use __yo_io_future_t for unregistered extern
-          // futures"). The Future check is local (required_trait_types
-          // contains a FutureTraitT) to keep this foundational module free of
-          // evaluator imports.
+          // A FUTURE-implementing SomeType with no registration lowers to the
+          // generic Future TRAIT-OBJECT interface struct pointer
+          // (`__yo_future_trait_*`) — TS's FutureTraitType fallback in
+          // getTypeString (utils/index.ts:700-712: `context.types[
+          // futureModule.id].cName + "*"`). This is the C type of a
+          // future-typed PARAMETER (`task : Impl(Future(T, E))`): every async
+          // SM struct begins with the interface's prefix, so the concrete
+          // future pointer casts to it. The trait struct is minted on demand
+          // (the same hook `_lookup_named_c_type` uses). Only when even that
+          // fails, fall back to `__yo_io_future_t*` (an unregistered EXTERN
+          // future, TS case 3) — never `void*`, so sync-await polling sites
+          // still read `->state`/`->result` on a real struct.
           .None => if(
             _some_t_requires_future(t),
-            String.from("__yo_io_future_t*"),
+            match(
+              _extract_future_trait_of_some_t(t),
+              .Some(gft_ftt) => match(
+                context.get_type_c_name(type_key(gft_ftt)),
+                .Some(gft_cn) => `${gft_cn}*`,
+                .None => {
+                  match(
+                    g_on_demand_declare_fn,
+                    .Some(gft_odf) => gft_odf(gft_ftt, context),
+                    .None => ()
+                  );
+                  match(
+                    context.get_type_c_name(type_key(gft_ftt)),
+                    .Some(gft_cn2) => `${gft_cn2}*`,
+                    .None => String.from("__yo_io_future_t*")
+                  )
+                }
+              ),
+              .None => String.from("__yo_io_future_t*")
+            ),
             String.from("void*")
           )
         )

@@ -33,13 +33,14 @@ open(import("std/string"));
 { collect_required_functions, collect_trace_methods_from_generic_impls, collect_dispose_methods, register_find_function_calls_in_expr } :: import("./functions/collection.yo");
 { collect_type, collect_required_types, collect_pointer_pointees, register_collect_type } :: import("./types/collection.yo");
 { collect_c_includes, emit_c_includes } :: import("./c/collection.yo");
-{ generate_type_declarations, generate_dyn_box_types, generate_struct_declaration, generate_enum_declaration, generate_tuple_declaration, generate_union_declaration } :: import("./types/generation.yo");
+{ generate_type_declarations, generate_dyn_box_types, generate_struct_declaration, generate_enum_declaration, generate_tuple_declaration, generate_union_declaration, generate_future_trait_declaration } :: import("./types/generation.yo");
 { fixup_dyn_impl_keys } :: import("./utils/fixup.yo");
 { generate_function_declarations } :: import("./functions/declarations.yo");
 { generate_all_functions, generate_main_wrapper, emit_module_level_variable_declarations } :: import("./functions/generation.yo");
 { generate_dyn_box_functions, generate_dyn_wrapper_functions, generate_dyn_vtables, generate_dyn_dup_drop } :: import("./functions/dyn.yo");
 { register_generate_expr } :: import("./exprs/generation.yo");
-{ register_impl_closure_call_mappings } :: import("./exprs/closures.yo");
+{ register_impl_closure_call_mappings, set_sm_atom_resolver } :: import("./exprs/closures.yo");
+{ _generate_sm_atom } :: import("./exprs/atom.yo");
 { preregister_async_block_types, generate_deferred_async_blocks } :: import("./exprs/async.yo");
 { register_fsm_emitters_impl } :: import("./async/state_code_gen.yo");
 /// True if any field of the struct contains a SomeType (generic). Mirrors the
@@ -108,11 +109,15 @@ _on_demand_collect_and_declare :: (fn(t : TypeValue, context : CodeGenContext) -
       od_is_enum := match(od_ty,.EnumT(_, _, _, _, _, _, _, _, _) => true, _ => false);
       od_is_tuple := match(od_ty,.Tuple(_, _) => true, _ => false);
       od_is_union := match(od_ty,.Union(_, _, _) => true, _ => false);
+      od_is_future := match(od_ty,.FutureTraitT(_, _, _, _, _) => true, _ => false);
       od_need_fwd := cond(
         od_is_struct => !(
           is_newtype_type(od_ty) && match(od_ty,.Struct({ field_types : od_fts }) => (od_fts.len() == usize(1)), _ => false)
         ),
         od_is_enum => !(can_optimize_as_nullable_pointer(od_ty).is_some() || can_optimize_as_simple_enum(od_ty)),
+        // Future trait interface uses the same `<cn>_struct` typedef pattern
+        // (TS generation.ts:504-509 emits the forward decl for Future types).
+        od_is_future => true,
         true => false
       );
       if(od_need_fwd, {
@@ -128,6 +133,7 @@ _on_demand_collect_and_declare :: (fn(t : TypeValue, context : CodeGenContext) -
         od_is_enum => generate_enum_declaration(od_ty, od_cn.clone(), context),
         od_is_tuple => generate_tuple_declaration(od_ty, od_cn.clone(), context),
         od_is_union => generate_union_declaration(od_ty, od_cn.clone(), context),
+        od_is_future => generate_future_trait_declaration(od_ty, od_cn.clone(), context),
         true => ()
       );
     },
@@ -285,6 +291,9 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   register_on_demand_declare();
   register_find_function_calls_in_expr();
   register_generate_expr();
+  // Closure-capture SM-field resolution (closures.yo cannot import atom.yo —
+  // atom.yo imports closures.yo).
+  set_sm_atom_resolver(_generate_sm_atom);
   // Register the FSM await/cond/match/while emitter indirections.
   register_fsm_emitters_impl();
   // Inject the resolved-concrete lookup into the low-level type guards so

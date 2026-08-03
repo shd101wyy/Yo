@@ -25,6 +25,24 @@ open(import("std/string"));
 /// Date.now(); a module-level counter gives the per-site uniqueness TS gets from
 /// `Date.now()_<row>`.
 (g_closure_capture_counter : usize) = usize(0);
+/// Hook to atom.yo's `_generate_sm_atom` (the `sm->` alias/capture resolution
+/// for variables inside a state machine). atom.yo imports THIS module
+/// (check_variable_is_closure_captured), so a direct import back would be a
+/// cycle — codegen_c.yo installs the fn at codegen init instead (the same
+/// pattern as register_collect_type / register_on_demand_declare).
+SmAtomResolverFn :: (fn(expr : AstExpr, var_name : String, context : FunctionGenerationContext) -> Option(String));
+(g_sm_atom_resolver : Option(SmAtomResolverFn)) = Option(SmAtomResolverFn).None;
+set_sm_atom_resolver :: (fn(f : SmAtomResolverFn) -> unit)({
+  g_sm_atom_resolver = Option(SmAtomResolverFn).Some(f);
+  ()
+});
+_resolve_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGenerationContext) -> Option(String))(
+  match(
+    g_sm_atom_resolver,
+    .Some(f) => f(expr, var_name, context),
+    .None => Option(String).None
+  )
+);
 /// True if `variable_name` resolves (in `env`) to a binding at or below the
 /// closure's capture frame level — i.e. it is captured by the closure rather
 /// than a local of the closure body. Mirrors `checkVariableIsClosureCaptured`.
@@ -200,7 +218,18 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
         match(
           field_code,
           .Some(fc) => fc,
-          .None => get_variable_name_for_codegen(label.clone(), Option(Environment).Some(ei.env))
+          // Inside an ENCLOSING state machine (a closure constructed in an
+          // async while-loop body), the captured variable is an SM field —
+          // map it through the sm-> alias/capture resolution the atom
+          // emitter uses. A bare C name referenced identifiers that do not
+          // exist in the resume fn ("use of undeclared identifier 'i'",
+          // async closure-in-while arms). Fall back to the scope name
+          // outside SMs.
+          .None => match(
+            _resolve_sm_atom(expr, label.clone(), context),
+            .Some(sm_name) => sm_name,
+            .None => get_variable_name_for_codegen(label.clone(), Option(Environment).Some(ei.env))
+          )
         )
       );
       fi = (fi + usize(1));
@@ -324,4 +353,4 @@ register_impl_closure_call_mappings :: (fn(context : FunctionGenerationContext) 
     );
   });
 });
-export(check_variable_is_closure_captured, resolve_some_type_to_concrete, is_closure_construction, generate_closure_construction, register_impl_closure_call_mappings);
+export(check_variable_is_closure_captured, resolve_some_type_to_concrete, is_closure_construction, generate_closure_construction, register_impl_closure_call_mappings, set_sm_atom_resolver);

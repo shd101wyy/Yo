@@ -37,6 +37,9 @@ open(import("std/fmt"));
   expr_info_table_set,
   record_method_callee_type,
   record_method_callee_value,
+  record_io_builtin_struct_field,
+  lookup_io_builtin_struct_field,
+  record_io_builtin_call,
   register_some_resolved_concrete,
   lookup_some_resolved_concrete,
   record_macro_expansion,
@@ -2769,6 +2772,80 @@ evaluate_function_call :: (
   // the real call. No-op otherwise. See `_try_expand_call_overload`.
   _try_expand_call_overload(evaluated_callee, expr, args, env, ctx, exn);
   callee_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_callee));
+  // Resolve this call's io-builtin marker at the dispatch choke point —
+  // BEFORE any arm-specific processing, so it fires for BOTH the concrete-
+  // FuncVal arms AND the UnknownVal fallthrough (a def-time body eval sees
+  // `my_io.await` with an UNKNOWN Io receiver value but a typed callee). TS
+  // classifies io builtins SEMANTICALLY via the callee type's `ioBuiltin`
+  // marker (await-analysis.ts:137-167 reads `expr.func.$?.type`) — stamped
+  // by the extern declaration (extern.ts:143-158) and propagated onto the Io
+  // struct's field types at construction (calls/type.ts:176-182). yo-self
+  // resolves the same two sources here: (a) the callee type's own
+  // `extern_name`, (b) the dot-access receiver's struct id + field label in
+  // the construction-time side-table. Without this, the name-based
+  // `_is_dot_access(expr, "io", ...)` fallback misroutes a renamed receiver —
+  // `my_io.await(task, ctx)` matched the JoinHandle-await shape instead and
+  // the C call site degraded to an error comment (async_await arm 72).
+  {
+    (iob_marker : String) = String.new();
+    match(
+      callee_info_opt,
+      .Some(iob_ci) => match(
+        iob_ci.ty,
+        .Func({ meta : iob_m }) => match(
+          iob_m.*.extern_name,
+          .Some(iob_en) => if((
+            ((iob_en == "__yo_io_async") || (iob_en == "__yo_io_await"))
+            || ((iob_en == "__yo_io_state") || (iob_en == "__yo_io_spawn"))
+          )
+          || (iob_en == "__yo_join_handle_await"), {
+            iob_marker = iob_en.clone();
+          }),
+          .None => ()
+        ),
+        _ => ()
+      ),
+      .None => ()
+    );
+    if(iob_marker.len() == usize(0), {
+      // (b) dot-access callee: receiver struct id + field label lookup.
+      match(
+        func_expr,
+        .FnCall(_, iob_dot, iob_dargs, _, _) => if(match(iob_dot,.Atom(_, iob_dtok) => (iob_dtok.kind == TokenKind.Dot), _ => false)
+        && (iob_dargs.len() == usize(2)), {
+          iob_fld := match(
+            iob_dargs.get(usize(1)),
+            .Some(iob_fe) => match(iob_fe,.Atom(_, iob_ftok) => iob_ftok.value.clone(), _ => String.new()),
+            .None => String.new()
+          );
+          iob_recv_id := match(
+            iob_dargs.get(usize(0)),
+            .Some(iob_re) => match(
+              expr_info_table_get(ctx.expr_info_table, ast_expr_id(iob_re)),
+              .Some(iob_ri) => match(iob_ri.ty,.Struct({ id : iob_sid }) => iob_sid.clone(), _ => String.new()),
+              .None => String.new()
+            ),
+            .None => String.new()
+          );
+          if(iob_fld == "await", {
+          });
+          if((iob_fld.len() > usize(0)) && (iob_recv_id.len() > usize(0)), {
+            match(
+              lookup_io_builtin_struct_field(iob_recv_id, iob_fld),
+              .Some(iob_m2) => {
+                iob_marker = iob_m2.clone();
+              },
+              .None => ()
+            );
+          });
+        }),
+        _ => ()
+      );
+    });
+    if(iob_marker.len() > usize(0), {
+      record_io_builtin_call(ast_expr_id(expr), iob_marker);
+    });
+  };
   callee_value_raw := match(
     callee_info_opt,
     .Some(ci) => ci.value,
@@ -3115,6 +3192,62 @@ Fix: wrap the call:
               fsi = (fsi + usize(1));
             });
             call_result_s := try_to_call_type_with_arguments(fields_subst, func_expr, args, callee_env, ctx, false, exn);
+            // Propagate io-builtin markers from extern function VALUES to the
+            // constructed struct's FIELDS — faithful port of TS
+            // `memberElement.type.ioBuiltin = argType.ioBuiltin`
+            // (calls/type.ts:176-182): constructing
+            // `Io(await : __yo_io_await, ...)` marks the Io struct's `await`
+            // field, so `my_io.await(...)` on ANY Io-typed receiver later
+            // classifies as the io.await builtin. TS mutates the SHARED
+            // struct-type object; yo-self records (struct id, field label) →
+            // marker in the expr_info side-table instead (TypeValues here are
+            // per-copy).
+            {
+              if(struct_name == "Io", {
+              });
+              (iobp_i : usize) = usize(0);
+              while(iobp_i < call_result_s.values.len(), {
+                iobp_v := match(
+                  call_result_s.values.get(iobp_i),
+                  .Some(iobp_inner) => iobp_inner,
+                  .None => Option(EvalValue).None
+                );
+                // Extern "Yo" builtins evaluate to UnknownVal (no body), so
+                // read the marker from the value's TYPE — TS reads
+                // `argType.ioBuiltin`, the arg's TYPE, for the same reason.
+                iobp_ty := match(
+                  iobp_v,
+                  .Some(iobp_ev) => match(
+                    iobp_ev,
+                    .FuncVal(iobp_fvd, _) => get_func_type(iobp_fvd.*.func_id),
+                    .UnknownVal(iobp_uty, _) => iobp_uty,
+                    _ => t_unit()
+                  ),
+                  .None => t_unit()
+                );
+                if(struct_name == "Io", {
+                });
+                match(
+                  iobp_ty,
+                  .Func({ meta : iobp_m }) => match(
+                    iobp_m.*.extern_name,
+                    .Some(iobp_en) => if((
+                      ((iobp_en == "__yo_io_async") || (iobp_en == "__yo_io_await"))
+                      || ((iobp_en == "__yo_io_state") || (iobp_en == "__yo_io_spawn"))
+                    )
+                    || (iobp_en == "__yo_join_handle_await"), {
+                      iobp_lbl := match(fields.get(iobp_i),.Some(f) => f.label.clone(),.None => String.new());
+                      if(iobp_lbl.len() > usize(0), {
+                        record_io_builtin_struct_field(struct_id.clone(), iobp_lbl, iobp_en.clone());
+                      });
+                    }),
+                    .None => ()
+                  ),
+                  _ => ()
+                );
+                iobp_i = (iobp_i + usize(1));
+              });
+            };
             // Treat default UnknownVal fields as compile-time placeholders (mirrors
             // TS createUnknownValue's default `isRuntimeOnly: false/undefined`).
             // Only `.None` positions (no value at all) make the struct non-comptime.

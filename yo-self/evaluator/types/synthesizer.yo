@@ -1163,6 +1163,34 @@ _synthesize_future_traits :: (
     opts,
     exn
   );
+  // Effect-type (E) binding for Future traits: when the EXPECTED effect slot
+  // is still an abstract SomeT (the io.await callee's freshened `E`) and the
+  // GIVEN side is concrete (the task's `Ctx`), write the concrete type into
+  // the expected SomeT's OWN resolution cell — CELL-ONLY, never the env and
+  // never via opts. Binding `E` into the env buried sibling `E` names (e.g.
+  // Result's error param — "Cannot unify usize and unit" x5 across the async
+  // batch), and stamping through opts wrote into SHARED def-era cells,
+  // poisoning sibling calls (the io.await shared-wrapper cluster,
+  // issues/yo-self-io-await-shared-wrapper-poisoning.md). The cell here
+  // belongs to the per-call FRESHENED forall (_freshen_io_builtin_callee), so
+  // the write is call-local. TS gets this from synthesizeTypes binding the
+  // effect forall on the one shared SomeType object.
+  if((exp_et.len() == usize(1)) && (giv_et.len() == usize(1)), {
+    sfe_exp := match(exp_et.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
+    sfe_giv := match(giv_et.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
+    if(is_some_type(sfe_exp) && !(is_some_type(sfe_giv)), {
+      match(
+        sfe_exp,
+        .SomeT({ resolved_concrete : sfe_cell }) => {
+          if(sfe_cell.len() > usize(0), {
+            sfe_cell.remove(usize(0), sfe_cell.len());
+          });
+          sfe_cell.push(sfe_giv);
+        },
+        _ => ()
+      );
+    });
+  });
   SynthesizeResult(expected_env : ee, given_env : ge)
 });
 // ---------------------------------------------------------------------------

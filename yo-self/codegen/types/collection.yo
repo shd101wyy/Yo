@@ -35,6 +35,7 @@ open(import("std/string"));
   is_iso_type,
   is_module_type,
   is_trait_type,
+  is_future_trait_type,
   is_some_type,
   is_function_type,
   is_array_type
@@ -210,7 +211,13 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
   is_registerable := (
     (
       ((is_struct_type(type) || is_union_type(type)) || (is_enum_type(type) || is_tuple_type(type)))
-      || (is_dyn_type(type) || is_trait_type(type))
+      // FutureTraitT: the generic Future trait-object interface struct — TS's
+      // FutureTraitType is a TraitType subtype so `isTraitType` covers it
+      // (collection.ts:420); yo-self models it as a SEPARATE variant, so it
+      // needs its own clause. Registered so a future-typed parameter's
+      // `__yo_future_trait_*` interface struct gets a C name + declaration
+      // (generation.yo's is_future_trait_type declaration pass).
+      || ((is_dyn_type(type) || is_trait_type(type)) || is_future_trait_type(type))
     )
     || (is_module_type(type) || is_iso_type(type))
   );
@@ -245,6 +252,16 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
       c_name := _intern_type_c_name(tk.clone());
       context.register_type(tk, type, c_name, Option(String).None);
     });
+    // Future trait interface: collect the OUTPUT type (T in Future(T)) — its
+    // C name appears as the interface struct's `result` field. Mirrors TS
+    // collecting `futureModule.isFuture.outputType` (collection.ts:384).
+    match(
+      type,
+      .FutureTraitT({ output : ftc_out }) => if(!(is_some_type(ftc_out)), {
+        recur(ftc_out, context);
+      }),
+      _ => ()
+    );
     // Struct fields (skip function-typed fields — emitted inline at call sites).
     match(
       type,

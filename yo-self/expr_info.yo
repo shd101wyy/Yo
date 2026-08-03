@@ -505,6 +505,45 @@ record_method_callee_type :: (fn(call_id : ExprId, ty : TypeValue) -> unit)({
 lookup_method_callee_type :: (fn(call_id : ExprId) -> Option(TypeValue))(
   g_method_callee_types.get(call_id)
 );
+// ---------------------------------------------------------------------------
+// Io-builtin marker side-tables.
+//
+// TS marks the Io effect record's builtin members with `ioBuiltin` on the
+// FUNCTION TYPE: the extern declaration stamps it (extern.ts:143-158, from
+// the `__yo_io_*` field label), and STRUCT CONSTRUCTION propagates it onto
+// the shared struct field type (`memberElement.type.ioBuiltin =
+// argType.ioBuiltin`, calls/type.ts:176-182) — so `my_io.await` on ANY
+// receiver of type Io reads the marker via `expr.func.$?.type?.ioBuiltin`
+// (await-analysis.ts:137-167). yo-self's TypeValues are copied, not shared,
+// so the propagation is modelled as two side-tables:
+//   * construction time: (struct id, field label) → marker, recorded when a
+//     ctor arg's Func type carries an io-builtin `extern_name`;
+//   * call time: call expr id → marker, resolved at the evaluate_function_call
+//     dispatch choke point (callee extern_name directly, or dot-access
+//     receiver struct-id + field lookup in the first table);
+// and the await-analysis classifiers read the second table. Plain Strings
+// only — no TypeValue refs held across module boundaries.
+// ---------------------------------------------------------------------------
+(g_io_builtin_struct_fields : HashMap(String, String)) = HashMap(String, String).new();
+/// Record that `struct_id`.`field_label` holds an io-builtin function.
+record_io_builtin_struct_field :: (fn(struct_id : String, field_label : String, marker : String) -> unit)({
+  g_io_builtin_struct_fields.set(`${struct_id}\n${field_label}`, marker);
+  ()
+});
+/// Look up the io-builtin marker for `struct_id`.`field_label`, if any.
+lookup_io_builtin_struct_field :: (fn(struct_id : String, field_label : String) -> Option(String))(
+  g_io_builtin_struct_fields.get(`${struct_id}\n${field_label}`)
+);
+(g_io_builtin_calls : HashMap(ExprId, String)) = HashMap(ExprId, String).new();
+/// Record the io-builtin marker for a call expr id.
+record_io_builtin_call :: (fn(call_id : ExprId, marker : String) -> unit)({
+  g_io_builtin_calls.set(call_id, marker);
+  ()
+});
+/// Look up the io-builtin marker for a call expr id, if any.
+lookup_io_builtin_call :: (fn(call_id : ExprId) -> Option(String))(
+  g_io_builtin_calls.get(call_id)
+);
 // Method-callee VALUE side-table (parallel to g_method_callee_types). Codegen's
 // generate_other_function_call dispatches via the callee's ExprInfo value, but a
 // method call's callee dot-access has no ExprInfo (recording one is destructive
@@ -986,6 +1025,7 @@ export(RuntimeDestructuring);
 export(ExprInfo, new_expr_info);
 export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get);
 export(record_method_callee_type, lookup_method_callee_type);
+export(record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, lookup_io_builtin_call);
 export(record_method_callee_value, lookup_method_callee_value);
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_type);
 export(register_some_resolved_concrete, lookup_some_resolved_concrete, unregister_some_resolved_concrete);

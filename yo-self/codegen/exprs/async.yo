@@ -60,7 +60,7 @@ open(import("std/string"));
   type_implements_future
 } :: import("../../evaluator/trait_checking.yo");
 { get_drop_function_for_type, get_dup_function_for_type } :: import("./drop_dup.yo");
-{ generate_atom } :: import("./atom.yo");
+{ generate_atom, _generate_sm_atom } :: import("./atom.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { get_evidence_parameters } :: import("../functions/declarations.yo");
 {
@@ -1376,9 +1376,26 @@ _build_async_capture_struct_literal :: (
               // !usedDeferredDups path. Previously this emitted
               // `/* PHASE3_CAPTURE_PENDING */ 0`, feeding NULL captures into
               // every std-internal FSM.
-              cap_env := match(context.base.get_expr_info(expr),.Some(cei_f) => Option(Environment).Some(cei_f.env),.None => Option(Environment).None);
-              cname := get_variable_name_for_codegen(label.clone(), cap_env);
-              parts.push(`.${label} = ${cname}`);
+              // Inside an ENCLOSING state machine (a nested io.async in an SM
+              // while-loop body), the captured variable is an SM field — map
+              // it through the sm-> alias/capture resolution the atom emitter
+              // uses (TS gets this for free by generating the recorded atom
+              // expr, which routes through the same mapping). A bare C name
+              // here referenced identifiers that do not exist in the resume
+              // fn ("use of undeclared identifier 'total'/'val'", async
+              // subtask-in-while arms).
+              sm_mapped := _generate_sm_atom(expr, label.clone(), context);
+              match(
+                sm_mapped,
+                .Some(sm_name) => {
+                  parts.push(`.${label} = ${sm_name}`);
+                },
+                .None => {
+                  cap_env := match(context.base.get_expr_info(expr),.Some(cei_f) => Option(Environment).Some(cei_f.env),.None => Option(Environment).None);
+                  cname := get_variable_name_for_codegen(label.clone(), cap_env);
+                  parts.push(`.${label} = ${cname}`);
+                }
+              );
             }
           );
         });
@@ -2526,7 +2543,16 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
           .Some(ecap9) => `((${ecap9}*)closure_context)->${lbl.clone()}`,
           .None => `closure_context->${lbl.clone()}`
         ),
-        true => lbl.clone()
+        // Inside an ENCLOSING state machine (a sync io.async future built in
+        // an async while-loop body), the captured variable is an SM field —
+        // map it through the sm-> alias/capture resolution. A bare label
+        // referenced identifiers that do not exist in the resume fn ("use of
+        // undeclared identifier 'i'/'a'/'responses'", sync-future-in-SM arms).
+        true => match(
+          _generate_sm_atom(expr, lbl.clone(), context),
+          .Some(sm_lbl) => sm_lbl,
+          .None => lbl.clone()
+        )
       );
       lit.push_string(lbl_read);
       cli = (cli + usize(1));

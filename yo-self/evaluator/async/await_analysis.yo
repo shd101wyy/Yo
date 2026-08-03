@@ -33,8 +33,8 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind } :: import("../../token.yo");
-{ AstExpr, ast_expr_token } :: import("../../expr.yo");
-{ ExprInfo } :: import("../../expr_info.yo");
+{ AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
+{ ExprInfo, lookup_io_builtin_call } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 {
@@ -157,29 +157,49 @@ _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool
 // ---------------------------------------------------------------------------
 // Io builtin structural checks
 // ---------------------------------------------------------------------------
+/// SEMANTIC io-builtin check: true iff this call's recorded io-builtin marker
+/// equals `marker`. TS classifies io builtins by the callee TYPE's `ioBuiltin`
+/// marker (`expr.func.$?.type?.ioBuiltin`, await-analysis.ts:137-167) — set
+/// from the extern field label (`__yo_io_await` etc., extern.ts:143-158) and
+/// propagated onto the Io struct's field types at construction
+/// (calls/type.ts:176-182) — so ANY receiver variable of type `Io`
+/// classifies, not just one literally named `io`. yo-self resolves the marker
+/// once at evaluate_function_call's dispatch choke point (calls/function.yo)
+/// into the `g_io_builtin_calls` side-table read here. The name-based
+/// `_is_dot_access` checks below remain as the fast path (and cover
+/// pre-recording contexts); without this semantic path
+/// `my_io.await(task, ctx)` fell through to the JoinHandle-await shape and
+/// codegen emitted an error comment (async_await arm 72).
+_callee_io_builtin_is :: (fn(expr : AstExpr, marker : String) -> bool)(
+  match(
+    lookup_io_builtin_call(ast_expr_id(expr)),
+    .Some(cim_mk) => (cim_mk == marker),
+    .None => false
+  )
+);
 /// Checks if an expression is an io.async(closure) call.
 ///
 /// Mirrors `isIoAsyncCall` in `src/evaluator/async/await-analysis.ts`.
 is_io_async_call :: (fn(expr : AstExpr) -> bool)(
-  _is_dot_access(expr, "io", "async")
+  _is_dot_access(expr, "io", "async") || _callee_io_builtin_is(expr, String.from("__yo_io_async"))
 );
 /// Checks if an expression is an io.await(future, io) call.
 ///
 /// Mirrors `isIoAwaitCall` in `src/evaluator/async/await-analysis.ts`.
 is_io_await_call :: (fn(expr : AstExpr) -> bool)(
-  _is_dot_access(expr, "io", "await")
+  _is_dot_access(expr, "io", "await") || _callee_io_builtin_is(expr, String.from("__yo_io_await"))
 );
 /// Checks if an expression is an io.state(future) call.
 ///
 /// Mirrors `isIoStateCall` in `src/evaluator/async/await-analysis.ts`.
 is_io_state_call :: (fn(expr : AstExpr) -> bool)(
-  _is_dot_access(expr, "io", "state")
+  _is_dot_access(expr, "io", "state") || _callee_io_builtin_is(expr, String.from("__yo_io_state"))
 );
 /// Checks if an expression is an io.spawn(future) call.
 ///
 /// Mirrors `isIoSpawnCall` in `src/evaluator/async/await-analysis.ts`.
 is_io_spawn_call :: (fn(expr : AstExpr) -> bool)(
-  _is_dot_access(expr, "io", "spawn")
+  _is_dot_access(expr, "io", "spawn") || _callee_io_builtin_is(expr, String.from("__yo_io_spawn"))
 );
 /// Checks if an expression is a JoinHandle.await(io, JoinHandle) call.
 /// Structurally: any `x.await(..., x)` where x is NOT "io".

@@ -1131,9 +1131,32 @@ generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
 });
 /// Generate a Future-trait declaration. DEFERRED (Phase-5 async,
 /// generateFutureTraitDeclaration) — not exercised by the corpus.
-generate_future_trait_declaration :: (fn(type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
-  ()
-);
+/// Emit the generic Future trait-object interface struct for a
+/// `FutureTraitT`. Faithful port of `generateFutureTraitDeclaration`
+/// (src/codegen/types/generation.ts:982-1012). Every async state-machine
+/// struct begins with this exact prefix (header/state/result/continuation_fn/
+/// continuation_sm/__yo_resume_fn/__yo_set_effect_fn), so a concrete SM
+/// future pointer casts to this interface — it is the C lowering for a
+/// FUTURE-typed function parameter (`task : Impl(Future(T, E))`).
+generate_future_trait_declaration :: (fn(type : TypeValue, c_name : String, context : CodeGenContext) -> unit)({
+  em := context.emitter;
+  result_type := match(type,.FutureTraitT({ output : ftd_o }) => ftd_o.clone(), _ => return(()));
+  em.emit_declaration_string_line(`struct ${c_name.clone()}_struct { // Generic Future interface for ${type_to_string(type)}`);
+  em.emit_declaration_string_line(String.from("  __yo_ref_header_t header;"));
+  em.emit_declaration_string_line(String.from("  int state;  // 0 = cold, -1 = completed, -2 = aborted"));
+  if(is_unit_type(result_type), {
+    em.emit_declaration_string_line(String.from("  uint8_t result;"));
+  }, {
+    result_c := get_type_string(result_type, context);
+    em.emit_declaration_string_line(`  ${result_c.clone()} result;`);
+  });
+  em.emit_declaration_string_line(String.from("  void (*continuation_fn)(void*);"));
+  em.emit_declaration_string_line(String.from("  void* continuation_sm;"));
+  em.emit_declaration_string_line(String.from("  void (*__yo_resume_fn)(void*);"));
+  em.emit_declaration_string_line(String.from("  void (*__yo_set_effect_fn)(void*, const char*, void*);"));
+  em.emit_declaration_string_line(String.from("};"));
+  em.emit_declaration_string_line(String.from(""));
+});
 /// Generate Iso struct types + constructor declarations. DEFERRED (Phase-3 iso,
 /// generateIsoTypeDeclarations) — no iso types in the corpus.
 /// Emit Iso struct type declarations + create/extract/dispose helper decls and
@@ -1685,6 +1708,7 @@ export(
   generate_tuple_declaration,
   generate_union_declaration,
   generate_enum_declaration,
+  generate_future_trait_declaration,
   _emit_type_runtime_preamble,
   generate_type_declarations,
   generate_dyn_box_types

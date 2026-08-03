@@ -259,9 +259,21 @@ emit_io_spawn_effect_injection :: (fn(expr : AstExpr, future_var : String, inden
   effect := match(_first_future_effect(ft),.Some(e) => e,.None => return());
   bundle_arg := match(args.get(usize(1)),.Some(a) => a,.None => return());
   bundle_code := _call_generate_expr(bundle_arg, indent.clone(), context);
-  // Prefer the future's resolved effect type for the cast; fall back to the arg's
-  // own type when the effect remains SomeType (closure-param bundles).
-  cast_type := if(is_module_type(effect.ty) || is_struct_type(effect.ty), effect.ty, match(context.base.get_expr_info(bundle_arg),.Some(ei) => ei.ty,.None => effect.ty));
+  // Type the temp by the BUNDLE ARG's own recorded type when it is a concrete
+  // struct/module (the value crosses type-erased as void*; an anonymous record
+  // literal's C struct is a distinct twin of the future's named effect type —
+  // see emit_effect_injection_for_await). Fall back to the future's resolved
+  // effect type when the arg's type is not a concrete struct/module (e.g. a
+  // closure-param SomeType bundle).
+  cast_type := match(
+    context.base.get_expr_info(bundle_arg),
+    .Some(ei) => cond(
+      (is_module_type(ei.ty) || is_struct_type(ei.ty)) => ei.ty,
+      (is_module_type(effect.ty) || is_struct_type(effect.ty)) => effect.ty,
+      true => ei.ty
+    ),
+    .None => effect.ty
+  );
   bundle_type := get_type_string(cast_type, context.base);
   tmp_name := `__yo_eff_bundle_${random_id(String.from("eff"))}`;
   em := context.base.emitter;
@@ -288,7 +300,22 @@ emit_effect_injection_for_await :: (fn(expr : AstExpr, future_var : String, inde
       args.get(usize(1)),
       .Some(bundle_arg) => {
         bundle_code := _call_generate_expr(bundle_arg, indent.clone(), context);
-        bundle_type := get_type_string(effect.ty, context.base);
+        // Type the temp by the BUNDLE ARG's own recorded type when it is a
+        // concrete struct/module — the value crosses type-erased (void*), and
+        // an anonymous record literal (`{ io, raise }`) lowers to its OWN C
+        // struct while the future's declared effect type is the NAMED twin
+        // (`Ctx`) — initializing across the pair is a clang type error even
+        // though the layouts are identical. TS has ONE type object for both
+        // (the record literal adopts the expected struct), so `${effect_c}
+        // bundle = temp;` type-checks there; matching the arg's type here
+        // reproduces that consistency. Fall back to the effect type when the
+        // arg's type is not a concrete struct/module.
+        bundle_cast_ty := match(
+          context.base.get_expr_info(bundle_arg),
+          .Some(bae) => if(is_module_type(bae.ty) || is_struct_type(bae.ty), bae.ty, effect.ty),
+          .None => effect.ty
+        );
+        bundle_type := get_type_string(bundle_cast_ty, context.base);
         tmp_name := `__yo_eff_bundle_${random_id(String.from("eff"))}`;
         em.emit_string_line(`${indent.clone()}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
         em.emit_string_line(`${indent.clone()}if (${future_var.clone()}->__yo_set_effect_fn) ${future_var.clone()}->__yo_set_effect_fn((void*)${future_var.clone()}, "__bundle", (void*)&${tmp_name});`);
