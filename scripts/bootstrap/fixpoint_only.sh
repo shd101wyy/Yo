@@ -2,7 +2,7 @@
 # fixpoint_only.sh — GATE 4-6 of gates_perf1.sh in isolation.
 #   S1=<binary> P=<prefix> bash scratchpad/fixpoint_only.sh
 set -u
-cd /Users/yiyiwang/Workspace/Yo || exit 2
+cd "$(dirname "$0")/../.." || exit 2
 S1=${S1:?}; P=${P:?}
 YO_MAIN_STACK_MB=4096 "$S1" compile yo-self/main.yo --release --emit-c --skip-c-compiler -o /tmp/${P}_stage2 &> /tmp/${P}_stage2_emit.log
 echo "STAGE2_RC=$?"

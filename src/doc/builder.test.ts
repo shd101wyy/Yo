@@ -179,7 +179,7 @@ export(UserId);
   test("documents an object (reference-counted struct)", () => {
     const doc = buildDocFromSource(`
 /// A ref-counted container.
-Container :: object(data : i32);
+Container :: ref(struct(data : i32));
 export(Container);
 `);
 
@@ -193,7 +193,7 @@ export(Container);
   test("documents an atomic object", () => {
     const doc = buildDocFromSource(`
 /// A thread-safe ref-counted container.
-Container :: atomic(object(data : i32));
+Container :: atomic(ref(struct(data : i32)));
 export(Container);
 `);
 
@@ -343,7 +343,7 @@ export(List);
 
   test("keeps trait impl signatures compact", () => {
     const doc = buildDocFromSource(`
-Boxed :: object(value : i32);
+Boxed :: ref(struct(value : i32));
 
 impl(Boxed, Dispose(
   dispose : (fn(self : Self) -> unit)(())
@@ -370,7 +370,7 @@ MyVec :: struct(data : i32, len : i32);
 
 impl(MyVec, Index(usize)(
   Output : i32,
-  index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(&(self.data))
+  index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(&(self.data))
 ));
 
 export(MyVec);

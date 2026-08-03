@@ -73,17 +73,17 @@ by `ExprId`. Codegen reads from this table to produce well-typed C.
 
 ## Current status
 
-> **AUTHORITATIVE current state (2026-07-01) is in
-> [`BOOTSTRAPPING_CODEGEN.md`](BOOTSTRAPPING_CODEGEN.md).** The evaluator port is
-> complete (`check` green); the codegen port is substantially complete (differential
-> corpus 96/96). **P0** (heap-corruption SIGTRAP) FIXED; **P1** (executing-mode
-> transpile-error tail) COMPLETE — the TS compiler self-compiles `yo-self/main.yo`
-> in 81 s with **0 real** `// Failed to transpile` markers (measure with
-> `scripts/count-transpile-failures.sh`; a bare grep miscounts by a fixed
-> string-literal floor of 2). The **sole remaining blocker is P2 — memory**: the
-> yo-self binary peaks ~3× the TS compiler self-compiling, swap-thrashing the
-> Phase-6 fixpoint on 16 GB. The §"Functional state today" below predates this and
-> is retained only for history.
+> **GOAL ACHIEVED (2026-08-03, `65ebcdbb2`).** The self-hosted compiler
+> passes the full integration suite — **186/186 test files GREEN** under
+> `yo-self-bin test ./tests` (honest sweep: every batch `main` verified
+> non-hollow) — the differential corpus is **154/154** vs the TS ground
+> truth, `check ./std` is 153/153, and the **bootstrap fixpoint holds**:
+> the stage-2 self-compiled binary re-emits byte-identical C (stage-2 ≡
+> stage-3, 103.7 MB, 0 markers, clang 0 errors). The AUTHORITATIVE
+> operational record (gates, measurement rules, scripts under
+> `scripts/bootstrap/`) is [`YO_SELF_STAGE2_HANDOFF.md`](YO_SELF_STAGE2_HANDOFF.md).
+> Everything below this banner is retained as historical record; its
+> status numbers are FROZEN at their writing dates.
 
 ### Functional state today
 

@@ -4,7 +4,7 @@
 # NEVER run two of these concurrently against the same directory: the batch
 # artifacts (.yo_selftest_batch_*) live next to the test file and collide.
 set -u
-cd /Users/yiyiwang/Workspace/Yo || exit 2
+cd "$(dirname "$0")/../.." || exit 2
 BIN="${BIN:-/tmp/diag11_s1}"
 T="${T:-tests/comptime.test.yo}"
 TAG="${TAG:-m1}"

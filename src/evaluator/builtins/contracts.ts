@@ -285,8 +285,36 @@ function buildAssertCall(
 
   return {
     tag: ExprTag.FnCall,
-    func: synthAtom(assertFnName, TokenType.Identifier, predToken),
+    func: buildAssertCallee(assertFnName, predToken),
     args: [pred, msgExpr],
+    token: predToken,
+  };
+}
+
+/**
+ * Callee for the synthesized contract assert. `comptime_assert` is a
+ * builtin keyword and resolves bare; runtime `assert` moved out of the
+ * prelude into `std/assert` (explicit import), so a bare `assert`
+ * identifier no longer resolves in user files that never import it.
+ * Synthesize `import("std/assert").assert` instead — self-contained and
+ * immune to local shadowing.
+ */
+function buildAssertCallee(assertFnName: string, predToken: Token): Expr {
+  if (assertFnName !== "assert") {
+    return synthAtom(assertFnName, TokenType.Identifier, predToken);
+  }
+  const importCall: FnCallExpr = {
+    tag: ExprTag.FnCall,
+    func: synthAtom("import", TokenType.Identifier, predToken),
+    args: [
+      synthAtom(JSON.stringify("std/assert"), TokenType.String, predToken),
+    ],
+    token: predToken,
+  };
+  return {
+    tag: ExprTag.FnCall,
+    func: synthAtom(".", TokenType.Identifier, predToken),
+    args: [importCall, synthAtom("assert", TokenType.Identifier, predToken)],
     token: predToken,
   };
 }

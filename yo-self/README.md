@@ -74,22 +74,22 @@ The strongest evaluator gate is not the unit suite but the self-hosted
 binary itself:
 
 ```bash
-./yo-cli compile yo-self/main.yo -o /tmp/yo-self-bin   # ~10 min
-YO_MAIN_STACK_MB=4096 /tmp/yo-self-bin check ./std      # 152/152
-YO_MAIN_STACK_MB=4096 /tmp/yo-self-bin check ./tests    # 147/149 (2 circular-import fixtures match TS errors)
-YO_MAIN_STACK_MB=4096 /tmp/yo-self-bin check ./yo-self  # all green
+./yo-cli compile yo-self/main.yo --release -o /tmp/yo-self-bin   # ~6 min (always --release; -O0 hits stack ceilings)
+/tmp/yo-self-bin check ./std                                     # 153/153
+/tmp/yo-self-bin test ./tests --parallel 1                       # 186/186 test files green
+# Stage-2 self-compile + fixpoint (the strongest gate of all):
+bash scripts/bootstrap/fixpoint_only.sh                          # emit + clang + stage-3 + byte-compare
 ```
 
-## Running yo-self-bin on prelude/large files
+## Stack sizing on deep inputs
 
-The recursive evaluator can exceed the default macOS 8 MB main-thread stack on
-non-trivial inputs. Raise the soft stack limit before invoking the binary:
+Compiled Yo programs run `main` on a worker thread with a 1 GiB default
+stack, overridable via `YO_MAIN_STACK_MB`. Always build the self-hosted
+binary with `--release`: at `-O0` the big evaluator functions have
+multi-MB frames and deep compile-time recursion exhausts the stack
+(rc=139) — see the pitfall entry in `AGENTS.md`. If a deep input still
+crashes a `--release` binary, raise the stack:
 
 ```bash
-ulimit -s 65520
-./yo-cli compile yo-self/main.yo -o /tmp/yo-self-bin
-/tmp/yo-self-bin check std/prelude.yo
+YO_MAIN_STACK_MB=4096 /tmp/yo-self-bin check ./yo-self
 ```
-
-See [`issues/fixed/yo-self-evaluator-stack-overflow.md`](../issues/fixed/yo-self-evaluator-stack-overflow.md)
-for the diagnosis.

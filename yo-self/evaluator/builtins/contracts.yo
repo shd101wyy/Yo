@@ -6,12 +6,11 @@
 //! that evaluate their args and return `unit`) and `ghost_fn` / `old`
 //! (transparent pass-throughs).
 //!
-//! NOT yet ported: `wrap_function_body_with_contracts` — the signature→assert
+//! Also ported: `wrap_function_body_with_contracts` — the signature→assert
 //! lowering that turns `requires(...)` / `ensures(...)` in a function SIGNATURE
-//! into runtime `assert(...)` / `comptime_assert(...)` calls wrapping the body.
-//! That ties into the function-type evaluator's signature processing and is the
-//! remaining contracts piece (see plans/REMAINING_EVALUATOR_PORTS.md). The
-//! markers below cover the expression-position uses.
+//! into runtime `assert(...)` / `comptime_assert(...)` calls wrapping the body
+//! (wired from calls/function_type.yo). The runtime assert callee is the
+//! self-contained `import("std/assert").assert` — see `_build_assert_callee`.
 open(import("std/string"));
 open(import("std/fmt"));
 {
@@ -284,6 +283,42 @@ _synth_string_token_value :: (fn(s : String) -> String)({
   sb.write_byte(u8(0x22));
   sb.to_string()
 });
+/// Callee for the synthesized contract assert. `comptime_assert` is a builtin
+/// keyword and resolves bare; runtime `assert` moved out of the prelude into
+/// `std/assert` (explicit import), so a bare `assert` identifier no longer
+/// resolves in user files that never import it. Synthesize
+/// `import("std/assert").assert` instead — self-contained and immune to local
+/// shadowing. Mirrors `buildAssertCallee` (contracts.ts).
+_build_assert_callee :: (fn(assert_fn_name : String, pred_tok : Token) -> AstExpr)({
+  if(!(assert_fn_name == "assert"), {
+    return(_synth_atom(assert_fn_name, TokenKind.Identifier, pred_tok));
+  });
+  import_args := ArrayList(AstExpr).new();
+  import_args.push(
+    _synth_atom(
+      _synth_string_token_value(String.from("std/assert")),
+      TokenKind.StringLit,
+      pred_tok.clone()
+    )
+  );
+  import_call := AstExpr.FnCall(
+    alloc_global_expr_id(),
+    _synth_atom(String.from("import"), TokenKind.Identifier, pred_tok.clone()),
+    import_args,
+    false,
+    pred_tok.clone()
+  );
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(import_call);
+  dot_args.push(_synth_atom(String.from("assert"), TokenKind.Identifier, pred_tok.clone()));
+  AstExpr.FnCall(
+    alloc_global_expr_id(),
+    _synth_atom(String.from("."), TokenKind.Identifier, pred_tok.clone()),
+    dot_args,
+    false,
+    pred_tok
+  )
+});
 /// Build a synthetic `assert(pred, "<label>: <pred-src>")` (or
 /// `comptime_assert(...)`) call. `label_pred` supplies the human-readable
 /// message text; `pred` is what actually gets checked (it may have had
@@ -309,7 +344,7 @@ _build_assert_call :: (
   args.push(msg_expr);
   AstExpr.FnCall(
     alloc_global_expr_id(),
-    _synth_atom(assert_fn_name, TokenKind.Identifier, pred_tok.clone()),
+    _build_assert_callee(assert_fn_name, pred_tok.clone()),
     args,
     false,
     pred_tok

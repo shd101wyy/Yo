@@ -4,7 +4,7 @@
 # ~75 min) ONCE per batch before pushing.
 #   S1=<binary> P=<prefix> scratchpad/gates_fast.sh
 set -u
-cd /Users/yiyiwang/Workspace/Yo || exit 2
+cd "$(dirname "$0")/../.." || exit 2
 S1=${S1:-/tmp/s1}
 P=${P:-fast}
 

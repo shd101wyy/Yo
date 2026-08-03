@@ -50,13 +50,13 @@ describe("comptime(ref(...)) parameter form — error cases", () => {
     // encounters inout under a generic context.
     const output = compileAndExpectError(`
 take_param :: (
-  fn(generic(ref(T) : Type), x : T) -> T
+  fn(generic(inout(T) : Type), x : T) -> T
 )(x);
 main :: (fn() -> unit)({});
 export(main);
 `);
     expect(output).toMatch(
-      /'ref' cannot combine with 'generic'\/'using' parameters/
+      /'inout' cannot combine with 'generic'\/'using' parameters/
     );
   });
 
@@ -67,12 +67,12 @@ export(main);
     // own-outer ordering — the parser processes `own` first, then
     // `inout`, and the inout check sees `isOwningTheRcValue` set.
     const output = compileAndExpectError(`
-takes :: (fn(own(ref(x)) : i32) -> i32)(x);
+takes :: (fn(own(inout(x)) : i32) -> i32)(x);
 main :: (fn() -> unit)({});
 export(main);
 `);
     expect(output).toMatch(
-      /Cannot combine 'own' and 'ref' on the same parameter/
+      /Cannot combine 'own' and 'inout' on the same parameter/
     );
   });
 
@@ -86,7 +86,7 @@ export(main);
     fs.writeFileSync(
       file,
       `
-bump :: (fn(comptime(ref(n)) : usize) -> comptime(usize))({
+bump :: (fn(comptime(inout(n)) : usize) -> comptime(usize))({
   n = (n + usize(1));
   n
 });

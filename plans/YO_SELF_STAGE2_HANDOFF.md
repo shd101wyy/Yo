@@ -64,7 +64,7 @@ a ZERO-byte log — the phantom-kill signature). Re-run before believing either.
    ```bash
    bun run build
    ./yo-cli compile yo-self/main.yo --release -o /tmp/s1
-   BIN=/tmp/s1 T=tests/iterator_combinators.test.yo TAG=x bash scratchpad/measure_one.sh
+   BIN=/tmp/s1 T=tests/iterator_combinators.test.yo TAG=x bash scripts/bootstrap/measure_one.sh
    ```
 3. **No open roots remain.** Everything in §3 is SOLVED and kept only as
    postmortem pointers. The campaign goal state — all tests green, stage-2
@@ -118,7 +118,7 @@ Corpus gained `iter_filter_multi_closure.yo` + `iter_map_closure.yo` (154).
 Two stacked roots (`issues/handoff-2026-08-02/07` + `06`, note the name
 swap): **A2 (the `_stable_identity_at` Tuple arm) LANDED 2026-08-03** —
 its stage-2 control passed post-cycle-guard (emit rc=0, hollow=0, clang
-errors == 4 unchanged) and `scratchpad/t5/A_g4_min.yo` (the tuple
+errors == 4 unchanged) and `scripts/bootstrap/t5/A_g4_min.yo` (the tuple
 layout-aliasing MISCOMPILE) now compiles and runs. Arm 12 itself still
 hollows on the OTHER stacked root: A1 (the `_()` reroute for NAMED expected
 structs) remains REFUTED as land-able by its adversarial verifier.
@@ -168,7 +168,7 @@ this restores the full fixpoint gate AND is probably upstream of §3.1.
   candidate is rejected, TS hard-errors; yo-self drops the statement.
 - `issues/yo-self-ctfe-route-return-type-unresolved.md` — FIXED; kept for
   the soundness-hole postmortem (vacuous comptime_asserts).
-- `scratchpad/t2/C2.yo` and `A_fn_ct.yo` — two open imm/list-adjacent
+- `scripts/bootstrap/t2/C2.yo` and `A_fn_ct.yo` — two open imm/list-adjacent
   standalone failures (TS rc=0), unchanged by the shell fix.
 
 ---
@@ -189,13 +189,13 @@ sed -n '/^void __yo_user_main() {/,/^}/p' <dir>/.yo_selftest_batch_1.bin.c \
   | grep -c 'Failed to transpile'
 ```
 
-| tool                           | what                                                                      |
-| ------------------------------ | ------------------------------------------------------------------------- |
-| `scratchpad/hollow_sweep69.sh` | honest score, all 185 files, resumable. **~40 min**                       |
-| `scratchpad/measure_one.sh`    | one file, same rules                                                      |
-| `scratchpad/hollow8.sh`        | the 7 hollows + the RED slot + 3 canaries, ~13 min                        |
-| `scratchpad/subset_arms.py`    | rebuild a `.test.yo` with only chosen arms — the ONLY way to blame an arm |
-| `scratchpad/swallow_sweep.sh`  | recover the SWALLOWED def-time error per file                             |
+| tool                                  | what                                                                      |
+| ------------------------------------- | ------------------------------------------------------------------------- |
+| `scripts/bootstrap/hollow_sweep69.sh` | honest score, all 185 files, resumable. **~40 min**                       |
+| `scripts/bootstrap/measure_one.sh`    | one file, same rules                                                      |
+| `scripts/bootstrap/hollow8.sh`        | the 7 hollows + the RED slot + 3 canaries, ~13 min                        |
+| `scripts/bootstrap/subset_arms.py`    | rebuild a `.test.yo` with only chosen arms — the ONLY way to blame an arm |
+| `scripts/bootstrap/swallow_sweep.sh`  | recover the SWALLOWED def-time error per file                             |
 
 Rules that each cost real time to learn:
 
@@ -246,9 +246,9 @@ import collides with `ToString`.
 ```bash
 bun run build                                              # before any yo-cli work
 ./yo-cli compile yo-self/main.yo --release -o /tmp/s1      # ~2.5 min
-S1=/tmp/s1 P=x bash scratchpad/gates_fast.sh               # TIER 1, ~12 min
-BIN=/tmp/s1 TAG=x bash scratchpad/hollow8.sh               # the 7 + canaries, ~13 min
-BIN=/tmp/s1 OUT=/tmp/hs bash scratchpad/hollow_sweep69.sh  # honest score, ~40 min
+S1=/tmp/s1 P=x bash scripts/bootstrap/gates_fast.sh               # TIER 1, ~12 min
+BIN=/tmp/s1 TAG=x bash scripts/bootstrap/hollow8.sh               # the 7 + canaries, ~13 min
+BIN=/tmp/s1 OUT=/tmp/hs bash scripts/bootstrap/hollow_sweep69.sh  # honest score, ~40 min
 ```
 
 The full sweep is **mandatory** before claiming a flip: the GREEN→HOLLOW
@@ -294,7 +294,7 @@ you touch address-of / Index-trait / comptime-place code.
    hollowness (a state once passed every gate while emitting 19 markers, because
    stage2 and stage3 drop the same statements). Prove a gate can FAIL before
    trusting it to pass. ASan is useless here (`yo-cli` silently skips
-   instrumentation); use `scratchpad/guardmalloc_corpus.sh`.
+   instrumentation); use `scripts/bootstrap/guardmalloc_corpus.sh`.
 5. **The honest sweep cannot detect WRONG ANSWERS** — they are neither hollow
    nor red. One landed fix this campaign was a silent miscompilation
    (`comptime_add(3, 2)` returned 4) found only by running a standalone repro
@@ -379,7 +379,7 @@ you touch address-of / Index-trait / comptime-place code.
 | `issues/yo-self-no-matching-overload-silent-drop.md` | zero-surviving-overload-candidates drops the statement (TS hard-errors)                           |
 | `issues/yo-self-stub-inventory.md`                   | 311 unported/divergent findings, each with a TS file:line                                         |
 | `tests/codegen-bootstrap/`                           | the 152-file differential corpus (add a regression test per fix)                                  |
-| `scratchpad/apply_*.py`                              | landed and reverted patch scripts, each with its evidence in the docstring                        |
+| `scripts/bootstrap/apply_*.py`                       | landed and reverted patch scripts, each with its evidence in the docstring                        |
 | agent auto-memory (outside the repo)                 | `MEMORY.md` indexes distilled lessons — recall before re-deriving                                 |
 
 `tmp/` is a git-ignored scratch dir with stale `*.test.yo` files; a bare

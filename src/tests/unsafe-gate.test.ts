@@ -101,6 +101,7 @@ export(main);
     fs.writeFileSync(
       file,
       `pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
 main :: (fn() -> unit)({
   x := i32(42);
   p := &(x);

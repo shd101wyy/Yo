@@ -4,7 +4,14 @@ Plan for the codegen slice of self-hosting (successor to
 `BOOTSTRAPPING_EVALUATOR.md`, whose `check` surface went green 2026-06-10).
 `BOOTSTRAPPING.md` is the umbrella record — update both when status changes.
 
-**Status in one line (2026-07-01):** the emitter port is substantially complete —
+> **COMPLETE (2026-08-03, `65ebcdbb2`):** all 8 phases done. Full suite
+> 186/186 GREEN under the self-hosted binary, corpus 154/154, stage-2
+> emit 0 markers / clang 0 errors, and the **Phase-6 fixpoint HOLDS**
+> (stage-2 ≡ stage-3 byte-identical). The P2 memory blocker was resolved
+> by the 2026-07 perf arc (hash-clustering, emit dispatch, -26%% GC).
+> Operational record: [`YO_SELF_STAGE2_HANDOFF.md`](YO_SELF_STAGE2_HANDOFF.md).
+
+**Status in one line (2026-07-01, historical):** the emitter port is substantially complete —
 Phases 0–5 are done or near-done and the differential corpus
 (`tests/codegen-bootstrap/`, 96 fixtures) passes. **P0** (intermittent
 heap-corruption SIGTRAP) is FIXED. **P1** (executing-mode transpile-error tail) is
