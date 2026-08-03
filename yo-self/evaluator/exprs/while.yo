@@ -19,7 +19,8 @@ open(import("std/string"));
   BK_COMPTIME,
   BK_BEGIN,
   BK_WHILE,
-  BF_INVARIANT
+  BF_INVARIANT,
+  clone_expr_fresh_ids
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -401,6 +402,13 @@ evaluate_while :: (
       is_compile_time => Option(EvalValue).Some(EvalValue.UnitVal),
       true => Option(EvalValue).None
     );
+    // ADAPTATION: record EMPTY unrolled bodies so codegen emits NOTHING for
+    // the eliminated loop. TS emits a dead runtime loop whose unevaluated
+    // body statements degrade to benign `// Error:` comments; yo-self's
+    // equivalent degradation is `// Failed to transpile` markers, which the
+    // honest-hollow gate counts (basic arm 26's `i :: 10; while(comptime(
+    // i < 5), ...)`). Semantically identical: zero iterations.
+    out_info.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     return(expr);
   });
@@ -614,16 +622,123 @@ evaluate_while :: (
       env = match(step_info_s_opt,.Some(si) => si.env,.None => env);
     }
   );
-  // Phase 2 stub: comptime while loop unrolling with runtime body is deferred to Phase 3.
-  // TypeScript's evaluateWhile (lines 449-547) deep-clones and re-evaluates the loop body
-  // multiple times when the condition is compile-time true but the body has runtime values.
-  // Without clone_expr, we fall through to the iteration counter check below.
-  // If the effective condition is compile-time true, recurse to evaluate the next iteration.
+  // Comptime while loop unrolling with a RUNTIME body — port of TS
+  // while.ts:534-634. When the condition is compile-time TRUE but the body
+  // carries runtime values, deep-clone and re-evaluate the body per
+  // iteration (each clone's ExprInfos bake THAT iteration's comptime
+  // constants) and record the clones on `comptime_unrolled_bodies`; the
+  // codegen emits them sequentially with no C loop. Without this the stub
+  // recursion re-evaluated the SAME nodes (last iteration's constants won)
+  // and codegen emitted a runtime loop whose comptime step leaked a raw
+  // identifier (`i = 5;` — basic arm 26's undeclared-identifier hard fail).
   eff_cond_is_true_main := match(
     effective_condition_value,
     .None => false,
     .Some(v) => match(v,.BoolVal(b) => b, _ => false)
   );
+  body_has_runtime_value := body_info.value.is_none();
+  if(eff_cond_is_true_main && body_has_runtime_value, {
+    check_cond := clone_expr_fresh_ids(inner_cond_expr);
+    check_res := evaluate_begin_expression(check_cond, env, ctx, ArrayList(Variable).new(), false, exn);
+    next_cond_val := match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(check_res)),
+      .Some(ci) => ci.value,
+      .None => Option(EvalValue).None
+    );
+    next_is_bool := match(next_cond_val,.Some(v) => match(v,.BoolVal(_) => true, _ => false),.None => false);
+    if(next_is_bool, {
+      unrolled_bodies := ArrayList(AstExpr).new();
+      unrolled_bodies.push(body_expr);
+      (current_env : Environment) = env;
+      (cond_still_true : bool) = match(next_cond_val,.Some(v) => match(v,.BoolVal(b) => b, _ => false),.None => false);
+      (unroll_iter : usize) = usize(1);
+      (unroll_abort : bool) = false;
+      while((cond_still_true && (unroll_iter < MAX_COMPTIME_LOOP_ITERATIONS)) && !(unroll_abort), {
+        cloned_body := clone_expr_fresh_ids(body_expr);
+        old_loop_body_u := ctx.is_evaluating_loop_body;
+        ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(LoopBodyCtx(kind : LoopKind.While, env : current_env, entry_frame_count : current_env.frames.len()));
+        eval_body_u := evaluate_begin_expression(cloned_body, current_env, ctx, ArrayList(Variable).new(), false, exn);
+        ctx.is_evaluating_loop_body = old_loop_body_u;
+        match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_body_u)),
+          .None => {
+            unroll_abort = true;
+          },
+          .Some(ebi) => {
+            unrolled_bodies.push(cloned_body);
+            current_env = ebi.env;
+            // Execute step if provided (3-argument form).
+            match(
+              step_expr_opt,
+              .None => (),
+              .Some(step_expr_u) => {
+                cloned_step := clone_expr_fresh_ids(step_expr_u);
+                eval_step_u := evaluate_expression_raw(cloned_step, current_env, ctx, exn);
+                match(
+                  expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_step_u)),
+                  .Some(sui) => {
+                    current_env = sui.env;
+                  },
+                  .None => {
+                    unroll_abort = true;
+                  }
+                );
+              }
+            );
+            if(!(unroll_abort), {
+              // Re-evaluate the condition with the updated env.
+              cond_clone_u := clone_expr_fresh_ids(inner_cond_expr);
+              cond_res_u := evaluate_begin_expression(cond_clone_u, current_env, ctx, ArrayList(Variable).new(), false, exn);
+              cond_val_u := match(
+                expr_info_table_get(ctx.expr_info_table, ast_expr_id(cond_res_u)),
+                .Some(cui) => cui.value,
+                .None => Option(EvalValue).None
+              );
+              match(
+                cond_val_u,
+                .Some(cv_u) => match(
+                  cv_u,
+                  .BoolVal(b_u) => {
+                    cond_still_true = b_u;
+                  },
+                  _ => {
+                    // Condition became runtime — can't unroll further; keep
+                    // what we have and fall back (TS while.ts:607-616).
+                    out_rt_u := new_expr_info(current_env, t_unit());
+                    out_rt_u.value = Option(EvalValue).None;
+                    out_rt_u.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(unrolled_bodies);
+                    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt_u);
+                    return(expr);
+                  }
+                ),
+                .None => {
+                  out_rt_u2 := new_expr_info(current_env, t_unit());
+                  out_rt_u2.value = Option(EvalValue).None;
+                  out_rt_u2.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(unrolled_bodies);
+                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt_u2);
+                  return(expr);
+                }
+              );
+            });
+          }
+        );
+        unroll_iter = (unroll_iter + usize(1));
+      });
+      if(!(cond_still_true), {
+        // Loop terminates — store unrolled bodies (TS while.ts:619-629).
+        out_done_u := new_expr_info(current_env, t_unit());
+        out_done_u.value = Option(EvalValue).None;
+        out_done_u.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(unrolled_bodies);
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_done_u);
+        return(expr);
+      });
+    });
+    // Unrolling failed: condition stayed comptime true (or a body/step eval
+    // lost its info). Mirrors TS while.ts:632-634.
+    _throw_max_iterations_error(expr, body_expr, body_info.control_flow, exn);
+  });
+  // If the effective condition is compile-time true (pure-comptime body),
+  // recurse to evaluate the next iteration.
   if(eff_cond_is_true_main, {
     next_count := (comptime_iteration_count + usize(1));
     if(next_count >= MAX_COMPTIME_LOOP_ITERATIONS, {

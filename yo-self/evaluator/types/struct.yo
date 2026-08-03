@@ -32,6 +32,7 @@ open(import("std/fmt"));
 { TypeValue, register_struct_field_comptime_flags } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message } :: import("../../error.yo");
+{ type_to_string } :: import("../../types/string.yo");
 { Exception } :: import("std/error");
 {
   TypeField,
@@ -43,6 +44,7 @@ open(import("std/fmt"));
 { register_struct_final, _patch_self_shell } :: import("../../types/creators.yo");
 { ArrayList } :: import("std/collections/array_list");
 { auto_derive_traits_for_struct_type, enforce_atomic_object_send } :: import("./utils.yo");
+{ fields_have_incompatible_contexts } :: import("../../types/utils.yo");
 { is_iso_type } :: import("../../types/guards.yo");
 evaluate_struct_type :: (
   fn(
@@ -288,6 +290,26 @@ evaluate_struct_type :: (
       env,
       ast_expr_token(expr),
       exn
+    );
+  });
+  // Validate the struct can exist in at least ONE evaluation context —
+  // mixed comptime-only + runtime-only fields (`x : comptime_int, y :
+  // Box(i32)`) have empty availability. TS runs this at the same point
+  // (utils.ts:1795 validateTypeAvailability after auto-derive); unported,
+  // the invalid definition was ACCEPTED and comptime_expect_error's
+  // no-error check hollowed the arm (basic arm 24). Structural field scan
+  // (see fields_have_incompatible_contexts) — the registry-based check
+  // false-fired on pointer-fielded prelude newtypes.
+  if(fields_have_incompatible_contexts(patched_types), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Type ${type_to_string(struct_ty)} has incompatible field contexts and cannot be used in any evaluation context.`,
+          false,
+          .None
+        )
+      )
     );
   });
   // Restore SelfType

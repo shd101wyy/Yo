@@ -527,7 +527,16 @@ evaluate_primitive_match :: (
           return(expr);
         });
         fp_info := match(fp_info_opt,.Some(fi) => fi,.None => new_expr_info(case_env, scrutinee_type));
-        if(!(are_types_compatible(scrutinee_type, fp_info.ty)), {
+        // Argument ROLES: yo-self's are_types_compatible is (actual, expected)
+        // — the PATTERN's type is the actual/given and the SCRUTINEE type is
+        // the expected (TS match.ts:1650-1656 passes expected=scrutineeType,
+        // given=evaluatedPattern). With the roles swapped, a COMPTIME-CONST
+        // identifier pattern (`TEN => 1`, TEN :: 10) asked "is runtime i32
+        // acceptable where comptime_int is expected" → false → the whole
+        // match threw and the enclosing fn hollowed (basic arm 19). Literal
+        // patterns never hit this because their eval coerces to the expected
+        // scrutinee type first.
+        if(!(are_types_compatible(fp_info.ty, scrutinee_type)), {
           exn.throw(
             dyn(
               format_error_message(

@@ -42,9 +42,11 @@ open(import("std/fmt"));
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, register_enum_final, _patch_self_shell } :: import("../../types/creators.yo");
+{ fields_have_incompatible_contexts } :: import("../../types/utils.yo");
 { is_comptime_int_type, is_type_0 } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message } :: import("../../error.yo");
+{ type_to_string } :: import("../../types/string.yo");
 { Exception } :: import("std/error");
 { TypeField, EvalTypeFieldResult, evaluate_type_field } :: import("./field.yo");
 { parse_raw_int } :: import("../utils.yo");
@@ -696,6 +698,49 @@ evaluate_enum_type :: (
   // Record the finalized form under the SHELL's id so leaked shells can
   // be resolved at use sites — see resolve_enum_shell.
   register_enum_final(shell_id.clone(), enum_ty);
+  // Validate the enum can exist in at least ONE evaluation context — a
+  // variant with comptime-only fields alongside one with runtime-only
+  // fields has empty availability. TS runs this at the same point
+  // (utils.ts:1865); unported, the invalid definition was ACCEPTED and
+  // comptime_expect_error's no-error check hollowed the arm (basic arm 24,
+  // MixedResult). Structural scan over ALL variant fields — the enum's
+  // availability is the intersection of its variants'.
+  {
+    va_all_fields := ArrayList(TypeValue).new();
+    (va_i : usize) = usize(0);
+    while(va_i < variant_fields.len(), {
+      match(
+        variant_fields.get(va_i),
+        .Some(va_fl) => {
+          (va_j : usize) = usize(0);
+          while(va_j < va_fl.len(), {
+            match(
+              va_fl.get(va_j),
+              .Some(va_f) => {
+                va_all_fields.push(va_f);
+              },
+              .None => ()
+            );
+            va_j = (va_j + usize(1));
+          });
+        },
+        .None => ()
+      );
+      va_i = (va_i + usize(1));
+    });
+    if(fields_have_incompatible_contexts(va_all_fields), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `Type ${type_to_string(enum_ty)} has incompatible field contexts and cannot be used in any evaluation context.`,
+            false,
+            .None
+          )
+        )
+      );
+    });
+  };
   enum_val := create_type_value(enum_ty);
   meta_ty := type_of_type(enum_ty);
   out_info := new_expr_info(env, meta_ty);

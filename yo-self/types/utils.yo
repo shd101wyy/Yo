@@ -197,7 +197,35 @@ type_is_comptime_only :: (fn(ty : TypeValue) -> bool)(
 /// Mirrors `typeRequiresComptimeModifier` in `src/types/utils.ts`.
 /// `env` param dropped (was unused on the tag-only path).
 type_requires_comptime_modifier :: (fn(ty : TypeValue) -> bool)(
-  type_is_comptime_only(ty)
+  // Compound arms: a tuple/array containing a comptime-only member can
+  // never be a runtime value, so binding it without `comptime` must be
+  // rejected. TS reaches the same verdict through the tuple/array type
+  // OBJECT's registered availability traits (utils.ts:85-96 →
+  // typeImplementsComptime/Runtime; registered by
+  // autoDeriveRuntimeForTupleType) — a per-object channel yo-self's
+  // nominal-id registry cannot key, so the structural recursion here is
+  // the faithful stand-in (basic arm 24: `Pair :: Tuple(x : comptime_int,
+  // …)` and `[comptime_int ; 2]` runtime bindings were ACCEPTED).
+  match(
+    ty,
+    .Tuple(_, rcm_fts) => {
+      (rcm_any : bool) = false;
+      (rcm_i : usize) = usize(0);
+      while(rcm_i < rcm_fts.len(), {
+        match(
+          rcm_fts.get(rcm_i),
+          .Some(rcm_ft) => if(recur(rcm_ft), {
+            rcm_any = true;
+          }),
+          .None => ()
+        );
+        rcm_i = (rcm_i + usize(1));
+      });
+      rcm_any
+    },
+    .Array(rcm_el, _, _) => recur(rcm_el),
+    _ => type_is_comptime_only(ty)
+  )
 );
 /// Return `true` if the type prohibits a `comptime` modifier.
 /// A type prohibits comptime when it is runtime-only (never comptime).
@@ -236,7 +264,57 @@ type_prohibits_comptime_modifier :: (fn(ty : TypeValue) -> bool)(
 /// Note: `TStruct` with reference semantics ("object types") would also
 /// return `Some(true)` in TS but we don't yet carry that flag on
 /// `Struct` in yo-self — it falls into the undecided bucket here.
-type_implements_runtime_builtin :: (fn(ty : TypeValue) -> Option(bool))(
+type_implements_runtime_builtin :: (fn(ty : TypeValue) -> Option(bool))({
+  // Object types (reference semantics) are always runtime types — mirrors
+  // TS trait-checking.ts:169-171 (the stale note below about the missing
+  // flag predates Struct.is_reference_semantics). Module structs (source
+  // namespaces) are comptime-only (TS :174-176); the TModule tag arm below
+  // already covers them.
+  match(
+    ty,
+    .Struct({ is_reference_semantics : rb_ref, is_source_namespace : rb_ns }) => if(rb_ref && !(rb_ns), {
+      return(Option(bool).Some(true));
+    }),
+    _ => ()
+  );
+  // ADAPTATION: a pointer's availability follows its POINTEE
+  // (`*(comptime_int)` is comptime-only, `*(Box(i32))` is runtime-only,
+  // `*(i32)` is both — tests/basic arms 10/11). TS reaches the same verdict
+  // through the pointer type OBJECT's `.trait` store — a per-object channel
+  // yo-self's nominal-id trait registry cannot key (type_id_or_empty has no
+  // Pointer case), so the registry fallback returned false and
+  // `validate_type_availability` false-fired on every pointer-fielded
+  // struct (GcTracer :: newtype(_callback : *(u8))). Unwrap pointer chains
+  // and decide from the base type's tag.
+  (rb_base : TypeValue) = ty;
+  (rb_hops : usize) = usize(0);
+  while(match(rb_base,.Pointer(_) => (rb_hops < usize(8)), _ => false), {
+    rb_base = match(rb_base,.Pointer(p) => p, _ => rb_base);
+    rb_hops = (rb_hops + usize(1));
+  });
+  if(rb_hops > usize(0), {
+    return(
+      match(
+        rb_base,
+        .Struct({ is_reference_semantics : rb2_ref, is_source_namespace : rb2_ns }) => cond(
+          (rb2_ref && !(rb2_ns)) => Option(bool).Some(true),
+          true => Option(bool).None
+        ),
+        _ => match(
+          type_value_tag(rb_base),
+          .TComptimeInt => Option(bool).Some(false),
+          .TComptimeFloat => Option(bool).Some(false),
+          .TComptimeString => Option(bool).Some(false),
+          .TType => Option(bool).Some(false),
+          .TModule => Option(bool).Some(false),
+          .TTrait => Option(bool).Some(false),
+          .TExpr => Option(bool).Some(false),
+          .TComptimeList => Option(bool).Some(false),
+          _ => Option(bool).None
+        )
+      )
+    );
+  });
   match(
     type_value_tag(ty),
     // Comptime-only — never Runtime
@@ -283,7 +361,7 @@ type_implements_runtime_builtin :: (fn(ty : TypeValue) -> Option(bool))(
     // Undecided — would need the env / Runtime trait to settle.
     _ =>.None
   )
-);
+});
 /// Best-effort `typeImplementsRuntime`. Uses the tag fast path; for
 /// undecided cases it conservatively returns `false` (Phase 3 will
 /// consult the `Runtime` trait in `env`). Mirrors the contract of
@@ -1024,6 +1102,55 @@ get_all_some_types :: (fn(ty : TypeValue) -> ArrayList(TypeValue))({
   _collect_some_types_into(ty, acc, visited_ids);
   acc
 });
+/// True when a field-type list mixes a COMPTIME-ONLY member with a
+/// RUNTIME-ONLY member — the availability intersection is then empty and the
+/// containing struct/enum can exist in NO evaluation context. Structural,
+/// tag-level port of the semantics behind TS's validateTypeAvailability
+/// (trait-checking.ts:989-1012): TS consults the per-object trait store,
+/// which yo-self's nominal-id registry cannot reproduce for pointers (it
+/// false-fired on every pointer-fielded prelude newtype when tried) — the
+/// direct field scan decides exactly the definitive cases and stays silent
+/// on anything undecided (generic fields, plain value structs).
+fields_have_incompatible_contexts :: (fn(fts : ArrayList(TypeValue)) -> bool)({
+  (has_ct_only : bool) = false;
+  (has_rt_only : bool) = false;
+  (fi : usize) = usize(0);
+  while(fi < fts.len(), {
+    (ft : TypeValue) = match(fts.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+    fi = (fi + usize(1));
+    // A pointer field classifies by its POINTEE (`*(Self)` / `*(i32)` are
+    // both-context; `*(Box(i32))` is runtime-only — tests/basic arm 10's
+    // SelfRecursive structs). Unwrap before classifying.
+    (fo_hops : usize) = usize(0);
+    while(match(ft,.Pointer(_) => (fo_hops < usize(8)), _ => false), {
+      ft = match(ft,.Pointer(p) => p, _ => ft);
+      fo_hops = (fo_hops + usize(1));
+    });
+    // A reference-semantics struct (object type) is runtime-only REGARDLESS
+    // of its type parameters (`Box(i32)` instances still carry internal
+    // SomeTs from the generic decl, so this must run BEFORE the generic
+    // skip below).
+    (rt_only : bool) = match(
+      ft,
+      .Struct({ is_reference_semantics : fo_ref, is_source_namespace : fo_ns }) => (fo_ref && !(fo_ns)),
+      _ => false
+    );
+    if(rt_only, {
+      has_rt_only = true;
+      continue;
+    });
+    if(is_some_type(ft) || (get_all_some_types(ft).len() > usize(0)), {
+      continue;
+    });
+    if(type_is_comptime_only(ft), {
+      has_ct_only = true;
+    });
+    if(type_prohibits_comptime_modifier(ft), {
+      has_rt_only = true;
+    });
+  });
+  has_ct_only && has_rt_only
+});
 /// True iff `ty` contains at least one SomeT and EVERY contained SomeT
 /// resolves — through its resolution-cell chain, cycle-guarded — to a
 /// non-SomeT terminal that itself contains no SomeTs. Used by the call
@@ -1679,6 +1806,7 @@ export(can_type_form_rc_cycle, buffer_element_type);
 export(type_requires_inference);
 export(type_contains_some_type);
 export(get_all_some_types);
+export(fields_have_incompatible_contexts);
 export(type_somes_all_resolve_concrete);
 export(type_contains_some_type_deep);
 export(get_size_of_type, get_alignment_of_type);

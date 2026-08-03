@@ -3925,8 +3925,27 @@ Fix: wrap the call:
           // the CTFE unknown-arg gate sees compile-time-known `ExprVal`s, not
           // runtime unknowns). Mirrors TS `variadicParameter.isQuote`.
           if(fv_is_macro && (is_param_quoted(func_id_fv.clone(), ai) || (fv_variadic_is_quote && (ai >= n_p))), {
+            // Strip a "label : value" colon-label wrapper BEFORE quoting —
+            // TS's shared label-strip (helper.ts:271-302) runs before its
+            // isQuote branch (:350), so a labeled macro arg (`if(c, then :
+            // {...}, else : {...})`) quotes the VALUE. Binding the whole
+            // colon-pair expanded `cond(c => (then : {...}), ...)`, which
+            // hollowed every labeled-if site (basic arm 18).
+            (q_arg_expr : AstExpr) = arg_expr;
+            if((ai < n_p) && ast_expr_is_fn_call_of(arg_expr, ":",.Some(usize(2))), {
+              q_cl_args := match(
+                arg_expr,
+                .FnCall(_, _, q_as, _, _) => q_as,
+                _ => ArrayList(AstExpr).new()
+              );
+              q_label_expr := match(q_cl_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+              q_label_matches := (ast_expr_is_atom(q_label_expr) && (ast_expr_token(q_label_expr).value == match(fv_param_labels.get(ai),.Some(l) => l,.None => String.new())));
+              if(q_label_matches, {
+                q_arg_expr = match(q_cl_args.get(usize(1)),.Some(a) => a,.None => arg_expr);
+              });
+            });
             q_info := new_expr_info(env, t_expr_t());
-            q_info.value = Option(EvalValue).Some(EvalValue.ExprVal(clone_expr_fresh_ids(arg_expr)));
+            q_info.value = Option(EvalValue).Some(EvalValue.ExprVal(clone_expr_fresh_ids(q_arg_expr)));
             _push_q := evaled_arg_infos.push(q_info);
             ai = (ai + usize(1));
             continue;

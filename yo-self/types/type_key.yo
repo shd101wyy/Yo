@@ -323,6 +323,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
       evns := match(rs,.EnumT({ variant_names : rvns }) => rvns, _ => ArrayList(String).new());
       evds := match(rs,.EnumT({ variant_discriminants : rvds }) => rvds, _ => ArrayList(i64).new());
       e_is_ref := match(rs,.EnumT({ is_reference_semantics : rirs }) => rirs, _ => false);
+      evfls := match(rs,.EnumT({ variant_field_labels : rvfls }) => rvfls, _ => ArrayList(ArrayList(String)).new());
       // Cycle guard (see g_tk_visited): an enum id already on the expansion
       // path renders id-only rather than re-expanding its variant fields.
       if((eid.len() > usize(0)) && _tk_seen(eid), {
@@ -358,6 +359,25 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
                   fields.get(fi),
                   .Some(ft) => {
                     field_part.push_str("_");
+                    // Field LABEL joins the key: two enums with identical
+                    // variant names/discriminants/field TYPES but different
+                    // field labels (`Err(msg : i32)` vs `Err(error : i32)`)
+                    // emit different C member names — merging them made the
+                    // second enum's designated initializer reference a
+                    // nonexistent member (tests/basic arms 19+8 batch:
+                    // "field designator 'msg' does not refer to any field").
+                    match(
+                      evfls.get(vi),
+                      .Some(vfl_row) => match(
+                        vfl_row.get(fi),
+                        .Some(fl_nm) => {
+                          field_part.push_string(fl_nm);
+                          field_part.push_str(":");
+                        },
+                        .None => ()
+                      ),
+                      .None => ()
+                    );
                     // A reference-semantics enum field (`ref(enum(…))`) is a
                     // POINTER, so key it by its shell-resolved `id` ALONE. This
                     // terminates self-referential `ref(enum(…))` recursion with
