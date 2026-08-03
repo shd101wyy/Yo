@@ -153,3 +153,30 @@ Fix directions for the next session, in order of principle:
 - Era-stable nominal keys need a genericity side-table (a bare
   `struct_decl_` sid cannot be keyed id-only: Bucket(K,V) instances share
   the decl sid with genuinely different layouts).
+
+## 2026-08-03 final round — the stage-2 ABORT is SOLVED in principle (emit rc=0 achieved); 12 marker deltas remain
+
+The on-demand collection direction was implemented and measured:
+
+- **Hook**: `set_on_demand_declare_fn` in codegen/utils/index.yo —
+  `_lookup_named_c_type`'s miss path calls it and retries before panicking.
+- **Recovery** (codegen_c.yo `_on_demand_collect_and_declare`), two tiers:
+  1. NOMINAL ALIAS: when exactly ONE registered entry shares the late
+     type's nominal id, `register_type_alias(drifted_key, existing_key)` —
+     no new C type (a fresh mint SPLIT the identity: "initializing
+     **yo_t906 with **yo_t111"). Multi-entry sids (Bucket-style shared-id
+     generics) fall through.
+  2. FRESH MINT: collect_type + forward typedef + body appended to the
+     DECLARATIONS buffer (three-buffer emitter ⇒ lands before all code).
+     Known hazard: a nested miss DURING a body emit interleaves lines —
+     tier 1 handles the common case before this matters.
+
+Measured with the arm-65 E-binding (opts=None variant) applied:
+**emit rc=134 → rc=0** — the "no C type name found for IoExn" abort is
+fully recovered. Remaining gap: markers 25 (baseline 13) and clang errors
+17 (baseline 4) — the E-binding perturbs ~12 further emission sites in
+yo-self's own async code, each a separate delta to chase. Both pieces
+REVERTED per the zero-net-wins discipline (the arm-65 flip isn't landable
+until the deltas are closed), but the abort mechanism is now UNDERSTOOD
+AND DEFEATED — the next session starts from "diff the 12 extra markers
+under the E-binding + recovery", not from the abort.
