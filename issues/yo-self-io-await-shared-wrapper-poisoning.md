@@ -180,3 +180,44 @@ REVERTED per the zero-net-wins discipline (the arm-65 flip isn't landable
 until the deltas are closed), but the abort mechanism is now UNDERSTOOD
 AND DEFEATED — the next session starts from "diff the 12 extra markers
 under the E-binding + recovery", not from the abort.
+
+## 2026-08-03 endgame — arm 65 is ONE landable step away; the exact remaining state
+
+Landed groundwork (commit "four async-emission groundwork fixes"): on-demand
+late-type collection with nominal aliasing, sync-setter SM-var clearing,
+resolvable-wrapper skip exemption, future-wrapper param bridge.
+
+**Variant (e) of the E-binding is the WINNING shape** (cell-only write into
+the per-call FRESHENED effect forall — never an env binding, never opts
+pass-through):
+
+```
+// in _synthesize_future_traits, after _synthesize_implicit_params:
+if((exp_et.len() == 1) && (giv_et.len() == 1), {
+  sfe_exp/sfe_giv := the two effect types;
+  if(is_some_type(sfe_exp) && !(is_some_type(sfe_giv)), {
+    <write sfe_giv into sfe_exp's resolved_concrete cell (clear+push)>
+  });
+});
+```
+
+Measured with variant (e) + the landed groundwork: arm-65 extraction GREEN;
+stage-2 emit rc=0, markers=13 = BASELINE, clang=4 = baseline; TIER-1 all
+green EXCEPT async_await itself, which UN-HOLLOWS to exactly TWO real
+markers, both `test_unwind(task, io)` (arm 72, "Test unwind in async
+closure") — the second one sits in initializer position and breaks the C,
+so the file lands rc=1 and the precedent forbids leaving it hard-failing.
+
+**Arm 72's remaining root** (the only thing between here and 185/0/0):
+`test_unwind :: (fn(task : Impl(Future(i32, Ctx)), my_io : Io) -> ...)` is
+still SKIPPED by should_skip_function_codegen as generic — pieces 3+4 did
+not connect: the skip's param check (probably via the SPEC's registered
+type, whose wrapper is a fresh/other SomeT id than the one piece 4
+registered, or the skip runs on the ORIGINAL whose declared wrapper id
+differs from decl_pt at spec time). Debug next: probe should_skip for the
+fn (print param SomeT id + cell len + registry hit), then align piece 4's
+registration key with whatever id the registered spec type actually
+carries. TS control: ./yo-cli test /tmp/az72a.test.yo passes (repros:
+/tmp/az72.test.yo = arm 72 full, az72a/az72b = single blocks; the
+non-generic-Raise variant SIGSEGVs yo-self — separate latent issue, note
+it, don't chase it first).
