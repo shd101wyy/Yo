@@ -120,6 +120,17 @@ jobs:
         with:
           submodules: recursive
 
+      # The stage-2 self-emit peaks well above the 16 GB the runner has
+      # (the run without swap died with "runner received a shutdown signal"
+      # — the OOM-kill signature). Give the box swap headroom first.
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 16G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
       - name: Install liburing
         run: |
           sudo apt-get update

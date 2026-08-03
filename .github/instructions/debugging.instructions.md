@@ -32,6 +32,23 @@ Key facts:
 
 When you only need to surface evaluator/type errors (no codegen, no C compile), use `./yo-cli check <path>`. It runs the evaluator on a single file or every `.yo` file in a directory and prints any errors. Much faster than `compile` for "does this still type-check?" loops, and it's the right tool for bulk migration sanity passes (`./yo-cli check std/` after touching a swathe of files).
 
+## Memory-leak debugging (macOS has no LeakSanitizer)
+
+LeakSanitizer works on Linux but **not on macOS arm64** — an RC leak that fails
+CI's ubuntu job with `Direct leak of N byte(s)` is invisible in a local macOS
+ASan run. Reproduce locally with the macOS `leaks` tool instead:
+
+```bash
+./yo-cli compile repro.yo --release -o repro_bin
+leaks --atExit -- ./repro_bin   # "0 leaks for 0 total leaked bytes" = clean
+```
+
+For RC-dispose bugs specifically, also read the emitted C: `__yo_decr_rc` only
+frees fields when `header->type_id != 0` (or `dispose_fn` under cycle GC), so
+check that the type's constructor stamps a dispose id and that
+`__yo_dispose_dispatch` has a case that drops the fields
+(see `issues/ref-enum-missing-dispose-leak.md` for a worked example).
+
 ## Design docs for context
 
 - Compile-time RC ownership: `COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md`

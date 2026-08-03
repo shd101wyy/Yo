@@ -1266,8 +1266,112 @@ _synthesize_and_register_dispose :: (
   code := `(fn(self : Self) -> unit)({ ${body} })`;
   _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, code, String.from("___dispose"));
 });
+/// Synthesize + register the auto-derived `___dispose` for a concrete reference-
+/// semantics ENUM (`ref(enum(…))`) — the enum counterpart of
+/// `_synthesize_and_register_dispose`. Builds
+/// `(fn(self : Self) -> unit)({ match(self, .V(a0, a1) => { (___drop)(aRC); … }, …, _ => ()); () })`
+/// over the variants with RC-containing fields, evaluates it Self-bound, and registers
+/// it as the type's ___dispose. Without it the ref-enum constructor stamps
+/// `type_id = 0` (no dispose dispatch) and the active variant's RC fields leak on
+/// free. Mirrors TS generateDisposeFunctionCodeForEnumType + addRcFunctionsToEnumType.
+_synthesize_and_register_enum_dispose :: (
+  fn(base : CodeGenContext, ctx : EvalContext, module_env : Environment, info : ExprInfoTable, exn : Exception, ct : TypeValue) -> unit
+)({
+  // Skip if a ___dispose is already registered for THIS instantiation (type_key —
+  // see _synthesize_and_register_dispose for why not the shared enum id).
+  if(get_type_trait_methods_by_name(type_key(ct), String.from("___dispose")).len() > usize(0), {
+    return(());
+  });
+  // User `impl Dispose` destructor: TS emits the call at the top of the ___dispose
+  // C body for ANY SelfType (generation.ts:1433-1473) — enums included. The
+  // `self.dispose()` call in the synthesized body is that call site here.
+  has_user_dispose := (
+    (find_methods_from_generic_impls(ct, String.from("dispose"), module_env).len() > usize(0))
+    || (get_type_trait_methods_by_name(type_id_or_empty(ct), String.from("dispose")).len() > usize(0))
+  );
+  variant_names := match(ct,.EnumT({ variant_names : vn }) => vn, _ => ArrayList(String).new());
+  variant_fields := match(ct,.EnumT({ variant_fields : vf }) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+  // One match arm per variant with RC-containing fields: bind every field
+  // positionally under an index alias (labels may not be valid identifiers),
+  // drop the RC-containing ones. Mirrors the TS generator's arms.
+  arms := String.from("");
+  nv := variant_names.len();
+  (rc_variants : usize) = usize(0);
+  (vi : usize) = usize(0);
+  while(vi < nv, {
+    vname := match(variant_names.get(vi),.Some(v) => v,.None => String.from(""));
+    fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+    nf := fields.len();
+    (has_rc : bool) = false;
+    (fi : usize) = usize(0);
+    while(fi < nf, {
+      match(
+        fields.get(fi),
+        .Some(ft) => if(type_contains_rc_type(ft), {
+          has_rc = true;
+        }),
+        .None => ()
+      );
+      fi = (fi + usize(1));
+    });
+    if(has_rc, {
+      if(rc_variants > usize(0), {
+        arms.push_str(", ");
+      });
+      arms.push_str(".");
+      arms.push_string(vname.clone());
+      arms.push_str("(");
+      (pi : usize) = usize(0);
+      while(pi < nf, {
+        if(pi > usize(0), {
+          arms.push_str(", ");
+        });
+        arms.push_str("__yo_disp_f");
+        arms.push_string(pi.to_string());
+        pi = (pi + usize(1));
+      });
+      arms.push_str(") => { ");
+      (di : usize) = usize(0);
+      while(di < nf, {
+        match(
+          fields.get(di),
+          .Some(ft) => if(type_contains_rc_type(ft), {
+            arms.push_str("(___drop)(__yo_disp_f");
+            arms.push_string(di.to_string());
+            arms.push_str("); ");
+          }),
+          .None => ()
+        );
+        di = (di + usize(1));
+      });
+      arms.push_str("() }");
+      rc_variants = (rc_variants + usize(1));
+    });
+    vi = (vi + usize(1));
+  });
+  // Nothing to drop AND no user destructor → no ___dispose needed.
+  if((rc_variants == usize(0)) && !(has_user_dispose), {
+    return(());
+  });
+  body := String.from("");
+  if(has_user_dispose, {
+    body.push_str("self.dispose(); ");
+  });
+  if(rc_variants > usize(0), {
+    body.push_str("match(self, ");
+    body.push_string(arms);
+    if(rc_variants < nv, {
+      body.push_str(", _ => ()");
+    });
+    body.push_str("); ");
+  });
+  body.push_str("()");
+  // Synthesize + evaluate the dispose function with `Self` bound to `ct`.
+  code := `(fn(self : Self) -> unit)({ ${body} })`;
+  _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, code, String.from("___dispose"));
+});
 /// Codegen pass: auto-derive + register the `___dispose` method for every concrete RC
-/// struct type that lacks one, so freeing such a value recursively drops its RC fields
+/// struct and ref-enum type that lacks one, so freeing such a value recursively drops its RC fields
 /// (the runtime invokes header.dispose_fn — gc_runtime.yo:341 normal free / :658 collector).
 /// yo-self defers the RC-function synthesis (evaluator/types/utils.yo:19), so it runs here
 /// with the live ctx/exn threaded from run_compile, mirroring
@@ -1304,7 +1408,7 @@ collect_dispose_methods :: (
       // ("call to undeclared function 'yo_id_XXXX'"). Filter with the deep
       // predicate here so no `___dispose` is registered for a body that will
       // never be emitted.
-      .Some(entry) => if(is_reference_struct_type(entry.ty) && !(type_contains_some_type_deep(entry.ty)), {
+      .Some(entry) => if((is_reference_struct_type(entry.ty) || is_reference_enum_type(entry.ty)) && !(type_contains_some_type_deep(entry.ty)), {
         _p := type_list.push(entry.ty);
       }),
       .None => {
@@ -1316,7 +1420,11 @@ collect_dispose_methods :: (
   (ti : usize) = usize(0);
   while(ti < nt, {
     ct := match(type_list.get(ti),.Some(t) => t,.None => TypeValue.Unit);
-    _synthesize_and_register_dispose(base, ctx, module_env, info, exn, ct);
+    if(is_reference_enum_type(ct), {
+      _synthesize_and_register_enum_dispose(base, ctx, module_env, info, exn, ct);
+    }, {
+      _synthesize_and_register_dispose(base, ctx, module_env, info, exn, ct);
+    });
     ti = (ti + usize(1));
   });
 });
