@@ -146,3 +146,25 @@ individual writers/readers keep failing because the same-name collision is
 systemic. This root blocks: iterator_combinators arm 18, async arm-65
 layer 4 (the E binding), and plausibly the batch-context Ctx collisions
 behind async_await's remaining arms.
+
+## 2026-08-03 addendum — generalized per-call forall freshening: built, measured ZERO wins, reverted
+
+The TS helper.ts:1047 twin was implemented at BOTH call paths
+(`_freshen_callee_foralls` at helper try_to_call entry + the inline FuncVal
+arm's signature reads in calls/function.yo): fresh ids + empty cells,
+name/level-preserving substitution through the signature. Measured: the
+closure-F repro suite stays green (non-regressive), but arm 18 is
+UNCHANGED — freshening fixes id-keyed collisions, while the leak crosses
+the NAME-keyed `_do_chain_resolve`: the fresh `F` gets marker-self-bound in
+the callee frame (Step 6), which satisfies `_was_self_bound`, and the
+last-binding-wins name lookup can still land on a sibling's `F` whenever
+the resolution runs against an env whose innermost `F` is the leaked one.
+TS is immune because its resolution operates over per-call OBJECT
+identities in chained envs — the callee's own binding is innermost by
+construction.
+
+**Terminal conclusion:** the fix is the binding-model redesign (chained /
+call-scoped envs, or object-identity-verified resolution end-to-end), not
+any per-site patch. Five fix families have now been measured against this
+root (frame-scoping, level gate, two marker gates, generalized
+freshening); all reverted with measurements above.
