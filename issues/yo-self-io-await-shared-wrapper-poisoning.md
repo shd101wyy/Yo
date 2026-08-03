@@ -221,3 +221,24 @@ carries. TS control: ./yo-cli test /tmp/az72a.test.yo passes (repros:
 /tmp/az72.test.yo = arm 72 full, az72a/az72b = single blocks; the
 non-generic-Raise variant SIGSEGVs yo-self — separate latent issue, note
 it, don't chase it first).
+
+### Two more negative measurements on the arm-72 skip connection (same day)
+
+With variant (e) + all groundwork in place, the skip-gate probe shows
+test_unwind reaching should_skip with its param wrapper `someid=1546,
+cell=0, reg=false` — and BOTH registration attempts left it that way:
+
+- registering in create_specialized's rebind loop (the future-wrapper param
+  bridge, LANDED but inert here): the call never reaches the spec mint;
+- registering at synthesize's SomeT-vs-SomeT Future-trait-pair recursion:
+  never fires for this call either.
+
+Conclusion: wrapper 1546 (the fn's REGISTERED type's param) participates in
+NO synthesis during the call — either the call's arg check uses a
+re-evaluated/freshened COPY of the param wrapper (different id), or the
+call eval throws before synthesis and the FTT is the missing-info fallback.
+NEXT probe (first thing): instrument the CALL eval for this callee —
+does try_to_call throw (add a temporary eprintln in the arg-check throw
+paths for param label "task"), and if not, print the param-type SomeT id
+seen during check_if_function_parameter_matches_argument vs 1546. The fix
+lands wherever those ids diverge.
