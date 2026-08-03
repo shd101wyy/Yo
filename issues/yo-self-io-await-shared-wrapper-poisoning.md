@@ -94,3 +94,28 @@ Landed on top of the two compat fixes above:
   `Cannot unify incompatible struct types: "Ctx" and <struct:…>` (per-arm
   local `Ctx` structs in the batch context) — bisect with `subset_arms.py`
   - `YO_DEBUG_SWALLOW=1`.
+
+---
+
+## 2026-08-03 re-measurement — layer 4 STILL aborts stage-2 under the arm-18 fix stack
+
+After the six-layer arm-18 fix landed (env_lookup fast-path, Step-6
+self-slot exclusion, foreign-forall search skips, synthesizer self-marker
+shadow-add skip, \_bake_record_slots, durable 6c assoc binding — commit
+"flip iterator_combinators arm 18"), variant (a) was re-applied and
+re-measured: the arm-65 extraction stays GREEN (0 markers), but the
+stage-2 self-emit STILL aborts with the identical
+`get_type_string: no C type name found for IoExn` (emit rc=134,
+current_function=yo_id_748823). Conclusion: the E-binding leak is a
+DIFFERENT channel from arm 18's sibling-forall burial — the fix stack
+disciplines eval-time name-keyed resolution, while this leak surfaces at
+LOWERING: a later render of the Io struct's member types resolves the
+shared `E` to the leaked IoExn and mints an instantiation key the
+collection pass never registered. Next tool: the arm-18 probe playbook
+pointed at stage-2 — writer probes on `E`/IoExn bindings plus a probe in
+get_type_string's missing-key path to identify the rendering function and
+the env/cell the resolution crosses. Candidate fixes once located: bake
+the Io member types' effect slot at eval time (the \_bake_record_slots
+pattern applied to the effect wrapper), or make the collection pass visit
+the concrete `Future(unit, IoExn)` instantiation that the E binding makes
+reachable.
