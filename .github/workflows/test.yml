@@ -123,12 +123,15 @@ jobs:
       # The stage-2 self-emit peaks well above the 16 GB the runner has
       # (the run without swap died with "runner received a shutdown signal"
       # — the OOM-kill signature). Give the box swap headroom first.
+      # NOTE: /swapfile is taken (the runner ships with one active — creating
+      # it there fails with "Text file busy"); use the ~60 GB /mnt resource
+      # disk instead.
       - name: Add swap space
         run: |
-          sudo fallocate -l 16G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          sudo fallocate -l 16G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
           free -h
 
       - name: Install liburing
