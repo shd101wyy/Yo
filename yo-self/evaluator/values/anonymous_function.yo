@@ -1124,6 +1124,60 @@ evaluate_anonymous_function_implementation :: (
     });
     rp_i = (rp_i + usize(1));
   });
+  // UNANNOTATED closure params whose expected SomeT resolved concretely
+  // through the env (a where-bound forall — `fold`'s `item : A` with
+  // `A := i32` bound by the `Self <: Iterator(Item := A)` application):
+  // substitute those names through `function_type` so the REGISTERED type
+  // (corrected_func_type → register_func_type → the emitted C prototype)
+  // carries the concrete type. The rp loop above already binds the param
+  // VARIABLE concretely (rp_ty), but the registered type kept the raw SomeT,
+  // whose cell is never written by the env binding — the C emitter then
+  // falls back to `void*` and every call site mismatches (`acc + x` with
+  // `void* x`; iterator_combinators arm 18's last layer). TS needs no step
+  // here: its newFunctionType is a SPREAD of the expected FunctionType whose
+  // parameter objects already reference the resolved SomeType.
+  if(is_creating_closure, {
+    rp_resolved_names := ArrayList(String).new();
+    (rpr_i : usize) = usize(0);
+    while(rpr_i < n_regular, {
+      rpr_raw := match(param_types.get(rpr_i),.Some(t) => t,.None => TypeValue.Unit);
+      match(
+        rpr_raw,
+        .SomeT({ name : rpr_nm }) => if((rpr_nm.len() > usize(0)) && !(rpr_nm == "Impl"), {
+          rpr_vars := get_variables_from_env(expected_type_env, rpr_nm.clone());
+          (rpr_conc : bool) = false;
+          (rpr_vi : usize) = rpr_vars.len();
+          while(rpr_vi > usize(0), {
+            rpr_vi = (rpr_vi - usize(1));
+            match(
+              rpr_vars.get(rpr_vi),
+              .Some(rv) => match(
+                rv.value.get(usize(0)),
+                .Some(rvv) => match(
+                  rvv,
+                  .TypeVal(rvt) => if(!(is_some_type(rvt)), {
+                    rpr_conc = true;
+                    rpr_vi = usize(0);
+                  }),
+                  _ => ()
+                ),
+                .None => ()
+              ),
+              .None => ()
+            );
+          });
+          if(rpr_conc && !(rp_resolved_names.contains(rpr_nm.clone())), {
+            rp_resolved_names.push(rpr_nm.clone());
+          });
+        }),
+        _ => ()
+      );
+      rpr_i = (rpr_i + usize(1));
+    });
+    if(rp_resolved_names.len() > usize(0), {
+      function_type = _subst_some_types_from_env(function_type, expected_type_env, rp_resolved_names);
+    });
+  });
   // -------------------------------------------------------------------------
   // Build the FuncVal.
   // Phase 3ad: captures are populated from the outer env snapshot above.

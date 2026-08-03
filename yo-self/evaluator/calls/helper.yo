@@ -28,6 +28,7 @@ open(import("std/fmt"));
   ast_expr_token,
   ast_expr_id,
   ast_expr_is_fn_call_of,
+  ast_expr_is_fn_call,
   ast_expr_is_atom,
   ast_expr_is_atom_of,
   ast_expr_to_string,
@@ -68,6 +69,7 @@ open(import("std/fmt"));
   type_implements_future,
   type_implements_fn,
   type_implements_trait_bool,
+  resolve_assoc_type_for_target,
   extract_fn_trait_from_type,
   extract_future_trait_from_type
 } :: import("../trait_checking.yo");
@@ -1573,6 +1575,130 @@ _build_forward_ref_funcval :: (
 );
 // ---------------------------------------------------------------------------
 // create_specialized_function_inline
+/// Resolve a SomeT through its resolved-concrete cell chain (the same walk as
+/// type_key's `_tk_resolve_arg_slot`, incl. the "Impl"/nameless exclusions).
+/// Returns the input unchanged when the chain ends unresolved.
+_spec_resolve_slot_cell :: (fn(t_in : TypeValue) -> TypeValue)({
+  (cur : TypeValue) = t_in;
+  (seen : ArrayList(String)) = ArrayList(String).new();
+  (walk : bool) = true;
+  while(walk, {
+    match(
+      cur,
+      .SomeT({ id : brs_id, name : brs_nm, resolved_concrete : brs_rc }) => {
+        if((brs_nm == "Impl") || (brs_nm.len() == usize(0)), {
+          return(t_in);
+        });
+        (revisit : bool) = false;
+        (bri : usize) = usize(0);
+        while(bri < seen.len(), {
+          if(match(seen.get(bri),.Some(s) => (s == brs_id),.None => false), {
+            revisit = true;
+          });
+          bri = (bri + usize(1));
+        });
+        if(revisit, {
+          walk = false;
+        }, {
+          seen.push(brs_id.clone());
+          match(
+            brs_rc.get(usize(0)),
+            .Some(nx) => {
+              cur = nx;
+            },
+            .None => {
+              walk = false;
+            }
+          );
+        });
+      },
+      _ => {
+        walk = false;
+      }
+    );
+  });
+  cond(is_some_type(cur) => t_in, true => cur)
+});
+/// SNAPSHOT a ctor-stamped record's generic slots at SPECIALIZATION time:
+/// resolve each `type_arguments`/`field_types` SomeT through its cell chain
+/// NOW, so the registered spec signature reads the CALL era instead of
+/// whatever the shared def-era cell holds when the C emitter finally walks it.
+/// The def-era slot SomeT (e.g. prelude filter's `F`) is ONE lineage across
+/// every call site — a later `.filter(q)` call overwrites the cell, so an
+/// emission-time read resolves a DIFFERENT era than the call the spec was
+/// minted for (`IterFilter(_, capture-A)` at the call site vs
+/// `IterFilter(_, capture-B)` in the spec signature — the arm-18 clang
+/// mismatch). TS is immune: each call freshens its forall objects and the
+/// record references THAT call's SomeType, whose resolvedConcreteType is set
+/// once and never rebound.
+_bake_record_slots :: (fn(ty : TypeValue) -> TypeValue)(
+  match(
+    ty,
+    .Struct({
+      id : bk_id,
+      name : bk_nm,
+      field_labels : bk_fl,
+      field_types : bk_ft,
+      is_reference_semantics : bk_ref,
+      is_atomic_rc : bk_arc,
+      is_newtype : bk_nt,
+      constructor_func_id : bk_cfid,
+      type_arguments : bk_tas,
+      is_source_namespace : bk_ns
+    }) => {
+      if((bk_cfid.len() == usize(0)) || (bk_tas.len() == usize(0)), {
+        return(ty);
+      });
+      (bk_changed : bool) = false;
+      bk_new_tas := ArrayList(TypeValue).new();
+      (bk_i : usize) = usize(0);
+      while(bk_i < bk_tas.len(), {
+        bk_t := match(bk_tas.get(bk_i),.Some(t) => t,.None => TypeValue.Unit);
+        (bk_r : TypeValue) = bk_t;
+        if(is_some_type(bk_t), {
+          bk_r = _spec_resolve_slot_cell(bk_t);
+          if(!(is_some_type(bk_r)), {
+            bk_changed = true;
+          }, {
+            bk_r = bk_t;
+          });
+        });
+        bk_new_tas.push(bk_r);
+        bk_i = (bk_i + usize(1));
+      });
+      if(!(bk_changed), {
+        return(ty);
+      });
+      bk_new_ft := ArrayList(TypeValue).new();
+      (bk_j : usize) = usize(0);
+      while(bk_j < bk_ft.len(), {
+        bk_f := match(bk_ft.get(bk_j),.Some(t) => t,.None => TypeValue.Unit);
+        (bk_fr : TypeValue) = bk_f;
+        if(is_some_type(bk_f), {
+          bk_fr = _spec_resolve_slot_cell(bk_f);
+          if(is_some_type(bk_fr), {
+            bk_fr = bk_f;
+          });
+        });
+        bk_new_ft.push(bk_fr);
+        bk_j = (bk_j + usize(1));
+      });
+      TypeValue.Struct(
+        id : bk_id,
+        name : bk_nm,
+        field_labels : bk_fl,
+        field_types : bk_new_ft,
+        is_reference_semantics : bk_ref,
+        is_atomic_rc : bk_arc,
+        is_newtype : bk_nt,
+        constructor_func_id : bk_cfid,
+        type_arguments : bk_new_tas,
+        is_source_namespace : bk_ns
+      )
+    },
+    _ => ty
+  )
+);
 /// Containment shell for the mint-side closure-body RE-EVALUATION (see the
 /// call site in create_specialized_function_inline): the swallow handler is a
 /// capture-free `->` unwind, which exits THIS fn only — same pattern as
@@ -3112,7 +3238,7 @@ create_specialized_function_inline :: (
                   }, rpt)
                 );
                 spec_param_types.push(
-                  convert_comptime_type_to_runtime_type_with_expected(use_ty, Option(TypeValue).None, callee_env)
+                  convert_comptime_type_to_runtime_type_with_expected(_bake_record_slots(use_ty), Option(TypeValue).None, callee_env)
                 );
                 spi = (spi + usize(1));
               });
@@ -4481,6 +4607,73 @@ try_to_call_function_with_arguments :: (
           wx_i = (wx_i + usize(1));
         });
       };
+      // Self-slot marker exclusion (TS fidelity): TS recreates NO markers —
+      // its callee env EXTENDS the method's definition env (helper.ts:1013),
+      // which holds self-markers ONLY for type variables the signature
+      // itself declared. A SomeT arriving exclusively through the
+      // SUBSTITUTED self param (the receiver record embeds the PREVIOUS
+      // combinator call's foralls, e.g. `IterFilter(_, F-filter)` in
+      // `.filter(p).fold(init, f)`) must NOT be marker-bound under its bare
+      // name here: that marker becomes the LAST same-named binding in the
+      // callee frame and buries the callee's own forall (name-keyed
+      // last-binding-wins), routing fold's `F` to filter's predicate.
+      (self_only_ids : ArrayList(String)) = ArrayList(String).new();
+      if(is_method_call && (pt.len() > usize(0)), {
+        _sx_push_ids :: (fn(ty : TypeValue, out_ids : ArrayList(String)) -> unit)({
+          sx_all := get_all_some_types(ty);
+          (sx_i : usize) = usize(0);
+          while(sx_i < sx_all.len(), {
+            sx_st := match(sx_all.get(sx_i),.Some(t) => t,.None => t_unit());
+            sx_id := match(sx_st,.SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => String.from(""));
+            if(sx_id.len() > usize(0), {
+              out_ids.push(sx_id);
+            });
+            sx_nested := collect_wrapper_trait_somes(sx_st);
+            (sx_j : usize) = usize(0);
+            while(sx_j < sx_nested.len(), {
+              sxn_id := match(
+                sx_nested.get(sx_j),
+                .Some(t) => match(t,.SomeT(id2, _, _, _, _, _, _, _, _, _, _) => id2, _ => String.from("")),
+                .None => String.from("")
+              );
+              if(sxn_id.len() > usize(0), {
+                out_ids.push(sxn_id);
+              });
+              sx_j = (sx_j + usize(1));
+            });
+            sx_i = (sx_i + usize(1));
+          });
+        });
+        (sx_rest_ids : ArrayList(String)) = ArrayList(String).new();
+        (sx_pi : usize) = usize(1);
+        while(sx_pi < pt.len(), {
+          _sx_push_ids(match(pt.get(sx_pi),.Some(t) => t,.None => t_unit()), sx_rest_ids);
+          sx_pi = (sx_pi + usize(1));
+        });
+        (sx_fi : usize) = usize(0);
+        while(sx_fi < ft.len(), {
+          _sx_push_ids(match(ft.get(sx_fi),.Some(t) => t,.None => t_unit()), sx_rest_ids);
+          sx_fi = (sx_fi + usize(1));
+        });
+        (sx_self_ids : ArrayList(String)) = ArrayList(String).new();
+        _sx_push_ids(match(pt.get(usize(0)),.Some(t) => t,.None => t_unit()), sx_self_ids);
+        (sx_si : usize) = usize(0);
+        while(sx_si < sx_self_ids.len(), {
+          sx_sid := match(sx_self_ids.get(sx_si),.Some(s) => s,.None => String.from(""));
+          (sx_in_rest : bool) = false;
+          (sx_ri : usize) = usize(0);
+          while((sx_ri < sx_rest_ids.len()) && !(sx_in_rest), {
+            if(match(sx_rest_ids.get(sx_ri),.Some(r) => (r == sx_sid),.None => false), {
+              sx_in_rest = true;
+            });
+            sx_ri = (sx_ri + usize(1));
+          });
+          if((sx_sid.len() > usize(0)) && !(sx_in_rest), {
+            self_only_ids.push(sx_sid);
+          });
+          sx_si = (sx_si + usize(1));
+        });
+      });
       {
         (seen_st_ids : ArrayList(String)) = ArrayList(String).new();
         (sg_i : usize) = usize(0);
@@ -4496,7 +4689,17 @@ try_to_call_function_with_arguments :: (
             });
             sd_i = (sd_i + usize(1));
           });
-          if((!(sg_dup)) && (sg_nm.len() > usize(0)), {
+          (sg_self_only : bool) = false;
+          if(sg_nm != "Self", {
+            (so_i : usize) = usize(0);
+            while((so_i < self_only_ids.len()) && !(sg_self_only), {
+              if(match(self_only_ids.get(so_i),.Some(s) => (s == sg_id),.None => false), {
+                sg_self_only = true;
+              });
+              so_i = (so_i + usize(1));
+            });
+          });
+          if(((!(sg_dup)) && (sg_nm.len() > usize(0))) && !(sg_self_only), {
             seen_st_ids.push(sg_id);
             (sg_is_forall : bool) = false;
             (sf_i : usize) = usize(0);
@@ -4566,7 +4769,24 @@ try_to_call_function_with_arguments :: (
               sig_some_types.get(fv_mi),
               .Some(fv_mst) => {
                 fv_mn := match(fv_mst,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
-                if(fv_mn == flabel, {
+                // A receiver-embedded SomeT (self-slot-only) merely SHARES the
+                // forall's name — e.g. `.filter(p).fold(init, f)`: fold's
+                // sig_some_types lists filter's F (inside the substituted
+                // `self : IterFilter(_, F-filter)`) BEFORE fold's own F.
+                // Binding the forall to it routes fold's `f` to filter's
+                // predicate. TS binds `forallParameter.type` directly — the
+                // name search is yo-self's reconstruction, so it must skip
+                // foreign ids.
+                fv_mid := match(fv_mst,.SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => String.from(""));
+                (fv_foreign : bool) = false;
+                (fv_si : usize) = usize(0);
+                while((fv_si < self_only_ids.len()) && !(fv_foreign), {
+                  if(match(self_only_ids.get(fv_si),.Some(s) => (s == fv_mid),.None => false), {
+                    fv_foreign = true;
+                  });
+                  fv_si = (fv_si + usize(1));
+                });
+                if((fv_mn == flabel) && !(fv_foreign), {
                   fv_marker = Option(TypeValue).Some(fv_mst);
                 });
               },
@@ -4985,6 +5205,121 @@ try_to_call_function_with_arguments :: (
                 ctx.is_evaluating_function_type = true;
                 _try_apply_early_where_clauses(ew_apply, callee_env, ctx);
                 ctx.is_evaluating_function_type = ew_prev;
+                // Post-application durable assoc binding: the check's own
+                // `A := i32` synthesis can land in a scratch frame that pops
+                // before the argument loop (yo-self's mutable push/pop envs;
+                // TS keeps the binding via the returned env chain,
+                // helper.ts:1397-1405). For every applied `lhs <: Trait(assoc
+                // := X)` whose X forall is STILL not concretely bound, resolve
+                // the assoc from the lhs's concrete target through the same
+                // registry channels the check used, and bind X here in the
+                // callee env's own frame (`.filter(p).fold(init, f)`: fold's
+                // closure needs `A := i32` before its `f` argument types —
+                // else the closure's `item` param registers as the raw SomeT
+                // and emits `void*`; iterator_combinators arm 18).
+                (ewa_i : usize) = usize(0);
+                while(ewa_i < ew_apply.len(), {
+                  ewa_e := match(ew_apply.get(ewa_i),.Some(e) => e,.None => make_err_expr());
+                  if(ast_expr_is_fn_call_of(ewa_e, "<:",.Some(usize(2))), {
+                    ewa_args := _h_get_fn_call_args(ewa_e);
+                    ewa_lhs := match(ewa_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+                    ewa_rhs := match(ewa_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+                    if(ast_expr_is_atom(ewa_lhs) && ast_expr_is_fn_call(ewa_rhs), {
+                      // Resolve the LHS variable to a concrete TypeVal target.
+                      (ewa_target : Option(TypeValue)) = Option(TypeValue).None;
+                      {
+                        ewa_lvars := get_variables_from_env(callee_env, ast_expr_token(ewa_lhs).value);
+                        if(ewa_lvars.len() > usize(0), {
+                          match(
+                            ewa_lvars.get(ewa_lvars.len() - usize(1)),
+                            .Some(lv) => match(
+                              lv.value.get(usize(0)),
+                              .Some(lvv) => match(
+                                lvv,
+                                .TypeVal(lvt) => if(!(is_some_type(lvt)), {
+                                  ewa_target = Option(TypeValue).Some(lvt);
+                                }),
+                                _ => ()
+                              ),
+                              .None => ()
+                            ),
+                            .None => ()
+                          );
+                        });
+                      };
+                      match(
+                        ewa_target,
+                        .Some(ewa_tt) => {
+                          ewa_rargs := _h_get_fn_call_args(ewa_rhs);
+                          (ewa_ri : usize) = usize(0);
+                          while(ewa_ri < ewa_rargs.len(), {
+                            ewa_ra := match(ewa_rargs.get(ewa_ri),.Some(a) => a,.None => make_err_expr());
+                            if(ast_expr_is_fn_call_of(ewa_ra, ":=",.Some(usize(2))), {
+                              ewa_pair := _h_get_fn_call_args(ewa_ra);
+                              ewa_al := match(ewa_pair.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+                              ewa_av := match(ewa_pair.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+                              if(ast_expr_is_atom(ewa_al) && ast_expr_is_atom(ewa_av), {
+                                ewa_xn := ast_expr_token(ewa_av).value;
+                                // Only forall labels of THIS call, still unbound.
+                                (ewa_is_fl : bool) = false;
+                                (ewa_fi : usize) = usize(0);
+                                while((ewa_fi < fl.len()) && !(ewa_is_fl), {
+                                  if(match(fl.get(ewa_fi),.Some(l) => (l == ewa_xn),.None => false), {
+                                    ewa_is_fl = true;
+                                  });
+                                  ewa_fi = (ewa_fi + usize(1));
+                                });
+                                (ewa_unbound : bool) = true;
+                                {
+                                  ewa_xvars := get_variables_from_env(callee_env, ewa_xn);
+                                  if(ewa_xvars.len() > usize(0), {
+                                    match(
+                                      ewa_xvars.get(ewa_xvars.len() - usize(1)),
+                                      .Some(xv) => match(
+                                        xv.value.get(usize(0)),
+                                        .Some(xvv) => match(
+                                          xvv,
+                                          .TypeVal(xvt) => if(!(is_some_type(xvt)), {
+                                            ewa_unbound = false;
+                                          }),
+                                          _ => ()
+                                        ),
+                                        .None => ()
+                                      ),
+                                      .None => ()
+                                    );
+                                  });
+                                };
+                                if(ewa_is_fl && ewa_unbound, {
+                                  match(
+                                    resolve_assoc_type_for_target(ewa_tt, ast_expr_token(ewa_al).value, callee_env),
+                                    .Some(ewa_res) => if(!(is_some_type(ewa_res)), {
+                                      add_variable_to_env(
+                                        callee_env,
+                                        ewa_xn.clone(),
+                                        t_type(),
+                                        Option(EvalValue).Some(create_type_value(ewa_res)),
+                                        true,
+                                        false,
+                                        false,
+                                        false,
+                                        synthetic_token(ewa_xn.clone(), callee_env.module_path)
+                                      );
+                                    }),
+                                    .None => ()
+                                  );
+                                });
+                              });
+                            });
+                            ewa_ri = (ewa_ri + usize(1));
+                          });
+                        },
+                        .None => ()
+                      );
+                    });
+                  });
+                  ewa_i = (ewa_i + usize(1));
+                });
               });
             });
           },

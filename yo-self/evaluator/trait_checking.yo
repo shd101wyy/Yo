@@ -478,6 +478,48 @@ _assoc_synth_env :: (
   );
   Option(Environment).Some(sr.expected_env)
 });
+/// Resolve one associated type (`label`) for `target_type` through the SAME
+/// two channels `_check_associated_type_constraints` uses: the type-trait-
+/// methods registry (durable impl-provided assoc registrations) first, then
+/// the generic impl registry. Exported for the call path's early where-clause
+/// application: the check's own `A := i32` synthesis can land in a scratch
+/// frame that pops before the argument loop, so the caller re-binds the
+/// constraint target durably in the callee env (TS keeps it via the returned
+/// env chain, helper.ts:1397-1405).
+resolve_assoc_type_for_target :: (
+  fn(target_type : TypeValue, label : String, env : Environment) -> Option(TypeValue)
+)({
+  (resolved_opt : Option(TypeValue)) = Option(TypeValue).None;
+  {
+    rat_tid := type_id_or_empty(target_type);
+    if(rat_tid != "", {
+      rat_entries := get_type_trait_methods_by_name(rat_tid, label);
+      (rat_i : usize) = usize(0);
+      while((rat_i < rat_entries.len()) && resolved_opt.is_none(), {
+        match(
+          rat_entries.get(rat_i),
+          .Some(re) => match(
+            re.value,
+            .Some(rev) => match(
+              rev,
+              .TypeVal(re_t) => {
+                resolved_opt = Option(TypeValue).Some(re_t);
+              },
+              _ => ()
+            ),
+            .None => ()
+          ),
+          .None => ()
+        );
+        rat_i = (rat_i + usize(1));
+      });
+    });
+  };
+  if(resolved_opt.is_none(), {
+    resolved_opt = find_associated_type_from_generic_impls(target_type, label, env);
+  });
+  resolved_opt
+});
 /// Check if a concrete type satisfies associated type constraints on a
 /// specialized trait — e.g. for `Iterator(Item := i32)`, verify the target's
 /// `Iterator.Item` resolves to `i32`. Propagates SomeType bindings produced by
@@ -1947,6 +1989,7 @@ export(type_implements_comptime, type_implements_runtime_full);
 export(begin_send_derivation, end_send_derivation);
 export(type_implements_send, type_implements_dispose, type_implements_acyclic);
 export(type_implements_fn);
+export(resolve_assoc_type_for_target);
 export(extract_fn_trait_from_type);
 export(type_implements_future);
 export(type_contains_some_type_for_codegen_param);

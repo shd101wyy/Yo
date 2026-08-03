@@ -307,6 +307,26 @@ _bind_some_type :: (
         .None => String.from("")
       );
       identity_mismatch := ((source_some_id.len() > usize(0)) && ((found_slot_someid.len() > usize(0)) && (found_slot_someid != source_some_id)));
+      // A SELF-MARKER shadow-add (`F := SomeT(F-source)`) over a DIFFERENT
+      // lineage's same-named binding is pure poison: it carries no binding
+      // information (the source SomeT resolves to "unbound" with or without
+      // it — without the marker the name lookup hits the sibling, fails the
+      // ownership check, and returns unbound), but as the new LAST binding
+      // it buries the sibling for every name-keyed read. TS never persists
+      // this write: its both-unbound unification updates the last variable
+      // in a SCRATCH chain that tryMatchGenericImpl discards
+      // (synthesizer.ts:319-335, impl.ts:2243 pushEnvFrame). Measured: the
+      // `.filter(p).fold(init, f)` where-check wrote filter's `F` marker
+      // into fold's live callee frame, routing fold's closure to filter's
+      // predicate (iterator_combinators arm 18).
+      val_is_self_marker := match(
+        val,
+        .TypeVal(vmt) => match(vmt,.SomeT({ id : vmid }) => (vmid == source_some_id), _ => false),
+        _ => false
+      );
+      if(identity_mismatch && val_is_self_marker, {
+        return(());
+      });
       if(identity_mismatch || ((env.frames.len() > usize(0)) && (old_var.frame_level != (env.frames.len() - usize(1)))), {
         add_variable_to_env(
           env,
