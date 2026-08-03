@@ -104,3 +104,45 @@ issues/yo-self-io-await-shared-wrapper-poisoning.md). Fixing this
 env-frame-sharing leak (call-scoped frames, or TS-style per-call forall
 freshening — helper.ts:1047) unlocks BOTH arm 18 and arm-65 layer 4. It is
 now the single highest-leverage remaining root.
+
+---
+
+## 2026-08-03 final round — the leak mechanism fully characterized; 4 fix candidates measured
+
+Frame-topology probes (`[fadd]`/`[fleak]`/`[fw]`, env-var-gated) localized
+the arm-18 leak precisely:
+
+1. **The name-keyed resolution reads MULTIPLE same-named `F` bindings in one
+   frame** — e.g. one 2-frame env whose frame 1 held `[F-1250(filter),
+F-1272(take), F-1250]`; last-binding-wins picks a sibling call's F.
+2. **A confirmed importer**: helper.yo's Step-6 "self-bound marker" loop
+   (`sig_some_types := get_all_some_types(func_type)`) — a partially
+   resolved METHOD signature carries `Self := <the receiver's combinator
+record>` which EMBEDS the previous combinator's `F` in its type
+   arguments; the loop then marker-binds that foreign SomeT under the shared
+   name "F" into the callee env, shadowing the callee's own forall.
+
+Fix candidates MEASURED (all reverted — none flipped the arm; keep for the
+next design round):
+
+- `evaluate_function_type` frame-scoping (push/pop around the fn-type
+  eval's param/where writes, TS-chain parity): no effect on the arm; the
+  imports happen at CALL time, not type-eval time.
+- Level-gated name-collision follow in `_do_chain_resolve` (only follow a
+  different-id binding at/above the querier's own self-binding frame): the
+  leaked bindings live at the SAME frame level in reused/shared frames, so
+  the gate can't separate them.
+- Marker gate "forall-named markers only for ids in `forall_types`":
+  BROKE legitimate freshened-id markers (arm-18 markers 1→8).
+- Marker gate "skip SomeTs appearing ONLY in the self slot": no
+  regression, but the arm still hollows — the poisoned binding reaches the
+  resolution through at least one more channel.
+
+**Conclusion:** the correct fix is architectural — TS-style PER-CALL FORALL
+FRESHENING (helper.ts:1047: every call rebinds the signature's SomeTs as
+fresh objects, so a name lookup can never land on a sibling call's
+binding), or an immutable/chained env equivalent. Point solutions at
+individual writers/readers keep failing because the same-name collision is
+systemic. This root blocks: iterator_combinators arm 18, async arm-65
+layer 4 (the E binding), and plausibly the batch-context Ctx collisions
+behind async_await's remaining arms.
