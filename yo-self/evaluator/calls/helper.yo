@@ -1375,8 +1375,24 @@ _find_specialization_cache :: (
                     while((rti < n_rt) && rt_match, {
                       cached_ty := match(cache.runtime_parameter_types.get(rti),.Some(t) => t,.None => t_unit());
                       current_ty := match(runtime_parameter_types.get(rti),.Some(t) => t,.None => t_unit());
-                      if(!(are_types_compatible_exact(cached_ty, current_ty)), {
+                      // ABSTRACT-vs-CONCRETE never matches: the compat check
+                      // accepts an existential SomeT against a concrete type
+                      // (trait subsumption), which returned the def-era
+                      // TYPE-ERASED spec (param minted from the bare declared
+                      // SomeT → void*) to a caller whose arg RESOLVES to the
+                      // concrete capture struct — `(void*)(<struct value>)`,
+                      // the stage-2 dyn-capture cluster. Runtime param types
+                      // here are post-_spec_resolve_arg_ty, so requiring the
+                      // same SomeT-ness keeps def-era reuse (bare↔bare) and
+                      // concrete reuse (struct↔struct) intact.
+                      cached_is_some := is_some_type(cached_ty);
+                      current_is_some := is_some_type(current_ty);
+                      if((cached_is_some && !(current_is_some)) || (!(cached_is_some) && current_is_some), {
                         rt_match = false;
+                      }, {
+                        if(!(are_types_compatible_exact(cached_ty, current_ty)), {
+                          rt_match = false;
+                        });
                       });
                       rti = (rti + usize(1));
                     });
@@ -1728,6 +1744,66 @@ _reeval_closure_body_swallow :: (
 ///
 /// Mirrors the core (pre-effects) of `createSpecializedFunctionInline` in
 /// `src/evaluator/calls/helper.ts`.
+/// Resolve a specialization ARG type through the SomeT resolution chain (own
+/// cell first, then the global registry), bounded by a visited set. Adopt ONLY
+/// a CONCRETE (non-SomeT) result. TS's computeCompileTimeSignature and the
+/// specialized param types read the SomeType's `resolvedConcreteType`
+/// (helper.ts:2245-2252), so a FORWARDED closure param specializes on the
+/// CAPTURE STRUCT, not on the caller's abstract SomeT id. Without this, every
+/// forwarding hop keyed the spec on the bare declared SomeT id: the def-era
+/// TYPE-ERASED spec (param rendered void*) and the resolved-era call collided
+/// in the spec cache (`are_types_compatible_exact` matches SomeT-vs-SomeT by
+/// shape), so a caller holding a concrete capture struct called the void*
+/// spec — `(void*)(<struct value>)`, the stage-2 dyn-capture clang cluster
+/// (issues/yo-self-stage2-get-type-string-cycle.md).
+_spec_resolve_arg_ty :: (fn(t_in : TypeValue) -> TypeValue)({
+  (cur : TypeValue) = t_in;
+  (seen : ArrayList(String)) = ArrayList(String).new();
+  (walk : bool) = true;
+  while(walk, {
+    match(
+      cur,
+      .SomeT({ id : sr_id, resolved_concrete : sr_rc }) => {
+        (revisit : bool) = false;
+        (ri : usize) = usize(0);
+        while(ri < seen.len(), {
+          match(
+            seen.get(ri),
+            .Some(rs) => if(rs == sr_id, {
+              revisit = true;
+            }),
+            .None => ()
+          );
+          ri = (ri + usize(1));
+        });
+        if(revisit, {
+          walk = false;
+        }, {
+          seen.push(sr_id.clone());
+          match(
+            sr_rc.get(usize(0)),
+            .Some(nx) => {
+              cur = nx;
+            },
+            .None => match(
+              lookup_some_resolved_concrete(sr_id),
+              .Some(gx) => {
+                cur = gx;
+              },
+              .None => {
+                walk = false;
+              }
+            )
+          );
+        });
+      },
+      _ => {
+        walk = false;
+      }
+    );
+  });
+  if(is_some_type(cur), t_in, cur)
+});
 create_specialized_function_inline :: (
   fn(
     original_func_val : EvalValue,
@@ -1822,7 +1898,10 @@ create_specialized_function_inline :: (
                 .None => ()
               );
             });
-            runtime_param_tys.push(ae.arg_type);
+            // Resolve through the SomeT chain so the cache lookup, the sig,
+            // and the spec's registered param types all see the CONCRETE
+            // identity (see _spec_resolve_arg_ty).
+            runtime_param_tys.push(_spec_resolve_arg_ty(ae.arg_type));
           },
           .None => ()
         );
@@ -2641,7 +2720,17 @@ create_specialized_function_inline :: (
               );
               match(
                 cap_ty_fixed,
-                .Some(cap_ty) => {
+                // A still-ABSTRACT cap_ty (a SomeT — the forwarded-param
+                // mint where no concrete capture is determinable) must NOT
+                // rebuild or register: `register_some_resolved_concrete(id,
+                // SomeT(id))` created a SELF-LOOP entry, and SomeT→SomeT
+                // chains poisoned every later render of the shared declared
+                // id (the def-era spec's param flipping void*→concrete
+                // depending on registration order — the stage-2 dyn-capture
+                // cluster). Bind the declared type instead; the resolved-era
+                // mints (arg resolves to the concrete capture via
+                // _spec_resolve_arg_ty) rebuild as before.
+                .Some(cap_ty) => if(!(is_some_type(cap_ty)), {
                   fresh_some_id := `${closure_some_id}_capbind_${type_key(cap_ty)}`;
                   match(
                     decl_pt,
@@ -2676,7 +2765,7 @@ create_specialized_function_inline :: (
                   );
                   register_some_resolved_concrete(fresh_some_id.clone(), cap_ty);
                   register_some_resolved_concrete(closure_some_id.clone(), cap_ty);
-                },
+                }),
                 .None => ()
               );
               _rbc := add_variable_to_env(

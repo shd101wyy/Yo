@@ -290,6 +290,33 @@ create_capture_type_and_value :: (
         cap_key.push_string(match(field_labels.get(csi),.Some(l) => l,.None => String.from("")));
         cap_key.push_str(":");
         cap_key.push_string(match(field_types.get(csi),.Some(t) => type_to_string(t),.None => String.from("")));
+        // RESOLUTION-aware key suffix: a SomeT field type renders the SAME
+        // `type_to_string` whether abstract (def-era eval — the captured
+        // closure param is unbound, field lowers to void*) or resolved
+        // (spec-era eval — the capbind SomeT's cell holds the concrete
+        // capture struct). One shared struct froze the FIRST era's field
+        // types, so the resolved-era spec initialized a void* field with a
+        // concrete struct value (clang error; the forwarded-closure family,
+        // tests/closure_param_forwarding.test.yo arm 2). Append the resolved
+        // identity so the two eras mint DISTINCT capture structs. TS gets
+        // this for free: each spec body eval creates its own captureType
+        // object with that era's field types.
+        match(
+          field_types.get(csi),
+          .Some(ck_t) => match(
+            ck_t,
+            .SomeT({ id : ck_sid, resolved_concrete : ck_rc }) => {
+              cap_key.push_str("@res:");
+              match(
+                ck_rc.get(usize(0)),
+                .Some(ck_r) => cap_key.push_string(type_to_string(ck_r)),
+                .None => cap_key.push_string(ck_sid.clone())
+              );
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
         cap_key.push_str(",");
         csi = (csi + usize(1));
       });

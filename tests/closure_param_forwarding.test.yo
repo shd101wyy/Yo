@@ -1,0 +1,102 @@
+// Regression tests for FORWARDED `Impl(Fn(...))` parameters — a closure param
+// passed through one or more call hops before being called.
+//
+// The bug class (issues/yo-self-stage2-get-type-string-cycle.md): every
+// forwarding hop specialized the callee on the caller's bare declared SomeT
+// id, so the def-era TYPE-ERASED specialization (param rendered `void*`)
+// collided in the spec cache with the resolved-era call whose argument
+// resolves to the concrete capture struct — clang then rejected
+// `(void*)(<capture struct value>)` (the stage-2 dyn-capture cluster), or the
+// wrong spec silently returned zeroes. Fixed by resolving spec ARG types
+// through the SomeT resolution chain (`_spec_resolve_arg_ty`), refusing
+// abstract-vs-concrete spec-cache matches, and skipping the degenerate
+// capbind self-registration (yo-self/evaluator/calls/helper.yo).
+{ assert } :: import("std/assert");
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+test("Test single-hop forwarded closure param", {
+  walk1 :: (
+    fn(depth : i32, get_info : Impl(Fn(k : i32) -> i32), acc : ArrayList(i32)) -> unit
+  )({
+    if(depth <= i32(0), {
+      return(());
+    });
+    acc.push(get_info(depth));
+    recur(depth - i32(1), get_info, acc);
+  });
+  analyze1 :: (
+    fn(depth : i32, get_info : Impl(Fn(k : i32) -> i32)) -> ArrayList(i32)
+  )({
+    out := ArrayList(i32).new();
+    walk1(depth, get_info, out);
+    out
+  });
+  tbl := ArrayList(i32).new();
+  tbl.push(i32(100));
+  r := analyze1(i32(2), (k : i32) => (match(tbl.get(usize(0)),.Some(v) => v,.None => i32(0)) + k));
+  assert(r.len() == usize(2), "walk should push once per depth level");
+  assert(match(r.get(usize(0)),.Some(v) => v,.None => i32(0)) == i32(102), "first push is get_info(2) = 100 + 2");
+  assert(match(r.get(usize(1)),.Some(v) => v,.None => i32(0)) == i32(101), "second push is get_info(1) = 100 + 1");
+});
+test("Test two-hop forwarded closure param with dyn-capturing detector", {
+  Detector :: ref(struct(detect : Dyn(Fn(k : i32) -> i32)));
+  walk2 :: (
+    fn(depth : i32, get_info : Impl(Fn(k : i32) -> i32), det : Detector, acc : ArrayList(i32)) -> unit
+  )({
+    if(depth <= i32(0), {
+      return(());
+    });
+    acc.push(get_info(depth));
+    acc.push(det.detect(depth));
+    recur(depth - i32(1), get_info, det, acc);
+  });
+  analyze2 :: (
+    fn(depth : i32, get_info : Impl(Fn(k : i32) -> i32)) -> ArrayList(i32)
+  )({
+    out := ArrayList(i32).new();
+    extras := ArrayList(i32).new();
+    extras.push(i32(7));
+    // The detector's dyn closure captures the SAME forwarded closure param —
+    // the shape suspension-analysis uses (get_info captured by the detect
+    // callback while ALSO being forwarded onward).
+    det := Detector(
+      detect : dyn((k : i32) => (get_info(k) + match(extras.get(usize(0)),.Some(v) => v,.None => i32(0))))
+    );
+    walk2(depth, get_info, det, out);
+    out
+  });
+  outer2 :: (
+    fn(depth : i32, get_info : Impl(Fn(k : i32) -> i32)) -> ArrayList(i32)
+  )(
+    analyze2(depth, get_info)
+  );
+  tbl := ArrayList(i32).new();
+  tbl.push(i32(100));
+  r := outer2(i32(2), (k : i32) => (match(tbl.get(usize(0)),.Some(v) => v,.None => i32(0)) + k));
+  assert(r.len() == usize(4), "two pushes per depth level over two levels");
+  assert(match(r.get(usize(0)),.Some(v) => v,.None => i32(0)) == i32(102), "get_info(2) = 102");
+  assert(match(r.get(usize(1)),.Some(v) => v,.None => i32(0)) == i32(109), "detect(2) = 102 + 7");
+  assert(match(r.get(usize(2)),.Some(v) => v,.None => i32(0)) == i32(101), "get_info(1) = 101");
+  assert(match(r.get(usize(3)),.Some(v) => v,.None => i32(0)) == i32(108), "detect(1) = 101 + 7");
+});
+test("Test two distinct closures through the same forwarding chain", {
+  apply3 :: (
+    fn(get_info : Impl(Fn(k : i32) -> i32)) -> i32
+  )(
+    get_info(i32(10))
+  );
+  relay3 :: (
+    fn(get_info : Impl(Fn(k : i32) -> i32)) -> i32
+  )(
+    apply3(get_info)
+  );
+  // Two closures with DIFFERENT captures must not merge onto one
+  // specialization of the forwarding chain (the capture-split hazard).
+  a := i32(1);
+  b := i32(2000);
+  r1 := relay3((k : i32) => (a + k));
+  r2 := relay3((k : i32) => (b + k));
+  assert(r1 == i32(11), "first closure captures a=1: 1 + 10");
+  assert(r2 == i32(2010), "second closure captures b=2000: 2000 + 10");
+});
