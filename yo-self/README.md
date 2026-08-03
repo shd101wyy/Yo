@@ -6,11 +6,11 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
 
 ## Current status (2026-08-03)
 
-- **`s1 test ./tests`: 185/185 GREEN — 0 hollow, 0 red** (honest sweep at
-  `46f614a30`; every file's batch `main` verified non-hollow).
-- Stage-2 self-emit: rc=0 with **0** `Failed to transpile` markers; the
-  stage-2 clang compile has **4 pre-existing dyn-capture errors** — the last
-  open item before the stage-2/stage-3 fixpoint gate is restored.
+- **`s1 test ./tests`: 186/186 GREEN — 0 hollow, 0 red** (honest sweep at
+  `65ebcdbb2`; every file's batch `main` verified non-hollow).
+- Stage-2 self-emit: rc=0, **0 markers**, clang **0 errors** — and the
+  **bootstrap fixpoint HOLDS**: the stage-2 binary re-emits byte-identical
+  C (stage-2 ≡ stage-3, 103.7 MB).
 - The remaining work queue lives in
   **[`../plans/YO_SELF_STAGE2_HANDOFF.md`](../plans/YO_SELF_STAGE2_HANDOFF.md)** —
   read that first; it carries THE METHOD (gate battery, hollow-green hygiene,

@@ -29,26 +29,26 @@ score was 181/4/0).
 
 Green baselines every change must preserve:
 
-| gate                    | baseline                                                                                                                                                                             |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| honest sweep            | **185 GREEN / 0 HOLLOW / 0 RED** as of 2026-08-03 (`46f614a30`)                                                                                                                      |
-| corpus diff-test        | **PASS 153 / DIFF 0 / SELF-FAIL 1** (154 total; `closure_impl_fn_capture.yo` is the known one — the prior baseline binary segfaults on it, the current one fails with 1 clang error) |
-| `check ./std`           | **153/153**                                                                                                                                                                          |
-| `check ./yo-self`       | **295/305** (10 pre-existing: `evaluator/eval.yo` + 9 cascading circular-import)                                                                                                     |
-| canaries                | `array` 12, `for_macro_borrow` 13, `closure_capture_rc_leak` 7 — all rc=0, 0 markers                                                                                                 |
-| stage2 emit             | rc=0, **markers=0** (was 13 until `46f614a30`) (`YO_MAIN_STACK_MB=4096 <bin> compile yo-self/main.yo --release --emit-c --skip-c-compiler`)                                          |
-| stage2 clang / fixpoint | **BROKEN — 4 PRE-EXISTING dyn-capture cast errors** (see below). Do NOT treat as your regression                                                                                     |
+| gate                   | baseline                                                                                                                |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| honest sweep           | **186 GREEN / 0 HOLLOW / 0 RED** as of 2026-08-03 (`65ebcdbb2`; 185 + the new closure_param_forwarding regression file) |
+| corpus diff-test       | **PASS 154 / DIFF 0 / SELF-FAIL 0** (154 total; the `closure_impl_fn_capture.yo` SELF-FAIL fixed in `65ebcdbb2`)        |
+| `check ./std`          | **153/153**                                                                                                             |
+| `check ./yo-self`      | **295/305** (10 pre-existing: `evaluator/eval.yo` + 9 cascading circular-import)                                        |
+| canaries               | `array` 12, `for_macro_borrow` 13, `closure_capture_rc_leak` 7 — all rc=0, 0 markers                                    |
+| stage2 emit            | rc=0, **markers=0** (`YO_MAIN_STACK_MB=4096 <bin> compile yo-self/main.yo --release --emit-c --skip-c-compiler`)        |
+| stage2 clang           | rc=0, **0 errors** (the 4-error dyn-capture cluster fixed in `65ebcdbb2`)                                               |
+| stage2/stage3 fixpoint | **FIXPOINT_HOLDS** — stage-2 and stage-3 C byte-identical (103.7 MB), verified `65ebcdbb2`                              |
 
-**Remaining open item: the stage-2 clang 4-error dyn-capture cluster** (the
-only thing between here and re-establishing the stage-2/stage-3 fixpoint
-gate). clang surfaces exactly **4** `operand of type '__yo_tN' where
-arithmetic or pointer type is required` errors at `is_yo_dyn_Fn_…` call
-sites — identical at multiple tree states, long-pre-existing and previously
-masked by a stage-2 emit crash (the `get_type_string` SomeT-resolution
-cycle, fixed in `4047555d8`). Full analysis + fix directions:
-`issues/yo-self-stage2-get-type-string-cycle.md`. Until that is repaired,
-gate stage-2 on **emit rc=0 + markers == 0 + clang error count == 4
-(unchanged)**.
+**The stage-2 dyn-capture cluster is FIXED and the FIXPOINT gate is
+RESTORED (`65ebcdbb2`)**: the forwarded-closure spec-cache collision
+(def-era void\* spec vs resolved-era concrete capture) was repaired via
+spec-arg SomeT-chain resolution, the abstract-vs-concrete cache guard, the
+degenerate-capbind guard, and the resolution-aware capture-struct key —
+postmortem in `issues/fixed/yo-self-stage2-get-type-string-cycle.md`;
+regression coverage in `tests/closure_param_forwarding.test.yo`. The same
+change fixed the corpus `closure_impl_fn_capture.yo` SELF-FAIL (154/154).
+Gate stage-2 on **emit rc=0 + markers == 0 + clang rc == 0 + FIXPOINT_HOLDS**.
 
 `sys/bufio` and `thread` are FLAKY on this machine (intermittent SIGSEGV with
 a ZERO-byte log — the phantom-kill signature). Re-run before believing either.
@@ -66,9 +66,10 @@ a ZERO-byte log — the phantom-kill signature). Re-run before believing either.
    ./yo-cli compile yo-self/main.yo --release -o /tmp/s1
    BIN=/tmp/s1 T=tests/iterator_combinators.test.yo TAG=x bash scratchpad/measure_one.sh
    ```
-3. The single remaining open root: **the stage-2 dyn-capture residual**
-   (§3.5 — the fixpoint blocker). Everything else in §3 is SOLVED and kept
-   only as postmortem pointers.
+3. **No open roots remain.** Everything in §3 is SOLVED and kept only as
+   postmortem pointers. The campaign goal state — all tests green, stage-2
+   self-compile clean, fixpoint holding — was reached 2026-08-03
+   (`65ebcdbb2`).
 
 ---
 
@@ -153,7 +154,7 @@ needed the future-trait param lowering + semantic io-builtin
 classification chain — full six-part write-up in
 `issues/fixed/yo-self-io-await-shared-wrapper-poisoning.md`.
 
-### 3.5 stage-2 dyn-capture residual (the fixpoint blocker)
+### 3.5 stage-2 dyn-capture residual — SOLVED 2026-08-03 (`65ebcdbb2`; FIXPOINT RESTORED)
 
 `issues/yo-self-stage2-get-type-string-cycle.md`. TS emits NO
 `is_yo_dyn_*` predicate functions for the same input — the whole family is

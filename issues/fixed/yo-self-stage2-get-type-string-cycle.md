@@ -56,3 +56,28 @@ dyn test that TS folds at compile time). Measured at three tree states
 - The fix belongs to the dyn(Fn)-family resolution-cycle repair: either fold
   the dyn predicate at compile time like TS, or resolve the capture-struct
   parameter type without entering the cycle.
+
+---
+
+## RESOLVED — 2026-08-03, commit 65ebcdbb2 (FIXPOINT RESTORED)
+
+Root cause (found via a 45-line repro, tests/closure_param_forwarding.test.yo):
+a closure param FORWARDED through call hops (suspension_analysis's
+`get_info`) specialized every hop on the caller's bare declared SomeT id —
+the def-era TYPE-ERASED spec (param void\*) collided in the spec cache with
+resolved-era calls whose args resolve to the concrete capture struct.
+
+Fixes (yo-self/evaluator/calls/helper.yo + utils/closure.yo):
+
+1. `_spec_resolve_arg_ty` — spec ARG types resolve through the SomeT chain
+   at the mint's runtime_param_tys choke point (TS resolvedConcreteType).
+2. Spec-cache guard — abstract-vs-concrete runtime param pairs never match.
+3. Degenerate capbind guard — no rebuild/registration when the determinable
+   capture type is itself a SomeT (killed the self-loop registry entries).
+4. Capture-struct dedup key appends a SomeT field's RESOLVED identity —
+   def-era and spec-era closures mint distinct capture structs.
+
+Result: stage-2 emit rc=0 markers=0, stage-2 clang rc=0 with ZERO errors,
+and **stage-2 ≡ stage-3 byte-identical (FIXPOINT_HOLDS)**. The corpus
+diff-test's long-standing `closure_impl_fn_capture.yo` SELF-FAIL was the
+same family and is fixed too (154/154). Full sweep 186/186 GREEN.
