@@ -13,11 +13,14 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 183 GREEN / 2 HOLLOW / 0 RED of 185 test files** — verified
-by the full sweep at the "flip basic.test.yo" commit (/tmp/v7_hsweep).
-Hollow: async_await (arm 65 only), fn (arm 14 only) — each a single
-deeply-diagnosed root (§3). Prior scores: 181/4/0 (2026-08-03 morning),
-180/4/1 (2026-08-02 evening).
+**Honest score: 184 GREEN / 1 HOLLOW / 0 RED of 185 test files** — verified
+by the full sweep at the "flip fn.test.yo" commit (/tmp/c14_hsweep).
+Hollow: async_await ONLY (arms 65/72). fn flipped via patch D + the
+deferred def-eval re-run (mutual comptime recursion). async is ONE
+skip-gate connection from green — the complete endgame state (winning
+variant-(e) E-binding shape + landed groundwork + the arm-72 debug path)
+is in issues/yo-self-io-await-shared-wrapper-poisoning.md. Prior scores:
+183/2/0, 181/4/0 (2026-08-03), 180/4/1 (2026-08-02).
 SWEEP HYGIENE: clean `tests/\*\*/.yo_selftest_batch*\*` before a sweep — a
 stale batch from a prior gate run smears phantom hollow markers across the
 whole sweep (measured: a corrupted sweep read 156/29 on a tree whose true
