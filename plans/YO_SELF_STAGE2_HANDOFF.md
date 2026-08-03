@@ -13,52 +13,53 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 181 GREEN / 4 HOLLOW / 0 RED of 185 test files** — verified
-by the closing full sweep at `d3a5264b3` (/tmp/hs*final2). Hollow:
-async_await, basic, fn, iterator_combinators — each down to ONE diagnosed
-root (§3). The 2026-08-02 evening sweep measured 180/4/1.
+**Honest score: 183 GREEN / 2 HOLLOW / 0 RED of 185 test files** — verified
+by the full sweep at the "flip basic.test.yo" commit (/tmp/v7_hsweep).
+Hollow: async_await (arm 65 only), fn (arm 14 only) — each a single
+deeply-diagnosed root (§3). Prior scores: 181/4/0 (2026-08-03 morning),
+180/4/1 (2026-08-02 evening).
 SWEEP HYGIENE: clean `tests/\*\*/.yo_selftest_batch*\*` before a sweep — a
 stale batch from a prior gate run smears phantom hollow markers across the
 whole sweep (measured: a corrupted sweep read 156/29 on a tree whose true
 score was 181/4/0).
 
-**Day's flips:** `prelude` HOLLOW→GREEN (4/4, both arms fixed);
-`imm_map` HOLLOW→GREEN **with teeth** (injected `assert(false)` in the
-entries arm → 20p/1f, matching TS); `iter_filter_closure` HOLLOW→honest RED;
-`comptime` arm 0's negative-number block went vacuous→really-asserting.
-Eleven fix commits: `a1bd4e355..4047555d8` — each message carries its
-measurements.
+**2026-08-03 late-day flips:** `iterator_combinators` HOLLOW→GREEN (19/19;
+the six-layer sibling-forall name-collision chain — see
+issues/fixed/yo-self-chained-combinator-assoc-binding.md) and `basic`
+HOLLOW→GREEN (33/33; five singleton roots + the label-blind enum dedup
+key — commit "flip basic.test.yo"). The probe-driven method (writer-context
+tags + per-channel [f*]/[spreg]/[avpush] dumps, fix ONE channel, re-probe)
+is what cracked both — the previous session's "binding-model redesign
+required" conclusion was refuted by decomposing the leak into SIX separately
+fixable channels.
 
-| remaining file                  | one-line status                                                                                  |
-| ------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `iter_filter_closure`           | **GREEN 2026-08-03** — closure-`F` identity split SOLVED (§3.1)                                  |
-| `iterator_combinators` (HOLLOW) | 18/19 arms real; arm 18 = the env-frame-sharing forall leak (§3.1, same root as §3.4)            |
-| `fn`                            | arm 11 FULLY fixed; arm 14 remains (shared-Variable/deferred-re-eval design, §3.2)               |
-| `basic`                         | arm 12: A2 LANDED 2026-08-03 (g4_min miscompile fixed); A1 reroute stays VETOED (§3.3)           |
-| `async_await`                   | arm 65: binding layer FIXED 2026-08-03; next = the shared-wrapper-cell io.await poisoning (§3.4) |
+| remaining file         | one-line status                                                                                                                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `async_await` (HOLLOW) | arm 65 only. The E-binding mechanism is PROVEN (extraction green) but aborts stage-2 emission (§3.4)                                                                                             |
+| `fn` (HOLLOW)          | arm 14 only (mutual recursion). Patch D + shared-Variable threading measured → SIGSEGV + still-raw-identifier; remaining direction = deferred re-eval of comptime fn bodies at assignment (§3.2) |
 
 Green baselines every change must preserve:
 
-| gate                    | baseline                                                                                                                                      |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| honest sweep            | **181 GREEN / 4 HOLLOW / 0 RED** as of 2026-08-03 (`iter_filter_closure` flipped GREEN; hollow: async_await, basic, fn, iterator_combinators) |
-| corpus diff-test        | **PASS 153 / DIFF 0 / SELF-FAIL 1** (154 total incl. the two new iter closure files; `closure_impl_fn_capture.yo` is the known one)           |
-| `check ./std`           | **153/153**                                                                                                                                   |
-| `check ./yo-self`       | **295/305** (10 pre-existing: `evaluator/eval.yo` + 9 cascading circular-import)                                                              |
-| canaries                | `array` 12, `for_macro_borrow` 13, `closure_capture_rc_leak` 7 — all rc=0, 0 markers                                                          |
-| stage2 emit             | rc=0, **hollow=0** (`YO_MAIN_STACK_MB=4096 <bin> compile yo-self/main.yo --release --emit-c --skip-c-compiler`)                               |
-| stage2 clang / fixpoint | **BROKEN — 4 PRE-EXISTING dyn-capture cast errors** (see below). Do NOT treat as your regression                                              |
+| gate                    | baseline                                                                                                                     |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| honest sweep            | **183 GREEN / 2 HOLLOW / 0 RED** as of 2026-08-03 late (hollow: async_await, fn)                                             |
+| corpus diff-test        | **PASS 153 / DIFF 0 / SELF-FAIL 1** (154 total; `closure_impl_fn_capture.yo` is the known one)                               |
+| `check ./std`           | **153/153**                                                                                                                  |
+| `check ./yo-self`       | **295/305** (10 pre-existing: `evaluator/eval.yo` + 9 cascading circular-import)                                             |
+| canaries                | `array` 12, `for_macro_borrow` 13, `closure_capture_rc_leak` 7 — all rc=0, 0 markers                                         |
+| stage2 emit             | rc=0, **markers=13 (baseline)** (`YO_MAIN_STACK_MB=4096 <bin> compile yo-self/main.yo --release --emit-c --skip-c-compiler`) |
+| stage2 clang / fixpoint | **BROKEN — 4 PRE-EXISTING dyn-capture cast errors** (see below). Do NOT treat as your regression                             |
 
 **The fixpoint gate's recorded FIXPOINT_HOLDS was STALE.** Measured with the
 `784b72ded` baseline binary on the `784b72ded` tree: stage-2 emit SIGBUS'd
 (unbounded `get_type_string` on a SomeT-resolution cycle). The cycle guard
 landed in `4047555d8` fixed the crash; clang then surfaces exactly **4**
 `operand of type '__yo_tN' where arithmetic or pointer type is required`
-errors at `is_yo_dyn_Fn_…` call sites — identical at THREE tree states
-(current, `784b72ded`, `10bca26bc`), i.e. long-pre-existing and previously
-masked by the crash. Full analysis + fix directions:
-`issues/yo-self-stage2-get-type-string-cycle.md`. Until that is repaired,
-gate stage-2 on **emit rc=0 + hollow=0 + clang error count == 4 (unchanged)**.
+errors at `is_yo_dyn_Fn_…` call sites — identical at THREE tree states,
+i.e. long-pre-existing and previously masked by the crash. Full analysis +
+fix directions: `issues/yo-self-stage2-get-type-string-cycle.md`. Until that
+is repaired, gate stage-2 on **emit rc=0 + markers == 13 + clang error
+count == 4 (unchanged)**.
 
 `sys/bufio` and `thread` are FLAKY on this machine (intermittent SIGSEGV with
 a ZERO-byte log — the phantom-kill signature). Re-run before believing either.
