@@ -45,9 +45,16 @@ test("values in range are accepted — including 64-bit unsigned above i64::MAX"
   comptime_assert(big_sum > big_u64, "u64 just past i64::MAX still grows");
   big_diff :: (big_sum - u64(1000));
   comptime_assert(big_diff == big_u64, "u64 subtraction round-trips");
-  big_usize :: usize(9223372036854775807);
+  // usize is TARGET-WIDTH (32-bit on wasm32, 64-bit on native), so the
+  // usize probe must not hardcode a 64-bit literal — the 64-bit-domain
+  // claim above is u64's job. usize.MAX / usize.MIN resolve to the
+  // target's actual width (std/prelude.yo via __yo_pointer_size_bits),
+  // so the boundary walk below is valid on every target.
+  comptime_assert(usize.MIN == usize(0), "usize.MIN is 0 on every target");
+  comptime_assert(usize.MAX > usize(4294967294), "usize.MAX is at least u32.MAX");
+  big_usize :: (usize.MAX - usize(1));
   usize_sum :: (big_usize + usize(1));
-  comptime_assert(usize_sum > big_usize, "usize just past i64::MAX still grows");
+  comptime_assert(usize_sum == usize.MAX, "usize.MAX is reachable on every target width");
   // Boundaries that must NOT be reported.
   max_i8 :: (i8(126) + i8(1));
   comptime_assert(max_i8 == i8(127), "i8 MAX is reachable");
