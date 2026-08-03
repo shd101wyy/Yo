@@ -242,3 +242,32 @@ does try_to_call throw (add a temporary eprintln in the arg-check throw
 paths for param label "task"), and if not, print the param-type SomeT id
 seen during check_if_function_parameter_matches_argument vs 1546. The fix
 lands wherever those ids diverge.
+
+---
+
+## RESOLVED — 2026-08-03, commit 46f614a30 (185/0/0)
+
+The endgame landed as a six-part fix chain; async_await.test.yo is GREEN
+(116 passed, 0 FTT markers) and the full sweep is 185 GREEN / 0 HOLLOW /
+0 RED. Stage-2 emit markers dropped 13 -> 0.
+
+1. `is_function_type_generic` / `is_function_type_hard_generic` now exempt
+   Future-implementing SomeT params (TS guards.ts:474/510) — `test_unwind`
+   is emitted instead of skipped.
+2. The Future trait-object interface struct (`__yo_future_trait_*`) is now
+   real: `generate_future_trait_declaration` ported, FutureTraitT
+   registerable in collect_type, `get_type_string` falls back to the trait
+   struct pointer (TS utils/index.ts:700-712) with on-demand minting.
+3. io-builtin classification is SEMANTIC: extern-marker -> Io-struct-field
+   propagation at construction (TS calls/type.ts:176-182) + call-site marker
+   resolution at the evaluate_function_call choke point; `my_io.await(...)`
+   no longer misroutes to the JoinHandle path.
+4. Effect-bundle temps are typed by the ARG's recorded type (the bundle
+   crosses as void\*) — kills the named-Ctx vs anonymous-record twin-init
+   clang errors.
+5. Nested async/closure capture literals inside an SM route through
+   `_generate_sm_atom` (sm-> alias/capture mapping).
+6. The 3-arg-while STEP in the SM back-edge uses `generate_step_expression`.
+
+Variant (e) — the cell-only E-binding into the per-call freshened future
+forall — landed in `_synthesize_future_traits` with the rationale inline.

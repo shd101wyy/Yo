@@ -13,56 +13,42 @@ as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
 ## 1. Where the campaign stands
 
-**Honest score: 184 GREEN / 1 HOLLOW / 0 RED of 185 test files** — verified
-by the full sweep at the "flip fn.test.yo" commit (/tmp/c14_hsweep).
-Hollow: async_await ONLY (arms 65/72). fn flipped via patch D + the
-deferred def-eval re-run (mutual comptime recursion). async is ONE
-skip-gate connection from green — the complete endgame state (winning
-variant-(e) E-binding shape + landed groundwork + the arm-72 debug path)
-is in issues/yo-self-io-await-shared-wrapper-poisoning.md. Prior scores:
-183/2/0, 181/4/0 (2026-08-03), 180/4/1 (2026-08-02).
-SWEEP HYGIENE: clean `tests/\*\*/.yo_selftest_batch*\*` before a sweep — a
+**Honest score: 185 GREEN / 0 HOLLOW / 0 RED of 185 test files** — verified
+by the full sweep at commit `46f614a30` (/tmp/cln*hsweep). The last hollow
+(async_await, arms 65/72) flipped 2026-08-03 via the six-part fix chain in
+issues/fixed/yo-self-io-await-shared-wrapper-poisoning.md: Future-param
+generic-guard exemptions, the real `\_\_yo_future_trait*_`interface struct,
+SEMANTIC io-builtin classification (extern-marker propagation, not receiver
+names), arg-typed effect-bundle temps, SM-mapped nested capture literals,
+and the 3-arg-while step renderer in the SM back-edge. Prior scores:
+184/1/0, 183/2/0, 181/4/0 (2026-08-03), 180/4/1 (2026-08-02).
+SWEEP HYGIENE: clean`tests/\*\*/.yo_selftest_batch_` before a sweep — a
 stale batch from a prior gate run smears phantom hollow markers across the
 whole sweep (measured: a corrupted sweep read 156/29 on a tree whose true
 score was 181/4/0).
 
-**2026-08-03 late-day flips:** `iterator_combinators` HOLLOW→GREEN (19/19;
-the six-layer sibling-forall name-collision chain — see
-issues/fixed/yo-self-chained-combinator-assoc-binding.md) and `basic`
-HOLLOW→GREEN (33/33; five singleton roots + the label-blind enum dedup
-key — commit "flip basic.test.yo"). The probe-driven method (writer-context
-tags + per-channel [f*]/[spreg]/[avpush] dumps, fix ONE channel, re-probe)
-is what cracked both — the previous session's "binding-model redesign
-required" conclusion was refuted by decomposing the leak into SIX separately
-fixable channels.
-
-| remaining file         | one-line status                                                                                                                                                                                  |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `async_await` (HOLLOW) | arm 65 only. The E-binding mechanism is PROVEN (extraction green) but aborts stage-2 emission (§3.4)                                                                                             |
-| `fn` (HOLLOW)          | arm 14 only (mutual recursion). Patch D + shared-Variable threading measured → SIGSEGV + still-raw-identifier; remaining direction = deferred re-eval of comptime fn bodies at assignment (§3.2) |
-
 Green baselines every change must preserve:
 
-| gate                    | baseline                                                                                                                     |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| honest sweep            | **183 GREEN / 2 HOLLOW / 0 RED** as of 2026-08-03 late (hollow: async_await, fn)                                             |
-| corpus diff-test        | **PASS 153 / DIFF 0 / SELF-FAIL 1** (154 total; `closure_impl_fn_capture.yo` is the known one)                               |
-| `check ./std`           | **153/153**                                                                                                                  |
-| `check ./yo-self`       | **295/305** (10 pre-existing: `evaluator/eval.yo` + 9 cascading circular-import)                                             |
-| canaries                | `array` 12, `for_macro_borrow` 13, `closure_capture_rc_leak` 7 — all rc=0, 0 markers                                         |
-| stage2 emit             | rc=0, **markers=13 (baseline)** (`YO_MAIN_STACK_MB=4096 <bin> compile yo-self/main.yo --release --emit-c --skip-c-compiler`) |
-| stage2 clang / fixpoint | **BROKEN — 4 PRE-EXISTING dyn-capture cast errors** (see below). Do NOT treat as your regression                             |
+| gate                    | baseline                                                                                                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| honest sweep            | **185 GREEN / 0 HOLLOW / 0 RED** as of 2026-08-03 (`46f614a30`)                                                                                                                      |
+| corpus diff-test        | **PASS 153 / DIFF 0 / SELF-FAIL 1** (154 total; `closure_impl_fn_capture.yo` is the known one — the prior baseline binary segfaults on it, the current one fails with 1 clang error) |
+| `check ./std`           | **153/153**                                                                                                                                                                          |
+| `check ./yo-self`       | **295/305** (10 pre-existing: `evaluator/eval.yo` + 9 cascading circular-import)                                                                                                     |
+| canaries                | `array` 12, `for_macro_borrow` 13, `closure_capture_rc_leak` 7 — all rc=0, 0 markers                                                                                                 |
+| stage2 emit             | rc=0, **markers=0** (was 13 until `46f614a30`) (`YO_MAIN_STACK_MB=4096 <bin> compile yo-self/main.yo --release --emit-c --skip-c-compiler`)                                          |
+| stage2 clang / fixpoint | **BROKEN — 4 PRE-EXISTING dyn-capture cast errors** (see below). Do NOT treat as your regression                                                                                     |
 
-**The fixpoint gate's recorded FIXPOINT_HOLDS was STALE.** Measured with the
-`784b72ded` baseline binary on the `784b72ded` tree: stage-2 emit SIGBUS'd
-(unbounded `get_type_string` on a SomeT-resolution cycle). The cycle guard
-landed in `4047555d8` fixed the crash; clang then surfaces exactly **4**
-`operand of type '__yo_tN' where arithmetic or pointer type is required`
-errors at `is_yo_dyn_Fn_…` call sites — identical at THREE tree states,
-i.e. long-pre-existing and previously masked by the crash. Full analysis +
-fix directions: `issues/yo-self-stage2-get-type-string-cycle.md`. Until that
-is repaired, gate stage-2 on **emit rc=0 + markers == 13 + clang error
-count == 4 (unchanged)**.
+**Remaining open item: the stage-2 clang 4-error dyn-capture cluster** (the
+only thing between here and re-establishing the stage-2/stage-3 fixpoint
+gate). clang surfaces exactly **4** `operand of type '__yo_tN' where
+arithmetic or pointer type is required` errors at `is_yo_dyn_Fn_…` call
+sites — identical at multiple tree states, long-pre-existing and previously
+masked by a stage-2 emit crash (the `get_type_string` SomeT-resolution
+cycle, fixed in `4047555d8`). Full analysis + fix directions:
+`issues/yo-self-stage2-get-type-string-cycle.md`. Until that is repaired,
+gate stage-2 on **emit rc=0 + markers == 0 + clang error count == 4
+(unchanged)**.
 
 `sys/bufio` and `thread` are FLAKY on this machine (intermittent SIGSEGV with
 a ZERO-byte log — the phantom-kill signature). Re-run before believing either.
@@ -80,12 +66,9 @@ a ZERO-byte log — the phantom-kill signature). Re-run before believing either.
    ./yo-cli compile yo-self/main.yo --release -o /tmp/s1
    BIN=/tmp/s1 T=tests/iterator_combinators.test.yo TAG=x bash scratchpad/measure_one.sh
    ```
-3. The open roots, in value order: **the env-frame-sharing leak** (ONE
-   root behind BOTH iterator_combinators arm 18 (§3.1) and async arm-65
-   layer 4 (§3.4) — fix direction: call-scoped frames or per-call forall
-   freshening, TS helper.ts:1047), then fn arm 14 (§3.2), basic arm 12's
-   A1 replacement (§3.3), and the stage-2 dyn residual (§3.5 — the
-   fixpoint blocker).
+3. The single remaining open root: **the stage-2 dyn-capture residual**
+   (§3.5 — the fixpoint blocker). Everything else in §3 is SOLVED and kept
+   only as postmortem pointers.
 
 ---
 
@@ -114,7 +97,7 @@ that blocks async arm-65 layer 4 (§3.4); measured mechanism in
 `issues/yo-self-chained-combinator-assoc-binding.md`.
 Corpus gained `iter_filter_multi_closure.yo` + `iter_map_closure.yo` (154).
 
-### 3.2 `fn` — ONE arm left (arm 14)
+### 3.2 `fn` — SOLVED (deferred def-eval re-run; 24/24 GREEN)
 
 - **Arm 11: FULLY FIXED** (`acc984cb3`): the `${func_id}_comptime` mint
   paired with `mark_fn_unemittable` + ALL `copy_func_*` side tables, plus
@@ -129,7 +112,7 @@ Corpus gained `iter_filter_multi_closure.yo` + `iter_map_closure.yo` (154).
   `issues/handoff-2026-08-02/08-basic12-async65-VERIFY.md` (its file name
   is swapped with 06 — 08 verifies the fn-arms report).
 
-### 3.3 `basic` arm 12
+### 3.3 `basic` arm 12 — SOLVED (33/33 GREEN)
 
 Two stacked roots (`issues/handoff-2026-08-02/07` + `06`, note the name
 swap): **A2 (the `_stable_identity_at` Tuple arm) LANDED 2026-08-03** —
@@ -139,7 +122,7 @@ layout-aliasing MISCOMPILE) now compiles and runs. Arm 12 itself still
 hollows on the OTHER stacked root: A1 (the `_()` reroute for NAMED expected
 structs) remains REFUTED as land-able by its adversarial verifier.
 
-### 3.4 `async_await` arm 65
+### 3.4 `async_await` arms 65/72 — SOLVED 2026-08-03 (`46f614a30`; 116/116 GREEN)
 
 Five layers total, four FIXED 2026-08-03: the binding layer
 (compatibility.yo — Future effect matching by TYPE not label; top-level
@@ -160,6 +143,15 @@ freshening, helper.ts:1047). The arm-65 mechanism is PROVEN: the
 extraction (`tmp/a65/a65.test.yo`) was GREEN with any layer-4 variant in
 place. Also note yo-self stays more lenient than TS on `B_io_i64.yo` —
 divergence recorded, not a regression.
+
+**RESOLUTION (2026-08-03, `46f614a30`):** the env-frame-sharing layer-4
+variant was replaced by the CELL-ONLY variant (e) E-binding (write the
+concrete effect into the per-call FRESHENED future forall's resolution
+cell inside `_synthesize_future_traits`) — no env write, no opts write, no
+stage-2 abort; stage-2 emit markers dropped 13 -> 0. Arm 72 additionally
+needed the future-trait param lowering + semantic io-builtin
+classification chain — full six-part write-up in
+`issues/fixed/yo-self-io-await-shared-wrapper-poisoning.md`.
 
 ### 3.5 stage-2 dyn-capture residual (the fixpoint blocker)
 

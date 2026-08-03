@@ -4,13 +4,14 @@ This directory holds the **Yo-in-Yo** port of the compiler. The goal is to repla
 the TypeScript implementation in `src/` with a Yo implementation that compiles to
 a single C file, which can be redistributed as `yo.c` plus a small driver.
 
-## Current status (2026-07-25)
+## Current status (2026-08-03)
 
-- **`s2 test ./yo-self/tests`: 61/61.**
-- **`s2 test ./tests`: 164/183**, sweep-verified with zero regressions.
-- Self-compile: stage2 emit **~36 min** (was ~55-65), `check ./std` **~30 s**
-  (was ~87 s) after the 2026-07-25 perf arc.
-- The 19 remaining reds and the active work queue live in
+- **`s1 test ./tests`: 185/185 GREEN — 0 hollow, 0 red** (honest sweep at
+  `46f614a30`; every file's batch `main` verified non-hollow).
+- Stage-2 self-emit: rc=0 with **0** `Failed to transpile` markers; the
+  stage-2 clang compile has **4 pre-existing dyn-capture errors** — the last
+  open item before the stage-2/stage-3 fixpoint gate is restored.
+- The remaining work queue lives in
   **[`../plans/YO_SELF_STAGE2_HANDOFF.md`](../plans/YO_SELF_STAGE2_HANDOFF.md)** —
   read that first; it carries THE METHOD (gate battery, hollow-green hygiene,
   phantom-kill protocol) and the measured dead ends not worth repeating.
