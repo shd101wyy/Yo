@@ -102,16 +102,22 @@ jobs:
       # - name: Run yo-self bootstrapping tests
       #   run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./yo-self/tests --parallel 2 --bail --verbose --c-compiler clang --profile
 
+  # Bootstrap fixpoint, split into TWO jobs so each ~9 GB self-emit gets a
+  # fresh 16 GB box (a single job's stage-3 starved the runner agent after
+  # the stage-2 emit had already churned the box for an hour — "the hosted
+  # runner lost communication with the server"). The emits run under
+  # nice(1) so the runner agent always keeps CPU, with GNU time -v so the
+  # logs record the actual Linux peak RSS, and MALLOC_ARENA_MAX=2 to cap
+  # glibc arena RSS inflation.
+  #
+  # Informational at first (the TSan-job pattern). Once a week of green runs
+  # establishes CI timing/memory headroom, remove continue-on-error so
+  # this gates PRs — it protects the bootstrap milestone (stage-2 clang
+  # clean + stage-2 ≡ stage-3 byte-identical, first held at 65ebcdbb2).
   bootstrap-fixpoint:
     name: Bootstrap fixpoint (yo-self self-compile — informational)
     runs-on: ubuntu-latest
     timeout-minutes: 360
-    # Informational at first (the TSan-job pattern): the stage-2 emit is a
-    # ~100 MB C file and the chain was only ever timed on an M4 (~6 min
-    # stage-1 build, ~25 min per self-emit). Once a week of green runs
-    # establishes CI timing/memory headroom, remove continue-on-error so
-    # this gates PRs — it protects the bootstrap milestone (stage-2 clang
-    # clean + stage-2 ≡ stage-3 byte-identical, first held at 65ebcdbb2).
     continue-on-error: true
 
     steps:
@@ -120,12 +126,10 @@ jobs:
         with:
           submodules: recursive
 
-      # The stage-2 self-emit peaks well above the 16 GB the runner has
-      # (the run without swap died with "runner received a shutdown signal"
-      # — the OOM-kill signature). Give the box swap headroom first.
-      # NOTE: /swapfile is taken (the runner ships with one active — creating
-      # it there fails with "Text file busy"); use the ~60 GB /mnt resource
-      # disk instead.
+      # Swap headroom: the run without swap died with "runner received a
+      # shutdown signal" (the OOM-kill signature). NOTE: /swapfile is taken
+      # (the runner ships with one active — creating it there fails with
+      # "Text file busy"); use the ~60 GB /mnt resource disk instead.
       - name: Add swap space
         run: |
           sudo fallocate -l 16G /mnt/swapfile
@@ -134,10 +138,10 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing
+      - name: Install liburing and GNU time
         run: |
           sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get install -y liburing-dev time
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -160,25 +164,70 @@ jobs:
       - name: "Stage 2: self-emit C with the stage-1 binary"
         env:
           YO_MAIN_STACK_MB: "4096"
+          MALLOC_ARENA_MAX: "2"
         run: |
-          /tmp/yo-stage1 compile yo-self/main.yo --release --emit-c --skip-c-compiler -o /tmp/yo-stage2
+          nice -n 10 /usr/bin/time -v /tmp/yo-stage1 compile yo-self/main.yo --release --emit-c --skip-c-compiler -o /tmp/yo-stage2
           markers=$(grep -cE '^\s*// (Failed to transpile|Unknown type:)' /tmp/yo-stage2.c || true)
           echo "stage-2 markers: $markers"
           test "$markers" = "0"
 
       - name: "Stage 2: compile the emitted C with clang"
-        run: clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/yo-stage2.c -o /tmp/yo-stage2-bin -luring
+        run: nice -n 10 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/yo-stage2.c -o /tmp/yo-stage2-bin -luring
+
+      - name: Upload stage-2 artifacts for the stage-3 job
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-stage2
+          path: |
+            /tmp/yo-stage2.c
+            /tmp/yo-stage2-bin
+          retention-days: 1
+          if-no-files-found: error
+
+  bootstrap-fixpoint-stage3:
+    name: Bootstrap fixpoint stage-3 (byte-identity — informational)
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    needs: bootstrap-fixpoint
+    continue-on-error: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 16G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
+
+      - name: Install liburing and GNU time
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev time
+
+      - name: Download stage-2 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: bootstrap-stage2
+          path: /tmp/stage2
 
       - name: "Stage 3: self-emit with the stage-2 binary and compare (fixpoint)"
         env:
           YO_MAIN_STACK_MB: "4096"
+          MALLOC_ARENA_MAX: "2"
         run: |
-          /tmp/yo-stage2-bin compile yo-self/main.yo --release --emit-c --skip-c-compiler -o /tmp/yo-stage3
-          if cmp -s /tmp/yo-stage2.c /tmp/yo-stage3.c; then
+          chmod +x /tmp/stage2/yo-stage2-bin
+          nice -n 10 /usr/bin/time -v /tmp/stage2/yo-stage2-bin compile yo-self/main.yo --release --emit-c --skip-c-compiler -o /tmp/yo-stage3
+          if cmp -s /tmp/stage2/yo-stage2.c /tmp/yo-stage3.c; then
             echo "FIXPOINT_HOLDS: stage-2 and stage-3 C are byte-identical"
           else
             echo "FIXPOINT_BROKEN: stage-2 and stage-3 C differ"
-            cmp /tmp/yo-stage2.c /tmp/yo-stage3.c | head -3
+            cmp /tmp/stage2/yo-stage2.c /tmp/yo-stage3.c | head -3
             exit 1
           fi
 
