@@ -53,7 +53,7 @@ open(import("std/string"));
   update_existing_variable
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
-{ EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage, call_rerun_pending_def_evals } :: import("../context.yo");
 {
   EvalValue,
   is_struct_val,
@@ -1196,6 +1196,17 @@ comptime(${variable_name}) : ${dgc_ty_str}
     is_parameter : updated_variable.is_parameter
   );
   update_existing_variable(env, updated_variable, new_variable);
+  // A comptime fn-typed variable just received its FuncVal — a FORWARD
+  // DECLARATION (`comptime(is_odd) : (fn ...)`) is now filled. Re-run any
+  // pending def-time body evals whose captures referenced it while it was
+  // valueless (function_type.yo's pending table, via context.yo's hook) so
+  // their call-site ExprInfos record the FuncVal before codegen reads them
+  // (fn arm 14's mutual recursion).
+  if(updated_variable.is_compile_time_only && is_function_type(updated_variable.ty), {
+    if(match(value_to_store,.Some(vts) => match(vts,.FuncVal(_, _) => true, _ => false),.None => false), {
+      call_rerun_pending_def_evals(env, ctx);
+    });
+  });
   // Write ExprInfo for the lhs.
   lhs_path := ArrayList(String).new();
   lhs_path.push(variable_name);

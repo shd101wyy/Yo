@@ -753,6 +753,28 @@ track_variable_usage :: (
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
+// --- deferred def-eval re-run hook (fn arm 14: mutual comptime recursion) --
+// A fn defined while a forward-declared comptime fn variable is still
+// VALUELESS (`comptime(is_odd) : (fn ...)`; is_even's body references it)
+// records call-site ExprInfos with no FuncVal — codegen's fn-pointer
+// fallback then emits the raw identifier. TS re-records on its later
+// evaluations of the SHARED body nodes; yo-self re-runs the def-time trial
+// eval after the forward declaration is FILLED (assignment.yo calls
+// through this hook into function_type.yo's pending table).
+RerunPendingDefEvalsFn :: (fn(env : Environment, ctx : EvalContext) -> unit);
+(g_rerun_pending_def_evals_fn : Option(RerunPendingDefEvalsFn)) = Option(RerunPendingDefEvalsFn).None;
+set_rerun_pending_def_evals_fn :: (fn(f : RerunPendingDefEvalsFn) -> unit)({
+  g_rerun_pending_def_evals_fn = Option(RerunPendingDefEvalsFn).Some(f);
+  ()
+});
+call_rerun_pending_def_evals :: (fn(env : Environment, ctx : EvalContext) -> unit)(
+  match(
+    g_rerun_pending_def_evals_fn,
+    .Some(f) => f(env, ctx),
+    .None => ()
+  )
+);
+
 export(
   PathCollection,
   path_collection_new,
@@ -793,5 +815,7 @@ export(
   get_trait_type_call_result,
   get_index_call_result,
   get_pointer_type_call_result,
-  track_variable_usage
+  track_variable_usage,
+  set_rerun_pending_def_evals_fn,
+  call_rerun_pending_def_evals
 );

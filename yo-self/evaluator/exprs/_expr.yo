@@ -203,6 +203,7 @@ open(import("std/fmt"));
 { expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
 { set_evaluate_expression_fn, set_evaluate_expression_raw_fn } :: import("./expr.yo");
 { BindingResult, evaluate_binding } :: import("./binding.yo");
+{ register_rerun_pending_def_evals } :: import("../calls/function_type.yo");
 { evaluate_initialization_assignment } :: import("./initialization_assignment.yo");
 { evaluate_assignment } :: import("./assignment.yo");
 { evaluate_recur } :: import("./recur.yo");
@@ -554,6 +555,11 @@ _evaluate_expression :: (
             expected_is_anon_struct := match(
               et_ty,
               .Struct({ is_source_namespace : et_sns }) => !(et_sns),
+              // Patch D: an expected FUNC type reroutes too — `is_even =
+              // _(cond(...))` under `comptime(is_even) : (fn(n : i32) ->
+              // bool)` is a function DEFINITION call (TS's reroute covers
+              // every concrete expected type; fn arm 14).
+              .Func(_, _, _, _, _, _, _) => true,
               _ => false
             );
             // NOTE (fn.test.yo arm 14, measured 2026-08-03): widening this
@@ -1125,6 +1131,7 @@ _evaluate_expression_raw_wrapper :: (
 register_evaluate_expression :: (fn() -> unit)({
   set_evaluate_expression_fn(_evaluate_expression_wrapper);
   set_evaluate_expression_raw_fn(_evaluate_expression_raw_wrapper);
+  register_rerun_pending_def_evals();
   ()
 });
 export(_evaluate_expression, _evaluate_expression_wrapper, _evaluate_expression_raw_wrapper, register_evaluate_expression);
