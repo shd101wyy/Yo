@@ -869,24 +869,30 @@ static void __yo_cleanup_thread_gc() {
 
   GC_DEBUG("CleanupThread: tracked_count=%zu\\n", my_gc_state->tracked_count);
 
-  // Force dispose all remaining tracked objects. dispose_fn side effects can
-  // drop the LAST reference on other tracked objects — without the collecting
-  // flag, __yo_decr_rc would free + unlink them mid-walk and the walk would
-  // free them again (double free). With the flag set, __yo_decr_rc skips
-  // tracked objects entirely, so every tracked object is disposed and freed
-  // exactly once by this walk. Left set: the thread is exiting, and any later
-  // decrement on tracked memory would be use-after-free.
+  // Force dispose all remaining tracked objects — in TWO passes, like the
+  // collectors. dispose_fn side effects can __yo_decr_rc other tracked
+  // objects; the collecting flag makes those decrements skip, but the skip
+  // check itself READS the target's header (gc_flags), which is only safe
+  // while every tracked header is still allocated. The old single-pass walk
+  // (dispose + free per object) made later disposes read headers the walk
+  // had already freed — a use-after-free, and a double free / glibc
+  // "corrupted double-linked list" when the allocator had reused the chunk
+  // and TRACKED appeared cleared. Left set: the thread is exiting, and any
+  // later decrement on tracked memory would be use-after-free.
   __yo_gc_collecting = 1;
+  // Pass 1: dispose every tracked object (all headers still alive).
+  for (__yo_ref_header_t* obj = my_gc_state->tracked_objects; obj != NULL; obj = obj->gc_next) {
+    GC_DEBUG("CleanupThread: Disposing object ptr=%p\\n", obj);
+    if (obj->dispose_fn) {
+      obj->dispose_fn(obj);
+    }
+  }
+  // Pass 2: free them all.
   __yo_ref_header_t* current = my_gc_state->tracked_objects;
   while (current != NULL) {
     __yo_ref_header_t* next = current->gc_next;
-
-    GC_DEBUG("CleanupThread: Disposing object ptr=%p\\n", current);
-    if (current->dispose_fn) {
-      current->dispose_fn(current);
-    }
+    GC_DEBUG("CleanupThread: Freeing object ptr=%p\\n", current);
     __yo_free(current);
-
     current = next;
   }
 
