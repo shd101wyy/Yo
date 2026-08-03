@@ -168,3 +168,27 @@ call-scoped envs, or object-identity-verified resolution end-to-end), not
 any per-site patch. Five fix families have now been measured against this
 root (frame-scoping, level gate, two marker gates, generalized
 freshening); all reverted with measurements above.
+
+## 2026-08-03 RESOLVED — arm 18 FLIPPED (182/3/0)
+
+The terminal conclusion above ("only the binding-model redesign closes it")
+was WRONG in one respect: the redesign was not needed wholesale — a
+probe-driven chain of six TS-fidelity point fixes closed every channel.
+What the earlier rounds missed is that the leak was not ONE channel but
+SIX stacked ones, and every prior attempt fixed one while measuring the
+still-broken composite. The decisive methodology change: per-channel
+probes ([fadd]/[fw]/[fc] + writer-context tags + [spreg]/[avpush] slot
+dumps) so each fix was measured against ITS channel, not the arm.
+
+The six layers (see commit "flip iterator_combinators arm 18"):
+
+1. env_lookup fast-path self-marker → definitively unbound (TS 57-64).
+2. Step-6 self-slot marker exclusion (receiver-embedded SomeTs).
+3. forall-marker search + 6c prebind skip foreign (self-slot-only) ids.
+4. synthesizer self-marker shadow-add skip over foreign lineages.
+5. create_specialized \_bake_record_slots (call-era cell snapshot).
+6. post-6c durable assoc binding + closure-param env substitution.
+
+Layers 1-4 fix the eval-side name-collision; 5 fixes the emission-era
+drift of shared def-era cells; 6 fixes the A-binding scope + closure
+void\* param. Arm 18 required ALL six.
