@@ -158,21 +158,29 @@ jobs:
           bun install
           bun run build
 
+      # The whole chain runs on the bundled mimalloc: glibc malloc inflates
+      # the emit's RSS ~72% over its live set (15.5 GB observed vs 9.0 GB
+      # for the same emit on macOS), which put the libc-allocator runs right
+      # at the 16 GB box's edge — stage-3 thrashed swap until the runner
+      # agent starved ("runner has received a shutdown signal"). The
+      # --allocator flag changes the emitted C (a small __yo_malloc →
+      # mi_malloc header block), so BOTH emit commands pass it and the
+      # fixpoint compares mimalloc-flavored C on both sides (verified to
+      # hold locally).
       - name: "Stage 1: build the self-hosted compiler with the TS compiler"
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release -o /tmp/yo-stage1
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o /tmp/yo-stage1
 
       - name: "Stage 2: self-emit C with the stage-1 binary"
         env:
           YO_MAIN_STACK_MB: "4096"
-          MALLOC_ARENA_MAX: "2"
         run: |
-          nice -n 10 /usr/bin/time -v /tmp/yo-stage1 compile yo-self/main.yo --release --emit-c --skip-c-compiler -o /tmp/yo-stage2
+          nice -n 10 /usr/bin/time -v /tmp/yo-stage1 compile yo-self/main.yo --release --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage2
           markers=$(grep -cE '^\s*// (Failed to transpile|Unknown type:)' /tmp/yo-stage2.c || true)
           echo "stage-2 markers: $markers"
           test "$markers" = "0"
 
       - name: "Stage 2: compile the emitted C with clang"
-        run: nice -n 10 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/yo-stage2.c -o /tmp/yo-stage2-bin -luring
+        run: nice -n 10 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/yo-stage2.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o /tmp/yo-stage2-bin -luring
 
       - name: Upload stage-2 artifacts for the stage-3 job
         uses: actions/upload-artifact@v4
@@ -219,10 +227,9 @@ jobs:
       - name: "Stage 3: self-emit with the stage-2 binary and compare (fixpoint)"
         env:
           YO_MAIN_STACK_MB: "4096"
-          MALLOC_ARENA_MAX: "2"
         run: |
           chmod +x /tmp/stage2/yo-stage2-bin
-          nice -n 10 /usr/bin/time -v /tmp/stage2/yo-stage2-bin compile yo-self/main.yo --release --emit-c --skip-c-compiler -o /tmp/yo-stage3
+          nice -n 10 /usr/bin/time -v /tmp/stage2/yo-stage2-bin compile yo-self/main.yo --release --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage3
           if cmp -s /tmp/stage2/yo-stage2.c /tmp/yo-stage3.c; then
             echo "FIXPOINT_HOLDS: stage-2 and stage-3 C are byte-identical"
           else
