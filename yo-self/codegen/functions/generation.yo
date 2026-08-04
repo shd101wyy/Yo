@@ -25,7 +25,7 @@ open(import("std/string"));
 { Environment } :: import("../../env.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized } :: import("../../expr_info.yo");
+{ has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized, expr_info_consumed_variable_drop_expressions } :: import("../../expr_info.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { is_target_posix, is_target_linux } :: import("../../target.yo");
@@ -106,7 +106,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
         // return is skipped there, which is the emission-level equivalent of
         // TS's init-position filter (begin.ts:2068-2122).
         context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(ei.deferred_drop_expressions));
-        context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(ei.consumed_variable_drop_expressions));
+        context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(expr_info_consumed_variable_drop_expressions(ei)));
       },
       .None => ()
     );

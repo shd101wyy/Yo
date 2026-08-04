@@ -161,6 +161,16 @@ capture frame across calls of one closure is exactly TS's aliasing.
 | **r13+r14** `Variable.id`/`Frame.id`/`Frame.index_key` String → usize (+ the side tables keyed on them) | **118.1 GiB** | **155.9 s** | **11.45 GB**          | **110.9 s / 17.6 GB**        |
 | TS reference (same job)                                                                                 | —             | 113 s       | 6.05 GB (5.75 GB RSS) | —                            |
 
+Rows r1–r14 above are **mimalloc** measurements (see the allocator note below).
+Round 15 onwards is measured with the shipping default allocator, so it gets its
+own ledger — do not compare the two tables directly:
+
+| round (libc allocator)                                     | wall    | peak footprint | `sizeof` changes                   |
+| ---------------------------------------------------------- | ------- | -------------- | ---------------------------------- |
+| HEAD `2b6aa1db7`                                           | 98.8 s  | 9.99 GB        | ExprInfo 624, Variable 256         |
+| **r15** ExprInfo rare-field group + Variable bool grouping | 101.6 s | **9.27 GB**    | ExprInfo **456**, Variable **224** |
+| TS reference (same job)                                    | 113 s   | 6.05 GB        | —                                  |
+
 So: **volume −76%, wall −77%, touched memory −54% vs the campaign start**;
 against TS it is 1.38× wall for the TS-built stage-1 — and the SELF-BUILT
 compiler compiling itself is now FASTER than TS (110.9 s vs 113 s) — with
@@ -185,6 +195,69 @@ built once by the capture loop and never mutated, so a rebuild is identical)
 recovers 0.76 GB with **R12_FIXPOINT_HOLDS**. The remaining ~1 GB the wholesale
 clear reached belongs to frames that DO mutate — do not touch those until the
 staleness bug in issues/yo-self-frame-index-bound-breaks-fixpoint.md is fixed.
+
+**READ THIS BEFORE QUOTING ANY NUMBER IN THE LEDGER ABOVE: the whole ledger was
+measured with `--allocator mimalloc`, which on this machine is BOTH SLOWER AND
+FATTER than the shipping default.** A/B on byte-identical input (a pristine HEAD
+worktree), same machine, back-to-back, `2b6aa1db7`:
+
+| allocator                                                                           | wall       | max RSS     | peak footprint |
+| ----------------------------------------------------------------------------------- | ---------- | ----------- | -------------- |
+| **libc (the default — `--allocator` defaults to `libc`, src/codegen/index.ts:192)** | **98.8 s** | **8.32 GB** | **9.99 GB**    |
+| mimalloc                                                                            | 150.7 s    | 8.51 GB     | 11.52 GB       |
+
++53% wall and +15% footprint for mimalloc (sys time 11.9 s vs 2.1 s — page
+management). The ledger's "155.9 s / 11.45 GB" row IS this mimalloc run. Against
+TS's 113 s / 5.75 GB RSS / 6.05 GB footprint, HEAD under the shipping default is
+**already faster than TS (98.8 s) at 1.65× footprint**. Keep using mimalloc only
+when you want `MIMALLOC_SHOW_STATS=1` allocation-volume accounting; never quote
+its footprint as the product number.
+
+**AND STOP TRACKING `maximum resident set size` ON THIS MACHINE — it is clamped,
+not measured.** Six runs of the same job on 16 GB of RAM: 8.17, 8.25, 8.27,
+8.32, 8.51 GB RSS — a 4% spread — while their `peak memory footprint` ranged
+7.9 → 11.5 GB. That is a system memory-pressure ceiling (macOS evicts to the
+compressor), so RSS says nothing about a change that removes 700 MB of live
+data. **`peak memory footprint` is the metric that responds**; cross-check real
+live data with `scripts/bootstrap/live_census.py`, which accounts for 86% of it.
+
+**Round 15 (layout diets, 2026-08-04):** `sizeof(ExprInfo)` 624 → **440 B** by
+moving thirteen rarely-set optional fields behind one `Option(ExprInfoRare)`
+(accessor pairs `expr_info_<field>` / `expr_info_set_<field>` in
+`yo-self/expr_info.yo`; 78 call sites migrated), and `sizeof(Variable)` 256 →
+**224 B** by grouping its ten `bool` flags last so they stop costing 8 B of
+alignment padding each (all ten `Variable(...)` sites use named args, so field
+order is free). Measured: **100.7 s / 8.25 GB RSS / 9.51 GB footprint** — i.e.
+footprint −480 MB but **RSS only −70 MB against the predicted −651 MB**. The
+gap is the point: an ExprInfo that sets ANY of the thirteen allocates a 256 B
+`ExprInfoRare`, and the census found **1.74 M of 3.35 M live ExprInfos (52%)
+did** — 446 MB of rare groups, cancelling most of the win.
+
+A per-setter profile (`scripts/bootstrap/instrument_calls.py --fn` +
+`report_calls.py`; the setters are named module-level fns so they appear
+directly) found ONE field responsible:
+
+| `expr_info_set_*`                                                                                             | calls in one self-emit |
+| ------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| **origin_type**                                                                                               | **3,073,159**          |
+| converted_runtime_type                                                                                        | 222,334                |
+| case_executed                                                                                                 | 39,443                 |
+| runtime_destructurings                                                                                        | 3,074                  |
+| dyn_call_trait_values                                                                                         | 1,066                  |
+| async_state_machine_struct_name                                                                               | 28                     |
+| primitive_pattern_values                                                                                      | 4                      |
+| is_primitive_match                                                                                            | 2                      |
+| closure_function_value, consumed_variable_drop_expressions, effect_analysis, await_analysis, async_stack_size | **0**                  |
+
+`_expr_info_rare_for_write` ran 3,339,110 times, so `origin_type` alone is 92%
+of it. It is now INLINE again (twelve fields stay boxed) — and because every
+access goes through the `expr_info_<field>` / `expr_info_set_<field>` accessor
+pair, moving a field across that line is a change to `yo-self/expr_info.yo`
+ALONE, with zero call-site churn. **That is the reusable lesson: group only
+fields whose MEASURED set-rate is near zero, and always verify with the census
+that the group object count is small.** For reference, the same profile gives
+`expr_info_table_get` 99,390,558 calls, `expr_info_table_set` 6,558,362 and
+`new_expr_info` 5,360,183.
 
 **The footprint stopped moving at 13.1 GB across r7-r9 while volume fell
 39 GiB — churn is no longer what sets it.** RSS is 8.5 GB of LIVE data plus
@@ -397,6 +470,15 @@ this restores the full fixpoint gate AND is probably upstream of §3.1.
 
 **Never quote a bare "N passing".** 33 files were once counted green while
 running nothing (`issues/yo-self-hollow-test-batch-main.md`).
+
+**Do not `cmp` two stage-1 `.c` files and conclude something changed.** The
+TypeScript compiler gensyms loop/continue labels non-deterministically, so two
+builds of an UNCHANGED tree differ in thousands of lines that all look like
+`loop_v8gaejzpv:` vs `loop_wf8wtq96q:`. Diff with
+`sed -E 's/(loop|continue)_[a-z0-9]+/\1_X/g'` before drawing any conclusion. The
+stage-2 ≡ stage-3 fixpoint is unaffected — both sides are emitted by yo-self,
+which IS deterministic here — which is exactly why the fixpoint is the gate that
+detects real output changes and a stage-1 `cmp` is not.
 
 Hollow check — the only definition that counts:
 

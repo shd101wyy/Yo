@@ -28,6 +28,7 @@ open(import("std/string"));
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { get_type_string, get_variable_name_for_codegen, type_key } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
+{ expr_info_closure_function_value } :: import("../../expr_info.yo");
 { get_dup_function_for_type, get_drop_function_for_type } :: import("./drop_dup.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 /// C name of the capture struct for `capture_type`: the registered type-entry
@@ -184,11 +185,11 @@ _generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionG
   mapped_opt := context.base.impl_closure_call_map.get(cb_map_key);
   capture_c_name := _capture_type_c_name(capture_type.clone(), context);
   closure_fn := match(
-    _closure_fn_c_name(cei.value, cei.closure_function_value, context),
+    _closure_fn_c_name(cei.value, expr_info_closure_function_value(cei), context),
     .Some(n) => n,
     .None => match(mapped_opt,.Some(m) => m.function_c_name,.None => return(Option(String).Some(String.from("/* Error: spawn cb has no closure function */"))))
   );
-  closure_fid_direct := _closure_fid(cei.value, cei.closure_function_value);
+  closure_fid_direct := _closure_fid(cei.value, expr_info_closure_function_value(cei));
   closure_fid := if(
     closure_fid_direct.len() > usize(0),
     closure_fid_direct,

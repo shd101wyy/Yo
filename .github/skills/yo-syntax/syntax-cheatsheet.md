@@ -352,6 +352,10 @@ export(
 - `export(name);` exports a single binding
 - Block form exports multiple bindings separated by commas
 - Every executable needs `export(main);`
+- **The parentheses are mandatory.** `export main;` is a syntax error — Yo has no
+  paren-less calls, and `export` is an ordinary call, not a keyword form. The
+  parser rejects it with "Paren-less function and operator calls are not
+  supported. Use parentheses."
 
 ## Static and dynamic dispatch types
 

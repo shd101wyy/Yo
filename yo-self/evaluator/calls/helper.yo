@@ -106,6 +106,7 @@ open(import("std/fmt"));
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
+  expr_info_set_converted_runtime_type,
   register_some_resolved_concrete,
   lookup_some_resolved_concrete,
   unregister_some_resolved_concrete,
@@ -781,7 +782,7 @@ check_if_function_parameter_matches_argument :: (
     // and for a literal arg `evaled_arg` IS the original node codegen reads.
     // Only the codegen reads this field — no evaluator logic branches on it.
     if(arg_was_comptime, {
-      arg_info.converted_runtime_type = Option(TypeValue).Some(arg_type.clone());
+      expr_info_set_converted_runtime_type(arg_info, Option(TypeValue).Some(arg_type.clone()));
     });
   });
   arg_value := arg_info.value;

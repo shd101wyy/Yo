@@ -16,7 +16,7 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr } :: import("../../expr.yo");
-{ ExprInfo, has_any_control_flow } :: import("../../expr_info.yo");
+{ ExprInfo, has_any_control_flow, expr_info_consumed_variable_drop_expressions } :: import("../../expr_info.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -189,7 +189,7 @@ generate_begin :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       prev_pending := context.pending_deferred_drops;
       context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(ei.deferred_drop_expressions, prev_pending));
       prev_consumed := context.consumed_var_pending_drops;
-      context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(ei.consumed_variable_drop_expressions, prev_consumed));
+      context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(expr_info_consumed_variable_drop_expressions(ei), prev_consumed));
       n := args.len();
       (idx : usize) = usize(0);
       (stop : bool) = false;
@@ -253,7 +253,7 @@ generate_begin :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       prev_pending := context.pending_deferred_drops;
       context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(ei.deferred_drop_expressions, prev_pending));
       prev_consumed := context.consumed_var_pending_drops;
-      context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(ei.consumed_variable_drop_expressions, prev_consumed));
+      context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(expr_info_consumed_variable_drop_expressions(ei), prev_consumed));
       n := args.len();
       (idx : usize) = usize(0);
       while(idx < n, {

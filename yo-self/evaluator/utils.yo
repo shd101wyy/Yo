@@ -60,6 +60,8 @@ open(import("std/string"));
   ExprInfo,
   ExprInfoTable,
   expr_info_table_get,
+  expr_info_origin_type,
+  expr_info_set_origin_type,
   get_arm_init_range,
   get_branch_init_record
 } :: import("../expr_info.yo");
@@ -172,9 +174,9 @@ attach_temp_variable_to_expr :: (
             existing_var.is_owning_the_rc_value = preserved_rc;
             // Update origin_type if not already set.
             match(
-              info.origin_type,
+              expr_info_origin_type(info),
               .None => {
-                info.origin_type = Option(TypeValue).Some(effective_ty);
+                expr_info_set_origin_type(info, Option(TypeValue).Some(effective_ty));
               },
               .Some(_) => ()
             );
@@ -190,9 +192,9 @@ attach_temp_variable_to_expr :: (
               expr_tok
             );
             match(
-              info.origin_type,
+              expr_info_origin_type(info),
               .None => {
-                info.origin_type = Option(TypeValue).Some(effective_ty);
+                expr_info_set_origin_type(info, Option(TypeValue).Some(effective_ty));
               },
               .Some(_) => ()
             );
@@ -213,9 +215,9 @@ attach_temp_variable_to_expr :: (
           );
           info.variable_name = Option(String).Some(temp_name);
           match(
-            info.origin_type,
+            expr_info_origin_type(info),
             .None => {
-              info.origin_type = Option(TypeValue).Some(effective_ty);
+              expr_info_set_origin_type(info, Option(TypeValue).Some(effective_ty));
             },
             .Some(_) => ()
           );

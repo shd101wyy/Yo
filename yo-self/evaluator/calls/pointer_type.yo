@@ -22,6 +22,7 @@ open(import("std/string"));
   new_expr_info,
   expr_info_table_get,
   expr_info_table_set,
+  expr_info_set_converted_runtime_type,
   record_macro_expansion
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
@@ -97,7 +98,7 @@ try_to_convert_to_pointer_type :: (
     converted_ty := convert_comptime_type_to_runtime_type_with_expected(arg_type, Option(TypeValue).Some(target_type), env);
     out_info := new_expr_info(env, converted_ty);
     out_info.value = arg_info.value;
-    out_info.converted_runtime_type =.Some(converted_ty);
+    expr_info_set_converted_runtime_type(out_info, Option(TypeValue).Some(converted_ty));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     // Annotate the ARG node too — this helper returns `evaluated` (the
     // arg), and callers read the RETURNED node's info; leaving the arg's

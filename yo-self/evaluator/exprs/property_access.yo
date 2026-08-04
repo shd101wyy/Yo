@@ -32,6 +32,8 @@ open(import("std/string"));
   new_expr_info,
   expr_info_table_get,
   expr_info_table_set,
+  expr_info_origin_type,
+  expr_info_set_origin_type,
   ComptimeRef
 } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env } :: import("../../env.yo");
@@ -569,7 +571,7 @@ Raw pointer operations may dereference invalid memory.`,
                   out_ptr := new_expr_info(env, resolved_base);
                   out_ptr.value = Option(EvalValue).Some(deref_val);
                   out_ptr.comptime_ref = deref_place;
-                  out_ptr.origin_type = Option(TypeValue).Some(ot);
+                  expr_info_set_origin_type(out_ptr, Option(TypeValue).Some(ot));
                   out_ptr.is_accessing_property = Option(bool).Some(true);
                   out_ptr.source_variable = match(
                     obj_info_opt,
@@ -593,7 +595,7 @@ Raw pointer operations may dereference invalid memory.`,
                     deref_unk := create_unknown_val(resolved_base);
                     out_unk := new_expr_info(env, resolved_base);
                     out_unk.value = Option(EvalValue).Some(deref_unk);
-                    out_unk.origin_type = Option(TypeValue).Some(ot);
+                    expr_info_set_origin_type(out_unk, Option(TypeValue).Some(ot));
                     out_unk.is_accessing_property = Option(bool).Some(true);
                     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_unk);
                     expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_unk);
@@ -607,7 +609,7 @@ Raw pointer operations may dereference invalid memory.`,
           );
           // No compile-time pointer value — runtime dereference.
           out_rt := new_expr_info(env, resolved_base);
-          out_rt.origin_type = Option(TypeValue).Some(ot);
+          expr_info_set_origin_type(out_rt, Option(TypeValue).Some(ot));
           out_rt.is_accessing_property = Option(bool).Some(true);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_rt);
@@ -1431,7 +1433,7 @@ Raw pointer operations may dereference invalid memory.`,
             });
             ft_idx := match(fields_types.get(idx),.Some(t) => t,.None => t_unit());
             field_origin_idx := match(
-              match(obj_info_opt,.Some(oi) => oi.origin_type,.None => Option(TypeValue).None),
+              match(obj_info_opt,.Some(oi) => expr_info_origin_type(oi),.None => Option(TypeValue).None),
               .Some(ot) => ot,
               .None => original_obj_ty
             );
@@ -1441,7 +1443,7 @@ Raw pointer operations may dereference invalid memory.`,
               idx_str
             );
             out_idx := new_expr_info(env, ft_idx);
-            out_idx.origin_type = Option(TypeValue).Some(field_origin_idx);
+            expr_info_set_origin_type(out_idx, Option(TypeValue).Some(field_origin_idx));
             out_idx.is_accessing_property = Option(bool).Some(true);
             out_idx.path_collection = idx_pc;
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx);
@@ -1506,7 +1508,7 @@ Raw pointer operations may dereference invalid memory.`,
           .Some(fi_lbl) => {
             ft_lbl := match(fields_types.get(fi_lbl),.Some(t) => t,.None => t_unit());
             field_origin_lbl := match(
-              match(obj_info_opt,.Some(oi) => oi.origin_type,.None => Option(TypeValue).None),
+              match(obj_info_opt,.Some(oi) => expr_info_origin_type(oi),.None => Option(TypeValue).None),
               .Some(ot) => ot,
               .None => original_obj_ty
             );
@@ -1516,7 +1518,7 @@ Raw pointer operations may dereference invalid memory.`,
               label_str
             );
             out_lbl := new_expr_info(env, ft_lbl);
-            out_lbl.origin_type = Option(TypeValue).Some(field_origin_lbl);
+            expr_info_set_origin_type(out_lbl, Option(TypeValue).Some(field_origin_lbl));
             out_lbl.is_accessing_property = Option(bool).Some(true);
             out_lbl.path_collection = lbl_pc;
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_lbl);

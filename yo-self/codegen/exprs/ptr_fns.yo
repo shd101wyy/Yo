@@ -21,6 +21,7 @@ open(import("std/string"));
 { _call_generate_expr } :: import("./_expr.yo");
 { get_type_string, get_variable_name_for_codegen, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
 { is_array_type } :: import("../../types/guards.yo");
+{ expr_info_converted_runtime_type } :: import("../../expr_info.yo");
 /// The C function name for a func id (registered cName, else None).
 _c_function_name_opt :: (fn(context : FunctionGenerationContext, func_id : String) -> Option(String))(
   match(context.base.get_function_entry(func_id),.Some(e) => Option(String).Some(e.c_name),.None => Option(String).None)
@@ -59,7 +60,7 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
         if(
           is_comptime_string_value(av),
           match(
-            arg_ei.converted_runtime_type,
+            expr_info_converted_runtime_type(arg_ei),
             .Some(_) => {
               arg_code := _call_generate_expr(arg, indent.clone(), context);
               out := String.from("(&");

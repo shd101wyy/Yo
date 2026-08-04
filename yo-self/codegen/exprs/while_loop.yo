@@ -13,6 +13,7 @@ open(import("std/string"));
 { _looks_like_minted_temp } :: import("./begin.yo");
 { get_deferred_drop_target_atom_name, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { random_id, is_temp_variable_name } :: import("../../utils.yo");
+{ expr_info_consumed_variable_drop_expressions } :: import("../../expr_info.yo");
 /// Emit `<indent><text>` + newline.
 _emit_line :: (fn(em : Emitter, indent : String, text : String) -> unit)({
   line := indent.clone();
@@ -120,7 +121,7 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
     ast_expr_is_fn_call_of(body_expr, BK_BEGIN,.None) => {
       ei_opt := context.base.get_expr_info(body_expr);
       current_drops := match(ei_opt,.Some(ei) => ei.deferred_drop_expressions,.None =>.None);
-      current_consumed := match(ei_opt,.Some(ei) => ei.consumed_variable_drop_expressions,.None =>.None);
+      current_consumed := match(ei_opt,.Some(ei) => expr_info_consumed_variable_drop_expressions(ei),.None => Option(ArrayList(AstExpr)).None);
       prev_pending := context.pending_deferred_drops;
       prev_consumed := context.consumed_var_pending_drops;
       context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(current_drops, prev_pending));

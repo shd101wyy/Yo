@@ -28,6 +28,7 @@ open(import("std/string"));
 } :: import("../utils/index.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
+{ expr_info_converted_runtime_type } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
@@ -312,7 +313,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
           .None => false
         );
         if(is_ct_const, {
-          return(Option(String).Some(generate_comptime_value(match(ei5.value,.Some(v2) => v2,.None => EvalValue.UnitVal), match(ei5.converted_runtime_type,.Some(crt) => crt,.None => ei5.ty), context.base)));
+          return(Option(String).Some(generate_comptime_value(match(ei5.value,.Some(v2) => v2,.None => EvalValue.UnitVal), match(expr_info_converted_runtime_type(ei5),.Some(crt) => crt,.None => ei5.ty), context.base)));
         });
         return(Option(String).Some(get_variable_name_for_codegen(vn.clone(), Option(Environment).Some(ei5.env))));
       },
@@ -662,7 +663,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
             .None => false
           );
           if(is_comptime_const, {
-            return(match(ei.value,.Some(v) => generate_comptime_value(v, match(ei.converted_runtime_type,.Some(crt) => crt,.None => ei.ty), context.base),.None => String.from("")));
+            return(match(ei.value,.Some(v) => generate_comptime_value(v, match(expr_info_converted_runtime_type(ei),.Some(crt) => crt,.None => ei.ty), context.base),.None => String.from("")));
           });
           // Closure-captured variable → access through closure_context.
           captured := match(
@@ -726,7 +727,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
         // to `*(char)` must emit a bare C string literal, not a `__yo_str`).
         (match(ei.value,.Some(v) => !(is_unknown_val(v)),.None => false)) => match(
           ei.value,
-          .Some(v) => generate_comptime_value(v, match(ei.converted_runtime_type,.Some(crt) => crt,.None => ei.ty), context.base),
+          .Some(v) => generate_comptime_value(v, match(expr_info_converted_runtime_type(ei),.Some(crt) => crt,.None => ei.ty), context.base),
           .None => _var_read_code(tv.clone(), env_opt)
         ),
         true => _var_read_code(tv.clone(), env_opt)

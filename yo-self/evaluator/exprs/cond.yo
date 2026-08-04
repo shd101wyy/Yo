@@ -30,7 +30,8 @@ open(import("std/string"));
   register_arm_init_range,
   push_branch_group,
   begin_branch_group_arm,
-  pop_branch_group
+  pop_branch_group,
+  expr_info_set_case_executed
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
@@ -331,7 +332,7 @@ evaluate_cond :: (
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(cond_expr_true)),
         .None => (),
         .Some(ci) => {
-          ci.case_executed = Option(bool).Some(true);
+          expr_info_set_case_executed(ci, Option(bool).Some(true));
         }
       );
       // Evaluate the body (branch-init window recorded for the cross-branch
@@ -430,7 +431,7 @@ evaluate_cond :: (
                 expr_info_table_get(ctx.expr_info_table, ast_expr_id(ec_item.cond_expr)),
                 .None => (),
                 .Some(ci) => {
-                  ci.case_executed = Option(bool).Some(true);
+                  expr_info_set_case_executed(ci, Option(bool).Some(true));
                 }
               );
               // Evaluate body with is_executing = false (analysis only).

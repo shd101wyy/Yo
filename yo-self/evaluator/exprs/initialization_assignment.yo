@@ -38,7 +38,8 @@ open(import("std/string"));
   expr_info_table_set,
   expr_info_table_get,
   has_any_control_flow,
-  path_collection_new
+  path_collection_new,
+  expr_info_set_runtime_destructurings
 } :: import("../../expr_info.yo");
 { Environment, Variable, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 {
@@ -739,7 +740,7 @@ Use \`::\` for compile-time definitions inside impl.`,
     env.input_string = destr_result.env.input_string;
     expr_info := new_expr_info(env, t_unit());
     expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
-    expr_info.runtime_destructurings = destr_result.runtime_destructurings;
+    expr_info_set_runtime_destructurings(expr_info, destr_result.runtime_destructurings);
     expr_info.is_compile_time_only_assignment = Option(bool).Some(effective_is_compile_time_only);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
     expr

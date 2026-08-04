@@ -23,6 +23,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { is_array_type, is_tuple_type, is_dyn_type, is_atomic_reference_struct_type, is_reference_struct_type, is_atomic_reference_enum_type, is_reference_enum_type, is_iso_type, is_struct_type, is_enum_type, is_some_type, is_newtype_type } :: import("../../types/guards.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
+{ expr_info_converted_runtime_type, expr_info_closure_function_value } :: import("../../expr_info.yo");
 { random_id, is_temp_variable_name } :: import("../../utils.yo");
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -869,7 +870,7 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
         // deferred dups are capture dups emitted by the closure emitters;
         // TS's rhsIsClosureConstruction guard).
         src_is_closure_ctor := (
-          ei.closure_function_value.is_some() ||
+          expr_info_closure_function_value(ei).is_some() ||
             (match(ei.is_anonymous_function_definition,.Some(b) => b,.None => false) && ei.capture_type.is_some())
         );
         (fallback_code_2 : String) = fallback_code.clone();
@@ -879,7 +880,7 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
             .Some(src_vn) => {
               src_c_name := get_variable_name_for_codegen(src_vn, Option(Environment).Some(ei.env));
               if(src_c_name != fallback_code.trim(), {
-                eff_ty := match(ei.converted_runtime_type,.Some(crt) => crt,.None => ei.ty);
+                eff_ty := match(expr_info_converted_runtime_type(ei),.Some(crt) => crt,.None => ei.ty);
                 decl0 := indent.clone();
                 decl0.push_string(get_variable_type_string(eff_ty, src_c_name.clone(), context.base));
                 decl0.push_str(" = ");

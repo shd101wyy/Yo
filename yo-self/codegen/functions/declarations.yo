@@ -12,7 +12,7 @@ open(import("std/string"));
 { type_contains_some_type } :: import("../../types/utils.yo");
 { type_contains_some_type_for_codegen_param, type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { AstExpr } :: import("../../expr.yo");
-{ lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ lookup_some_resolved_concrete, expr_info_effect_analysis, expr_info_async_state_machine_struct_name } :: import("../../expr_info.yo");
 { EvalValue } :: import("../../value.yo");
 { get_func_type, is_effect_record_member, is_closure_fn, is_io_async_sm_closure, is_fn_unemittable } :: import("../../function_value.yo");
 { CodeGenContext, get_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField, is_function_value_with_only_builtin_yo_inline_function_call, find_returned_async_block, type_key } :: import("../utils/index.yo");
@@ -455,7 +455,7 @@ _body_is_effectful :: (fn(body : Option(AstExpr), context : CodeGenContext) -> b
     body,
     .Some(b) => match(
       context.get_expr_info(b),
-      .Some(ei) => match(ei.effect_analysis,.Some(ea) => ea.has_effects,.None => false),
+      .Some(ei) => match(expr_info_effect_analysis(ei),.Some(ea) => ea.has_effects,.None => false),
       .None => false
     ),
     .None => false
@@ -575,7 +575,7 @@ _async_override_return_type :: (
         find_returned_async_block(Option(AstExpr).Some(b)),
         .Some(block) => match(
           context.get_expr_info(block),
-          .Some(ei) => ei.async_state_machine_struct_name,
+          .Some(ei) => expr_info_async_state_machine_struct_name(ei),
           .None => Option(String).None
         ),
         .None => Option(String).None

@@ -14,7 +14,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { is_some_type, is_dyn_type, is_function_type } :: import("../../types/guards.yo");
 { type_implements_fn, extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
-{ lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ lookup_some_resolved_concrete, expr_info_closure_function_value } :: import("../../expr_info.yo");
 { type_key, get_variable_name_for_codegen, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -122,7 +122,7 @@ is_closure_construction :: (fn(expr : AstExpr, context : FunctionGenerationConte
     // on io.async closures handled by the state-machine path.
     .Some(ei) => (
       (
-        ei.closure_function_value.is_some()
+        expr_info_closure_function_value(ei).is_some()
         || match(ei.value,.Some(v) => is_func_val(v),.None => false)
       ) && ((type_implements_fn(ei.ty) || is_function_type(ei.ty)) && ei.capture_type.is_some())
     ),
@@ -145,7 +145,7 @@ is_closure_construction :: (fn(expr : AstExpr, context : FunctionGenerationConte
 generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("// Error: Missing closure metadata")));
   closure_fv := match(
-    ei.closure_function_value,
+    expr_info_closure_function_value(ei),
     .Some(v) => v,
     // Fallback: anonymous_function.yo records the closure FuncVal on info.value.
     .None => match(ei.value,.Some(v) => v,.None => return(String.from("// Error: Missing closure_function_value")))

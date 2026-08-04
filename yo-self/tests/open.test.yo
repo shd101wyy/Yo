@@ -11,6 +11,7 @@ open(import("std/fmt"));
   new_expr_info,
   expr_info_table_get,
   expr_info_table_set,
+  expr_info_runtime_destructurings,
   RuntimeDestructuring
 } :: import("../expr_info.yo");
 { Environment } :: import("../env.yo");
@@ -103,7 +104,7 @@ test("evaluate_open: module — adds each field as a comptime variable", {
   assert(info.env.contains(String.from("b")), "b not bound after open");
   // Module open does not record runtime_destructurings.
   match(
-    info.runtime_destructurings,
+    expr_info_runtime_destructurings(info),
     .Some(_) => assert(false, "module open should not set runtime_destructurings"),
     .None => ()
   );

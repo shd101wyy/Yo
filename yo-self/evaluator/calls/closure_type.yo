@@ -26,8 +26,14 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr }
 :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get, register_some_resolved_concrete }
-:: import("../../expr_info.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get,
+  register_some_resolved_concrete,
+  expr_info_set_closure_function_value
+} :: import("../../expr_info.yo");
 { Token } :: import("../../token.yo");
 {
   Environment,
@@ -331,7 +337,7 @@ try_to_implement_closure_by_fn_module_type :: (
   // Build the ExprInfo for this closure expression.
   info := new_expr_info(env, final_ty);
   info.capture_type = capture_ty;
-  info.closure_function_value = Option(EvalValue).Some(func_val_pre);
+  expr_info_set_closure_function_value(info, Option(EvalValue).Some(func_val_pre));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   Option(AstExpr).Some(expr)
 });

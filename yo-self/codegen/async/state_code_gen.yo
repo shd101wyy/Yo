@@ -16,6 +16,7 @@ open(import("std/string"));
 { split_body_at_suspension_points, contains_suspension_expr } :: import("../shared/suspension_codegen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 { expr_contains_await } :: import("../../expr_traversal.yo");
+{ expr_info_primitive_pattern_values, expr_info_is_primitive_match } :: import("../../expr_info.yo");
 { FunctionGenerationContext, SmWhileBreakInfo, SmWhileContinueInfo, WhileLoopInfo, OuterWhileLoop, CondBranchPostWhileExprs, CondBranch, ChainedCondBranches, AsyncCondBranchInfo } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { _call_generate_cond_with_await, _call_generate_match_with_await, _call_generate_while_with_await, register_fsm_emitters } :: import("./_fsm.yo");
@@ -1436,7 +1437,7 @@ generate_primitive_match_with_await :: (
         if(ast_expr_is_atom_of(case_value, "_"), {
           em.emit_string_line(`${indent}  default:`);
         }, {
-          pat_vals := match(context.base.get_expr_info(case_value),.Some(ei) => ei.primitive_pattern_values,.None => Option(ArrayList(Option(EvalValue))).None);
+          pat_vals := match(context.base.get_expr_info(case_value),.Some(ei) => expr_info_primitive_pattern_values(ei),.None => Option(ArrayList(Option(EvalValue))).None);
           match(
             pat_vals,
             .Some(pvs) => if(pvs.len() > usize(0), {
@@ -1647,7 +1648,7 @@ generate_match_with_await :: (
           em.emit_string_line(`${indent}// Error: match value has no type`);
         },
         .Some(match_value_type) => {
-          is_prim := match(context.base.get_expr_info(match_expr),.Some(ei) => match(ei.is_primitive_match,.Some(b) => b,.None => false),.None => false);
+          is_prim := match(context.base.get_expr_info(match_expr),.Some(ei) => match(expr_info_is_primitive_match(ei),.Some(b) => b,.None => false),.None => false);
           if(is_prim, {
             generate_primitive_match_with_await(match_expr, cases, matched_value_code, await_point, indent, context, target_variable_id, target_assignment_code);
             return();

@@ -5,6 +5,7 @@ open(import("std/string"));
 { _call_generate_expr } :: import("./_expr.yo");
 { get_type_string, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { is_struct_type } :: import("../../types/guards.yo");
+{ expr_info_runtime_destructurings } :: import("../../expr_info.yo");
 /// Emit local field-extraction declarations for a runtime `{ x, y } := point`
 /// destructuring (recorded in ExprInfo.runtime_destructurings). Returns "" —
 /// open is a statement, not a value. Mirrors `generateOpen`.
@@ -13,7 +14,7 @@ generate_open :: (fn(expr : AstExpr, indent : String, context : FunctionGenerati
   match(
     ei_opt,
     .Some(ei) => match(
-      ei.runtime_destructurings,
+      expr_info_runtime_destructurings(ei),
       .Some(rds) => if(rds.len() > usize(0), {
         arg_opt := match(expr,.FnCall(_, _, args, _, _) => args.get(usize(0)),.Atom(_, _) =>.None);
         match(

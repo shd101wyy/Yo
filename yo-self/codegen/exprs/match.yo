@@ -18,7 +18,13 @@ open(import("std/string"));
 { AstExpr, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, BK_BEGIN, BF_DOT } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ has_any_control_flow } :: import("../../expr_info.yo");
+{
+  has_any_control_flow,
+  expr_info_case_executed,
+  expr_info_is_primitive_match,
+  expr_info_primitive_pattern_values,
+  expr_info_consumed_variable_drop_expressions
+} :: import("../../expr_info.yo");
 { is_unit_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type } :: import("../../types/guards.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -318,7 +324,7 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
     begin_args := _args(body_expr);
     vei_opt := context.base.get_expr_info(body_expr);
     cur_drops := match(vei_opt,.Some(vei) => vei.deferred_drop_expressions,.None => Option(ArrayList(AstExpr)).None);
-    cur_consumed := match(vei_opt,.Some(vei) => vei.consumed_variable_drop_expressions,.None => Option(ArrayList(AstExpr)).None);
+    cur_consumed := match(vei_opt,.Some(vei) => expr_info_consumed_variable_drop_expressions(vei),.None => Option(ArrayList(AstExpr)).None);
     prev_pending := context.pending_deferred_drops;
     prev_consumed := context.consumed_var_pending_drops;
     context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cur_drops, prev_pending));
@@ -446,7 +452,7 @@ generate_primitive_match_expression :: (fn(expr : AstExpr, indent : String, cont
         cargs := _args(case_expr);
         case_value := match(cargs.get(usize(0)),.Some(cv) => cv,.None => case_expr);
         case_body := match(cargs.get(usize(1)),.Some(cb) => cb,.None => case_expr);
-        executed := match(context.base.get_expr_info(case_value),.Some(cei) => match(cei.case_executed,.Some(b) => b,.None => false),.None => false);
+        executed := match(context.base.get_expr_info(case_value),.Some(cei) => match(expr_info_case_executed(cei),.Some(b) => b,.None => false),.None => false);
         if(executed, {
           is_wildcard := (ast_expr_is_atom(case_value) && (ast_expr_token(case_value).value == "_"));
           if(is_wildcard, {
@@ -462,7 +468,7 @@ generate_primitive_match_expression :: (fn(expr : AstExpr, indent : String, cont
             emitted_any := match(
               context.base.get_expr_info(case_value),
               .Some(cei) => match(
-                cei.primitive_pattern_values,
+                expr_info_primitive_pattern_values(cei),
                 .Some(pvs) => if(pvs.len() > usize(0), {
                   np := pvs.len();
                   (pi : usize) = usize(0);
@@ -549,7 +555,7 @@ generate_primitive_match_expression :: (fn(expr : AstExpr, indent : String, cont
 });
 /// Whether a match arm's pattern was executed (comptime branch elimination).
 _case_executed :: (fn(case_value : AstExpr, context : FunctionGenerationContext) -> bool)(
-  match(context.base.get_expr_info(case_value),.Some(cei) => match(cei.case_executed,.Some(b) => b,.None => false),.None => false)
+  match(context.base.get_expr_info(case_value),.Some(cei) => match(expr_info_case_executed(cei),.Some(b) => b,.None => false),.None => false)
 );
 /// The variant name of a `.Variant(...)` / `.Variant` pattern (its first arg's token).
 _variant_name :: (fn(case_value : AstExpr) -> String)(
@@ -1177,7 +1183,7 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
     .None => ()
   );
   // Primitive (int/bool) match.
-  if(match(ei.is_primitive_match,.Some(b) => b,.None => false), {
+  if(match(expr_info_is_primitive_match(ei),.Some(b) => b,.None => false), {
     return(generate_primitive_match_expression(expr, indent.clone(), context, matched_value_code, match_value_type, temp_var_opt, is_unit));
   });
   // Dereference pointer / ref-semantics one level to the enum type.

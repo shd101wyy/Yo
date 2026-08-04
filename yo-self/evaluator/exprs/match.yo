@@ -26,7 +26,10 @@ open(import("std/string"));
   has_control_flow,
   has_any_control_flow,
   merge_control_flows,
-  lookup_some_resolved_concrete
+  lookup_some_resolved_concrete,
+  expr_info_set_case_executed,
+  expr_info_set_is_primitive_match,
+  expr_info_set_primitive_pattern_values
 } :: import("../../expr_info.yo");
 { Environment, Variable, pop_env_frame } :: import("../../env.yo");
 { add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
@@ -324,7 +327,7 @@ evaluate_primitive_match :: (
       });
       used_wildcard = true;
       mae_wc_info := new_expr_info(case_env, scrutinee_type);
-      mae_wc_info.case_executed = Option(bool).Some(true);
+      expr_info_set_case_executed(mae_wc_info, Option(bool).Some(true));
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(match_arm_expr), mae_wc_info);
       env.push_frame(false);
       is_arm_executing_wc := match(
@@ -461,7 +464,7 @@ evaluate_primitive_match :: (
           );
           out_wc_early := new_expr_info(env, result_ty_wc3);
           out_wc_early.value = body_info_wc.value;
-          out_wc_early.is_primitive_match = Option(bool).Some(true);
+          expr_info_set_is_primitive_match(out_wc_early, Option(bool).Some(true));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_wc_early);
           attach_temp_variable_to_expr(expr, true, ctx);
           return(expr);
@@ -621,8 +624,8 @@ evaluate_primitive_match :: (
         pvs_i = (pvs_i + usize(1));
       });
       mae_lit_info := new_expr_info(case_env, scrutinee_type);
-      mae_lit_info.case_executed = Option(bool).Some(true);
-      mae_lit_info.primitive_pattern_values = Option(ArrayList(Option(EvalValue))).Some(pattern_value_opts);
+      expr_info_set_case_executed(mae_lit_info, Option(bool).Some(true));
+      expr_info_set_primitive_pattern_values(mae_lit_info, Option(ArrayList(Option(EvalValue))).Some(pattern_value_opts));
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(match_arm_expr), mae_lit_info);
       env.push_frame(false);
       old_executing_lit := ctx.is_executing;
@@ -732,7 +735,7 @@ evaluate_primitive_match :: (
           );
           out_lit_early := new_expr_info(body_info_lit.env, result_ty_lit_early);
           out_lit_early.value = body_info_lit.value;
-          out_lit_early.is_primitive_match = Option(bool).Some(true);
+          expr_info_set_is_primitive_match(out_lit_early, Option(bool).Some(true));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_lit_early);
           attach_temp_variable_to_expr(expr, true, ctx);
           return(expr);
@@ -890,7 +893,7 @@ evaluate_primitive_match :: (
     );
     out_pm := new_expr_info(env, result_ty_final_pm);
     out_pm.value = out_val_pm;
-    out_pm.is_primitive_match = Option(bool).Some(true);
+    expr_info_set_is_primitive_match(out_pm, Option(bool).Some(true));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_pm);
     attach_temp_variable_to_expr(expr, true, ctx);
   }, {
@@ -1010,7 +1013,7 @@ evaluate_primitive_match :: (
             out_ret_pm := new_expr_info(env, rt);
             out_ret_pm.value = ret_val_pm;
             out_ret_pm.control_flow = final_cf_pm;
-            out_ret_pm.is_primitive_match = Option(bool).Some(true);
+            expr_info_set_is_primitive_match(out_ret_pm, Option(bool).Some(true));
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ret_pm);
           }
         );
@@ -1032,7 +1035,7 @@ evaluate_primitive_match :: (
         esc_ty_pm := match(ctx.enclosing_function_return_type,.Some(t) => t,.None => t_unit());
         out_esc_pm := new_expr_info(env, esc_ty_pm);
         out_esc_pm.control_flow = final_cf_pm;
-        out_esc_pm.is_primitive_match = Option(bool).Some(true);
+        expr_info_set_is_primitive_match(out_esc_pm, Option(bool).Some(true));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_esc_pm);
       },
       has_control_flow(final_cf_pm,.Break) => {
@@ -1052,7 +1055,7 @@ evaluate_primitive_match :: (
         out_brk_pm := new_expr_info(env, t_unit());
         out_brk_pm.value = Option(EvalValue).Some(EvalValue.UnitVal);
         out_brk_pm.control_flow = final_cf_pm;
-        out_brk_pm.is_primitive_match = Option(bool).Some(true);
+        expr_info_set_is_primitive_match(out_brk_pm, Option(bool).Some(true));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_brk_pm);
       },
       has_control_flow(final_cf_pm,.Continue) => {
@@ -1072,7 +1075,7 @@ evaluate_primitive_match :: (
         out_cnt_pm := new_expr_info(env, t_unit());
         out_cnt_pm.value = Option(EvalValue).Some(EvalValue.UnitVal);
         out_cnt_pm.control_flow = final_cf_pm;
-        out_cnt_pm.is_primitive_match = Option(bool).Some(true);
+        expr_info_set_is_primitive_match(out_cnt_pm, Option(bool).Some(true));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_cnt_pm);
       },
       true => ()
@@ -1541,7 +1544,7 @@ evaluate_match :: (
         env.push_frame(false);
         // Set ExprInfo for matchArmExpr (AFTER push_frame)
         mae_fl_info := new_expr_info(env, variable_type_fl);
-        mae_fl_info.case_executed = Option(bool).Some(true);
+        expr_info_set_case_executed(mae_fl_info, Option(bool).Some(true));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(match_arm_expr), mae_fl_info);
         // Evaluate arm body
         is_arm_executing_fl := match(
@@ -2168,7 +2171,7 @@ evaluate_match :: (
           });
           // Set ExprInfo for matchArmExpr (AFTER push_frame and var adds)
           mae_wf_info := new_expr_info(env, variable_type_wf);
-          mae_wf_info.case_executed = Option(bool).Some(true);
+          expr_info_set_case_executed(mae_wf_info, Option(bool).Some(true));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(match_arm_expr), mae_wf_info);
           // Evaluate arm body
           is_arm_executing_wf := match(

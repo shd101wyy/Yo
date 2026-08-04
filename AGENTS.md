@@ -75,6 +75,7 @@ Yo source → Lexer → Parser → AST (expr.ts)
 | `plans/HIGHER_KINDED_TYPES.md`       | HKT design & implementation (TypeApplication, partial application)                                                                                                             |
 | `plans/FUNCTOR_APPLICATIVE_MONAD.md` | Option/Result functional combinators plan                                                                                                                                      |
 | `plans/BOOTSTRAPPING.md`             | Bootstrapping roadmap — phases, install scripts, risk assessment                                                                                                               |
+| `plans/YO_SELF_EXPRINFO_PRUNE.md`    | The remaining multi-GB `yo-self` memory lever: pruning the process-lifetime `ExprInfoTable`                                                                                    |
 
 ### Algebraic effects model
 

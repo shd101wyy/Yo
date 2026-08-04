@@ -16,7 +16,7 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, ast_expr_id, make_err_expr, BF_DOT } :: import("../../expr.yo");
-{ lookup_method_callee_value, ExprInfo, new_expr_info } :: import("../../expr_info.yo");
+{ lookup_method_callee_value, ExprInfo, new_expr_info, expr_info_effect_analysis } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_unknown_val, is_struct_val, is_enum_val } :: import("../../value.yo");
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { get_func_type, is_control_fn, is_effect_record_member, is_io_async_sm_closure } :: import("../../function_value.yo");
@@ -756,7 +756,7 @@ _call_may_unwind :: (fn(func_ei_value : Option(EvalValue), function_type : TypeV
   ft_is_control := match(function_type,.Func({ meta : __fm2 }) => __fm2.*.is_control, _ => false);
   body_has_effects := match(
     func_ei_value,
-    .Some(v) => match(v,.FuncVal(__fvd3, _) => match(context.base.get_expr_info(__fvd3.*.body),.Some(bei) => match(bei.effect_analysis,.Some(ea) => ea.has_effects,.None => false),.None => false), _ => false),
+    .Some(v) => match(v,.FuncVal(__fvd3, _) => match(context.base.get_expr_info(__fvd3.*.body),.Some(bei) => match(expr_info_effect_analysis(bei),.Some(ea) => ea.has_effects,.None => false),.None => false), _ => false),
     .None => false
   );
   (param_fn_or_ctl : bool) = false;

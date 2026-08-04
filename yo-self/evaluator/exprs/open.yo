@@ -27,6 +27,7 @@ open(import("std/fmt"));
   new_expr_info,
   expr_info_table_get,
   expr_info_table_set,
+  expr_info_set_runtime_destructurings,
   RuntimeDestructuring
 } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
@@ -330,7 +331,7 @@ evaluate_open :: (
   // Build out_info: env mutated, type `()`, value `UnitVal`.
   out_info := new_expr_info(next_env, t_unit());
   out_info.value =.Some(EvalValue.UnitVal);
-  out_info.runtime_destructurings = runtime_destructurings_opt;
+  expr_info_set_runtime_destructurings(out_info, runtime_destructurings_opt);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });

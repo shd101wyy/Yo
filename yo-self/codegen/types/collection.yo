@@ -23,7 +23,7 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("../../types/definitions.yo");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call_of, make_err_expr, BK_TEST } :: import("../../expr.yo");
-{ ExprInfoTable, expr_info_table_get, lookup_macro_expansion, get_module_level_init_exprs } :: import("../../expr_info.yo");
+{ ExprInfoTable, expr_info_table_get, lookup_macro_expansion, get_module_level_init_exprs, expr_info_runtime_destructurings } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_type_value, type_of_eval_value } :: import("../../value.yo");
 { is_control_fn, get_func_type } :: import("../../function_value.yo");
 {
@@ -571,7 +571,7 @@ collect_types_from_expr :: (fn(expr : AstExpr, context : CodeGenContext, info : 
       );
       // Runtime destructurings (comptime→runtime conversions).
       match(
-        ei.runtime_destructurings,
+        expr_info_runtime_destructurings(ei),
         .Some(rds) => {
           nr := rds.len();
           (ri : usize) = usize(0);

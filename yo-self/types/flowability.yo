@@ -37,7 +37,7 @@ open(import("std/string"));
   make_err_expr,
   ast_expr_to_string
 } :: import("../expr.yo");
-{ ExprInfo, expr_info_table_get, has_any_control_flow, lookup_method_callee_type }
+{ ExprInfo, expr_info_table_get, has_any_control_flow, lookup_method_callee_type, expr_info_closure_function_value }
 :: import("../expr_info.yo");
 { Variable, Environment, get_variables_from_env } :: import("../env.yo");
 { format_error_message } :: import("../error.yo");
@@ -833,7 +833,7 @@ _reject_if_container_reachable :: (
           // SAME isCreatingClosure gate, so on an anon-fn ExprInfo
           // capture_type-is-set is the faithful equivalent.
           is_closure := match(
-            oi.closure_function_value,
+            expr_info_closure_function_value(oi),
             .Some(_) => true,
             .None => (
               match(oi.is_anonymous_function_definition,.Some(b) => b,.None => false) &&

@@ -329,6 +329,63 @@ derive(RuntimeDestructuring, Clone);
 ///   `path_collection` – ownership paths tracked by the evaluator.
 ///
 /// All other fields are optional (`Option(T)`), mirroring TypeScript `field?: T`.
+/// Rarely-set `ExprInfo` fields, hoisted out of `ExprInfo` into a separately
+/// allocated object reached through `ExprInfo.rare`.
+///
+/// WHY: an `ExprInfo` reserves inline space for EVERY optional field whether or
+/// not it is set, and a self-emit keeps millions of them alive (3.35 M measured).
+/// TypeScript pays nothing for an absent `field?:`; this group is the port's
+/// equivalent. These twelve fields cost 168 of `sizeof(ExprInfo)`'s original
+/// 624 bytes while being set on almost nothing — five of them
+/// (`closure_function_value`, `consumed_variable_drop_expressions`,
+/// `effect_analysis`, `await_analysis`, `async_stack_size`) are never written at
+/// all in a self-emit, and `async_stack_size` is dead in the TypeScript compiler
+/// too (`src/expr.ts:324` is its only occurrence).
+///
+/// A GROUP ONLY PAYS IF IT IS ALMOST NEVER ALLOCATED — the header alone is 56 B.
+/// Measured setter calls per self-emit for the members are: converted_runtime_type
+/// 222,334 · case_executed 39,443 · runtime_destructurings 3,074 ·
+/// dyn_call_trait_values 1,066 · async_state_machine_struct_name 28 ·
+/// primitive_pattern_values 4 · is_primitive_match 2 · the other five 0.
+/// `origin_type` (3,073,159 calls) was in here first and made 52% of all
+/// ExprInfos allocate a group — 446 MB — which cancelled the saving; it is inline
+/// now. Before adding a field here, profile its setter
+/// (`scripts/bootstrap/instrument_calls.py --fn` + `report_calls.py`) and confirm
+/// with `live_census.py` that the live `ExprInfoRare` count stays small.
+///
+/// ALWAYS go through the `expr_info_<field>` / `expr_info_set_<field>` accessor
+/// pairs below — reads of an unset group must see `.None`, and a write has to
+/// materialise the group lazily. The accessors also hide WHICH SIDE of the line a
+/// field is on, so re-partitioning never touches a call site.
+ExprInfoRare :: ref(
+  struct(
+    /// Runtime type after comptime-to-runtime conversion (e.g. comptime_str → str).
+    converted_runtime_type : Option(TypeValue),
+    /// Runtime destructuring bindings for `{ x, y } := point`.
+    runtime_destructurings : Option(ArrayList(RuntimeDestructuring)),
+    /// Trait values for `dyn()` dynamic dispatch (used by codegen vtable emit).
+    dyn_call_trait_values : Option(ArrayList(EvalValue)),
+    /// For cond/match: true when this branch was executed.
+    case_executed : Option(bool),
+    /// True when this match expression dispatches on primitive types (int/bool).
+    is_primitive_match : Option(bool),
+    /// Compile-time pattern values for primitive match (used by codegen C switch).
+    primitive_pattern_values : Option(ArrayList(Option(EvalValue))),
+    /// Drop expressions for RC variables consumed by the return value
+    /// (needed when `unwind` propagates through the function).
+    consumed_variable_drop_expressions : Option(ArrayList(AstExpr)),
+    /// Optional runtime stack size expression for `async` spawns.
+    async_stack_size : Option(AstExpr),
+    /// C struct name for the async state machine (used by codegen).
+    async_state_machine_struct_name : Option(String),
+    /// Await-analysis result for async block expressions.
+    await_analysis : Option(AwaitAnalysisResult),
+    /// Effect-analysis result for effectful function calls.
+    effect_analysis : Option(EffectAnalysisResult),
+    /// FunctionValue implementing the closure body.
+    closure_function_value : Option(EvalValue)
+  )
+);
 ExprInfo :: ref(
   struct(
     // --- Required ---
@@ -338,54 +395,32 @@ ExprInfo :: ref(
     // --- Optional ---
     /// Compile-time value; `.None` for runtime expressions.
     value : Option(EvalValue),
-    /// Runtime type after comptime-to-runtime conversion (e.g. comptime_str → str).
-    // `Box`ed (P2): rarely set (only on comptime→runtime conversion exprs), but
-    // `Option(TypeValue)` reserved ~sizeof(TypeValue) inline in every ExprInfo.
-    converted_runtime_type : Option(TypeValue),
     /// Name of the temporary variable holding the value in `env`.
     variable_name : Option(String),
-    /// Root object type in a property-access chain (used for mutability analysis).
-    origin_type : Option(TypeValue),
     /// True when this expression is a property-access dereference (`p.*`).
     is_accessing_property : Option(bool),
     /// Runtime arguments in call order (used by codegen).
     runtime_arg_exprs_in_order : Option(ArrayList(AstExpr)),
-    /// Runtime destructuring bindings for `{ x, y } := point`.
-    runtime_destructurings : Option(ArrayList(RuntimeDestructuring)),
     /// Control-flow flags (return, unwind, break, continue).
     control_flow : Option(ControlFlowFlags),
-    /// Trait values for `dyn()` dynamic dispatch (used by codegen vtable emit).
-    dyn_call_trait_values : Option(ArrayList(EvalValue)),
-    /// For cond/match: true when this branch was executed.
-    case_executed : Option(bool),
-    /// True when this match expression dispatches on primitive types (int/bool).
-    is_primitive_match : Option(bool),
-    /// Compile-time pattern values for primitive match (used by codegen C switch).
-    primitive_pattern_values : Option(ArrayList(Option(EvalValue))),
     /// Doc comment preceding this declaration.
     doc_comment : Option(String),
     /// `___dup` call expressions for RC variables captured by a closure.
     deferred_dup_expressions : Option(ArrayList(AstExpr)),
     /// `___drop` call expressions for variables needing cleanup at scope exit.
     deferred_drop_expressions : Option(ArrayList(AstExpr)),
-    /// Drop expressions for RC variables consumed by the return value
-    /// (needed when `unwind` propagates through the function).
-    consumed_variable_drop_expressions : Option(ArrayList(AstExpr)),
-    /// Optional runtime stack size expression for `async` spawns.
-    // `Box`ed: `Option(AstExpr)` reserved ~sizeof(AstExpr) (~128 B) inline in every
-    // ExprInfo even though async-stack analysis isn't wired up yet (always `.None`
-    // currently) — boxing reclaims it (P2).
-    async_stack_size : Option(AstExpr),
-    /// C struct name for the async state machine (used by codegen).
-    async_state_machine_struct_name : Option(String),
     /// Capture struct type for closures / async blocks that close over RC vars.
     capture_type : Option(TypeValue),
-    /// Await-analysis result for async block expressions.
-    await_analysis : Option(AwaitAnalysisResult),
-    /// Effect-analysis result for effectful function calls.
-    effect_analysis : Option(EffectAnalysisResult),
-    /// FunctionValue implementing the closure body.
-    closure_function_value : Option(EvalValue),
+    /// Root object type in a property-access chain (used for mutability analysis).
+    // INLINE ON PURPOSE, and it must stay that way: a measured self-emit calls
+    // `expr_info_set_origin_type` 3,073,159 times out of 3,339,110 total
+    // `_expr_info_rare_for_write` calls, so grouping this one field made 92% of
+    // all ExprInfos allocate an `ExprInfoRare` (1.74 M x 256 B = 446 MB) and
+    // cancelled the saving. Reached through the same accessor pair as the boxed
+    // fields, so which side of the line it sits on is invisible to callers.
+    origin_type : Option(TypeValue),
+    /// The rarely-set fields, allocated on first write. See `ExprInfoRare`.
+    rare : Option(ExprInfoRare),
     /// Evaluated macro-expanded expression.
     macro_expansion : Option(AstExpr),
     /// Environment frame popped after a begin block.
@@ -435,27 +470,16 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
     ty : ty,
     path_collection : g_empty_path_collection,
     value : Option(EvalValue).None,
-    converted_runtime_type : Option(TypeValue).None,
     variable_name : Option(String).None,
-    origin_type : Option(TypeValue).None,
     is_accessing_property : Option(bool).None,
     runtime_arg_exprs_in_order : Option(ArrayList(AstExpr)).None,
-    runtime_destructurings : Option(ArrayList(RuntimeDestructuring)).None,
     control_flow : Option(ControlFlowFlags).None,
-    dyn_call_trait_values : Option(ArrayList(EvalValue)).None,
-    case_executed : Option(bool).None,
-    is_primitive_match : Option(bool).None,
-    primitive_pattern_values : Option(ArrayList(Option(EvalValue))).None,
     doc_comment : Option(String).None,
     deferred_dup_expressions : Option(ArrayList(AstExpr)).None,
     deferred_drop_expressions : Option(ArrayList(AstExpr)).None,
-    consumed_variable_drop_expressions : Option(ArrayList(AstExpr)).None,
-    async_stack_size : Option(AstExpr).None,
-    async_state_machine_struct_name : Option(String).None,
     capture_type : Option(TypeValue).None,
-    await_analysis : Option(AwaitAnalysisResult).None,
-    effect_analysis : Option(EffectAnalysisResult).None,
-    closure_function_value : Option(EvalValue).None,
+    origin_type : Option(TypeValue).None,
+    rare : Option(ExprInfoRare).None,
     macro_expansion : Option(AstExpr).None,
     popped_env_frame : Option(Frame).None,
     original_expr : Option(AstExpr).None,
@@ -471,6 +495,181 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
     early_return_only_deferred_drop_expressions : Option(ArrayList(AstExpr)).None
   )
 );
+// ---------------------------------------------------------------------------
+// ExprInfoRare accessors
+// ---------------------------------------------------------------------------
+/// Materialise `info.rare` (all fields `.None`) on first write and return it.
+/// Read paths must NOT call this — they would allocate a group for nothing.
+_expr_info_rare_for_write :: (fn(info : ExprInfo) -> ExprInfoRare)(
+  match(
+    info.rare,
+    .Some(r) => r,
+    .None => {
+      fresh := ExprInfoRare(
+        converted_runtime_type : Option(TypeValue).None,
+        runtime_destructurings : Option(ArrayList(RuntimeDestructuring)).None,
+        dyn_call_trait_values : Option(ArrayList(EvalValue)).None,
+        case_executed : Option(bool).None,
+        is_primitive_match : Option(bool).None,
+        primitive_pattern_values : Option(ArrayList(Option(EvalValue))).None,
+        consumed_variable_drop_expressions : Option(ArrayList(AstExpr)).None,
+        async_stack_size : Option(AstExpr).None,
+        async_state_machine_struct_name : Option(String).None,
+        await_analysis : Option(AwaitAnalysisResult).None,
+        effect_analysis : Option(EffectAnalysisResult).None,
+        closure_function_value : Option(EvalValue).None
+      );
+      info.rare = Option(ExprInfoRare).Some(fresh);
+      fresh
+    }
+  )
+);
+expr_info_converted_runtime_type :: (fn(info : ExprInfo) -> Option(TypeValue))(
+  match(info.rare,.Some(r) => r.converted_runtime_type,.None => Option(TypeValue).None)
+);
+expr_info_set_converted_runtime_type :: (
+  fn(info : ExprInfo, v : Option(TypeValue)) -> unit
+)({
+  r := _expr_info_rare_for_write(info);
+  r.converted_runtime_type = v;
+});
+expr_info_origin_type :: (fn(info : ExprInfo) -> Option(TypeValue))(info.origin_type);
+expr_info_set_origin_type :: (fn(info : ExprInfo, v : Option(TypeValue)) -> unit)({
+  info.origin_type = v;
+});
+expr_info_runtime_destructurings :: (
+  fn(info : ExprInfo) -> Option(ArrayList(RuntimeDestructuring))
+)(
+  match(
+    info.rare,
+    .Some(r) => r.runtime_destructurings,
+    .None => Option(ArrayList(RuntimeDestructuring)).None
+  )
+);
+expr_info_set_runtime_destructurings :: (
+  fn(info : ExprInfo, v : Option(ArrayList(RuntimeDestructuring))) -> unit
+)({
+  r := _expr_info_rare_for_write(info);
+  r.runtime_destructurings = v;
+});
+expr_info_dyn_call_trait_values :: (
+  fn(info : ExprInfo) -> Option(ArrayList(EvalValue))
+)(
+  match(
+    info.rare,
+    .Some(r) => r.dyn_call_trait_values,
+    .None => Option(ArrayList(EvalValue)).None
+  )
+);
+expr_info_set_dyn_call_trait_values :: (
+  fn(info : ExprInfo, v : Option(ArrayList(EvalValue))) -> unit
+)({
+  r := _expr_info_rare_for_write(info);
+  r.dyn_call_trait_values = v;
+});
+expr_info_case_executed :: (fn(info : ExprInfo) -> Option(bool))(
+  match(info.rare,.Some(r) => r.case_executed,.None => Option(bool).None)
+);
+expr_info_set_case_executed :: (fn(info : ExprInfo, v : Option(bool)) -> unit)({
+  r := _expr_info_rare_for_write(info);
+  r.case_executed = v;
+});
+expr_info_is_primitive_match :: (fn(info : ExprInfo) -> Option(bool))(
+  match(info.rare,.Some(r) => r.is_primitive_match,.None => Option(bool).None)
+);
+expr_info_set_is_primitive_match :: (fn(info : ExprInfo, v : Option(bool)) -> unit)({
+  r := _expr_info_rare_for_write(info);
+  r.is_primitive_match = v;
+});
+expr_info_primitive_pattern_values :: (
+  fn(info : ExprInfo) -> Option(ArrayList(Option(EvalValue)))
+)(
+  match(
+    info.rare,
+    .Some(r) => r.primitive_pattern_values,
+    .None => Option(ArrayList(Option(EvalValue))).None
+  )
+);
+expr_info_set_primitive_pattern_values :: (
+  fn(info : ExprInfo, v : Option(ArrayList(Option(EvalValue)))) -> unit
+)({
+  r := _expr_info_rare_for_write(info);
+  r.primitive_pattern_values = v;
+});
+expr_info_consumed_variable_drop_expressions :: (
+  fn(info : ExprInfo) -> Option(ArrayList(AstExpr))
+)(
+  match(
+    info.rare,
+    .Some(r) => r.consumed_variable_drop_expressions,
+    .None => Option(ArrayList(AstExpr)).None
+  )
+);
+expr_info_set_consumed_variable_drop_expressions :: (
+  fn(info : ExprInfo, v : Option(ArrayList(AstExpr))) -> unit
+)({
+  r := _expr_info_rare_for_write(info);
+  r.consumed_variable_drop_expressions = v;
+});
+expr_info_async_stack_size :: (fn(info : ExprInfo) -> Option(AstExpr))(
+  match(info.rare,.Some(r) => r.async_stack_size,.None => Option(AstExpr).None)
+);
+expr_info_set_async_stack_size :: (fn(info : ExprInfo, v : Option(AstExpr)) -> unit)({
+  r := _expr_info_rare_for_write(info);
+  r.async_stack_size = v;
+});
+expr_info_async_state_machine_struct_name :: (fn(info : ExprInfo) -> Option(String))(
+  match(
+    info.rare,
+    .Some(r) => r.async_state_machine_struct_name,
+    .None => Option(String).None
+  )
+);
+expr_info_set_async_state_machine_struct_name :: (
+  fn(info : ExprInfo, v : Option(String)) -> unit
+)({
+  r := _expr_info_rare_for_write(info);
+  r.async_state_machine_struct_name = v;
+});
+expr_info_await_analysis :: (fn(info : ExprInfo) -> Option(AwaitAnalysisResult))(
+  match(
+    info.rare,
+    .Some(r) => r.await_analysis,
+    .None => Option(AwaitAnalysisResult).None
+  )
+);
+expr_info_set_await_analysis :: (
+  fn(info : ExprInfo, v : Option(AwaitAnalysisResult)) -> unit
+)({
+  r := _expr_info_rare_for_write(info);
+  r.await_analysis = v;
+});
+expr_info_effect_analysis :: (fn(info : ExprInfo) -> Option(EffectAnalysisResult))(
+  match(
+    info.rare,
+    .Some(r) => r.effect_analysis,
+    .None => Option(EffectAnalysisResult).None
+  )
+);
+expr_info_set_effect_analysis :: (
+  fn(info : ExprInfo, v : Option(EffectAnalysisResult)) -> unit
+)({
+  r := _expr_info_rare_for_write(info);
+  r.effect_analysis = v;
+});
+expr_info_closure_function_value :: (fn(info : ExprInfo) -> Option(EvalValue))(
+  match(
+    info.rare,
+    .Some(r) => r.closure_function_value,
+    .None => Option(EvalValue).None
+  )
+);
+expr_info_set_closure_function_value :: (
+  fn(info : ExprInfo, v : Option(EvalValue)) -> unit
+)({
+  r := _expr_info_rare_for_write(info);
+  r.closure_function_value = v;
+});
 // ---------------------------------------------------------------------------
 // ExprInfoTable
 // ---------------------------------------------------------------------------
@@ -1047,6 +1246,28 @@ export(control_flow_of, has_control_flow, has_any_control_flow, merge_control_fl
 export(ComptimeRef);
 export(RuntimeDestructuring);
 export(ExprInfo, new_expr_info);
+// `ExprInfoRare` accessors — see the `ExprInfoRare` doc comment. The thirteen
+// fields they cover are NOT reachable as `info.<field>` any more.
+export(ExprInfoRare);
+export(expr_info_converted_runtime_type, expr_info_set_converted_runtime_type);
+export(expr_info_origin_type, expr_info_set_origin_type);
+export(expr_info_runtime_destructurings, expr_info_set_runtime_destructurings);
+export(expr_info_dyn_call_trait_values, expr_info_set_dyn_call_trait_values);
+export(expr_info_case_executed, expr_info_set_case_executed);
+export(expr_info_is_primitive_match, expr_info_set_is_primitive_match);
+export(expr_info_primitive_pattern_values, expr_info_set_primitive_pattern_values);
+export(
+  expr_info_consumed_variable_drop_expressions,
+  expr_info_set_consumed_variable_drop_expressions
+);
+export(expr_info_async_stack_size, expr_info_set_async_stack_size);
+export(
+  expr_info_async_state_machine_struct_name,
+  expr_info_set_async_state_machine_struct_name
+);
+export(expr_info_await_analysis, expr_info_set_await_analysis);
+export(expr_info_effect_analysis, expr_info_set_effect_analysis);
+export(expr_info_closure_function_value, expr_info_set_closure_function_value);
 export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get);
 export(record_method_callee_type, lookup_method_callee_type);
 export(record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, lookup_io_builtin_call);

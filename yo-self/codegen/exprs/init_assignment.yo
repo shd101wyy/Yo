@@ -16,7 +16,7 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, BK_COMPTIME, BK_ARRAY_VAL, BF_DOT } :: import("../../expr.yo");
-{ RuntimeDestructuring } :: import("../../expr_info.yo");
+{ RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings } :: import("../../expr_info.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -159,7 +159,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
   });
   // Destructuring binds.
   match(
-    ei.runtime_destructurings,
+    expr_info_runtime_destructurings(ei),
     .Some(destructurings) => {
       rhs_type := match(context.base.get_expr_info(rhs),.Some(rei) => rei.ty,.None => TypeValue.Unit);
       _emit_destructurings(destructurings, rhs, rhs_type, indent.clone(), context);
@@ -300,7 +300,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
             if((temp_var_name == sanitized_var_name) || rhs_is_same_atom, emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context), {
               rhs_expr_code := _call_generate_expr(rhs, indent.clone(), context);
               if(!(rhs_expr_code == temp_var_name), {
-                effective_type := match(rei.converted_runtime_type,.Some(crt) => crt,.None => rei.ty);
+                effective_type := match(expr_info_converted_runtime_type(rei),.Some(crt) => crt,.None => rei.ty);
                 tv := get_variable_type_string(effective_type, temp_var_name.clone(), context.base);
                 line := indent.clone();
                 line.push_string(tv);

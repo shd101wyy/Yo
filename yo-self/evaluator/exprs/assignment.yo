@@ -42,7 +42,8 @@ open(import("std/string"));
   record_branch_init,
   has_dominating_branch_init,
   lookup_some_resolved_concrete,
-  expr_info_paths_for_write
+  expr_info_paths_for_write,
+  expr_info_set_converted_runtime_type
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -473,7 +474,7 @@ evaluate_assignment :: (
       // literal otherwise — so without this a `*(u8)` target still gets the
       // struct form and the C assignment is ill-typed.
       if((is_comptime_int_type(prop_rhs_info.ty) || is_comptime_float_type(prop_rhs_info.ty)) || is_comptime_string_type(prop_rhs_info.ty), {
-        prop_rhs_info.converted_runtime_type = Option(TypeValue).Some(prop_rhs_type.clone());
+        expr_info_set_converted_runtime_type(prop_rhs_info, Option(TypeValue).Some(prop_rhs_type.clone()));
       });
     });
     if(!(are_types_compatible(expected_ty, prop_rhs_type)), {
@@ -997,7 +998,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     // Mirror TS's `expr: rhs` side-effect (types/utils.ts:985-988) — see the
     // property-assignment site above for why codegen needs it.
     if((is_comptime_int_type(rhs_info.ty) || is_comptime_float_type(rhs_info.ty)) || is_comptime_string_type(rhs_info.ty), {
-      rhs_info.converted_runtime_type = Option(TypeValue).Some(rhs_type.clone());
+      expr_info_set_converted_runtime_type(rhs_info, Option(TypeValue).Some(rhs_type.clone()));
     });
   });
   // Type-compatibility check.

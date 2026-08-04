@@ -54,7 +54,15 @@ open(import("std/string"));
   get_closure_await_analysis
 } :: import("../../evaluator/async/await_analysis.yo");
 { get_func_type, mark_io_async_sm_closure, register_io_async_closure_fid, lookup_io_async_closure_fid } :: import("../../function_value.yo");
-{ ExprInfo, lookup_some_resolved_concrete, register_some_resolved_concrete, expr_info_table_set } :: import("../../expr_info.yo");
+{
+  ExprInfo,
+  lookup_some_resolved_concrete,
+  register_some_resolved_concrete,
+  expr_info_table_set,
+  expr_info_closure_function_value,
+  expr_info_async_state_machine_struct_name,
+  expr_info_set_async_state_machine_struct_name
+} :: import("../../expr_info.yo");
 {
   extract_future_trait_from_type,
   type_implements_future
@@ -1429,7 +1437,7 @@ io_async_await_analysis :: (fn(expr : AstExpr, context : FunctionGenerationConte
   );
   cei := match(context.base.get_expr_info(closure_arg),.Some(c) => c,.None => return(Option(AwaitAnalysisResult).None));
   fv := match(
-    cei.closure_function_value,
+    expr_info_closure_function_value(cei),
     .Some(f) => Option(EvalValue).Some(f),
     .None => match(cei.value,.Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None),.None => Option(EvalValue).None)
   );
@@ -1494,7 +1502,7 @@ io_async_closure_body :: (fn(expr : AstExpr, context : FunctionGenerationContext
         context.base.get_expr_info(carg),
         .Some(cei) => {
           fv_opt := match(
-            cei.closure_function_value,
+            expr_info_closure_function_value(cei),
             .Some(f) => Option(EvalValue).Some(f),
             .None => match(cei.value,.Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None),.None => Option(EvalValue).None)
           );
@@ -2034,7 +2042,7 @@ _set_async_sm_struct_name :: (fn(expr : AstExpr, struct_name : String, context :
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => {
-      ei.async_state_machine_struct_name = Option(String).Some(struct_name);
+      expr_info_set_async_state_machine_struct_name(ei, Option(String).Some(struct_name));
       expr_info_table_set(context.base.info_table, ast_expr_id(expr), ei);
     },
     .None => ()
@@ -2208,7 +2216,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   // The closure FuncVal: prefer closure_function_value, else the anon-fn `value`
   // (yo-self carries an io.async lambda as a plain value — see below).
   result_closure_fv := match(
-    cei.closure_function_value,
+    expr_info_closure_function_value(cei),
     .Some(fv) => Option(EvalValue).Some(fv),
     .None => match(cei.value,.Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None),.None => Option(EvalValue).None)
   );
@@ -2303,7 +2311,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
     register_some_resolved_concrete(per_clone_key.clone(), result_type.clone());
   });
   result_type_c_name := get_type_string(result_type, context.base);
-  struct_name := match(ei.async_state_machine_struct_name,.Some(s) => s,.None => return(String.from("/* Error: Missing sync future struct name */")));
+  struct_name := match(expr_info_async_state_machine_struct_name(ei),.Some(s) => s,.None => return(String.from("/* Error: Missing sync future struct name */")));
   dispose_function_name := `${struct_name.clone()}_dispose`;
   resume_function_name := `${struct_name.clone()}_resume`;
   // Generate the closure argument value (registers the closure fn + emits capture
@@ -2313,11 +2321,11 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   // the closure as an ordinary anon-fn `value` (set by anonymous_function.yo), so
   // fall back to cei.value when closure_function_value is absent.
   closure_fn_val := match(
-    cei.closure_function_value,
+    expr_info_closure_function_value(cei),
     .Some(fv) => Option(EvalValue).Some(fv),
     .None => match(
       orig_closure_ei,
-      .Some(oe) => match(oe.closure_function_value,.Some(fv) => Option(EvalValue).Some(fv),.None => match(cei.value,.Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None),.None => Option(EvalValue).None)),
+      .Some(oe) => match(expr_info_closure_function_value(oe),.Some(fv) => Option(EvalValue).Some(fv),.None => match(cei.value,.Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None),.None => Option(EvalValue).None)),
       .None => match(cei.value,.Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None),.None => Option(EvalValue).None)
     )
   );

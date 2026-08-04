@@ -13,8 +13,13 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_set, expr_info_paths_for_write }
-:: import("../../expr_info.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_paths_for_write,
+  expr_info_set_origin_type
+} :: import("../../expr_info.yo");
 { Token, string_is_operator } :: import("../../token.yo");
 { Environment, Variable, get_variables_from_env, find_variable_in_env, find_variable_in_env_at } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage }
@@ -230,7 +235,7 @@ evaluate_identifier_and_operator :: (
   // Build ExprInfo
   info := new_expr_info(env, variable.ty);
   info.value = resolved_value;
-  info.origin_type = Option(TypeValue).Some(variable.ty);
+  expr_info_set_origin_type(info, Option(TypeValue).Some(variable.ty));
   info.variable_name = Option(String).Some(variable.name);
   info.source_variable = Option(Variable).Some(variable);
   // Add [[variable.name]] to path_collection

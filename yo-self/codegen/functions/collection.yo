@@ -16,7 +16,7 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_TEST, BF_DOT, BF_COMPTIME_EXPECT_ERROR } :: import("../../expr.yo");
 { get_type_trait_methods_by_name, type_id_or_empty, register_type_trait_method, MethodEntry } :: import("../../evaluator/values/type_trait_methods.yo");
-{ ExprInfoTable, expr_info_table_get, lookup_method_callee_value, lookup_macro_expansion } :: import("../../expr_info.yo");
+{ ExprInfoTable, expr_info_table_get, lookup_method_callee_value, lookup_macro_expansion, expr_info_effect_analysis, expr_info_closure_function_value, expr_info_dyn_call_trait_values } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_struct_val, is_type_value, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_function_type, is_unit_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_boxed_type, is_expr_type } :: import("../../types/guards.yo");
@@ -514,7 +514,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
         .None => match(lookup_macro_expansion(ast_expr_id(expr)),.Some(me) => recur(me, context, info),.None => ())
       );
       match(
-        ei.effect_analysis,
+        expr_info_effect_analysis(ei),
         .Some(ea) => match(
           ea.handler_value,
           .Some(hv) => if(is_func_val(hv), {
@@ -525,7 +525,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
         .None => ()
       );
       match(
-        ei.closure_function_value,
+        expr_info_closure_function_value(ei),
         .Some(cfv) => if(is_func_val(cfv), {
           cid := _func_val_id(cfv);
           if(!(context.has_function(cid.clone())), {
@@ -817,7 +817,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
         .None => ()
       );
       match(
-        ei.dyn_call_trait_values,
+        expr_info_dyn_call_trait_values(ei),
         .Some(tvs) => {
           nt := tvs.len();
           (ti : usize) = usize(0);

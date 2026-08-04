@@ -16,7 +16,8 @@ open(import("std/string"));
   ExprInfo,
   new_expr_info,
   expr_info_table_set,
-  expr_info_table_get
+  expr_info_table_get,
+  expr_info_set_dyn_call_trait_values
 } :: import("../../expr_info.yo");
 { Environment, synthetic_token, get_variables_from_env, add_variable_to_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry } :: import("../context.yo");
@@ -509,7 +510,7 @@ evaluate_dyn_value :: (
     rt_args_ne.push(ne_final_expr);
     out_info.runtime_arg_exprs_in_order =.Some(rt_args_ne);
     if(is_dyn_type(ret_type.clone()), {
-      out_info.dyn_call_trait_values =.Some(_resolve_dyn_trait_values(ret_type, ne_value_type, ctx, env, exn));
+      expr_info_set_dyn_call_trait_values(out_info, Option(ArrayList(EvalValue)).Some(_resolve_dyn_trait_values(ret_type, ne_value_type, ctx, env, exn)));
     });
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     // Attach the temp variable C codegen reads for the fat-pointer struct.
@@ -665,7 +666,7 @@ evaluate_dyn_value :: (
   // Annotate the outer dyn(...) expression with the resolved DynType and
   // the ordered trait values for C codegen vtable emission.
   out_info := new_expr_info(cur_env, dyn_type);
-  out_info.dyn_call_trait_values =.Some(trait_vals);
+  expr_info_set_dyn_call_trait_values(out_info, Option(ArrayList(EvalValue)).Some(trait_vals));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   // Attach the temp variable C codegen reads for the fat-pointer struct
   // (mirrors TS attachTempVariableToExpr(expr, true), dyn.ts:594).
