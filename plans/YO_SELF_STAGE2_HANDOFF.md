@@ -116,18 +116,37 @@ RSS); the other ~490 M Token constructions come from a different site —
 run a per-SITE census (instrument callers of
 `__yo_new___yo_struct_<Token>`) to find it.
 
-Parity roadmap (in impact order): (1) allocation-free argument-binding
-fast path in try_to_call_function_with_arguments (bind params without
-minting Variable+Token+id-String per trial — needs care, this is the
-hottest correctness-critical path); (2) find + fix the 490 M Token
-construction site; (3) String buffer churn (1.75 B handles — audit
-`.clone()` on hot key/id paths); (4) header diet: replace the two
-per-object fn pointers (dispose_fn/traverse_fn, 16 B of the 56 B RC
-header) with a type-id into static tables — the non-GC build already
-dispatches dispose by type_id. Struct sizes for layout work: EvalValue
-96 B (32 B union), TypeValue 176 B (112 B union), RC header 56 B
-(`/tmp/re/szprobe.c` technique — compile the emitted-C prefix + sizeof
-main).
+Churn campaign rounds 3–5 (2026-08-04, `21fdc9b71`): the four
+seen/contains helpers deep-cloned every visited string per probe
+(~430 M buffer allocs — now compare in place; NOTE the compact
+bool-valued match form MISCOMPILES self-hosted, statement-arm shape
+required — issues/yo-self-bool-match-arm-miscompile.md, caught by the
+fixpoint gate); synthetic_token now interns Tokens by
+(module_path → name) — the census measured ~486 M calls / thousands of
+distinct pairs (Tokens are immutable, sharing unobservable).
+**Ledger vs campaign start (all GC ON, fixpoint-validated per round):
+malloc volume 490.8→375.8 GiB, footprint 28.0→20.0 GB, self-built
+binary 38.7→30.7 GB, wall 660→408 s. TS target (same job): 113 s,
+6.05 GB footprint — still ~3.3× on touched memory.**
+
+Parity roadmap (in impact order): (1) the 488 M binding-trio churn —
+`add_variable_to_env` under `try_to_call_function_with_arguments`
+allocates Variable (320 B) + value-cell ArrayList(EvalValue) + id
+String per call-trial binding; differential-read the TS
+`_tryToCallFunctionWithArgumentsImpl` (helper.ts:845) for missing
+prefilters, then design an allocation-free binding fast path — the
+hottest correctness-critical code, fresh-session work; (2) Variable.id
+String → usize (kills the 523 M `to_string` buffer allocs from
+generate_variable_id — TS uses string ids, deviation is
+perf-precedented); (3) `.clone()` audit: String copies share the RC
+buffer (bare reuse is cheap and checker-clean where no mutation
+follows) — most of the remaining 187 M String.clone calls are
+defensive habit; (4) Variable layout diet (Box rare Option fields —
+consumed_at_token precedent) + RC header diet (replace the two
+per-object fn pointers, 16 of 56 B, with a type-id into static
+tables). Struct sizes: EvalValue 96 B (32 B union), TypeValue 176 B
+(112 B union), RC header 56 B (`/tmp/re/szprobe.c` technique — compile
+the emitted-C prefix + a sizeof main).
 
 ---
 
