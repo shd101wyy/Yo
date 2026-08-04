@@ -86,11 +86,24 @@ Both compilers carry the gate: TS `generateRefEnumConstructorFunctions`
 Rejected knobs: `MIMALLOC_PURGE_DELAY=0` (footprint WORSE, 28.0 GB vs 24.9 —
 purged pages recount on reuse); `YO_GC_FULL_PCT=130` (no footprint effect —
 churn is mostly untracked allocations).
-**Remaining debt: allocation churn.** One self-emit mallocs **490.8 GiB**
-total (MIMALLOC_SHOW_STATS) against a ~9 GB live set — that churn IS the
-28 GB touched footprint. Reducing EvalValue/TypeValue clone volume in the hot
-evaluate/specialize/trial-eval paths, and explaining the self-built binary's
-extra ~11 GB footprint (38.7 vs 28.0 GB), is the next performance campaign.
+**Churn campaign round 1 (2026-08-04, `0f982af5d`):** the top churn site was
+`clone_env` (deep per-frame variable-list copy) at the four
+unification/specialization env builds whose TS ground truth is `pushEnvFrame`
+(shallow frame sharing) — replaced with `snapshot_env`: emit wall 432s→402s,
+footprint 28.0→22.75 GB. The 27 nullary TypeValue leaf creators now return
+interned module-global singletons (measured ~neutral on volume but removes
+millions of 176-byte allocations). Combined vs the campaign-start GC-on
+baseline: **stage-1 emit 660s→399s (−40%), footprint 28.0→22.5 GB (−20%);
+self-built binary emit footprint 38.7→33.1 GB (−14%)**. Profiling notes:
+attribute `sample`-profile allocator frames to `fn_yo` ancestors; dispose
+chains of Environment/ArrayList graphs dominate what remains.
+**Remaining debt: allocation churn.** One self-emit still mallocs ~486 GiB
+total (MIMALLOC_SHOW_STATS) against a ~9 GB live set. The dominant remaining
+sources (by dispose-attribution): per-call env frames + ArrayList(Variable)
+teardown in evaluate_function_call / add_variable_to_env, and
+to_string/synthetic_token churn. Struct sizes for layout work: EvalValue
+96 B (32 B union), TypeValue 176 B (112 B union), RC header 56 B
+(`/tmp/re/szprobe.c` technique — compile the emitted-C prefix + sizeof main).
 
 ---
 
