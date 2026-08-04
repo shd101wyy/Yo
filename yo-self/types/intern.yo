@@ -31,13 +31,24 @@
 //! it can never wrong-merge; worst case it under-dedups (safe). Sound because
 //! TypeValues are rebuilt-not-mutated. Gate: differential corpus 96/96 (NOT
 //! check ./std — that skips codegen). List-of-types rendering is INLINE (not a
-//! helper) because a helper calling type_intern_key would be mutual recursion,
-//! which Yo forbids; self-recursion uses `recur(child, depth + 1, visited)`.
+//! helper) because a helper calling the key renderer would be mutual recursion,
+//! which Yo forbids; self-recursion uses `recur(child, sb, depth + 1, visited)`.
+//!
+//! PERF (2026-08-04): the renderer writes into a caller-owned `StringBuilder`
+//! instead of returning a `String` per node. The returning form allocated one
+//! `String` (+ its byte buffer, + reallocs) for EVERY node at EVERY level and for
+//! every `_join_*`/`_b`/`_meta_key` fragment — measured at ~320 M of the 603 M
+//! string-buffer allocations of one self-emit, because `substitute` re-keys the
+//! whole subtree at each of its recursion levels. `StringBuilder` is a
+//! `ref(struct)`, so passing it by value shares the one buffer. The emitted bytes
+//! are unchanged (same write order) — the fixpoint gate is the proof.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue, FuncMeta } :: import("./definitions.yo");
-_b :: (fn(x : bool) -> String)(if(x, String.from("1"), String.from("0")));
+_append_b :: (fn(sb : StringBuilder, x : bool) -> unit)(
+  if(x, sb.write_str("1"), sb.write_str("0"))
+);
 _contains :: (fn(xs : ArrayList(String), s : String) -> bool)({
   n := xs.len();
   (i : usize) = usize(0);
@@ -58,260 +69,247 @@ _contains :: (fn(xs : ArrayList(String), s : String) -> bool)({
   });
   found
 });
-_join_strings :: (fn(xs : ArrayList(String)) -> String)({
-  out := String.from("");
+_append_strings :: (fn(sb : StringBuilder, xs : ArrayList(String)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
-    match(xs.get(i),.Some(s) => out.push_string(s),.None => ());
-    out.push_str(",");
+    match(xs.get(i),.Some(s) => sb.write_string(s),.None => ());
+    sb.write_str(",");
     i = (i + usize(1));
   });
-  out
 });
-_join_bools :: (fn(xs : ArrayList(bool)) -> String)({
-  out := String.from("");
+_append_bools :: (fn(sb : StringBuilder, xs : ArrayList(bool)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
-    out.push_string(_b(match(xs.get(i),.Some(b) => b,.None => false)));
+    _append_b(sb, match(xs.get(i),.Some(b) => b,.None => false));
     i = (i + usize(1));
   });
-  out
 });
-_join_i64s :: (fn(xs : ArrayList(i64)) -> String)({
-  out := String.from("");
+_append_i64s :: (fn(sb : StringBuilder, xs : ArrayList(i64)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
-    out.push_string(match(xs.get(i),.Some(v) => v.to_string(),.None => String.from("")));
-    out.push_str(",");
+    match(xs.get(i),.Some(v) => sb.write_string(v.to_string()),.None => ());
+    sb.write_str(",");
     i = (i + usize(1));
   });
-  out
 });
-_join_usizes :: (fn(xs : ArrayList(usize)) -> String)({
-  out := String.from("");
+_append_usizes :: (fn(sb : StringBuilder, xs : ArrayList(usize)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
-    out.push_string(match(xs.get(i),.Some(v) => v.to_string(),.None => String.from("")));
-    out.push_str(",");
+    match(xs.get(i),.Some(v) => sb.write_string(v.to_string()),.None => ());
+    sb.write_str(",");
     i = (i + usize(1));
   });
-  out
 });
-_meta_key :: (fn(m : FuncMeta) -> String)({
-  out := String.from("");
-  out.push_string(_join_strings(m.forall_labels));
-  out.push_str(";");
-  out.push_string(_join_strings(m.param_labels));
-  out.push_str(";");
-  out.push_string(_join_strings(m.implicit_labels));
-  out.push_str(";");
-  out.push_string(_join_bools(m.implicit_spreads));
-  out.push_str(";");
-  out.push_string(_b(m.result_is_comptime_only));
-  out.push_string(_join_bools(m.param_is_ref));
-  out.push_str(";");
-  out.push_string(_join_bools(m.param_is_owning));
-  out.push_str(";");
-  out.push_string(_b(m.result_is_ref));
-  out.push_string(_b(m.has_variadic));
-  out.push_string(_b(m.is_control));
-  out.push_str("e");
-  out.push_string(m.is_extern.clone().unwrap_or(String.from("")));
-  out.push_str("x");
-  out.push_string(m.extern_name.clone().unwrap_or(String.from("")));
-  out.push_str("v");
-  out.push_string(m.variadic_label.clone().unwrap_or(String.from("")));
-  out.push_string(_b(m.variadic_comptime));
-  out
+_append_meta_key :: (fn(sb : StringBuilder, m : FuncMeta) -> unit)({
+  _append_strings(sb, m.forall_labels);
+  sb.write_str(";");
+  _append_strings(sb, m.param_labels);
+  sb.write_str(";");
+  _append_strings(sb, m.implicit_labels);
+  sb.write_str(";");
+  _append_bools(sb, m.implicit_spreads);
+  sb.write_str(";");
+  _append_b(sb, m.result_is_comptime_only);
+  _append_bools(sb, m.param_is_ref);
+  sb.write_str(";");
+  _append_bools(sb, m.param_is_owning);
+  sb.write_str(";");
+  _append_b(sb, m.result_is_ref);
+  _append_b(sb, m.has_variadic);
+  _append_b(sb, m.is_control);
+  sb.write_str("e");
+  sb.write_string(m.is_extern.unwrap_or(String.from("")));
+  sb.write_str("x");
+  sb.write_string(m.extern_name.unwrap_or(String.from("")));
+  sb.write_str("v");
+  sb.write_string(m.variadic_label.unwrap_or(String.from("")));
+  _append_b(sb, m.variadic_comptime);
 });
 // ---------------------------------------------------------------------------
-// type_intern_key — total, injective, recursion-safe structural key.
+// _intern_key_into — total, injective, recursion-safe structural key, written
+// into a caller-owned StringBuilder.
 // `visited` = tag+id tokens of named types currently in the render path; a
 // re-encounter renders id-only (breaks cycles). Monotonic (never popped) → the
 // rendering is deterministic → the key is injective.
 // ---------------------------------------------------------------------------
-type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)) -> String)(
+_intern_key_into :: (
+  fn(t : TypeValue, sb : StringBuilder, depth : usize, visited : ArrayList(String)) -> unit
+)(
   if(
     depth > usize(600),
-    String.from("~"),
+    sb.write_str("~"),
     match(
       t,
-      .Unit => String.from("u"),
-      .BoolT => String.from("b"),
-      .Void => String.from("v"),
-      .Str => String.from("s"),
-      .Usize => String.from("z"),
-      .Isize => String.from("Z"),
-      .ComptimeInt => String.from("ci"),
-      .ComptimeFloat => String.from("cf"),
-      .ComptimeString => String.from("cs"),
-      .CChar => String.from("cc"),
-      .CShort => String.from("csh"),
-      .CUShort => String.from("cush"),
-      .CInt => String.from("cin"),
-      .CUInt => String.from("cuin"),
-      .CLong => String.from("cl"),
-      .CULong => String.from("cul"),
-      .CLongLong => String.from("cll"),
-      .CULongLong => String.from("cull"),
-      .CLongDouble => String.from("cld"),
-      .ExprT => String.from("X"),
+      .Unit => sb.write_str("u"),
+      .BoolT => sb.write_str("b"),
+      .Void => sb.write_str("v"),
+      .Str => sb.write_str("s"),
+      .Usize => sb.write_str("z"),
+      .Isize => sb.write_str("Z"),
+      .ComptimeInt => sb.write_str("ci"),
+      .ComptimeFloat => sb.write_str("cf"),
+      .ComptimeString => sb.write_str("cs"),
+      .CChar => sb.write_str("cc"),
+      .CShort => sb.write_str("csh"),
+      .CUShort => sb.write_str("cush"),
+      .CInt => sb.write_str("cin"),
+      .CUInt => sb.write_str("cuin"),
+      .CLong => sb.write_str("cl"),
+      .CULong => sb.write_str("cul"),
+      .CLongLong => sb.write_str("cll"),
+      .CULongLong => sb.write_str("cull"),
+      .CLongDouble => sb.write_str("cld"),
+      .ExprT => sb.write_str("X"),
       .Int(bits, signed) => {
-        o := String.from("I");
-        o.push_string(bits.to_string());
-        o.push_string(_b(signed));
-        o
+        sb.write_str("I");
+        sb.write_string(bits.to_string());
+        _append_b(sb, signed);
       },
       .Float(bits) => {
-        o := String.from("F");
-        o.push_string(bits.to_string());
-        o
+        sb.write_str("F");
+        sb.write_string(bits.to_string());
       },
       .TypeUni(level) => {
-        o := String.from("T");
-        o.push_string(level.to_string());
-        o
+        sb.write_str("T");
+        sb.write_string(level.to_string());
       },
       .Pointer(pointee) => {
-        o := String.from("P");
-        o.push_string(recur(pointee, depth + usize(1), visited));
-        o
+        sb.write_str("P");
+        recur(pointee, sb, depth + usize(1), visited);
       },
       .ComptimeListT(child) => {
-        o := String.from("CL");
-        o.push_string(recur(child, depth + usize(1), visited));
-        o
+        sb.write_str("CL");
+        recur(child, sb, depth + usize(1), visited);
       },
       .IsoT(child) => {
-        o := String.from("Is");
-        o.push_string(recur(child, depth + usize(1), visited));
-        o
+        sb.write_str("Is");
+        recur(child, sb, depth + usize(1), visited);
       },
       .Array(element, length, length_var) => {
-        o := String.from("A");
-        o.push_string(recur(element, depth + usize(1), visited));
-        o.push_str("#");
-        o.push_string(length.to_string());
-        o.push_str("#");
-        o.push_string(length_var);
-        o
+        sb.write_str("A");
+        recur(element, sb, depth + usize(1), visited);
+        sb.write_str("#");
+        sb.write_string(length.to_string());
+        sb.write_str("#");
+        sb.write_string(length_var);
       },
       .Tuple(field_labels, field_types) => {
-        o := String.from("Tup[");
-        o.push_string(_join_strings(field_labels));
-        o.push_str("|");
+        sb.write_str("Tup[");
+        _append_strings(sb, field_labels);
+        sb.write_str("|");
         n := field_types.len();
         (i : usize) = usize(0);
         while(i < n, {
-          match(field_types.get(i),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-          o.push_str(",");
+          match(field_types.get(i),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
           i = (i + usize(1));
         });
-        o.push_str("]");
-        o
+        sb.write_str("]");
       },
       .Func({ forall_types : fa, param_types : pp, implicit_types : ii, where_types : ww, result : res, meta : m, variadic_types : vv }) => {
-        o := String.from("Fn[");
+        sb.write_str("Fn[");
         na := fa.len();
         (ia : usize) = usize(0);
         while(ia < na, {
-          match(fa.get(ia),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-          o.push_str(",");
+          match(fa.get(ia),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
           ia = (ia + usize(1));
         });
-        o.push_str("|");
+        sb.write_str("|");
         np := pp.len();
         (ip : usize) = usize(0);
         while(ip < np, {
-          match(pp.get(ip),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-          o.push_str(",");
+          match(pp.get(ip),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
           ip = (ip + usize(1));
         });
-        o.push_str("|");
+        sb.write_str("|");
         ni := ii.len();
         (ki : usize) = usize(0);
         while(ki < ni, {
-          match(ii.get(ki),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-          o.push_str(",");
+          match(ii.get(ki),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
           ki = (ki + usize(1));
         });
-        o.push_str("|");
+        sb.write_str("|");
         nw := ww.len();
         (kw : usize) = usize(0);
         while(kw < nw, {
-          match(ww.get(kw),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-          o.push_str(",");
+          match(ww.get(kw),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
           kw = (kw + usize(1));
         });
-        o.push_str("|");
-        o.push_string(recur(res, depth + usize(1), visited));
-        o.push_str("|");
-        o.push_string(_meta_key(m.*));
-        o.push_str("|");
+        sb.write_str("|");
+        recur(res, sb, depth + usize(1), visited);
+        sb.write_str("|");
+        _append_meta_key(sb, m.*);
+        sb.write_str("|");
         nv := vv.len();
         (iv : usize) = usize(0);
         while(iv < nv, {
-          match(vv.get(iv),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-          o.push_str(",");
+          match(vv.get(iv),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
           iv = (iv + usize(1));
         });
-        o.push_str("]");
-        o
+        sb.write_str("]");
       },
       .Struct({ id : sid, name : snm, field_labels : sfl, field_types : sft, is_reference_semantics : irs, is_atomic_rc : iar, is_newtype : isnt, constructor_func_id : cfid, type_arguments : sta, is_source_namespace : isns }) => {
         tok := String.from("S:");
         tok.push_string(sid);
-        if(_contains(visited, tok), tok, {
+        if(_contains(visited, tok), {
+          sb.write_string(tok);
+        }, {
           visited.push(tok.clone());
-          o := tok;
-          o.push_str("{");
-          o.push_string(snm);
-          o.push_str("|");
-          o.push_string(cfid);
-          o.push_str("|");
-          o.push_string(_b(irs));
-          o.push_string(_b(iar));
-          o.push_string(_b(isnt));
-          o.push_string(_b(isns));
-          o.push_str("|");
-          o.push_string(_join_strings(sfl));
-          o.push_str("|");
+          sb.write_string(tok);
+          sb.write_str("{");
+          sb.write_string(snm);
+          sb.write_str("|");
+          sb.write_string(cfid);
+          sb.write_str("|");
+          _append_b(sb, irs);
+          _append_b(sb, iar);
+          _append_b(sb, isnt);
+          _append_b(sb, isns);
+          sb.write_str("|");
+          _append_strings(sb, sfl);
+          sb.write_str("|");
           nsf := sft.len();
           (isf : usize) = usize(0);
           while(isf < nsf, {
-            match(sft.get(isf),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-            o.push_str(",");
+            match(sft.get(isf),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+            sb.write_str(",");
             isf = (isf + usize(1));
           });
-          o.push_str("|");
+          sb.write_str("|");
           nsa := sta.len();
           (isa : usize) = usize(0);
           while(isa < nsa, {
-            match(sta.get(isa),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-            o.push_str(",");
+            match(sta.get(isa),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+            sb.write_str(",");
             isa = (isa + usize(1));
           });
-          o.push_str("}");
-          o
-        })
+          sb.write_str("}");
+        });
       },
       .EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar) => {
         tok := String.from("E:");
         tok.push_string(eid);
-        if(_contains(visited, tok), tok, {
+        if(_contains(visited, tok), {
+          sb.write_string(tok);
+        }, {
           visited.push(tok.clone());
-          o := tok;
-          o.push_str("{");
-          o.push_string(enm);
-          o.push_str("|");
-          o.push_string(_join_strings(evns));
-          o.push_str("|");
-          o.push_string(_join_i64s(edis));
-          o.push_str("|");
+          sb.write_string(tok);
+          sb.write_str("{");
+          sb.write_string(enm);
+          sb.write_str("|");
+          _append_strings(sb, evns);
+          sb.write_str("|");
+          _append_i64s(sb, edis);
+          sb.write_str("|");
           nvf := evfs.len();
           (ivf : usize) = usize(0);
           while(ivf < nvf, {
@@ -319,83 +317,87 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
             nin := inner.len();
             (iin : usize) = usize(0);
             while(iin < nin, {
-              match(inner.get(iin),.Some(y) => o.push_string(recur(y, depth + usize(1), visited)),.None => ());
-              o.push_str(",");
+              match(inner.get(iin),.Some(y) => recur(y, sb, depth + usize(1), visited),.None => ());
+              sb.write_str(",");
               iin = (iin + usize(1));
             });
-            o.push_str(";");
+            sb.write_str(";");
             ivf = (ivf + usize(1));
           });
-          o.push_str("|");
+          sb.write_str("|");
           nvl := evfl.len();
           (ivl : usize) = usize(0);
           while(ivl < nvl, {
-            match(evfl.get(ivl),.Some(labs) => o.push_string(_join_strings(labs)),.None => ());
-            o.push_str(";");
+            match(evfl.get(ivl),.Some(labs) => _append_strings(sb, labs),.None => ());
+            sb.write_str(";");
             ivl = (ivl + usize(1));
           });
-          o.push_str("|");
-          o.push_string(esvn.clone().unwrap_or(String.from("n")));
-          o.push_str("|");
-          o.push_string(_b(eirs));
-          o.push_string(_b(eiar));
-          o.push_str("}");
-          o
-        })
+          sb.write_str("|");
+          sb.write_string(esvn.unwrap_or(String.from("n")));
+          sb.write_str("|");
+          _append_b(sb, eirs);
+          _append_b(sb, eiar);
+          sb.write_str("}");
+        });
       },
       .TraitT(tnm, tatn, tfl, tft, tid, tisc, tsc, tnsc, tatcl, tatct) => {
         tok := String.from("Tr:");
         tok.push_string(tid);
-        if(_contains(visited, tok), tok, {
+        if(_contains(visited, tok), {
+          sb.write_string(tok);
+        }, {
           visited.push(tok.clone());
-          o := tok;
-          o.push_str("{");
-          o.push_string(tnm);
-          o.push_str("|");
-          o.push_string(_join_strings(tatn));
-          o.push_str("|");
-          o.push_string(_join_strings(tfl));
-          o.push_str("|");
+          sb.write_string(tok);
+          sb.write_str("{");
+          sb.write_string(tnm);
+          sb.write_str("|");
+          _append_strings(sb, tatn);
+          sb.write_str("|");
+          _append_strings(sb, tfl);
+          sb.write_str("|");
           ntf := tft.len();
           (itf : usize) = usize(0);
           while(itf < ntf, {
-            match(tft.get(itf),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-            o.push_str(",");
+            match(tft.get(itf),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+            sb.write_str(",");
             itf = (itf + usize(1));
           });
-          o.push_str("|");
-          o.push_string(match(tisc,.Some(c) => recur(c, depth + usize(1), visited),.None => String.from("n")));
-          o.push_str("|");
+          sb.write_str("|");
+          match(
+            tisc,
+            .Some(c) => recur(c, sb, depth + usize(1), visited),
+            .None => sb.write_str("n")
+          );
+          sb.write_str("|");
           nsc := tsc.len();
           (isc : usize) = usize(0);
           while(isc < nsc, {
-            match(tsc.get(isc),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-            o.push_str(",");
+            match(tsc.get(isc),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+            sb.write_str(",");
             isc = (isc + usize(1));
           });
-          o.push_str("|");
+          sb.write_str("|");
           nnc := tnsc.len();
           (inc : usize) = usize(0);
           while(inc < nnc, {
-            match(tnsc.get(inc),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-            o.push_str(",");
+            match(tnsc.get(inc),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+            sb.write_str(",");
             inc = (inc + usize(1));
           });
           // Associated-type constraints (`Item := X`) distinguish otherwise
           // same-id trait applications — key them like the constraint lists.
-          o.push_str("|");
-          o.push_string(_join_strings(tatcl));
-          o.push_str("|");
+          sb.write_str("|");
+          _append_strings(sb, tatcl);
+          sb.write_str("|");
           natc := tatct.len();
           (iatc : usize) = usize(0);
           while(iatc < natc, {
-            match(tatct.get(iatc),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-            o.push_str(",");
+            match(tatct.get(iatc),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+            sb.write_str(",");
             iatc = (iatc + usize(1));
           });
-          o.push_str("}");
-          o
-        })
+          sb.write_str("}");
+        });
       },
       // SomeT keyed by id ALONE wrong-merges: the shared `Impl(Fn(e : E) -> T)`
       // io.async action wrapper keeps ONE id across all call sites, but
@@ -408,186 +410,196 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
       .SomeT(smid, smnm, smfl, smpt, smrtt, smrtl, smntt, smntl, smier, smkft, smrcp) => {
         tok := String.from("So:");
         tok.push_string(smid);
-        if(_contains(visited, tok), tok, {
+        if(_contains(visited, tok), {
+          sb.write_string(tok);
+        }, {
           visited.push(tok.clone());
-          o := tok;
-          o.push_str("{");
-          o.push_string(smnm);
-          o.push_str("|");
-          o.push_string(smfl.to_string());
-          o.push_str("|");
-          o.push_string(recur(smpt, depth + usize(1), visited));
-          o.push_str("|");
+          sb.write_string(tok);
+          sb.write_str("{");
+          sb.write_string(smnm);
+          sb.write_str("|");
+          sb.write_string(smfl.to_string());
+          sb.write_str("|");
+          recur(smpt, sb, depth + usize(1), visited);
+          sb.write_str("|");
           nrt := smrtt.len();
           (irt : usize) = usize(0);
           while(irt < nrt, {
-            match(smrtt.get(irt),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-            o.push_str(",");
+            match(smrtt.get(irt),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+            sb.write_str(",");
             irt = (irt + usize(1));
           });
-          o.push_str("|");
+          sb.write_str("|");
           nrl := smrtl.len();
           (irl : usize) = usize(0);
           while(irl < nrl, {
-            match(smrtl.get(irl),.Some(l) => o.push_string(l.to_string()),.None => ());
-            o.push_str(",");
+            match(smrtl.get(irl),.Some(l) => sb.write_string(l.to_string()),.None => ());
+            sb.write_str(",");
             irl = (irl + usize(1));
           });
-          o.push_str("|");
+          sb.write_str("|");
           nnt := smntt.len();
           (int_ : usize) = usize(0);
           while(int_ < nnt, {
-            match(smntt.get(int_),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-            o.push_str(",");
+            match(smntt.get(int_),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+            sb.write_str(",");
             int_ = (int_ + usize(1));
           });
-          o.push_str("|");
+          sb.write_str("|");
           nnl := smntl.len();
           (inl : usize) = usize(0);
           while(inl < nnl, {
-            match(smntl.get(inl),.Some(l) => o.push_string(l.to_string()),.None => ());
-            o.push_str(",");
+            match(smntl.get(inl),.Some(l) => sb.write_string(l.to_string()),.None => ());
+            sb.write_str(",");
             inl = (inl + usize(1));
           });
-          o.push_str("|");
-          o.push_string(_b(smier));
-          o.push_str("|");
-          o.push_string(match(smkft,.Some(k) => recur(k, depth + usize(1), visited),.None => String.from("n")));
+          sb.write_str("|");
+          _append_b(sb, smier);
+          sb.write_str("|");
+          match(
+            smkft,
+            .Some(k) => recur(k, sb, depth + usize(1), visited),
+            .None => sb.write_str("n")
+          );
           // resolved_concrete is resolution METADATA, not identity — but the
           // intern canonical must not STRIP it: a field-carrying SomeT that
           // key-collides with a field-less one canonicalizes to the field-less
           // instance and the resolution is lost (the Dyn(Fn) box payload
           // emitted void*). Render it so carriers stay distinct instances
           // (under-dedup is safe per the header doctrine).
-          o.push_str("|");
-          o.push_string(match(smrcp.get(usize(0)),.Some(rc) => recur(rc, depth + usize(1), visited),.None => String.from("n")));
-          o.push_str("}");
-          o
-        })
+          sb.write_str("|");
+          match(
+            smrcp.get(usize(0)),
+            .Some(rc) => recur(rc, sb, depth + usize(1), visited),
+            .None => sb.write_str("n")
+          );
+          sb.write_str("}");
+        });
       },
       .Union(unm, ufl, uft) => {
-        o := String.from("Un:");
-        o.push_string(unm);
-        o.push_str("[");
-        o.push_string(_join_strings(ufl));
-        o.push_str("|");
+        sb.write_str("Un:");
+        sb.write_string(unm);
+        sb.write_str("[");
+        _append_strings(sb, ufl);
+        sb.write_str("|");
         nu := uft.len();
         (iu : usize) = usize(0);
         while(iu < nu, {
-          match(uft.get(iu),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-          o.push_str(",");
+          match(uft.get(iu),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
           iu = (iu + usize(1));
         });
-        o.push_str("]");
-        o
+        sb.write_str("]");
       },
       .EffectsRowT(erl, ert) => {
-        o := String.from("ER[");
-        o.push_string(_join_strings(erl));
-        o.push_str("|");
+        sb.write_str("ER[");
+        _append_strings(sb, erl);
+        sb.write_str("|");
         ne := ert.len();
         (ie : usize) = usize(0);
         while(ie < ne, {
-          match(ert.get(ie),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-          o.push_str(",");
+          match(ert.get(ie),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
           ie = (ie + usize(1));
         });
-        o.push_str("]");
-        o
+        sb.write_str("]");
       },
       .TypeAppT(tac, taa) => {
-        o := String.from("TA");
-        o.push_string(recur(tac, depth + usize(1), visited));
-        o.push_str("[");
+        sb.write_str("TA");
+        recur(tac, sb, depth + usize(1), visited);
+        sb.write_str("[");
         nta := taa.len();
         (ita : usize) = usize(0);
         while(ita < nta, {
-          match(taa.get(ita),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-          o.push_str(",");
+          match(taa.get(ita),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
           ita = (ita + usize(1));
         });
-        o.push_str("]");
-        o
+        sb.write_str("]");
       },
       .DynT(drtt, drtl, dntt, dntl) => {
-        o := String.from("Dy[");
+        sb.write_str("Dy[");
         nr := drtt.len();
         (ir : usize) = usize(0);
         while(ir < nr, {
-          match(drtt.get(ir),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-          o.push_str(",");
+          match(drtt.get(ir),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
           ir = (ir + usize(1));
         });
-        o.push_str("|");
-        o.push_string(_join_usizes(drtl.clone()));
-        o.push_str("|");
+        sb.write_str("|");
+        _append_usizes(sb, drtl);
+        sb.write_str("|");
         nd := dntt.len();
         (idn : usize) = usize(0);
         while(idn < nd, {
-          match(dntt.get(idn),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-          o.push_str(",");
+          match(dntt.get(idn),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
           idn = (idn + usize(1));
         });
-        o.push_str("|");
-        o.push_string(_join_usizes(dntl.clone()));
-        o.push_str("]");
-        o
+        sb.write_str("|");
+        _append_usizes(sb, dntl);
+        sb.write_str("]");
       },
       .FnTraitT({ base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit, implicit_spreads : fnisp, call_param_is_ref : fncprf }) => {
-        o := String.from("FT:");
-        o.push_string(fnbn);
-        o.push_str("[");
-        o.push_string(_join_strings(fncpl));
-        o.push_str("|");
+        sb.write_str("FT:");
+        sb.write_string(fnbn);
+        sb.write_str("[");
+        _append_strings(sb, fncpl);
+        sb.write_str("|");
         ncp := fncpt.len();
         (icp : usize) = usize(0);
         while(icp < ncp, {
-          match(fncpt.get(icp),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-          o.push_str(",");
+          match(fncpt.get(icp),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
           icp = (icp + usize(1));
         });
-        o.push_str("|");
-        o.push_string(recur(fncr, depth + usize(1), visited));
-        o.push_str("|");
-        o.push_string(_join_strings(fnil));
-        o.push_str("|");
+        sb.write_str("|");
+        recur(fncr, sb, depth + usize(1), visited);
+        sb.write_str("|");
+        _append_strings(sb, fnil);
+        sb.write_str("|");
         nfi := fnit.len();
         (ifi : usize) = usize(0);
         while(ifi < nfi, {
-          match(fnit.get(ifi),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-          o.push_str(",");
+          match(fnit.get(ifi),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
           ifi = (ifi + usize(1));
         });
-        o.push_str("|");
-        o.push_string(_join_bools(fnisp));
-        o.push_str("|");
-        o.push_string(_join_bools(fncprf));
-        o.push_str("]");
-        o
+        sb.write_str("|");
+        _append_bools(sb, fnisp);
+        sb.write_str("|");
+        _append_bools(sb, fncprf);
+        sb.write_str("]");
       },
       .FutureTraitT({ base_name : ftbn, output : ftout, effect_labels : ftel, effect_types : ftet, effect_spreads : ftesp }) => {
-        o := String.from("FuT:");
-        o.push_string(ftbn);
-        o.push_str("[");
-        o.push_string(recur(ftout, depth + usize(1), visited));
-        o.push_str("|");
-        o.push_string(_join_strings(ftel));
-        o.push_str("|");
+        sb.write_str("FuT:");
+        sb.write_string(ftbn);
+        sb.write_str("[");
+        recur(ftout, sb, depth + usize(1), visited);
+        sb.write_str("|");
+        _append_strings(sb, ftel);
+        sb.write_str("|");
         nft := ftet.len();
         (ift : usize) = usize(0);
         while(ift < nft, {
-          match(ftet.get(ift),.Some(x) => o.push_string(recur(x, depth + usize(1), visited)),.None => ());
-          o.push_str(",");
+          match(ftet.get(ift),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
           ift = (ift + usize(1));
         });
-        o.push_str("|");
-        o.push_string(_join_bools(ftesp));
-        o.push_str("]");
-        o
+        sb.write_str("|");
+        _append_bools(sb, ftesp);
+        sb.write_str("]");
       }
     )
   )
 );
+/// Render the structural key of `t` as a String. Thin wrapper over
+/// `_intern_key_into` (kept for callers outside this module).
+type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)) -> String)({
+  sb := StringBuilder.new();
+  _intern_key_into(t, sb, depth, visited);
+  sb.to_string()
+});
 (g_type_intern : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
 /// Return the canonical instance for a structurally-equal type. Whole-tree.
 intern_type :: (fn(t : TypeValue) -> TypeValue)({
