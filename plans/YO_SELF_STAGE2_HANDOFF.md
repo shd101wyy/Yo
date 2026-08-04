@@ -157,6 +157,7 @@ capture frame across calls of one closure is exactly TS's aliasing.
 | **r8** intern-key StringBuilder                       | 127.0 GiB     | 163.3 s     | 13.11 GB              | **116.4 s / 18.9 GB**        |
 | **r9** comparison clones + usize-keyed arm ranges     | **119.7 GiB** | **157.1 s** | 13.12 GB              | 116.8 s / 18.9 GB            |
 | **r11** shared empty value cell + path-collection COW | **119.2 GiB** | **153.4 s** | **12.76 GB**          | **112.2 s / 18.7 GB**        |
+| **r12** evict the capture frames' name indexes        | **119.4 GiB** | 159.5 s     | **12.00 GB**          | 118.4 s / 18.4 GB            |
 | TS reference (same job)                               | —             | 113 s       | 6.05 GB (5.75 GB RSS) | —                            |
 
 So: **volume −76%, wall −77%, touched memory −54% vs the campaign start**;
@@ -176,6 +177,13 @@ stage-2/3 fixpoint (type-numbering divergence): reverted and written up in
 latent bug it points at (frames DO shrink — `comptime_expect_error.yo:213` pops
 variables — so a pop-then-push leaves the name index stale with
 `indexed_len == n`, and forcing a rebuild changes lookup results).
+
+r12 landed the SAFE half of that idea and CONFIRMED the diagnosis: evicting only
+the capture frames' `index_key`s when `capture_env_for` drops its cache (they are
+built once by the capture loop and never mutated, so a rebuild is identical)
+recovers 0.76 GB with **R12_FIXPOINT_HOLDS**. The remaining ~1 GB the wholesale
+clear reached belongs to frames that DO mutate — do not touch those until the
+staleness bug in issues/yo-self-frame-index-bound-breaks-fixpoint.md is fixed.
 
 **The footprint stopped moving at 13.1 GB across r7-r9 while volume fell
 39 GiB — churn is no longer what sets it.** RSS is 8.5 GB of LIVE data plus
