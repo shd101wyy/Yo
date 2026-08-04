@@ -23,7 +23,7 @@ open(import("std/string"));
 { t_type, t_unit, t_some_t, generate_some_type_id } :: import("../../types/creators.yo");
 { is_some_type } :: import("../../types/guards.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
-{ Environment, Variable, add_variable_to_env, get_variables_from_env, synthetic_token, clone_env }
+{ Environment, Variable, add_variable_to_env, get_variables_from_env, synthetic_token, snapshot_env }
 :: import("../../env.yo");
 { get_value_of_some_type_from_env }
 :: import("../../types/env_lookup.yo");
@@ -162,8 +162,11 @@ try_match_generic_impl :: (
     });
     resolved_concrete = resolved;
   });
-  // 2. Build unify_env: clone the env and push a fresh frame, add all generic SomeTs.
-  (unify_env : Environment) = clone_env(env);
+  // 2. Build unify_env: snapshot the env (share frames — TS `pushEnvFrame`
+  //    aliasing; the fresh frame below receives every SomeT bind). The old
+  //    `clone_env` deep-copied every frame's variable list per candidate per
+  //    lookup — a top allocation-churn site of a self-emit.
+  (unify_env : Environment) = snapshot_env(env);
   unify_env.push_frame(false);
   (ui : usize) = usize(0);
   (n_forall : usize) = entry.forall_names.len();

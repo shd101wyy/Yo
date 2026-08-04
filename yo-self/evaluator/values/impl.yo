@@ -49,7 +49,7 @@ open(import("std/string"));
   Variable,
   add_variable_to_env,
   get_variables_from_env,
-  clone_env,
+  snapshot_env,
   synthetic_token,
   set_find_methods_from_generic_impls_fn
 } :: import("../../env.yo");
@@ -447,7 +447,7 @@ _resolve_one_forall_binding :: (
 /// flexible (SomeT, TypeAppT, Func, TraitT, comptime types, ...) it
 /// returns true and lets full synthesis decide. Purely an optimization —
 /// never changes match outcomes, only skips guaranteed-failure
-/// candidates before the expensive `clone_env` + synthesis.
+/// candidates before the unification env build + synthesis.
 _root_shape_class :: (fn(t : TypeValue) -> i32)(
   match(
     t,
@@ -621,15 +621,19 @@ try_match_generic_impl :: (
   // 1b. Cheap root-shape prefilter: when the pattern's ROOT is a concrete
   // shape (Struct/EnumT/Array/Str/Pointer/Tuple/primitive) and the
   // receiver's root TAG differs, synthesis can never succeed — skip
-  // WITHOUT the expensive `clone_env` below (it deep-copies every frame,
+  // WITHOUT the unification env build below (formerly a deep clone_env,
   // and the env grows with each loaded module, so a directory-wide
   // `check` paid a growing clone per candidate per lookup). SomeT /
   // TypeAppT pattern roots always proceed (they can bind anything).
   if(!(_root_shapes_could_match(entry.receiver_type_pattern, resolved_concrete)), {
     return(Option(ArrayList(TypeValue)).None);
   });
-  // 2. Build unify_env: clone the env and push a fresh frame, add all generic SomeTs.
-  (unify_env : Environment) = clone_env(env);
+  // 2. Build unify_env: snapshot the env (share frames — TS `pushEnvFrame`
+  //    at impl.ts:2243 copies only the frame-pointer array) and push a fresh
+  //    frame; all SomeT binds below go to that fresh frame. The old
+  //    `clone_env` deep-copied every frame's variable list PER CANDIDATE PER
+  //    LOOKUP — a top allocation-churn site of a self-emit.
+  (unify_env : Environment) = snapshot_env(env);
   unify_env.push_frame(false);
   (ui : usize) = usize(0);
   (n_forall : usize) = entry.forall_names.len();
@@ -1202,7 +1206,7 @@ find_methods_from_generic_impls :: (
       // Cheap pre-filter: skip entries that don't even carry a field with
       // this name BEFORE attempting the receiver match — semantics are
       // identical (a non-name-matching entry contributes no candidates),
-      // but `try_match_generic_impl` is expensive (clone_env + a fresh
+      // but `try_match_generic_impl` is expensive (env build + a fresh
       // frame + full type synthesis per entry), and the registry grows
       // with every loaded module, so a directory-wide `check` paid that
       // cost for every miss × every entry.
@@ -2073,8 +2077,10 @@ evaluate_module_value :: (
       .FnCall(_, _, fa, _, _) => fa,
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
-    // Clone env to isolate generic frame from the outer scope.
-    (forall_env : Environment) = clone_env(local_env);
+    // Snapshot env (share frames, TS-`pushEnvFrame` aliasing) and push a
+    // fresh frame to hold the generic SomeTs — writes only touch that frame,
+    // so the outer scope stays isolated exactly as in TS.
+    (forall_env : Environment) = snapshot_env(local_env);
     forall_env.push_frame(false);
     frame_lvl := (forall_env.frames.len() - usize(1));
     // Forall param names and SomeT TypeValues (parallel arrays).

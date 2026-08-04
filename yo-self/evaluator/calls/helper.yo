@@ -45,7 +45,6 @@ open(import("std/fmt"));
   add_variable_to_env,
   update_existing_variable,
   synthetic_token,
-  clone_env,
   snapshot_env,
   make_err_variable
 } :: import("../../env.yo");
@@ -3757,10 +3756,15 @@ evaluate_ctl_function_body_inline :: (
     return(cached_val);
   });
   // -------------------------------------------------------------------------
-  // Build specialized env: clone callee_env and push a new frame.
+  // Build specialized env: snapshot callee_env (SHARE the frames — TS
+  // `pushEnvFrame` copies only the frame-pointer array) and push a new frame.
+  // All writes below go to the freshly pushed frame, so sharing the parent
+  // frames is exactly TS's aliasing. The old `clone_env` deep-copied every
+  // frame's variable list per specialization — the top allocation-churn site
+  // of a self-emit (see the handoff doc's memory section).
   // Mirrors: let specializedEnv = pushEnvFrame(calleeEnv);
   // -------------------------------------------------------------------------
-  specialized_env := clone_env(callee_env);
+  specialized_env := snapshot_env(callee_env);
   _push_frame_res := specialized_env.push_frame(false);
   // -------------------------------------------------------------------------
   // Add compile-time bindings from caller's scope that are missing from

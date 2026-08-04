@@ -32,41 +32,80 @@ generate_some_type_id :: (fn() -> String)({
 // ---------------------------------------------------------------------------
 // Convenience constructors for primitive and pointer-sized types
 // ---------------------------------------------------------------------------
-t_unit :: (fn() -> TypeValue)(.Unit);
+// INTERNED leaf singletons: these TypeValue variants are field-less (or
+// carry only fixed immutable payloads) and are requested millions of times
+// per compile — every call used to heap-allocate a fresh 176-byte RC enum.
+// One module-global instance per shape is constructed at module init; each
+// creator returns the shared handle (the return dups the RC, the global
+// keeps its own +1 forever, so the singleton is never freed). Nothing
+// mutates a leaf in place (they have no mutable fields), and all TypeValue
+// comparisons in the compiler are structural, so sharing is unobservable.
+(g_t_unit : TypeValue) = TypeValue.Unit;
+(g_t_str : TypeValue) = TypeValue.Str;
+(g_t_bool : TypeValue) = TypeValue.BoolT;
+(g_t_void : TypeValue) = TypeValue.Void;
+(g_t_i8 : TypeValue) = TypeValue.Int(u8(8), true);
+(g_t_i16 : TypeValue) = TypeValue.Int(u8(16), true);
+(g_t_i32 : TypeValue) = TypeValue.Int(u8(32), true);
+(g_t_i64 : TypeValue) = TypeValue.Int(u8(64), true);
+(g_t_u8 : TypeValue) = TypeValue.Int(u8(8), false);
+(g_t_u16 : TypeValue) = TypeValue.Int(u8(16), false);
+(g_t_u32 : TypeValue) = TypeValue.Int(u8(32), false);
+(g_t_u64 : TypeValue) = TypeValue.Int(u8(64), false);
+(g_t_f32 : TypeValue) = TypeValue.Float(u8(32));
+(g_t_f64 : TypeValue) = TypeValue.Float(u8(64));
+(g_t_usize : TypeValue) = TypeValue.Usize;
+(g_t_isize : TypeValue) = TypeValue.Isize;
+(g_t_comptime_int : TypeValue) = TypeValue.ComptimeInt;
+(g_t_comptime_float : TypeValue) = TypeValue.ComptimeFloat;
+(g_t_comptime_string : TypeValue) = TypeValue.ComptimeString;
+(g_t_type : TypeValue) = TypeValue.TypeUni(usize(0));
+(g_t_type_1 : TypeValue) = TypeValue.TypeUni(usize(1));
+(g_t_c_char : TypeValue) = TypeValue.CChar;
+(g_t_c_short : TypeValue) = TypeValue.CShort;
+(g_t_c_ushort : TypeValue) = TypeValue.CUShort;
+(g_t_c_int : TypeValue) = TypeValue.CInt;
+(g_t_c_uint : TypeValue) = TypeValue.CUInt;
+(g_t_c_long : TypeValue) = TypeValue.CLong;
+(g_t_c_ulong : TypeValue) = TypeValue.CULong;
+(g_t_c_longlong : TypeValue) = TypeValue.CLongLong;
+(g_t_c_ulonglong : TypeValue) = TypeValue.CULongLong;
+(g_t_c_longdouble : TypeValue) = TypeValue.CLongDouble;
+t_unit :: (fn() -> TypeValue)(g_t_unit);
 /// `str` — the builtin static string view (mirrors TS TypeTag.Str: a
 /// dedicated fieldless tag; impl registry keys it by id "str").
-t_str :: (fn() -> TypeValue)(.Str);
-t_bool :: (fn() -> TypeValue)(.BoolT);
-t_void :: (fn() -> TypeValue)(.Void);
-t_i8 :: (fn() -> TypeValue)(.Int(u8(8), true));
-t_i16 :: (fn() -> TypeValue)(.Int(u8(16), true));
-t_i32 :: (fn() -> TypeValue)(.Int(u8(32), true));
-t_i64 :: (fn() -> TypeValue)(.Int(u8(64), true));
-t_u8 :: (fn() -> TypeValue)(.Int(u8(8), false));
-t_u16 :: (fn() -> TypeValue)(.Int(u8(16), false));
-t_u32 :: (fn() -> TypeValue)(.Int(u8(32), false));
-t_u64 :: (fn() -> TypeValue)(.Int(u8(64), false));
-t_f32 :: (fn() -> TypeValue)(.Float(u8(32)));
-t_f64 :: (fn() -> TypeValue)(.Float(u8(64)));
-t_usize :: (fn() -> TypeValue)(.Usize);
-t_isize :: (fn() -> TypeValue)(.Isize);
-t_comptime_int :: (fn() -> TypeValue)(.ComptimeInt);
-t_comptime_float :: (fn() -> TypeValue)(.ComptimeFloat);
-t_comptime_string :: (fn() -> TypeValue)(.ComptimeString);
-t_type :: (fn() -> TypeValue)(.TypeUni(usize(0)));
+t_str :: (fn() -> TypeValue)(g_t_str);
+t_bool :: (fn() -> TypeValue)(g_t_bool);
+t_void :: (fn() -> TypeValue)(g_t_void);
+t_i8 :: (fn() -> TypeValue)(g_t_i8);
+t_i16 :: (fn() -> TypeValue)(g_t_i16);
+t_i32 :: (fn() -> TypeValue)(g_t_i32);
+t_i64 :: (fn() -> TypeValue)(g_t_i64);
+t_u8 :: (fn() -> TypeValue)(g_t_u8);
+t_u16 :: (fn() -> TypeValue)(g_t_u16);
+t_u32 :: (fn() -> TypeValue)(g_t_u32);
+t_u64 :: (fn() -> TypeValue)(g_t_u64);
+t_f32 :: (fn() -> TypeValue)(g_t_f32);
+t_f64 :: (fn() -> TypeValue)(g_t_f64);
+t_usize :: (fn() -> TypeValue)(g_t_usize);
+t_isize :: (fn() -> TypeValue)(g_t_isize);
+t_comptime_int :: (fn() -> TypeValue)(g_t_comptime_int);
+t_comptime_float :: (fn() -> TypeValue)(g_t_comptime_float);
+t_comptime_string :: (fn() -> TypeValue)(g_t_comptime_string);
+t_type :: (fn() -> TypeValue)(g_t_type);
 // TypeUni(1) — the "kind" for Module and Trait (one level above Type(0))
-t_type_1 :: (fn() -> TypeValue)(.TypeUni(usize(1)));
+t_type_1 :: (fn() -> TypeValue)(g_t_type_1);
 // C-compatible types (platform-dependent size; no compile-time arithmetic)
-t_c_char :: (fn() -> TypeValue)(.CChar);
-t_c_short :: (fn() -> TypeValue)(.CShort);
-t_c_ushort :: (fn() -> TypeValue)(.CUShort);
-t_c_int :: (fn() -> TypeValue)(.CInt);
-t_c_uint :: (fn() -> TypeValue)(.CUInt);
-t_c_long :: (fn() -> TypeValue)(.CLong);
-t_c_ulong :: (fn() -> TypeValue)(.CULong);
-t_c_longlong :: (fn() -> TypeValue)(.CLongLong);
-t_c_ulonglong :: (fn() -> TypeValue)(.CULongLong);
-t_c_longdouble :: (fn() -> TypeValue)(.CLongDouble);
+t_c_char :: (fn() -> TypeValue)(g_t_c_char);
+t_c_short :: (fn() -> TypeValue)(g_t_c_short);
+t_c_ushort :: (fn() -> TypeValue)(g_t_c_ushort);
+t_c_int :: (fn() -> TypeValue)(g_t_c_int);
+t_c_uint :: (fn() -> TypeValue)(g_t_c_uint);
+t_c_long :: (fn() -> TypeValue)(g_t_c_long);
+t_c_ulong :: (fn() -> TypeValue)(g_t_c_ulong);
+t_c_longlong :: (fn() -> TypeValue)(g_t_c_longlong);
+t_c_ulonglong :: (fn() -> TypeValue)(g_t_c_ulonglong);
+t_c_longdouble :: (fn() -> TypeValue)(g_t_c_longdouble);
 t_ptr :: (fn(pointee : TypeValue) -> TypeValue)(.Pointer(pointee));
 t_array :: (fn(element : TypeValue, length : usize) -> TypeValue)(
   .Array(element, length, String.from(""))
