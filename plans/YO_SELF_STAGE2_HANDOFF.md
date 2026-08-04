@@ -72,7 +72,9 @@ Knob measurements (solo runs, mimalloc chain, output byte-identical in all):
 `YO_GC_THRESHOLD=0` (cycle collector off) cut wall 660s→426s (−35%) — the
 full-heap trial-deletion scans are pure overhead on a compiler-shaped,
 cycle-poor run, and their cold-page re-touching is what turned CI swap into
-thrash; the CI emits run with it. `MIMALLOC_PURGE_DELAY=0` made the footprint
+thrash. NOTE: the GC stays ON in CI (product decision — default behavior is
+what the fixpoint job protects); the measurement is recorded as evidence of
+where the churn cost lives. `MIMALLOC_PURGE_DELAY=0` made the footprint
 WORSE (28.0 GB vs 24.9 — purged pages recount on reuse) — rejected.
 `YO_GC_FULL_PCT=130` didn't move the footprint (churn is mostly untracked
 allocations) — not used.

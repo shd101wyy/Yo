@@ -176,15 +176,14 @@ jobs:
       # in its compressor; Linux pushes it all to swap. So:
       #   * zswap on: compressed swap cache in RAM (~3x), the macOS
       #     equivalent — cuts disk-swap I/O massively.
-      #   * YO_GC_THRESHOLD=0: the cycle collector's full-heap trial
-      #     deletions re-touch every cold page (swap-in storms) and cost
-      #     ~35% wall on a compiler-shaped, cycle-poor run; garbage cycles
-      #     are reclaimed at process exit. Output verified byte-identical.
       #   * cgroup MemoryHigh: reclaim pressure lands on the emit itself
       #     instead of evicting the runner agent (whose missed heartbeats
       #     killed earlier runs); MemoryMax turns a runaway into a visible
       #     in-job OOM instead of a dead runner.
       #   * THP off: measured neutral, kept to keep RSS accounting honest.
+      # The GC stays ON (default behavior is what this job protects); the
+      # footprint itself is tracked as evaluator-churn debt in the handoff
+      # doc's memory section.
       - name: "Stage 2: self-emit C with the stage-1 binary"
         run: |
           echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
@@ -193,7 +192,7 @@ jobs:
           ( while true; do free -m | awk '/Mem:/{u=$3} /Swap:/{s=$3} END{print "MEMSAMPLE used=" u "MB swap=" s "MB"}'; sleep 60; done ) &
           SAMPLER=$!
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
-            env YO_MAIN_STACK_MB=4096 YO_GC_THRESHOLD=0 nice -n 10 /usr/bin/time -v \
+            env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
             /tmp/yo-stage1 compile yo-self/main.yo --release --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage2
           kill $SAMPLER || true
           markers=$(grep -cE '^\s*// (Failed to transpile|Unknown type:)' /tmp/yo-stage2.c || true)
@@ -245,8 +244,8 @@ jobs:
           name: bootstrap-stage2
           path: /tmp/stage2
 
-      # Same zswap + GC-off + THP-off + cgroup-cap + sampler treatment as
-      # the stage-2 emit — see that step's comment. Extra context: the
+      # Same zswap + THP-off + cgroup-cap + sampler treatment as the
+      # stage-2 emit — see that step's comment. Extra context: the
       # SELF-BUILT binary's emit touches ~39 GB (vs stage-1's ~28 GB), which
       # is why every single-knob stage-3 attempt died — 16 GB RAM + 20 GB
       # swap was simply less than the demand. 32 GB swap + zswap covers it.
@@ -259,7 +258,7 @@ jobs:
           ( while true; do free -m | awk '/Mem:/{u=$3} /Swap:/{s=$3} END{print "MEMSAMPLE used=" u "MB swap=" s "MB"}'; sleep 60; done ) &
           SAMPLER=$!
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
-            env YO_MAIN_STACK_MB=4096 YO_GC_THRESHOLD=0 nice -n 10 /usr/bin/time -v \
+            env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
             /tmp/stage2/yo-stage2-bin compile yo-self/main.yo --release --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage3
           kill $SAMPLER || true
           if cmp -s /tmp/stage2/yo-stage2.c /tmp/yo-stage3.c; then
