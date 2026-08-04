@@ -165,11 +165,20 @@ Rows r1–r14 above are **mimalloc** measurements (see the allocator note below)
 Round 15 onwards is measured with the shipping default allocator, so it gets its
 own ledger — do not compare the two tables directly:
 
-| round (libc allocator)                                     | wall    | peak footprint | `sizeof` changes                   |
-| ---------------------------------------------------------- | ------- | -------------- | ---------------------------------- |
-| HEAD `2b6aa1db7`                                           | 98.8 s  | 9.99 GB        | ExprInfo 624, Variable 256         |
-| **r15** ExprInfo rare-field group + Variable bool grouping | 101.6 s | **9.27 GB**    | ExprInfo **456**, Variable **224** |
-| TS reference (same job)                                    | 113 s   | 6.05 GB        | —                                  |
+| round (libc allocator)                                     | wall    | peak footprint | `sizeof` changes                    |
+| ---------------------------------------------------------- | ------- | -------------- | ----------------------------------- |
+| HEAD `2b6aa1db7`                                           | 98.8 s  | 9.99 GB        | ExprInfo 624, Variable 256          |
+| **r15** ExprInfo rare-field group + Variable bool grouping | 101.6 s | **9.27 GB**    | ExprInfo **456**, Variable **224**  |
+| **r16** Variable rare-field group                          | 98.7 s  | **9.08 GB**    | Variable **192** (VariableRare 104) |
+| TS reference (same job)                                    | 113 s   | 6.05 GB        | —                                   |
+
+Cumulative r15+r16: footprint **9.99 -> 9.08 GB (-905 MB)** with wall unchanged
+(98.8 -> 98.7 s, still faster than TS's 113 s). Ratio to TS: **1.50x** touched.
+The layout diets are now essentially exhausted — everything still inline in
+`ExprInfo` and `Variable` is a field that IS set often — so the remainder of the
+gap is the `ExprInfoTable` retention lever below, which the live census sizes at
+~4.5 of the 6.5 GB accounted heap and which the read-set measurement sizes at
+~3.5-4 GB recoverable.
 
 So: **volume −76%, wall −77%, touched memory −54% vs the campaign start**;
 against TS it is 1.38× wall for the TS-built stage-1 — and the SELF-BUILT

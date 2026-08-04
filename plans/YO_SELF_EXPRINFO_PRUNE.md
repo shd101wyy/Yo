@@ -177,8 +177,10 @@ justifies this whole arc:
 | their ArrayList(Frame) @ 80 B                               | 0.20 GB                                |
 | the Frames → Variables/cells/name strings they were pinning | a large share of 1.66 + 0.51 + 0.64 GB |
 
-So **~3.5–4 GB**, against a 9.27 GB peak footprint and a 6.05 GB TS target. This
-is the only remaining lever of that size.
+So **~3.5-4 GB**, against a **9.08 GB** peak footprint (after r15+r16) and a
+6.05 GB TS target. This is the only remaining lever of that size, and after r15+r16
+the layout diets are exhausted — everything still inline in `ExprInfo` and
+`Variable` is a field that IS set often.
 
 Two caveats on the number. It counts ids codegen ASKED for, through the accessor
 that covers 226 of the 236 reader sites, so the true read set is marginally
@@ -186,6 +188,41 @@ larger. And the read set is not itself a usable mark: it is only known after
 codegen, and the mark must additionally cover anything the EVALUATOR reads from a
 finished module. Treat 24.9% as the ceiling on what must be kept, not as the
 keep-set.
+
+## 4c. Use the PARSED-ID-RANGE trick — it removes a whole class of missed roots
+
+A pure reachability walk has to rediscover every source-level root, and getting
+that wrong is silent. But **parsed node ids are CONTIGUOUS per module**: `parse()`
+mints them from `g_next_global_expr_id` (`expr.yo:316`) with no evaluation
+interleaved, so each `parse(...)` call owns one `[lo, hi)` id range. Capture the
+watermark around the three parse sites on the compile path (the demand loader, the
+prelude load, the entry module), treat every parsed id as permanently kept, and
+the only prune candidates left are ids minted DURING evaluation — clones,
+synthesized `___dup`/`___drop` calls, and specialization bodies.
+
+That reduces the mark to one question — "which evaluation-minted trees are still
+live?" — whose roots are just the stored function values plus
+`get_module_level_init_exprs()`. It also means a bug in the walk cannot silently
+drop a source expression's info.
+
+Sketch (full draft, including the worklist and the per-field lists, was written
+during the round-16 session):
+
+```rust
+current_global_expr_id :: (fn() -> ExprId)(g_next_global_expr_id);   // expr.yo
+(g_info_id_log : ArrayList(ExprId)) = ArrayList(ExprId).new();       // expr_info.yo
+(g_parsed_id_ranges : ArrayList(usize)) = ArrayList(usize).new();    // flat lo,hi pairs
+(g_released_env : Environment) = Environment.new(String.from(""));
+// expr_info_table_set gains: g_info_id_log.push(id);
+// prune(table, roots, from): mark roots -> for id in log[from..]:
+//   if !_is_parsed_id(id) && !marked(id) -> info.env = g_released_env
+```
+
+Hook the prune in the demand loader right after `register_module(...)`
+(`main.yo:~576`), guarded on `g_shared_expr_info_table` being `.Some` — on the
+check/test path each context already drops its own table, so pruning there is pure
+overhead. Use an EXPLICIT worklist, never recursion (see the `-O0` 1 GiB stack
+ceiling note in `AGENTS.md`).
 
 ## 5. Validate the mark empirically BEFORE trusting it
 
