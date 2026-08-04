@@ -63,7 +63,7 @@ _join_strings :: (fn(xs : ArrayList(String)) -> String)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
-    match(xs.get(i),.Some(s) => out.push_string(s.clone()),.None => ());
+    match(xs.get(i),.Some(s) => out.push_string(s),.None => ());
     out.push_str(",");
     i = (i + usize(1));
   });
@@ -103,18 +103,18 @@ _join_usizes :: (fn(xs : ArrayList(usize)) -> String)({
 });
 _meta_key :: (fn(m : FuncMeta) -> String)({
   out := String.from("");
-  out.push_string(_join_strings(m.forall_labels.clone()));
+  out.push_string(_join_strings(m.forall_labels));
   out.push_str(";");
-  out.push_string(_join_strings(m.param_labels.clone()));
+  out.push_string(_join_strings(m.param_labels));
   out.push_str(";");
-  out.push_string(_join_strings(m.implicit_labels.clone()));
+  out.push_string(_join_strings(m.implicit_labels));
   out.push_str(";");
-  out.push_string(_join_bools(m.implicit_spreads.clone()));
+  out.push_string(_join_bools(m.implicit_spreads));
   out.push_str(";");
   out.push_string(_b(m.result_is_comptime_only));
-  out.push_string(_join_bools(m.param_is_ref.clone()));
+  out.push_string(_join_bools(m.param_is_ref));
   out.push_str(";");
-  out.push_string(_join_bools(m.param_is_owning.clone()));
+  out.push_string(_join_bools(m.param_is_owning));
   out.push_str(";");
   out.push_string(_b(m.result_is_ref));
   out.push_string(_b(m.has_variadic));
@@ -197,12 +197,12 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
         o.push_str("#");
         o.push_string(length.to_string());
         o.push_str("#");
-        o.push_string(length_var.clone());
+        o.push_string(length_var);
         o
       },
       .Tuple(field_labels, field_types) => {
         o := String.from("Tup[");
-        o.push_string(_join_strings(field_labels.clone()));
+        o.push_string(_join_strings(field_labels));
         o.push_str("|");
         n := field_types.len();
         (i : usize) = usize(0);
@@ -250,7 +250,7 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
         o.push_str("|");
         o.push_string(recur(res, depth + usize(1), visited));
         o.push_str("|");
-        o.push_string(_meta_key(m.*.clone()));
+        o.push_string(_meta_key(m.*));
         o.push_str("|");
         nv := vv.len();
         (iv : usize) = usize(0);
@@ -264,21 +264,21 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
       },
       .Struct({ id : sid, name : snm, field_labels : sfl, field_types : sft, is_reference_semantics : irs, is_atomic_rc : iar, is_newtype : isnt, constructor_func_id : cfid, type_arguments : sta, is_source_namespace : isns }) => {
         tok := String.from("S:");
-        tok.push_string(sid.clone());
-        if(_contains(visited, tok.clone()), tok, {
+        tok.push_string(sid);
+        if(_contains(visited, tok), tok, {
           visited.push(tok.clone());
           o := tok;
           o.push_str("{");
-          o.push_string(snm.clone());
+          o.push_string(snm);
           o.push_str("|");
-          o.push_string(cfid.clone());
+          o.push_string(cfid);
           o.push_str("|");
           o.push_string(_b(irs));
           o.push_string(_b(iar));
           o.push_string(_b(isnt));
           o.push_string(_b(isns));
           o.push_str("|");
-          o.push_string(_join_strings(sfl.clone()));
+          o.push_string(_join_strings(sfl));
           o.push_str("|");
           nsf := sft.len();
           (isf : usize) = usize(0);
@@ -301,16 +301,16 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
       },
       .EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar) => {
         tok := String.from("E:");
-        tok.push_string(eid.clone());
-        if(_contains(visited, tok.clone()), tok, {
+        tok.push_string(eid);
+        if(_contains(visited, tok), tok, {
           visited.push(tok.clone());
           o := tok;
           o.push_str("{");
-          o.push_string(enm.clone());
+          o.push_string(enm);
           o.push_str("|");
-          o.push_string(_join_strings(evns.clone()));
+          o.push_string(_join_strings(evns));
           o.push_str("|");
-          o.push_string(_join_i64s(edis.clone()));
+          o.push_string(_join_i64s(edis));
           o.push_str("|");
           nvf := evfs.len();
           (ivf : usize) = usize(0);
@@ -330,7 +330,7 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
           nvl := evfl.len();
           (ivl : usize) = usize(0);
           while(ivl < nvl, {
-            match(evfl.get(ivl),.Some(labs) => o.push_string(_join_strings(labs.clone())),.None => ());
+            match(evfl.get(ivl),.Some(labs) => o.push_string(_join_strings(labs)),.None => ());
             o.push_str(";");
             ivl = (ivl + usize(1));
           });
@@ -345,16 +345,16 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
       },
       .TraitT(tnm, tatn, tfl, tft, tid, tisc, tsc, tnsc, tatcl, tatct) => {
         tok := String.from("Tr:");
-        tok.push_string(tid.clone());
-        if(_contains(visited, tok.clone()), tok, {
+        tok.push_string(tid);
+        if(_contains(visited, tok), tok, {
           visited.push(tok.clone());
           o := tok;
           o.push_str("{");
-          o.push_string(tnm.clone());
+          o.push_string(tnm);
           o.push_str("|");
-          o.push_string(_join_strings(tatn.clone()));
+          o.push_string(_join_strings(tatn));
           o.push_str("|");
-          o.push_string(_join_strings(tfl.clone()));
+          o.push_string(_join_strings(tfl));
           o.push_str("|");
           ntf := tft.len();
           (itf : usize) = usize(0);
@@ -384,7 +384,7 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
           // Associated-type constraints (`Item := X`) distinguish otherwise
           // same-id trait applications — key them like the constraint lists.
           o.push_str("|");
-          o.push_string(_join_strings(tatcl.clone()));
+          o.push_string(_join_strings(tatcl));
           o.push_str("|");
           natc := tatct.len();
           (iatc : usize) = usize(0);
@@ -407,12 +407,12 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
       // same shape as the TraitT/EnumT arms (visited-guarded for cycles).
       .SomeT(smid, smnm, smfl, smpt, smrtt, smrtl, smntt, smntl, smier, smkft, smrcp) => {
         tok := String.from("So:");
-        tok.push_string(smid.clone());
-        if(_contains(visited, tok.clone()), tok, {
+        tok.push_string(smid);
+        if(_contains(visited, tok), tok, {
           visited.push(tok.clone());
           o := tok;
           o.push_str("{");
-          o.push_string(smnm.clone());
+          o.push_string(smnm);
           o.push_str("|");
           o.push_string(smfl.to_string());
           o.push_str("|");
@@ -467,9 +467,9 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
       },
       .Union(unm, ufl, uft) => {
         o := String.from("Un:");
-        o.push_string(unm.clone());
+        o.push_string(unm);
         o.push_str("[");
-        o.push_string(_join_strings(ufl.clone()));
+        o.push_string(_join_strings(ufl));
         o.push_str("|");
         nu := uft.len();
         (iu : usize) = usize(0);
@@ -483,7 +483,7 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
       },
       .EffectsRowT(erl, ert) => {
         o := String.from("ER[");
-        o.push_string(_join_strings(erl.clone()));
+        o.push_string(_join_strings(erl));
         o.push_str("|");
         ne := ert.len();
         (ie : usize) = usize(0);
@@ -535,9 +535,9 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
       },
       .FnTraitT({ base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit, implicit_spreads : fnisp, call_param_is_ref : fncprf }) => {
         o := String.from("FT:");
-        o.push_string(fnbn.clone());
+        o.push_string(fnbn);
         o.push_str("[");
-        o.push_string(_join_strings(fncpl.clone()));
+        o.push_string(_join_strings(fncpl));
         o.push_str("|");
         ncp := fncpt.len();
         (icp : usize) = usize(0);
@@ -549,7 +549,7 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
         o.push_str("|");
         o.push_string(recur(fncr, depth + usize(1), visited));
         o.push_str("|");
-        o.push_string(_join_strings(fnil.clone()));
+        o.push_string(_join_strings(fnil));
         o.push_str("|");
         nfi := fnit.len();
         (ifi : usize) = usize(0);
@@ -559,19 +559,19 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
           ifi = (ifi + usize(1));
         });
         o.push_str("|");
-        o.push_string(_join_bools(fnisp.clone()));
+        o.push_string(_join_bools(fnisp));
         o.push_str("|");
-        o.push_string(_join_bools(fncprf.clone()));
+        o.push_string(_join_bools(fncprf));
         o.push_str("]");
         o
       },
       .FutureTraitT({ base_name : ftbn, output : ftout, effect_labels : ftel, effect_types : ftet, effect_spreads : ftesp }) => {
         o := String.from("FuT:");
-        o.push_string(ftbn.clone());
+        o.push_string(ftbn);
         o.push_str("[");
         o.push_string(recur(ftout, depth + usize(1), visited));
         o.push_str("|");
-        o.push_string(_join_strings(ftel.clone()));
+        o.push_string(_join_strings(ftel));
         o.push_str("|");
         nft := ftet.len();
         (ift : usize) = usize(0);
@@ -581,7 +581,7 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
           ift = (ift + usize(1));
         });
         o.push_str("|");
-        o.push_string(_join_bools(ftesp.clone()));
+        o.push_string(_join_bools(ftesp));
         o.push_str("]");
         o
       }
@@ -593,7 +593,7 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
 intern_type :: (fn(t : TypeValue) -> TypeValue)({
   key := type_intern_key(t, usize(0), ArrayList(String).new());
   match(
-    g_type_intern.get(key.clone()),
+    g_type_intern.get(key),
     .Some(canon) => canon,
     .None => {
       g_type_intern.set(key.clone(), t);

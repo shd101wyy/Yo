@@ -38,7 +38,7 @@ open(import("std/string"));
 /// the canonical for `sig` on first sight.
 _lookup_or_register_enum_sig :: (fn(sig : String, full_key : String) -> String)(
   match(
-    g_enum_sig_keys.get(sig.clone()),
+    g_enum_sig_keys.get(sig),
     // CLONE the stored canonical: a returned String shares the map value's
     // buffer, so an in-place push by any caller would corrupt the canonical
     // (the IoError stage-2 typedef split). Same hardening on the struct
@@ -179,7 +179,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
       // its (already-being-expanded) type arguments.
       if((sid.len() > usize(0)) && _tk_seen(sid), {
         cyc_inner := match(
-          g_struct_cfid_keys.get(sid.clone()),
+          g_struct_cfid_keys.get(sid),
           // A POISONED slot ("!AMBIG" — multiple instantiations share this
           // sid) must NOT leak the sentinel as a key: two different nested
           // types would both render "!AMBIG" and collide (the sentinel
@@ -266,7 +266,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
           // with registration order deciding the winner per emit.
           if(sid.len() > usize(0), {
             match(
-              g_struct_cfid_keys.get(sid.clone()),
+              g_struct_cfid_keys.get(sid),
               .Some(prev) => if(!((prev == key) || (prev == "!AMBIG")), {
                 g_struct_cfid_keys.set(sid.clone(), String.from("!AMBIG"));
               }),
@@ -291,7 +291,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
         // visit fns, one per instantiation). Unpoisoned REGISTERED sids
         // (.Some non-poison) behave exactly as before.
         (sid.len() > usize(0)) => {
-          slot := g_struct_cfid_keys.get(sid.clone());
+          slot := g_struct_cfid_keys.get(sid);
           need_structural := match(
             slot,
             .Some(k) => (k == "!AMBIG"),
@@ -531,7 +531,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
         match(
           tk_labels.get(ti),
           .Some(tl) => if(tl.len() > usize(0), {
-            key.push_string(tl.clone());
+            key.push_string(tl);
             key.push_str(":");
           }),
           .None => ()
@@ -617,14 +617,14 @@ _stable_identity_at :: (fn(t : TypeValue, depth : usize) -> String)({
       pfx := if(s_is_ref, String.from("R#"), String.from(""));
       if((sid.len() > usize(0)) && _sti_seen(sid), {
         out_cyc := pfx.clone();
-        out_cyc.push_string(sid.clone());
+        out_cyc.push_string(sid);
         return(out_cyc);
       });
       if(sid.len() > usize(0), {
         g_sti_visited.push(sid.clone());
       });
       out := pfx;
-      out.push_string(sid.clone());
+      out.push_string(sid);
       (i : usize) = usize(0);
       while(i < sfts.len(), {
         ft := match(sfts.get(i),.Some(x) => x,.None => TypeValue.Unit);
@@ -646,14 +646,14 @@ _stable_identity_at :: (fn(t : TypeValue, depth : usize) -> String)({
       pfx := if(e_is_ref, String.from("R#"), String.from(""));
       if((eid.len() > usize(0)) && _sti_seen(eid), {
         out_cyc := pfx.clone();
-        out_cyc.push_string(eid.clone());
+        out_cyc.push_string(eid);
         return(out_cyc);
       });
       if(eid.len() > usize(0), {
         g_sti_visited.push(eid.clone());
       });
       out := pfx;
-      out.push_string(eid.clone());
+      out.push_string(eid);
       (vi : usize) = usize(0);
       while(vi < evfs.len(), {
         vn := match(evns.get(vi),.Some(x) => x,.None => String.from(""));
@@ -698,7 +698,7 @@ _stable_identity_at :: (fn(t : TypeValue, depth : usize) -> String)({
         match(
           sti_labels.get(sti_i),
           .Some(sti_l) => if(sti_l.len() > usize(0), {
-            out.push_string(sti_l.clone());
+            out.push_string(sti_l);
             out.push_str(":");
           }),
           .None => ()
