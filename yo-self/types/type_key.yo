@@ -132,8 +132,21 @@ _tk_seen :: (fn(id : String) -> bool)({
   (i : usize) = usize(0);
   (found : bool) = false;
   while((i < n) && !(found), {
-    cur := match(g_tk_visited.get(i),.Some(e) => e.clone(),.None => String.from(""));
-    found = (found || (cur == id));
+    // Compare in place — the old `e.clone()` deep-copied the byte buffer of
+    // every visited entry per probe (342 M ArrayList(u8) allocations per
+    // self-emit, the #2 string-churn site) just to == it and drop it.
+    // NOTE the statement-arm shape (mirrors _id_already_visited): the
+    // `found = match(..., .Some(e) => (e == id), .None => false)` bool-valued
+    // form MISCOMPILES under the self-hosted codegen (stage-3 diverged —
+    // dedup helpers failed in the stage-2 binary; see
+    // issues/yo-self-bool-match-arm-miscompile.md).
+    match(
+      g_tk_visited.get(i),
+      .Some(e) => if(e == id, {
+        found = true;
+      }),
+      .None => ()
+    );
     i = (i + usize(1));
   });
   found

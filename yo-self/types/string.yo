@@ -12,8 +12,15 @@ _tts_seen :: (fn(xs : ArrayList(String), s : String) -> bool)({
   (i : usize) = usize(0);
   (found : bool) = false;
   while((i < n) && !(found), {
-    cur := match(xs.get(i),.Some(e) => e.clone(),.None => String.from(""));
-    found = (found || (cur == s));
+    // Compare in place — no deep clone per probe (see _tk_seen; statement-arm
+    // shape required — the bool-valued match form miscompiles self-hosted).
+    match(
+      xs.get(i),
+      .Some(e) => if(e == s, {
+        found = true;
+      }),
+      .None => ()
+    );
     i = (i + usize(1));
   });
   found

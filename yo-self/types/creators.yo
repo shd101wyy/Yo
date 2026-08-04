@@ -372,8 +372,15 @@ _shell_walk_visited :: (fn(visited : ArrayList(String), tok : String) -> bool)({
   (i : usize) = usize(0);
   (found : bool) = false;
   while((i < n) && !(found), {
-    cur := match(visited.get(i),.Some(e) => e.clone(),.None => String.from(""));
-    found = (found || (cur == tok));
+    // Compare in place — no deep clone per probe (see _tk_seen; statement-arm
+    // shape required — the bool-valued match form miscompiles self-hosted).
+    match(
+      visited.get(i),
+      .Some(e) => if(e == tok, {
+        found = true;
+      }),
+      .None => ()
+    );
     i = (i + usize(1));
   });
   found
