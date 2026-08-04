@@ -201,11 +201,11 @@ _find_bundle_var_field :: (
         if(!(is_outer) && (type_key(sm_var.base.ty) == target_key), {
           match(
             state_machine_field_aliases,
-            .Some(al) => match(al.get(sm_var.base.id.clone()),.Some(a) => return(Option(String).Some(a)),.None => ()),
+            .Some(al) => match(al.get(sm_var.base.id.to_string()),.Some(a) => return(Option(String).Some(a)),.None => ()),
             .None => ()
           );
           f := String.from("var_");
-          f.push_string(sm_var.base.id.clone());
+          f.push_string(sm_var.base.id.to_string());
           return(Option(String).Some(f));
         });
       },
@@ -569,9 +569,9 @@ emit_async_block_struct_definition :: (
           keep := match(
             info.cross_boundary_ids,
             .Some(cbi) => {
-              in_cb := cbi.contains(v.base.id.clone());
-              aliased_future := match(info.await_future_temp_var_aliases,.Some(m) => m.contains_key(v.base.id.clone()),.None => false);
-              aliased_slot := match(info.overlapping_slot_aliases,.Some(m) => m.contains_key(v.base.id.clone()),.None => false);
+              in_cb := cbi.contains(v.base.id.to_string());
+              aliased_future := match(info.await_future_temp_var_aliases,.Some(m) => m.contains_key(v.base.id.to_string()),.None => false);
+              aliased_slot := match(info.overlapping_slot_aliases,.Some(m) => m.contains_key(v.base.id.to_string()),.None => false);
               (in_cb && !(aliased_future)) && !(aliased_slot)
             },
             .None => true
@@ -593,7 +593,7 @@ emit_async_block_struct_definition :: (
         local_variables.get(li),
         .Some(variable) => {
           var_type_c_name := get_type_string(variable.base.ty, context.base);
-          field_name := get_state_machine_field_name(variable.base.id.clone(), Option(String).Some(String.from("local")), Option(HashMap(String, String)).None);
+          field_name := get_state_machine_field_name(variable.base.id.to_string(), Option(String).Some(String.from("local")), Option(HashMap(String, String)).None);
           em.emit_declaration_string_line(`  ${var_type_c_name} ${field_name};  // ${variable.base.name.clone()}`);
         },
         .None => ()
@@ -1158,8 +1158,8 @@ generate_async_block_state_dispose_function :: (
       .Some(v) => {
         is_local := match(v.kind,.Local => true, _ => false);
         is_owning := match(v.is_owning_the_same_rc_value_as,.Some(_) => true,.None => false);
-        if(((is_local && cross_boundary_ids.contains(v.base.id.clone())) && !(await_future_temp_var_aliases.contains_key(v.base.id.clone()))) && !(is_owning), {
-          field_name := get_state_machine_field_name(v.base.id.clone(), Option(String).Some(String.from("local")), Option(HashMap(String, String)).None);
+        if(((is_local && cross_boundary_ids.contains(v.base.id.to_string())) && !(await_future_temp_var_aliases.contains_key(v.base.id.to_string()))) && !(is_owning), {
+          field_name := get_state_machine_field_name(v.base.id.to_string(), Option(String).Some(String.from("local")), Option(HashMap(String, String)).None);
           field_ref := `sm->${field_name}`;
           match(
             _rc_field_drop_line(field_ref, v.base.ty, String.from("    "), context),
@@ -1863,7 +1863,7 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
       src_cvs.get(ci),
       .Some(v) => {
         is_outer := match(v.kind,.Outer => true, _ => false);
-        keep := (((is_outer || cross_boundary_ids.contains(v.base.id.clone())) || await_future_temp_var_aliases.contains_key(v.base.id.clone())) || overlapping_slot_aliases.contains_key(v.base.id.clone()));
+        keep := (((is_outer || cross_boundary_ids.contains(v.base.id.to_string())) || await_future_temp_var_aliases.contains_key(v.base.id.to_string())) || overlapping_slot_aliases.contains_key(v.base.id.to_string()));
         if(keep, {
           filtered.push(v);
         });
@@ -1901,7 +1901,7 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
     match(
       fcvs.get(fi),
       .Some(v) => {
-        _r := sm_var_map.set(v.base.id.clone(), v);
+        _r := sm_var_map.set(v.base.id.to_string(), v);
       },
       .None => ()
     );

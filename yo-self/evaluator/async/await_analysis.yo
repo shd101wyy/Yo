@@ -295,8 +295,8 @@ get_future_variable_id_ :: (
   // If the variable shares RC with an owner, return the owner's ID
   match(
     last_var.is_owning_the_same_rc_value_as,
-    .Some(owner_box) => Option(String).Some(owner_box.*.id.clone()),
-    .None => Option(String).Some(last_var.id.clone())
+    .Some(owner_box) => Option(String).Some(owner_box.*.id.to_string()),
+    .None => Option(String).Some(last_var.id.to_string())
   )
 });
 // ---------------------------------------------------------------------------
@@ -550,10 +550,10 @@ collect_variable_bindings_ :: (
                                       .Some(_) => (),
                                       .None => {
                                         if(!(variable.is_compile_time_only) &&
-                                          !(seen.contains_key(variable.id.clone())), {
+                                          !(seen.contains_key(variable.id.to_string())), {
                                           cv := CapturedVariable(
                                             base : SuspensionCapturedVariable(
-                                              id : variable.id.clone(),
+                                              id : variable.id.to_string(),
                                               name : var_name.clone(),
                                               ty : var_type.clone(),
                                               is_owning_the_same_rc_value_as :
@@ -565,7 +565,7 @@ collect_variable_bindings_ :: (
                                               Option(Box(CapturedVariable)).None
                                           );
                                           variables.push(cv);
-                                          seen.set(variable.id.clone(), true);
+                                          seen.set(variable.id.to_string(), true);
                                         });
                                       }
                                     );

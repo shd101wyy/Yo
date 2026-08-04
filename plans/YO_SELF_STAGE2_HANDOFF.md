@@ -148,22 +148,23 @@ capture frame across calls of one closure is exactly TS's aliasing.
 **Ledger (all GC ON, every round gated by battery + corpus 155 +
 `check ./std` 153 + stage-2/stage-3 FIXPOINT_HOLDS):**
 
-| round                                                 | malloc volume | emit wall   | peak footprint        | self-built binary's own emit |
-| ----------------------------------------------------- | ------------- | ----------- | --------------------- | ---------------------------- |
-| campaign start                                        | 490.8 GiB     | 660 s       | 28.0 GB               | — / 38.7 GB                  |
-| r1–r5 (snapshot_env, interning, clone-free probes)    | 375.8 GiB     | 407.7 s     | 20.01 GB              | 407 s / 30.7 GB              |
-| **r6** capture-env memo                               | 159.0 GiB     | 180.0 s     | 13.11 GB              | 132 s / 20.8 GB              |
-| **r7** read-only clone sweep                          | 135.7 GiB     | 169.8 s     | 13.11 GB              | 128 s / —                    |
-| **r8** intern-key StringBuilder                       | 127.0 GiB     | 163.3 s     | 13.11 GB              | **116.4 s / 18.9 GB**        |
-| **r9** comparison clones + usize-keyed arm ranges     | **119.7 GiB** | **157.1 s** | 13.12 GB              | 116.8 s / 18.9 GB            |
-| **r11** shared empty value cell + path-collection COW | **119.2 GiB** | **153.4 s** | **12.76 GB**          | **112.2 s / 18.7 GB**        |
-| **r12** evict the capture frames' name indexes        | **119.4 GiB** | 159.5 s     | **12.00 GB**          | 118.4 s / 18.4 GB            |
-| TS reference (same job)                               | —             | 113 s       | 6.05 GB (5.75 GB RSS) | —                            |
+| round                                                                                                   | malloc volume | emit wall   | peak footprint        | self-built binary's own emit |
+| ------------------------------------------------------------------------------------------------------- | ------------- | ----------- | --------------------- | ---------------------------- |
+| campaign start                                                                                          | 490.8 GiB     | 660 s       | 28.0 GB               | — / 38.7 GB                  |
+| r1–r5 (snapshot_env, interning, clone-free probes)                                                      | 375.8 GiB     | 407.7 s     | 20.01 GB              | 407 s / 30.7 GB              |
+| **r6** capture-env memo                                                                                 | 159.0 GiB     | 180.0 s     | 13.11 GB              | 132 s / 20.8 GB              |
+| **r7** read-only clone sweep                                                                            | 135.7 GiB     | 169.8 s     | 13.11 GB              | 128 s / —                    |
+| **r8** intern-key StringBuilder                                                                         | 127.0 GiB     | 163.3 s     | 13.11 GB              | **116.4 s / 18.9 GB**        |
+| **r9** comparison clones + usize-keyed arm ranges                                                       | **119.7 GiB** | **157.1 s** | 13.12 GB              | 116.8 s / 18.9 GB            |
+| **r11** shared empty value cell + path-collection COW                                                   | **119.2 GiB** | **153.4 s** | **12.76 GB**          | **112.2 s / 18.7 GB**        |
+| **r12** evict the capture frames' name indexes                                                          | **119.4 GiB** | 159.5 s     | **12.00 GB**          | 118.4 s / 18.4 GB            |
+| **r13+r14** `Variable.id`/`Frame.id`/`Frame.index_key` String → usize (+ the side tables keyed on them) | **118.1 GiB** | **155.9 s** | **11.45 GB**          | **110.9 s / 17.6 GB**        |
+| TS reference (same job)                                                                                 | —             | 113 s       | 6.05 GB (5.75 GB RSS) | —                            |
 
 So: **volume −76%, wall −77%, touched memory −54% vs the campaign start**;
-against TS it is 1.36× wall for the TS-built stage-1 — and the SELF-BUILT
-compiler compiling itself is now FASTER than TS (112.2 s vs 113 s) — with
-2.11× touched memory (8.45 GB RSS vs 5.75 GB).
+against TS it is 1.38× wall for the TS-built stage-1 — and the SELF-BUILT
+compiler compiling itself is now FASTER than TS (110.9 s vs 113 s) — with
+1.89× touched memory (8.52 GB RSS vs 5.75 GB, i.e. 1.48× live).
 
 Two live-set wins landed after the census: the ONE shared empty
 `Variable.value` cell (an empty cell is never written — nothing pushes into a

@@ -211,10 +211,10 @@ _find_rc_aliases :: (fn(env : Environment, owner_id : String) -> ArrayList(Strin
             .Some(v) => {
               same_owner_id := match(
                 v.is_owning_the_same_rc_value_as,
-                .Some(ref_box) => ref_box.*.id,
+                .Some(ref_box) => ref_box.*.id.to_string(),
                 .None => String.from("")
               );
-              if((same_owner_id == owner_id) && !(v.id == owner_id), {
+              if((same_owner_id == owner_id) && !(v.id.to_string() == owner_id), {
                 result.push(v.name);
               });
             },
@@ -350,7 +350,7 @@ evaluate_iso_value_call :: (
         });
         // Check for aliases: look for variables whose is_owning_the_same_rc_value_as
         // points to this variable's id.
-        var_id := variable.id;
+        var_id := variable.id.to_string();
         alias_names := _find_rc_aliases(env, var_id);
         if(alias_names.len() > usize(0), {
           // Build comma-separated list.

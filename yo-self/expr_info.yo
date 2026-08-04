@@ -681,7 +681,7 @@ _compat_some_resolved_init := (fn() -> bool)({
 /// windows for the cross-branch checks.
 BranchInitRecord :: ref(
   struct(
-    var_id : String,
+    var_id : usize,
     ty : TypeValue,
     capture : Option(TypeValue)
   )
@@ -690,10 +690,10 @@ BranchInitRecord :: ref(
 /// var_id -> log indices of that variable's records. Keeps
 /// has_dominating_branch_init O(records-for-this-var × active groups) instead
 /// of a full-log scan per reassignment (the log spans the WHOLE compile).
-(g_branch_init_by_var : HashMap(String, ArrayList(usize))) = HashMap(String, ArrayList(usize)).new();
-record_branch_init :: (fn(var_id : String, ty : TypeValue, capture : Option(TypeValue)) -> unit)({
+(g_branch_init_by_var : HashMap(usize, ArrayList(usize))) = HashMap(usize, ArrayList(usize)).new();
+record_branch_init :: (fn(var_id : usize, ty : TypeValue, capture : Option(TypeValue)) -> unit)({
   idx := g_branch_init_log.len();
-  g_branch_init_log.push(BranchInitRecord(var_id : var_id.clone(), ty : ty, capture : capture));
+  g_branch_init_log.push(BranchInitRecord(var_id : var_id, ty : ty, capture : capture));
   match(
     g_branch_init_by_var.get(var_id),
     .Some(lst) => {
@@ -792,7 +792,7 @@ active_where_trait_ids :: (fn() -> ArrayList(String))(
 /// under per-branch child envs: the shared mutable Variable is stamped
 /// initialized by the FIRST arm, so the token alone cannot distinguish a
 /// sibling arm's init from a genuine same-path prior init.
-has_dominating_branch_init :: (fn(var_id : String) -> bool)({
+has_dominating_branch_init :: (fn(var_id : usize) -> bool)({
   (found : bool) = false;
   match(
     g_branch_init_by_var.get(var_id),

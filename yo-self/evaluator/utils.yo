@@ -270,7 +270,7 @@ find_rc_value_owner_relationship :: (
       (candidate_opt : Option(Variable)) = Option(Variable).Some(
         match(vars.get(vars.len() - usize(1)),.Some(v) => v,.None => make_err_variable(env))
       );
-      visited := HashSet(String).new();
+      visited := HashSet(usize).new();
       // Follow the chain until we find an owning variable or it breaks.
       while(match(
         candidate_opt,
@@ -1055,7 +1055,7 @@ merge_and_check_envs :: (
           initialized_at_tokens := ArrayList(Option(Token)).new();
           consumed_at_tokens := ArrayList(Option(Token)).new();
           owning_at_tokens := ArrayList(Option(Token)).new();
-          var_ids := ArrayList(String).new();
+          var_ids := ArrayList(usize).new();
           case_types := ArrayList(TypeValue).new();
           (ck : usize) = usize(0);
           while(ck < case_envs.len(), {
@@ -1395,7 +1395,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
           (has_reassignment : bool) = false;
           (rid_i : usize) = usize(0);
           while(rid_i < n_cases, {
-            case_id := match(var_ids.get(rid_i),.Some(s) => s,.None => String.from(""));
+            case_id := match(var_ids.get(rid_i),.Some(s) => s,.None => usize(0));
             if(case_id != original_id, {
               has_reassignment = true;
             });

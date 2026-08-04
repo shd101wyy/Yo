@@ -84,8 +84,8 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
           .Some(variable) => {
             (var_id : String) = match(
               variable.is_owning_the_same_rc_value_as,
-              .Some(owner_box) => owner_box.*.id.clone(),
-              .None => variable.id.clone()
+              .Some(owner_box) => owner_box.*.id.to_string(),
+              .None => variable.id.to_string()
             );
             // SSA-renamed ids (loop reassignment) resolve to the canonical id.
             match(
@@ -150,7 +150,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
                 field_name := match(
                   cv.kind,
                   .Outer => `__capture.${var_name.clone()}`,
-                  _ => `var_${cv.base.id.clone()}`
+                  _ => `var_${cv.base.id.to_string()}`
                 );
                 return(Option(String).Some(`sm->${field_name.clone()}`));
               },
@@ -251,7 +251,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
             variable2.is_owning_the_same_rc_value_as,
             .Some(owner_box2) => {
               owner_name := owner_box2.*.name.clone();
-              owner_id := owner_box2.*.id.clone();
+              owner_id := owner_box2.*.id.to_string();
               it3 := smv.into_iter();
               (go3 : bool) = true;
               while(go3, {

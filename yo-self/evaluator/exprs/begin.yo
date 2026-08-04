@@ -297,7 +297,7 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
           if(dvars.len() > usize(0), {
             match(
               dvars.get(dvars.len() - usize(1)),
-              .Some(dv) => _push_dup_call(res, dv.id.clone(), expr),
+              .Some(dv) => _push_dup_call(res, dv.id.to_string(), expr),
               .None => ()
             );
           });
@@ -1068,11 +1068,11 @@ _optimize_dup_drop_pairs :: (
             );
           });
           cur := match(
-            consumed_derived.get(cbase.id.clone()),
+            consumed_derived.get(cbase.id.to_string()),
             .Some(c) => c,
             .None => usize(0)
           );
-          consumed_derived.set(cbase.id.clone(), cur + usize(1));
+          consumed_derived.set(cbase.id.to_string(), cur + usize(1));
         });
       },
       .None => ()
@@ -1118,7 +1118,7 @@ _optimize_dup_drop_pairs :: (
               }
             );
           });
-          base_id := base.id.clone();
+          base_id := base.id.to_string();
           match(
             merged.dup_calls.get(base_id.clone()),
             .Some(dups) => if(dups.len() > usize(0), {
@@ -1166,7 +1166,7 @@ _optimize_dup_drop_pairs :: (
                 while(bci2 < fvars.len(), {
                   match(
                     fvars.get(bci2),
-                    .Some(fv) => if((fv.id == base_id) && fv.consumed_at_token.is_some(), {
+                    .Some(fv) => if((fv.id.to_string() == base_id) && fv.consumed_at_token.is_some(), {
                       base_consumed = true;
                     }),
                     .None => ()
