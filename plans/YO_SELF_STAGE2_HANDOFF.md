@@ -124,29 +124,79 @@ required — issues/yo-self-bool-match-arm-miscompile.md, caught by the
 fixpoint gate); synthetic_token now interns Tokens by
 (module_path → name) — the census measured ~486 M calls / thousands of
 distinct pairs (Tokens are immutable, sharing unobservable).
-**Ledger vs campaign start (all GC ON, fixpoint-validated per round):
-malloc volume 490.8→375.8 GiB, footprint 28.0→20.0 GB, self-built
-binary 38.7→30.7 GB, wall 660→408 s. TS target (same job): 113 s,
-6.05 GB footprint — still ~3.3× on touched memory.**
+Round 6 (2026-08-04) found and killed the root of the whole census —
+**the per-call capture-env rebuild**. `FuncVal` cannot hold an
+`Environment` (env.yo imports value.yo, so the reference would be
+circular), so it carries a FLAT capture snapshot
+(`cap_names`/`cap_tys`/`cap_vals`) and the call path re-bound EVERY
+captured name into a fresh env on EVERY call — and a module-level
+function captures its whole module scope, so that is ~660
+`add_variable_to_env` calls per function call. Per-call-site counters
+in the emitted C (see §"per-site census" below) pinned it exactly:
+**452 M of 489 M Variable constructions came from ONE line**
+(`helper.yo` Step 4) and 31 M more from the sibling loop in
+`evaluate_function_call` — 99% of all binding churn. TS pays O(#frames)
+here (`pushEnvFrame(functionType.env)` shares Frame objects).
+Fix: `capture_env_for` (env.yo) memoises the built env per FuncVal
+instance — keyed by `func_id`, validated by POINTER identity of the
+`cap_vals` list (`__yo_ptr_eq`, so a second closure instance of the
+same lambda misses and rebuilds) plus module-path equality, bounded at
+512 entries — and hands out a `snapshot_env` copy so the caller's
+`push_frame` cannot disturb the shared capture frame. Sharing the
+capture frame across calls of one closure is exactly TS's aliasing.
 
-Parity roadmap (in impact order): (1) the 488 M binding-trio churn —
-`add_variable_to_env` under `try_to_call_function_with_arguments`
-allocates Variable (320 B) + value-cell ArrayList(EvalValue) + id
-String per call-trial binding; differential-read the TS
-`_tryToCallFunctionWithArgumentsImpl` (helper.ts:845) for missing
-prefilters, then design an allocation-free binding fast path — the
-hottest correctness-critical code, fresh-session work; (2) Variable.id
-String → usize (kills the 523 M `to_string` buffer allocs from
-generate_variable_id — TS uses string ids, deviation is
-perf-precedented); (3) `.clone()` audit: String copies share the RC
-buffer (bare reuse is cheap and checker-clean where no mutation
-follows) — most of the remaining 187 M String.clone calls are
-defensive habit; (4) Variable layout diet (Box rare Option fields —
-consumed_at_token precedent) + RC header diet (replace the two
-per-object fn pointers, 16 of 56 B, with a type-id into static
-tables). Struct sizes: EvalValue 96 B (32 B union), TypeValue 176 B
-(112 B union), RC header 56 B (`/tmp/re/szprobe.c` technique — compile
-the emitted-C prefix + a sizeof main).
+**Ledger vs campaign start (all GC ON, fixpoint-validated per round):
+malloc volume 490.8→375.8→**159.0 GiB**, footprint 28.0→20.0→**13.1 GB**,
+wall 660→408→**180 s**. TS target (same job): 113 s, 6.05 GB footprint
+— now 1.6× wall, 2.2× touched memory.**
+
+Parity roadmap (in impact order, post-round-6): (1) **String churn now
+dominates the 159 GiB** — `substitute` wraps BOTH branches in
+`intern_type`, and every `intern_type` re-renders the whole subtree as a
+String key (types/intern.yo), so every node of every substitution walk
+builds a full key; add a per-node key memo and drop the ~52
+`push_string(x.clone())` / `map.get(x.clone())` deep copies in
+intern.yo + type_key.yo (`push_string` copies the bytes —
+std/string/string.yo:374 — so the clone is pure waste); (2) **ExprInfo
+retention is the footprint gap** — 624 B × 5.03 M ≈ 3.1 GB pinned in
+one process-lifetime table plus ~1 GB of per-annotation
+`snapshot_env` Environments, where TS's `expr.$` is a sparse object
+that dies with the node: Box the rarely-set fat Option fields and give
+fresh-id trial evaluations a scratch table; (3) Variable.id / Frame.id
+/ Frame.index_key `String` → `usize` (generate_variable_id is one
+`to_string` malloc per Variable and two per Frame; also turns
+`update_existing_variable`'s id compare into an integer compare — String
+`==` was 27-38% of samples); (4) `_bind_some_type` builds a 22-field
+Variable to change 2 fields (synthesizer.yo:348) — write `ty`/`value`
+in place on the ref-struct instead; (5) `_build_def_time_body_env`
+(function_type.yo:317) still flattens every caller frame — TS shares
+references (`keepTopLevelFrameAndComptimeVariablesFromEnv`); (6)
+Variable layout diet (Box rare Option fields) + RC header diet
+(replace the two per-object fn pointers, 16 of 56 B, with a type-id
+into static tables).
+
+Struct sizes (measured — compile the emitted-C typedef prefix plus a
+`sizeof` main, `scripts/bootstrap/sizeof_probe.py`): ExprInfo 624 B, Variable
+264 B, Token 136 B, TypeValue 176 B, EvalValue 96 B, AstExpr 104 B,
+Frame/Environment 112 B (all including the 56 B RC header).
+
+**Per-site census (the technique that found round 6).** Injecting one
+counter per _constructor_ only tells you WHICH type churns; to get
+WHERE, rewrite each textual call site in the emitted C to
+`(__yo_site_n[K]++, fn_name)(...)` and dump the array from a
+`__attribute__((destructor))`, keeping a K → (line, enclosing
+`fn_yo<mod>_id_N_<name>`) map. Named module-level functions keep their
+Yo name in the emitted C, so sites resolve straight back to source.
+Instrumenting all 4912 named function definitions the same way gives a
+full call-count profile for ~0% wall overhead
+(`scripts/bootstrap/instrument_calls.py` + `report_calls.py`). The TS side
+has an equivalent built in: `YO_DEBUG_CALL_PROFILE=1` prints
+`tryToCallFunctionWithArguments` / `createSpecializedFunctionInline`
+counts and per-function breakdowns (helper.ts:736). Reference numbers
+for the same job: TS 899,506 tryToCall / 2,591 specializations (92%
+cache hits) / 8,344,369 `addVariableToEnv`; yo-self 684,970 tryToCall
+(so trial COUNTS were always at parity — only the per-call binding work
+diverged).
 
 ---
 

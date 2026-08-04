@@ -46,6 +46,7 @@ open(import("std/fmt"));
   update_existing_variable,
   synthetic_token,
   snapshot_env,
+  capture_env_for,
   make_err_variable
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args (TS helper.ts:411-451). utils.yo
@@ -4586,36 +4587,17 @@ try_to_call_function_with_arguments :: (
         func_val,
         .Some(fv) => match(
           fv,
-          .FuncVal(__fvm3, cv) => {
-            cn := __fvm3.*.cap_names;
-            ct := __fvm3.*.cap_tys;
-            fenv := Environment.new(caller_env.module_path);
-            (ci : usize) = usize(0);
-            n_cap := cn.len();
-            while(ci < n_cap, {
-              cname := match(cn.get(ci),.Some(s) => s,.None => String.from(""));
-              cty := match(ct.get(ci),.Some(t) => t,.None => t_unit());
-              cval := match(
-                cv.get(ci),
-                .Some(v) => Option(EvalValue).Some(v),
-                .None => Option(EvalValue).None
-              );
-              is_ct_cap := match(cval,.Some(_) => true,.None => false);
-              add_variable_to_env(
-                fenv,
-                cname,
-                cty,
-                cval,
-                is_ct_cap,
-                false,
-                false,
-                false,
-                synthetic_token(cname, fenv.module_path)
-              );
-              ci = (ci + usize(1));
-            });
-            fenv
-          },
+          // `capture_env_for` memoises the rebuilt capture env per closure
+          // instance — this used to re-bind every captured name on EVERY call
+          // (~660 `add_variable_to_env` calls per call in a self-compile, the
+          // top allocation site of the bootstrap). See env.yo.
+          .FuncVal(__fvm3, cv) => capture_env_for(
+            __fvm3.*.func_id,
+            __fvm3.*.cap_names,
+            __fvm3.*.cap_tys,
+            cv,
+            caller_env.module_path
+          ),
           _ => Environment.new(caller_env.module_path)
         ),
         .None => Environment.new(caller_env.module_path)

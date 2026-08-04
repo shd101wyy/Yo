@@ -61,7 +61,8 @@ open(import("std/fmt"));
   make_err_variable,
   get_receiver_methods_by_name_from_env,
   get_type_trait_methods_by_name_from_env,
-  snapshot_env
+  snapshot_env,
+  capture_env_for
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, evaluate_function_parameter_type_again } :: import("../types/function.yo");
@@ -4669,29 +4670,17 @@ Fix: wrap the call:
             n_supplied_reg = (n_supplied_reg + n_spliced);
           });
         });
-        // Build a fresh environment for the function body.
-        fresh_env := Environment.new(env.module_path);
-        // Bind captures.
-        (cap_i : usize) = usize(0);
-        n_cap := cap_names.len();
-        while(cap_i < n_cap, {
-          cn := match(cap_names.get(cap_i),.Some(n) => n,.None => String.from(""));
-          ct := match(cap_tys.get(cap_i),.Some(t) => t,.None => t_unit());
-          cap_v := match(cap_vals.get(cap_i),.Some(v) => Option(EvalValue).Some(v),.None => Option(EvalValue).None);
-          is_ct_only := match(cap_v,.Some(_) => true,.None => false);
-          _add_cap := add_variable_to_env(
-            fresh_env,
-            cn,
-            ct,
-            cap_v,
-            is_ct_only,
-            false,
-            false,
-            false,
-            synthetic_token(cn, env.module_path)
-          );
-          cap_i = (cap_i + usize(1));
-        });
+        // Build (or reuse) the function body's lexical environment from the
+        // FuncVal's flat capture snapshot. Memoised per closure instance by
+        // `capture_env_for` — re-binding every captured name on every call was
+        // 31 M `Variable` constructions per self-emit from this site alone.
+        fresh_env := capture_env_for(
+          func_id_fv,
+          cap_names,
+          cap_tys,
+          cap_vals,
+          env.module_path
+        );
         // Push a frame and bind `__recur_fn`.
         _fr := fresh_env.push_frame(false);
         fv_for_recur := EvalValue.FuncVal(
