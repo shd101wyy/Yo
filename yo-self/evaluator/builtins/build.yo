@@ -301,7 +301,7 @@ impl(
     n := self.steps.len();
     while(i < n, {
       step := self.steps(i);
-      if(step.name == step_name.clone(), {
+      if(step.name == step_name, {
         already := false;
         j := usize(0);
         m := step.dependency_names.len();
@@ -366,7 +366,7 @@ impl(
     n := self.artifacts.len();
     while(i < n, {
       art := self.artifacts(i);
-      if(art.name == artifact_name.clone(), {
+      if(art.name == artifact_name, {
         already := false;
         j := usize(0);
         m := art.linked_artifacts.len();
@@ -396,7 +396,7 @@ impl(
     n := self.artifacts.len();
     while(i < n, {
       a := self.artifacts(i);
-      if(a.name == name.clone(), return(Option(BuildArtifact).Some(a)));
+      if(a.name == name, return(Option(BuildArtifact).Some(a)));
       i = (i + usize(1));
     });
     Option(BuildArtifact).None
@@ -406,7 +406,7 @@ impl(
     n := self.test_suites.len();
     while(i < n, {
       t := self.test_suites(i);
-      if(t.name == name.clone(), return(Option(BuildTestSuite).Some(t)));
+      if(t.name == name, return(Option(BuildTestSuite).Some(t)));
       i = (i + usize(1));
     });
     Option(BuildTestSuite).None
@@ -416,7 +416,7 @@ impl(
     n := self.run_steps.len();
     while(i < n, {
       r := self.run_steps(i);
-      if(r.name == name.clone(), return(Option(BuildRunStep).Some(r)));
+      if(r.name == name, return(Option(BuildRunStep).Some(r)));
       i = (i + usize(1));
     });
     Option(BuildRunStep).None
@@ -426,7 +426,7 @@ impl(
     n := self.steps.len();
     while(i < n, {
       s := self.steps(i);
-      if(s.name == name.clone(), return(Option(BuildStep).Some(s)));
+      if(s.name == name, return(Option(BuildStep).Some(s)));
       i = (i + usize(1));
     });
     Option(BuildStep).None
@@ -436,7 +436,7 @@ impl(
     n := self.doc_configs.len();
     while(i < n, {
       d := self.doc_configs(i);
-      if(d.name == name.clone(), return(Option(BuildDocConfig).Some(d)));
+      if(d.name == name, return(Option(BuildDocConfig).Some(d)));
       i = (i + usize(1));
     });
     Option(BuildDocConfig).None
@@ -446,7 +446,7 @@ impl(
     n := self.modules.len();
     while(i < n, {
       m := self.modules(i);
-      if(m.name == name.clone(), return(Option(BuildModuleEntry).Some(m)));
+      if(m.name == name, return(Option(BuildModuleEntry).Some(m)));
       i = (i + usize(1));
     });
     Option(BuildModuleEntry).None
@@ -456,7 +456,7 @@ impl(
     n := self.dependencies.len();
     while(i < n, {
       d := self.dependencies(i);
-      if(d.name == name.clone(), return(Option(BuildGitDependency).Some(d)));
+      if(d.name == name, return(Option(BuildGitDependency).Some(d)));
       i = (i + usize(1));
     });
     Option(BuildGitDependency).None
@@ -466,7 +466,7 @@ impl(
     n := self.path_dependencies.len();
     while(i < n, {
       d := self.path_dependencies(i);
-      if(d.name == name.clone(), return(Option(BuildPathDependency).Some(d)));
+      if(d.name == name, return(Option(BuildPathDependency).Some(d)));
       i = (i + usize(1));
     });
     Option(BuildPathDependency).None
@@ -476,7 +476,7 @@ impl(
     n := self.system_libraries.len();
     while(i < n, {
       l := self.system_libraries(i);
-      if(l.name == name.clone(), return(Option(BuildSystemLibrary).Some(l)));
+      if(l.name == name, return(Option(BuildSystemLibrary).Some(l)));
       i = (i + usize(1));
     });
     Option(BuildSystemLibrary).None
@@ -547,7 +547,7 @@ impl(
     n := self.artifacts.len();
     while(i < n, {
       a := self.artifacts(i);
-      if(a.name == name.clone(), {
+      if(a.name == name, {
         kind_str := match(
           a.kind,
           .Executable => "executable",

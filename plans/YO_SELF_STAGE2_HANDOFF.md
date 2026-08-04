@@ -145,35 +145,62 @@ same lambda misses and rebuilds) plus module-path equality, bounded at
 `push_frame` cannot disturb the shared capture frame. Sharing the
 capture frame across calls of one closure is exactly TS's aliasing.
 
-**Ledger vs campaign start (all GC ON, fixpoint-validated per round):
-malloc volume 490.8→375.8→**159.0 GiB**, footprint 28.0→20.0→**13.1 GB**,
-wall 660→408→**180 s**. TS target (same job): 113 s, 6.05 GB footprint
-— now 1.6× wall, 2.2× touched memory.**
+**Ledger (all GC ON, every round gated by battery + corpus 155 +
+`check ./std` 153 + stage-2/stage-3 FIXPOINT_HOLDS):**
 
-Parity roadmap (in impact order, post-round-6): (1) **String churn now
-dominates the 159 GiB** — `substitute` wraps BOTH branches in
-`intern_type`, and every `intern_type` re-renders the whole subtree as a
-String key (types/intern.yo), so every node of every substitution walk
-builds a full key; add a per-node key memo and drop the ~52
-`push_string(x.clone())` / `map.get(x.clone())` deep copies in
-intern.yo + type_key.yo (`push_string` copies the bytes —
-std/string/string.yo:374 — so the clone is pure waste); (2) **ExprInfo
-retention is the footprint gap** — 624 B × 5.03 M ≈ 3.1 GB pinned in
-one process-lifetime table plus ~1 GB of per-annotation
-`snapshot_env` Environments, where TS's `expr.$` is a sparse object
-that dies with the node: Box the rarely-set fat Option fields and give
-fresh-id trial evaluations a scratch table; (3) Variable.id / Frame.id
-/ Frame.index_key `String` → `usize` (generate_variable_id is one
-`to_string` malloc per Variable and two per Frame; also turns
-`update_existing_variable`'s id compare into an integer compare — String
-`==` was 27-38% of samples); (4) `_bind_some_type` builds a 22-field
-Variable to change 2 fields (synthesizer.yo:348) — write `ty`/`value`
-in place on the ref-struct instead; (5) `_build_def_time_body_env`
-(function_type.yo:317) still flattens every caller frame — TS shares
-references (`keepTopLevelFrameAndComptimeVariablesFromEnv`); (6)
-Variable layout diet (Box rare Option fields) + RC header diet
-(replace the two per-object fn pointers, 16 of 56 B, with a type-id
-into static tables).
+| round                                              | malloc volume | emit wall   | peak footprint        | self-built binary's own emit |
+| -------------------------------------------------- | ------------- | ----------- | --------------------- | ---------------------------- |
+| campaign start                                     | 490.8 GiB     | 660 s       | 28.0 GB               | — / 38.7 GB                  |
+| r1–r5 (snapshot_env, interning, clone-free probes) | 375.8 GiB     | 407.7 s     | 20.01 GB              | 407 s / 30.7 GB              |
+| **r6** capture-env memo                            | 159.0 GiB     | 180.0 s     | 13.11 GB              | 132 s / 20.8 GB              |
+| **r7** read-only clone sweep                       | 135.7 GiB     | 169.8 s     | 13.11 GB              | 128 s / —                    |
+| **r8** intern-key StringBuilder                    | 127.0 GiB     | 163.3 s     | 13.11 GB              | **116.4 s / 18.9 GB**        |
+| **r9** comparison clones + usize-keyed arm ranges  | **119.7 GiB** | **157.1 s** | 13.12 GB              | 116.8 s / 18.9 GB            |
+| TS reference (same job)                            | —             | 113 s       | 6.05 GB (5.75 GB RSS) | —                            |
+
+So: **volume −76%, wall −76%, touched memory −53% vs the campaign start**;
+against TS it is now 1.39× wall (and the SELF-BUILT compiler is at parity,
+116.8 s vs 113 s) and 2.17× touched memory (8.5 GB RSS vs 5.75 GB).
+
+**The footprint stopped moving at 13.1 GB across r7 and r8 while volume
+fell 32 GiB — churn is no longer what sets it.** RSS is 8.5 GB of live
+data plus ~4.6 GB of touched-then-freed pages. Further parity work has to
+cut the LIVE set; the measured composition is:
+
+1. **ExprInfo: 624 B × 5.03 M ≈ 3.1 GB**, pinned in one
+   process-lifetime table (no removal API), where TS's `expr.$` is a
+   sparse object that dies with the node. Two independent levers:
+   (a) box the 13 rarely-read Option fields (`origin_type`,
+   `converted_runtime_type`, `closure_function_value`,
+   `runtime_destructurings`, `is_primitive_match`, `case_executed`,
+   `consumed_variable_drop_expressions`, `dyn_call_trait_values`,
+   `primitive_pattern_values`, `effect_analysis`,
+   `async_state_machine_struct_name`, `await_analysis`,
+   `async_stack_size`) into one `Option(Box(ExprInfoRare))` — ~84 access
+   sites, 624 → ~424 B, ≈ −1.0 GB; (b) give fresh-id trial evaluations a
+   scratch table dropped when the trial unwinds (the id watermark before
+   the trial bounds the range to purge).
+2. **Per-annotation `snapshot_env`: 5.03 M Environments + frame lists
+   ≈ 1.0–1.4 GB.** Dedup is possible (consecutive expressions in one
+   scope share the frame stack, and `__yo_ptr_eq` can test it in O(1)),
+   but a shared recorded env is only safe if no consumer pushes a frame
+   onto `info.env` — audit the 41 codegen `.env` uses first.
+3. String churn remnants (measured per SITE, post-r8): `to_string`
+   58.9 M (28.5 M from `generate_variable_id` → the Variable.id /
+   Frame.id / Frame.index_key `String` → `usize` change, which also turns
+   `update_existing_variable`'s id compare into an integer compare —
+   String `==` was 27-38% of samples), `_type_key_at` ~90 M (same
+   StringBuilder treatment as r8, but riskier: it has early `return`s and
+   its keys are STORED in `g_struct_cfid_keys`).
+4. Residual wall time is RC traffic: ~15 B `___dup`/`___drop` calls per
+   emit. Levers: RC header diet (replace the two per-object fn pointers,
+   16 of 56 B, with a type-id into static tables) and Variable layout
+   diet.
+5. Cold-but-real: `_bind_some_type` builds a 22-field Variable to change
+   2 fields (synthesizer.yo:348 — write `ty`/`value` in place on the
+   ref-struct); `_build_def_time_body_env` (function_type.yo:317) still
+   flattens every caller frame where TS shares references
+   (`keepTopLevelFrameAndComptimeVariablesFromEnv`).
 
 Struct sizes (measured — compile the emitted-C typedef prefix plus a
 `sizeof` main, `scripts/bootstrap/sizeof_probe.py`): ExprInfo 624 B, Variable

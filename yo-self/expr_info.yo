@@ -686,15 +686,15 @@ record_branch_init :: (fn(var_id : String, ty : TypeValue, capture : Option(Type
 branch_init_log_len :: (fn() -> usize)(g_branch_init_log.len());
 get_branch_init_record :: (fn(i : usize) -> Option(BranchInitRecord))(g_branch_init_log.get(i));
 /// Arm-body expr id -> [start, end) window into the log.
-(g_arm_init_ranges : HashMap(String, ArrayList(usize))) = HashMap(String, ArrayList(usize)).new();
-register_arm_init_range :: (fn(arm_expr_id : String, start : usize, end : usize) -> unit)({
+(g_arm_init_ranges : HashMap(usize, ArrayList(usize))) = HashMap(usize, ArrayList(usize)).new();
+register_arm_init_range :: (fn(arm_expr_id : usize, start : usize, end : usize) -> unit)({
   rng := ArrayList(usize).new();
   rng.push(start);
   rng.push(end);
   g_arm_init_ranges.set(arm_expr_id, rng);
   ()
 });
-get_arm_init_range :: (fn(arm_expr_id : String) -> Option(ArrayList(usize)))(
+get_arm_init_range :: (fn(arm_expr_id : usize) -> Option(ArrayList(usize)))(
   g_arm_init_ranges.get(arm_expr_id)
 );
 /// Active branching-construct stack for the Impl(...) reassignment rule

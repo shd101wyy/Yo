@@ -338,7 +338,7 @@ evaluate_cond :: (
       // type checks in merge_and_check_envs).
       bir_start_t := branch_init_log_len();
       evaluated_body := evaluate_begin_expression(case_body_true, case_env_true, ctx, ArrayList(Variable).new(), false, exn);
-      register_arm_init_range(ast_expr_id(evaluated_body).to_string(), bir_start_t, branch_init_log_len());
+      register_arm_init_range(ast_expr_id(evaluated_body), bir_start_t, branch_init_log_len());
       body_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body));
       body_cf := match(body_info_opt,.Some(bi) => bi.control_flow,.None => Option(ControlFlowFlags).None);
       if(has_any_control_flow(body_cf), {
@@ -446,7 +446,7 @@ evaluate_cond :: (
                 false,
                 exn
               );
-              register_arm_init_range(ast_expr_id(evaluated_case_body).to_string(), bir_start_a, branch_init_log_len());
+              register_arm_init_range(ast_expr_id(evaluated_case_body), bir_start_a, branch_init_log_len());
               ctx.is_executing = old_executing;
               // Consume the case body temp var to avoid phantom drops.
               body_env_for_consume := match(

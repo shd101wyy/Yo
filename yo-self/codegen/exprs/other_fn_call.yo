@@ -789,7 +789,7 @@ _call_is_handler_installation :: (fn(func_ei : ExprInfo, function_type : TypeVal
   install1 := if(is_direct_handler, {
     callee_fid := match(func_ei.value,.Some(v) => _func_val_id(v),.None => String.new());
     match(
-      find_innermost_frame_with_given_variable(env, (v : Variable) => match(v.value.get(usize(0)),.Some(val) => (is_func_val(val) && (_func_val_id(val) == callee_fid.clone())),.None => false)),
+      find_innermost_frame_with_given_variable(env, (v : Variable) => match(v.value.get(usize(0)),.Some(val) => (is_func_val(val) && (_func_val_id(val) == callee_fid)),.None => false)),
       .Some(fidx) => ((fidx > fdfl) && match(env.frames.get(fidx),.Some(fr) => fr.is_begin_block,.None => false)),
       .None => false
     )
@@ -809,7 +809,7 @@ _call_is_handler_installation :: (fn(func_ei : ExprInfo, function_type : TypeVal
         .Some(arg) => if(ast_expr_is_atom(arg), {
           arg_var := ast_expr_token(arg).value;
           match(
-            find_innermost_frame_with_given_variable(env, (v : Variable) => (v.name == arg_var.clone())),
+            find_innermost_frame_with_given_variable(env, (v : Variable) => (v.name == arg_var)),
             .Some(fidx) => if((fidx > fdfl) && match(env.frames.get(fidx),.Some(fr) => fr.is_begin_block,.None => false), {
               result = true;
             }),
