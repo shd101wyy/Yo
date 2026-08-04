@@ -97,13 +97,37 @@ baseline: **stage-1 emit 660s→399s (−40%), footprint 28.0→22.5 GB (−20%)
 self-built binary emit footprint 38.7→33.1 GB (−14%)**. Profiling notes:
 attribute `sample`-profile allocator frames to `fn_yo` ancestors; dispose
 chains of Environment/ArrayList graphs dominate what remains.
-**Remaining debt: allocation churn.** One self-emit still mallocs ~486 GiB
-total (MIMALLOC_SHOW_STATS) against a ~9 GB live set. The dominant remaining
-sources (by dispose-attribution): per-call env frames + ArrayList(Variable)
-teardown in evaluate_function_call / add_variable_to_env, and
-to_string/synthetic_token churn. Struct sizes for layout work: EvalValue
+**Remaining debt: allocation churn — the TS-parity gap.** Same-machine,
+same-job comparison (compile yo-self/main.yo → emit C, 2026-08-04):
+TS/node **113 s wall, 5.75 GB RSS, 6.05 GB footprint** vs yo-self
+**399 s, 8.3 GB RSS, 22.5 GB footprint** — 3.5× wall, 1.45× RSS, 3.7×
+touched. V8's footprint ≈ its live set (nursery scavenging absorbs churn);
+yo-self pays malloc+RC full price per object.
+
+Constructor census (per-constructor counters injected into the emitted C —
+`scripts/bootstrap/instrument_ctors.py`, counts for one self-emit):
+**ArrayList(u8) 1.75 B** (string byte-buffer handles), **Token 494 M**,
+**ArrayList(EvalValue) 489 M**, **Variable 489 M**, ArrayList(String) 110 M.
+~99% of the Variable/Token traffic sits under
+`try_to_call_function_with_arguments` (the per-call parameter-binding
+trial). NOTE: `synthetic_token` itself is only ~4 M calls (its
+`String.from("")` is now interned — `g_synthetic_token_input`, −0.5 GB
+RSS); the other ~490 M Token constructions come from a different site —
+run a per-SITE census (instrument callers of
+`__yo_new___yo_struct_<Token>`) to find it.
+
+Parity roadmap (in impact order): (1) allocation-free argument-binding
+fast path in try_to_call_function_with_arguments (bind params without
+minting Variable+Token+id-String per trial — needs care, this is the
+hottest correctness-critical path); (2) find + fix the 490 M Token
+construction site; (3) String buffer churn (1.75 B handles — audit
+`.clone()` on hot key/id paths); (4) header diet: replace the two
+per-object fn pointers (dispose_fn/traverse_fn, 16 B of the 56 B RC
+header) with a type-id into static tables — the non-GC build already
+dispatches dispose by type_id. Struct sizes for layout work: EvalValue
 96 B (32 B union), TypeValue 176 B (112 B union), RC header 56 B
-(`/tmp/re/szprobe.c` technique — compile the emitted-C prefix + sizeof main).
+(`/tmp/re/szprobe.c` technique — compile the emitted-C prefix + sizeof
+main).
 
 ---
 
