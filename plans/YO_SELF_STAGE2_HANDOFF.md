@@ -162,48 +162,70 @@ So: **volume −76%, wall −76%, touched memory −53% vs the campaign start**;
 against TS it is now 1.39× wall (and the SELF-BUILT compiler is at parity,
 116.8 s vs 113 s) and 2.17× touched memory (8.5 GB RSS vs 5.75 GB).
 
-**The footprint stopped moving at 13.1 GB across r7 and r8 while volume
-fell 32 GiB — churn is no longer what sets it.** RSS is 8.5 GB of live
-data plus ~4.6 GB of touched-then-freed pages. Further parity work has to
-cut the LIVE set; the measured composition is:
+**The footprint stopped moving at 13.1 GB across r7-r9 while volume fell
+39 GiB — churn is no longer what sets it.** RSS is 8.5 GB of LIVE data plus
+~4.6 GB of touched-then-freed pages. A live-object census (constructions
+minus disposals per type, `scripts/bootstrap/live_census.py` +
+`sizeof_all.py` + `live_report.py`) accounts for 8.63 GB of retained heap at
+exit — i.e. essentially all of RSS:
 
-1. **ExprInfo: 624 B × 5.03 M ≈ 3.1 GB**, pinned in one
-   process-lifetime table (no removal API), where TS's `expr.$` is a
-   sparse object that dies with the node. Two independent levers:
-   (a) box the 13 rarely-read Option fields (`origin_type`,
-   `converted_runtime_type`, `closure_function_value`,
-   `runtime_destructurings`, `is_primitive_match`, `case_executed`,
-   `consumed_variable_drop_expressions`, `dyn_call_trait_values`,
-   `primitive_pattern_values`, `effect_analysis`,
-   `async_state_machine_struct_name`, `await_analysis`,
-   `async_stack_size`) into one `Option(Box(ExprInfoRare))` — ~84 access
-   sites, 624 → ~424 B, ≈ −1.0 GB; (b) give fresh-id trial evaluations a
-   scratch table dropped when the trial unwinds (the id watermark before
-   the trial bounds the range to purge).
-2. **Per-annotation `snapshot_env`: 5.03 M Environments + frame lists
-   ≈ 1.0–1.4 GB.** Dedup is possible (consecutive expressions in one
-   scope share the frame stack, and `__yo_ptr_eq` can test it in O(1)),
-   but a shared recorded env is only safe if no consumer pushes a frame
-   onto `info.env` — audit the 41 codegen `.env` uses first.
-3. String churn remnants (measured per SITE, post-r8): `to_string`
-   58.9 M (28.5 M from `generate_variable_id` → the Variable.id /
-   Frame.id / Frame.index_key `String` → `usize` change, which also turns
-   `update_existing_variable`'s id compare into an integer compare —
-   String `==` was 27-38% of samples), `_type_key_at` ~90 M (same
-   StringBuilder treatment as r8, but riskier: it has early `return`s and
-   its keys are STORED in `g_struct_cfid_keys`).
-4. Residual wall time is RC traffic: ~15 B `___dup`/`___drop` calls per
-   emit. Levers: RC header diet (replace the two per-object fn pointers,
-   16 of 56 B, with a type-id into static tables) and Variable layout
-   diet.
-5. Cold-but-real: `_bind_some_type` builds a 22-field Variable to change
-   2 fields (synthesizer.yo:348 — write `ty`/`value` in place on the
-   ref-struct); `_build_def_time_body_env` (function_type.yo:317) still
-   flattens every caller frame where TS shares references
-   (`keepTopLevelFrameAndComptimeVariablesFromEnv`).
+| retained | live objects | size | type                                                    |
+| -------- | ------------ | ---- | ------------------------------------------------------- |
+| 2011 MB  | 3.22 M       | 624  | ExprInfo                                                |
+| 1924 MB  | **7.29 M**   | 264  | **Variable**                                            |
+| 1421 MB  | 17.8 M       | 80   | ArrayList(u8) (String bufs)                             |
+| 585 MB   | 7.31 M       | 80   | ArrayList(EvalValue) (value cells, 1:1 with Variable)   |
+| 543 MB   | 6.79 M       | 80   | ArrayList(usize)                                        |
+| 487 MB   | 4.68 M       | 104  | AstExpr                                                 |
+| 359 MB   | 3.20 M       | 112  | Environment                                             |
+| 287 MB   | 2.11 M       | 136  | Token                                                   |
+| 258 MB   | 3.22 M       | 80   | ArrayList(ArrayList(String)) (ExprInfo.path_collection) |
+| 255 MB   | 3.19 M       | 80   | ArrayList(Frame)                                        |
+
+**Read the chain, not the rows: 3.22 M ExprInfos each hold a
+`snapshot_env` (3.20 M Environments + 3.19 M frame lists), those pin the
+Frames, and the Frames pin 7.29 M Variables — one per binding EVER made,
+plus a value cell and id/name Strings each. Nothing the evaluator binds is
+ever freed.** `new_expr_info` (expr_info.yo:413) snapshots the env for
+EVERY evaluated expression (5.03 M calls, 6.03 M table writes) into a
+process-lifetime `HashMap(ExprId, ExprInfo)`, and ~3.5 M of those entries
+belong to throwaway clones (`clone_expr_fresh_ids` runs 2.35 M times, ~3.4
+per call, for argument/return-type re-evaluation) whose nodes never reach
+codegen. THAT is the remaining 2-4 GB, and it is the next arc:
+
+- Prune the table before codegen: mark the ids reachable from the final
+  program AST + every stored specialization body + the macro-expansion and
+  async/effect side tables, then `table.data.remove(id)` the rest
+  (`ExprInfoTable` is a `newtype(data : HashMap(ExprId, ExprInfo))`, so the
+  removal API already exists). Every root source must be covered — a missed
+  root means codegen reads a missing info, so gate on the corpus + fixpoint.
+- Or stop recording an env for provably-throwaway re-evaluations (the
+  `_trial_eval_*` helpers are only ~10 K calls, so the volume is in the
+  ordinary call path's `clone_expr_fresh_ids` sites in helper.yo /
+  function.yo — each needs a check that no later reader wants that info,
+  because e.g. `runtime_arg_exprs_in_order` DOES hand cloned arg exprs to
+  codegen).
+- Layout diets, worth ~600 MB each and mechanical: box ExprInfo's 13
+  rarely-read Option fields (~84 access sites) 624 → ~432 B; box Variable's
+  rare Options (`is_owning_the_same_rc_value_as`, `initialized_at_token`,
+  `parameter_alias`, `doc_comment`) 264 → ~176 B.
+- NOT viable (checked): deduping the per-annotation `snapshot_env` between
+  expressions in the same scope. Several consumers use a recorded env as a
+  live evaluation env (`evaluate_expression_raw(dup_expr, ei.env, …)`,
+  `env.frames = bi.env.frames` in closure_type.yo:262 / iso.yo:122), so a
+  shared snapshot would be mutated under other holders.
+
+Residual wall time is RC traffic: ~15 B `___dup`/`___drop` calls per emit.
+Levers there: RC header diet (replace the two per-object fn pointers, 16 of
+56 B, with a type-id into static tables) and the Variable/ExprInfo diets
+above. Cold-but-real: `_bind_some_type` builds a 22-field Variable to change
+2 fields (synthesizer.yo:348 — write `ty`/`value` in place on the
+ref-struct); `_build_def_time_body_env` (function_type.yo:317) still
+flattens every caller frame where TS shares references
+(`keepTopLevelFrameAndComptimeVariablesFromEnv`).
 
 Struct sizes (measured — compile the emitted-C typedef prefix plus a
-`sizeof` main, `scripts/bootstrap/sizeof_probe.py`): ExprInfo 624 B, Variable
+`sizeof` main, `scripts/bootstrap/sizeof_all.py`): ExprInfo 624 B, Variable
 264 B, Token 136 B, TypeValue 176 B, EvalValue 96 B, AstExpr 104 B,
 Frame/Environment 112 B (all including the 56 B RC header).
 
