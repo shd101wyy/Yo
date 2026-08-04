@@ -148,19 +148,34 @@ capture frame across calls of one closure is exactly TS's aliasing.
 **Ledger (all GC ON, every round gated by battery + corpus 155 +
 `check ./std` 153 + stage-2/stage-3 FIXPOINT_HOLDS):**
 
-| round                                              | malloc volume | emit wall   | peak footprint        | self-built binary's own emit |
-| -------------------------------------------------- | ------------- | ----------- | --------------------- | ---------------------------- |
-| campaign start                                     | 490.8 GiB     | 660 s       | 28.0 GB               | — / 38.7 GB                  |
-| r1–r5 (snapshot_env, interning, clone-free probes) | 375.8 GiB     | 407.7 s     | 20.01 GB              | 407 s / 30.7 GB              |
-| **r6** capture-env memo                            | 159.0 GiB     | 180.0 s     | 13.11 GB              | 132 s / 20.8 GB              |
-| **r7** read-only clone sweep                       | 135.7 GiB     | 169.8 s     | 13.11 GB              | 128 s / —                    |
-| **r8** intern-key StringBuilder                    | 127.0 GiB     | 163.3 s     | 13.11 GB              | **116.4 s / 18.9 GB**        |
-| **r9** comparison clones + usize-keyed arm ranges  | **119.7 GiB** | **157.1 s** | 13.12 GB              | 116.8 s / 18.9 GB            |
-| TS reference (same job)                            | —             | 113 s       | 6.05 GB (5.75 GB RSS) | —                            |
+| round                                                 | malloc volume | emit wall   | peak footprint        | self-built binary's own emit |
+| ----------------------------------------------------- | ------------- | ----------- | --------------------- | ---------------------------- |
+| campaign start                                        | 490.8 GiB     | 660 s       | 28.0 GB               | — / 38.7 GB                  |
+| r1–r5 (snapshot_env, interning, clone-free probes)    | 375.8 GiB     | 407.7 s     | 20.01 GB              | 407 s / 30.7 GB              |
+| **r6** capture-env memo                               | 159.0 GiB     | 180.0 s     | 13.11 GB              | 132 s / 20.8 GB              |
+| **r7** read-only clone sweep                          | 135.7 GiB     | 169.8 s     | 13.11 GB              | 128 s / —                    |
+| **r8** intern-key StringBuilder                       | 127.0 GiB     | 163.3 s     | 13.11 GB              | **116.4 s / 18.9 GB**        |
+| **r9** comparison clones + usize-keyed arm ranges     | **119.7 GiB** | **157.1 s** | 13.12 GB              | 116.8 s / 18.9 GB            |
+| **r11** shared empty value cell + path-collection COW | **119.2 GiB** | **153.4 s** | **12.76 GB**          | **112.2 s / 18.7 GB**        |
+| TS reference (same job)                               | —             | 113 s       | 6.05 GB (5.75 GB RSS) | —                            |
 
-So: **volume −76%, wall −76%, touched memory −53% vs the campaign start**;
-against TS it is now 1.39× wall (and the SELF-BUILT compiler is at parity,
-116.8 s vs 113 s) and 2.17× touched memory (8.5 GB RSS vs 5.75 GB).
+So: **volume −76%, wall −77%, touched memory −54% vs the campaign start**;
+against TS it is 1.36× wall for the TS-built stage-1 — and the SELF-BUILT
+compiler compiling itself is now FASTER than TS (112.2 s vs 113 s) — with
+2.11× touched memory (8.45 GB RSS vs 5.75 GB).
+
+Two live-set wins landed after the census: the ONE shared empty
+`Variable.value` cell (an empty cell is never written — nothing pushes into a
+value cell, a reassignment mints a fresh one, and `&(x)` refuses to build a
+`PtrVal` from an empty cell) and the ONE shared empty `ExprInfo.path_collection`
+with copy-on-write at the three push sites (`expr_info_paths_for_write` detects
+the shared instance by `__yo_ptr_eq`). A third — bounding the never-evicted
+`g_frame_indexes`, worth **−1.8 GB** — passed every gate but BROKE the
+stage-2/3 fixpoint (type-numbering divergence): reverted and written up in
+`issues/yo-self-frame-index-bound-breaks-fixpoint.md`, which also names the
+latent bug it points at (frames DO shrink — `comptime_expect_error.yo:213` pops
+variables — so a pop-then-push leaves the name index stale with
+`indexed_len == n`, and forcing a rebuild changes lookup results).
 
 **The footprint stopped moving at 13.1 GB across r7-r9 while volume fell
 39 GiB — churn is no longer what sets it.** RSS is 8.5 GB of LIVE data plus
