@@ -13,7 +13,7 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_set }
+{ ExprInfo, new_expr_info, expr_info_table_set, expr_info_paths_for_write }
 :: import("../../expr_info.yo");
 { Token, string_is_operator } :: import("../../token.yo");
 { Environment, Variable, get_variables_from_env, find_variable_in_env, find_variable_in_env_at } :: import("../../env.yo");
@@ -236,7 +236,7 @@ evaluate_identifier_and_operator :: (
   // Add [[variable.name]] to path_collection
   name_path := ArrayList(String).new();
   name_path.push(variable.name);
-  info.path_collection.push(name_path);
+  expr_info_paths_for_write(info).push(name_path);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   // ------------------------------------------------------------------
   // Closure capture tracking — function body

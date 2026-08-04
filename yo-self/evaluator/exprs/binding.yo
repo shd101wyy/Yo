@@ -25,7 +25,7 @@ open(import("std/fmt"));
   BK_COLON,
   make_err_expr
 } :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_paths_for_write } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind } :: import("../context.yo");
 { EvalValue, is_type_value, create_unknown_val } :: import("../../value.yo");
@@ -424,7 +424,7 @@ evaluate_binding :: (
   lhs_path := ArrayList(String).new();
   lhs_path.push(variable_name);
   lhs_info := new_expr_info(env, user_defined_type);
-  lhs_info.path_collection.push(lhs_path);
+  expr_info_paths_for_write(lhs_info).push(lhs_path);
   lhs_info.variable_name =.Some(variable_name);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs), lhs_info);
   // Write ExprInfo for the whole ":" expression.

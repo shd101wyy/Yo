@@ -41,7 +41,8 @@ open(import("std/string"));
   control_flow_to_string,
   record_branch_init,
   has_dominating_branch_init,
-  lookup_some_resolved_concrete
+  lookup_some_resolved_concrete,
+  expr_info_paths_for_write
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -1211,7 +1212,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   lhs_path := ArrayList(String).new();
   lhs_path.push(variable_name);
   lhs_info2 := new_expr_info(env, rhs_type);
-  lhs_info2.path_collection.push(lhs_path);
+  expr_info_paths_for_write(lhs_info2).push(lhs_path);
   lhs_info2.variable_name =.Some(variable_name);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs_resolved), lhs_info2);
   // Write ExprInfo for the whole `=` expression. Mirrors assignment.ts:759-800:

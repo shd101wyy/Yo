@@ -26,10 +26,18 @@
 //!   optional TypeScript fields (`field?: T`); required fields stay non-optional.
 //!   `new_expr_info(env, ty)` factory initialises all optional fields to `.None`.
 //!
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+// Pointer-identity builtin — `expr_info_paths_for_write` uses it to detect the
+// SHARED empty PathCollection before a push (same local-extern pattern as
+// env.yo / std/string/string.yo).
+extern(
+  "Yo",
+  __yo_ptr_eq : (fn(generic(T : Type), ptr1 : T, ptr2 : T) -> bool)
+);
 { TypeValue } :: import("./types/definitions.yo");
 { get_all_some_types } :: import("./types/utils.yo");
 { is_some_type } :: import("./types/guards.yo");
@@ -63,6 +71,12 @@ PathCollection :: ArrayList(ArrayList(String));
 path_collection_new :: (fn() -> PathCollection)(
   ArrayList(ArrayList(String)).new()
 );
+/// The ONE shared EMPTY PathCollection every `new_expr_info` hands out.
+/// A self-emit keeps 3.2 M ExprInfos alive and the overwhelming majority never
+/// receive a path, so each was paying an 80-byte ArrayList handle (plus the
+/// allocation) for a permanently empty list. Writers must go through
+/// `expr_info_paths_for_write`, which swaps in a private list first.
+(g_empty_path_collection : PathCollection) = ArrayList(ArrayList(String)).new();
 // ---------------------------------------------------------------------------
 // Path utility functions
 // ---------------------------------------------------------------------------
@@ -419,7 +433,7 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
     // recorded begin-local bindings. See issues/fixed/yo-self-recorded-env-aliasing.md.
     env : snapshot_env(env),
     ty : ty,
-    path_collection : ArrayList(ArrayList(String)).new(),
+    path_collection : g_empty_path_collection,
     value : Option(EvalValue).None,
     converted_runtime_type : Option(TypeValue).None,
     variable_name : Option(String).None,
@@ -470,6 +484,16 @@ expr_info_table_new :: (fn() -> ExprInfoTable)(
   ExprInfoTable(data : HashMap(ExprId, ExprInfo).new())
 );
 /// Store an ExprInfo for the given expression id.
+/// Copy-on-write accessor for `ExprInfo.path_collection`: every ExprInfo starts
+/// out sharing `g_empty_path_collection`, so a site about to PUSH a path must
+/// call this first. Detects the shared instance by POINTER identity and swaps in
+/// a private list. Reads can use the field directly.
+expr_info_paths_for_write :: (fn(info : ExprInfo) -> PathCollection)({
+  if(unsafe(__yo_ptr_eq(info.path_collection, g_empty_path_collection)), {
+    info.path_collection = path_collection_new();
+  });
+  info.path_collection
+});
 expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) -> unit)({
   table.data.set(id, info);
   ()
@@ -1016,7 +1040,7 @@ get_module_level_init_exprs :: (fn() -> ArrayList(AstExpr))(
 );
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
 // (mirrors `src/expr-traversal.ts`).
-export(Path, PathCollection, path_collection_new);
+export(Path, PathCollection, path_collection_new, expr_info_paths_for_write);
 export(path_contains_path, path_conflicts_with_path, path_collection_conflicts_with_path_collection);
 export(ControlFlowKind, ControlFlowFlags);
 export(control_flow_of, has_control_flow, has_any_control_flow, merge_control_flows, control_flow_to_string);
