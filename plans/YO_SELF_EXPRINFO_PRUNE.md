@@ -1,11 +1,51 @@
 # ExprInfo retention — the last multi-GB memory lever in `yo-self`
 
-Status: **DESIGN, not implemented — but the payoff is MEASURED, not estimated:
-codegen reads 843,691 of the table's 3,390,355 entries (24.9%), so 75% of it is
-pure retention worth ~3.5–4 GB (§4b).** Measurements below are from 2026-08-04 at
-`2b6aa1db7` + the round-15 layout diets. Read
-`plans/YO_SELF_STAGE2_HANDOFF.md` §"Memory footprint of a self-emit" first —
-this document is the detail behind the last bullet there.
+## STATUS: IMPLEMENTED, MEASURED, AND REJECTED (2026-08-05)
+
+**Do not re-attempt this as designed below.** It was built and measured at
+`e1e004a84`. The result refutes both the design AND the retention hypothesis that
+motivated it:
+
+| variant                                                                 | wall        | peak footprint | emitted C                          |
+| ----------------------------------------------------------------------- | ----------- | -------------- | ---------------------------------- |
+| r16 baseline                                                            | 98.7 s      | 9.08 GB        | reference                          |
+| per-module env-release prune (252 modules, **3,084,494 envs released**) | **177.2 s** | **7.95 GB**    | **DIFFERENT** (84 KB, 890 k lines) |
+
+Three findings, in order of importance:
+
+1. **Releasing 91% of all ExprInfo envs buys only 1.13 GB — not the 3.5-4 GB
+   projected in §4b.** So `ExprInfo.env` is NOT what pins the 7.4 M live
+   `Variable`s. The live census showed the ExprInfo -> Environment -> Frame ->
+   Variable chain and I inferred causation from it; the experiment says the Frames
+   are held by something else as well, so dropping the ExprInfo reference frees
+   almost none of them. **Before spending any more effort on retention, find the
+   OTHER holder.** Prime suspects, all process-lifetime:
+   `SpecializedFunctionCache.env : Environment` (one per cache entry,
+   `evaluator/context.yo:199`, reachable from `g_specialized_fn_caches`),
+   `g_func_parameters_frame : HashMap(String, Frame)` (`function_value.yo:367`),
+   `g_capture_envs` (`env.yo`), `g_loading_envs`
+   (`evaluator/module_loader.yo:42`). A census that attributes retained Frames to
+   their holder is the next measurement, not another prune.
+
+2. **The mark walk costs +79 s (+80% wall).** Walking every module's reachable
+   graph once per module completion is O(nodes x modules). That alone disqualifies
+   the shape even if the memory had been there — yo-self is currently FASTER than
+   TS (98.7 s vs 113 s) and this would give that away for a 12% memory gain.
+
+3. **The variant measured above is INCORRECT** (it changed the emitted C), and the
+   correct version is strictly worse on both axes. It was missing two roots:
+   - `g_specialized_fn_caches` -> `specialized_func_value` — specialized bodies are
+     `clone_expr_fresh_ids` clones, so they are neither parser-minted nor
+     reachable from any module's export value. (Added during the experiment.)
+   - **the module's own SOURCE trees.** Keeping parser-minted ids by range (§4c) is
+     NOT sufficient: a kept source node's `deferred_drop_expressions` holds
+     SYNTHESIZED `___drop` calls whose ids ARE evaluation-minted, and codegen emits
+     them. The mark must WALK every source node so those are reached through it —
+     which makes the walk bigger and the released set smaller.
+
+The design notes below are kept because the audit content (reader inventory, root
+inventory, the transitive field lists) is accurate and reusable. The CONCLUSION —
+"prune the table to close the TS gap" — is not.
 
 ## 1. The problem in one paragraph
 
