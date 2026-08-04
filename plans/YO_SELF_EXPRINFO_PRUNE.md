@@ -1,6 +1,8 @@
 # ExprInfo retention — the last multi-GB memory lever in `yo-self`
 
-Status: **DESIGN, not implemented.** Measurements below are from 2026-08-04 at
+Status: **DESIGN, not implemented — but the payoff is MEASURED, not estimated:
+codegen reads 843,691 of the table's 3,390,355 entries (24.9%), so 75% of it is
+pure retention worth ~3.5–4 GB (§4b).** Measurements below are from 2026-08-04 at
 `2b6aa1db7` + the round-15 layout diets. Read
 `plans/YO_SELF_STAGE2_HANDOFF.md` §"Memory footprint of a self-emit" first —
 this document is the detail behind the last bullet there.
@@ -155,17 +157,54 @@ Bookkeeping needed:
 - one shared empty `Environment` global, mirroring `g_empty_value_cell` and
   `g_empty_path_collection`.
 
+## 4b. MEASURED: codegen reads only a quarter of the table
+
+Instrumenting `CodeGenContext.get_expr_info` (`codegen/utils/index.yo:347`) to
+record every id it is asked for, over a full self-emit:
+
+```
+RETENTION_DIAG read_ids=843691 table_entries=3390355
+```
+
+**843,691 of 3,390,355 entries — 24.9%. Codegen never looks at the other
+2,546,664 (75.1%).** That is the size of the prize, and it is the number that
+justifies this whole arc:
+
+| dropped if the mark is tight                                | bytes                                  |
+| ----------------------------------------------------------- | -------------------------------------- |
+| 2.55 M ExprInfo @ 456 B                                     | 1.16 GB                                |
+| their Environments @ 112 B                                  | 0.29 GB                                |
+| their ArrayList(Frame) @ 80 B                               | 0.20 GB                                |
+| the Frames → Variables/cells/name strings they were pinning | a large share of 1.66 + 0.51 + 0.64 GB |
+
+So **~3.5–4 GB**, against a 9.27 GB peak footprint and a 6.05 GB TS target. This
+is the only remaining lever of that size.
+
+Two caveats on the number. It counts ids codegen ASKED for, through the accessor
+that covers 226 of the 236 reader sites, so the true read set is marginally
+larger. And the read set is not itself a usable mark: it is only known after
+codegen, and the mark must additionally cover anything the EVALUATOR reads from a
+finished module. Treat 24.9% as the ceiling on what must be kept, not as the
+keep-set.
+
 ## 5. Validate the mark empirically BEFORE trusting it
 
 `codegen/utils/index.yo:347` is a single choke point for 226 of the 236 reads.
-Instrument it to insert every id it is asked for into a `HashMap(ExprId, bool)`
-and print `|set|` next to `table.data.len()` at the end of `compile_module`.
-Then:
+Step 1 (recording the read set) is DONE — see §4b. The instrumentation that
+produced it is preserved in the throwaway git worktree used for the measurement;
+to reproduce, apply these three edits and rebuild:
 
-1. Run it once to get the true read set size vs. the 2.36 M entries — this is
-   the actual prize, and it must be measured before the prune is written.
-2. Once the mark exists, assert `mark ⊇ reads` on the same input. A mark that
-   misses even one read id is a bug the corpus may not surface.
+1. `yo-self/expr_info.yo`: a `(g_codegen_read_ids : HashMap(ExprId, bool))`
+   global plus `note_codegen_info_read(id)` / `codegen_read_id_count()` /
+   `expr_info_table_len(table)`, all exported.
+2. `yo-self/codegen/utils/index.yo:347`: `get_expr_info` calls
+   `note_codegen_info_read(ast_expr_id(expr))` before delegating.
+3. `yo-self/main.yo`: `eprintln` the two counts just before writing the `.c`
+   (i.e. right after the `compile_module` call at `main.yo:1164`).
+
+Step 2 is the one that still matters: **once the mark exists, assert
+`mark ⊇ reads` on the same input.** A mark that misses even one read id is a bug
+the corpus may not surface.
 
 ## 6. Gates (non-negotiable, same as every prior round)
 

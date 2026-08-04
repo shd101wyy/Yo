@@ -290,6 +290,13 @@ belong to throwaway clones (`clone_expr_fresh_ids` runs 2.35 M times, ~3.4
 per call, for argument/return-type re-evaluation) whose nodes never reach
 codegen. THAT is the remaining 2-4 GB, and it is the next arc:
 
+**MEASURED 2026-08-04: codegen reads only 843,691 of the table's 3,390,355
+entries (24.9%) — 2.55 M entries are never read at all, worth ~3.5-4 GB once the
+Frames/Variables they pin are released.** The design, the audited mark roots, why
+the prune must run DURING evaluation (the peak is at the end of eval, not in
+codegen), and why sharing `snapshot_env` is impossible are all in
+`plans/YO_SELF_EXPRINFO_PRUNE.md`. That is the whole remaining gap to TS.
+
 - Prune the table before codegen: mark the ids reachable from the final
   program AST + every stored specialization body + the macro-expansion and
   async/effect side tables, then `table.data.remove(id)` the rest
