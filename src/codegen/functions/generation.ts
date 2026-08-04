@@ -31,6 +31,7 @@ import {
 } from "../../types/guards";
 import {
   canTypeFormRcCycle,
+  typeCanFormCyclicRcReference,
   typeContainsRcType,
   typeContainsSomeType,
   typeContainsSomeTypeForCodegenParam,
@@ -3223,6 +3224,19 @@ export function generateRefEnumConstructorFunctions(
       canTypeFormRcCycle(type, new Set(), type.env);
 
     for (const variant of type.variants) {
+      // Per-VARIANT registration gate: even in a cycle-capable ref-enum, a
+      // variant whose fields cannot reach back to the enum has no outgoing
+      // RC edge that could close a cycle — instances of it can be pointed
+      // AT but can never be cycle MEMBERS, so they skip GC tracking. This
+      // keeps the hot leaf variants (EvalValue.IntLit/StrLit/BoolVal,
+      // TypeValue primitive leaves, …) out of the tracked list entirely:
+      // no cycle can route THROUGH an unregistered node because any field
+      // that could reach a cycle-capable graph makes this predicate true.
+      const variantRegistersWithGc =
+        registersWithGc &&
+        (variant.fields ?? []).some((field) =>
+          typeCanFormCyclicRcReference(field.type, type, new Set(), type.env)
+        );
       const nonUnitFields = (variant.fields ?? []).filter(
         (field) => !isUnitType(field.type)
       );
@@ -3274,7 +3288,7 @@ export function generateRefEnumConstructorFunctions(
           `  obj->data.${variant.name}.${fieldName} = ${fieldName};`
         );
       }
-      if (registersWithGc) {
+      if (variantRegistersWithGc) {
         emitter.emitLine(`  __yo_gc_register(obj);`);
       }
       emitter.emitLine(`  return obj;`);

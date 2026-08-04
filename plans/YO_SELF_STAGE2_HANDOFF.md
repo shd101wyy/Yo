@@ -70,17 +70,27 @@ off, 32 GB /mnt swapfile, zswap) to stay alive; see
 the runner-death history.
 Knob measurements (solo runs, mimalloc chain, output byte-identical in all):
 `YO_GC_THRESHOLD=0` (cycle collector off) cut wall 660s→426s (−35%) — the
-full-heap trial-deletion scans are pure overhead on a compiler-shaped,
-cycle-poor run, and their cold-page re-touching is what turned CI swap into
-thrash. NOTE: the GC stays ON in CI (product decision — default behavior is
-what the fixpoint job protects); the measurement is recorded as evidence of
-where the churn cost lives. `MIMALLOC_PURGE_DELAY=0` made the footprint
-WORSE (28.0 GB vs 24.9 — purged pages recount on reuse) — rejected.
-`YO_GC_FULL_PCT=130` didn't move the footprint (churn is mostly untracked
-allocations) — not used.
-**The real fix is reducing evaluator allocation churn** (EvalValue/type-value
-clone volume in the hot evaluate/specialize paths) and explaining the
-stage-2-binary's extra ~11 GB — that is the next performance campaign.
+full-heap trial-deletion scans were the overhead, and their cold-page
+re-touching is what turned CI swap into thrash. The GC stays ON (product
+decision); the same −35% was then recovered WITH the GC on by the
+**per-VARIANT GC-registration gate** (2026-08-04): a ref-enum variant whose
+fields cannot reach back to the enum has no outgoing RC edge that could close
+a cycle, so its instances skip `__yo_gc_register` even when the enum is
+cycle-capable. EvalValue.IntLit/StrLit/BoolVal/UnitVal and every TypeValue
+primitive leaf — the dominant instance populations — left the tracked set
+(static census: 173→139 registering constructors; emit wall 660s→432s with
+GC on; cycle_collector/ref_enum/recursive_enum/gc_cleanup_exit all green).
+Both compilers carry the gate: TS `generateRefEnumConstructorFunctions`
+(per-variant `typeCanFormCyclicRcReference`) and yo-self
+`_generate_one_ref_enum_constructor_set` (`_type_refs_back_to_cyclic`).
+Rejected knobs: `MIMALLOC_PURGE_DELAY=0` (footprint WORSE, 28.0 GB vs 24.9 —
+purged pages recount on reuse); `YO_GC_FULL_PCT=130` (no footprint effect —
+churn is mostly untracked allocations).
+**Remaining debt: allocation churn.** One self-emit mallocs **490.8 GiB**
+total (MIMALLOC_SHOW_STATS) against a ~9 GB live set — that churn IS the
+28 GB touched footprint. Reducing EvalValue/TypeValue clone volume in the hot
+evaluate/specialize/trial-eval paths, and explaining the self-built binary's
+extra ~11 GB footprint (38.7 vs 28.0 GB), is the next performance campaign.
 
 ---
 

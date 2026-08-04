@@ -2005,8 +2005,14 @@ export function canTypeFormRcCycle(
 /**
  * Helper function to check if a type can reference back to a cyclic object.
  * This traverses through containers (enums, arrays, etc.) to find object references.
+ *
+ * Exported for per-VARIANT GC-registration gating: a ref-enum variant whose
+ * fields cannot reach back to the enum has no outgoing RC edge that could
+ * close a cycle, so instances of that variant never need GC tracking even
+ * when the enum as a whole is cycle-capable (e.g. EvalValue.IntLit /
+ * TypeValue.BoolT leaves vs EvalValue.EnumVal).
  */
-function typeCanFormCyclicRcReference(
+export function typeCanFormCyclicRcReference(
   type: Type,
   originalRefStruct: StructType | EnumType,
   visitedTypes: Set<string>,

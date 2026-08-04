@@ -19,7 +19,7 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_enum_type, is_struct_type, is_newtype_type, is_tuple_type, is_array_type, is_unit_type } :: import("../../types/guards.yo");
-{ type_contains_some_type, type_contains_rc_type, can_type_form_rc_cycle } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_contains_rc_type, can_type_form_rc_cycle, _type_refs_back_to_cyclic } :: import("../../types/utils.yo");
 { get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, get_enum_variant_c_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, RuntimeStructField } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { get_dispose_function_for_type, get_trace_function_for_type } :: import("../exprs/drop_dup.yo");
@@ -505,7 +505,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String,
   registers_with_gc := ((context.base.needs_cycle_gc && !(is_atomic)) && can_type_form_rc_cycle(type));
   match(
     type,
-    .EnumT({ variant_names, variant_fields, variant_field_labels }) => {
+    .EnumT({ id : enum_id, variant_names, variant_fields, variant_field_labels }) => {
       nv := variant_names.len();
       (vi : usize) = usize(0);
       while(vi < nv, {
@@ -513,6 +513,27 @@ _generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String,
         fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
         labels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
         nf := fields.len();
+        // Per-VARIANT registration gate: even in a cycle-capable ref-enum, a
+        // variant whose fields cannot reach back to the enum has no outgoing
+        // RC edge that could close a cycle — instances of it can be pointed
+        // AT but can never be cycle MEMBERS, so they skip GC tracking. Keeps
+        // hot leaf variants (EvalValue.IntLit/BoolVal, TypeValue primitive
+        // leaves, …) out of the tracked list. Mirrors the TS per-variant
+        // `typeCanFormCyclicRcReference` gate in generateRefEnumConstructorFunctions.
+        (variant_registers_with_gc : bool) = false;
+        if(registers_with_gc, {
+          (ci : usize) = usize(0);
+          while((ci < nf) && !(variant_registers_with_gc), {
+            match(
+              fields.get(ci),
+              .Some(ft) => if(_type_refs_back_to_cyclic(ft, enum_id.clone(), ArrayList(String).new()), {
+                variant_registers_with_gc = true;
+              }),
+              .None => ()
+            );
+            ci = (ci + usize(1));
+          });
+        });
         // Parameter list from the variant's non-unit fields.
         params := String.from("");
         (emitted : usize) = usize(0);
@@ -580,7 +601,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String,
           );
           fi = (fi + usize(1));
         });
-        if(registers_with_gc, {
+        if(variant_registers_with_gc, {
           em.emit_string_line(`  __yo_gc_register(obj);`);
         });
         em.emit_string_line(`  return obj;`);
