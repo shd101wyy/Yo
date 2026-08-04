@@ -577,6 +577,25 @@ BIN=/tmp/s1 TAG=x bash scripts/bootstrap/hollow8.sh               # the 7 + cana
 BIN=/tmp/s1 OUT=/tmp/hs bash scripts/bootstrap/hollow_sweep69.sh  # honest score, ~40 min
 ```
 
+`gates_fast.sh` now **exits non-zero** if any gate fails (each failure is echoed
+with a `FAIL:` prefix, and a `hollow=NA` battery file — no batch `.c` produced, so
+hollowness is unknown — counts as a failure too). That makes it directly usable as
+a CI step, which is how the new **`bootstrap-self-test`** job in
+`.github/workflows/test.yml` runs it: build stage-1 with the TS compiler, then run
+the tier-1 gates through the SELF-HOSTED binary. This closes a real hole — CI ran
+`./tests` through the TypeScript compiler and `<bin> compile` in the
+bootstrap-fixpoint jobs, but nothing ran **`<bin> test`**, so codegen bugs that
+only appear when the self-hosted compiler builds AND RUNS a test binary were
+ungated (and `check` cannot see them: it never evaluates function bodies). It is
+`continue-on-error: true` at first, per the TSan/bootstrap-fixpoint precedent.
+The job deliberately uses the DEFAULT (libc) allocator — mimalloc costs +53% wall
+and +15% footprint (measured 2026-08-05); the fixpoint jobs keep mimalloc only
+because a self-EMIT is memory-bound on a 16 GB box.
+
+`yo-self/tests` stays out of CI for the documented runtime reasons (~90 min for the
+directory; `eval_basics`/`eval_tail_1`/`eval_tail_2` exceed the runner's 1800 s
+isolated-process limit). Run it locally when you touch evaluator internals.
+
 The full sweep is **mandatory** before claiming a flip: the GREEN→HOLLOW
 regression class is invisible to the 12-file gate (it bit this campaign once —
 `closure_capture_rc_leak` regressed silently), and GREEN→RED bit it again on

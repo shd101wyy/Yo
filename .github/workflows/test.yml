@@ -269,6 +269,83 @@ jobs:
             exit 1
           fi
 
+  # The self-hosted binary's OWN `test` subcommand. CI already runs `./tests`
+  # through the TypeScript compiler, and the bootstrap-fixpoint jobs run
+  # `<bin> compile`, but nothing ran `<bin> test` — so codegen bugs that only
+  # surface when the self-hosted compiler builds AND RUNS a test binary were not
+  # gated. That is exactly the class `check` cannot see (`check` never evaluates
+  # function bodies — see plans/YO_SELF_STAGE2_HANDOFF.md).
+  #
+  # Runs scripts/bootstrap/gates_fast.sh, the same tier-1 gate used locally on
+  # every change: two repro compiles, a 20-file battery via `<bin> test` WITH
+  # HOLLOW DETECTION, the 155-program corpus diff-test (yo-self output vs TS
+  # output, byte-compared), and `<bin> check ./std`. The script exits non-zero if
+  # any of those fail.
+  #
+  # HOLLOW DETECTION is the point of the battery: a batch whose `__yo_user_main`
+  # contains "Failed to transpile" reports tests as passing while running nothing
+  # — that once counted 33 files green (issues/yo-self-hollow-test-batch-main.md),
+  # so a bare "N passed" is never sufficient.
+  #
+  # Default (libc) allocator on purpose: measured 2026-08-05, mimalloc costs +53%
+  # wall and +15% peak footprint on this workload. The fixpoint jobs still use
+  # mimalloc because a self-EMIT is memory-bound on a 16 GB box; compiling small
+  # test programs is not.
+  #
+  # Informational at first (the TSan/bootstrap-fixpoint pattern). Drop
+  # continue-on-error once a week of green runs establishes CI timing headroom.
+  bootstrap-self-test:
+    name: Self-hosted `test` subcommand (yo-self tier-1 gates — informational)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    continue-on-error: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install liburing
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: |
+          bun install
+          bun run build
+
+      - name: "Stage 1: build the self-hosted compiler with the TS compiler"
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release -o /tmp/yo-stage1
+
+      # YO_MAIN_STACK_MB: compiled Yo programs run main on a worker thread whose
+      # stack defaults to 1 GiB; the self-hosted compiler's deep comptime
+      # recursion needs more headroom (see the stack-ceiling note in AGENTS.md).
+      - name: "Tier-1 gates via the self-hosted binary (`test` + corpus + check)"
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: S1=/tmp/yo-stage1 P=ci bash scripts/bootstrap/gates_fast.sh
+
+      - name: Upload gate logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-self-test-logs
+          path: /tmp/ci_*.log
+          retention-days: 7
+          if-no-files-found: warn
+
   test-tsan:
     name: ThreadSanitizer (sync primitives — Linux/Clang, informational)
     runs-on: ubuntu-latest

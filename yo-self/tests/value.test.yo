@@ -129,28 +129,38 @@ test("ArrayVal: value_to_string singleton (trailing comma)", {
 // ---------------------------------------------------------------------------
 // PtrVal
 // ---------------------------------------------------------------------------
+// `PtrVal(target_value : ArrayList(Self), target_index : usize)` — the first
+// field is the shared mutable CELL (the same one-element list a `Variable` holds
+// as its `value`), not a bare `EvalValue`. `value_to_string` reads `cell.get(0)`
+// and, only if that element is an `ArrayVal`, indexes into it with
+// `target_index`. These tests predate the cell and were passing a bare value, so
+// the file failed to compile and all five reported as failures.
+_ptr_cell :: (fn(target : EvalValue) -> ArrayList(EvalValue))({
+  cell := ArrayList(EvalValue).new();
+  cell.push(target);
+  cell
+});
 test("PtrVal: always unequal", {
-  p1 := EvalValue.PtrVal(EvalValue.IntLit(String.from("42")), usize(0));
-  p2 := EvalValue.PtrVal(EvalValue.IntLit(String.from("42")), usize(0));
+  p1 := EvalValue.PtrVal(_ptr_cell(EvalValue.IntLit(String.from("42"))), usize(0));
+  p2 := EvalValue.PtrVal(_ptr_cell(EvalValue.IntLit(String.from("42"))), usize(0));
   // Pointer alias identity is not portable; always false.
   assert(!(p1 == p2), "PtrVal equality is always false");
 });
 test("PtrVal: predicates", {
-  p := EvalValue.PtrVal(EvalValue.UnitVal, usize(0));
+  p := EvalValue.PtrVal(_ptr_cell(EvalValue.UnitVal), usize(0));
   assert(is_ptr_val(p), "is_ptr_val true");
   assert(!(is_array_val(p)), "is_array_val false for PtrVal");
 });
 test("PtrVal: value_to_string scalar target", {
-  target := EvalValue.IntLit(String.from("7"));
-  p := EvalValue.PtrVal(target, usize(0));
+  p := EvalValue.PtrVal(_ptr_cell(EvalValue.IntLit(String.from("7"))), usize(0));
   assert(value_to_string(p) == "<ptr to 7>", "ptr to scalar");
 });
 test("PtrVal: value_to_string array element", {
   elems := ArrayList(EvalValue).new();
   elems.push(.IntLit(String.from("10")));
   elems.push(.IntLit(String.from("20")));
-  arr := EvalValue.ArrayVal(elems);
-  p := EvalValue.PtrVal(arr, usize(1));
+  // The ArrayVal lives INSIDE the cell; `target_index` then selects the element.
+  p := EvalValue.PtrVal(_ptr_cell(EvalValue.ArrayVal(elems)), usize(1));
   assert(value_to_string(p) == "<ptr to 20>", "ptr to array element");
 });
 // ---------------------------------------------------------------------------
@@ -316,8 +326,7 @@ test("predicates are exclusive across all variants", {
   varref_v := EvalValue.VarRef(String.from("x"));
   tuple_v := EvalValue.TupleVal(ArrayList(EvalValue).new());
   array_v := EvalValue.ArrayVal(ArrayList(EvalValue).new());
-  backing := EvalValue.ArrayVal(ArrayList(EvalValue).new());
-  ptr_v := EvalValue.PtrVal(EvalValue.UnitVal, usize(0));
+  ptr_v := EvalValue.PtrVal(_ptr_cell(EvalValue.UnitVal), usize(0));
   trait_v := EvalValue.TraitVal(String.from("T"), ArrayList(String).new(), ArrayList(Option(EvalValue)).new());
   cl_v := EvalValue.ComptimeListVal(ArrayList(EvalValue).new());
   expr_v := EvalValue.ExprVal(make_err_expr());
