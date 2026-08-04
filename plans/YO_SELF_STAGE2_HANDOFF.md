@@ -53,6 +53,33 @@ Gate stage-2 on **emit rc=0 + markers == 0 + clang rc == 0 + FIXPOINT_HOLDS**.
 `sys/bufio` and `thread` are FLAKY on this machine (intermittent SIGSEGV with
 a ZERO-byte log — the phantom-kill signature). Re-run before believing either.
 
+### Memory footprint of a self-emit (the open perf debt)
+
+A self-emit holds **~9 GB live** but **touches ~28 GB** (stage-1 binary) /
+**~39 GB** (the SELF-BUILT stage-2 binary — measured `peak memory footprint`
+38.7 GB, an open asymmetry worth investigating) over the run. macOS hides the
+cold pages in its compressor (9.0 GB RSS); Linux pushes them all to swap —
+ubuntu CI `time -v` + a `free -m` sampler showed 12 GB RAM + ~19.5 GB swap for
+the stage-2 emit, identical under glibc and mimalloc, THP on or off. The gap
+is allocation CHURN: pages the evaluator allocates, frees, and never reuses.
+On a 16 GB CI runner this swap-thrashed until the runner agent starved
+("runner has received a shutdown signal") — the bootstrap-fixpoint jobs now
+run each emit in a systemd scope (`MemoryHigh=11G`/`MemoryMax=14G`, nice, THP
+off, 32 GB /mnt swapfile, zswap) to stay alive; see
+`.github/workflows/test.yml` and `issues/gc-cleanup-thread-sweep-uaf.md` for
+the runner-death history.
+Knob measurements (solo runs, mimalloc chain, output byte-identical in all):
+`YO_GC_THRESHOLD=0` (cycle collector off) cut wall 660s→426s (−35%) — the
+full-heap trial-deletion scans are pure overhead on a compiler-shaped,
+cycle-poor run, and their cold-page re-touching is what turned CI swap into
+thrash; the CI emits run with it. `MIMALLOC_PURGE_DELAY=0` made the footprint
+WORSE (28.0 GB vs 24.9 — purged pages recount on reuse) — rejected.
+`YO_GC_FULL_PCT=130` didn't move the footprint (churn is mostly untracked
+allocations) — not used.
+**The real fix is reducing evaluator allocation churn** (EvalValue/type-value
+clone volume in the hot evaluate/specialize paths) and explaining the
+stage-2-binary's extra ~11 GB — that is the next performance campaign.
+
 ---
 
 ## 2. Start here
