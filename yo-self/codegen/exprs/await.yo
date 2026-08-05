@@ -49,7 +49,7 @@ open(import("std/string"));
   get_enum_variant_c_name,
   get_deferred_drop_target_atom_name
 } :: import("../utils/index.yo");
-{ get_dup_function_for_type } :: import("./drop_dup.yo");
+{ get_dup_function_for_type, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { generate_pending_deferred_drops } :: import("./return.yo");
 /// One effect on a Future trait (the first, mirroring TS's single
@@ -574,7 +574,22 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
         match(
           get_dup_function_for_type(result_type, context),
           .Some(dup_fn) => em.emit_string_line(`${indent.clone()}  ${result_var.clone()} = ${dup_fn}(${sync_future_var.clone()}->result);`),
-          .None => em.emit_string_line(`${indent.clone()}  ${result_var.clone()} = ${sync_future_var.clone()}->result;`)
+          // INLINE dup, not a bare copy. TS reaches its `else` here only in
+          // theory: `getDupFunctionForType` always succeeds for it because
+          // `addRcFunctionsToStructType` registers a `___dup` METHOD per RC type.
+          // yo-self synthesizes no such methods (see drop_dup.yo), so `.None` is
+          // the ONLY path — and a bare copy hands out a second owner with no
+          // increment, while the scope-end pass still emits a decrement per
+          // binding. Awaiting one RC-result future twice therefore over-released
+          // it: heap corruption (SIGTRAP on macOS, tcache corruption on glibc).
+          // That was the Linux-only failure of
+          // tests/async_await.test.yo "Test await future multiple times returns
+          // same result". Use the same inline generator every other yo-self dup
+          // site uses.
+          .None => {
+            dup_code := generate_dup_code_for_value(`${sync_future_var.clone()}->result`, result_type, context);
+            em.emit_string_line(`${indent.clone()}  ${result_var.clone()} = ${dup_code};`);
+          }
         );
       }, {
         em.emit_string_line(`${indent.clone()}  ${result_var.clone()} = ${sync_future_var.clone()}->result;`);
@@ -587,7 +602,11 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
         match(
           get_dup_function_for_type(result_type, context),
           .Some(dup_fn) => em.emit_string_line(`${indent.clone()}${var_decl} = ${dup_fn}(${sync_future_var.clone()}->result);`),
-          .None => em.emit_string_line(`${indent.clone()}${var_decl} = ${sync_future_var.clone()}->result;`)
+          // INLINE dup — see the comment on the effectful branch above.
+          .None => {
+            dup_code := generate_dup_code_for_value(`${sync_future_var.clone()}->result`, result_type, context);
+            em.emit_string_line(`${indent.clone()}${var_decl} = ${dup_code};`);
+          }
         );
       }, {
         em.emit_string_line(`${indent.clone()}${var_decl} = ${sync_future_var.clone()}->result;`);
