@@ -434,3 +434,88 @@ test("Returning an OWNED RC local from inside a branch is not double-dropped", {
   assert(b(usize(1)) == i32(3), "b(1) should be 3");
   assert(rc(b) == 1, "rc(b) should be 1");
 });
+// --- Inline `ref(enum)` payload-free variant construction ---
+// Regression for issues/fixed/ref-enum-unit-variant-inline-construction-leak.md.
+//
+// A payload-free variant of a `ref(enum)` heap-allocates exactly like the
+// payload-carrying form — codegen emits `__yo_new_<Enum>_<Variant>()`, which
+// mallocs with ref_count = 1 — but the evaluator never attached an owning temp
+// variable to it, so nothing was ever registered to drop the allocation.
+// Passing one inline as an argument leaked it once per evaluation: the callee
+// treats the parameter as borrowed and dups whatever it retains, so the
+// constructor's own +1 was never released. LeakSanitizer caught this in
+// tests/internal/context.test.yo, where `EvalValue.UnitVal` is passed inline to
+// create_function_body_evaluation_context.
+//
+// The `rc()` assertions are the deterministic gate. The argument temp is
+// released at `mk_*`'s scope end, so a caller reading the retained field
+// afterwards sees rc == 1 when the release happened and rc == 2 when it leaked.
+// That holds on every platform, unlike LeakSanitizer (Linux only) or macOS
+// `leaks` (at -O2, LLVM deletes an allocation whose result is discarded, which
+// hides exactly the non-argument positions covered by the second test).
+//
+// `mk_unit` / `mk_payload` use an explicit `{ … }` body ON PURPOSE. Written as a
+// bare tail expression — `(fn() -> Held)(keep(Val.UnitVal))` — the self-hosted
+// compiler emits no scope-end drop for the argument temp at all, so BOTH arms
+// below report rc == 2 under it even though TS emits the drop. That is a
+// separate, pre-existing divergence with its own repro (it reproduces on the
+// payload-carrying form, which this fix never touched) — see
+// issues/yo-self-tail-expression-arg-temp-drop-missing.md. Keep the block body
+// so this test gates the payload-free-variant bug on both compilers.
+test("Inline ref-enum unit-variant argument is released by the caller", {
+  Val :: ref(enum(UnitVal, IntVal(v : i32)));
+  Held :: struct(v : Val);
+  keep :: (fn(x : Val) -> Held)(Held(v : x));
+  mk_unit :: (fn() -> Held)({
+    h := keep(Val.UnitVal);
+    h
+  });
+  mk_payload :: (fn() -> Held)({
+    h := keep(Val.IntVal(v : i32(7)));
+    h
+  });
+  u := mk_unit();
+  assert(rc(u.v) == 1, "payload-free variant: the caller must release its argument temp");
+  p := mk_payload();
+  assert(rc(p.v) == 1, "payload-carrying variant: unchanged");
+  // A direct binding must TRANSFER ownership of the temp, not add a second owner.
+  a := Val.UnitVal;
+  assert(rc(a) == 1, "binding a unit variant owns exactly one reference");
+  // Struct-literal field: the aggregate takes the allocation by move.
+  h := Held(v : Val.UnitVal);
+  assert(rc(h.v) == 1, "struct-literal field takes the unit variant by move");
+});
+test("Inline ref-enum unit-variant in non-argument positions does not leak", {
+  Val :: ref(enum(UnitVal, IntVal(v : i32)));
+  is_unit :: (fn(x : Val) -> bool)(
+    match(
+      x,
+      .UnitVal => true,
+      .IntVal(v) => false
+    )
+  );
+  // Discarded statement expression.
+  Val.UnitVal;
+  // Match subject.
+  match(Val.UnitVal,.UnitVal => (),.IntVal(v) => ());
+  // Condition and short-circuit operand positions, inside a loop so a
+  // per-iteration leak accumulates instead of costing one object.
+  (i : usize) = usize(0);
+  while(i < usize(3), {
+    c := cond(is_unit(Val.UnitVal) => true, true => false);
+    assert(c, "cond condition");
+    b := (is_unit(Val.UnitVal) && is_unit(Val.IntVal(v : i32(1))));
+    assert(!(b), "short-circuit operands");
+    i = (i + usize(1));
+  });
+  // Enum-payload position: the outer variant takes the inner one by move.
+  o := Option(Val).Some(Val.UnitVal);
+  assert(
+    match(
+      o,
+      .Some(v) => is_unit(v),
+      .None => false
+    ),
+    "Option payload"
+  );
+});

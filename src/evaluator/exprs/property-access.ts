@@ -15,6 +15,7 @@ import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isEnumType,
   isFunctionType,
+  isReferenceEnumType,
   isSourceNamespaceType,
   isPtrType,
   isSomeType,
@@ -66,6 +67,47 @@ const TYPE_KIND_REFINEMENTS = new Set([
   "Trait",
   "Function",
 ]);
+
+/**
+ * A payload-free variant of a reference-semantics enum (`ref(enum(UnitVal, …))`)
+ * still heap-allocates: `generateComptimeValue` emits
+ * `__yo_new_<Enum>_<Variant>()` (src/codegen/exprs/comptime-value.ts:149-154),
+ * which mallocs with `ref_count = 1`. The expression therefore OWNS an RC
+ * value, exactly like the payload-carrying form `E.IntVal(v : …)` — that form
+ * is a function call and gets its owning temp from the call path
+ * (src/evaluator/calls/function.ts:2555).
+ *
+ * Without a temp variable the allocation is never registered at the enclosing
+ * begin-block frame, so `getVariablesNeedingDrop` (src/env.ts:2272) never sees
+ * it, no `___drop` is emitted, and an inline `f(E.UnitVal)` leaks the object
+ * (the callee treats the parameter as borrowed and dups whatever it retains).
+ *
+ * Deliberately NOT `typeContainsRcType(expr.$.type)`: that is also true of a
+ * VALUE enum whose *other* variants carry RC payloads (`Option(String)`,
+ * `Result(…)`), whose payload-free variant materializes as a `{ .tag = … }`
+ * compound literal and allocates nothing. An owning temp there is pure
+ * overhead on the most common expression shape in std — and it makes
+ * `(x : Option(String)) ?= Option(String).None` fail the not-consumed gate.
+ *
+ * The "some variant has fields" conjunct mirrors `canOptimizeAsSimpleEnum`
+ * (src/codegen/utils/index.ts:961): an all-payload-free enum collapses to a
+ * plain C enum constant (comptime-value.ts:129-133) and also allocates nothing.
+ */
+function attachOwnedTempForRcUnitVariant(
+  expr: FnCallExpr,
+  enumType: EnumType
+): void {
+  if (!expr.$ || !isReferenceEnumType(enumType)) {
+    return;
+  }
+  const hasPayloadVariant = enumType.variants.some(
+    (variant) => !!variant.fields && variant.fields.length > 0
+  );
+  if (!hasPayloadVariant) {
+    return;
+  }
+  attachTempVariableToExpr(expr, true);
+}
 
 /**
  * Phase P (THREAD_SAFETY): Enforce `_`-prefix field visibility.
@@ -232,8 +274,10 @@ export function evaluatePropertyAccess({
         pathCollection: [],
       };
 
+      attachOwnedTempForRcUnitVariant(expr, newEnumType);
+
       propertyExpr.$ = {
-        env,
+        env: expr.$.env,
         type: newEnumType,
         pathCollection: [],
       };
@@ -522,6 +566,8 @@ Raw pointer operations may dereference invalid memory.`,
           isAccessingProperty: true,
           pathCollection: [],
         };
+
+        attachOwnedTempForRcUnitVariant(expr, newEnumType);
 
         propertyExpr.$ = expr.$;
       } else {

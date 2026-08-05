@@ -212,7 +212,7 @@ function resolveVarNameInContext(
  * corresponding sm->var_xxx field. This ensures deferred drops in the final
  * state can access a valid value instead of the zero-initialized struct field.
  */
-function storeTempVarToStateMachineIfNeeded(
+export function storeTempVarToStateMachineIfNeeded(
   tempVar: string,
   indent: string,
   context: CodeGenContext

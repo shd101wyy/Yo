@@ -18,7 +18,9 @@ import {
   type FnCallExpr,
   hasAnyControlFlow,
 } from "../../expr";
+import { getVariablesFromEnv } from "../../env";
 import { isSomeType, isUnitType } from "../../types/guards";
+import { isTempVariableName } from "../../utils";
 import { isFunctionValue, isUnknownValue } from "../../value";
 import { isIoFutureType } from "../async/state-machine";
 import { BuiltinYoInlineFunctions } from "../constants";
@@ -28,6 +30,7 @@ import {
   getDeferredDropTargetAtomName,
   getTypeString,
   getVariableNameForCodegen,
+  getVariableTypeString,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
 } from "../utils";
 import { generateOpAnd, generateOpOr } from "./and-or";
@@ -45,7 +48,10 @@ import {
 import { generateBegin } from "./begin";
 import { generateBinding } from "./binding";
 import { generateClosureConstruction, isClosureConstruction } from "./closures";
-import { generateComptimeValue } from "./comptime-value";
+import {
+  comptimeValueAllocatesRcObject,
+  generateComptimeValue,
+} from "./comptime-value";
 import { generateCondExpression } from "./cond";
 import { generateConsume } from "./consume";
 import { generateDowncast } from "./downcast";
@@ -63,7 +69,10 @@ import {
 } from "./iso";
 import { generateMatchExpression } from "./match";
 import { generateOpen } from "./open";
-import { generateOtherFunctionCall } from "./other-fn-call";
+import {
+  generateOtherFunctionCall,
+  storeTempVarToStateMachineIfNeeded,
+} from "./other-fn-call";
 import { generatePanic } from "./panic";
 import { generateAsm, generateGlobalAsm } from "./asm";
 import { generateYoThreadSetMaximumThreads } from "./parallelism";
@@ -450,6 +459,56 @@ function generateUnwind(
 }
 
 /**
+ * Some compile-time values ALLOCATE when they materialize in C. The clearest
+ * case is a payload-free variant of a reference-semantics enum: its comptime
+ * value emits `__yo_new_<Enum>_<Variant>()`, which mallocs with
+ * `ref_count = 1`. Inlined at the use site that produces an owned RC object
+ * nothing ever drops — `f(E.UnitVal)` leaks it, because the callee treats the
+ * parameter as borrowed and dups whatever it retains.
+ *
+ * When the evaluator recorded such an expression as owning its RC value
+ * (`attachTempVariableToExpr(expr, true)`), it registered a temp variable at
+ * the enclosing begin-block frame so the normal scope-end drop pass releases
+ * it. That only works if codegen actually DECLARES the temp: the drop emitters
+ * skip any target missing from `declaredCVarNames`. So materialize the value
+ * into its temp and hand back the temp's name.
+ *
+ * Non-allocating comptime values (numbers, string literals, value-enum
+ * compound literals like `Color.Red`) carry no owning temp and are returned
+ * unchanged.
+ */
+function materializeOwnedRcComptimeValue(
+  expr: Expr,
+  comptimeCode: string,
+  indent: string,
+  context: CodeGenContext
+): string {
+  const info = expr.$;
+  if (!info?.variableName || !info.value) {
+    return comptimeCode;
+  }
+  const { variableName, env, type } = info;
+  // Only shapes that actually malloc need an owner (see the predicate's doc).
+  if (!comptimeValueAllocatesRcObject(info.value)) {
+    return comptimeCode;
+  }
+  if (!isTempVariableName(env.modulePath, variableName)) {
+    return comptimeCode;
+  }
+  const variables = getVariablesFromEnv(env, variableName);
+  const variable = variables[variables.length - 1];
+  if (!variable?.isOwningTheRcValue) {
+    return comptimeCode;
+  }
+  const cName = getVariableNameForCodegen(variableName, env);
+  context.emitter.emitLine(
+    `${indent}${getVariableTypeString(type, cName, context)} = ${comptimeCode};`
+  );
+  storeTempVarToStateMachineIfNeeded(variableName, indent, context);
+  return cName;
+}
+
+/**
  * Generate C code for an expression - extracted from original codegen-c.ts
  */
 export function _generateExpr(
@@ -816,7 +875,8 @@ function generateFuncCall(
     !isUnitType(expr.$.type) &&
     !hasAnyControlFlow(expr.$?.controlFlow)
   ) {
-    return generateComptimeValue(expr.$.value, context, expr);
+    const comptimeCode = generateComptimeValue(expr.$.value, context, expr);
+    return materializeOwnedRcComptimeValue(expr, comptimeCode, indent, context);
   }
   // . field access
   else if (exprIsFunctionCallOf(expr, ".", 2)) {

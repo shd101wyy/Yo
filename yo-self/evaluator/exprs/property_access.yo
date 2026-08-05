@@ -49,7 +49,7 @@ open(import("std/string"));
 } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_some_t, resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
-{ is_pointer_type, is_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_0, is_function_type } :: import("../../types/guards.yo");
+{ is_pointer_type, is_enum_type, is_reference_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_0, is_function_type } :: import("../../types/guards.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
@@ -66,6 +66,64 @@ open(import("std/string"));
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
+/// A payload-free variant of a reference-semantics enum (`ref(enum(UnitVal, …))`)
+/// still heap-allocates: `generate_comptime_value` emits
+/// `__yo_new_<Enum>_<Variant>()`, which mallocs with `ref_count = 1`. The
+/// expression therefore OWNS an RC value, exactly like the payload-carrying
+/// form `E.IntVal(v : …)` — that form is a function call and gets its owning
+/// temp from the call path.
+///
+/// Without a temp variable the allocation is never registered at the enclosing
+/// begin-block frame, so the scope-end drop pass never sees it, no `___drop` is
+/// emitted, and an inline `f(E.UnitVal)` leaks the object (the callee treats the
+/// parameter as borrowed and dups whatever it retains).
+///
+/// Deliberately NOT `type_contains_rc_type(ty)`: that is also true of a VALUE
+/// enum whose *other* variants carry RC payloads (`Option(String)`,
+/// `Result(…)`), whose payload-free variant materializes as a `{ .tag = … }`
+/// compound literal and allocates nothing. An owning temp there is pure
+/// overhead on the most common expression shape in std — and it makes
+/// `(x : Option(String)) ?= Option(String).None` fail the not-consumed gate.
+///
+/// The "some variant has fields" conjunct mirrors `can_optimize_as_simple_enum`
+/// (`yo-self/codegen/utils/index.yo`): an all-payload-free enum collapses to a
+/// plain C enum constant and also allocates nothing.
+///
+/// Mirrors `attachOwnedTempForRcUnitVariant` in
+/// `src/evaluator/exprs/property-access.ts`.
+_attach_owned_temp_for_rc_unit_variant :: (
+  fn(
+    expr : AstExpr,
+    ty : TypeValue,
+    ctx : EvalContext
+  ) -> unit
+)({
+  if(!(is_reference_enum_type(ty)), return(()));
+  has_payload_variant := match(
+    ty,
+    .EnumT({ variant_fields }) => {
+      (found : bool) = false;
+      n := variant_fields.len();
+      (vi : usize) = usize(0);
+      while(vi < n, {
+        match(
+          variant_fields.get(vi),
+          .Some(fields) => {
+            if(fields.len() > usize(0), {
+              found = true;
+            });
+          },
+          .None => ()
+        );
+        vi = (vi + usize(1));
+      });
+      found
+    },
+    _ => false
+  );
+  if(!(has_payload_variant), return(()));
+  attach_temp_variable_to_expr(expr, true, ctx);
+});
 /// Return the last index in `labels` where `labels[i] == name`, or `.None`.
 /// Mirrors `Array.findLast` from the TypeScript source.
 find_last_field_index :: (fn(labels : ArrayList(String), name : String) -> Option(usize))({
@@ -416,6 +474,7 @@ evaluate_property_access :: (
                   out_1 := new_expr_info(env, new_en_ty_1);
                   out_1.value = Option(EvalValue).Some(ev_1);
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_1);
+                  _attach_owned_temp_for_rc_unit_variant(expr, new_en_ty_1, ctx);
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(prop_expr_1), out_1);
                 }, {
                   // Variant with fields: Shape.Circle(3)
@@ -841,6 +900,7 @@ Raw pointer operations may dereference invalid memory.`,
                 out_tv_en.value = Option(EvalValue).Some(ev_tv_en);
                 out_tv_en.is_accessing_property = Option(bool).Some(true);
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_tv_en);
+                _attach_owned_temp_for_rc_unit_variant(expr, new_en_tv, ctx);
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_tv_en);
               }, {
                 tv_en_type_val := create_type_value(new_en_tv);

@@ -117,7 +117,7 @@ open(import("std/string"));
 { generate_binding } :: import("./binding.yo");
 { generate_initialization_assignment } :: import("./init_assignment.yo");
 { generate_assignment } :: import("./assignment.yo");
-{ generate_comptime_value } :: import("./comptime_value.yo");
+{ generate_comptime_value, comptime_value_allocates_rc_object } :: import("./comptime_value.yo");
 { generate_field_access } :: import("./property_access.yo");
 { generate_begin } :: import("./begin.yo");
 { generate_cond_expression } :: import("./cond.yo");
@@ -133,11 +133,12 @@ open(import("std/string"));
 { generate_open } :: import("./open.yo");
 { generate_op_and, generate_op_or } :: import("./and_or.yo");
 { generate_match_expression } :: import("./match.yo");
-{ generate_other_function_call } :: import("./other_fn_call.yo");
+{ generate_other_function_call, _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
 { is_closure_construction, generate_closure_construction } :: import("./closures.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
-{ get_variable_name_for_codegen, get_type_string, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
-{ Environment } :: import("../../env.yo");
+{ get_variable_name_for_codegen, get_variable_type_string, get_type_string, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
+{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ is_temp_variable_name } :: import("../../utils.yo");
 { generate_async_block, generate_io_async_sync_call, io_async_await_analysis, io_async_closure_body } :: import("./async.yo");
 {
   generate_await,
@@ -432,6 +433,58 @@ _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String
   // Auto-deref the returned pointer unless this is `&(value(i))`.
   match(ei.is_index_trait_address_of,.Some(true) => call_code, _ => `(*${call_code})`)
 });
+/// Some compile-time values ALLOCATE when they materialize in C. The clearest
+/// case is a payload-free variant of a reference-semantics enum: its comptime
+/// value emits `__yo_new_<Enum>_<Variant>()`, which mallocs with
+/// `ref_count = 1`. Inlined at the use site that produces an owned RC object
+/// nothing ever drops — `f(E.UnitVal)` leaks it, because the callee treats the
+/// parameter as borrowed and dups whatever it retains.
+///
+/// When the evaluator recorded such an expression as owning its RC value
+/// (`attach_temp_variable_to_expr(expr, true, ctx)`), it registered a temp
+/// variable at the enclosing begin-block frame so the normal scope-end drop
+/// pass releases it. That only works if codegen actually DECLARES the temp: the
+/// drop emitters skip any target missing from `declared_c_var_names`. So
+/// materialize the value into its temp and hand back the temp's name.
+///
+/// Non-allocating comptime values (numbers, string literals, value-enum
+/// compound literals like `Color.Red`) carry no owning temp and are returned
+/// unchanged.
+///
+/// Mirrors `materializeOwnedRcComptimeValue` in
+/// `src/codegen/exprs/generation.ts`.
+_materialize_owned_rc_comptime_value :: (
+  fn(
+    ei : ExprInfo,
+    value : EvalValue,
+    comptime_code : String,
+    indent : String,
+    context : FunctionGenerationContext
+  ) -> String
+)({
+  var_name := match(ei.variable_name,.Some(vn) => vn,.None => String.from(""));
+  if(var_name.len() == usize(0), return(comptime_code));
+  // Only shapes that actually malloc need an owner (see the predicate's doc).
+  if(!(comptime_value_allocates_rc_object(value, ei.ty)), return(comptime_code));
+  if(!(is_temp_variable_name(ei.env.module_path, var_name)), return(comptime_code));
+  vars := get_variables_from_env(ei.env, var_name.clone());
+  is_owning := match(
+    vars.get(vars.len() - usize(1)),
+    .Some(v) => v.is_owning_the_rc_value,
+    .None => false
+  );
+  if(!(is_owning), return(comptime_code));
+  c_name := get_variable_name_for_codegen(var_name.clone(), Option(Environment).Some(ei.env));
+  line := indent.clone();
+  line.push_string(get_variable_type_string(ei.ty, c_name.clone(), context.base));
+  line.push_str(" = ");
+  line.push_string(comptime_code);
+  line.push_str(";");
+  em := context.base.emitter;
+  em.emit_string_line(line);
+  _store_temp_var_to_state_machine_if_needed(var_name.clone(), indent.clone(), context);
+  c_name
+});
 /// Generate a function-call expression. Mirrors `generateFuncCall`.
 generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   // The unit value `()` is a 0-arg BK_TUPLE call (parser make_unit_call). The
@@ -572,7 +625,8 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
       is_plain_comptime := ((!(is_unknown_val(v)) && !(is_unit_type(ei.ty))) && !(has_any_control_flow(ei.control_flow)));
       is_runtime_ctor := ((is_struct_val(v) || is_enum_val(v)) && ctor_has_runtime_args);
       if(is_plain_comptime && !(is_runtime_ctor), {
-        return(generate_comptime_value(v, ei.ty, context.base));
+        comptime_code := generate_comptime_value(v, ei.ty, context.base);
+        return(_materialize_owned_rc_comptime_value(ei, v, comptime_code, indent.clone(), context));
       });
     },
     .None => ()

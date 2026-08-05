@@ -170,6 +170,43 @@ _is_io_builtin_fn_type :: (fn(t : TypeValue) -> bool)(
     _ => false
   )
 );
+/// `generate_comptime_value` HEAP-ALLOCATES for exactly two shapes: a
+/// reference-semantics enum variant becomes `__yo_new_<cName>_<Variant>(…)` and
+/// a reference-semantics struct / `object` value becomes `__yo_new_<cName>(…)`.
+/// Both malloc with `ref_count = 1`, so the expression owns an RC value and
+/// needs a C binding to hang its `___drop` on. Every other comptime value
+/// renders as a literal or a compound literal and owns nothing — materializing
+/// one into a temp would make the scope-end pass emit a `___drop` against
+/// memory that was never allocated.
+///
+/// Keep in sync with the branches in `generate_comptime_value` below, and with
+/// `can_optimize_as_simple_enum` / `can_optimize_as_nullable_pointer` — both
+/// collapse a ref-enum into a non-allocating form: a plain C enum constant, or
+/// `NULL` / a bare pointer.
+///
+/// Mirrors `comptimeValueAllocatesRcObject` in
+/// `src/codegen/exprs/comptime-value.ts`.
+comptime_value_allocates_rc_object :: (fn(value : EvalValue, ty : TypeValue) -> bool)(
+  match(
+    value,
+    .EnumVal(_, _) => cond(
+      (!(is_reference_enum_type(ty))) => false,
+      can_optimize_as_nullable_pointer(ty).is_some() => false,
+      can_optimize_as_simple_enum(ty) => false,
+      true => true
+    ),
+    .StructVal(_, _, field_values) => match(
+      ty,
+      .Struct({ field_types, is_reference_semantics, is_newtype }) => cond(
+        // A newtype renders as a cast over its single underlying field.
+        ((is_newtype && (field_types.len() == usize(1))) && (field_values.len() == usize(1))) => false,
+        true => is_reference_semantics
+      ),
+      _ => false
+    ),
+    _ => false
+  )
+);
 /// Generate the C literal/initializer for a compile-time value of type `ty`.
 /// Mirrors `generateComptimeValue`. Self-recursion via recur.
 generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : CodeGenContext) -> String)(
@@ -460,4 +497,4 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
     _ => if(_is_io_builtin_fn_type(ty), String.from("NULL"), String.from("/* skip generating value */"))
   )
 );
-export(generate_comptime_value, _c_string_literal, _strip_str_delims);
+export(generate_comptime_value, comptime_value_allocates_rc_object, _c_string_literal, _strip_str_delims);
