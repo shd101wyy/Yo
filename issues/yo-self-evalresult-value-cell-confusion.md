@@ -119,12 +119,18 @@ grep -n -A1 "\.value\.get(usize(0))" yo-self/evaluator/eval.yo
 separate argument, so `''` is consumed as the script. Use `sed -i 'script' file`, or
 `/usr/bin/sed -i '' ...` for the BSD binary. Silent no-op risk if unnoticed.
 
-## Follow-up
+## Follow-up — all closed
 
-- Re-test `evaluator_index` — it was swept BEFORE the last two fixes landed, so its
-  `BOTH-FAIL-DIFF` verdict is stale.
-- Confirm `check ./yo-self` moves from 295/305 toward 305/305, and update the baseline
-  in `plans/YO_SELF_STAGE2_HANDOFF.md` (it currently mislabels this as
-  "circular-import").
-- The `eval_*` trio may still exceed the runner's process limit even once it checks
-  clean; that is a separate, genuine capacity issue.
+- `evaluator_index` re-tested after the fix: **ts 18/18, self 18/18**. Its earlier
+  `BOTH-FAIL-DIFF` verdict was stale (swept before the last two fixes landed).
+- `check ./yo-self` confirmed at **305/305**, zero remaining FAILED files, and the
+  baseline in `plans/YO_SELF_STAGE2_HANDOFF.md` updated — the "circular-import"
+  description is gone, replaced with the real cause.
+- Gates re-verified green with the fix in the tree: TIER 1 `failures=0` (battery 20/20
+  `hollow=0`, corpus PASS 155 / DIFF 0, `check ./std` 153/153) and the stage-2/stage-3
+  **FIXPOINT_HOLDS**. As expected — this code is not in the compiler build, so it
+  cannot affect the fixpoint.
+
+Still open, and NOT caused by this bug: the `eval_*` trio exceeds the test runner's
+process limit, so those three files are **uncovered rather than passing**. That is a
+capacity issue.
