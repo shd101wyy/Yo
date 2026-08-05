@@ -359,7 +359,10 @@ jobs:
   compiler-internal-tests:
     name: Compiler internal tests (tests/internal — informational)
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    # 240, not 180: without --bail the TS arm now runs all 826 tests (~100 min at the
+    # measured rate) instead of stopping at the first failure, and the self-hosted
+    # differential arm adds ~22 min on top of a ~5 min stage-1 build.
+    timeout-minutes: 240
     continue-on-error: true
 
     steps:
@@ -388,8 +391,13 @@ jobs:
           bun install
           bun run build
 
+      # NO --bail: every test binary runs under ASan/LeakSanitizer, so a leak fails
+      # one test. Bailing reported exactly ONE leak per ~3-hour run, which made
+      # convergence serial (it took a run each to surface the ref(enum) unit-variant
+      # leak and then the module-global collision). Without it a single run lists
+      # every failure, which is what a scorecard job should do anyway.
       - name: Run tests/internal under the TS compiler (ground truth)
-        run: node --expose-gc --max-old-space-size=12288 ./out/cjs/yo-cli.cjs test ./tests/internal --parallel 1 --bail --verbose --c-compiler clang
+        run: node --expose-gc --max-old-space-size=12288 ./out/cjs/yo-cli.cjs test ./tests/internal --parallel 1 --verbose --c-compiler clang
 
       - name: "Stage 1: build the self-hosted compiler with the TS compiler"
         if: always()
