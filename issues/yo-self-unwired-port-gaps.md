@@ -1,4 +1,4 @@
-# yo-self: three PORT GAPS found by import-closure comparison (OPEN)
+# yo-self: three PORT GAPS found by import-closure comparison (1 FIXED, 2 OPEN)
 
 **Found:** 2026-08-05, by classifying every `.yo` file under `yo-self/` by its
 import closure from `main.yo`, then asking the discriminating question: **is the
@@ -25,7 +25,7 @@ Baseline after this sweep: 238 non-test files — **215 in the build, 16 test-on
 
 | yo-self file                      | lines     | TS counterpart                               | TS importers                                       | severity |
 | --------------------------------- | --------- | -------------------------------------------- | -------------------------------------------------- | -------- |
-| `evaluator/ctfe/ctfe_analysis.yo` | 18 (stub) | `src/evaluator/ctfe/ctfe-analysis.ts` (~194) | **3, all live evaluator code**                     | **HIGH** |
+| `evaluator/ctfe/ctfe_analysis.yo` | **FIXED** | `src/evaluator/ctfe/ctfe-analysis.ts` (~194) | **3, all live evaluator code**                     | **HIGH** |
 | `build_runner.yo`                 | 952       | `src/build-runner.ts`                        | 2 (`src/yo-cli.ts`, build-system tests)            | MEDIUM   |
 | `version_cache.yo`                | 640       | `src/version-cache.ts`                       | 2 (`src/yo-cli.ts`, `src/lsp/document-manager.ts`) | MEDIUM   |
 
@@ -39,22 +39,23 @@ TS evaluator:
 - `src/evaluator/values/anonymous-function.ts`
 - `src/evaluator/builtins/comptime-fn.ts`
 
-yo-self's counterpart is an **18-line stub**. Its header claims the analysis is
+yo-self's counterpart WAS an 18-line stub whose header claimed the analysis was
 "performed inline in `yo-self/evaluator/calls/comptime_fn.yo` (Phase 2/3 wiring)".
 
-**RESOLVED 2026-08-05 — the claim is FALSE and this is a real gap.** See
-`issues/yo-self-ctfe-nested-fn-analysis-gap.md` for the confirmed root cause, a
-minimal reproducer, and the fix plan. Summary: the analysis IS implemented (in
-`evaluator/builtins/comptime_fn.yo`, not `calls/`, so the stub names the wrong file),
-but TS invokes it at **three** sites and yo-self at **one**. The two missing sites
-handle nested functions met during a CTFE analysis, so
-`comptime_fn` over a function containing a nested `fn` produces no compile-time value
-and codegen emits an undeclared C identifier. It was invisible to every gate because
-the only shape that triggers it — nesting AND the result used at runtime — appears
-nowhere in the tree.
+**RESOLVED 2026-08-05 — the claim was FALSE, and the gap is now FIXED.** See
+`issues/yo-self-ctfe-nested-fn-analysis-gap.md`. Summary: the analysis WAS
+implemented, but in `evaluator/builtins/comptime_fn.yo` (not `calls/`, so the stub
+named the wrong file) and reachable from that one builtin only, while TS invokes it
+at **three** sites. Nested functions met during a CTFE analysis were therefore never
+analysed, so `comptime_fn` over a function containing a nested `fn` produced no
+compile-time value and codegen emitted an undeclared C identifier.
 
-Do not delete this stub — it is the intended home for the extracted module, and
-extracting it is what breaks the import cycle that currently blocks the fix.
+The stub is now the real module: the analysis was extracted into it (which is what
+breaks the import cycle, exactly as TS does) and the nested-**named**-fn site is
+wired. The nested-**anonymous**-fn site is knowingly still absent because yo-self
+derives `is_creating_closure` syntactically while TS derives it from the expected
+type — the gate is not equivalent, and that divergence must be resolved first. Full
+reasoning and regression coverage (`tests/comptime_fn_nested.test.yo`) in the issue.
 
 ### 2 & 3. `build_runner` / `version_cache` — MEDIUM, CLI surface
 

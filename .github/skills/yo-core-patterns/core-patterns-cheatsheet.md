@@ -518,3 +518,43 @@ swept all of them): `token.value == "fn"`, `name != other_string`, and
 `"lit" == x` all dispatch directly via the heterogeneous `Eq(str)`/
 `Eq(String)` impls. `as_str()` itself is slated for deletion
 (plans/SLICE_REWORK.md) — do not introduce new calls to it.
+
+## `unwind` in a swallow handler SKIPS the restore code after the guarded call
+
+`unwind(...)` discards the continuation and exits the **enclosing `fn`**. So when
+you wrap a call in a swallowing exception handler, every statement after that call —
+including `save`/`restore` of mutable state — is skipped on the failure path.
+
+```rust
+// ❌ BROKEN: on a swallowed error the restore never runs, and the flags stay set
+// for the REST OF THE COMPILE.
+_analyze :: (fn(..., ctx : EvalContext, exn : Exception) -> bool)({
+  saved := ctx.some_flag;
+  ctx.some_flag = true;
+  r := evaluate_something(..., exn);   // <-- throws; handler unwinds past everything below
+  ctx.some_flag = saved;               // <-- NEVER RUNS
+  r
+});
+```
+
+Fix: save and restore in the caller that the `unwind` lands in — `unwind` only
+unwinds as far as the `fn` whose body contains the handler, so code after _that_
+call always runs.
+
+```rust
+// ✅ the restore is OUTSIDE the unwind target
+saved := ctx.some_flag;
+_try_analyze_swallowing(..., ctx, out);   // handler's unwind exits THIS helper
+ctx.some_flag = saved;                    // always runs
+```
+
+**Why this matters:** the leak is invisible in isolation and only shows up when
+something else is compiled afterwards. Measured 2026-08-05: a leaked
+`is_analyzing_ctfe_capability` turned `tests/fn.test.yo` HOLLOW (its `main` failed
+to transpile so it reported "24 passed" while running nothing) even though all 24
+tests passed individually, and every single-file repro was clean. See
+`issues/yo-self-ctfe-nested-fn-analysis-gap.md`.
+
+Corollary: adding a swallow handler to existing code is NOT behaviour-preserving.
+Code whose errors previously propagated (aborting compilation, so leaked state never
+mattered) starts leaking the moment you swallow.

@@ -73,6 +73,7 @@ _(env : fnty_env) :: import("std/env");
 { are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
+{ analyze_ctfe_capability } :: import("../ctfe/ctfe_analysis.yo");
 { panic, assert } :: import("std/assert");
 /// Check if a generic function body returns a type incompatible with the
 /// declared generic return type.
@@ -836,10 +837,38 @@ try_to_implement_function_by_function_type :: (
         .Atom(_, _) => ()
       );
       result_box;
+      // If we are in CTFE analysis mode OR actually EXECUTING a CTFE function
+      // (`force_compile_time_bindings`), analyse this NESTED function for CTFE
+      // capability too, and prefer the comptime version — TS
+      // function-type.ts:665-679, "This allows nested functions to be called at
+      // compile-time."
+      //
+      // Without it a nested helper stays runtime-only, so the `helper(x)` call in
+      // the enclosing comptime body cannot fold, the enclosing CTFE result is not
+      // a compile-time value, and the `::` binding it feeds ends up with none —
+      // which codegen emits as a BARE UNDECLARED C IDENTIFIER. See
+      // `issues/yo-self-ctfe-nested-fn-analysis-gap.md`.
+      //
+      // `analyze_ctfe_capability` swallows its own failures (TS's try/catch), which
+      // is essential here: an ordinary runtime helper defined inside a
+      // comptime-executing body is EXPECTED to fail this analysis and must be left
+      // exactly as it is.
+      (final_func_val : EvalValue) = func_val;
+      (final_func_ty : TypeValue) = function_type;
+      if(ctx.is_analyzing_ctfe_capability || ctx.force_compile_time_bindings, {
+        match(
+          analyze_ctfe_capability(func_val, function_type, caller_env, ctx),
+          .Some(ctfe_ok) => {
+            final_func_val = ctfe_ok.value;
+            final_func_ty = ctfe_ok.ty;
+          },
+          .None => ()
+        );
+      });
       // Build and store ExprInfo for the function definition expression.
       // The type of a function definition is the function type itself.
-      info := new_expr_info(caller_env, function_type);
-      info.value = Option(EvalValue).Some(func_val);
+      info := new_expr_info(caller_env, final_func_ty);
+      info.value = Option(EvalValue).Some(final_func_val);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
       // Def-time body evaluation (function-type.ts:499) for every non-deferred
       // (concrete) function. The flowability *check* on the evaluated final

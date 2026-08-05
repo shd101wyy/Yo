@@ -1,12 +1,17 @@
 //! evaluator/builtins/comptime_fn — evaluate_comptime_fn.
 //!
-//! Phase 3v — full 1:1 port of `src/evaluator/builtins/comptime-fn.ts` plus
-//! the inlined `analyzeCtfeCapability` from `src/evaluator/ctfe/ctfe-analysis.ts`.
+//! 1:1 port of `src/evaluator/builtins/comptime-fn.ts`.
 //!
 //! `comptime_fn(f)` converts a runtime function to a compile-time function by
 //! changing the return type from a runtime type (e.g. i32) to its comptime
 //! equivalent (e.g. ComptimeInt), then verifying the body can be evaluated at
 //! compile time.
+//!
+//! The CTFE analysis itself lives in `evaluator/ctfe/ctfe_analysis.yo` (mirroring
+//! TS's `src/evaluator/ctfe/ctfe-analysis.ts`). It used to be INLINED here, which
+//! left it reachable from this builtin only — so nested functions met during a
+//! CTFE analysis were never analysed. See
+//! `issues/yo-self-ctfe-nested-fn-analysis-gap.md`.
 //!
 //! NOTE: This is builtins/comptime_fn.yo, distinct from calls/comptime_fn.yo.
 pragma(Pragma.AllowUnsafe);
@@ -18,196 +23,20 @@ open(import("std/string"));
   expr_info_table_set,
   expr_info_table_get
 } :: import("../../expr_info.yo");
-{
-  Variable,
-  Environment,
-  add_variable_to_env,
-  synthetic_token,
-  snapshot_env
-} :: import("../../env.yo");
-{
-  EvalContext,
-  FuncOrAsyncBlockCtx,
-  FuncOrAsyncBlockKind
-} :: import("../context.yo");
-{ EvalValue, FuncValData, is_func_val, create_unknown_val } :: import("../../value.yo");
-{ register_func_type, mark_fn_unemittable } :: import("../../function_value.yo");
-{
-  copy_func_param_defaults,
-  copy_func_param_default_exprs,
-  copy_func_param_type_exprs,
-  copy_func_param_comptime,
-  copy_func_param_assigned_values,
-  copy_func_return_type_expr,
-  copy_macro_registration,
-  copy_func_variadic_param,
-  copy_func_where_constraints,
-  copy_func_contract_exprs
-} :: import("../types/function.yo");
-{ TypeValue, FuncMeta } :: import("../../types/definitions.yo");
+{ Environment } :: import("../../env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue, is_func_val } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { is_function_type_and_returns_comptime_value } :: import("../../types/guards.yo");
 { type_prohibits_comptime_modifier } :: import("../../types/utils.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ evaluate_begin_expression } :: import("../exprs/begin.yo");
+{
+  create_comptime_function_type,
+  analyze_ctfe_capability
+} :: import("../ctfe/ctfe_analysis.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
-// ---------------------------------------------------------------------------
-// _to_comptime_type
-// ---------------------------------------------------------------------------
-/// Convert a runtime TypeValue to its comptime equivalent.
-/// Returns .Some(comptime_ty) on success, .None if the type cannot be
-/// promoted to comptime (e.g. structs, pointers, bools).
-///
-/// Mirrors `createComptimeFunctionType` (the return-type portion) from
-/// `src/evaluator/ctfe/ctfe-analysis.ts`.
-_to_comptime_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
-  match(
-    ty,
-    .Int(_, _) =>.Some(TypeValue.ComptimeInt),
-    .Usize =>.Some(TypeValue.ComptimeInt),
-    .Isize =>.Some(TypeValue.ComptimeInt),
-    .Float(_) =>.Some(TypeValue.ComptimeFloat),
-    .ComptimeInt =>.Some(TypeValue.ComptimeInt),
-    .ComptimeFloat =>.Some(TypeValue.ComptimeFloat),
-    .ComptimeString =>.Some(TypeValue.ComptimeString),
-    _ => Option(TypeValue).None
-  )
-);
-// ---------------------------------------------------------------------------
-// _analyze_ctfe_capability
-// ---------------------------------------------------------------------------
-/// Attempt to prove the function body evaluates at compile time.
-///
-/// Mirrors `analyzeCtfeCapability` from `src/evaluator/ctfe/ctfe-analysis.ts`.
-///
-/// All pre-condition checks (generic params, type_prohibits_comptime_modifier)
-/// are done by the caller. Errors from body evaluation propagate to the caller
-/// (no `given` handler here, which avoids the "ambiguous implicit parameter"
-/// error that arises when two Exception handlers are in the dynamic effect scope).
-_analyze_ctfe_capability :: (
-  fn(
-    func_value : EvalValue,
-    param_labels : ArrayList(String),
-    param_types : ArrayList(TypeValue),
-    body_box : AstExpr,
-    cap_names : ArrayList(String),
-    cap_tys : ArrayList(TypeValue),
-    cap_vals : ArrayList(EvalValue),
-    func_type : TypeValue,
-    env : Environment,
-    ctx_p : EvalContext,
-    exn : Exception
-  ) -> Option(TypeValue)
-)({
-  // Build a fresh environment: add captured variables, then push a frame.
-  (ctfe_env : Environment) = Environment.new(env.module_path);
-  n_cap := cap_names.len();
-  (cap_i : usize) = usize(0);
-  while(cap_i < n_cap, {
-    cn := match(cap_names.get(cap_i),.Some(n) => n,.None => String.from(""));
-    ct := match(cap_tys.get(cap_i),.Some(t) => t,.None => t_unit());
-    cv := match(cap_vals.get(cap_i),.Some(v) => Option(EvalValue).Some(v),.None => Option(EvalValue).None);
-    is_ct := match(cv,.Some(_) => true,.None => false);
-    _add := add_variable_to_env(
-      ctfe_env,
-      cn,
-      ct,
-      cv,
-      is_ct,
-      false,
-      false,
-      false,
-      synthetic_token(cn, env.module_path)
-    );
-    cap_i = (cap_i + usize(1));
-  });
-  _fr := ctfe_env.push_frame(false);
-  // Bind __recur_fn with the COMPTIME function type so that recursive calls
-  // are routed through evaluate_comptime_fn_call, which short-circuits when
-  // is_analyzing_ctfe_capability = true.
-  recur_tok := synthetic_token(String.from("__recur_fn"), env.module_path);
-  _add_recur := add_variable_to_env(
-    ctfe_env,
-    String.from("__recur_fn"),
-    func_type,
-    Option(EvalValue).Some(func_value),
-    true,
-    false,
-    false,
-    false,
-    recur_tok
-  );
-  // Bind each parameter as UnknownVal with is_compile_time_only = true.
-  n_p := param_labels.len();
-  (p_i : usize) = usize(0);
-  while(p_i < n_p, {
-    plabel := match(param_labels.get(p_i),.Some(l) => l,.None => String.from(""));
-    ptype := match(param_types.get(p_i),.Some(t) => t,.None => t_unit());
-    punknown := create_unknown_val(ptype);
-    ptok := synthetic_token(plabel, env.module_path);
-    _add_p := add_variable_to_env(
-      ctfe_env,
-      plabel,
-      ptype,
-      Option(EvalValue).Some(punknown),
-      true,
-      false,
-      false,
-      false,
-      ptok
-    );
-    p_i = (p_i + usize(1));
-  });
-  // Save context state.
-  (saved_analyzing : bool) = ctx_p.is_analyzing_ctfe_capability;
-  (saved_force_ct : bool) = ctx_p.force_compile_time_bindings;
-  (saved_fn_ctx : Option(FuncOrAsyncBlockCtx)) = ctx_p.is_evaluating_function_body_or_async_block;
-  (saved_executing : bool) = ctx_p.is_executing;
-  // Set CTFE analysis flags.
-  ctx_p.is_analyzing_ctfe_capability = true;
-  ctx_p.force_compile_time_bindings = true;
-  ctx_p.is_executing = true;
-  // `evaluate_recur` DOES read func_type (recur.yo:128 hard-errors on .None),
-  // so it must carry the function type — TS ctfe-analysis.ts:183-188 sets
-  // `type: comptimeFunctionType` here for exactly that reason ("Use the
-  // compile-time function value for recur").
-  ctx_p.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(
-    FuncOrAsyncBlockCtx(
-      kind : FuncOrAsyncBlockKind.FunctionBody,
-      func_type : Option(TypeValue).Some(func_type),
-      func_value : Option(EvalValue).Some(func_value),
-      eval_env : snapshot_env(ctfe_env)
-    )
-  );
-  body_expr := body_box;
-  evaled := evaluate_begin_expression(
-    body_expr,
-    ctfe_env,
-    ctx_p,
-    ArrayList(Variable).new(),
-    true,
-    exn
-  );
-  // Restore context state.
-  ctx_p.is_analyzing_ctfe_capability = saved_analyzing;
-  ctx_p.force_compile_time_bindings = saved_force_ct;
-  ctx_p.is_evaluating_function_body_or_async_block = saved_fn_ctx;
-  ctx_p.is_executing = saved_executing;
-  // Check if the result has a compile-time value.
-  // On success return `func_type` itself (the comptime TypeValue.Func) so the
-  // caller can use it for the output ExprInfo without needing a separate copy.
-  evaled_info_opt := expr_info_table_get(ctx_p.expr_info_table, ast_expr_id(evaled));
-  match(
-    evaled_info_opt,
-    .Some(info) => match(
-      info.value,
-      .Some(_) =>.Some(func_type),
-      .None => Option(TypeValue).None
-    ),
-    .None => Option(TypeValue).None
-  )
-});
 // ---------------------------------------------------------------------------
 // evaluate_comptime_fn
 // ---------------------------------------------------------------------------
@@ -299,15 +128,13 @@ evaluate_comptime_fn :: (
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     return(expr);
   });
-  // Extract TypeValue.Func fields.
+  // Pre-flight diagnostics. `analyze_ctfe_capability` re-derives all of these and
+  // simply returns `.None` (TS ctfe-analysis.ts does the same), but yo-self keeps
+  // these SPECIFIC messages: they say WHY comptime_fn is impossible, where the
+  // shared analysis can only say "not possible". TS has no equivalents, so these
+  // are a yo-self improvement worth preserving rather than a divergence to undo.
   forall_labels := match(func_type,.Func({ meta : __fm1 }) => __fm1.*.forall_labels, _ => ArrayList(String).new());
-  forall_types := match(func_type,.Func({ forall_types : ft }) => ft, _ => ArrayList(TypeValue).new());
-  param_labels := match(func_type,.Func({ meta : __fm2 }) => __fm2.*.param_labels, _ => ArrayList(String).new());
   param_types := match(func_type,.Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
-  implicit_labels := match(func_type,.Func({ meta : __fm3 }) => __fm3.*.implicit_labels, _ => ArrayList(String).new());
-  implicit_types := match(func_type,.Func({ implicit_types : it }) => it, _ => ArrayList(TypeValue).new());
-  implicit_spreads := match(func_type,.Func({ meta : __fm4 }) => __fm4.*.implicit_spreads, _ => ArrayList(bool).new());
-  where_types := match(func_type,.Func({ where_types : wt }) => wt, _ => ArrayList(TypeValue).new());
   result_box := match(func_type,.Func({ result : rb }) => rb, _ => t_unit());
   // Skip functions with generic parameters — they need specialisation first.
   if(forall_labels.len() > usize(0), {
@@ -353,119 +180,26 @@ evaluate_comptime_fn :: (
       )
     );
   });
-  // Convert return type to its comptime equivalent.
-  comptime_result_opt := _to_comptime_type(result_box);
-  comptime_result_ty := match(
-    comptime_result_opt,
-    .Some(ct) => ct,
-    .None => {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(arg_expr),
-            String.from("comptime_fn: return type cannot be promoted to comptime"),
-            false,
-            .None
-          )
+  if(match(create_comptime_function_type(func_type),.Some(_) => false,.None => true), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(arg_expr),
+          String.from("comptime_fn: return type cannot be promoted to comptime"),
+          false,
+          .None
         )
-      );
-      TypeValue.ComptimeInt
-    }
-  );
-  // Build the comptime TypeValue.Func (same as original but with comptime result).
-  comptime_func_type := TypeValue.Func(
-    forall_types,
-    param_types,
-    implicit_types,
-    where_types,
-    comptime_result_ty,
-    box(
-      FuncMeta(
-        forall_labels : forall_labels,
-        param_labels : param_labels,
-        implicit_labels : implicit_labels,
-        implicit_spreads : implicit_spreads,
-        result_is_comptime_only : true,
-        // this builds the comptime-result form
-        param_is_ref : ArrayList(bool).new(),
-        param_is_owning : match(func_type,.Func({ meta : m }) => m.*.param_is_owning, _ => ArrayList(bool).new()),
-        // preserve the original's
-        result_is_ref : false,
-        // has_variadic / is_extern / extern_name / is_control — preserve the original's metadata.
-        has_variadic : match(func_type,.Func({ meta : m }) => m.*.has_variadic, _ => false),
-        is_extern : match(func_type,.Func({ meta : m }) => m.*.is_extern, _ => Option(String).None),
-        extern_name : match(func_type,.Func({ meta : m }) => m.*.extern_name, _ => Option(String).None),
-        is_control : match(func_type,.Func({ meta : m }) => m.*.is_control, _ => false),
-        variadic_label : Option(String).None,
-        variadic_comptime : false
       )
-    ),
-    ArrayList(TypeValue).new()
-  );
-  // Extract body_box and captures from the FuncVal.
-  body_box := match(arg_val,.FuncVal(__fvd1, _) => __fvd1.*.body, _ => make_err_expr());
-  cap_names := match(arg_val,.FuncVal(__fvd2, _) => __fvd2.*.cap_names, _ => ArrayList(String).new());
-  cap_tys := match(arg_val,.FuncVal(__fvd3, _) => __fvd3.*.cap_tys, _ => ArrayList(TypeValue).new());
-  cap_vals := match(arg_val,.FuncVal(_, cv) => cv, _ => ArrayList(EvalValue).new());
-  // Attempt CTFE capability analysis.
-  ctfe_result := _analyze_ctfe_capability(
-    arg_val,
-    param_labels,
-    param_types,
-    body_box,
-    cap_names,
-    cap_tys,
-    cap_vals,
-    comptime_func_type,
-    env,
-    ctx,
-    exn
-  );
+    );
+  });
+  // Delegate to the shared CTFE analysis — the SAME entry point the nested-function
+  // call sites use (evaluator/ctfe/ctfe_analysis.yo). It builds the comptime function
+  // type, proves the body, and produces the `${funcId}_comptime` clone.
   match(
-    ctfe_result,
-    .Some(cft) => {
-      // CTFE succeeded — return a NEW FunctionValue with `${funcId}_comptime`
-      // (TS ctfe-analysis.ts:159-172) so the comptime version's caches never
-      // collide with the runtime version's (fn.test.yo arm 11 layer 2).
-      // CODEGEN PAIR (the 2026-08-02 attempt regressed without it): the
-      // comptime clone is marked UNEMITTABLE — its calls fold to values at
-      // CTFE, so no C call site can exist, while an emitted body referenced
-      // its params as raw undeclared C identifiers.
-      ct_fid := match(arg_val,.FuncVal(__fvd9, _) => __fvd9.*.func_id.clone(), _ => String.new());
-      (out_val : EvalValue) = arg_val;
-      if(ct_fid.len() > usize(0), {
-        ct_new_id := `${ct_fid}_comptime`;
-        ct_new_data := FuncValData(
-          forall_names : match(arg_val,.FuncVal(__fvda, _) => __fvda.*.forall_names, _ => ArrayList(String).new()),
-          params : match(arg_val,.FuncVal(__fvdb, _) => __fvdb.*.params, _ => ArrayList(String).new()),
-          param_type_names : match(arg_val,.FuncVal(__fvdc, _) => __fvdc.*.param_type_names, _ => ArrayList(String).new()),
-          evidence_params : match(arg_val,.FuncVal(__fvdd, _) => __fvdd.*.evidence_params, _ => ArrayList(String).new()),
-          body : body_box,
-          cap_names : cap_names,
-          cap_tys : cap_tys,
-          func_id : ct_new_id.clone()
-        );
-        register_func_type(ct_new_id.clone(), cft.clone());
-        mark_fn_unemittable(ct_new_id.clone());
-        // yo-self keys the per-fn metadata in SIDE TABLES by fid (TS carries
-        // it inline on the FunctionValue) — the comptime clone needs the full
-        // set or evaluate_comptime_fn_call executes it as a metadata-less fn
-        // (params not comptime-flagged, no return-type expr, …) and the CTFE
-        // result degrades to a runtime UnknownVal (fn arm 11 layer 3).
-        copy_func_param_defaults(ct_fid.clone(), ct_new_id.clone());
-        copy_func_param_default_exprs(ct_fid.clone(), ct_new_id.clone());
-        copy_func_param_type_exprs(ct_fid.clone(), ct_new_id.clone());
-        copy_func_param_comptime(ct_fid.clone(), ct_new_id.clone());
-        copy_func_param_assigned_values(ct_fid.clone(), ct_new_id.clone());
-        copy_func_return_type_expr(ct_fid.clone(), ct_new_id.clone());
-        copy_macro_registration(ct_fid.clone(), ct_new_id.clone());
-        copy_func_variadic_param(ct_fid.clone(), ct_new_id.clone());
-        copy_func_where_constraints(ct_fid.clone(), ct_new_id.clone());
-        copy_func_contract_exprs(ct_fid.clone(), ct_new_id.clone());
-        out_val = EvalValue.FuncVal(box(ct_new_data), cap_vals);
-      });
-      out_info := new_expr_info(env, cft);
-      out_info.value = Option(EvalValue).Some(out_val);
+    analyze_ctfe_capability(arg_val, func_type, env, ctx),
+    .Some(ctfe_ok) => {
+      out_info := new_expr_info(env, ctfe_ok.ty);
+      out_info.value = Option(EvalValue).Some(ctfe_ok.value);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
       expr
     },
