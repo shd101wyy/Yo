@@ -941,6 +941,37 @@ run_check :: (
 _arg_val :: (fn(argv : ArrayList(String), i : usize) -> String)(
   if((i + usize(1)) < argv.len(), argv(i + usize(1)), String.from(""))
 );
+/// Is liburing available for linking? Mirrors `isLiburingAvailable` in
+/// `src/compiler-utils.ts`: probe `pkg-config --exists liburing`.
+///
+/// LOAD-BEARING ON LINUX. `codegen/async/runtime_io_linux.yo` emits io_uring
+/// calls guarded by `#if __has_include(<liburing.h>)`, so when the header IS
+/// present the emitted C references `io_uring_*` and the LINK fails without
+/// `-luring`. That is exactly how tests/sys/bufio, tests/fs/{file,temp,walker},
+/// async_await and imm_string failed in CI with "undefined reference to
+/// io_uring_peek_batch_cqe" etc. while passing on macOS, which uses kqueue and
+/// never references those symbols. TS adds the flag in TWO places
+/// (`codegen/index.ts` and `test-runner.ts`); yo-self funnels `compile` and
+/// `test` through one link path, so it is added once here.
+///
+/// The probe runs under a SWALLOWING handler because `pkg-config` may not exist
+/// at all, in which case spawning throws (TS wraps the same probe in try/catch).
+/// A swallowed probe leaves `out` empty, read as "not available", so a box
+/// without liburing still links — matching TS, which warns and omits the flag.
+_probe_liburing :: (fn(io : Io, out : ArrayList(bool)) -> unit)({
+  probe_exn := Exception(
+    throw : (
+      (_e) -> {
+        unwind(());
+      }
+    )
+  );
+  probe := Command.new(String.from("pkg-config"));
+  probe.arg(String.from("--exists"));
+  probe.arg(String.from("liburing"));
+  st := io.await(probe.status(io), IoExn(io : io, exn : probe_exn));
+  out.push(st.raw == i32(0));
+});
 /// Run the `compile` subcommand.
 run_compile :: (
   fn(
@@ -1097,6 +1128,33 @@ run_compile :: (
   // set to the entry ctx's table afterwards, so a prelude function emitted
   // directly (not re-specialized at a call site) had no cond ExprInfo →
   // "Failed to transpile cond(...)". See issues/yo-self-cond-panic-arm-codegen.md.
+  // Make this compile SELF-CONTAINED. `run_test` calls `run_compile` once per
+  // test batch IN-PROCESS, and a fresh ExprInfoTable is created just below — but
+  // two caches outlive that table: the module cache (`g_module_cache_*`) and
+  // `g_cached_prelude_env`. On a SECOND batch the cached std/prelude ASTs are
+  // reused while their ExprInfo lives in the FIRST batch's discarded table, so
+  // codegen finds no info for those nodes and emits `// Failed to transpile` for
+  // std internals (ArrayList._length/_ptr/_capacity, String._bytes, std/env
+  // getenv, ...).
+  //
+  // MEASURED 2026-08-05: `test ./tests/string` (5 files) emitted 47 FTT markers
+  // on the second file's batch while every one of those files passed ALONE, and
+  // `test ./tests/internal` did the same with 59 — with an IDENTICAL import list
+  // either side, so the trigger was purely "second compile in one process". That
+  // is also why every per-file gate was green: they only ever compile one batch.
+  //
+  // This clearing is DEFENCE IN DEPTH, not the fix — it took 47 markers to 18,
+  // because the specialization and impl registries outlive the table too. The
+  // actual fix is that `run_test` now compiles each batch in a CHILD PROCESS, so
+  // no second in-process compile happens at all. Kept because it makes
+  // `run_compile` self-contained (free: a one-compile process starts with these
+  // caches empty), which is the invariant the child-process design relies on.
+  //
+  // TS needs no equivalent: it stores node info ON the AST node (`expr.$`), so a
+  // cached AST carries its annotations, whereas yo-self keys a SIDE TABLE by
+  // expr id. `run_check` already clears the module cache for the same reason.
+  clear_module_cache();
+  g_cached_prelude_env = Option(Environment).None;
   shared_info_table := expr_info_table_new();
   g_shared_expr_info_table = Option(ExprInfoTable).Some(shared_info_table);
   // Ensure the prelude env is cached (provides std types to the evaluator).
@@ -1307,6 +1365,15 @@ run_compile :: (
   cmd.arg(output.clone());
   cmd.arg(String.from("-lm"));
   cmd.arg(String.from("-pthread"));
+  // liburing for async I/O (io_uring) on Linux — see `_probe_liburing`. Without
+  // it every emitted `io_uring_*` reference is an undefined symbol at link time.
+  if(is_target_linux(target), {
+    ur := ArrayList(bool).new();
+    _probe_liburing(io, ur);
+    if(match(ur.get(usize(0)),.Some(b) => b,.None => false), {
+      cmd.arg(String.from("-luring"));
+    });
+  });
   (xi : usize) = usize(0);
   while(xi < libraries.len(), {
     match(libraries.get(xi),.Some(lib) => cmd.arg(`-l${lib}`),.None => ());
@@ -1497,14 +1564,39 @@ run_test :: (
       tmp_yo := `${batch_dir}/.yo_selftest_batch_${fi.to_string()}.yo`;
       tmp_bin := `${batch_dir}/.yo_selftest_batch_${fi.to_string()}.bin`;
       io.await(write_file(Path.new(tmp_yo.clone()), prog_src.clone(), io), IoExn(io : io, exn : exn));
-      // Compile through the normal driver (synthetic argv).
-      cargv := ArrayList(String).new();
-      cargv.push(String.from("yo-self"));
-      cargv.push(String.from("compile"));
-      cargv.push(tmp_yo.clone());
-      cargv.push(String.from("-o"));
-      cargv.push(tmp_bin.clone());
-      run_compile(cargv, io, exn);
+      // Compile the batch in a CHILD PROCESS, not in-process.
+      //
+      // WHY: `run_compile` creates a fresh ExprInfoTable, but compiler state lives
+      // in module-level globals (func-type registry, specialization caches, impl
+      // registry, module cache, prelude env, ...) that OUTLIVE it. A second
+      // in-process compile therefore reused cached std ASTs whose ExprInfo was in
+      // the first batch's discarded table, and codegen emitted
+      // `// Failed to transpile` for std internals (ArrayList._length,
+      // String._bytes, Option.unwrap, std/env getenv). MEASURED 2026-08-05: 47
+      // markers on `test ./tests/string` — five ORDINARY language tests — and 59
+      // on tests/internal, while every one of those files passed ALONE. Batch 1
+      // and batch 2 had an IDENTICAL import list, so the trigger was purely
+      // "second compile in one process".
+      //
+      // TS gets fresh state per batch by construction: `src/test-runner.ts:503`
+      // does `moduleManager = new ModuleManager()`. yo-self has no instance to
+      // re-create, so a fresh PROCESS is the faithful equivalent — and it
+      // reproduces EXACTLY the standalone path, which is the verified-green one
+      // (all 58 tests/internal and all 187 ./tests files pass standalone).
+      //
+      // Uses argv(0), so the binary must be invoked by a usable path. CI and every
+      // gate script invoke it by explicit path (/tmp/yo-stage1,
+      // ./yo-self/yo-self-bin). See issues/yo-self-second-batch-in-process-ftt.md.
+      self_exe := argv(usize(0));
+      ccmd := Command.new(self_exe.clone());
+      ccmd.arg(String.from("compile"));
+      ccmd.arg(tmp_yo.clone());
+      ccmd.arg(String.from("-o"));
+      ccmd.arg(tmp_bin.clone());
+      bst := io.await(ccmd.status(io), IoExn(io : io, exn : exn));
+      if(bst.raw != i32(0), {
+        exn.throw(dyn(`test: batch compile failed (exit ${bst.raw.to_string()}) for ${tmp_yo}`));
+      });
       // Run each test: YO_TEST_INDEX in the PARENT env (the spawn runtime
       // passes environ through when envp is NULL).
       (ri : usize) = usize(0);
