@@ -75,7 +75,7 @@ codegen emitted the bare Yo name as a C identifier that nothing declares.
 3. **`calls/function_type.yo`** — the new call site in
    `try_to_implement_function_by_function_type`, guarded by the same disjunction.
 
-### Two things that are load-bearing, not hygiene
+### Three things that are load-bearing, not hygiene
 
 **Swallowing.** `analyze_ctfe_capability` wraps the body proof in a swallowing
 handler, spelling TS's `try { … } catch { return undefined }`. This is essential at
