@@ -118,7 +118,7 @@ Next concrete steps, in order:
 3. Bisect the input: the single-line variants pass, so shrink the multi-line form until it
    stops crashing.
 
-### A third lead: `-masm=intel` is applied per translation unit, x86_64 only
+### DEAD LEAD: `-masm=intel` (measured, ruled out)
 
 `src/test-runner.ts:641` adds `-masm=intel` to the whole batch TU when
 `moduleManager.needsIntelAsmSyntax` is set. That flag is x86_64-relevant only, so it is
@@ -128,9 +128,33 @@ contain inline asm — `yo-self/expr.yo` (which the test imports for `AstExpr`) 
 `-masm=intel` globally mis-assembles one of them, and a mis-assembled block is a
 straightforward way to get a wild jump.
 
-Caveat, stated because the same trap caught earlier hypotheses in this session: the crash is
-_inside_ `parse_primary_end`, and none of those asm blocks live there — so this only works if
-a mis-assembled global-asm definition is being called. Confirm before acting.
+**Measured and ruled out.** The emitted batch C for `tests/internal/parser.test.yo` contains
+**zero** inline asm blocks (`grep -c '__asm__|asm volatile|asm('` = 0), so
+`needsIntelAsmSyntax` is false for this batch and there is nothing for `-masm=intel` to
+mis-assemble. Kept here so nobody re-tests it.
+
+### THE LEADING LEAD: a struct-size mismatch yielding a garbage function pointer
+
+The async port audit independently found a bug with **exactly this signature** — a type whose
+generated struct view is larger than the object actually allocated, so a field read past the
+allocation returns a neighbouring block's bytes:
+
+> `IoFuture` is typed as a 48-byte generic-Future-interface struct over the 32-byte
+> `__yo_io_future_t` runtime object. Any path that reads offsets 32..47 through that pointer
+> (`->__yo_resume_fn`, `->__yo_set_effect_fn`) reads 16 bytes past the allocation. On Linux
+> that reads a neighbouring block's live `ref_count` as a function pointer — non-NULL, so the
+> guard passes and the call goes through garbage; on macOS it may land in slack that reads 0
+> and is silently skipped.
+
+That is precisely a macOS-passes / Linux-wild-jumps shape, and it explains a `pc` landing
+_inside the stack_: a garbage pointer, called. The audit judged that particular instance
+unreachable from `tests/async_await.test.yo`, but the _mechanism_ is what to look for here.
+
+Both failing parser tests pass an `Exception` whose `throw` field is a closure, and
+`parse_primary_end` would call it through the effect record on a parse-error path. So the
+concrete check is: **compare the emitted struct layout/size of the effect record at its
+construction site against the view used where `parse_primary_end` calls `throw`**, and look
+for a field read at an offset beyond the allocated size.
 
 ### The asymmetry that most narrows it
 
