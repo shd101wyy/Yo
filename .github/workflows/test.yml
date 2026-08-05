@@ -104,15 +104,13 @@ jobs:
   # logs record the actual Linux peak RSS; see the stage-2 step's comment
   # for the measured memory plan (zswap, YO_GC_THRESHOLD=0, cgroup caps).
   #
-  # Informational at first (the TSan-job pattern). Once a week of green runs
-  # establishes CI timing/memory headroom, remove continue-on-error so
-  # this gates PRs — it protects the bootstrap milestone (stage-2 clang
-  # clean + stage-2 ≡ stage-3 byte-identical, first held at 65ebcdbb2).
+  # NOW GATES PRs (continue-on-error dropped 2026-08-06, green on consecutive runs).
+  # It protects the bootstrap milestone: stage-2 clang clean + stage-2 ≡ stage-3
+  # byte-identical, first held at 65ebcdbb2.
   bootstrap-fixpoint:
-    name: Bootstrap fixpoint (yo-self self-compile — informational)
+    name: Bootstrap fixpoint (yo-self self-compile)
     runs-on: ubuntu-latest
     timeout-minutes: 360
-    continue-on-error: true
 
     steps:
       - name: Checkout repository
@@ -206,12 +204,12 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  # NOW GATES PRs (continue-on-error dropped 2026-08-06).
   bootstrap-fixpoint-stage3:
-    name: Bootstrap fixpoint stage-3 (byte-identity — informational)
+    name: Bootstrap fixpoint stage-3 (byte-identity)
     runs-on: ubuntu-latest
     timeout-minutes: 360
     needs: bootstrap-fixpoint
-    continue-on-error: true
 
     steps:
       - name: Checkout repository
@@ -286,13 +284,14 @@ jobs:
   # mimalloc because a self-EMIT is memory-bound on a 16 GB box; compiling small
   # test programs is not.
   #
-  # Informational at first (the TSan/bootstrap-fixpoint pattern). Drop
-  # continue-on-error once a week of green runs establishes CI timing headroom.
+  # NOW GATES PRs (continue-on-error dropped 2026-08-06). It went green once the
+  # -luring link flag, the atomic rc() cast width and the sync-await RC dup were
+  # fixed; the 20-file battery's HOLLOW detection is the only gate that catches a
+  # batch reporting passes while running nothing.
   bootstrap-self-test:
-    name: Self-hosted `test` subcommand (yo-self tier-1 gates — informational)
+    name: Self-hosted `test` subcommand (yo-self tier-1 gates)
     runs-on: ubuntu-latest
     timeout-minutes: 180
-    continue-on-error: true
 
     steps:
       - name: Checkout repository
@@ -354,8 +353,16 @@ jobs:
   # do not reproduce in isolation. The node heap cap is raised from the 4096 MB
   # used elsewhere for the same reason.
   #
-  # Informational at first (the TSan/bootstrap-fixpoint pattern) until a week of
-  # green runs establishes CI timing and memory headroom.
+  # THE LAST continue-on-error JOB. Every other job in this workflow now gates PRs.
+  # This one stays informational for ONE specific, filed reason: 2 of its 826 tests
+  # fail with Linux-x86_64-only SEGVs in yo-self's parser on a multi-line
+  # parenthesized `->` RHS — see issues/parser-multiline-arrow-rhs-linux-segv.md.
+  # They are PRE-EXISTING and were invisible until 2026-08-06, when dropping --bail
+  # let the job get past two earlier leaks (both since fixed). They do not reproduce
+  # on macOS arm64 — parser.test.yo is 49/49 locally, even with YO_MAIN_STACK_MB=1 —
+  # and the job's own self-hosted arm passes all 826, so the suspicion is TS's
+  # x86_64 emission or the TS-only runner flags rather than yo-self/parser.yo.
+  # Remove this flag once those two tests pass.
   compiler-internal-tests:
     name: Compiler internal tests (tests/internal — informational)
     runs-on: ubuntu-latest
@@ -427,16 +434,14 @@ jobs:
         run: /tmp/yo-stage1 test ./tests/internal --parallel 1 --verbose
 
   test-tsan:
-    name: ThreadSanitizer (sync primitives — Linux/Clang, informational)
+    name: ThreadSanitizer (sync primitives — Linux/Clang)
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # Informational job: TSan + Yo runtime is not yet validated end-to-end
-    # on Linux clang. Local macOS arm64 testing showed Yo Thread.spawn
-    # programs crash on TSan startup with SIGSEGV even at minimal scope,
-    # likely a runtime-init / TSan-init ordering issue. Allow this to fail
-    # (continue-on-error) until we have a green Linux signal. Once stable
-    # the continue-on-error flag should be removed so the job gates PRs.
-    continue-on-error: true
+    # NOW GATES PRs (continue-on-error dropped 2026-08-06). This was informational
+    # while TSan + the Yo runtime was unvalidated on Linux clang — local macOS arm64
+    # runs crashed on TSan startup, suspected runtime-init / TSan-init ordering. The
+    # Linux signal has been green across consecutive runs, which is the condition the
+    # original comment set for removing the flag.
 
     steps:
       - name: Checkout repository
