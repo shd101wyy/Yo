@@ -411,10 +411,44 @@ jobs:
       # resulting deep-recursion crashes. The TS arm not setting it was an
       # inconsistency between the two arms, and Linux additionally gets no
       # equivalent of the macOS-only `-Wl,-stack_size` reserve.
+      # ONE NODE PROCESS PER FILE. The Yo evaluator and codegen run IN-PROCESS —
+      # src/test-runner.ts only spawns the C compiler and the test binary — and
+      # per-file state (e.g. the process-lifetime ExprInfoTable, see
+      # plans/YO_SELF_EXPRINFO_PRUNE.md) is retained across files. A single
+      # process over all 58 files therefore accumulates until V8 dies: run
+      # 31044378627 reported "Ineffective mark-compacts near heap limit" with
+      # 11.7 GB STILL LIVE after a reduce-mark-compact, at phase6_verify (~file 40
+      # of 58), 57 minutes in.
+      #
+      # Measured locally (peak RSS, 4 of the lighter files): 1.30 GB for all four
+      # in one process vs 1.166 GB for the heaviest alone — the heap does not
+      # return to baseline between files. Per-file processes bound it to the
+      # single-file peak; the heaviest, phase6c_macro, needs ~6.5 GB, which fits.
+      #
+      # Deliberately NOT --bail and NOT one-file-per-step: the job's purpose is a
+      # full scorecard in one run, so every file runs and failures are summarised
+      # at the end.
       - name: Run tests/internal under the TS compiler (ground truth)
         env:
           YO_MAIN_STACK_MB: "4096"
-        run: node --expose-gc --max-old-space-size=12288 ./out/cjs/yo-cli.cjs test ./tests/internal --parallel 1 --verbose --c-compiler clang
+        run: |
+          status=0
+          failed=""
+          for f in tests/internal/*.test.yo; do
+            echo "::group::$f"
+            if node --expose-gc --max-old-space-size=12288 ./out/cjs/yo-cli.cjs test "$f" --parallel 1 --verbose --c-compiler clang; then
+              echo "::endgroup::"
+            else
+              echo "::endgroup::"
+              echo "::error file=$f::tests/internal failure under the TS compiler"
+              status=1
+              failed="$failed $f"
+            fi
+          done
+          if [ -n "$failed" ]; then
+            echo "FAILED FILES:$failed"
+          fi
+          exit $status
 
       - name: "Stage 1: build the self-hosted compiler with the TS compiler"
         if: always()

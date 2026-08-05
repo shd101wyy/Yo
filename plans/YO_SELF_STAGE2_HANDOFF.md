@@ -29,16 +29,16 @@ score was 181/4/0).
 
 Green baselines every change must preserve:
 
-| gate                   | baseline                                                                                                                  |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| honest sweep           | **186 GREEN / 0 HOLLOW / 0 RED** as of 2026-08-03 (`65ebcdbb2`; 185 + the new closure_param_forwarding regression file)   |
-| corpus diff-test       | **PASS 154 / DIFF 0 / SELF-FAIL 0** (154 total; the `closure_impl_fn_capture.yo` SELF-FAIL fixed in `65ebcdbb2`)          |
-| `check ./std`          | **153/153**                                                                                                               |
-| `check ./yo-self`      | **238/238** — the count dropped from 301 when `yo-self/tests/` moved to `tests/internal/`; it is all-green, not regressed |
-| canaries               | `array` 12, `for_macro_borrow` 13, `closure_capture_rc_leak` 7 — all rc=0, 0 markers                                      |
-| stage2 emit            | rc=0, **markers=0** (`YO_MAIN_STACK_MB=4096 <bin> compile yo-self/main.yo --release --emit-c --skip-c-compiler`)          |
-| stage2 clang           | rc=0, **0 errors** (the 4-error dyn-capture cluster fixed in `65ebcdbb2`)                                                 |
-| stage2/stage3 fixpoint | **FIXPOINT_HOLDS** — stage-2 and stage-3 C byte-identical (103.7 MB), verified `65ebcdbb2`                                |
+| gate                   | baseline                                                                                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| honest sweep           | **186 GREEN / 0 HOLLOW / 0 RED** as of 2026-08-03 (`65ebcdbb2`; 185 + the new closure_param_forwarding regression file)                           |
+| corpus diff-test       | **PASS 155 / DIFF 0 / SELF-FAIL 0 / TS-FAIL 0 / BOTH-FAIL 0** (155 total, re-measured 2026-08-06)                                                 |
+| `check ./std`          | **153/153**                                                                                                                                       |
+| `check ./yo-self`      | **237/237** (2026-08-06). Was 238 before `control_fn_registry.yo` was deleted as a duplicate; 301 before the tests move. All-green, not regressed |
+| canaries               | `array` 12, `for_macro_borrow` 13, `closure_capture_rc_leak` 7 — all rc=0, 0 markers                                                              |
+| stage2 emit            | rc=0, **markers=0** (`YO_MAIN_STACK_MB=4096 <bin> compile yo-self/main.yo --release --emit-c --skip-c-compiler`)                                  |
+| stage2 clang           | rc=0, **0 errors** (the 4-error dyn-capture cluster fixed in `65ebcdbb2`)                                                                         |
+| stage2/stage3 fixpoint | **FIXPOINT_HOLDS** — stage-2 and stage-3 C byte-identical (103.7 MB), verified `65ebcdbb2`                                                        |
 
 ### 2026-08-05 — the CI LSan blocker was a payload-free `ref(enum)` variant (`cf7bf1091`)
 
@@ -215,6 +215,40 @@ Gate stage-2 on **emit rc=0 + markers == 0 + clang rc == 0 + FIXPOINT_HOLDS**.
 
 `sys/bufio` and `thread` are FLAKY on this machine (intermittent SIGSEGV with
 a ZERO-byte log — the phantom-kill signature). Re-run before believing either.
+
+### The escape path dropped the unwound call's result temp (2026-08-06)
+
+The last two failures in `compiler-internal-tests` (Linux-x86_64 SEGVs in
+`tests/internal/parser.test.yo`) were a **TS codegen bug**, mirrored into
+yo-self: at an `__yo_effect_escaped` check, the drop sets included the
+**result temp of the very call that unwound**. That callee discarded its
+continuation instead of returning, so the temp was never assigned and still
+held whatever the ABI left in the return registers; `___drop` then
+dereferenced it. Fixed by excluding that temp
+(`escapedCallResultCName` / `escaped_result`), measured 16 → 0 bad drops of
+515 escape-checked call sites in the parser batch's emitted C. See
+`issues/fixed/escape-path-drops-unwound-call-result-temp.md`.
+
+Two durable lessons:
+
+- **`tests/internal/parser.test.yo` rebuilds in 11 s** — it imports only
+  lexer/token/parser/expr, not the evaluator. It is a fast loop for parser and
+  codegen work, unlike the `phase6*` files.
+- **A macOS-arm64-passes / Linux-x86_64-crashes split is an ABI question first.**
+  x86_64 SysV returns MEMORY-class structs via an sret pointer **in RDI**, which
+  shifts argument registers and leaves the destination address in RAX; arm64 uses
+  the dedicated **X8** and shifts nothing. Do the arithmetic on ASan's `pc`/`sp`
+  across runs before reaching for sanitizers: constant low bits of `pc` plus a
+  constant `pc - sp` means a _specific stack slot's address is being called_.
+- `___drop`/`___dispose` are `always_inline`, so a bad drop names the **enclosing**
+  function in the trace with no drop frame. Absence of a drop frame is not
+  evidence that no drop was involved.
+
+Still open and filed: `issues/ctl-handler-void-signature-vs-sret-cast.md` — a
+`ctl` handler is emitted `void` while each call site casts it to the surrounding
+expression's type. Benign for return types ≤16 bytes (the whole current corpus;
+`ParseResult` sits exactly on the 16-byte boundary), an argument-shifting ABI
+break above it. `-fsanitize=function` would catch it and is not yet enabled.
 
 ### Memory footprint of a self-emit (the open perf debt)
 

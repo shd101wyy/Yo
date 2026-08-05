@@ -1,58 +1,34 @@
-{ assert } :: import("std/assert");
+{ println } :: import("std/fmt");
+{ Exception, AnyError } :: import("std/error");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
 
-// Probe: does yo-self analyze NESTED functions for CTFE capability?
-// TS calls analyzeCtfeCapability at THREE sites; yo-self only at the
-// builtins/comptime_fn.yo one. The two missing sites both handle nested
-// functions encountered while a CTFE analysis is in flight:
-//   src/evaluator/calls/function-type.ts:669        (nested NAMED fn)
-//   src/evaluator/values/anonymous-function.ts:1127 (nested ANONYMOUS fn,
-//                                                    gated on !isCreatingClosure)
+/// Returns an RC-typed value. The throwing arm's result is CONSUMED by the
+/// return value, so its drop is deferred to `consumedVarPendingDrops` — and the
+/// escape path used to drop that never-assigned temp.
+get_list :: (fn(flag : bool, exn : Exception) -> ArrayList(i32))(
+  cond(
+    flag => {
+      l := ArrayList(i32).new();
+      l.push(7);
+      l
+    },
+    true => exn.throw(dyn(String.from("boom")))
+  )
+);
+
 main :: (fn() -> unit)({
-  // Case 1 — CONTROL: nested NAMED fn. Already covered by tests/fn.test.yo:544
-  // and green on both compilers, so this should pass; it exists to prove the
-  // probe itself is well-formed.
-  {
-    outer :: (fn(x : i32) -> i32)({
-      helper :: (fn(y : i32) -> i32)({
-        return(y * 2);
-      });
-      return((helper(x) + 1));
-    });
-    c :: comptime_fn(outer);
-    r :: c(20);
-    comptime_assert(r == 41);
-    assert(r == 41, "case 1: nested named fn under CTFE");
-  };
-  // Case 2 — TWO levels of nested named fns, so the inner one is reached while
-  // the middle one is itself being analyzed.
-  {
-    outer2 :: (fn(x : i32) -> i32)({
-      mid :: (fn(y : i32) -> i32)({
-        inner :: (fn(z : i32) -> i32)({
-          return(z + 1);
-        });
-        return((inner(y) * 3));
-      });
-      return(mid(x));
-    });
-    c2 :: comptime_fn(outer2);
-    r2 :: c2(6);
-    comptime_assert(r2 == 21);
-    assert(r2 == 21, "case 2: two-level nested named fns under CTFE");
-  };
-  // Case 3 — nested ANONYMOUS fn. Yo requires an `Impl(Fn(...))` annotation on
-  // the binding, which is exactly `isCreatingClosure` — the condition TS uses to
-  // SKIP its anonymous-function CTFE site. So both compilers should agree here
-  // regardless; the point is to confirm they DO agree rather than assume it.
-  {
-    outer3 :: (fn(x : i32) -> i32)({
-      (f : Impl(Fn(y : i32) -> i32)) = ((y) => (y * 3));
-      return(f(x));
-    });
-    r3 := outer3(7);
-    assert(r3 == 21, "case 3: nested anon fn (closure) inside a fn");
-  };
-  ()
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(());
+      }
+    )
+  );
+  ok := get_list(true, exn);
+  println(`ok len = ${ok.len()}`);
+  bad := get_list(false, exn);
+  println(`unreachable: ${bad.len()}`);
 });
 
 export(main);

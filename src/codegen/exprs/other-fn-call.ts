@@ -2816,6 +2816,14 @@ function emitEffectUnwindCheck(
 ): void {
   const emitter = context.emitter;
   emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
+  // This call's own result temp must never be dropped on the escape path: the
+  // handler unwound instead of returning, so the temp was never assigned and
+  // still holds whatever the ABI left in the return registers. On x86_64 that
+  // is routinely a stack address (a `void` handler reached through a
+  // value-returning function-pointer cast leaves RAX from the previous
+  // sret-class call), so the drop dereferences it and jumps into the stack.
+  // See issues/fixed/escape-path-drops-unwound-call-result-temp.md.
+  const escapedCallResultCName = expr.$?.variableName;
   // In async SMs, local variable cleanup is handled by _state_dispose when
   // the SM is freed (state == -2). Dropping here would cause double-free.
   if (!context.inAsyncStateMachine) {
@@ -2826,11 +2834,20 @@ function emitEffectUnwindCheck(
       expr,
       false,
       true,
-      false
+      false,
+      undefined,
+      escapedCallResultCName
     );
     // Also drop consumed variables (their drops were optimized away because
     // they'd be consumed by the return value, but escape discards the return)
-    generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+    generateConsumedVarDropsForEscape(
+      indent + "  ",
+      context,
+      expr,
+      false,
+      undefined,
+      escapedCallResultCName
+    );
   }
   if (context.inAsyncStateMachine) {
     // Drop RC-typed arg temporaries that are segment-local C locals.
@@ -3215,16 +3232,27 @@ function generateEvidenceFnPtrCall(
       emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
       // In async SMs, local variable cleanup is handled by _state_dispose
       if (!context.inAsyncStateMachine) {
-        // Drop in-scope RC-typed locals before early return to prevent leaks
+        // Drop in-scope RC-typed locals before early return to prevent leaks.
+        // `tempVar` is excluded: the callee unwound, so it never assigned a
+        // value and the temp still holds return-register garbage.
         generatePendingDeferredDrops(
           indent + "  ",
           context,
           expr,
           false,
           true,
-          false
+          false,
+          undefined,
+          tempVar
         );
-        generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+        generateConsumedVarDropsForEscape(
+          indent + "  ",
+          context,
+          expr,
+          false,
+          undefined,
+          tempVar
+        );
       }
       if (context.inAsyncStateMachine) {
         emitAsyncFutureEscape({
@@ -3664,15 +3692,26 @@ function generateEvidenceCallSite(
       if (!context.inAsyncStateMachine) {
         // Drop in-scope local variables before unwind propagation
         // (includes RC-typed args and other locals like closure captures)
+        // `tempVar` is excluded: the callee unwound, so it never assigned a
+        // value and the temp still holds return-register garbage.
         generatePendingDeferredDrops(
           indent + "  ",
           context,
           expr,
           false,
           true,
-          false
+          false,
+          undefined,
+          tempVar
         );
-        generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+        generateConsumedVarDropsForEscape(
+          indent + "  ",
+          context,
+          expr,
+          false,
+          undefined,
+          tempVar
+        );
       }
       if (context.inAsyncStateMachine) {
         emitAsyncFutureEscape({

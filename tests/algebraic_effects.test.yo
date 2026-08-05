@@ -3,6 +3,7 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/string")); // Let's use `String` instead of `str`
 open(import("std/fmt"));
 { Exception } :: import("std/error");
+{ ArrayList } :: import("std/collections/array_list");
 test("Test fn unwind and return via using parameter", {
   Raise :: (ctl(msg : String, msg2 : String) -> i32);
   // Use an effect in a function (effect becomes an implicit parameter)
@@ -1978,4 +1979,41 @@ test("ctl unwind of a value larger than 64 bytes", {
   big := run_big();
   assert(big.a == i64(1), "first field survives the unwind buffer");
   assert(big.j == i64(10), "last field survives the unwind buffer");
+});
+test("Test escape path does not drop the unwound call's result temp", {
+  // Regression guard for
+  // issues/fixed/escape-path-drops-unwound-call-result-temp.md.
+  //
+  // `exn.throw` sits in VALUE position in a `cond` arm, so its result temp is
+  // consumed by the return value and its drop is deferred. The handler unwinds,
+  // so the temp is never assigned — codegen used to drop it anyway on the
+  // escape path, dereferencing whatever the ABI left in the return registers.
+  //
+  // NOTE: this does not fail pre-fix on arm64, where that garbage is benign.
+  // It reproduces under ASan on x86_64, and the deterministic gate is the
+  // emitted-C check recorded in the issue.
+  get_list :: (fn(flag : bool, exn : Exception) -> ArrayList(i32))(
+    cond(
+      flag => {
+        l := ArrayList(i32).new();
+        l.push(7);
+        l
+      },
+      true => exn.throw(dyn(String.from("boom")))
+    )
+  );
+  outcome :: (fn() -> i32)({
+    exn := Exception(
+      throw : (
+        (err) -> {
+          unwind(i32(99));
+        }
+      )
+    );
+    got := get_list(true, exn);
+    n := i32(got.len());
+    thrown := get_list(false, exn);
+    n + i32(thrown.len())
+  });
+  assert(outcome() == i32(99), "the throwing call must unwind, not crash");
 });

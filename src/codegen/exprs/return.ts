@@ -266,7 +266,8 @@ export function generatePendingDeferredDrops(
   isCompletion: boolean = false,
   skipAlreadyDroppedCheck: boolean = false,
   skipEnvCheck: boolean = false,
-  additionalSkipVarNames?: Set<string>
+  additionalSkipVarNames?: Set<string>,
+  escapedCallResultCName?: string
 ): void {
   if (context.pendingDeferredDrops && context.pendingDeferredDrops.length > 0) {
     // Filter drops to only include variables that exist in the return expression's environment.
@@ -304,9 +305,21 @@ export function generatePendingDeferredDrops(
     // free them, so we must skip them here to avoid double-free.
     const consumedArgCNames = context.effectSmConsumedArgCNames;
 
+    // The result temp of the call that just unwound holds NO value: the callee
+    // discarded its continuation instead of returning, so the C variable still
+    // carries whatever the ABI left in the return registers. Dropping it here
+    // dereferences that garbage. See
+    // issues/fixed/escape-path-drops-unwound-call-result-temp.md.
+    const candidateDrops = escapedCallResultCName
+      ? context.pendingDeferredDrops.filter(
+          (dropExpr) =>
+            getDeferredDropTargetCName(dropExpr) !== escapedCallResultCName
+        )
+      : context.pendingDeferredDrops;
+
     const dropsToEmit =
       expr.$?.env && !skipEnvCheck
-        ? context.pendingDeferredDrops.filter((dropExpr) => {
+        ? candidateDrops.filter((dropExpr) => {
             const varName = getDeferredDropTargetAtomName(dropExpr);
             if (!varName) return false;
             if (
@@ -370,7 +383,7 @@ export function generatePendingDeferredDrops(
             }
             return true;
           })
-        : context.pendingDeferredDrops.filter((dropExpr) => {
+        : candidateDrops.filter((dropExpr) => {
             const varName = getDeferredDropTargetAtomName(dropExpr);
             if (!varName) return false;
             if (
@@ -416,7 +429,8 @@ export function generateConsumedVarDropsForEscape(
   context: FunctionGenerationContext,
   expr: Expr,
   skipEnvCheck: boolean = false,
-  excludeVarNames?: ReadonlySet<string>
+  excludeVarNames?: ReadonlySet<string>,
+  escapedCallResultCName?: string
 ): void {
   if (
     !context.consumedVarPendingDrops ||
@@ -427,13 +441,25 @@ export function generateConsumedVarDropsForEscape(
 
   // Variables already released earlier in this same escape sequence (the
   // caller's own deferred drops). Re-releasing one here is a double free.
-  const pendingDrops =
+  const excludedByName =
     excludeVarNames && excludeVarNames.size > 0
       ? context.consumedVarPendingDrops.filter((dropExpr) => {
           const varName = getDeferredDropTargetAtomName(dropExpr);
           return !varName || !excludeVarNames.has(varName);
         })
       : context.consumedVarPendingDrops;
+
+  // The result temp of the call that just unwound holds NO value: the callee
+  // discarded its continuation instead of returning, so the C variable still
+  // carries whatever the ABI left in the return registers. Dropping it here
+  // dereferences that garbage. See
+  // issues/fixed/escape-path-drops-unwound-call-result-temp.md.
+  const pendingDrops = escapedCallResultCName
+    ? excludedByName.filter(
+        (dropExpr) =>
+          getDeferredDropTargetCName(dropExpr) !== escapedCallResultCName
+      )
+    : excludedByName;
 
   const dropsToEmit =
     expr.$?.env && !skipEnvCheck

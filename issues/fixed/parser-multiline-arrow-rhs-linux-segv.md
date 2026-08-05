@@ -210,3 +210,39 @@ first failing test. Two leaks were fixed in front of these
 `issues/fixed/module-global-c-name-collision-leak.md`) before the job reached
 `parser.test.yo`. Removing `--bail` is what surfaced them, and is why the job now reports
 its full scorecard in one run.
+
+---
+
+## RESOLVED 2026-08-06 — root cause found, and it was none of the leads above
+
+The wild jump was **the escape path dropping the result temp of the call that unwound**.
+`parse_primary_end` calls `exn.throw(...)` in value position; the handler unwinds, so the
+result temp is never assigned; the `// Drop consumed variables (unwind propagation)` block
+then calls `___drop` on it, dereferencing whatever the ABI left in the return registers.
+On x86_64 that is the RAX left by the preceding sret-class `String` `+` call — the address
+of a `parse_primary_end` stack local. `___drop` is `always_inline`, which is why the trace
+blamed `parse_primary_end` with no drop frame.
+
+Full analysis, the fix, and the before/after measurement (16 → 0 bad drops in this batch's
+emitted C) are in `issues/fixed/escape-path-drops-unwound-call-result-temp.md`.
+
+**The address arithmetic in this document was the decisive clue and was under-used at the
+time.** Across three runs the faulting `pc` had identical low 20 bits and `pc - sp` was
+byte-identical (`0x29878`) for repeats of the same test. A _deterministic offset into a live
+frame_ rules out random heap/stack garbage and points straight at "a specific stack slot's
+address is being called". Earlier passes read the symptom ("wild jump") but not the
+arithmetic.
+
+Also worth recording: the "self-hosted arm passes, TS arm crashes" asymmetry in
+**§ The asymmetry that most narrows it** was **misleading**. It was read as evidence about
+the TS compiler's x86_64 emission, but the self-hosted test runner adds **no sanitizer**
+(`yo-self/main.yo`, `sanitize = ""`), and yo-self's drop sets are sparser, so the two arms
+were never comparable on this. The real discriminator was macOS-arm64 vs Linux-x86_64,
+i.e. AAPCS64's dedicated X8 result register vs SysV's RDI-consuming sret.
+
+The `-Wconditional-uninitialized` sweep (1801 warnings, zero of that class) was a correct
+result reported honestly, but it could not see this: the temp _is_ assigned, from a call
+whose callee simply never wrote a return value. That is an inter-procedural,
+ABI-level fact, invisible to clang's intraprocedural analysis — and MSan, named here as the
+decisive next experiment, would have flagged it. The cheaper decisive tool turned out to be
+reading the emitted C for the one indirect call in the crashing function.
