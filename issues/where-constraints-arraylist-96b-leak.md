@@ -124,10 +124,38 @@ prior art for match-arm drop bugs — but a minimal reproduction of exactly that
 (module-level table, two-arm getter, `match` over an enum with a fresh list in each arm,
 bound to a local) also leaks **0 bytes**.
 
-Both dead ends had the same lesson: the plain shapes are correctly balanced. What breaks it
-is the _early exit_, which is why only the real evaluator context reproduces it — see the
-confirmed root cause above, which was found by reading the emitted C rather than by guessing
-at more shapes.
+Also ruled out, each measured at **0 bytes**:
+
+- **explicit `return` before the move** — the pending-deferred-drop machinery covers it;
+- **effect/unwind propagation exit before the move** (a throwing call between the binding
+  and the move) on its own;
+- **both of the above plus a `match`-bound local whose arms construct directly**;
+- **the same with one arm's value coming from a function call.**
+
+**NO minimal reproduction yet.** Five shapes were tried and all are correctly balanced. One
+attempt did report 48 bytes, but `MallocStackLogging` showed the allocation was in
+`__yo_user_main`, not in the function under test — a **different** leak (see below). Worth
+recording because it nearly became a fix built on a false repro: always confirm the leaked
+allocation's stack matches the bug you are chasing.
+
+So the emitted C of the real batch remains the only evidence. That is enough to state the
+mechanism with confidence, but a fix should be gated on the real batch (a ~10 minute
+build) until someone finds a small reproduction — a wrong position comparison here produces
+double-frees across the whole compiler, which is far worse than a 96-byte leak on an error
+path.
+
+## Separate finding: `unwind` skips the enclosing fn's scope-end drops
+
+While attempting a reproduction: a handler whose body is `unwind(())` exits the _enclosing_
+`fn` — and the locals of that enclosing fn are not dropped. In the probe, `main` held
+`my_exn := Exception(throw : ((_e) -> { unwind(()); }))`, called a function that threw, and
+the handler's `unwind` exited `main` leaving 48 bytes unreleased.
+
+Whether that is a bug or intended is a design question — `unwind` deliberately discards the
+continuation, and there is prior art that it also skips code following a guarded call
+(`unwind` in a swallow handler skipping a restore). But if it is intended, then any program
+that ends via `unwind` will report leaks under LeakSanitizer, which is worth knowing before
+enabling leak gates more widely.
 
 ## Impact
 
