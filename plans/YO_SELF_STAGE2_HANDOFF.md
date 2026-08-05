@@ -34,7 +34,7 @@ Green baselines every change must preserve:
 | honest sweep           | **186 GREEN / 0 HOLLOW / 0 RED** as of 2026-08-03 (`65ebcdbb2`; 185 + the new closure_param_forwarding regression file) |
 | corpus diff-test       | **PASS 154 / DIFF 0 / SELF-FAIL 0** (154 total; the `closure_impl_fn_capture.yo` SELF-FAIL fixed in `65ebcdbb2`)        |
 | `check ./std`          | **153/153**                                                                                                             |
-| `check ./yo-self`      | **305/305** — the 10 "pre-existing circular-import" failures were ONE bug, fixed 2026-08-05 (see below)                 |
+| `check ./yo-self`      | **301/301** — was 295/305; the 10 "circular-import" failures were ONE bug (fixed 2026-08-05), then 4 files were retired |
 | canaries               | `array` 12, `for_macro_borrow` 13, `closure_capture_rc_leak` 7 — all rc=0, 0 markers                                    |
 | stage2 emit            | rc=0, **markers=0** (`YO_MAIN_STACK_MB=4096 <bin> compile yo-self/main.yo --release --emit-c --skip-c-compiler`)        |
 | stage2 clang           | rc=0, **0 errors** (the 4-error dyn-capture cluster fixed in `65ebcdbb2`)                                               |
@@ -70,15 +70,35 @@ cascade. All five now pass under BOTH compilers.
 First time the self-hosted `test` subcommand had ever been run over these trees.
 Harness: per-file, strictly sequential, comparing `N passed / M total` + exit code.
 
-| directory         | files | PASS    | non-PASS                                                   |
-| ----------------- | ----- | ------- | ---------------------------------------------------------- |
-| `./tests`         | 186   | **186** | none — 2,644 individual tests, DIFF 0                      |
-| `./yo-self/tests` | 61    | **57**  | 1 SELF-FAIL (`effect_analysis`), 3 SKIPPED (`eval_*` trio) |
+| directory                          | files    | PASS                | how verified                                                                                                                          |
+| ---------------------------------- | -------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `./tests`                          | 186      | **186**             | full sweep, 2,644 individual tests, DIFF 0                                                                                            |
+| `./tests` (+1 new regression file) | 187      | **187**             | the added file verified individually on both compilers (6/6 each)                                                                     |
+| `./yo-self/tests`                  | 61 -> 58 | **57 measured + 1** | full sweep gave 57 PASS; `effect_analysis` then fixed and verified individually (TS 19/19, self 19/19); the `eval_*` trio was retired |
 
-`effect_analysis` is a real yo-self codegen divergence (TS 19/19; yo-self emits C that
-clang rejects) — see `issues/yo-self-selftest-codegen-divergences.md`. The `eval_*`
-trio is **uncovered, not passing**: those three exceed the runner's process limit, and
-although they now `check` clean they were never executed.
+**CAVEAT — the `yo-self/tests` figure is not a single clean measurement.** The unary
+operator codegen fix changes emitted C for EVERY unary operator, and after it only the
+20-file battery, the 155-file corpus, `check ./std` and `check ./yo-self` were re-run.
+The other 56 `yo-self/tests` files were last exercised BEFORE that fix. Re-run the
+differential over the whole directory (63 min) before quoting 58/58 as measured.
+
+Getting here took two yo-self fixes, and the `eval_*` trio was retired with its
+subject file:
+
+1. **`eval.yo`**: five `.get(usize(0))` calls on `EvalResult.value`, which is a plain
+   `EvalValue`, not the one-element cell `Variable.value` is. A source bug TS
+   correctly rejected; it was the single root of all 10 `check` failures.
+2. **`codegen/exprs/generation.yo`**: a unary trait-dispatched operator applied
+   directly to a PARAMETER inside a closure-specialized fn emitted an FTT comment
+   INSIDE the enclosing `if (...)`, wrecking the C parse. The lowering was already
+   ported (`inline_fns.yo` -> `(!(x))`) but UNREACHABLE: `_operator_inline_name` had
+   no `!` entry and only the INFIX gate routed to the inline path. See
+   `issues/yo-self-selftest-codegen-divergences.md`; regression coverage in
+   `tests/closure_param_unary_operator.test.yo`.
+   CAUTION for anyone widening that gate: it must key on the resolved inline name
+   being `BF_YO_OP_NOT`. Admitting any 1-arg operator with an inline name diverts
+   unary MINUS into `BF_YO_OP_SUB` and emits `(y) - ()` — caught by
+   `tests/operator_grouping.test.yo`.
 
 **Run this suite STRICTLY ONE FILE AND ONE COMPILER AT A TIME.** `phase6c_macro` alone
 needs 6.52 GB; two concurrent children on a 16 GB machine swap, and the swapping trips
@@ -638,9 +658,27 @@ The job deliberately uses the DEFAULT (libc) allocator — mimalloc costs +53% w
 and +15% footprint (measured 2026-08-05); the fixpoint jobs keep mimalloc only
 because a self-EMIT is memory-bound on a 16 GB box.
 
-`yo-self/tests` stays out of CI for the documented runtime reasons (~90 min for the
-directory; `eval_basics`/`eval_tail_1`/`eval_tail_2` exceed the runner's 1800 s
-isolated-process limit). Run it locally when you touch evaluator internals.
+`yo-self/tests` is now a viable CI candidate — the two reasons it was excluded are
+both gone as of 2026-08-05:
+
+- **Runtime was overstated.** MEASURED over 58 files at `--parallel 1`: **40.5 min**
+  under the TS compiler, **22.2 min** under the self-hosted binary (~2x faster),
+  **63 min** for a both-compilers differential. The old "~90 min" figure was
+  pessimistic.
+- **The `eval_*` trio is gone**, retired with its subject `evaluator/eval.yo`, so
+  there is no longer any file that has to be skipped.
+
+The binding constraint is MEMORY, not time: `phase6c_macro` alone needs **6.52 GB**,
+and `ubuntu-latest` has ~7 GB. It must run **one file and one compiler at a time** —
+concurrency does not merely risk OOM, it swaps and trips the runner's own 600 s
+evaluator deadline, MANUFACTURING failures that do not reproduce in isolation (that
+is how four `phase6*` files were misdiagnosed as broken). Note the self-hosted runner
+ignores `--parallel` regardless (`main.yo`: "Accepted for CLI compatibility; v1 runs
+sequentially").
+
+Prefer wiring it as a DIFFERENTIAL (both compilers, comparing `N passed / M total` +
+exit code). A TS-only run adds little over `check`; comparing the two compilers is
+what caught the `effect_analysis` codegen divergence.
 
 The full sweep is **mandatory** before claiming a flip: the GREEN→HOLLOW
 regression class is invisible to the 12-file gate (it bit this campaign once —

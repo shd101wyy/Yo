@@ -84,8 +84,16 @@ skipped via `pragma(Pragma.SkipWasm32Wasi);` and are not required for CI on affe
 
 ### Stack depth limit for yo-self evaluator tests
 
-The `evaluate()` function in `yo-self/evaluator/eval.yo` has ~2482 local variables
-(grown from ~693 in early phases) and occupies **~1.5 MB of stack space per frame**
+> **HISTORICAL (2026-08-05).** The specific function measured below,
+> `evaluate()` in `yo-self/evaluator/eval.yo`, was RETIRED along with that whole
+> legacy proto-evaluator file. The **mechanism and the platform numbers still
+> apply** to the other large evaluator frames (`evaluate_match` ~9 MB,
+> `evaluate_function_call` ~8 MB at `-O0`), and the stack reserve in
+> `src/test-runner.ts` is still required because of them — so this section is kept
+> as the explanation for why that reserve exists.
+
+The `evaluate()` function in `yo-self/evaluator/eval.yo` had ~2482 local variables
+(grown from ~693 in early phases) and occupied **~1.5 MB of stack space per frame**
 at `-O0` without ASAN, due to the large `EvalValue`/`TypeValue` enum types stored
 directly on the stack. ASAN inflates this further by disabling stack frame reuse
 and adding redzones around every variable.

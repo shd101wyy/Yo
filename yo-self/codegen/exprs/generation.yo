@@ -27,6 +27,7 @@ open(import("std/string"));
   BF_YO_OP_MOD,
   BF_YO_OP_EQ,
   BF_YO_OP_NEQ,
+  BF_YO_OP_NOT,
   BF_YO_OP_LT,
   BF_YO_OP_LTE,
   BF_YO_OP_GT,
@@ -171,6 +172,11 @@ _operator_inline_name :: (fn(op : String) -> Option(String))(
     (op == "%") => Option(String).Some(String.from(BF_YO_OP_MOD)),
     (op == "==") => Option(String).Some(String.from(BF_YO_OP_EQ)),
     (op == "!=") => Option(String).Some(String.from(BF_YO_OP_NEQ)),
+    // UNARY. `inline_fns.yo:135` already lowers BF_YO_OP_NOT to `(!(x))` (a
+    // faithful port of src/codegen/exprs/inline-fns.ts:71), but without this
+    // mapping the symbol callee `!` never resolved to that name, so the unary
+    // inline path was unreachable. See `_is_primitive_unary_operator`.
+    (op == "!") => Option(String).Some(String.from(BF_YO_OP_NOT)),
     (op == "<") => Option(String).Some(String.from(BF_YO_OP_LT)),
     (op == "<=") => Option(String).Some(String.from(BF_YO_OP_LTE)),
     (op == ">") => Option(String).Some(String.from(BF_YO_OP_GT)),
@@ -207,6 +213,56 @@ _is_primitive_infix_operator :: (fn(expr : AstExpr, context : FunctionGeneration
         .Some(lhs) => match(
           context.base.get_expr_info(lhs),
           .Some(lei) => is_primitive_type(lei.ty),
+          .None => false
+        ),
+        .None => false
+      ),
+      false
+    ),
+    .Atom(_, _) => false
+  )
+);
+/// The unary counterpart of `_is_primitive_infix_operator`: a 1-arg, NON-infix
+/// operator-symbol call (`!(x)`) whose operand is primitive.
+///
+/// Without this, a unary operator applied DIRECTLY to a PARAMETER inside a
+/// closure-specialized function emitted
+/// `if (// Failed to transpile !(b)) {` — an FTT comment inline in the condition,
+/// whose `//` swallows the closing `)` and the `{` and wrecks the whole C parse
+/// (issues/yo-self-selftest-codegen-divergences.md). The dispatcher bailed at
+/// `other_fn_call.yo:1612` because `runtime_arg_exprs_in_order` was `.None` for
+/// that node, and only the INFIX fast path existed to route around it.
+///
+/// The inline path is safe here precisely because `_generate_inline_call` falls
+/// back to the expression's own syntactic args when
+/// `runtime_arg_exprs_in_order` is absent, so it does not depend on the field
+/// that was missing.
+///
+/// Gated to primitive operands for the same reason as the infix gate: a custom
+/// `Not` overload on a non-primitive type must still reach the trait-method path.
+///
+/// ONLY `!` qualifies, and the check must be on the RESOLVED INLINE NAME being
+/// `BF_YO_OP_NOT` — not merely on `_operator_inline_name` returning something.
+/// Every other entry in that map is a BINARY lowering: an earlier version of this
+/// gate admitted any 1-arg operator with an inline name, which diverted unary
+/// MINUS (`-y`) into `BF_YO_OP_SUB` and emitted `(y) - ()` — caught by
+/// `tests/operator_grouping.test.yo` ("runtime negation of an i32 variable").
+/// Unary minus must keep reaching the trait-method path.
+_is_primitive_unary_operator :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+  match(
+    expr,
+    .FnCall(_, _, op_args, is_infix, _) => if(
+      ((!(is_infix)) && (op_args.len() == usize(1)))
+      && match(
+        _operator_inline_name(_func_name(expr)),
+        .Some(inline_nm) => (inline_nm == BF_YO_OP_NOT),
+        .None => false
+      ),
+      match(
+        op_args.get(usize(0)),
+        .Some(operand) => match(
+          context.base.get_expr_info(operand),
+          .Some(oei) => is_primitive_type(oei.ty),
           .None => false
         ),
         .None => false
@@ -575,6 +631,11 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // which get_type_string cannot lower (Gap 6). Gated to primitive operands so
   // custom non-primitive operator overloads still use the trait-method path.
   if(_is_primitive_infix_operator(expr, context), return(_generate_inline_call(expr, indent.clone(), context)));
+  // Same treatment for a primitive UNARY operator (`!(x)`) — see
+  // `_is_primitive_unary_operator`. Without this the dispatcher below bails when
+  // `runtime_arg_exprs_in_order` is missing and emits an FTT comment INSIDE the
+  // enclosing `if (...)`, breaking the C parse.
+  if(_is_primitive_unary_operator(expr, context), return(_generate_inline_call(expr, indent.clone(), context)));
   // Fallback: ordinary function call (the call/method/trait dispatcher).
   match(
     generate_other_function_call(expr, indent.clone(), context),

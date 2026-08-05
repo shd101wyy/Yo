@@ -110,10 +110,15 @@ bun test src/tests/build-system.test.ts --timeout 10000
 ./yo-cli test ./tests/algebraic_effects.test.yo --test-name-pattern "Test fn unwind" --parallel 1
 
 # Bootstrap (yo-self) tests — run the file(s) covering what you changed.
-# Files importing evaluator internals take 1–10 min each (big Yo-compile);
-# the full directory takes ~90 min. eval_basics/eval_tail_1/eval_tail_2
-# exceed the runner's 1800s isolated-process limit (known-heavy — they
-# `check` clean; validate via yo-self-bin sweeps instead).
+# Files importing evaluator internals take 1–10 min each (big Yo-compile).
+# MEASURED 2026-08-05 (58 files, --parallel 1): 40.5 min under the TS compiler,
+# 22.2 min under the self-hosted binary (it is ~2x faster), 63 min for a
+# both-compilers differential. The old "~90 min" figure was pessimistic.
+# Run ONE FILE AND ONE COMPILER AT A TIME: phase6c_macro alone needs 6.52 GB, so
+# two concurrent children on a 16 GB machine swap, and the swapping trips the
+# runner's own 600 s evaluator deadline — MANUFACTURING failures that do not
+# reproduce in isolation. Note the self-hosted runner ignores --parallel anyway
+# (yo-self/main.yo: "Accepted for CLI compatibility; v1 runs sequentially").
 ./yo-cli test ./yo-self/tests/lexer.test.yo --parallel 1
 ./yo-cli test ./yo-self/tests/parser.test.yo --parallel 1
 ./yo-cli test ./yo-self/tests/ --parallel 2
