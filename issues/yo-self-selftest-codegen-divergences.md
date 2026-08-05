@@ -98,7 +98,76 @@ Both are in `yo-self/evaluator/effects/effect_analysis.yo`, and `func_type_opt`
    `initializing 'bool' with ... '__yo_t9'` pair is exactly this: the result temp
    got the enum's struct type where a `bool` was wanted.
 
-### ROOT CAUSE: this is the known-OPEN shared-id clobber
+### ROOT CAUSE (MEASURED, supersedes the two hypotheses below)
+
+Both hypotheses recorded further down are **WRONG**, and the artifact refuted them.
+The temps clang calls "undeclared" ARE declared — `_file____User_temp_496914` is
+declared on the very next line. Every error is a CASCADE from one line:
+
+```c
+if (// Failed to transpile !(allow_missing_type)) {
+```
+
+An FTT comment emitted **inline in an `if` condition**. `//` swallows the closing `)`
+and the `{`, so the parse is wrecked: hence "expected expression", the orphaned
+`case`, and the phantom undeclared identifiers. All 6 markers in the file are the
+same expression. This is the FTT-cascade class
+(`issues/yo-self-failed-transpile-cascade-fix.md`), not a temp desync.
+
+**The exact failure point**, from an instrumented stage-1 build that gave each FTT
+origin a distinct marker: **`FTT_OFC_1612`** —
+`yo-self/codegen/exprs/other_fn_call.yo:1612`:
+
+```rust
+(runtime_args : ArrayList(AstExpr)) = match(
+  ei.runtime_arg_exprs_in_order,
+  .Some(ra) => ra,
+  .None => return(Option(String).None)     // <-- taken
+);
+```
+
+So `runtime_arg_exprs_in_order` is `.None` on the `!` call's `ExprInfo`, the dispatcher
+returns `.None`, and `generate_func_call` (`generation.yo:583`) emits the FTT text.
+That field is exactly the one the `begin` shared-id clobber drops and that
+`carry_runtime_args` (`begin.yo:2280`) exists to conditionally restore.
+
+### The trigger is a THREE-WAY CONJUNCTION
+
+Isolated with a standalone reproducer (top-level fns, so nothing else interferes).
+Drop any one factor and the same expression compiles:
+
+| case   | construct                      | closure-spec? | result  |
+| ------ | ------------------------------ | ------------- | ------- |
+| c1     | `!(b)` on param                | no            | OK      |
+| c2     | `!(ok)` on local               | no            | OK      |
+| **c3** | `!(b)` on **param**            | **yes**       | **FTT** |
+| c4     | plain `b` read                 | yes           | OK      |
+| c5     | `(b == false)` infix on param  | yes           | OK      |
+| c6     | `!(ok)` on **local**           | yes           | OK      |
+| c7     | `((0 - n) > 0)` infix on param | yes           | OK      |
+
+i.e. **a unary trait-dispatched operator, applied directly to a PARAMETER, inside a
+CLOSURE-SPECIALIZED function.** Primitive INFIX operators escape because
+`_is_primitive_infix_operator` (`generation.yo:571-577`) short-circuits them to the
+inline path _before_ the failing dispatcher; unary operators have no such path.
+
+**Do NOT "fix" this by adding a unary inline fast path.** TypeScript — the ground
+truth — resolves the `not` trait method and calls it:
+
+```c
+bool _yo..._temp_40796 = fn_yo1c2129e9_id_2433_not_bool_idbool_rtparam0_bool_idbool((bool)(b));
+```
+
+which is the same shape yo-self already emits for a LOCAL receiver
+(`yo_id_117_bool_id_bool_rtparam0_bool_ret_bool((bool)(ok))`). The dispatcher is
+supposed to work here; the fix is to populate `runtime_arg_exprs_in_order` for this
+node, not to route around it.
+
+Regression coverage: `tests/closure_param_unary_operator.test.yo` — 6 tests covering
+the full matrix above. Verified **TS 6/6 pass, self-hosted rc=1 with 10 FTT markers
+and 21 clang errors**, i.e. it fails before the fix as a regression test must.
+
+### SUPERSEDED HYPOTHESIS: the known-OPEN shared-id clobber
 
 `issues/yo-self-begin-shared-id-clobber.md` already documents the mechanism, and its
 own affected-expression table lists **`effect_analysis` | "bare effectful call as arm

@@ -1,3 +1,87 @@
-open(import("std/fmt"));
-main :: (fn() -> unit)(println("scratch"));
+//! Minimal reproducer hunt for the effect_analysis FTT:
+//!   `if (// Failed to transpile !(allow_missing_type)) {`
+//! In effect_analysis.yo, `if(allow_missing_type, ...)` emits fine but
+//! `if(!(allow_missing_type), ...)` fails to transpile, while `!(local)` works.
+//! The enclosing fn also takes a CLOSURE parameter (`Impl(Fn(...))`) and the
+//! failing variants are closure specializations (`..._cl4_...`), so each case
+//! below isolates one candidate factor.
+open(import("std/string"));
+{ println } :: import("std/fmt");
+
+/// Case 1 — `!` on a plain bool PARAMETER, no closure involved.
+c1 :: (fn(b : bool) -> bool)({
+  if(!(b), {
+    return(false);
+  });
+  true
+});
+
+/// Case 2 — `!` on a LOCAL bool (the form that works in effect_analysis).
+c2 :: (fn(b : bool) -> bool)({
+  ok := b;
+  if(!(ok), {
+    return(false);
+  });
+  true
+});
+
+/// Case 3 — `!` on a bool parameter in a fn that ALSO takes a closure
+/// parameter, mirroring `is_effect_call_`'s shape
+/// (`get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))`).
+c3 :: (fn(b : bool, f : Impl(Fn(x : usize) -> bool)) -> bool)({
+  if(!(b), {
+    return(false);
+  });
+  f(usize(1))
+});
+
+/// Case 4 — same shape as case 3 but reading the parameter WITHOUT negation,
+/// the form that emitted correctly in effect_analysis.
+c4 :: (fn(b : bool, f : Impl(Fn(x : usize) -> bool)) -> bool)({
+  if(b, {
+    return(true);
+  });
+  f(usize(2))
+});
+
+/// Case 5 — INFIX operator on a parameter, inside a closure-specialized fn.
+/// `_is_primitive_infix_operator` (codegen/exprs/generation.yo:577) short-circuits
+/// infix ops to the inline path BEFORE the dispatcher that fails for `!`, so this
+/// should still work if that fast path is what rescues them.
+c5 :: (fn(b : bool, f : Impl(Fn(x : usize) -> bool)) -> bool)({
+  if(b == false, {
+    return(false);
+  });
+  f(usize(3))
+});
+
+/// Case 6 — `!` on a LOCAL inside a closure-specialized fn. Distinguishes
+/// "unary op in a closure specialization" from "unary op on a PARAMETER".
+c6 :: (fn(b : bool, f : Impl(Fn(x : usize) -> bool)) -> bool)({
+  ok := b;
+  if(!(ok), {
+    return(false);
+  });
+  f(usize(4))
+});
+
+/// Case 7 — a different unary trait op (`-` on an integer parameter) in a
+/// closure-specialized fn: is the gap `!` specifically, or all unary ops?
+c7 :: (fn(n : i32, f : Impl(Fn(x : usize) -> bool)) -> bool)({
+  if((0 - n) > 0, {
+    return(false);
+  });
+  f(usize(5))
+});
+
+main :: (fn() -> unit)({
+  println(`c1 true=${c1(true).to_string()} false=${c1(false).to_string()}`);
+  println(`c2 true=${c2(true).to_string()} false=${c2(false).to_string()}`);
+  println(`c3=${c3(true, (x : usize) => (x > usize(0))).to_string()}`);
+  println(`c4=${c4(false, (x : usize) => (x > usize(0))).to_string()}`);
+  println(`c5=${c5(true, (x : usize) => (x > usize(0))).to_string()}`);
+  println(`c6=${c6(true, (x : usize) => (x > usize(0))).to_string()}`);
+  println(`c7=${c7(1, (x : usize) => (x > usize(0))).to_string()}`);
+  ()
+});
 export(main);
