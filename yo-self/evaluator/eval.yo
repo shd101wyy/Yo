@@ -4457,8 +4457,13 @@ eval_float_cmp :: (fn(fval : String, lv : EvalResult, rv : EvalResult) -> Option
 /// Negate a float EvalResult.
 eval_float_neg :: (fn(v : EvalResult) -> Option(EvalResult))({
   v_ty := v.ty;
+  // `EvalResult.value` is a plain `EvalValue` (value.yo:915) — match it directly.
+  // It is NOT a one-element cell: that is `Variable.value : ArrayList(EvalValue)`,
+  // and `.get(usize(0))` copied from that pattern is what made this whole file
+  // fail `check` (EvalValue has no `get`), cascading to evaluator/index.yo and
+  // the five tests that import it.
   match(
-    v.value.get(usize(0)),
+    v.value,
     .FloatLit(raw) => {
       a := match(
         parse_raw_float(raw),
@@ -6361,7 +6366,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                 }
               );
               match(
-                v.value.get(usize(0)),
+                v.value,
                 .BoolVal(b) =>.Some(eval_result(.BoolVal(!(b)), t_bool())),
                 _ => Option(EvalResult).None
               )
@@ -6388,7 +6393,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                 is_eval_int_type(v.ty) => {
                   v_ty := v.ty;
                   match(
-                    v.value.get(usize(0)),
+                    v.value,
                     .IntLit(raw) => {
                       a := match(
                         parse_raw_int(raw),
@@ -6780,7 +6785,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                               },
                               .Some(cv) =>
                                 match(
-                                  cv.value.get(usize(0)),
+                                  cv.value,
                                   .BoolVal(b) =>
                                     cond(
                                       (!(b)) => {
@@ -6795,7 +6800,7 @@ evaluate :: (fn(e : AstExpr, env : Environment) -> Option(EvalResult))(
                                           .Some(bv) => {
                                             last = bv;
                                             match(
-                                              bv.value.get(usize(0)),
+                                              bv.value,
                                               .ReturnVal(_, _) => {
                                                 keep_going = false;
                                               },
