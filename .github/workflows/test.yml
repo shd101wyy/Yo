@@ -396,7 +396,17 @@ jobs:
       # convergence serial (it took a run each to surface the ref(enum) unit-variant
       # leak and then the module-global collision). Without it a single run lists
       # every failure, which is what a scorecard job should do anyway.
+      #
+      # YO_MAIN_STACK_MB matches what the self-hosted arm below already sets. Test
+      # binaries are compiled at -O0 (src/test-runner.ts), where clang gives every
+      # temporary its own stack slot and the big yo-self functions get multi-MB
+      # frames; AGENTS.md documents bumping this env var as the remedy for the
+      # resulting deep-recursion crashes. The TS arm not setting it was an
+      # inconsistency between the two arms, and Linux additionally gets no
+      # equivalent of the macOS-only `-Wl,-stack_size` reserve.
       - name: Run tests/internal under the TS compiler (ground truth)
+        env:
+          YO_MAIN_STACK_MB: "4096"
         run: node --expose-gc --max-old-space-size=12288 ./out/cjs/yo-cli.cjs test ./tests/internal --parallel 1 --verbose --c-compiler clang
 
       - name: "Stage 1: build the self-hosted compiler with the TS compiler"
