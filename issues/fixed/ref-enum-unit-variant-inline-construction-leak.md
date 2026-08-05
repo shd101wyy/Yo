@@ -152,10 +152,20 @@ producing helper's scope end, so a caller that reads the retained field afterwar
 `rc == 1` when the release happened and `rc == 2` when it leaked:
 
 ```rust
-mk_unit :: (fn() -> Held)(keep(Val.UnitVal));
+mk_unit :: (fn() -> Held)({
+  h := keep(Val.UnitVal);
+  h
+});
 u := mk_unit();
 assert(rc(u.v) == 1, "payload-free variant: the caller must release its argument temp");
 ```
+
+The explicit `{ … }` body is deliberate. Written as a bare tail expression the
+self-hosted compiler emits no scope-end drop for the argument temp at all, so both arms
+report rc == 2 under it — a separate pre-existing divergence that also reproduces on the
+payload-carrying form this fix never touched
+(`issues/yo-self-tail-expression-arg-temp-drop-missing.md`). The block body keeps the
+test gating THIS bug on both compilers.
 
 Measured: **pre-fix `got 2` → SIGABRT; post-fix passes.** This works on every platform,
 which matters because neither sanitizer does:
