@@ -29,16 +29,61 @@ score was 181/4/0).
 
 Green baselines every change must preserve:
 
-| gate                   | baseline                                                                                                                |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| honest sweep           | **186 GREEN / 0 HOLLOW / 0 RED** as of 2026-08-03 (`65ebcdbb2`; 185 + the new closure_param_forwarding regression file) |
-| corpus diff-test       | **PASS 154 / DIFF 0 / SELF-FAIL 0** (154 total; the `closure_impl_fn_capture.yo` SELF-FAIL fixed in `65ebcdbb2`)        |
-| `check ./std`          | **153/153**                                                                                                             |
-| `check ./yo-self`      | **301/301** — was 295/305; the 10 "circular-import" failures were ONE bug (fixed 2026-08-05), then 4 files were retired |
-| canaries               | `array` 12, `for_macro_borrow` 13, `closure_capture_rc_leak` 7 — all rc=0, 0 markers                                    |
-| stage2 emit            | rc=0, **markers=0** (`YO_MAIN_STACK_MB=4096 <bin> compile yo-self/main.yo --release --emit-c --skip-c-compiler`)        |
-| stage2 clang           | rc=0, **0 errors** (the 4-error dyn-capture cluster fixed in `65ebcdbb2`)                                               |
-| stage2/stage3 fixpoint | **FIXPOINT_HOLDS** — stage-2 and stage-3 C byte-identical (103.7 MB), verified `65ebcdbb2`                              |
+| gate                   | baseline                                                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| honest sweep           | **186 GREEN / 0 HOLLOW / 0 RED** as of 2026-08-03 (`65ebcdbb2`; 185 + the new closure_param_forwarding regression file)   |
+| corpus diff-test       | **PASS 154 / DIFF 0 / SELF-FAIL 0** (154 total; the `closure_impl_fn_capture.yo` SELF-FAIL fixed in `65ebcdbb2`)          |
+| `check ./std`          | **153/153**                                                                                                               |
+| `check ./yo-self`      | **238/238** — the count dropped from 301 when `yo-self/tests/` moved to `tests/internal/`; it is all-green, not regressed |
+| canaries               | `array` 12, `for_macro_borrow` 13, `closure_capture_rc_leak` 7 — all rc=0, 0 markers                                      |
+| stage2 emit            | rc=0, **markers=0** (`YO_MAIN_STACK_MB=4096 <bin> compile yo-self/main.yo --release --emit-c --skip-c-compiler`)          |
+| stage2 clang           | rc=0, **0 errors** (the 4-error dyn-capture cluster fixed in `65ebcdbb2`)                                                 |
+| stage2/stage3 fixpoint | **FIXPOINT_HOLDS** — stage-2 and stage-3 C byte-identical (103.7 MB), verified `65ebcdbb2`                                |
+
+### 2026-08-05 — the CI LSan blocker was a payload-free `ref(enum)` variant (`cf7bf1091`)
+
+`MyVal.UnitVal` on a `ref(enum(…))` heap-allocates exactly like
+`MyVal.IntVal(v : …)`, but the evaluator folded it to a comptime EnumValue and
+never attached an owning temp — and **a value is dropped only if an env
+`Variable` owns it** (`getVariablesNeedingDrop`, `src/env.ts:2272`). So every
+inline `f(E.UnitVal)` leaked. That is the 96-byte LeakSanitizer failure in the
+`Compiler internal tests` job (`tests/internal/context.test.yo:189` passes
+`EvalValue.UnitVal` to `create_function_body_evaluation_context`); a standalone
+repro of that single test leaks **112 B pre-fix, 0 post-fix**.
+
+Two things worth carrying forward:
+
+1. **The fix needs an evaluator half AND a codegen half.** Attaching the temp
+   alone is inert: the `$.value`-first shortcut in `generateExpr` returned a bare
+   expression string, and the drop emitters' `declaredCVarNames` gate silently
+   skips a drop whose target was never declared. `materializeOwnedRcComptimeValue`
+   supplies the declaration.
+2. **Gate breadth is load-bearing.** `typeContainsRcType` recurses into variant
+   fields, so it is true for a VALUE enum whose other variants carry RC payloads.
+   Using it gave `Option(String).None` a temp and a drop despite being a
+   zero-allocation compound literal, and took `check ./yo-self` from 238/238 to
+   **71/238** via the not-consumed gate. The correct gate is
+   `isReferenceEnumType(enumType) && some variant has fields`.
+
+RC leaks are gated with **`rc(x)`**, not a sanitizer: put the allocation in a
+helper and read the retained field in the caller — rc == 1 released, rc == 2
+leaked. LSan is Linux-only, and macOS `leaks` at `-O2` reports 0 for a real leak
+whenever the allocation's result is discarded (LLVM deletes the malloc). Read the
+emitted C.
+
+Three adjacent gaps were verified and filed rather than folded in:
+`issues/yo-self-tail-expression-arg-temp-drop-missing.md` (yo-self emits NO
+scope-end drop for an owned RC arg temp in a bare tail-expression fn body —
+pre-existing, reproduces on the untouched payload form, and yo-self is written
+mostly in that style, so measure it as a footprint lever),
+`issues/ctfe-elided-unit-call-arg-temp-leak.md`, and
+`issues/fieldless-ref-enum-simple-enum-collapse.md`.
+
+**Remaining CI blocker:** two Linux-only tier-1 battery failures —
+`async_await` runs but fails 1 of 116, `imm_string` produces no summary at all.
+Both pass on macOS and there is no local Linux, so `gates_fast.sh` now dumps the
+failing gate's log (`04c5927b9`) to get evidence out of CI. `continue-on-error`
+stays on the two informational jobs until both are green.
 
 ### `check ./yo-self` reached 305/305 (2026-08-05) — the "circular-import" label was WRONG
 
