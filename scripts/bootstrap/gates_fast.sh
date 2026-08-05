@@ -22,8 +22,19 @@ fail() {
 dump_log() {
   local f=$1
   [ -f "$f" ] || { echo "  (no log at $f)"; return; }
+  # Failure markers first, WITH context. The tail alone is not enough: a battery
+  # file with one failing test among 116 prints its `✗` line hundreds of lines
+  # before the summary, so `tail` showed only passing tests (this is exactly how
+  # async_await's failing test stayed hidden). Keep both — the markers say WHICH
+  # test failed, the tail says how the run ended.
+  local markers
+  markers=$(grep -nE '✗|error:|Error:|undefined reference|Memory leak|Assertion|SIGSEGV|SIGABRT|panic' "$f" | head -25)
+  if [ -n "$markers" ]; then
+    echo "  ---- failure markers in $f ----"
+    echo "$markers" | sed 's/^/  /'
+  fi
   echo "  ---- tail of $f ----"
-  tail -60 "$f" | sed 's/^/  /'
+  tail -40 "$f" | sed 's/^/  /'
   echo "  ---- end $f ----"
 }
 

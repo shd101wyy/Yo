@@ -390,7 +390,16 @@ generate_rc_call :: (fn(expr : AstExpr, indent : String, context : FunctionGener
   if(
     is_rc_type(arg_type),
     if(is_atomic_reference_struct_type(arg_type), {
-      out := String.from("atomic_load_explicit((_Atomic size_t*)&((__yo_ref_header_t*)(");
+      // `_Atomic uint32_t*`, NOT `size_t*`: `ref_count` is a `uint32_t` at offset 0
+      // of `__yo_ref_header_t` (followed by `type_id` and `borrow_count`), so an
+      // 8-byte atomic load reads those two fields into the high bits AND is only
+      // 4-byte aligned. clang then cannot inline a lock-free 8-byte atomic and
+      // emits an out-of-line `__atomic_load_8`, which is undefined at link time on
+      // Linux (libatomic is not linked) — the tier-1 `imm_string` failure. On macOS
+      // it linked and merely read garbage in the high bits, so every
+      // `rc(self) == 1` copy-on-write check in `std/imm/*` silently went false.
+      // Mirrors src/codegen/exprs/rc-fns.ts:549.
+      out := String.from("atomic_load_explicit((_Atomic uint32_t*)&((__yo_ref_header_t*)(");
       out.push_string(arg_code);
       out.push_str("))->ref_count, memory_order_acquire)");
       out
