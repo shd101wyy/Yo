@@ -1,4 +1,4 @@
-# yo-self: a SECOND compile in the same process emits FTT for std internals (OPEN, partially fixed)
+# yo-self: a SECOND compile in the same process emits FTT for std internals (FIXED 2026-08-05)
 
 **Found 2026-08-05** from CI run 30975201804, then reproduced locally on macOS — so
 this is NOT platform-specific. It is why the self-hosted `test` subcommand fails on any
@@ -43,7 +43,7 @@ info for those nodes and emits `// Failed to transpile`.
 
 TS's intent is therefore explicit: **each batch compiles with fresh compiler state.**
 
-## Partial fix applied
+## Step 1: cache clearing (kept, but NOT sufficient)
 
 `run_compile` now clears the two caches it is easiest to be sure about — matching what
 `run_check` already did for the same reason:
@@ -84,9 +84,27 @@ compilers). Cost: one process spawn per batch, negligible against a multi-second
 compile. Constraint: relies on `argv(0)` being a usable path — true for CI and the gate
 scripts, which always invoke the binary by explicit path.
 
-**Recommendation: B.** It is smaller, cannot silently miss a cache, and lands on the
-behaviour already proven green. A is the "proper" fix but is a large, high-risk sweep
-through compiler globals for no additional user-visible benefit.
+**B was chosen and is now LANDED.** It is smaller, cannot silently miss a cache, and
+lands on the behaviour already proven green. A is the "proper" fix but is a large,
+high-risk sweep through compiler globals for no additional user-visible benefit.
+
+### Verification of the landed fix
+
+| check                                                | result                             |
+| ---------------------------------------------------- | ---------------------------------- |
+| `test ./tests/string` (was 47 FTT on file 2)         | **348/348, every batch FTT=0**     |
+| `test ./tests/internal` whole directory, self-hosted | **826/826, 0 FTT, rc=0, 22 min**   |
+| battery 20 files (incl. the six io_uring ones)       | 20/20 rc=0 hollow=0                |
+| corpus diff-test                                     | PASS 155 DIFF 0                    |
+| `check ./std`                                        | 153/153                            |
+| stage-2 emit + clang, stage-2 ≡ stage-3              | hollow=0, 0 errors, FIXPOINT_HOLDS |
+
+22 min matches the 22.2 min per-file baseline, so one spawn per batch costs
+essentially nothing against a multi-second compile.
+
+The cache clearing in `run_compile` is kept as defence in depth: it makes
+`run_compile` self-contained, which is the invariant the child-process design relies
+on, and it is free because a one-compile process starts with those caches empty.
 
 ## Why every gate missed this
 
