@@ -6,13 +6,21 @@ comparing `N passed / M total` + exit code.
 
 ## Scorecard
 
-| directory         | result                                                                       |
-| ----------------- | ---------------------------------------------------------------------------- |
-| `./tests`         | **186 / 186 PASS**, 2,644 individual tests, DIFF 0 / SELF-FAIL 0 / TS-FAIL 0 |
-| `./yo-self/tests` | in progress — first divergence below                                         |
+| directory         | files | PASS    | non-PASS                                                        |
+| ----------------- | ----- | ------- | --------------------------------------------------------------- |
+| `./tests`         | 186   | **186** | none — 2,644 individual tests, DIFF 0 / SELF-FAIL 0 / TS-FAIL 0 |
+| `./yo-self/tests` | 61    | **57**  | 1 SELF-FAIL (`effect_analysis`), 3 SKIPPED (`eval_*` trio)      |
 
-`./tests` is fully clean: the self-hosted `test` subcommand is behaviourally
-equivalent to TypeScript's across the whole integration suite.
+242 of 247 runnable files agree between the two compilers. `./tests` is fully clean:
+the self-hosted `test` subcommand is behaviourally equivalent to TypeScript's across
+the whole integration suite.
+
+The 3 SKIPPED files are **uncovered, not passing** — `eval_basics`, `eval_tail_1` and
+`eval_tail_2` exceed the runner's process limit and were never executed. They do now
+`check` clean, after the fix in
+`issues/yo-self-evalresult-value-cell-confusion.md` took `check ./yo-self` to 305/305.
+
+`effect_analysis` below is therefore the ONLY real divergence in either directory.
 
 ## SELF-FAIL 1: `yo-self/tests/effect_analysis.test.yo`
 
@@ -131,6 +139,45 @@ needs a full TIER 2 pass. A narrower alternative is to add a conditional carry f
 the temp identity, but note several existing carries had to be **conditionally gated**
 (`carry_runtime_args`) because an unconditional carry regressed
 `match_arm_folded_fncall` and `runtime_enum_construct`.
+
+### A guard for this exact error ALREADY EXISTS — so the fix is a gap, not new machinery
+
+This matters for scoping the work: the issue file's proposed TIER-2 "invert the merge"
+refactor may not even be the right lever.
+
+`codegen/utils/index.yo:213` declares `declared_c_var_names : HashSet(String)` whose
+stated purpose is to "skip a drop whose target TEMP was never materialized
+(declaration elided while its deferred-drop survived) — **emitting
+`__yo_decr_rc(undeclared_temp)` is an undeclared-identifier error**". A second,
+block-scope-aware signal `declared_scopes` exists alongside it because the flat set is
+monotonic and would wrongly keep a name alive from an already-closed sibling block.
+
+The most developed consumer is `codegen/exprs/atom.yo:359-386`, and its comment names
+our exact failure class: "the stage-2 self-emit `fp`/`res`/`gt` clang-error class" —
+and the C that fails here contains `..._ret_usize(fp)`.
+
+**The gap**: that gate keys off the drop target's NAME —
+
+```rust
+skip := match(
+  get_deferred_drop_target_atom_name(drop_expr),
+  .Some(var_name) => { /* scope_stack_contains(...) + env-liveness */ },
+  .None => false            // <-- atom.yo:385
+);
+if(!(skip), { /* emit the drop */ });
+```
+
+and `get_deferred_drop_target_atom_name` (`utils/index.yo:1275`) only recognises two
+shapes — `varName.___drop()` and `___drop(varName)` — returning `.None` for anything
+else. On `.None` the gate defaults to **emit**, so any deferred drop whose target is
+not a plain `Atom` bypasses the scope check entirely.
+
+Also note `attach_temp_variable_to_expr` (`evaluator/utils.yo:206`) mints a FRESH temp
+via `generate_new_temp_variable_name` whenever `info.variable_name` is `.None`. That is
+the mechanism that produces two names for one expression — and it means the durable fix
+proposed in `yo-self-begin-shared-id-clobber.md`, which explicitly CLEARS
+`variable_name` on the shared-id path, **would not fix this case**. Worth resolving
+before anyone invests in that refactor.
 
 ### Mechanism hypothesis (NOT yet verified against the artifact)
 

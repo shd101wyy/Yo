@@ -8,10 +8,20 @@ check clean:
 ./yo-cli check yo-self/evaluator/index.yo  -> rc=0, "evaluator OK"
 ```
 
-These two were the root of all 10 `check ./yo-self` failures. The remaining 8 are the
-test files that import `index.yo`; they should now get past module import (pending
-confirmation from the differential sweep, and noting the `eval_*` trio may still hit
-the runner's process limit for unrelated capacity reasons).
+**`check ./yo-self` is now 305/305** (was 295/305 — zero remaining FAILED files), and
+the dependent tests are confirmed green under BOTH compilers:
+
+| file                    | before             | after                |
+| ----------------------- | ------------------ | -------------------- |
+| `phase6_verify`         | whole-file failure | ts 3/3, self 3/3     |
+| `phase6c_macro`         | whole-file failure | ts 2/2, self 2/2     |
+| `phase6d_reflection`    | whole-file failure | ts 3/3, self 3/3     |
+| `phase6f_macro_helpers` | whole-file failure | ts 3/3, self 3/3     |
+| `evaluator_index`       | whole-file failure | ts 18/18, self 18/18 |
+
+The `eval_*` trio now checks clean too, but it still exceeds the test runner's process
+limit, so those three remain **uncovered rather than passing** — a capacity issue
+unrelated to this bug.
 **Found:** 2026-08-05, by the first per-file TS-vs-yo-self differential of the
 `test` subcommand over `yo-self/tests`.
 

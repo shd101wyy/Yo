@@ -1,108 +1,87 @@
-# `yo-self/tests`: 12 pre-existing failures (OPEN), 6 fixed
+# `yo-self/tests`: the 18 failures — 14 FIXED, 1 real divergence, 3 uncovered
 
-Full-directory run at `e1e004a84` (`./yo-cli test ./yo-self/tests --parallel 2`):
-**787 passed / 18 failed**. All 18 were triaged against a clean `2b6aa1db7`
-worktree; **none are caused by the r15/r16 memory work** — the per-file failure
-counts are IDENTICAL on both sides:
+**Status (2026-08-05): RESOLVED except for one genuine codegen bug.**
 
-| file                         | at `e1e004a84` | at `2b6aa1db7` (isolated) |
-| ---------------------------- | -------------- | ------------------------- |
-| `value.test.yo`              | 5 failed       | **5 failed**              |
-| `type_trait_methods.test.yo` | 3 failed       | **3 failed**              |
-| `types_guards.test.yo`       | 1 failed       | **1 failed**              |
-| `evaluator_index.test.yo`    | 1 failed       | **1 failed**              |
+The original triage (full-directory run at `e1e004a84`, **787 passed / 18 failed**)
+treated these as 18 problems in ~6 independent groups. They were not. The final
+accounting:
 
-Also verified directly: no test in the suite references any field r15/r16 moved
-(all thirteen `ExprInfo` rare names, plus `Variable.parameter_alias` /
-`doc_comment`) — the only hit was `open.test.yo`, migrated in that commit.
+| original failures                                                               | count | outcome                                                                                                           |
+| ------------------------------------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------- |
+| `value.test.yo`                                                                 | 5     | **FIXED** — `PtrVal`'s first field is the shared `ArrayList(EvalValue)` CELL; the tests passed a bare `EvalValue` |
+| `type_trait_methods.test.yo`                                                    | 3     | **FIXED** — `resolved_concrete` is `ArrayList(Self)`, not `Option`; 5 sites                                       |
+| `types_guards.test.yo`                                                          | 1     | **FIXED** — same root as above                                                                                    |
+| `env.test.yo`                                                                   | 1     | **FIXED** — `.None` arms returned a `String` where `Variable.id` is a `usize`                                     |
+| `phase6_verify`, `phase6c_macro`, `phase6d_reflection`, `phase6f_macro_helpers` | 4     | **FIXED** — all one root (below)                                                                                  |
+| `evaluator_index.test.yo`                                                       | 1     | **FIXED** — same root; now ts 18/18, self 18/18                                                                   |
+| `eval_basics`, `eval_tail_1`, `eval_tail_2`                                     | 3     | **UNCOVERED** — now `check` clean, but still exceed the runner's process limit                                    |
 
-## FIXED in `ba4c55a03` (6 of the 18)
+Plus one failure the original triage could not have seen, because nobody had ever run
+the self-hosted binary's `test` subcommand over this directory:
 
-Both were tests left stale by EARLIER landed changes, not by r15/r16.
+| new                       | outcome                                                                                                                                |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `effect_analysis.test.yo` | **OPEN** — real yo-self codegen divergence (TS 19/19; yo-self emits C clang rejects). `issues/yo-self-selftest-codegen-divergences.md` |
 
-1. **`env.test.yo` — "Variable.id is stable after shadowing"** (1).
-   Three `.None` arms returned `String.from("missing")` while `v.id` has been a
-   `usize` since `2b6aa1db7` made `Variable.id` a counter instead of a rendered
-   String. The match arms disagreed on type, so the whole FILE failed to compile
-   (which is why a single stale arm showed up as one failure among passes).
-   Fixed to `usize(0)` — already the missing/err sentinel `make_err_variable`
-   uses. **10/1 → 11/11.**
+## Three lessons, each of which had produced a wrong conclusion
 
-2. **`value.test.yo` — the five `PtrVal` tests** (5).
-   They passed a bare `EvalValue` where the variant is
-   `PtrVal(target_value : ArrayList(Self), target_index : usize)` — the first
-   field is the shared mutable CELL (the same one-element list a `Variable` holds
-   as its `value`). `value_to_string` reads `cell.get(0)` and only indexes with
-   `target_index` when that element is an `ArrayVal`. Added a `_ptr_cell` helper
-   and moved the `ArrayVal` inside the cell. **26/5 → 31/31.**
+### 1. Most of the "no nested cause" failures were ONE bug
 
-## STILL OPEN (12)
+`phase6*` × 4 and `evaluator_index` all import `../evaluator/index.yo`, whose sole
+purpose here was to import `evaluator/eval.yo` — and `eval.yo` failed to evaluate
+because of five `.get(usize(0))` calls on `EvalResult.value`, which is a plain
+`EvalValue`, not a one-element cell. One fix (`9741db482`) flipped all five files and
+took `check ./yo-self` from **295/305 to 305/305**. The handoff doc had labelled these
+"9 cascading circular-import" for months; that was wrong.
+See `issues/yo-self-evalresult-value-cell-confusion.md`.
 
-### a. The documented known-heavy trio (3) — expected, not a bug
+### 2. Several "failures" were PHANTOMS created by the measurement itself
 
-`eval_basics.test.yo`, `eval_tail_1.test.yo`, `eval_tail_2.test.yo` exceed the
-runner's 1800 s isolated-process limit; they `check` clean and are validated via
-yo-self-bin sweeps instead. This is why the suite is excluded from CI
-(`.github/workflows/test.yml`). Reported as a whole-file
-`✗ Module evaluation` + "Failed to import module".
+`phase6c_macro` alone needs **6.52 GB** peak and ~335 s. The original sweep ran
+`--parallel 2`, putting ~13 GB in flight on a 16 GB machine; it swapped, and the
+swapping tripped the runner's own **600 s evaluator deadline**, reporting
+`✗ Module evaluation failed` for files that pass cleanly in isolation.
 
-### b. `evaluator_index.test.yo` (1) — a known-baseline consequence
+**Run this directory one file at a time.** The self-hosted runner ignores `--parallel`
+anyway (`yo-self/main.yo:1387` — "Accepted for CLI compatibility; v1 runs
+sequentially"), so a parallel TS run is not even comparing like with like.
 
-Fails at its own import line:
+### 3. Stale-test drift is the single most common failure mode here
 
-```
-{ has_comment_attribute, Evaluator } :: import("../evaluator/index.yo");
-```
+Four of the 18 were tests constructing a compiler struct/enum with a field shape that a
+landed change had moved — and each reported only
+`Failed to import module ".yo_test_batch_*"` with **no nested cause**, because one
+mismatched arm fails the whole generated batch file's compile. That is why a single
+stale line shows up as one failing test surrounded by passes.
 
-`yo-self/evaluator/index.yo` is one of the 10 files in the standing
-`check ./yo-self` **295/305** baseline (`evaluator/eval.yo` + 9 cascading
-circular-import failures — see `plans/YO_SELF_STAGE2_HANDOFF.md` §1). So this test
-cannot pass until that baseline is repaired; it is not independent debt.
+Two habits that work:
 
-### c. Four `phase6*` whole-file failures (4) — undiagnosed
+- **`-v` prints the nested cause**; the non-verbose runner swallows it. You rarely need
+  the kept batch file.
+- **Classify by the match ARMS, not by the variable name.** A name-based pass produced
+  false positives on `var_m` and `recv_var` (genuine `Variable`s from `env.lookup`)
+  while missing `cv` and `bv` (`EvalResult`s from `recur`).
 
-`phase6f_macro_helpers`, `phase6c_macro`, `phase6_verify`, `phase6d_reflection`
-each fail as `✗ Module evaluation` / "Failed to import module <the test file>"
-with **no nested cause printed**. Next step: run one in isolation with `-v` to get
-the real error —
+## Reproducing
 
 ```bash
-YO_MAIN_STACK_MB=4096 ./yo-cli test ./yo-self/tests/phase6c_macro.test.yo --parallel 1 -v
+# per-file TS-vs-yo-self differential, strictly sequential (the only honest way)
+DIR=./yo-self/tests TAG=ystests TO=1500 BIN=/tmp/re/s1r16 \
+  SKIP="eval_basics eval_tail_1 eval_tail_2" bash <scratch>/difftest_dir.sh
+
+# single file with the real error surfaced
+YO_MAIN_STACK_MB=4096 ./yo-cli test ./yo-self/tests/<f>.test.yo --parallel 1 -v
 ```
 
-Suspicion (unverified): the same class as the two fixed above — a stale
-construction or a renamed export that fails the file's compile, since the failure
-is at module import rather than inside a test body.
+Traps worth knowing:
 
-### d. `type_trait_methods.test.yo` (3) and `types_guards.test.yo` (1) — undiagnosed
-
-- `type_trait_methods`: `get_receiver_methods_by_name_from_env` — "SomeT with
-  required trait", "TypeApplication HKT walk", "env-frames compatible-SomeType
-  scan".
-- `types_guards`: "is_rc_type: SomeT with Future trait constraint is RC".
-
-All four report `Yo compilation error: Failed to import module
-"…/.yo_test_batch_*.yo"` with no nested cause, and sibling tests in the same files
-pass — so it is the per-test batch that fails to compile, not the file. `-v` on a
-single test name is the way in:
-
-```bash
-YO_MAIN_STACK_MB=4096 ./yo-cli test ./yo-self/tests/types_guards.test.yo \
-  --test-name-pattern "Future trait constraint" --parallel 1 -v
-```
-
-## Reproducing the triage
-
-```bash
-# full directory (~35-90 min; NEVER run two `yo-cli test` on one dir at once)
-rm -f yo-self/tests/.yo_selftest_batch_* yo-self/tests/.yo_test_batch_*
-YO_MAIN_STACK_MB=4096 ./yo-cli test ./yo-self/tests --parallel 2
-
-# per-file, and the same file on a pre-change worktree for attribution
-git worktree add /tmp/wt-pre <base-commit>
-YO_MAIN_STACK_MB=4096 ./yo-cli test ./yo-self/tests/<f>.test.yo --parallel 1
-```
-
-`yo-cli test` takes ONE path — passing several makes yargs reject the extras as
-"Unknown arguments" and exit 1, which looks exactly like a test failure. Loop
-instead.
+- `yo-cli test` takes exactly ONE path; extra paths make yargs exit 1 with
+  "Unknown arguments", which looks exactly like a test failure.
+- `rm -f yo-self/tests/.yo_test_batch_*` **aborts under zsh** when the glob matches
+  nothing ("no matches found"), silently skipping the rest of the command line. Use
+  `find yo-self/tests -name '.yo_test_batch_*' -delete`.
+- `YO_KEEP_BATCH=1` is read by the **self-hosted** runner (`yo-self/main.yo:1522`), not
+  by `src/`. Grepping only `src/` makes it look dead; removing it from a gate script
+  deletes the artifacts hollow detection depends on.
+- `sed` on PATH here is **GNU**: `sed -i '' 'script' f` fails. Use `sed -i 'script' f`
+  or `/usr/bin/sed -i '' ...`.

@@ -34,11 +34,57 @@ Green baselines every change must preserve:
 | honest sweep           | **186 GREEN / 0 HOLLOW / 0 RED** as of 2026-08-03 (`65ebcdbb2`; 185 + the new closure_param_forwarding regression file) |
 | corpus diff-test       | **PASS 154 / DIFF 0 / SELF-FAIL 0** (154 total; the `closure_impl_fn_capture.yo` SELF-FAIL fixed in `65ebcdbb2`)        |
 | `check ./std`          | **153/153**                                                                                                             |
-| `check ./yo-self`      | **295/305** (10 pre-existing: `evaluator/eval.yo` + 9 cascading circular-import)                                        |
+| `check ./yo-self`      | **305/305** — the 10 "pre-existing circular-import" failures were ONE bug, fixed 2026-08-05 (see below)                 |
 | canaries               | `array` 12, `for_macro_borrow` 13, `closure_capture_rc_leak` 7 — all rc=0, 0 markers                                    |
 | stage2 emit            | rc=0, **markers=0** (`YO_MAIN_STACK_MB=4096 <bin> compile yo-self/main.yo --release --emit-c --skip-c-compiler`)        |
 | stage2 clang           | rc=0, **0 errors** (the 4-error dyn-capture cluster fixed in `65ebcdbb2`)                                               |
 | stage2/stage3 fixpoint | **FIXPOINT_HOLDS** — stage-2 and stage-3 C byte-identical (103.7 MB), verified `65ebcdbb2`                              |
+
+### `check ./yo-self` reached 305/305 (2026-08-05) — the "circular-import" label was WRONG
+
+The 10 long-standing failures were never 10 problems and had nothing to do with
+circular imports. They were **one root**: `EvalResult.value` is a plain `EvalValue`
+(`value.yo:915`), but five sites in `evaluator/eval.yo` called `.get(usize(0))` on it,
+copying the `Variable.value : ArrayList(EvalValue)` one-element-cell idiom.
+`EvalValue` has no `get` and no `Index` impl, and `git log -S` shows the field was
+never an `ArrayList` — the sites were wrong when written. Fixed in `9741db482`; see
+`issues/yo-self-evalresult-value-cell-confusion.md`.
+
+Two things hid it for so long:
+
+- `check` stops at a file's FIRST bad definition, so only one of the five was ever
+  visible — fixing three revealed two more.
+- the code is **unreachable from the compiler build**: `main.yo` imports
+  `evaluator/{context,exprs/_expr,values/anonymous_module,exprs/import,module_loader}.yo`
+  directly and never `evaluator/index.yo`, the sole importer of `eval.yo`. So the
+  self-compile and the fixpoint never touch these functions. `check` — which evaluates
+  every definition including never-called ones — was the only gate that could see them.
+
+Knock-on effect on `yo-self/tests`: the four `phase6*` files that failed as
+"`✗ Module evaluation` / Failed to import module" with **no nested cause**, plus
+`evaluator_index`, all import `../evaluator/index.yo` and were failing purely on this
+cascade. All five now pass under BOTH compilers.
+
+### `test`-subcommand differential, TS vs the self-hosted binary (2026-08-05)
+
+First time the self-hosted `test` subcommand had ever been run over these trees.
+Harness: per-file, strictly sequential, comparing `N passed / M total` + exit code.
+
+| directory         | files | PASS    | non-PASS                                                   |
+| ----------------- | ----- | ------- | ---------------------------------------------------------- |
+| `./tests`         | 186   | **186** | none — 2,644 individual tests, DIFF 0                      |
+| `./yo-self/tests` | 61    | **57**  | 1 SELF-FAIL (`effect_analysis`), 3 SKIPPED (`eval_*` trio) |
+
+`effect_analysis` is a real yo-self codegen divergence (TS 19/19; yo-self emits C that
+clang rejects) — see `issues/yo-self-selftest-codegen-divergences.md`. The `eval_*`
+trio is **uncovered, not passing**: those three exceed the runner's process limit, and
+although they now `check` clean they were never executed.
+
+**Run this suite STRICTLY ONE FILE AND ONE COMPILER AT A TIME.** `phase6c_macro` alone
+needs 6.52 GB; two concurrent children on a 16 GB machine swap, and the swapping trips
+the runner's own 600 s evaluator deadline, MANUFACTURING failures that do not reproduce
+in isolation. An earlier `--parallel 2` sweep produced several such phantoms and they
+were mistaken for real defects.
 
 **The stage-2 dyn-capture cluster is FIXED and the FIXPOINT gate is
 RESTORED (`65ebcdbb2`)**: the forwarded-closure spec-cache collision

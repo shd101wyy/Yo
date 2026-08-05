@@ -29,14 +29,15 @@ echo "=== T1 GATE 1: battery (with HOLLOW detection) ==="
 for t in tests/comptime.test.yo tests/prelude.test.yo tests/arc.test.yo tests/async_await.test.yo tests/sys/bufio.test.yo tests/fs/file.test.yo tests/fs/temp.test.yo tests/fs/walker.test.yo tests/sys/signal.test.yo tests/cycle_collector.test.yo tests/basic.test.yo tests/closure.test.yo tests/imm_list.test.yo tests/imm_string.test.yo tests/module_struct_unification.test.yo tests/ref_struct.test.yo tests/fn.test.yo tests/iso.test.yo tests/rc.test.yo tests/operator_grouping.test.yo; do
   name=$(basename "$t" .test.yo); d=$(dirname "$t")
   rm -f "$d"/.yo_selftest_batch_*
-  # No env var is needed to retain the batch artifacts: the SELF-HOSTED runner
-  # writes .yo_selftest_batch_<index>.{yo,bin,bin.c} next to the test file
-  # (yo-self/main.yo:1484) with a deterministic index and never cleans them up.
-  # That is what makes the hollow check below possible. (`YO_KEEP_BATCH=1`, which
-  # this line used to set, does not exist anywhere in src/ — it was a no-op that
-  # implied a mechanism the code does not have. Two sibling scripts,
-  # measure_one.sh and hollow_sweep69.sh, still set it; harmless but equally dead.)
-  timeout 1200 "$S1" test "$t" &> "/tmp/${P}_${name}.log"
+  # YO_KEEP_BATCH=1 is LOAD-BEARING — do not remove it. It is read by the
+  # SELF-HOSTED runner (yo-self/main.yo:1522), which otherwise DELETES its
+  # .yo_selftest_batch_<index>.{yo,bin,bin.c} artifacts next to the test file.
+  # The hollow check below needs the .bin.c to exist; without this var every
+  # file reports hollow=NA and the gate fails 20/20. (It is deliberately absent
+  # from src/ — the TS runner has no counterpart — so grepping only src/ makes
+  # it look dead. It is not. measure_one.sh and hollow_sweep69.sh set it for
+  # the same reason.)
+  YO_KEEP_BATCH=1 timeout 1200 "$S1" test "$t" &> "/tmp/${P}_${name}.log"
   rc=$?
   c="$d/.yo_selftest_batch_1.bin.c"
   hollow=NA
