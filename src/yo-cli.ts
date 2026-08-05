@@ -56,7 +56,7 @@ function collectCheckFiles(
 ): string[] {
   const absolutePath = path.resolve(targetPath);
   // Resolve excludes to absolute paths; a path is excluded if it equals an
-  // exclude or lives under one (so `--exclude yo-self/tests` skips the whole
+  // exclude or lives under one (so `--exclude tests/internal` skips the whole
   // subtree). Lets a single directory `check` skip known-broken sub-trees
   // instead of falling back to slow per-file checking.
   const excludes = excludePaths.map((e) => path.resolve(e));
@@ -756,11 +756,24 @@ yo --version                     Show version number
               "Maximum number of tests to compile into one generated test binary",
             type: "number",
             default: DEFAULT_TEST_BATCH_SIZE,
+          })
+          .option("exclude", {
+            type: "array",
+            describe:
+              "Path(s) to exclude when running a directory (file or sub-directory; repeatable)",
+            default: [],
           });
       },
       async (argv) => {
         const targetPath = argv.path as string;
-        const testFiles = findTestFiles(targetPath);
+        // Same semantics as `check --exclude`. Needed so the fast language
+        // suite can skip `tests/internal`, whose files each pull in ~99k lines
+        // through their import closure and peak at ~6.5 GB — they cannot share a
+        // CI job that runs `--parallel 2` under `--max-old-space-size=4096`.
+        const excludePaths = (
+          (argv.exclude as unknown[] | undefined) ?? []
+        ).map((e) => String(e));
+        const testFiles = findTestFiles(targetPath, excludePaths);
 
         if (testFiles.length === 0) {
           console.log("No test files found.");

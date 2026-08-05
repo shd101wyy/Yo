@@ -88,19 +88,13 @@ jobs:
           cd tmp/hello-world
           node ../../out/cjs/yo-cli.cjs build run
 
+      # `tests/internal` (the compiler's own tests — they import yo-self/ evaluator
+      # and codegen internals) is excluded here and runs as its own job below.
+      # Without the exclude this step would pull in files that each cost minutes
+      # and gigabytes to compile, and the ~30 min fast suite would become ~70.
       - name: Run tests
         # run: ./yo-cli test ./tests --verbose
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --parallel 2 --bail --verbose --c-compiler clang --profile
-
-      # yo-self bootstrapping tests are green locally (2026-06) but stay out of CI
-      # for runtime reasons: the full directory takes ~90 min on an M4 (every file
-      # importing evaluator internals pays a multi-minute Yo-compile), and
-      # eval_basics/eval_tail_1/eval_tail_2 exceed the runner's 1800s
-      # isolated-process limit outright. Run locally per yo-self/README.md;
-      # the self-hosted binary sweeps (yo-self-bin check ./std ./tests ./yo-self)
-      # are the continuous evaluator gate.
-      # - name: Run yo-self bootstrapping tests
-      #   run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./yo-self/tests --parallel 2 --bail --verbose --c-compiler clang --profile
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --exclude tests/internal --parallel 2 --bail --verbose --c-compiler clang --profile
 
   # Bootstrap fixpoint, split into TWO jobs so each self-emit gets a fresh
   # 16 GB box (a single job's stage-3 starved the runner agent after the
@@ -346,6 +340,74 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+  # The compiler's own tests (`tests/internal`, formerly `yo-self/tests`): 58 files
+  # that import yo-self/ evaluator + codegen internals, so each one pays a full
+  # compiler-sized Yo compile. Kept out of the main `test ./tests` job (which
+  # excludes them) and given its own box because of runtime and memory:
+  #
+  #   MEASURED 2026-08-05, M4, --parallel 1: 40.5 min under the TS compiler,
+  #   22.2 min under the self-hosted binary (it is ~2x faster).
+  #
+  # --parallel 1 is REQUIRED, not conservative: phase6c_macro alone peaks at
+  # ~6.5 GB, so two concurrent children on a 16 GB box swap, and the swapping
+  # trips the runner's own 600 s evaluator deadline — manufacturing failures that
+  # do not reproduce in isolation. The node heap cap is raised from the 4096 MB
+  # used elsewhere for the same reason.
+  #
+  # Informational at first (the TSan/bootstrap-fixpoint pattern) until a week of
+  # green runs establishes CI timing and memory headroom.
+  compiler-internal-tests:
+    name: Compiler internal tests (tests/internal — informational)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    continue-on-error: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install liburing
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: |
+          bun install
+          bun run build
+
+      - name: Run tests/internal under the TS compiler (ground truth)
+        run: node --expose-gc --max-old-space-size=12288 ./out/cjs/yo-cli.cjs test ./tests/internal --parallel 1 --bail --verbose --c-compiler clang
+
+      - name: "Stage 1: build the self-hosted compiler with the TS compiler"
+        if: always()
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release -o /tmp/yo-stage1
+
+      # The same 58 files under the self-hosted binary. This is the differential
+      # that matters: a file passing under TS and failing here is a codegen or
+      # evaluator divergence in the bootstrap compiler (that is exactly how the
+      # effect_analysis unary-operator FTT was found, 2026-08-05). Runs even when
+      # the TS step bailed, so a run always produces both scorecards to compare.
+      # The self-hosted runner is sequential regardless of --parallel
+      # ("Accepted for CLI compatibility; v1 runs sequentially", yo-self/main.yo).
+      - name: Run tests/internal under the self-hosted binary (differential)
+        if: always()
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: /tmp/yo-stage1 test ./tests/internal --parallel 1 --verbose
+
   test-tsan:
     name: ThreadSanitizer (sync primitives — Linux/Clang, informational)
     runs-on: ubuntu-latest
@@ -429,8 +491,10 @@ jobs:
           sed -i 's|exe :: build.executable({ name: "hello-world", root: "./src/main.yo" });|exe :: build.executable({ name: "hello-world", root: "./src/main.yo", target: build.CompilationTarget.Wasm32_Emscripten });|' build.yo
           node ../../out/cjs/yo-cli.cjs build run
 
+      # tests/internal is host-toolchain-only (it compiles the compiler); excluded
+      # from the cross-target jobs for the same runtime/memory reason as above.
       - name: Run WASM tests
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --parallel 2 --bail --verbose --c-compiler emcc --profile
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --exclude tests/internal --parallel 2 --bail --verbose --c-compiler emcc --profile
 
   test-wasm32_wasi:
     runs-on: ubuntu-latest
@@ -472,5 +536,6 @@ jobs:
           bun install
           bun run build
 
+      # See the WASM job: tests/internal is host-toolchain-only.
       - name: Run WASI tests
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --parallel 2 --bail --verbose --target wasm-wasi --profile
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --exclude tests/internal --parallel 2 --bail --verbose --target wasm-wasi --profile

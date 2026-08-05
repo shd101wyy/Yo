@@ -1,0 +1,60 @@
+/// Tests for the structural type-key function (types/type_key.yo) — the
+/// C-type-identity oracle. A wrong key silently merges distinct C types or
+/// duplicates identical ones; the codegen corpus only catches that
+/// indirectly, so pin the key's determinism and distinctness here.
+open(import("std/string"));
+open(import("std/fmt"));
+{ TypeValue } :: import("../../yo-self/types/definitions.yo");
+{
+  t_func_simple,
+  t_some_t,
+  t_ptr,
+  t_i32,
+  t_bool,
+  t_unit,
+  t_usize
+} :: import("../../yo-self/types/creators.yo");
+{ ArrayList } :: import("std/collections/array_list");
+{ type_key } :: import("../../yo-self/types/type_key.yo");
+{ assert, panic } :: import("std/assert");
+test("type_key: deterministic for the same type", {
+  assert(type_key(t_i32()) == type_key(t_i32()), "i32 key stable");
+  assert(type_key(t_bool()) == type_key(t_bool()), "bool key stable");
+  assert(type_key(t_ptr(t_i32())) == type_key(t_ptr(t_i32())), "ptr(i32) key stable");
+});
+test("type_key: distinct scalar types get distinct keys", {
+  assert(!(type_key(t_i32()) == type_key(t_bool())), "i32 vs bool");
+  assert(!(type_key(t_i32()) == type_key(t_usize())), "i32 vs usize");
+  assert(!(type_key(t_i32()) == type_key(t_unit())), "i32 vs unit");
+});
+test("type_key: pointer wrapping changes the key", {
+  assert(!(type_key(t_ptr(t_i32())) == type_key(t_i32())), "ptr(i32) vs i32");
+  assert(
+    !(type_key(t_ptr(t_ptr(t_i32()))) == type_key(t_ptr(t_i32()))),
+    "ptr(ptr(i32)) vs ptr(i32)"
+  );
+});
+test("type_key: function types keyed by params and result", {
+  p1 := ArrayList(String).new();
+  p1.push(`a`);
+  t1 := ArrayList(TypeValue).new();
+  t1.push(t_i32());
+  f_i32_to_bool := t_func_simple(p1, t1, t_bool());
+  p2 := ArrayList(String).new();
+  p2.push(`a`);
+  t2 := ArrayList(TypeValue).new();
+  t2.push(t_i32());
+  f_i32_to_i32 := t_func_simple(p2, t2, t_i32());
+  assert(
+    type_key(f_i32_to_bool) == type_key(f_i32_to_bool),
+    "fn key stable"
+  );
+  assert(
+    !(type_key(f_i32_to_bool) == type_key(f_i32_to_i32)),
+    "fn keys differ on result type"
+  );
+});
+test("type_key: SomeT distinct from concrete", {
+  st := t_some_t(`T`, usize(0));
+  assert(!(type_key(st) == type_key(t_i32())), "SomeT vs i32");
+});

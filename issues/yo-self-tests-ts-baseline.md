@@ -1,5 +1,11 @@
 # yo-self/tests TS baseline (#70 prerequisite) + suite audit — 2026-07-17
 
+> **PATH NOTE (2026-08-05):** this directory is now `tests/internal/`. Every
+> `yo-self/tests` path below is historical — read it as `tests/internal`. The
+> timings here are also superseded: 40.5 min under TS / 22.2 min self-hosted at
+> `--parallel 1` for 58 files (the `eval_*` trio was retired). See
+> `.github/instructions/testing.instructions.md`.
+
 Status: suite AUDITED and REPAIRED; TS baseline established. This documents
 what the next agent can rely on before running `s2 test ./yo-self/tests`.
 

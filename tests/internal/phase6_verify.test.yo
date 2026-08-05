@@ -1,0 +1,204 @@
+/// Phase 6 verification: confirm that yo-self's "proper" Evaluator path
+/// (yo-self/evaluator/index.yo + builtins/quote.yo + builtins/macro_expand.yo)
+/// can handle quote/unquote and macro definitions end-to-end.
+///
+/// These tests use the skip-prelude directive so we don't need to load the real prelude;
+/// the macro and call site live in the same source.
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/error"));
+{ ArrayList } :: import("std/collections/array_list");
+{ Token, TokenKind } :: import("../../yo-self/token.yo");
+{ EvalValue } :: import("../../yo-self/value.yo");
+{ has_comment_attribute, Evaluator } :: import("../../yo-self/evaluator/index.yo");
+{ assert, panic } :: import("std/assert");
+noop_loader :: (fn(_path : String) -> Option(EvalValue))(
+  Option(EvalValue).None
+);
+// ---------------------------------------------------------------------------
+// Sanity check that the "proper" Evaluator path actually evaluates a tiny
+// program. This must work before anything else.
+// ---------------------------------------------------------------------------
+test("Phase6 verify: trivial export(with skip_prelude evaluates cleanly)", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  src := String.from("pragma(Pragma.SkipPrelude);\nx :: 1;\nexport(x);\n");
+  eval := Evaluator.new(
+    String.from("<verify1>"),
+    String.from("<no-std>"),
+    noop_loader,
+    src,
+    exn
+  );
+  match(
+    eval.get_module_error(),
+    .Some(_) => {
+      assert(false, "unexpected module_error on trivial source");
+    },
+    .None => ()
+  );
+});
+// ---------------------------------------------------------------------------
+// quote(<atom>) — should produce an ExprVal wrapping the atom.
+// ---------------------------------------------------------------------------
+test("Phase6 verify: quote(42) produces ExprVal", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  src := String.from("pragma(Pragma.SkipPrelude);\nq :: quote(42);\nexport(q);\n");
+  eval := Evaluator.new(
+    String.from("<verify2>"),
+    String.from("<no-std>"),
+    noop_loader,
+    src,
+    exn
+  );
+  match(
+    eval.get_module_error(),
+    .Some(err) => {
+      assert(false, "module_error on quote(42)");
+    },
+    .None => ()
+  );
+  // Look up q in the module value and verify it's an ExprVal.
+  match(
+    eval.get_module_value(),
+    .None => {
+      assert(false, "no module value produced");
+    },
+    .Some(mv) => match(
+      mv,
+      .StructVal(_, names, values) => {
+        // names should contain "q"
+        (found_idx : Option(usize)) =.None;
+        (i : usize) = usize(0);
+        n := names.len();
+        while(i < n, {
+          match(
+            names.get(i),
+            .Some(nm) => cond(
+              (nm == "q") => {
+                found_idx =.Some(i);
+              },
+              true => ()
+            ),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        match(
+          found_idx,
+          .None => {
+            assert(false, "q not in module exports");
+          },
+          .Some(idx) => match(
+            values.get(idx),
+            .None => {
+              assert(false, "q index missing in values");
+            },
+            .Some(qval) => match(
+              qval,
+              .ExprVal(_) => (),
+              _ => {
+                assert(false, "q is not an ExprVal");
+              }
+            )
+          )
+        );
+      },
+      _ => {
+        assert(false, "module value is not ModuleVal");
+      }
+    )
+  );
+});
+// ---------------------------------------------------------------------------
+// quote(unquote(<expr>)) — should evaluate the inner unquote and splice.
+// Bind y := quote(7), then z := quote(unquote(y)) — z should equal quote(7).
+// We just verify z is an ExprVal (deeper structural equality is harder).
+// ---------------------------------------------------------------------------
+test("Phase6 verify: quote(unquote(x)) round-trips to ExprVal", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  src := String.from("pragma(Pragma.SkipPrelude);\ny :: quote(7);\nz :: quote(unquote(y));\nexport(z);\n");
+  eval := Evaluator.new(
+    String.from("<verify3>"),
+    String.from("<no-std>"),
+    noop_loader,
+    src,
+    exn
+  );
+  match(
+    eval.get_module_error(),
+    .Some(err) => {
+      assert(false, "module_error on quote(unquote(y))");
+    },
+    .None => ()
+  );
+  match(
+    eval.get_module_value(),
+    .None => {
+      assert(false, "no module value produced");
+    },
+    .Some(mv) => match(
+      mv,
+      .StructVal(_, names, values) => {
+        (found_idx : Option(usize)) =.None;
+        (i : usize) = usize(0);
+        n := names.len();
+        while(i < n, {
+          match(
+            names.get(i),
+            .Some(nm) => cond(
+              (nm == "z") => {
+                found_idx =.Some(i);
+              },
+              true => ()
+            ),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        match(
+          found_idx,
+          .None => {
+            assert(false, "z not in module exports");
+          },
+          .Some(idx) => match(
+            values.get(idx),
+            .None => {
+              assert(false, "z index missing in values");
+            },
+            .Some(zval) => match(
+              zval,
+              .ExprVal(_) => (),
+              _ => {
+                assert(false, "z is not an ExprVal");
+              }
+            )
+          )
+        );
+      },
+      _ => {
+        assert(false, "module value is not ModuleVal");
+      }
+    )
+  );
+});

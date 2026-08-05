@@ -1,0 +1,606 @@
+/// Tests for the Markdown documentation renderer (Phase 2p).
+///
+/// Mirrors `src/doc/render-markdown.test.ts`.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ assert, panic } :: import("std/assert");
+{
+  DocParam,
+  DocField,
+  DocVariant,
+  DocAssociatedType,
+  DocImplAssocType,
+  DocImpl,
+  DocFunction,
+  DocType,
+  DocTrait,
+  DocConstant,
+  DocModule,
+  DocModel,
+  DocItemKind,
+  DocTraitKind
+} :: import("../../yo-self/doc/model.yo");
+{
+  render_function_md,
+  render_type_md,
+  render_trait_md,
+  render_constant_md,
+  render_module_md,
+  render_index_md
+} :: import("../../yo-self/doc/render_markdown.yo");
+// ── Builder helpers ────────────────────────────────────────────────────────
+make_param_ :: (fn(name : String, type_ : String) -> DocParam)(
+  DocParam(
+    name : name,
+    type_ : type_,
+    is_comptime : false,
+    is_implicit : false,
+    default_value : Option(String).None,
+    doc : Option(String).None
+  )
+);
+make_function_ :: (fn() -> DocFunction)({
+  params := ArrayList(DocParam).new();
+  params.push(make_param_(`a`, `i32`));
+  params.push(make_param_(`b`, `i32`));
+  DocFunction(
+    name : `add`,
+    doc : Option(String).Some(`Add two numbers.`),
+    signature : `add :: (fn(a : i32, b : i32) -> i32)`,
+    parameters : params,
+    return_type : `i32`,
+    type_params : Option(ArrayList(DocParam)).None,
+    effects : Option(ArrayList(DocParam)).None,
+    is_method : false,
+    self_type : Option(String).None,
+    returns : Option(String).None,
+    errors : Option(String).None,
+    deprecated : Option(String).None,
+    examples : Option(String).None
+  )
+});
+make_type_ :: (fn() -> DocType)({
+  fields := ArrayList(DocField).new();
+  fields.push(DocField(name : `x`, type_ : `i32`, doc : Option(String).None, default_value : Option(String).None));
+  fields.push(DocField(name : `y`, type_ : `i32`, doc : Option(String).None, default_value : Option(String).None));
+  DocType(
+    name : `Point`,
+    doc : Option(String).Some(`A 2D point.`),
+    kind : DocItemKind.Struct,
+    signature : `Point :: struct(x : i32, y : i32)`,
+    type_params : Option(ArrayList(DocParam)).None,
+    fields : Option(ArrayList(DocField)).Some(fields),
+    variants : Option(ArrayList(DocVariant)).None,
+    methods : ArrayList(DocFunction).new(),
+    trait_impls : ArrayList(String).new(),
+    impls : Option(ArrayList(DocImpl)).None,
+    deprecated : Option(String).None,
+    examples : Option(String).None
+  )
+});
+make_display_method_ :: (fn() -> DocFunction)({
+  params := ArrayList(DocParam).new();
+  params.push(make_param_(`self`, `Self`));
+  DocFunction(
+    name : `display`,
+    doc : Option(String).Some(`Render self as a string.`),
+    signature : `display : (fn(self: Self) -> str)`,
+    parameters : params,
+    return_type : `str`,
+    type_params : Option(ArrayList(DocParam)).None,
+    effects : Option(ArrayList(DocParam)).None,
+    is_method : true,
+    self_type : Option(String).Some(`Self`),
+    returns : Option(String).None,
+    errors : Option(String).None,
+    deprecated : Option(String).None,
+    examples : Option(String).None
+  )
+});
+make_trait_ :: (fn() -> DocTrait)({
+  methods := ArrayList(DocFunction).new();
+  methods.push(make_display_method_());
+  implementors := ArrayList(String).new();
+  implementors.push(`Point`);
+  implementors.push(`Color`);
+  DocTrait(
+    name : `Display`,
+    doc : Option(String).Some(`Format a value for display.`),
+    kind : DocTraitKind.Trait,
+    signature : `Display :: trait(display : (fn(self: Self) -> str))`,
+    type_params : Option(ArrayList(DocParam)).None,
+    associated_types : Option(ArrayList(DocAssociatedType)).None,
+    methods : methods,
+    implementors : implementors,
+    deprecated : Option(String).None,
+    examples : Option(String).None
+  )
+});
+make_constant_ :: (fn() -> DocConstant)(
+  DocConstant(
+    name : `MAX_SIZE`,
+    doc : Option(String).Some(`Maximum buffer size.`),
+    type_ : `usize`,
+    value : Option(String).Some(`1024`),
+    deprecated : Option(String).None
+  )
+);
+make_module_ :: (fn() -> DocModule)({
+  fns := ArrayList(DocFunction).new();
+  fns.push(make_function_());
+  types := ArrayList(DocType).new();
+  types.push(make_type_());
+  traits := ArrayList(DocTrait).new();
+  traits.push(make_trait_());
+  consts := ArrayList(DocConstant).new();
+  consts.push(make_constant_());
+  DocModule(
+    name : `math`,
+    path : `std/math`,
+    doc : Option(String).Some(`Math utilities.`),
+    functions : fns,
+    types : types,
+    traits : traits,
+    constants : consts,
+    submodules : ArrayList(Box(DocModule)).new()
+  )
+});
+make_model_ :: (fn() -> DocModel)({
+  modules := ArrayList(DocModule).new();
+  modules.push(make_module_());
+  DocModel(
+    name : `my-project`,
+    modules : modules,
+    version : Option(String).None
+  )
+});
+// ── renderFunctionMd ────────────────────────────────────────────────────────
+test("renderFunctionMd: renders a basic function", {
+  md := render_function_md(make_function_());
+  assert(md.contains(`### \`add\``), "heading");
+  assert(md.contains(`\`\`\`rust`), "code fence");
+  assert(md.contains(`add :: (fn(a : i32, b : i32) -> i32)`), "signature");
+  assert(md.contains(`Add two numbers.`), "doc");
+  assert(md.contains(`**Parameters:**`), "parameters header");
+  assert(md.contains(`\`a\` : \`i32\``), "param a");
+  assert(md.contains(`**Returns:** \`i32\``), "return(type)");
+});
+test("renderFunctionMd: renders comptime and implicit parameters", {
+  params := ArrayList(DocParam).new();
+  params.push(DocParam(name : `T`, type_ : `Type`, is_comptime : true, is_implicit : false, default_value : Option(String).None, doc : Option(String).None));
+  params.push(DocParam(name : `io`, type_ : `Io`, is_comptime : false, is_implicit : true, default_value : Option(String).None, doc : Option(String).None));
+  fn_ := make_function_();
+  fn2 := DocFunction(
+    name : fn_.name,
+    doc : fn_.doc,
+    signature : fn_.signature,
+    parameters : params,
+    return_type : fn_.return_type,
+    type_params : fn_.type_params,
+    effects : fn_.effects,
+    is_method : fn_.is_method,
+    self_type : fn_.self_type,
+    returns : fn_.returns,
+    errors : fn_.errors,
+    deprecated : fn_.deprecated,
+    examples : fn_.examples
+  );
+  md := render_function_md(fn2);
+  assert(md.contains(`*(comptime)*`), "comptime marker");
+  assert(md.contains(`*(implicit)*`), "implicit marker");
+});
+test("renderFunctionMd: renders a method with self type", {
+  params := ArrayList(DocParam).new();
+  fn_ := make_function_();
+  fn2 := DocFunction(
+    name : `len`,
+    doc : fn_.doc,
+    signature : fn_.signature,
+    parameters : fn_.parameters,
+    return_type : fn_.return_type,
+    type_params : fn_.type_params,
+    effects : fn_.effects,
+    is_method : true,
+    self_type : Option(String).Some(`Vec`),
+    returns : fn_.returns,
+    errors : fn_.errors,
+    deprecated : fn_.deprecated,
+    examples : fn_.examples
+  );
+  md := render_function_md(fn2);
+  assert(md.contains(`### \`Vec.len\``), "method heading");
+});
+test("renderFunctionMd: renders deprecated banner", {
+  fn_ := make_function_();
+  fn2 := DocFunction(
+    name : fn_.name,
+    doc : fn_.doc,
+    signature : fn_.signature,
+    parameters : fn_.parameters,
+    return_type : fn_.return_type,
+    type_params : fn_.type_params,
+    effects : fn_.effects,
+    is_method : fn_.is_method,
+    self_type : fn_.self_type,
+    returns : fn_.returns,
+    errors : fn_.errors,
+    deprecated : Option(String).Some(`Use new_add instead.`),
+    examples : fn_.examples
+  );
+  md := render_function_md(fn2);
+  assert(md.contains(`⚠️ **Deprecated**`), "deprecated banner");
+  assert(md.contains(`Use new_add instead.`), "deprecated message");
+});
+test("renderFunctionMd: renders Returns section", {
+  fn_ := make_function_();
+  fn2 := DocFunction(
+    name : fn_.name,
+    doc : fn_.doc,
+    signature : fn_.signature,
+    parameters : fn_.parameters,
+    return_type : fn_.return_type,
+    type_params : fn_.type_params,
+    effects : fn_.effects,
+    is_method : fn_.is_method,
+    self_type : fn_.self_type,
+    returns : Option(String).Some(`The sum of the two operands.`),
+    errors : fn_.errors,
+    deprecated : fn_.deprecated,
+    examples : fn_.examples
+  );
+  md := render_function_md(fn2);
+  assert(md.contains(`The sum of the two operands.`), "returns content");
+});
+test("renderFunctionMd: renders Errors section", {
+  fn_ := make_function_();
+  fn2 := DocFunction(
+    name : fn_.name,
+    doc : fn_.doc,
+    signature : fn_.signature,
+    parameters : fn_.parameters,
+    return_type : fn_.return_type,
+    type_params : fn_.type_params,
+    effects : fn_.effects,
+    is_method : fn_.is_method,
+    self_type : fn_.self_type,
+    returns : fn_.returns,
+    errors : Option(String).Some(`Returns an error on overflow.`),
+    deprecated : fn_.deprecated,
+    examples : fn_.examples
+  );
+  md := render_function_md(fn2);
+  assert(md.contains(`**Errors:**`), "errors header");
+  assert(md.contains(`Returns an error on overflow.`), "errors content");
+});
+test("renderFunctionMd: renders Examples section", {
+  fn_ := make_function_();
+  fn2 := DocFunction(
+    name : fn_.name,
+    doc : fn_.doc,
+    signature : fn_.signature,
+    parameters : fn_.parameters,
+    return_type : fn_.return_type,
+    type_params : fn_.type_params,
+    effects : fn_.effects,
+    is_method : fn_.is_method,
+    self_type : fn_.self_type,
+    returns : fn_.returns,
+    errors : fn_.errors,
+    deprecated : fn_.deprecated,
+    examples : Option(String).Some(`\`\`\`rust\nresult :: add(i32(1), i32(2));\n\`\`\``)
+  );
+  md := render_function_md(fn2);
+  assert(md.contains(`**Examples:**`), "examples header");
+  assert(md.contains(`result :: add(i32(1), i32(2));`), "examples content");
+});
+test("renderFunctionMd: renders param with doc and default", {
+  params := ArrayList(DocParam).new();
+  params.push(DocParam(name : `a`, type_ : `i32`, is_comptime : false, is_implicit : false, default_value : Option(String).Some(`0`), doc : Option(String).Some(`First operand.`)));
+  fn_ := make_function_();
+  fn2 := DocFunction(
+    name : fn_.name,
+    doc : fn_.doc,
+    signature : fn_.signature,
+    parameters : params,
+    return_type : fn_.return_type,
+    type_params : fn_.type_params,
+    effects : fn_.effects,
+    is_method : fn_.is_method,
+    self_type : fn_.self_type,
+    returns : fn_.returns,
+    errors : fn_.errors,
+    deprecated : fn_.deprecated,
+    examples : fn_.examples
+  );
+  md := render_function_md(fn2);
+  assert(md.contains(`First operand.`), "param doc");
+  assert(md.contains(`= \`0\``), "param default");
+});
+// ── renderTypeMd ─────────────────────────────────────────────────────────────
+test("renderTypeMd: renders a struct type", {
+  md := render_type_md(make_type_());
+  assert(md.contains(`### \`Point\``), "heading");
+  assert(md.contains(`*struct*`), "kind");
+  assert(md.contains(`A 2D point.`), "doc");
+  assert(md.contains(`**Fields:**`), "fields header");
+  assert(md.contains(`\`x\` : \`i32\``), "field x");
+});
+test("renderTypeMd: renders atomic object type kind", {
+  fields := ArrayList(DocField).new();
+  fields.push(DocField(name : `_raw`, type_ : `usize`, doc : Option(String).None, default_value : Option(String).None));
+  t := make_type_();
+  t2 := DocType(
+    name : `Cond`,
+    doc : t.doc,
+    kind : DocItemKind.AtomicObject,
+    signature : `Cond :: atomic object(_raw : usize)`,
+    type_params : t.type_params,
+    fields : Option(ArrayList(DocField)).Some(fields),
+    variants : t.variants,
+    methods : t.methods,
+    trait_impls : t.trait_impls,
+    impls : t.impls,
+    deprecated : t.deprecated,
+    examples : t.examples
+  );
+  md := render_type_md(t2);
+  assert(md.contains(`*atomic object*`), "atomic object kind");
+  assert(md.contains(`Cond :: atomic object(_raw : usize)`), "signature");
+});
+test("renderTypeMd: renders an enum with variants", {
+  variants := ArrayList(DocVariant).new();
+  variants.push(DocVariant(name : `Red`, fields : Option(ArrayList(DocField)).None, doc : Option(String).None, discriminant : Option(String).None));
+  variants.push(DocVariant(name : `Green`, fields : Option(ArrayList(DocField)).None, doc : Option(String).None, discriminant : Option(String).None));
+  variants.push(DocVariant(name : `Blue`, fields : Option(ArrayList(DocField)).None, doc : Option(String).Some(`The color blue`), discriminant : Option(String).None));
+  t := make_type_();
+  t2 := DocType(
+    name : `Color`,
+    doc : Option(String).Some(`A color.`),
+    kind : DocItemKind.Enum,
+    signature : `Color :: enum(Red, Green, Blue)`,
+    type_params : t.type_params,
+    fields : Option(ArrayList(DocField)).None,
+    variants : Option(ArrayList(DocVariant)).Some(variants),
+    methods : t.methods,
+    trait_impls : t.trait_impls,
+    impls : t.impls,
+    deprecated : t.deprecated,
+    examples : t.examples
+  );
+  md := render_type_md(t2);
+  assert(md.contains(`*enum*`), "kind");
+  assert(md.contains(`**Variants:**`), "variants header");
+  assert(md.contains(`\`Red\``), "Red variant");
+  assert(md.contains(`\`Blue\` — The color blue`), "Blue variant with doc");
+});
+test("renderTypeMd: renders trait impls", {
+  t := make_type_();
+  t.trait_impls.push(`Display`);
+  t.trait_impls.push(`Clone`);
+  md := render_type_md(t);
+  assert(md.contains(`**Implements:** \`Display\`, \`Clone\``), "implements list");
+});
+test("renderTypeMd: renders impl blocks with methods", {
+  method_names := ArrayList(String).new();
+  method_names.push(`size`);
+  method_names.push(`is_empty`);
+  impl_ := DocImpl(
+    signature : `impl(generic(T : Type), where(T <: Send), List(T))`,
+    trait_name : Option(String).None,
+    method_names : method_names,
+    associated_types : Option(ArrayList(DocImplAssocType)).None
+  );
+  impls := ArrayList(DocImpl).new();
+  impls.push(impl_);
+  size_params := ArrayList(DocParam).new();
+  size_fn := DocFunction(
+    name : `size`,
+    doc : Option(String).None,
+    signature : `size : (fn(self: Self) -> usize)`,
+    parameters : size_params,
+    return_type : `usize`,
+    type_params : Option(ArrayList(DocParam)).None,
+    effects : Option(ArrayList(DocParam)).None,
+    is_method : true,
+    self_type : Option(String).Some(`List`),
+    returns : Option(String).None,
+    errors : Option(String).None,
+    deprecated : Option(String).None,
+    examples : Option(String).None
+  );
+  empty_params := ArrayList(DocParam).new();
+  empty_fn := DocFunction(
+    name : `is_empty`,
+    doc : Option(String).None,
+    signature : `is_empty : (fn(self: Self) -> bool)`,
+    parameters : empty_params,
+    return_type : `bool`,
+    type_params : Option(ArrayList(DocParam)).None,
+    effects : Option(ArrayList(DocParam)).None,
+    is_method : true,
+    self_type : Option(String).Some(`List`),
+    returns : Option(String).None,
+    errors : Option(String).None,
+    deprecated : Option(String).None,
+    examples : Option(String).None
+  );
+  methods := ArrayList(DocFunction).new();
+  methods.push(size_fn);
+  methods.push(empty_fn);
+  t := make_type_();
+  t2 := DocType(
+    name : t.name,
+    doc : t.doc,
+    kind : t.kind,
+    signature : t.signature,
+    type_params : t.type_params,
+    fields : t.fields,
+    variants : t.variants,
+    methods : methods,
+    trait_impls : t.trait_impls,
+    impls : Option(ArrayList(DocImpl)).Some(impls),
+    deprecated : t.deprecated,
+    examples : t.examples
+  );
+  md := render_type_md(t2);
+  assert(md.contains(`\`impl(generic(T : Type), where(T <: Send), List(T))\``), "impl heading");
+  assert(md.contains(`List.size`), "method List.size");
+  assert(md.contains(`List.is_empty`), "method List.is_empty");
+});
+test("renderTypeMd: renders type parameters", {
+  type_params := ArrayList(DocParam).new();
+  type_params.push(DocParam(name : `T`, type_ : `Type`, is_comptime : true, is_implicit : false, default_value : Option(String).None, doc : Option(String).None));
+  t := make_type_();
+  t2 := DocType(
+    name : `Vec`,
+    doc : t.doc,
+    kind : t.kind,
+    signature : t.signature,
+    type_params : Option(ArrayList(DocParam)).Some(type_params),
+    fields : t.fields,
+    variants : t.variants,
+    methods : t.methods,
+    trait_impls : t.trait_impls,
+    impls : t.impls,
+    deprecated : t.deprecated,
+    examples : t.examples
+  );
+  md := render_type_md(t2);
+  assert(md.contains(`### \`Vec(T)\``), "type with params heading");
+});
+test("renderTypeMd: renders deprecated banner", {
+  t := make_type_();
+  t2 := DocType(
+    name : t.name,
+    doc : t.doc,
+    kind : t.kind,
+    signature : t.signature,
+    type_params : t.type_params,
+    fields : t.fields,
+    variants : t.variants,
+    methods : t.methods,
+    trait_impls : t.trait_impls,
+    impls : t.impls,
+    deprecated : Option(String).Some(`Use Point3D.`),
+    examples : t.examples
+  );
+  md := render_type_md(t2);
+  assert(md.contains(`⚠️ **Deprecated**`), "deprecated banner");
+  assert(md.contains(`Use Point3D.`), "deprecated message");
+});
+// ── renderTraitMd ─────────────────────────────────────────────────────────────
+test("renderTraitMd: renders a trait with methods", {
+  md := render_trait_md(make_trait_());
+  assert(md.contains(`### \`Display\``), "heading");
+  assert(md.contains(`*trait*`), "kind");
+  assert(md.contains(`Format a value for display.`), "doc");
+  assert(md.contains(`**Required Methods:**`), "methods header");
+  assert(md.contains(`Self.display`), "method Self.display");
+});
+test("renderTraitMd: renders implementors", {
+  md := render_trait_md(make_trait_());
+  assert(md.contains(`**Implementors:** \`Point\`, \`Color\``), "implementors list");
+});
+test("renderTraitMd: renders deprecated banner", {
+  tr := make_trait_();
+  tr2 := DocTrait(
+    name : tr.name,
+    doc : tr.doc,
+    kind : tr.kind,
+    signature : tr.signature,
+    type_params : tr.type_params,
+    associated_types : tr.associated_types,
+    methods : tr.methods,
+    implementors : tr.implementors,
+    deprecated : Option(String).Some(`Use NewTrait.`),
+    examples : tr.examples
+  );
+  md := render_trait_md(tr2);
+  assert(md.contains(`⚠️ **Deprecated**`), "deprecated banner");
+  assert(md.contains(`Use NewTrait.`), "deprecated message");
+});
+// ── renderConstantMd ──────────────────────────────────────────────────────────
+test("renderConstantMd: renders a constant with value", {
+  md := render_constant_md(make_constant_());
+  assert(md.contains(`### \`MAX_SIZE\``), "heading");
+  assert(md.contains(`\`usize = 1024\``), "type and value");
+  assert(md.contains(`Maximum buffer size.`), "doc");
+});
+test("renderConstantMd: renders a constant without value", {
+  c := DocConstant(
+    name : `MIN_SIZE`,
+    doc : Option(String).None,
+    type_ : `usize`,
+    value : Option(String).None,
+    deprecated : Option(String).None
+  );
+  md := render_constant_md(c);
+  assert(md.contains(`\`usize\``), "type only");
+  assert(!(md.contains(`=`)), "no equals sign");
+});
+test("renderConstantMd: renders deprecated banner", {
+  c := DocConstant(
+    name : make_constant_().name,
+    doc : make_constant_().doc,
+    type_ : make_constant_().type_,
+    value : make_constant_().value,
+    deprecated : Option(String).Some(`Use NEW_VALUE.`)
+  );
+  md := render_constant_md(c);
+  assert(md.contains(`⚠️ **Deprecated**`), "deprecated banner");
+  assert(md.contains(`Use NEW_VALUE.`), "deprecated message");
+});
+// ── renderModuleMd ─────────────────────────────────────────────────────────────
+test("renderModuleMd: renders a module with all sections", {
+  md := render_module_md(make_module_());
+  assert(md.contains(`# math`), "h1 heading");
+  assert(md.contains(`> Module path: \`std/math\``), "module path");
+  assert(md.contains(`Math utilities.`), "doc");
+  assert(md.contains(`## Contents`), "contents section");
+  assert(md.contains(`## Types`), "types section");
+  assert(md.contains(`## Traits`), "traits section");
+  assert(md.contains(`## Functions`), "functions section");
+  assert(md.contains(`## Constants`), "constants section");
+});
+test("renderModuleMd: renders empty module without content sections", {
+  m := DocModule(
+    name : `empty`,
+    path : `std/empty`,
+    doc : Option(String).None,
+    functions : ArrayList(DocFunction).new(),
+    types : ArrayList(DocType).new(),
+    traits : ArrayList(DocTrait).new(),
+    constants : ArrayList(DocConstant).new(),
+    submodules : ArrayList(Box(DocModule)).new()
+  );
+  md := render_module_md(m);
+  assert(md.contains(`# empty`), "heading");
+  assert(!(md.contains(`## Types`)), "no types section");
+  assert(!(md.contains(`## Functions`)), "no functions section");
+});
+// ── renderIndexMd ─────────────────────────────────────────────────────────────
+test("renderIndexMd: renders an index page", {
+  md := render_index_md(make_model_());
+  assert(md.contains(`# my-project — API Documentation`), "title");
+  assert(md.contains(`## Modules`), "modules header");
+  assert(md.contains(`[\`std/math\`](module/math.md)`), "module link");
+  assert(md.contains(`(4 items)`), "item count");
+});
+test("renderIndexMd: uses first line of module doc as summary", {
+  modules := ArrayList(DocModule).new();
+  m := make_module_();
+  m2 := DocModule(
+    name : m.name,
+    path : m.path,
+    doc : Option(String).Some(`First line summary.\nMore details here.`),
+    functions : m.functions,
+    types : m.types,
+    traits : m.traits,
+    constants : m.constants,
+    submodules : m.submodules
+  );
+  modules.push(m2);
+  model := DocModel(name : `proj`, modules : modules, version : Option(String).None);
+  md := render_index_md(model);
+  assert(md.contains(`First line summary.`), "summary from first line");
+});

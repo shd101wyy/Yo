@@ -70,17 +70,21 @@ cascade. All five now pass under BOTH compilers.
 First time the self-hosted `test` subcommand had ever been run over these trees.
 Harness: per-file, strictly sequential, comparing `N passed / M total` + exit code.
 
-| directory                          | files    | PASS                | how verified                                                                                                                          |
-| ---------------------------------- | -------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `./tests`                          | 186      | **186**             | full sweep, 2,644 individual tests, DIFF 0                                                                                            |
-| `./tests` (+1 new regression file) | 187      | **187**             | the added file verified individually on both compilers (6/6 each)                                                                     |
-| `./yo-self/tests`                  | 61 -> 58 | **57 measured + 1** | full sweep gave 57 PASS; `effect_analysis` then fixed and verified individually (TS 19/19, self 19/19); the `eval_*` trio was retired |
+| directory                          | files    | PASS        | how verified                                                                                                    |
+| ---------------------------------- | -------- | ----------- | --------------------------------------------------------------------------------------------------------------- |
+| `./tests` (fast language suite)    | 186      | **186**     | full sweep, 2,644 individual tests, DIFF 0                                                                      |
+| `./tests` (+1 new regression file) | 187      | **187**     | the added file verified individually on both compilers (6/6 each)                                               |
+| `tests/internal`                   | 61 -> 58 | **58 / 58** | full sweep re-run AFTER the unary-operator fix; every file identical on both compilers, non-PASS detail: (none) |
 
-**CAVEAT — the `yo-self/tests` figure is not a single clean measurement.** The unary
-operator codegen fix changes emitted C for EVERY unary operator, and after it only the
-20-file battery, the 155-file corpus, `check ./std` and `check ./yo-self` were re-run.
-The other 56 `yo-self/tests` files were last exercised BEFORE that fix. Re-run the
-differential over the whole directory (63 min) before quoting 58/58 as measured.
+The `tests/internal` row is a single clean measurement (`/tmp/re/dt_final/results.tsv`),
+and it is the one that had been missing. An earlier version of this table quoted
+"57 measured + 1" because the unary-operator codegen fix changes emitted C for EVERY
+unary operator, and at that point only the 20-file battery, the 155-file corpus,
+`check ./std` and `check ./yo-self` had been re-run — the other 56 files were last
+exercised BEFORE the fix. The full re-run closes that gap: **58/58, zero divergences.**
+
+> `tests/internal` was `yo-self/tests` until 2026-08-05; see the note in
+> `.github/instructions/testing.instructions.md`.
 
 Getting here took two yo-self fixes, and the `eval_*` trio was retired with its
 subject file:
@@ -658,8 +662,9 @@ The job deliberately uses the DEFAULT (libc) allocator — mimalloc costs +53% w
 and +15% footprint (measured 2026-08-05); the fixpoint jobs keep mimalloc only
 because a self-EMIT is memory-bound on a 16 GB box.
 
-`yo-self/tests` is now a viable CI candidate — the two reasons it was excluded are
-both gone as of 2026-08-05:
+`tests/internal` (was `yo-self/tests`) is now **WIRED INTO CI** as the
+`compiler-internal-tests` job — the two reasons it was excluded are both gone as of
+2026-08-05:
 
 - **Runtime was overstated.** MEASURED over 58 files at `--parallel 1`: **40.5 min**
   under the TS compiler, **22.2 min** under the self-hosted binary (~2x faster),
@@ -668,17 +673,24 @@ both gone as of 2026-08-05:
 - **The `eval_*` trio is gone**, retired with its subject `evaluator/eval.yo`, so
   there is no longer any file that has to be skipped.
 
-The binding constraint is MEMORY, not time: `phase6c_macro` alone needs **6.52 GB**,
-and `ubuntu-latest` has ~7 GB. It must run **one file and one compiler at a time** —
+The binding constraint is MEMORY, not time: `phase6c_macro` alone needs **6.52 GB**.
+`ubuntu-latest` has **16 GB** (an earlier draft of this section said ~7 GB, which is
+the private-repo runner size and is wrong for this repo — the fixpoint jobs' own
+comments and their `free -h` output are the evidence), so 6.52 GB fits without swap
+at `--parallel 1`. It must still run **one file and one compiler at a time** —
 concurrency does not merely risk OOM, it swaps and trips the runner's own 600 s
 evaluator deadline, MANUFACTURING failures that do not reproduce in isolation (that
 is how four `phase6*` files were misdiagnosed as broken). Note the self-hosted runner
 ignores `--parallel` regardless (`main.yo`: "Accepted for CLI compatibility; v1 runs
 sequentially").
 
-Prefer wiring it as a DIFFERENTIAL (both compilers, comparing `N passed / M total` +
-exit code). A TS-only run adds little over `check`; comparing the two compilers is
-what caught the `effect_analysis` codegen divergence.
+It IS wired as a DIFFERENTIAL — the job runs all 58 files under the TS compiler
+first (ground truth), then builds stage-1 and runs the same 58 under the self-hosted
+binary, with `if: always()` on the second step so a run always produces both
+scorecards even when the first bailed. A TS-only run would add little over `check`;
+comparing the two compilers is what caught the `effect_analysis` codegen divergence.
+The fast language suite excludes the directory (`--exclude tests/internal`) on the
+clang, emcc and wasm-wasi jobs, so it costs those jobs nothing.
 
 The full sweep is **mandatory** before claiming a flip: the GREEN→HOLLOW
 regression class is invisible to the 12-file gate (it bit this campaign once —

@@ -173,7 +173,10 @@ function hasSkipDirectiveForTarget(
 /**
  * Find all test files in a directory or get a single file
  */
-export function findTestFiles(targetPath: string): string[] {
+export function findTestFiles(
+  targetPath: string,
+  excludePaths: string[] = []
+): string[] {
   const absolutePath = path.resolve(targetPath);
 
   if (!fs.existsSync(absolutePath)) {
@@ -198,19 +201,34 @@ export function findTestFiles(targetPath: string): string[] {
   }
 
   if (stats.isDirectory()) {
-    // Find all *.test.yo files recursively
-    return findTestFilesRecursive(absolutePath);
+    // Find all *.test.yo files recursively.
+    // Excludes are resolved to absolute paths; a path is excluded if it equals
+    // an exclude or lives under one (so `--exclude tests/internal` skips the
+    // whole sub-tree). Same semantics as `collectCheckFiles` in yo-cli.ts, so
+    // `test` and `check` behave identically here. Needed because the compiler's
+    // own tests pull in ~99k lines via their import closure and peak at ~6.5 GB
+    // each, which cannot share a CI job with the fast language tests.
+    const excludes = excludePaths.map((e) => path.resolve(e));
+    return findTestFilesRecursive(absolutePath, excludes);
   }
 
   return [];
 }
 
-function findTestFilesRecursive(dir: string): string[] {
+function findTestFilesRecursive(
+  dir: string,
+  excludes: string[] = []
+): string[] {
   const results: string[] = [];
+  const isExcluded = (p: string): boolean =>
+    excludes.some((ex) => p === ex || p.startsWith(ex + path.sep));
   const entries = fs.readdirSync(dir, { withFileTypes: true });
 
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
+    if (isExcluded(fullPath)) {
+      continue;
+    }
 
     if (entry.isDirectory()) {
       // Skip node_modules, vendor, .git, etc.
@@ -219,7 +237,7 @@ function findTestFilesRecursive(dir: string): string[] {
           entry.name
         )
       ) {
-        results.push(...findTestFilesRecursive(fullPath));
+        results.push(...findTestFilesRecursive(fullPath, excludes));
       }
     } else if (entry.isFile() && entry.name.endsWith(".test.yo")) {
       results.push(fullPath);

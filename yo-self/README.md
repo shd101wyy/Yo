@@ -28,20 +28,25 @@ See **[`../plans/BOOTSTRAPPING.md`](../plans/BOOTSTRAPPING.md)** for:
 ## Quick start
 
 ```bash
-# Run all yo-self tests (slow: ~90 min total; see "Test suite layout" below)
-./yo-cli test ./yo-self/tests/
+# Run all the compiler's own tests (40.5 min under TS, 22.2 min self-hosted —
+# measured 2026-08-05, --parallel 1; see "Test suite layout" below)
+./yo-cli test ./tests/internal --parallel 1
 
 # Run a single test file
-./yo-cli test ./yo-self/tests/lexer.test.yo --parallel 1
+./yo-cli test ./tests/internal/lexer.test.yo --parallel 1
 
 # Run a specific test by name
-./yo-cli test ./yo-self/tests/lexer.test.yo --test-name-pattern "tokenize" --parallel 1
+./yo-cli test ./tests/internal/lexer.test.yo --test-name-pattern "tokenize" --parallel 1
 ```
 
 ## Test suite layout
 
-`yo-self/tests/` holds ~60 test files (~900 tests) compiled and run by the
-TypeScript `yo-cli`. They fall into three tiers:
+The compiler's own tests live in **`tests/internal/`** — 58 files compiled and run
+by the TypeScript `yo-cli`. They were at `yo-self/tests/` until 2026-08-05 (moved
+because `src/` will eventually be retired and `yo-self/` will become `src/`, so
+they belong under `tests/` now rather than being shuffled twice); translate the old
+path when reading older `issues/` and `plans/` documents. They fall into two live
+tiers, plus a third that was retired:
 
 1. **Fast unit tests** (seconds–1 min each): lexer, parser, token/env/value,
    `types_*` (tags, guards, utils, compound, string-compat, value),
@@ -79,7 +84,7 @@ binary itself:
 ```bash
 ./yo-cli compile yo-self/main.yo --release -o /tmp/yo-self-bin   # ~6 min (always --release; -O0 hits stack ceilings)
 /tmp/yo-self-bin check ./std                                     # 153/153
-/tmp/yo-self-bin test ./tests --parallel 1                       # 186/186 test files green
+/tmp/yo-self-bin test ./tests --exclude tests/internal --parallel 1   # fast language suite
 # Stage-2 self-compile + fixpoint (the strongest gate of all):
 bash scripts/bootstrap/fixpoint_only.sh                          # emit + clang + stage-3 + byte-compare
 ```

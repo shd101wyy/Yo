@@ -707,7 +707,7 @@ collect_check_files :: (
     true => ()
   );
   // Drop any collected path that contains an `--exclude` path as a substring
-  // (so `--exclude yo-self/tests` skips that whole subtree from a directory
+  // (so `--exclude tests/internal` skips that whole subtree from a directory
   // check). Mirrors the exclude filter in `collectCheckFiles` (src/yo-cli.ts);
   // yo-self lacks `path.resolve`, so this uses path-segment containment on the
   // collected absolute paths rather than resolved-prefix matching.
@@ -1327,11 +1327,18 @@ run_compile :: (
 _collect_test_files :: (
   fn(
     path_str : String,
+    excludes : ArrayList(String),
     io : Io,
     exn : Exception
   ) -> ArrayList(String)
 )({
-  all := collect_check_files(path_str, ArrayList(String).new(), io, exn);
+  // `excludes` has the same semantics as `check --exclude`: a path is skipped if
+  // it equals an exclude or lives under one. Needed so `test ./tests` can skip
+  // `tests/internal`, whose files each pull ~99k lines through their import
+  // closure and peak near 6.5 GB — they cannot share a run with the fast
+  // language tests. Mirrors the `exclude` option on the TS `test` subcommand
+  // (src/yo-cli.ts) and `findTestFiles` (src/test-runner.ts).
+  all := collect_check_files(path_str, excludes, io, exn);
   out := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < all.len(), {
@@ -1367,11 +1374,13 @@ run_test :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`test: missing path. Usage: yo-self test <path> [--bail] [--test-name-pattern P] [--parallel N]`));
+    exn.throw(dyn(`test: missing path. Usage: yo-self test <path> [--bail] [--test-name-pattern P] [--parallel N] [--exclude PATH]`));
   });
   (target_path : String) = String.from("");
   (bail : bool) = false;
   (name_pattern : String) = String.from("");
+  // `--exclude <path>` (repeatable), same semantics as `check --exclude`.
+  excludes := ArrayList(String).new();
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
     a := argv(ai);
@@ -1388,6 +1397,10 @@ run_test :: (
         // Accepted for CLI compatibility; v1 runs sequentially.
         ai = (ai + usize(2));
       },
+      (a == "--exclude") => {
+        excludes.push(_arg_val(argv, ai));
+        ai = (ai + usize(2));
+      },
       ((a == "-v") || (a == "--verbose")) => {
         ai = (ai + usize(1));
       },
@@ -1397,7 +1410,7 @@ run_test :: (
       }
     );
   });
-  files := _collect_test_files(target_path, io, exn);
+  files := _collect_test_files(target_path, excludes, io, exn);
   if(files.len() == usize(0), {
     println(String.from("No test files found."));
     return(());

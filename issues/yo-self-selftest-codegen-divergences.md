@@ -6,10 +6,10 @@ comparing `N passed / M total` + exit code.
 
 ## Scorecard
 
-| directory         | files | PASS    | non-PASS                                                        |
-| ----------------- | ----- | ------- | --------------------------------------------------------------- |
-| `./tests`         | 186   | **186** | none — 2,644 individual tests, DIFF 0 / SELF-FAIL 0 / TS-FAIL 0 |
-| `./yo-self/tests` | 61    | **57**  | 1 SELF-FAIL (`effect_analysis`), 3 SKIPPED (`eval_*` trio)      |
+| directory          | files | PASS    | non-PASS                                                        |
+| ------------------ | ----- | ------- | --------------------------------------------------------------- |
+| `./tests`          | 186   | **186** | none — 2,644 individual tests, DIFF 0 / SELF-FAIL 0 / TS-FAIL 0 |
+| `./tests/internal` | 61    | **57**  | 1 SELF-FAIL (`effect_analysis`), 3 SKIPPED (`eval_*` trio)      |
 
 242 of 247 runnable files agree between the two compilers. `./tests` is fully clean:
 the self-hosted `test` subcommand is behaviourally equivalent to TypeScript's across
@@ -22,7 +22,7 @@ The 3 SKIPPED files are **uncovered, not passing** — `eval_basics`, `eval_tail
 
 `effect_analysis` below is therefore the ONLY real divergence in either directory.
 
-## SELF-FAIL 1: `yo-self/tests/effect_analysis.test.yo`
+## SELF-FAIL 1: `tests/internal/effect_analysis.test.yo`
 
 ```
 ts=19/19 (rc0)     self=?/? (rc1)
@@ -31,7 +31,7 @@ ts=19/19 (rc0)     self=?/? (rc1)
 TS passes all 19. The self-hosted binary **emits C that clang rejects** —
 20 errors, `121 warnings and 20 errors generated`, then
 `yo-self: error: compile: C compiler failed (exit 256) on
-./yo-self/tests/.yo_selftest_batch_1.bin.c`. Full log preserved at
+./tests/internal/.yo_selftest_batch_1.bin.c`. Full log preserved at
 `/tmp/re/BUG_effect_analysis.log`.
 
 ### The error signature
@@ -289,10 +289,10 @@ is not unprecedented — those paths establish the pattern.
 and the use of the two temp ids:
 
 ```bash
-rm -f yo-self/tests/.yo_selftest_batch_*
-YO_MAIN_STACK_MB=4096 /tmp/re/s1r16 test ./yo-self/tests/effect_analysis.test.yo \
+rm -f tests/internal/.yo_selftest_batch_*
+YO_MAIN_STACK_MB=4096 /tmp/re/s1r16 test ./tests/internal/effect_analysis.test.yo \
   &> /tmp/re/effan.log
-grep -n "496944\|496962" yo-self/tests/.yo_selftest_batch_1.bin.c | head -20
+grep -n "496944\|496962" tests/internal/.yo_selftest_batch_1.bin.c | head -20
 ```
 
 ### Why the stage-2/stage-3 FIXPOINT still holds
@@ -314,20 +314,20 @@ Both existing gates miss it:
 - the 20-file battery in `gates_fast.sh` runs `./tests` files, which are now proven
   clean (186/186).
 
-Nobody had run the self-hosted binary's `test` subcommand over `yo-self/tests`
+Nobody had run the self-hosted binary's `test` subcommand over `tests/internal`
 before. That is the gap this differential closes.
 
 ## Reproducing
 
 ```bash
 # per-file differential, strictly sequential (see the harness note below)
-DIR=./yo-self/tests TAG=ystests TO=1500 BIN=/tmp/re/s1r16 \
+DIR=./tests/internal TAG=ystests TO=1500 BIN=/tmp/re/s1r16 \
   SKIP="eval_basics eval_tail_1 eval_tail_2" bash <scratch>/difftest_dir.sh
 
 # single file, keeping the batch C for inspection
-rm -f yo-self/tests/.yo_selftest_batch_*
-YO_MAIN_STACK_MB=4096 /tmp/re/s1r16 test ./yo-self/tests/effect_analysis.test.yo
-# the rejected C is left at ./yo-self/tests/.yo_selftest_batch_1.bin.c
+rm -f tests/internal/.yo_selftest_batch_*
+YO_MAIN_STACK_MB=4096 /tmp/re/s1r16 test ./tests/internal/effect_analysis.test.yo
+# the rejected C is left at ./tests/internal/.yo_selftest_batch_1.bin.c
 ```
 
 **Run strictly one file and one compiler at a time.** `phase6c_macro` alone needs
@@ -342,5 +342,5 @@ isolation. An earlier `--parallel 2` sweep produced several such phantom failure
 2. Build a minimal reproducer per construct (a `.yo` file with `main`, not a
    `.test.yo` — `yo-cli compile` cannot be used on `*.test.yo`).
 3. Fix in `yo-self/codegen/`, verify the repro, then re-run this differential.
-4. Add the repros to `tests/` and wire the `yo-self/tests` differential into CI
+4. Add the repros to `tests/` and wire the `tests/internal` differential into CI
    alongside the existing `bootstrap-self-test` job.

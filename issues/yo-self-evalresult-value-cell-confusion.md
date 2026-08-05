@@ -23,7 +23,7 @@ The `eval_*` trio now checks clean too, but it still exceeds the test runner's p
 limit, so those three remain **uncovered rather than passing** — a capacity issue
 unrelated to this bug.
 **Found:** 2026-08-05, by the first per-file TS-vs-yo-self differential of the
-`test` subcommand over `yo-self/tests`.
+`test` subcommand over `tests/internal`.
 
 ## The confusion
 

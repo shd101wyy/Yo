@@ -1,0 +1,299 @@
+//! Tests for yo-self/evaluator/async/await_analysis.yo
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ TokenKind, Token } :: import("../../yo-self/token.yo");
+{ AstExpr } :: import("../../yo-self/expr.yo");
+{ ExprInfo, new_expr_info } :: import("../../yo-self/expr_info.yo");
+{ TypeValue } :: import("../../yo-self/types/definitions.yo");
+{ t_unit, t_bool, t_future_trait_simple, t_some_t, generate_some_type_id } :: import("../../yo-self/types/creators.yo");
+{ assert, panic } :: import("std/assert");
+{
+  extract_future_trait_from_type,
+  type_implements_future,
+  is_io_async_call,
+  is_io_await_call,
+  is_io_state_call,
+  is_io_spawn_call,
+  is_join_handle_await_call,
+  analyze_await_points
+} :: import("../../yo-self/evaluator/async/await_analysis.yo");
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+make_token :: (fn(kind : TokenKind, v : str) -> Token)(
+  Token(
+    kind : kind,
+    value : String.from(v),
+    row : usize(0),
+    column : usize(0),
+    character : usize(0),
+    module_path : String.from(""),
+    input : String.from("")
+  )
+);
+make_token_at :: (fn(kind : TokenKind, v : str, character : usize) -> Token)(
+  Token(
+    kind : kind,
+    value : String.from(v),
+    row : usize(0),
+    column : usize(0),
+    character : character,
+    module_path : String.from(""),
+    input : String.from("")
+  )
+);
+make_ident :: (fn(v : str) -> AstExpr)(
+  AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, v))
+);
+// Creates a call `io.await(arg, io)` with `io.await` as infix dot access
+make_io_method_call :: (fn(method : str, arg : AstExpr, call_char : usize) -> AstExpr)({
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_ident("io"));
+  dot_args.push(AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, method)));
+  dot_fncall := AstExpr.FnCall(
+    usize(0),
+    AstExpr.Atom(usize(0), make_token(TokenKind.Dot, ".")),
+    dot_args,
+    true,
+    make_token(TokenKind.Dot, ".")
+  );
+  outer_args := ArrayList(AstExpr).new();
+  outer_args.push(arg);
+  AstExpr.FnCall(
+    usize(0),
+    dot_fncall,
+    outer_args,
+    false,
+    make_token_at(TokenKind.Identifier, method, call_char)
+  )
+});
+// Creates a call `handle.await(using_arg, handle)` for JoinHandle await detection
+make_handle_await_call :: (fn(handle_name : str, arg : AstExpr) -> AstExpr)({
+  dot_args := ArrayList(AstExpr).new();
+  dot_args.push(make_ident(handle_name));
+  dot_args.push(AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, "await")));
+  dot_fncall := AstExpr.FnCall(
+    usize(0),
+    AstExpr.Atom(usize(0), make_token(TokenKind.Dot, ".")),
+    dot_args,
+    true,
+    make_token(TokenKind.Dot, ".")
+  );
+  outer_args := ArrayList(AstExpr).new();
+  outer_args.push(arg);
+  AstExpr.FnCall(
+    usize(0),
+    dot_fncall,
+    outer_args,
+    false,
+    make_token(TokenKind.Identifier, "await")
+  )
+});
+// A simple future type: SomeT with one required trait = FutureTraitT(output: unit)
+make_future_some_type :: (fn() -> TypeValue)({
+  future_trait := t_future_trait_simple(String.from("Future"), t_unit());
+  required_trait_types := ArrayList(TypeValue).new();
+  required_trait_types.push(future_trait);
+  required_trait_levels := ArrayList(usize).new();
+  required_trait_levels.push(usize(0));
+  TypeValue.SomeT(
+    generate_some_type_id(),
+    String.from("SomeFuture"),
+    usize(0),
+    TypeValue.TypeUni(usize(0)),
+    required_trait_types,
+    required_trait_levels,
+    ArrayList(TypeValue).new(),
+    ArrayList(usize).new(),
+    false,
+    Option(TypeValue).None,
+    ArrayList(TypeValue).new()
+  )
+});
+// A DynT with FutureTraitT(output: bool)
+make_future_dyn_type :: (fn() -> TypeValue)({
+  future_trait := t_future_trait_simple(String.from("Future"), t_bool());
+  required_trait_types := ArrayList(TypeValue).new();
+  required_trait_types.push(future_trait);
+  TypeValue.DynT(
+    required_trait_types,
+    ArrayList(usize).new(),
+    ArrayList(TypeValue).new(),
+    ArrayList(usize).new()
+  )
+});
+get_info_none :: (fn(e : AstExpr) -> Option(ExprInfo))(
+  Option(ExprInfo).None
+);
+// ---------------------------------------------------------------------------
+// extract_future_trait_from_type
+// ---------------------------------------------------------------------------
+test("extract_future_trait_from_type: FutureTraitT returns Some itself", {
+  future_ty := t_future_trait_simple(String.from("Future"), t_unit());
+  result := extract_future_trait_from_type(future_ty);
+  is_some := match(
+    result,
+    .Some(_) => true,
+    .None => false
+  );
+  assert(is_some, "FutureTraitT should return(Some)");
+});
+test("extract_future_trait_from_type: unit type returns None", {
+  result := extract_future_trait_from_type(t_unit());
+  is_none := match(result,.None => true,.Some(_) => false);
+  assert(is_none, "unit type should return(None)");
+});
+test("extract_future_trait_from_type: bool returns None", {
+  result := extract_future_trait_from_type(t_bool());
+  is_none := match(result,.None => true,.Some(_) => false);
+  assert(is_none, "bool type should return(None)");
+});
+test("extract_future_trait_from_type: SomeT with FutureTraitT returns Some", {
+  future_ty := make_future_some_type();
+  result := extract_future_trait_from_type(future_ty);
+  is_some := match(result,.Some(_) => true,.None => false);
+  assert(is_some, "SomeT with FutureTraitT should return(Some)");
+});
+test("extract_future_trait_from_type: DynT with FutureTraitT returns Some", {
+  dyn_ty := make_future_dyn_type();
+  result := extract_future_trait_from_type(dyn_ty);
+  is_some := match(result,.Some(_) => true,.None => false);
+  assert(is_some, "DynT with FutureTraitT should return(Some)");
+});
+test("extract_future_trait_from_type: SomeT without FutureTraitT returns None", {
+  some_ty := t_some_t(String.from("SomeType"), usize(0));
+  result := extract_future_trait_from_type(some_ty);
+  is_none := match(result,.None => true,.Some(_) => false);
+  assert(is_none, "SomeT without FutureTraitT should return(None)");
+});
+// ---------------------------------------------------------------------------
+// type_implements_future
+// ---------------------------------------------------------------------------
+test("type_implements_future: SomeT with FutureTraitT returns true", {
+  future_ty := make_future_some_type();
+  result := type_implements_future(future_ty);
+  assert(result, "SomeT with FutureTraitT should return(true)");
+});
+test("type_implements_future: unit type returns false", {
+  result := type_implements_future(t_unit());
+  assert(!(result), "unit type should return(false)");
+});
+test("type_implements_future: bool returns false", {
+  result := type_implements_future(t_bool());
+  assert(!(result), "bool should return(false)");
+});
+test("type_implements_future: FutureTraitT itself returns false", {
+  // FutureTraitT is not a SomeT or DynT, so type_implements_future returns false
+  future_ty := t_future_trait_simple(String.from("Future"), t_unit());
+  result := type_implements_future(future_ty);
+  assert(!(result), "FutureTraitT itself is not SomeT/DynT, so false");
+});
+// ---------------------------------------------------------------------------
+// is_io_async_call
+// ---------------------------------------------------------------------------
+test("is_io_async_call: io.async(f) returns true", {
+  expr := make_io_method_call("async", make_ident("f"), usize(5));
+  assert(is_io_async_call(expr), "io.async should return(true)");
+});
+test("is_io_async_call: io.await(f, io) returns false", {
+  expr := make_io_method_call("await", make_ident("f"), usize(5));
+  assert(!(is_io_async_call(expr)), "io.await should not be io.async");
+});
+test("is_io_async_call: atom returns false", {
+  expr := make_ident("io");
+  assert(!(is_io_async_call(expr)), "atom should return(false)");
+});
+// ---------------------------------------------------------------------------
+// is_io_await_call
+// ---------------------------------------------------------------------------
+test("is_io_await_call: io.await(f, io) returns true", {
+  expr := make_io_method_call("await", make_ident("f"), usize(5));
+  assert(is_io_await_call(expr), "io.await should return(true)");
+});
+test("is_io_await_call: io.async(f) returns false", {
+  expr := make_io_method_call("async", make_ident("f"), usize(5));
+  assert(!(is_io_await_call(expr)), "io.async should not be io.await");
+});
+test("is_io_await_call: atom returns false", {
+  expr := make_ident("future");
+  assert(!(is_io_await_call(expr)), "atom should return(false)");
+});
+// ---------------------------------------------------------------------------
+// is_io_state_call
+// ---------------------------------------------------------------------------
+test("is_io_state_call: io.state(f) returns true", {
+  expr := make_io_method_call("state", make_ident("f"), usize(5));
+  assert(is_io_state_call(expr), "io.state should return(true)");
+});
+test("is_io_state_call: io.await(f, io) returns false", {
+  expr := make_io_method_call("await", make_ident("f"), usize(5));
+  assert(!(is_io_state_call(expr)), "io.await should not be io.state");
+});
+// ---------------------------------------------------------------------------
+// is_io_spawn_call
+// ---------------------------------------------------------------------------
+test("is_io_spawn_call: io.spawn(f) returns true", {
+  expr := make_io_method_call("spawn", make_ident("f"), usize(5));
+  assert(is_io_spawn_call(expr), "io.spawn should return(true)");
+});
+test("is_io_spawn_call: io.await(f, io) returns false", {
+  expr := make_io_method_call("await", make_ident("f"), usize(5));
+  assert(!(is_io_spawn_call(expr)), "io.await should not be io.spawn");
+});
+// ---------------------------------------------------------------------------
+// is_join_handle_await_call
+// ---------------------------------------------------------------------------
+test("is_join_handle_await_call: handle.await(using_io, handle) returns true", {
+  expr := make_handle_await_call("handle", make_ident("using_io"));
+  assert(is_join_handle_await_call(expr), "handle.await should return(true)");
+});
+test("is_join_handle_await_call: io.await(f, io) returns false", {
+  // io.await is excluded by the !is_io_await_call guard
+  expr := make_io_method_call("await", make_ident("f"), usize(5));
+  assert(!(is_join_handle_await_call(expr)), "io.await should not be join handle await");
+});
+test("is_join_handle_await_call: atom returns false", {
+  expr := make_ident("handle");
+  assert(!(is_join_handle_await_call(expr)), "atom should return(false)");
+});
+test("is_join_handle_await_call: io.async is not join handle await", {
+  expr := make_io_method_call("async", make_ident("f"), usize(5));
+  assert(!(is_join_handle_await_call(expr)), "io.async should not be join handle await");
+});
+// ---------------------------------------------------------------------------
+// analyze_await_points — basic structural tests
+// ---------------------------------------------------------------------------
+test("analyze_await_points: empty atom body => no await points", {
+  body := make_ident("unit");
+  result := analyze_await_points(body, get_info_none);
+  assert(result.await_points.len() == usize(0), "no await points in atom body");
+  assert(!(result.has_awaits), "has_awaits should be false");
+});
+test("analyze_await_points: non-await fncall body => no await points", {
+  // foo(x) — not an io.await call, get_info returns None
+  args := ArrayList(AstExpr).new();
+  args.push(make_ident("x"));
+  body := AstExpr.FnCall(
+    usize(0),
+    make_ident("foo"),
+    args,
+    false,
+    make_token(TokenKind.Identifier, "foo")
+  );
+  result := analyze_await_points(body, get_info_none);
+  assert(result.await_points.len() == usize(0), "no await points in non-await call");
+  assert(!(result.has_awaits), "has_awaits should be false");
+});
+test("analyze_await_points: io.await with None get_info => no await points (type unknown)", {
+  // io.await(task, io) — but get_info returns None so type is unknown, no suspension point
+  expr := make_io_method_call("await", make_ident("task"), usize(10));
+  result := analyze_await_points(expr, get_info_none);
+  // Since get_info returns None, the detect function exits early and no SP is pushed
+  assert(result.await_points.len() == usize(0), "no await points when type is unknown");
+});
+test("analyze_await_points: captured_variables empty for atom body", {
+  body := make_ident("unit");
+  result := analyze_await_points(body, get_info_none);
+  assert(result.captured_variables.len() == usize(0), "no captured variables in atom body");
+});

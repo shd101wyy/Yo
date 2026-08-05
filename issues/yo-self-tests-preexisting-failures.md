@@ -1,4 +1,4 @@
-# `yo-self/tests`: the 18 failures — 14 FIXED, 1 real divergence, 3 uncovered
+# `tests/internal`: the 18 failures — 14 FIXED, 1 real divergence, 3 uncovered
 
 **Status (2026-08-05): RESOLVED except for one genuine codegen bug.**
 
@@ -66,20 +66,20 @@ Two habits that work:
 
 ```bash
 # per-file TS-vs-yo-self differential, strictly sequential (the only honest way)
-DIR=./yo-self/tests TAG=ystests TO=1500 BIN=/tmp/re/s1r16 \
+DIR=./tests/internal TAG=ystests TO=1500 BIN=/tmp/re/s1r16 \
   SKIP="eval_basics eval_tail_1 eval_tail_2" bash <scratch>/difftest_dir.sh
 
 # single file with the real error surfaced
-YO_MAIN_STACK_MB=4096 ./yo-cli test ./yo-self/tests/<f>.test.yo --parallel 1 -v
+YO_MAIN_STACK_MB=4096 ./yo-cli test ./tests/internal/<f>.test.yo --parallel 1 -v
 ```
 
 Traps worth knowing:
 
 - `yo-cli test` takes exactly ONE path; extra paths make yargs exit 1 with
   "Unknown arguments", which looks exactly like a test failure.
-- `rm -f yo-self/tests/.yo_test_batch_*` **aborts under zsh** when the glob matches
+- `rm -f tests/internal/.yo_test_batch_*` **aborts under zsh** when the glob matches
   nothing ("no matches found"), silently skipping the rest of the command line. Use
-  `find yo-self/tests -name '.yo_test_batch_*' -delete`.
+  `find tests/internal -name '.yo_test_batch_*' -delete`.
 - `YO_KEEP_BATCH=1` is read by the **self-hosted** runner (`yo-self/main.yo:1522`), not
   by `src/`. Grepping only `src/` makes it look dead; removing it from a gate script
   deletes the artifacts hollow detection depends on.

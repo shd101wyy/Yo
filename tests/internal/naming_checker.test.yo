@@ -1,0 +1,84 @@
+/// Tests for yo-self/naming_checker.yo — 1-to-1 port of
+/// src/naming-checker.ts.
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/error"));
+{ assert, panic } :: import("std/assert");
+{
+  is_upper_camel_case,
+  is_lower_camel_case,
+  is_snake_case,
+  is_screaming_snake_case
+} :: import("../../yo-self/naming_checker.yo");
+// ─── is_upper_camel_case ─────────────────────────────────────────────────────
+check_upper :: (fn(name : str) -> bool)({
+  exn := Exception(throw : ((err) -> __yo_panic("unexpected throw")));
+  is_upper_camel_case(String.from(name), exn)
+});
+test("is_upper_camel_case: Foo is true", {
+  assert(check_upper("Foo") == true, "Foo");
+});
+test("is_upper_camel_case: FooBar is true", {
+  assert(check_upper("FooBar") == true, "FooBar");
+});
+test("is_upper_camel_case: foo is false (lowercase start)", {
+  assert(check_upper("foo") == false, "foo");
+});
+test("is_upper_camel_case: Foo_Bar is false (contains underscore)", {
+  assert(check_upper("Foo_Bar") == false, "Foo_Bar");
+});
+test("is_upper_camel_case: __Foo strips leading underscores", {
+  assert(check_upper("__Foo") == true, "__Foo");
+});
+test("is_upper_camel_case: Foo__ strips trailing underscores", {
+  assert(check_upper("Foo__") == true, "Foo__");
+});
+// ─── is_lower_camel_case ─────────────────────────────────────────────────────
+check_lower :: (fn(name : str) -> bool)({
+  exn := Exception(throw : ((err) -> __yo_panic("unexpected throw")));
+  is_lower_camel_case(String.from(name), exn)
+});
+test("is_lower_camel_case: foo is true", {
+  assert(check_lower("foo") == true, "foo");
+});
+test("is_lower_camel_case: fooBar is true", {
+  assert(check_lower("fooBar") == true, "fooBar");
+});
+test("is_lower_camel_case: Foo is false (uppercase start)", {
+  assert(check_lower("Foo") == false, "Foo");
+});
+test("is_lower_camel_case: foo_bar is false (contains underscore)", {
+  assert(check_lower("foo_bar") == false, "foo_bar");
+});
+test("is_lower_camel_case: _fooBar_ strips leading and trailing underscores", {
+  assert(check_lower("_fooBar_") == true, "_fooBar_");
+});
+// ─── is_snake_case ───────────────────────────────────────────────────────────
+test("is_snake_case: foo_bar is true", {
+  assert(is_snake_case(String.from("foo_bar")) == true, "foo_bar");
+});
+test("is_snake_case: foo is true", {
+  assert(is_snake_case(String.from("foo")) == true, "foo");
+});
+test("is_snake_case: empty string is true (no uppercase)", {
+  assert(is_snake_case(String.from("")) == true, "empty");
+});
+test("is_snake_case: FooBar is false (has uppercase)", {
+  assert(is_snake_case(String.from("FooBar")) == false, "FooBar");
+});
+test("is_snake_case: foo_Bar is false (one uppercase)", {
+  assert(is_snake_case(String.from("foo_Bar")) == false, "foo_Bar");
+});
+// ─── is_screaming_snake_case ─────────────────────────────────────────────────
+test("is_screaming_snake_case: FOO_BAR is true", {
+  assert(is_screaming_snake_case(String.from("FOO_BAR")) == true, "FOO_BAR");
+});
+test("is_screaming_snake_case: FOO is true", {
+  assert(is_screaming_snake_case(String.from("FOO")) == true, "FOO");
+});
+test("is_screaming_snake_case: foo_bar is false (lowercase)", {
+  assert(is_screaming_snake_case(String.from("foo_bar")) == false, "foo_bar");
+});
+test("is_screaming_snake_case: Foo_Bar is false (mixed)", {
+  assert(is_screaming_snake_case(String.from("Foo_Bar")) == false, "Foo_Bar");
+});
