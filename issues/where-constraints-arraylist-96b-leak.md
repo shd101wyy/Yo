@@ -53,26 +53,81 @@ and at `:978` stores it into a struct field (`where_entries : def_where_entries`
 ownership is _shared_ between a local that should get a scope-end drop and a struct that
 should dup.
 
-## Hypothesis NOT yet confirmed, and one already ruled out
+## ROOT CAUSE — CONFIRMED from the emitted C
+
+**A local that is later MOVED into an aggregate is excluded from the early-return drop sets
+of every exit that happens BEFORE the move.** The consumption marking is path-insensitive.
+
+In the emitted batch C (`try_to_implement_function_by_function_type`):
+
+```c
+// 272815 — the owned list, rc = 1
+__yo_struct_…_2420* _temp_338096 = fn_…_get_func_where_constraints(…);
+if (__yo_effect_escaped) {
+  …
+  // Drop consumed variables (unwind propagation)
+  fn_…_2438___drop((__yo_struct_…_2420*)(_temp_338096));   // 272842 — this one IS covered
+  return …;
+}
+_temp_338106 = _temp_338096;          // match-result temp
+…
+__yo_struct_…_2420* def_where_entries = _temp_338106;      // 272855 — the binding
+
+//   …14 `if (__yo_effect_escaped) { …drops…; return; }` blocks in between,
+//      NONE of which drops def_where_entries…
+
+__yo_struct_…_9* _temp_338241 = __yo_new___yo_struct_…_9(…, def_where_entries, …);  // 273421 — MOVED, no dup
+fn_…_id_27___drop((__yo_struct_…_9*)(_temp_338241));                                // 273423 — struct dropped
+```
+
+Measured in that C:
+
+| fact                                                                             | value            |
+| -------------------------------------------------------------------------------- | ---------------- |
+| uses of `def_where_entries`                                                      | 4                |
+| `___drop` of `def_where_entries` anywhere                                        | **0**            |
+| `if (__yo_effect_escaped) { … return; }` blocks between the binding and the move | **14**           |
+| the receiving struct `_temp_338241` dropped                                      | yes, at `273423` |
+
+So the **normal** path is correctly balanced — the move transfers ownership and the struct's
+drop releases the list. Every one of the 14 **early** exits leaks it, exactly 96 bytes each.
+That matches the observation precisely: one leak in the two tests that take an escaping path,
+zero in the third.
+
+Note the mechanism already exists and nearly works: the first early-return block does carry a
+`// Drop consumed variables (unwind propagation)` entry for the pre-move temp
+`_temp_338096`. It is the _binding_ on the later exits that is missed.
+
+`Variable.consumedAtToken` already records WHERE the consumption happens, so the drop
+emitter has the data it needs to be position-aware: on an early exit, a consumed variable
+whose `consumedAtToken` lies after that exit is still live and must be dropped. Emitters to
+change: `generateConsumedVarDropsForEscape` / `generatePendingDeferredDrops` in
+`src/codegen/exprs/return.ts` (plus the yo-self mirror `codegen/exprs/return.yo`).
+
+**Care required:** dropping a variable that really was moved on the taken path would be a
+double-free, so the position comparison must be conservative — and this is the same family as
+`issues/fixed/early-return-reassigned-rc-variable-leak.md`,
+`issues/fixed/early-return-missing-local-variable-drops.md` and
+`issues/fixed/pending-drop-consumed-var-nested-return.md`, so their regression tests in
+`tests/rc.test.yo` are the guard to run.
+
+## Hypotheses ruled out along the way
 
 **Ruled out:** the getter pattern alone. A minimal reproduction — a module-level
 `HashMap(String, ArrayList(Entry))`, the same two-arm getter, a `.None` lookup bound to a
 local — leaks **0 bytes**. So the plain "fresh list returned, bound, dropped at scope end"
 path is correctly balanced.
 
-**Still open:** the leak needs the surrounding evaluator context. Two candidates:
+Also ruled out: **binding from a `match` arm.** The real call site binds
+`def_where_entries` from a `match` whose arms each yield a fresh RC value, and this repo has
+prior art for match-arm drop bugs — but a minimal reproduction of exactly that shape
+(module-level table, two-arm getter, `match` over an enum with a fresh list in each arm,
+bound to a local) also leaks **0 bytes**.
 
-1. **An exit path that skips scope-end drops.** `try_to_implement_function_by_function_type`
-   sits under heavy exception/`unwind` use. Yo's `unwind` exits the enclosing `fn`, and
-   there is prior art in this repo for `unwind` skipping code that follows a guarded call
-   (`unwind` in a swallow handler skipping a restore). If an `unwind` crosses the scope
-   holding `def_where_entries`, its drop never runs.
-2. **The struct that retains it at `:978` is itself leaked**, taking the list with it. Then
-   the 96 bytes is a symptom and the real leak is the containing struct.
-
-Distinguishing them: read the emitted batch C around the `def_where_entries` local — count
-its `___drop`/`__yo_decr_rc` sites and check whether every control-flow exit has one, then
-follow the struct at `:978`.
+Both dead ends had the same lesson: the plain shapes are correctly balanced. What breaks it
+is the _early exit_, which is why only the real evaluator context reproduces it — see the
+confirmed root cause above, which was found by reading the emitted C rather than by guessing
+at more shapes.
 
 ## Impact
 
