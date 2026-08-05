@@ -86,6 +86,15 @@ exercised BEFORE the fix. The full re-run closes that gap: **58/58, zero diverge
 > `tests/internal` was `yo-self/tests` until 2026-08-05; see the note in
 > `.github/instructions/testing.instructions.md`.
 
+**RE-VERIFIED after the CTFE nested-fn fix** (same day, `5959c31e9`): `tests/internal`
+58/58 identical on both compilers again, non-PASS detail (none)
+(`/tmp/re/dt_ctfe3/results.tsv`). That fix touches `calls/function_type.yo` — the
+def-time body-eval path — so the whole chain was re-run, not just the repro: battery
+20/20 rc=0 hollow=0, corpus PASS 155 DIFF 0, `check ./std` 153/153, FIXPOINT_HOLDS.
+Worth knowing WHY the full chain is mandatory there: the first version of that fix
+passed its own 5-test regression file and the repro, and was still broken — it leaked a
+CTFE context flag that turned `tests/fn.test.yo` HOLLOW. Only the hollow gate saw it.
+
 Getting here took two yo-self fixes, and the `eval_*` trio was retired with its
 subject file:
 
