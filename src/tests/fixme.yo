@@ -1,87 +1,58 @@
-//! Minimal reproducer hunt for the effect_analysis FTT:
-//!   `if (// Failed to transpile !(allow_missing_type)) {`
-//! In effect_analysis.yo, `if(allow_missing_type, ...)` emits fine but
-//! `if(!(allow_missing_type), ...)` fails to transpile, while `!(local)` works.
-//! The enclosing fn also takes a CLOSURE parameter (`Impl(Fn(...))`) and the
-//! failing variants are closure specializations (`..._cl4_...`), so each case
-//! below isolates one candidate factor.
-open(import("std/string"));
-{ println } :: import("std/fmt");
+{ assert } :: import("std/assert");
 
-/// Case 1 — `!` on a plain bool PARAMETER, no closure involved.
-c1 :: (fn(b : bool) -> bool)({
-  if(!(b), {
-    return(false);
-  });
-  true
-});
-
-/// Case 2 — `!` on a LOCAL bool (the form that works in effect_analysis).
-c2 :: (fn(b : bool) -> bool)({
-  ok := b;
-  if(!(ok), {
-    return(false);
-  });
-  true
-});
-
-/// Case 3 — `!` on a bool parameter in a fn that ALSO takes a closure
-/// parameter, mirroring `is_effect_call_`'s shape
-/// (`get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))`).
-c3 :: (fn(b : bool, f : Impl(Fn(x : usize) -> bool)) -> bool)({
-  if(!(b), {
-    return(false);
-  });
-  f(usize(1))
-});
-
-/// Case 4 — same shape as case 3 but reading the parameter WITHOUT negation,
-/// the form that emitted correctly in effect_analysis.
-c4 :: (fn(b : bool, f : Impl(Fn(x : usize) -> bool)) -> bool)({
-  if(b, {
-    return(true);
-  });
-  f(usize(2))
-});
-
-/// Case 5 — INFIX operator on a parameter, inside a closure-specialized fn.
-/// `_is_primitive_infix_operator` (codegen/exprs/generation.yo:577) short-circuits
-/// infix ops to the inline path BEFORE the dispatcher that fails for `!`, so this
-/// should still work if that fast path is what rescues them.
-c5 :: (fn(b : bool, f : Impl(Fn(x : usize) -> bool)) -> bool)({
-  if(b == false, {
-    return(false);
-  });
-  f(usize(3))
-});
-
-/// Case 6 — `!` on a LOCAL inside a closure-specialized fn. Distinguishes
-/// "unary op in a closure specialization" from "unary op on a PARAMETER".
-c6 :: (fn(b : bool, f : Impl(Fn(x : usize) -> bool)) -> bool)({
-  ok := b;
-  if(!(ok), {
-    return(false);
-  });
-  f(usize(4))
-});
-
-/// Case 7 — a different unary trait op (`-` on an integer parameter) in a
-/// closure-specialized fn: is the gap `!` specifically, or all unary ops?
-c7 :: (fn(n : i32, f : Impl(Fn(x : usize) -> bool)) -> bool)({
-  if((0 - n) > 0, {
-    return(false);
-  });
-  f(usize(5))
-});
-
+// Probe: does yo-self analyze NESTED functions for CTFE capability?
+// TS calls analyzeCtfeCapability at THREE sites; yo-self only at the
+// builtins/comptime_fn.yo one. The two missing sites both handle nested
+// functions encountered while a CTFE analysis is in flight:
+//   src/evaluator/calls/function-type.ts:669        (nested NAMED fn)
+//   src/evaluator/values/anonymous-function.ts:1127 (nested ANONYMOUS fn,
+//                                                    gated on !isCreatingClosure)
 main :: (fn() -> unit)({
-  println(`c1 true=${c1(true).to_string()} false=${c1(false).to_string()}`);
-  println(`c2 true=${c2(true).to_string()} false=${c2(false).to_string()}`);
-  println(`c3=${c3(true, (x : usize) => (x > usize(0))).to_string()}`);
-  println(`c4=${c4(false, (x : usize) => (x > usize(0))).to_string()}`);
-  println(`c5=${c5(true, (x : usize) => (x > usize(0))).to_string()}`);
-  println(`c6=${c6(true, (x : usize) => (x > usize(0))).to_string()}`);
-  println(`c7=${c7(1, (x : usize) => (x > usize(0))).to_string()}`);
+  // Case 1 — CONTROL: nested NAMED fn. Already covered by tests/fn.test.yo:544
+  // and green on both compilers, so this should pass; it exists to prove the
+  // probe itself is well-formed.
+  {
+    outer :: (fn(x : i32) -> i32)({
+      helper :: (fn(y : i32) -> i32)({
+        return(y * 2);
+      });
+      return((helper(x) + 1));
+    });
+    c :: comptime_fn(outer);
+    r :: c(20);
+    comptime_assert(r == 41);
+    assert(r == 41, "case 1: nested named fn under CTFE");
+  };
+  // Case 2 — TWO levels of nested named fns, so the inner one is reached while
+  // the middle one is itself being analyzed.
+  {
+    outer2 :: (fn(x : i32) -> i32)({
+      mid :: (fn(y : i32) -> i32)({
+        inner :: (fn(z : i32) -> i32)({
+          return(z + 1);
+        });
+        return((inner(y) * 3));
+      });
+      return(mid(x));
+    });
+    c2 :: comptime_fn(outer2);
+    r2 :: c2(6);
+    comptime_assert(r2 == 21);
+    assert(r2 == 21, "case 2: two-level nested named fns under CTFE");
+  };
+  // Case 3 — nested ANONYMOUS fn. Yo requires an `Impl(Fn(...))` annotation on
+  // the binding, which is exactly `isCreatingClosure` — the condition TS uses to
+  // SKIP its anonymous-function CTFE site. So both compilers should agree here
+  // regardless; the point is to confirm they DO agree rather than assume it.
+  {
+    outer3 :: (fn(x : i32) -> i32)({
+      (f : Impl(Fn(y : i32) -> i32)) = ((y) => (y * 3));
+      return(f(x));
+    });
+    r3 := outer3(7);
+    assert(r3 == 21, "case 3: nested anon fn (closure) inside a fn");
+  };
   ()
 });
+
 export(main);

@@ -42,17 +42,19 @@ TS evaluator:
 yo-self's counterpart is an **18-line stub**. Its header claims the analysis is
 "performed inline in `yo-self/evaluator/calls/comptime_fn.yo` (Phase 2/3 wiring)".
 
-**That claim is unverified and is the thing to check.** Either:
+**RESOLVED 2026-08-05 — the claim is FALSE and this is a real gap.** See
+`issues/yo-self-ctfe-nested-fn-analysis-gap.md` for the confirmed root cause, a
+minimal reproducer, and the fix plan. Summary: the analysis IS implemented (in
+`evaluator/builtins/comptime_fn.yo`, not `calls/`, so the stub names the wrong file),
+but TS invokes it at **three** sites and yo-self at **one**. The two missing sites
+handle nested functions met during a CTFE analysis, so
+`comptime_fn` over a function containing a nested `fn` produces no compile-time value
+and codegen emits an undeclared C identifier. It was invisible to every gate because
+the only shape that triggers it — nesting AND the result used at runtime — appears
+nowhere in the tree.
 
-- the inline implementation is genuinely equivalent → then this is a _documented
-  divergence_, and the stub's header should say so with the specific inline
-  location, so the next reader does not re-open it; or
-- it is NOT equivalent → there is a real CTFE-capability analysis gap, which would
-  be invisible to every current gate (a missing _analysis_ usually shows up as
-  wrong comptime/runtime classification, not as a compile error).
-
-Do not delete this stub either way — it is also part of the deliberate 1-to-1
-directory mirror.
+Do not delete this stub — it is the intended home for the extracted module, and
+extracting it is what breaks the import cycle that currently blocks the fix.
 
 ### 2 & 3. `build_runner` / `version_cache` — MEDIUM, CLI surface
 
