@@ -59,11 +59,11 @@ So casting `&header->ref_count` to `_Atomic size_t*` (8 bytes) is wrong twice ov
    path just always copies — which is the second reason nothing caught it. It also means
    those fast paths have never actually executed in a self-hosted build.
 
-This was the **only** such divergence: every other ref*count atomic cast in yo-self
+This was the **only** such divergence: every other `ref_count` atomic cast in yo-self
 (`yo-self/codegen/functions/gc_runtime.yo:263,270,405,412`) was already `uint32_t`. The
-`\_\_yo_atomic*\*\_size_t`helpers in`yo-self/codegen/types/generation.yo:505-515`are
-legitimate — TS has the identical helpers for user-level atomic`size_t` operations, which
-really are 8 bytes.
+`__yo_atomic_load_size_t` / `__yo_atomic_store_size_t` / `__yo_atomic_exchange_size_t`
+helpers in `yo-self/codegen/types/generation.yo:505-515` are legitimate — TS has the
+identical helpers for user-level atomic `size_t` operations, which really are 8 bytes.
 
 ## Verification
 
