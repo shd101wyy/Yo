@@ -78,11 +78,18 @@ Set `YO_MAIN_STACK_MB: "4096"` on the TS arm too, for parity with the self-hoste
 `AGENTS.md` names exactly this as the remedy for `-O0` deep-recursion crashes ("keep the
 fast `-O0` loop and bump the stack: `YO_MAIN_STACK_MB=4096`").
 
-**This is a hypothesis, not a diagnosis.** Honest reservation: the signature is a _wild
-jump_ (instruction fetch from a non-executable address), whereas classic stack exhaustion
-faults on a _write_ to the guard page and ASan usually reports `stack-overflow` explicitly.
-So the stack theory may well be wrong. It is worth one run because it is cheap, documented,
-and removes a real asymmetry either way.
+**UPDATE — the stack hypothesis is REFUTED.** Measured locally: the parser batch was run at
+every one of its 49 test indices with `YO_MAIN_STACK_MB=1`, i.e. a **1 MB** worker stack, and
+all 49 still pass. The env var is honoured without clamping
+(`src/codegen/functions/generation.ts:1048-1055` only checks `> 0`), so the probe was not
+vacuous. The parser's recursion for this input therefore needs well under 1 MB and cannot be
+exhausting a 1 GiB stack on Linux.
+
+So `YO_MAIN_STACK_MB=4096` on the TS arm will almost certainly NOT fix these crashes. It is
+kept only because it removes a real inconsistency between the job's two arms; it should not
+be described as a fix. The signature agrees: a wild jump is an instruction fetch from a
+non-executable address, whereas stack exhaustion faults on a write to the guard page and ASan
+reports `stack-overflow` explicitly.
 
 ## If that does not fix it
 
@@ -110,6 +117,27 @@ Next concrete steps, in order:
    arm64-linux emission instead.
 3. Bisect the input: the single-line variants pass, so shrink the multi-line form until it
    stops crashing.
+
+### A third lead: `-masm=intel` is applied per translation unit, x86_64 only
+
+`src/test-runner.ts:641` adds `-masm=intel` to the whole batch TU when
+`moduleManager.needsIntelAsmSyntax` is set. That flag is x86_64-relevant only, so it is
+inactive on the arm64 macOS runs that pass. Several modules in a `parser.test.yo` batch
+contain inline asm — `yo-self/expr.yo` (which the test imports for `AstExpr`) and
+`std/prelude.yo` among them. If two asm blocks in one TU assume different dialects, applying
+`-masm=intel` globally mis-assembles one of them, and a mis-assembled block is a
+straightforward way to get a wild jump.
+
+Caveat, stated because the same trap caught earlier hypotheses in this session: the crash is
+_inside_ `parse_primary_end`, and none of those asm blocks live there — so this only works if
+a mis-assembled global-asm definition is being called. Confirm before acting.
+
+### The asymmetry that most narrows it
+
+The **self-hosted** arm of this same job passes all 826 tests, `parser.test.yo` included. So
+yo-self-compiled-by-yo-self is fine on Linux x86_64 and yo-self-compiled-by-TS crashes. That
+points at the TS compiler's x86_64 emission (or the TS-only test-runner flags above) rather
+than at `yo-self/parser.yo` itself.
 
 Reproducing needs Linux x86_64; there is no local Linux (Docker was declined), so this is
 CI-bisection work rather than local debugging.
