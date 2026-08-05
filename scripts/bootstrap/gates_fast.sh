@@ -29,7 +29,14 @@ echo "=== T1 GATE 1: battery (with HOLLOW detection) ==="
 for t in tests/comptime.test.yo tests/prelude.test.yo tests/arc.test.yo tests/async_await.test.yo tests/sys/bufio.test.yo tests/fs/file.test.yo tests/fs/temp.test.yo tests/fs/walker.test.yo tests/sys/signal.test.yo tests/cycle_collector.test.yo tests/basic.test.yo tests/closure.test.yo tests/imm_list.test.yo tests/imm_string.test.yo tests/module_struct_unification.test.yo tests/ref_struct.test.yo tests/fn.test.yo tests/iso.test.yo tests/rc.test.yo tests/operator_grouping.test.yo; do
   name=$(basename "$t" .test.yo); d=$(dirname "$t")
   rm -f "$d"/.yo_selftest_batch_*
-  YO_KEEP_BATCH=1 timeout 1200 "$S1" test "$t" &> "/tmp/${P}_${name}.log"
+  # No env var is needed to retain the batch artifacts: the SELF-HOSTED runner
+  # writes .yo_selftest_batch_<index>.{yo,bin,bin.c} next to the test file
+  # (yo-self/main.yo:1484) with a deterministic index and never cleans them up.
+  # That is what makes the hollow check below possible. (`YO_KEEP_BATCH=1`, which
+  # this line used to set, does not exist anywhere in src/ — it was a no-op that
+  # implied a mechanism the code does not have. Two sibling scripts,
+  # measure_one.sh and hollow_sweep69.sh, still set it; harmless but equally dead.)
+  timeout 1200 "$S1" test "$t" &> "/tmp/${P}_${name}.log"
   rc=$?
   c="$d/.yo_selftest_batch_1.bin.c"
   hollow=NA
