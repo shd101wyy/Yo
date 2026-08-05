@@ -15,6 +15,17 @@ fail() {
   echo "FAIL: $*"
   fails=$((fails + 1))
 }
+# Dump the tail of a gate's log on failure. The per-gate logs live in /tmp and are
+# NOT uploaded by CI, so without this a CI failure here is just `FAIL: battery
+# imm_string rc=1` with no way to tell a clang error from a timeout from a failed
+# assertion. Keep it bounded so the CI log stays readable.
+dump_log() {
+  local f=$1
+  [ -f "$f" ] || { echo "  (no log at $f)"; return; }
+  echo "  ---- tail of $f ----"
+  tail -60 "$f" | sed 's/^/  /'
+  echo "  ---- end $f ----"
+}
 
 echo "=== T1 GATE 0: repros ==="
 for r in issues/repros/box-eq-comptime-int-forall-leak.yo issues/repros/arc-spawn-capture-split.yo; do
@@ -22,7 +33,10 @@ for r in issues/repros/box-eq-comptime-int-forall-leak.yo issues/repros/arc-spaw
   timeout 900 "$S1" compile "$r" --release -o "/tmp/${P}_${n}" &> "/tmp/${P}_${n}.log"
   rc=$?
   echo "$n compile_rc=$rc"
-  [ "$rc" = "0" ] || fail "repro $n compile_rc=$rc"
+  if [ "$rc" != "0" ]; then
+    fail "repro $n compile_rc=$rc"
+    dump_log "/tmp/${P}_${n}.log"
+  fi
 done
 
 echo "=== T1 GATE 1: battery (with HOLLOW detection) ==="
@@ -43,7 +57,10 @@ for t in tests/comptime.test.yo tests/prelude.test.yo tests/arc.test.yo tests/as
   hollow=NA
   [ -f "$c" ] && { if sed -n '/^void __yo_user_main() {/,/^}/p' "$c" | grep -q 'Failed to transpile'; then hollow=1; else hollow=0; fi; }
   echo "$name rc=$rc hollow=$hollow $(grep -oE '[0-9]+ passed' "/tmp/${P}_${name}.log" | tail -1)"
-  [ "$rc" = "0" ] || fail "battery $name rc=$rc"
+  if [ "$rc" != "0" ]; then
+    fail "battery $name rc=$rc"
+    dump_log "/tmp/${P}_${name}.log"
+  fi
   # A HOLLOW batch is the failure mode that once counted 33 files green while
   # running nothing (issues/yo-self-hollow-test-batch-main.md) — a `__yo_user_main`
   # containing "Failed to transpile" means the test body never ran.
@@ -56,13 +73,19 @@ YO_SELF_BIN=$S1 scripts/diff-test.sh tests/codegen-bootstrap --release --paralle
 corpus=$(tail -1 "/tmp/${P}_corpus.log")
 echo "$corpus"
 echo "$corpus" | grep -qE 'DIFF 0( |$)' || fail "corpus diff-test reported a DIFF: $corpus"
-echo "$corpus" | grep -qE 'SELF-FAIL 0( |$)' || fail "corpus diff-test reported a SELF-FAIL: $corpus"
+echo "$corpus" | grep -qE 'SELF-FAIL 0( |$)' || {
+  fail "corpus diff-test reported a SELF-FAIL: $corpus"
+  dump_log "/tmp/${P}_corpus.log"
+}
 
 echo "=== T1 GATE 3: check ./std ==="
 YO_MAIN_STACK_MB=4096 "$S1" check ./std &> "/tmp/${P}_std.log"
 std_rc=$?
 echo "STD_RC=$std_rc  $(tail -1 "/tmp/${P}_std.log")"
-[ "$std_rc" = "0" ] || fail "check ./std rc=$std_rc"
+if [ "$std_rc" != "0" ]; then
+  fail "check ./std rc=$std_rc"
+  dump_log "/tmp/${P}_std.log"
+fi
 
 echo "=== T1_DONE (${P}) failures=${fails} ==="
 [ "$fails" = "0" ] || exit 1
