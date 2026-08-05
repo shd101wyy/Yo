@@ -1,8 +1,17 @@
 # yo-self: `EvalResult.value` treated as a one-element cell — 5 sites, gated 10 files
 
-**Status:** FIXED — all 5 sites corrected and verified.
-`./yo-cli check yo-self/evaluator/eval.yo` → **rc=0, "evaluator OK"** (was the root of
-all 10 `check ./yo-self` failures).
+**Status:** FIXED — all 5 sites corrected, and BOTH source links in the cascade now
+check clean:
+
+```
+./yo-cli check yo-self/evaluator/eval.yo   -> rc=0, "evaluator OK"
+./yo-cli check yo-self/evaluator/index.yo  -> rc=0, "evaluator OK"
+```
+
+These two were the root of all 10 `check ./yo-self` failures. The remaining 8 are the
+test files that import `index.yo`; they should now get past module import (pending
+confirmation from the differential sweep, and noting the `eval_*` trio may still hit
+the runner's process limit for unrelated capacity reasons).
 **Found:** 2026-08-05, by the first per-file TS-vs-yo-self differential of the
 `test` subcommand over `yo-self/tests`.
 
