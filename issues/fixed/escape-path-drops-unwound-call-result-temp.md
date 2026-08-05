@@ -107,7 +107,7 @@ The deterministic, platform-independent gate is the emitted-C check in the table
 
 ## Related
 
-- `issues/parser-multiline-arrow-rhs-linux-segv.md` — the investigation, including the
+- `issues/fixed/parser-multiline-arrow-rhs-linux-segv.md` — the investigation, including the
   hypotheses ruled out by measurement (stack exhaustion refuted with a 1 MB stack,
   `-masm=intel`, uninitialized reads via `-Wconditional-uninitialized`).
 - **Still open, separate:** the `void`-handler-through-a-value-returning-cast mismatch is
