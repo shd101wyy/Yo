@@ -133,6 +133,32 @@ straightforward way to get a wild jump.
 `needsIntelAsmSyntax` is false for this batch and there is nothing for `-masm=intel` to
 mis-assemble. Kept here so nobody re-tests it.
 
+### DEAD LEAD: an uninitialized read (measured, ruled out)
+
+The most attractive theory for "identical code, passes on macOS, wild-jumps on Linux" is an
+**uninitialized** local or field read as a function pointer — stack garbage that happens to
+be benign on one platform. ASan does not catch that (MSan would, and MSan is Linux-only).
+
+Ruled out as far as static analysis can: the test runner compiles with `-w` (all warnings
+suppressed), so recompiling the batch C by hand with diagnostics on is free information:
+
+```bash
+clang -std=c11 -fno-strict-aliasing -fwrapv -O0 -fsyntax-only \
+      -Wall -Wuninitialized -Wsometimes-uninitialized -Wconditional-uninitialized \
+      <batch>.c
+```
+
+Result: **1801 warnings, ZERO of the uninitialized class** — and
+`-Wconditional-uninitialized` is the aggressive one. The categories are all benign:
+818 `unused-function`, 463 `unused-value`, 286 `unused-variable`, 158 `unused-label`,
+27 `parentheses-equality`, 12 `switch`, 3 `void-ptr-dereference`, 3 `self-assign`,
+2 `pointer-sign`. Notably **no function-pointer or calling-convention warnings**, which
+also rules out a mismatched function-pointer cast (a real wild-jump mechanism on x86_64).
+
+Caveat: clang's uninitialized analysis is intraprocedural and incomplete, so this lowers the
+probability rather than eliminating it. Running the batch under **MSan on Linux** is the
+decisive version of this test and is the single most promising next experiment.
+
 ### THE LEADING LEAD: a struct-size mismatch yielding a garbage function pointer
 
 The async port audit independently found a bug with **exactly this signature** — a type whose
