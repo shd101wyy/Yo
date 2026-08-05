@@ -133,6 +133,16 @@ straightforward way to get a wild jump.
 `needsIntelAsmSyntax` is false for this batch and there is nothing for `-masm=intel` to
 mis-assemble. Kept here so nobody re-tests it.
 
+### CONFIRMED BY CI: the stack change made no difference
+
+Run 31035092248, with `YO_MAIN_STACK_MB=4096` now set on the TS arm, reports **exactly the
+same two failures** — TS arm 824/826, self-hosted arm 826/826, no new failures anywhere. So
+the local 1 MB-stack refutation was right and the env var is not the fix, as predicted. It
+stays only as arm-to-arm parity.
+
+This also establishes the scorecard as **stable**: two failures, both this bug, nothing else
+hiding behind them.
+
 ### DEAD LEAD: an uninitialized read (measured, ruled out)
 
 The most attractive theory for "identical code, passes on macOS, wild-jumps on Linux" is an
