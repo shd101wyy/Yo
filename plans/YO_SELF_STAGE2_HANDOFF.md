@@ -85,6 +85,45 @@ Both pass on macOS and there is no local Linux, so `gates_fast.sh` now dumps the
 failing gate's log (`04c5927b9`) to get evidence out of CI. `continue-on-error`
 stays on the two informational jobs until both are green.
 
+### 2026-08-06 — CI: 4 of 5 informational jobs now GATE PRs
+
+`continue-on-error: true` was dropped from `bootstrap-fixpoint`,
+`bootstrap-fixpoint-stage3`, `bootstrap-self-test` and `test-tsan`. Only
+`compiler-internal-tests` still carries it.
+
+Three Linux-only failures were root-caused and fixed to get there:
+
+| failure                                 | root cause                                                                                                                                                                                                                                                                                                                                                  | fix                                                 |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| tier-1 `imm_string`, no test summary    | `rc()` on an atomic type emitted `atomic_load_explicit((_Atomic size_t*)&header->ref_count)` — a 4-byte field. clang could not inline a misaligned 8-byte atomic and emitted `__atomic_load_8`, undefined at link time on Linux. Also read `type_id`/`borrow_count` into the high bits, so every `rc(self)==1` CoW check in `std/imm/*` silently went false | `_Atomic uint32_t*`, matching `rc-fns.ts:549`       |
+| tier-1 `async_await` 115/116            | a sync `io.await` of an RC result emitted a BARE COPY. yo-self's `get_dup_function_for_type` ALWAYS returns `.None` (it synthesizes no `___dup` methods, unlike TS), so TS's dead `else` branch is yo-self's only live path: 0 increments against 3 scope-end decrements                                                                                    | emit the inline dup (`generate_dup_code_for_value`) |
+| `compiler-internal-tests` 488-byte leak | `function_value.yo` and `evaluator/types/control_fn_registry.yo` were exact duplicates declaring the same module global `g_control_fn_registry`, and module globals get UNMANGLED C names — both initializers wrote one C variable                                                                                                                          | delete the duplicate, repoint its one importer      |
+
+That last one is worth remembering for its own sake: the aliasing was **load-bearing**.
+The evaluator wrote through one copy and the codegen read through the other, so
+namespacing module globals correctly — which is what a reader would assume already
+happens — would have silently broken control-function (`unwind`) handling. Filed as
+`issues/module-global-c-names-are-not-namespaced.md`; tree audit says
+`std` 0 globals, `yo-self` 181/181 distinct, `tests` 2/2, so there is no second instance.
+
+**Why `compiler-internal-tests` still carries the flag.** Dropping `--bail` (so one run
+reports the whole scorecard instead of one leak per 3-hour run) surfaced 2 failures out of
+826 in the TS arm: Linux-x86_64-only SEGVs in yo-self's parser on a multi-line
+parenthesized `->` RHS. Pre-existing, and the job had never reached them. The self-hosted
+arm of the same job passes all 826. Four hypotheses were eliminated with evidence — stack
+exhaustion (49/49 pass locally with `YO_MAIN_STACK_MB=1`), `-masm=intel` (the batch has
+zero inline asm), a struct-offset error (the effect record is a single `void* throw` at
+offset 0), and a false repro that turned out to be a different leak. See
+`issues/parser-multiline-arrow-rhs-linux-segv.md` for the surviving lead.
+
+**A local stand-in for Linux LSan** (macOS has none): run the test with
+`--keep-generated-files` to keep the ASan batch binary, then
+`YO_TEST_INDEX=<i> leaks --atExit -- <binary>` per test. A sweep of all 58
+`tests/internal` files found exactly one leak (`phase6f_macro_helpers`, 96 B,
+pre-existing, `issues/where-constraints-arraylist-96b-leak.md`). Prove such a sweep
+non-vacuous before trusting a clean result — reintroducing the module-global collision made
+it flag all 18 `evaluator_index` tests.
+
 ### `check ./yo-self` reached 305/305 (2026-08-05) — the "circular-import" label was WRONG
 
 The 10 long-standing failures were never 10 problems and had nothing to do with
