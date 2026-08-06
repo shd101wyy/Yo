@@ -1,5 +1,9 @@
 # 96-byte `ArrayList(WhereConstraintEntry)` leak in `macro_helpers` (pre-existing)
 
+> **Handing this off? Start with `plans/CI_GATING_HANDOFF.md` §2.** It has the same analysis
+> condensed, plus the gates, the measured baselines, and the single question to start from.
+> This file is the long-form record.
+
 **Found 2026-08-06** by a local leak sweep of `tests/internal`, not by CI — CI's
 `compiler-internal-tests` job had never got this far, because it `--bail`ed on two earlier
 leaks (both since fixed).
@@ -114,7 +118,7 @@ double-free, so the position comparison must be conservative — and this is the
 ## MINIMAL REPRODUCER FOUND 2026-08-06 — the missing ingredient was a CONDITIONAL move
 
 Five earlier attempts failed because every one of them moved the local
-**unconditionally**. The real move at `yo-self/evaluator/calls/function_type.yo:977` is
+**unconditionally**. The real move at `yo-self/evaluator/calls/function_type.yo:978` is
 inside `if(has_fwd_comptime_fn_cap, { … })`. Reproduces deterministically, on macOS, with
 no sanitizer — gated on `rc()`:
 

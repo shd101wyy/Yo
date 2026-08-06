@@ -9,6 +9,11 @@ re-learned._
 **Goal:** make the self-hosted compiler (`yo-self/`) build and run `./tests`
 as correctly as the TypeScript compiler (`src/`, the GROUND TRUTH).
 
+> **Picking up CI work? Read `plans/CI_GATING_HANDOFF.md` first.** Nine of ten CI
+> jobs now gate PRs; that doc covers the single remaining blocker on the tenth
+> (`compiler-internal-tests`), with the reproducer, three eliminated approaches,
+> and the measured gate baselines. This document remains the campaign-wide record.
+
 ---
 
 ## 1. Where the campaign stands
