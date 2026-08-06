@@ -127,6 +127,34 @@ Work items:
    builds and runs natively there — today's Windows CI runs the TS compiler,
    so this is the first native-Windows exercise of the self-hosted binary;
    budget for a porting tail.)
+
+   **Linux libc decision — one static musl binary per arch, not per-libc
+   bundles.** A glibc-linked `yo` does not run on musl distros (different
+   dynamic linker + symbol versioning). Instead of Koka's distro-sniffing
+   dual bundles, the Linux bundles are **fully static musl builds**
+   (Zig/Deno/Bun model): one `linux-x64` and one `linux-arm64` binary that
+   run on every distro, glibc or musl, with no installer detection logic.
+   Constraints: Yo cannot cross-compile gnu→musl (`BUILD_SYSTEM.md` — musl is
+   native-only), so release CI builds the Linux bundles inside an Alpine
+   container; `liburing` (async runtime) must be statically linked; and the
+   runtime needs a one-time validation pass under musl (io_uring, mimalloc,
+   worker-thread stack sizing) — the `x86_64-linux-musl` target exists for
+   exactly this. Fallback if static-musl validation surfaces real problems
+   (e.g. `std/sys/dns` NSS behavior differences that matter in practice):
+   Koka-style separate `-gnu`/`-musl` bundles + `OSDISTRO` sniffing in the
+   installer.
+
+   Note this affects only the `yo` binary itself: Yo emits C compiled on the
+   user's machine with their toolchain against their libc, so a musl-static
+   compiler on Ubuntu still produces ordinary glibc user programs.
+
+   Host-platform matrix (what the bundles cover): `linux-x64`/`linux-arm64`
+   (static musl, all distros), `macos-arm64`/`macos-x64` (libSystem; Rosetta
+   covers arm64 running the x64 bundle as fallback), `windows-x64` (MSVC CRT;
+   arm64 Windows runs it emulated, as Koka does). Compile-target matrix is
+   unchanged from `BUILD_SYSTEM.md`: native target = host (gnu and musl
+   variants on Linux), plus `wasm32-emscripten`/`wasm32-wasi` from any host.
+
 2. **`util/install.sh`** (POSIX sh, curl-pipe-able) and **`util/install.bat`**
    (cmd; a PowerShell variant optional later), adapted from Koka's.
    **Version-selectable**: `--version vX.Y.Z` (Koka's `-v` flag) picks the
