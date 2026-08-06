@@ -959,6 +959,15 @@ export function canOptimizeAsNullablePointer(enumType: EnumType): Type | null {
  * Returns true if all variants have no data members.
  */
 export function canOptimizeAsSimpleEnum(enumType: EnumType): boolean {
+  // Reference-semantics enums (`ref(enum(...))`) are heap RC objects:
+  // per-variant constructors write obj->header.ref_count and match lowers
+  // to switch(obj->tag). Those emission sites do not follow the collapse,
+  // so collapsing an all-payload-free ref enum to a bare C enum emitted
+  // member accesses on a non-struct type (9 clang errors — see
+  // issues/fixed/fieldless-ref-enum-simple-enum-collapse.md).
+  if (enumType.isReferenceSemantics) {
+    return false;
+  }
   // All variants must have no fields
   for (const variant of enumType.variants) {
     if (variant.fields && variant.fields.length > 0) {

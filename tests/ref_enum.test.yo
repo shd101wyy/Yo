@@ -197,3 +197,22 @@ test("ref(enum) field mutation via an immutable local binding", {
     .Zero => assert(false, "unexpected Zero variant")
   );
 });
+
+// Regression (issues/fixed/fieldless-ref-enum-simple-enum-collapse.md): an
+// all-payload-free ref(enum) used to be collapsed to a bare C enum by
+// canOptimizeAsSimpleEnum while its constructors and match lowering kept the
+// heap-object shape (obj->header.ref_count / obj->tag) — 9 clang errors, the
+// shape did not compile at all. The collapse now excludes reference-semantics
+// enums in both compilers.
+Flag :: ref(enum(On, Off));
+
+test("fieldless ref(enum) compiles, matches, and is RC-managed", {
+  a := Flag.On;
+  b := Flag.Off;
+  on := match(a,.On => true,.Off => false);
+  off := match(b,.On => false,.Off => true);
+  assert(on && off, "fieldless ref enum variants distinguish in match");
+  a2 := a;
+  assert(rc(a) == 2, "fieldless ref enum is a heap RC object (rc visible)");
+  assert(rc(a2) == rc(a), "alias shares the same RC object");
+});

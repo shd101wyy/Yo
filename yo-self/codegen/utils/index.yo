@@ -723,7 +723,16 @@ can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
 can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .EnumT({ variant_fields }) => {
+    .EnumT({ variant_fields, is_reference_semantics }) => {
+      // Reference-semantics enums (`ref(enum(...))`) are heap RC objects:
+      // constructors write obj->header.ref_count and match lowers to
+      // switch(obj->tag) — those sites don't follow the collapse, so a
+      // payload-free ref enum must NOT collapse to a bare C enum. Mirrors
+      // canOptimizeAsSimpleEnum
+      // (issues/fixed/fieldless-ref-enum-simple-enum-collapse.md).
+      if(is_reference_semantics, {
+        return(false);
+      });
       (all_empty : bool) = true;
       n := variant_fields.len();
       (vi : usize) = usize(0);

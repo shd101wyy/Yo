@@ -89,7 +89,7 @@ scope-end drop for an owned RC arg temp in a bare tail-expression fn body —
 pre-existing, reproduced on the untouched payload form; FIXED 2026-08-06 by
 routing def-time fn-body eval through evaluate_begin_expression),
 `issues/retired/ctfe-elided-unit-call-arg-temp-leak.md`, and
-`issues/fieldless-ref-enum-simple-enum-collapse.md`.
+`issues/fixed/fieldless-ref-enum-simple-enum-collapse.md`.
 
 **Remaining CI blocker:** two Linux-only tier-1 battery failures —
 `async_await` runs but fails 1 of 116, `imm_string` produces no summary at all.

@@ -1,5 +1,20 @@
 # An all-payload-free `ref(enum)` does not compile (simple-enum collapse vs `T*` lowering)
 
+> **FIXED — 2026-08-06.** As proposed below (option 1, the smaller change):
+> `canOptimizeAsSimpleEnum` (`src/codegen/utils/index.ts`) and its mirror
+> `can_optimize_as_simple_enum` (`yo-self/codegen/utils/index.yo`) now
+> return false for reference-semantics enums, so a payload-free
+> `ref(enum(...))` keeps the heap-object lowering its constructors, match
+> switches, `___drop`/dispose, and GC registration already assume. The
+> ABI-check concern was settled empirically: the repro compiles, runs
+> correctly, and is leak-free under `leaks --atExit` (the RC header path
+> works end to end), and `rc()` observes the object as a normal RC value.
+> No existing code could depend on the old behavior — the shape produced
+> 9–10 clang errors and never compiled. Regression test:
+> `tests/ref_enum.test.yo` "fieldless ref(enum) compiles, matches, and is
+> RC-managed" (file 12/12). Gates: fast-suite subsets green; stage-1 +
+> TIER-1 + fixpoint revalidated with the mirror in place.
+
 **Found 2026-08-05** while fixing
 `issues/fixed/ref-enum-unit-variant-inline-construction-leak.md`. **Pre-existing and
 independent** of that fix — the fix's "some variant has fields" gate deliberately skips
