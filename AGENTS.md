@@ -74,7 +74,8 @@ Yo source → Lexer → Parser → AST (expr.ts)
 | `plans/VERSION_MANAGEMENT.md`        | `.yo-version` pinning and version cache design                                                                                                                                 |
 | `plans/HIGHER_KINDED_TYPES.md`       | HKT design & implementation (TypeApplication, partial application)                                                                                                             |
 | `plans/FUNCTOR_APPLICATIVE_MONAD.md` | Option/Result functional combinators plan                                                                                                                                      |
-| `plans/BOOTSTRAPPING.md`             | Bootstrapping roadmap — phases, install scripts, risk assessment                                                                                                               |
+| `plans/BOOTSTRAPPING.md`             | Bootstrap campaign record (GOAL ACHIEVED — fixpoint holds, suite green); umbrella over the CLOSED per-slice docs                                                               |
+| `plans/SELF_HOSTING_COMPLETION.md`   | The next-phase roadmap: full CLI parity in yo-self, retire `src/`+bun, release bundles + install scripts (Koka model), LSP + VS Code                                           |
 | `plans/YO_SELF_EXPRINFO_PRUNE.md`    | REJECTED `yo-self` memory lever: pruning the process-lifetime `ExprInfoTable` (built, measured, refuted)                                                                       |
 | `plans/YO_SELF_ENV_SHARING.md`       | The real `yo-self` memory root cause: def-time body envs COPY what TS SHARES (7.4 M live `Variable`s), plus the remaining ranked levers                                        |
 

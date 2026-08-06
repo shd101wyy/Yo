@@ -1,3 +1,10 @@
+> **CLOSED (2026-08-06).** The bootstrap campaign this document belongs to is
+> complete: the self-hosted compiler passes the full suite, the stage-2/stage-3
+> fixpoint holds, and every CI job gates PRs (run 31069479984, commit
+> `ac85f6cfc`). Kept as a historical record — do not resume work from this
+> file. Umbrella status: `plans/BOOTSTRAPPING.md`. What comes next:
+> `plans/SELF_HOSTING_COMPLETION.md`.
+
 # Bootstrapping the codegen — TS `src/codegen/` → yo-self `yo-self/codegen/`
 
 Plan for the codegen slice of self-hosting (successor to

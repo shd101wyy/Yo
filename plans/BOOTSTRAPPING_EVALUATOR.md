@@ -1,3 +1,10 @@
+> **CLOSED (2026-08-06).** The bootstrap campaign this document belongs to is
+> complete: the self-hosted compiler passes the full suite, the stage-2/stage-3
+> fixpoint holds, and every CI job gates PRs (run 31069479984, commit
+> `ac85f6cfc`). Kept as a historical record — do not resume work from this
+> file. Umbrella status: `plans/BOOTSTRAPPING.md`. What comes next:
+> `plans/SELF_HOSTING_COMPLETION.md`.
+
 # Bootstrapping the Evaluator — Self-Hosted `yo check`
 
 > **Status: active plan.** Focused sub-goal of the broader bootstrap
@@ -134,12 +141,11 @@ structure).
 >   faithful fixes (commit `454b14ca`): (1) binding-site flow-violation re-raise
 >   through the capture-free trial-eval swallow (global flag-box + def-time-caller
 >   re-raise); (2) return-position fallback to the raw body when the trial eval was
->   swallowed; (3) **cond.yo `isPtrRelaxedMatch`** (cond.ts:352) — a `*(T)`
->   ref-return expected type accepts a cond arm yielding raw `T`. Plus the
->   operator/comptime-routing gate (`a4977828`) and the R3 method-callee side-table
->   (`308c854d`, fixes ref-returning \_method* calls in `-> ref` returns). **Still
->   failing: `ref_local_binding`, `ref_closure_capture`** (need the ref-capture-
->   escape check, blocked by yo-self deferring _closure_ body eval → no precise
+>   swallowed; (3) **cond.yo `isPtrRelaxedMatch`** (cond.ts:352) — a `*(T)`ref-return expected type accepts a cond arm yielding raw`T`. Plus the
+operator/comptime-routing gate (`a4977828`) and the R3 method-callee side-table
+(`308c854d`, fixes ref-returning \_method* calls in `-> ref`returns). **Still
+failing:`ref*local_binding`, `ref_closure_capture`\*\* (need the ref-capture-
+>   escape check, blocked by yo-self deferring \_closure* body eval → no precise
 >   free-var set; `issues/yo-self-flowability-swallow.md`) **and `slice_flowability`**
 >   (a long tail of distinct positive-case gaps — first is `comptime_str`, blocked
 >   by recorded-`ExprInfo.env` aliasing + begin `pop_frame`;

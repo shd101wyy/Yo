@@ -1,3 +1,10 @@
+> **CLOSED (2026-08-06).** The bootstrap campaign this document belongs to is
+> complete: the self-hosted compiler passes the full suite, the stage-2/stage-3
+> fixpoint holds, and every CI job gates PRs (run 31069479984, commit
+> `ac85f6cfc`). Kept as a historical record — do not resume work from this
+> file. Umbrella status: `plans/BOOTSTRAPPING.md`. What comes next:
+> `plans/SELF_HOSTING_COMPLETION.md`.
+
 # Bootstrapping codegen — resume plan (2026-06-19)
 
 Single ordered checklist for finishing Phases 5–7. Each step has a precise entry
@@ -51,7 +58,7 @@ regression. Pieces (full TS mechanism in the issue doc):
   NOT `(captureStruct)(closure_fn_name)`. Call-site arg path in other_fn_call.yo.
 - (C) SPECIALIZED-BODY closure call — `cb(x)` (cb = capture-struct param) → emit
   `closure_fn(&(cb), x)`. For spawn this is instead the `__yo_thread_spawn(wrapper,
-  &cb_heapcopy)` path already in parallelism.yo; the general case is a direct
+&cb_heapcopy)` path already in parallelism.yo; the general case is a direct
   closure call and is the broader missing emitter. The async path (async.yo,
   `sm->__capture.field`) is the SM analogue.
 - GATE: rebuild yo-self-bin, corpus 75/75, the apply repro prints 15, then the

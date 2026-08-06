@@ -1,3 +1,10 @@
+> **CLOSED (2026-08-06).** The bootstrap campaign this document belongs to is
+> complete: the self-hosted compiler passes the full suite, the stage-2/stage-3
+> fixpoint holds, and every CI job gates PRs (run 31069479984, commit
+> `ac85f6cfc`). Kept as a historical record — do not resume work from this
+> file. Umbrella status: `plans/BOOTSTRAPPING.md`. What comes next:
+> `plans/SELF_HOSTING_COMPLETION.md`.
+
 # Bootstrapping Prerequisites
 
 Features, standard library modules, and language improvements needed **before** starting the compiler port. Organized by priority.
@@ -32,7 +39,7 @@ Before listing gaps, here is what **already exists** and is usable:
 | **File I/O**                         | `std/fs/file.yo`                    | ✅ Async open, read, write, seek, metadata                                                                                                                         |
 | **Path manipulation**                | `std/path.yo`                       | ✅ `Path` with join, extension, parent, etc.                                                                                                                       |
 | **Derive system**                    | `derive(Type, Trait1, Trait2, ...)` | ✅ Phase 1+2 complete: Eq, Hash, Clone, Ord, ToString + user-defined `derive_rule`                                                                                 |
-| **Clone trait**                      | `prelude.yo`                        | ✅ `Clone :: trait(clone : (fn(self: *(Self)) -> Self))`, `derive(T, Clone)` supported                                                                               |
+| **Clone trait**                      | `prelude.yo`                        | ✅ `Clone :: trait(clone : (fn(self: *(Self)) -> Self))`, `derive(T, Clone)` supported                                                                             |
 | **String methods**                   | `std/string/string.yo`              | ✅ `starts_with`, `ends_with`, `contains`, `split`, `replace`, `replace_all`, `trim`, `trim_start`, `trim_end`, `to_uppercase`, `to_lowercase`, `chars()` iterator |
 | **HashMap**                          | `std/collections/hash_map.yo`       | ✅ SwissTable impl with `contains_key`, `keys()`, `values()`, `iter()`, `into_iter()`                                                                              |
 | **ArrayList**                        | `std/collections/array_list.yo`     | ✅ `into_iter()`, `iter()`, `contains()`, `sort()`, `extend_from_ptr()`, `clear()`, `slice()`                                                                      |
