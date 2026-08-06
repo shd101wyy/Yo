@@ -1,40 +1,31 @@
-{ assert } :: import("std/assert");
-{ println } :: import("std/fmt");
-{ ArrayList } :: import("std/collections/array_list");
+open(import("std/fmt"));
 
-Holder :: struct(items : ArrayList(i32));
+Node :: ref(struct(value : i32, next : Option(Self)));
 
-// Keeps an outside reference to every list handed out, so a leaked reference in
-// `work` shows up as a higher refcount here.
-g_seen := ArrayList(ArrayList(i32)).new();
-
-/// Mirrors `get_func_where_constraints`: returns a FRESH RC value.
-make_fresh :: (fn() -> ArrayList(i32))({
-  l := ArrayList(i32).new();
-  g_seen.push(l);
-  l
-});
-
-/// Mirrors `try_to_implement_function_by_function_type`: a local bound from a
-/// call, then MOVED into an aggregate inside an `if`.
-work :: (fn(flag : bool) -> unit)({
-  entries := make_fresh();
-  if(flag, {
-    h := Holder(items : entries);
-    println(`held ${h.items.len()}`);
+sum :: (fn(head : Node) -> i32)({
+  (current_opt : Option(Node)) = head.next;
+  (total : i32) = 0;
+  while(runtime(true), {
+    match(
+      current_opt,
+      .None => return(total),
+      .Some(current) => {
+        total = (total + current.value);
+        current_opt = current.next;
+      }
+    );
   });
+  total
 });
 
 main :: (fn() -> unit)({
-  work(true);
-  work(false);
-  taken_rc := match(g_seen.get(usize(0)),.Some(x) => rc(x),.None => usize(0));
-  skipped_rc := match(g_seen.get(usize(1)),.Some(x) => rc(x),.None => usize(0));
-  println(`taken_rc=${taken_rc} skipped_rc=${skipped_rc}`);
-  assert(
-    skipped_rc == taken_rc,
-    "conditional move not taken must release the local just like the taken path"
+  head := Node(
+    value : 1,
+    next : Option(Node).Some(
+      Node(value : 2, next : Option(Node).Some(Node(value : 3, next : Option(Node).None)))
+    )
   );
+  println(`sum ${sum(head)}`);
 });
 
 export(main);

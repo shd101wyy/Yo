@@ -58,7 +58,30 @@ CI run `31051936217` (commit `13de0e3c1`) — **9 of 10 jobs green**:
 
 ## 2. THE BLOCKER — a conditionally-moved local is never released
 
-`issues/where-constraints-arraylist-96b-leak.md` is the full record. Summary, and what is
+> **FIXED 2026-08-06 — see the RESOLUTION section of
+> `issues/fixed/where-constraints-arraylist-96b-leak.md`.** The sharp question below had a
+> third answer nobody predicted: case 3 cannot fire because **there is no consumption at
+> merge time at all**. The evaluator defers a `___dup` for a named local passed to a
+> struct literal (copy semantics); the "move" in the C is manufactured later by the
+> dup/drop pair optimizer in `begin.ts`, whose dup collector was branch-blind for macro
+> calls — `if` keeps its macro head in the AST, so the collector recursed into the raw
+> args and cancelled the arm's dup as if unconditional. Fix: the collector walks
+> `$.macroExpansion` instead of raw macro args (same shape as `exprTreeContainsReturn`),
+> so arm dups hit the existing branch-aware handler and the pair is preserved. Mirrored
+> in `yo-self/evaluator/exprs/begin.yo` (`_search_dup_calls` +
+> `_remove_dup_calls_from_tree`). Regression test: `tests/rc.test.yo` "Conditional move
+> into a struct field balances both paths".
+>
+> The corpus differential then caught a follow-up bug in the first fix version: exposing
+> macro arms to the branch handler also exposed them to its `__isEarlyReturnDup` fast
+> path, which cancelled dups that FEED a return value — `drop(x); return x;` in yo-self's
+> `compute_overlapping_slots` (stage-1 SIGSEGV on both `io_async_fsm_*` corpus tests).
+> The fast path was removed in both compilers: return-arms now join the same
+> all-arms-must-dup coverage calculus as fallthrough arms. See the issue doc's follow-up
+> section. All §4 gates re-run green locally; the remaining step is the CI round trip
+> (LeakSanitizer is Linux-only).
+
+`issues/fixed/where-constraints-arraylist-96b-leak.md` is the full record. Summary, and what is
 genuinely still unknown.
 
 ### Symptom

@@ -519,3 +519,73 @@ test("Inline ref-enum unit-variant in non-argument positions does not leak", {
     "Option payload"
   );
 });
+// Regression: a local dup'd inside ONE arm of an `if` (a macro expanding to
+// cond) must keep its scope-end drop. The dup/drop pair optimizer used to
+// reach the arm's dup through the raw macro-call args (branch-blind), cancel
+// the pair, and mark the variable consumed — leaking one reference on every
+// path that did not take the arm (issues/fixed/where-constraints-arraylist-96b-leak.md).
+CondMoveHolder :: struct(items : ArrayList(i32));
+g_cond_move_seen := ArrayList(ArrayList(i32)).new();
+cond_move_make_fresh :: (fn() -> ArrayList(i32))({
+  l := ArrayList(i32).new();
+  g_cond_move_seen.push(l);
+  l
+});
+cond_move_work :: (fn(flag : bool) -> unit)({
+  entries := cond_move_make_fresh();
+  if(flag, {
+    h := CondMoveHolder(items : entries);
+    assert(h.items.len() == usize(0), "held list is empty");
+  });
+});
+test("Conditional move into a struct field balances both paths", {
+  cond_move_work(true);
+  cond_move_work(false);
+  taken := match(g_cond_move_seen.get(usize(0)),.Some(l) => l,.None => ArrayList(i32).new());
+  skipped := match(g_cond_move_seen.get(usize(1)),.Some(l) => l,.None => ArrayList(i32).new());
+  assert(
+    rc(taken) == rc(skipped),
+    "skipped-branch call must not retain an extra reference"
+  );
+});
+// Regression: the loop-traversal borrow-chain optimization
+// (optimizeLoopTraversalBorrowChain) must NOT fire when the loop body
+// mutates the structure it traverses. Severing head.next while current_opt
+// borrowed the severed sublist freed the nodes mid-walk — the traversal then
+// read freed memory and visited garbage (use-after-free, found 2026-08-06).
+TraversalNode :: ref(struct(value : i32, next : Option(Self)));
+traversal_walk_with_sever :: (fn(head : TraversalNode) -> i32)({
+  (current_opt : Option(TraversalNode)) = head.next;
+  (first : bool) = true;
+  (total : i32) = 0;
+  while(runtime(true), {
+    match(
+      current_opt,
+      .None => return(total),
+      .Some(current) => {
+        if(first, {
+          first = false;
+          head.next = Option(TraversalNode).None;
+        });
+        total = (total + current.value);
+        current_opt = current.next;
+      }
+    );
+  });
+  total
+});
+test("Loop traversal keeps ownership when the loop mutates the structure", {
+  head := TraversalNode(
+    value : 1,
+    next : Option(TraversalNode).Some(
+      TraversalNode(
+        value : 2,
+        next : Option(TraversalNode).Some(TraversalNode(value : 3, next : Option(TraversalNode).None))
+      )
+    )
+  );
+  assert(
+    traversal_walk_with_sever(head) == 5,
+    "severed traversal must still visit nodes 2 and 3 (owned, not borrowed)"
+  );
+});

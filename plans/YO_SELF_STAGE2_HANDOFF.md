@@ -131,7 +131,7 @@ on this.
 `--keep-generated-files` to keep the ASan batch binary, then
 `YO_TEST_INDEX=<i> leaks --atExit -- <binary>` per test. A sweep of all 58
 `tests/internal` files found exactly one leak (`macro_helpers`, 96 B,
-pre-existing, `issues/where-constraints-arraylist-96b-leak.md`). Prove such a sweep
+pre-existing, `issues/fixed/where-constraints-arraylist-96b-leak.md`). Prove such a sweep
 non-vacuous before trusting a clean result — reintroducing the module-global collision made
 it flag all 18 `evaluator_index` tests.
 

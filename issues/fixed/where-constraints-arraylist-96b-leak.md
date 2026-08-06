@@ -1,5 +1,10 @@
 # 96-byte `ArrayList(WhereConstraintEntry)` leak in `macro_helpers` (pre-existing)
 
+> **FIXED 2026-08-06.** See "RESOLUTION" at the end of this file. The analysis below is
+> the historical record; two of its framing assumptions (that the consumption was recorded
+> by the evaluator, and that `mergeAndCheckEnvs` should have rejected the program) turned
+> out to be wrong — there was never a consumption for the merge to see.
+
 > **Handing this off? Start with `plans/CI_GATING_HANDOFF.md` §2.** It has the same analysis
 > condensed, plus the gates, the measured baselines, and the single question to start from.
 > This file is the long-form record.
@@ -302,3 +307,93 @@ The rest of the suite is clean: a local sweep of all 58 `tests/internal` files (
 pass, the four heavy the four macro/reflection separately) found leaks in **this file only**. That sweep was
 proven non-vacuous by temporarily reintroducing the fixed module-global collision, which it
 flagged in all 18 tests of `evaluator_index` at 3 leaks / 576 bytes.
+
+## RESOLUTION (2026-08-06)
+
+### The answer to the sharp question
+
+`mergeAndCheckEnvs` "case 3" does not fire because **there is no consumption at merge
+time**. Probing the merge for the reproducer's `entries` showed
+`consumedAtTokens=[null,null]` across both arms, and `setExprAsConsumed` never fires for
+a named local passed to a struct literal. The evaluator's semantics for that shape is
+**copy, not move**: `setExprAsNeedsToCallDup` (`src/expr.ts`) attaches a deferred
+`___dup(entries)` to the argument, leaving the variable unconsumed and balanced by its
+ordinary scope-end drop.
+
+The "move" seen in the emitted C is manufactured LATER, by the **dup/drop pair
+optimizer** (`begin.ts`, `OPTIMIZE_DUP_AND_DROP_PAIRS`): at the enclosing begin-block's
+end it cancels a single runtime dup against the scope-end drop and marks the variable
+consumed at the dup's use site. That cancellation is sound only if the dup executes
+unconditionally.
+
+### The actual bug
+
+The optimizer's dup collector (`searchRecursively`, begin.ts) was branch-aware only for
+literal `cond`/`match` AST heads. `if` is a prelude macro: the AST node keeps its `if`
+head and the evaluated `cond` expansion is recorded in `$.macroExpansion`. The collector
+recursed generically into the macro call's raw args, found the arm's dup with no branch
+context, treated it as unconditional, and cancelled the pair — removing the dup AND the
+scope-end drop. Every path that did not take the arm then leaked one reference (and the
+14 `__yo_effect_escaped` early exits leaked it too, since a "consumed" variable gets no
+drops anywhere).
+
+### The fix
+
+`searchRecursively` now walks `$.macroExpansion` INSTEAD of the raw macro-call args
+(exactly the shape `exprTreeContainsReturn` in `src/expr-traversal.ts` already used).
+The expansion's `cond` head routes arm dups through the existing branch-aware handler:
+
+- dup in SOME fallthrough arms → `varsWithPartialBranchDups` → pair preserved (dup on
+  the taken path, scope-end drop on every path — balanced);
+- dup in ALL arms → collected per-arm → `runtimeDupCount > 1` → pair preserved;
+- single unconditional dup → cancelled, as before.
+
+Mirrored in `yo-self/evaluator/exprs/begin.yo`: `_search_dup_calls` follows
+`macro_expansion` the same way, and `_remove_dup_calls_from_tree` also follows it —
+required there because yo-self expansions are FRESH-ID clones (TS expansions share the
+spliced arg nodes, so TS's raw-tree removal walk already reached them).
+
+The stale port comment claiming "TS never looks inside $.macroExpansion" was rewritten;
+the historic stage-2 breakage it warned about was a missed expansion-internal `return`,
+owned and fixed by `_contains_return_for_opt`.
+
+### Verification
+
+- `rc()` reproducer (conditional move of a call-bound local): `taken_rc=3 skipped_rc=4`
+  before → `taken_rc=3 skipped_rc=3` after.
+- New regression test `tests/rc.test.yo` "Conditional move into a struct field balances
+  both paths": SIGABRT before the fix, passes after (19/19 in the file).
+- `tests/internal/macro_helpers.test.yo`: 3/3, and the emitted-C invariant flipped —
+  `___drop` of `def_where_entries`: **0 before → 45 after**, with exactly 1 `___dup` at
+  the conditional consumption site; struct's own drop releases it on the taken path.
+- macOS `MallocStackLogging=1 leaks --atExit` on the batch binary: tests 0/1/2 all
+  report **0 leaks** (were 96 bytes in tests 0 and 1).
+- `macro_expansion.test.yo` 2/2 in 168 s / 6.03 GB peak — matches the pre-fix baseline,
+  no compile-time regression.
+
+### Follow-up bug found while validating the fix (same day): the early-return dup fast path
+
+The corpus differential caught the first version of the fix crashing the stage-1
+self-hosted binary (SIGSEGV in `emit_deferred_async_block_struct_definitions`, both
+`io_async_fsm_*` corpus tests). Root cause: exposing macro-expansion arms to the branch
+handler also exposed them to its `__isEarlyReturnDup` fast path, which marked return-arm
+dups "independent" (not counted toward `runtimeDupCount`) and removed them on
+cancellation. For `yo-self`'s `compute_overlapping_slots` — two `if`-arm
+`return empty_result` sites whose dups ARE the caller's reference — that produced
+
+```c
+___drop(empty_result);      // freed…
+___drop(eligible);
+return empty_result;        // …then returned dangling
+```
+
+The assumption "an early-return dup has its own drop at the return point" is wrong
+whenever the dup feeds the arm's RETURN VALUE. Fix: the fast path was removed in both
+compilers — return-arms now join the same coverage calculus as fallthrough arms (a
+branch-arm dup is exposed to the optimizer only when EVERY arm dups; otherwise the
+variable is flagged partial and the pair survives). This also fixes a pre-existing leak:
+a single conditional `return x` dup used to cancel against the scope-end drop, leaking
+`x` on the fall-through path.
+
+Verified: stage-1 rebuilt, both `io_async_fsm_*` tests compile and run; `tests/rc.test.yo`
+20/20 (includes the three prior early-return regression tests).
