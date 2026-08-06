@@ -330,7 +330,7 @@ YO_MAIN_STACK_MB=4096 /tmp/re/s1r16 test ./tests/internal/effect_analysis.test.y
 # the rejected C is left at ./tests/internal/.yo_selftest_batch_1.bin.c
 ```
 
-**Run strictly one file and one compiler at a time.** `phase6c_macro` alone needs
+**Run strictly one file and one compiler at a time.** `macro_expansion` alone needs
 6.52 GB; two concurrent children on a 16 GB machine swap, and the swapping trips the
 runner's 600 s evaluator deadline, MANUFACTURING failures that do not reproduce in
 isolation. An earlier `--parallel 2` sweep produced several such phantom failures.

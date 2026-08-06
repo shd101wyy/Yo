@@ -1,4 +1,10 @@
-/// Phase 6f verification: gensym, .car/.cdr, ExprVal Atom equality.
+/// Verifies: AST reflection methods on ExprVal.
+/// These are needed for the real std/prelude.yo `for` macro:
+///   handle.is_fn_call(), handle.get_callee(), handle.get_args(),
+///   callee.is_atom(), etc.
+///
+/// We define a macro that uses .is_atom() inside a comptime cond
+/// and returns a different expression depending on the result.
 open(import("std/string"));
 open(import("std/fmt"));
 open(import("std/error"));
@@ -11,11 +17,9 @@ open(import("std/error"));
 noop_loader :: (fn(_path : String) -> Option(EvalValue))(
   Option(EvalValue).None
 );
-test("Phase6f: ExprVal Atom equality via __yo_expr_eq", {
-  // Was skipped on issues/yo-self-expr-eq-macro-body-false.md (macro-body
-  // `__yo_expr_eq(quote(x), quote(x))` FALSE); fixed by the 2026-07-16
-  // env/ctx restore fixes — the check-path differential passes with a
-  // correct negative control (re-verified 2026-07-17).
+test("AST reflection: ExprVal.is_atom() returns true for atoms", {
+  // MACRO_DISPATCH_ENABLED is true (re-enabled 2026-06-11 — the old heap
+  // corruption is fixed, see issues/fixed/); this body runs for real.
   if(MACRO_DISPATCH_ENABLED, {
     exn := Exception(
       throw : (
@@ -25,12 +29,21 @@ test("Phase6f: ExprVal Atom equality via __yo_expr_eq", {
         }
       )
     );
-    src := String.from("pragma(Pragma.SkipPrelude);\nis_same :: (fn() -> unquote(Expr))(cond(__yo_expr_eq(quote(x), quote(x)) => quote(1), true => quote(0)));\nv :: is_same();\nexport(v);\n");
-    eval := Evaluator.new(String.from("<phase6f1>"), String.from("<no-std>"), noop_loader, src, exn);
+    // Raw builtin `__yo_expr_is_atom` — the `.is_atom()` method sugar needs
+    // the prelude, and TS rejects it under SkipPrelude (the real module
+    // evaluator matches TS; the legacy walker never truly evaluated it).
+    src := String.from("pragma(Pragma.SkipPrelude);\ncheck_atom :: (fn(quote(e) : Expr) -> unquote(Expr))(cond(__yo_expr_is_atom(e) => quote(1), true => quote(0)));\nr :: check_atom(42);\nexport(r);\n");
+    eval := Evaluator.new(
+      String.from("<phase6d1>"),
+      String.from("<no-std>"),
+      noop_loader,
+      src,
+      exn
+    );
     match(
       eval.get_module_error(),
       .Some(_) => {
-        assert(false, "module error");
+        assert(false, "module_error on is_atom test");
       },
       .None => ()
     );
@@ -49,7 +62,7 @@ test("Phase6f: ExprVal Atom equality via __yo_expr_eq", {
             match(
               names.get(i),
               .Some(nm) => cond(
-                (nm == "v") => {
+                (nm == "r") => {
                   found =.Some(i);
                 },
                 true => ()
@@ -61,18 +74,18 @@ test("Phase6f: ExprVal Atom equality via __yo_expr_eq", {
           match(
             found,
             .None => {
-              assert(false, "v not found");
+              assert(false, "r not found");
             },
             .Some(idx) => match(
               values.get(idx),
               .None => {
-                assert(false, "v idx missing");
+                assert(false, "r idx missing");
               },
               .Some(rv) => match(
                 rv,
-                .IntLit(s) => assert(s == "1", "expr_eq(quote(x), quote(x)) should pick 1"),
+                .IntLit(s) => assert(s == "1", "expected 1 (e was atom)"),
                 _ => {
-                  assert(false, "v not IntLit");
+                  assert(false, "r is not IntLit");
                 }
               )
             )
@@ -85,7 +98,7 @@ test("Phase6f: ExprVal Atom equality via __yo_expr_eq", {
     );
   });
 });
-test("Phase6f: gensym produces fresh atoms", {
+test("AST reflection: ExprVal.is_fn_call() returns true for fn calls", {
   // MACRO_DISPATCH_ENABLED is true (re-enabled 2026-06-11 — the old heap
   // corruption is fixed, see issues/fixed/); this body runs for real.
   if(MACRO_DISPATCH_ENABLED, {
@@ -97,17 +110,19 @@ test("Phase6f: gensym produces fresh atoms", {
         }
       )
     );
-    // Comptime `::` bindings, no operators — `+`/`==` need the prelude and
-    // TS rejects the old `:=`-based source outright (the real module
-    // evaluator matches TS; the legacy walker never truly evaluated this).
-    // Freshness is still what's under test: both gensym'd bindings coexist
-    // in one block, and `v` picks the second (4).
-    src := String.from("pragma(Pragma.SkipPrelude);\nmake_pair :: (fn() -> unquote(Expr))({ a :: gensym(\"u\"); b :: gensym(\"v\"); quote({ unquote(a) :: 3; unquote(b) :: 4; unquote(b) }) });\nv :: make_pair();\nexport(v);\n");
-    eval := Evaluator.new(String.from("<phase6f2>"), String.from("<no-std>"), noop_loader, src, exn);
+    // Raw builtin `__yo_expr_is_fn_call` (see the SkipPrelude note above).
+    src := String.from("pragma(Pragma.SkipPrelude);\ncheck_call :: (fn(quote(e) : Expr) -> unquote(Expr))(cond(__yo_expr_is_fn_call(e) => quote(1), true => quote(0)));\nr :: check_call((1 + 2));\nexport(r);\n");
+    eval := Evaluator.new(
+      String.from("<phase6d2>"),
+      String.from("<no-std>"),
+      noop_loader,
+      src,
+      exn
+    );
     match(
       eval.get_module_error(),
       .Some(_) => {
-        assert(false, "module error");
+        assert(false, "module_error on is_fn_call test");
       },
       .None => ()
     );
@@ -126,7 +141,7 @@ test("Phase6f: gensym produces fresh atoms", {
             match(
               names.get(i),
               .Some(nm) => cond(
-                (nm == "v") => {
+                (nm == "r") => {
                   found =.Some(i);
                 },
                 true => ()
@@ -138,18 +153,18 @@ test("Phase6f: gensym produces fresh atoms", {
           match(
             found,
             .None => {
-              assert(false, "v not found");
+              assert(false, "r not found");
             },
             .Some(idx) => match(
               values.get(idx),
               .None => {
-                assert(false, "v idx missing");
+                assert(false, "r idx missing");
               },
               .Some(rv) => match(
                 rv,
-                .IntLit(s) => assert(s == "4", "expected 4"),
+                .IntLit(s) => assert(s == "1", "expected 1 (e was fn call)"),
                 _ => {
-                  assert(false, "v not IntLit");
+                  assert(false, "r is not IntLit");
                 }
               )
             )
@@ -162,7 +177,7 @@ test("Phase6f: gensym produces fresh atoms", {
     );
   });
 });
-test("Phase6f: .cdr on ComptimeListVal", {
+test("AST reflection: get_callee and get_args extract structure", {
   // MACRO_DISPATCH_ENABLED is true (re-enabled 2026-06-11 — the old heap
   // corruption is fixed, see issues/fixed/); this body runs for real.
   if(MACRO_DISPATCH_ENABLED, {
@@ -174,16 +189,22 @@ test("Phase6f: .cdr on ComptimeListVal", {
         }
       )
     );
-    // Raw builtins — the `.get_args()/.cdr()/.len()` method sugar and `==`
-    // need the prelude, and TS rejects the old source under SkipPrelude (the
-    // real module evaluator matches TS). car(cdr(args((3 + 4)))) = 4 still
-    // exercises .cdr semantics (drops the first arg).
-    src := String.from("pragma(Pragma.SkipPrelude);\ncdr_first :: (fn(quote(e) : Expr) -> unquote(Expr))(__yo_comptime_list_car(__yo_comptime_list_cdr(__yo_expr_get_args(e))));\nv :: cdr_first((3 + 4));\nexport(v);\n");
-    eval := Evaluator.new(String.from("<phase6f3>"), String.from("<no-std>"), noop_loader, src, exn);
+    // Macro inspects an fn-call expression `(3 + 4)` (which parses as FnCall(+, [3, 4])).
+    // We just verify that get_args returns something whose .len() is 2.
+    // Raw builtins — `.get_args().len() == 2` needs the prelude. Structure
+    // is asserted instead: callee is `+` AND car(args) is `3` → 1.
+    src := String.from("pragma(Pragma.SkipPrelude);\nprobe :: (fn(quote(e) : Expr) -> unquote(Expr))(cond(__yo_expr_eq(__yo_expr_get_callee(e), quote(+)) => cond(__yo_expr_eq(__yo_comptime_list_car(__yo_expr_get_args(e)), quote(3)) => quote(1), true => quote(0)), true => quote(0)));\nv :: probe((3 + 4));\nexport(v);\n");
+    eval := Evaluator.new(
+      String.from("<phase6d3>"),
+      String.from("<no-std>"),
+      noop_loader,
+      src,
+      exn
+    );
     match(
       eval.get_module_error(),
       .Some(_) => {
-        assert(false, "module error");
+        assert(false, "module_error on arg_count");
       },
       .None => ()
     );
@@ -223,9 +244,9 @@ test("Phase6f: .cdr on ComptimeListVal", {
               },
               .Some(rv) => match(
                 rv,
-                .IntLit(s) => assert(s == "4", "expected 4"),
+                .IntLit(s) => assert(s == "1", "expected callee + and car(args) 3"),
                 _ => {
-                  assert(false, "v not IntLit");
+                  assert(false, "v is not IntLit");
                 }
               )
             )

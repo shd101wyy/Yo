@@ -1,4 +1,4 @@
-# 96-byte `ArrayList(WhereConstraintEntry)` leak in `phase6f_macro_helpers` (pre-existing)
+# 96-byte `ArrayList(WhereConstraintEntry)` leak in `macro_helpers` (pre-existing)
 
 **Found 2026-08-06** by a local leak sweep of `tests/internal`, not by CI — CI's
 `compiler-internal-tests` job had never got this far, because it `--bail`ed on two earlier
@@ -9,13 +9,13 @@ session back to `8fb6aa0c6` and re-running: the same 96 bytes leak in the same t
 
 ## Symptom
 
-`tests/internal/phase6f_macro_helpers.test.yo`, tests at `YO_TEST_INDEX` 0 and 1 (index 2
+`tests/internal/macro_helpers.test.yo`, tests at `YO_TEST_INDEX` 0 and 1 (index 2
 is clean): **1 leak / 96 bytes** each.
 
 Reproduce locally on macOS — no Linux needed:
 
 ```bash
-./yo-cli test ./tests/internal/phase6f_macro_helpers.test.yo --parallel 1 --keep-generated-files
+./yo-cli test ./tests/internal/macro_helpers.test.yo --parallel 1 --keep-generated-files
 BIN=$(ls tests/internal/.yo_test_batch_* | grep -vE '\.(c|yo)$' | head -1)
 YO_TEST_INDEX=0 MallocStackLogging=1 leaks --atExit -- "$BIN"
 ```
@@ -153,6 +153,47 @@ case is not.
    `consumedAtToken`) is **NOT sufficient**: the fall-through past the `if` is positioned
    _after_ the move token, so it would still be treated as consumed.
 
+### TWO fix locations tried and ELIMINATED by measurement (2026-08-06)
+
+Both were built, probed, and reverted. Recorded so nobody spends the time again.
+
+**1. Per-arm drops in the `cond` codegen — IMPOSSIBLE from there.** The idea was: at the
+end of each arm, release anything a _different_ arm consumed. Built it in
+`src/codegen/exprs/cond.ts` and probed the variable at that point:
+
+```
+PROBE arm=0 name=entries consumed=false init=true owning=true rc=true module=false
+PROBE arm=1 name=entries consumed=false init=true owning=true rc=true module=false
+```
+
+**`consumed=false`** — the `cond` expression's own `$.env` does not record the consumption at
+all, so the arm emitter cannot see which value to release. The consumption is visible only in
+the arm body's env and in the ENCLOSING block's env after the merge. A codegen-side per-arm
+fix is therefore a dead end.
+
+**2. `mergeAndCheckEnvs` "case 1" — NOT the path.** A probe that threw on every
+single-case consumption never fired for this shape, because **`if` is a prelude macro**
+(`std/prelude.yo:7655`) that expands to
+
+```rust
+cond(unquote(condition) => unquote(then), true => unquote(else))   // else defaults to `()`
+```
+
+so there are always **two** arms, not one. Which raises the sharpest open question:
+
+> **"case 3" (`some cases consume, some don't`, `src/expr.ts:2177`) is supposed to REJECT
+> exactly this program — and it does not fire. Find out why.**
+
+That is the next thing to investigate, because it decides the fix:
+
+- if case 3 can be made to fire, the compiler rejects conditional moves outright (sound with
+  no drop flags, and forces the `yo-self` source to clone or restructure);
+- if it must keep accepting them, the move has to become a **dup** at the consumption site
+  (`setExprAsNeedsToCallDup`, `src/expr.ts:2451`, already exists) so both paths are balanced
+  by the ordinary scope-end drop — correct with no runtime flag, at the cost of one extra
+  refcount increment on the taken path. This needs the consuming _expression_, not just
+  `consumedAtToken`, so `Variable` would gain a `consumedAtExpr`.
+
 ### What the fix actually needs
 
 Branch-aware placement, not position comparison: a variable consumed inside one branch must
@@ -173,7 +214,7 @@ drop expression exists to filter — either approach must _create_ one.
 
 **Care:** dropping on a path where the move DID happen is a double free, which is far worse
 than an 80-byte leak on an error path. Gate on `tests/rc.test.yo` plus the real
-`phase6f_macro_helpers` batch (~10 min to rebuild) before believing any fix.
+`macro_helpers` batch (~10 min to rebuild) before believing any fix.
 
 ## Hypotheses ruled out along the way
 
@@ -240,7 +281,7 @@ Failing tests: `Phase6f: ExprVal Atom equality via __yo_expr_eq` and
 `Phase6f: gensym produces fresh atoms`.
 
 **Why this never showed up in CI before:** the TS arm used to die of a node-heap OOM at
-`phase6_verify` (~file 40 of 58) and never reached `phase6f_macro_helpers`. Once the OOM was
+`quote_macro_eval` (~file 40 of 58) and never reached `macro_helpers`. Once the OOM was
 fixed (one node process per file, commit `c82e4ec8e`) the job reaches every file and this
 pre-existing leak surfaced. It is now **the only thing failing** that job — the two parser
 SEGVs are fixed.
@@ -254,6 +295,6 @@ against the next CI run, since allocator behaviour differs and a 96-byte block c
 reachable-by-accident on one platform and not the other.
 
 The rest of the suite is clean: a local sweep of all 58 `tests/internal` files (54 in one
-pass, the four heavy `phase6*` separately) found leaks in **this file only**. That sweep was
+pass, the four heavy the four macro/reflection separately) found leaks in **this file only**. That sweep was
 proven non-vacuous by temporarily reintroducing the fixed module-global collision, which it
 flagged in all 18 tests of `evaluator_index` at 3 leaks / 576 bytes.

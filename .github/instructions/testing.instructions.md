@@ -52,7 +52,7 @@ being shuffled again later.
 - **MEASURED 2026-08-05, M4, `--parallel 1`:** 40.5 min under the TS compiler,
   22.2 min under the self-hosted binary (which is ~2x faster), 63 min for a
   both-compilers differential.
-- **Use `--parallel 1`, and run one compiler at a time.** `phase6c_macro` alone
+- **Use `--parallel 1`, and run one compiler at a time.** `macro_expansion` alone
   peaks at ~6.5 GB, so two concurrent children on a 16 GB machine swap — and the
   swapping trips the runner's own 600 s evaluator deadline, MANUFACTURING failures
   that do not reproduce in isolation. (The self-hosted runner ignores `--parallel`

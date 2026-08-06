@@ -347,7 +347,7 @@ jobs:
   #   MEASURED 2026-08-05, M4, --parallel 1: 40.5 min under the TS compiler,
   #   22.2 min under the self-hosted binary (it is ~2x faster).
   #
-  # --parallel 1 is REQUIRED, not conservative: phase6c_macro alone peaks at
+  # --parallel 1 is REQUIRED, not conservative: macro_expansion alone peaks at
   # ~6.5 GB, so two concurrent children on a 16 GB box swap, and the swapping
   # trips the runner's own 600 s evaluator deadline — manufacturing failures that
   # do not reproduce in isolation. The node heap cap is raised from the 4096 MB
@@ -417,13 +417,13 @@ jobs:
       # plans/YO_SELF_EXPRINFO_PRUNE.md) is retained across files. A single
       # process over all 58 files therefore accumulates until V8 dies: run
       # 31044378627 reported "Ineffective mark-compacts near heap limit" with
-      # 11.7 GB STILL LIVE after a reduce-mark-compact, at phase6_verify (~file 40
+      # 11.7 GB STILL LIVE after a reduce-mark-compact, at quote_macro_eval (~file 40
       # of 58), 57 minutes in.
       #
       # Measured locally (peak RSS, 4 of the lighter files): 1.30 GB for all four
       # in one process vs 1.166 GB for the heaviest alone — the heap does not
       # return to baseline between files. Per-file processes bound it to the
-      # single-file peak; the heaviest, phase6c_macro, needs ~6.5 GB, which fits.
+      # single-file peak; the heaviest, macro_expansion, needs ~6.5 GB, which fits.
       #
       # Deliberately NOT --bail and NOT one-file-per-step: the job's purpose is a
       # full scorecard in one run, so every file runs and failures are summarised

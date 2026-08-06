@@ -58,7 +58,7 @@ tiers, plus a third that was retired:
    binding, initialization_assignment, open, runtime, typeof, unwind,
    identifier_and_operator, type_of, context, evaluator_index,
    macro_registry, type_trait_methods, await/effect/suspension analyses,
-   `phase6*` (macro + reflection, end-to-end through `Evaluator.new`).
+   the four macro/reflection (macro + reflection, end-to-end through `Evaluator.new`).
 3. ~~**End-to-end evaluator tests** — `eval_basics` / `eval_tail_1` /
    `eval_tail_2`~~ **RETIRED 2026-08-05** together with their subject,
    `yo-self/evaluator/eval.yo`. Those three files (337 tests) were the only
@@ -76,7 +76,7 @@ Tests that need macro **dispatch** (executing macro bodies at expansion
 time) are gated on `MACRO_DISPATCH_ENABLED` in
 `yo-self/evaluator/calls/function.yo`. The flag is **`true`** (dispatch was
 re-enabled 2026-06-11 after the heap-corruption fix — see `issues/fixed/`),
-so the `phase6c/6d/6f` macro tests run for real.
+so the `macro_expansion/ast_reflection/macro_helpers` macro tests run for real.
 
 The strongest evaluator gate is not the unit suite but the self-hosted
 binary itself:

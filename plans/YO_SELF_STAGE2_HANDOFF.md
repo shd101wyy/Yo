@@ -125,7 +125,7 @@ on this.
 **A local stand-in for Linux LSan** (macOS has none): run the test with
 `--keep-generated-files` to keep the ASan batch binary, then
 `YO_TEST_INDEX=<i> leaks --atExit -- <binary>` per test. A sweep of all 58
-`tests/internal` files found exactly one leak (`phase6f_macro_helpers`, 96 B,
+`tests/internal` files found exactly one leak (`macro_helpers`, 96 B,
 pre-existing, `issues/where-constraints-arraylist-96b-leak.md`). Prove such a sweep
 non-vacuous before trusting a clean result — reintroducing the module-global collision made
 it flag all 18 `evaluator_index` tests.
@@ -150,7 +150,7 @@ Two things hid it for so long:
   self-compile and the fixpoint never touch these functions. `check` — which evaluates
   every definition including never-called ones — was the only gate that could see them.
 
-Knock-on effect on `yo-self/tests`: the four `phase6*` files that failed as
+Knock-on effect on `yo-self/tests`: the four the four macro/reflection files that failed as
 "`✗ Module evaluation` / Failed to import module" with **no nested cause**, plus
 `evaluator_index`, all import `../evaluator/index.yo` and were failing purely on this
 cascade. All five now pass under BOTH compilers.
@@ -203,7 +203,7 @@ subject file:
    unary MINUS into `BF_YO_OP_SUB` and emits `(y) - ()` — caught by
    `tests/operator_grouping.test.yo`.
 
-**Run this suite STRICTLY ONE FILE AND ONE COMPILER AT A TIME.** `phase6c_macro` alone
+**Run this suite STRICTLY ONE FILE AND ONE COMPILER AT A TIME.** `macro_expansion` alone
 needs 6.52 GB; two concurrent children on a 16 GB machine swap, and the swapping trips
 the runner's own 600 s evaluator deadline, MANUFACTURING failures that do not reproduce
 in isolation. An earlier `--parallel 2` sweep produced several such phantoms and they
@@ -239,7 +239,7 @@ Two durable lessons:
 
 - **`tests/internal/parser.test.yo` rebuilds in 11 s** — it imports only
   lexer/token/parser/expr, not the evaluator. It is a fast loop for parser and
-  codegen work, unlike the `phase6*` files.
+  codegen work, unlike the the four macro/reflection files.
 - **Do the arithmetic on ASan's `pc`/`sp` across runs before reaching for
   sanitizers.** Constant low bits of `pc` across different ASLR bases, plus a
   constant `pc - sp`, means a _specific stack slot's address is being called_ —
@@ -813,14 +813,14 @@ because a self-EMIT is memory-bound on a 16 GB box.
 - **The `eval_*` trio is gone**, retired with its subject `evaluator/eval.yo`, so
   there is no longer any file that has to be skipped.
 
-The binding constraint is MEMORY, not time: `phase6c_macro` alone needs **6.52 GB**.
+The binding constraint is MEMORY, not time: `macro_expansion` alone needs **6.52 GB**.
 `ubuntu-latest` has **16 GB** (an earlier draft of this section said ~7 GB, which is
 the private-repo runner size and is wrong for this repo — the fixpoint jobs' own
 comments and their `free -h` output are the evidence), so 6.52 GB fits without swap
 at `--parallel 1`. It must still run **one file and one compiler at a time** —
 concurrency does not merely risk OOM, it swaps and trips the runner's own 600 s
 evaluator deadline, MANUFACTURING failures that do not reproduce in isolation (that
-is how four `phase6*` files were misdiagnosed as broken). Note the self-hosted runner
+is how four the four macro/reflection files were misdiagnosed as broken). Note the self-hosted runner
 ignores `--parallel` regardless (`main.yo`: "Accepted for CLI compatibility; v1 runs
 sequentially").
 

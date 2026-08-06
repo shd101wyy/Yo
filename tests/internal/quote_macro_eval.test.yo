@@ -1,4 +1,4 @@
-/// Phase 6 verification: confirm that yo-self's "proper" Evaluator path
+/// Verifies: confirm that yo-self's "proper" Evaluator path
 /// (yo-self/evaluator/index.yo + builtins/quote.yo + builtins/macro_expand.yo)
 /// can handle quote/unquote and macro definitions end-to-end.
 ///
@@ -19,7 +19,7 @@ noop_loader :: (fn(_path : String) -> Option(EvalValue))(
 // Sanity check that the "proper" Evaluator path actually evaluates a tiny
 // program. This must work before anything else.
 // ---------------------------------------------------------------------------
-test("Phase6 verify: trivial export(with skip_prelude evaluates cleanly)", {
+test("quote/macro: trivial export(with skip_prelude evaluates cleanly)", {
   exn := Exception(
     throw : (
       (err) -> {
@@ -47,7 +47,7 @@ test("Phase6 verify: trivial export(with skip_prelude evaluates cleanly)", {
 // ---------------------------------------------------------------------------
 // quote(<atom>) — should produce an ExprVal wrapping the atom.
 // ---------------------------------------------------------------------------
-test("Phase6 verify: quote(42) produces ExprVal", {
+test("quote/macro: quote(42) produces ExprVal", {
   exn := Exception(
     throw : (
       (err) -> {
@@ -128,7 +128,7 @@ test("Phase6 verify: quote(42) produces ExprVal", {
 // Bind y := quote(7), then z := quote(unquote(y)) — z should equal quote(7).
 // We just verify z is an ExprVal (deeper structural equality is harder).
 // ---------------------------------------------------------------------------
-test("Phase6 verify: quote(unquote(x)) round-trips to ExprVal", {
+test("quote/macro: quote(unquote(x)) round-trips to ExprVal", {
   exn := Exception(
     throw : (
       (err) -> {
