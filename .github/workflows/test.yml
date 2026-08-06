@@ -356,27 +356,24 @@ jobs:
   # NOW GATES PRs (continue-on-error dropped 2026-08-06). Every job in this workflow
   # gates. The two Linux-x86_64 parser SEGVs that had kept this job informational are
   # FIXED (issues/fixed/escape-path-drops-unwound-call-result-temp.md), as is the
-  # node-heap OOM that used to kill the TS arm at ~file 40 of 58.
+  # node-heap OOM that used to kill the TS arm at ~file 40 of 58, and the 80-byte
+  # conditional-move leak in macro_helpers that kept this job red while it first
+  # gated (issues/fixed/where-constraints-arraylist-96b-leak.md — the dup/drop pair
+  # optimizer cancelled a conditional arm's dup as if unconditional).
   #
-  # HEADS UP — this job is EXPECTED TO BE RED until one known bug is fixed: 2 of its
-  # 826 tests leak 80 bytes under LeakSanitizer, from a local that is MOVED into an
-  # aggregate inside an `if` and so is never released on the path where that branch is
-  # not taken. Pre-existing; it only became visible once the OOM fix let the job reach
-  # tests/internal/macro_helpers.test.yo. The flag was removed deliberately, with that
-  # failure outstanding, so the bug cannot be merged past.
-  #
-  # To fix it, start at plans/CI_GATING_HANDOFF.md §2 — it has an rc()-gated minimal
-  # reproducer, THREE approaches already eliminated by measurement, and the one open
-  # question (mergeAndCheckEnvs "case 3", src/expr.ts:2177, is written to reject this
-  # program and does not fire). Long-form record:
-  # issues/where-constraints-arraylist-96b-leak.md.
+  # SHARDED 2026-08-06: the TS arm runs as a 4-way matrix (wall time ~25-30 min per
+  # shard instead of ~100 min serial). Every file still compiles in its own node
+  # process; each shard gets exactly one of the four heavy macro/reflection files
+  # (each pays a full compiler-sized compile, ~6.5 GB peak) plus a round-robin
+  # stripe of the rest. The self-hosted differential runs as its own job below.
   compiler-internal-tests:
-    name: Compiler internal tests (tests/internal)
+    name: Compiler internal tests (tests/internal, TS arm shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
-    # 240, not 180: without --bail the TS arm now runs all 826 tests (~100 min at the
-    # measured rate) instead of stopping at the first failure, and the self-hosted
-    # differential arm adds ~22 min on top of a ~5 min stage-1 build.
-    timeout-minutes: 240
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
 
     steps:
       - name: Checkout repository
@@ -434,14 +431,29 @@ jobs:
       # Deliberately NOT --bail and NOT one-file-per-step: the job's purpose is a
       # full scorecard in one run, so every file runs and failures are summarised
       # at the end.
-      - name: Run tests/internal under the TS compiler (ground truth)
+      - name: Run tests/internal under the TS compiler (ground truth, shard ${{ matrix.shard }})
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
+          # Shard selection: the four heavy macro/reflection files (each compiles
+          # the whole self-hosted evaluator, ~6.5 GB peak / ~3 min) go one per
+          # shard; the rest are striped round-robin over the sorted glob order.
+          heavies="tests/internal/ast_reflection.test.yo tests/internal/macro_expansion.test.yo tests/internal/macro_helpers.test.yo tests/internal/quote_macro_eval.test.yo"
+          shard=${{ matrix.shard }}
+          files=$(echo "$heavies" | tr ' ' '\n' | sed -n "$((shard + 1))p")
+          i=0
+          for f in tests/internal/*.test.yo; do
+            case " $heavies " in *" $f "*) continue ;; esac
+            if [ $((i % 4)) -eq "$shard" ]; then
+              files="$files $f"
+            fi
+            i=$((i + 1))
+          done
+          echo "shard $shard files:$files"
           # `rc_all`, not `status` — `status` is read-only in some shells.
           rc_all=0
           failed=""
-          for f in tests/internal/*.test.yo; do
+          for f in $files; do
             echo "::group::$f"
             if node --expose-gc --max-old-space-size=12288 ./out/cjs/yo-cli.cjs test "$f" --parallel 1 --verbose --c-compiler clang; then
               echo "::endgroup::"
@@ -457,19 +469,48 @@ jobs:
           fi
           exit $rc_all
 
+  # The same 58 files under the self-hosted binary, as its own job so it runs in
+  # parallel with the TS shards. This is the differential that matters: a file
+  # passing under TS and failing here is a codegen or evaluator divergence in the
+  # bootstrap compiler (that is exactly how the effect_analysis unary-operator FTT
+  # was found, 2026-08-05). The self-hosted runner is sequential regardless of
+  # --parallel ("Accepted for CLI compatibility; v1 runs sequentially",
+  # yo-self/main.yo) and takes ~22 min after a ~5 min stage-1 build.
+  compiler-internal-tests-selfhosted:
+    name: Compiler internal tests (tests/internal, self-hosted differential)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install liburing
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: |
+          bun install
+          bun run build
+
       - name: "Stage 1: build the self-hosted compiler with the TS compiler"
-        if: always()
         run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release -o /tmp/yo-stage1
 
-      # The same 58 files under the self-hosted binary. This is the differential
-      # that matters: a file passing under TS and failing here is a codegen or
-      # evaluator divergence in the bootstrap compiler (that is exactly how the
-      # effect_analysis unary-operator FTT was found, 2026-08-05). Runs even when
-      # the TS step bailed, so a run always produces both scorecards to compare.
-      # The self-hosted runner is sequential regardless of --parallel
-      # ("Accepted for CLI compatibility; v1 runs sequentially", yo-self/main.yo).
       - name: Run tests/internal under the self-hosted binary (differential)
-        if: always()
         env:
           YO_MAIN_STACK_MB: "4096"
         run: /tmp/yo-stage1 test ./tests/internal --parallel 1 --verbose

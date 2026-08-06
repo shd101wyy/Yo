@@ -1,14 +1,13 @@
 # Handoff — finish gating `compiler-internal-tests`
 
 **Written 2026-08-06.** Branch `feat/bootstrap-codegen`, HEAD `5cf47795a`.
+**COMPLETE 2026-08-06, commit `ac85f6cfc`:** the §2 blocker is FIXED, every CI job gates
+PRs and all ten are green. The job was also sharded the same day (TS arm 4-way matrix +
+a separate self-hosted-differential job) to cut its ~2 h wall time to ~30 min. This doc
+is now a record, not a to-do list.
 
 Goal of this workstream: **every CI job gates PRs. That is now DONE —
 `continue-on-error` has been removed everywhere.**
-
-**So `compiler-internal-tests` is RED and blocking merges right now, on purpose.** The flag
-was dropped deliberately with one known failure outstanding (§2) so the bug cannot be merged
-past. **Your job is §2.** Until it is fixed, expect that job to fail on every PR; the other
-nine are green.
 
 Everything in §3 is optional follow-up.
 
