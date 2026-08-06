@@ -1,11 +1,15 @@
-Val :: ref(enum(UnitVal, IntVal(v : i32)));
-mk :: (fn() -> Result(Option(Val), i32))(.Ok(Option(Val).Some(Val.IntVal(v : i32(7)))));
-// BARE `___ := ...` as the WHOLE fn body — the trigger (mirrors
-// yo-self/evaluator/types/field.yo register_struct_fields).
-reg :: (fn() -> unit)(
-  ___ := mk()
-);
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+g_seen := ArrayList(ArrayList(i32)).new();
+mk :: (fn() -> ArrayList(i32))({
+  l := ArrayList(i32).new();
+  g_seen.push(l);
+  l
+});
+discard_stmt_body :: (fn() -> unit)(___ := mk());
 main :: (fn() -> unit)({
-  reg();
+  discard_stmt_body();
+  survivor := match(g_seen.get(usize(0)),.Some(l) => l,.None => ArrayList(i32).new());
+  println(`rc=${rc(survivor)}`);
 });
 export(main);

@@ -580,3 +580,29 @@ test("Loop traversal keeps ownership when the loop mutates the structure", {
     "severed traversal must still visit nodes 2 and 3 (owned, not borrowed)"
   );
 });
+// Regression: a fn whose ENTIRE body is a bare `___ := <owned value>`
+// statement. The self-hosted compiler once flushed the body-level deferred
+// drops BEFORE the statement, emitting `___drop(___)` against a binding not
+// yet declared in C — the emitted program failed to compile (`use of
+// undeclared identifier '___'`), and reordering must still drop the
+// discarded value (issues/fixed/yo-self-tail-expression-arg-temp-drop-missing.md,
+// follow-up commit).
+g_discard_seen := ArrayList(ArrayList(i32)).new();
+discard_make_tracked :: (fn() -> ArrayList(i32))({
+  l := ArrayList(i32).new();
+  g_discard_seen.push(l);
+  l
+});
+discard_stmt_body :: (fn() -> unit)(___ := discard_make_tracked());
+test("Bare discard-statement fn body compiles and drops the discarded value", {
+  discard_stmt_body();
+  survivor := match(g_discard_seen.get(usize(0)),.Some(l) => l,.None => ArrayList(i32).new());
+  // rc = 3: the g_discard_seen element, the match-arm extraction, and
+  // `survivor` itself. Before the fix the discarded value kept a 4th ref
+  // (and, under the self-hosted compiler, this file did not even compile —
+  // `use of undeclared identifier '___'`).
+  assert(
+    rc(survivor) == 3,
+    "discarded value must be dropped (rc 3, not 4)"
+  );
+});

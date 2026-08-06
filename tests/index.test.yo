@@ -577,3 +577,15 @@ test("Pair comptime Index mutation", {
   comptime_assert(p(usize(0)) == i32(300), "p(0) should be 300 after mutation");
   comptime_assert(p(usize(1)) == i32(40), "p(1) should still be 40");
 });
+test("Typed binding from index call with operator-expression argument", {
+  // Regression shape for issues/fixed/yo-self-std-string-swallowed-unify-noise.md:
+  // under a typed `u8` binding, the index ARGUMENT (`end_idx - usize(1)`) was
+  // evaluated with the ambient expected type still set, producing a swallowed
+  // usize-vs-u8 unify error in the self-hosted evaluator (String.trim's shape).
+  al := ArrayList(u8).new();
+  al.push(u8(7));
+  al.push(u8(9));
+  end_idx := usize(2);
+  (b : u8) = al(end_idx - usize(1));
+  assert(b == u8(9), "index with operator arg under typed binding");
+});

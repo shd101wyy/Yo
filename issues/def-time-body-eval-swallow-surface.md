@@ -1,3 +1,9 @@
+> **STATUS UPDATE (2026-08-06).** The std/string usize-vs-u8 swallow noise this doc's
+> surface included is fixed — it was an index-trait expected-type mis-port, not a std
+> error (`issues/fixed/yo-self-std-string-swallowed-unify-noise.md`, commit
+> `fa6505b48`). The post-fix swallow baseline for a string-importing file is identical
+> to the no-import baseline.
+
 # Def-time body eval: the swallow hides a BROAD gap surface (104 categories)
 
 ## Context

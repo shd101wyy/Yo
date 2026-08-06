@@ -1,3 +1,9 @@
+> **STATUS UPDATE (2026-08-06).** The ctfe_analysis gap is fixed. The
+> build_runner/version_cache unwired imports are now owned by the CLI-parity phase of
+> `plans/SELF_HOSTING_COMPLETION.md` (P1) rather than this doc. Remaining here: the
+> anonymous-fn CTFE site (see `issues/yo-self-ctfe-nested-fn-analysis-gap.md`,
+> OPEN-DESIGN).
+
 # yo-self: three PORT GAPS found by import-closure comparison (1 FIXED, 2 OPEN)
 
 **Found:** 2026-08-05, by classifying every `.yo` file under `yo-self/` by its

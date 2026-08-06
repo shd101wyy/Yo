@@ -1,3 +1,8 @@
+> **STATUS UPDATE (2026-08-06).** The Iso runtime port this cluster tracks as an open
+> item is FIXED (`issues/fixed/yo-self-iso-runtime-port.md`). Remaining open here per
+> the 2026-08-06 triage: the dispose family item. Cross-check items against
+> `issues/fixed/` before working from this list.
+
 # yo-self: async/worker emission cluster (post-IoExn-erasure tail)
 
 The IoExn erasure fix (annotation-driven forall substitution + NULL
