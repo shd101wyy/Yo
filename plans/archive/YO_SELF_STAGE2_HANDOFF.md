@@ -757,6 +757,10 @@ Rules that each cost real time to learn:
    (nearly all, via `std/assert`) swallows exactly one
    `Cannot unify incompatible types: "usize" and "u8"`. It caused two wrong
    attributions. Take a green-file baseline and `comm -23` against it.
+   _(FIXED 2026-08-06 — an expected-type leak into index-trait argument
+   evaluation; see `issues/fixed/yo-self-std-string-swallowed-unify-noise.md`.
+   The std/string baseline is now zero, but the baseline-subtraction habit
+   stays right for the prelude's own trial noise.)_
 4. **Move a failing statement to MODULE level to SEE the swallowed error.**
    Module begin exprs are not wrapped in the def-time swallow, so a 3-second
    `check` replaces a probe build. Biggest single speed-up in the loop.

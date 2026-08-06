@@ -503,7 +503,15 @@ _try_comptime_array_index :: (
     exn : Exception
   ) -> Option(IndexCallResult)
 )({
+  // Evaluate the arg with `expected_type` CLEARED — the ambient expected type
+  // at an index site is the ELEMENT type, which must not leak into the index
+  // ARGUMENT's evaluation (TS passes `expectedType: undefined` at every
+  // index-arg eval, index-trait.ts). `evaluate_expression` is the no-exn
+  // wrapper, so no throw can skip the restore.
+  cai_saved_expected := ctx.expected_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
   evaluated := evaluate_expression(arg_expr, env, ctx);
+  ctx.expected_type = cai_saved_expected;
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   info := match(
     info_opt,
@@ -694,7 +702,11 @@ _try_comptime_string_index :: (
     exn : Exception
   ) -> IndexCallResult
 )({
+  // expected_type cleared around the arg eval — see _try_comptime_array_index.
+  csi_saved_expected := ctx.expected_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
   evaluated := evaluate_expression(arg_expr, env, ctx);
+  ctx.expected_type = csi_saved_expected;
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   info := match(
     info_opt,
@@ -949,8 +961,12 @@ _try_comptime_custom_type_index :: (
     exn : Exception
   ) -> Option(IndexCallResult)
 )({
-  // Evaluate the argument (TS index-trait.ts:441-450).
+  // Evaluate the argument (TS index-trait.ts:441-450); expected_type cleared
+  // around the arg eval — see _try_comptime_array_index.
+  cci_saved_expected := ctx.expected_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
   evaluated_arg := evaluate_expression(arg_expr, caller_env, ctx);
+  ctx.expected_type = cci_saved_expected;
   arg_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg)),
     .Some(i) => i,
@@ -1309,8 +1325,17 @@ try_to_call_with_index_trait :: (
     }),
     .None => ()
   );
-  // 6. Runtime path: evaluate arg to get its type
+  // 6. Runtime path: evaluate arg to get its type. `expected_type` is CLEARED
+  // around the arg eval — the ambient expected type at the index site is the
+  // ELEMENT type (e.g. `u8` for `(b : u8) = al(i - usize(1))`), and leaking it
+  // into the ARGUMENT's operator call made the `-` overload synthesis throw
+  // "Cannot unify incompatible types: usize and u8" (swallowed by the no-exn
+  // wrapper — the std/string/string.yo `trim` noise-baseline line). TS passes
+  // `expectedType: undefined` here (index-trait.ts:278-284).
+  rt_arg_saved_expected := ctx.expected_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
   evaluated_arg := evaluate_expression(arg_expr, caller_env, ctx);
+  ctx.expected_type = rt_arg_saved_expected;
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
   arg_info := match(
     arg_info_opt,
