@@ -683,6 +683,20 @@ export function trackVariableUsage(
     return;
   }
 
+  // A variable found in the TOP frame of a function body's evaluationEnv is
+  // the function's OWN parameter — every body-context creator pushes the
+  // parameters frame before creating the context (function-type.ts:380,
+  // closure-type.ts:67, anonymous-function.ts:340). Parameters are not
+  // captures: recording them made variableIsCapturedByCurrentFunction skip
+  // the scope-end drop of any `own` parameter the body referenced
+  // (issues/fixed/own-param-discard-leak.md).
+  if (
+    context.isEvaluatingFunctionBodyOrAsyncBlock.kind === "function-body" &&
+    actualFrameLevel === evaluationEnv.frames.length - 1
+  ) {
+    return;
+  }
+
   if (variable.isCompileTimeOnly) {
     // Don't track compile-time only variables
     return;

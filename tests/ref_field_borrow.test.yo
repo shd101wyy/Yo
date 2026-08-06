@@ -131,6 +131,23 @@ test("ref and own arguments of distinct objects are allowed", {
   assert(n == usize(5), "borrow read fine while a distinct object was consumed");
 });
 
+// Regression (issues/fixed/own-param-discard-leak.md): discarding an own
+// param via `___ := victim` must release the owned reference exactly once.
+// The body-context capture map used to record the fn's OWN parameters as
+// captures (src/evaluator/context.ts trackVariableUsage), so the scope-end
+// drop filter treated any referenced own param as closure-captured and
+// skipped its drop — the discard leaked the Holder and its String.
+test("discarding an own param via ___ := releases it exactly once", {
+  sink :: (fn(own(victim) : Holder) -> unit)({
+    ___ := victim;
+  });
+  h := Holder(s : String.from("discard-own"), n : i32(7));
+  h2 := h;
+  assert(rc(h) == 2, "two handles before the sink call");
+  sink(h2);
+  assert(rc(h) == 1, "own param's reference released by the discard");
+});
+
 // --- Indexed-element places: `xs(i)` as a ref argument ---
 // `xs(i)` (Index trait) yields a pointer INTO the container's heap
 // buffer; a plain read auto-derefs it, but a `ref` parameter keeps the

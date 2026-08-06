@@ -704,6 +704,18 @@ track_variable_usage :: (
         var_found,
         .None => (),
         .Some(v) => {
+          // A variable found in the TOP frame of a function body's eval_env
+          // is the function's OWN parameter — every body-context creator
+          // pushes the parameters frame before creating the context (TS:
+          // function-type.ts:380, closure-type.ts:67, anonymous-function.ts:340).
+          // Parameters are not captures: recording them made the scope-end
+          // drop filter skip the drop of any `own` parameter the body
+          // referenced (issues/fixed/own-param-discard-leak.md). Mirrors
+          // src/evaluator/context.ts trackVariableUsage.
+          is_fn_body := match(sub_ctx.kind,.FunctionBody => true, _ => false);
+          if(is_fn_body && (actual_frame_level == (eval_env.frame_count() - usize(1))), {
+            return(());
+          });
           // Don't track compile-time-only variables.
           if(v.is_compile_time_only, {
             return(());
