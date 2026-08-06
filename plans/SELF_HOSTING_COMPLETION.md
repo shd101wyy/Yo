@@ -13,11 +13,15 @@ the roadmap for making `yo-self/` **the** compiler, not the port of one.
    client; that ecosystem is TS).
 2. The self-hosted binary supports **every** `yo` subcommand (`init`, `build`,
    `doc`, `fetch`, `install`, `cache`, `version`, plus today's
-   `check`/`compile`/`test`/`fmt`) at CLI-flag parity.
-3. Users install Yo with one command on every platform — POSIX `install.sh`,
-   Windows `install.bat`/PowerShell — downloading prebuilt binaries from
-   GitHub Releases (Koka's installer is the reference implementation, cloned
-   at `~/Workspace/koka`, see `util/install.sh` (719 lines) and
+   `check`/`compile`/`test`/`fmt`) at CLI-flag parity — and the compiler
+   itself is built by `yo build` from a repo-root `build.yo`
+   (`docs/en-US/BUILD_SYSTEM.md`), not by bun or a bespoke script.
+3. Users install Yo with one command on every platform —
+   `curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh` (and
+   `install.bat` for Windows) — version-selectable, downloading prebuilt
+   binaries from GitHub Releases and interoperating with `yo version` /
+   `.yo-version` pinning (Koka's installer is the reference implementation,
+   cloned at `~/Workspace/koka`, see `util/install.sh` (719 lines) and
    `util/install.bat` (610 lines)).
 4. A Yo-native LSP server (`yo lsp`) powers the VS Code extension.
 
@@ -71,20 +75,28 @@ The self-hosting trust chain has to move off TypeScript before `src/` can go.
    compiler one final time (per platform). From then on, stage-1 is built by
    the **previous release binary**, not by TS. CI's fixpoint job keeps the
    chain honest: seed → stage-1 → stage-2 → stage-3, stage-2 ≡ stage-3.
-2. **CI migration.** Replace `bun install && bun run build` in every workflow
-   job with "download pinned seed release → self-build". The differential
+2. **The compiler builds itself with its own build system.** A repo-root
+   `build.yo` (per `docs/en-US/BUILD_SYSTEM.md`) becomes the canonical way to
+   build the compiler — `yo build` compiles `yo-self/main.yo` into the `yo`
+   executable, `yo build test` drives the suite, plus steps for the fixpoint
+   (`stage2`/`stage3`) and release bundles. This replaces both `bun run
+build` and the raw `yo-cli compile yo-self/main.yo` invocation, and is the
+   single best dogfooding target the build system can have. (Depends on P1
+   `build` parity; doubles as its acceptance test.)
+3. **CI migration.** Replace `bun install && bun run build` in every workflow
+   job with "download pinned seed release → `yo build`". The differential
    ground truth changes from "TS compiler" to "previous release binary" —
    the corpus harness and `tests/internal` differential keep their shape.
-3. **Re-express TS-only tests.** `src/tests/*.test.ts` (evaluator unit tests,
+4. **Re-express TS-only tests.** `src/tests/*.test.ts` (evaluator unit tests,
    build-system tests, pragma/unsafe/comptime-ref gates) either already have
    `.yo` equivalents in `tests/` + `tests/internal/` or need one written.
    Inventory first; nothing gets deleted before its coverage exists in Yo.
-4. **Retire.** Freeze `src/` (attic tag/branch), delete from `develop`,
+5. **Retire.** Freeze `src/` (attic tag/branch), delete from `develop`,
    remove `package.json`/`bun.lock`/`build.js`/`out/` from the root, keep
    `vscode-extension/` self-contained with its own lockfile. `yo-cli` (bash)
    and `yo-cli.ps1` re-point from `node out/cjs/yo-cli.cjs` to the installed
    native binary.
-5. **Docs sweep.** AGENTS.md's build/test commands, `.github/instructions/`,
+6. **Docs sweep.** AGENTS.md's build/test commands, `.github/instructions/`,
    and skills all reference `bun run build` — rewrite around the native
    toolchain.
 
@@ -117,9 +129,31 @@ Work items:
    budget for a porting tail.)
 2. **`util/install.sh`** (POSIX sh, curl-pipe-able) and **`util/install.bat`**
    (cmd; a PowerShell variant optional later), adapted from Koka's.
-3. **`yo version`** management re-pointed at the releases channel: `version
-list --remote` reads GitHub Releases, `version install X` downloads the
-   bundle into the version cache; `.yo-version` pinning semantics unchanged.
+   **Version-selectable**: `--version vX.Y.Z` (Koka's `-v` flag) picks the
+   release to download; default = latest. The script installs bundles into
+   the SAME per-version layout the `yo version` cache uses, so the installer
+   and `yo version install X` are two front-ends to one mechanism —
+   `.yo-version` pinning then works out of the box for script-installed
+   versions too (the `yo` shim resolves the pinned version exactly as today).
+3. **Host the installers on GitHub Pages**, so the canonical one-liner is:
+
+   ```bash
+   curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh
+   curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- --version v0.2.0
+   ```
+
+   (and `install.bat` at the same base URL for Windows). Implementation: the
+   Pages deployment publishes `util/install.sh` / `util/install.bat` at the
+   site root; the scripts themselves keep downloading the binary bundles from
+   GitHub **Releases** — Pages only hosts the tiny bootstrap scripts, so the
+   URL stays stable across releases while the default version inside the
+   script is bumped by release CI.
+
+4. **`yo version`** management re-pointed at the releases channel: `version
+list --remote` reads GitHub Releases (replaces the npm registry), `version
+install X` downloads the bundle into the version cache — shared code path
+   with the install scripts per item 2; `.yo-version` pinning semantics
+   unchanged.
 
 **Gate:** fresh VM/container per platform: `curl … | sh` (or `install.bat`),
 then `yo init && yo build test` succeeds with no other toolchain present
