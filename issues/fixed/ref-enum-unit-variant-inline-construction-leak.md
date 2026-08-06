@@ -198,9 +198,15 @@ gates them.
 | stage-2 ≡ stage-3                                       | FIXPOINT_HOLDS                            |
 | `tests/internal` under both compilers                   | 826/826 each                              |
 
-## Adjacent gaps found and deliberately left out of scope
+## Adjacent gaps
 
-- `issues/ctfe-elided-unit-call-arg-temp-leak.md` — when the callee is _fully_ elided by
+> **NOTE (2026-08-06):** the "Adjacent gaps" example below uses a function named
+> `consume`, which the builtin `consume` silently shadows — the observation it makes is
+> an artifact of that shadowing, not a codegen gap. See
+> `issues/builtin-name-shadows-user-definition.md`.
+> found and deliberately left out of scope
+
+- `issues/retired/ctfe-elided-unit-call-arg-temp-leak.md` — when the callee is _fully_ elided by
   CTFE (unit return, trivial body), the argument temp is declared but no drop is emitted.
   Pre-existing, not a regression, needs a separate look at the call's
   `deferredDropExpressions`.

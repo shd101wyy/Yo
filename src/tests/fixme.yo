@@ -1,10 +1,9 @@
 { assert } :: import("std/assert");
-Val :: ref(enum(UnitVal, IntVal(v : i32)));
-Held :: struct(v : Val);
-keep :: (fn(x : Val) -> Held)(Held(v : x));
-mk_payload :: (fn() -> Held)(keep(Val.IntVal(v : i32(7))));
+MyVal :: ref(enum(UnitVal, IntVal(v : i32)));
+// Body is the unit literal, so the whole call is elided at compile time.
+eat_it :: (fn(x : MyVal) -> unit)(());
 main :: (fn() -> unit)({
-  p := mk_payload();
-  assert(rc(p.v) == 1, `payload: rc(p.v) should be 1, got ${rc(p.v).to_string()}`);
+  eat_it(MyVal.UnitVal);
+  assert(true, "ignored");
 });
 export(main);

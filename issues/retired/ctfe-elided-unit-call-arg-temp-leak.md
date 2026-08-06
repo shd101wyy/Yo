@@ -1,3 +1,12 @@
+> **RETIRED (2026-08-06) — diagnosis INVALID.** The accused codegen path
+> (unit-comptime early return in `other-fn-call.ts`) never fires for this shape and
+> cannot leak arg temps even in principle (elision happens before argument temps are
+> materialized). The observed leak came from the reproducer's function being named
+> `consume`: the BUILTIN `consume` silently shadows the user definition in both
+> compilers' dispatch, and builtin-consume semantics legally suppress the drop.
+> Renaming the function yields fully correct C. The real finding is filed as
+> `issues/builtin-name-shadows-user-definition.md`.
+
 # A fully CTFE-elided call leaves its owned RC argument temp undropped
 
 **Found 2026-08-05** while fixing
