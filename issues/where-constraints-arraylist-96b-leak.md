@@ -111,6 +111,70 @@ double-free, so the position comparison must be conservative — and this is the
 `issues/fixed/pending-drop-consumed-var-nested-return.md`, so their regression tests in
 `tests/rc.test.yo` are the guard to run.
 
+## MINIMAL REPRODUCER FOUND 2026-08-06 — the missing ingredient was a CONDITIONAL move
+
+Five earlier attempts failed because every one of them moved the local
+**unconditionally**. The real move at `yo-self/evaluator/calls/function_type.yo:977` is
+inside `if(has_fwd_comptime_fn_cap, { … })`. Reproduces deterministically, on macOS, with
+no sanitizer — gated on `rc()`:
+
+```rust
+Holder :: struct(items : ArrayList(i32));
+g_seen := ArrayList(ArrayList(i32)).new();   // keeps an outside reference
+
+make_fresh :: (fn() -> ArrayList(i32))({    // mirrors get_func_where_constraints
+  l := ArrayList(i32).new();
+  g_seen.push(l);
+  l
+});
+
+work :: (fn(flag : bool) -> unit)({          // mirrors try_to_implement_…
+  entries := make_fresh();
+  if(flag, {
+    h := Holder(items : entries);            // CONDITIONAL move
+    println(`held ${h.items.len()}`);
+  });
+});
+```
+
+`work(true)` then `work(false)`, then compare refcounts of the two lists `g_seen` still
+holds: **`taken_rc=2 skipped_rc=3`**. One reference is retained whenever the branch
+containing the move is not taken. A parameter-based variant (`consume_maybe(flag, l)` with
+`l` a parameter) does **not** reproduce — parameters are handled; the local-bound-from-a-call
+case is not.
+
+### This CORRECTS two claims made earlier in this document
+
+1. "**the normal path is correctly balanced**" — only when the condition is TRUE. When
+   `has_fwd_comptime_fn_cap` is false the move never executes and the variable still has no
+   scope-end drop, so the **normal** path leaks too. The 14 early exits are not the whole
+   story.
+2. Consequently a purely **position-based** fix (drop on an exit whose position precedes
+   `consumedAtToken`) is **NOT sufficient**: the fall-through past the `if` is positioned
+   _after_ the move token, so it would still be treated as consumed.
+
+### What the fix actually needs
+
+Branch-aware placement, not position comparison: a variable consumed inside one branch must
+be released on every path that does not take that branch. The machinery is partly present —
+`src/codegen/exprs/cond.ts:259-265` already saves/sets/restores `consumedVarPendingDrops`
+per branch and reads `value.$?.consumedVariableDropExpressions` — so the missing piece is
+emitting the sibling/fall-through drop, not inventing a new concept. The alternative,
+guaranteed-correct-under-any-control-flow option is a **drop flag** (what Rust does):
+
+```c
+bool entries_moved = false;
+if (flag) { … entries_moved = true; }
+if (!entries_moved) drop(entries);
+```
+
+`getVariablesNeedingDrop` (`src/env.ts:2279`) returns nothing for a consumed variable, so no
+drop expression exists to filter — either approach must _create_ one.
+
+**Care:** dropping on a path where the move DID happen is a double free, which is far worse
+than an 80-byte leak on an error path. Gate on `tests/rc.test.yo` plus the real
+`phase6f_macro_helpers` batch (~10 min to rebuild) before believing any fix.
+
 ## Hypotheses ruled out along the way
 
 **Ruled out:** the getter pattern alone. A minimal reproduction — a module-level
@@ -156,6 +220,30 @@ continuation, and there is prior art that it also skips code following a guarded
 (`unwind` in a swallow handler skipping a restore). But if it is intended, then any program
 that ends via `unwind` will report leaks under LeakSanitizer, which is worth knowing before
 enabling leak gates more widely.
+
+## CONFIRMED ON LINUX 2026-08-06 (run 31051936217)
+
+Linux LeakSanitizer agrees with macOS `leaks` — the open question in the Impact section
+below is now answered. Same allocation stack, **80 bytes** on Linux vs 96 on macOS (RC
+header / allocator padding differs):
+
+```
+Direct leak of 80 byte(s) in 1 object(s) allocated from:
+    #1 __yo_new___yo_struct_yo42b3a917_id_2420
+    #2 fn_yo42b3a917_id_103_new_specialized_T_WhereConstraintEntry_…
+    #3 fn_yo1e5a6d0e_id_146_get_func_where_constraints
+    #4 fn_yo93ac5cf1_id_54_try_to_implement_function_by_function_type
+    …
+```
+
+Failing tests: `Phase6f: ExprVal Atom equality via __yo_expr_eq` and
+`Phase6f: gensym produces fresh atoms`.
+
+**Why this never showed up in CI before:** the TS arm used to die of a node-heap OOM at
+`phase6_verify` (~file 40 of 58) and never reached `phase6f_macro_helpers`. Once the OOM was
+fixed (one node process per file, commit `c82e4ec8e`) the job reaches every file and this
+pre-existing leak surfaced. It is now **the only thing failing** that job — the two parser
+SEGVs are fixed.
 
 ## Impact
 

@@ -55,7 +55,29 @@ No `ctl` in `std/` or `yo-self/` has a `ResumeType` larger than 16 bytes at a ca
 that also unwinds. `ParseResult` at 16 bytes is the widest in the parser and sits exactly
 at the register/memory boundary — one more field would push it over.
 
-## Repro sketch (not yet built)
+## CONFIRMED by measurement (2026-08-06), and it reproduces on macOS arm64
+
+`-fsanitize=function` flags the mismatched call directly. Emitting the C for a small
+`exn.throw`-in-value-position program and compiling it by hand:
+
+```bash
+./yo-cli compile src/tests/fixme.yo --emit-c --skip-c-compiler --release
+clang -std=c11 -fno-strict-aliasing -fwrapv -w -O1 \
+      -fsanitize=function -fsanitize=undefined a.out.c -o /tmp/ubsan.out
+/tmp/ubsan.out
+```
+
+```
+a.out.c:2604:61: runtime error: call to function fn_yo6f45cce5_id_24 through pointer to
+  incorrect function type 'struct __yo_struct_yo51ba7706_id_834_struct *(*)(__yo_dyn_ba9487de67)'
+  note: fn_yo6f45cce5_id_24 defined here
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior a.out.c:2604:61
+```
+
+So the signature mismatch is real and **does not need a Linux or x86_64 host to detect** —
+only the _consequences_ are x86_64-specific. That makes this cheap to gate: see below.
+
+## Repro sketch for the >16-byte consequence (not yet built)
 
 A `ctl` whose `ResumeType` is a >16-byte struct, called in value position, with a handler
 that unwinds. Verify by inspecting the emitted x86_64 assembly for the call: the caller
@@ -75,6 +97,10 @@ Rosetta is not installed on the dev machine so the binary cannot be run locally 
 
 ## Guard to add with the fix
 
-`-fsanitize=function` (UBSan) flags exactly this class: "call to function through pointer to
-incorrect function type". It is not currently enabled for test binaries. Turning it on
-would have caught this statically, and would catch the next occurrence.
+`-fsanitize=function` catches this class, works on macOS arm64 (measured above), and is
+**not** currently enabled for test binaries (`src/test-runner.ts` uses ASan). Turning it on
+would have caught this years earlier and will catch the next occurrence.
+
+Do NOT enable it before fixing the mismatch, though: every `exn.throw` call site in the
+existing corpus trips it, so it would fail the suite wholesale. Sequence: fix the handler
+signatures, then enable the check as the regression guard.

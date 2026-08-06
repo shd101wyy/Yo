@@ -2,7 +2,7 @@
 
 **Found 2026-08-06.** Root cause of the two Linux-x86_64 `parser.test.yo` SEGVs that
 were the last thing keeping `continue-on-error: true` on `compiler-internal-tests`.
-Filed originally as `issues/parser-multiline-arrow-rhs-linux-segv.md` — a bug in the
+Investigated as `issues/fixed/parser-multiline-arrow-rhs-linux-segv.md` — a bug in the
 **TypeScript** compiler's codegen, mirrored into `yo-self`.
 
 ## Symptom
@@ -50,19 +50,32 @@ The declared type of the handler is `void` (it unwinds, so codegen gives it no r
 value), while each call site casts `exn.throw` to whatever the surrounding expression
 needs. The garbage in the return registers is therefore ABI-dependent:
 
-- **x86_64 SysV** returns a MEMORY-class struct via a hidden pointer and leaves **the
-  destination address in RAX**. The two preceding calls at this site are `String` `+`
-  concatenations, so RAX holds the address of a `parse_primary_end` stack local. The drop
-  reads that as an `AstExpr*` and jumps into the stack.
-- **arm64 AAPCS64** uses the dedicated **X8** indirect-result register, so X0/X1 are left
-  holding something benign.
+- On **Linux x86_64** the registers happened to hold **an address inside
+  `parse_primary_end`'s own stack frame**. The drop read it as an `AstExpr*` and the code
+  ultimately jumped through it.
+- On **macOS arm64** they happened to hold something benign, which is why
+  `tests/internal/parser.test.yo` was 49/49 locally throughout.
 
-That is exactly what the addresses say. Across three separate CI runs the faulting `pc`
-was `0x7f0d79bff6c0`, `0x7ff9919ff6c0`, `0x7f2c335ff6c0` — different ASLR bases but the
-**same low 20 bits**, and `pc - sp == 0x29878` in both runs of the same test. A
-deterministic offset into a live frame, not random heap garbage. And `pc == the faulting
-address` with "PC is at a non-executable region" means an instruction fetch, i.e. a call
-through a data pointer.
+**What exactly leaves that stack address in the return registers is NOT established, and the
+fix does not depend on it.** An earlier draft of this document claimed it was the
+destination pointer that x86_64 SysV leaves in RAX after a MEMORY-class (sret) return, from
+the preceding `String` `+` concatenations. **That is wrong:** `String` is
+`Option(ArrayList(u8))`, emitted as `{tag; union{ArrayList(u8)* value;}}` = **exactly 16
+bytes**, which SysV classifies as INTEGER,INTEGER and returns in `RAX:RDX` — no hidden
+pointer is involved. Other candidates at `-O0` + ASan (an internal `memcpy`, which returns
+its destination; a drop helper returning a pointer) were not pinned down. What _is_ measured
+is that the value is deterministic and that it is a stack address:
+
+- across three CI runs the faulting `pc` was `0x7f0d79bff6c0`, `0x7ff9919ff6c0`,
+  `0x7f2c335ff6c0` — different ASLR bases, **identical low 20 bits**;
+- `pc - sp == 0x29878`, byte-identical across both runs of the `?=` test, and a different
+  constant for the other test;
+- `pc > sp` with a frame that is tens of KB wide at `-O0` + ASan, so the target lies inside
+  the crashing function's own frame.
+
+And `pc == the faulting address` with "PC is at a non-executable region" means an
+instruction fetch, i.e. a call through a data pointer — a deterministic offset into a live
+frame, not random heap garbage.
 
 The stack trace blames `parse_primary_end` directly rather than a drop helper because
 `___drop`/`___dispose` are `__attribute__((always_inline))`.
@@ -97,6 +110,30 @@ does not pull in the evaluator):
 Minimal reproducer of the shape (an RC-typed value consumed by the return value, thrown
 from a `cond` arm) — see the `get_list` case in the regression test added to
 `tests/algebraic_effects.test.yo`.
+
+### Could excluding the temp LEAK instead?
+
+Only if the temp already held a live owned value at the escape check. `other-fn-call.ts`
+guards its declaration with `if (!declaredTempVars.has(tempVar))` while the escape check is
+emitted _outside_ that guard, so in principle a second emission could reach the check with
+a stale value in the temp.
+
+Audited against the largest Yo program available — the whole self-hosted compiler's stage-2
+C (`/tmp/escfix_stage2.c`, 17146 escape checks):
+
+| shape                                                           | count     |
+| --------------------------------------------------------------- | --------- |
+| escape checks immediately preceded by their own temp assignment | **15390** |
+| …of those, preceded by a _stale_ (non-fresh) assignment         | **0**     |
+| escape checks after a void statement call (no temp declared)    | 1756      |
+
+So every assignment-preceded check has its own fresh assignment on the line directly above,
+and for the void calls the exclusion is a no-op (temp names are per-expression, so there is
+nothing else named that could be skipped). The leak path does not occur in practice.
+
+**Caveat on local evidence:** LeakSanitizer is Linux-only, so no macOS run — including the
+2657-test fast suite — can detect a leak regression. The `compiler-internal-tests` job on
+Linux, which runs every test binary under ASan/LSan, is the arbiter for that.
 
 ## Honest limitation of the regression test
 

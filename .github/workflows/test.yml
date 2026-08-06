@@ -432,7 +432,8 @@ jobs:
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
-          status=0
+          # `rc_all`, not `status` — `status` is read-only in some shells.
+          rc_all=0
           failed=""
           for f in tests/internal/*.test.yo; do
             echo "::group::$f"
@@ -441,14 +442,14 @@ jobs:
             else
               echo "::endgroup::"
               echo "::error file=$f::tests/internal failure under the TS compiler"
-              status=1
+              rc_all=1
               failed="$failed $f"
             fi
           done
           if [ -n "$failed" ]; then
             echo "FAILED FILES:$failed"
           fi
-          exit $status
+          exit $rc_all
 
       - name: "Stage 1: build the self-hosted compiler with the TS compiler"
         if: always()

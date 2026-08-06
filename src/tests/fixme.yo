@@ -1,34 +1,40 @@
+{ assert } :: import("std/assert");
 { println } :: import("std/fmt");
-{ Exception, AnyError } :: import("std/error");
-{ String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 
-/// Returns an RC-typed value. The throwing arm's result is CONSUMED by the
-/// return value, so its drop is deferred to `consumedVarPendingDrops` — and the
-/// escape path used to drop that never-assigned temp.
-get_list :: (fn(flag : bool, exn : Exception) -> ArrayList(i32))(
-  cond(
-    flag => {
-      l := ArrayList(i32).new();
-      l.push(7);
-      l
-    },
-    true => exn.throw(dyn(String.from("boom")))
-  )
-);
+Holder :: struct(items : ArrayList(i32));
+
+// Keeps an outside reference to every list handed out, so a leaked reference in
+// `work` shows up as a higher refcount here.
+g_seen := ArrayList(ArrayList(i32)).new();
+
+/// Mirrors `get_func_where_constraints`: returns a FRESH RC value.
+make_fresh :: (fn() -> ArrayList(i32))({
+  l := ArrayList(i32).new();
+  g_seen.push(l);
+  l
+});
+
+/// Mirrors `try_to_implement_function_by_function_type`: a local bound from a
+/// call, then MOVED into an aggregate inside an `if`.
+work :: (fn(flag : bool) -> unit)({
+  entries := make_fresh();
+  if(flag, {
+    h := Holder(items : entries);
+    println(`held ${h.items.len()}`);
+  });
+});
 
 main :: (fn() -> unit)({
-  exn := Exception(
-    throw : (
-      (err) -> {
-        unwind(());
-      }
-    )
+  work(true);
+  work(false);
+  taken_rc := match(g_seen.get(usize(0)),.Some(x) => rc(x),.None => usize(0));
+  skipped_rc := match(g_seen.get(usize(1)),.Some(x) => rc(x),.None => usize(0));
+  println(`taken_rc=${taken_rc} skipped_rc=${skipped_rc}`);
+  assert(
+    skipped_rc == taken_rc,
+    "conditional move not taken must release the local just like the taken path"
   );
-  ok := get_list(true, exn);
-  println(`ok len = ${ok.len()}`);
-  bad := get_list(false, exn);
-  println(`unreachable: ${bad.len()}`);
 });
 
 export(main);

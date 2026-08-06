@@ -113,8 +113,14 @@ parenthesized `->` RHS. Pre-existing, and the job had never reached them. The se
 arm of the same job passes all 826. Four hypotheses were eliminated with evidence — stack
 exhaustion (49/49 pass locally with `YO_MAIN_STACK_MB=1`), `-masm=intel` (the batch has
 zero inline asm), a struct-offset error (the effect record is a single `void* throw` at
-offset 0), and a false repro that turned out to be a different leak. See
-`issues/parser-multiline-arrow-rhs-linux-segv.md` for the surviving lead.
+offset 0), and a false repro that turned out to be a different leak. **RESOLVED
+2026-08-06** — the root cause was the escape path dropping the unwound call's
+result temp, not any of those leads; see
+`issues/fixed/escape-path-drops-unwound-call-result-temp.md` and the section
+"The escape path dropped the unwound call's result temp" below. Note the
+"self-hosted arm passes all 826" asymmetry above was MISLEADING: the
+self-hosted runner adds no sanitizer, so the two arms were never comparable
+on this.
 
 **A local stand-in for Linux LSan** (macOS has none): run the test with
 `--keep-generated-files` to keep the ASan batch binary, then
@@ -234,12 +240,19 @@ Two durable lessons:
 - **`tests/internal/parser.test.yo` rebuilds in 11 s** — it imports only
   lexer/token/parser/expr, not the evaluator. It is a fast loop for parser and
   codegen work, unlike the `phase6*` files.
-- **A macOS-arm64-passes / Linux-x86_64-crashes split is an ABI question first.**
-  x86_64 SysV returns MEMORY-class structs via an sret pointer **in RDI**, which
-  shifts argument registers and leaves the destination address in RAX; arm64 uses
-  the dedicated **X8** and shifts nothing. Do the arithmetic on ASan's `pc`/`sp`
-  across runs before reaching for sanitizers: constant low bits of `pc` plus a
-  constant `pc - sp` means a _specific stack slot's address is being called_.
+- **Do the arithmetic on ASan's `pc`/`sp` across runs before reaching for
+  sanitizers.** Constant low bits of `pc` across different ASLR bases, plus a
+  constant `pc - sp`, means a _specific stack slot's address is being called_ —
+  far narrower than "wild jump". Then grep the named frame for its indirect calls.
+- **A macOS-arm64-passes / Linux-x86_64-crashes split is an ABI question early
+  on** — but CHECK SIZES before naming a mechanism. x86_64 SysV passes an sret
+  pointer in RDI (shifting argument registers) only for MEMORY-class returns,
+  i.e. **>16 bytes**; arm64 uses the dedicated X8 and shifts nothing. A struct of
+  exactly 16 bytes comes back in RAX:RDX — and both `String`
+  (`Option(ArrayList(u8))`) and `ParseResult` are exactly 16 bytes. An sret
+  explanation for this bug was drafted and then RETRACTED for that reason; what
+  the garbage register actually held was never pinned down, and the fix did not
+  need it.
 - `___drop`/`___dispose` are `always_inline`, so a bad drop names the **enclosing**
   function in the trace with no drop frame. Absence of a drop frame is not
   evidence that no drop was involved.
