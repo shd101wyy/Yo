@@ -12,14 +12,13 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { EvalValue } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, get_struct_field_comptime_flags } :: import("../../types/definitions.yo");
 { is_unit_type, is_str_type, is_reference_enum_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 {
   CodeGenContext,
   type_key,
   get_type_string,
-  get_runtime_struct_fields,
   get_enum_variant_c_name,
   sanitize_for_c_identifier,
   can_optimize_as_nullable_pointer,
@@ -97,24 +96,6 @@ _c_string_literal :: (fn(raw : String) -> String)({
     i = (i + usize(1));
   });
   out.push_str("\"");
-  out
-});
-/// Runtime field types of a struct type, in declaration order.
-_runtime_field_types :: (fn(ty : TypeValue) -> ArrayList(TypeValue))({
-  out := ArrayList(TypeValue).new();
-  rfs := get_runtime_struct_fields(ty);
-  n := rfs.len();
-  (i : usize) = usize(0);
-  while(i < n, {
-    match(
-      rfs.get(i),
-      .Some(rf) => {
-        _p := out.push(rf.ty);
-      },
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
   out
 });
 /// Find a variant's index in an EnumT by name (or `.None`).
@@ -394,8 +375,19 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
     // --- struct (newtype / object-constructor / plain literal) ---
     .StructVal(_, field_names, field_values) => match(
       ty,
-      .Struct({ field_types, is_reference_semantics, is_newtype }) => {
+      .Struct({ id, field_types, is_reference_semantics, is_newtype }) => {
         c_name := match(context.get_type_c_name(type_key(ty)),.Some(cn) => cn,.None => String.from("__yo_unknown_struct"));
+        // Comptime-only field flags, by FULL declaration index. TS pairs
+        // `type.fields[i]` with `value.fields[i]` and then FILTERS to
+        // `getRuntimeStructFields` (comptime-value.ts:276-298), so comptime-only
+        // fields are erased from the emitted literal / constructor args exactly
+        // as they are erased from the C struct layout. Both branches below
+        // previously indexed by the RUNTIME position (ref-semantics) or skipped
+        // only unit fields (plain literal) — a struct with a comptime-only
+        // field (e.g. `tag :: "..."`) emitted a `.tag = ...` designator that
+        // does not exist in the C type (tests/module_struct_unification.test.yo
+        // "Phase 1: comptime-only struct fields are erased from C layout").
+        ct_flags := get_struct_field_comptime_flags(id.clone());
         cond(
           (is_newtype && ((field_types.len() == usize(1)) && (field_values.len() == usize(1)))) => {
             uty := match(field_types.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
@@ -408,18 +400,26 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
             out
           },
           is_reference_semantics => {
-            rftys := _runtime_field_types(ty);
             out := String.from("__yo_new_");
             out.push_string(c_name);
             out.push_str("(");
-            nf := rftys.len();
+            nf := field_types.len();
             (i : usize) = usize(0);
+            (any_arg : bool) = false;
             while(i < nf, {
-              if(i > usize(0), {
-                out.push_str(", ");
+              field_is_ct := match(
+                ct_flags,
+                .Some(flags) => match(flags.get(i),.Some(f) => f,.None => false),
+                .None => false
+              );
+              if(!(field_is_ct), {
+                if(any_arg, {
+                  out.push_str(", ");
+                });
+                any_arg = true;
+                fty := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+                match(field_values.get(i),.Some(fv) => out.push_string(recur(fv, fty, context)),.None => ());
               });
-              fty := match(rftys.get(i),.Some(t) => t,.None => TypeValue.Unit);
-              match(field_values.get(i),.Some(fv) => out.push_string(recur(fv, fty, context)),.None => ());
               i = (i + usize(1));
             });
             out.push_str(")");
@@ -434,7 +434,12 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
             (any : bool) = false;
             while(i < n, {
               fty := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
-              if(!(is_unit_type(fty)), {
+              field_is_ct2 := match(
+                ct_flags,
+                .Some(flags) => match(flags.get(i),.Some(f) => f,.None => false),
+                .None => false
+              );
+              if(!(is_unit_type(fty)) && !(field_is_ct2), {
                 if(any, {
                   out.push_str(", ");
                 });

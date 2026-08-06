@@ -46,6 +46,8 @@ open(import("std/string"));
   new_expr_info,
   expr_info_table_set,
   expr_info_table_get,
+  expr_info_is_primitive_match,
+  expr_info_set_is_primitive_match,
   ControlFlowFlags,
   control_flow_of,
   has_control_flow,
@@ -551,10 +553,13 @@ _check_keyword_position :: (
 ///   - `ctx`                     Mutable evaluator context (side-table, etc.).
 ///   - `variables_to_add`        Variables to inject into the new frame before
 ///                               evaluating (used for function parameters).
-///   - `_is_evaluating_function_body_begin_block`
+///   - `is_evaluating_function_body_begin_block`
 ///                               True when this begin block IS the function
-///                               body.  Affects the dup/drop optimization pass
-///                               (Phase 3); unused in Phase 2aa.
+///                               body (every fn-body eval site passes `true`;
+///                               match/cond arm and loop sites pass `false`).
+///                               Gates the single-expression shared-id
+///                               `variable_name` carry (see the carry block
+///                               before the final expr_info_table_set).
 /// True when `v` is — or recursively contains — an `UnknownVal` (a runtime
 /// hole). Used to decide whether a single-expression begin block must carry the
 /// inner expression's `runtime_arg_exprs_in_order`: a bare runtime call yields
@@ -1318,7 +1323,7 @@ evaluate_begin_expression :: (
     env_in : Environment,
     ctx : EvalContext,
     variables_to_add : ArrayList(Variable),
-    _is_evaluating_function_body_begin_block : bool,
+    is_evaluating_function_body_begin_block : bool,
     exn : Exception
   ) -> AstExpr
 )({
@@ -2281,6 +2286,40 @@ evaluate_begin_expression :: (
   // it across unconditionally when the result node IS the inner node.
   if((ast_expr_id(expr) == ast_expr_id(last_expr)) && last_info.deferred_dup_expressions.is_some(), {
     out_info.deferred_dup_expressions = last_info.deferred_dup_expressions;
+  });
+  // Same shared-id clobber: a bare primitive (int/bool) `match` tail carries
+  // `is_primitive_match` on the MATCH node itself (evaluator/exprs/match.yo);
+  // codegen's generate_match_expression reads it to take the C-switch path
+  // (codegen/exprs/match.yo:1186). Dropping it sent a bare
+  // `(fn(n : i32) -> i32)(match(n, ...))` body down the enum branch —
+  // `// Error: "match" expression requires an enum type` spliced into a
+  // `return` (tests/basic.test.yo under stage-1). Harmless for folded
+  // matches: the comptime-value path never consults it. (TS clones the inner
+  // expr into the begin node, so its `$` never collides — begin.ts:1131-1151.)
+  if((ast_expr_id(expr) == ast_expr_id(last_expr)) && expr_info_is_primitive_match(last_info).is_some(), {
+    expr_info_set_is_primitive_match(out_info, expr_info_is_primitive_match(last_info));
+  });
+  // Same shared-id clobber: the tail's recorded temp `variable_name` (e.g. the
+  // borrowed field-read temp of a bare `(fn(p : Pair) -> Krate)(p.inner)`
+  // body). The carried deferred `___dup` above references that temp, and the
+  // begin-tail / implicit-return dup materialization declares it via
+  // `lei.variable_name` — losing the name suppressed the balancing +1 (the
+  // undeclared-temp gate skipped the dup) and re-opened the round-3
+  // borrowed-field-tail UAF (tests/codegen-bootstrap/borrowed_field_return.yo
+  // printed "2 2" instead of "2 3"). Gates:
+  //   - carry_runtime_args: a comptime-FOLDED tail must keep the fresh info
+  //     (its recorded temp name would pollute downstream type names — see the
+  //     carry_runtime_args comment above);
+  //   - FUNCTION-BODY begins only: for match/cond ARM begins the
+  //     attach_temp_variable_to_expr below would re-register the carried name
+  //     as an OWNING variable in the ENCLOSING begin frame of the SAME C
+  //     function, scheduling a scope-end drop against a declared temp whose
+  //     value the arm's `_result` assignment already moved out — an
+  //     over-release. Arm sites pass `false`; every fn-body eval site
+  //     (function_type.yo / closure_type.yo / helper.yo / comptime_fn.yo /
+  //     function.yo) passes `true`.
+  if(((ast_expr_id(expr) == ast_expr_id(last_expr)) && is_evaluating_function_body_begin_block) && (carry_runtime_args && last_info.variable_name.is_some()), {
+    out_info.variable_name = last_info.variable_name;
   });
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   // Attach temp variable for the begin block result (no-op stub in Phase 2aa).

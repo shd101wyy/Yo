@@ -160,12 +160,13 @@ u := mk_unit();
 assert(rc(u.v) == 1, "payload-free variant: the caller must release its argument temp");
 ```
 
-The explicit `{ … }` body is deliberate. Written as a bare tail expression the
-self-hosted compiler emits no scope-end drop for the argument temp at all, so both arms
-report rc == 2 under it — a separate pre-existing divergence that also reproduces on the
+The explicit `{ … }` body was deliberate at the time: written as a bare tail expression
+the self-hosted compiler emitted no scope-end drop for the argument temp at all, so both
+arms reported rc == 2 under it — a separate divergence that also reproduced on the
 payload-carrying form this fix never touched
-(`issues/yo-self-tail-expression-arg-temp-drop-missing.md`). The block body keeps the
-test gating THIS bug on both compilers.
+(`issues/fixed/yo-self-tail-expression-arg-temp-drop-missing.md`, fixed 2026-08-06).
+With that fixed, the test was simplified back to bare tail-expression bodies and now
+gates BOTH bugs on both compilers.
 
 Measured: **pre-fix `got 2` → SIGABRT; post-fix passes.** This works on every platform,
 which matters because neither sanitizer does:

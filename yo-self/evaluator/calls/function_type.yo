@@ -24,7 +24,7 @@ _(env : fnty_env) :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, wrap_body_in_begin } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
 { copy_func_param_defaults, copy_func_param_default_exprs, copy_func_param_type_exprs, copy_func_param_comptime, copy_func_param_assigned_values, get_func_param_comptime, copy_func_return_type_expr, copy_macro_registration, get_func_variadic_param, copy_func_variadic_param, copy_func_where_constraints, get_func_where_constraints, WhereConstraintEntry, get_func_requires_exprs, get_func_ensures_exprs, copy_func_contract_exprs } :: import("../types/function.yo");
 {
   ExprInfo,
@@ -37,7 +37,7 @@ _(env : fnty_env) :: import("std/env");
   push_active_where_trait_ids,
   pop_active_where_trait_ids
 } :: import("../../expr_info.yo");
-{ Environment, add_variable_to_env, add_parameter_to_env, synthetic_token, snapshot_env } :: import("../../env.yo");
+{ Environment, Variable, add_variable_to_env, add_parameter_to_env, synthetic_token, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_function_type } :: import("../../types/guards.yo");
@@ -55,7 +55,7 @@ _(env : fnty_env) :: import("std/env");
 } :: import("../../types/flowability.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ evaluate_begin_expression } :: import("../exprs/begin.yo");
 { ast_expr_to_string } :: import("../../expr.yo");
 {
   EvalContext,
@@ -262,10 +262,23 @@ _trial_eval_fn_body :: (
       }
     )
   );
-  // Wrap a non-begin body in a synthetic `begin(...)` so even a bare-atom
-  // body runs the begin-tail ownership pass (see wrap_body_in_begin and
-  // _trial_eval_anon_body in values/anonymous_function.yo).
-  evaluated := evaluate_expression_raw(wrap_body_in_begin(body), env, ctx, inner_exn);
+  // Route the body through evaluate_begin_expression DIRECTLY — the faithful
+  // port of function-type.ts:499, which calls `evaluateBeginExpression({expr:
+  // effectiveBodyExpr, ..., isEvaluatingFunctionBodyBeginBlock: true})` for
+  // EVERY body shape (begin.ts:1122-1151 then wraps a non-begin body into
+  // `begin(expr)` in place, so the begin machinery — begin frame, arg-temp
+  // registration, scope-end drop scheduling — always runs). yo-self's
+  // shared-id equivalent writes the begin out_info (deferred_drop_expressions
+  // included) to the SAME node id (begin.yo's single-expression carry-across),
+  // which codegen's post-call drop flush then emits. The previous
+  // `evaluate_expression_raw(wrap_body_in_begin(body))` only begin-wrapped
+  // bare-ATOM/field-access bodies, so a bare tail-expression CALL body never
+  // ran the begin scope-end pass — every owned RC argument temp it
+  // materialised leaked (rc == 2 instead of 1) and the effect-escape path had
+  // no drops at all. Matches the closure path (closure_type.yo:255), which
+  // already calls evaluate_begin_expression directly. See
+  // issues/fixed/yo-self-tail-expression-arg-temp-drop-missing.md.
+  evaluated := evaluate_begin_expression(body, env, ctx, ArrayList(Variable).new(), true, inner_exn);
   out.push(evaluated);
 });
 /// Build a fresh definition-time evaluation env for a function body: captures

@@ -1,31 +1,10 @@
-open(import("std/fmt"));
-
-Node :: ref(struct(value : i32, next : Option(Self)));
-
-sum :: (fn(head : Node) -> i32)({
-  (current_opt : Option(Node)) = head.next;
-  (total : i32) = 0;
-  while(runtime(true), {
-    match(
-      current_opt,
-      .None => return(total),
-      .Some(current) => {
-        total = (total + current.value);
-        current_opt = current.next;
-      }
-    );
-  });
-  total
-});
-
+{ assert } :: import("std/assert");
+Val :: ref(enum(UnitVal, IntVal(v : i32)));
+Held :: struct(v : Val);
+keep :: (fn(x : Val) -> Held)(Held(v : x));
+mk_payload :: (fn() -> Held)(keep(Val.IntVal(v : i32(7))));
 main :: (fn() -> unit)({
-  head := Node(
-    value : 1,
-    next : Option(Node).Some(
-      Node(value : 2, next : Option(Node).Some(Node(value : 3, next : Option(Node).None)))
-    )
-  );
-  println(`sum ${sum(head)}`);
+  p := mk_payload();
+  assert(rc(p.v) == 1, `payload: rc(p.v) should be 1, got ${rc(p.v).to_string()}`);
 });
-
 export(main);

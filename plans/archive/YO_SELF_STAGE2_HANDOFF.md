@@ -84,10 +84,10 @@ whenever the allocation's result is discarded (LLVM deletes the malloc). Read th
 emitted C.
 
 Three adjacent gaps were verified and filed rather than folded in:
-`issues/yo-self-tail-expression-arg-temp-drop-missing.md` (yo-self emits NO
+`issues/fixed/yo-self-tail-expression-arg-temp-drop-missing.md` (yo-self emitted NO
 scope-end drop for an owned RC arg temp in a bare tail-expression fn body —
-pre-existing, reproduces on the untouched payload form, and yo-self is written
-mostly in that style, so measure it as a footprint lever),
+pre-existing, reproduced on the untouched payload form; FIXED 2026-08-06 by
+routing def-time fn-body eval through evaluate_begin_expression),
 `issues/ctfe-elided-unit-call-arg-temp-leak.md`, and
 `issues/fieldless-ref-enum-simple-enum-collapse.md`.
 

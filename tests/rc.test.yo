@@ -454,26 +454,17 @@ test("Returning an OWNED RC local from inside a branch is not double-dropped", {
 // `leaks` (at -O2, LLVM deletes an allocation whose result is discarded, which
 // hides exactly the non-argument positions covered by the second test).
 //
-// `mk_unit` / `mk_payload` use an explicit `{ … }` body ON PURPOSE. Written as a
-// bare tail expression — `(fn() -> Held)(keep(Val.UnitVal))` — the self-hosted
-// compiler emits no scope-end drop for the argument temp at all, so BOTH arms
-// below report rc == 2 under it even though TS emits the drop. That is a
-// separate, pre-existing divergence with its own repro (it reproduces on the
-// payload-carrying form, which this fix never touched) — see
-// issues/yo-self-tail-expression-arg-temp-drop-missing.md. Keep the block body
-// so this test gates the payload-free-variant bug on both compilers.
+// `mk_unit` / `mk_payload` use bare tail-expression bodies, so this test also
+// gates the bare-tail scope-end drop: the self-hosted compiler used to emit no
+// drop at all for the argument temp of a bare tail-expression body (both arms
+// reported rc == 2 under it even though TS emitted the drop) — see
+// issues/fixed/yo-self-tail-expression-arg-temp-drop-missing.md.
 test("Inline ref-enum unit-variant argument is released by the caller", {
   Val :: ref(enum(UnitVal, IntVal(v : i32)));
   Held :: struct(v : Val);
   keep :: (fn(x : Val) -> Held)(Held(v : x));
-  mk_unit :: (fn() -> Held)({
-    h := keep(Val.UnitVal);
-    h
-  });
-  mk_payload :: (fn() -> Held)({
-    h := keep(Val.IntVal(v : i32(7)));
-    h
-  });
+  mk_unit :: (fn() -> Held)(keep(Val.UnitVal));
+  mk_payload :: (fn() -> Held)(keep(Val.IntVal(v : i32(7))));
   u := mk_unit();
   assert(rc(u.v) == 1, "payload-free variant: the caller must release its argument temp");
   p := mk_payload();
