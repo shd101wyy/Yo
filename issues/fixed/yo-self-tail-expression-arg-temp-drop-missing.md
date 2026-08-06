@@ -210,6 +210,42 @@ this bug AND the payload-free-variant leak on both compilers.
 - `S1=/tmp/yo-stage1 P=hand2 bash scripts/bootstrap/gates_fast.sh` — battery all
   rc=0 hollow=0, corpus PASS 155 DIFF 0 SELF-FAIL 0, STD 153/153, failures=0.
 
+### Follow-up (same day): bare `___ := ...` / `x = ...` statement bodies
+
+The combined batch validation caught one more shared-id shape the begin
+routing newly exposed: a fn whose WHOLE body is a bare `=` / `:=` STATEMENT,
+e.g. `register_struct_fields` (`yo-self/evaluator/types/field.yo:92`):
+
+```rust
+register_struct_fields :: (fn(id : String, fields : ArrayList(TypeField)) -> unit)(
+  ___ := g_struct_field_registry.set(id, fields)
+);
+```
+
+The begin scope-end pass now (correctly) schedules `___drop(___)` on the
+shared body-node id, but `generate_function_body`'s non-begin else branch
+flushed body drops BEFORE emitting the statement (mirror of
+generation.ts:1827-1841) — emitting `switch ((___).tag){ __yo_decr_rc(...) }`
+against a not-yet-declared `___` (the `declared_c_var_names` gate only covers
+minted temp names, on purpose). Clang: `use of undeclared identifier '___'`
+in tests/internal batch 5; stage-2's own C failed the same way.
+
+TS never hits this because its body IS a begin node and the begin path emits
+the unit tail STATEMENT FIRST, drops AFTER (`generation.ts:1688-1695`).
+Fix (`yo-self/codegen/functions/generation.yo`): when the non-begin body is a
+bare `=` / `:=` statement, emit the statement first and flush the body drops
+after it — assignment emitters do not flush node drops themselves, so this
+cannot double-emit. Every other body shape keeps the flush-first order, whose
+arg-temp drops are gate-skipped up front and emitted exactly once by the
+expression's own post-call flush (`other_fn_call.yo`, TS other-fn-call.ts:1511)
+— a second body-level flush there WOULD double-emit.
+
+Follow-up gates: discard repro emits decl-then-drop and runs rc=0 under
+stage-1 (TS unchanged); arg-temp repro and borrowed_field_return still green;
+gates_fast battery all rc=0 hollow=0, corpus PASS 155 DIFF 0, STD 153/153,
+failures=0; stage-2 C emitted by the fixed stage-1 passes
+`clang -std=c11 -fno-strict-aliasing -fwrapv -w -fsyntax-only`.
+
 ### Related (not covered here)
 
 `_trial_eval_anon_body` (`yo-self/evaluator/values/anonymous_function.yo:386`)

@@ -1,9 +1,11 @@
-{ assert } :: import("std/assert");
-MyVal :: ref(enum(UnitVal, IntVal(v : i32)));
-// Body is the unit literal, so the whole call is elided at compile time.
-eat_it :: (fn(x : MyVal) -> unit)(());
+Val :: ref(enum(UnitVal, IntVal(v : i32)));
+mk :: (fn() -> Result(Option(Val), i32))(.Ok(Option(Val).Some(Val.IntVal(v : i32(7)))));
+// BARE `___ := ...` as the WHOLE fn body — the trigger (mirrors
+// yo-self/evaluator/types/field.yo register_struct_fields).
+reg :: (fn() -> unit)(
+  ___ := mk()
+);
 main :: (fn() -> unit)({
-  eat_it(MyVal.UnitVal);
-  assert(true, "ignored");
+  reg();
 });
 export(main);
