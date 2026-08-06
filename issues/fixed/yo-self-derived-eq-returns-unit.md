@@ -266,7 +266,7 @@ propagation in one shot (≈190 files share this single root).
 ## PARTIAL FIX implemented + saved (2026-06-08, fourth pass)
 
 Implemented the `.method()`-arm CTFE routing (saved as
-`issues/patches/derived-eq-method-ctfe-partial-fix.patch.txt`, builds clean): in
+`issues/patches/derived-eq-method-ctfe-partial-fix.patch`, builds clean): in
 `evaluate_function_call`'s `.Some(method_info)` arm, when the method's
 return is comptime (`is_type_hierarchy_type(ret) || result_is_comptime_only`),
 route through `evaluate_comptime_fn_call` using `call_result_m.callee_env`
@@ -364,7 +364,7 @@ After (4) there are likely more layers (`to_expr`/`comptime_string_to_expr`,
 genuine multi-bug subsystem; each fix is correct and advances the derive,
 but green prelude needs the whole series.
 
-Saved progress: `issues/patches/derived-eq-comptime-fix-wip.patch.txt` (all of
+Saved progress: `issues/patches/derived-eq-comptime-fix-wip.patch` (all of
 1+2+3 together, builds clean). Fix (3) is standalone-committable (gated
 separately). 1+2 need is_executing=true (all-or-nothing for the prelude),
 so they stay in the patch until the series completes.
@@ -397,7 +397,7 @@ and the `::` binding's rhs value read.
 
 - COMMITTED (green): fix-3 (comptime enum match arm-selection dot
   mismatch) — standalone correctness fix.
-- SAVED (issues/patches/derived-eq-comptime-fix-wip.patch.txt): fix-1 (.method()
+- SAVED (issues/patches/derived-eq-comptime-fix-wip.patch): fix-1 (.method()
   CTFE routing) + fix-2 (fresh-env param binding) + is_executing=true.
   Build clean; advance the derive through is_struct/is_enum/cond/match
   destructure; blocked at layer 4 (closure capture / const-binding of a
@@ -412,7 +412,7 @@ and the `::` binding's rhs value read.
 Major progress: drove the derive chain through SEVERAL more layers. The
 hard comptime-execution machinery now works end-to-end up to the final
 expr-construction. Fixes (all in `function.yo` + `main.yo`, saved in
-`issues/patches/derived-eq-comptime-fix-wip.patch.txt`):
+`issues/patches/derived-eq-comptime-fix-wip.patch`):
 
 5. **Comptime operator folding / comptime-method selection.** `n -
 usize(1)` in `__yo_comptime_fold_range` never folded → unknown fold
@@ -459,7 +459,7 @@ the derived `==` impl.
 ### Net state
 
 - COMMITTED green: fix-3 (match arm-selection dot).
-- SAVED (`issues/patches/derived-eq-comptime-fix-wip.patch.txt`, builds clean):
+- SAVED (`issues/patches/derived-eq-comptime-fix-wip.patch`, builds clean):
   fixes 1,2,5,6 + is_executing. The derive now executes through the fold;
   blocked at quote/unquote receiver-env threading for to_expr/make_impl.
   Needs is_executing=true (all-or-nothing for prelude) so stays in the
@@ -539,7 +539,7 @@ correctly, the issue is the `.method()`-arm receiver eval using a stale
 ### Net state
 
 - COMMITTED green: fix-3 (match arm-selection dot).
-- SAVED (`issues/patches/derived-eq-comptime-fix-wip.patch.txt`, builds clean):
+- SAVED (`issues/patches/derived-eq-comptime-fix-wip.patch`, builds clean):
   fixes 1,2,5,6 (function.yo) + is_executing (main.yo) + faithful
   raw-eval in process_unquotes_in_expr (quote.yo). The derive executes
   through the entire fold (concrete match_body); blocked at the
