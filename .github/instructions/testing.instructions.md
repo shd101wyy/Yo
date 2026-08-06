@@ -82,7 +82,7 @@ affects ALL branches and ALL test files, including a trivial `assert(true)`.
 ```
 
 This disables leak detection on macOS, but tests still validate logic.
-See `issues/macos-26-asan-blocked-by-amfi.md` for the kernel-log evidence.
+See `issues/retired/macos-26-asan-blocked-by-amfi.md` for the kernel-log evidence.
 
 **Alternative** (slower, but keeps ASAN coverage on Linux/WASI): use
 `--target wasm-wasi` to run via `wasmtime`:

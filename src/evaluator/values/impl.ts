@@ -1507,7 +1507,7 @@ export function findMethodsFromGenericImpls({
             const clonedBody = cloneExpr(originalValue.body);
 
             // Re-evaluate the function body with the concrete values.
-            // Phase B/C of plans/ITERATOR_REDESIGN.md — for `-> ref(T)`
+            // Phase B/C of plans/archive/ITERATOR_REDESIGN.md — for `-> ref(T)`
             // functions, the body produces `*(T)` (the C-ABI pointer),
             // so we set the expected body type to `*(T)` here, matching
             // the parallel logic in `createFunctionBodyEvaluationContext`.
@@ -2139,7 +2139,7 @@ export function findMethodFromGenericImplForTrait({
 
           // Re-evaluate the function body with the concrete values.
           // See parallel comment above for the `-> ref(T)` body-typing
-          // rationale (Phase B/C of plans/ITERATOR_REDESIGN.md).
+          // rationale (Phase B/C of plans/archive/ITERATOR_REDESIGN.md).
           const _specBodyExpectedType2 = specializedType.return.isRef
             ? createPtrType(specializedType.return.type)
             : specializedType.return.type;

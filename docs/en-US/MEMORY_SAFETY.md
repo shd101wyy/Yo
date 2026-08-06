@@ -296,7 +296,7 @@ The framing: **safe Yo code cannot violate memory safety. The unsafe surface is 
 
 - `plans/MEMORY_SAFETY.md` — the design document for the safety model. Covers the full rationale, phase rollout, alternatives considered.
 - [FLOWABILITY.md](./FLOWABILITY.md) — the user-facing `inout`/borrow rules (flowability + borrow invalidation).
-- `plans/SLICE_REWORK.md` — the design that removed heap-backed slices (builtin `str`, copying ranges).
-- `plans/EXTERN_UNSAFE_WRAP.md` — the per-call-site wrap requirement for extern "c" functions.
-- `plans/ITERATOR_REDESIGN.md` — how iteration works under the safe model.
+- `plans/archive/SLICE_REWORK.md` — the design that removed heap-backed slices (builtin `str`, copying ranges).
+- `plans/archive/EXTERN_UNSAFE_WRAP.md` — the per-call-site wrap requirement for extern "c" functions.
+- `plans/archive/ITERATOR_REDESIGN.md` — how iteration works under the safe model.
 - `docs/en-US/DESIGN.md` — the broader language design; the pointer / unsafe sections cross-reference this page.

@@ -13,7 +13,7 @@ registry for the ORIGINAL (pointer) receiver BEFORE the pointee's own methods,
 and every later lookup is gated on `methods.length === 0` — so a hit there
 suppressed the pointee's methods entirely. That was harmless until the
 pointer-operator migration gave `*(T)` the plain methods `add`/`sub`/
-`offset_from` (`plans/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md`,
+`offset_from` (`plans/archive/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md`,
 `std/prelude.yo`'s `impl(generic(T : Type), *(T), add : (fn(self : Self, count :
 usize) -> Self), …)`). From then on
 

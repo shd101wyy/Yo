@@ -68,7 +68,7 @@ PATCH: add `exn : Exception` to `_try_expand_call_overload`'s signature (one cal
 
 ### D — arm 14 layer 1: `_(...)` with a concrete expected FUNCTION type builds a struct
 
-ROOT `yo-self/evaluator/exprs/_expr.yo:550` — the reroute is gated on `expected_is_anon_struct` (UNNAMED struct only); the header comment at :531-539 documents the deliberate narrowing (`issues/yo-self-anon-struct-literal-expected-type-ctor.md`, s2 SIGSEGV). An expected `Func` type therefore falls to `evaluate_anonymous_struct_value`.
+ROOT `yo-self/evaluator/exprs/_expr.yo:550` — the reroute is gated on `expected_is_anon_struct` (UNNAMED struct only); the header comment at :531-539 documents the deliberate narrowing (`issues/fixed/yo-self-anon-struct-literal-expected-type-ctor.md`, s2 SIGSEGV). An expected `Func` type therefore falls to `evaluate_anonymous_struct_value`.
 TS `src/evaluator/calls/function.ts:447-467`:
 
 ```ts

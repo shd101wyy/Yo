@@ -5,7 +5,7 @@
 `src/evaluator/calls/type.ts`.
 
 **Original context:** Discovered while migrating `std/prelude.yo` IO from
-`module(...)` to `struct(...)` (Phase 3 of `plans/UNIFY_MODULE_AND_STRUCT.md`).
+`module(...)` to `struct(...)` (Phase 3 of `plans/archive/UNIFY_MODULE_AND_STRUCT.md`).
 
 ## Root cause
 
@@ -170,7 +170,7 @@ warrants a focused investigation in a follow-up session.
 
 ## Related
 
-- `plans/UNIFY_MODULE_AND_STRUCT.md` — Phase 3 status notes.
+- `plans/archive/UNIFY_MODULE_AND_STRUCT.md` — Phase 3 status notes.
 - `tests/algebraic_effects.test.yo` — proves struct(...) DOES work for
   monomorphic effect records (60/60 pass including 2 new struct-based
   effect tests).

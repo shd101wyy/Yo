@@ -88,11 +88,11 @@ export function evaluateInitializationAssignment({
   const lhs = expr.args[0]!;
   let rhs = expr.args[1]!;
 
-  // v4.1 (plans/BORROW_EXCLUSIVITY.md): local `inout(name) := …` bindings
+  // v4.1 (plans/archive/BORROW_EXCLUSIVITY.md): local `inout(name) := …` bindings
   // are not supported — `inout` exists only in parameter position. Field
   // access already reads/writes in place (`h.s = v`), and binding the handle
   // (`b := a.b`) keeps an object alive without borrow machinery.
-  let actualLhs = lhs;
+  const actualLhs = lhs;
   if (
     exprIsFunctionCall(actualLhs) &&
     exprIsFunctionCallOf(actualLhs, BuiltinKeywords.inout)

@@ -13,7 +13,7 @@ cascading port, not a quick win.
 ## 1. `can_type_form_rc_cycle` — `types/utils.yo:520` → `false`
 
 **Scope: LARGE (cascading).** Full plan in
-`issues/yo-self-cycle-gc-runtime-port.md`. Un-stubbing requires porting the
+`issues/fixed/yo-self-cycle-gc-runtime-port.md`. Un-stubbing requires porting the
 ~487-line QuickJS trial-deletion GC runtime (`generateFullGCRuntimeFunctions`) +
 the dispose-dispatch function-pointer path + the ref-struct traversal emitter
 (written, `scratchpad/ref_struct_traversal.patch`) + the un-stub itself

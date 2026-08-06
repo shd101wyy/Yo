@@ -810,7 +810,7 @@ export interface FunctionReturn {
    * The function yields a second-class reference (lowered to `T*` at
    * the C ABI) into storage rooted in one of its `ref`-typed
    * parameters. The "flowability" rule on the return expression
-   * ensures the borrow is sound. See `plans/ITERATOR_REDESIGN.md`.
+   * ensures the borrow is sound. See `plans/archive/ITERATOR_REDESIGN.md`.
    */
   isRef?: boolean;
 }
@@ -923,7 +923,7 @@ export interface FunctionType extends Type {
    * may contain `unwind` in their body; their values are frame-bound
    * (cannot escape via return, module-level binding, heap allocation,
    * closure capture, or pointer indirection). See
-   * plans/EXPLICIT_EFFECTS.md §4.
+   * plans/archive/EXPLICIT_EFFECTS.md §4.
    */
   isControl?: boolean;
 }

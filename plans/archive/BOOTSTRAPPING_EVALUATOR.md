@@ -155,7 +155,7 @@ failing:`ref*local_binding`, `ref_closure_capture`\*\* (need the ref-capture-
 >   typing (operator → trait dispatch via `string_is_operator`, gated on
 >   comptime operand; `Self.Output` resolved via receiver registry). Tier 2
 >   (actual value folding `5+1=6` via `evaluate_comptime_fn_call`) still open —
->   see `plans/COMPTIME_ARITHMETIC_FOLDING.md`.
+>   see `plans/archive/COMPTIME_ARITHMETIC_FOLDING.md`.
 > - **ref-type eval (subset of ref\_\*)** — `ref_return`: `Failed to evaluate type
 expression: ref(i32)`; `ref_local_binding`: destructuring on `i32`. Distinct
 >   ref-type/destructuring gaps, not flowability.
@@ -452,7 +452,7 @@ For the non-"Too few arguments" buckets (see the table above), fix per
 the specific error: the `Expected 1 regular parameters` arity sites, the
 `Expected to be evaluated` sites, the `synthesizer.yo` reassignment, and
 the `asm.yo` slice-flowability return (root the returned slice in a
-`ref`-bound parameter per `plans/SLICE_FLOWABILITY.md`).
+`ref`-bound parameter per `plans/archive/SLICE_FLOWABILITY.md`).
 
 #### Prioritized worklist — fix bottom-up (dependency order)
 
@@ -778,7 +778,7 @@ enforcement beyond marker×concrete
 simplifications listed in values/anonymous_function.yo's header
 (substituteSomeTypesFromEnv, await analysis, deferred-generic return-type
 check, body-vs-return compatibility); comptime arithmetic value folding Tier 2
-(`plans/COMPTIME_ARITHMETIC_FOLDING.md`). Next frontier: the codegen port
+(`plans/archive/COMPTIME_ARITHMETIC_FOLDING.md`). Next frontier: the codegen port
 (out of evaluator scope — see `BOOTSTRAPPING.md`).
 
 ---

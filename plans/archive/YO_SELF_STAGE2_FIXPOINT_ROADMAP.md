@@ -18,7 +18,7 @@ identity). VERIFIED distribution @ 60 (all remaining families are DEEP):
 
 - **undeclared identifier 12** — leaked-locals: 5 user vars (`t`, `t_expr`,
   `get_info`, `frame`, `arg_expr`) + 7 `_file____User_temp_*`. ROOT MAPPED (with
-  decisive TS comparison) in issues/yo-self-stage2-leaked-locals-loop-body.md: a
+  decisive TS comparison) in issues/retired/yo-self-stage2-leaked-locals-loop-body.md: a
   loop-body owning local (e.g. `t := match(get(i),.Some(v)=>v,.None=>continue)`
   in extract_future_trait_from_type) whose while body contains control flow
   (continue/return) → `_schedule_scope_end_drops` SKIPS the loop-body begin
@@ -764,7 +764,7 @@ The 66 also include method calls in `while(...)` conditions — same family, re-
      profiled at O(n²)/hours and carefully optimized; a prior evaluator-side cfid-population
      attempt was reverted (memory `yo-self-phase3-generic-impl-funcid`). First diagnostic:
      disambiguate _different-sids_ (needs a structural-sig bridge, perf-careful) vs _ordering_
-     (needs pre-registration, cheap). See `issues/module-level-var-port.md`.
+     (needs pre-registration, cheap). See `issues/retired/module-level-var-port.md`.
 2. **Never-materialized-temp drops** (176). Single root, RC-sensitive; validate with corpus
    97 + std 152 AND an ASan/leak check, since it touches drop correctness.
 3. **implicit-int (172)** — find the decl-emission path dropping a return/var type.

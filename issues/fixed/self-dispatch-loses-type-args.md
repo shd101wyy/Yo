@@ -42,7 +42,7 @@ constraint defeat the unification). That is a separate, harder sub-problem;
 `type_arguments` is a necessary prerequisite but not sufficient alone.
 
 This is the current head of the **generic-method-resolution knot** cascade
-(see `plans/GENERIC_METHOD_RESOLUTION_KNOT.md`). It is what blocks
+(see `plans/archive/GENERIC_METHOD_RESOLUTION_KNOT.md`). It is what blocks
 `std/encoding/html.yo` (and ~all of `check ./yo-self`).
 
 ## Symptom

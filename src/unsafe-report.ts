@@ -25,7 +25,7 @@ import * as path from "path";
 /**
  * Sub-classification for `unsafe(...)` sites. Distinguishes the
  * different shapes the wrap can guard. Surfaced in
- * `plans/EXTERN_UNSAFE_WRAP.md` Phase D — auditors want an inventory
+ * `plans/archive/EXTERN_UNSAFE_WRAP.md` Phase D — auditors want an inventory
  * by what the wrap is actually marking, not just "this file has 12
  * unsafe lines".
  */

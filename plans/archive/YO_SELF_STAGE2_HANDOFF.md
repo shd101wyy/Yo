@@ -150,7 +150,7 @@ circular imports. They were **one root**: `EvalResult.value` is a plain `EvalVal
 copying the `Variable.value : ArrayList(EvalValue)` one-element-cell idiom.
 `EvalValue` has no `get` and no `Index` impl, and `git log -S` shows the field was
 never an `ArrayList` — the sites were wrong when written. Fixed in `9741db482`; see
-`issues/yo-self-evalresult-value-cell-confusion.md`.
+`issues/fixed/yo-self-evalresult-value-cell-confusion.md`.
 
 Two things hid it for so long:
 
@@ -705,7 +705,7 @@ this restores the full fixpoint gate AND is probably upstream of §3.1.
 
 - `issues/yo-self-no-matching-overload-silent-drop.md` — when EVERY overload
   candidate is rejected, TS hard-errors; yo-self drops the statement.
-- `issues/yo-self-ctfe-route-return-type-unresolved.md` — FIXED; kept for
+- `issues/fixed/yo-self-ctfe-route-return-type-unresolved.md` — FIXED; kept for
   the soundness-hole postmortem (vacuous comptime_asserts).
 - `scripts/bootstrap/t2/C2.yo` and `A_fn_ct.yo` — two open imm/list-adjacent
   standalone failures (TS rc=0), unchanged by the shell fix.

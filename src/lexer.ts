@@ -676,7 +676,7 @@ export function tokenize(input: string, modulePath: string): Token[] {
             {
               switch (value) {
                 // RESERVED for Dafny-style verification quantifiers
-                // (plans/FORALL_TO_GENERIC.md). The type-parameter binder was
+                // (plans/archive/FORALL_TO_GENERIC.md). The type-parameter binder was
                 // renamed `forall` -> `generic`; the word is held back so
                 // `requires`/`ensures` can bind VALUES with a predicate later.
                 // Rejected at lex time so stale code fails with the exact fix

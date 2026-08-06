@@ -64,7 +64,7 @@ export enum TypeTag {
 
   // str — builtin immutable view of STATIC string bytes (fat pointer).
   // The runtime materialization of comptime_str (literals / template
-  // segments); immortal backing. See plans/SLICE_REWORK.md.
+  // segments); immortal backing. See plans/archive/SLICE_REWORK.md.
   Str = "str",
 
   // Value

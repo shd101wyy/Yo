@@ -105,7 +105,7 @@ kept here (not in the live suite) until then so CI stays green.
 
 ## References
 
-- `plans/OVERLOADING_REDESIGN.md` — the redesign (§4 generic method, §6 clear errors,
+- `plans/backlog/OVERLOADING_REDESIGN.md` — the redesign (§4 generic method, §6 clear errors,
   Phase 1 audit, Phase 5 remove overload resolution).
 - `issues/yo-self-p1-transpile-tail.md` — the `starts_with` instance + the codegen
   first-hit dispatch fix.

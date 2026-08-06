@@ -52,7 +52,7 @@ privilege gate works.
 ## ⛔ `evaluator/types/flowability.ts` → `flowability.yo` (BLOCKED)
 
 `isFlowableExpr` — the `ref(T)`-flow soundness check (R1–R4 from
-`plans/ITERATOR_REDESIGN.md`). Used at `ref(name) := expr` binding sites and
+`plans/archive/ITERATOR_REDESIGN.md`). Used at `ref(name) := expr` binding sites and
 `-> ref(T)` function returns (callers: `function_type.yo`,
 `anonymous_function.yo`, `begin.yo`). Prerequisites NOT yet in yo-self:
 

@@ -2,7 +2,7 @@
 
 Apply AFTER the in-flight TIER 2 completes (the TS side is already edited in
 `src/codegen/exprs/while.ts`; both must land in ONE commit — see
-`issues/ts-while-loop-body-drops-missing-guards.md`).
+`issues/fixed/ts-while-loop-body-drops-missing-guards.md`).
 
 In `yo-self/codegen/exprs/while_loop.yo`, the loop-body end-of-scope drop pass
 (the `match(current_drops, .Some(drops) => { ... })` loop around line 167)

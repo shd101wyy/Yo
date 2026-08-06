@@ -295,7 +295,7 @@ y := (x + i32(1));      // y == i32(-2147483648) —— 定义的回卷，不是
 
 - `plans/MEMORY_SAFETY.md` —— 安全模型的设计文档。覆盖完整的理由、阶段化推进和考虑过的替代方案。
 - [FLOWABILITY.md](./FLOWABILITY.md) —— 面向用户的 `ref`/借用规则（流动性 + 借用失效）。
-- `plans/SLICE_REWORK.md` —— 移除堆切片的设计（内建 `str`、拷贝式区间）。
-- `plans/EXTERN_UNSAFE_WRAP.md` —— 对 extern "c" 函数调用要求逐调用包装的设计。
-- `plans/ITERATOR_REDESIGN.md` —— 安全模型下迭代如何工作。
+- `plans/archive/SLICE_REWORK.md` —— 移除堆切片的设计（内建 `str`、拷贝式区间）。
+- `plans/archive/EXTERN_UNSAFE_WRAP.md` —— 对 extern "c" 函数调用要求逐调用包装的设计。
+- `plans/archive/ITERATOR_REDESIGN.md` —— 安全模型下迭代如何工作。
 - `docs/zh-CN/DESIGN.md` —— 更广的语言设计；指针 / unsafe 部分与本页交叉引用。

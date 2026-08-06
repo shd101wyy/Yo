@@ -115,7 +115,7 @@ generic codegen's previous dependency on concrete capture struct layout.
 
 ## Why this blocked the unification plan
 
-Phase 4c of `plans/UNIFY_MODULE_AND_STRUCT.md` calls for migrating
+Phase 4c of `plans/archive/UNIFY_MODULE_AND_STRUCT.md` calls for migrating
 `std/prelude.yo` IO and other effects to nominal struct types. That
 migration could not land while this codegen issue remained.
 

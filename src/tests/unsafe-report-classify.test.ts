@@ -1,6 +1,6 @@
 /**
  * Tests for the sub-kind classification added by Phase D of
- * `plans/EXTERN_UNSAFE_WRAP.md` to `yo unsafe-report`.
+ * `plans/archive/EXTERN_UNSAFE_WRAP.md` to `yo unsafe-report`.
  *
  * Each `unsafe(...)` site gets one of:
  *   - extern-call: body starts with a name harvested from an

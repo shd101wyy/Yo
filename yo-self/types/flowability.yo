@@ -1,7 +1,7 @@
 //! Flowability check for `inout(T)`-yielding expressions.
 //!
 //! 1:1 port of `src/types/flowability.ts`. Implements the structural soundness
-//! rule from `plans/ITERATOR_REDESIGN.md`: an expression is "flowable" iff it
+//! rule from `plans/archive/ITERATOR_REDESIGN.md`: an expression is "flowable" iff it
 //! roots back to a `ref`-bound parameter (or another `ref`-bound local with a
 //! flowable initializer) along a projection-respecting chain.
 //!
@@ -341,7 +341,7 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
     return(true);
   });
   // Pointer arithmetic: `base.add(off)` / `base.sub(off)` (formerly the
-  // `&+`/`&-` operators — plans/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md)
+  // `&+`/`&-` operators — plans/archive/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md)
   // yields a pointer into the SAME storage as `base`. Flowable iff `base`
   // is flowable. GATED on the receiver's evaluated type being a raw
   // pointer — `add`/`sub` are ordinary method names on other types. The
@@ -578,7 +578,7 @@ alias_group_root :: (fn(variable : Variable) -> String)({
   root_id
 });
 
-/// v4.1 (plans/BORROW_EXCLUSIVITY.md): validate the PLACE passed to each
+/// v4.1 (plans/archive/BORROW_EXCLUSIVITY.md): validate the PLACE passed to each
 /// `ref` parameter. With local ref bindings removed, every borrow is an
 /// argument lvalue evaluated at the call boundary; it is safe iff the
 /// borrowed storage cannot be freed during the call. Whole variables are
@@ -608,7 +608,7 @@ _place_root_atom :: (fn(expr_in : AstExpr) -> Option(AstExpr))({
     true => Option(AstExpr).None
   )
 });
-/// Call-site ref/own exclusivity (v4, plans/BORROW_EXCLUSIVITY.md):
+/// Call-site ref/own exclusivity (v4, plans/archive/BORROW_EXCLUSIVITY.md):
 /// within ONE call, an argument bound to an `own(...)` parameter must
 /// not be (or alias) the root of another argument bound to a `inout(...)`
 /// parameter. `f(h.s, h)` with `f :: fn(inout(x) : String, own(victim) :

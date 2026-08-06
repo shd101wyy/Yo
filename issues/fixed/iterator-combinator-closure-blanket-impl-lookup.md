@@ -144,6 +144,6 @@ until the codegen rough edges are smoothed out.
 
 ## Related
 
-- `plans/TRAIT_CHECKING_ENV_REFACTOR.md`
+- `plans/archive/TRAIT_CHECKING_ENV_REFACTOR.md`
 - `tests/where_clause_fn_inference.test.yo` (the regression test for the
   underlying inference fix that does pass)

@@ -468,7 +468,7 @@ while(i < list.len(), {
 | index loop + `coll(i) = v`    | Index trait read/write                    | In-place struct/scalar element mutation                                     |
 | `for(chain.map(f), (x) => …)` | Treats chain as the iterator (value form) | Computed values                                                             |
 
-- The borrow form `for(coll, ref(x) => …)` was REMOVED (v4, plans/BORROW_EXCLUSIVITY.md — no interior refs); it emits a teaching compile error.
+- The borrow form `for(coll, ref(x) => …)` was REMOVED (v4, plans/archive/BORROW_EXCLUSIVITY.md — no interior refs); it emits a teaching compile error.
 - `Iterator` trait — defines `next() -> Option(Item)`. Custom iterables impl this.
 - `IntoIterator` trait — defines `into_iter() -> IntoIter`. Collections impl this so `for(coll, ...)` works.
 
@@ -517,7 +517,7 @@ String/str comparisons never need `as_str()` either (slice-rework step 2
 swept all of them): `token.value == "fn"`, `name != other_string`, and
 `"lit" == x` all dispatch directly via the heterogeneous `Eq(str)`/
 `Eq(String)` impls. `as_str()` itself is slated for deletion
-(plans/SLICE_REWORK.md) — do not introduce new calls to it.
+(plans/archive/SLICE_REWORK.md) — do not introduce new calls to it.
 
 ## `unwind` in a swallow handler SKIPS the restore code after the guarded call
 

@@ -346,7 +346,7 @@ Two levers, in order:
   is ALREADY a `ref(enum)` (the "convert to a handle type" blocker is GONE — task
   #36 did it), so interning is a refcount bump, not a representation rewrite. This
   is the only lever with multi-GB, peak-reducing potential. Full design, phasing,
-  mutation-safety analysis, and risks: **`plans/TYPEVALUE_HASH_CONSING.md`**.
+  mutation-safety analysis, and risks: **`plans/backlog/TYPEVALUE_HASH_CONSING.md`**.
 
 **Pragmatic stance**: the self-compile already _completes_ on 16 GB in a clean env
 (`YO_MAIN_STACK_MB=2048`, no stray procs; peak ~9.5 GB fits, slow post-peak from

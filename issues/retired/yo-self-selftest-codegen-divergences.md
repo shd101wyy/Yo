@@ -18,7 +18,7 @@ the whole integration suite.
 The 3 SKIPPED files are **uncovered, not passing** — `eval_basics`, `eval_tail_1` and
 `eval_tail_2` exceed the runner's process limit and were never executed. They do now
 `check` clean, after the fix in
-`issues/yo-self-evalresult-value-cell-confusion.md` took `check ./yo-self` to 305/305.
+`issues/fixed/yo-self-evalresult-value-cell-confusion.md` took `check ./yo-self` to 305/305.
 
 `effect_analysis` below is therefore the ONLY real divergence in either directory.
 
@@ -188,7 +188,7 @@ that hits it:
 
 And critically, `variable_name` — the temp name TS attaches to every runtime call
 result (`attachTempVariableToExpr`, `function.ts:2263`; see
-`issues/yo-self-io-async-missing-temp-comptime-io-callee.md`) — is **deliberately NOT
+`issues/fixed/yo-self-io-async-missing-temp-comptime-io-callee.md`) — is **deliberately NOT
 carried**, because "aliasing the inner temp name pollutes downstream type names"
 (the warning at `begin.yo:2165`, restated in that issue's proposed-fix section). So
 the inner expression's temp identity is destroyed by design, and codegen ends up

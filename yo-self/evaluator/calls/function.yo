@@ -596,7 +596,7 @@ _select_matching_overload :: (
   // (registered before `ComptimeNegate.neg`), its result was a runtime
   // UnknownVal, and every `NAME :: <ctfe call>` whose body used a prefix
   // operator bound an unknown — the batch-arm undeclared-identifier family
-  // (issues/yo-self-comptime-const-batch-undeclared.md).
+  // (issues/fixed/yo-self-comptime-const-batch-undeclared.md).
   matching := ArrayList(usize).new();
   (hi : usize) = usize(0);
   while(hi < base.all_hits.len(), {
@@ -976,7 +976,7 @@ ${ast_expr_to_string(call_expr)}`,
   out.value = Option(EvalValue).Some(winner_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(evaluated_callee), out);
 });
-/// plans/SLICE_REWORK.md Part C — copying range indexing.
+/// plans/archive/SLICE_REWORK.md Part C — copying range indexing.
 /// `recv(a..b)` / `recv(a..=b)` on a RUNTIME receiver that provides
 /// slice_copy / slice_copy_inclusive rewrites to that method call
 /// (owned-return value semantics; the Index trait's `*(Output)` pointer
@@ -1037,7 +1037,7 @@ _try_rewrite_range_index_to_slice_copy :: (
 /// the output's SomeType id (when the output is itself an unresolved SomeType), or
 /// `None`. Used to bridge the async closure's concrete result to the matching
 /// `io.await` site without touching the future type — see
-/// issues/yo-self-async-await-struct-result-eval.md.
+/// issues/fixed/yo-self-async-await-struct-result-eval.md.
 _future_output_some_id :: (fn(t : TypeValue) -> Option(String))(
   match(
     t,
@@ -1609,7 +1609,7 @@ _evaluate_funcval_runtime_call :: (
   // `yo_id_NNNN((int32_t)(true))`, where TS throws "Cannot unify incompatible
   // types: Expected i32, Given bool" — every TS call goes through
   // `tryToCallFunctionWithArguments`. See
-  // issues/yo-self-arg-type-check-bypassed.md.
+  // issues/fixed/yo-self-arg-type-check-bypassed.md.
   //
   // It runs HERE, on the unconditional path, and NOT in the per-argument loop
   // further down: that loop builds the SPECIALIZATION argument list, so a
@@ -2400,7 +2400,7 @@ evaluate_function_call :: (
     // wrapped around it then saw no error, and its own throw was swallowed by
     // the def-time trial wall, hollowing the batch
     // (tests/comptime.test.yo arms 26/27,
-    // issues/yo-self-cee-in-function-body.md). `TypeUni` was never in the
+    // issues/fixed/yo-self-cee-in-function-body.md). `TypeUni` was never in the
     // measured sample above.
     if((op_methods.len() == usize(0)) && ((is_primitive_type(receiver_ty) && !(is_unit_type(receiver_ty))) || is_type_hierarchy_type(receiver_ty)), {
       exn.throw(
@@ -2876,7 +2876,7 @@ evaluate_function_call :: (
     .Some(ci) => ci.env,
     .None => env
   );
-  // plans/EXTERN_UNSAFE_WRAP.md Phase A — extern "c" call-site gate.
+  // plans/archive/EXTERN_UNSAFE_WRAP.md Phase A — extern "c" call-site gate.
   //
   // A call to a function declared `extern "c"` (via `extern(...)` or
   // `c_include(...)`) must be wrapped in `unsafe(...)` at the call site,
@@ -5438,7 +5438,7 @@ Fix: wrap the call:
           .Some(ci) => ci.ty,
           .None => t_unit()
         );
-        // plans/SLICE_REWORK.md Part C: range indexing on a runtime receiver
+        // plans/archive/SLICE_REWORK.md Part C: range indexing on a runtime receiver
         // rewrites to slice_copy / slice_copy_inclusive method dispatch.
         match(
           _try_rewrite_range_index_to_slice_copy(expr, func_expr, args, callee_ty, callee_env),
@@ -5517,7 +5517,7 @@ Fix: wrap the call:
         // Does NOT touch the future type, any env binding, or synthesize (binding
         // `T` at synthesis regresses ALL async — the pipeline keeps the future
         // output as an unresolved SomeType through eval; see
-        // issues/yo-self-async-await-struct-result-eval.md). Instead: at io.async,
+        // issues/fixed/yo-self-async-await-struct-result-eval.md). Instead: at io.async,
         // record the closure's CONCRETE result (read from the func_id side-table,
         // the same eval→codegen bridge the async emitter uses) under the
         // future-output SomeType id (the result is `Impl(Future(T,E))`, a SomeT
@@ -5929,7 +5929,7 @@ Fix: wrap the call:
           // result has no variable_name, so codegen's effect-unwind check has
           // no statement position to wrap — `p.get_program(exn)` emitted with
           // NO escape check and a swallowed throw crashed the stage-2 binary
-          // (issues/yo-self-stage2-unwind-check-coverage.md).
+          // (issues/retired/yo-self-stage2-unwind-check-coverage.md).
           attach_temp_variable_to_expr(expr, true, ctx);
           return(expr);
         },
@@ -5941,7 +5941,7 @@ Fix: wrap the call:
             .Some(ci) => ci.ty,
             .None => t_unit()
           );
-          // plans/SLICE_REWORK.md Part C: range indexing on a runtime receiver
+          // plans/archive/SLICE_REWORK.md Part C: range indexing on a runtime receiver
           // rewrites to slice_copy / slice_copy_inclusive method dispatch.
           match(
             _try_rewrite_range_index_to_slice_copy(expr, func_expr, args, callee_ty_none, callee_env),

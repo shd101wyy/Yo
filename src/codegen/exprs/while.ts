@@ -113,7 +113,7 @@ function generateLoopBody(
     // Generate deferred drop expressions before end of loop body.
     // Apply the SAME two skip-guards as begin.ts's scope-end drop pass —
     // this inlined loop-body variant used to apply neither
-    // (issues/ts-while-loop-body-drops-missing-guards.md):
+    // (issues/fixed/ts-while-loop-body-drops-missing-guards.md):
     //   1. a codegen TEMP whose C declaration was never emitted in this
     //      scope (e.g. it lives inside a short-circuit conditional block)
     //      must not be referenced — clang "use of undeclared identifier";

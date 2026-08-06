@@ -1304,7 +1304,7 @@ ${exprToString(expr)}`,
       //
       // This branch catches DIRECT builtin calls (rare in user code).
       // The `p.add(n)` / `p.sub(n)` / `p.offset_from(q)` METHOD calls
-      // (plans/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md — formerly the
+      // (plans/archive/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md — formerly the
       // `&+`/`&-`/`&/` operators) are gated at method resolution
       // (calls/function.ts), where the receiver type is known; the
       // builtin call inside the prelude impl body is implicitly

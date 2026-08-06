@@ -5,10 +5,11 @@ Always create new design/plan documents here (see `AGENTS.md` workflow rules).
 
 ## Layout
 
-| Location   | Meaning                                                                                                                     |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `./*.md`   | **Living documents** — designs of shipped features (kept as reference), active plans, and parked-but-still-relevant designs |
-| `archive/` | **Closed** — completed campaign docs, superseded roadmaps, and one-off audits; each carries a banner saying what closed it  |
+| Location   | Meaning                                                                                                                    |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `./*.md`   | **Living documents** — designs of shipped features (kept as reference) and actively-driving plans/roadmaps                 |
+| `backlog/` | **Backlog** — designs and ideas for future work: written but not started, or explicitly parked/deferred                    |
+| `archive/` | **Closed** — completed campaign docs, superseded roadmaps, and one-off audits; each carries a banner saying what closed it |
 
 Current entry points:
 

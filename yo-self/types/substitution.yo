@@ -10,7 +10,7 @@ open(import("std/string"));
 { TypeValue } :: import("./definitions.yo");
 // P2 hash-consing: RE-WIRED (2026-07-02) — the runaway explosion this was
 // unwired for during the bisect turned out to be _patch_self_shell's missing
-// cycle guard (now fixed + guarded, issues/patch-self-shell-exponential-walk.md);
+// cycle guard (now fixed + guarded, issues/fixed/patch-self-shell-exponential-walk.md);
 // interning was exonerated. Measured win: −1.45 M TypeValues / −0.28 GB.
 { intern_type } :: import("./intern.yo");
 { are_types_compatible_exact } :: import("./compatibility.yo");
@@ -142,7 +142,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
   // P2 hash-consing: intern each substitution result. `substitute` recurses via
   // `recur`, so wrapping the body interns EVERY level bottom-up → shared subtrees
   // (and transient duplicates) canonicalize to one instance. Key validated to match
-  // codegen identity (plans/TYPEVALUE_HASH_CONSING.md). Gate: corpus 96/96.
+  // codegen identity (plans/backlog/TYPEVALUE_HASH_CONSING.md). Gate: corpus 96/96.
   if(
     (s.self_from.len() > usize(0)) && _is_self_pattern(s, ty),
     // This node IS `Self` — hand back the concrete receiver, as TS's

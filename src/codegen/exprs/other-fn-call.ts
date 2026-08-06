@@ -1458,7 +1458,7 @@ export function generateOtherFunctionCall(
                 cTypeString = getTypeString(returnType ?? exprType, context);
               }
 
-              // Phase B of plans/ITERATOR_REDESIGN.md — for a function
+              // Phase B of plans/archive/ITERATOR_REDESIGN.md — for a function
               // whose return slot is `-> ref(T)`, the C signature returns
               // `T*`. The temp variable that holds the result must
               // therefore be declared `T*` too. The evaluator marks
@@ -2902,7 +2902,7 @@ function emitEffectUnwindCheck(
     emitter.emitLine(`${indent}  __yo_effect_escaped = 0;`);
     const callerReturnType = context.currentFunctionType?.return.type;
     if (callerReturnType && !isUnitType(callerReturnType)) {
-      // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+      // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
       // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
       // ill-typed. Wrap with `*` when the function declares a ref return.
       let callerCType = getTypeString(callerReturnType, context);
@@ -2928,7 +2928,7 @@ function emitEffectUnwindCheck(
   } else {
     const callerReturnType = context.currentFunctionType?.return.type;
     if (callerReturnType && !isUnitType(callerReturnType)) {
-      // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+      // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
       // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
       // ill-typed. Wrap with `*` when the function declares a ref return.
       let callerCType = getTypeString(callerReturnType, context);
@@ -3061,7 +3061,7 @@ function generateEvidenceFnPtrCall(
     } else {
       const callerReturnType = context.currentFunctionType?.return.type;
       if (callerReturnType && !isUnitType(callerReturnType)) {
-        // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+        // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
         // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
         // ill-typed. Wrap with `*` when the function declares a ref return.
         let callerCType = getTypeString(callerReturnType, context);
@@ -3130,7 +3130,7 @@ function generateEvidenceFnPtrCall(
         } else {
           const callerReturnType = context.currentFunctionType?.return.type;
           if (callerReturnType && !isUnitType(callerReturnType)) {
-            // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+            // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
             // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
             // ill-typed. Wrap with `*` when the function declares a ref return.
             let callerCType = getTypeString(callerReturnType, context);
@@ -3194,7 +3194,7 @@ function generateEvidenceFnPtrCall(
         } else {
           const callerReturnType = context.currentFunctionType?.return.type;
           if (callerReturnType && !isUnitType(callerReturnType)) {
-            // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+            // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
             // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
             // ill-typed. Wrap with `*` when the function declares a ref return.
             let callerCType = getTypeString(callerReturnType, context);
@@ -3265,7 +3265,7 @@ function generateEvidenceFnPtrCall(
         // Return type for unwind propagation must match the CALLER's return type, not the callee's
         const callerReturnType = context.currentFunctionType?.return.type;
         if (callerReturnType && !isUnitType(callerReturnType)) {
-          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
           // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
           // ill-typed. Wrap with `*` when the function declares a ref return.
           let callerCType = getTypeString(callerReturnType, context);
@@ -3630,7 +3630,7 @@ function generateEvidenceCallSite(
       }
       if (callerReturnType && !isUnitType(callerReturnType)) {
         if (isHandlerInstallation) {
-          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
           // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
           // ill-typed. Wrap with `*` when the function declares a ref return.
           let callerCType = getTypeString(callerReturnType, context);
@@ -3651,7 +3651,7 @@ function generateEvidenceCallSite(
             emitter.emitLine(`${indent}  return;`);
           }
         } else {
-          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
           // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
           // ill-typed. Wrap with `*` when the function declares a ref return.
           let callerCType = getTypeString(callerReturnType, context);
@@ -3727,7 +3727,7 @@ function generateEvidenceCallSite(
           callerReturnType &&
           !isUnitType(callerReturnType)
         ) {
-          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
           // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
           // ill-typed. Wrap with `*` when the function declares a ref return.
           let callerCType = getTypeString(callerReturnType, context);
@@ -3745,7 +3745,7 @@ function generateEvidenceCallSite(
           emitter.emitLine(`${indent}  __yo_effect_escaped = 0;`);
           emitter.emitLine(`${indent}  return _unw_result;`);
         } else if (callerReturnType && !isUnitType(callerReturnType)) {
-          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
           // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
           // ill-typed. Wrap with `*` when the function declares a ref return.
           let callerCType = getTypeString(callerReturnType, context);

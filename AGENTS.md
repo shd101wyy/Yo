@@ -77,7 +77,7 @@ Yo source → Lexer → Parser → AST (expr.ts)
 | `plans/BOOTSTRAPPING.md`                  | Bootstrap campaign record (GOAL ACHIEVED — fixpoint holds, suite green); umbrella over the CLOSED per-slice docs                                                                                              |
 | `plans/SELF_HOSTING_COMPLETION.md`        | The next-phase roadmap: full CLI parity in yo-self, retire `src/`+bun, release bundles + install scripts (Koka model), LSP + VS Code                                                                          |
 | `plans/archive/YO_SELF_EXPRINFO_PRUNE.md` | REJECTED `yo-self` memory lever: pruning the process-lifetime `ExprInfoTable` (built, measured, refuted)                                                                                                      |
-| `plans/YO_SELF_ENV_SHARING.md`            | The real `yo-self` memory root cause: def-time body envs COPY what TS SHARES (7.4 M live `Variable`s), plus the remaining ranked levers                                                                       |
+| `plans/backlog/YO_SELF_ENV_SHARING.md`    | The real `yo-self` memory root cause: def-time body envs COPY what TS SHARES (7.4 M live `Variable`s), plus the remaining ranked levers                                                                       |
 
 **Renamed 2026-08-06 — translate these in older docs.** The `phase6*` prefix named an
 internal porting-plan phase and meant nothing to a reader, so the four macro/reflection

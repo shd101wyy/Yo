@@ -208,14 +208,14 @@ TypeValue :: ref(
       /// for non-generic or not-yet-instantiated structs. Faithful stand-in for
       /// `StructType.env` (TS carries the instantiation env): a method dispatched
       /// on this struct binds its `generic` params positionally from here. See
-      /// plans/STRUCT_TYPE_ARGUMENTS.md.
+      /// plans/archive/STRUCT_TYPE_ARGUMENTS.md.
       type_arguments : ArrayList(Self),
       /// True for source-namespace structs — anonymous modules (`impl({...})`,
       /// extern blocks) and imported modules. Mirrors TS
       /// `StructType.isSourceNamespace` (`SourceNamespaceType`,
       /// src/types/definitions.ts:514-518): TS has NO separate module type;
       /// modules ARE structs with this marker. See
-      /// plans/MODULE_AS_STRUCT_ALIGNMENT.md.
+      /// plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
       is_source_namespace : bool
     ),
     /// `EnumT` rather than `Enum` to avoid clashing with the keyword.
@@ -423,7 +423,7 @@ impl(
     // any TypeValue field; every consumer, e.g. `substitute`, constructs FRESH
     // values) and it equally breaks the infinite-recursion problem the manual
     // clone existed to solve (returning a handle never re-enters clone). Verified
-    // corpus-neutral (96/96). See plans/TYPEVALUE_HASH_CONSING.md §5.
+    // corpus-neutral (96/96). See plans/backlog/TYPEVALUE_HASH_CONSING.md §5.
     clone : (fn(inout(self) : Self) -> Self)(self)
   )
 );

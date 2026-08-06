@@ -58,7 +58,7 @@ import { evaluateExpression } from "./expr";
  * positions. Each refinement resolves to the same `TypeHierarchyType` value
  * `Type` itself returns — the kind is documentation/intent today, with
  * future enforcement (reject non-struct bindings) tracked separately. See
- * plans/EXPLICIT_EFFECTS.md §9.8.
+ * plans/archive/EXPLICIT_EFFECTS.md §9.8.
  */
 const TYPE_KIND_REFINEMENTS = new Set([
   "Struct",

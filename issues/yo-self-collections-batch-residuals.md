@@ -251,5 +251,5 @@ entries appear with DISTINCT per-generation SomeT-clone args
 re-evaluates the field types with fresh SomeT clones and the memo's
 same-SomeT-id rule splits them. This is the SomeT-identity-across-
 generations class = the declaration-stable-id / per-object resolved_concrete
-CONVERGED DIAGNOSIS (issues/yo-self-dyn-fn-field.md). The 4-variant repro
+CONVERGED DIAGNOSIS (issues/fixed/yo-self-dyn-fn-field.md). The 4-variant repro
 (re_v6/re_asan scratchpad copies) still crashes until that lands.

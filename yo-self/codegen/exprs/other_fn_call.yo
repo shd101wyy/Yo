@@ -749,7 +749,7 @@ _func_val_id :: (fn(v : EvalValue) -> String)(match(v,.FuncVal(__fvd2, _) => __f
 /// the just-set unwind flag — so the reference compiler RESUMES past swallowed
 /// throws (`unwind(<literal>)` has no call and really unwinds). The evaluator's
 /// def-time trial-eval swallow-and-continue behavior depends on reproducing
-/// this exactly (issues/yo-self-stage2-dyn-closure-divergence.md).
+/// this exactly (issues/fixed/yo-self-stage2-dyn-closure-divergence.md).
 _call_may_unwind :: (fn(func_ei_value : Option(EvalValue), function_type : TypeValue, param_types : ArrayList(TypeValue), callee_is_atom : bool, context : FunctionGenerationContext) -> bool)({
   fid_is_control := match(func_ei_value,.Some(v) => if(is_func_val(v), is_control_fn(_func_val_id(v)), false),.None => false);
   fid_is_effect_member := match(func_ei_value,.Some(v) => if(is_func_val(v), is_effect_record_member(_func_val_id(v)), false),.None => false);
@@ -1157,7 +1157,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             // separate method-dispatch emitter had NO check — after a throw
             // deep inside a method, the caller CONTINUED with a garbage
             // result (stage-2 prelude-eval SIGSEGV; see
-            // issues/yo-self-stage2-unwind-check-coverage.md).
+            // issues/retired/yo-self-stage2-unwind-check-coverage.md).
             cm_mft := match(method_fv,.Some(mv) => get_func_type(_func_val_id(mv)),.None => TypeValue.Unit);
             cm_ptypes := match(cm_mft,.Func({ param_types : cpt }) => cpt, _ => ArrayList(TypeValue).new());
             // Method dispatch: the callee is a property access, not an atom —

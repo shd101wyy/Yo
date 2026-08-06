@@ -186,9 +186,9 @@ See `plans/archive/YO_SELF_NAMED_LOCAL_DROPS.md §6` (Probe A/B source, the 6 ga
 
 ## 7. Docs/records to update when done
 
-- `plans/CYCLE_GC_TRACE_HOOKS.md §4` → resolved (Phase C1).
+- `plans/archive/CYCLE_GC_TRACE_HOOKS.md §4` → resolved (Phase C1).
 - `plans/archive/YO_SELF_NAMED_LOCAL_DROPS.md` → mark folded into Phase B3.
-- `issues/yo-self-cycle-gc-runtime-port.md` → `issues/fixed/` if fully closed.
+- `issues/fixed/yo-self-cycle-gc-runtime-port.md` → `issues/fixed/` if fully closed.
 - `plans/archive/BOOTSTRAPPING_CODEGEN.md` phase 4 → consume-tracking/RC + self-compile-memory (P2 #21).
 - `cycle-gc-trace-hooks-progress` memory + task #38.
 

@@ -209,7 +209,7 @@ export function typeContainsRcType(
  * frame-bound: they cannot escape via function return, module-level
  * binding, heap allocation, closure capture, or pointer indirection.
  *
- * See plans/EXPLICIT_EFFECTS.md §4 "Handler value unwind-escape
+ * See plans/archive/EXPLICIT_EFFECTS.md §4 "Handler value unwind-escape
  * restrictions — `ctl()` type constructor".
  *
  * Rules:
@@ -284,7 +284,7 @@ export function typeIsControlBound(
  * but **stops at heap-owning `object` types** — those manage their own
  * pointer's lifetime via Rc and cannot dangle through a return slot.
  *
- * Used by the flowability rule from `plans/SLICE_FLOWABILITY.md`:
+ * Used by the flowability rule from `plans/archive/SLICE_FLOWABILITY.md`:
  * a function returning a type for which this predicate is true (and
  * whose return is NOT already `-> ref(T)`) must have a flowable
  * return expression, because the return slot would otherwise smuggle
@@ -347,7 +347,7 @@ export function typeRepresentationContainsRawPtr(
       return true;
     // str is the builtin view of STATIC string bytes (immortal backing) —
     // it carries a pointer, but never a dangling one: as_str/as_slice are
-    // deleted and ranges copy (plans/SLICE_REWORK.md). No flow constraints.
+    // deleted and ranges copy (plans/archive/SLICE_REWORK.md). No flow constraints.
     case TypeTag.Str:
       return false;
     case TypeTag.Struct:

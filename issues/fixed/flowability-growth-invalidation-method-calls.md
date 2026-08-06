@@ -1,6 +1,6 @@
 # Flowability: mutating method calls invalidate live `ref` borrows (growth realloc UAF)
 
-**Status: ✅ RESOLVED 2026-06-12 — closed by `plans/BORROW_EXCLUSIVITY.md`
+**Status: ✅ RESOLVED 2026-06-12 — closed by `plans/archive/BORROW_EXCLUSIVITY.md`
 v4.** The entire bug class became INEXPRESSIBLE: `project`/`Indexable`
 and `ref` returns were deleted, so no safe expression can produce a
 pointer into reallocatable storage. Element access is value-based

@@ -2838,7 +2838,7 @@ _its_ fallback — the point is that TS never takes that fallback here). `y.x` t
 resolves to nothing and evaluates to `unit`.
 
 That narrowing is deliberate and documented —
-`issues/yo-self-anon-struct-literal-expected-type-ctor.md`, landed in `832fc672f`:
+`issues/fixed/yo-self-anon-struct-literal-expected-type-ctor.md`, landed in `832fc672f`:
 the TS-faithful rule broke stage-2 self-emission (s2 SIGSEGV in the dup/drop
 optimizer at prelude eval, traced to the `ref(struct(min, max))` `IntRange`
 literal in `yo-self/types/utils.yo`).

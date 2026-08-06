@@ -403,7 +403,7 @@ export function generateInitializationAssignment(
                 tempVarName,
                 context
               );
-              // Phase B of plans/ITERATOR_REDESIGN.md — when the RHS is
+              // Phase B of plans/archive/ITERATOR_REDESIGN.md — when the RHS is
               // a call to a `-> ref(T)` function, the C-level result is
               // `T*` even though the evaluator-level type is `T`.
               // `attachTempVariableToExpr` marks the call's temp
@@ -516,7 +516,7 @@ export function generateInitializationAssignment(
           cTypeString = getTypeString(lhs.$.type, context);
         }
 
-        // Phase B of plans/ITERATOR_REDESIGN.md — a `ref(name) := expr;`
+        // Phase B of plans/archive/ITERATOR_REDESIGN.md — a `ref(name) := expr;`
         // binding's `name` has `isRef: true`. The C-level storage
         // is `T*` (the same shape as `ref(name) : T` parameters);
         // subsequent reads of `name` emit `(*name)` via the

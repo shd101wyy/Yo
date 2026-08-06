@@ -14,7 +14,7 @@ This is Swift's model. It's Go's model. It's Java's model. All three are widely 
 
 ## Non-Goals
 
-- **No `&(T)` reference type, no Origins, no lifetimes.** See [`FUTURE_ORIGINS.md`](FUTURE_ORIGINS.md) for the deferred design.
+- **No `&(T)` reference type, no Origins, no lifetimes.** See [`FUTURE_ORIGINS.md`](backlog/FUTURE_ORIGINS.md) for the deferred design.
 - **No `unsafe fn` (function coloring).** Only `unsafe(...)` expression calls at the use site. Unsafety doesn't propagate to callers.
 - **No borrow checker, no aliasing rules.**
 - **No changes to `&(x)` semantics.** `&(x)` still returns `*(T)` exactly as today (and is forbidden in safe code by the privilege gate, not by a semantic change).
@@ -446,7 +446,7 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
 
 - [x] **Clone trait migrated.** Same shape. Trait + all primitive impls + Box(T) + Option(T) + Result(T,E) + `__derive_clone` macro + ArrayList + HashMap + String. Bulk-migration of `(&(x)).clone()` → `x.clone()` in yo-self/ via `scripts/migrate-clone-calls.ts` (29 files).
 - [x] **Eq, PartialEq, Ord** — checked. Already take parameters by value (`lhs : Self, rhs : Rhs`); no migration needed.
-- [x] **Iterator trait migrated** via the separate `plans/ITERATOR_REDESIGN.md` work. Trait declaration now reads `next : (fn(ref(self) : Self) -> Option(Self.Item))`; all stdlib iterator impls follow suit (`std/prelude.yo`, `std/collections/*`, `std/imm/*`, `std/string/*`). The for-loop interaction redesign (`Indexable.project` projection rule + `for(coll, ref(x) => body)`) is documented in that plan. The original "skipped per goal" stance was reversed once the value-iterator path proved its perf was within noise.
+- [x] **Iterator trait migrated** via the separate `plans/archive/ITERATOR_REDESIGN.md` work. Trait declaration now reads `next : (fn(ref(self) : Self) -> Option(Self.Item))`; all stdlib iterator impls follow suit (`std/prelude.yo`, `std/collections/*`, `std/imm/*`, `std/string/*`). The for-loop interaction redesign (`Indexable.project` projection rule + `for(coll, ref(x) => body)`) is documented in that plan. The original "skipped per goal" stance was reversed once the value-iterator path proved its perf was within noise.
 - [x] **ToString trait migrated** — trait declaration in `std/fmt/to_string.yo` plus all 28 impls (including primitives whose bodies use `self` as a bare value via `snprintf(..., "%llu", self)`, char, str, rune, String) now take `ref(self) : Self`. The `__derive_tostring` macro emits the same shape. The codegen bug that previously blocked this — `T self = (*self);` shadow on inout-param multi-statement bodies — was fixed earlier in the project (commit `d27044b1`).
 - [x] **Inherent-method `*(Self)` migrations** — bulk-migrated where `self` is only used for field access (`self.field`), not as a bare value:
   - `yo-self/emitter.yo` — 9 sigs, drops pragma
@@ -488,7 +488,7 @@ Comment-style directives (`// @skip_prelude`, `// @skip_wasm`, …) were the ori
 
 ## Open Questions
 
-1. **`extern fn` call sites.** ✅ Resolved (reversed from the original lean). Every `extern "c"` call must be wrapped in `unsafe(...)` even in pragma'd files — the pragma authorizes DECLARING the FFI symbol, the wrap is the per-call audit marker. See `plans/EXTERN_UNSAFE_WRAP.md`. The earlier "lean: no" reasoning (C calls aren't intrinsically UB) is technically correct — but in practice the wrap makes `yo unsafe-report` line up with UB-capable lines instead of just the file, which is the higher-value audit story.
+1. **`extern fn` call sites.** ✅ Resolved (reversed from the original lean). Every `extern "c"` call must be wrapped in `unsafe(...)` even in pragma'd files — the pragma authorizes DECLARING the FFI symbol, the wrap is the per-call audit marker. See `plans/archive/EXTERN_UNSAFE_WRAP.md`. The earlier "lean: no" reasoning (C calls aren't intrinsically UB) is technically correct — but in practice the wrap makes `yo unsafe-report` line up with UB-capable lines instead of just the file, which is the higher-value audit story.
 
 2. **`asm(...)` blocks.** Already inherently unsafe. **Lean: no `unsafe(asm(...))` requirement.** Document that `asm` is implicitly unsafe and only available in unsafe-capable files.
 
@@ -723,9 +723,9 @@ The following sharp edges remain after the gates above. They were raised in revi
    });
    ```
 
-   None of the Phase C structural gates caught this — the result expression doesn't have type `*(T)`. Closed by extending the iterator flowability rule to "any returned value whose representation transitively carries a raw pointer (or could provide source storage for one via an `object` arg) must be flowable". See **`plans/SLICE_FLOWABILITY.md`** for the design and **`tests/slice_flowability.test.yo`** for the verdicts. Same shape as Open Question 7 in `plans/ITERATOR_REDESIGN.md` (also resolved).
+   None of the Phase C structural gates caught this — the result expression doesn't have type `*(T)`. Closed by extending the iterator flowability rule to "any returned value whose representation transitively carries a raw pointer (or could provide source storage for one via an `object` arg) must be flowable". See **`plans/archive/SLICE_FLOWABILITY.md`** for the design and **`tests/slice_flowability.test.yo`** for the verdicts. Same shape as Open Question 7 in `plans/archive/ITERATOR_REDESIGN.md` (also resolved).
 
-2. **`extern(...)` call sites must be wrapped in `unsafe(...)` — ✅ RESOLVED.** Every `extern "c"` call must be wrapped in `unsafe(...)` even in `pragma(Pragma.AllowUnsafe);` files. The pragma authorizes DECLARING the FFI symbol; the wrap is the per-call audit marker. `extern(...)` declarations, `c_include(...)` declarations, and `asm(...)` blocks themselves stay unwrapped — the pragma is the right gate for those. See **`plans/EXTERN_UNSAFE_WRAP.md`** for the design and **`tests/extern_unsafe_wrap.test.yo`** for the verdicts.
+2. **`extern(...)` call sites must be wrapped in `unsafe(...)` — ✅ RESOLVED.** Every `extern "c"` call must be wrapped in `unsafe(...)` even in `pragma(Pragma.AllowUnsafe);` files. The pragma authorizes DECLARING the FFI symbol; the wrap is the per-call audit marker. `extern(...)` declarations, `c_include(...)` declarations, and `asm(...)` blocks themselves stay unwrapped — the pragma is the right gate for those. See **`plans/archive/EXTERN_UNSAFE_WRAP.md`** for the design and **`tests/extern_unsafe_wrap.test.yo`** for the verdicts.
 
 3. **`asm(...)` blocks similarly carry no `unsafe(...)` wrap requirement** — they are implicitly unsafe by virtue of needing pragma. Same reasoning as #2; the audit story owns the granularity gap.
 
@@ -747,9 +747,9 @@ Resolved decisions:
 - ✅ **Migration of existing user code with `*(T)`** — auto-emit `pragma(Pragma.AllowUnsafe);` at the top of pre-existing files via `scripts/add-pragma.ts` (633 files touched in one mechanical commit).
 - ✅ **`inout` parameter capture in closures** — forbid all closure captures of inout-params for v1. Revisit if real APIs demand non-escaping-closure carve-outs.
 - ✅ **Read-only-by-ref modifier (`in(name) : T`)** — defer to v2. v1 ships only `inout`.
-- ✅ **Iterator trait redesign** — landed via `plans/ITERATOR_REDESIGN.md` (separate plan). Iterators now expose value-yielding `iter()` / `into_iter()` and the `Indexable.project` projection rule for in-place mutation. `for(coll, ref(x) => body)` works end-to-end.
-- ✅ **Dangling-slice hole** — closed via `plans/SLICE_FLOWABILITY.md`. The flowability rule now extends to any return type whose representation transitively carries a raw pointer.
-- ✅ **Per-call extern audit marker** — every `extern "c"` call must be wrapped in `unsafe(...)`, even in pragma'd files (see `plans/EXTERN_UNSAFE_WRAP.md`). The pragma authorizes declaring the FFI symbol; the wrap is the per-call review marker.
+- ✅ **Iterator trait redesign** — landed via `plans/archive/ITERATOR_REDESIGN.md` (separate plan). Iterators now expose value-yielding `iter()` / `into_iter()` and the `Indexable.project` projection rule for in-place mutation. `for(coll, ref(x) => body)` works end-to-end.
+- ✅ **Dangling-slice hole** — closed via `plans/archive/SLICE_FLOWABILITY.md`. The flowability rule now extends to any return type whose representation transitively carries a raw pointer.
+- ✅ **Per-call extern audit marker** — every `extern "c"` call must be wrapped in `unsafe(...)`, even in pragma'd files (see `plans/archive/EXTERN_UNSAFE_WRAP.md`). The pragma authorizes declaring the FFI symbol; the wrap is the per-call review marker.
 - ✅ **Integer overflow** — `-fwrapv` is passed by default to clang/gcc/zig, defining signed-overflow as two's-complement wrap. Benchmark showed < 0.5% perf impact on realistic loops.
 
 Phase ordering (foundation → leaves):
@@ -757,7 +757,7 @@ Phase ordering (foundation → leaves):
 1. **Phase A** ✅ — `unsafe(...)` marker. Gates `.*` deref, `.add`/`.sub`/`.offset_from` arithmetic, and `consume(p.* = v)`.
 2. **Phase B** ✅ — `ref(name) : T` parameter form. Used as the safe in-place-mutation primitive for user code, and as the replacement for `*(Self)` receivers in stdlib trait method signatures.
 3. **Phase C** ✅ — privilege gate + `pragma(Pragma.AllowUnsafe);` builtin + `Pragma` enum in prelude. Gates `unsafe(...)`, `asm(...)`, and `extern fn` declarations on the calling file's pragma. Pragma added to every `std/`/`yo-self/`/`tests/` file.
-4. **Phase D** ✅ — Hash, Clone, ToString, and Iterator traits migrated to `ref(self) : Self` (or `inout(self)` where state needs to mutate). Derive macros updated; ArrayList/HashMap/String/imm.List impls updated; bulk migration of `(&(x)).clone()` → `x.clone()` (29 yo-self files). Iterator migration is documented in `plans/ITERATOR_REDESIGN.md`.
+4. **Phase D** ✅ — Hash, Clone, ToString, and Iterator traits migrated to `ref(self) : Self` (or `inout(self)` where state needs to mutate). Derive macros updated; ArrayList/HashMap/String/imm.List impls updated; bulk migration of `(&(x)).clone()` → `x.clone()` (29 yo-self files). Iterator migration is documented in `plans/archive/ITERATOR_REDESIGN.md`.
 5. **Phase E** ✅ — `yo unsafe-report` (audit-friendly listing of every unsafe site, asm, extern, and pragma file), now with sub-kind classification (extern-call / deref / arith / addr-of / other) and top-callees summary. `yo audit-unsafe` (LLM-backed) remains deferred.
 6. **Phase F** ✅ — Docs (DESIGN.md en+zh, syntax instructions, cheatsheet, cross-links to `yo unsafe-report`, and the standalone `docs/{en-US,zh-CN}/MEMORY_SAFETY.md` user guide).
 

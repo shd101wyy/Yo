@@ -144,7 +144,7 @@ export interface Variable {
    * (`src/evaluator/types/flowability.ts`) to admit non-`ref`
    * parameters as a valid source when returning a `Slice(T)`-bearing
    * value — the caller's parameter storage is alive across the call.
-   * See plans/SLICE_FLOWABILITY.md Phase B.
+   * See plans/archive/SLICE_FLOWABILITY.md Phase B.
    */
   isParameter?: boolean;
 
@@ -1581,7 +1581,7 @@ export function getReceiverMethodsByNameFromEnv({
   // `methods.length === 0`, so a hit at THIS point used to suppress the
   // POINTEE's own methods entirely. Since the pointer-operator migration gave
   // `*(T)` the plain methods `add`/`sub`/`offset_from`
-  // (plans/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md), that made a method call
+  // (plans/archive/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md), that made a method call
   // on a `*(Self)` receiver resolve to raw pointer ARITHMETIC whenever the
   // pointee's method shared its name — `self.add(value)` inside
   // `impl(generic(T), MyStruct(T), add : …)` reported "Failed to synthesize
@@ -1667,7 +1667,7 @@ export function getReceiverMethodsByNameFromEnv({
     // collect impl'd-trait methods when NO direct/inherent method of this name exists.
     // A type (inherent) method shadows a same-name trait method (Rust's rule); a call
     // matching only the trait must error, not silently fall through to it. See
-    // plans/OVERLOADING_REDESIGN.md §6 + issues/fixed/yo-inherent-first-resolution.md.
+    // plans/backlog/OVERLOADING_REDESIGN.md §6 + issues/fixed/yo-inherent-first-resolution.md.
     // (Methods provided purely by trait impls — e.g. `==` via `Eq(String)`/`Eq(str)` —
     // have no direct field, so directMethods is empty and they are still collected and
     // argument-type-dispatched among themselves.)

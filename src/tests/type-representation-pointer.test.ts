@@ -1,6 +1,6 @@
 /**
  * Tests for `typeRepresentationContainsRawPtr` — the helper that drives
- * the flowability rule from `plans/SLICE_FLOWABILITY.md`. Phase A.
+ * the flowability rule from `plans/archive/SLICE_FLOWABILITY.md`. Phase A.
  *
  * Verifies the predicate's leaves and recursion structure:
  * - `Ptr(T)` is the "yes" leaf (base case).

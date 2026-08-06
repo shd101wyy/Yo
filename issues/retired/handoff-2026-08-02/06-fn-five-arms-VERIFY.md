@@ -32,7 +32,7 @@ VERDICT: SOUND-WITH-CORRECTIONS on the roots — **REFUTED on the stage-2 attrib
 
 **Do not land as a bundle.**
 
-- **A1 — do not land.** A straight revert of a deliberate, documented scope narrowing (`issues/yo-self-anon-struct-literal-expected-type-ctor.md` § "Scope narrowing") whose stage-2 SIGSEGV is on record, with no new evidence the second-order codegen gap is closed.
+- **A1 — do not land.** A straight revert of a deliberate, documented scope narrowing (`issues/fixed/yo-self-anon-struct-literal-expected-type-ctor.md` § "Scope narrowing") whose stage-2 SIGSEGV is on record, with no new evidence the second-order codegen gap is closed.
 - **A2 — do not land yet.** Separable and it does fix `A_g4_min` alone, but A2-only stage-2 SIGBUSes. Gate: run a HEAD stage-2 control to solo completion. If HEAD completes and A2 doesn't, A2 must land paired with a depth cap / cycle guard in `get_type_string`.
 - **B1 — do not land.** No measured payoff; its function is the one self-recursing in the crash. Revisiting needs (i) a cycle guard covering the SomeT arm, (ii) `getEffectiveRequiredTraitTypes`, (iii) a direction audit of `assignment.yo:958`.
 - **B2** remains arm 65's real root; the report's localization is verified and its "no patch" stance is correct.

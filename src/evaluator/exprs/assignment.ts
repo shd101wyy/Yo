@@ -260,7 +260,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
     }
     env = rhs.$.env;
 
-    // Slice-flowability at the assignment boundary (plans/SLICE_FLOWABILITY.md;
+    // Slice-flowability at the assignment boundary (plans/archive/SLICE_FLOWABILITY.md;
     // issues/slice-flowability-assignment-escape.md). When the target's type
     // carries a raw pointer (a `Slice`/`str`/aggregate-thereof — owned `object`
     // types like `String`/`ArrayList` are excluded by the predicate), the RHS
@@ -887,7 +887,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
     env = rhs.$.env;
 
     // Slice-flowability at the FIELD/INDEX-write boundary (the sibling of the
-    // simple-variable gate above; plans/SLICE_FLOWABILITY.md). Writing a
+    // simple-variable gate above; plans/archive/SLICE_FLOWABILITY.md). Writing a
     // raw-pointer-carrying value (`Slice`/`str`/aggregate) into a field or
     // element — `holder.s = localSlice`, `arr(0) = localSlice` — must root the
     // RHS in storage that outlives the field's CONTAINER. Otherwise the slice

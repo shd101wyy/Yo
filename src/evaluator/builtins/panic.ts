@@ -54,7 +54,7 @@ export function evaluatePanic({
   //      mismatching against the function's overall return type.
   //
   //   2. Otherwise, fall back to the function's return type (the original
-  //      Phase B/C `*(T)` rule from plans/ITERATOR_REDESIGN.md — needed
+  //      Phase B/C `*(T)` rule from plans/archive/ITERATOR_REDESIGN.md — needed
   //      because panic in tail position of an `-> ref(T)` body must
   //      produce `*(T)` to match the body's expected C-ABI return).
   //

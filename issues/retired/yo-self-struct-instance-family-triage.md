@@ -36,7 +36,7 @@ Marker counts in the yo-self emit (`imm_map`): `Unknown type: Type` = 8,
 `no C type name` = 8, `Failed to transpile` = 2. TS passes the same file 21/21.
 
 This is the already-documented **comptime-Type-arg-as-runtime-param** root
-(`issues/yo-self-gap6-ctor-memo-reconciliation-attempt7.md`, "Round-2
+(`issues/retired/yo-self-gap6-ctor-memo-reconciliation-attempt7.md`, "Round-2
 correction" section; handoff task #15, WIP patch at
 `scratchpad/round2_param_model_wip.patch`). Do not chase it as a type-identity
 bug.

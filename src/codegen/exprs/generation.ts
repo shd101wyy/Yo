@@ -329,7 +329,7 @@ function generateUnwind(
     }
     // For functions with non-void return type, return a dummy value
     // (the caller checks __yo_effect_escaped and ignores the return value).
-    // Phase B of plans/ITERATOR_REDESIGN.md — for `-> ref(T)` functions,
+    // Phase B of plans/archive/ITERATOR_REDESIGN.md — for `-> ref(T)` functions,
     // the C-level return is `T*` (a pointer). The dummy must be NULL of
     // that pointer type, not `(T){0}` (which is a value of T).
     if (functionContext.currentFunctionType) {

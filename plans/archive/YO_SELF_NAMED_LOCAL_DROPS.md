@@ -13,8 +13,8 @@ RC-via-enum-field landed too (RC_EMISSION §10, p4 0→0). This file is retained
 scheduling into `yo-self/evaluator/exprs/begin.yo`. ⚠️ Delicate RC change (double-free/UAF
 risk); validate with TS-ASan + the corpus + `tracked_count` every iteration.
 
-Tracked as **task #38**. Related: `issues/yo-self-cycle-gc-runtime-port.md` (gap #3),
-`plans/CYCLE_GC_TRACE_HOOKS.md` §4 (this is its real root), `plans/archive/BOOTSTRAPPING_CODEGEN.md`
+Tracked as **task #38**. Related: `issues/fixed/yo-self-cycle-gc-runtime-port.md` (gap #3),
+`plans/archive/CYCLE_GC_TRACE_HOOKS.md` §4 (this is its real root), `plans/archive/BOOTSTRAPPING_CODEGEN.md`
 phase 4 ("complete consume-tracking mirror" — this is part of that remaining work).
 
 ---
@@ -209,8 +209,8 @@ Build loop (no `--release`, per memory): `./yo-cli compile yo-self/main.yo -o /t
 
 ## 9. Final docs/records to update when done
 
-- `plans/CYCLE_GC_TRACE_HOOKS.md` §4 → mark drop-on-reassign resolved.
-- `issues/yo-self-cycle-gc-runtime-port.md` → move to `issues/fixed/` if fully closed.
+- `plans/archive/CYCLE_GC_TRACE_HOOKS.md` §4 → mark drop-on-reassign resolved.
+- `issues/fixed/yo-self-cycle-gc-runtime-port.md` → move to `issues/fixed/` if fully closed.
 - `plans/archive/BOOTSTRAPPING_CODEGEN.md` phase 4 → update consume-tracking/RC status; note the
   self-compile memory impact (P2 task #21) if measurable.
 - Update the `cycle-gc-trace-hooks-progress` memory + task #38.

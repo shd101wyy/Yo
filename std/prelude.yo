@@ -5527,7 +5527,7 @@ impl(*(void), Ord(*(void))(
   (>=) : ((lhs, rhs) -> __yo_ptr_gte(lhs, rhs))
 ));
 */
-// Pointer operations, Rust-style (plans/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md):
+// Pointer operations, Rust-style (plans/archive/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md):
 // comparison is plain Eq/Ord (address identity — same as C and Rust's raw
 // pointers; note ref-semantics OBJECT types keep VALUE equality via their
 // own Eq impls), arithmetic is explicit METHODS so offsetting stays
@@ -5617,7 +5617,7 @@ impl(
 /// Bodies take `&(self)` so the `*(Array(T, N))`-expecting builtin
 /// receives the right C-ABI shape — `inout(self) : Self` gives the body
 /// a value-typed view of `self` even though the runtime passes a
-/// pointer. See plans/ITERATOR_REDESIGN.md.
+/// pointer. See plans/archive/ITERATOR_REDESIGN.md.
 impl(
   generic(T : Type, N : usize),
   Array(T, N),
@@ -5632,7 +5632,7 @@ impl(
 /// interop and std internals. Carries a raw pointer, so the existing
 /// raw-pointer gates apply: safe code cannot name or construct it.
 /// Replaces the builtin Slice(T) for internal plumbing
-/// (plans/SLICE_REWORK.md step 4).
+/// (plans/archive/SLICE_REWORK.md step 4).
 RawSlice :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(ptr : *(T), len : usize)
 );
@@ -7992,7 +7992,7 @@ export(IterZip);
 /// expand to `combinator_chain.into_iter().next()` uniformly with
 /// `for(coll, (x) => body)` — the macro always calls `.into_iter()`
 /// for the value-iteration form, and for an iterator we hand back
-/// self. See plans/ITERATOR_REDESIGN.md.
+/// self. See plans/archive/ITERATOR_REDESIGN.md.
 impl(
   generic(I : Type),
   where(I <: Iterator),

@@ -70,7 +70,7 @@ regression. Pieces (full TS mechanism in the issue doc):
 Explicit-handler effects are done. Implicit (unthreaded) handlers need the
 evidence-passing machinery (`resolveEvidenceArgsForCallSite` + call-through). Only
 needed if yo-self's own source uses implicit effects; check before doing.
-See `issues/yo-self-sync-effect-codegen-unported.md`.
+See `issues/fixed/yo-self-sync-effect-codegen-unported.md`.
 
 ## Step 3 — Phase 6: self-host fixpoint
 

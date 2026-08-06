@@ -912,7 +912,7 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
   // type, which may not match the handler function's declared return type.
   const evaluatedBodyReturnType = evaluatedBody.$?.type;
 
-  // Phase B of plans/ITERATOR_REDESIGN.md — flowability check on
+  // Phase B of plans/archive/ITERATOR_REDESIGN.md — flowability check on
   // the return expression of a `-> ref(T)` function. The body must
   // root back to a `ref`-bound parameter along a
   // projection-respecting chain (R1–R4 in the plan); otherwise the
@@ -933,7 +933,7 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
     !functionType.return.isCompileTimeOnly &&
     !isImplicitlyUnsafeCapableFile(functionBodyExpr.token.modulePath)
   ) {
-    // plans/SLICE_FLOWABILITY.md Phase C — a function whose return
+    // plans/archive/SLICE_FLOWABILITY.md Phase C — a function whose return
     // type is value-typed but transitively carries a raw pointer in
     // its representation (e.g. `Slice(T)`, `str`, or any struct that
     // wraps one) must root the returned value in caller-owned storage.

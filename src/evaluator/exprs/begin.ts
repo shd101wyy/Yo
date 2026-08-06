@@ -1340,7 +1340,7 @@ Install the handler at its use site instead:
           }
         }
 
-        // plans/SLICE_FLOWABILITY.md Phase D — explicit `return(expr)`
+        // plans/archive/SLICE_FLOWABILITY.md Phase D — explicit `return(expr)`
         // inside a function whose declared return type carries a raw
         // pointer in its representation (Slice/str/struct-wrapping-slice,
         // etc.) must root the value in caller-owned storage. Matches the

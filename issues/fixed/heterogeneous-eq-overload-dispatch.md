@@ -1,6 +1,6 @@
 # Heterogeneous trait-method overloads: two dispatch bugs (FIXED)
 
-**Status: FIXED.** Unblocked `plans/SLICE_REWORK.md` step 1 (`String == str`,
+**Status: FIXED.** Unblocked `plans/archive/SLICE_REWORK.md` step 1 (`String == str`,
 `StrPattern`). Regression tests: `tests/impl.test.yo` ("heterogeneous
 trait-method overload dispatch", "trait-impl body delegating to a same-name
 inherent overload") and `tests/string/string.test.yo` (String↔str Eq +
@@ -32,8 +32,8 @@ impl's `other : str` annotation.
 
 ```ts
 argValue.specializedType = {
-  ...traitFieldType,                       // env = TRAIT's definition env
-  parameters: argValue.type.parameters,    // exprs = IMPL's annotation ASTs
+  ...traitFieldType, // env = TRAIT's definition env
+  parameters: argValue.type.parameters, // exprs = IMPL's annotation ASTs
   parametersFrame: argValue.type.parametersFrame,
 };
 ```

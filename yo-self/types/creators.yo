@@ -184,7 +184,7 @@ t_module :: (
   ) -> TypeValue
 )(
   // Source-namespace STRUCT — TS has no module type (SourceNamespaceType,
-  // src/types/definitions.ts:514). plans/MODULE_AS_STRUCT_ALIGNMENT.md.
+  // src/types/definitions.ts:514). plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
   .Struct(String.from(""), name, field_labels, field_types, false, false, false, String.from(""), ArrayList(TypeValue).new(), true)
 );
 /// Create a named module type with no fields.
@@ -394,7 +394,7 @@ _shell_walk_visited :: (fn(visited : ArrayList(String), tok : String) -> bool)({
 /// and is linear in distinct nodes. Zero allocation on the common
 /// no-shell path — this is the guard that keeps `_patch_self_shell` from
 /// rebuilding (and formerly recursing forever into) the whole type universe
-/// for every defined field (issues/patch-self-shell-exponential-walk.md).
+/// for every defined field (issues/fixed/patch-self-shell-exponential-walk.md).
 _contains_self_shell :: (
   fn(t : TypeValue, shell_id : String, visited : ArrayList(String)) -> bool
 )(
@@ -464,7 +464,7 @@ _contains_self_shell :: (
 /// the `shell_id` passed at the call site is unique per type, so the
 /// enum and struct arms never cross-fire.
 ///
-/// TERMINATION + PERF (issues/patch-self-shell-exponential-walk.md): the
+/// TERMINATION + PERF (issues/fixed/patch-self-shell-exponential-walk.md): the
 /// compiler's own sources produce CYCLIC type graphs (EvalValue → … →
 /// Variable → Option(EvalValue) → …), and the unguarded rebuild recursion
 /// walked them forever, allocating rebuilt collections at every level

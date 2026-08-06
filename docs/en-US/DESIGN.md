@@ -5,7 +5,7 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 
 **Yo** aims to be a simple to learn programming language for C and JavaScript (TypeScript) programmers 😉.
 
-**Yo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types [In Design](../../plans/IN_DESIGN.md).
+**Yo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types [In Design](../../plans/backlog/IN_DESIGN.md).
 
 Our goal is to be a practical language that is easy to use and easy to learn.
 
@@ -3292,7 +3292,7 @@ For the full design, trait definition, and implementation details, see [INDEX_TR
 
 ## In Design
 
-Please check [IN_DESIGN.md](../../plans/IN_DESIGN.md) for features that are still in design phase.
+Please check [IN_DESIGN.md](../../plans/backlog/IN_DESIGN.md) for features that are still in design phase.
 
 ## References
 

@@ -1407,7 +1407,7 @@ Got:   ${typeToString(typeValue.type)}`,
     }
   }
 
-  // Call-site ref/own exclusivity (v4, plans/BORROW_EXCLUSIVITY.md):
+  // Call-site ref/own exclusivity (v4, plans/archive/BORROW_EXCLUSIVITY.md):
   // an own-bound argument must not alias the root of a ref-bound
   // argument in the same call — the callee could release the object
   // the borrow points into.

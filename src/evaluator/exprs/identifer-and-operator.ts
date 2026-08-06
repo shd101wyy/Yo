@@ -226,7 +226,7 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
-  // str — builtin static string view (plans/SLICE_REWORK.md)
+  // str — builtin static string view (plans/archive/SLICE_REWORK.md)
   else if (identifier === TypeTag.Str) {
     const value = createTypeValue(createStrType());
     expr.$ = {

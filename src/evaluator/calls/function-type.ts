@@ -114,7 +114,7 @@ export function checkDeferredGenericReturnType({
     return;
   }
 
-  // Phase B/C of plans/ITERATOR_REDESIGN.md — for `-> ref(T)`
+  // Phase B/C of plans/archive/ITERATOR_REDESIGN.md — for `-> ref(T)`
   // functions, the user-visible return is `T` but the body
   // produces `*(T)`. Compare against `*(T)` in that case.
   const expectedReturnForCompare: Type = functionType.return.isRef
@@ -205,7 +205,7 @@ export function createFunctionBodyEvaluationContext(
     }
   }
 
-  // Phase B/C of plans/ITERATOR_REDESIGN.md — for `-> ref(T)`
+  // Phase B/C of plans/archive/ITERATOR_REDESIGN.md — for `-> ref(T)`
   // functions, the body produces a place expression (`*(T)` at the
   // C ABI). Setting the body's expected type to `*(T)` lets
   // internal type unification — especially across `match` and
@@ -523,7 +523,7 @@ export function tryToImplementFunctionByFunctionType({
     !newFunctionType.return.isCompileTimeOnly &&
     !isImplicitlyUnsafeCapableFile(functionBodyExpr.token.modulePath)
   ) {
-    // plans/SLICE_FLOWABILITY.md Phase C — a function whose return
+    // plans/archive/SLICE_FLOWABILITY.md Phase C — a function whose return
     // type is value-typed but transitively carries a raw pointer in
     // its representation (e.g. `Slice(T)`, `str`, or any struct that
     // wraps one) must root the returned value in caller-owned storage.
@@ -578,7 +578,7 @@ export function tryToImplementFunctionByFunctionType({
   // SomeType result is a generic param of an implicit-parameter method; it will be
   // resolved when the function is specialized at a concrete call site.
   //
-  // Phase B/C of plans/ITERATOR_REDESIGN.md — for `-> ref(T)`
+  // Phase B/C of plans/archive/ITERATOR_REDESIGN.md — for `-> ref(T)`
   // functions, the body produces `*(T)`; compare against that.
   const finalExpectedReturnForBody: Type = newFunctionType.return.isRef
     ? createPtrType(newFunctionType.return.type)

@@ -70,7 +70,7 @@ tiers, plus a third that was retired:
    that those tests were keeping alive (`issues/fixed/eval-for-loop-3arg-vs-2arg.md`
    prescribed exactly this: "delete the handler + migrate the trio in the same
    change"). It had accumulated 5 real bugs that nothing could catch — see
-   `issues/yo-self-evalresult-value-cell-confusion.md`.
+   `issues/fixed/yo-self-evalresult-value-cell-confusion.md`.
 
 Tests that need macro **dispatch** (executing macro bodies at expansion
 time) are gated on `MACRO_DISPATCH_ENABLED` in

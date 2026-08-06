@@ -4,7 +4,7 @@ Status: **REPAIRED.** Phases B, C, and D (for-macro) work end-to-end on `Array(T
 
 ## Tl;dr (history)
 
-Phases B, C, and D of `plans/ITERATOR_REDESIGN.md` were committed (`ebe910a6`, `ca518556`, `d9ddb7d3`, `c36429c8`, `9b089395`, `e9143f5e`) and reported as "all tests passing." **All those test reports were phantom.** Since `a3510d20` (2026-05-19), the Yo test framework had been silently skipping test bodies — emitting `/* "match" expression is not evaluated */` in the generated `__yo_user_main`, running an empty `main`, exiting 0, and reporting "passed." Commit `7b3b788b` repaired the test framework. With real test signal, three concrete bugs surfaced and have now been fixed:
+Phases B, C, and D of `plans/archive/ITERATOR_REDESIGN.md` were committed (`ebe910a6`, `ca518556`, `d9ddb7d3`, `c36429c8`, `9b089395`, `e9143f5e`) and reported as "all tests passing." **All those test reports were phantom.** Since `a3510d20` (2026-05-19), the Yo test framework had been silently skipping test bodies — emitting `/* "match" expression is not evaluated */` in the generated `__yo_user_main`, running an empty `main`, exiting 0, and reporting "passed." Commit `7b3b788b` repaired the test framework. With real test signal, three concrete bugs surfaced and have now been fixed:
 
 - ~~**Phase C's `Indexable(usize).project(...)` impls compile but fail to type-check at the call site.**~~ **FIXED** by `4bee3bc3` (extend `*(T)` body-typing to the generic-impl specialization path in `impl.ts`) + updating `Array.project` and `Slice.project` bodies to pass `&(self)` rather than bare `self` to `__yo_array_index`/`__yo_slice_index`.
 - ~~**Phase D's for-macro expands to `coll.project(pos)` where `coll` is a local. Phase B's flowability rule R3 rejects this**~~ **FIXED** by `75f43055` (relax R1 at the binding site: same-frame locals are flowable, while the strict ref-bound-only rule still applies at function-return sites where the soundness argument actually matters). For-macro also updated in `afede287` to skip the intermediate `__for_coll := coll` copy so writes propagate through value-typed collections.
@@ -180,7 +180,7 @@ Error: 'ref(name) := ...' requires a ref-yielding right-hand side that
 
 (Reproduced via `/tmp/probe_phase_b.yo` — see workflow notes below.)
 
-This means Phase D's for-loop cannot work as long as Phase B's flowability rule is enforced as written. The two phases were never simultaneously exercised at runtime, so the contradiction sat unnoticed. The plan example in `plans/ITERATOR_REDESIGN.md` describes exactly this expansion as if it works.
+This means Phase D's for-loop cannot work as long as Phase B's flowability rule is enforced as written. The two phases were never simultaneously exercised at runtime, so the contradiction sat unnoticed. The plan example in `plans/archive/ITERATOR_REDESIGN.md` describes exactly this expansion as if it works.
 
 ### Bug C: `ref` deref chain has gaps beyond the immediate parameter binding
 
@@ -239,11 +239,11 @@ Cost: multi-day evaluator surgery with high risk of further unmasked latent bugs
 
 Revert `746b4f60` through `e9143f5e`. The test-runner fix (`7b3b788b`) stays. Re-attempt the iterator redesign with TDD discipline: every claim of "Phase X works" must rest on an actually-running assertion.
 
-Cost: loses the design notes captured inline in the commits, but the prose lives in `plans/ITERATOR_REDESIGN.md`. Lower risk because every step gets real validation.
+Cost: loses the design notes captured inline in the commits, but the prose lives in `plans/archive/ITERATOR_REDESIGN.md`. Lower risk because every step gets real validation.
 
 ### Direction C: Stop iterating on this branch; treat it as a learning artifact
 
-Mark `plans/ITERATOR_REDESIGN.md` as superseded. Open a new design doc that accepts the constraints we've now learned about (auto-deref through method dispatch, flowability + locals, deferral predicate scope). Decide whether the projection-style design is still the right one, or whether the value/index/callback alternatives (rejected earlier) deserve another look given the implementation cost.
+Mark `plans/archive/ITERATOR_REDESIGN.md` as superseded. Open a new design doc that accepts the constraints we've now learned about (auto-deref through method dispatch, flowability + locals, deferral predicate scope). Decide whether the projection-style design is still the right one, or whether the value/index/callback alternatives (rejected earlier) deserve another look given the implementation cost.
 
 Cost: throws away ~10 commits of work; lowest implementation cost from here.
 

@@ -242,7 +242,7 @@ Traits use direct `trait(...)` syntax with associated types as labeled `Type` fi
 
 ```rust
 // Trait definition — Item is an associated type. Iterator was
-// migrated to take inout(self) : Self in plans/ITERATOR_REDESIGN.md
+// migrated to take inout(self) : Self in plans/archive/ITERATOR_REDESIGN.md
 // (the old *(Self) signature would be forbidden in safe code).
 Iterator :: trait(
   Item : Type,

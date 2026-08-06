@@ -551,12 +551,12 @@ len :: (fn(s : *(char)) -> usize)(unsafe(strlen(s)));        // wrap required
 
 `asm(...)` and `extern(...)`/`c_include(...)` declarations themselves do NOT need a wrap — the `asm` keyword and the declaration syntax are themselves the per-site markers, and the pragma is the file-level gate.
 
-`auto-generated://` URIs (macros, derive expansions) bypass the per-call wrap — the macro author owns the contract via the expansion site. See `plans/EXTERN_UNSAFE_WRAP.md`.
+`auto-generated://` URIs (macros, derive expansions) bypass the per-call wrap — the macro author owns the contract via the expansion site. See `plans/archive/EXTERN_UNSAFE_WRAP.md`.
 
 ### Raw views and the static-str model (post slice-rework)
 
 The builtin `Slice(T)` and the view methods `String.as_str()` /
-`ArrayList.as_slice()` are DELETED (plans/SLICE_REWORK.md). The model:
+`ArrayList.as_slice()` are DELETED (plans/archive/SLICE_REWORK.md). The model:
 
 - `str` is the builtin view of STATIC string bytes (literals / template
   segments) — immortal backing, freely storable/returnable, no flow
@@ -575,7 +575,7 @@ The builtin `Slice(T)` and the view methods `String.as_str()` /
 
 ### Return-slot modifiers: `inout` is BANNED; `comptime` goes on the label
 
-**Functions cannot return `inout`, and there are no local inout bindings** (v4/v4.1, `plans/BORROW_EXCLUSIVITY.md`): they are second-class and exist ONLY in parameter position. `inout(r) := …` is rejected (fields read/write in place: `h.s = v`). Return the value instead (reference-semantics values are handles that mutate in place; struct values copy), or take a callback parameter that receives `inout(name) : T`. An inout ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — chains through an intermediate reference-semantics value and module-level field roots are rejected (bind the value to a local first: `b := a.b`).
+**Functions cannot return `inout`, and there are no local inout bindings** (v4/v4.1, `plans/archive/BORROW_EXCLUSIVITY.md`): they are second-class and exist ONLY in parameter position. `inout(r) := …` is rejected (fields read/write in place: `h.s = v`). Return the value instead (reference-semantics values are handles that mutate in place; struct values copy), or take a callback parameter that receives `inout(name) : T`. An inout ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — chains through an intermediate reference-semantics value and module-level field roots are rejected (bind the value to a local first: `b := a.b`).
 
 | Form                                                              | Verdict                                       |
 | ----------------------------------------------------------------- | --------------------------------------------- |
@@ -630,7 +630,7 @@ Rules:
 - Calls through inout-params chain naturally: `fn outer(inout(x))` calling `fn inner(inout(p))` with `inner(x)` passes `&x` to `inner` (the caller-side `&` is implicit).
 - At codegen, `inout(name) : T` lowers to `T*` in C. Reads of `name` in the callee become `(*name)`; writes become `(*name) = v`. For interior-ref arguments (`xs(i)`, `self->_inner(i)`), the codegen emits `__yo_borrow_acquire/release` bracketing the call (a same-cache-line counter increment/decrement on the container's RC header — ~0% overhead). Container growth operations (realloc/free inside a reference-semantics method) auto-assert the counter is zero, turning the one statically-unprovable interior-ref shape into a deterministic panic. `comptime(inout(name))` has zero codegen impact (the parameter is erased).
 
-`inout` is the safe in-place-mutation primitive for user code. Stdlib trait methods that previously took `(self : *(Self))` have all been migrated to `(inout(self) : Self)` — Hash, Clone, ToString, Index, ComptimeIndex, Writer, Reader, and `Iterator` (the for-loop redesign documented in `plans/ITERATOR_REDESIGN.md` shipped alongside Phase D of `plans/MEMORY_SAFETY.md`).
+`inout` is the safe in-place-mutation primitive for user code. Stdlib trait methods that previously took `(self : *(Self))` have all been migrated to `(inout(self) : Self)` — Hash, Clone, ToString, Index, ComptimeIndex, Writer, Reader, and `Iterator` (the for-loop redesign documented in `plans/archive/ITERATOR_REDESIGN.md` shipped alongside Phase D of `plans/MEMORY_SAFETY.md`).
 
 ### Public stdlib boundary — no raw pointer leaks
 
@@ -650,7 +650,7 @@ for(chain.map(f), (y) => println(y));            // combinator chain: pass as th
 
 - First argument: the collection itself, or an iterator chain (`.map().filter()`-style).
 - Second argument: an anonymous closure `(x) => body`; `x` is `T` by value (a handle for reference-semantics element types — mutating it mutates the element in place).
-- **The borrow form `for(coll, ref(x) => body)` was REMOVED** (v4, `plans/BORROW_EXCLUSIVITY.md` — no interior refs). It produces a teaching compile error. For in-place struct/scalar element mutation use an index loop with index writes: `while(i < coll.len(), { coll(i) = transform(coll(i)); i = (i + usize(1)); })`.
+- **The borrow form `for(coll, ref(x) => body)` was REMOVED** (v4, `plans/archive/BORROW_EXCLUSIVITY.md` — no interior refs). It produces a teaching compile error. For in-place struct/scalar element mutation use an index loop with index writes: `while(i < coll.len(), { coll(i) = transform(coll(i)); i = (i + usize(1)); })`.
 - **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation and is not valid top-level Yo source. (The self-hosted evaluator's internal for-loop handler currently only understands the 3-arg form; this is tracked in `issues/eval-for-loop-3arg-vs-2arg.md`.)
 
 ## Function call syntax — required immediate `(`

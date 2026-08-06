@@ -72,7 +72,7 @@ Array/Slice indexing through the Index trait uses compiler builtins that are inl
 This function generates C code for `value(arg)` dispatched through the Index trait:
 
 - For builtins (`__yo_array_index`, `__yo_slice_index`): inlines `(&((&value)->data[idx]))` directly
-- Range indexing dispatches to `slice_copy` methods (owned copies; plans/SLICE_REWORK.md) — the old `*(Slice(T))` compound-literal builtins are deleted
+- Range indexing dispatches to `slice_copy` methods (owned copies; plans/archive/SLICE_REWORK.md) — the old `*(Slice(T))` compound-literal builtins are deleted
 - For non-builtin methods (ArrayList, HashMap, etc.): generates a named function call
 - Auto-dereferences the pointer result unless wrapped in `&()` (checked via `isIndexTraitAddressOf`)
 
@@ -192,7 +192,7 @@ The stub-emit gate in `generation.ts` covers this: an `isEffectRecordMember` who
 
 ### `-> ref(T)` body and cond-arm lowering — OBSOLETE (v4)
 
-**`-> ref(T)` returns are BANNED** (v4, `plans/BORROW_EXCLUSIVITY.md`; rejected at function-type evaluation in both compilers), so the lowering described below can no longer be reached from source. The machinery still exists in the codebase as dead code — do NOT port it during the codegen bootstrap. Kept for the record:
+**`-> ref(T)` returns are BANNED** (v4, `plans/archive/BORROW_EXCLUSIVITY.md`; rejected at function-type evaluation in both compilers), so the lowering described below can no longer be reached from source. The machinery still exists in the codebase as dead code — do NOT port it during the codegen bootstrap. Kept for the record:
 
 Inside a `-> ref(T)` function, `function-type.ts` lowers the body's expected type to `*(T)` (`bodyExpectedType`) so cross-arm unification, the return-type compatibility check, and downstream synth all agree on a single pointer-typed shape. Two downstream pieces need to know about this lowering:
 

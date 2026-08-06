@@ -919,7 +919,7 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
         // at runtime if reached. The C main wrapper here covers the case
         // where main never invokes `exn.throw`; programs that do should
         // install a real handler at the call site via the explicit-effects
-        // machinery (see plans/EXPLICIT_EFFECTS.md §9.3 / §9.6).
+        // machinery (see plans/archive/EXPLICIT_EFFECTS.md §9.3 / §9.6).
         const cType = getTypeString(paramType, context);
         argTokens.push(`(${cType}){0}`);
       }
@@ -1786,7 +1786,7 @@ export function generateFunctionBody(
           // More complex flowable expressions (field access on a
           // ref-bound base, projection calls) come in Phase B with
           // the `ref(name) := ...` binding and the flowability rule.
-          // See `plans/ITERATOR_REDESIGN.md`.
+          // See `plans/archive/ITERATOR_REDESIGN.md`.
           if (
             functionType.return.isRef &&
             lastExpr &&
@@ -2739,7 +2739,7 @@ static void __yo_init_process_cleanup(void) {
 
 /**
  * Compositional cycle-GC traversal of a single value (Nim `=trace`-style; see
- * plans/CYCLE_GC_TRACE_HOOKS.md). Given the C lvalue `access` of Yo type `type`,
+ * plans/archive/CYCLE_GC_TRACE_HOOKS.md). Given the C lvalue `access` of Yo type `type`,
  * emit C that calls `visit()` on every DIRECT reference-counted child reachable
  * from that value — descending INLINE through value structs / value enums (incl.
  * `Option`) / tuples / inline arrays, but STOPPING at managed handles (each is a
@@ -2894,7 +2894,7 @@ export function emitTraverseValue(
 
     // Unions (no active-member discriminant at the C level → unsafe to walk) and
     // any other shape: nothing. Unions of managed refs are not used in the
-    // self-host types; see plans/CYCLE_GC_TRACE_HOOKS.md §7.
+    // self-host types; see plans/archive/CYCLE_GC_TRACE_HOOKS.md §7.
   } finally {
     if (type.id) {
       visited.delete(type.id);

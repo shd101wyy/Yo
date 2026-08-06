@@ -193,7 +193,7 @@ export interface EvaluatorContext {
    * Whether the function type being evaluated was declared with `ctl(...)
    * -> ret` (the control-function constructor). Control functions may
    * contain `unwind` in their body and are frame-bound — see
-   * plans/EXPLICIT_EFFECTS.md §4 for the type-system rules.
+   * plans/archive/EXPLICIT_EFFECTS.md §4 for the type-system rules.
    */
   isControlFunctionType?: boolean;
 

@@ -385,7 +385,7 @@ export function generateFunctionPrototype(
   // For non-main functions, generate based on function type.
   // `-> ref(T)` lowers to a `T*` return at the C ABI — the function
   // yields a second-class reference whose storage is rooted in one
-  // of its `ref`-typed parameters. See `plans/ITERATOR_REDESIGN.md`.
+  // of its `ref`-typed parameters. See `plans/archive/ITERATOR_REDESIGN.md`.
   let returnTypeStr: string;
   if (overrideReturnType) {
     returnTypeStr = overrideReturnType;

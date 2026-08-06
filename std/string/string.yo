@@ -8,7 +8,7 @@ pragma(Pragma.AllowUnsafe);
 // DIRECTLY (not via the Eq(*(T)) trait impl): a trait-method `==` on
 // pointers inside this `||` triggers a pre-existing yo-self emission bug
 // (short_circuit_rc_temp_drop corpus DIFF, rc=133 — see
-// issues/yo-self-ptr-eq-trait-call-in-shortcircuit.md), and the direct
+// issues/fixed/yo-self-ptr-eq-trait-call-in-shortcircuit.md), and the direct
 // builtin also skips trait dispatch in the hottest function in the
 // compiler. Same local-extern pattern as std/gc.yo.
 extern(
@@ -183,7 +183,7 @@ impl(
   * or dies — callers must not let it escape the borrow site.
   * (This replaces the deleted `as_str()`: heap bytes can no longer be
   * viewed as `str`, which is the STATIC string view.
-  * See plans/SLICE_REWORK.md.)
+  * See plans/archive/SLICE_REWORK.md.)
   */
   raw_bytes : (fn(self : Self) -> RawSlice(u8))(
     match(
@@ -872,7 +872,7 @@ impl(
   /**
   * Private: does this string have `prefix` (a String) starting at `position`?
   * The UTF-8-aware byte-compare reused by the `Pattern` impls behind the generic
-  * `starts_with<P : Pattern>` (see plans/OVERLOADING_REDESIGN.md §4). Not called
+  * `starts_with<P : Pattern>` (see plans/backlog/OVERLOADING_REDESIGN.md §4). Not called
   * directly — go through `starts_with`.
   */
   _has_prefix : (fn(self : Self, prefix : Self, (position : usize) ?= 0) -> bool)({
@@ -1498,7 +1498,7 @@ impl(
 /// Heterogeneous comparison: `String == str` (and `!=`). Compares bytes
 /// DIRECTLY against the static `str` — no intermediate view of the String's
 /// heap buffer is constructed (`as_str()` is being removed; see
-/// plans/SLICE_REWORK.md step 1). This is the replacement for the dominant
+/// plans/archive/SLICE_REWORK.md step 1). This is the replacement for the dominant
 /// `x.as_str() == "literal"` pattern: write `x == "literal"`.
 impl(
   String,
@@ -1566,7 +1566,7 @@ impl(
 );
 /// Byte-lexicographic ordering, mirroring `str`'s `Ord(str)` impl in the
 /// prelude. Enables `a < b` on Strings directly (the `a.as_str() <
-/// b.as_str()` workaround is retired; see plans/SLICE_REWORK.md step 3).
+/// b.as_str()` workaround is retired; see plans/archive/SLICE_REWORK.md step 3).
 impl(
   String,
   Ord(String)(
@@ -1603,7 +1603,7 @@ impl(
 /// (mirrors Rust's `core::str::pattern::Pattern`). The PATTERN type implements the
 /// match, so a single generic method per operation accepts any pattern type with no
 /// overload resolution. Implemented by `str` and `String` (and, later, `char`).
-/// See plans/OVERLOADING_REDESIGN.md §4.
+/// See plans/backlog/OVERLOADING_REDESIGN.md §4.
 Pattern :: trait(
   is_prefix_of : (fn(self : Self, haystack : String, position : usize) -> bool),
   is_suffix_of : (fn(self : Self, haystack : String, end_position : usize) -> bool),
@@ -1662,7 +1662,7 @@ impl(
 /// `str::starts_with<P : Pattern>` family). These replace the old inherent
 /// `X(arg : String)` + `StrPattern.X(arg : str)` overload pairs: `s.X("lit")`
 /// (P = str) and `s.X(other)` (P = String) both resolve to the one generic method via
-/// trait dispatch — no overload resolution. See plans/OVERLOADING_REDESIGN.md §4.
+/// trait dispatch — no overload resolution. See plans/backlog/OVERLOADING_REDESIGN.md §4.
 impl(
   String,
   starts_with : (fn(generic(P : Type), self : Self, prefix : P, (position : usize) ?= 0, where(P <: Pattern)) -> bool)(
@@ -2434,7 +2434,7 @@ impl(
 panic_dyn :: (fn(msg : String) -> unit)({
   // Write the heap message bytes to stderr, then abort via panic.
   // (str is the STATIC string view now — a heap String can't be passed
-  // to __yo_panic(str); see plans/SLICE_REWORK.md.)
+  // to __yo_panic(str); see plans/archive/SLICE_REWORK.md.)
   rb := msg.raw_bytes();
   // SAFETY: rb points into msg's live buffer for the duration of the call.
   // fwrite (ANSI C) instead of POSIX write(2, …) so the emitted C is portable

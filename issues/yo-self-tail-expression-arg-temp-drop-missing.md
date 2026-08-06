@@ -80,7 +80,7 @@ value-returning expression rather than a begin block.
 Every owned RC temp materialised inside a bare tail-expression body leaks under the
 self-hosted compiler. `yo-self/` is written overwhelmingly in that style, so this is a
 candidate contributor to the self-compiled compiler's memory footprint (see
-`plans/YO_SELF_ENV_SHARING.md` for the ranked footprint levers) — worth measuring before
+`plans/backlog/YO_SELF_ENV_SHARING.md` for the ranked footprint levers) — worth measuring before
 assuming it is small.
 
 ## Where to look

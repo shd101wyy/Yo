@@ -1,7 +1,7 @@
 /**
  * Negative tests for the reserved verification quantifiers.
  *
- * `plans/FORALL_TO_GENERIC.md` renamed the type-parameter binder
+ * `plans/archive/FORALL_TO_GENERIC.md` renamed the type-parameter binder
  * `forall` -> `generic` and reserved `forall` / `∀` for future Dafny-style
  * quantifiers in `requires` / `ensures`. `exists` / `∃` are deliberately NOT
  * reserved — `exists` is a live public API (`std/fs/file.yo:324`, 72 files). The
@@ -69,7 +69,7 @@ describe("reserved verification quantifiers", () => {
   test("`exists` is NOT reserved — it is a live std API", () => {
     // `std/fs/file.yo:324` defines `exists(path, io)` and 72 files use it, so
     // reserving the word would break the filesystem API for a feature that
-    // does not exist yet. See plans/FORALL_TO_GENERIC.md ("Deviation").
+    // does not exist yet. See plans/archive/FORALL_TO_GENERIC.md ("Deviation").
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "yo-exists-ok-"));
     const file = path.join(tmpDir, "pos.yo");
     fs.writeFileSync(

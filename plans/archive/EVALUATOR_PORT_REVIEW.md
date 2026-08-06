@@ -46,7 +46,7 @@ documented re-sync/feature item:
    substituteSomeTypesFromEnv, await analysis, `checkDeferredGenericReturnType`
    for deferred generic bodies, body-vs-return compatibility check.
 10. Comptime arithmetic **value folding** Tier 2 —
-    `plans/COMPTIME_ARITHMETIC_FOLDING.md`.
+    `plans/archive/COMPTIME_ARITHMETIC_FOLDING.md`.
 11. Documented module-organization deferrals: `ctfe/ctfe_analysis.yo` (logic
     inline in comptime_fn/function), `exprs/_expr.yo` `&+`/`&-`/`&/`
     ptr-arith gate (no dispatch branch to attach to), `asm.yo` stub.
@@ -110,7 +110,7 @@ are fixed and it flips to `✅`.
 - `calls/function.yo` — infix operator dispatch was comparison-only via a
   hardcoded list; arithmetic/bitwise operators fall to the soft fallback →
   `unit`. See `issues/fixed/phase3-comptime-arithmetic-not-folded.md` +
-  `plans/COMPTIME_ARITHMETIC_FOLDING.md`. (Gap 1 fix = use `string_is_operator`.)
+  `plans/archive/COMPTIME_ARITHMETIC_FOLDING.md`. (Gap 1 fix = use `string_is_operator`.)
 - `builtins/comptime_assert.yo` — itself 1-to-1, but module-level eval runs with
   `is_executing=false`, so the strict path is never taken at module scope. See
   `issues/fixed/phase3-comptime-arithmetic-not-folded.md` (Bug C).
@@ -267,7 +267,7 @@ gap is deferred on a larger feature (see note)
   `_try_expand_call_overload` (ModuleT/Call source-namespace candidate trial)
   landed. REMAINING: general prelude operator-module `Call` dispatch is still
   partial (literal-negation fold special case; see in-file comment) and
-  comptime VALUE folding Tier 2 (`plans/COMPTIME_ARITHMETIC_FOLDING.md`).
+  comptime VALUE folding Tier 2 (`plans/archive/COMPTIME_ARITHMETIC_FOLDING.md`).
 - 🔧 `calls/helper.ts` → `calls/helper.yo` — call-site where-clause validation
   ported (7a67b961): `validate_where_constraints_for_call` from the
   WhereConstraintEntry side table (TS whereClauseExprs mirror), called from

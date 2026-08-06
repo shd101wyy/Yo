@@ -407,7 +407,7 @@ export function evaluateFunctionParameter({
       const typeValue = evaluatedRhs.$.value;
       if (isTypeValue(typeValue)) {
         parameterType = typeValue.value;
-        // Raw-view naming gate (plans/SLICE_REWORK.md): a SAFE file may not
+        // Raw-view naming gate (plans/archive/SLICE_REWORK.md): a SAFE file may not
         // annotate a parameter with a type whose representation carries a
         // raw pointer (RawSlice(T), structs wrapping *(T), …). The `*(T)`
         // syntax gate (calls/pointer.ts) only catches the syntactic form;

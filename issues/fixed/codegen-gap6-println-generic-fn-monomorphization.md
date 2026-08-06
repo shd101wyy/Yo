@@ -15,13 +15,12 @@ REMAINING for `println` END-TO-END: a SEPARATE pre-existing gap — the extern-C
 `stdout`/`stderr` emit as undeclared `__yo_c_reserved_stdout`. This is "Gap 3"
 (yo-self models `is_extern` only on the Func TypeValue variant): c*include stamps the
 FFI marker only onto Func field types (c_include.yo:202-239); a non-Func global
-(`stdout : *(FILE)`) is left unmarked, so codegen's `is_extern_c` detection
-(utils/index.yo:818, Func-only) is false → `sanitize_for_c_identifier` adds the
-`\_\_yo_c_reserved*`prefix (the C`<stdio.h>`IS included, so the real`stdout`is in
+(`stdout : *(FILE)`) is left unmarked, so codegen's `is_extern_c`detection
+(utils/index.yo:818, Func-only) is false →`sanitize_for_c_identifier`adds the`\_\_yo_c_reserved\*`prefix (the C`<stdio.h>`IS included, so the real`stdout`is in
 scope — only the name mapping is wrong). TS checks`variable.type.isExtern === "c"`on ANY type. FIX (next): add`is_extern`to the relevant non-Func TypeValue variants
 (at least Pointer) OR add an`is_extern_c` flag to Variable set by c_include for ALL
 fields, and consult it in getVariableNameForCodegen's sanitize call. Schema-touching
-(build-guided). See issues/codegen-extern-c-global-reserved-name.md.
+(build-guided). See issues/fixed/codegen-extern-c-global-reserved-name.md.
 
 ## println PROGRESS 2026-06-17 — 3 of ~4 sub-gaps fixed; one remains
 
@@ -30,7 +29,7 @@ sub-gaps in its body (it exercises a large surface). Fixed so far:
 
 1. ✅ Specialization (271d96e61) — forall T = str (above).
 2. ✅ extern-C global `stdout` (e3febf709) — Gap-3 registry
-   (issues/codegen-extern-c-global-reserved-name.md).
+   (issues/fixed/codegen-extern-c-global-reserved-name.md).
 3. ✅ by-ref variable read deref (9e133d832) — `ref(self)` reads emit `(*self)`
    (generate_atom `_var_read_code`; mirrors TS atom.ts:583; refactored the
    newtype-only property_access deref into this general path).
@@ -250,7 +249,7 @@ guard skips the SomeT decl type `T`). Tried BOTH together:
 
 1. inference (line 1865): comptime_str arg → bind `T = TypeValue.Str`;
 2. param binding (line 2019): `resolved_decl_pt = get_value_of_some_type_from_env(
-   fresh_env, bind_decl_pt)` to resolve the SomeT `T`→str, then coerce `v` to str.
+fresh_env, bind_decl_pt)` to resolve the SomeT `T`→str, then coerce `v` to str.
    RESULT: build clean BUT println UNCHANGED (C still `yo_id_5545((void*)(...))`,
    generic). So create_specialized still throws / no spec recorded.
 

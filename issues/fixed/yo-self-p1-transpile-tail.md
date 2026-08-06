@@ -62,7 +62,7 @@ unless the whole body is clean.
 
 **Committed:** `9a160f286` nominal struct-distinctness in `are_types_compatible_exact`
 (same-fielded-struct comptime-fn cache collision) → **440→422, clean −18, 0 un-masked**.
-std 152/152, corpus 83/83. See `issues/yo-self-struct-identity-cache-collision.md`.
+std 152/152, corpus 83/83. See `issues/fixed/yo-self-struct-identity-cache-collision.md`.
 
 **[TTERR] swallowed-throw map of the 422** (instrumented `_trial_eval_fn_body` swallow
 handler with `println(\`[TTERR] ${\_err.to_string()}\`)`, full self-compile EXIT=0):
@@ -408,7 +408,7 @@ and the `[TTERR]`/`[TTLOC]` instrumentation (currently uncommitted in
 ## 2026-06-23 (LATE) — ⚠️ SHELL THEORY DISPROVEN; real root = def-time body-eval TYPING
 
 **The recursive-enum self-shell is NOT the P1 bottleneck.** Implemented "approach D"
-(`plans/RECURSIVE_ENUM_SHELL_REFACTOR.md`) — eliminate the shell entirely via
+(`plans/archive/RECURSIVE_ENUM_SHELL_REFACTOR.md`) — eliminate the shell entirely via
 in-place enum finalization (the `Self` placeholder shares the variant accumulator
 arrays, populated in place; clone RC-shares all four arrays; substitute gets an
 `visited_enum_ids` cycle guard). It is fully validated green (fast repro 0 markers,
@@ -1196,7 +1196,7 @@ in the same fn **WORKS (0 markers).** The `.new()`-masking is the key tell.
   is purely "was `_alloc_with_capacity` already specialised with concrete `T`".
 
 **This is the same knot as `issues/fixed/self-dispatch-loses-type-args.md` /
-`plans/GENERIC_METHOD_RESOLUTION_KNOT.md` (task #28, the dominant lever).** `check
+`plans/archive/GENERIC_METHOD_RESOLUTION_KNOT.md` (task #28, the dominant lever).** `check
 ./yo-self` passes 227/227 because `check` does NOT eval fn bodies; the **codegen
 self-compile** def-time-body-eval path still hits it.
 

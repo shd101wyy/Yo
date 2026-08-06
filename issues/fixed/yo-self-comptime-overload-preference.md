@@ -248,7 +248,7 @@ every survivor and re-run the two witnesses:
 ## 2026-07-30 round — gate-removal attempt: measured, REVERTED (both directions mapped)
 
 The `NAME :: <ctfe call>` batch-arm family
-(issues/yo-self-comptime-const-batch-undeclared.md) was root-caused to THIS
+(issues/fixed/yo-self-comptime-const-batch-undeclared.md) was root-caused to THIS
 gate via a 6-line harness-free repro (seconds per compile cycle):
 
 ```rust

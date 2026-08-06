@@ -66,7 +66,7 @@ expected_is_anon_struct := match(
 );
 ```
 
-This gate is deliberate (see `issues/yo-self-anon-struct-literal-expected-type-ctor.md` § "Scope narrowing"), not accidental. For a NAMED expected (`Point2`, `SomeStruct`) it falls to `evaluate_anonymous_struct_value`, minting a fresh struct id with synthesized field names.
+This gate is deliberate (see `issues/fixed/yo-self-anon-struct-literal-expected-type-ctor.md` § "Scope narrowing"), not accidental. For a NAMED expected (`Point2`, `SomeStruct`) it falls to `evaluate_anonymous_struct_value`, minting a fresh struct id with synthesized field names.
 
 **A2** — `yo-self/types/type_key.yo:481-581`, `_stable_identity_at`. It has arms for `.Struct`, `.EnumT`, `.Pointer` and then `_ => type_to_string(t)` (line **579**). A `.Tuple` falls into that fallback, and `type_to_string` renders a Struct **by name** (`types/string.yo`), so `Tuple(S_i32)` and `Tuple(S_i64)` both render `Tuple(0 : S)`. `yo-self/codegen/types/collection.yo:224-232` then treats the second arrival as "same type, evolved key" and calls `context.register_type_alias(tk, prev_key)` → one `__yo_tN` for two layouts. `type_key` itself is correct here (it _does_ have a `.Tuple` arm at `type_key.yo:420` that recurses); only the stable-identity twin is missing it.
 
@@ -171,7 +171,7 @@ Tree: `scratchpad/t5/p2` (= p1 + A2 + patch B), binary `/tmp/t5p2`. Built with `
 
 ## 6. BLAST RADIUS
 
-- **A1** touches every `_()` / `{ … }` literal site with a _named_ expected struct — i.e. essentially all of yo-self's own struct literals. `issues/yo-self-anon-struct-literal-expected-type-ctor.md` records that the broad rule previously made the **stage-2 binary SIGSEGV at prelude eval**. My measurement (below) says A2 does **not** clear that.
+- **A1** touches every `_()` / `{ … }` literal site with a _named_ expected struct — i.e. essentially all of yo-self's own struct literals. `issues/fixed/yo-self-anon-struct-literal-expected-type-ctor.md` records that the broad rule previously made the **stage-2 binary SIGSEGV at prelude eval**. My measurement (below) says A2 does **not** clear that.
 - **A2** is read only by `collect_type` (`stable_type_identity` has exactly 3 references: definition, export, and `codegen/types/collection.yo:224`). It can only turn a _false alias_ into _no alias_; equal renders still imply equal structure. Regression mode: a genuine "same type, evolved type_key" re-arrival whose struct copies carry different `sid`s now registers twice instead of aliasing → duplicate C declaration. Not observed in any measurement above.
 
 ## 7. CONFIDENCE + open item

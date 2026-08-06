@@ -87,7 +87,7 @@ rather than a chosen divergence. Consequences worth caring about:
 - **clang time on every self-emit** — 1.66 M lines instead of 839 K to parse and
   optimise. This is a plausible and unmeasured contributor to the stage-2 emit + clang
   cost that the memory/perf campaign has been fighting
-  (`plans/YO_SELF_ENV_SHARING.md`).
+  (`plans/backlog/YO_SELF_ENV_SHARING.md`).
 - **+13% binary** (5.6 vs 5.0 MB), and worse I-cache behaviour from teardown code
   duplicated at hundreds of thousands of sites.
 - Any future "why is stage-2 slow to compile" investigation should start here.
