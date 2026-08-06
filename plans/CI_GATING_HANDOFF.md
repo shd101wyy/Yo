@@ -2,9 +2,15 @@
 
 **Written 2026-08-06.** Branch `feat/bootstrap-codegen`, HEAD `5cf47795a`.
 
-Goal of this workstream: **every CI job gates PRs.** Four of five already do. The fifth,
-`compiler-internal-tests`, still carries `continue-on-error: true` and is blocked by exactly
-one bug (§2). Everything else here is optional follow-up.
+Goal of this workstream: **every CI job gates PRs. That is now DONE —
+`continue-on-error` has been removed everywhere.**
+
+**So `compiler-internal-tests` is RED and blocking merges right now, on purpose.** The flag
+was dropped deliberately with one known failure outstanding (§2) so the bug cannot be merged
+past. **Your job is §2.** Until it is fixed, expect that job to fail on every PR; the other
+nine are green.
+
+Everything in §3 is optional follow-up.
 
 Read `plans/YO_SELF_STAGE2_HANDOFF.md` for the bootstrap campaign as a whole; this doc is
 only the CI-gating tail.
@@ -15,15 +21,15 @@ only the CI-gating tail.
 
 CI run `31051936217` (commit `13de0e3c1`) — **9 of 10 jobs green**:
 
-| job                                          | state                                         |
-| -------------------------------------------- | --------------------------------------------- |
-| `test` ubuntu / macos / windows              | green, gating                                 |
-| `test-wasm32_wasi`, `test-wasm32_emscripten` | green, gating                                 |
-| `Bootstrap fixpoint (yo-self self-compile)`  | green, gating                                 |
-| `Bootstrap fixpoint stage-3 (byte-identity)` | green, gating                                 |
-| `ThreadSanitizer`                            | green, gating                                 |
-| `Self-hosted test subcommand (tier-1 gates)` | green, gating                                 |
-| `Compiler internal tests`                    | **RED — `continue-on-error: true` still set** |
+| job                                          | state                               |
+| -------------------------------------------- | ----------------------------------- |
+| `test` ubuntu / macos / windows              | green, gating                       |
+| `test-wasm32_wasi`, `test-wasm32_emscripten` | green, gating                       |
+| `Bootstrap fixpoint (yo-self self-compile)`  | green, gating                       |
+| `Bootstrap fixpoint stage-3 (byte-identity)` | green, gating                       |
+| `ThreadSanitizer`                            | green, gating                       |
+| `Self-hosted test subcommand (tier-1 gates)` | green, gating                       |
+| `Compiler internal tests`                    | **gating, and currently RED on §2** |
 
 `compiler-internal-tests` scorecard on that run:
 
@@ -199,10 +205,11 @@ trip to confirm.
 
 ### When it is fixed
 
-Remove `continue-on-error: true` from `compiler-internal-tests` in
-`.github/workflows/test.yml`, drop "informational" from the job name (the four already-gating
-jobs show the pattern), and confirm green **after** removal. Also update the memory entry
-titled "CI: 4 of 5 informational jobs now GATE PRs".
+Nothing to do in the workflow — `continue-on-error` is already gone and the job already
+gates. Just confirm the job goes green, and drop the "EXPECTED TO BE RED" paragraph from the
+comment above `compiler-internal-tests:` in `.github/workflows/test.yml` (and the matching
+warning at the top of this doc) so the next reader is not told to expect a failure that no
+longer happens.
 
 ---
 
