@@ -1,3 +1,14 @@
+> **FIXED (verified 2026-08-06) — by a different mechanism than this doc prescribes.**
+> The flagged yo-self line (`evaluator/calls/type.yo:310` unconditional ctor-arg dup) is
+> a FAITHFUL port — TS does the same (`src/evaluator/calls/type.ts:135`). TS's observed
+> "move" was the dup/drop pair optimizer cancelling the deferred dup, not ctor-arg
+> consumption. The divergence closed when that optimizer was ported to yo-self
+> (`eeb6e00b9`, 2026-07-22) and made branch-aware/sound in both compilers
+> (`ac85f6cfc`, 2026-08-06). Verified: the reproducer and the corpus fixture
+> `tests/codegen-bootstrap/ptr_deref_copy_rc_struct.yo` print identical correct output
+> (`1 1 1 done`) under both compilers today. Do NOT port function-call owning-param
+> consumption into the ctor path — that would diverge from TS.
+
 # yo-self: struct-ctor RC arg — TS moves, yo-self dups (+1 divergence)
 
 Found 2026-07-16 during the round-6 hunt. `b := B(k : kk, n : 1)` where `B`

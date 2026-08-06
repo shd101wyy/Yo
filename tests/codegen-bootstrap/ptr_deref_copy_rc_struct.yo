@@ -10,10 +10,11 @@
 // codegen/exprs/init_assignment.yo (deref-RHS dup-at-copy when no deferred
 // dup was marked). NOTE: this small shape does NOT discriminate pre/post
 // fix (the eval mark survives in simple contexts; the bug needed the real
-// multi-pass HashMap specialization) — kept as shape coverage. The "2"
-// baseline (TS prints "1 1 1") is a SEPARATE ctor-arg move-vs-dup
-// divergence (issues/yo-self-ctor-arg-move-vs-dup.md). Expected output:
-// "2 2 2 done".
+// multi-pass HashMap specialization) — kept as shape coverage. The old "2 2 2"
+// yo-self baseline (a ctor-arg dup the dup/drop pair optimizer did not yet
+// cancel) closed when the optimizer was ported (eeb6e00b9) and made sound
+// (ac85f6cfc); see issues/fixed/yo-self-ctor-arg-move-vs-dup.md. Both
+// compilers now print "1 1 1 done".
 pragma(Pragma.AllowUnsafe);
 open(import("std/fmt"));
 open(import("std/string"));
