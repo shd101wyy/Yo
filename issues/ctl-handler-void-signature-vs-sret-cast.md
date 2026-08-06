@@ -104,3 +104,30 @@ would have caught this years earlier and will catch the next occurrence.
 Do NOT enable it before fixing the mismatch, though: every `exn.throw` call site in the
 existing corpus trips it, so it would fail the suite wholesale. Sequence: fix the handler
 signatures, then enable the check as the regression guard.
+
+## Implementation notes (2026-08-06 investigation — deferred, do as its own PR)
+
+Scoping for fix (1) found the void convention is load-bearing across TWO
+call protocols, and their inconsistency is the real bug:
+
+- **Statically-known handler calls** (`other-fn-call.ts` `handlerReturnsVoid`
+  path, ~line 3158): zero-init a typed temp BEFORE the call, call the handler
+  AS VOID, check `__yo_effect_escaped`. The comment records this protocol was
+  itself a fix: assigning a void call's "return value" to a typed temp is UB
+  and **crashed on WASM**.
+- **Field-access calls** (`exn.throw` through the effect record's `void*`
+  slot): per-site cast to a value-returning fn type — the UBSan-confirmed
+  mismatch this issue is about.
+
+Changing to concrete-`ResumeType` returns must touch, coherently:
+`generation.ts:1234` (specialization return-type override is skipped for
+`isEffectRecordMember`), both call protocols above, the unwind dummy-return
+emission (`generation.ts` escape path: "return a dummy value"), the
+thread-local `__yo_unwind_value` stash, and the yo-self mirrors of all of
+these — then enable `-fsanitize=function` as the guard (only after, or the
+suite fails wholesale). The WASM history means validation needs the wasm32
+CI arms, not just native.
+
+Recommendation: implement as a dedicated PR after PR 76 merges — the bug is
+latent (no reachable `ctl` has a >16-byte `ResumeType` at an unwinding call
+site), and this is ABI surgery across every effects call path.
