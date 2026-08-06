@@ -32,7 +32,7 @@ identity). VERIFIED distribution @ 60 (all remaining families are DEEP):
   (skipped bodies from the families below); should largely clear once roots fixed.
 - **undeclared function 5** — ALL `fn_yo_id_2230` = the **String==str family**
   (`String != str`/`== str`). ROOT FULLY MAPPED in
-  issues/yo-self-stage2-string-ne-str-specialization.md: the shared abstract
+  issues/fixed/yo-self-stage2-string-ne-str-specialization.md: the shared abstract
   `Eq.!=` DEFAULT lambda is never per-instantiation SPECIALIZED (yo-self's
   spec gate helper.yo:3048 keys on forall/implicit only, MISSING TS's
   `isFunctionTypeGeneric` SomeType-param clause), so its OWN registered type

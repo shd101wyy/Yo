@@ -1,5 +1,20 @@
 # Stage-2: `String != str` / `String == str` → "call to undeclared function fn_yo_id_2230" (5 errors)
 
+> **FIXED — verified 2026-08-06.** The "uncommitted" fix4 described below WAS
+> committed as `d72e5080d` (2026-07-06: gate broadened via
+> `_func_type_has_runtime_some_param`, abstract func type fed to
+> `create_specialized_function_inline`, `ctx.self_type` threaded on the infix
+> path — all three live in `yo-self/evaluator/calls/helper.yo` /
+> `function.yo` today). The residual (~1 err, dot-call overload pick inside
+> the specialized body) closed with the stage-2 error burn-down that followed:
+> `65ebcdbb2` (2026-08-03) records stage-2 clang 0 errors / FIXPOINT
+> RESTORED, and the standing stage-2 invariant since `ff1bffa58`
+> (2026-08-06) is 0 markers and **0 undeclared ids**. Re-verified today on
+> the post-fix-batch stage-1 binary (`/tmp/yo-stage1`, Aug 6): the minimal
+> repro below compiles clean (rc=0, 0 FTT markers, 0 undeclared) and runs
+> correctly (`check(s)` → `true`). Historical metrics below are frozen at
+> their writing dates (60-error baseline, corpus 103).
+
 ## Symptom
 
 Stage-2 self-compile emits `fn_yo_id_2230((__yo_t2)(lhs), (__yo_str){...})` (a
