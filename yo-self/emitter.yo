@@ -49,7 +49,7 @@ _emitter_is_minted_temp :: (fn(cn : String) -> bool)({
 /// wrongly skips their (live-RC) drops → LEAK. Recorded in C-emission order so
 /// forward-ref protection holds; a `___drop((cast)(temp))` use has the temp inside
 /// parens (not in `<type> <name> =` position), so genuine never-declared phantoms
-/// are never recorded. See issues/yo-self-fixpoint-eval-phase-leak.md.
+/// are never recorded. See issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
 _emitter_record_declared_temp :: (fn(set : HashSet(String), line : String) -> unit)({
   if(!(line.contains(String.from("_temp_"))), {
     return(());
@@ -162,7 +162,7 @@ _emitter_record_scope_decl :: (fn(stack : ArrayList(String), line : String) -> u
 /// `ArrayList(String)` is used rather than a stack of `HashSet` frames because
 /// yo-self's own codegen mis-drops the nested `ArrayList(HashSet(String))` generic
 /// (double-free in the self-compiled binary). See
-/// issues/yo-self-fixpoint-eval-phase-leak.md.
+/// issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
 _emitter_track_scope :: (fn(stack : ArrayList(String), line : String) -> unit)({
   _emitter_record_scope_decl(stack, line.clone());
   // BYTE count, not len() (chars): the loop indexes with byte_at. Bounding by
@@ -173,7 +173,7 @@ _emitter_track_scope :: (fn(stack : ArrayList(String), line : String) -> unit)({
   // escape gate emits drops for same-named locals of later sibling blocks
   // before their C declaration (the regex.test.yo `undeclared m2` cluster).
   // ASCII structural bytes cannot occur inside UTF-8 continuation sequences,
-  // so a plain byte scan is exact. See issues/yo-self-emitter-scope-scan-chars-vs-bytes.md.
+  // so a plain byte scan is exact. See issues/fixed/yo-self-emitter-scope-scan-chars-vs-bytes.md.
   n := line.bytes_len();
   (i : usize) = usize(0);
   (in_str : bool) = false;

@@ -47,7 +47,7 @@ For RC-dispose bugs specifically, also read the emitted C: `__yo_decr_rc` only
 frees fields when `header->type_id != 0` (or `dispose_fn` under cycle GC), so
 check that the type's constructor stamps a dispose id and that
 `__yo_dispose_dispatch` has a case that drops the fields
-(see `issues/ref-enum-missing-dispose-leak.md` for a worked example).
+(see `issues/fixed/ref-enum-missing-dispose-leak.md` for a worked example).
 
 ## Design docs for context
 

@@ -1667,7 +1667,7 @@ export function getReceiverMethodsByNameFromEnv({
     // collect impl'd-trait methods when NO direct/inherent method of this name exists.
     // A type (inherent) method shadows a same-name trait method (Rust's rule); a call
     // matching only the trait must error, not silently fall through to it. See
-    // plans/OVERLOADING_REDESIGN.md §6 + issues/yo-inherent-first-resolution.md.
+    // plans/OVERLOADING_REDESIGN.md §6 + issues/fixed/yo-inherent-first-resolution.md.
     // (Methods provided purely by trait impls — e.g. `==` via `Eq(String)`/`Eq(str)` —
     // have no direct field, so directMethods is empty and they are still collected and
     // argument-type-dispatched among themselves.)

@@ -138,7 +138,7 @@ t30 = struct_yo_id_7146 and t33 = struct_yo_id_7237 — DIFFERENT sids for the
 SAME logical type (both render `gs_yo_id_5031_i32`, Deque(i32)-internal):
 one Yo type minted TWICE (a CTFE/instantiation cache false-MISS), spec
 emitted against one sid while call sites hold the other. This is the
-declaration-stable-id direction (plans/YO_SELF_STAGE2_HANDOFF.md) — the
+declaration-stable-id direction (plans/archive/YO_SELF_STAGE2_HANDOFF.md) — the
 inverse failure of the enum fast-accept (false HIT). hash_map shows the same
 shape (t65/t69/t72/t75 vs t65). Batch: kept per YO_KEEP_BATCH=1 runs of
 deque under /tmp/s1g-era binaries.

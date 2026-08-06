@@ -6,7 +6,7 @@ Rc/CoW overhead on every slice copy to defend against rare misuse), remove
 borrowed raw views from the safe surface entirely. After this rework, **safe
 code cannot construct any value that carries a raw pointer into mortal
 storage** — the slice-invalidation hole (all three triggers: backing
-reassignment, realloc-on-growth, Rc-alias mutation) becomes *unconstructible*
+reassignment, realloc-on-growth, Rc-alias mutation) becomes _unconstructible_
 rather than gated.
 
 ## The design
@@ -28,7 +28,7 @@ rather than gated.
   exact hazard being deleted); "copy to static storage" doesn't exist at
   runtime; interning/leaking an immortal buffer is a worse footgun than the
   one removed. The surviving asymmetry is the correct one: `String.from(s :
-  str)` (static → heap copy) stays; heap → `str` is impossible by design.
+str)` (static → heap copy) stays; heap → `str` is impossible by design.
   Privileged (pragma) code may keep an unsafe-marked raw-view equivalent
   where genuinely needed (C interop), but std APIs stop returning borrowed
   views of heap strings.
@@ -120,19 +120,19 @@ With no raw-ptr-carrying values constructible in safe code:
 
 1. **`String == str`** (`Eq(str)` impl on String) + any missing
    `starts_with/ends_with/contains(str)` overloads. Land first — it makes the
-   big mechanical migration possible. *(small)*
+   big mechanical migration possible. _(small)_
 2. **Mechanical sweep**: `x.as_str() == …` → `x == …` across yo-self (2186
    sites, majority this shape), tests (84), std (6). Scriptable;
-   per-directory sweeps with full validation after each. *(large but
-   mechanical)*
+   per-directory sweeps with full validation after each. _(large but
+   mechanical)_
 3. **Audit the remainder**: bare `as_str()` uses that pass views to
    `: str`-typed parameters (11 such params in std) — flip the parameter to
    `String` (Rc share, cheap) or to a `str` literal where it really is
-   static. *(moderate, case-by-case)*
+   static. _(moderate, case-by-case)_
 4. **Delete builtin `Slice(T)`** (TypeTag + evaluator + codegen + prelude
    impls + `__yo_slice_*` builtins; `str` gets its own builtin fat-pointer
    lowering first) and remove `as_str`/`as_slice`; add `RawSlice(T)` to a
-   pragma'd std file and migrate the pragma'd internals (imm/*, crypto,
+   pragma'd std file and migrate the pragma'd internals (imm/\*, crypto,
    array_list, hash) to it; fix fallout in non-pragma'd tests (30 `as_slice`
    sites — many are the flowability tests themselves, rewritten per step 6).
 5. **Add `ListView`** (+ `StrView` if needed) to std/collections with tests.
@@ -169,88 +169,88 @@ With no raw-ptr-carrying values constructible in safe code:
 ## Status
 
 - [x] 1. `String == str` + literal-overload std additions — DONE.
-  `impl(String, Eq(str))` + `impl(str, Eq(String))` (direct memcmp, `(!=)`
-  via the trait `?=` default) and the `StrPattern` trait on `String`
-  (`contains`/`starts_with`/`ends_with`/`index_of`/`last_index_of`/`split`
-  taking `str`; inherent methods cannot be overloaded, trait methods can).
-  Two TS evaluator dispatch bugs fixed on the way (specializedType env
-  mixing + first-match method shadowing) —
-  `issues/fixed/heterogeneous-eq-overload-dispatch.md`. yo-self needs no
-  port (registry returns all overloads; no specializedType). Validated:
-  std 151/151 (TS + yo-self-bin), bun 459, string tests 249, impl tests 6.
+     `impl(String, Eq(str))` + `impl(str, Eq(String))` (direct memcmp, `(!=)`
+     via the trait `?=` default) and the `StrPattern` trait on `String`
+     (`contains`/`starts_with`/`ends_with`/`index_of`/`last_index_of`/`split`
+     taking `str`; inherent methods cannot be overloaded, trait methods can).
+     Two TS evaluator dispatch bugs fixed on the way (specializedType env
+     mixing + first-match method shadowing) —
+     `issues/fixed/heterogeneous-eq-overload-dispatch.md`. yo-self needs no
+     port (registry returns all overloads; no specializedType). Validated:
+     std 151/151 (TS + yo-self-bin), bun 459, string tests 249, impl tests 6.
 - [x] 2. mechanical `as_str()` comparison sweep — DONE. Dropped `.as_str()`
-  adjacent to `==`/`!=` (both sides; comment lines skipped): yo-self 1333
-  sites / 96 files, tests 72 sites / 8 files (crypto/encoding/os), std 0
-  (its 6 `as_str` uses are bare → step 3). Zero comparison-adjacent
-  `as_str()` remains outside comments. Validated: full ./tests 2609/2609,
-  swept-source yo-self-bin sweeps std 151/151 + tests 147/149 (baseline,
-  2 circular fixtures) + yo-self 285/285.
+     adjacent to `==`/`!=` (both sides; comment lines skipped): yo-self 1333
+     sites / 96 files, tests 72 sites / 8 files (crypto/encoding/os), std 0
+     (its 6 `as_str` uses are bare → step 3). Zero comparison-adjacent
+     `as_str()` remains outside comments. Validated: full ./tests 2609/2609,
+     swept-source yo-self-bin sweeps std 151/151 + tests 147/149 (baseline,
+     2 circular fixtures) + yo-self 285/285.
 - [x] 3. remaining `as_str()` + `: str` param audit — COMPLETE.
-  Done: (a) `String.from(x.as_str())` roundtrip → `x.clone()`, 250 sites /
-  62 yo-self files (the stale clone-ambiguity lore is wrong — field
-  receivers clone fine, cheatsheet fixed); (b) std safe-surface flips:
-  `String.byte_at(i)` added (public byte indexer — the runtime-byte-access
-  replacement for `as_str()`), `Url.parse`/`_parse_port` flipped
-  `str`→`String` (callers wrap literals in `String.from`), base64 decode
-  iterates `byte_at` directly, http client passes the String through.
-  std now has 4 `as_str` uses, ALL in pragma'd privileged code awaiting the
-  step-4 raw replacement: imm/string from_string + ToString (raw memcpy),
-  assert_dyn/panic_dyn (builtin assert/panic take `str` msg — needs a
-  step-4 decision).
-  Batch 2 (committed): `Ord(String)` impl on String (byte-lexicographic,
-  mirrors str's — `a < b` works directly) + yo-self helper-signature flips
-  `str`→`String` with call-site as_str drops in: evaluator/exprs/match.yo
-  (contains_str_in_list, find_str_in_list, _variant_name_eq,
-  _is_gadt_branch_reachable + all variant-name locals), types/
-  gadt_registry.yo (all enum_id params), types/enum.yo, exprs/import.yo
-  (resolve_module_path), module_loader.yo (cache/loading paths), main.yo
-  (normalize_import_path, collect_module_deps), build_runner.yo
-  (execute_step, output-dir/name helpers, summary-tree prefixes),
-  builtins/build.yo (all registry find_*/resolve_dependency name params).
-  Lesson: when flipping a param, grep the body for `String.from(param)`
-  materializations (→ `.clone()`) and literal callers (→ `String.from`
-  wrap); match arms unifying with `""` need `String.new()`.
-  Batch 3 (committed): registry-style `func_id : str` getters flipped to
-  String across types/function.yo, types/macro_registry.yo,
-  types/control_fn_registry.yo, function_value.yo (incl. copy_* helpers,
-  get_func_where_constraints/validate_where_constraints_for_call chain);
-  field-index/label helpers (find_first/last_field_index,
-  _find_field_label_index, _find_field_index, _label_already_seen,
-  _has_variant) + all their call sites; string_is_operator flipped with
-  byte_at/bytes_len body conversion; generate_expr(s)_from_code; install
-  append_dep_to_deps_file; `.push_str(x.as_str())` → `.push_string(x)`;
-  `a.as_str() < b.as_str()` → `a < b` via the new Ord(String).
-  Batch 4 (committed): the final 47 kept-file sites — locals
-  (`v := tok.value.as_str()` → `.clone()`), formatter/install/char/pragma
-  helper flips (byte-API bodies converted to byte_at/bytes_len),
-  negative-impl registry, _is_excluded_label, _find_specialization_cache,
-  IntLit-arm `"0"` unifications (rc_fns/macro_expand), println/print/
-  template drops. Kept-file as_str count is now exactly ONE:
-  main.yo:767 `compile_module_to_c(…, mod_id.as_str(), …)` — deferred
-  with the codegen port. Remaining elsewhere: ~600 codegen/driver/
-  proto-eval (eval.yo) sites DEFERRED to the codegen port
-  (plans/BOOTSTRAPPING_CODEGEN.md retires driver.yo, the untyped walker
-  and the proto-evaluator; flipping their params first is wasted work).
-  Standalone `./yo-cli check` on lock_file.yo/build_runner.yo fails with
-  io.await/exists noise even when green — only the main.yo build verdict
-  counts for those.
+     Done: (a) `String.from(x.as_str())` roundtrip → `x.clone()`, 250 sites /
+     62 yo-self files (the stale clone-ambiguity lore is wrong — field
+     receivers clone fine, cheatsheet fixed); (b) std safe-surface flips:
+     `String.byte_at(i)` added (public byte indexer — the runtime-byte-access
+     replacement for `as_str()`), `Url.parse`/`_parse_port` flipped
+     `str`→`String` (callers wrap literals in `String.from`), base64 decode
+     iterates `byte_at` directly, http client passes the String through.
+     std now has 4 `as_str` uses, ALL in pragma'd privileged code awaiting the
+     step-4 raw replacement: imm/string from*string + ToString (raw memcpy),
+     assert_dyn/panic_dyn (builtin assert/panic take `str` msg — needs a
+     step-4 decision).
+     Batch 2 (committed): `Ord(String)` impl on String (byte-lexicographic,
+     mirrors str's — `a < b` works directly) + yo-self helper-signature flips
+     `str`→`String` with call-site as_str drops in: evaluator/exprs/match.yo
+     (contains_str_in_list, find_str_in_list, \_variant_name_eq,
+     \_is_gadt_branch_reachable + all variant-name locals), types/
+     gadt_registry.yo (all enum_id params), types/enum.yo, exprs/import.yo
+     (resolve_module_path), module_loader.yo (cache/loading paths), main.yo
+     (normalize_import_path, collect_module_deps), build_runner.yo
+     (execute_step, output-dir/name helpers, summary-tree prefixes),
+     builtins/build.yo (all registry find*_/resolve*dependency name params).
+     Lesson: when flipping a param, grep the body for `String.from(param)`
+     materializations (→ `.clone()`) and literal callers (→ `String.from`
+     wrap); match arms unifying with `""` need `String.new()`.
+     Batch 3 (committed): registry-style `func_id : str` getters flipped to
+     String across types/function.yo, types/macro_registry.yo,
+     types/control_fn_registry.yo, function_value.yo (incl. copy*_ helpers,
+     get_func_where_constraints/validate_where_constraints_for_call chain);
+     field-index/label helpers (find_first/last_field_index,
+     \_find_field_label_index, \_find_field_index, \_label_already_seen,
+     \_has_variant) + all their call sites; string_is_operator flipped with
+     byte_at/bytes_len body conversion; generate_expr(s)\_from_code; install
+     append_dep_to_deps_file; `.push_str(x.as_str())` → `.push_string(x)`;
+     `a.as_str() < b.as_str()` → `a < b` via the new Ord(String).
+     Batch 4 (committed): the final 47 kept-file sites — locals
+     (`v := tok.value.as_str()` → `.clone()`), formatter/install/char/pragma
+     helper flips (byte-API bodies converted to byte_at/bytes_len),
+     negative-impl registry, \_is_excluded_label, \_find_specialization_cache,
+     IntLit-arm `"0"` unifications (rc_fns/macro_expand), println/print/
+     template drops. Kept-file as_str count is now exactly ONE:
+     main.yo:767 `compile_module_to_c(…, mod_id.as_str(), …)` — deferred
+     with the codegen port. Remaining elsewhere: ~600 codegen/driver/
+     proto-eval (eval.yo) sites DEFERRED to the codegen port
+     (plans/archive/BOOTSTRAPPING_CODEGEN.md retires driver.yo, the untyped walker
+     and the proto-evaluator; flipping their params first is wasted work).
+     Standalone `./yo-cli check` on lock_file.yo/build_runner.yo fails with
+     io.await/exists noise even when green — only the main.yo build verdict
+     counts for those.
 - [x] 4. COMPLETE — str is a true builtin (TypeTag.Str, ac26167c);
-  RawSlice(T) in the prelude with a representation-based naming gate in
-  BOTH compilers; as_str DELETED (raw_bytes is the privileged
-  replacement, ec560861); as_slice DELETED (47c05754); yo-self bootstrap
-  codegen DELETED (user decision); builtin Slice(T) DELETED from the
-  compiler end-to-end (ed5effb7).
+     RawSlice(T) in the prelude with a representation-based naming gate in
+     BOTH compilers; as_str DELETED (raw_bytes is the privileged
+     replacement, ec560861); as_slice DELETED (47c05754); yo-self bootstrap
+     codegen DELETED (user decision); builtin Slice(T) DELETED from the
+     compiler end-to-end (ed5effb7).
 - [x] 5. COMPLETE — std/collections/list_view.yo + 5 soundness tests
-  (alias visibility, realloc survival, clean shrink, sub-views,
-  independent copies) (e1585bc6).
+     (alias visibility, realloc survival, clean shrink, sub-views,
+     independent copies) (e1585bc6).
 - [x] 6. COMPLETE — str carries no flow constraints;
-  flowability_comprehensive rewritten for the static-str model;
-  slice_flowability deleted; FLOWABILITY.md + MEMORY_SAFETY.md rewritten
-  en+zh (47c05754).
+     flowability_comprehensive rewritten for the static-str model;
+     slice_flowability deleted; FLOWABILITY.md + MEMORY_SAFETY.md rewritten
+     en+zh (47c05754).
 - [x] 7. COMPLETE — final gates (2026-06-11, ed5effb7): full ./tests
-  2595/2595 (clang, CI-equivalent); bun 457/457; std 152/152 under BOTH
-  compilers; yo-self self-hosted sweep 245/245; tests sweep 146/148
-  (baseline = 2 unresolvable circular-import fixtures).
+     2595/2595 (clang, CI-equivalent); bun 457/457; std 152/152 under BOTH
+     compilers; yo-self self-hosted sweep 245/245; tests sweep 146/148
+     (baseline = 2 unresolvable circular-import fixtures).
 
 ## Step 4 implementation map (2026-06-10 survey)
 
@@ -260,13 +260,14 @@ only from `Pragma.AllowUnsafe` files) instead of hard-deleting, until the
 codegen port retires those files.
 
 Ordered parts (validate `check ./std` + targeted tests between each):
+
 - **A. str standalone lowering:** add TypeTag.Str/StrType/createStrType/
   isStrType (src/types/{tags,definitions,creators,guards}.ts); codegen str
   struct directly (src/codegen/utils/index.ts:600, types/{generation,
-  collection}.ts); decide __yo_str_* vs reuse; update prelude:5824.
-  Today: str = newtype{bytes: Slice_uint8_t} → `typedef struct {uint8_t*
+  collection}.ts); decide **yo*str*_ vs reuse; update prelude:5824.
+  Today: str = newtype{bytes: Slice_uint8_t} → `typedef struct {uint8_t_
   data; size_t length} Slice_uint8_t; typedef struct {Slice_uint8_t bytes;}
-  __yo_str;`.
+  **yo_str;`.
 - **B. delete SliceType:** TypeTag.Slice (tags.ts:66), SliceType
   (definitions.ts:281), creators.ts:654, guards, value.ts SliceValue,
   evaluator/types/slice.ts (whole file), ~20 cases types/utils.ts,
@@ -277,12 +278,12 @@ Ordered parts (validate `check ./std` + targeted tests between each):
   916,948 → build owned ArrayList/String); prelude Array Index(Range) Output
   Slice(T)→ArrayList(T) (5611-5626), Slice Index impls deleted (5690-5705);
   String range → String; str range stays str; codegen
-  __yo_array_index_range (inline-fns.ts:238-271) emits copy ctor.
+  \_\_yo_array_index_range (inline-fns.ts:238-271) emits copy ctor.
 - **D. RawSlice(T)** struct in a pragma'd std file; migrate: alg/hash.yo:10
   (NON-pragma'd — needs pragma or byte_at rewrite), collections/
   array_list.yo as_slice, crypto/random.yo bufs, imm/{list,map,set,
   sorted_map,sorted_set,vec}.yo from_slice/from_entries.
-- **E. prelude cleanup:** delete Slice impls 5647-5788, __yo_slice_* decls;
+- **E. prelude cleanup:** delete Slice impls 5647-5788, \__yo_slice_\* decls;
   str def update.
 - **F. yo-self mirrors** deferred to codegen port.
 
@@ -297,9 +298,9 @@ intrinsics (ptr/from_raw_parts pragma-gated); Eq/Ord/Hash/Display impls
 stay in the prelude over the intrinsics; comptime_string→str is tag-to-tag.
 
 **yo-self codegen DELETED (user, 2026-06-10):** yo-self/codegen/ +
-codegen_*.test.yo removed; extract_import_path/extract_bare_import_path
+codegen\_\*.test.yo removed; extract_import_path/extract_bare_import_path
 inlined into main.yo; run_compile/run_test stub-throw pointing at
-plans/BOOTSTRAPPING_CODEGEN.md; `check` untouched. This removes the
+plans/archive/BOOTSTRAPPING_CODEGEN.md; `check` untouched. This removes the
 566-site as_str conflict — `as_str`/`as_slice` are HARD-DELETED in step 4
 (no pragma-gating); only eval.yo (~25 sites, kept for evaluator/index.yo)
 and eval-tests need sweeping first.
@@ -321,19 +322,20 @@ DONE: 4a TypeTag.Str (ac26167c); RawSlice + crypto/hash (894bcee1);
 ArrayList.from_array (4e182b0e); yo-self codegen deleted.
 
 NEXT (in order, validate check ./std + targeted tests between):
-1. imm/*: from_slice(Slice(T)) → from_list(l : ArrayList(T)) in
+
+1. imm/_: from*slice(Slice(T)) → from_list(l : ArrayList(T)) in
    {list,vec,set,sorted_set,map,sorted_map}.yo — bodies bulk-copy via
-   match(l.ptr(), .Some(p) => _copy_elems(..., p, ...)) (files pragma'd);
-   from_entries(pairs : Slice(...)) same treatment. Tests imm_*.test.yo:
+   match(l.ptr(), .Some(p) => \_copy_elems(..., p, ...)) (files pragma'd);
+   from_entries(pairs : Slice(...)) same treatment. Tests imm*_.test.yo:
    `X.from_slice(arr(a..b))` → `X.from_list(ArrayList(T).from_array(arr))`
    (or sub-range via push loop where the range isn't the whole array).
 2. imm/string.yo: from_string uses s.as_str() for memcpy — replace with
-   match(s._bytes? no, private) → use String.byte_at loop or to_cstr; its
+   match(s.\_bytes? no, private) → use String.byte_at loop or to_cstr; its
    ToString does String.from(self.as_str()) → build via from_bytes/byte_at.
 3. panic/assert String support: assert_dyn/panic_dyn call
    assert/panic(msg.as_str()) — make builtin panic/assert accept String
    (evaluator builtins/panic.ts msg check + codegen exprs/panic.ts emit
-   %.*s over String's bytes — String C shape is the Rc struct; simplest:
+   %.\*s over String's bytes — String C shape is the Rc struct; simplest:
    keep panic(str) and have assert_dyn pass msg via a NEW pragma'd
    String method that yields its raw bytes ptr+len (RawSlice(u8)) and a
    panic_raw(ptr,len) intrinsic... OR give panic a String overload in the
@@ -355,10 +357,10 @@ NEXT (in order, validate check ./std + targeted tests between):
    (createSliceValue at ~916,948): for Array/ArrayList → build ArrayList
    copy (dispatch to a method e.g. ArrayList.from_array_range /
    ArrayList.slice_copy; add String.substring-based impl for String;
-   str stays zero-copy via __yo_str_from_raw_parts(ptr&+start, end-start)).
+   str stays zero-copy via \_\_yo_str_from_raw_parts(ptr&+start, end-start)).
    Update prelude Array Index(Range) impls accordingly (delete or retarget).
 7. Part B: delete SliceType from src/ (27 files; map above) + prelude
-   Slice impls/__yo_slice_* decls + parser support; tests/slice_flowability
+   Slice impls/\__yo_slice_\* decls + parser support; tests/slice_flowability
    rewritten (step 6 does flowability tests/docs anyway).
 8. Steps 5 (ListView + tests), 6 (gates retirement + FLOWABILITY.md en/zh +
    MEMORY_SAFETY.md + flowability_comprehensive rewrite), 7 (full gates:
@@ -368,7 +370,7 @@ NEXT (in order, validate check ./std + targeted tests between):
 `slice_copy(Range(usize))` + `slice_copy_inclusive(RangeInclusive(usize))`
 on ArrayList (owned copy), Array(T,N) (→ ArrayList, impl in
 array_list.yo), String (substring-based, rune indices), and str (prelude,
-zero-copy static window via __yo_str_from_raw_parts + &+).
+zero-copy static window via \_\_yo_str_from_raw_parts + &+).
 WIRING DONE (484b4094): evaluator rewrite in calls/function.ts
 (pre-checking-phase) dispatches runtime `recv(a..b)` to slice_copy;
 view-semantics tests rewritten to value semantics. Prelude Array
@@ -379,7 +381,7 @@ when argType is Range/RangeInclusive, look up slice_copy[_inclusive] via
 getReceiverMethodsByNameFromEnv and return an IndexCallResult carrying
 that method as indexMethodType/Value with type=its return type,
 value=UnknownValue(ret), ptrType=createPtrType(ret). FIRST verify how
-codegen emits index-call results (does it deref *(Output)? find the
+codegen emits index-call results (does it deref \*(Output)? find the
 index-result emission in codegen/exprs — if it derefs, slice_copy must
 keep the `index` convention OR the emission needs a value-return mode
 flagged on the result). Then: delete the prelude Array Index(Range)

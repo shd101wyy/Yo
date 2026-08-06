@@ -84,7 +84,7 @@ mints a fresh func_id, registers its concrete type, and specializes the body's
 `call_result_op.specialized_function_value` as the callee (function.yo:1606), so
 once a real specialization is produced the callee auto-updates.
 
-Delicate (regression-prone — see plans/YO_SELF_STAGE2_FIXPOINT_ROADMAP.md's
+Delicate (regression-prone — see plans/archive/YO_SELF_STAGE2_FIXPOINT_ROADMAP.md's
 specialization history): broadening the gate to all SomeType-param functions +
 feeding the abstract type to create_specialized affects every generic call, and
 `Self`-body-resolution during specialization (ctx.self_type ← receiver) must be

@@ -598,7 +598,7 @@ with a `yield expr` form in the body that pauses and returns control to the call
 
 ### Major caveat resolved during repair
 
-Commits `ebe910a6` (Phase B), `c36429c8`/`9b089395` (Phase C), `e9143f5e` (Phase D) all originally landed against a **silently broken test framework** (since `a3510d20`, the generated test-batch `__yo_user_main` was emitting `/* "match" expression is not evaluated */` and exiting 0 — every test was a phantom pass). The full repair journey lives in `plans/PHASE_BCD_AUDIT_FINDINGS.md`. Summary: 14 commits between `7b3b788b` (test framework fix) and `bd928c1f` (ArrayList/String runtime coverage) repaired Phase B/C/D from phantom-passing to runtime-validated.
+Commits `ebe910a6` (Phase B), `c36429c8`/`9b089395` (Phase C), `e9143f5e` (Phase D) all originally landed against a **silently broken test framework** (since `a3510d20`, the generated test-batch `__yo_user_main` was emitting `/* "match" expression is not evaluated */` and exiting 0 — every test was a phantom pass). The full repair journey lives in `plans/archive/PHASE_BCD_AUDIT_FINDINGS.md`. Summary: 14 commits between `7b3b788b` (test framework fix) and `bd928c1f` (ArrayList/String runtime coverage) repaired Phase B/C/D from phantom-passing to runtime-validated.
 
 ## References
 

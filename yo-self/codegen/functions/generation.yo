@@ -257,7 +257,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
               );
             });
             expr_code := _call_generate_expr(last_expr, indent.clone(), context);
-            // B1 (plans/YO_SELF_RC_EMISSION_LAYER.md §8): materialize the result
+            // B1 (plans/archive/YO_SELF_RC_EMISSION_LAYER.md §8): materialize the result
             // into a temp BEFORE the scope-end drops, so a drop does not free a
             // local the result expression reads (e.g. `i32(xs.len())` after `xs`
             // is dropped → reads freed memory). Mirrors generation.ts:1587-1611.
@@ -617,7 +617,7 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   // deterministically across the TS-compiled s1 and self-compiled s2. Index by
   // position and re-read len() each pass so specs registered mid-emission are
   // still emitted. Mirrors TS `for (funcId in context.functions)` (insertion
-  // order). See issues/yo-self-emission-order-nondeterminism.md.
+  // order). See issues/fixed/yo-self-emission-order-nondeterminism.md.
   (fi : usize) = usize(0);
   while(fi < context.base.function_order.len(), {
     match(

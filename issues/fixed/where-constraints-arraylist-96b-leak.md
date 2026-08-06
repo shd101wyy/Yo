@@ -5,7 +5,7 @@
 > by the evaluator, and that `mergeAndCheckEnvs` should have rejected the program) turned
 > out to be wrong — there was never a consumption for the merge to see.
 
-> **Handing this off? Start with `plans/CI_GATING_HANDOFF.md` §2.** It has the same analysis
+> **Handing this off? Start with `plans/archive/CI_GATING_HANDOFF.md` §2.** It has the same analysis
 > condensed, plus the gates, the measured baselines, and the single question to start from.
 > This file is the long-form record.
 

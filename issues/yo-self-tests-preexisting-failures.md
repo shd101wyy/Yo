@@ -19,9 +19,9 @@ accounting:
 Plus one failure the original triage could not have seen, because nobody had ever run
 the self-hosted binary's `test` subcommand over this directory:
 
-| new                       | outcome                                                                                                                                |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `effect_analysis.test.yo` | **OPEN** — real yo-self codegen divergence (TS 19/19; yo-self emits C clang rejects). `issues/yo-self-selftest-codegen-divergences.md` |
+| new                       | outcome                                                                                                                                        |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `effect_analysis.test.yo` | **OPEN** — real yo-self codegen divergence (TS 19/19; yo-self emits C clang rejects). `issues/retired/yo-self-selftest-codegen-divergences.md` |
 
 ## Three lessons, each of which had produced a wrong conclusion
 

@@ -1,7 +1,7 @@
 //! Top-level C code-generation orchestrator — mirrors `src/codegen/codegen-c.ts`
 //! (`CodeGeneratorC.compileModule`).
 //!
-//! PORT STATUS (incremental, plans/BOOTSTRAPPING_CODEGEN.md): this file currently
+//! PORT STATUS (incremental, plans/archive/BOOTSTRAPPING_CODEGEN.md): this file currently
 //! carries the two self-contained orchestration steps that pair with the
 //! already-ported type/constructor layers:
 //!   * compute_needs_cycle_gc  — the pre-scan that sets context.needs_cycle_gc
@@ -323,7 +323,7 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   // Pointer-field pointees missed by the dup/drop walk (e.g. HashMap/ArrayList
   // element types behind `data : ?*(T)`); a separate pass so the main collection
   // order — which the lazy array-struct registration depends on — is untouched.
-  // See issues/yo-self-p1-uncollected-pointee.md.
+  // See issues/fixed/yo-self-p1-uncollected-pointee.md.
   collect_pointer_pointees(base);
   collect_c_includes(base);
   emit_c_includes(base);

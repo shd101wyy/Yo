@@ -4,7 +4,7 @@
 @File.close closure; likely also the undeclared temp/get_info pair, same
 method cluster). Stage-2 at 5 total.
 
-## Repro (issues/repro-close-self-capture.yo, 40 lines)
+## Repro (issues/repros/repro-close-self-capture.yo, 40 lines)
 
 `Thing :: ref(struct(_fd, _is_closed))` + impl method
 `close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))` whose

@@ -8,7 +8,7 @@
 > Kept for the ruled-out-attempts history.
 
 **Status:** DESIGN (2026-06-23). This is the gate to the self-host fixpoint
-(`plans/BOOTSTRAPPING_CODEGEN.md` Phase 6 / P1). Use-site resolution has been
+(`plans/archive/BOOTSTRAPPING_CODEGEN.md` Phase 6 / P1). Use-site resolution has been
 proven non-convergent (below); this doc designs the systematic fix.
 
 ## Problem
@@ -31,6 +31,7 @@ EXACT type comparison (the CTFE cache key) conflate `Option(shell)` with
 
 **The bug:** the empty shell leaks into SEMANTIC operations where it has no
 methods / no layout, and degenerates:
+
 - `element.clone()` on a shell receiver → `hits=0` → the call evaluates to
   `Type(1)` (a bare type value) → "Type mismatch for type member" downstream.
 - `*(shell)` / `sizeof(shell)` in a specialized `with_capacity` → degenerate.
@@ -43,12 +44,12 @@ semantic site the shell reaches, and the shell propagates through many
 specialization-input paths. Attempts this session + the 8 in
 `issues/yo-self-p1-transpile-tail.md`:
 
-| attempt | site | result |
-|---|---|---|
-| top-level receiver resolve | `_try_find_receiver_method` | **+37 markers (564→527), COMMITTED** (`3996b5982`) |
-| type-arg receiver resolve | `resolve_enum_shell_in_args` | faithful repro fixed, self-compile **+0** — reverted |
-| deep field-patch | `register_enum_final` `_patch_self_shell` | repro unchanged — reverted |
-| (8 prior) | self_type / forall / static-dot / .Pointer cast / destructure / … | all no-op |
+| attempt                    | site                                                              | result                                               |
+| -------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------- |
+| top-level receiver resolve | `_try_find_receiver_method`                                       | **+37 markers (564→527), COMMITTED** (`3996b5982`)   |
+| type-arg receiver resolve  | `resolve_enum_shell_in_args`                                      | faithful repro fixed, self-compile **+0** — reverted |
+| deep field-patch           | `register_enum_final` `_patch_self_shell`                         | repro unchanged — reverted                           |
+| (8 prior)                  | self_type / forall / static-dot / .Pointer cast / destructure / … | all no-op                                            |
 
 The committed receiver-resolve captured the clone-on-top-level-shell facet (~7
 throws); every further use-site resolve hits diminishing/zero returns because the
@@ -59,6 +60,7 @@ converge.** The fix must make the shell never reach semantics.
 ## The constraint that shapes the fix
 
 The shell must be:
+
 - **DISTINCT** from the final for **CTFE cache keys** (`type_key` /
   `are_types_compatible_exact` / `_ctfe_args_equal`) — else the json.yo conflation
   bug returns.
@@ -71,6 +73,7 @@ breaks semantics. The systematic fix must separate these two regimes.
 ## Candidate approaches
 
 ### A. Handle/RC `TypeValue` for recursive enums (most faithful to TS)
+
 Represent a recursive enum's `Self` as a shared handle (RC/interned) that always
 points at the one canonical final. No shell value is ever copied; semantics and
 cache both see the same object (as in TS). **Cost:** converting the recursive
@@ -79,11 +82,13 @@ handle type — thousands of sites; the original "multi-week" estimate. Cleanest
 end state, highest cost/risk.
 
 ### B. Two-regime resolution (recommended first) — keep the value shell, resolve at a SMALL fixed set of SEMANTIC chokepoints, with the CACHE path left shell-distinct
+
 Make `resolve_enum_shell` **deep** (cycle-guarded; recurses struct fields /
 type-args / pointer / array / non-self enum variant fields, resolving every
 registered shell — the design is in this session's reverted `_patch_self_shell_v`
-+ `resolve_enum_shell_in_args`), then apply it at the *complete* set of semantic
-chokepoints, NOT per-bug:
+
+- `resolve_enum_shell_in_args`), then apply it at the _complete_ set of semantic
+  chokepoints, NOT per-bug:
   1. method dispatch receiver — `_try_find_receiver_method` (done, top-level; make deep).
   2. type comparison — the LENIENT `are_types_compatible` ONLY (NOT
      `are_types_compatible_exact`, which the cache uses — verify `_ctfe_args_equal`
@@ -92,15 +97,16 @@ chokepoints, NOT per-bug:
      (`calls/pointer.yo`) resolve their type argument.
   4. construction field check — `calls/type.yo` resolve the arg + member type
      before `are_types_compatible`.
-Each is a single, identifiable chokepoint; doing ALL of them in one pass (rather
-than reacting to individual markers) is the difference from the failed
-whack-a-mole. **Risk:** (a) the lenient/exact split must be airtight (cache
-correctness); (b) deep resolve is hot — guard with a cheap `type_contains_shell`
-pre-check so non-shell types skip the rebuild. **Validate:** the ~10s fast repro
-(below) + corpus 83/83 + self-compile marker delta; if it converges toward 0,
-done; if it plateaus, escalate to A.
+     Each is a single, identifiable chokepoint; doing ALL of them in one pass (rather
+     than reacting to individual markers) is the difference from the failed
+     whack-a-mole. **Risk:** (a) the lenient/exact split must be airtight (cache
+     correctness); (b) deep resolve is hot — guard with a cheap `type_contains_shell`
+     pre-check so non-shell types skip the rebuild. **Validate:** the ~10s fast repro
+     (below) + corpus 83/83 + self-compile marker delta; if it converges toward 0,
+     done; if it plateaus, escalate to A.
 
 ### C. Eliminate at `register_enum_final` (rejected)
+
 Patch every cached instantiation that captured the shell. The shell is
 value-copied into the CTFE cache + ExprInfo across the program; finding/rewriting
 them all is as invasive as A without the clean end state.
@@ -133,6 +139,7 @@ impl(RecT, clone : (fn(self : Self) -> Self)(
 main :: (fn() -> unit)({ x := RecT.Tuple(labels : ArrayList(String).new(), types : ArrayList(RecT).new()); _ := x.clone(); () });
 export(main);
 ```
+
 Compile with `yo-self-bin compile <file> --emit-c --skip-c-compiler`; a
 `// Failed to transpile` marker on `RecT.clone`'s match = unfixed. Diagnostic
 technique: a `[CLONE_DBG]` `eprintln` of receiver-type / is_static / hits in
@@ -206,8 +213,9 @@ and revivable as a standalone faithfulness cleanup; it is not a P1 fix. All P1
 effort now redirects to the def-time body-eval typing root.
 
 ## References
+
 - `issues/yo-self-p1-transpile-tail.md` — full evidence, throw distribution,
   the 8+ ruled-out use-site attempts, this session's 3 attempts.
-- `plans/BOOTSTRAPPING_CODEGEN.md` — P1 (this is the lead blocker for the fixpoint).
+- `plans/archive/BOOTSTRAPPING_CODEGEN.md` — P1 (this is the lead blocker for the fixpoint).
 - `yo-self/evaluator/types/enum.yo` — shell creation + `_patch_self_shell` +
   `register_enum_final`. `yo-self/types/creators.yo` — `resolve_enum_shell`.

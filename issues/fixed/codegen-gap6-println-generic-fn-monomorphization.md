@@ -1,0 +1,398 @@
+# Gap-6: generic free-function monomorphization (`println` etc.)
+
+**Status:** ✅ SPECIALIZATION RESOLVED 2026-06-17 (commit 271d96e61). The Gap-6
+specialization throw is FIXED: a forall param inferred from a comptime_str string
+literal now binds `T = str` (runtime) — both at forall inference (function.yo ~1870,
+record `str` in fa_bound_names/types) AND at param binding (function.yo ~2019,
+resolve the declared SomeT param type to its concrete binding BY NAME via
+fa_bound_names so the comptime_str→runtime coercion fires for the forall VALUE param).
+Gated to comptime_str string-literal VALUE args (a comptime TYPE arg is a `Type`
+value, not comptime_str). `println`/`myp` now specialize; the i32/str throw is gone.
+Corpus 53/53, std -O0 sweep held 94/58 (this coercion class regressed std 151→17 when
+unguarded — the value-arg gating + name-based resolve keep it safe).
+
+REMAINING for `println` END-TO-END: a SEPARATE pre-existing gap — the extern-C GLOBAL
+`stdout`/`stderr` emit as undeclared `__yo_c_reserved_stdout`. This is "Gap 3"
+(yo-self models `is_extern` only on the Func TypeValue variant): c*include stamps the
+FFI marker only onto Func field types (c_include.yo:202-239); a non-Func global
+(`stdout : *(FILE)`) is left unmarked, so codegen's `is_extern_c` detection
+(utils/index.yo:818, Func-only) is false → `sanitize_for_c_identifier` adds the
+`\_\_yo_c_reserved*`prefix (the C`<stdio.h>`IS included, so the real`stdout`is in
+scope — only the name mapping is wrong). TS checks`variable.type.isExtern === "c"`on ANY type. FIX (next): add`is_extern`to the relevant non-Func TypeValue variants
+(at least Pointer) OR add an`is_extern_c` flag to Variable set by c_include for ALL
+fields, and consult it in getVariableNameForCodegen's sanitize call. Schema-touching
+(build-guided). See issues/codegen-extern-c-global-reserved-name.md.
+
+## println PROGRESS 2026-06-17 — 3 of ~4 sub-gaps fixed; one remains
+
+Once the specialization was fixed, `println("hello")` surfaced a CHAIN of distinct
+sub-gaps in its body (it exercises a large surface). Fixed so far:
+
+1. ✅ Specialization (271d96e61) — forall T = str (above).
+2. ✅ extern-C global `stdout` (e3febf709) — Gap-3 registry
+   (issues/codegen-extern-c-global-reserved-name.md).
+3. ✅ by-ref variable read deref (9e133d832) — `ref(self)` reads emit `(*self)`
+   (generate_atom `_var_read_code`; mirrors TS atom.ts:583; refactored the
+   newtype-only property_access deref into this general path).
+
+REMAINING (1): `str.to_string`'s `return(String.from(self))` (self : ref(self) : str)
+emits a SELF-SHADOWING local + a redundant cast:
+
+```c
+static inline __yo_struct_yo_id_3961 yo_id_5363(__yo_str* self) {
+  __yo_str self = (*self);                          // redefinition: local `self` vs param `self`
+  ... = yo_id_4043((__yo_str)(self));               // redundant str(self) cast
+  return ...;
+}
+```
+
+The `self` value-read (now `(*self)` after fix #3) is MATERIALIZED into a temp whose
+NAME is `self` (the read's ExprInfo.variable_name = the param name "self"), so the
+declaration `__yo_str self = (*self)` shadows the `__yo_str* self` param → C
+"redefinition with different type". Also a redundant `(__yo_str)(self)` str→str
+conversion cast (likely an inserted `str(self)` / \_\_yo_as on the arg). NEXT: either
+suppress the temp materialization for a bare ref-var read (use `(*self)` inline), OR
+give that temp a UNIQUE name (not the param name). Probe the arg-materialization path
+in other_fn_call / generate_func_call for where `<type> self = ...` is emitted (the
+temp name comes from the self-read's variable_name). corpus 54/54 + std 94/58 hold
+with fixes 1-3; this is the last println blocker.
+
+---
+
+(original OPEN diagnosis below — kept for the trace.)
+
+# Gap-6 (original): `println("hello")` compiles+runs under TS
+
+(prints `hello`) but the self-hosted compiler emits a call to the UNSPECIALIZED
+generic and skips its body → undeclared function.
+
+## Repro
+
+`/tmp/pln.yo`:
+
+```rust
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)(println("hello"));
+export(main);
+```
+
+Self-hosted emits (main):
+
+```c
+yo_id_5545((void*)((__yo_str){ .ptr = (const uint8_t*)"hello", .len = 5 }));
+```
+
+`yo_id_5545` is the GENERIC println (param `T` erased to `void*`); it is never
+defined (correctly skipped — a hard-generic, SomeT-bearing body), so the call is
+to an undeclared function. There is NO specialized `println_str`. Also the
+`(void*)(__yo_str){...}` cast is itself invalid C (struct → void\*).
+
+## Concrete finding 2026-06-17 (post the str/String/mutation fixes — corpus 52)
+
+Probed `create_specialized_function_inline`'s call site in the FuncVal-arm
+forall>0 spec block (function.yo:2410), printing callee/ret/spec_fid:
+
+- **println (`yo_id_5545`) NEVER reaches function.yo:2410** — it does NOT go
+  through the FuncVal-arm runtime-return specialization at all. (Earlier memory
+  notes were contradictory on this; this is the current, post-fix state.)
+- The generics that DO reach 2410 (`yo_id_3834`, `yo_id_3840`, ret a struct)
+  come back with **`spec_fid == callee`** — i.e. `create_specialized` returns the
+  ORIGINAL func id, not a fresh specialized one.
+
+So two distinct questions for the next (focused) session:
+
+1. **What path does `println("hello")` take?** It bypasses the forall>0 spec arm
+   (function.yo:2365-2410). Candidates: the comptime route (function.yo:2149 —
+   if println is a macro / `fv_is_macro`, or `all_args_are_types`), or it never
+   reaches the FuncVal arm (resolved as something else). Probe the branch at
+   function.yo:2149 and the arm entry, gated on the println call (ret = unit,
+   forall>0). NOTE func ids are stable per-source, but confirm `yo_id_5545` maps
+   to println in the probe build before gating on it.
+2. **Why does `create_specialized` return `spec_fid == callee`** for the generics
+   that reach 2410? If it's meant to mint a fresh specialized func id (TS
+   `specializeFunction`) but returns the input, no monomorph is produced. Check
+   create_specialized_function_inline (helper.yo ~900-1130) — does it register a
+   NEW func id, or short-circuit-return the original when (e.g.) it judges the
+   body un-specializable / over-CTFEs to unit?
+
+## Background (from memory, prior sessions — pre-fix)
+
+`println`'s body is `s := v.to_string(); s.as_bytes(); …` — runtime ops over the
+type param. The historical diagnosis: `create_specialized` evaluates the body to
+derive types but runtime ops over an `UnknownVal` v OVER-CTFE to `unit`, so the
+specialization is unusable; the original generic is then collected+emitted and the
+get_type_string SomeT path / skip kicks in. **3+ single-point fixes were tried and
+FALSIFIED** (is_executing toggle; hard-generic emission skip — caused a silent
+no-op; genericity-guard broadening — regressed std). The conclusion stood: the
+real fix is making `create_specialized` resolve the runtime-op body's TYPES
+(dispatch `to_string` on the bound type var) WITHOUT CTFE-executing it — a
+substantial evaluator-architecture change (the runtime-vs-CTFE body type-derivation
+TS does at definition time). Do NOT attempt codegen-side band-aids.
+
+The new finding above (println bypasses 2410 entirely) means step 1 — locating
+println's ACTUAL dispatch path — must come first; the create_specialized work may
+be moot for println if it never reaches it.
+
+## PRECISE LOCALIZATION 2026-06-17 (gated `println`-atom probes, 4 -O0 builds)
+
+Traced `println("hello")` step by step (probes gated on `ast_expr_is_atom_of(
+func_expr, "println")`, robust to id churn):
+
+1. ENTERS evaluate_function_call. ✓
+2. Reaches the comptime-vs-runtime branch (function.yo:2149) with
+   `thier=false crc=false aat=false mac=false forall=1 ret=unit` → takes the
+   RUNTIME (else) path. ✓ (Earlier "bypasses 2410" was a tail-5 artifact — it DOES
+   reach the spec arm.)
+3. Reaches the runtime-path out_rt + the `if(forall_names.len()>0)` spec block
+   (forall=1). ✓
+4. Reaches `before-create-spec` (n_forall_args=1, n_reg_args=1) — i.e. the line
+   immediately before `create_specialized_function_inline` (function.yo:~2424). ✓
+5. The probe IMMEDIATELY AFTER create_specialized does **NOT** fire.
+
+⇒ **`create_specialized_function_inline` THROWS for println** — it does not return.
+The exception unwinds past the call site (skipping the ExprInfo-recording that
+would route codegen to a specialized `println_str`), so the GENERIC println is left
+recorded → codegen emits a call to the unspecialized (void\*-param) func → undeclared.
+
+The throw originates at **helper.yo:1101** — create_specialized evaluates the body
+with `evaluate_begin_expression(body, callee_env, ctx, true, exn)`, passing the
+OUTER `exn`. println's body (`s := v.to_string(); …`) executes runtime ops over the
+bound type var; that eval throws, and because the OUTER exn is used (not a swallowing
+trial-eval wrapper like the def-eval-wall sites), it propagates out instead of being
+contained.
+
+### DECISIVE NEXT STEP (do this first next session)
+
+CAPTURE THE EXACT ERROR thrown at helper.yo:1101 for println. Wrap that body-eval
+(or the create_specialized call in function.yo, where `func_expr=="println"` is
+gatable) in a local `Exception(throw: (err) -> { <print err>; <re-throw via outer
+exn> })` and print the message. That error decides the fix:
+
+- If it's a METHOD-RESOLUTION / type error (e.g. `v.to_string()` can't resolve for
+  `v:str`, or a SomeT leak) → likely a targeted, faithful fix.
+- If it's a genuine runtime-op CTFE failure (executing `to_string`'s
+  ArrayList/malloc body over an UnknownVal) → the deep architecture change
+  (type-derive the body without executing) the memory describes; do NOT band-aid by
+  swallowing (the 3rd falsified attempt made println a SILENT NO-OP — a swallowed
+  body-eval leaves a concrete signature but an empty/broken body).
+  Error-printing needs the dyn(Error) formatting (see how the def-eval-wall trial-eval
+  "SWALLOW: ..." prints, or format_error_message / the Error trait's message).
+
+## ⭐ EXACT ERROR CAPTURED 2026-06-17 — REFRAMES Gap-6
+
+Wrapped the create_specialized call (function.yo, gated on `func_expr=="println"`)
+with `Exception(throw : ((e) -> { eprintln(`...${e.to_string()}`); unwind(make_err_expr()) }))`
+(NOTE: a `->` handler can't capture outer runtime vars `exn`/`expr`; unwind must
+return the enclosing fn's type = AstExpr, hence `make_err_expr()`; AnyError =
+Dyn(Error), Error <: ToString so `e.to_string()` works). Output:
+
+```
+PROBE_PLN create_spec threw: Error: Cannot unify incompatible types: "i32" and "str"
+```
+
+**This is a TYPE-UNIFICATION error, not an over-CTFE / runtime-execution failure.**
+The months-old memory diagnosis ("create_specialized over-CTFEs `v.to_string()`'s
+ArrayList/malloc body → unit") is WRONG for the current code. Specializing println
+for `T=str` throws because some sub-expression of its body unifies `i32` with `str`.
+So Gap-6 (at least for println) is likely a SPECIFIC, tractable type bug — not the
+deep evaluator-architecture change previously assumed.
+
+println body (std/fmt/index.yo:8-20):
+
+```rust
+s := v.to_string();                  // v:str → str's ToString
+str_bytes := s.as_bytes();
+str_bytes_len := str_bytes.len();
+cond((str_bytes_len > 0) => { str_bytes_ptr := str_bytes.ptr().unwrap();
+       unsafe(fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stdout)); },
+     true => ());
+unsafe(fwrite(*(void)(*(u8)("\n")), usize(1), usize(1), stdout));   // <- suspect
+```
+
+SUSPECTS for the `i32`/`str` unify: `*(u8)("\n")` (line 19 — casting a `str`
+literal as a `*(u8)`; `*(u8)(...)` is a deref-cast and `"\n"` is a str fat-pointer),
+or `v.to_string()` (line 9 — the ToString dispatch for `str`). `i32` is the default
+for an unconstrained int/`u8`, so a u8/char vs str clash is plausible at `*(u8)("\n")`.
+
+### DEEPER ROOT 2026-06-17 (continued): forall `T` inferred as comptime_str
+
+Minimal repro `myp(forall(T), v:T, where(T<:ToString))` with body JUST
+`s := v.to_string();` reproduces the IDENTICAL failure (`yo_id_5545` undeclared,
+str-as-arithmetic) — TS prints fine. So it's `v.to_string()` during spec, NOT the
+fwrite/`*(u8)("\n")` lines.
+
+Traced the forall binding (function.yo:1855-1884): `T` is bound to `arg_info.ty` =
+**comptime_str** (the literal "hello"'s type), NOT `str`. str's to_string is trivial
+(`String.from(self)`, std/fmt/to_string.yo:195) and `String.from(str)` works in
+plain main — so the i32/str unify comes from `v` being typed comptime_str in the
+spec body: `v.to_string()` dispatches against comptime_str (→ comptime_int → i32),
+clashing with str. There IS an existing comptime_str→runtime param coercion at
+function.yo:2019, but its guard `!is_some_type(bind_decl_pt)` EXCLUDES forall params
+(v:T, T a SomeT).
+
+ATTEMPT (reverted — safe but INEFFECTIVE): coerce the forall inference so a
+comptime_str value arg binds `T = TypeValue.Str` (function.yo:1865). Build clean,
+corpus 53/53 (regression-free), BUT println UNCHANGED — emitted C still
+`yo_id_5545((void*)(...))` (generic, void\* param), 0 funcs take `__yo_str`. So
+EITHER (a) println's `T` inference does NOT go through that loop (line 1865 — the
+`param_type_names`-matching path; check whether println's T is bound via the
+recv_type_args FALLBACK at 1890, or yet another path / where-clause), OR (b) `T` did
+become str but create_specialized STILL throws (so no spec is recorded → generic
+emitted). GOTCHA hit: `fa_infer_ty` is a local (move-semantics) — needs `.clone()`
+at `box(...)` (the original `arg_info.ty` was a non-consuming field read).
+
+### COMBINED-FIX ATTEMPT (reverted) + the remaining WALL
+
+Inference probe confirmed println's `T` IS inferred via the line-1865 loop
+(`n_forall=1 ptn=[T,] arg0_ty=comptime_str`). So `T` binds to comptime_str there,
+AND the param binding (line 2019) binds `v` itself as comptime_str (its coercion
+guard skips the SomeT decl type `T`). Tried BOTH together:
+
+1. inference (line 1865): comptime_str arg → bind `T = TypeValue.Str`;
+2. param binding (line 2019): `resolved_decl_pt = get_value_of_some_type_from_env(
+   fresh_env, bind_decl_pt)` to resolve the SomeT `T`→str, then coerce `v` to str.
+   RESULT: build clean BUT println UNCHANGED (C still `yo_id_5545((void*)(...))`,
+   generic). So create_specialized still throws / no spec recorded.
+
+LIKELY REMAINING WALL: #2's `get_value_of_some_type_from_env(fresh_env, T)` returns
+`T` unresolved due to the FRAME-LEVEL SomeT-keying mismatch (the param's SomeT
+carries println's DEFINITION frame level; fresh_env binds `T` by name at the CALL
+frame) — the same frame-keyed-SomeT-resolution wall noted elsewhere in this memory.
+So `v` stays comptime_str → throw persists. (.clone gotcha: resolved_decl_pt used
+twice → clone one use.)
+
+### NEXT STEP (tractable)
+
+With BOTH coercions in place, re-capture the create_specialized throw (gated
+Exception probe) AND probe `v`'s actual binding type in fresh_env:
+
+- If `v` is STILL comptime_str → fix #2's SomeT resolution to be NAME-based (match
+  fa_bound_names: `T`→str, available right there) instead of frame-keyed
+  get_value_of_some_type_from_env. (fa_bound_names/types are built in the SAME loop
+  just above the param binding — thread them down, or re-resolve by name.)
+- If `v` became str but it STILL throws "i32 and str" → the clash is elsewhere in
+  println's body (NOT v's binding); bisect the body further.
+  Validate guarded + full std sweep (a prior unguarded comptime_str→concrete coercion
+  regressed std 151→17).
+
+### (earlier) NEXT STEP (tractable)
+
+Bisect println's body to the offending sub-expression: temporarily reduce the body
+to just `s := v.to_string();` then add lines back, OR instrument synthesize/unify to
+print the token when it throws "i32"/"str". Most likely a single mis-typed cast
+(`*(u8)("\n")`) — once found, the fix may be a one-liner in std/fmt OR a codegen/eval
+cast handling fix, NOT the deep architecture change. (User has OK'd editing std/ if
+needed.) Re-validate: pln.yo → `hello` matching TS, corpus + std sweep.
+
+---
+
+## 2026-06-17 — println end-to-end RE-ROOTED: self-shadowing FIXED + const-generic `U` is the real wall
+
+Two distinct sub-gaps remained. **(A) is FIXED. (B) is now fully root-caused** and is the sole remaining blocker for `str.to_string()` / `println`.
+
+### (A) FIXED — `_materialize_arg` redeclared a by-ref read into a same-named local
+
+`other_fn_call.yo` `_materialize_arg` emitted `__yo_str self = (*self);` for a
+by-`ref` receiver read passed BY VALUE (`String.from(self)` in `str.to_string`),
+shadowing the `__yo_str* self` param → C "redefinition with different type". Fix:
+detect the bare deref-read form `(*<sanitized>)` (it equals `(*name)` of the same
+var) and emit it INLINE instead of materializing a temp; also return `arg_code`
+raw (not sanitized) for that case. Validated: corpus 54/54, std sweep unchanged.
+
+### (B) BLOCKER — const-generic `U : usize` is never value-substituted in `Array(T, U)`
+
+Minimal repro: a generic fn whose body calls `v.to_string()` on an integer
+(`/tmp/g2.yo`). C output (`yo_id_5257`, i32's `to_string`):
+
+```c
+// Unknown type: Array(u8, U) buffer = ...   // length_var "U" NEVER resolved
+uint8_t ... = buffer.data[0];                // → "use of undeclared identifier 'buffer'"
+```
+
+Source: `std/fmt/to_string.yo` — `buffer := Array(u8, _INT_BUFFER_SIZE).fill(0)`.
+`Array.fill` (prelude.yo:5553) returns `comptime(Self)` = `Array(T, U)`. Called on
+`Array(u8, 24)`, `U` should bind to 24 so the buffer's type is `Array(u8, 24, "")`.
+The `24` IS known (snprintf gets `24ULL`), but the buffer VARIABLE's recorded type
+keeps `length_var="U"` → codegen's Array arm (utils/index.yo:719) correctly falls
+through to the "Unknown type" comment (mirrors TS, which by codegen time always has
+a concrete NumberValue length).
+
+ROOT CAUSE (two coordinated spots):
+
+1. `impl.yo:355-361` `_resolve_one_forall_binding`: when `U` binds to `IntLit(24)`,
+   it returns `last_nvar.ty` (= the _type_ `usize`), NOT the value. Its own comment
+   claims "current std impls (e.g. Array fill) don't [use U in a length position]"
+   — that claim is **FALSE**: `fill`'s `comptime(Self)` return is exactly `Array(T,U)`.
+2. `substitution.yo:98` `substitute` Array arm `=> .Array(box(recur(inner)), len, lvar)`
+   copies `len`/`lvar` verbatim — it cannot express a VALUE substitution, so even a
+   correctly-recorded `U := 24` binding would not rewrite `length_var`.
+
+The synthesizer side is ALREADY correct: `synthesizer.yo:1568-1591` binds the length
+var `U := IntLit(24)` in the expected env during `Array(T,U)` vs `Array(u8,24)`
+matching (mirrors TS synthesizer.ts:902-938).
+
+### PROPOSED FIX (faithful, well-scoped)
+
+Add a VALUE channel to `Substitution` for const-generic length vars:
+
+- `Substitution`: add `len_var_names : ArrayList(String)` + `len_var_values : ArrayList(usize)`;
+  `subst_add_len_var(s, name, value)` / `subst_lookup_len_var(s, name) -> Option(usize)`.
+- `substitute` Array arm: if `lvar` non-empty and `subst_lookup_len_var(s, lvar)` is
+  `Some(v)` → return `.Array(box(recur(inner)), v, "")`; else unchanged.
+- At the return-type substitution site (function.yo ~2342 inline arm AND helper.yo
+  mirror): when a forall name resolves to an `IntLit` value (preserve it through
+  `_resolve_one_forall_binding`, returning both the type AND the optional value), call
+  `subst_add_len_var(s_ret, name, value)` alongside the SomeT `subst_add`.
+  Validate: `/tmp/g2.yo` → binary OK, then `pln.yo` → `hello` matching TS, corpus +
+  per-file std sweep (must hold OK=94/FAIL=58), then `check ./tests`.
+
+### REFINEMENT (2026-06-17, repro `/tmp/af.yo`) — the type is MALFORMED, not merely unresolved
+
+A bare `Array(u8, 24).fill(u8(0))` (no const, no to_string) reproduces it. The buffer
+var's recorded type is `Array(u8, length=24, length_var="U")` — `length` AND
+`length_var` are BOTH populated (the data initializer correctly has 24 zeros, so
+`length=24` flowed through, yet `lvar="U"` rode along). That is a self-contradictory
+Array type: a concrete length should imply `lvar=""`. `evaluate_array_type`
+(array.yo:237-241) correctly emits `Array(u8,24,"")` for the literal receiver, so the
+`"U"` is grafted on DOWNSTREAM — during `Self`-resolution inside `fill`'s body (the
+impl's stored `Self` pattern carries `lvar="U"`; resolving its element `T→u8` and
+length `→24` leaves the stale `lvar` in place). So the most robust fix may be at the
+type-construction/resolution site: when an Array's `length` is set to a concrete
+(non-placeholder) value, CLEAR `length_var`. Cross-check both: codegen utils Array arm
+could also treat `length_var` as resolved when a concrete length is present, but fixing
+the malformed-type production is preferable. Re-validate with `/tmp/af.yo` (buffer must
+be `Array_uint8_t_24`), then `pln.yo`, corpus, std sweep (94/58), `check ./tests`.
+
+### FINAL ROOT-CAUSE (2026-06-17) — two type sources; the VARIABLE type is the culprit
+
+Tried clearing `length_var` inside `__yo_array_fill` (rebuild the result type as a
+clean `Array(elem, length)` in both the known- and unknown-fill-value branches).
+RESULT: the array VALUE became concrete (`Array_uint8_t_24` got registered + emitted),
+but `/tmp/af.yo` STILL failed — the emitted line is:
+
+```c
+// Unknown type: Array(u8, U) buffer = (Array_uint8_t_24){ .data = { 0, …24… } };
+```
+
+i.e. the buffer VARIABLE's DECLARED type prefix is still `Array(u8, U)` while its
+INITIALIZER value is the concrete `Array_uint8_t_24`. So there are TWO independent
+type computations:
+
+1. the fill VALUE's type — fixable in `__yo_array_fill` (CTFE execution result), and
+2. the buffer VARIABLE's type — taken from the `.fill(0)` CALL's RESOLVED RETURN TYPE,
+   computed at ANALYSIS time as `substitute(comptime(Self))` = `Array(u8, U)` (lvar="U"
+   survives because `substitute` (substitution.yo:98) copies `length_var` verbatim and
+   the forall `U:usize` value binding is never applied as a value substitution).
+
+So the `__yo_array_fill` change is INSUFFICIENT (reverted — kept the tree at the
+validated commit). The fix MUST land in the method-return-type resolution: apply `U:=24`
+to the Array `length_var` when resolving `comptime(Self)`. Concretely the
+Substitution-value-channel design from the PROPOSED FIX section above:
+`subst_add_len_var`/`subst_lookup_len_var` + a `substitute` Array arm that rewrites
+`(elem, _, lvar)` → `(elem', value, "")` when `lvar` has a value binding; and thread the
+`IntLit` value out of `_resolve_one_forall_binding` (impl.yo:361, which currently
+discards it, returning the bare `usize` type) into that channel at the return-resolution
+sites (function.yo inline FuncVal arm ~2342 AND the helper.yo mirror). Optionally ALSO
+keep the `__yo_array_fill` value-type cleanup so value and variable types agree.
+Validate: `/tmp/af.yo` (`Array_uint8_t_24 buffer`), `/tmp/g2.yo`, `pln.yo` → "hello",
+corpus 54/54, std sweep 94/58, `check ./tests`.

@@ -1276,7 +1276,7 @@ evaluate_anonymous_function_implementation :: (
   // marking SCOPED to io.async closures (general `=>` closures are never flagged
   // and never get a prior capture_type — so building a capture struct for EVERY
   // closure, which regressed the full `check ./std`, is avoided) while surviving
-  // re-eval. See issues/yo-self-closure-codegen-gate.md.
+  // re-eval. See issues/fixed/yo-self-closure-codegen-gate.md.
   // UNSCOPED (mark every `=>` closure): the codegen-read closure is a CLONE with
   // fresh expr-ids, evaluated WITHOUT is_inside_io_async_call, so neither the flag
   // nor an ExprInfo-keyed sticky bit transfers to it — only marking on every
@@ -1559,7 +1559,7 @@ evaluate_anonymous_function_implementation :: (
         // anonymous-function.ts:898-907. Gated on mark_closure_for_codegen (not just
         // is_inside_io_async_call) so the codegen-read CLONE — re-evaluated without
         // the flag — also gets it (else an await-bearing closure is mis-dispatched
-        // to the sync path). See issues/yo-self-closure-codegen-gate.md.
+        // to the sync path). See issues/fixed/yo-self-closure-codegen-gate.md.
         if(mark_closure_for_codegen, {
           info_tbl := ctx.expr_info_table;
           await_res := analyze_await_points(anon_eb, (e : AstExpr) => expr_info_table_get(info_tbl, ast_expr_id(e)));
@@ -1639,7 +1639,7 @@ evaluate_anonymous_function_implementation :: (
                 // callee's generic to ITSELF, and the callee's specialization
                 // body eval then throws and unwinds the CALLER's statement
                 // chain (the hollow-batch blast radius —
-                // issues/yo-self-hollow-test-batch-main.md, fourth round).
+                // issues/retired/yo-self-hollow-test-batch-main.md, fourth round).
                 // NOT for io.async closures: substituting the body type as
                 // the given return perturbs io.async's own `_ret`/E-bundle
                 // synthesis and FTTs the io.async statement (measured:

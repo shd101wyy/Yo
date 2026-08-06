@@ -64,7 +64,6 @@ fields or returns.
 
 ---
 
-
 ## Symptom
 
 The borrow-invalidation gate rejects REASSIGNING or MOVING a borrowed
@@ -105,8 +104,8 @@ The enforcement plumbing exists (refBorrowedBy marks + scope-liveness in
 src/evaluator/exprs/assignment.ts / expr.ts setExprAsConsumed); what is
 missing is the METHOD-CALL check site. Mirror in yo-self alongside
 (evaluator/utils.yo set_expr_as_consumed is still unwired there —
-plans/BOOTSTRAPPING_CODEGEN.md landmine 3).
+plans/archive/BOOTSTRAPPING_CODEGEN.md landmine 3).
 
 Documented as a known limitation in the flowability audit
-(plans/FLOWABILITY*.md / memory); this issue makes it a tracked,
+(plans/FLOWABILITY\*.md / memory); this issue makes it a tracked,
 reproducible work item.

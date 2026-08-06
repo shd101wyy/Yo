@@ -1,10 +1,10 @@
 //! C codegen utility helpers — mirrors `src/codegen/utils/index.ts`.
 //!
-//! PORT STATUS (incremental, per plans/BOOTSTRAPPING_CODEGEN.md Phase 1):
+//! PORT STATUS (incremental, per plans/archive/BOOTSTRAPPING_CODEGEN.md Phase 1):
 //! This file carries the `CodeGenContext` base struct (the flat-composition
 //! base for FunctionGenerationContext — Yo has no struct inheritance) and the
 //! context- and type-model-independent helpers. The following TS functions
-//! are DEFERRED and tracked in issues/codegen-port-type-model-gaps.md:
+//! are DEFERRED and tracked in issues/retired/codegen-port-type-model-gaps.md:
 //!   * `getTypeString`'s SomeType/Future/Dyn/Iso branches (the Phase-1/2
 //!     cases are ported) — these panic with a phase marker; they need
 //!     re-architecting to yo-self's env+substitute SomeType resolution
@@ -79,7 +79,7 @@ get_needs_intel_asm_syntax :: (fn() -> bool)(g_needs_intel_asm_syntax);
 //
 // Registry value records. TS keys context.types/externFunctions by TypeId
 // (a string) → { type, cName(, cInclude) }. yo-self uses HashMap(String, _)
-// with these record objects. NOTE (issues/codegen-port-type-model-gaps.md):
+// with these record objects. NOTE (issues/retired/codegen-port-type-model-gaps.md):
 // yo-self's TypeValue carries no general `cInclude`, so the entry carries it
 // (supplied at registration) rather than being read off the type.
 // ===========================================================================
@@ -139,7 +139,7 @@ CodeGenContext :: ref(
     /// order). yo-self's HashMap iterates in bucket order, which is unstable
     /// across the TS-compiled s1 and the self-compiled s2 when the function
     /// set changes — breaking the stage2≡stage3 fixpoint. See
-    /// issues/yo-self-emission-order-nondeterminism.md.
+    /// issues/fixed/yo-self-emission-order-nondeterminism.md.
     function_order : ArrayList(String),
     /// Extern functions (keyed by TypeId string).
     extern_functions : HashMap(String, CodegenExternFnEntry),
@@ -225,7 +225,7 @@ CodeGenContext :: ref(
     /// a pending drop is kept iff its target's C name appears in the list (declared-
     /// before AND still in scope). This is the block-scope-aware C-emission-order
     /// signal that the flat set and source-token heuristics could not provide. See
-    /// issues/yo-self-fixpoint-eval-phase-leak.md.
+    /// issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
     declared_scopes : ArrayList(String),
     /// Resolved concrete capture-struct type id → its generated closure impl fn.
     /// Populated at closure construction; read at closure call sites to emit
@@ -455,7 +455,7 @@ impl(
 // variant has no per-field flag, so the flags live in a side-table keyed by
 // struct id (registered at construction in evaluator/types/struct.yo). A
 // struct with no side-table entry is treated as all-runtime. See
-// issues/codegen-port-type-model-gaps.md Gap 1.
+// issues/retired/codegen-port-type-model-gaps.md Gap 1.
 // ===========================================================================
 /// A runtime (non-comptime-only) struct field: its label and type, in
 /// declaration order. The faithful stand-in for the subset of TS `TypeField`

@@ -5,7 +5,7 @@ patch was rebased onto the `forall` → `generic` rename (mechanical: only the
 surrounding comments had changed) and applied to
 `yo-self/evaluator/calls/function.yo`. TIER 1 clean on the batch (corpus
 140/0, `check ./std` 153/153, battery at baseline); TIER 2 run started the
-same day (see `plans/YO_SELF_STAGE2_HANDOFF.md` for the result).
+same day (see `plans/archive/YO_SELF_STAGE2_HANDOFF.md` for the result).
 **Severity:** a core soundness hole — the callee's parameter type is not
 enforced on some call path, and codegen papers over it with a C cast.
 
@@ -221,5 +221,5 @@ rather than to add a second, parallel check.
 This is very likely the reason several `comptime_expect_error` tests fail: they
 assert that a wrong-typed call is rejected, and yo-self accepts it. It also
 means any "green" file could contain silently mistyped calls that C happens to
-cast into place. Related: `issues/yo-self-hollow-test-batch-main.md` (one such
+cast into place. Related: `issues/retired/yo-self-hollow-test-batch-main.md` (one such
 throw hollowes out an entire test file).

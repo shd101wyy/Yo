@@ -370,7 +370,7 @@ The dominant cost is the careful reroute + per-phase self-compile measurement
 ## References
 
 - Measured breakdown, prior no-op experiments (clone-share, atomic-memo), header
-  shrink `c8fa9157c`: `plans/BOOTSTRAPPING_CODEGEN.md` P2 section + `git log`.
+  shrink `c8fa9157c`: `plans/archive/BOOTSTRAPPING_CODEGEN.md` P2 section + `git log`.
 - Hash mixing (murmur3 fmix64): `std/collections/hash_map` `h1_hash`.
 - Identity-key soundness lesson: name-only struct comparison is unsound for exact
   cache-key identity (Phase-3 `HashMap.new` blocker; see `git log`).

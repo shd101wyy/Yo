@@ -1,13 +1,13 @@
 //! Reachable-type collection — mirrors `src/codegen/types/collection.ts`.
 //!
-//! PORT STATUS (incremental, plans/BOOTSTRAPPING_CODEGEN.md Phase 1): this
+//! PORT STATUS (incremental, plans/archive/BOOTSTRAPPING_CODEGEN.md Phase 1): this
 //! file currently carries the TYPE-structural collectors (collect_type +
 //! collect_types_from_function_type + the SomeType-in-fn-fields helpers). The
 //! EXPR walkers (collect_types_from_expr / collect_required_types) are
 //! deferred: they thread the ExprInfoTable and mutually import
 //! functions/collection (findFunctionCallsInExpr) — added with that cluster.
 //!
-//! DIVERGENCES (issues/codegen-port-type-model-gaps.md):
+//! DIVERGENCES (issues/retired/codegen-port-type-model-gaps.md):
 //!   * Gap 6: yo-self `SomeT` has no resolvedConcreteType, so collect_type
 //!     conservatively SKIPS SomeTypes (generic — monomorphized before codegen
 //!     in the supported corpus); the TS Fn/Future/resolvedConcreteType
@@ -427,7 +427,7 @@ _collect_field_pointees :: (fn(ft : TypeValue, context : CodeGenContext) -> unit
 /// leaves the MAIN collection ORDER untouched, so it cannot perturb the
 /// order-sensitive lazy array-struct registration. Fixpoint loop handles
 /// transitive container nesting. DIVERGENCE from collection.ts (no such pass) —
-/// see issues/yo-self-p1-uncollected-pointee.md.
+/// see issues/fixed/yo-self-p1-uncollected-pointee.md.
 collect_pointer_pointees :: (fn(context : CodeGenContext) -> unit)({
   (changed : bool) = true;
   while(changed, {

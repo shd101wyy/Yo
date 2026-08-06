@@ -2,7 +2,7 @@
 
 **Status: root cause IDENTIFIED and confirmed against TS ground truth (2026-08-05).
 Not yet implemented.** This supersedes the "find the OTHER holder" open question left
-by `plans/YO_SELF_EXPRINFO_PRUNE.md`.
+by `plans/archive/YO_SELF_EXPRINFO_PRUNE.md`.
 
 | Compiler      | wall    | peak footprint | instructions retired |
 | ------------- | ------- | -------------- | -------------------- |

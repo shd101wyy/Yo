@@ -12,7 +12,7 @@ a single C file, which can be redistributed as `yo.c` plus a small driver.
   **bootstrap fixpoint HOLDS**: the stage-2 binary re-emits byte-identical
   C (stage-2 ≡ stage-3, 103.7 MB).
 - The remaining work queue lives in
-  **[`../plans/YO_SELF_STAGE2_HANDOFF.md`](../plans/YO_SELF_STAGE2_HANDOFF.md)** —
+  **[`../plans/archive/YO_SELF_STAGE2_HANDOFF.md`](../plans/archive/YO_SELF_STAGE2_HANDOFF.md)** —
   read that first; it carries THE METHOD (gate battery, hollow-green hygiene,
   phantom-kill protocol) and the measured dead ends not worth repeating.
 

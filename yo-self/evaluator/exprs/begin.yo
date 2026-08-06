@@ -604,7 +604,7 @@ _value_contains_unknown :: (fn(v : EvalValue) -> bool)(
 _name_matches_opt :: (fn(name : String, opt : Option(String)) -> bool)(
   match(opt,.Some(n) => (name == n),.None => false)
 );
-/// M1 (plans/YO_SELF_NAMED_LOCAL_DROPS.md): schedule scope-end `___drop` expressions
+/// M1 (plans/archive/YO_SELF_NAMED_LOCAL_DROPS.md): schedule scope-end `___drop` expressions
 /// for owning named-local bindings declared in `frame`, so a begin block's owning
 /// locals are reclaimed at scope exit. yo-self previously emitted NO scope-end drops
 /// for named locals (it leaked every one). Mirrors the normal scope-exit path of
@@ -1230,11 +1230,11 @@ _schedule_scope_end_drops :: (
   //      init-position-filtered early-return drops yet (TS begin.ts:2068-2122 — M3),
   //      and the returned value's temp isn't excluded as moved-out (consume — M2),
   //      so scheduling drops on a control-flow block crashes codegen when it emits a
-  //      drop for a not-yet-live / moved-out local. (See plans/YO_SELF_NAMED_LOCAL_DROPS.md.)
+  //      drop for a not-yet-live / moved-out local. (See plans/archive/YO_SELF_NAMED_LOCAL_DROPS.md.)
   // M3: skip_block big-hammer REMOVED — control-flow blocks now schedule regular
   // scope-end drops (non-consumed locals) here; consumed-local early-return drops
   // are attached to returns by the driver in evaluate_begin_expression. See
-  // issues/yo-self-fixpoint-eval-phase-leak.md.
+  // issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
   // A bare-atom block result is a named local moved out (returned) — never drop it.
   tail_atom_name := if(
     ast_expr_is_atom(last_expr),
@@ -2163,7 +2163,7 @@ evaluate_begin_expression :: (
   );
   // M1: schedule scope-end RC drops for this frame's owning named locals BEFORE the
   // frame is popped (the `___drop(name)` exprs are evaluated against `env` while the
-  // names are still in scope). See _schedule_scope_end_drops + plans/YO_SELF_NAMED_LOCAL_DROPS.md.
+  // names are still in scope). See _schedule_scope_end_drops + plans/archive/YO_SELF_NAMED_LOCAL_DROPS.md.
   scope_end_drops := match(
     current_frame_opt,
     .Some(fr) => _schedule_scope_end_drops(fr, begin_args, last_info.variable_name, last_expr, env, ctx, exn),
@@ -2218,7 +2218,7 @@ evaluate_begin_expression :: (
   // pinned its bound Variables (the per-call `new_variable` env Variables — the
   // dominant self-compile eval leaker, 2.7M live) on the whole-compile
   // expr_info_table forever. Not storing it lets `current_frame_opt` (and its
-  // Variables) be RC-freed at scope end. See issues/yo-self-fixpoint-eval-phase-leak.md.
+  // Variables) be RC-freed at scope end. See issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
   // A SINGLE-expression begin block (`expr` was not a real `begin(...)` call, so
   // it was wrapped in a 1-element list at the top) has its result node EQUAL to
   // the inner expression node — yo-self reuses `expr`'s id rather than

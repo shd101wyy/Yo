@@ -4,7 +4,7 @@
 97/97 green, self-compile completes exit 0, 11 decls + init helper emitted). But it
 does **not** net-reduce stage-2 clang errors yet — it is **gated on generic-instantiation
 type-identity consistency**. Reverted to keep the green baseline; the full port is
-saved in `issues/module-level-var-port.patch` (`git apply` to restore).
+saved in `issues/patches/module-level-var-port.patch` (`git apply` to restore).
 
 ## What the port does (faithful to TS)
 
@@ -102,6 +102,6 @@ standalone task, validate with corpus 97/97 + `check ./std` 152 at each step.
 ## Next step
 
 Fix the cfid-population consistency above FIRST. Then `git apply
-issues/module-level-var-port.patch`, rebuild, corpus-gate 97/97, and the decls become a
+issues/patches/module-level-var-port.patch`, rebuild, corpus-gate 97/97, and the decls become a
 clean win (undeclared drops with no incompat cascade). This same fix should also cut into
 the baseline 1627 stage-2 errors directly (many are the same incompat-type family).

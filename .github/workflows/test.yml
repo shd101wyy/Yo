@@ -266,7 +266,7 @@ jobs:
   # `<bin> compile`, but nothing ran `<bin> test` — so codegen bugs that only
   # surface when the self-hosted compiler builds AND RUNS a test binary were not
   # gated. That is exactly the class `check` cannot see (`check` never evaluates
-  # function bodies — see plans/YO_SELF_STAGE2_HANDOFF.md).
+  # function bodies — see plans/archive/YO_SELF_STAGE2_HANDOFF.md).
   #
   # Runs scripts/bootstrap/gates_fast.sh, the same tier-1 gate used locally on
   # every change: two repro compiles, a 20-file battery via `<bin> test` WITH
@@ -276,7 +276,7 @@ jobs:
   #
   # HOLLOW DETECTION is the point of the battery: a batch whose `__yo_user_main`
   # contains "Failed to transpile" reports tests as passing while running nothing
-  # — that once counted 33 files green (issues/yo-self-hollow-test-batch-main.md),
+  # — that once counted 33 files green (issues/retired/yo-self-hollow-test-batch-main.md),
   # so a bare "N passed" is never sufficient.
   #
   # Default (libc) allocator on purpose: measured 2026-08-05, mimalloc costs +53%
@@ -417,7 +417,7 @@ jobs:
       # ONE NODE PROCESS PER FILE. The Yo evaluator and codegen run IN-PROCESS —
       # src/test-runner.ts only spawns the C compiler and the test binary — and
       # per-file state (e.g. the process-lifetime ExprInfoTable, see
-      # plans/YO_SELF_EXPRINFO_PRUNE.md) is retained across files. A single
+      # plans/archive/YO_SELF_EXPRINFO_PRUNE.md) is retained across files. A single
       # process over all 58 files therefore accumulates until V8 dies: run
       # 31044378627 reported "Ineffective mark-compacts near heap limit" with
       # 11.7 GB STILL LIVE after a reduce-mark-compact, at quote_macro_eval (~file 40

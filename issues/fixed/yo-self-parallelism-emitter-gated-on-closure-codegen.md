@@ -57,7 +57,8 @@ capture_struct)` so layer 1's clause fires. TS does (b) (SomeType keeps identity
 gets resolvedConcreteType). Determine which yo-self does, then wire accordingly.
 RISK: broadening the trigger routes many soft-generic std calls through
 create_specialized (which lacks effects analysis, helper.yo:908) — validate corpus
-+ check ./std + watch compile time.
+
+- check ./std + watch compile time.
 
 LAYER-2 MECHANISM (investigated 2026-06-19 — REFINED): `create_specialized_function_inline`
 builds `runtime_param_tys` from the CONCRETE ARG types (`ae.arg_type`,
@@ -111,6 +112,7 @@ if not, that registration is the (additional) gap. VALIDATION: hot path
 ### CORRECTION + deeper layers (2026-06-19, continued)
 
 Direct inspection refines the fix below — it is MORE than a guard swap:
+
 - `Thread.spawn`'s `cb : Impl(Fn(io:Io)->unit, Send)` is a **`FnTraitT`**
   (types/definitions.yo:305), NOT a `SomeT`. `is_function_type_generic`
   (guards.yo:428) only treats `forall`/`implicit`/`SomeT`-param functions as
@@ -125,20 +127,22 @@ Direct inspection refines the fix below — it is MORE than a guard swap:
 - The exact reason the unspecialized `Thread.spawn` is dropped at codegen
   (skip vs not-collected vs FnTraitT get_type_string) was NOT fully pinned —
   needs instrumentation before editing.
-So the Gap-2 spawn fix spans at least: (1) FnTraitT-aware generic detection,
-(2) call-site-resolved hard-generic check, (3) the specialization-guard branch
-at function.yo:2509 handling the non-forall case, (4) ensuring the cb arg's
-type is the concrete capture struct in the specialized callee. A focused session
-should instrument the skip/collection path FIRST, then implement these layers
-with full-suite validation. This is genuinely foundational, multi-layer work —
-not a single safe edit.
+  So the Gap-2 spawn fix spans at least: (1) FnTraitT-aware generic detection,
+  (2) call-site-resolved hard-generic check, (3) the specialization-guard branch
+  at function.yo:2509 handling the non-forall case, (4) ensuring the cb arg's
+  type is the concrete capture struct in the specialized callee. A focused session
+  should instrument the skip/collection path FIRST, then implement these layers
+  with full-suite validation. This is genuinely foundational, multi-layer work —
+  not a single safe edit.
 
 ### PRECISE FIX LOCATION for the Gap-2 spawn blocker (2026-06-19)
 
 Root-caused to the specialization guard in `yo-self/evaluator/calls/function.yo:2509`:
+
 ```
 if(forall_names.len() > usize(0), { … create_specialized_function_inline … });
 ```
+
 yo-self only specializes functions with `forall` params. TS's guard
 (`src/evaluator/calls/helper.ts:1917`) is
 `isFunctionTypeGeneric(functionType) && !isFunctionTypeHardGeneric(functionType)`
@@ -185,7 +189,7 @@ closure's concrete capture struct + closure function via
 In yo-self, `closures.yo`'s header documents that
 `generateClosureConstruction`, `allocateClosureCapture`, and
 `registerImplClosureCallMappings` are the **deferred Phase-3 closure-codegen
-subsystem** (see `issues/yo-self-closure-codegen-gate.md`). yo-self has no
+subsystem** (see `issues/fixed/yo-self-closure-codegen-gate.md`). yo-self has no
 `impl_closure_call_map` on the codegen context.
 
 `async.yo`'s sync-effect path side-steps the map by reading
@@ -213,6 +217,7 @@ NULLing consumed fields — that reintroduces the double-free the TS
 ## Concrete repro + current failure (2026-06-19)
 
 `/tmp/th.yo`:
+
 ```rust
 { println } :: import("std/fmt");
 { Thread } :: import("std/thread");
@@ -224,6 +229,7 @@ main :: (fn(io : Io) -> unit)({
 });
 export(main);
 ```
+
 - TS reference → `thread sees 42` / `main done`.
 - yo-self-bin → CRASHES at codegen, rc=134:
   `get_type_string: no C type name found for Io (type not collected before lowering)`.
@@ -272,13 +278,16 @@ functions returning non-unit values are a PRE-EXISTING unported codegen feature.
 
 MINIMAL NON-EXTERN REPRO (simpler than spawn — exercises the same gap WITHOUT the
 thread wrapper, so fix/validate this first):
+
 ```rust
 apply :: (fn(cb : Impl(Fn(x : i32) -> i32)) -> i32)(cb(i32(10)));
 main :: (fn() -> unit)({ base := i32(5); r := apply((x) => (x + base)); println(`${r.to_string()}`); });
 ```
+
 TS → prints 15. yo-self-bin → broken C (capture-struct cast where pointer needed).
 
 REMAINING CODEGEN-EMISSION PIECES (the complete TS mechanism, from cls.yo emit):
+
 - (A) CALLER: a closure arg passed to a fn whose param is the capture struct must
   emit the capture-struct CONSTRUCTION `(captureStruct){ .field = capturedVar }`
   (assigned to a temp, passed by value), NOT `(captureStruct)(closure_fn_name)`.
@@ -315,7 +324,7 @@ NOT have this field yet — ADD it + an `ImplClosureCallInfo` object.
   (stack alloc, value semantics; each field via generateExpr of its dup-expr or a
   synthesized Atom), emits `captureCName tmp = {...};`, registers
   `implClosureCallMap[resolveSomeTypeToConcrete(captureType).id] = {functionCName,
-  callType,...}`, returns the temp var. Route closure-construction FnCall exprs
+callType,...}`, returns the temp var. Route closure-construction FnCall exprs
   (is_closure_construction already exists, closures.yo:62) to this in the expr
   dispatcher. Without-captures + Dyn branches also exist (closures.ts:314-356).
 - (C) call-site (other-fn-call.ts:2103) — when calling a value whose type is the
@@ -342,19 +351,20 @@ expr dispatcher; (3) port the call-site closure-call (piece C) in other_fn_call.
 
 `allocate_closure_capture` (closures.ts:132) generates each capture field value
 from `field.exprs.expr` (the captured-var source expr) + handles `field.isEffectParam`
-+ Rc dup-exprs. yo-self's `Struct` TypeValue (definitions.yo:179) has ONLY
-`field_labels` + `field_types` — NO per-field source exprs, no isEffectParam flag.
-So the capture-struct construction must be ADAPTED: emit `.<label> = <c_var_name>`
-where the value is the captured variable accessed in the CONSTRUCTING scope (the
-field label IS the captured var name). Use the constructing scope's variable→C-name
-mapping (get_variable_name_for_codegen / atom emission); Rc captures need the closure
-expr's `deferred_dup_expressions` (ExprInfo) for the dup'd value. Effect-param fields
-(io.async bundles) → NULL; detect via the field being an effect-record/fn type since
-there's no isEffectParam flag. This is an ADAPTATION, not a transcription — the two
-data-model gaps (no FunctionValue.closureInfo; no Struct field source exprs) mean the
-A/C port designs from yo-self's ExprInfo + side registries, not TS's field/closureInfo
-shapes. The context field (impl_closure_call_map + ImplClosureCallInfo) is step 1 and
-must land WITH its consumers (steps 2-4), not as standalone scaffolding.
+
+- Rc dup-exprs. yo-self's `Struct` TypeValue (definitions.yo:179) has ONLY
+  `field_labels` + `field_types` — NO per-field source exprs, no isEffectParam flag.
+  So the capture-struct construction must be ADAPTED: emit `.<label> = <c_var_name>`
+  where the value is the captured variable accessed in the CONSTRUCTING scope (the
+  field label IS the captured var name). Use the constructing scope's variable→C-name
+  mapping (get_variable_name_for_codegen / atom emission); Rc captures need the closure
+  expr's `deferred_dup_expressions` (ExprInfo) for the dup'd value. Effect-param fields
+  (io.async bundles) → NULL; detect via the field being an effect-record/fn type since
+  there's no isEffectParam flag. This is an ADAPTATION, not a transcription — the two
+  data-model gaps (no FunctionValue.closureInfo; no Struct field source exprs) mean the
+  A/C port designs from yo-self's ExprInfo + side registries, not TS's field/closureInfo
+  shapes. The context field (impl_closure_call_map + ImplClosureCallInfo) is step 1 and
+  must land WITH its consumers (steps 2-4), not as standalone scaffolding.
 
 ### UPDATE 2026-06-19 (5) — general closure-param codegen DONE; spawn blocked on method/extern-Type Self-resolution.
 
@@ -371,6 +381,7 @@ SPAWN (Thread.spawn, the extern-wrapper IMPL-METHOD variant) remains blocked —
 a DISTINCT gap from the closure work: codegen's should_skip_function_codegen
 (declarations.yo) drops the specialized `Thread.spawn` and `Thread.join`. Confirmed by
 instrumentation (DIAG-SKIP):
+
 - `Thread.spawn` spec: `ret=Thread` (Self resolved ✓) but `has_generic_return=T` →
   skip2. Cause: `type_contains_some_type_for_codegen_param(Thread)` recurses into the
   field `handle : __yo_thread_t`, and `__yo_thread_t` (an `extern("Yo", X : Type)`
@@ -413,7 +424,7 @@ NEXT DIRECTION (faithful to TS `SomeType.isExtern`): mark extern-Type SomeTs at 
 DECLARATION. `extern("Yo", X : Type)` (evaluator/exprs/extern.yo) should record X's name
 (and/or the SomeT id once the placeholder is created) in a global extern-type registry;
 type_contains_some_type_for_codegen_param then excludes a SomeT whose name/id is a
-registered extern type. Verify the extern SomeT's `name` field == "__yo_thread_t" first
+registered extern type. Verify the extern SomeT's `name` field == "\_\_yo_thread_t" first
 (extend the DIAG-TC to print the name). This is the single fix that unblocks spawn end to
 end (both spawn + join). Then: spawn repro → `thread sees 42` / `main done`, corpus 75/75,
 add a parallelism corpus fixture.
@@ -429,13 +440,13 @@ fn + funcId from impl_closure_call_map's new closure_fid field). Corpus 75/75, a
 still prints 15.
 
 LAST BLOCKER (capture-struct IDENTITY): inside the specialized `Thread.spawn` body,
-`__yo_thread_spawn(cb)` looks up impl_closure_call_map by cb's capture-struct id, but
-that id (`__yo_capture_..._5654`, the spec param type from the eval-time arg_ty_spec)
+`__yo_thread_spawn(cb)` looks up impl*closure_call_map by cb's capture-struct id, but
+that id (`\_\_yo_capture*..._5654`, the spec param type from the eval-time arg_ty_spec)
 DIFFERS from the id the closure construction in `main` registered under
-(`__yo_capture_..._5638`, the codegen ei.capture_type). → "spawn cb has no closure
-function". The closure's `ExprInfo.capture_type` is created with a fresh id on the
+(`\_\_yo_capture_...\_5638`, the codegen ei.capture_type). → "spawn cb has no closure
+function". The closure's `ExprInfo.capture_type`is created with a fresh id on the
 eval pass (sets the spec param) vs the codegen pass (does the construction); for the
-free-function `apply` repro they coincided (one capture struct, works), but the
+free-function`apply` repro they coincided (one capture struct, works), but the
 Thread.spawn METHOD path re-evaluates the closure → a second capture struct id.
 
 FIX DIRECTION: unify the closure's capture-struct identity across eval/codegen (create
@@ -465,6 +476,7 @@ free-function `apply` case where the consumer body happens to be generated after
 the producer, but NOT for the Thread.spawn method case).
 
 COMPLETE FIX (do together, validate corpus 75/75 + spawn + apply):
+
 1. Port register_impl_closure_call_mappings as a PRE-PASS in compile_module/
    generate_all_functions, BEFORE bodies. yo-self has no FunctionValue.closureInfo,
    so iterate the closure registry (mark_as_closure_fn / register_closure_capture_info

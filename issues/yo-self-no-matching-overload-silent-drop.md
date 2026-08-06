@@ -1,7 +1,7 @@
 # yo-self: all overload candidates rejected ⇒ statement silently dropped instead of TS's hard error
 
 Found 2026-08-02 while verifying the `= <value>` assigned-parameter overload
-filter port (`issues/handoff-2026-08-02/04-prelude-arm1-VERIFY.md`, correction 1).
+filter port (`issues/retired/handoff-2026-08-02/04-prelude-arm1-VERIFY.md`, correction 1).
 
 ## Symptom
 

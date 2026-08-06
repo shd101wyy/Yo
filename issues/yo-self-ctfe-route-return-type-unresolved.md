@@ -23,7 +23,7 @@ from the RESULT VALUE").
    `No matching call found` (pre-C: silent fall-through).
 
 The known "operator-call result as the RECEIVER loses comptime-ness" defect
-(issues/handoff-2026-08-02/05 §4, blocker for fn-arm-12 patch B) is this bug:
+(issues/retired/handoff-2026-08-02/05 §4, blocker for fn-arm-12 patch B) is this bug:
 the _argument_ position worked because the OTHER operand's concrete type drove
 dispatch; the receiver position needed `nv`'s own type.
 

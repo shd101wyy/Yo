@@ -228,5 +228,5 @@ concrete Iterator impl + `Item :=` constraint surfaces, port TS step 1
 
 The array arms 6/7 (for-closure route) turned out to be gated NOT by this
 port but by the value-generic stamp chain — see
-issues/yo-self-value-generic-stamp-return-chain.md. tests/array.test.yo is
+issues/fixed/yo-self-value-generic-stamp-return-chain.md. tests/array.test.yo is
 now GENUINELY green (12/12, batch FTT=0).

@@ -44,7 +44,7 @@ them is a cell:
 
 `check` fails a file at its FIRST bad definition and stops, so only one of the five
 was ever visible, and the file has been written off as a known-baseline failure
-(`check ./yo-self` **295/305**, described in `plans/YO_SELF_STAGE2_HANDOFF.md` as
+(`check ./yo-self` **295/305**, described in `plans/archive/YO_SELF_STAGE2_HANDOFF.md` as
 "`evaluator/eval.yo` + 9 cascading circular-import"). It is not a circular-import
 problem at all.
 
@@ -124,7 +124,7 @@ separate argument, so `''` is consumed as the script. Use `sed -i 'script' file`
 - `evaluator_index` re-tested after the fix: **ts 18/18, self 18/18**. Its earlier
   `BOTH-FAIL-DIFF` verdict was stale (swept before the last two fixes landed).
 - `check ./yo-self` confirmed at **305/305**, zero remaining FAILED files, and the
-  baseline in `plans/YO_SELF_STAGE2_HANDOFF.md` updated — the "circular-import"
+  baseline in `plans/archive/YO_SELF_STAGE2_HANDOFF.md` updated — the "circular-import"
   description is gone, replaced with the real cause.
 - Gates re-verified green with the fix in the tree: TIER 1 `failures=0` (battery 20/20
   `hollow=0`, corpus PASS 155 / DIFF 0, `check ./std` 153/153) and the stage-2/stage-3

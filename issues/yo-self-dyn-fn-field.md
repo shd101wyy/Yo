@@ -5,7 +5,7 @@
 arithmetic or pointer type is required"). NOT covered by any corpus test (all
 dyn corpus tests are trait-object method dispatch).
 
-## Symptom / repro (issues/repro-dyn-fn-field.yo — 20 lines, TS runs 42/true)
+## Symptom / repro (issues/repros/repro-dyn-fn-field.yo — 20 lines, TS runs 42/true)
 
 A ref struct with `Dyn(Fn(...))` fields (yo-self's own
 `SuspensionPointDetector`, evaluator/shared/suspension_analysis.yo:62),
@@ -87,7 +87,7 @@ Remaining work, in order:
 2. Sanitize `_concrete_c_name`/`unknown_<key>` fallbacks through
    `sanitize_for_c_identifier` (defensive, independent of 1).
 3. Re-apply the saved patch and iterate on the repro
-   (issues/repro-dyn-fn-field.yo): expect wrapper
+   (issues/repros/repro-dyn-fn-field.yo): expect wrapper
    `return closure_c((void*)&box-><field>, args)` + vtable `.call` slot +
    call-site `(recv.field).vtable->call(...)`, then binary prints 42/true.
 4. Gates: corpus 103/103 DIFF 0, std 152/152, stage-2 (baseline 18, family = 4).
@@ -113,7 +113,7 @@ Fix direction for round 3: make the dyn route treat a unit capture_type as the
 closure's EMPTY capture struct (or register a 0-field capture struct for
 capture-free closures at creation, matching TS), and make the box() arg emit
 the capture-struct VALUE (`(capture){}` for capture-free) rather than the fn
-pointer. Then re-run issues/repro-dyn-fn-field.yo (expect 42/true) and gates.
+pointer. Then re-run issues/repros/repro-dyn-fn-field.yo (expect 42/true) and gates.
 
 ## Round 3 scoping (context-limited session end)
 
@@ -137,7 +137,7 @@ Round-3 work items:
    value (`(capture){}`), not the closure fn pointer
    (`(__yo_t19)(closure_yo_id_5820)` in round-2 C).
 3. Re-apply issues/wip-dyn-fn-field.patch (round-2 version, includes the
-   route-1 capture-struct boxing) and iterate on issues/repro-dyn-fn-field.yo.
+   route-1 capture-struct boxing) and iterate on issues/repros/repro-dyn-fn-field.yo.
 
 Round-3 note: `inner_expected` (dyn.yo:306) is ALREADY a SomeT wrapping the
 Dyn's required traits (an Impl(Fn) equivalent), so the closure eval gets a

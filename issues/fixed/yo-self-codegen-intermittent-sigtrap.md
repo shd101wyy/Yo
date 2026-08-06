@@ -30,22 +30,22 @@ shared codegen — zero regressions). Regression test:
 inside the system allocator freelist paths, at innocent allocation sites, long
 after the corrupting write. The crash is **non-deterministic**: different
 fixtures crash on different runs, and a corpus run under `--parallel 3` reports
-SELF-FAIL on a *different* pair of fixtures each time. Standalone re-runs of a
+SELF-FAIL on a _different_ pair of fixtures each time. Standalone re-runs of a
 "failed" fixture succeed most of the time.
 
 This is the SAME class as the two already-fixed dossiers
 (`issues/fixed/codegen-continue-in-while-heap-corruption.md`,
-`issues/fixed/break-continue-skips-loop-body-drops.md`) — those fixed *specific*
+`issues/fixed/break-continue-skips-loop-body-drops.md`) — those fixed _specific_
 triggers; this is a still-live instance.
 
 ## Measurement (2026-06-20)
 
 Repeated standalone full compiles of one heavy fixture:
 
-| binary | fixture | crashes |
-|---|---|---|
-| baseline (pre open-import fix) | `tests/codegen-bootstrap/match_arm_folded_fncall.yo` | 8/20 |
-| current HEAD | same | 6/20 |
+| binary                         | fixture                                              | crashes |
+| ------------------------------ | ---------------------------------------------------- | ------- |
+| baseline (pre open-import fix) | `tests/codegen-bootstrap/match_arm_folded_fncall.yo` | 8/20    |
+| current HEAD                   | same                                                 | 6/20    |
 
 ~30–40% per heavy fixture, and **independent of recent diffs** (the rate is the
 same before/after the open-import-FuncVal change — so that change is not the
@@ -57,7 +57,7 @@ cause; this is pre-existing). `nullable_ptr_some.yo` and
 Every corpus run is non-deterministically red, which destroys the validation
 signal for ALL other codegen/evaluator work (a "did I regress?" check is 30–40%
 noise). It would also make any self-host fixpoint unstable. This is why it is
-P0 in `plans/BOOTSTRAPPING_CODEGEN.md`.
+P0 in `plans/archive/BOOTSTRAPPING_CODEGEN.md`.
 
 Interim mitigation: validate with `--parallel 1` and re-run any SELF-FAIL
 standalone to confirm it is flaky (not a real diff). "Identical crash across
@@ -76,7 +76,7 @@ freed RC header that only trips the allocator's freelist invariants later.
    ~20 standalone runs.
 2. Run under guard pages to turn the intermittent fault deterministic:
    `DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib MallocStackLogging=full
-   /tmp/yo-self-bin compile <fixture> -o /tmp/x` (use a small
+/tmp/yo-self-bin compile <fixture> -o /tmp/x` (use a small
    `YO_MAIN_STACK_MB=512` for a fast crash backtrace).
 3. Post-crash lldb batch + `malloc_history <pid> <addr>` for the alloc / free /
    use-after-free stacks (template:
@@ -119,6 +119,7 @@ return _ret;
 ```
 
 Key facts (verified by instrumenting the codegen):
+
 - The plain tail form `match(o, .Some => sink(indent.clone()), ...)` (NO explicit
   `return`) drops the temp **once** — correct. The bug needs the explicit `return`.
 - The return's own `deferredDropExpressions` = `[_tmp]` (DROP A — the correct,
@@ -126,7 +127,7 @@ Key facts (verified by instrumenting the codegen):
 - `generatePendingDeferredDrops` for the return computes `dropsToEmit=[local]` —
   it CORRECTLY dedups `_tmp` (its `alreadyDroppedVars` contains `_tmp`). So DROP B
   is **not** emitted by that function.
-- DROP B therefore comes from a *different* drop-emitter (begin-block scope-close
+- DROP B therefore comes from a _different_ drop-emitter (begin-block scope-close
   in `exprs/begin.ts`, or a second generation pass). Instrumenting the four known
   emitters (`generateDeferredDropExpressions`, `generatePendingDeferredDrops`,
   `generateConsumedVarDropsForEscape`, the begin.ts loops) with C-comment markers

@@ -1,6 +1,6 @@
 // Regression: freeing an RC struct must recursively drop an RC value held only
 // through a VALUE-ENUM field — `next : Option(Self)`. This is the p4 case from
-// plans/YO_SELF_RC_EMISSION_LAYER.md §10: `b := N(5, Some(a))` moves `a` into
+// plans/archive/YO_SELF_RC_EMISSION_LAYER.md §10: `b := N(5, Some(a))` moves `a` into
 // `b.next`; when `b` is dropped at scope end, its auto-derived `___dispose` must
 // drop `b.next` (an `Option(N)`), whose per-variant drop must in turn decrement
 // the inner `N` — else `a` leaks. Exercises both halves of the fix: the struct

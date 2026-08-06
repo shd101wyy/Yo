@@ -48,7 +48,7 @@ i32 / Got F : (Fn(A) -> B)`.
 
 - Candidate-1 (memo-hit via resolved_concrete in `_ctfe_args_equal`) and the
   A/B ungate: both REJECTED with measurements
-  (`issues/handoff-2026-08-02/01/02`); the A/B ungate KILLS all three
+  (`issues/retired/handoff-2026-08-02/01/02`); the A/B ungate KILLS all three
   canaries (helper.yo:2129/:2165 must stay).
 - `capbind at the forall name-match` (rebuild exp_pt with
   resolved_concrete=capture at `_funcval_bind_foralls`): built 2026-08-02,

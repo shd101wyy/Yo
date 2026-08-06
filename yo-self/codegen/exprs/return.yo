@@ -216,7 +216,7 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
   // declaring them) yet still schedules their scope-end drop; TS does not
   // create those frame variables, so its escape path never sees them. Skipping
   // an undeclared temp's drop cannot double-free or leak (no C variable exists).
-  // See issues/yo-self-fixpoint-eval-phase-leak.md.
+  // See issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
   guard_cn := sanitize_for_c_identifier(var_name.clone(), false);
   if(guard_cn.contains(String.from("_temp_")) && !(context.base.declared_c_var_names.contains(guard_cn.clone())), {
     return(false);
@@ -234,7 +234,7 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
     // binding whose C decl lands in an enclosing frame only after its arm frames
     // pop (absent here → op_result_val) and a sibling match-arm binding (its frame
     // popped when the arm closed). Consumption still suppresses the drop.
-    // See issues/yo-self-fixpoint-eval-phase-leak.md.
+    // See issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
     match(
       _get_deferred_drop_target_variable(drop_expr, context),
       .Some(tv) => {
@@ -264,7 +264,7 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
   // them emits `__yo_decr_rc((void*)(x))` for an undeclared `x`. The env check
   // above alone does NOT catch this: the recorded env is the END-of-scope env,
   // which lists those later locals. (Stage-2 self-compile fixpoint; see
-  // issues/yo-self-binary-codegen-state.md.)
+  // issues/retired/yo-self-binary-codegen-state.md.)
   //
   // Authoritative C-emission-order guard. The source-order token heuristic below
   // cannot see that a `x := match(...)` / `cond(...)` binding emits its C

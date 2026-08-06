@@ -9,7 +9,7 @@
 > the known-heavy ones that exceed the test runner's 1800 s isolated-process
 > limit — a migration could only be validated by `check`, not by running.
 > Retirement is interlocked with retiring eval.yo's proto-evaluator
-> dispatch entirely, which plans/BOOTSTRAPPING_CODEGEN.md schedules
+> dispatch entirely, which plans/archive/BOOTSTRAPPING_CODEGEN.md schedules
 > alongside the codegen port (the proper per-handler evaluator is already
 > the live path for everything else). Keep this issue open as the tracker;
 > delete the handler + migrate the trio in the same change.

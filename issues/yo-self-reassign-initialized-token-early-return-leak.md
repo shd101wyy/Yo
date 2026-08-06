@@ -8,7 +8,7 @@ Repro (standalone): scratchpad `ctor_ret_leak4.yo` — TS `tracked=0`, yo-self p
 
 ## Symptom / impact
 
-After the container-dispose fix (`issues/yo-self-container-dispose-not-wired.md`),
+After the container-dispose fix (`issues/fixed/yo-self-container-dispose-not-wired.md`),
 `s2 compile yo-self/parser.yo` still held **1.99M live Variables vs s1's 360K**.
 Live histogram + per-type RC site tracing (see Method) showed:
 

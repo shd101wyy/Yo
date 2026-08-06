@@ -134,7 +134,7 @@ zero-user language.
 meaningful when the TS compiler, the yo-self sources, and every `.yo` corpus
 change in the SAME commit. Sequencing:
 
-- Wait for the current #69 campaign (`plans/YO_SELF_STAGE2_HANDOFF.md`) to
+- Wait for the current #69 campaign (`plans/archive/YO_SELF_STAGE2_HANDOFF.md`) to
   reach a committed, gates-green resting point.
 - Land this migration as ONE atomic commit, gated by the full battery below.
 - Any in-flight yo-self work must be committed or reverted first; the rename
@@ -241,7 +241,7 @@ stage3.c`).
    - Update `.github/skills/yo-syntax/syntax-cheatsheet.md` "reserved words"
      section with `forall`/`exists`/`∀`/`∃` and the rationale pointer to this
      plan.
-   - Note the rename in `plans/YO_SELF_STAGE2_HANDOFF.md` (or its successor)
+   - Note the rename in `plans/archive/YO_SELF_STAGE2_HANDOFF.md` (or its successor)
      so future bootstrap sessions don't "fix" `generic` back.
    - When the verification feature work starts, `exists: ["exists", "∃"]`
      and the quantifier `forall: ["forall", "∀"]` graduate from reserved to

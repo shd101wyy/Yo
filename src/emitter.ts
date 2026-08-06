@@ -13,7 +13,7 @@ export class Emitter {
    * emission paths that build the declaration via getTypeString (not
    * getVariableTypeString) leave their temps untracked, so the gate wrongly
    * SKIPS their drops → the live RC value leaks. See
-   * issues/yo-self-fixpoint-eval-phase-leak.md.
+   * issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
    */
   declaredCVarNamesRef?: Set<string>;
   constructor() {}

@@ -1,7 +1,7 @@
 #!/bin/bash
 # hollow_sweep69.sh — full 183-file sweep that scores a test file HONESTLY:
 # a file counts as GREEN only if it exits 0 AND its emitted batch `main` is not
-# a `// Failed to transpile` comment. See issues/yo-self-hollow-test-batch-main.md
+# a `// Failed to transpile` comment. See issues/retired/yo-self-hollow-test-batch-main.md
 # (a hollow main runs no assertions, so the harness reports every test as passed).
 #
 # Usage: BIN=/tmp/xxx_s1 OUT=/tmp/hsweep scratchpad/hollow_sweep69.sh

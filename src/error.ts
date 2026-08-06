@@ -162,7 +162,7 @@ export function formatErrorMessages(
  * `YoError` does not extend `Error`, so generic `error.message` reads yield
  * `undefined` on it, and a thrown value whose message/toString is empty
  * produced diagnostics like `Failed to import module "...":` with NOTHING
- * after the colon (see issues/basic-test-struct-batch-count-usize-i32.md —
+ * after the colon (see issues/fixed/basic-test-struct-batch-count-usize-i32.md —
  * that empty message made a real batch compile failure look unactionable for
  * weeks). Every wrap-and-rethrow diagnostic site should use this instead of
  * hand-rolled instanceof chains.

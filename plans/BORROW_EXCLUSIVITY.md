@@ -28,7 +28,7 @@ existed. v4.1 therefore:
   object naturally;
 - KEEPS the call-site ref/own exclusivity gate (TS; yo-self mirror
   blocked on the documented own/consume port gap, see
-  `plans/BOOTSTRAPPING_CODEGEN.md` Phase 4).
+  `plans/archive/BOOTSTRAPPING_CODEGEN.md` Phase 4).
 
 The language rule is now one sentence: **`ref` exists only in parameter
 position, and a ref argument is a simple lvalue place.**
@@ -265,7 +265,7 @@ pin. Run it under gmalloc
 Linux ASan in CI.
 
 Gate: G1–G3 + G5. Commit. (Codegen is TS-only today; add `ref`-return
-ban + owner-pin semantics to `plans/BOOTSTRAPPING_CODEGEN.md`'s spec so
+ban + owner-pin semantics to `plans/archive/BOOTSTRAPPING_CODEGEN.md`'s spec so
 the future codegen port carries them.)
 
 ### Phase 5 — docs + knowledge files

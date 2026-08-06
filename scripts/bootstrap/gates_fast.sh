@@ -73,7 +73,7 @@ for t in tests/comptime.test.yo tests/prelude.test.yo tests/arc.test.yo tests/as
     dump_log "/tmp/${P}_${name}.log"
   fi
   # A HOLLOW batch is the failure mode that once counted 33 files green while
-  # running nothing (issues/yo-self-hollow-test-batch-main.md) — a `__yo_user_main`
+  # running nothing (issues/retired/yo-self-hollow-test-batch-main.md) — a `__yo_user_main`
   # containing "Failed to transpile" means the test body never ran.
   [ "$hollow" = "1" ] && fail "battery $name is HOLLOW (test body did not transpile)"
   [ "$hollow" = "NA" ] && fail "battery $name produced no batch .c — hollow state unknown"

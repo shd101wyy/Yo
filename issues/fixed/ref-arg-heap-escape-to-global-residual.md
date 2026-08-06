@@ -7,7 +7,7 @@ load + predicted branch). **Foundation landed (commit 0ca4b7784):**
 `uint16 borrow_count` in the RC header (free, in existing padding), init,
 and the `__yo_borrow_acquire/release/assert_unborrowed` runtime
 primitives. **Remaining (scheduled for the codegen-port RC phase, see
-`plans/BOOTSTRAPPING_CODEGEN.md`):**
+`plans/archive/BOOTSTRAPPING_CODEGEN.md`):**
 
 1. assert `borrow_count == 0` at container growth-method entry
    (push/insert/reserve/resize on ArrayList/HashMap/String);

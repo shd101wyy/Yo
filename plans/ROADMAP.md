@@ -20,7 +20,7 @@ whose ergonomics are designed for LLM authorship from day one.
 Exit criteria: #69 all-GREEN under the honest hollow-scoring, #70 stays
 61/61, STRICT_FIXPOINT holds, and the two-compiler lockstep is retired to a
 maintenance cadence. Known remaining fronts (tracked in
-`plans/YO_SELF_STAGE2_HANDOFF.md` and `issues/`): cluster-B
+`plans/archive/YO_SELF_STAGE2_HANDOFF.md` and `issues/`): cluster-B
 `dyn(box(closure))` spec emission, cee validations, contracts Phase-0 port,
 the REDs, the `||`-LHS trait-call miscompile, `await_analysis` check triage.
 

@@ -446,7 +446,7 @@ fields of `FunctionGenerationContext`. **FIXED** via a new
 `collect_pointer_pointees` pass (collection.yo + codegen_c.yo wiring; validated
 corpus 83/83, panic gone). Self-compile-only (only a compiler uses that context
 at runtime; TS compiles main.yo cleanly in ~1 min). Details +
-rejected-inline-attempt: `issues/yo-self-p1-uncollected-pointee.md`.
+rejected-inline-attempt: `issues/fixed/yo-self-p1-uncollected-pointee.md`.
 
 **NOT a redesign regression — the panic + tail are PRE-EXISTING.** A pre-redesign
 build (`cead3db9f`, the commit just before the overloading redesign) SIGABRTs

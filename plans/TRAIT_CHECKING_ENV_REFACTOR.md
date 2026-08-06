@@ -81,7 +81,7 @@ Escalate to the full refactor when **any** of the following holds:
 - 3 or more new bugs traced to "boolean trait-check discarded env" are
   reported.
 - Bootstrapping the Yo compiler in Yo itself (per
-  `plans/BOOTSTRAPPING_PREREQUISITES.md`) requires associated-type
+  `plans/archive/BOOTSTRAPPING_PREREQUISITES.md`) requires associated-type
   inference in a code path not covered by where-clause validation.
 - A perf measurement shows the dual-pass (`areTypesCompatible` +
   `synthesizeTypes`) is hot enough to warrant unification.
@@ -93,7 +93,7 @@ Escalate to the full refactor when **any** of the following holds:
   - `tests/where_clause_fn_inference.test.yo`
   - `tests/blanket_impl_inner_forall.test.yo`
 - Related issue: `issues/blanket-impl-inner-forall-sometype-leakage.md`
-- Bootstrap dependency: `plans/BOOTSTRAPPING_PREREQUISITES.md` §1.2
+- Bootstrap dependency: `plans/archive/BOOTSTRAPPING_PREREQUISITES.md` §1.2
   (Iterator combinators) — partially unblocked.
 
 ## Follow-up: env-aware `extractFnTraitFromType`

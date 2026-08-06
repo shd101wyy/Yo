@@ -29,12 +29,12 @@ compiler **picks by the type of `x`**. That is ad-hoc overloading — the thing 
 deliberately does not have. It forces real **overload-resolution machinery** in the
 compiler:
 
-- `getReceiverMethodsByNameFromEnv` collects *multiple* candidates (TS
+- `getReceiverMethodsByNameFromEnv` collects _multiple_ candidates (TS
   `src/env.ts`; yo-self `env.yo`).
 - The call evaluator filters to the type-matching candidate (TS
   `function.ts:1691`; yo-self `_select_matching_overload` trial-calls each candidate
   in `calls/function.yo`).
-- Codegen must then honor the *evaluator-selected* overload rather than re-resolve by
+- Codegen must then honor the _evaluator-selected_ overload rather than re-resolve by
   name (yo-self `codegen/exprs/other_fn_call.yo`).
 
 This complexity is bug-prone and bit the bootstrap **twice**:
@@ -48,7 +48,7 @@ This complexity is bug-prone and bit the bootstrap **twice**:
    (`lookup_method_callee_value`) over the registry first-hit (this session;
    `issues/yo-self-p1-transpile-tail.md` "(cont. 2)").
 
-Both fixes *entrench* overloading. The redesign removes the need for it.
+Both fixes _entrench_ overloading. The redesign removes the need for it.
 
 **Why it is wrong, precisely (inherent-first priority).** Rust resolves methods
 **inherent-first**: a type (inherent) method has higher priority than a trait method of
@@ -58,10 +58,10 @@ because `"Hi"` is a `str` (not `String`), it must be a **type error** — resolu
 **not** fall through to the `StrPattern` trait's `str` overload. Yo's current arg-type
 overload resolution **violates** this: it treats the inherent and trait methods as equal
 candidates and silently picks the one whose parameter matches the argument. That
-fall-through is the **core bug** (present in *both* compilers — TS does it too; the
+fall-through is the **core bug** (present in _both_ compilers — TS does it too; the
 bootstrap fix only made yo-self match TS).
 
-Note this is **not** "Rust rejects `s.starts_with("lit")`" — Rust *accepts* it, but only
+Note this is **not** "Rust rejects `s.starts_with("lit")`" — Rust _accepts_ it, but only
 because Rust has **no** inherent `String.starts_with(String)`: it has exactly one generic
 `str::starts_with<P: Pattern>` (reached via `Deref`), so there is no inherent-vs-trait
 conflict to resolve. §4 restores that situation for Yo (one method, no conflict); see §4.
@@ -99,8 +99,8 @@ Key detail: Rust's `Pattern` does **not** convert the pattern to a common type �
 
 `plans/SLICE_REWORK.md` **deletes `String.as_str()`** (and `ArrayList.as_slice()`),
 and migrated the dominant `x.as_str() == "literal"` pattern (~2186 sites in yo-self)
-to direct `x == "literal"`. The `StrPattern` `str`-overloads were *introduced by the
-slice rework* precisely as the `as_str()` replacement for
+to direct `x == "literal"`. The `StrPattern` `str`-overloads were _introduced by the
+slice rework_ precisely as the `as_str()` replacement for
 `starts_with`/`ends_with`/`contains`/… with a literal argument
 (`plans/SLICE_REWORK.md` step "starts_with/ends_with/contains(str) overloads").
 
@@ -108,7 +108,7 @@ slice rework* precisely as the `as_str()` replacement for
 `str`, then match" design is off the table. We mirror Rust's actual `Pattern`: the
 **pattern type implements the match against a `String` haystack**.
 
-This also means the redesign *supersedes* part of the slice-rework's chosen mechanism
+This also means the redesign _supersedes_ part of the slice-rework's chosen mechanism
 (overloads) with a generic-method mechanism — call it out when editing
 `SLICE_REWORK.md`.
 
@@ -154,13 +154,13 @@ overload-selection step.
 it joins the trait or stays a small set of concrete methods.
 
 **This is Rust's approach.** §4 mirrors `str::starts_with<P: Pattern>(&self, pat: P)`
-one-to-one: one generic method, a `Pattern`-style trait where the *pattern* implements
+one-to-one: one generic method, a `Pattern`-style trait where the _pattern_ implements
 the match, and concrete dispatch via monomorphization + trait resolution. (§4b below is
-Rust's *general* inherent-vs-trait rule — **not** how Rust solves this case; it is
+Rust's _general_ inherent-vs-trait rule — **not** how Rust solves this case; it is
 recorded only as a simpler-compiler fallback.) Two fidelity notes for the implementer:
 
 - **Pass the haystack by reference.** Rust's haystack is `&str` — borrowed, no copy. A
-  by-value `haystack : String` would clone the buffer on *every* pattern check; use a
+  by-value `haystack : String` would clone the buffer on _every_ pattern check; use a
   borrow (e.g. `ref(String)`) so `prefix.is_prefix_of(s, …)` does not copy `s`.
 - **Keep `StrPattern` open, like Rust's `Pattern`.** Rust implements `Pattern` for
   `char`, `&str`, `&[char]`, and `FnMut(char) -> bool` closures. The design should
@@ -171,12 +171,12 @@ recorded only as a simpler-compiler fallback.) Two fidelity notes for the implem
 
 Yo **already supports** explicit trait-method disambiguation:
 `(String <: StrPattern).starts_with(s, x)` is existing syntax (Yo's UFCS), **not** new.
-So a tempting alternative is to keep *both* methods (inherent + trait), let the inherent
-always win, and require this form to reach the trait variant — Rust's *general*
+So a tempting alternative is to keep _both_ methods (inherent + trait), let the inherent
+always win, and require this form to reach the trait variant — Rust's _general_
 name-collision rule (`<String as StrPattern>::starts_with`).
 
 **We reject this for `starts_with`** (owner, 2026-06-22) — note the rejection is about
-*using it to dispatch `starts_with`*, not about the feature itself:
+_using it to dispatch `starts_with`_, not about the feature itself:
 
 - **It is not Rust's approach to this problem.** Rust uses the generic method (§4) for
   `starts_with`; inherent-wins + explicit disambiguation is the general escape hatch for
@@ -216,10 +216,10 @@ and Yo already has the specialization machinery for it. Confirm it in the Phase-
 ## 5. Migration plan (phases)
 
 0. **Prereqs / spike. ✅ DONE (2026-06-22).** Confirmed generic-arg inference +
-   `where`-bound value-call dispatch on *both* compilers with a `fixme.yo` repro
+   `where`-bound value-call dispatch on _both_ compilers with a `fixme.yo` repro
    (`show<P: Describable>(p)` + a `Holder.check<P>` method; impls for `i32`/`bool`).
    Result: both TS and yo-self **infer `P` from the value argument** (no explicit
-   pass), at free-fn *and* method calls, monomorphize per `P`, and dispatch the
+   pass), at free-fn _and_ method calls, monomorphize per `P`, and dispatch the
    bounded `p.describe()` to the concrete impl — 0 errors, 0 transpile markers. So
    the generic-method form is viable; no inference work needed first.
 1. **Audit every overload site.** Enumerate all methods relying on arg-type
@@ -239,10 +239,11 @@ and Yo already has the specialization machinery for it. Confirm it in the Phase-
    cases / `position` arg) compiles + runs clean — both `str` and `String` patterns flow
    through the one generic method. Edits in `std/string/string.yo`: renamed inherent
    `starts_with` → private `_has_prefix` (body unchanged); added `Pattern :: trait(is_prefix_of)`
-   + `impl(String, Pattern)` (→ `haystack._has_prefix(self, pos)`) + `impl(str, Pattern)`
-   (→ `haystack._has_prefix(String.from(self), pos)`); added the generic
-   `starts_with<P : Pattern>` in a separate `impl(String, …)`; removed `starts_with`
-   from the `StrPattern` trait + impl.
+
+   - `impl(String, Pattern)` (→ `haystack._has_prefix(self, pos)`) + `impl(str, Pattern)`
+     (→ `haystack._has_prefix(String.from(self), pos)`); added the generic
+     `starts_with<P : Pattern>` in a separate `impl(String, …)`; removed `starts_with`
+     from the `StrPattern` trait + impl.
 
    **Per-method transform recipe (apply to `contains`/`ends_with`/`index_of`/`last_index_of`):**
    (a) rename inherent `X(self, arg : String, …)` → private `_X_impl` (body unchanged);
@@ -295,8 +296,9 @@ and Yo already has the specialization machinery for it. Confirm it in the Phase-
    inherent one exists. yo-self `check ./std` 152/152, corpus 83/83; the repro resolves
    inherent-first (yo-self emits a "Failed to transpile" marker where TS reports a clean
    error — a pre-existing def-eval-wall limitation, not a resolution difference).
+
 4. **Verify both compilers resolve via generics, not overloading.** Call sites should
-   need *no* overload resolution. Run the differential corpus + `check ./std`.
+   need _no_ overload resolution. Run the differential corpus + `check ./std`.
 5. **Delete the overload-resolution machinery** once std + tests are green on both
    compilers:
    - yo-self: `_select_matching_overload`, `_trial_call_overload_candidate` (if unused
@@ -314,7 +316,7 @@ and Yo already has the specialization machinery for it. Confirm it in the Phase-
 
 ## 6. Clear error messages (Rust-style diagnostics)
 
-Removing overloading must make *failures* deterministic too. The overloading era
+Removing overloading must make _failures_ deterministic too. The overloading era
 produced cryptic errors — the eval-level `"Cannot unify String and str"` (the bug that
 bit the bootstrap) leaked the **inherent overload's** parameter type, not the user's
 actual mistake; "no matching overload" never said which types are accepted. The
@@ -364,7 +366,7 @@ Requirements:
 4. Suggest a fix (implement the trait for the type, or pass a supported type).
 5. Point the span at the **argument**, not the method definition.
 
-This is a **general** win — it is the diagnostic for *any* unsatisfied
+This is a **general** win — it is the diagnostic for _any_ unsatisfied
 `where(T <: Trait)` bound, not just `StrPattern` — so implementing it well retires a
 whole class of confusing failures from the overload-resolution era.
 
@@ -375,7 +377,7 @@ there. Prerequisite: the trait registry must enumerate a trait's implementors fo
 "the following types implement `StrPattern`" hint — confirm/add that query. Keep the
 message free of internal/`plans/*.md` references (it is user-facing).
 
-**Acceptance test (the resolution-error report must exist).** `issues/yo-inherent-first-resolution.md`
+**Acceptance test (the resolution-error report must exist).** `issues/fixed/yo-inherent-first-resolution.md`
 holds an isolated repro + a `comptime_expect_error` test: a type with an inherent `m`
 and a same-name trait `m`, called with an arg matching only the trait, **must error**
 (inherent-first), not silently resolve to the trait. It is **verified-failing today**
@@ -426,7 +428,7 @@ first-hit fix keeps overloading working in the meantime, so there is no urgency.
 ## 10. References
 
 - `std/string/string.yo:1554-1565` (`StrPattern` trait), `:1566+` (`impl(String,
-  StrPattern(...))`), `:842` (inherent `starts_with`).
+StrPattern(...))`), `:842` (inherent `starts_with`).
 - `plans/SLICE_REWORK.md` — `as_str()`/`as_slice()` deletion and the str-overload
   replacement strategy this redesign supersedes.
 - `issues/yo-self-p1-transpile-tail.md` — the two overloading bugs (eval-level

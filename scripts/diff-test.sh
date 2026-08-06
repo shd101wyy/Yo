@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # diff-test.sh — differential test harness for the codegen bootstrap.
-# See plans/BOOTSTRAPPING_CODEGEN.md (Phase 0).
+# See plans/archive/BOOTSTRAPPING_CODEGEN.md (Phase 0).
 #
 # Compiles/runs a .yo file (or every .yo under a directory) with BOTH compilers:
 #   * the TypeScript reference compiler  (node out/cjs/yo-cli.cjs)

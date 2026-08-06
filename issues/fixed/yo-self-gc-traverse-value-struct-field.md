@@ -99,7 +99,7 @@ two instantiations coexist and the collision is corpus-visible.
 ## Interaction with the perf/leak work
 
 Discovered while attempting the perf-parity fix (making yo-self emit as many drops as TS to stop the
-`__yo_gc_collect` thrash — see issues/yo-self-fixpoint-eval-phase-leak.md). The emitter change was
+`__yo_gc_collect` thrash — see issues/fixed/yo-self-fixpoint-eval-phase-leak.md). The emitter change was
 reverted (no-regression gate: it broke the main.yo self-compile via this latent bug). This bug should be
 fixed FIRST (it is a correctness landmine that any reordering can trip), then the drop-scheduling
 parity work resumed.
