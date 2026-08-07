@@ -1073,6 +1073,19 @@ ${ast_expr_to_string(actual_arg)}`
   // (`isRef: parameter.isRef, isReassignable: parameter.isRef`). Marking the
   // exact created Variable (not an env-wide name search) keeps enclosing
   // same-named bindings (e.g. an outer method's by-value `self`) untouched.
+  // Every binding OF A PARAMETER must carry is_parameter — resolution
+  // inside the callee body must be able to tell a parameter from a
+  // same-named caller-module global, and this bind (plus the spec-time
+  // re-binds below) previously left the flag false, so codegen's
+  // module-global qualifier saw a "global" as the innermost match
+  // (issues/fixed/yo-self-specialized-body-env-param-resolution-order.md).
+  match(
+    bound_param_opt,
+    .Some(bp_flag) => {
+      bp_flag.is_parameter = true;
+    },
+    .None => ()
+  );
   if(param_is_ref, {
     match(
       bound_param_opt,
@@ -1992,6 +2005,15 @@ create_specialized_function_inline :: (
                     false,
                     synthetic_token(ectp_label, callee_env.module_path)
                   );
+                  // This binds a PARAMETER label — flag it (see the
+                  // check_if_function_parameter_matches_argument bind).
+                  match(
+                    _ectp,
+                    .Some(ectp_var) => {
+                      ectp_var.is_parameter = true;
+                    },
+                    .None => ()
+                  );
                 },
                 .None => ()
               ),
@@ -2801,6 +2823,14 @@ create_specialized_function_inline :: (
                 false,
                 synthetic_token(p_label, callee_env.module_path)
               );
+              // Parameter re-bind — flag it (see above).
+              match(
+                _rbc,
+                .Some(rbc_var) => {
+                  rbc_var.is_parameter = true;
+                },
+                .None => ()
+              );
             }, if(cur_is_folded_const, {
               match(
                 runtime_param_tys.get(rbp_i),
@@ -2816,6 +2846,14 @@ create_specialized_function_inline :: (
                     false,
                     false,
                     synthetic_token(p_label, callee_env.module_path)
+                  );
+                  // Parameter re-bind — flag it (see above).
+                  match(
+                    _rb,
+                    .Some(rb_var) => {
+                      rb_var.is_parameter = true;
+                    },
+                    .None => ()
                   );
                 },
                 .None => ()
@@ -3347,6 +3385,15 @@ create_specialized_function_inline :: (
                                       false,
                                       false,
                                       synthetic_token(cw_pn, callee_env.module_path)
+                                    );
+                                    // Parameter bind — flag it (see the
+                                    // check_if_function_parameter_matches_argument bind).
+                                    match(
+                                      _cwp,
+                                      .Some(cwp_var) => {
+                                        cwp_var.is_parameter = true;
+                                      },
+                                      .None => ()
                                     );
                                     cw_pvi = (cw_pvi + usize(1));
                                   });

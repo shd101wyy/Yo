@@ -1,10 +1,32 @@
 # yo-self: specialized-body env resolution can return a caller-module global instead of the parameter
 
-**Found 2026-08-07** while fixing
-`issues/fixed/module-global-c-names-are-not-namespaced.md`. Currently
-**masked** by the parameter-shadow guard in
-`yo-self/codegen/utils/index.yo` `get_variable_name_for_codegen`; filed
-because the underlying resolution divergence from TS is real.
+> **FIXED — 2026-08-07.** The "resolution order" framing below was wrong:
+> the frame-indexed probe showed BOTH `flag` bindings in the SAME
+> (parameters) frame — the innermost match was the specializer's
+> parameter RE-BIND (`create_specialized_function_inline` refreshes each
+> param's resolved concrete type via plain `add_variable_to_env`), which
+> carried `is_parameter = false` and a synthetic caller-module token.
+> Resolution was working as designed (innermost wins — the freshest
+> parameter binding); the BINDING was mislabeled.
+>
+> Fix: every binding OF a parameter now carries `is_parameter = true` —
+> the checked bind in `check_if_function_parameter_matches_argument`, the
+> spec-time re-binds (`_rbc`/`_rb`), the comptime-param value bind
+> (`_ectp`), and the closure-wrapper re-eval bind (`_cwp`), all in
+> `yo-self/evaluator/calls/helper.yo`. The codegen parameter-shadow guard
+> stays as defense-in-depth. Verified: the probe shows `param=true` on
+> both bindings; module 13/13, fn 24/24, full gates + FIXPOINT_HOLDS.
+>
+> Fixing the flag exposed and enabled the SECOND fix in the same commit:
+> yo-self never emitted scope-end drops for `own(...)` parameters at all
+> (TS begin.ts:1894's parameters-frame pass had no mirror) — the yo-self
+> arm of issues/fixed/own-param-discard-leak.md. `evaluate_begin_expression`
+> now schedules a params-frame drop pass (params-only gated — a def-time
+> body env can carry caller frames below the params frame, and an
+> ungated pass scheduled a caller local's drop into the callee:
+> the dyn_error_source_default corpus SELF-FAIL). rc trace now matches
+> TS (2 -> 1); ref_field_borrow 12/12 under the self-hosted runner; both
+> files added to the gates battery so this class is covered.
 
 ## Symptom (as observed before the mask)
 

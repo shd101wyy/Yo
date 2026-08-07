@@ -221,6 +221,7 @@ PendingDefEval :: ref(
     param_labels : ArrayList(String),
     param_types : ArrayList(TypeValue),
     param_is_ref : ArrayList(bool),
+    param_is_owning : ArrayList(bool),
     result_ty : TypeValue,
     where_entries : ArrayList(WhereConstraintEntry),
     function_type : TypeValue,
@@ -292,6 +293,10 @@ _build_def_time_body_env :: (
     param_labels : ArrayList(String),
     param_types : ArrayList(TypeValue),
     param_is_ref : ArrayList(bool),
+    /// Per-parameter `own(...)` flags (FuncMeta.param_is_owning) — an own
+    /// param's def-time binding must be created OWNING so the function-body
+    /// begin block's parameters-frame drop pass releases it at scope end.
+    param_is_owning : ArrayList(bool),
     // The signature's evaluated result type — scanned (with param_types)
     // for the SIGNATURE's own SomeT objects so comptime type params bind
     // the SAME SomeT identity the signature mentions. Minting fresh
@@ -423,6 +428,7 @@ _build_def_time_body_env :: (
     pn := match(param_labels.get(pi),.Some(n) => n,.None => String.from(""));
     pt := match(param_types.get(pi),.Some(t) => t,.None => t_unit());
     p_ref := match(param_is_ref.get(pi),.Some(b) => b,.None => false);
+    p_own := match(param_is_owning.get(pi),.Some(b) => b,.None => false);
     // A comptime TYPE parameter (`comptime(T) : Type`) must be bound as a
     // `TypeVal(SomeT(name))` type value — NOT `create_unknown_val(Type)` (an
     // unknown VALUE) — so the body can use it as a type (e.g. a type-constructor
@@ -501,7 +507,7 @@ _build_def_time_body_env :: (
       pv,
       false,
       p_ref,
-      false,
+      p_own,
       false,
       p_ref,
       true,
@@ -533,6 +539,7 @@ _rerun_pending_def_evals :: (fn(caller_env : Environment, ctx : EvalContext) -> 
           pd.param_labels,
           pd.param_types,
           pd.param_is_ref,
+          pd.param_is_owning,
           pd.result_ty,
           pd.where_entries,
           pd.strip_outer
@@ -604,6 +611,7 @@ try_to_implement_function_by_function_type :: (
       param_labels := __fm2.*.param_labels;
       implicit_labels := __fm2.*.implicit_labels;
       param_is_ref := __fm2.*.param_is_ref;
+      param_is_owning := __fm2.*.param_is_owning;
       result_is_ref := __fm2.*.result_is_ref;
       result_is_comptime_only := __fm2.*.result_is_comptime_only;
       tok := ast_expr_token(expr);
@@ -901,6 +909,7 @@ try_to_implement_function_by_function_type :: (
             param_labels,
             param_types,
             param_is_ref,
+            param_is_owning,
             result_box,
             def_where_entries,
             ctx.is_evaluating_function_body_or_async_block.is_some()
@@ -987,6 +996,7 @@ try_to_implement_function_by_function_type :: (
                 param_labels : param_labels,
                 param_types : param_types,
                 param_is_ref : param_is_ref,
+                param_is_owning : param_is_owning,
                 result_ty : result_box,
                 where_entries : def_where_entries,
                 function_type : function_type,
@@ -1129,6 +1139,7 @@ try_to_implement_function_by_function_type :: (
               param_labels,
               param_types,
               param_is_ref,
+              param_is_owning,
               result_box,
               dg_where,
               ctx.is_evaluating_function_body_or_async_block.is_some()

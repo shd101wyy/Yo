@@ -1224,7 +1224,12 @@ _schedule_scope_end_drops :: (
     last_expr : AstExpr,
     env : Environment,
     ctx : EvalContext,
-    exn : Exception
+    exn : Exception,
+    /// When true, only PARAMETER bindings are considered (the function-body
+    /// parameters-frame pass) — a def-time body env can carry caller frames
+    /// below the params frame, and scheduling a caller local's drop into the
+    /// callee emits a drop on an undeclared C identifier.
+    (params_only : bool) ?= false
   ) -> Option(ArrayList(AstExpr))
 )({
   // Conservative M1 skip. Skip the ENTIRE block's scope-end drops when it directly
@@ -1263,7 +1268,8 @@ _schedule_scope_end_drops :: (
         // locals: the compound-literal dup + dup-on-store then over-counted
         // every store by +1 and cycle collection never reclaimed HashMap
         // cycles (issues/yo-self-compound-literal-rc-overcount.md).
-        e1 := (v.is_owning_the_rc_value && type_contains_rc_type(v.ty));
+        e0 := ((!(params_only)) || v.is_parameter);
+        e1 := ((e0 && v.is_owning_the_rc_value) && type_contains_rc_type(v.ty));
         e2 := (e1 && (!(v.is_module_level)));
         e3 := (e2 && (!(v.is_ref)));
         // Skip only UNRESOLVED SomeTypes with no required traits (no concrete
@@ -2169,11 +2175,55 @@ evaluate_begin_expression :: (
   // M1: schedule scope-end RC drops for this frame's owning named locals BEFORE the
   // frame is popped (the `___drop(name)` exprs are evaluated against `env` while the
   // names are still in scope). See _schedule_scope_end_drops + plans/archive/YO_SELF_NAMED_LOCAL_DROPS.md.
-  scope_end_drops := match(
+  (scope_end_drops : Option(ArrayList(AstExpr))) = match(
     current_frame_opt,
     .Some(fr) => _schedule_scope_end_drops(fr, begin_args, last_info.variable_name, last_expr, env, ctx, exn),
     .None => Option(ArrayList(AstExpr)).None
   );
+  // For the FUNCTION-BODY begin block, also schedule drops for the
+  // PARAMETERS frame (one level below) — `own(name) : T` params carry a
+  // reference the caller transferred in (helper.yo's own-arg move/dup) and
+  // the callee must release it at scope end. Mirrors TS begin.ts:1894-1906
+  // (getVariablesNeedingDrop over the parameters frame, appended AFTER the
+  // locals so params drop last). Borrow params are excluded by the
+  // scheduler's owning gate, inout by is_ref, returned own params by the
+  // consumed mark the own-param-return transfer sets above. Without this,
+  // an own param that the body moved into a local was never released —
+  // rc() stayed +1 where TS releases (the yo-self arm of
+  // issues/fixed/own-param-discard-leak.md, caught by
+  // tests/ref_field_borrow.test.yo under the self-hosted runner).
+  if(is_evaluating_function_body_begin_block && (env.frames.len() >= usize(2)), {
+    match(
+      env.frames.get(env.frames.len() - usize(2)),
+      .Some(params_fr) => {
+        params_drops := _schedule_scope_end_drops(params_fr, begin_args, last_info.variable_name, last_expr, env, ctx, exn, true);
+        match(
+          params_drops,
+          .Some(pd_list) => {
+            (merged : ArrayList(AstExpr)) = match(
+              scope_end_drops,
+              .Some(existing) => existing,
+              .None => ArrayList(AstExpr).new()
+            );
+            (pd_i : usize) = usize(0);
+            while(pd_i < pd_list.len(), {
+              match(
+                pd_list.get(pd_i),
+                .Some(pd) => {
+                  merged.push(pd);
+                },
+                .None => ()
+              );
+              pd_i = (pd_i + usize(1));
+            });
+            scope_end_drops = Option(ArrayList(AstExpr)).Some(merged);
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+  });
   // M3 driver: attach early-return-only `___drop`s for CONSUMED (moved-out) owning
   // locals to each return/unwind preceding consumption (begin.ts:2068-2122). Runs
   // before pop_frame. Consumed vars are disjoint from the scope-end drop set.
