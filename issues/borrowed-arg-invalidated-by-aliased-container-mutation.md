@@ -244,3 +244,51 @@ classification) is green in CI, as its own change.
 `src/tests/fixme.yo` variants, 2026-08-06 session; not yet a checked-in failing test
 (there is nothing to assert until the semantics decision is made — the current behavior is
 UB that happens to print recycled memory).
+
+### Stage 1 landing log (2026-08-08, feat/rc-stage1-mutation-summaries)
+
+**Stage 1 (per-callee mutation summaries) landed in both compilers — the
++23% Stage-0 cost is fully clawed back.** `check ./std` under the
+self-hosted binary, min user of 3: pre-Stage-0 45.3 s → Stage 0 55.24 s
+→ **Stage 1 45.14 s**. The aliasing hole is closed at zero measured
+runtime cost.
+
+- **TS**: `src/evaluator/effects/mutation-summary.ts` — a may-mutate walk
+  over EVALUATED bodies (callees resolved via `func.$.value`), memoized by
+  funcId with least-fixpoint cycle optimism (verdicts that depended on an
+  in-progress walk are not memoized unless they found a real mutation).
+  May-mutate sources: RC-typed place assignments; externs that are
+  runtime/allocator family (`__yo_`-prefixed), libc free/realloc, or take
+  callbacks (raw C byte ops cannot decrement RC counts — memcmp/printf are
+  read-only); io builtins; ctl functions; unresolved callees. Match-arm
+  patterns are skipped (no guards in Yo); primitive builtin heads
+  (`__yo_op_*`, ptr math, `rc`, `__yo_panic`) are whitelisted. Gates:
+  mark-time skip for non-generic callees + post-specialization unmark for
+  generics (`removeBorrowedProjectionDupMark` reverses the marker exactly).
+- **yo-self**: `yo-self/evaluator/effects/mutation_summary.yo` (the
+  mutually recursive summary/walk pair lives in an impl-block namespace —
+  module bindings are define-before-use). Elision gates in all THREE
+  arg-marking paths: helper.yo `try_to_call_function_with_arguments`
+  (marked args threaded via `CheckParamResult.s0_marked_arg`), function.yo
+  inline body-executed path, and — found by instrumentation —
+  `_evaluate_funcval_runtime_call`, the path most ordinary calls take,
+  which early-returns BEFORE the inline path's drop wiring. Its Stage-1
+  decision runs after the Gap-6 specialization (a generic callee's raw
+  body is unevaluated; only the minted spec's body is walkable).
+- **Pre-existing Stage-0 gap sharpened**: `_evaluate_funcval_runtime_call`
+  never wired `fv_s0_drops` — Stage-0 dups on that path leaked their
+  balancing drop since landing (invisible to the rc-balance asserts
+  because the callee's own reassignment consumes a ref). After Stage 1,
+  read-only callees elide the dup entirely (no leak); MAY-MUTATE callees
+  on that path still leak the +1 — the drop-release-point semantics
+  (TS releases at scope end; yo-self's explicit-drop channel releases
+  post-call) need their own decision before wiring it. Tracked as the
+  remaining leak-direction gap.
+
+Validation: fixme repro green under both compilers (rc 2 inside read-only
+callees on the non-generic, generic, and runtime-call paths; the aliased
+mutation keeps its +1); tests/rc.test.yo 23/23 both compilers (new
+"read-only callee elides the Stage-0 borrowed-projection dup" test); TS
+fast suite 2673/0; battery 0 failures hollow=0; corpus 155 PASS / 0 DIFF;
+`check ./std` 153/153; **FIXPOINT HOLDS** (stage-2 ≡ stage-3, hollow=0);
+Guard Malloc clean.
