@@ -2523,6 +2523,46 @@ export function setExprAsNeedsToCallDupForBorrowedProjection(
 }
 
 /**
+ * Aliasing Stage 1 (mutation summaries): the exact inverse of
+ * `setExprAsNeedsToCallDupForBorrowedProjection`, applied when the callee
+ * specialization is proven read-only — the borrowed projection cannot be
+ * invalidated during the call, so the Stage-0 `+1` is elided. Removes the
+ * deferred dup (codegen never emits it) and flips the dup result temp back
+ * to NON-owning (the scope-end machinery emits no drop for it). The temp
+ * variable itself stays declared in the frame — inert.
+ *
+ * `env` must be the CURRENT caller env (the temp may have been re-bound by
+ * later argument processing); returns the updated env.
+ */
+export function removeBorrowedProjectionDupMark(
+  expr: Expr,
+  env: Environment
+): Environment {
+  const dups = expr.$?.deferredDupExpressions;
+  if (!dups || dups.length !== 1) {
+    return env;
+  }
+  const dupExpr = dups[0]!;
+  expr.$!.deferredDupExpressions = undefined;
+  const dupTempName = dupExpr.$?.variableName;
+  if (!dupTempName) {
+    return env;
+  }
+  const dupTempVars = getVariablesFromEnv(env, dupTempName);
+  if (!dupTempVars.length) {
+    return env;
+  }
+  const dupTempVar = dupTempVars[dupTempVars.length - 1]!;
+  if (dupTempVar.isOwningTheRcValue) {
+    env = updateExistingVariable(env, dupTempVar, {
+      ...dupTempVar,
+      isOwningTheRcValue: false,
+    });
+  }
+  return env;
+}
+
+/**
  * @param expr
  * @param context
  * @returns

@@ -632,3 +632,28 @@ test("borrowed projection argument survives aliased container mutation", {
   assert(rc(b0) == 2, "exactly one Stage-0 +1 outstanding until scope end");
   assert(b0.* == i32(42), "original box intact after the aliased mutation");
 });
+// Aliasing Stage 1 (mutation summaries): a READ-ONLY callee cannot
+// invalidate the borrowed projection, so the Stage-0 +1 is elided — during
+// the call the box's rc stays 2 (w.b + b0), not 3. The non-generic callee
+// exercises the mark-time skip; the generic one exercises the
+// post-specialization unmark.
+stage1_read_borrow :: (fn(w : AliasWrap, borrowed : Box(i32)) -> usize)(
+  rc(borrowed)
+);
+stage1_rc_of :: (fn(generic(T : Type), borrowed : T) -> usize)(
+  rc(borrowed)
+);
+test("read-only callee elides the Stage-0 borrowed-projection dup", {
+  w := AliasWrap(b : box(i32(42)));
+  b0 := w.b;
+  assert(rc(b0) == 2, "w.b + b0 before the calls");
+  assert(
+    stage1_read_borrow(w, w.b) == 2,
+    "non-generic read-only callee sees rc 2 (mark-time skip)"
+  );
+  assert(
+    stage1_rc_of(w.b) == 2,
+    "generic read-only callee sees rc 2 (post-specialization unmark)"
+  );
+  assert(rc(b0) == 2, "rc balanced after both elided calls");
+});

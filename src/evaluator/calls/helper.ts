@@ -31,9 +31,11 @@ import {
   type PathCollection,
   requireExprNotConsumed,
   setExprAsConsumed,
+  removeBorrowedProjectionDupMark,
   setExprAsNeedsToCallDup,
   setExprAsNeedsToCallDupForBorrowedProjection,
 } from "../../expr";
+import { functionMayMutateRcStorage } from "../effects/mutation-summary";
 import { evaluatedBodyContainsEscape } from "../../expr-traversal";
 import type {
   FunctionValue,
@@ -76,6 +78,7 @@ import {
   convertComptimeTypeToRuntimeType,
   getAllSomeTypes,
   isComptimeOnlyType,
+  typeContainsRcType,
   typeContainsSomeType,
   typeRequiresComptimeModifier,
   typeToString,
@@ -278,6 +281,7 @@ export function checkIfFunctionParameterMatchesArgument({
   context,
   isMethodCall,
   runtimeArgExprsInOrder,
+  functionValue,
 }: {
   functionType: FunctionType;
   definitionSiteEnclosingFunctionType?: FunctionType;
@@ -292,6 +296,12 @@ export function checkIfFunctionParameterMatchesArgument({
   context: EvaluatorContext;
   isMethodCall: boolean;
   runtimeArgExprsInOrder: Expr[];
+  /**
+   * The callee's FunctionValue when known. Used by aliasing Stage 1 to
+   * consult the callee's mutation summary (skip the Stage-0 borrow dup for
+   * read-only non-generic callees).
+   */
+  functionValue?: FunctionValue;
 }): {
   calleeEnv: Environment;
   callerEnv: Environment;
@@ -299,6 +309,12 @@ export function checkIfFunctionParameterMatchesArgument({
   argValue: Value | undefined;
   argType: Type;
   parameterType: Type;
+  /**
+   * Set when aliasing Stage 0 attached a borrowed-projection dup to this
+   * argument. Stage 1 unmarks it after specialization when the callee
+   * proves read-only.
+   */
+  borrowedProjectionDupMarkedExpr?: Expr;
 } {
   let argExpr: Expr | undefined = argExprs[argIndex];
 
@@ -357,6 +373,8 @@ export function checkIfFunctionParameterMatchesArgument({
   // Evaluate the argExpr
   let evaluatedArgExpr: Expr | undefined = undefined;
   // let evaluatedDefaultValueExpr: Expr | undefined = undefined;
+  // Aliasing Stage 1: set when Stage 0 attached a borrowed-projection dup.
+  let borrowedProjectionDupMarkedExpr: Expr | undefined = undefined;
 
   if (
     !argExpr ||
@@ -509,9 +527,39 @@ export function checkIfFunctionParameterMatchesArgument({
         // owned temps stay +0 (alive to scope end already — the marker
         // no-ops), and `inout` (ref) parameters are place writes, not RC
         // handles.
-        setExprAsNeedsToCallDupForBorrowedProjection(evaluatedArgExpr, context);
-        if (evaluatedArgExpr.$?.env) {
-          callerEnv = evaluatedArgExpr.$.env;
+        //
+        // Aliasing Stage 1 (mutation summaries): a READ-ONLY callee cannot
+        // reassign the aliased storage during the call, so the +1 is pure
+        // overhead — skip the mark. Only decidable here for NON-generic
+        // callees (their definition-time-evaluated body is final; a still-
+        // in-progress definition answers "may mutate" conservatively).
+        // Generic callees are marked now and unmarked after specialization
+        // when the specialized body proves read-only.
+        // Cheap pre-conditions mirroring the marker's own no-ops (runtime
+        // RC-typed value in a temp) — only then is the summary worth
+        // consulting.
+        const argMayNeedBorrowDup =
+          !!evaluatedArgExpr.$?.variableName &&
+          !evaluatedArgExpr.$.value &&
+          typeContainsRcType(evaluatedArgExpr.$.type);
+        const stage1SkipDup =
+          argMayNeedBorrowDup &&
+          functionValue !== undefined &&
+          !functionValue.isControlFunction &&
+          !isFunctionTypeGeneric(functionType) &&
+          !functionMayMutateRcStorage(functionValue);
+        if (!stage1SkipDup) {
+          const dupsBefore = evaluatedArgExpr.$?.deferredDupExpressions;
+          setExprAsNeedsToCallDupForBorrowedProjection(
+            evaluatedArgExpr,
+            context
+          );
+          if (evaluatedArgExpr.$?.env) {
+            callerEnv = evaluatedArgExpr.$.env;
+          }
+          if (evaluatedArgExpr.$?.deferredDupExpressions !== dupsBefore) {
+            borrowedProjectionDupMarkedExpr = evaluatedArgExpr;
+          }
         }
       }
     }
@@ -737,6 +785,7 @@ ${(error as Error).message}`,
     argValue,
     argType,
     parameterType: resolvedParameterType,
+    borrowedProjectionDupMarkedExpr,
   };
 }
 
@@ -1485,6 +1534,11 @@ Got:   ${typeToString(typeValue.type)}`,
   // Check if the regular parameters match the arguments
   const parametersToProcess = functionType.parameters.length;
 
+  // Aliasing Stage 1: arguments that received a Stage-0 borrowed-projection
+  // dup during this call — unmarked below when the callee specialization
+  // proves read-only.
+  const borrowedProjectionDupMarkedExprs: Expr[] = [];
+
   for (let argIndex = 0; argIndex < parametersToProcess; argIndex++) {
     const parameter = functionType.parameters[argIndex]!;
     const {
@@ -1494,6 +1548,7 @@ Got:   ${typeToString(typeValue.type)}`,
       argValue,
       argType,
       parameterType: newParameterType,
+      borrowedProjectionDupMarkedExpr,
     } = checkIfFunctionParameterMatchesArgument({
       functionType,
       definitionSiteEnclosingFunctionType,
@@ -1505,10 +1560,17 @@ Got:   ${typeToString(typeValue.type)}`,
       context,
       isMethodCall,
       runtimeArgExprsInOrder,
+      functionValue:
+        functionValue && isFunctionValue(functionValue)
+          ? functionValue
+          : undefined,
     });
     calleeEnv = nextCalleeEnv;
     callerEnv = nextCallerEnv;
     context = nextContext;
+    if (borrowedProjectionDupMarkedExpr) {
+      borrowedProjectionDupMarkedExprs.push(borrowedProjectionDupMarkedExpr);
+    }
 
     argValues.push({
       value: argValue,
@@ -2125,6 +2187,32 @@ Got:   ${typeToString(typeValue.type)}`,
             };
           }
         }
+      }
+    }
+  }
+
+  // Aliasing Stage 1 (mutation summaries): the Stage-0 borrowed-projection
+  // dups added during argument processing protect against the callee
+  // reassigning aliased storage mid-call. Now that the callee's
+  // specialization is in hand, elide them when it proves read-only. This is
+  // the per-specialization path (generic callees); non-generic callees were
+  // already handled by the mark-time skip. Recursive short-circuit calls
+  // keep their dups (the callee body is still being evaluated — no summary
+  // is possible yet), as do checking-phase trials (cloned exprs, discarded).
+  // Must run BEFORE the RAII drop collection below so the dup temp is
+  // non-owning by the time drops are gathered.
+  if (
+    borrowedProjectionDupMarkedExprs.length > 0 &&
+    !skipSpecialization &&
+    !isRecursiveCallDuringSpecialization &&
+    functionValue &&
+    isFunctionValue(functionValue) &&
+    !functionValue.isControlFunction
+  ) {
+    const summaryTarget = specializedFunctionValue ?? functionValue;
+    if (!functionMayMutateRcStorage(summaryTarget)) {
+      for (const markedExpr of borrowedProjectionDupMarkedExprs) {
+        callerEnv = removeBorrowedProjectionDupMark(markedExpr, callerEnv);
       }
     }
   }
