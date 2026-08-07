@@ -29,8 +29,23 @@ Bucket :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
 );
 /// Extract H2 hash (lower 7 bits) from full hash for control byte comparison.
 h2_hash :: (fn(hash : u64) -> u8)(u8(hash & u64(127)));
+/// Avalanche-mix a 64-bit hash (murmur3 fmix64 finalizer) so that weakly-
+/// distributed hashes — notably the IDENTITY hash of integer keys — spread
+/// uniformly across buckets. Without this, sequential integer keys (e.g. the
+/// expr ids in the self-host's `expr_info_table`) collapse 128 consecutive keys
+/// into ONE h1 bucket under `(hash >> 7) % capacity`, producing O(n) linear-probe
+/// chains (O(n^2) overall). `*` wraps on u64 overflow (as FNV-1a relies on).
+mix_u64 :: (fn(hash : u64) -> u64)({
+  h := hash;
+  h = (h ^ (h >> u64(33)));
+  h = (h * u64(0xff51afd7ed558ccd));
+  h = (h ^ (h >> u64(33)));
+  h = (h * u64(0xc4ceb9fe1a85ec53));
+  h = (h ^ (h >> u64(33)));
+  return(h);
+});
 /// Extract H1 hash (upper bits) for bucket index calculation.
-h1_hash :: (fn(hash : u64, capacity : usize) -> usize)(usize(hash >> u64(7)) % capacity);
+h1_hash :: (fn(hash : u64, capacity : usize) -> usize)(usize(mix_u64(hash) >> u64(7)) % capacity);
 /// High-performance hash map using SwissTable algorithm.
 /// Keys must implement `Eq` and `Hash`. Provides O(1) average lookup, insert, and delete.
 HashMap :: (
@@ -40,15 +55,17 @@ HashMap :: (
     where(K <: (Eq(K), Hash))
   ) -> comptime(Type)
 )(
-  object(
-    ctrl : ?*(u8),
-    data : ?*(Bucket(K, V)),
-    capacity : usize,
-    size : usize
+  ref(
+    struct(
+      ctrl : ?*(u8),
+      data : ?*(Bucket(K, V)),
+      capacity : usize,
+      size : usize
+    )
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
   /**
@@ -76,7 +93,7 @@ impl(
             data_ptr := *(Bucket(K, V))(data_void_ptr);
             i := usize(0);
             while(i < capacity, i = (i + usize(1)), {
-              (ctrl_ptr &+ i).* = CTRL_EMPTY;
+              (ctrl_ptr.add(i)).* = CTRL_EMPTY;
             });
             .Ok(
               Self(
@@ -99,7 +116,7 @@ impl(
     match(
       result,
       .Ok(map) => map,
-      .Err(_) => panic("Failed to allocate HashMap")
+      .Err(_) => __yo_panic("Failed to allocate HashMap")
     )
   }),
   /**
@@ -124,7 +141,7 @@ impl(
     match(
       result,
       .Ok(map) => map,
-      .Err(_) => panic("Failed to allocate HashMap")
+      .Err(_) => __yo_panic("Failed to allocate HashMap")
     )
   }),
   /**
@@ -134,7 +151,7 @@ impl(
     match(
       self.ctrl,
       .Some(ptr) => ptr,
-      .None => panic("HashMap ctrl pointer is null")
+      .None => __yo_panic("HashMap ctrl pointer is null")
     )
   ),
   /**
@@ -144,7 +161,7 @@ impl(
     match(
       self.data,
       .Some(ptr) => ptr,
-      .None => panic("HashMap data pointer is null")
+      .None => __yo_panic("HashMap data pointer is null")
     )
   ),
   /**
@@ -159,13 +176,13 @@ impl(
     data_ptr := Self._data_ptr(self);
     while(probe < self.capacity, probe = (probe + usize(1)), {
       probe_index := ((index + probe) % self.capacity);
-      ctrl_byte := (ctrl_ptr &+ probe_index).*;
+      ctrl_byte := (ctrl_ptr.add(probe_index)).*;
       cond(
         (ctrl_byte == CTRL_EMPTY) => {
           return(.None);
         },
         (ctrl_byte == h2) => {
-          bucket := (data_ptr &+ probe_index).*;
+          bucket := (data_ptr.add(probe_index)).*;
           cond(
             (bucket.key == key) => {
               return(.Some(probe_index));
@@ -188,7 +205,7 @@ impl(
     ctrl_ptr := Self._ctrl_ptr(self);
     while(probe < self.capacity, probe = (probe + usize(1)), {
       probe_index := ((index + probe) % self.capacity);
-      ctrl_byte := (ctrl_ptr &+ probe_index).*;
+      ctrl_byte := (ctrl_ptr.add(probe_index)).*;
       cond(
         ((ctrl_byte == CTRL_EMPTY) || (ctrl_byte == CTRL_DELETED)) => {
           return(probe_index);
@@ -196,7 +213,7 @@ impl(
         true => ()
       );
     });
-    panic("HashMap is full - should have resized")
+    __yo_panic("HashMap is full - should have resized")
   }),
   /**
   * Check if HashMap needs resizing based on load factor
@@ -218,17 +235,17 @@ impl(
         ctrl_ptr := Self._ctrl_ptr(self);
         data_ptr := Self._data_ptr(self);
         while(i < self.capacity, i = (i + usize(1)), {
-          ctrl_byte := (ctrl_ptr &+ i).*;
+          ctrl_byte := (ctrl_ptr.add(i)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              bucket := (data_ptr &+ i).*;
+              bucket := (data_ptr.add(i)).*;
               hash := (bucket.key).hash();
               h2 := h2_hash(hash);
               new_index := Self._find_insert_bucket(new_map, hash);
               new_ctrl_ptr := Self._ctrl_ptr(new_map);
               new_data_ptr := Self._data_ptr(new_map);
-              (new_ctrl_ptr &+ new_index).* = h2;
-              consume((new_data_ptr &+ new_index).* = bucket);
+              (new_ctrl_ptr.add(new_index)).* = h2;
+              consume((new_data_ptr.add(new_index)).* = bucket);
               new_map.size = (new_map.size + usize(1));
             },
             true => ()
@@ -240,10 +257,10 @@ impl(
           (Type.contains_rc_type(K) || Type.contains_rc_type(V)) => {
             j := usize(0);
             while(j < self.capacity, j = (j + usize(1)), {
-              ctrl_byte := (ctrl_ptr &+ j).*;
+              ctrl_byte := (ctrl_ptr.add(j)).*;
               cond(
                 ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                  bucket_ptr := (data_ptr &+ j);
+                  bucket_ptr := data_ptr.add(j);
                   cond(
                     Type.contains_rc_type(K) => unsafe.drop((bucket_ptr.*).key),
                     true => ()
@@ -289,7 +306,7 @@ impl(
       bucket_opt,
       .Some(index) => {
         data_ptr := Self._data_ptr(self);
-        old_bucket := (data_ptr &+ index).*;
+        old_bucket := (data_ptr.add(index)).*;
         old_value := old_bucket.value;
         new_bucket := Bucket(K, V)(key : key, value : value);
         // Don't use consume here - we want to drop the old bucket at memory
@@ -297,7 +314,7 @@ impl(
         // Then old_bucket goes out of scope and drops again to RC=0
         // But wait - we return old_value which was duped from old_bucket...
         // Actually the Bucket struct contains RC types, so assignment drops old + dups new
-        (data_ptr &+ index).* = new_bucket;
+        (data_ptr.add(index)).* = new_bucket;
         .Ok(.Some(old_value))
       },
       .None => {
@@ -316,9 +333,9 @@ impl(
             index := Self._find_insert_bucket(self, hash);
             ctrl_ptr := Self._ctrl_ptr(self);
             data_ptr := Self._data_ptr(self);
-            (ctrl_ptr &+ index).* = h2;
+            (ctrl_ptr.add(index)).* = h2;
             new_bucket := Bucket(K, V)(key : key, value : value);
-            consume((data_ptr &+ index).* = new_bucket);
+            consume((data_ptr.add(index)).* = new_bucket);
             self.size = (self.size + usize(1));
             .Ok(.None)
           }
@@ -337,7 +354,7 @@ impl(
       bucket_opt,
       .Some(index) => {
         data_ptr := Self._data_ptr(self);
-        bucket := (data_ptr &+ index).*;
+        bucket := (data_ptr.add(index)).*;
         .Some(bucket.value)
       },
       .None =>.None
@@ -367,14 +384,14 @@ impl(
       .Some(index) => {
         data_ptr := Self._data_ptr(self);
         ctrl_ptr := Self._ctrl_ptr(self);
-        bucket_ptr := (data_ptr &+ index);
+        bucket_ptr := data_ptr.add(index);
         // Read and dup value for return
         value := bucket_ptr.*.value;
         // Drop the bucket's key (we're removing it)
         unsafe.drop(bucket_ptr.*.key);
         // Drop the bucket's value extra ref (we duped it above)
         unsafe.drop(bucket_ptr.*.value);
-        (ctrl_ptr &+ index).* = CTRL_DELETED;
+        (ctrl_ptr.add(index)).* = CTRL_DELETED;
         self.size = (self.size - usize(1));
         .Some(value)
       },
@@ -405,10 +422,10 @@ impl(
         data_ptr := Self._data_ptr(self);
         i := usize(0);
         while(i < self.capacity, i = (i + usize(1)), {
-          ctrl_byte := (ctrl_ptr &+ i).*;
+          ctrl_byte := (ctrl_ptr.add(i)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              bucket_ptr := (data_ptr &+ i);
+              bucket_ptr := data_ptr.add(i);
               unsafe.drop(bucket_ptr.*);
             },
             true => ()
@@ -420,13 +437,13 @@ impl(
     ctrl_ptr := Self._ctrl_ptr(self);
     i := usize(0);
     while(i < self.capacity, i = (i + usize(1)), {
-      (ctrl_ptr &+ i).* = CTRL_EMPTY;
+      (ctrl_ptr.add(i)).* = CTRL_EMPTY;
     });
     self.size = usize(0);
   })
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
   Dispose(
@@ -445,10 +462,10 @@ impl(
                 .Some(data_ptr) => {
                   i := usize(0);
                   while(i < self.capacity, i = (i + usize(1)), {
-                    ctrl_byte := (ctrl_ptr &+ i).*;
+                    ctrl_byte := (ctrl_ptr.add(i)).*;
                     cond(
                       ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                        bucket_ptr := (data_ptr &+ i);
+                        bucket_ptr := data_ptr.add(i);
                         unsafe.drop(bucket_ptr.*);
                       },
                       true => ()
@@ -487,12 +504,12 @@ HashMapIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMapIter(K, V),
   Iterator(
     Item : Bucket(K, V),
-    next : (fn(ref(self) : Self) -> Option(Bucket(K, V)))(
+    next : (fn(inout(self) : Self) -> Option(Bucket(K, V)))(
       cond(
         (self._map.capacity == usize(0)) =>.None,
         true => {
@@ -500,10 +517,10 @@ impl(
           data_ptr := self._map.data.unwrap();
           result := Option(Bucket(K, V)).None;
           while((self._index < self._map.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ self._index).*;
+            ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result =.Some((data_ptr &+ self._index).*);
+                result =.Some((data_ptr.add(self._index)).*);
               },
               true => ()
             );
@@ -515,7 +532,7 @@ impl(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
   into_iter : (fn(self : Self) -> HashMapIter(K, V))(
@@ -533,12 +550,12 @@ HashMapIterPtr :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMapIterPtr(K, V),
   Iterator(
     Item : *(Bucket(K, V)),
-    next : (fn(ref(self) : Self) -> Option(*(Bucket(K, V))))(
+    next : (fn(inout(self) : Self) -> Option(*(Bucket(K, V))))(
       cond(
         (self._map.capacity == usize(0)) =>.None,
         true => {
@@ -546,10 +563,10 @@ impl(
           data_ptr := self._map.data.unwrap();
           result := Option(*(Bucket(K, V))).None;
           while((self._index < self._map.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ self._index).*;
+            ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result =.Some(data_ptr &+ self._index);
+                result =.Some(data_ptr.add(self._index));
               },
               true => ()
             );
@@ -561,7 +578,7 @@ impl(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
   /// Pointer iterator — yields `*(Bucket(K, V))` for each occupied bucket.
@@ -575,7 +592,7 @@ impl(
 * Keys iterator - scans ctrl bytes directly and yields only the keys.
 *
 * NOTE: This held a wrapped `_inner : HashMapIter(K, V)` and delegated
-* `self._inner.next()` — but a method call on a struct FIELD of `ref(self)`
+* `self._inner.next()` — but a method call on a struct FIELD of `inout(self)`
 * advances a COPY of the field, so `_index` never moved and manual
 * `it.next()` loops yielded the first key forever (`for(...)` masked it).
 * Scan directly instead, mirroring `HashMapIterPtr`.
@@ -587,12 +604,12 @@ HashMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMapKeys(K, V),
   Iterator(
     Item : K,
-    next : (fn(ref(self) : Self) -> Option(K))(
+    next : (fn(inout(self) : Self) -> Option(K))(
       cond(
         (self._map.capacity == usize(0)) =>.None,
         true => {
@@ -600,10 +617,10 @@ impl(
           data_ptr := self._map.data.unwrap();
           result := Option(K).None;
           while((self._index < self._map.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ self._index).*;
+            ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result =.Some((data_ptr &+ self._index).*.key);
+                result =.Some((data_ptr.add(self._index)).*.key);
               },
               true => ()
             );
@@ -615,7 +632,7 @@ impl(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
   keys : (fn(self : Self) -> HashMapKeys(K, V))(
@@ -635,12 +652,12 @@ HashMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMapValues(K, V),
   Iterator(
     Item : V,
-    next : (fn(ref(self) : Self) -> Option(V))(
+    next : (fn(inout(self) : Self) -> Option(V))(
       cond(
         (self._map.capacity == usize(0)) =>.None,
         true => {
@@ -648,10 +665,10 @@ impl(
           data_ptr := self._map.data.unwrap();
           result := Option(V).None;
           while((self._index < self._map.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ self._index).*;
+            ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result =.Some((data_ptr &+ self._index).*.value);
+                result =.Some((data_ptr.add(self._index)).*.value);
               },
               true => ()
             );
@@ -663,7 +680,7 @@ impl(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
   values : (fn(self : Self) -> HashMapValues(K, V))(
@@ -671,31 +688,31 @@ impl(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   HashMap(K, V),
   Index(K)(
     Output : V,
-    index : (fn(ref(self) : Self, idx : K, where(K <: (Eq(K), Hash))) -> *(Self.Output))({
+    index : (fn(inout(self) : Self, idx : K, where(K <: (Eq(K), Hash))) -> *(Self.Output))({
       hash := idx.hash();
       bucket_opt := Self._find_bucket(self, idx, hash);
       match(
         bucket_opt,
         .Some(i) => {
           data_ptr := Self._data_ptr(self);
-          &((data_ptr &+ i).*.value)
+          &((data_ptr.add(i)).*.value)
         },
-        .None => panic("HashMap: key not found")
+        .None => __yo_panic("HashMap: key not found")
       )
     })
   )
 );
 /// Clone implementation for HashMap — deep-clones all key-value entries.
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Clone, Eq(K), Hash), V <: Clone),
   HashMap(K, V),
   Clone(
-    clone : (fn(ref(self) : Self) -> Self)({
+    clone : (fn(inout(self) : Self) -> Self)({
       result := Self.new();
       it := self.iter_ptr();
       running := true;
@@ -710,7 +727,7 @@ impl(
             // SAFETY: iter_ptr().next() returns .Some(p) only when p
             // points at an occupied bucket within the Rc-managed
             // _data buffer; the buffer is alive while `self` holds
-            // the Rc (we received `ref(self)` so the caller still
+            // the Rc (we received `inout(self)` so the caller still
             // owns it across this call).
             k := unsafe(bucket_ptr.*.key.clone());
             v := unsafe(bucket_ptr.*.value.clone());
@@ -719,6 +736,47 @@ impl(
         );
       });
       result
+    })
+  )
+);
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash)),
+  HashMap(K, V),
+  Trace(
+    /**
+    * Cycle-GC tracing. Buckets live in a malloc'd open-addressing buffer the
+    * compiler's auto-derived field walk cannot reach, so trace each FULL slot
+    * (its control byte is neither EMPTY nor DELETED). `tracer.visit` takes the
+    * `Bucket(K, V)` slot POINTER; the per-value traversal descends inline through
+    * the value struct, tracing BOTH the key and the value, WITHOUT touching any
+    * reference count (a by-value managed handle would be dup'd then dropped,
+    * freeing a live element mid-collection). Mirrors the ArrayList `Trace` impl +
+    * the SwissTable slot scan.
+    */
+    trace : (fn(self : Self, tracer : GcTracer) -> unit)({
+      match(
+        self.ctrl,
+        .Some(ctrl_ptr) => match(
+          self.data,
+          .Some(data_ptr) => {
+            (i : usize) = usize(0);
+            while(i < self.capacity, {
+              ctrl_byte := (ctrl_ptr.add(i)).*;
+              // Full slot iff the SwissTable control high bit is clear (a full byte
+              // stores the 7-bit h2 hash); EMPTY (255) and DELETED (254) both set it.
+              // Uses the control-bit directly so the trace body needs no module-level
+              // constant in scope.
+              if((ctrl_byte & u8(128)) == u8(0), {
+                tracer.visit(data_ptr.add(i));
+              });
+              i = (i + usize(1));
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
     })
   )
 );

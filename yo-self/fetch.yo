@@ -38,30 +38,38 @@ open(import("std/string"));
 // Data types
 // ---------------------------------------------------------------------------
 /// A git dependency declared in `build.yo`.
-BuildGitDependency :: object(
-  name : String,
-  url : String,
-  ref : String,
-  path : Option(String)
+BuildGitDependency :: ref(
+  struct(
+    name : String,
+    url : String,
+    ref : String,
+    path : Option(String)
+  )
 );
 /// Status of a cached dependency.
 CachedDepStatus :: enum(Ok, MissingPath, MissingHash, HashMismatch);
 /// Result of inspecting a cached dependency.
-CachedDepState :: object(
-  status : CachedDepStatus,
-  cached_path : String,
-  actual_hash : Option(String)
+CachedDepState :: ref(
+  struct(
+    status : CachedDepStatus,
+    cached_path : String,
+    actual_hash : Option(String)
+  )
 );
 /// Result of fetching one dependency.
-FetchDepResult :: object(
-  lock_file : LockFile,
-  dep_path : String
+FetchDepResult :: ref(
+  struct(
+    lock_file : LockFile,
+    dep_path : String
+  )
 );
 /// Result of fetching all dependencies.
-FetchResult :: object(
-  resolved_paths : ArrayList(String),
-  resolved_names : ArrayList(String),
-  lock_file : LockFile
+FetchResult :: ref(
+  struct(
+    resolved_paths : ArrayList(String),
+    resolved_names : ArrayList(String),
+    lock_file : LockFile
+  )
 );
 // ---------------------------------------------------------------------------
 // Constants
@@ -143,7 +151,7 @@ sort_dir_entries :: (fn(entries : ArrayList(DirEntry)) -> ArrayList(DirEntry))({
       added.ptr(),
       .None => (),
       .Some(p) => {
-        (p &+ min_idx).* = true;
+        (p.add(min_idx)).* = true;
       }
     );
     selected = (selected + usize(1));
@@ -196,7 +204,7 @@ _push_str_bytes :: (fn(buf : ArrayList(u8), s : str) -> unit)({
   k := usize(0);
   while(k < n, {
     {
-      buf.push((p &+ k).*);
+      buf.push((p.add(k)).*);
     };
     k = (k + usize(1));
   });
@@ -218,10 +226,12 @@ _push_string_bytes :: (fn(buf : ArrayList(u8), s : String) -> unit)({
   });
 });
 /// Internal item type for the iterative DFS hash stack.
-_HashWorkItem :: object(
-  abs_path : String,
-  rel_path : String,
-  is_dir : bool
+_HashWorkItem :: ref(
+  struct(
+    abs_path : String,
+    rel_path : String,
+    is_dir : bool
+  )
 );
 /// Compute a content hash for a directory using iterative DFS.
 /// Returns `"sha256-<hex>"`.

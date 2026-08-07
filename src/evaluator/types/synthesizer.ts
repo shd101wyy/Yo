@@ -148,7 +148,7 @@ function occursCheck(
  */
 export interface SynthesizeTypesOptions {
   /** When true, also sets `resolvedConcreteType` on SomeType objects when binding
-   * them to concrete types. This allows forall parameter inference to pick up
+   * them to concrete types. This allows generic parameter inference to pick up
    * bindings that cross environment boundaries (e.g., from closure body evaluation
    * back to the call site). Only enable at targeted call sites. */
   setResolvedConcreteType?: boolean;
@@ -655,7 +655,7 @@ export function synthesizeTypes(
       // We removed the typeName condition since it fails for Data(boolean) vs Data(A1)
     } else if (
       // Allow unification if both structs come from the same type constructor (same funcId).
-      // This handles cases where different forall scopes produce different struct instances
+      // This handles cases where different generic scopes produce different struct instances
       // but from the same constructor function (e.g., JoinHandle(T) from module definition
       // vs JoinHandle(T) from extern function definition).
       expected.type.functionValue &&
@@ -1013,7 +1013,7 @@ export function synthesizeTypes(
     const expectedFunction = expected.type;
     const givenFunction = given.type;
 
-    // Synthesize the forall parameter types
+    // Synthesize the generic parameter types
     for (let i = 0; i < expectedFunction.forallParameters.length; i++) {
       const expectedForallParam = expectedFunction.forallParameters[i]!;
       const givenForallParam = givenFunction.forallParameters[i]!;
@@ -1093,7 +1093,7 @@ Given: "${typeToString(given.type)}"`
 /**
  * Synthesize the optional effect bundle between two FutureTraitTypes.
  * Each Future carries at most one effect bundle; when both sides have one
- * and their type ids match, recurse into the bundle types so any forall
+ * and their type ids match, recurse into the bundle types so any generic
  * variables they mention get bound.
  */
 function synthesizeFutureEffects(
@@ -1107,8 +1107,8 @@ function synthesizeFutureEffects(
   if (!expectedEffect || !givenEffect) {
     return;
   }
-  // Allow same-id fast-path AND the bind-forall-var case where the
-  // expected effect is a SomeType (forall E from an outer signature)
+  // Allow same-id fast-path AND the bind-generic-var case where the
+  // expected effect is a SomeType (generic E from an outer signature)
   // and the given effect is a concrete struct. The strict id-equality
   // gate previously blocked binding `E := IoExn` when synthesizing
   // `io.async`'s outer return `Impl(Future(T, E))` against the

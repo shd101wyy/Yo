@@ -16,12 +16,14 @@ pragma(Pragma.AllowUnsafe);
 /// Min-heap backed by an ArrayList.
 /// Elements are ordered ascending (smallest first). Negate keys for max-heap behavior.
 PriorityQueue :: (fn(comptime(T) : Type) -> comptime(Type))(
-  object(
-    _data : ArrayList(T)
+  ref(
+    struct(
+      _data : ArrayList(T)
+    )
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   PriorityQueue(T),
   // Create an empty priority queue.
   new : (fn() -> Self)(
@@ -121,11 +123,11 @@ PriorityQueueIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   PriorityQueueIter(T),
   Iterator(
     Item : T,
-    next : (fn(ref(self) : Self) -> Option(T))(
+    next : (fn(inout(self) : Self) -> Option(T))(
       cond(
         (self._index >= self._data.len()) =>.None,
         true => {
@@ -138,7 +140,7 @@ impl(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   PriorityQueue(T),
   into_iter : (fn(self : Self) -> PriorityQueueIter(T))(
     PriorityQueueIter(T)(_data : self._data, _index : usize(0))
@@ -154,18 +156,18 @@ PriorityQueueIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   PriorityQueueIterPtr(T),
   Iterator(
     Item : *(T),
-    next : (fn(ref(self) : Self) -> Option(*(T)))(
+    next : (fn(inout(self) : Self) -> Option(*(T)))(
       cond(
         (self._index >= self._data.len()) =>.None,
         true =>
           match(
             self._data._ptr,
             .Some(ptr) => {
-              element_ptr := (ptr &+ self._index);
+              element_ptr := ptr.add(self._index);
               self._index = (self._index + usize(1));
               .Some(element_ptr)
             },
@@ -176,9 +178,9 @@ impl(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   PriorityQueue(T),
-  iter : (fn(ref(self) : Self) -> PriorityQueueIterPtr(T))(
+  iter : (fn(inout(self) : Self) -> PriorityQueueIterPtr(T))(
     PriorityQueueIterPtr(T)(_data : self._data, _index : usize(0))
   )
 );

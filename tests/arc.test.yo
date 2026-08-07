@@ -1,5 +1,6 @@
 pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
 test("Test basic Arc with primitive type", {
   a := arc(i32(42));
   val := a.*;
@@ -46,7 +47,7 @@ test("Test Arc passed to function", {
   assert(c.*.count == 50);
 });
 test("Test Arc rejects non-Send object type", {
-  Counter :: object(count : i32);
+  Counter :: ref(struct(count : i32));
   comptime_expect_error(Arc(Counter));
   comptime_expect_error(arc(Counter(i32(1))));
 });

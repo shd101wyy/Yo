@@ -85,7 +85,7 @@ evaluate_raw_pointer_call :: (
     is_type_value(arg_info.value) => {
       inner_ty := match(
         arg_info.value,
-        .Some(v) => match(v,.TypeVal(inner) => inner.*, _ => t_i32()),
+        .Some(v) => match(v,.TypeVal(inner) => inner, _ => t_i32()),
         .None => t_i32() // unreachable
       );
       // Phase C structural gate (plans/MEMORY_SAFETY.md): `*(T)` produces a raw
@@ -99,7 +99,7 @@ evaluate_raw_pointer_call :: (
           dyn(
             format_error_message(
               ptok,
-              `Raw pointer types ('*(${type_to_string(inner_ty)})') are not available in safe code.\n\nUse 'Slice(T)' for bounded byte/element views, 'ref(name) : T' parameters for in-place mutation, or wrap the underlying pointer in an 'object' type. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top — but consider whether the unsafe surface really belongs in this module.`,
+              `Raw pointer types ('*(${type_to_string(inner_ty)})') are not available in safe code.\n\nUse 'Slice(T)' for bounded byte/element views, 'inout(name) : T' parameters for in-place mutation, or wrap the underlying pointer in an 'object' type. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top — but consider whether the unsafe surface really belongs in this module.`,
               false,
               .None
             )

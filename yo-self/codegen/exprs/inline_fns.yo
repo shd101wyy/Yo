@@ -1,0 +1,308 @@
+//! Inline builtin-operator emission — mirrors `src/codegen/exprs/inline-fns.ts`.
+//!
+//! Maps a builtin function name + already-generated argument codes to inline C:
+//! arithmetic / comparison / bitwise operators, pointer arithmetic, `str`
+//! intrinsics, casts (`__yo_as`), `MaybeUninit`, array indexing, the RNG syscall
+//! wrappers, and the borrow-flag backstop. `__yo_noop` / the borrow assert emit
+//! a statement (or nothing) and return "". Fresh temp names via random_id.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{
+  AstExpr,
+  BF_YO_OP_ADD,
+  BF_YO_OP_SUB,
+  BF_YO_OP_MUL,
+  BF_YO_OP_DIV,
+  BF_YO_OP_MOD,
+  BF_YO_OP_NEG,
+  BF_YO_OP_EQ,
+  BF_YO_OP_NEQ,
+  BF_YO_OP_LT,
+  BF_YO_OP_LTE,
+  BF_YO_OP_GT,
+  BF_YO_OP_GTE,
+  BF_YO_OP_NOT,
+  BF_YO_OP_BIT_AND,
+  BF_YO_OP_BIT_OR,
+  BF_YO_OP_BIT_XOR,
+  BF_YO_OP_BIT_COMPLEMENT,
+  BF_YO_OP_BIT_LEFT_SHIFT,
+  BF_YO_OP_BIT_RIGHT_SHIFT,
+  BF_YO_NOOP,
+  BF_YO_RETURN_SELF,
+  BF_YO_MS_SLEEP,
+  BF_YO_DECR_RC,
+  BF_YO_BORROW_ASSERT_UNBORROWED,
+  BF_YO_PTR_ADD,
+  BF_YO_PTR_SUB,
+  BF_YO_PTR_DIFF,
+  BF_YO_PTR_EQ,
+  BF_YO_PTR_NEQ,
+  BF_YO_PTR_LT,
+  BF_YO_PTR_LTE,
+  BF_YO_PTR_GT,
+  BF_YO_PTR_GTE,
+  BF_YO_STR_LEN,
+  BF_YO_STR_PTR,
+  BF_YO_STR_BYTE,
+  BF_YO_STR_FROM_RAW_PARTS,
+  BF_YO_GETRANDOM,
+  BF_YO_ARC4RANDOM_BUF,
+  BF_YO_BCRYPT_GEN_RANDOM,
+  BF_YO_GETENTROPY,
+  BF_YO_AS,
+  BF_YO_MAYBE_UNINIT_NEW,
+  BF_YO_MAYBE_UNINIT_AS_PTR,
+  BF_YO_MAYBE_UNINIT_ASSUME_INIT,
+  BF_YO_ARRAY_INDEX
+} :: import("../../expr.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_enum_type } :: import("../../types/guards.yo");
+{ is_target_windows } :: import("../../target.yo");
+{ random_id } :: import("../../utils.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ get_type_string, can_optimize_as_simple_enum } :: import("../utils/index.yo");
+/// Argument code at index `i` (empty if absent).
+_a :: (fn(args : ArrayList(String), i : usize) -> String)(
+  match(args.get(i),.Some(s) => s,.None => String.from(""))
+);
+/// `((a) <op> (b))`.
+_binop :: (fn(args : ArrayList(String), op : str) -> String)({
+  // DEGRADED render when an operand failed to transpile (empty or an FTT
+  // comment — its ExprInfo was dropped by an eval throw inside a discarded
+  // definition, e.g. a dyn'd closure body over an unresolved capture).
+  // `(() + ())` is invalid C and breaks the whole batch ("expected
+  // expression", the fn Dyn-closure test). TS never emits such bodies.
+  lhs := _a(args, usize(0));
+  rhs := _a(args, usize(1));
+  if(((lhs.len() == usize(0)) || (rhs.len() == usize(0))) || (lhs.starts_with("// Failed to transpile") || rhs.starts_with("// Failed to transpile")), {
+    return(`// Failed to transpile (${lhs}) ${op} (${rhs})`);
+  });
+  out := String.from("((");
+  out.push_string(lhs);
+  out.push_str(") ");
+  out.push_str(op);
+  out.push_str(" (");
+  out.push_string(rhs);
+  out.push_str("))");
+  out
+});
+/// `(<op>(a))` — prefix unary.
+_unop :: (fn(args : ArrayList(String), op : str) -> String)({
+  out := String.from("(");
+  out.push_str(op);
+  out.push_str("(");
+  out.push_string(_a(args, usize(0)));
+  out.push_str("))");
+  out
+});
+/// `(a <op> b)` — pointer-style binary (no inner parens, matches TS).
+_ptr_binop :: (fn(args : ArrayList(String), op : str) -> String)({
+  out := String.from("(");
+  out.push_string(_a(args, usize(0)));
+  out.push_str(" ");
+  out.push_str(op);
+  out.push_str(" ");
+  out.push_string(_a(args, usize(1)));
+  out.push_str(")");
+  out
+});
+/// The expr's result type (Unit if it has no ExprInfo — mirrors TS guarding on
+/// `expr.$?.type` for the metadata-aware builtins).
+ei_ty :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> TypeValue)(
+  match(context.base.get_expr_info(expr),.Some(ei) => ei.ty,.None => TypeValue.Unit)
+);
+/// Whether `__yo_as`'s source operand is a tagged (non-simple) enum.
+_as_source_is_tagged_enum :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+  match(expr,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(a0) => match(context.base.get_expr_info(a0),.Some(aei) => (is_enum_type(aei.ty) && !(can_optimize_as_simple_enum(aei.ty))),.None => false),.None => false),.Atom(_, _) => false)
+);
+/// Generate a Yo operator / inline-builtin function call. Mirrors
+/// `generateYoInlineFunctionCall`.
+generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList(String), expr : AstExpr, context : FunctionGenerationContext, indent : String) -> String)(
+  cond(
+    (function_name == BF_YO_OP_ADD) => _binop(args, "+"),
+    (function_name == BF_YO_OP_SUB) => _binop(args, "-"),
+    (function_name == BF_YO_OP_MUL) => _binop(args, "*"),
+    (function_name == BF_YO_OP_DIV) => _binop(args, "/"),
+    (function_name == BF_YO_OP_MOD) => _binop(args, "%"),
+    (function_name == BF_YO_OP_NEG) => _unop(args, "-"),
+    (function_name == BF_YO_OP_EQ) => _binop(args, "=="),
+    (function_name == BF_YO_OP_NEQ) => _binop(args, "!="),
+    (function_name == BF_YO_OP_LT) => _binop(args, "<"),
+    (function_name == BF_YO_OP_LTE) => _binop(args, "<="),
+    (function_name == BF_YO_OP_GT) => _binop(args, ">"),
+    (function_name == BF_YO_OP_GTE) => _binop(args, ">="),
+    (function_name == BF_YO_OP_NOT) => _unop(args, "!"),
+    (function_name == BF_YO_OP_BIT_AND) => _binop(args, "&"),
+    (function_name == BF_YO_OP_BIT_OR) => _binop(args, "|"),
+    (function_name == BF_YO_OP_BIT_XOR) => _binop(args, "^"),
+    (function_name == BF_YO_OP_BIT_COMPLEMENT) => _unop(args, "~"),
+    (function_name == BF_YO_OP_BIT_LEFT_SHIFT) => _binop(args, "<<"),
+    (function_name == BF_YO_OP_BIT_RIGHT_SHIFT) => _binop(args, ">>"),
+    (function_name == BF_YO_NOOP) => String.from(""),
+    (function_name == BF_YO_RETURN_SELF) => {
+      out := String.from("(*");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(")");
+      out
+    },
+    (function_name == BF_YO_BORROW_ASSERT_UNBORROWED) => {
+      line := indent.clone();
+      line.push_str("__yo_borrow_assert_unborrowed((void*)(");
+      line.push_string(_a(args, usize(0)));
+      line.push_str("));");
+      em := context.base.emitter;
+      em.emit_string_line(line);
+      String.from("")
+    },
+    (function_name == BF_YO_MS_SLEEP) => if(is_target_windows(context.base.target_info), {
+      out := String.from("Sleep(");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(")");
+      out
+    }, {
+      out := String.from("usleep((");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(") * 1000)");
+      out
+    }),
+    (function_name == BF_YO_DECR_RC) => {
+      out := String.from("__yo_decr_rc((void*)(");
+      out.push_string(_a(args, usize(0)));
+      out.push_str("))");
+      out
+    },
+    (function_name == BF_YO_AS) => {
+      target_c_type := get_type_string(ei_ty(expr, context), context.base);
+      if(_as_source_is_tagged_enum(expr, context), {
+        out := String.from("((");
+        out.push_string(target_c_type);
+        out.push_str(")((");
+        out.push_string(_a(args, usize(0)));
+        out.push_str(").tag))");
+        out
+      }, {
+        out := String.from("((");
+        out.push_string(target_c_type);
+        out.push_str(")(");
+        out.push_string(_a(args, usize(0)));
+        out.push_str("))");
+        out
+      })
+    },
+    (function_name == BF_YO_PTR_ADD) => _ptr_binop(args, "+"),
+    (function_name == BF_YO_PTR_SUB) => _ptr_binop(args, "-"),
+    (function_name == BF_YO_PTR_DIFF) => _ptr_binop(args, "-"),
+    (function_name == BF_YO_PTR_EQ) => _ptr_binop(args, "=="),
+    (function_name == BF_YO_PTR_NEQ) => _ptr_binop(args, "!="),
+    (function_name == BF_YO_PTR_LT) => _ptr_binop(args, "<"),
+    (function_name == BF_YO_PTR_LTE) => _ptr_binop(args, "<="),
+    (function_name == BF_YO_PTR_GT) => _ptr_binop(args, ">"),
+    (function_name == BF_YO_PTR_GTE) => _ptr_binop(args, ">="),
+    (function_name == BF_YO_STR_LEN) => {
+      out := String.from("(");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(".len)");
+      out
+    },
+    (function_name == BF_YO_STR_PTR) => {
+      out := String.from("((uint8_t*)");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(".ptr)");
+      out
+    },
+    (function_name == BF_YO_STR_BYTE) => {
+      out := String.from("(");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(".ptr[");
+      out.push_string(_a(args, usize(1)));
+      out.push_str("])");
+      out
+    },
+    (function_name == BF_YO_STR_FROM_RAW_PARTS) => {
+      out := String.from("(__yo_str){ .ptr = (const uint8_t*)");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(", .len = ");
+      out.push_string(_a(args, usize(1)));
+      out.push_str(" }");
+      out
+    },
+    (function_name == BF_YO_GETRANDOM) => {
+      out := String.from("getrandom(");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(", ");
+      out.push_string(_a(args, usize(1)));
+      out.push_str(", ");
+      out.push_string(_a(args, usize(2)));
+      out.push_str(")");
+      out
+    },
+    (function_name == BF_YO_ARC4RANDOM_BUF) => {
+      out := String.from("(arc4random_buf(");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(", ");
+      out.push_string(_a(args, usize(1)));
+      out.push_str("), (void)0)");
+      out
+    },
+    (function_name == BF_YO_BCRYPT_GEN_RANDOM) => {
+      out := String.from("(int32_t)BCryptGenRandom(NULL, ");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(", ");
+      out.push_string(_a(args, usize(1)));
+      out.push_str(", BCRYPT_USE_SYSTEM_PREFERRED_RNG)");
+      out
+    },
+    (function_name == BF_YO_GETENTROPY) => {
+      out := String.from("getentropy(");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(", ");
+      out.push_string(_a(args, usize(1)));
+      out.push_str(")");
+      out
+    },
+    (function_name == BF_YO_MAYBE_UNINIT_NEW) => {
+      self_c_type := get_type_string(ei_ty(expr, context), context.base);
+      uninit_var := String.from("__yo_uninit_");
+      uninit_var.push_string(random_id(String.from("")));
+      line := indent.clone();
+      line.push_string(self_c_type);
+      line.push_str(" ");
+      line.push_string(uninit_var.clone());
+      line.push_str(";");
+      em := context.base.emitter;
+      em.emit_string_line(line);
+      uninit_var
+    },
+    (function_name == BF_YO_MAYBE_UNINIT_AS_PTR) => {
+      return_c_type := get_type_string(ei_ty(expr, context), context.base);
+      out := String.from("((");
+      out.push_string(return_c_type);
+      out.push_str(")(");
+      out.push_string(_a(args, usize(0)));
+      out.push_str("))");
+      out
+    },
+    (function_name == BF_YO_MAYBE_UNINIT_ASSUME_INIT) => {
+      out := String.from("(");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(")");
+      out
+    },
+    (function_name == BF_YO_ARRAY_INDEX) => {
+      out := String.from("(&((");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(")->data[");
+      out.push_string(_a(args, usize(1)));
+      out.push_str("]))");
+      out
+    },
+    true => {
+      out := String.from("/* Unhandled operator ");
+      out.push_string(function_name);
+      out.push_str(" */");
+      out
+    }
+  )
+);
+export(generate_yo_inline_function_call);

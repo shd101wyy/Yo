@@ -1,0 +1,26 @@
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+open(import("std/string"));
+
+// Regression: `match(o, .Some(_) => return(f(x.clone())), …)` double-freed the
+// borrowed clone-argument temp — the match-arm begin-block scope-close re-emitted
+// a drop the `return` already handled, an intermittent SIGTRAP-in-malloc.
+// See issues/yo-self-codegen-intermittent-sigtrap.md.
+sink :: (fn(s : String) -> String)(String.from("ok"));
+
+pick :: (fn(o : Option(String), indent : String) -> String)(
+  match(
+    o,
+    .Some(mx) => return(sink(indent.clone())),
+    .None => String.from("none")
+  )
+);
+
+test("return(call(arg.clone())) in a match arm does not double-free", {
+  (i : i32) = 0;
+  while(i < 2000, i = (i + 1), {
+    r := pick(Option(String).Some(String.from("payload")), String.from("  "));
+    assert(r == String.from("ok"));
+  });
+  assert(pick(Option(String).None, String.from("  ")) == String.from("none"));
+});

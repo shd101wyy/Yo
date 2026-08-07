@@ -1,0 +1,23 @@
+//! Regression: storing an Index-trait element into an object field must dup
+//! the element (TS: attachTempVariableToExpr(expr, false) + declare-RHS-then-
+//! dup in assignment codegen). Without the +1 the container's scope-end drop
+//! frees the stored String → body reads empty / SIGTRAP.
+//! See issues/fixed/yo-self-index-deref-store-missing-dup.md.
+open(import("std/string"));
+{ println } :: import("std/fmt");
+
+Resp :: ref(struct(code : i32, body : String));
+
+parse :: (fn(raw : String) -> Resp)({
+  lines := raw.split(`\r\n`);
+  resp := Resp(code : i32(200), body : ``);
+  resp.body = lines(usize(3));
+  resp
+});
+
+main :: (fn() -> unit)({
+  raw := `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello World`;
+  r := parse(raw);
+  println(`body=[${r.body}]`);
+});
+export(main);

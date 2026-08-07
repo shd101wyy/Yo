@@ -36,7 +36,7 @@ path, so there is no counterpart to change (1-to-1 preserved by absence).
 
 This also **unblocks the faithful non-cloning AST traversal** the ref/slice
 flowability cluster needs (`fn(ref(e) : AstExpr)` recursing via `project`), since
-`AstExpr` is an enum — see plans/EVALUATOR_PORT_REVIEW.md.
+`AstExpr` is an enum — see plans/archive/EVALUATOR_PORT_REVIEW.md.
 
 ## Summary
 
@@ -98,7 +98,7 @@ f :: (fn(ref(t) : Tree) -> bool)(
 ## Why it matters here
 
 This blocks building a **non-cloning AST traversal** (the foundational primitive
-the ref/slice-flowability gates need — see plans/EVALUATOR_PORT_REVIEW.md), since
+the ref/slice-flowability gates need — see plans/archive/EVALUATOR_PORT_REVIEW.md), since
 `AstExpr` is an enum and a borrowing traversal would do
 `ref(child) := args.project(i)` on `ArrayList(AstExpr)`. Both failure modes hurt:
 it doesn't compile, and even the intended codegen would `__dup` (clone) per node.

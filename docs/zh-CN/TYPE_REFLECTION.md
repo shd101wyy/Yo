@@ -193,8 +193,8 @@ StructKind :: enum(Struct, Object, AtomicObject, NewType);
 ```
 
 - `Struct` — 普通值类型结构体
-- `Object` — 引用计数对象类型（`object(...)`）
-- `AtomicObject` — 原子引用计数对象类型（`atomic object(...)`）
+- `Object` — 引用计数引用语义类型（`ref(struct(...))`）
+- `AtomicObject` — 原子引用计数引用语义类型（`atomic(ref(struct(...)))`）
 - `NewType` — 单字段包装类型（`newtype(...)`）
 
 ### FunctionInfo

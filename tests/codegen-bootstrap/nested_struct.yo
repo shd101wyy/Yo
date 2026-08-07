@@ -1,0 +1,10 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+Inner :: struct(c : i32);
+Outer :: struct(a : Inner, b : Inner);
+main :: (fn() -> unit)({
+  o := Outer(a : Inner(c : i32(72)), b : Inner(c : i32(73)));
+  unsafe(_x := putchar(int(o.a.c)));
+  unsafe(_y := putchar(int(o.b.c)));
+});
+export(main);

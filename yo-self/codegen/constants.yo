@@ -1,0 +1,172 @@
+//! C codegen constants — mirrors `src/codegen/constants.ts`.
+//!
+//! Two exported predicates drive emitter decisions:
+//!   * `is_builtin_yo_inline_function` — membership in the flat list of
+//!     builtin function names codegen emits INLINE (C operators, pointer ops,
+//!     `str` ops, casts, intrinsics) rather than as ordinary C function calls.
+//!     Mirrors `BuiltinYoInlineFunctions` (a `string[]`).
+//!   * `is_primitive_type_tag` — membership in the set of `TypeTag`s that
+//!     lower to a primitive C scalar. Mirrors `PrimitiveTypeTags`
+//!     (a `Set<TypeTag>`).
+//!
+//! LANGUAGE-FORCED DIVERGENCE: Yo `export(...)` requires compile-time values,
+//! so the runtime-built `string[]` / `Set<TypeTag>` collections cannot be
+//! exported directly. They live as module-level globals (read-only after
+//! init) and are exposed through membership predicates. The TS call sites
+//! (`exprIsFunctionCallOf(expr, BuiltinYoInlineFunctions)`,
+//! `BuiltinYoInlineFunctions.includes(name)`, `PrimitiveTypeTags.has(tag)`)
+//! all reduce to these predicates. Names are stored as `String` to match the
+//! AST token-value type the callers compare against.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
+{ TypeTag } :: import("../types/tags.yo");
+{
+  BF_YO_OP_ADD,
+  BF_YO_OP_SUB,
+  BF_YO_OP_MUL,
+  BF_YO_OP_DIV,
+  BF_YO_OP_MOD,
+  BF_YO_OP_NEG,
+  BF_YO_OP_EQ,
+  BF_YO_OP_NEQ,
+  BF_YO_OP_LT,
+  BF_YO_OP_LTE,
+  BF_YO_OP_GT,
+  BF_YO_OP_GTE,
+  BF_YO_OP_NOT,
+  BF_YO_OP_BIT_AND,
+  BF_YO_OP_BIT_OR,
+  BF_YO_OP_BIT_XOR,
+  BF_YO_OP_BIT_COMPLEMENT,
+  BF_YO_OP_BIT_LEFT_SHIFT,
+  BF_YO_OP_BIT_RIGHT_SHIFT,
+  BF_YO_PTR_ADD,
+  BF_YO_PTR_SUB,
+  BF_YO_PTR_DIFF,
+  BF_YO_PTR_EQ,
+  BF_YO_PTR_NEQ,
+  BF_YO_PTR_LT,
+  BF_YO_PTR_LTE,
+  BF_YO_PTR_GT,
+  BF_YO_PTR_GTE,
+  BF_YO_STR_FROM_RAW_PARTS,
+  BF_YO_STR_LEN,
+  BF_YO_STR_PTR,
+  BF_YO_STR_BYTE,
+  BF_YO_AS,
+  BF_YO_GETRANDOM,
+  BF_YO_ARC4RANDOM_BUF,
+  BF_YO_BCRYPT_GEN_RANDOM,
+  BF_YO_GETENTROPY,
+  BF_YO_MAYBE_UNINIT_NEW,
+  BF_YO_MAYBE_UNINIT_AS_PTR,
+  BF_YO_MAYBE_UNINIT_ASSUME_INIT,
+  BF_YO_ARRAY_INDEX,
+  BF_YO_NOOP,
+  BF_YO_RETURN_SELF,
+  BF_YO_BORROW_ASSERT_UNBORROWED,
+  BF_YO_MS_SLEEP
+} :: import("../expr.yo");
+/// Mirrors `BuiltinYoInlineFunctions` in `src/codegen/constants.ts`.
+_build_builtin_yo_inline_functions :: (fn() -> ArrayList(String))({
+  fns := ArrayList(String).new();
+  // Arithemtic
+  _r0 := fns.push(String.from(BF_YO_OP_ADD)); // +
+  _r1 := fns.push(String.from(BF_YO_OP_SUB)); // -
+  _r2 := fns.push(String.from(BF_YO_OP_MUL)); // *
+  _r3 := fns.push(String.from(BF_YO_OP_DIV)); // /
+  _r4 := fns.push(String.from(BF_YO_OP_MOD)); // %
+  _r5 := fns.push(String.from(BF_YO_OP_NEG)); // -
+  // Relational
+  _r6 := fns.push(String.from(BF_YO_OP_EQ)); // ==
+  _r7 := fns.push(String.from(BF_YO_OP_NEQ)); // !=
+  _r8 := fns.push(String.from(BF_YO_OP_LT)); // <
+  _r9 := fns.push(String.from(BF_YO_OP_LTE)); // <=
+  _r10 := fns.push(String.from(BF_YO_OP_GT)); // >
+  _r11 := fns.push(String.from(BF_YO_OP_GTE)); // >=
+  // Logical
+  _r12 := fns.push(String.from(BF_YO_OP_NOT)); // !
+  // Bitwise
+  _r13 := fns.push(String.from(BF_YO_OP_BIT_AND)); // &
+  _r14 := fns.push(String.from(BF_YO_OP_BIT_OR)); // |
+  _r15 := fns.push(String.from(BF_YO_OP_BIT_XOR)); // ^
+  _r16 := fns.push(String.from(BF_YO_OP_BIT_COMPLEMENT)); // ~
+  _r17 := fns.push(String.from(BF_YO_OP_BIT_LEFT_SHIFT)); // <<
+  _r18 := fns.push(String.from(BF_YO_OP_BIT_RIGHT_SHIFT)); // >>
+  // Pointer operations
+  _r19 := fns.push(String.from(BF_YO_PTR_ADD)); // __yo_ptr_add
+  _r20 := fns.push(String.from(BF_YO_PTR_SUB)); // __yo_ptr_sub
+  _r21 := fns.push(String.from(BF_YO_PTR_DIFF)); // __yo_ptr_diff
+  _r22 := fns.push(String.from(BF_YO_PTR_EQ)); // __yo_ptr_eq
+  _r23 := fns.push(String.from(BF_YO_PTR_NEQ)); // __yo_ptr_neq
+  _r24 := fns.push(String.from(BF_YO_PTR_LT)); // __yo_ptr_lt
+  _r25 := fns.push(String.from(BF_YO_PTR_LTE)); // __yo_ptr_lte
+  _r26 := fns.push(String.from(BF_YO_PTR_GT)); // __yo_ptr_gt
+  _r27 := fns.push(String.from(BF_YO_PTR_GTE)); // __yo_ptr_gte
+  // Slice operations
+  _r28 := fns.push(String.from(BF_YO_STR_FROM_RAW_PARTS)); // __yo_str_from_raw_parts
+  _r29 := fns.push(String.from(BF_YO_STR_LEN)); // __yo_str_len
+  _r30 := fns.push(String.from(BF_YO_STR_PTR)); // __yo_str_ptr
+  _r31 := fns.push(String.from(BF_YO_STR_BYTE)); // __yo_str_byte
+  // Type casting
+  _r32 := fns.push(String.from(BF_YO_AS)); // __yo_as (generic primitive type cast)
+  // Crypto random
+  _r33 := fns.push(String.from(BF_YO_GETRANDOM));
+  _r34 := fns.push(String.from(BF_YO_ARC4RANDOM_BUF));
+  _r35 := fns.push(String.from(BF_YO_BCRYPT_GEN_RANDOM));
+  _r36 := fns.push(String.from(BF_YO_GETENTROPY));
+  // MaybeUninit
+  _r37 := fns.push(String.from(BF_YO_MAYBE_UNINIT_NEW));
+  _r38 := fns.push(String.from(BF_YO_MAYBE_UNINIT_AS_PTR));
+  _r39 := fns.push(String.from(BF_YO_MAYBE_UNINIT_ASSUME_INIT));
+  // Array indexing
+  _r40 := fns.push(String.from(BF_YO_ARRAY_INDEX));
+  // Others
+  _r41 := fns.push(String.from(BF_YO_NOOP)); // __yo_noop
+  _r42 := fns.push(String.from(BF_YO_RETURN_SELF)); // __yo_return_self
+  _r43 := fns.push(String.from(BF_YO_BORROW_ASSERT_UNBORROWED)); // __yo_borrow_assert_unborrowed
+  _r44 := fns.push(String.from(BF_YO_MS_SLEEP)); // __yo_ms_sleep
+  fns
+});
+BuiltinYoInlineFunctions := _build_builtin_yo_inline_functions();
+/// Mirrors `PrimitiveTypeTags` in `src/codegen/constants.ts`.
+_build_primitive_type_tags :: (fn() -> HashSet(TypeTag))({
+  tags := HashSet(TypeTag).new();
+  _a0 := tags.add(TypeTag.TBool);
+  _a1 := tags.add(TypeTag.TUsize);
+  _a2 := tags.add(TypeTag.TIsize);
+  _a3 := tags.add(TypeTag.TU8);
+  _a4 := tags.add(TypeTag.TI8);
+  _a5 := tags.add(TypeTag.TU16);
+  _a6 := tags.add(TypeTag.TI16);
+  _a7 := tags.add(TypeTag.TU32);
+  _a8 := tags.add(TypeTag.TI32);
+  _a9 := tags.add(TypeTag.TU64);
+  _a10 := tags.add(TypeTag.TI64);
+  _a11 := tags.add(TypeTag.TF32);
+  _a12 := tags.add(TypeTag.TF64);
+  _a13 := tags.add(TypeTag.TCChar);
+  _a14 := tags.add(TypeTag.TCShort);
+  _a15 := tags.add(TypeTag.TCUShort);
+  _a16 := tags.add(TypeTag.TCInt);
+  _a17 := tags.add(TypeTag.TCUInt);
+  _a18 := tags.add(TypeTag.TCLong);
+  _a19 := tags.add(TypeTag.TCULong);
+  _a20 := tags.add(TypeTag.TCLongLong);
+  _a21 := tags.add(TypeTag.TCULongLong);
+  _a22 := tags.add(TypeTag.TCLongDouble);
+  tags
+});
+PrimitiveTypeTags := _build_primitive_type_tags();
+/// True if `name` is a builtin function that codegen emits inline.
+/// Mirrors `BuiltinYoInlineFunctions.includes(name)`.
+is_builtin_yo_inline_function :: (fn(name : String) -> bool)(
+  BuiltinYoInlineFunctions.contains(name)
+);
+/// True if `t` lowers to a primitive C scalar.
+/// Mirrors `PrimitiveTypeTags.has(t)`.
+is_primitive_type_tag :: (fn(t : TypeTag) -> bool)(
+  PrimitiveTypeTags.contains(t)
+);
+export(is_builtin_yo_inline_function, is_primitive_type_tag);

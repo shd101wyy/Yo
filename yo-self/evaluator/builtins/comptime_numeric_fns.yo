@@ -27,9 +27,13 @@ open(import("std/string"));
 {
   is_unsigned_integer_type,
   is_c_compatible_type,
-  is_float_type
+  is_float_type,
+  is_comptime_float_type
 } :: import("../../types/guards.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, ErrorKind } :: import("../../error.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ IntRange, get_integer_type_range, get_integer_type_bits } :: import("../../types/utils.yo");
+{ Token } :: import("../../token.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { parse_raw_int, parse_raw_float } :: import("../utils.yo");
 { Exception } :: import("std/error");
@@ -130,6 +134,126 @@ make_int_val :: (fn(n : i64, ty : TypeValue) -> EvalValue)(
   )
 );
 // ---------------------------------------------------------------------------
+// _i64_op_wrapped: `true` when the i64 arithmetic for `a <op> b` itself wrapped,
+// so the EXACT mathematical result is not representable in the i64 the
+// bootstrap uses for comptime integers. TS computes with BigInt and never
+// wraps (comptime-numeric-fns.ts:556-660), so the wrap has to be detected
+// explicitly before the range comparison — otherwise `i64(1000000000000) *
+// i64(250000000000)` (exact result 2.5e23) folds to a wrapped in-range value
+// and the overflow goes unreported.
+// ---------------------------------------------------------------------------
+_i64_op_wrapped :: (fn(a : i64, b : i64, op_s : String) -> bool)(
+  cond(
+    (op_s == "add") => cond(
+      (b > i64(0)) => (a > (i64.MAX - b)),
+      (b < i64(0)) => (a < (i64.MIN - b)),
+      true => false
+    ),
+    (op_s == "sub") => cond(
+      (b < i64(0)) => (a > (i64.MAX + b)),
+      (b > i64(0)) => (a < (i64.MIN + b)),
+      true => false
+    ),
+    (a == i64(0)) => false,
+    true => (((a * b) / a) != b)
+  )
+);
+// ---------------------------------------------------------------------------
+// check_int_overflow: reject an add/sub/mul whose result leaves `ty`'s range.
+// Mirrors `checkOverflow` (`src/evaluator/builtins/comptime-numeric-fns.ts:131`),
+// called by TS before every comptime integer add/sub/mul (:564/:600/:636).
+// Types with no integer range — floats and the unbounded `comptime_int` — are
+// skipped, exactly as TS returns early for `bounds === undefined` and for
+// `±Infinity` bounds. Without this check yo-self silently CLAMPED via
+// `apply_bounds`, so `prod :: (i8(50) * i8(25))` was accepted and every
+// `comptime_expect_error(...)` wrapped around an overflowing operation failed
+// with "Expected compile error, but the expression was evaluated successfully"
+// (tests/comptime.test.yo arms 2-5 / 8-11).
+// ---------------------------------------------------------------------------
+check_int_overflow :: (
+  fn(
+    value : i64,
+    ty : TypeValue,
+    op_s : String,
+    a : i64,
+    b : i64,
+    token : Token,
+    exn : Exception
+  ) -> unit
+)({
+  rng := match(
+    get_integer_type_range(ty),
+    .Some(r) => r,
+    .None => {
+      return(());
+    }
+  );
+  // u64 / usize: yo-self carries comptime integers as i64, so every value above
+  // i64::MAX is a NEGATIVE i64 BIT PATTERN (`usize.MAX`, hash constants). Both
+  // signed tests below are meaningless there — `u64(9223372036854775807) +
+  // u64(1000)` is a valid u64 result that signed-wraps, and `usize.MAX` reads
+  // as `-1 < min` — so redo the test in the UNSIGNED domain on the patterns.
+  // TS needs no such split: its comptime integers are BigInt, so
+  // `checkOverflow` compares exact values (comptime-numeric-fns.ts:131).
+  is_unsigned_64 := (is_unsigned_integer_type(ty) && match(get_integer_type_bits(ty),.Some(bw) => (bw == u32(64)),.None => false));
+  if(is_unsigned_64, {
+    ua := u64(a);
+    ub := u64(b);
+    uv := u64(value);
+    u_over := cond(
+      (op_s == "add") => (uv < ua),
+      (op_s == "sub") => (ua < ub),
+      (ua == u64(0)) => false,
+      true => ((uv / ua) != ub)
+    );
+    if(u_over, {
+      u_symbol := cond(
+        (op_s == "mul") => String.from("*"),
+        (op_s == "add") => String.from("+"),
+        true => String.from("-")
+      );
+      exn.throw(
+        dyn(
+          format_error_message(
+            token,
+            `Integer overflow in compile-time evaluation
+  ${ua.to_string()} ${u_symbol} ${ub.to_string()} = ${uv.to_string()}
+  Result ${uv.to_string()} exceeds ${type_to_string(ty)} range [0, ${rng.max.to_string()}]`,
+            false,
+            Option(ErrorKind).Some(ErrorKind.Overflow)
+          )
+        )
+      );
+    });
+    return(());
+  });
+  out_of_range := cond(
+    _i64_op_wrapped(a, b, op_s.clone()) => true,
+    (value < rng.min) => true,
+    (value >= i64(0)) => (u64(value) > rng.max),
+    true => false
+  );
+  if(out_of_range, {
+    op_symbol := cond(
+      (op_s == "mul") => String.from("*"),
+      (op_s == "add") => String.from("+"),
+      true => String.from("-")
+    );
+    exn.throw(
+      dyn(
+        format_error_message(
+          token,
+          `Integer overflow in compile-time evaluation
+  ${a.to_string()} ${op_symbol} ${b.to_string()} = ${value.to_string()}
+  Result ${value.to_string()} exceeds ${type_to_string(ty)} range [${rng.min.to_string()}, ${rng.max.to_string()}]`,
+          false,
+          Option(ErrorKind).Some(ErrorKind.Overflow)
+        )
+      )
+    );
+  });
+});
+// ---------------------------------------------------------------------------
 // make_float_val: create FloatLit, or UnknownVal for C-compatible types.
 // ---------------------------------------------------------------------------
 make_float_val :: (fn(v : f64, ty : TypeValue) -> EvalValue)(
@@ -184,7 +308,7 @@ evaluate_yo_comptime_numeric_functions :: (
   fn_name := match(
     expr,
     .FnCall(_, func_box, _, _, _) => match(
-      func_box.*,
+      func_box,
       .Atom(_, ftok) => ftok.value,
       _ => String.new()
     ),
@@ -295,7 +419,13 @@ evaluate_yo_comptime_numeric_functions :: (
           result_val = match(
             lhs_val,
             .Some(av) => cond(
-              (is_float_type(numeric_type)) => match(
+              // `__yo_comptime_float_neg` carries numeric_type = ComptimeFloat,
+              // which `is_float_type` (.Float only) misses — the FloatLit arg
+              // then fell into the integer branch's `_ =>` and produced an
+              // UNKNOWN (runtime) value, so `X :: f64(-(50.75))` was rejected
+              // with "Got runtime value". TS's performUnaryOp branches on the
+              // VALUE, not the type (comptime-numeric-fns.ts:425-436).
+              (is_float_type(numeric_type) || is_comptime_float_type(numeric_type)) => match(
                 av,
                 .FloatLit(raw) => match(
                   parse_raw_float(raw),
@@ -385,7 +515,11 @@ evaluate_yo_comptime_numeric_functions :: (
     (cur_env : Environment) = rhs_info.env;
     (result_val : EvalValue) = EvalValue.UnitVal;
     (result_ty : TypeValue) = numeric_type;
-    if(is_float_type(numeric_type), {
+    // ComptimeFloat must take the float path too — same `is_float_type`
+    // gap as the unary-neg note above: every `__yo_comptime_float_*`
+    // binary op otherwise fell into the integer branch and yielded
+    // unknowns ("Got runtime value" on `X :: (a + b)` comptime floats).
+    if(is_float_type(numeric_type) || is_comptime_float_type(numeric_type), {
       // ---- Float binary path. --------------------------------------------
       lhs_f := match(
         lhs_val,
@@ -527,6 +661,10 @@ evaluate_yo_comptime_numeric_functions :: (
                   (op_s == "sub") => (a - b),
                   true => (a * b)
                 );
+                // TS checks the EXACT result against the type's range before
+                // building the value (comptime-numeric-fns.ts:564/:600/:636);
+                // `make_int_val` below only CLAMPS.
+                check_int_overflow(n_result, numeric_type, op_s.clone(), a, b, ast_expr_token(expr), exn);
                 result_val = make_int_val(n_result, numeric_type);
               },
               .None => {

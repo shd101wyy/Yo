@@ -10,8 +10,44 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("./definitions.yo");
-{ type_value_tag } :: import("./creators.yo");
+{ type_value_tag, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
+// ---------------------------------------------------------------------------
+// Extern opaque-Type registry. `extern("Yo", X : Type)` declares an opaque type
+// whose value is a SomeT PLACEHOLDER (e.g. `__yo_thread_t`); codegen emits a
+// concrete C type for it, so it is NOT a codegen-blocking generic. TS marks
+// these via `SomeType.isExtern` (src/types/utils.ts:10); yo-self's SomeT has no
+// such field, so the extern declaration records the type NAME here (extern.yo)
+// and the codegen-generic checks (type_contains_some_type_for_codegen_param)
+// exclude a SomeT whose name is registered. Empty during pure evaluation.
+// ---------------------------------------------------------------------------
+(g_extern_type_names : HashSet(String)) = HashSet(String).new();
+register_extern_type_name :: (fn(name : String) -> unit)({
+  if(name.len() > usize(0), {
+    _r := g_extern_type_names.add(name);
+  });
+  ()
+});
+is_extern_type_name :: (fn(name : String) -> bool)(g_extern_type_names.contains(name));
+// ---------------------------------------------------------------------------
+// Resolved-concrete bridge indirection (mirrors TS reading
+// `someType.resolvedConcreteType`). guards.yo is low-level and cannot import
+// expr_info.yo's `lookup_some_resolved_concrete` (would cycle), so the lookup is
+// injected at codegen init via `set_lookup_some_resolved_concrete` — the same
+// indirection pattern as `set_collect_type_fn` in codegen/functions/collection.yo.
+// When unset (e.g. during evaluation, before codegen) it reports "no concrete",
+// preserving prior behavior.
+// ---------------------------------------------------------------------------
+LookupSomeResolvedConcreteFn :: (fn(some_id : String) -> Option(TypeValue));
+(g_lookup_some_resolved_concrete : Option(LookupSomeResolvedConcreteFn)) = Option(LookupSomeResolvedConcreteFn).None;
+set_lookup_some_resolved_concrete :: (fn(f : LookupSomeResolvedConcreteFn) -> unit)({
+  g_lookup_some_resolved_concrete = Option(LookupSomeResolvedConcreteFn).Some(f);
+  ()
+});
+_some_param_has_resolved_concrete :: (fn(some_id : String) -> bool)(
+  match(g_lookup_some_resolved_concrete,.Some(f) => f(some_id).is_some(),.None => false)
+);
 // ---------------------------------------------------------------------------
 // Variant-shape predicates — were in `type.yo` before Phase A.3.2; relocated
 // here to mirror `src/types/guards.ts`. These are one-line wrappers around a
@@ -79,7 +115,7 @@ is_struct_type :: (fn(t : TypeValue) -> bool)(
   match(t,.Struct({ is_source_namespace : sns }) => !(sns), _ => false)
 );
 is_enum_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.EnumT(_, _, _, _, _, _, _) => true, _ => false)
+  match(t,.EnumT(_, _, _, _, _, _, _, _, _) => true, _ => false)
 );
 is_unit_type :: (fn(t : TypeValue) -> bool)(
   match(t,.Unit => true, _ => false)
@@ -127,7 +163,7 @@ is_comptime_list_type :: (fn(t : TypeValue) -> bool)(
 is_expr_list_type :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .ComptimeListT(child) => match(child.*,.ExprT => true, _ => false),
+    .ComptimeListT(child) => match(child,.ExprT => true, _ => false),
     _ => false
   )
 );
@@ -179,17 +215,35 @@ is_tuple_type :: (fn(t : TypeValue) -> bool)(
 is_union_type :: (fn(t : TypeValue) -> bool)(
   match(t,.Union(_, _, _) => true, _ => false)
 );
-is_object_type :: (fn(t : TypeValue) -> bool)(
+/// Reference-semantics struct: `ref(struct(...))`. Mirrors
+/// `isReferenceStructType` in `src/types/guards.ts`.
+is_reference_struct_type :: (fn(t : TypeValue) -> bool)(
   match(t,.Struct({ is_reference_semantics : is_ref }) => is_ref, _ => false)
 );
-// Phase 2b : Type.Struct needs `isAtomicRc` flag.
-// Mirrors `isAtomicObjectType` in `src/types/guards.ts`, which requires
-// BOTH `is_reference_semantics` AND `is_atomic_rc`. A value-semantics
-// struct with `is_atomic_rc = true` is malformed but should not pass.
-is_atomic_object_type :: (fn(t : TypeValue) -> bool)(
+// Atomic reference-semantics struct: `atomic(ref(struct(...)))`.
+// Mirrors `isAtomicReferenceStructType` in `src/types/guards.ts`, which
+// requires BOTH `is_reference_semantics` AND `is_atomic_rc`. A
+// value-semantics struct with `is_atomic_rc = true` is malformed but should
+// not pass.
+is_atomic_reference_struct_type :: (fn(t : TypeValue) -> bool)(
   match(
     t,
     .Struct({ is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) =>
+      (is_ref && is_atomic),
+    _ => false
+  )
+);
+/// Reference-semantics enum: `ref(enum(...))`. Mirrors
+/// `isReferenceEnumType` in `src/types/guards.ts`.
+is_reference_enum_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.EnumT({ is_reference_semantics : is_ref }) => is_ref, _ => false)
+);
+/// Atomic reference-semantics enum: `atomic(ref(enum(...)))`. Mirrors
+/// `isAtomicReferenceEnumType` in `src/types/guards.ts`.
+is_atomic_reference_enum_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .EnumT({ is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) =>
       (is_ref && is_atomic),
     _ => false
   )
@@ -229,7 +283,7 @@ is_fn_trait_type :: (fn(t : TypeValue) -> bool)(
 is_function_type_and_is_type_function :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Func({ result : r }) => match(r.*,.TypeUni(_) => true, _ => false),
+    .Func({ result : r }) => match(r,.TypeUni(_) => true, _ => false),
     _ => false
   )
 );
@@ -264,7 +318,12 @@ is_comptime_only_type_simple :: (fn(t : TypeValue) -> bool)(
 is_function_type_and_returns_comptime_value :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Func({ result : r }) => is_comptime_only_type_simple(r.*),
+    // TS reads the RETURN SPEC FLAG (`functionType.return.isCompileTimeOnly`),
+    // not a property of the result type: `-> comptime(unit)` has a plain unit
+    // result type with the comptime-ness carried in the meta flag. The
+    // type-based test alone made every "runtime binding in a comptime-only
+    // fn body" gate silently never fire (tests/fn.test.yo).
+    .Func({ result : r, meta : __gm }) => (__gm.*.result_is_comptime_only || is_comptime_only_type_simple(r)),
     _ => false
   )
 );
@@ -355,12 +414,19 @@ is_void_type :: (fn(t : TypeValue) -> bool)(
 is_future_trait_type :: (fn(t : TypeValue) -> bool)(
   match(t,.FutureTraitT(base_name : _) => true, _ => false)
 );
-// Phase 2b: TraitT needs `isConcrete` flag.
-is_concrete_trait_type :: (fn(t : TypeValue) -> bool)(false);
+/// `true` when `t` is a `Concrete(T)` trait type (its `is_concrete` marker is
+/// `.Some`). Mirrors TS `isConcreteTraitType` (`isTraitType(t) && t.isConcrete
+/// !== undefined`). The `TraitT` variant carries `is_concrete :
+/// Option(Box(Self))`; this was a `=> false` stub until the async-Future type
+/// plumbing (Phase 5) needed it (`is_io_future_type`).
+is_concrete_trait_type :: (fn(t : TypeValue) -> bool)(
+  match(t,.TraitT({ is_concrete }) => is_concrete.is_some(), _ => false)
+);
 /// Return `true` if `t` itself is an RC-managed type (not recursively).
 ///
 /// An RC type is:
-///   - An `object(...)` struct (`is_reference_semantics = true`)
+///   - A `ref(struct(...))` struct (`is_reference_semantics = true`)
+///   - A `ref(enum(...))` enum (`is_reference_semantics = true`)
 ///   - A `DynT` trait-object (always heap-allocated)
 ///   - An `IsoT` (atomic reference-counted)
 ///   - A `SomeT` that has a Future trait constraint (Futures are always RC)
@@ -369,7 +435,25 @@ is_concrete_trait_type :: (fn(t : TypeValue) -> bool)(false);
 is_rc_type :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Struct({ is_reference_semantics : is_ref }) => is_ref,
+    // Resolve a leaked recursive SELF-SHELL before reading the flag: shells
+    // lose `is_reference_semantics`, so a shell of a ref(enum)/ref(struct)
+    // (e.g. EvalValue during its own definition) read as NON-RC here — the
+    // dup-on-store predicate then skipped the element retain when
+    // specializing ArrayList(EvalValue).push, producing a push that stores
+    // WITHOUT +1 (the stage-2 t1.yo rc=138 UAF: impl method registry read a
+    // method value freed by the pusher's scope-end drop). Same shell-resolve
+    // pattern as type_key / eval-match (yo-self-recursive-enum-self-shell).
+    .Struct({ is_reference_semantics : is_ref }) => match(
+      resolve_struct_shell(t),
+      .Struct({ is_reference_semantics : r_res }) => r_res,
+      _ => is_ref
+    ),
+    // Reference-semantics enums (`ref(enum(…))`) are RC-managed like objects.
+    .EnumT({ is_reference_semantics : is_ref }) => match(
+      resolve_enum_shell(t),
+      .EnumT({ is_reference_semantics : r_res }) => r_res,
+      _ => is_ref
+    ),
     .DynT(required_trait_types : _) => true,
     .IsoT(_) => true,
     .SomeT(required_trait_types : req_traits) => {
@@ -414,18 +498,46 @@ is_c_compatible_type :: (fn(t : TypeValue) -> bool)(
 // ---------------------------------------------------------------------------
 /// Check if a function type has generic parameters requiring specialization.
 ///
-/// Partial Phase 2a implementation: detects forall parameters and implicit
+/// Partial Phase 2a implementation: detects generic parameters and implicit
 /// (using/effect) parameters from the TypeValue.Func variant fields.
 ///
 /// Phase 2b: extend to also check per-parameter `isCompileTimeOnly` flags,
 /// variadic `isQuote` flags, and non-Future SomeType parameters.
+/// Structural port of TS `typeImplementsFuture` for the SomeType-parameter
+/// exemption in BOTH generic guards (guards.ts:474 and :510): true iff the
+/// SomeT's required traits contain a `FutureTraitT`. A future-typed parameter
+/// (`task : Impl(Future(T, E))`) is NOT generic for codegen — it lowers to the
+/// generic future-trait struct pointer, and the call site casts the concrete
+/// state-machine future to it. Kept local so this foundational module does not
+/// import the evaluator's trait_checking.
+_some_type_implements_future :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .SomeT({ required_trait_types : sf_rtts }) => {
+      (sf_found : bool) = false;
+      (sf_i : usize) = usize(0);
+      while((sf_i < sf_rtts.len()) && !(sf_found), {
+        match(
+          sf_rtts.get(sf_i),
+          .Some(sf_rt) => if(is_future_trait_type(sf_rt), {
+            sf_found = true;
+          }),
+          .None => ()
+        );
+        sf_i = (sf_i + usize(1));
+      });
+      sf_found
+    },
+    _ => false
+  )
+);
 is_function_type_generic :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Func({ forall_labels : fl, implicit_labels : il, param_types : pts }) =>
+    .Func({ param_types : pts, meta : __fm1 }) =>
       cond(
-        (fl.len() > usize(0)) => true,
-        (il.len() > usize(0)) => true,
+        (__fm1.*.forall_labels.len() > usize(0)) => true,
+        (__fm1.*.implicit_labels.len() > usize(0)) => true,
         // Partial: check if any param is SomeT (Phase 2b: exclude Future SomeType)
         true => {
           found := false;
@@ -436,9 +548,11 @@ is_function_type_generic :: (fn(t : TypeValue) -> bool)(
               pts.get(i),
               .Some(pt) => match(
                 pt,
-                .SomeT(name : _) => {
+                // Future-implementing SomeT params are exempt — mirrors TS
+                // `!typeImplementsFuture(p.type)` (guards.ts:474).
+                .SomeT(name : _) => if(!(_some_type_implements_future(pt)), {
                   found = true;
-                },
+                }),
                 _ => ()
               ),
               .None => ()
@@ -457,7 +571,7 @@ is_function_type_generic :: (fn(t : TypeValue) -> bool)(
 /// Check if a function type has "hard" generic parameters that make the
 /// unspecialized form invalid for C codegen.
 ///
-/// Partial Phase 2a implementation: detects forall parameters and SomeType
+/// Partial Phase 2a implementation: detects generic parameters and SomeType
 /// parameters without a resolved concrete type.
 ///
 /// Phase 2b: extend to check per-parameter `isCompileTimeOnly` flags and
@@ -465,10 +579,13 @@ is_function_type_generic :: (fn(t : TypeValue) -> bool)(
 is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Func({ forall_labels : fl, param_types : pts }) =>
+    .Func({ param_types : pts, meta : __fm2 }) =>
       cond(
-        (fl.len() > usize(0)) => true,
-        // Partial: check if any param is SomeT (Phase 2b: exclude resolved SomeType)
+        (__fm2.*.forall_labels.len() > usize(0)) => true,
+        // A SomeType param makes the unspecialized form hard-generic — UNLESS it
+        // has a resolved concrete type, in which case codegen can lower it via the
+        // concrete (e.g. a closure-typed param `cb : Impl(Fn(...))` resolved to its
+        // capture struct). Mirrors TS guards.ts:490 (`!p.type.resolvedConcreteType`).
         true => {
           found := false;
           i := usize(0);
@@ -478,9 +595,32 @@ is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
               pts.get(i),
               .Some(pt) => match(
                 pt,
-                .SomeT(name : _) => {
+                .SomeT(id : sid, name : _) => {
+                  // Future-implementing SomeT params are exempt — mirrors TS
+                  // `!typeImplementsFuture(p.type)` (guards.ts:510): they
+                  // lower to the future-trait struct pointer, so the
+                  // unspecialized form IS valid C.
+                  if(!(_some_type_implements_future(pt)) && !(_some_param_has_resolved_concrete(sid)), {
+                    found = true;
+                  });
+                },
+                // A `comptime(K) : Type` param (the type UNIVERSE) can never
+                // be a runtime C parameter — the prototype renders
+                // `// Unknown type: Type K` ("invalid storage class
+                // specifier", the imm_map/imm_set family). Same
+                // classification as TS guards.ts:466 hasCompileTimeParams.
+                .TypeUni(_) => {
                   found = true;
                 },
+                // An Array with an UNRESOLVED length variable
+                // (`Array(i32, n)` — value-generic length) has no valid C
+                // rendering either: the prototype printed
+                // `// Unknown type: Array(i32, n)` and ate the line
+                // (array.test batch clang errors). Same classification as
+                // TS guards.ts hasCompileTimeParams reaching the length.
+                .Array(_, _, hg_lvar) => if(hg_lvar.len() > usize(0), {
+                  found = true;
+                }),
                 _ => ()
               ),
               .None => ()
@@ -501,8 +641,21 @@ is_function_specializable :: (fn(t : TypeValue) -> bool)(false);
 // ---------------------------------------------------------------------------
 // Box / effects-row guards
 // ---------------------------------------------------------------------------
-// Phase 2b: requires `isReferenceSemantics` and single-field struct check.
-is_boxed_type :: (fn(t : TypeValue) -> bool)(false);
+// Mirrors `isBoxedType` (src/types/guards.ts:529): a reference-semantics
+// struct with exactly one field labeled `*` whose typeName starts with
+// "Box(" — i.e. the prelude `Box(T)` wrapper.
+is_boxed_type :: (fn(t : TypeValue) -> bool)(
+  if(
+    !(is_reference_struct_type(t)),
+    false,
+    match(
+      t,
+      .Struct({ name, field_labels }) =>
+        (((field_labels.len() == usize(1)) && match(field_labels.get(usize(0)),.Some(l) => (l == "*"),.None => false)) && name.starts_with("Box(")),
+      _ => false
+    )
+  )
+);
 is_effects_row_type :: (fn(t : TypeValue) -> bool)(
   match(t,.EffectsRowT(implicit_labels : _) => true, _ => false)
 );
@@ -548,8 +701,10 @@ export(
   // Compound type guards
   is_tuple_type,
   is_union_type,
-  is_object_type,
-  is_atomic_object_type,
+  is_reference_struct_type,
+  is_atomic_reference_struct_type,
+  is_reference_enum_type,
+  is_atomic_reference_enum_type,
   is_newtype_type,
   is_str_type,
   is_box_type,
@@ -587,6 +742,9 @@ export(
   // Function genericity guards
   is_function_type_generic,
   is_function_type_hard_generic,
+  set_lookup_some_resolved_concrete,
+  register_extern_type_name,
+  is_extern_type_name,
   is_function_specializable,
   // Box / effects-row guards
   is_boxed_type,

@@ -1,3 +1,4 @@
+{ assert } :: import("std/assert");
 // Tests for forward references between methods in a single impl block.
 // Tracking issue: forward-fn-ref-in-toplevel-holder.md
 // Bootstrapping prerequisite: parser needs mutually recursive methods.
@@ -50,7 +51,7 @@ test("mutual recursion in single impl", {
 //
 // The parser case: methods carry `exn : Exception` and forward-call
 // each other.
-MyErr :: object(msg : String);
+MyErr :: ref(struct(msg : String));
 impl(MyErr, ToString(to_string : ((self) -> `my err`)));
 impl(MyErr, Error());
 R :: struct(v : i32);
@@ -86,7 +87,7 @@ test("forward call with effect params", {
 // from `odd` back to `even` short-circuit instead of re-specializing
 // infinitely.
 // See issues/mutual-recursion-impl-method-specialization-overflow.md.
-S :: object(tag : i32);
+S :: ref(struct(tag : i32));
 impl(
   S,
   s_even : (fn(self : *(Self), i : i32, exn : Exception) -> bool)(
@@ -128,7 +129,7 @@ test("mutual recursion with effect params (specialization-cycle)", {
 // Reproduces with multiple methods in one impl, an RC-typed return, and
 // multiple call sites (so the orphan and shell are both reachable from the
 // codegen walk).
-QQ :: object(data : Box(i32));
+QQ :: ref(struct(data : Box(i32)));
 impl(
   QQ,
   new : (fn(val : i32) -> Self)(

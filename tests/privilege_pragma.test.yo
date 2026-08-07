@@ -1,4 +1,5 @@
 pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
 /// Positive end-to-end coverage for the `pragma(Pragma.AllowUnsafe);`
 /// privilege gate (Phase C of plans/MEMORY_SAFETY.md).
 ///
@@ -36,8 +37,8 @@ test("AllowUnsafe + unsafe(pointer arith) walks an array", {
     // prove pointer arithmetic walks element-by-element.
     ptr := unsafe(&(arr(count)));
     if(count > usize(0), {
-      base := unsafe(ptr &- count);
-      via_arith := unsafe(base &+ count);
+      base := unsafe(ptr.sub(count));
+      via_arith := unsafe(base.add(count));
       assert(unsafe(via_arith.*) == unsafe(ptr.*), "&+ and &- round-trip to the same element");
     });
     sum = (sum + unsafe(ptr.*));
@@ -61,7 +62,7 @@ test("AllowUnsafe + unsafe(...) is transparent inside a begin-block", {
 // can manually declare Acyclic when it audit-establishes immutability.
 // ============================================================================
 test("AllowUnsafe + manual impl(T, Acyclic()) for self-referential atomic object", {
-  ImmNode :: atomic(object(_value : i32, _next : Option(Self)));
+  ImmNode :: atomic(ref(struct(_value : i32, _next : Option(Self))));
   // SAFETY: ImmNode is immutable — its fields are never mutated after
   // construction, so no cycles can form at runtime.
   impl(ImmNode, Acyclic());
@@ -82,7 +83,7 @@ test("AllowUnsafe + manual impl(T, Send()) for a wrapper type", {
 // ============================================================================
 test("Phase F: manual Send impl on valid atomic object passes re-verification", {
   // i32 and u32 are both Send, so this atomic object is valid
-  Pair :: atomic(object(a : i32, b : u32));
+  Pair :: atomic(ref(struct(a : i32, b : u32)));
   // SAFETY: Pair's fields (i32, u32) are trivially Send value types.
   impl(Pair, Send());
   comptime_assert(Type.impls(Pair, Send), "Pair should impl Send");

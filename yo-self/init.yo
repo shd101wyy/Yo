@@ -18,11 +18,13 @@ open(import("std/fmt"));
 // Data types
 // ---------------------------------------------------------------------------
 /// Options for `init_project`.
-InitOptions :: object(
-  /// Directory to initialize (may be relative).
-  dir : String,
-  /// Project name override. If `.None`, derived from the directory basename.
-  name : Option(String)
+InitOptions :: ref(
+  struct(
+    /// Directory to initialize (may be relative).
+    dir : String,
+    /// Project name override. If `.None`, derived from the directory basename.
+    name : Option(String)
+  )
 );
 // ---------------------------------------------------------------------------
 // Name sanitization
@@ -66,6 +68,7 @@ sanitize_project_name :: (fn(raw : String) -> String)({
 generate_build_yo :: (fn(name : String) -> String)(
   `build :: import("std/build");
 { imports } :: import("./deps.yo");
+{ assert, panic } :: import("std/assert");
 
 mod :: build.module({ name: "${name}", root: "./src/lib.yo" });
 

@@ -29,13 +29,13 @@ tty_reset :: (fn() -> i32)(
 tty_winsize :: (fn(fd : i32) -> WinSize)({
   buf_uninit := MaybeUninit(Array(i32, usize(2))).new();
   buf := *(i32)(buf_uninit.as_ptr());
-  res := __yo_tty_get_winsize(fd, buf &+ usize(0), buf &+ usize(1));
+  res := __yo_tty_get_winsize(fd, buf.add(usize(0)), buf.add(usize(1)));
   width := cond(
-    (res == i32(0)) => (buf &+ usize(0)).*,
+    (res == i32(0)) => (buf.add(usize(0))).*,
     true => i32(0)
   );
   height := cond(
-    (res == i32(0)) => (buf &+ usize(1)).*,
+    (res == i32(0)) => (buf.add(usize(1))).*,
     true => i32(0)
   );
   WinSize(width, height)

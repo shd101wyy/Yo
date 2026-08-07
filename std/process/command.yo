@@ -63,10 +63,12 @@ impl(
 ///
 /// Returned by `Command.output`. Holds the exit status plus the bytes captured
 /// from the child's stdout and stderr.
-Output :: object(
-  status : ExitStatus,
-  stdout : ArrayList(u8),
-  stderr : ArrayList(u8)
+Output :: ref(
+  struct(
+    status : ExitStatus,
+    stdout : ArrayList(u8),
+    stderr : ArrayList(u8)
+  )
 );
 // ============================================================================
 // Command
@@ -75,12 +77,14 @@ Output :: object(
 ///
 /// Construct with `Command.new(program)`, then chain mutating builder methods
 /// (`arg`, `args`, `env_clear`) before invoking `status()` or `output()`.
-Command :: object(
-  _program : String,
-  _args : ArrayList(String),
-  _stdin_fd : i32,
-  _stdout_fd : i32,
-  _stderr_fd : i32
+Command :: ref(
+  struct(
+    _program : String,
+    _args : ArrayList(String),
+    _stdin_fd : i32,
+    _stdout_fd : i32,
+    _stderr_fd : i32
+  )
 );
 impl(
   Command,
@@ -97,12 +101,12 @@ impl(
     )
   ),
   /// Append a single argument to the argv list.
-  arg : (fn(ref(self) : Self, a : String) -> unit)({
+  arg : (fn(inout(self) : Self, a : String) -> unit)({
     self._args.push(a);
     ()
   }),
   /// Append multiple arguments to the argv list.
-  args : (fn(ref(self) : Self, more : ArrayList(String)) -> unit)({
+  args : (fn(inout(self) : Self, more : ArrayList(String)) -> unit)({
     n := more.len();
     i := usize(0);
     while(runtime(i < n), {
@@ -173,21 +177,21 @@ _spawn_with_fds :: (
         .Some(cs) => match(
           cs.ptr(),
           .Some(p) => {
-            (argv_buf &+ j).* =.Some(p);
+            (argv_buf.add(j)).* =.Some(p);
           },
           .None => {
-            (argv_buf &+ j).* =.None;
+            (argv_buf.add(j)).* =.None;
           }
         ),
         .None => {
-          (argv_buf &+ j).* =.None;
+          (argv_buf.add(j)).* =.None;
         }
       );
       j = (j + usize(1));
     });
-    (argv_buf &+ argc).* =.None;
+    (argv_buf.add(argc)).* =.None;
     // Resolve program path C string (always present — _build_cstr_storage pushes program first).
-    program_cstr := (argv_buf &+ usize(0)).*.unwrap();
+    program_cstr := (argv_buf.add(usize(0))).*.unwrap();
     pid := e.io.await(IO_process.spawn(program_cstr, argv_buf,.None, stdin_fd, stdout_fd, stderr_fd), e.io);
     // Free argv buffer (storage is dropped naturally at scope end).
     free(.Some(argv_raw));
@@ -212,7 +216,7 @@ _drain_fd :: (fn(fd : i32, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
         true => {
           k := usize(0);
           while(runtime(k < usize(n)), {
-            out.push((buf &+ k).*);
+            out.push((buf.add(k)).*);
             k = (k + usize(1));
           });
         }
@@ -231,7 +235,7 @@ impl(
   /// exit, and return its `ExitStatus`.
   status : (fn(self : Self, io : Io) -> Impl(Future(ExitStatus, IoExn)))(
     // `self : Self` is a value-copy of the Rc-counted Command object, so the
-    // closure can freely capture it. (Was `ref(self)` previously, which is a
+    // closure can freely capture it. (Was `inout(self)` previously, which is a
     // second-class reference and can't be captured across an async boundary.)
     io.async((e) => {
       pid := e.io.await(
@@ -247,7 +251,7 @@ impl(
   /// the child to exit and returns the exit status plus the captured bytes.
   output : (fn(self : Self, io : Io) -> Impl(Future(Output, IoExn)))(
     // `self : Self` is a value-copy of the Rc-counted Command object; the
-    // closure can freely capture it instead of needing `ref(self)`.
+    // closure can freely capture it instead of needing `inout(self)`.
     io.async((e) => {
       // Create stdout and stderr pipes.
       out_fd_buf := MaybeUninit(Array(i32, usize(2))).new();
@@ -257,8 +261,8 @@ impl(
         (pr1 < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - pr1))),
         true => ()
       );
-      out_read := (out_fd &+ usize(0)).*;
-      out_write := (out_fd &+ usize(1)).*;
+      out_read := (out_fd.add(usize(0))).*;
+      out_write := (out_fd.add(usize(1))).*;
       err_fd_buf := MaybeUninit(Array(i32, usize(2))).new();
       err_fd := *(i32)(err_fd_buf.as_ptr());
       pr2 := IO_pipe.pipe(err_fd);
@@ -270,8 +274,8 @@ impl(
         },
         true => ()
       );
-      err_read := (err_fd &+ usize(0)).*;
-      err_write := (err_fd &+ usize(1)).*;
+      err_read := (err_fd.add(usize(0))).*;
+      err_write := (err_fd.add(usize(1))).*;
       // Spawn child with the write ends of both pipes.
       pid := e.io.await(
         _spawn_with_fds(self, i32(-(1)), out_write, err_write, io),

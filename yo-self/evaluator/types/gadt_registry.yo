@@ -25,12 +25,14 @@ open(import("std/string"));
 // ---------------------------------------------------------------------------
 // Per-definition variant args  (mirrors EnumVariant.gadtReturnTypeArgs)
 // ---------------------------------------------------------------------------
-GadtEntry :: object(
-  /// The enum type's `id` — the lookup key.
-  enum_id : String,
-  /// Per-variant type-arg lists, parallel to the enum's variant order.
-  /// An empty inner list means that variant is non-GADT.
-  variant_args : ArrayList(ArrayList(TypeValue))
+GadtEntry :: ref(
+  struct(
+    /// The enum type's `id` — the lookup key.
+    enum_id : String,
+    /// Per-variant type-arg lists, parallel to the enum's variant order.
+    /// An empty inner list means that variant is non-GADT.
+    variant_args : ArrayList(ArrayList(TypeValue))
+  )
 );
 (g_gadt_entries : ArrayList(GadtEntry)) = ArrayList(GadtEntry).new();
 /// Record a GADT enum's per-variant return-type args. `enum_id` marks the enum
@@ -38,7 +40,7 @@ GadtEntry :: object(
 register_gadt_enum :: (
   fn(enum_id : String, variant_args : ArrayList(ArrayList(TypeValue))) -> unit
 )({
-  ___ := g_gadt_entries.push(GadtEntry(enum_id : enum_id.clone(), variant_args : variant_args));
+  g_gadt_entries.push(GadtEntry(enum_id : enum_id.clone(), variant_args : variant_args));
 });
 /// Look up a GADT enum's per-variant args by id, if registered.
 get_gadt_variant_args :: (
@@ -66,16 +68,18 @@ is_gadt_enum :: (fn(enum_id : String) -> bool)(
 // ---------------------------------------------------------------------------
 // Per-instantiation type-constructor args  (mirrors EnumType.typeConstructorArgs)
 // ---------------------------------------------------------------------------
-GadtTcaEntry :: object(
-  enum_id : String,
-  type_constructor_args : ArrayList(TypeValue)
+GadtTcaEntry :: ref(
+  struct(
+    enum_id : String,
+    type_constructor_args : ArrayList(TypeValue)
+  )
 );
 (g_gadt_tca_entries : ArrayList(GadtTcaEntry)) = ArrayList(GadtTcaEntry).new();
 /// Record the type-constructor args for an instantiated GADT enum.
 register_gadt_type_constructor_args :: (
   fn(enum_id : String, tca : ArrayList(TypeValue)) -> unit
 )({
-  ___ := g_gadt_tca_entries.push(GadtTcaEntry(enum_id : enum_id.clone(), type_constructor_args : tca));
+  g_gadt_tca_entries.push(GadtTcaEntry(enum_id : enum_id.clone(), type_constructor_args : tca));
 });
 /// Look up the type-constructor args for an instantiated GADT enum, if any.
 get_gadt_type_constructor_args :: (

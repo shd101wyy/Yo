@@ -13,13 +13,14 @@
 //!    struct id. Both sides must walk the SomeType→concrete chain to its
 //!    end so the same key is used in setter and lookup.
 pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
 open(import("std/collections/array_list"));
 CountIter :: struct(_count : i32, _max : i32);
 impl(
   CountIter,
   Iterator(
     Item : i32,
-    next : (fn(ref(self) : Self) -> Option(i32))(
+    next : (fn(inout(self) : Self) -> Option(i32))(
       cond(
         (self._count >= self._max) =>.None,
         true => {

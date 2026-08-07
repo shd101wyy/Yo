@@ -1,4 +1,5 @@
 pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
 open(import("std/fmt"));
 open(import("std/collections/array_list"));
 open(import("std/collections/hash_map"));
@@ -11,12 +12,12 @@ impl(
   MyArray,
   Index(usize)(
     Output : i32,
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
       cond(
         (idx == usize(0)) => &(self.data0),
         (idx == usize(1)) => &(self.data1),
         (idx == usize(2)) => &(self.data2),
-        true => panic("MyArray: index out of bounds")
+        true => __yo_panic("MyArray: index out of bounds")
       )
     )
   )
@@ -125,7 +126,7 @@ test("Test range slicing on slices", {
   assert(s2(usize(2)) == i32(400), "s2(2) should be 400");
 });
 test("Test range slicing preserves data (owned copy)", {
-  // Ranges COPY (plans/SLICE_REWORK.md): the result owns its elements;
+  // Ranges COPY (plans/archive/SLICE_REWORK.md): the result owns its elements;
   // mutating it never touches the source array.
   (arr : [i32 ; 5]) = [i32(10), i32(20), i32(30), i32(40), i32(50)];
   s := arr(usize(1) .. usize(4));
@@ -397,7 +398,7 @@ impl(
   Point,
   Index(usize)(
     Output : i32,
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
       cond(
         (idx == usize(0)) => &(self.x),
         true => &(self.y)
@@ -409,7 +410,7 @@ impl(
   Point,
   ComptimeIndex(usize)(
     Output : i32,
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       cond(
         (idx == usize(0)) => &(self.x),
         true => &(self.y)
@@ -444,11 +445,11 @@ impl(
   StrictPoint,
   Index(usize)(
     Output : i32,
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
       cond(
         (idx == usize(0)) => &(self.x),
         (idx == usize(1)) => &(self.y),
-        true => panic("StrictPoint: index out of bounds")
+        true => __yo_panic("StrictPoint: index out of bounds")
       )
     )
   )
@@ -457,7 +458,7 @@ impl(
   StrictPoint,
   ComptimeIndex(usize)(
     Output : i32,
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       cond(
         (idx == usize(0)) => &(self.x),
         (idx == usize(1)) => &(self.y),
@@ -478,11 +479,11 @@ GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(x : T, y : T)
 );
 impl(
-  forall(T),
+  generic(T),
   GenericPoint(T),
   Index(usize)(
     Output : T,
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
       cond(
         (idx == usize(0)) => &(self.x),
         true => &(self.y)
@@ -491,12 +492,12 @@ impl(
   )
 );
 impl(
-  forall(T),
+  generic(T),
   where(T <: Comptime),
   GenericPoint(T),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       cond(
         (idx == usize(0)) => &(self.x),
         true => &(self.y)
@@ -534,7 +535,7 @@ impl(
   Pair,
   Index(usize)(
     Output : i32,
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
       cond(
         (idx == usize(0)) => &(self.first),
         true => &(self.second)
@@ -546,7 +547,7 @@ impl(
   Pair,
   ComptimeIndex(usize)(
     Output : i32,
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       cond(
         (idx == usize(0)) => &(self.first),
         true => &(self.second)
@@ -575,4 +576,16 @@ test("Pair comptime Index mutation", {
   p(usize(0)) = i32(300);
   comptime_assert(p(usize(0)) == i32(300), "p(0) should be 300 after mutation");
   comptime_assert(p(usize(1)) == i32(40), "p(1) should still be 40");
+});
+test("Typed binding from index call with operator-expression argument", {
+  // Regression shape for issues/fixed/yo-self-std-string-swallowed-unify-noise.md:
+  // under a typed `u8` binding, the index ARGUMENT (`end_idx - usize(1)`) was
+  // evaluated with the ambient expected type still set, producing a swallowed
+  // usize-vs-u8 unify error in the self-hosted evaluator (String.trim's shape).
+  al := ArrayList(u8).new();
+  al.push(u8(7));
+  al.push(u8(9));
+  end_idx := usize(2);
+  (b : u8) = al(end_idx - usize(1));
+  assert(b == u8(9), "index with operator arg under typed binding");
 });

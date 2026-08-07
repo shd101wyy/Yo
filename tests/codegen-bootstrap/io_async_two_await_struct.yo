@@ -1,0 +1,13 @@
+{ println } :: import("std/fmt");
+Point :: ref(struct(x : i32, y : i32));
+run :: (fn(io : Io) -> i32)({
+  t1 := io.async((io : Io) => Point(i32(40), i32(2)));
+  t2 := io.async((io : Io) => Point(i32(10), i32(20)));
+  p1 := io.await(t1, io);
+  p2 := io.await(t2, io);
+  (p1.x + p1.y) + (p2.x + p2.y)
+});
+main :: (fn(io : Io) -> unit)({
+  println(run(io));
+});
+export(main);

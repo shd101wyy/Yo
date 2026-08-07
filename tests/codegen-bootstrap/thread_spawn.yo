@@ -1,0 +1,11 @@
+{ println } :: import("std/fmt");
+{ Thread } :: import("std/thread");
+main :: (fn(io : Io) -> unit)({
+  value := i32(42);
+  thread := Thread.spawn((io) => {
+    println(`thread sees ${value}`);
+  });
+  thread.join();
+  println(`main done`);
+});
+export(main);

@@ -1,0 +1,18 @@
+open(import("std/string"));
+{ println } :: import("std/fmt");
+
+Item :: ref(struct(name : String));
+
+pass :: (fn(e : Item) -> Item)({
+  (k : usize) = usize(1);
+  k;
+  e
+});
+
+main :: (fn() -> unit)({
+  it := Item(name : String.from("alpha"));
+  got := pass(it);
+  println(got.name);
+  println(it.name);
+});
+export(main);

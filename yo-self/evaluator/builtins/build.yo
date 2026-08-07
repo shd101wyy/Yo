@@ -44,89 +44,111 @@ open(import("std/string"));
 // Data types  (mirrors TypeScript interfaces in build.ts)
 // ---------------------------------------------------------------------------
 ArtifactKind :: enum(Executable, StaticLibrary, SharedLibrary);
-ImportedModule :: object(
-  import_name : String,
-  module_name : String,
-  dependency_name : String,
-  resolved_root : Option(String),
-  propagated_system_libs : ArrayList(String)
+ImportedModule :: ref(
+  struct(
+    import_name : String,
+    module_name : String,
+    dependency_name : String,
+    resolved_root : Option(String),
+    propagated_system_libs : ArrayList(String)
+  )
 );
-BuildArtifact :: object(
-  kind : ArtifactKind,
-  name : String,
-  root : String,
-  target : String,
-  optimize : String,
-  allocator : String,
-  sanitize : String,
-  link_libraries : ArrayList(String),
-  include_paths : ArrayList(String),
-  library_paths : ArrayList(String),
-  c_sources : ArrayList(String),
-  c_flags : ArrayList(String),
-  defines : ArrayList(String),
-  strip : bool,
-  static_link : bool,
-  runtime_files : ArrayList(String),
-  linked_artifacts : ArrayList(String),
-  linked_system_libs : ArrayList(String),
-  imported_modules : ArrayList(ImportedModule)
+BuildArtifact :: ref(
+  struct(
+    kind : ArtifactKind,
+    name : String,
+    root : String,
+    target : String,
+    optimize : String,
+    allocator : String,
+    sanitize : String,
+    link_libraries : ArrayList(String),
+    include_paths : ArrayList(String),
+    library_paths : ArrayList(String),
+    c_sources : ArrayList(String),
+    c_flags : ArrayList(String),
+    defines : ArrayList(String),
+    strip : bool,
+    static_link : bool,
+    runtime_files : ArrayList(String),
+    linked_artifacts : ArrayList(String),
+    linked_system_libs : ArrayList(String),
+    imported_modules : ArrayList(ImportedModule)
+  )
 );
-BuildTestSuite :: object(
-  name : String,
-  root : String,
-  target : String,
-  verbose : bool,
-  bail : bool,
-  parallel : i32
+BuildTestSuite :: ref(
+  struct(
+    name : String,
+    root : String,
+    target : String,
+    verbose : bool,
+    bail : bool,
+    parallel : i32
+  )
 );
-BuildRunStep :: object(
-  name : String,
-  artifact_name : String,
-  args : ArrayList(String)
+BuildRunStep :: ref(
+  struct(
+    name : String,
+    artifact_name : String,
+    args : ArrayList(String)
+  )
 );
-BuildStep :: object(
-  name : String,
-  description : String,
-  dependency_names : ArrayList(String)
+BuildStep :: ref(
+  struct(
+    name : String,
+    description : String,
+    dependency_names : ArrayList(String)
+  )
 );
-BuildGitDependency :: object(
-  name : String,
-  url : String,
-  ref : String,
-  path : String
+BuildGitDependency :: ref(
+  struct(
+    name : String,
+    url : String,
+    ref : String,
+    path : String
+  )
 );
-BuildPathDependency :: object(
-  name : String,
-  path : String
+BuildPathDependency :: ref(
+  struct(
+    name : String,
+    path : String
+  )
 );
-BuildSystemLibrary :: object(
-  name : String,
-  fallback_include : String,
-  fallback_lib : String,
-  fallback_link : String,
-  defines : ArrayList(String)
+BuildSystemLibrary :: ref(
+  struct(
+    name : String,
+    fallback_include : String,
+    fallback_lib : String,
+    fallback_link : String,
+    defines : ArrayList(String)
+  )
 );
-DependencyArtifactRef :: object(
-  dependency_name : String,
-  artifact_name : String
+DependencyArtifactRef :: ref(
+  struct(
+    dependency_name : String,
+    artifact_name : String
+  )
 );
-BuildModuleEntry :: object(
-  name : String,
-  root : String,
-  linked_system_libraries : ArrayList(String)
+BuildModuleEntry :: ref(
+  struct(
+    name : String,
+    root : String,
+    linked_system_libraries : ArrayList(String)
+  )
 );
-BuildDocConfig :: object(
-  name : String,
-  root : String,
-  output_dir : String,
-  format : String,
-  include_private : bool,
-  include_deps : bool,
-  title : String,
-  logo : String,
-  favicon : String,
-  version : String
+BuildDocConfig :: ref(
+  struct(
+    name : String,
+    root : String,
+    output_dir : String,
+    format : String,
+    include_private : bool,
+    include_deps : bool,
+    title : String,
+    logo : String,
+    favicon : String,
+    version : String
+  )
 );
 /// Result of resolving a dependency name to its concrete type.
 ResolvedDep :: enum(
@@ -141,18 +163,20 @@ ResolvedDep :: enum(
 // ---------------------------------------------------------------------------
 /// Central registry populated by `build.yo` evaluation.
 /// Mirrors the `BuildRegistry` class in `src/evaluator/builtins/build.ts`.
-BuildRegistry :: object(
-  artifacts : ArrayList(BuildArtifact),
-  test_suites : ArrayList(BuildTestSuite),
-  run_steps : ArrayList(BuildRunStep),
-  steps : ArrayList(BuildStep),
-  dependencies : ArrayList(BuildGitDependency),
-  path_dependencies : ArrayList(BuildPathDependency),
-  system_libraries : ArrayList(BuildSystemLibrary),
-  dependency_artifacts : ArrayList(DependencyArtifactRef),
-  modules : ArrayList(BuildModuleEntry),
-  doc_configs : ArrayList(BuildDocConfig),
-  cli_options : HashMap(String, String)
+BuildRegistry :: ref(
+  struct(
+    artifacts : ArrayList(BuildArtifact),
+    test_suites : ArrayList(BuildTestSuite),
+    run_steps : ArrayList(BuildRunStep),
+    steps : ArrayList(BuildStep),
+    dependencies : ArrayList(BuildGitDependency),
+    path_dependencies : ArrayList(BuildPathDependency),
+    system_libraries : ArrayList(BuildSystemLibrary),
+    dependency_artifacts : ArrayList(DependencyArtifactRef),
+    modules : ArrayList(BuildModuleEntry),
+    doc_configs : ArrayList(BuildDocConfig),
+    cli_options : HashMap(String, String)
+  )
 );
 impl(
   BuildRegistry,
@@ -171,7 +195,7 @@ impl(
       cli_options : HashMap(String, String).new()
     )
   ),
-  register_executable : (fn(ref(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
+  register_executable : (fn(inout(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
     self.artifacts.push(
       BuildArtifact(
@@ -197,7 +221,7 @@ impl(
       )
     );
   }),
-  register_static_library : (fn(ref(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
+  register_static_library : (fn(inout(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
     self.artifacts.push(
       BuildArtifact(
@@ -223,7 +247,7 @@ impl(
       )
     );
   }),
-  register_shared_library : (fn(ref(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
+  register_shared_library : (fn(inout(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
     self.artifacts.push(
       BuildArtifact(
@@ -249,10 +273,10 @@ impl(
       )
     );
   }),
-  register_test : (fn(ref(self) : Self, suite : BuildTestSuite) -> unit)({
+  register_test : (fn(inout(self) : Self, suite : BuildTestSuite) -> unit)({
     self.test_suites.push(suite);
   }),
-  register_run : (fn(ref(self) : Self, artifact_name : String, args : ArrayList(String)) -> unit)({
+  register_run : (fn(inout(self) : Self, artifact_name : String, args : ArrayList(String)) -> unit)({
     synth_name := `run:${artifact_name}`;
     self.run_steps.push(
       BuildRunStep(
@@ -262,7 +286,7 @@ impl(
       )
     );
   }),
-  register_step : (fn(ref(self) : Self, name : String, description : String) -> unit)({
+  register_step : (fn(inout(self) : Self, name : String, description : String) -> unit)({
     self.steps.push(
       BuildStep(
         name : name,
@@ -271,13 +295,13 @@ impl(
       )
     );
   }),
-  add_step_dependency : (fn(ref(self) : Self, step_name : String, dep_name : String) -> unit)({
+  add_step_dependency : (fn(inout(self) : Self, step_name : String, dep_name : String) -> unit)({
     new_steps := ArrayList(BuildStep).new();
     i := usize(0);
     n := self.steps.len();
     while(i < n, {
       step := self.steps(i);
-      if(step.name == step_name.clone(), {
+      if(step.name == step_name, {
         already := false;
         j := usize(0);
         m := step.dependency_names.len();
@@ -299,16 +323,16 @@ impl(
     });
     self.steps = new_steps;
   }),
-  register_dependency : (fn(ref(self) : Self, dep : BuildGitDependency) -> unit)({
+  register_dependency : (fn(inout(self) : Self, dep : BuildGitDependency) -> unit)({
     self.dependencies.push(dep);
   }),
-  register_path_dependency : (fn(ref(self) : Self, dep : BuildPathDependency) -> unit)({
+  register_path_dependency : (fn(inout(self) : Self, dep : BuildPathDependency) -> unit)({
     self.path_dependencies.push(dep);
   }),
-  register_system_library : (fn(ref(self) : Self, lib : BuildSystemLibrary) -> unit)({
+  register_system_library : (fn(inout(self) : Self, lib : BuildSystemLibrary) -> unit)({
     self.system_libraries.push(lib);
   }),
-  register_dependency_artifact : (fn(ref(self) : Self, ref : DependencyArtifactRef) -> unit)({
+  register_dependency_artifact : (fn(inout(self) : Self, ref : DependencyArtifactRef) -> unit)({
     already := false;
     i := usize(0);
     n := self.dependency_artifacts.len();
@@ -326,7 +350,7 @@ impl(
       }
     );
   }),
-  register_module : (fn(ref(self) : Self, entry : BuildModuleEntry) -> unit)({
+  register_module : (fn(inout(self) : Self, entry : BuildModuleEntry) -> unit)({
     i := usize(0);
     n := self.modules.len();
     while(i < n, {
@@ -336,13 +360,13 @@ impl(
     self.modules.push(entry);
     ()
   }),
-  register_link : (fn(ref(self) : Self, artifact_name : String, library_name : String) -> unit)({
+  register_link : (fn(inout(self) : Self, artifact_name : String, library_name : String) -> unit)({
     new_artifacts := ArrayList(BuildArtifact).new();
     i := usize(0);
     n := self.artifacts.len();
     while(i < n, {
       art := self.artifacts(i);
-      if(art.name == artifact_name.clone(), {
+      if(art.name == artifact_name, {
         already := false;
         j := usize(0);
         m := art.linked_artifacts.len();
@@ -364,100 +388,100 @@ impl(
     });
     self.artifacts = new_artifacts;
   }),
-  register_doc : (fn(ref(self) : Self, config : BuildDocConfig) -> unit)({
+  register_doc : (fn(inout(self) : Self, config : BuildDocConfig) -> unit)({
     self.doc_configs.push(config);
   }),
-  find_artifact : (fn(ref(self) : Self, name : String) -> Option(BuildArtifact))({
+  find_artifact : (fn(inout(self) : Self, name : String) -> Option(BuildArtifact))({
     i := usize(0);
     n := self.artifacts.len();
     while(i < n, {
       a := self.artifacts(i);
-      if(a.name == name.clone(), return(Option(BuildArtifact).Some(a)));
+      if(a.name == name, return(Option(BuildArtifact).Some(a)));
       i = (i + usize(1));
     });
     Option(BuildArtifact).None
   }),
-  find_test : (fn(ref(self) : Self, name : String) -> Option(BuildTestSuite))({
+  find_test : (fn(inout(self) : Self, name : String) -> Option(BuildTestSuite))({
     i := usize(0);
     n := self.test_suites.len();
     while(i < n, {
       t := self.test_suites(i);
-      if(t.name == name.clone(), return(Option(BuildTestSuite).Some(t)));
+      if(t.name == name, return(Option(BuildTestSuite).Some(t)));
       i = (i + usize(1));
     });
     Option(BuildTestSuite).None
   }),
-  find_run_step : (fn(ref(self) : Self, name : String) -> Option(BuildRunStep))({
+  find_run_step : (fn(inout(self) : Self, name : String) -> Option(BuildRunStep))({
     i := usize(0);
     n := self.run_steps.len();
     while(i < n, {
       r := self.run_steps(i);
-      if(r.name == name.clone(), return(Option(BuildRunStep).Some(r)));
+      if(r.name == name, return(Option(BuildRunStep).Some(r)));
       i = (i + usize(1));
     });
     Option(BuildRunStep).None
   }),
-  find_step : (fn(ref(self) : Self, name : String) -> Option(BuildStep))({
+  find_step : (fn(inout(self) : Self, name : String) -> Option(BuildStep))({
     i := usize(0);
     n := self.steps.len();
     while(i < n, {
       s := self.steps(i);
-      if(s.name == name.clone(), return(Option(BuildStep).Some(s)));
+      if(s.name == name, return(Option(BuildStep).Some(s)));
       i = (i + usize(1));
     });
     Option(BuildStep).None
   }),
-  find_documentation : (fn(ref(self) : Self, name : String) -> Option(BuildDocConfig))({
+  find_documentation : (fn(inout(self) : Self, name : String) -> Option(BuildDocConfig))({
     i := usize(0);
     n := self.doc_configs.len();
     while(i < n, {
       d := self.doc_configs(i);
-      if(d.name == name.clone(), return(Option(BuildDocConfig).Some(d)));
+      if(d.name == name, return(Option(BuildDocConfig).Some(d)));
       i = (i + usize(1));
     });
     Option(BuildDocConfig).None
   }),
-  find_module : (fn(ref(self) : Self, name : String) -> Option(BuildModuleEntry))({
+  find_module : (fn(inout(self) : Self, name : String) -> Option(BuildModuleEntry))({
     i := usize(0);
     n := self.modules.len();
     while(i < n, {
       m := self.modules(i);
-      if(m.name == name.clone(), return(Option(BuildModuleEntry).Some(m)));
+      if(m.name == name, return(Option(BuildModuleEntry).Some(m)));
       i = (i + usize(1));
     });
     Option(BuildModuleEntry).None
   }),
-  find_dependency : (fn(ref(self) : Self, name : String) -> Option(BuildGitDependency))({
+  find_dependency : (fn(inout(self) : Self, name : String) -> Option(BuildGitDependency))({
     i := usize(0);
     n := self.dependencies.len();
     while(i < n, {
       d := self.dependencies(i);
-      if(d.name == name.clone(), return(Option(BuildGitDependency).Some(d)));
+      if(d.name == name, return(Option(BuildGitDependency).Some(d)));
       i = (i + usize(1));
     });
     Option(BuildGitDependency).None
   }),
-  find_path_dependency : (fn(ref(self) : Self, name : String) -> Option(BuildPathDependency))({
+  find_path_dependency : (fn(inout(self) : Self, name : String) -> Option(BuildPathDependency))({
     i := usize(0);
     n := self.path_dependencies.len();
     while(i < n, {
       d := self.path_dependencies(i);
-      if(d.name == name.clone(), return(Option(BuildPathDependency).Some(d)));
+      if(d.name == name, return(Option(BuildPathDependency).Some(d)));
       i = (i + usize(1));
     });
     Option(BuildPathDependency).None
   }),
-  find_system_library : (fn(ref(self) : Self, name : String) -> Option(BuildSystemLibrary))({
+  find_system_library : (fn(inout(self) : Self, name : String) -> Option(BuildSystemLibrary))({
     i := usize(0);
     n := self.system_libraries.len();
     while(i < n, {
       l := self.system_libraries(i);
-      if(l.name == name.clone(), return(Option(BuildSystemLibrary).Some(l)));
+      if(l.name == name, return(Option(BuildSystemLibrary).Some(l)));
       i = (i + usize(1));
     });
     Option(BuildSystemLibrary).None
   }),
-  get_step_names : (fn(ref(self) : Self) -> ArrayList(String))({
+  get_step_names : (fn(inout(self) : Self) -> ArrayList(String))({
     names := ArrayList(String).new();
     i := usize(0);
     n := self.steps.len();
@@ -467,7 +491,7 @@ impl(
     });
     names
   }),
-  resolve_dependency : (fn(ref(self) : Self, name : String) -> Option(ResolvedDep))({
+  resolve_dependency : (fn(inout(self) : Self, name : String) -> Option(ResolvedDep))({
     match(
       self.find_artifact(name),
       .Some(a) => {
@@ -505,7 +529,7 @@ impl(
     );
     Option(ResolvedDep).None
   }),
-  clear : (fn(ref(self) : Self) -> unit)({
+  clear : (fn(inout(self) : Self) -> unit)({
     self.artifacts = ArrayList(BuildArtifact).new();
     self.test_suites = ArrayList(BuildTestSuite).new();
     self.run_steps = ArrayList(BuildRunStep).new();
@@ -518,12 +542,12 @@ impl(
     self.doc_configs = ArrayList(BuildDocConfig).new();
     self.cli_options = HashMap(String, String).new();
   }),
-  _check_duplicate_artifact_name : (fn(ref(self) : Self, name : String, exn : Exception) -> unit)({
+  _check_duplicate_artifact_name : (fn(inout(self) : Self, name : String, exn : Exception) -> unit)({
     i := usize(0);
     n := self.artifacts.len();
     while(i < n, {
       a := self.artifacts(i);
-      if(a.name == name.clone(), {
+      if(a.name == name, {
         kind_str := match(
           a.kind,
           .Executable => "executable",
@@ -572,7 +596,7 @@ _build_is_trial :: (
       },
       .Some(v) => match(
         v,
-        .UnknownVal(_) => {
+        .UnknownVal(_, _) => {
           trial = true;
         },
         _ => ()
@@ -659,7 +683,7 @@ _build_extract_string :: (
 ///
 /// **Scope note.** The build *registry* (which these builtins populate in
 /// the TS reference for the build runner) is out of scope for the
-/// evaluator/`check` milestone — see plans/BOOTSTRAPPING_EVALUATOR.md (no
+/// evaluator/`check` milestone — see plans/archive/BOOTSTRAPPING_EVALUATOR.md (no
 /// build-runner self-hosting). During `check`, every build-function call
 /// inside a function body is a "trial" evaluation (its comptime params are
 /// `UnknownVal`), and even the TS reference skips the registry on the

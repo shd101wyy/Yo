@@ -1,7 +1,8 @@
-/// Phase B non-escape enforcement for `ref(name) : T` (per
+{ assert } :: import("std/assert");
+/// Phase B non-escape enforcement for `inout(name) : T` (per
 /// `plans/MEMORY_SAFETY.md`).
 ///
-/// A `ref(name) : T` parameter is a second-class reference to
+/// A `inout(name) : T` parameter is a second-class reference to
 /// the caller's storage — it lowers to `T*` at the calling
 /// convention level. A closure capturing a ref-param would
 /// outlive the call frame (stored in a struct, returned, sent to a
@@ -15,13 +16,13 @@
 /// field can't name the binding.
 // Closure that reads a ref parameter is rejected.
 comptime_expect_error(
-  make_reader :: (fn(ref(x) : i32) -> Impl(Fn() -> i32))(
+  make_reader :: (fn(inout(x) : i32) -> Impl(Fn() -> i32))(
     () => x
   )
 );
 // Closure that writes a ref parameter is rejected.
 comptime_expect_error(
-  make_writer :: (fn(ref(x) : i32) -> Impl(Fn() -> unit))(() => {
+  make_writer :: (fn(inout(x) : i32) -> Impl(Fn() -> unit))(() => {
     x = i32(99);
   })
 );
@@ -29,7 +30,7 @@ comptime_expect_error(
 // Two closure layers: outer `=>` captures nothing ref; inner `=>`
 // captures the ref `x`. The gate fires on the inner closure.
 comptime_expect_error(
-  build :: (fn(ref(x) : i32) -> Impl(Fn() -> Impl(Fn() -> i32)))(
+  build :: (fn(inout(x) : i32) -> Impl(Fn() -> Impl(Fn() -> i32)))(
     () => (() => x)
   )
 );
@@ -37,7 +38,7 @@ comptime_expect_error(
 // parameter still compiles cleanly, even when the enclosing fn
 // takes a ref. The returned closure only captures the local
 // `y_copy`, not `x`.
-no_capture :: (fn(ref(x) : i32, y : i32) -> Impl(Fn() -> i32))({
+no_capture :: (fn(inout(x) : i32, y : i32) -> Impl(Fn() -> i32))({
   y_copy := y;
   () => y_copy
 });

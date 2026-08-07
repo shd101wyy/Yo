@@ -81,83 +81,83 @@ pragma(Pragma.AllowUnsafe);
 // === Builtin Yo functions ===
 extern(
   "Yo",
-  __yo_return_self : (fn(forall(T : Type), self : T) -> T),
-  __yo_noop : (fn(forall(T : Type)) -> T),
-  __yo_borrow_assert_unborrowed : (fn(forall(T : Type), obj : T) -> unit),
-  __yo_as : (fn(forall(_Self : Type), self : _Self, comptime(Target) : Type) -> Target),
+  __yo_return_self : (fn(generic(T : Type), self : T) -> T),
+  __yo_noop : (fn(generic(T : Type)) -> T),
+  __yo_borrow_assert_unborrowed : (fn(generic(T : Type), obj : T) -> unit),
+  __yo_as : (fn(generic(_Self : Type), self : _Self, comptime(Target) : Type) -> Target),
   // Arithmetic Operators
   /// +
-  __yo_op_add : (fn(forall(T : Type), x : T, y : T) -> T),
+  __yo_op_add : (fn(generic(T : Type), x : T, y : T) -> T),
   /// -
-  __yo_op_sub : (fn(forall(T : Type), x : T, y : T) -> T),
+  __yo_op_sub : (fn(generic(T : Type), x : T, y : T) -> T),
   /// *
-  __yo_op_mul : (fn(forall(T : Type), x : T, y : T) -> T),
+  __yo_op_mul : (fn(generic(T : Type), x : T, y : T) -> T),
   /// /
-  __yo_op_div : (fn(forall(T : Type), x : T, y : T) -> T),
+  __yo_op_div : (fn(generic(T : Type), x : T, y : T) -> T),
   /// %
-  __yo_op_mod : (fn(forall(T : Type), x : T, y : T) -> T),
+  __yo_op_mod : (fn(generic(T : Type), x : T, y : T) -> T),
   /// -
-  __yo_op_neg : (fn(forall(T : Type), x : T) -> T),
+  __yo_op_neg : (fn(generic(T : Type), x : T) -> T),
   // Relational Operators
   /// ==
-  __yo_op_eq : (fn(forall(T : Type), x : T, y : T) -> bool),
+  __yo_op_eq : (fn(generic(T : Type), x : T, y : T) -> bool),
   /// !=
-  __yo_op_neq : (fn(forall(T : Type), x : T, y : T) -> bool),
+  __yo_op_neq : (fn(generic(T : Type), x : T, y : T) -> bool),
   /// <
-  __yo_op_lt : (fn(forall(T : Type), x : T, y : T) -> bool),
+  __yo_op_lt : (fn(generic(T : Type), x : T, y : T) -> bool),
   /// <=
-  __yo_op_lte : (fn(forall(T : Type), x : T, y : T) -> bool),
+  __yo_op_lte : (fn(generic(T : Type), x : T, y : T) -> bool),
   /// >
-  __yo_op_gt : (fn(forall(T : Type), x : T, y : T) -> bool),
+  __yo_op_gt : (fn(generic(T : Type), x : T, y : T) -> bool),
   /// >=
-  __yo_op_gte : (fn(forall(T : Type), x : T, y : T) -> bool),
+  __yo_op_gte : (fn(generic(T : Type), x : T, y : T) -> bool),
   // Logical Operators
   /// !
-  __yo_op_not : (fn(forall(T : Type), x : T) -> bool),
+  __yo_op_not : (fn(generic(T : Type), x : T) -> bool),
   // Bitwise Operators
   /// &
-  __yo_op_bit_and : (fn(forall(T : Type), x : T, y : T) -> T),
+  __yo_op_bit_and : (fn(generic(T : Type), x : T, y : T) -> T),
   /// |
-  __yo_op_bit_or : (fn(forall(T : Type), x : T, y : T) -> T),
+  __yo_op_bit_or : (fn(generic(T : Type), x : T, y : T) -> T),
   /// ^
-  __yo_op_bit_xor : (fn(forall(T : Type), x : T, y : T) -> T),
+  __yo_op_bit_xor : (fn(generic(T : Type), x : T, y : T) -> T),
   /// ~
-  __yo_op_bit_complement : (fn(forall(T : Type), x : T) -> T),
+  __yo_op_bit_complement : (fn(generic(T : Type), x : T) -> T),
   /// <<
-  __yo_op_bit_left_shift : (fn(forall(T : Type), x : T, y : T) -> T),
+  __yo_op_bit_left_shift : (fn(generic(T : Type), x : T, y : T) -> T),
   /// >>
-  __yo_op_bit_right_shift : (fn(forall(T : Type), x : T, y : T) -> T),
+  __yo_op_bit_right_shift : (fn(generic(T : Type), x : T, y : T) -> T),
   // Ptr related functions
   __yo_ptr_add :
-    fn(forall(T : Type), ptr : T, offset : usize) -> T,
+    (fn(generic(T : Type), ptr : T, offset : usize) -> T),
   __yo_ptr_sub :
-    fn(forall(T : Type), ptr : T, offset : usize) -> T,
+    (fn(generic(T : Type), ptr : T, offset : usize) -> T),
   __yo_ptr_diff :
-    fn(forall(T : Type), ptr1 : T, ptr2 : T) -> isize,
+    (fn(generic(T : Type), ptr1 : T, ptr2 : T) -> isize),
   __yo_ptr_eq :
-    fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool,
+    (fn(generic(T : Type), ptr1 : T, ptr2 : T) -> bool),
   __yo_ptr_neq :
-    fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool,
+    (fn(generic(T : Type), ptr1 : T, ptr2 : T) -> bool),
   __yo_ptr_lt :
-    fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool,
+    (fn(generic(T : Type), ptr1 : T, ptr2 : T) -> bool),
   __yo_ptr_lte :
-    fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool,
+    (fn(generic(T : Type), ptr1 : T, ptr2 : T) -> bool),
   __yo_ptr_gt :
-    fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool,
+    (fn(generic(T : Type), ptr1 : T, ptr2 : T) -> bool),
   __yo_ptr_gte :
-    fn(forall(T : Type), ptr1 : T, ptr2 : T) -> bool,
+    (fn(generic(T : Type), ptr1 : T, ptr2 : T) -> bool),
   // str (builtin static string view) intrinsics
   __yo_str_from_raw_parts :
-    fn(ptr : *(u8), length : usize) -> str,
+    (fn(ptr : *(u8), length : usize) -> str),
   __yo_str_len :
-    fn(s : str) -> usize,
+    (fn(s : str) -> usize),
   __yo_str_ptr :
-    fn(s : str) -> *(u8),
+    (fn(s : str) -> *(u8)),
   __yo_str_byte :
-    fn(s : str, idx : usize) -> u8,
+    (fn(s : str, idx : usize) -> u8),
   // array indexing builtin (used by Index trait impls)
   __yo_array_index :
-    fn(forall(T : Type, N : usize), self : *(Array(T, N)), idx : usize) -> *(T),
+    (fn(generic(T : Type, N : usize), self : *(Array(T, N)), idx : usize) -> *(T)),
   // C macro related
   __yo_c_macro_defined : (fn(comptime(name) : comptime_str) -> comptime(bool)),
   __yo_c_macro_value : (fn(comptime(name) : comptime_str) -> comptime(comptime_str)),
@@ -230,13 +230,48 @@ Dispose :: trait(
   where(Self <: Rc)
 );
 export(Dispose);
+/// === Cycle-GC tracing ===
+/// `GcTracer` carries the cycle collector's edge-registration callback (an opaque
+/// raw pointer). A `Trace` impl calls `tracer.visit(slot)` once per outgoing edge,
+/// passing a POINTER to where the child lives (a struct field or a container buffer
+/// element). The raw callback is never touched directly.
+GcTracer :: newtype(_callback : *(u8));
+export(GcTracer);
+extern(
+  "Yo",
+  /// Per-slot edge tracer (compiler intrinsic). Internal — call `tracer.visit`.
+  __yo_gc_trace_child : (fn(generic(T : Type), tracer : GcTracer, slot : *(T)) -> unit)
+);
+impl(
+  GcTracer,
+  /// Trace one outgoing edge. `slot` points at where the child lives; the collector
+  /// reads `*slot` WITHOUT touching its reference count — registering the edge if it
+  /// is a managed handle and recursing inline through value structure otherwise.
+  /// Passing the slot pointer (not the element by value) keeps tracing RC-neutral: a
+  /// by-value managed handle would be dup'd then dropped, freeing a live element
+  /// mid-collection.
+  visit : (fn(generic(T : Type), self : Self, slot : *(T)) -> unit)(
+    __yo_gc_trace_child(self, slot)
+  )
+);
+/// Trace trait — mandatory for every reference type that can transitively hold a
+/// managed reference. Auto-derived by the compiler for structs/enums (incl.
+/// `Option` and all value types); hand-implemented for containers whose elements
+/// live in a heap buffer (`ArrayList`, `HashMap`, …). The constructor wires
+/// `header.traverse_fn` to this `trace`.
+Trace :: trait(
+  id := "Trace",
+  trace : (fn(self : Self, tracer : GcTracer) -> unit),
+  where(Self <: Rc)
+);
+export(Trace);
 /// Index trait — enables `container(idx)` subscript syntax at runtime.
 /// The `Idx` parameter is the index type (e.g., `usize`, `Range(usize)`).
 /// Implementations must define an `Output` associated type and an `index` method.
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(ref(self) : Self, idx : Idx) -> *(Self.Output))
+    index : (fn(inout(self) : Self, idx : Idx) -> *(Self.Output))
   )
 );
 export(Index);
@@ -244,7 +279,7 @@ export(Index);
 ComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : Idx) -> comptime(*(Self.Output))),
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : Idx) -> comptime(*(Self.Output))),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -273,7 +308,7 @@ export(RangeInclusiveOp);
 extern(
   "Yo",
   __yo_comptime_array_index :
-    (fn(forall(T : Type, N : usize), comptime(self) : *(Array(T, N)), comptime(idx) : usize, where(T <: Comptime)) -> comptime(*(T))),
+    (fn(generic(T : Type, N : usize), comptime(self) : *(Array(T, N)), comptime(idx) : usize, where(T <: Comptime)) -> comptime(*(T))),
   __yo_comptime_string_index :
     (fn(comptime(self) : comptime_str, comptime(idx) : comptime_int) -> comptime(comptime_str)),
   __yo_comptime_string_index_range :
@@ -281,11 +316,11 @@ extern(
   __yo_comptime_string_index_range_inclusive :
     (fn(comptime(self) : comptime_str, comptime(idx) : RangeInclusive(comptime_int)) -> comptime(comptime_str)),
   __yo_comptime_list_index :
-    (fn(forall(T : Type), comptime(self) : *(ComptimeList(T)), comptime(idx) : usize, where(T <: Comptime)) -> comptime(*(T))),
+    (fn(generic(T : Type), comptime(self) : *(ComptimeList(T)), comptime(idx) : usize, where(T <: Comptime)) -> comptime(*(T))),
   __yo_comptime_list_index_range :
-    (fn(forall(T : Type), comptime(self) : *(ComptimeList(T)), comptime(idx) : Range(usize), where(T <: Comptime)) -> comptime(*(ComptimeList(T)))),
+    (fn(generic(T : Type), comptime(self) : *(ComptimeList(T)), comptime(idx) : Range(usize), where(T <: Comptime)) -> comptime(*(ComptimeList(T)))),
   __yo_comptime_list_index_range_inclusive :
-    (fn(forall(T : Type), comptime(self) : *(ComptimeList(T)), comptime(idx) : RangeInclusive(usize), where(T <: Comptime)) -> comptime(*(ComptimeList(T))))
+    (fn(generic(T : Type), comptime(self) : *(ComptimeList(T)), comptime(idx) : RangeInclusive(usize), where(T <: Comptime)) -> comptime(*(ComptimeList(T))))
 );
 ComptimeRangeOp :: trait(
   (..) : (fn(comptime(start) : Self, comptime(end) : Self) -> comptime(Range(Self))),
@@ -510,14 +545,14 @@ export(ComptimeBitXor);
 (!) :: impl({
   (not) :: (
     fn(
-      forall(_Self : Type),
+      generic(_Self : Type),
       self : _Self,
       where(_Self <: LogicalNot)
     ) -> bool
   )(self.(!)());
   (comptime_not) :: (
     fn(
-      forall(_Self : Type),
+      generic(_Self : Type),
       comptime(self) : _Self,
       where(_Self <: (Comptime, ComptimeLogicalNot))
     ) -> comptime(bool)
@@ -530,14 +565,14 @@ export(not, !);
 (~) :: impl({
   (bit_not) :: (
     fn(
-      forall(_Self : Type),
+      generic(_Self : Type),
       self : _Self,
       where(_Self <: BitNot)
     ) -> _Self
   )(self.(~)());
   (comptime_bit_not) :: (
     fn(
-      forall(_Self : Type),
+      generic(_Self : Type),
       comptime(self) : _Self,
       where(_Self <: (Comptime, ComptimeBitNot))
     ) -> comptime(_Self)
@@ -549,7 +584,7 @@ export(~);
 (-) :: impl({
   (neg) :: (
     fn(
-      forall(_Self : Type),
+      generic(_Self : Type),
       self : _Self,
       where(_Self <: Negate)
     ) -> _Self
@@ -558,7 +593,7 @@ export(~);
   });
   (comptime_neg) :: (
     fn(
-      forall(_Self : Type),
+      generic(_Self : Type),
       comptime(self) : _Self,
       where(_Self <: (Comptime, ComptimeNegate))
     ) -> comptime(_Self)
@@ -639,13 +674,13 @@ Ord :: (
 )(
   trait(
     (<) :
-      fn(lhs : Self, rhs : Rhs) -> bool,
+      (fn(lhs : Self, rhs : Rhs) -> bool),
     (<=) :
-      fn(lhs : Self, rhs : Rhs) -> bool,
+      (fn(lhs : Self, rhs : Rhs) -> bool),
     (>) :
-      fn(lhs : Self, rhs : Rhs) -> bool,
+      (fn(lhs : Self, rhs : Rhs) -> bool),
     (>=) :
-      fn(lhs : Self, rhs : Rhs) -> bool,
+      (fn(lhs : Self, rhs : Rhs) -> bool),
     where(Self <: Eq(Rhs))
   )
 );
@@ -658,13 +693,13 @@ ComptimeOrd :: (
 )(
   trait(
     (<) :
-      fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(bool),
+      (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(bool)),
     (<=) :
-      fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(bool),
+      (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(bool)),
     (>) :
-      fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(bool),
+      (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(bool)),
     (>=) :
-      fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(bool),
+      (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(bool)),
     where(Self <: (Comptime, ComptimeEq(Rhs)))
   )
 );
@@ -686,14 +721,16 @@ Hash :: trait(
   * Compute the hash of a value
   * Returns a u64 hash value
   */
-  (hash) : (fn(ref(self) : Self) -> u64)
+  (hash) : (fn(inout(self) : Self) -> u64)
 );
 export(Hash);
 /// Clone trait — deep-copy a value.
 Clone :: trait(
   /// Create an independent clone of `self`.
   clone :
-    fn(ref(self) : Self) -> Self
+    (
+      fn(inout(self) : Self) -> Self
+    )
 );
 export(Clone);
 /// Isolation trait — runtime check whether a value can be safely transferred.
@@ -5461,10 +5498,10 @@ export(longdouble : _longdouble);
 // that any T reachable through it is safe to access from another thread.
 // *(T) is unconditionally Acyclic because raw pointers do not participate
 // in Yo's ARC reference-counting cycle analysis.
-impl(forall(T : Type), where(T <: Send), *(T), Send());
-impl(forall(T : Type), *(T), Acyclic());
-impl(forall(T : Type), where(T <: Comptime), *(T), Comptime());
-impl(forall(T : Type), where(T <: Runtime), *(T), Runtime());
+impl(generic(T : Type), where(T <: Send), *(T), Send());
+impl(generic(T : Type), *(T), Acyclic());
+impl(generic(T : Type), where(T <: Comptime), *(T), Comptime());
+impl(generic(T : Type), where(T <: Runtime), *(T), Runtime());
 /*
 // NOTE: Below should give error, as C disallows pointer arithmetic on void pointers.
 impl(*(void), Add(usize)(
@@ -5490,35 +5527,57 @@ impl(*(void), Ord(*(void))(
   (>=) : ((lhs, rhs) -> __yo_ptr_gte(lhs, rhs))
 ));
 */
+// Pointer operations, Rust-style (plans/archive/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md):
+// comparison is plain Eq/Ord (address identity — same as C and Rust's raw
+// pointers; note ref-semantics OBJECT types keep VALUE equality via their
+// own Eq impls), arithmetic is explicit METHODS so offsetting stays
+// typographically loud inside unsafe(...) blocks. The former `&`-prefixed
+// operator family (`&==`, `&+`, `&/`, …) is retired.
 impl(
-  forall(T : Type),
+  generic(T : Type),
   *(T),
-  (&+) : (fn(self : Self, offset : usize) -> Self)(
-    __yo_ptr_add(self, offset)
+  /// Offset forward by `count` elements (formerly `p &+ count`).
+  add : (fn(self : Self, count : usize) -> Self)(
+    __yo_ptr_add(self, count)
   ),
-  (&-) : (fn(self : Self, offset : usize) -> Self)(
-    __yo_ptr_sub(self, offset)
+  /// Offset backward by `count` elements (formerly `p &- count`).
+  sub : (fn(self : Self, count : usize) -> Self)(
+    __yo_ptr_sub(self, count)
   ),
-  (&==) : (fn(self : Self, another : Self) -> bool)(
-    __yo_ptr_eq(self, another)
-  ),
-  (&!=) : (fn(self : Self, another : Self) -> bool)(
-    __yo_ptr_neq(self, another)
-  ),
-  (&<) : (fn(self : Self, another : Self) -> bool)(
-    __yo_ptr_lt(self, another)
-  ),
-  (&<=) : (fn(self : Self, another : Self) -> bool)(
-    __yo_ptr_lte(self, another)
-  ),
-  (&>) : (fn(self : Self, another : Self) -> bool)(
-    __yo_ptr_gt(self, another)
-  ),
-  (&>=) : (fn(self : Self, another : Self) -> bool)(
-    __yo_ptr_gte(self, another)
-  ),
-  (&/) : (fn(self : Self, another : Self) -> isize)(
-    __yo_ptr_diff(self, another)
+  /// Signed element distance from `origin` to `self` (formerly `self &/ origin`).
+  /// Both pointers must point into the same allocation.
+  offset_from : (fn(self : Self, origin : Self) -> isize)(
+    __yo_ptr_diff(self, origin)
+  )
+);
+impl(
+  generic(T : Type),
+  *(T),
+  Eq(*(T))(
+    (==) : (fn(lhs : Self, rhs : *(T)) -> bool)(
+      __yo_ptr_eq(lhs, rhs)
+    ),
+    (!=) : (fn(lhs : Self, rhs : *(T)) -> bool)(
+      __yo_ptr_neq(lhs, rhs)
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  *(T),
+  Ord(*(T))(
+    (<) : (fn(lhs : Self, rhs : *(T)) -> bool)(
+      __yo_ptr_lt(lhs, rhs)
+    ),
+    (<=) : (fn(lhs : Self, rhs : *(T)) -> bool)(
+      __yo_ptr_lte(lhs, rhs)
+    ),
+    (>) : (fn(lhs : Self, rhs : *(T)) -> bool)(
+      __yo_ptr_gt(lhs, rhs)
+    ),
+    (>=) : (fn(lhs : Self, rhs : *(T)) -> bool)(
+      __yo_ptr_gte(lhs, rhs)
+    )
   )
 );
 /// Array
@@ -5526,14 +5585,14 @@ impl(
 // is Send because an array value is copied across threads (each thread
 // gets an independent copy). It is unconditionally Acyclic because arrays
 // are value-typed — they do not participate in ARC reference counting.
-impl(forall(T : Type, U : usize), where(T <: Send), Array(T, U), Send());
-impl(forall(T : Type, U : usize), Array(T, U), Acyclic());
-impl(forall(T : Type, U : usize), where(T <: Comptime), Array(T, U), Comptime());
-impl(forall(T : Type, U : usize), where(T <: Runtime), Array(T, U), Runtime());
+impl(generic(T : Type, U : usize), where(T <: Send), Array(T, U), Send());
+impl(generic(T : Type, U : usize), Array(T, U), Acyclic());
+impl(generic(T : Type, U : usize), where(T <: Comptime), Array(T, U), Comptime());
+impl(generic(T : Type, U : usize), where(T <: Runtime), Array(T, U), Runtime());
 impl(
-  forall(T : Type, U : usize),
+  generic(T : Type, U : usize),
   Array(T, U),
-  len : (fn(ref(self) : Self) -> usize)({
+  len : (fn(inout(self) : Self) -> usize)({
     return(U);
   })
   /*
@@ -5547,7 +5606,7 @@ impl(
   */
 );
 impl(
-  forall(T : Type, U : usize),
+  generic(T : Type, U : usize),
   where(T <: Comptime),
   Array(T, U),
   fill : (fn(comptime(val) : T) -> comptime(Self))({
@@ -5556,15 +5615,15 @@ impl(
 );
 /// Array Index impls
 /// Bodies take `&(self)` so the `*(Array(T, N))`-expecting builtin
-/// receives the right C-ABI shape — `ref(self) : Self` gives the body
+/// receives the right C-ABI shape — `inout(self) : Self` gives the body
 /// a value-typed view of `self` even though the runtime passes a
-/// pointer. See plans/ITERATOR_REDESIGN.md.
+/// pointer. See plans/archive/ITERATOR_REDESIGN.md.
 impl(
-  forall(T : Type, N : usize),
+  generic(T : Type, N : usize),
   Array(T, N),
   Index(usize)(
     Output : T,
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
       __yo_array_index(&(self), idx)
     )
   )
@@ -5573,7 +5632,7 @@ impl(
 /// interop and std internals. Carries a raw pointer, so the existing
 /// raw-pointer gates apply: safe code cannot name or construct it.
 /// Replaces the builtin Slice(T) for internal plumbing
-/// (plans/SLICE_REWORK.md step 4).
+/// (plans/archive/SLICE_REWORK.md step 4).
 RawSlice :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(ptr : *(T), len : usize)
 );
@@ -5584,12 +5643,12 @@ export(RawSlice);
 // threads). Slice is always Acyclic — it is a value type with no ARC.
 /// Array ComptimeIndex impls
 impl(
-  forall(T : Type, N : usize),
+  generic(T : Type, N : usize),
   where(T <: Comptime),
   Array(T, N),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       __yo_comptime_array_index(self, idx)
     )
   )
@@ -5660,12 +5719,12 @@ impl(
   slice_copy : (fn(self : Self, r : Range(usize)) -> Self)({
     e := cond((r.end > __yo_str_len(self)) => __yo_str_len(self), true => r.end);
     st := cond((r.start > e) => e, true => r.start);
-    __yo_str_from_raw_parts(__yo_str_ptr(self) &+ st, e - st)
+    __yo_str_from_raw_parts(__yo_str_ptr(self).add(st), e - st)
   }),
   slice_copy_inclusive : (fn(self : Self, r : RangeInclusive(usize)) -> Self)({
     e := cond(((r.end + usize(1)) > __yo_str_len(self)) => __yo_str_len(self), true => (r.end + usize(1)));
     st := cond((r.start > e) => e, true => r.start);
-    __yo_str_from_raw_parts(__yo_str_ptr(self) &+ st, e - st)
+    __yo_str_from_raw_parts(__yo_str_ptr(self).add(st), e - st)
   })
 );
 impl(
@@ -5729,18 +5788,14 @@ impl(
 );
 // (str is a builtin type — no export needed; the identifier resolves
 // everywhere like bool/i32.)
-assert :: (fn(flag : bool, (msg : str) ?= "Assertion failed.") -> unit)(
-  cond(
-    flag => (),
-    true => panic(msg)
-  )
-);
-export(assert);
+// (`assert`/`panic` are NOT ambient: import them explicitly from
+// `std/assert`. The prelude itself never imports other modules.)
+export();
 /// ComptimeList
-impl(forall(T : Type), ComptimeList(T), Comptime());
-impl(forall(T : Type), ComptimeList(T), Acyclic());
+impl(generic(T : Type), ComptimeList(T), Comptime());
+impl(generic(T : Type), ComptimeList(T), Acyclic());
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Comptime),
   ComptimeList(T),
   car : (fn(comptime(self) : Self) -> comptime(__yo_comptime_list_element_type(Self)))(
@@ -5762,34 +5817,34 @@ impl(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Comptime),
   ComptimeList(T),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
       __yo_comptime_list_index(self, idx)
     )
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Comptime),
   ComptimeList(T),
   ComptimeIndex(Range(usize))(
     Output : ComptimeList(T),
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_list_index_range(self, idx)
     )
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Comptime),
   ComptimeList(T),
   ComptimeIndex(RangeInclusive(usize))(
     Output : ComptimeList(T),
-    index : (fn(comptime(ref(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
       __yo_comptime_list_index_range_inclusive(self, idx)
     )
   )
@@ -5865,7 +5920,7 @@ export(Type : _Type);
 // Kind-constraint syntax `Type.Struct`, `Type.Enum`, `Type.Union`,
 // `Type.Trait`, `Type.Function` is recognised by the evaluator (see
 // `src/evaluator/exprs/property-access.ts`). Use `T : Type.Struct` for
-// forall type-variable constraints that signal an effect record (or
+// generic type-variable constraints that signal an effect record (or
 // other kind-restricted type). The legacy `Struct :: Type` alias was
 // removed in favour of this syntax.
 /// Type reflection metadata structs — used by `Type.get_info()`.
@@ -5931,7 +5986,7 @@ ParamInfo :: struct(
 );
 impl(ParamInfo, Comptime());
 export(ParamInfo);
-/// ForallParamInfo — metadata for a forall type parameter.
+/// ForallParamInfo — metadata for a generic type parameter.
 ForallParamInfo :: struct(
   name : comptime_str,
   param_type : Type
@@ -6292,14 +6347,14 @@ Option :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   Option(T),
   /// Extract the contained value, panicking with a message if `None`.
   unwrap : (fn(self : Self) -> T)(
     match(
       self,
       .Some(value) => value,
-      .None => panic("Called unwrap on a None value")
+      .None => __yo_panic("Called unwrap on a None value")
     )
   ),
   /// Extract the contained value, or return `or_value` if `None`.
@@ -6329,10 +6384,10 @@ impl(
 );
 /// Functional combinators for `Option(T)`.
 impl(
-  forall(T : Type),
+  generic(T : Type),
   Option(T),
   /// Apply `f` to the contained value (if `Some`), or return `None`.
-  map : (fn(forall(B : Type), self : Self, f : Impl(Fn(a : T) -> B)) -> Option(B))(
+  map : (fn(generic(B : Type), self : Self, f : Impl(Fn(a : T) -> B)) -> Option(B))(
     match(
       self,
       .Some(value) => Option(B).Some(f(value)),
@@ -6340,7 +6395,7 @@ impl(
     )
   ),
   /// Apply `f` to the contained value (if `Some`) and flatten the result.
-  and_then : (fn(forall(B : Type), self : Self, f : Impl(Fn(a : T) -> Option(B))) -> Option(B))(
+  and_then : (fn(generic(B : Type), self : Self, f : Impl(Fn(a : T) -> Option(B))) -> Option(B))(
     match(
       self,
       .Some(value) => f(value),
@@ -6367,7 +6422,7 @@ impl(
     )
   ),
   /// Apply `f` if `Some`, otherwise return `default_val`.
-  map_or : (fn(forall(B : Type), self : Self, default_val : B, f : Impl(Fn(a : T) -> B)) -> B)(
+  map_or : (fn(generic(B : Type), self : Self, default_val : B, f : Impl(Fn(a : T) -> B)) -> B)(
     match(
       self,
       .Some(value) => f(value),
@@ -6375,7 +6430,7 @@ impl(
     )
   ),
   /// Apply `f` if `Some`, otherwise call `default_fn`.
-  map_or_else : (fn(forall(B : Type), self : Self, default_fn : Impl(Fn() -> B), f : Impl(Fn(a : T) -> B)) -> B)(
+  map_or_else : (fn(generic(B : Type), self : Self, default_fn : Impl(Fn() -> B), f : Impl(Fn(a : T) -> B)) -> B)(
     match(
       self,
       .Some(value) => f(value),
@@ -6383,7 +6438,7 @@ impl(
     )
   ),
   /// Return `optb` if `self` is `Some`, otherwise `None`.
-  and : (fn(forall(B : Type), self : Self, optb : Option(B)) -> Option(B))(
+  and : (fn(generic(B : Type), self : Self, optb : Option(B)) -> Option(B))(
     match(
       self,
       .Some(_) => optb,
@@ -6409,7 +6464,7 @@ impl(
 );
 /// Flatten a nested `Option(Option(T))` into `Option(T)`.
 impl(
-  forall(T : Type),
+  generic(T : Type),
   Option(Option(T)),
   /// Collapse one level of nesting.
   flatten : (fn(self : Self) -> Option(T))(
@@ -6421,10 +6476,10 @@ impl(
   )
 );
 /// `Option(T)` implements `Comptime` when `T` implements `Comptime`.
-impl(forall(T : Type), where(T <: Comptime), Option(T), Comptime());
+impl(generic(T : Type), where(T <: Comptime), Option(T), Comptime());
 /// Compile-time methods for `Option(T)`.
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Comptime),
   Option(T),
   /// Compile-time unwrap — panics at compile-time if `None`.
@@ -6432,7 +6487,7 @@ impl(
     match(
       self,
       .Some(value) => value,
-      .None => panic("Called comptime_unwrap on a None value")
+      .None => __yo_panic("Called comptime_unwrap on a None value")
     )
   ),
   comptime_unwrap_or : (fn(comptime(self) : Self, comptime(or_value) : T) -> comptime(T))(
@@ -6471,7 +6526,7 @@ export(
 DeriveContext :: struct(
   /// The AST expression for the target type.
   target : Expr,
-  /// Optional forall parameters for generic types.
+  /// Optional generic parameters for generic types.
   forall_params : Option(Expr),
   /// Optional where clause for constrained generics.
   where_clause : Option(Expr)
@@ -6559,7 +6614,8 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
       ctx.make_impl(
         quote(
           Eq(...#(trait_params))(
-            (==) : ((lhs, rhs) -> #(eq_body))
+            (==) : ((lhs, rhs) -> #(eq_body)),
+            (!=) : ((lhs, rhs) -> not(lhs == rhs))
           )
         )
       )
@@ -6629,7 +6685,8 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
       ctx.make_impl(
         quote(
           Eq(...#(trait_params))(
-            (==) : ((lhs, rhs) -> #(match_body.to_expr()))
+            (==) : ((lhs, rhs) -> #(match_body.to_expr())),
+            (!=) : ((lhs, rhs) -> not(lhs == rhs))
           )
         )
       )
@@ -6638,7 +6695,8 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
       ctx.make_impl(
         quote(
           Eq(...#(trait_params))(
-            (==) : ((lhs, rhs) -> true)
+            (==) : ((lhs, rhs) -> true),
+            (!=) : ((lhs, rhs) -> not(lhs == rhs))
           )
         )
       )
@@ -7049,14 +7107,14 @@ Result :: (fn(comptime(OkType) : Type, comptime(ErrorType) : Type) -> comptime(T
   )
 );
 impl(
-  forall(OkType : Type, ErrorType : Type),
+  generic(OkType : Type, ErrorType : Type),
   Result(OkType, ErrorType),
   /// Extract the `Ok` value, panicking if `Err`.
   unwrap : (fn(self : Self) -> OkType)(
     match(
       self,
       .Ok(value) => value,
-      .Err(_) => panic("Called unwrap on an Error value")
+      .Err(_) => __yo_panic("Called unwrap on an Error value")
     )
   ),
   /// Extract the `Err` value, panicking if `Ok`.
@@ -7064,7 +7122,7 @@ impl(
     match(
       self,
       .Err(error) => error,
-      .Ok(_) => panic("Called unwrap_err on an Ok value")
+      .Ok(_) => __yo_panic("Called unwrap_err on an Ok value")
     )
   ),
   /// Return `true` if the result is `Ok`.
@@ -7086,10 +7144,10 @@ impl(
 );
 /// Functional combinators for `Result(OkType, ErrorType)`.
 impl(
-  forall(OkType : Type, ErrorType : Type),
+  generic(OkType : Type, ErrorType : Type),
   Result(OkType, ErrorType),
   /// Map the `Ok` value with `f`, leaving `Err` untouched.
-  map : (fn(forall(B : Type), self : Self, f : Impl(Fn(a : OkType) -> B)) -> Result(B, ErrorType))(
+  map : (fn(generic(B : Type), self : Self, f : Impl(Fn(a : OkType) -> B)) -> Result(B, ErrorType))(
     match(
       self,
       .Ok(value) => Result(B, ErrorType).Ok(f(value)),
@@ -7097,7 +7155,7 @@ impl(
     )
   ),
   /// Map the `Err` value with `f`, leaving `Ok` untouched.
-  map_err : (fn(forall(F : Type), self : Self, f : Impl(Fn(a : ErrorType) -> F)) -> Result(OkType, F))(
+  map_err : (fn(generic(F : Type), self : Self, f : Impl(Fn(a : ErrorType) -> F)) -> Result(OkType, F))(
     match(
       self,
       .Ok(value) => Result(OkType, F).Ok(value),
@@ -7105,7 +7163,7 @@ impl(
     )
   ),
   /// Chain a computation that may fail on the `Ok` value.
-  and_then : (fn(forall(B : Type), self : Self, f : Impl(Fn(a : OkType) -> Result(B, ErrorType))) -> Result(B, ErrorType))(
+  and_then : (fn(generic(B : Type), self : Self, f : Impl(Fn(a : OkType) -> Result(B, ErrorType))) -> Result(B, ErrorType))(
     match(
       self,
       .Ok(value) => f(value),
@@ -7113,7 +7171,7 @@ impl(
     )
   ),
   /// Chain a recovery computation on the `Err` value.
-  or_else : (fn(forall(F : Type), self : Self, f : Impl(Fn(a : ErrorType) -> Result(OkType, F))) -> Result(OkType, F))(
+  or_else : (fn(generic(F : Type), self : Self, f : Impl(Fn(a : ErrorType) -> Result(OkType, F))) -> Result(OkType, F))(
     match(
       self,
       .Ok(value) => Result(OkType, F).Ok(value),
@@ -7121,7 +7179,7 @@ impl(
     )
   ),
   /// Return `res` if `Ok`, otherwise propagate `Err`.
-  and : (fn(forall(B : Type), self : Self, res : Result(B, ErrorType)) -> Result(B, ErrorType))(
+  and : (fn(generic(B : Type), self : Self, res : Result(B, ErrorType)) -> Result(B, ErrorType))(
     match(
       self,
       .Ok(_) => res,
@@ -7129,7 +7187,7 @@ impl(
     )
   ),
   /// Return `self` if `Ok`, otherwise return `res`.
-  or : (fn(forall(F : Type), self : Self, res : Result(OkType, F)) -> Result(OkType, F))(
+  or : (fn(generic(F : Type), self : Self, res : Result(OkType, F)) -> Result(OkType, F))(
     match(
       self,
       .Ok(value) => Result(OkType, F).Ok(value),
@@ -7153,7 +7211,7 @@ impl(
     )
   ),
   /// Apply `f` if `Ok`, otherwise return `default_val`.
-  map_or : (fn(forall(B : Type), self : Self, default_val : B, f : Impl(Fn(a : OkType) -> B)) -> B)(
+  map_or : (fn(generic(B : Type), self : Self, default_val : B, f : Impl(Fn(a : OkType) -> B)) -> B)(
     match(
       self,
       .Ok(value) => f(value),
@@ -7161,7 +7219,7 @@ impl(
     )
   ),
   /// Apply `f` if `Ok`, otherwise call `default_fn` with the error.
-  map_or_else : (fn(forall(B : Type), self : Self, default_fn : Impl(Fn(a : ErrorType) -> B), f : Impl(Fn(a : OkType) -> B)) -> B)(
+  map_or_else : (fn(generic(B : Type), self : Self, default_fn : Impl(Fn(a : ErrorType) -> B), f : Impl(Fn(a : OkType) -> B)) -> B)(
     match(
       self,
       .Ok(value) => f(value),
@@ -7179,10 +7237,10 @@ impl(
 );
 /// `Option` to `Result` conversion methods (defined after `Result`).
 impl(
-  forall(T : Type),
+  generic(T : Type),
   Option(T),
   /// Convert `Some(value)` to `Ok(value)`, or return `Err(err)` if `None`.
-  ok_or : (fn(forall(E : Type), self : Self, err : E) -> Result(T, E))(
+  ok_or : (fn(generic(E : Type), self : Self, err : E) -> Result(T, E))(
     match(
       self,
       .Some(value) => Result(T, E).Ok(value),
@@ -7190,7 +7248,7 @@ impl(
     )
   ),
   /// Convert `Some(value)` to `Ok(value)`, or call `err_fn` to produce `Err` if `None`.
-  ok_or_else : (fn(forall(E : Type), self : Self, err_fn : Impl(Fn() -> E)) -> Result(T, E))(
+  ok_or_else : (fn(generic(E : Type), self : Self, err_fn : Impl(Fn() -> E)) -> Result(T, E))(
     match(
       self,
       .Some(value) => Result(T, E).Ok(value),
@@ -7199,10 +7257,10 @@ impl(
   )
 );
 /// `Result(OkType, ErrorType)` implements `Comptime` when both types implement `Comptime`.
-impl(forall(OkType : Type, ErrorType : Type), where(OkType <: Comptime, ErrorType <: Comptime), Result(OkType, ErrorType), Comptime());
+impl(generic(OkType : Type, ErrorType : Type), where(OkType <: Comptime, ErrorType <: Comptime), Result(OkType, ErrorType), Comptime());
 /// Compile-time methods for `Result(OkType, ErrorType)`.
 impl(
-  forall(OkType : Type, ErrorType : Type),
+  generic(OkType : Type, ErrorType : Type),
   where(OkType <: Comptime, ErrorType <: Comptime),
   Result(OkType, ErrorType),
   /// Compile-time unwrap — panics at compile-time if `Err`.
@@ -7210,14 +7268,14 @@ impl(
     match(
       self,
       .Ok(value) => value,
-      .Err(_) => panic("Called comptime_unwrap on an Err value")
+      .Err(_) => __yo_panic("Called comptime_unwrap on an Err value")
     )
   ),
   comptime_unwrap_err : (fn(comptime(self) : Self) -> comptime(ErrorType))(
     match(
       self,
       .Err(error) => error,
-      .Ok(_) => panic("Called comptime_unwrap_err on an Ok value")
+      .Ok(_) => __yo_panic("Called comptime_unwrap_err on an Ok value")
     )
   ),
   comptime_is_ok : (fn(comptime(self) : Self) -> comptime(bool))(
@@ -7237,7 +7295,7 @@ impl(
 );
 /// Clone for `Option(T)` — clones the inner value when `Some`.
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Clone),
   Option(T),
   Clone(
@@ -7253,7 +7311,7 @@ impl(
 );
 /// Equality for `Option(T)` — `Some(a) == Some(b)` iff `a == b`; `None == None`.
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Eq(T)),
   Option(T),
   Eq(Option(T))(
@@ -7273,7 +7331,7 @@ impl(
 );
 /// Clone for `Result(T, E)` — clones the inner value or error.
 impl(
-  forall(T : Type, E : Type),
+  generic(T : Type, E : Type),
   where(T <: Clone, E <: Clone),
   Result(T, E),
   Clone(
@@ -7289,7 +7347,7 @@ impl(
 );
 /// Equality for `Result(T, E)` — variants must match and inner values must be equal.
 impl(
-  forall(T : Type, E : Type),
+  generic(T : Type, E : Type),
   where(T <: Eq(T), E <: Eq(E)),
   Result(T, E),
   Eq(Result(T, E))(
@@ -7322,21 +7380,23 @@ export(Result);
 /// assert((b.* == i32(42)), "inner value is 42");
 /// ```
 Box :: (fn(comptime(V) : Type) -> comptime(Type))(
-  object(
-    (*) : V
+  ref(
+    struct(
+      (*) : V
+    )
   )
 );
 /// Allocate a value on the heap, returning a `Box(V)`.
-box :: (fn(forall(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
+box :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
 impl(
-  forall(T : Type),
+  generic(T : Type),
   Box(T),
   Isolation(
     can_isolate : ((self) -> (rc(self) == 1))
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Hash),
   Box(T),
   Hash(
@@ -7344,7 +7404,7 @@ impl(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Eq(T)),
   Box(T),
   Eq(Box(T))(
@@ -7355,7 +7415,7 @@ impl(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Clone),
   Box(T),
   Clone(
@@ -7374,10 +7434,10 @@ export(
 // borrow, etc.), this Send claim becomes unsound and must be revoked.
 // See plans/THREAD_SAFETY.md "Iso(T) design notes — precedent and known
 // risks" for the full argument.
-impl(forall(T : Type), Iso(T), Send());
-impl(forall(T : Type), where(T <: Acyclic), Iso(T), Acyclic());
+impl(generic(T : Type), Iso(T), Send());
+impl(generic(T : Type), where(T <: Acyclic), Iso(T), Acyclic());
 impl(
-  forall(T : Type),
+  generic(T : Type),
   Iso(T),
   /// Extract the inner value if this `Iso` holds the only reference.
   /// Panics if rc != 1 or if this Iso has already been extracted.
@@ -7450,17 +7510,19 @@ export(^);
 /// ```
 Arc :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))(
   atomic(
-    object(
-      (*) : V
+    ref(
+      struct(
+        (*) : V
+      )
     )
   )
 );
 /// Allocate a value inside an Arc, returning an `Arc(V)`.
-arc :: (fn(forall(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Arc(V))(Arc(V)(value));
+arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Arc(V))(Arc(V)(value));
 // SAFETY: Arc(T) is an atomic reference-counted wrapper. It is Send when
 // the inner T is Send (all fields of the atomic-object must be Send per
 // auto-derive) and Acyclic (prevents permanent leaks from Arc cycles).
-impl(forall(T : Type), where(T <: (Send, Acyclic)), Arc(T), Send());
+impl(generic(T : Type), where(T <: (Send, Acyclic)), Arc(T), Send());
 export(Arc, arc);
 /// === MaybeUninit ===
 extern(
@@ -7495,12 +7557,12 @@ MaybeUninit :: (fn(comptime(BaseType) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(BaseType : Type),
+  generic(BaseType : Type),
   MaybeUninit(BaseType),
   /// Create a new uninitialized value.
   new : (fn() -> Self)(__yo_maybe_uninit_new(Self)),
   /// Get a mutable pointer to the underlying value.
-  as_ptr : (fn(ref(self) : Self) -> *(BaseType))(
+  as_ptr : (fn(inout(self) : Self) -> *(BaseType))(
     __yo_maybe_uninit_as_ptr(Self, BaseType, &(self))
   ),
   /// Assume the value is initialized and extract it. **Undefined behavior if not initialized.**
@@ -7515,7 +7577,9 @@ Iterator :: trait(
   Item : Type,
   /// Advance the iterator and return the next value, or `None` when exhausted.
   next :
-    fn(ref(self) : Self) -> Option(Self.Item)
+    (
+      fn(inout(self) : Self) -> Option(Self.Item)
+    )
 );
 export(Iterator);
 /// IntoIterator trait — convert a collection into an iterator.
@@ -7523,7 +7587,7 @@ IntoIterator :: trait(
   Item : Type,
   IntoIter : Type,
   into_iter :
-    fn(self : Self) -> Self.IntoIter,
+    (fn(self : Self) -> Self.IntoIter),
   where(Self.IntoIter <: Iterator(Item := Self.Item))
 );
 export(IntoIterator);
@@ -7537,11 +7601,11 @@ _ArrayIter :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))(
   )
 );
 impl(
-  forall(T : Type, N : usize),
+  generic(T : Type, N : usize),
   _ArrayIter(T, N),
   Iterator(
     Item : T,
-    next : (fn(ref(self) : Self) -> Option(T))(
+    next : (fn(inout(self) : Self) -> Option(T))(
       cond(
         (self._index >= N) =>.None,
         true => {
@@ -7554,7 +7618,7 @@ impl(
   )
 );
 impl(
-  forall(T : Type, N : usize),
+  generic(T : Type, N : usize),
   Array(T, N),
   into_iter : (fn(self : Self) -> _ArrayIter(T, N))(
     _ArrayIter(T, N)(_arr : self, _index : usize(0))
@@ -7630,7 +7694,7 @@ export(try);
 ///     iterator; object elements are handles, so mutating `x` in the
 ///     body mutates the element in place.
 ///
-/// The old borrow form `for(coll, ref(x) => body)` was REMOVED: it
+/// The old borrow form `for(coll, inout(x) => body)` was REMOVED: it
 /// required `ref`s into reallocatable storage, which is no longer
 /// expressible. Object elements mutate in place through the value
 /// handle; struct elements use an index loop with `get`/`set`.
@@ -7666,12 +7730,12 @@ for :: (
             comptime_assert(args.len() == 2, "'for' macro requires 2 arguments in the function handle");
             variable :: args.car();
             body :: args.cdr().car();
-            // Detect `ref(name) => body` — borrow form. Otherwise
+            // Detect `inout(name) => body` — borrow form. Otherwise
             // it's the value form `(name) => body`.
             is_ref_form :: cond(
               variable.is_fn_call() => {
                 v_callee :: variable.get_callee();
-                v_callee.is_atom() && (v_callee == quote(ref))
+                v_callee.is_atom() && (v_callee == quote(inout))
               },
               true => false
             );
@@ -7682,7 +7746,7 @@ for :: (
                 // of failing with a resolution error.
                 comptime_assert(
                   false,
-                  "'for(coll, ref(x) => ...)' was removed - use the value form 'for(coll, (x) => ...)'. Object elements are handles and mutate in place; for struct elements use an index loop with get/set."
+                  "'for(coll, inout(x) => ...)' was removed - use the value form 'for(coll, (x) => ...)'. Object elements are handles and mutate in place; for struct elements use an index loop with get/set."
                 );
                 quote(())
               },
@@ -7739,12 +7803,12 @@ IterMap :: (fn(comptime(I) : Type, comptime(B) : Type, comptime(F) : Type) -> co
   struct(_inner : I, _f : F)
 );
 impl(
-  forall(I : Type, A : Type, B : Type, F : Type),
+  generic(I : Type, A : Type, B : Type, F : Type),
   where(I <: Iterator(Item := A), F <: (Fn(item : A) -> B)),
   IterMap(I, B, F),
   Iterator(
     Item : B,
-    next : (fn(ref(self) : Self) -> Option(B))(
+    next : (fn(inout(self) : Self) -> Option(B))(
       match(
         self._inner.next(),
         .None =>.None,
@@ -7766,12 +7830,12 @@ IterFilter :: (fn(comptime(I) : Type, comptime(F) : Type) -> comptime(Type))(
   struct(_inner : I, _f : F)
 );
 impl(
-  forall(I : Type, A : Type, F : Type),
+  generic(I : Type, A : Type, F : Type),
   where(I <: Iterator(Item := A), F <: (Fn(item : *(A)) -> bool)),
   IterFilter(I, F),
   Iterator(
     Item : A,
-    next : (fn(ref(self) : Self) -> Option(A))({
+    next : (fn(inout(self) : Self) -> Option(A))({
       (loop_result : Option(A)) =.None;
       while(runtime(true), {
         candidate := self._inner.next();
@@ -7806,12 +7870,12 @@ IterTake :: (fn(comptime(I) : Type) -> comptime(Type))(
   struct(_inner : I, _remaining : usize)
 );
 impl(
-  forall(I : Type, A : Type),
+  generic(I : Type, A : Type),
   where(I <: Iterator(Item := A)),
   IterTake(I),
   Iterator(
     Item : A,
-    next : (fn(ref(self) : Self) -> Option(A))(
+    next : (fn(inout(self) : Self) -> Option(A))(
       cond(
         (self._remaining == usize(0)) =>.None,
         true => {
@@ -7834,12 +7898,12 @@ IterSkip :: (fn(comptime(I) : Type) -> comptime(Type))(
   struct(_inner : I, _to_skip : usize)
 );
 impl(
-  forall(I : Type, A : Type),
+  generic(I : Type, A : Type),
   where(I <: Iterator(Item := A)),
   IterSkip(I),
   Iterator(
     Item : A,
-    next : (fn(ref(self) : Self) -> Option(A))({
+    next : (fn(inout(self) : Self) -> Option(A))({
       while(self._to_skip > usize(0), {
         result := self._inner.next();
         match(
@@ -7870,12 +7934,12 @@ IterEnumerate :: (fn(comptime(I) : Type) -> comptime(Type))(
   struct(_inner : I, _index : usize)
 );
 impl(
-  forall(I : Type, A : Type),
+  generic(I : Type, A : Type),
   where(I <: Iterator(Item := A)),
   IterEnumerate(I),
   Iterator(
     Item : IterPair(usize, A),
-    next : (fn(ref(self) : Self) -> Option(IterPair(usize, A)))(
+    next : (fn(inout(self) : Self) -> Option(IterPair(usize, A)))(
       match(
         self._inner.next(),
         .None =>.None,
@@ -7901,12 +7965,12 @@ IterZip :: (fn(comptime(I) : Type, comptime(J) : Type) -> comptime(Type))(
   struct(_left : I, _right : J)
 );
 impl(
-  forall(I : Type, J : Type, A : Type, B : Type),
+  generic(I : Type, J : Type, A : Type, B : Type),
   where(I <: Iterator(Item := A), J <: Iterator(Item := B)),
   IterZip(I, J),
   Iterator(
     Item : IterPair(A, B),
-    next : (fn(ref(self) : Self) -> Option(IterPair(A, B)))(
+    next : (fn(inout(self) : Self) -> Option(IterPair(A, B)))(
       match(
         self._left.next(),
         .None =>.None,
@@ -7928,21 +7992,21 @@ export(IterZip);
 /// expand to `combinator_chain.into_iter().next()` uniformly with
 /// `for(coll, (x) => body)` — the macro always calls `.into_iter()`
 /// for the value-iteration form, and for an iterator we hand back
-/// self. See plans/ITERATOR_REDESIGN.md.
+/// self. See plans/archive/ITERATOR_REDESIGN.md.
 impl(
-  forall(I : Type),
+  generic(I : Type),
   where(I <: Iterator),
   I,
   into_iter : (fn(self : Self) -> Self)(self)
 );
 impl(
-  forall(I : Type),
+  generic(I : Type),
   where(I <: Iterator),
   I,
   /// Transform each element with `f`, producing an `IterMap` iterator.
   map : (
     fn(
-      forall(A : Type, B : Type, F : Type),
+      generic(A : Type, B : Type, F : Type),
       self : Self,
       f : F,
       where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> B))
@@ -7953,7 +8017,7 @@ impl(
   /// Keep only elements for which `pred` returns `true`, producing an `IterFilter` iterator.
   filter : (
     fn(
-      forall(A : Type, F : Type),
+      generic(A : Type, F : Type),
       self : Self,
       f : F,
       where(Self <: Iterator(Item := A), F <: (Fn(item : *(A)) -> bool))
@@ -7964,7 +8028,7 @@ impl(
   /// Yield at most `n` elements, producing an `IterTake` iterator.
   take : (
     fn(
-      forall(A : Type),
+      generic(A : Type),
       self : Self,
       n : usize,
       where(Self <: Iterator(Item := A))
@@ -7975,7 +8039,7 @@ impl(
   /// Skip the first `n` elements, producing an `IterSkip` iterator.
   skip : (
     fn(
-      forall(A : Type),
+      generic(A : Type),
       self : Self,
       n : usize,
       where(Self <: Iterator(Item := A))
@@ -7986,7 +8050,7 @@ impl(
   /// Pair each element with its zero-based index, producing an `IterEnumerate` iterator.
   enumerate : (
     fn(
-      forall(A : Type),
+      generic(A : Type),
       self : Self,
       where(Self <: Iterator(Item := A))
     ) -> IterEnumerate(Self)
@@ -7996,7 +8060,7 @@ impl(
   /// Combine with another iterator element-by-element, producing an `IterZip` iterator.
   zip : (
     fn(
-      forall(A : Type, J : Type, B : Type),
+      generic(A : Type, J : Type, B : Type),
       self : Self,
       other : J,
       where(Self <: Iterator(Item := A), J <: Iterator(Item := B))
@@ -8007,7 +8071,7 @@ impl(
   /// Reduce the iterator to a single value by repeatedly applying `f`.
   fold : (
     fn(
-      forall(A : Type, Acc : Type, F : Type),
+      generic(A : Type, Acc : Type, F : Type),
       self : Self,
       init : Acc,
       f : F,
@@ -8032,7 +8096,7 @@ impl(
   /// Apply `f` to each element, consuming the iterator.
   for_each : (
     fn(
-      forall(A : Type, F : Type),
+      generic(A : Type, F : Type),
       self : Self,
       f : F,
       where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> unit))
@@ -8054,7 +8118,7 @@ impl(
   /// Count the number of remaining elements.
   count : (
     fn(
-      forall(A : Type),
+      generic(A : Type),
       self : Self,
       where(Self <: Iterator(Item := A))
     ) -> usize
@@ -8077,7 +8141,7 @@ impl(
   /// Return `true` if any element satisfies `pred`.  Short-circuits on first match.
   any : (
     fn(
-      forall(A : Type, F : Type),
+      generic(A : Type, F : Type),
       self : Self,
       pred : F,
       where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))
@@ -8107,7 +8171,7 @@ impl(
   /// Return `true` if every element satisfies `pred`.  Short-circuits on first failure.
   all : (
     fn(
-      forall(A : Type, F : Type),
+      generic(A : Type, F : Type),
       self : Self,
       pred : F,
       where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))
@@ -8171,7 +8235,7 @@ JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))(
 // Phase L (THREAD_SAFETY): JoinHandle is NOT Send — the inner future state
 // machine lives on the spawner's event-loop thread. Cross-thread result
 // delivery uses Channel(T).
-impl(forall(T : Type), JoinHandle(T), !(Send()));
+impl(generic(T : Type), JoinHandle(T), !(Send()));
 export(JoinHandle);
 /// Io module — the async runtime effect.
 ///
@@ -8179,13 +8243,13 @@ export(JoinHandle);
 /// Automatically injected into `main` when declared with `io : Io`.
 Io :: struct(
   /// Create a new `Future` from an async closure.
-  async : (fn(forall(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
+  async : (fn(generic(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
   /// Await a `Future`, suspending until its result is ready.
-  await : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
+  await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
   /// Inspect the current state of a `Future` without blocking.
-  state : (fn(forall(T : Type, E : Type), fut : Impl(Future(T, E))) -> FutureState),
+  state : (fn(generic(T : Type, E : Type), fut : Impl(Future(T, E))) -> FutureState),
   /// Spawn a `Future` as an independent task, returning a `JoinHandle`.
-  spawn : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
+  spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
 // Phase L (THREAD_SAFETY): Io is NOT Send — the async runtime it represents
 // is per-thread (per AGENTS.md). Sending Io across a thread boundary would
@@ -8194,10 +8258,10 @@ impl(Io, !(Send()));
 export(Io);
 extern(
   "Yo",
-  __yo_io_async : (fn(forall(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
-  __yo_io_await : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
-  __yo_io_state : (fn(forall(T : Type, E : Type), fut : Impl(Future(T, E))) -> FutureState),
-  __yo_io_spawn : (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
+  __yo_io_async : (fn(generic(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
+  __yo_io_await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
+  __yo_io_state : (fn(generic(T : Type, E : Type), fut : Impl(Future(T, E))) -> FutureState),
+  __yo_io_spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
 /// Built-in Io module instance. Automatically injected for `main` functions
 /// with `io : Io`.
@@ -8211,10 +8275,10 @@ export(__yo_builtin_io);
 /// JoinHandle methods — defined after Io so `io : Io` resolves.
 extern(
   "Yo",
-  __yo_join_handle_await : (fn(forall(T : Type), self : JoinHandle(T), io : Io) -> Option(T))
+  __yo_join_handle_await : (fn(generic(T : Type), self : JoinHandle(T), io : Io) -> Option(T))
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   JoinHandle(T),
   await : __yo_join_handle_await
 );

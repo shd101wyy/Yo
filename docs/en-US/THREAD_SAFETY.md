@@ -18,8 +18,8 @@ Yo provides **data-race-freedom by default** for safe (non-pragma'd) code. Every
 // All fields are Send → Point is Send
 Point :: struct(x : i32, y : i32);
 
-// Regular object is NOT Send — it uses non-atomic RC
-MyObj :: object(data : Vec(i32));
+// Regular reference type is NOT Send — it uses non-atomic RC
+MyObj :: ref(struct(data : Vec(i32)));
 ```
 
 ### Manual Send Impls Require Pragma
@@ -28,7 +28,7 @@ Writing `impl(MyType, Send())` requires `pragma(Pragma.AllowUnsafe)` and a `// S
 
 ## Atomic Objects vs Regular Objects
 
-|                          | `object(...)`                | `atomic object(...)`                    |
+|                          | `ref(struct(...))`           | `atomic(ref(struct(...)))`              |
 | ------------------------ | ---------------------------- | --------------------------------------- |
 | **Reference counting**   | Non-atomic RC (thread-local) | Atomic RC (thread-safe)                 |
 | **Cross-thread sharing** | Not allowed (not Send)       | Allowed (Send when all fields are Send) |
@@ -116,7 +116,7 @@ counter.with_lock((v) => {
 new_value := counter.with_lock((v) => (v + i32(1)));
 ```
 
-The closure receives `ref(v) : T` — a **second-class reference** that:
+The closure receives `inout(v) : T` — a **second-class reference** that:
 
 - Can read and write through `v`
 - Cannot be stored in a struct field
@@ -171,7 +171,7 @@ Fields whose names start with `_` are private to the **file and directory** that
 
 ```rust
 // In std/sync/mutex.yo:
-Mutex :: atomic(object(_handle : __YO_THREAD_SYNC_TYPE, _value : T));
+Mutex :: atomic(ref(struct(_handle : __YO_THREAD_SYNC_TYPE, _value : T)));
 ```
 
 User code **cannot** access `mutex._value` or `mutex._handle` — the compiler rejects cross-directory `_`-prefixed field access. This closes the synchronized-interior read hole (reading `mutex._value` without acquiring the lock).

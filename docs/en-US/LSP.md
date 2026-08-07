@@ -146,7 +146,7 @@ When a module is re-evaluated, `deleteModule` mutates shared type objects (clear
 
 ### Generic Impl Resolution
 
-Methods from generic `impl` blocks (e.g., `impl(forall(T), Option(T), ...)`) are resolved through the global `genericImplRegistry`. The LSP enumerates these to provide completions for types like `ArrayList`, `Option`, `Result`, and `HashMap`.
+Methods from generic `impl` blocks (e.g., `impl(generic(T), Option(T), ...)`) are resolved through the global `genericImplRegistry`. The LSP enumerates these to provide completions for types like `ArrayList`, `Option`, `Result`, and `HashMap`.
 
 ### Doc Comment Propagation
 

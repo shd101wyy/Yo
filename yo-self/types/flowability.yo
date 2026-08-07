@@ -1,14 +1,14 @@
-//! Flowability check for `ref(T)`-yielding expressions.
+//! Flowability check for `inout(T)`-yielding expressions.
 //!
 //! 1:1 port of `src/types/flowability.ts`. Implements the structural soundness
-//! rule from `plans/ITERATOR_REDESIGN.md`: an expression is "flowable" iff it
+//! rule from `plans/archive/ITERATOR_REDESIGN.md`: an expression is "flowable" iff it
 //! roots back to a `ref`-bound parameter (or another `ref`-bound local with a
 //! flowable initializer) along a projection-respecting chain.
 //!
 //! Rules (numbered to match the plan):
 //!   R1.  A name reference is flowable iff its binding `is_ref`.
 //!   R2.  `expr.field` is flowable iff `expr` is flowable.
-//!   R3.  `expr(args)` is flowable iff the callee's return slot is `ref(T)`
+//!   R3.  `expr(args)` is flowable iff the callee's return slot is `inout(T)`
 //!        AND every `ref`-typed argument it receives is itself flowable.
 //!   R4.  `cond` / `match` arms each return-flow independently.
 //!
@@ -37,7 +37,7 @@ open(import("std/string"));
   make_err_expr,
   ast_expr_to_string
 } :: import("../expr.yo");
-{ ExprInfo, expr_info_table_get, has_any_control_flow, lookup_method_callee_type }
+{ ExprInfo, expr_info_table_get, has_any_control_flow, lookup_method_callee_type, expr_info_closure_function_value }
 :: import("../expr_info.yo");
 { Variable, Environment, get_variables_from_env } :: import("../env.yo");
 { format_error_message } :: import("../error.yo");
@@ -45,12 +45,12 @@ open(import("std/string"));
 { is_type_val } :: import("../value.yo");
 { EvalContext } :: import("../evaluator/context.yo");
 { TypeValue } :: import("./definitions.yo");
-{ is_function_type, is_object_type, is_atomic_object_type } :: import("./guards.yo");
+{ is_function_type, is_reference_struct_type, is_atomic_reference_struct_type, is_pointer_type } :: import("./guards.yo");
 { type_may_provide_slice_source, type_representation_contains_raw_ptr, type_contains_rc_type }
 :: import("./utils.yo");
 /// A 1-element mutable box flagging that an error thrown during a swallowed
 /// def-time body eval is a deliberate flow-soundness REJECTION (a
-/// `ref(name) := …` non-flowable RHS), not an unported-feature eval error.
+/// `inout(name) := …` non-flowable RHS), not an unported-feature eval error.
 /// `_trial_eval_fn_body`'s handler cannot capture the real outer `exn` (effect
 /// handlers are capture-free `->` functions), so instead: the binding-site
 /// flags the violation before throwing; the throw is swallowed as usual; then
@@ -68,9 +68,9 @@ open(import("std/string"));
 /// recording its message for the def-time re-raise.
 flag_flow_violation :: (fn(msg : String) -> unit)({
   g_flow_violation_box.clear();
-  _ := g_flow_violation_box.push(true);
+  g_flow_violation_box.push(true);
   g_flow_violation_msg.clear();
-  _ := g_flow_violation_msg.push(msg);
+  g_flow_violation_msg.push(msg);
   ()
 });
 /// Reset the flag (called before each def-time body eval and after each catch).
@@ -105,26 +105,48 @@ flow_violation_message :: (fn() -> String)(
 /// Enter/leave "propagate all def-time body-eval errors" mode.
 set_propagate_def_time_errors :: (fn(on : bool) -> unit)({
   g_propagate_def_time_errors_box.clear();
-  _ := g_propagate_def_time_errors_box.push(on);
+  g_propagate_def_time_errors_box.push(on);
   ()
 });
 /// True iff def-time body-eval errors should propagate (set during a
 /// `comptime_expect_error` argument eval).
+/// comptime_expect_error OBSERVATION channel: the non-raw eval wrapper
+/// (_evaluate_expression_wrapper) has NO outer exn and SWALLOWS throws; a
+/// validation raised beneath it during a cee's propagate-mode clone eval
+/// (e.g. the regular-fn-no-outer-capture check) therefore never reached the
+/// cee's local exn — cee then wrongly threw "Expected compile error..."
+/// through the OUTER exn, abandoning the enclosing begin. The wrapper sets
+/// this flag instead (only in propagate mode); the cee helper counts a set
+/// flag as an observed throw. TS needs none of this: it has no swallowing
+/// wrapper — JS exceptions propagate to the cee try/catch natively.
+(g_cee_observed_error_box : ArrayList(bool)) = ArrayList(bool).new();
+set_cee_observed_error :: (fn() -> unit)({
+  g_cee_observed_error_box.clear();
+  g_cee_observed_error_box.push(true);
+});
+clear_cee_observed_error :: (fn() -> unit)({
+  g_cee_observed_error_box.clear();
+});
+cee_observed_error :: (fn() -> bool)(
+  match(g_cee_observed_error_box.get(usize(0)),.Some(b) => b,.None => false)
+);
 propagate_def_time_errors :: (fn() -> bool)(
   match(g_propagate_def_time_errors_box.get(usize(0)),.Some(v) => v,.None => false)
 );
 /// Options refining the base R1–R4 rule. Mirrors the TS options bag.
-FlowOptions :: object(
-  /// Accept a same-frame (non-module) local — the `ref(name) := …` binding
-  /// site. Bounded by `max_local_frame_level` when that is `.Some`.
-  allow_same_frame_local : bool,
-  /// Accept a parameter of the enclosing function (slice-flowability).
-  allow_parameter_source : bool,
-  /// Accept a `comptime`-bound name / string-ish literal (slice-flowability).
-  allow_comptime_source : bool,
-  /// Scope bound for `allow_same_frame_local` (the assignment target's frame
-  /// level); a same-frame local is accepted only if its level is no deeper.
-  max_local_frame_level : Option(usize)
+FlowOptions :: ref(
+  struct(
+    /// Accept a same-frame (non-module) local — the `inout(name) := …` binding
+    /// site. Bounded by `max_local_frame_level` when that is `.Some`.
+    allow_same_frame_local : bool,
+    /// Accept a parameter of the enclosing function (slice-flowability).
+    allow_parameter_source : bool,
+    /// Accept a `comptime`-bound name / string-ish literal (slice-flowability).
+    allow_comptime_source : bool,
+    /// Scope bound for `allow_same_frame_local` (the assignment target's frame
+    /// level); a same-frame local is accepted only if its level is no deeper.
+    max_local_frame_level : Option(usize)
+  )
 );
 /// Default options (strict R1–R4, the function-return enforcement form).
 flow_options_default :: (fn() -> FlowOptions)(
@@ -258,7 +280,7 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   if(!(ast_expr_is_fn_call(expr)), {
     return(false);
   });
-  call_func := match(expr,.FnCall(_, f, _, _, _) => f.*, _ => expr);
+  call_func := match(expr,.FnCall(_, f, _, _, _) => f, _ => expr);
   call_args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   // R2: `expr.field` — a 2-arg `.` call. Flowable iff the base is flowable.
   if(ast_expr_is_fn_call_of(expr, BF_DOT, Option(usize).Some(usize(2))), {
@@ -318,10 +340,14 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
     });
     return(true);
   });
-  // Pointer arithmetic: `base &+ off` / `base &- off` yields a pointer into the
-  // SAME storage as `base`. Flowable iff `base` is flowable.
-  if(ast_expr_is_fn_call_of(expr, "&+", Option(usize).Some(usize(2))) ||
-    ast_expr_is_fn_call_of(expr, "&-", Option(usize).Some(usize(2))), {
+  // Pointer arithmetic: `base.add(off)` / `base.sub(off)` (formerly the
+  // `&+`/`&-` operators — plans/archive/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md)
+  // yields a pointer into the SAME storage as `base`. Flowable iff `base`
+  // is flowable. GATED on the receiver's evaluated type being a raw
+  // pointer — `add`/`sub` are ordinary method names on other types. The
+  // direct builtin forms keep the positional-arg rule.
+  if(ast_expr_is_fn_call_of(expr, "__yo_ptr_add", Option(usize).None) ||
+    ast_expr_is_fn_call_of(expr, "__yo_ptr_sub", Option(usize).None), {
     base := match(
       call_args.get(usize(0)),
       .Some(a) => a,
@@ -331,6 +357,35 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
     );
     return(recur(base, ctx, opts));
   });
+  {
+    fa_callee := match(expr,.FnCall(_, fa_f, _, _, _) => Option(AstExpr).Some(fa_f), _ => Option(AstExpr).None);
+    match(
+      fa_callee,
+      .Some(fa_fn) => if(ast_expr_is_fn_call_of(fa_fn, ".", Option(usize).Some(usize(2))) && (call_args.len() == usize(1)), {
+        fa_recv := match(fa_fn,.FnCall(_, _, fa_fargs, _, _) => fa_fargs.get(usize(0)), _ => Option(AstExpr).None);
+        fa_member := match(fa_fn,.FnCall(_, _, fa_fargs2, _, _) => fa_fargs2.get(usize(1)), _ => Option(AstExpr).None);
+        fa_name := match(
+          fa_member,
+          .Some(fa_m) => if(ast_expr_is_atom(fa_m), ast_expr_token(fa_m).value, String.new()),
+          .None => String.new()
+        );
+        if((fa_name == "add") || (fa_name == "sub"), {
+          match(
+            fa_recv,
+            .Some(fa_r) => match(
+              expr_info_table_get(ctx.expr_info_table, ast_expr_id(fa_r)),
+              .Some(fa_ri) => if(is_pointer_type(fa_ri.ty), {
+                return(recur(fa_r, ctx, opts));
+              }),
+              .None => ()
+            ),
+            .None => ()
+          );
+        });
+      }),
+      .None => ()
+    );
+  };
   // Enum/variant construction: `.Variant(args…)` — `call.func` is a `.`/1 call
   // or a `.`-typed atom. Flowable iff every arg whose representation carries a
   // raw pointer is flowable. ALSO the QUALIFIED applied form `Enum.Variant(args)`
@@ -441,15 +496,15 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
     return(false);
   });
   // Extract the Func's return/ref/param info.
-  is_ref_return := match(callee_ty,.Func({ result_is_ref : r }) => r, _ => false);
-  ret_ty := match(callee_ty,.Func({ result : rb }) => rb.*, _ => TypeValue.Unit);
+  is_ref_return := match(callee_ty,.Func({ meta : __fm1 }) => __fm1.*.result_is_ref, _ => false);
+  ret_ty := match(callee_ty,.Func({ result : rb }) => rb, _ => TypeValue.Unit);
   _slice_pre := (opts.allow_parameter_source && !(is_ref_return));
   is_slice_return := (_slice_pre && type_representation_contains_raw_ptr(ret_ty));
   if(!(is_ref_return) && !(is_slice_return), {
     return(false);
   });
   param_types := match(callee_ty,.Func({ param_types : pts }) => pts, _ => ArrayList(TypeValue).new());
-  param_is_ref := match(callee_ty,.Func({ param_is_ref : pir }) => pir, _ => ArrayList(bool).new());
+  param_is_ref := match(callee_ty,.Func({ meta : __fm2 }) => __fm2.*.param_is_ref, _ => ArrayList(bool).new());
   // Build the effective argument list (receiver as implicit arg 0 for methods).
   eff_args := ArrayList(AstExpr).new();
   if(is_method_call, {
@@ -504,7 +559,7 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
 /// (step-capped in place of TS's identity-set cycle guard).
 alias_group_root :: (fn(variable : Variable) -> String)({
   (cur : Variable) = variable;
-  (root_id : String) = variable.id.clone();
+  (root_id : String) = variable.id.to_string();
   (steps : usize) = usize(0);
   (done : bool) = false;
   while(!(done) && (steps < usize(64)), {
@@ -512,7 +567,7 @@ alias_group_root :: (fn(variable : Variable) -> String)({
       cur.is_owning_the_same_rc_value_as,
       .Some(next_box) => {
         cur = next_box.*;
-        root_id = cur.id.clone();
+        root_id = cur.id.to_string();
       },
       .None => {
         done = true;
@@ -523,7 +578,7 @@ alias_group_root :: (fn(variable : Variable) -> String)({
   root_id
 });
 
-/// v4.1 (plans/BORROW_EXCLUSIVITY.md): validate the PLACE passed to each
+/// v4.1 (plans/archive/BORROW_EXCLUSIVITY.md): validate the PLACE passed to each
 /// `ref` parameter. With local ref bindings removed, every borrow is an
 /// argument lvalue evaluated at the call boundary; it is safe iff the
 /// borrowed storage cannot be freed during the call. Whole variables are
@@ -553,10 +608,10 @@ _place_root_atom :: (fn(expr_in : AstExpr) -> Option(AstExpr))({
     true => Option(AstExpr).None
   )
 });
-/// Call-site ref/own exclusivity (v4, plans/BORROW_EXCLUSIVITY.md):
+/// Call-site ref/own exclusivity (v4, plans/archive/BORROW_EXCLUSIVITY.md):
 /// within ONE call, an argument bound to an `own(...)` parameter must
-/// not be (or alias) the root of another argument bound to a `ref(...)`
-/// parameter. `f(h.s, h)` with `f :: fn(ref(x) : String, own(victim) :
+/// not be (or alias) the root of another argument bound to a `inout(...)`
+/// parameter. `f(h.s, h)` with `f :: fn(inout(x) : String, own(victim) :
 /// Holder)` moves the caller's count into the callee, which can release
 /// it while `x` still points into the object — a use-after-free no
 /// same-scope gate can see. Non-`own` (by-value) overlap is safe.
@@ -597,7 +652,7 @@ require_ref_own_argument_exclusivity :: (
               cond(
                 (is_idx && ast_expr_is_fn_call(arg)) => match(
                   arg,
-                  .FnCall(_, fc, _, _, _) => _place_root_atom(fc.*),
+                  .FnCall(_, fc, _, _, _) => _place_root_atom(fc),
                   _ => Option(AstExpr).None
                 ),
                 true => _place_root_atom(arg)
@@ -736,7 +791,7 @@ _reject_if_container_reachable :: (
             match(
               frame.variables.get(vi),
               .Some(fv) => {
-                if((fv.id == c_root_id) && fv.is_module_level, {
+                if((fv.id.to_string() == c_root_id) && fv.is_module_level, {
                   root_module = true;
                 });
               },
@@ -771,7 +826,20 @@ _reject_if_container_reachable :: (
       could_reach := match(
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(other)),
         .Some(oi) => {
-          is_closure := match(oi.closure_function_value,.Some(_) => true,.None => false);
+          // TS: `otherExpr.$?.closureFunctionValue !== undefined`. yo-self's
+          // anonymous-fn eval does NOT set closure_function_value (documented
+          // Phase-3 convention in anonymous_function.yo — downstream must fall
+          // back). TS stamps captureType and closureFunctionValue under the
+          // SAME isCreatingClosure gate, so on an anon-fn ExprInfo
+          // capture_type-is-set is the faithful equivalent.
+          is_closure := match(
+            expr_info_closure_function_value(oi),
+            .Some(_) => true,
+            .None => (
+              match(oi.is_anonymous_function_definition,.Some(b) => b,.None => false) &&
+                oi.capture_type.is_some()
+            )
+          );
           (is_closure || type_contains_rc_type(oi.ty)) || type_representation_contains_raw_ptr(oi.ty)
         },
         .None => false
@@ -822,7 +890,7 @@ require_valid_ref_argument_places :: (
         if(arg_is_index_place && ast_expr_is_fn_call(arg), {
           container_atom := match(
             arg,
-            .FnCall(_, icallee, _, _, _) => _place_root_atom(icallee.*),
+            .FnCall(_, icallee, _, _, _) => _place_root_atom(icallee),
             .Atom(_, _) => Option(AstExpr).None
           );
           match(
@@ -867,7 +935,7 @@ require_valid_ref_argument_places :: (
                 match(
                   expr_info_table_get(ctx.expr_info_table, ast_expr_id(hop)),
                   .Some(hri) => {
-                    if(is_object_type(hri.ty) || is_atomic_object_type(hri.ty), {
+                    if(is_reference_struct_type(hri.ty) || is_atomic_reference_struct_type(hri.ty), {
                       has_object_hop = true;
                     });
                   },
@@ -889,7 +957,7 @@ require_valid_ref_argument_places :: (
                   match(
                     root_vars.get(root_vars.len() - usize(1)),
                     .Some(rv) => {
-                      root_is_object := (is_object_type(rv.ty) || is_atomic_object_type(rv.ty));
+                      root_is_object := (is_reference_struct_type(rv.ty) || is_atomic_reference_struct_type(rv.ty));
                       ref_type_contains_rc := match(
                         _info(ctx, arg),
                         .Some(inf) => type_contains_rc_type(inf.ty),
@@ -921,6 +989,18 @@ require_valid_ref_argument_places :: (
   });
 });
 
+/// Record a def-time swallowed throw for the cee observation channel.
+/// Lives HERE (a plain module fn) instead of inline in the wrapper's `->`
+/// handler: a branch inside that capture-free handler miscompiles under the
+/// TS codegen (heap corruption surfacing later in the async emitter — the
+/// fs/walker rc=139 regression; see
+/// issues/fixed/yo-ts-codegen-branch-in-effect-handler-corruption.md). The handler
+/// body must stay straight-line calls.
+note_def_time_swallow :: (fn() -> unit)({
+  if(propagate_def_time_errors(), {
+    set_cee_observed_error();
+  });
+});
 export(
   FlowOptions,
   flow_options_default,
@@ -933,5 +1013,10 @@ export(
   require_ref_own_argument_exclusivity,
   require_valid_ref_argument_places,
   set_propagate_def_time_errors,
-  propagate_def_time_errors
+  propagate_def_time_errors,
+  set_cee_observed_error,
+  clear_cee_observed_error,
+  cee_observed_error
 );
+
+export(note_def_time_swallow);

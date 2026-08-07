@@ -26,15 +26,29 @@
 //!   optional TypeScript fields (`field?: T`); required fields stay non-optional.
 //!   `new_expr_info(env, ty)` factory initialises all optional fields to `.None`.
 //!
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ cwd } :: import("std/env");
+// Pointer-identity builtin — `expr_info_paths_for_write` uses it to detect the
+// SHARED empty PathCollection before a push (same local-extern pattern as
+// env.yo / std/string/string.yo).
+extern(
+  "Yo",
+  __yo_ptr_eq : (fn(generic(T : Type), ptr1 : T, ptr2 : T) -> bool)
+);
 { TypeValue } :: import("./types/definitions.yo");
+{ get_all_some_types } :: import("./types/utils.yo");
+{ is_some_type } :: import("./types/guards.yo");
+{ type_to_string } :: import("./types/string.yo");
+{ set_compat_lookup_some_resolved_fn } :: import("./types/compatibility.yo");
 { EvalValue } :: import("./value.yo");
 {
   AstExpr,
   ExprId,
+  ast_expr_id,
   ast_expr_is_fn_call_of,
   ast_expr_is_atom_of,
   make_err_expr,
@@ -58,6 +72,12 @@ PathCollection :: ArrayList(ArrayList(String));
 path_collection_new :: (fn() -> PathCollection)(
   ArrayList(ArrayList(String)).new()
 );
+/// The ONE shared EMPTY PathCollection every `new_expr_info` hands out.
+/// A self-emit keeps 3.2 M ExprInfos alive and the overwhelming majority never
+/// receive a path, so each was paying an 80-byte ArrayList handle (plus the
+/// allocation) for a permanently empty list. Writers must go through
+/// `expr_info_paths_for_write`, which swaps in a private list first.
+(g_empty_path_collection : PathCollection) = ArrayList(ArrayList(String)).new();
 // ---------------------------------------------------------------------------
 // Path utility functions
 // ---------------------------------------------------------------------------
@@ -310,81 +330,131 @@ derive(RuntimeDestructuring, Clone);
 ///   `path_collection` – ownership paths tracked by the evaluator.
 ///
 /// All other fields are optional (`Option(T)`), mirroring TypeScript `field?: T`.
-ExprInfo :: object(
-  // --- Required ---
-  env : Environment,
-  ty : TypeValue,
-  path_collection : ArrayList(ArrayList(String)),
-  // --- Optional ---
-  /// Compile-time value; `.None` for runtime expressions.
-  value : Option(EvalValue),
-  /// Runtime type after comptime-to-runtime conversion (e.g. comptime_str → str).
-  converted_runtime_type : Option(TypeValue),
-  /// Name of the temporary variable holding the value in `env`.
-  variable_name : Option(String),
-  /// Root object type in a property-access chain (used for mutability analysis).
-  origin_type : Option(TypeValue),
-  /// True when this expression is a property-access dereference (`p.*`).
-  is_accessing_property : Option(bool),
-  /// Runtime arguments in call order (used by codegen).
-  runtime_arg_exprs_in_order : Option(ArrayList(AstExpr)),
-  /// Runtime destructuring bindings for `{ x, y } := point`.
-  runtime_destructurings : Option(ArrayList(RuntimeDestructuring)),
-  /// Control-flow flags (return, unwind, break, continue).
-  control_flow : Option(ControlFlowFlags),
-  /// Trait values for `dyn()` dynamic dispatch (used by codegen vtable emit).
-  dyn_call_trait_values : Option(ArrayList(EvalValue)),
-  /// For cond/match: true when this branch was executed.
-  case_executed : Option(bool),
-  /// True when this match expression dispatches on primitive types (int/bool).
-  is_primitive_match : Option(bool),
-  /// Compile-time pattern values for primitive match (used by codegen C switch).
-  primitive_pattern_values : Option(ArrayList(Option(EvalValue))),
-  /// Doc comment preceding this declaration.
-  doc_comment : Option(String),
-  /// `___dup` call expressions for RC variables captured by a closure.
-  deferred_dup_expressions : Option(ArrayList(AstExpr)),
-  /// `___drop` call expressions for variables needing cleanup at scope exit.
-  deferred_drop_expressions : Option(ArrayList(AstExpr)),
-  /// Drop expressions for RC variables consumed by the return value
-  /// (needed when `unwind` propagates through the function).
-  consumed_variable_drop_expressions : Option(ArrayList(AstExpr)),
-  /// Optional runtime stack size expression for `async` spawns.
-  async_stack_size : Option(AstExpr),
-  /// C struct name for the async state machine (used by codegen).
-  async_state_machine_struct_name : Option(String),
-  /// Capture struct type for closures / async blocks that close over RC vars.
-  capture_type : Option(TypeValue),
-  /// Await-analysis result for async block expressions.
-  await_analysis : Option(AwaitAnalysisResult),
-  /// Effect-analysis result for effectful function calls.
-  effect_analysis : Option(EffectAnalysisResult),
-  /// FunctionValue implementing the closure body.
-  closure_function_value : Option(EvalValue),
-  /// Evaluated macro-expanded expression.
-  macro_expansion : Option(AstExpr),
-  /// Environment frame popped after a begin block.
-  popped_env_frame : Option(Frame),
-  /// Original un-evaluated expression (used for test codegen).
-  original_expr : Option(AstExpr),
-  /// Variable object for identifier expressions (used by compile-time pointer creation).
-  source_variable : Option(Variable),
-  /// Compile-time element/field reference for mutation (`arr(0) = v`, `&(arr(0))`).
-  comptime_ref : Option(ComptimeRef),
-  /// Pointer type returned by the Index trait `index()` method (before auto-deref).
-  index_trait_ptr_type : Option(TypeValue),
-  /// Specialised FunctionType of the Index trait `index()` method.
-  index_method_type : Option(TypeValue),
-  /// Specialised FunctionValue of the Index trait `index()` method.
-  index_method_value : Option(EvalValue),
-  /// True when `&(value(i))` skips the auto-deref and uses the pointer directly.
-  is_index_trait_address_of : Option(bool),
-  /// True when the assignment is compile-time only (no C code emitted).
-  is_compile_time_only_assignment : Option(bool),
-  /// True when `->` / `=>` defines an anonymous function (new function boundary).
-  is_anonymous_function_definition : Option(bool),
-  /// Unrolled loop bodies for comptime-terminated while loops.
-  comptime_unrolled_bodies : Option(ArrayList(AstExpr))
+/// Rarely-set `ExprInfo` fields, hoisted out of `ExprInfo` into a separately
+/// allocated object reached through `ExprInfo.rare`.
+///
+/// WHY: an `ExprInfo` reserves inline space for EVERY optional field whether or
+/// not it is set, and a self-emit keeps millions of them alive (3.35 M measured).
+/// TypeScript pays nothing for an absent `field?:`; this group is the port's
+/// equivalent. These twelve fields cost 168 of `sizeof(ExprInfo)`'s original
+/// 624 bytes while being set on almost nothing — five of them
+/// (`closure_function_value`, `consumed_variable_drop_expressions`,
+/// `effect_analysis`, `await_analysis`, `async_stack_size`) are never written at
+/// all in a self-emit, and `async_stack_size` is dead in the TypeScript compiler
+/// too (`src/expr.ts:324` is its only occurrence).
+///
+/// A GROUP ONLY PAYS IF IT IS ALMOST NEVER ALLOCATED — the header alone is 56 B.
+/// Measured setter calls per self-emit for the members are: converted_runtime_type
+/// 222,334 · case_executed 39,443 · runtime_destructurings 3,074 ·
+/// dyn_call_trait_values 1,066 · async_state_machine_struct_name 28 ·
+/// primitive_pattern_values 4 · is_primitive_match 2 · the other five 0.
+/// `origin_type` (3,073,159 calls) was in here first and made 52% of all
+/// ExprInfos allocate a group — 446 MB — which cancelled the saving; it is inline
+/// now. Before adding a field here, profile its setter
+/// (`scripts/bootstrap/instrument_calls.py --fn` + `report_calls.py`) and confirm
+/// with `live_census.py` that the live `ExprInfoRare` count stays small.
+///
+/// ALWAYS go through the `expr_info_<field>` / `expr_info_set_<field>` accessor
+/// pairs below — reads of an unset group must see `.None`, and a write has to
+/// materialise the group lazily. The accessors also hide WHICH SIDE of the line a
+/// field is on, so re-partitioning never touches a call site.
+ExprInfoRare :: ref(
+  struct(
+    /// Runtime type after comptime-to-runtime conversion (e.g. comptime_str → str).
+    converted_runtime_type : Option(TypeValue),
+    /// Runtime destructuring bindings for `{ x, y } := point`.
+    runtime_destructurings : Option(ArrayList(RuntimeDestructuring)),
+    /// Trait values for `dyn()` dynamic dispatch (used by codegen vtable emit).
+    dyn_call_trait_values : Option(ArrayList(EvalValue)),
+    /// For cond/match: true when this branch was executed.
+    case_executed : Option(bool),
+    /// True when this match expression dispatches on primitive types (int/bool).
+    is_primitive_match : Option(bool),
+    /// Compile-time pattern values for primitive match (used by codegen C switch).
+    primitive_pattern_values : Option(ArrayList(Option(EvalValue))),
+    /// Drop expressions for RC variables consumed by the return value
+    /// (needed when `unwind` propagates through the function).
+    consumed_variable_drop_expressions : Option(ArrayList(AstExpr)),
+    /// Optional runtime stack size expression for `async` spawns.
+    async_stack_size : Option(AstExpr),
+    /// C struct name for the async state machine (used by codegen).
+    async_state_machine_struct_name : Option(String),
+    /// Await-analysis result for async block expressions.
+    await_analysis : Option(AwaitAnalysisResult),
+    /// Effect-analysis result for effectful function calls.
+    effect_analysis : Option(EffectAnalysisResult),
+    /// FunctionValue implementing the closure body.
+    closure_function_value : Option(EvalValue)
+  )
+);
+ExprInfo :: ref(
+  struct(
+    // --- Required ---
+    env : Environment,
+    ty : TypeValue,
+    path_collection : ArrayList(ArrayList(String)),
+    // --- Optional ---
+    /// Compile-time value; `.None` for runtime expressions.
+    value : Option(EvalValue),
+    /// Name of the temporary variable holding the value in `env`.
+    variable_name : Option(String),
+    /// True when this expression is a property-access dereference (`p.*`).
+    is_accessing_property : Option(bool),
+    /// Runtime arguments in call order (used by codegen).
+    runtime_arg_exprs_in_order : Option(ArrayList(AstExpr)),
+    /// Control-flow flags (return, unwind, break, continue).
+    control_flow : Option(ControlFlowFlags),
+    /// Doc comment preceding this declaration.
+    doc_comment : Option(String),
+    /// `___dup` call expressions for RC variables captured by a closure.
+    deferred_dup_expressions : Option(ArrayList(AstExpr)),
+    /// `___drop` call expressions for variables needing cleanup at scope exit.
+    deferred_drop_expressions : Option(ArrayList(AstExpr)),
+    /// Capture struct type for closures / async blocks that close over RC vars.
+    capture_type : Option(TypeValue),
+    /// Root object type in a property-access chain (used for mutability analysis).
+    // INLINE ON PURPOSE, and it must stay that way: a measured self-emit calls
+    // `expr_info_set_origin_type` 3,073,159 times out of 3,339,110 total
+    // `_expr_info_rare_for_write` calls, so grouping this one field made 92% of
+    // all ExprInfos allocate an `ExprInfoRare` (1.74 M x 256 B = 446 MB) and
+    // cancelled the saving. Reached through the same accessor pair as the boxed
+    // fields, so which side of the line it sits on is invisible to callers.
+    origin_type : Option(TypeValue),
+    /// The rarely-set fields, allocated on first write. See `ExprInfoRare`.
+    rare : Option(ExprInfoRare),
+    /// Evaluated macro-expanded expression.
+    macro_expansion : Option(AstExpr),
+    /// Environment frame popped after a begin block.
+    popped_env_frame : Option(Frame),
+    /// Original un-evaluated expression (used for test codegen).
+    original_expr : Option(AstExpr),
+    /// Variable object for identifier expressions (used by compile-time pointer creation).
+    source_variable : Option(Variable),
+    /// Compile-time element/field reference for mutation (`arr(0) = v`, `&(arr(0))`).
+    comptime_ref : Option(ComptimeRef),
+    /// Pointer type returned by the Index trait `index()` method (before auto-deref).
+    // `Box`ed (P2): only set on Index-trait dispatch exprs.
+    index_trait_ptr_type : Option(TypeValue),
+    /// Specialised FunctionType of the Index trait `index()` method.
+    // `Box`ed (P2): only set on Index-trait dispatch exprs.
+    index_method_type : Option(TypeValue),
+    /// Specialised FunctionValue of the Index trait `index()` method.
+    index_method_value : Option(EvalValue),
+    /// True when `&(value(i))` skips the auto-deref and uses the pointer directly.
+    is_index_trait_address_of : Option(bool),
+    /// True when the assignment is compile-time only (no C code emitted).
+    is_compile_time_only_assignment : Option(bool),
+    /// True when `->` / `=>` defines an anonymous function (new function boundary).
+    is_anonymous_function_definition : Option(bool),
+    /// Unrolled loop bodies for comptime-terminated while loops.
+    comptime_unrolled_bodies : Option(ArrayList(AstExpr)),
+    /// M3 (early-return-only drops): `___drop` expressions attached to THIS
+    /// return/unwind node that must fire ONLY on this early-return path — for a
+    /// local that is initialized before this exit but consumed (moved out) after
+    /// it, so the block's normal scope-end drop would miss it. Mirrors TS
+    /// `earlyReturnOnlyDeferredDropExpressions` (src/expr.ts / begin.ts:130-238).
+    early_return_only_deferred_drop_expressions : Option(ArrayList(AstExpr))
+  )
 );
 /// Create an ExprInfo with the three required fields and all optional fields set to `.None`.
 ///
@@ -399,29 +469,18 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
     // recorded begin-local bindings. See issues/fixed/yo-self-recorded-env-aliasing.md.
     env : snapshot_env(env),
     ty : ty,
-    path_collection : ArrayList(ArrayList(String)).new(),
+    path_collection : g_empty_path_collection,
     value : Option(EvalValue).None,
-    converted_runtime_type : Option(TypeValue).None,
     variable_name : Option(String).None,
-    origin_type : Option(TypeValue).None,
     is_accessing_property : Option(bool).None,
     runtime_arg_exprs_in_order : Option(ArrayList(AstExpr)).None,
-    runtime_destructurings : Option(ArrayList(RuntimeDestructuring)).None,
     control_flow : Option(ControlFlowFlags).None,
-    dyn_call_trait_values : Option(ArrayList(EvalValue)).None,
-    case_executed : Option(bool).None,
-    is_primitive_match : Option(bool).None,
-    primitive_pattern_values : Option(ArrayList(Option(EvalValue))).None,
     doc_comment : Option(String).None,
     deferred_dup_expressions : Option(ArrayList(AstExpr)).None,
     deferred_drop_expressions : Option(ArrayList(AstExpr)).None,
-    consumed_variable_drop_expressions : Option(ArrayList(AstExpr)).None,
-    async_stack_size : Option(AstExpr).None,
-    async_state_machine_struct_name : Option(String).None,
     capture_type : Option(TypeValue).None,
-    await_analysis : Option(AwaitAnalysisResult).None,
-    effect_analysis : Option(EffectAnalysisResult).None,
-    closure_function_value : Option(EvalValue).None,
+    origin_type : Option(TypeValue).None,
+    rare : Option(ExprInfoRare).None,
     macro_expansion : Option(AstExpr).None,
     popped_env_frame : Option(Frame).None,
     original_expr : Option(AstExpr).None,
@@ -433,9 +492,234 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
     is_index_trait_address_of : Option(bool).None,
     is_compile_time_only_assignment : Option(bool).None,
     is_anonymous_function_definition : Option(bool).None,
-    comptime_unrolled_bodies : Option(ArrayList(AstExpr)).None
+    comptime_unrolled_bodies : Option(ArrayList(AstExpr)).None,
+    early_return_only_deferred_drop_expressions : Option(ArrayList(AstExpr)).None
   )
 );
+/// ExprInfo for a SHARED-id begin result — `evaluate_begin_expression` on a
+/// single-expression body/arm, where the result node IS the inner expression
+/// node (yo-self reuses the id where TS clones a begin wrapper,
+/// begin.ts:1016-1045). Codegen reads this ONE id in BOTH roles (inner
+/// expression shape + begin block), so preservation is the default: every
+/// field is copied from the inner expression's info (sharing payloads,
+/// including the whole `rare` group) and only what the begin level owns is
+/// overridden here — `env` (the post-pop scope snapshot), `ty` (the begin's
+/// return type), `path_collection` (begin-owned, empty), and
+/// `popped_env_frame` (never stored — the eval-phase leak fix, see begin.yo).
+/// The caller applies the remaining begin-level overrides (`value`,
+/// `deferred_drop_expressions`) and the conditional CLEARS (`variable_name`,
+/// `runtime_arg_exprs_in_order`, the index-field group) — see begin.yo's
+/// shared-id tail. This INVERTS the old fresh-info + carry-whitelist merge
+/// (issues/yo-self-begin-shared-id-clobber.md): loss is now the explicit
+/// choice, so fields codegen reads on the inner node's shape (source_variable,
+/// origin_type, early_return_only drops, the rare group's converted type /
+/// dyn traits / async analysis, ...) survive without per-field carries.
+clone_expr_info_for_shared_begin_result :: (fn(src : ExprInfo, env : Environment, ty : TypeValue) -> ExprInfo)(
+  ExprInfo(
+    env : snapshot_env(env),
+    ty : ty,
+    path_collection : g_empty_path_collection,
+    value : src.value,
+    variable_name : src.variable_name,
+    is_accessing_property : src.is_accessing_property,
+    runtime_arg_exprs_in_order : src.runtime_arg_exprs_in_order,
+    control_flow : src.control_flow,
+    doc_comment : src.doc_comment,
+    deferred_dup_expressions : src.deferred_dup_expressions,
+    deferred_drop_expressions : src.deferred_drop_expressions,
+    capture_type : src.capture_type,
+    origin_type : src.origin_type,
+    rare : src.rare,
+    macro_expansion : src.macro_expansion,
+    popped_env_frame : Option(Frame).None,
+    original_expr : src.original_expr,
+    source_variable : src.source_variable,
+    comptime_ref : src.comptime_ref,
+    index_trait_ptr_type : src.index_trait_ptr_type,
+    index_method_type : src.index_method_type,
+    index_method_value : src.index_method_value,
+    is_index_trait_address_of : src.is_index_trait_address_of,
+    is_compile_time_only_assignment : src.is_compile_time_only_assignment,
+    is_anonymous_function_definition : src.is_anonymous_function_definition,
+    comptime_unrolled_bodies : src.comptime_unrolled_bodies,
+    early_return_only_deferred_drop_expressions : src.early_return_only_deferred_drop_expressions
+  )
+);
+// ---------------------------------------------------------------------------
+// ExprInfoRare accessors
+// ---------------------------------------------------------------------------
+/// Materialise `info.rare` (all fields `.None`) on first write and return it.
+/// Read paths must NOT call this — they would allocate a group for nothing.
+_expr_info_rare_for_write :: (fn(info : ExprInfo) -> ExprInfoRare)(
+  match(
+    info.rare,
+    .Some(r) => r,
+    .None => {
+      fresh := ExprInfoRare(
+        converted_runtime_type : Option(TypeValue).None,
+        runtime_destructurings : Option(ArrayList(RuntimeDestructuring)).None,
+        dyn_call_trait_values : Option(ArrayList(EvalValue)).None,
+        case_executed : Option(bool).None,
+        is_primitive_match : Option(bool).None,
+        primitive_pattern_values : Option(ArrayList(Option(EvalValue))).None,
+        consumed_variable_drop_expressions : Option(ArrayList(AstExpr)).None,
+        async_stack_size : Option(AstExpr).None,
+        async_state_machine_struct_name : Option(String).None,
+        await_analysis : Option(AwaitAnalysisResult).None,
+        effect_analysis : Option(EffectAnalysisResult).None,
+        closure_function_value : Option(EvalValue).None
+      );
+      info.rare = Option(ExprInfoRare).Some(fresh);
+      fresh
+    }
+  )
+);
+expr_info_converted_runtime_type :: (fn(info : ExprInfo) -> Option(TypeValue))(
+  match(info.rare,.Some(r) => r.converted_runtime_type,.None => Option(TypeValue).None)
+);
+expr_info_set_converted_runtime_type :: (
+  fn(info : ExprInfo, v : Option(TypeValue)) -> unit
+)({
+  r := _expr_info_rare_for_write(info);
+  r.converted_runtime_type = v;
+});
+expr_info_origin_type :: (fn(info : ExprInfo) -> Option(TypeValue))(info.origin_type);
+expr_info_set_origin_type :: (fn(info : ExprInfo, v : Option(TypeValue)) -> unit)({
+  info.origin_type = v;
+});
+expr_info_runtime_destructurings :: (
+  fn(info : ExprInfo) -> Option(ArrayList(RuntimeDestructuring))
+)(
+  match(
+    info.rare,
+    .Some(r) => r.runtime_destructurings,
+    .None => Option(ArrayList(RuntimeDestructuring)).None
+  )
+);
+expr_info_set_runtime_destructurings :: (
+  fn(info : ExprInfo, v : Option(ArrayList(RuntimeDestructuring))) -> unit
+)({
+  r := _expr_info_rare_for_write(info);
+  r.runtime_destructurings = v;
+});
+expr_info_dyn_call_trait_values :: (
+  fn(info : ExprInfo) -> Option(ArrayList(EvalValue))
+)(
+  match(
+    info.rare,
+    .Some(r) => r.dyn_call_trait_values,
+    .None => Option(ArrayList(EvalValue)).None
+  )
+);
+expr_info_set_dyn_call_trait_values :: (
+  fn(info : ExprInfo, v : Option(ArrayList(EvalValue))) -> unit
+)({
+  r := _expr_info_rare_for_write(info);
+  r.dyn_call_trait_values = v;
+});
+expr_info_case_executed :: (fn(info : ExprInfo) -> Option(bool))(
+  match(info.rare,.Some(r) => r.case_executed,.None => Option(bool).None)
+);
+expr_info_set_case_executed :: (fn(info : ExprInfo, v : Option(bool)) -> unit)({
+  r := _expr_info_rare_for_write(info);
+  r.case_executed = v;
+});
+expr_info_is_primitive_match :: (fn(info : ExprInfo) -> Option(bool))(
+  match(info.rare,.Some(r) => r.is_primitive_match,.None => Option(bool).None)
+);
+expr_info_set_is_primitive_match :: (fn(info : ExprInfo, v : Option(bool)) -> unit)({
+  r := _expr_info_rare_for_write(info);
+  r.is_primitive_match = v;
+});
+expr_info_primitive_pattern_values :: (
+  fn(info : ExprInfo) -> Option(ArrayList(Option(EvalValue)))
+)(
+  match(
+    info.rare,
+    .Some(r) => r.primitive_pattern_values,
+    .None => Option(ArrayList(Option(EvalValue))).None
+  )
+);
+expr_info_set_primitive_pattern_values :: (
+  fn(info : ExprInfo, v : Option(ArrayList(Option(EvalValue)))) -> unit
+)({
+  r := _expr_info_rare_for_write(info);
+  r.primitive_pattern_values = v;
+});
+expr_info_consumed_variable_drop_expressions :: (
+  fn(info : ExprInfo) -> Option(ArrayList(AstExpr))
+)(
+  match(
+    info.rare,
+    .Some(r) => r.consumed_variable_drop_expressions,
+    .None => Option(ArrayList(AstExpr)).None
+  )
+);
+expr_info_set_consumed_variable_drop_expressions :: (
+  fn(info : ExprInfo, v : Option(ArrayList(AstExpr))) -> unit
+)({
+  r := _expr_info_rare_for_write(info);
+  r.consumed_variable_drop_expressions = v;
+});
+expr_info_async_stack_size :: (fn(info : ExprInfo) -> Option(AstExpr))(
+  match(info.rare,.Some(r) => r.async_stack_size,.None => Option(AstExpr).None)
+);
+expr_info_set_async_stack_size :: (fn(info : ExprInfo, v : Option(AstExpr)) -> unit)({
+  r := _expr_info_rare_for_write(info);
+  r.async_stack_size = v;
+});
+expr_info_async_state_machine_struct_name :: (fn(info : ExprInfo) -> Option(String))(
+  match(
+    info.rare,
+    .Some(r) => r.async_state_machine_struct_name,
+    .None => Option(String).None
+  )
+);
+expr_info_set_async_state_machine_struct_name :: (
+  fn(info : ExprInfo, v : Option(String)) -> unit
+)({
+  r := _expr_info_rare_for_write(info);
+  r.async_state_machine_struct_name = v;
+});
+expr_info_await_analysis :: (fn(info : ExprInfo) -> Option(AwaitAnalysisResult))(
+  match(
+    info.rare,
+    .Some(r) => r.await_analysis,
+    .None => Option(AwaitAnalysisResult).None
+  )
+);
+expr_info_set_await_analysis :: (
+  fn(info : ExprInfo, v : Option(AwaitAnalysisResult)) -> unit
+)({
+  r := _expr_info_rare_for_write(info);
+  r.await_analysis = v;
+});
+expr_info_effect_analysis :: (fn(info : ExprInfo) -> Option(EffectAnalysisResult))(
+  match(
+    info.rare,
+    .Some(r) => r.effect_analysis,
+    .None => Option(EffectAnalysisResult).None
+  )
+);
+expr_info_set_effect_analysis :: (
+  fn(info : ExprInfo, v : Option(EffectAnalysisResult)) -> unit
+)({
+  r := _expr_info_rare_for_write(info);
+  r.effect_analysis = v;
+});
+expr_info_closure_function_value :: (fn(info : ExprInfo) -> Option(EvalValue))(
+  match(
+    info.rare,
+    .Some(r) => r.closure_function_value,
+    .None => Option(EvalValue).None
+  )
+);
+expr_info_set_closure_function_value :: (
+  fn(info : ExprInfo, v : Option(EvalValue)) -> unit
+)({
+  r := _expr_info_rare_for_write(info);
+  r.closure_function_value = v;
+});
 // ---------------------------------------------------------------------------
 // ExprInfoTable
 // ---------------------------------------------------------------------------
@@ -449,8 +733,18 @@ expr_info_table_new :: (fn() -> ExprInfoTable)(
   ExprInfoTable(data : HashMap(ExprId, ExprInfo).new())
 );
 /// Store an ExprInfo for the given expression id.
+/// Copy-on-write accessor for `ExprInfo.path_collection`: every ExprInfo starts
+/// out sharing `g_empty_path_collection`, so a site about to PUSH a path must
+/// call this first. Detects the shared instance by POINTER identity and swaps in
+/// a private list. Reads can use the field directly.
+expr_info_paths_for_write :: (fn(info : ExprInfo) -> PathCollection)({
+  if(unsafe(__yo_ptr_eq(info.path_collection, g_empty_path_collection)), {
+    info.path_collection = path_collection_new();
+  });
+  info.path_collection
+});
 expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) -> unit)({
-  _ := table.data.set(id, info);
+  table.data.set(id, info);
   ()
 });
 /// Retrieve the ExprInfo for the given expression id, or None.
@@ -477,21 +771,636 @@ expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInf
 (g_method_callee_types : HashMap(ExprId, TypeValue)) = HashMap(ExprId, TypeValue).new();
 /// Record the resolved method `Func` type for a method-call expr id.
 record_method_callee_type :: (fn(call_id : ExprId, ty : TypeValue) -> unit)({
-  _ := g_method_callee_types.set(call_id, ty);
+  g_method_callee_types.set(call_id, ty);
   ()
 });
 /// Look up the resolved method `Func` type for a method-call expr id, if any.
 lookup_method_callee_type :: (fn(call_id : ExprId) -> Option(TypeValue))(
   g_method_callee_types.get(call_id)
 );
+// ---------------------------------------------------------------------------
+// Io-builtin marker side-tables.
+//
+// TS marks the Io effect record's builtin members with `ioBuiltin` on the
+// FUNCTION TYPE: the extern declaration stamps it (extern.ts:143-158, from
+// the `__yo_io_*` field label), and STRUCT CONSTRUCTION propagates it onto
+// the shared struct field type (`memberElement.type.ioBuiltin =
+// argType.ioBuiltin`, calls/type.ts:176-182) — so `my_io.await` on ANY
+// receiver of type Io reads the marker via `expr.func.$?.type?.ioBuiltin`
+// (await-analysis.ts:137-167). yo-self's TypeValues are copied, not shared,
+// so the propagation is modelled as two side-tables:
+//   * construction time: (struct id, field label) → marker, recorded when a
+//     ctor arg's Func type carries an io-builtin `extern_name`;
+//   * call time: call expr id → marker, resolved at the evaluate_function_call
+//     dispatch choke point (callee extern_name directly, or dot-access
+//     receiver struct-id + field lookup in the first table);
+// and the await-analysis classifiers read the second table. Plain Strings
+// only — no TypeValue refs held across module boundaries.
+// ---------------------------------------------------------------------------
+(g_io_builtin_struct_fields : HashMap(String, String)) = HashMap(String, String).new();
+/// Record that `struct_id`.`field_label` holds an io-builtin function.
+record_io_builtin_struct_field :: (fn(struct_id : String, field_label : String, marker : String) -> unit)({
+  g_io_builtin_struct_fields.set(`${struct_id}\n${field_label}`, marker);
+  ()
+});
+/// Look up the io-builtin marker for `struct_id`.`field_label`, if any.
+lookup_io_builtin_struct_field :: (fn(struct_id : String, field_label : String) -> Option(String))(
+  g_io_builtin_struct_fields.get(`${struct_id}\n${field_label}`)
+);
+(g_io_builtin_calls : HashMap(ExprId, String)) = HashMap(ExprId, String).new();
+/// Record the io-builtin marker for a call expr id.
+record_io_builtin_call :: (fn(call_id : ExprId, marker : String) -> unit)({
+  g_io_builtin_calls.set(call_id, marker);
+  ()
+});
+/// Look up the io-builtin marker for a call expr id, if any.
+lookup_io_builtin_call :: (fn(call_id : ExprId) -> Option(String))(
+  g_io_builtin_calls.get(call_id)
+);
+// Method-callee VALUE side-table (parallel to g_method_callee_types). Codegen's
+// generate_other_function_call dispatches via the callee's ExprInfo value, but a
+// method call's callee dot-access has no ExprInfo (recording one is destructive
+// — regressed std). This non-destructive table carries the resolved/specialized
+// method FuncVal, keyed by the CALL expr id, so codegen can emit
+// `<specialized_c_name>(args)`.
+(g_method_callee_values : HashMap(ExprId, EvalValue)) = HashMap(ExprId, EvalValue).new();
+/// Record the resolved/specialized method FuncVal for a method-call expr id.
+record_method_callee_value :: (fn(call_id : ExprId, v : EvalValue) -> unit)({
+  g_method_callee_values.set(call_id, v);
+  ()
+});
+/// Look up the resolved/specialized method FuncVal for a method-call expr id.
+lookup_method_callee_value :: (fn(call_id : ExprId) -> Option(EvalValue))(
+  g_method_callee_values.get(call_id)
+);
+// Names of extern-C GLOBAL symbols declared via `c_include` (e.g. `stdout`,
+// `stderr`, `stdin`). yo-self models `is_extern` only on the `Func` TypeValue
+// variant, so a NON-Func extern global (`stdout : *(FILE)`) cannot carry the FFI
+// marker on its type. This registry lets the codegen name-resolver keep the REAL
+// C name (skip the `__yo_c_reserved_` reserved-word prefix) for such symbols —
+// the C header is `#include`d, so the real `stdout` is in scope. Populated by
+// c_include's field loop; read by get_variable_name_for_codegen.
+(g_extern_c_globals : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
+/// Mark `name` as an extern-C global symbol with its DECLARED type (called by
+/// c_include per field). The type is what identifies "this resolved binding
+/// IS the global": TS hangs `isExtern === "c"` on the TYPE itself, so a LOCAL
+/// binding that merely shares the name (e.g. an `errno : i32` parameter
+/// shadowing <errno.h>'s `errno : *(int)`) does not match — see
+/// get_extern_c_global_type's consumer in codegen get_variable_name_for_codegen.
+register_extern_c_global :: (fn(name : String, ty : TypeValue) -> unit)({
+  g_extern_c_globals.set(name, ty);
+  ()
+});
+/// The declared type of the c_include'd extern-C global `name`, if any.
+get_extern_c_global_type :: (fn(name : String) -> Option(TypeValue))(
+  g_extern_c_globals.get(name)
+);
+/// True if `name` is a c_include'd extern-C global symbol (name-only check).
+is_extern_c_global :: (fn(name : String) -> bool)(
+  g_extern_c_globals.get(name).is_some()
+);
+/// Registry of module-level RUNTIME globals, keyed "module_path|#|name".
+/// Populated by the evaluator at binding creation
+/// (initialization_assignment.yo and binding.yo); read by codegen's
+/// get_variable_name_for_codegen to module-qualify the C static's name. A
+/// registry rather than the Variable.is_module_level flag because env
+/// COPIES (def-time body envs, module import snapshots) drop the flag on
+/// some resolution paths while keeping it on others — which split the
+/// declaration (unmangled) from the reads (mangled). Keyed by data, not
+/// object identity, so every copy of the variable resolves consistently.
+/// See issues/fixed/module-global-c-names-are-not-namespaced.md.
+(g_module_level_globals : HashMap(String, bool)) = HashMap(String, bool).new();
+/// Canonicalize a module path for the registry key. Token module paths
+/// carry TWO spellings of the same file — the CLI-arg spelling of the root
+/// module (`./tests/x.yo`) and the loader's canonical `file://` absolute
+/// key (main.yo `_load_module_at_abs`) — and a key mismatch splits the
+/// declaration (one spelling) from the reads (the other). Strip the scheme
+/// and absolutize relative paths against the CWD (`Path.new` collapses
+/// `.`/`..` segments on construction).
+_mg_canon :: (fn(module_path : String) -> String)({
+  (p : String) = module_path.replace(String.from("file://"), String.from(""));
+  if(!(p.starts_with(String.from("/"))), {
+    base := match(cwd(),.Ok(c) => c.to_string(),.Err(_) => String.from("."));
+    p = `${base}/${p}`;
+  });
+  // Collapse `/./` segments (the CLI-arg spelling `./tests/x.yo` after the
+  // CWD prepend). `..` is not collapsed: the two spellings of one module
+  // are the CLI arg and the loader's file:// key, and neither emits `..`
+  // after Path.new normalization in the loader.
+  while(p.contains(String.from("/./")), {
+    p = p.replace(String.from("/./"), String.from("/"));
+  });
+  p
+});
+/// Record that module `module_path` declared the module-level runtime
+/// global `name`.
+register_module_level_global :: (fn(module_path : String, name : String) -> unit)({
+  g_module_level_globals.set(`${_mg_canon(module_path)}|#|${name}`, true);
+  ()
+});
+/// True if module `module_path` declared the module-level runtime global
+/// `name`.
+is_module_level_global :: (fn(module_path : String, name : String) -> bool)(
+  g_module_level_globals.get(`${_mg_canon(module_path)}|#|${name}`).is_some()
+);
+/// The C-name suffix for a module-level global declared in `module_path`
+/// (`_m<fnv1a-of-canonical-path>`). Hashes the CANONICAL path so the
+/// declaration and every read agree on the suffix regardless of which
+/// spelling the resolved variable's token carries.
+module_global_c_suffix :: (fn(module_path : String) -> String)({
+  cp := _mg_canon(module_path);
+  `_m${cp.hash()}`
+});
+// Phase 5 (async/effects): the resolved CONCRETE type for a `SomeT`, keyed by the
+// SomeT's unique `id`. TS stores this as a mutable `SomeType.resolvedConcreteType`
+// field set during return-type resolution / synthesis; yo-self's `SomeT` has no
+// such field (codegen otherwise lowers an unresolved SomeT to `void*`), so this
+// side-table is the idiomatic eval→codegen bridge (same pattern as
+// `g_method_callee_values` / `g_extern_c_globals`). The async-Future codegen needs
+// it — e.g. `is_io_future_type` distinguishes an extern `__yo_io_future_t` from a
+// state-machine Future by inspecting the resolved concrete type. Keyed by `id`
+// (SomeT's first field, unique); spread-construction in TS keeps the same id, so
+// id-keying is sound. Populated by mirroring the ~15 TS `resolvedConcreteType` set
+// sites; read by the FSM emitters. (Registry foundation — set/read sites are wired
+// as the FSM core lands; see plans/archive/BOOTSTRAPPING_CODEGEN.md Phase 5 #3.)
+(g_some_resolved_concrete : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
+/// Record the resolved concrete type for the `SomeT` with unique id `some_id`.
+register_some_resolved_concrete :: (fn(some_id : String, ty : TypeValue) -> unit)({
+  g_some_resolved_concrete.set(some_id, ty);
+  ()
+});
+/// The resolved concrete type for the `SomeT` with id `some_id`, if recorded.
+lookup_some_resolved_concrete :: (fn(some_id : String) -> Option(TypeValue))(
+  g_some_resolved_concrete.get(some_id)
+);
+/// Drop any recorded resolution for `some_id`.
+///
+/// This registry is a DURABLE GLOBAL, but a function's own `generic(B : Type)`
+/// binder is NOT durable — TS mints a fresh `SomeType` for it on EVERY call
+/// (helper.ts:1047), so one call's `B := i32` can never be seen by the next.
+/// yo-self reuses the ONE signature instance, so the entry must be dropped when
+/// a call installs its own placeholder for that binder — see the Step-6 marker
+/// loop in `evaluator/calls/helper.yo`.
+unregister_some_resolved_concrete :: (fn(some_id : String) -> unit)({
+  g_some_resolved_concrete.remove(some_id);
+  ()
+});
+// Install the durable-registry lookup into compatibility.yo's given-SomeT
+// resolution unwrap (cycle breaker: types/ cannot import THIS file).
+_compat_some_resolved_init := (fn() -> bool)({
+  set_compat_lookup_some_resolved_fn(lookup_some_resolved_concrete);
+  true
+})();
+// Constructor-funcId stamp side-table, keyed by STRUCT ID. TS stamps
+// `returnedType.functionValue = functionValue` by MUTATING the shared type
+// object when a comptime type-constructor returns (comptime-fn.ts:270-277),
+// so every reference — including the pre-stamp SHELL copies a self-recursive
+// body embeds via `Option(Self)`, and the memoized instantiations that
+// captured those shells — observes the stamp. yo-self TypeValues are copies:
+// the stamp applied to the ctfe RETURN value never reaches copies made
+// earlier (e.g. `SortedMap`'s `_root : Option(RBNode(K, V))` holds the
+// `Option(Self)` instance cached DURING RBNode's own body eval, embedding the
+// fieldless pre-stamp shell). Since a shell shares its final's struct id, the
+// id is the object-identity surrogate: keying the stamp by id lets any
+// holder — the synthesizer's same-constructor unification in particular —
+// recover the constructor fid exactly as TS's mutated object would show it.
+// (Same durable-global pattern as g_some_resolved_concrete above.)
+(g_struct_ctor_fids : HashMap(String, String)) = HashMap(String, String).new();
+/// Record the constructor funcId stamped onto the struct with `struct_id`.
+// ---------------------------------------------------------------------------
+// Per-branch first-initialization log (cross-branch type checks).
+// ---------------------------------------------------------------------------
+/// One record per FIRST-INITIALIZATION assignment (`x = v` on a declared-but-
+/// uninitialized variable): the variable's id, the assigned type, and the
+/// RHS's closure capture struct when present. yo-self shares ONE mutable
+/// Variable object across cond/match arm environments, so per-branch
+/// assigned TYPES cannot be recovered from the env after the arms ran (the
+/// last write wins) — TS's persistent envs snapshot them naturally
+/// (expr.ts:1990-2094 reads the per-case matrix). The arms' evaluators
+/// (cond.yo / match.yo) record each arm's [start, end) window into this log
+/// keyed by the arm body's expr id; merge_and_check_envs consumes the
+/// windows for the cross-branch checks.
+BranchInitRecord :: ref(
+  struct(
+    var_id : usize,
+    ty : TypeValue,
+    capture : Option(TypeValue)
+  )
+);
+(g_branch_init_log : ArrayList(BranchInitRecord)) = ArrayList(BranchInitRecord).new();
+/// var_id -> log indices of that variable's records. Keeps
+/// has_dominating_branch_init O(records-for-this-var × active groups) instead
+/// of a full-log scan per reassignment (the log spans the WHOLE compile).
+(g_branch_init_by_var : HashMap(usize, ArrayList(usize))) = HashMap(usize, ArrayList(usize)).new();
+record_branch_init :: (fn(var_id : usize, ty : TypeValue, capture : Option(TypeValue)) -> unit)({
+  idx := g_branch_init_log.len();
+  g_branch_init_log.push(BranchInitRecord(var_id : var_id, ty : ty, capture : capture));
+  match(
+    g_branch_init_by_var.get(var_id),
+    .Some(lst) => {
+      lst.push(idx);
+    },
+    .None => {
+      lst := ArrayList(usize).new();
+      lst.push(idx);
+      g_branch_init_by_var.set(var_id, lst);
+      ()
+    }
+  );
+});
+branch_init_log_len :: (fn() -> usize)(g_branch_init_log.len());
+get_branch_init_record :: (fn(i : usize) -> Option(BranchInitRecord))(g_branch_init_log.get(i));
+/// Arm-body expr id -> [start, end) window into the log.
+(g_arm_init_ranges : HashMap(usize, ArrayList(usize))) = HashMap(usize, ArrayList(usize)).new();
+register_arm_init_range :: (fn(arm_expr_id : usize, start : usize, end : usize) -> unit)({
+  rng := ArrayList(usize).new();
+  rng.push(start);
+  rng.push(end);
+  g_arm_init_ranges.set(arm_expr_id, rng);
+  ()
+});
+get_arm_init_range :: (fn(arm_expr_id : usize) -> Option(ArrayList(usize)))(
+  g_arm_init_ranges.get(arm_expr_id)
+);
+/// Active branching-construct stack for the Impl(...) reassignment rule
+/// (TS assignment.ts:635-655). Each entry is a 2-element list
+/// [group_start, current_arm_start]: log records with index in
+/// [group_start, current_arm_start) were made by COMPLETED SIBLING ARMS of a
+/// cond that is still evaluating — TS's per-branch child envs make sibling
+/// inits invisible to each other, so a "was this variable already assigned on
+/// MY path?" query must skip them. Entries stranded by a thrown-through arm
+/// eval are truncated by comptime_expect_error's state restore; a stale
+/// entry's window is a fixed HISTORICAL range, so it can never exclude records
+/// appended after it.
+(g_branch_group_stack : ArrayList(ArrayList(usize))) = ArrayList(ArrayList(usize)).new();
+push_branch_group :: (fn() -> unit)({
+  entry := ArrayList(usize).new();
+  entry.push(g_branch_init_log.len());
+  entry.push(g_branch_init_log.len());
+  g_branch_group_stack.push(entry);
+});
+/// Mark the start of the NEXT arm in the innermost group: records made so far
+/// (by earlier sibling arms) become invisible to dominating-init queries.
+begin_branch_group_arm :: (fn() -> unit)({
+  match(
+    g_branch_group_stack.pop(),
+    .Some(old_entry) => {
+      entry := ArrayList(usize).new();
+      entry.push(match(old_entry.get(usize(0)),.Some(x) => x,.None => usize(0)));
+      entry.push(g_branch_init_log.len());
+      g_branch_group_stack.push(entry);
+    },
+    .None => ()
+  );
+});
+pop_branch_group :: (fn() -> unit)({
+  g_branch_group_stack.pop();
+  ()
+});
+branch_group_stack_len :: (fn() -> usize)(g_branch_group_stack.len());
+/// Drop stack entries stranded by a thrown-through arm evaluation.
+truncate_branch_group_stack :: (fn(depth : usize) -> unit)({
+  while(g_branch_group_stack.len() > depth, {
+    g_branch_group_stack.pop();
+    ()
+  });
+});
+/// Active where-constraint trait ids for the CURRENT specialization body
+/// eval — the only discriminator when a CONCRETE receiver carries two
+/// same-signature methods from different traits (impl.test.yo:
+/// `use_trait_b`'s `where(T <: TraitDisambigB)` must pick B's `get_number`;
+/// at spec time T is bound concrete so the SomeT walk's trait filter no
+/// longer applies — TS keeps the def-time constrained method identity).
+/// Stack of id lists; the TOP is the active spec's set, empty = none.
+(g_active_where_trait_ids : ArrayList(ArrayList(String))) = ArrayList(ArrayList(String)).new();
+push_active_where_trait_ids :: (fn(ids : ArrayList(String)) -> unit)({
+  g_active_where_trait_ids.push(ids);
+});
+pop_active_where_trait_ids :: (fn() -> unit)({
+  g_active_where_trait_ids.pop();
+  ()
+});
+active_where_trait_ids :: (fn() -> ArrayList(String))(
+  match(
+    g_active_where_trait_ids.get(g_active_where_trait_ids.len() - usize(1)),
+    .Some(top) => top,
+    .None => ArrayList(String).new()
+  )
+);
+/// True when a prior assignment record for `var_id` exists on the CURRENT
+/// control-flow path — i.e. outside every active group's completed-sibling
+/// window. This is the yo-self surrogate for TS's `variable.initializedAtToken`
+/// under per-branch child envs: the shared mutable Variable is stamped
+/// initialized by the FIRST arm, so the token alone cannot distinguish a
+/// sibling arm's init from a genuine same-path prior init.
+has_dominating_branch_init :: (fn(var_id : usize) -> bool)({
+  (found : bool) = false;
+  match(
+    g_branch_init_by_var.get(var_id),
+    .Some(idxs) => {
+      (ii : usize) = usize(0);
+      while(ii < idxs.len(), {
+        i := match(idxs.get(ii),.Some(x) => x,.None => usize(0));
+        (excluded : bool) = false;
+        (gi : usize) = usize(0);
+        while(gi < g_branch_group_stack.len(), {
+          match(
+            g_branch_group_stack.get(gi),
+            .Some(g) => {
+              gs := match(g.get(usize(0)),.Some(x) => x,.None => usize(0));
+              ga := match(g.get(usize(1)),.Some(x) => x,.None => usize(0));
+              if((gs <= i) && (i < ga), {
+                excluded = true;
+              });
+            },
+            .None => ()
+          );
+          gi = (gi + usize(1));
+        });
+        if(!(excluded), {
+          found = true;
+        });
+        ii = (ii + usize(1));
+      });
+    },
+    .None => ()
+  );
+  found
+});
+register_struct_ctor_fid :: (fn(struct_id : String, ctor_fid : String) -> unit)({
+  g_struct_ctor_fids.set(struct_id, ctor_fid);
+  ()
+});
+/// The constructor funcId stamped for `struct_id`, if any.
+lookup_struct_ctor_fid :: (fn(struct_id : String) -> Option(String))(
+  g_struct_ctor_fids.get(struct_id)
+);
+/// Trait counterpart of the struct ctor-fid table. TS stamps
+/// `returnedType.functionValue = functionValue` on EVERY type a comptime fn
+/// returns, traits included (comptime-fn.ts:266-276), and the generic-impl
+/// registry keys parameterized traits by that constructor's funcId
+/// (`getBaseTraitKey`, impl.ts:1042-1050) — so `Eq(Box(T))` and `Eq(Box(i32))`
+/// share one bucket. yo-self's `TraitT` cannot carry the fid; the id-keyed
+/// table is the same object-identity surrogate as the struct table above.
+/// First stamp wins (TS guards with `if (!returnedType.functionValue)`).
+(g_trait_ctor_fids : HashMap(String, String)) = HashMap(String, String).new();
+/// Record the constructor funcId for the trait with `trait_id` (first wins).
+register_trait_ctor_fid :: (fn(trait_id : String, ctor_fid : String) -> unit)({
+  match(
+    g_trait_ctor_fids.get(trait_id.clone()),
+    .Some(_) => (),
+    .None => {
+      g_trait_ctor_fids.set(trait_id, ctor_fid);
+    }
+  );
+});
+/// The constructor funcId stamped for `trait_id`, if any.
+lookup_trait_ctor_fid :: (fn(trait_id : String) -> Option(String))(
+  g_trait_ctor_fids.get(trait_id)
+);
+/// Effective constructor func_id of a struct type: the carried
+/// `constructor_func_id`, falling back to the id-keyed stamp table (a
+/// self-recursive shell or memoized instantiation may predate the ctor
+/// stamp — the same recovery the synthesizer's struct-struct unify uses).
+struct_effective_ctor_fid :: (fn(ty : TypeValue) -> String)(
+  match(
+    ty,
+    .Struct({ id : ec_sid, constructor_func_id : ec_cfid }) => cond(
+      (ec_cfid.len() > usize(0)) => ec_cfid,
+      true => match(lookup_struct_ctor_fid(ec_sid),.Some(rec) => rec,.None => String.new())
+    ),
+    _ => String.new()
+  )
+);
+/// True when a ctor-stamped struct instance is FULLY concrete: no walkable
+/// SomeTs, and none hiding in `type_arguments` (which `get_all_some_types`
+/// does NOT walk — the pattern-era instances of the Gap-6 split carry their
+/// unresolved `T#N` ONLY there).
+struct_fully_concrete_instance :: (fn(ty : TypeValue) -> bool)({
+  if(get_all_some_types(ty).len() > usize(0), {
+    return(false);
+  });
+  match(
+    ty,
+    .Struct({ type_arguments : fc_tas }) => {
+      (fci : usize) = usize(0);
+      while(fci < fc_tas.len(), {
+        ta := match(fc_tas.get(fci),.Some(t) => t,.None => TypeValue.Unit);
+        if(is_some_type(ta) || (get_all_some_types(ta).len() > usize(0)), {
+          return(false);
+        });
+        fci = (fci + usize(1));
+      });
+      true
+    },
+    _ => true
+  )
+});
+/// Swap a PATTERN-ERA method return instance for the call's concrete receiver
+/// instance: same constructor, different ids, receiver fully concrete. The
+/// per-call, receiver-derived canonicalization of Gap-6 attempt #8(a) — TS
+/// gets this for free from `context.SelfType = dereferencedReceiverType`.
+/// `.None` when no swap applies (keep the original).
+adopt_receiver_struct_instance :: (
+  fn(ret : TypeValue, recv : TypeValue) -> Option(TypeValue)
+)({
+  ret_cfid := struct_effective_ctor_fid(ret);
+  if(ret_cfid.len() == usize(0), {
+    return(Option(TypeValue).None);
+  });
+  recv_cfid := struct_effective_ctor_fid(recv);
+  if(!(ret_cfid == recv_cfid), {
+    return(Option(TypeValue).None);
+  });
+  ret_id := match(ret,.Struct({ id : ai_rid }) => ai_rid, _ => String.new());
+  recv_id := match(recv,.Struct({ id : ai_vid }) => ai_vid, _ => String.new());
+  if((ret_id.len() == usize(0)) || ((ret_id == recv_id) || !(struct_fully_concrete_instance(recv))), {
+    return(Option(TypeValue).None);
+  });
+  // Type-argument compatibility gate: adopting is only sound when the return
+  // instance IS the receiver's instantiation. An UNRESOLVED ret tyarg (the
+  // pattern-era `T#N`, after trying its own resolved-concrete cell) is a
+  // wildcard; a RESOLVED/concrete ret tyarg must match the receiver's
+  // positionally (compared by rendered type). Without this a stale
+  // ctx.self_type of the SAME ctor but a DIFFERENT instantiation
+  // (List(u8) vs List(i32)) would mis-adopt.
+  ret_tas := match(ret,.Struct({ type_arguments : ai_rtas }) => ai_rtas, _ => ArrayList(TypeValue).new());
+  recv_tas := match(recv,.Struct({ type_arguments : ai_vtas }) => ai_vtas, _ => ArrayList(TypeValue).new());
+  if((ret_tas.len() > usize(0)) && (recv_tas.len() > usize(0)), {
+    if(ret_tas.len() != recv_tas.len(), {
+      return(Option(TypeValue).None);
+    });
+    (ai_ti : usize) = usize(0);
+    while(ai_ti < ret_tas.len(), {
+      (rta : TypeValue) = match(ret_tas.get(ai_ti),.Some(t) => t,.None => TypeValue.Unit);
+      vta := match(recv_tas.get(ai_ti),.Some(t) => t,.None => TypeValue.Unit);
+      if(is_some_type(rta), {
+        match(
+          rta,
+          .SomeT({ resolved_concrete : ai_cell }) => match(
+            ai_cell.get(usize(0)),
+            .Some(ai_conc) => {
+              rta = ai_conc;
+            },
+            .None => ()
+          ),
+          _ => ()
+        );
+      });
+      if(!(is_some_type(rta)), {
+        if(type_to_string(rta) != type_to_string(vta), {
+          return(Option(TypeValue).None);
+        });
+      });
+      ai_ti = (ai_ti + usize(1));
+    });
+  });
+  Option(TypeValue).Some(recv)
+});
+// Call-site specialization supersession counters. The runtime call path
+// (calls/function.yo) specializes a generic/impl-generic callee PER CALL SITE
+// and stamps the SPEC onto the callee's ExprInfo — but the ABSTRACT original
+// FuncVal still sits in other id-keyed infos (candidate resolutions, earlier
+// passes), so codegen's function collection registers and emits it: a dead
+// function whose un-specializable body breaks the C ("Failed to transpile"
+// inside `SortedSet(i32).new`'s emitted original). TS never emits it — its
+// resolution replaces the value ON the shared node. Mirror by counting: a fid
+// whose every runtime call produced a spec is SUPERSEDED and skipped by
+// should_skip_function_codegen. A fid with any unspecialized call keeps its
+// emission (status quo).
+(g_fid_rtcalls : HashMap(String, usize)) = HashMap(String, usize).new();
+(g_fid_specs : HashMap(String, usize)) = HashMap(String, usize).new();
+/// Count a runtime call dispatch for `fid`.
+record_fid_rtcall :: (fn(fid : String) -> unit)({
+  n := match(g_fid_rtcalls.get(fid.clone()),.Some(v) => v,.None => usize(0));
+  g_fid_rtcalls.set(fid, n + usize(1));
+  ()
+});
+/// Count a successful call-site specialization of `fid`.
+record_fid_spec :: (fn(fid : String) -> unit)({
+  n := match(g_fid_specs.get(fid.clone()),.Some(v) => v,.None => usize(0));
+  g_fid_specs.set(fid, n + usize(1));
+  ()
+});
+/// True when every counted runtime call of `fid` was specialized (and at
+/// least one was) — the original body is dead and must not be emitted.
+fid_fully_specialized :: (fn(fid : String) -> bool)({
+  specs := match(g_fid_specs.get(fid.clone()),.Some(v) => v,.None => usize(0));
+  calls := match(g_fid_rtcalls.get(fid.clone()),.Some(v) => v,.None => usize(0));
+  (specs > usize(0)) && (specs >= calls)
+});
+// Macro-expansion side-table: a macro CALL's expanded form (e.g. `if(c, t, e)` →
+// its `cond(...)`), keyed by the call's expr id. yo-self codegen lowers a macro
+// call ONLY via `ExprInfo.macro_expansion` (generation.yo) — but that per-pass
+// ExprInfo gets OVERWRITTEN across eval passes: a later eval of the same call id
+// re-sets its table entry WITHOUT macro_expansion, so codegen then reads `None`
+// and emits "Failed to transpile" (this is exactly why every `if(...recur...)`
+// fails — confirmed: same id is macro-set once, then read with no expansion).
+// TS never loses it because its ExprInfo lives ON the node (`expr.$`), a stable
+// per-node property; yo-self's side-table is per-pass churnable. This durable,
+// id-keyed table is the faithful equivalent — written once by the macro path,
+// read by codegen as a FALLBACK when the per-pass ExprInfo lost it. A macro
+// call's expansion is a stable syntactic property of its id, so the record stays
+// correct regardless of which pass last touched the ExprInfo. (Same pattern as
+// g_method_callee_values / g_some_resolved_concrete above.)
+(g_macro_expansions : HashMap(ExprId, AstExpr)) = HashMap(ExprId, AstExpr).new();
+/// Record the expanded form for a macro-call expr id.
+record_macro_expansion :: (fn(call_id : ExprId, expanded : AstExpr) -> unit)({
+  g_macro_expansions.set(call_id, expanded);
+  ()
+});
+/// Look up the expanded form for a macro-call expr id, if recorded.
+lookup_macro_expansion :: (fn(call_id : ExprId) -> Option(AstExpr))(
+  g_macro_expansions.get(call_id)
+);
+// Module-level mutable-variable init expressions, collected during module-body
+// evaluation (`evaluate_anonymous_module_begin_exprs`) and consumed by codegen
+// to emit file-scope `static` declarations + initialize them in the main
+// wrapper. TS carries these on `moduleValue.moduleLevelInitExprs` (value.ts) and
+// aggregates them in module-manager.ts (`allModuleLevelInitExprs`); yo-self's
+// EvalValue enum cannot hold the field, so this durable global is the idiomatic
+// eval→codegen bridge (same pattern as g_macro_expansions / g_method_callee_values
+// above). Dedup by expr id bounds re-collection across the evaluator's multiple
+// passes; codegen additionally dedups by resolved C variable name (a global may
+// still be recorded under distinct clone ids) to avoid duplicate C declarations.
+(g_module_level_init_exprs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+(g_module_level_init_seen : HashMap(ExprId, bool)) = HashMap(ExprId, bool).new();
+/// Record a module-level `:=` / `(x : T) = v` init expression for codegen.
+record_module_level_init_expr :: (fn(e : AstExpr) -> unit)({
+  eid := ast_expr_id(e);
+  already := match(g_module_level_init_seen.get(eid),.Some(_) => true,.None => false);
+  if(!(already), {
+    g_module_level_init_seen.set(eid, true);
+    g_module_level_init_exprs.push(e);
+  });
+  ()
+});
+/// All collected module-level init expressions (for codegen declaration + init).
+get_module_level_init_exprs :: (fn() -> ArrayList(AstExpr))(
+  g_module_level_init_exprs
+);
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
 // (mirrors `src/expr-traversal.ts`).
-export(Path, PathCollection, path_collection_new);
+export(Path, PathCollection, path_collection_new, expr_info_paths_for_write);
 export(path_contains_path, path_conflicts_with_path, path_collection_conflicts_with_path_collection);
 export(ControlFlowKind, ControlFlowFlags);
 export(control_flow_of, has_control_flow, has_any_control_flow, merge_control_flows, control_flow_to_string);
 export(ComptimeRef);
 export(RuntimeDestructuring);
-export(ExprInfo, new_expr_info);
+export(ExprInfo, new_expr_info, clone_expr_info_for_shared_begin_result);
+// `ExprInfoRare` accessors — see the `ExprInfoRare` doc comment. The thirteen
+// fields they cover are NOT reachable as `info.<field>` any more.
+export(ExprInfoRare);
+export(expr_info_converted_runtime_type, expr_info_set_converted_runtime_type);
+export(expr_info_origin_type, expr_info_set_origin_type);
+export(expr_info_runtime_destructurings, expr_info_set_runtime_destructurings);
+export(expr_info_dyn_call_trait_values, expr_info_set_dyn_call_trait_values);
+export(expr_info_case_executed, expr_info_set_case_executed);
+export(expr_info_is_primitive_match, expr_info_set_is_primitive_match);
+export(expr_info_primitive_pattern_values, expr_info_set_primitive_pattern_values);
+export(
+  expr_info_consumed_variable_drop_expressions,
+  expr_info_set_consumed_variable_drop_expressions
+);
+export(expr_info_async_stack_size, expr_info_set_async_stack_size);
+export(
+  expr_info_async_state_machine_struct_name,
+  expr_info_set_async_state_machine_struct_name
+);
+export(expr_info_await_analysis, expr_info_set_await_analysis);
+export(expr_info_effect_analysis, expr_info_set_effect_analysis);
+export(expr_info_closure_function_value, expr_info_set_closure_function_value);
 export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get);
 export(record_method_callee_type, lookup_method_callee_type);
+export(record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, lookup_io_builtin_call);
+export(record_method_callee_value, lookup_method_callee_value);
+export(register_extern_c_global, is_extern_c_global, get_extern_c_global_type);
+export(register_module_level_global, is_module_level_global, module_global_c_suffix);
+export(register_some_resolved_concrete, lookup_some_resolved_concrete, unregister_some_resolved_concrete);
+export(
+  register_struct_ctor_fid,
+  record_branch_init,
+  branch_init_log_len,
+  get_branch_init_record,
+  register_arm_init_range,
+  get_arm_init_range,
+  push_branch_group,
+  begin_branch_group_arm,
+  push_active_where_trait_ids,
+  pop_active_where_trait_ids,
+  active_where_trait_ids,
+  pop_branch_group,
+  branch_group_stack_len,
+  truncate_branch_group_stack,
+  has_dominating_branch_init,
+  BranchInitRecord,
+  register_trait_ctor_fid,
+  lookup_trait_ctor_fid,
+  lookup_struct_ctor_fid,
+  struct_effective_ctor_fid,
+  struct_fully_concrete_instance,
+  adopt_receiver_struct_instance
+);
+export(record_fid_rtcall, record_fid_spec, fid_fully_specialized);
+export(record_macro_expansion, lookup_macro_expansion);
+export(record_module_level_init_expr, get_module_level_init_exprs);

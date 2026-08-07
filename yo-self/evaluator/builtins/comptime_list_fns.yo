@@ -86,7 +86,7 @@ evaluate_yo_comptime_list_car :: (
       )
     );
   });
-  child_ty := match(info.ty,.ComptimeListT(cb) => cb.*, _ => TypeValue.Unit);
+  child_ty := match(info.ty,.ComptimeListT(cb) => cb, _ => TypeValue.Unit);
   list_val := match(
     info.value,
     .Some(v) => v,
@@ -365,7 +365,7 @@ evaluate_yo_comptime_list_cons :: (
       EvalValue.UnitVal
     }
   );
-  child_ty := match(cdr_info.ty,.ComptimeListT(cb) => cb.*, _ => TypeValue.Unit);
+  child_ty := match(cdr_info.ty,.ComptimeListT(cb) => cb, _ => TypeValue.Unit);
   list_ty := cdr_info.ty;
   if(!(are_types_compatible(car_info.ty, child_ty)), {
     exn.throw(
@@ -710,7 +710,7 @@ evaluate_yo_comptime_list_element_type :: (
     info.value,
     .Some(v) => match(
       v,
-      .TypeVal(ty_box) => ty_box.*,
+      .TypeVal(ty_box) => ty_box,
       _ => {
         exn.throw(
           dyn(
@@ -751,9 +751,9 @@ evaluate_yo_comptime_list_element_type :: (
       )
     );
   });
-  child_ty := match(inner_ty,.ComptimeListT(cb) => cb.*, _ => TypeValue.Unit);
+  child_ty := match(inner_ty,.ComptimeListT(cb) => cb, _ => TypeValue.Unit);
   out_info := new_expr_info(info.env, t_type());
-  out_info.value =.Some(EvalValue.TypeVal(box(child_ty)));
+  out_info.value =.Some(EvalValue.TypeVal(child_ty));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
@@ -809,7 +809,7 @@ evaluate_yo_comptime_list_get :: (
       )
     );
   });
-  child_ty := match(list_info.ty,.ComptimeListT(cb) => cb.*, _ => TypeValue.Unit);
+  child_ty := match(list_info.ty,.ComptimeListT(cb) => cb, _ => TypeValue.Unit);
   (cur_env : Environment) = list_info.env;
   // Same named promotion as the car builtin above (TS
   // comptime-list-fns.ts:606).

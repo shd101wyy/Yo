@@ -16,17 +16,19 @@ open(import("std/string"));
   ast_expr_id,
   ast_expr_to_string,
   make_err_expr,
+  alloc_global_expr_id,
   BF_YO_AS
 } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
-  expr_info_table_set
+  expr_info_table_set,
+  record_macro_expansion
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_float_type, is_numeric_type } :: import("../../types/guards.yo");
+{ is_float_type, is_numeric_type, is_some_type, is_extern_type_name } :: import("../../types/guards.yo");
 {
   is_comptime_int_type,
   is_comptime_float_type,
@@ -65,6 +67,15 @@ is_convertible_numeric_type :: (fn(type_val : TypeValue) -> bool)(
   cond(
     is_numeric_type(type_val) => true,
     is_c_compatible_type(type_val) => true,
+    // An extern-C OPAQUE type (`extern("c", pid_t : Type)` — a SomeT whose
+    // name is in the extern-type registry) is an integer alias at the C ABI
+    // and converts via `__yo_as` like any C int. Mirrors TS
+    // `type.isExtern === "c" && isSomeType(type)`
+    // (numeric-type.ts isConvertibleNumericType). Without this,
+    // `i32(unsafe(getpid()))` took the non-numeric soft fallback (UnknownVal,
+    // no __yo_as rewrite) and codegen FTT'd the call — the sys/signal red
+    // (issues/yo-self-sys-signal-i32-extern-cast-ftt.md).
+    (is_some_type(type_val) && match(type_val,.SomeT({ name : ecn }) => is_extern_type_name(ecn), _ => false)) => true,
     true => false
   )
 );
@@ -181,7 +192,7 @@ _make_comptime_info :: (
       // huge literal to -1, then `-1 < 0` (the u64.min bound) trips.
       // Correctness is best-effort; codegen catches genuine
       // out-of-range issues later.
-      _ := _int_raw_in_range(raw, bounds);
+      _int_raw_in_range(raw, bounds);
     },
     .None => ()
   );
@@ -221,7 +232,7 @@ _make_yo_as_node :: (
   args := ArrayList(AstExpr).new();
   args.push(evaluated);
   args.push(type_expr);
-  AstExpr.FnCall(orig_id, box(func_atom), args, false, orig_tok)
+  AstExpr.FnCall(orig_id, func_atom, args, false, orig_tok)
 });
 /// Attempt to cast `arg_expr` to `target_type` as a numeric conversion.
 /// Returns `.None` if `target_type` is not a convertible numeric type.
@@ -277,7 +288,7 @@ try_to_convert_to_numeric_type :: (
             .EnumVal(variant, _) => {
               match(
                 arg_type,
-                .EnumT(_, _, vnames, _, _, _, discs) => {
+                .EnumT(_, _, vnames, _, _, _, discs, _, _) => {
                   match(
                     _get_enum_discriminant(variant, vnames, discs),
                     .Some(d) => {
@@ -413,14 +424,43 @@ try_to_convert_to_numeric_type :: (
   if(is_c_compatible_type(target_type) || comptime_raw.is_none(), {
     type_expr := match(
       expr,
-      .FnCall(_, func_box, _, _, _) => func_box.*,
+      .FnCall(_, func_box, _, _, _) => func_box,
       .Atom(_, _) => make_err_expr()
     );
-    yo_as_node := _make_yo_as_node(ast_expr_id(expr), ast_expr_token(expr), evaluated, type_expr);
+    // Lower the runtime cast to a `__yo_as` node, then attach it to the ORIGINAL
+    // expr's ExprInfo as a `macro_expansion`. Codegen walks the original parsed
+    // node (which keeps its `i32(...)` structure — codegen does NOT see returned
+    // rewrites), so the lowering must travel via the ExprInfo the original node's
+    // id maps to. Mirrors TS `replaceExprWithFuncCallExpr` (which mutates the node
+    // in place); yo-self can't mutate the enum node, so it uses the existing
+    // macro_expansion mechanism (codegen generation.yo checks it before the
+    // structural dispatch). The `__yo_as` node gets a FRESH id so codegen's
+    // re-dispatch onto it does not re-trigger the same macro_expansion (infinite
+    // loop); its `runtime_arg_exprs_in_order` is the value arg only (not the type).
+    yo_as_node := _make_yo_as_node(alloc_global_expr_id(), ast_expr_token(expr), evaluated, type_expr);
+    yo_as_info := new_expr_info(env, target_type);
+    yo_as_info.value =.None;
+    yo_as_rt := ArrayList(AstExpr).new();
+    // `evaluated` is already owned by the __yo_as node's args (above); push an
+    // independent handle here so `runtime_arg_exprs` does not share that single
+    // ref (yo-self codegen omits the dup for a variable passed to a function
+    // then reused, so both structures owned the one ref → stage-2 UAF). Clone
+    // keeps the id (runtime-arg materialization looks up its ExprInfo).
+    yo_as_rt.push(evaluated.clone());
+    yo_as_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(yo_as_rt);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(yo_as_node), yo_as_info);
     out_info := new_expr_info(env, target_type);
     out_info.value =.None;
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(yo_as_node), out_info);
-    return(.Some(yo_as_node));
+    // ALSO record in the durable id-keyed side-table: a later eval pass (e.g.
+    // a cond-arm re-eval or branch-merge trial) can overwrite this expr's
+    // ExprInfo WITHOUT macro_expansion, losing the lowering — codegen then
+    // FTTs the conversion (`u32(n)`/`i32(perm.mode)` in arm-result position,
+    // the stage-2 conversion cluster). Same durable-table pattern as the
+    // if-macro fix (see record_macro_expansion / lookup_macro_expansion).
+    record_macro_expansion(ast_expr_id(expr), yo_as_node.clone());
+    out_info.macro_expansion = Option(AstExpr).Some(yo_as_node);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    return(.Some(expr));
   });
   // -----------------------------------------------------------------------
   // Case 4: Fallback (comptime value, non-comptime target — shouldn't happen)

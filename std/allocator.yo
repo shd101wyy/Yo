@@ -40,30 +40,32 @@ size_would_overflow ::
 /// Implement this trait to provide custom allocation strategies.
 CustomAllocator :: trait(
   /// Allocate memory for `count` items of type T.
-  alloc : (fn(ref(self) : Self, comptime(T) : Type, count : usize) -> Result(?*(T), AllocError)),
+  alloc : (fn(inout(self) : Self, comptime(T) : Type, count : usize) -> Result(?*(T), AllocError)),
   /// Allocate zeroed memory for `count` items of type T.
-  alloc_zeroed : (fn(ref(self) : Self, comptime(T) : Type, count : usize) -> Result(?*(T), AllocError)),
+  alloc_zeroed : (fn(inout(self) : Self, comptime(T) : Type, count : usize) -> Result(?*(T), AllocError)),
   /// Allocate aligned memory for `count` items of type T with the given alignment.
-  alloc_aligned : (fn(ref(self) : Self, comptime(T) : Type, count : usize, alignment : usize) -> Result(?*(T), AllocError)),
+  alloc_aligned : (fn(inout(self) : Self, comptime(T) : Type, count : usize, alignment : usize) -> Result(?*(T), AllocError)),
   /// Reallocate memory to `new_count` items, preserving existing data.
-  realloc : (fn(forall(T : Type), ref(self) : Self, old_ptr : ?*(T), new_count : usize) -> Result(?*(T), AllocError)),
+  realloc : (fn(generic(T : Type), inout(self) : Self, old_ptr : ?*(T), new_count : usize) -> Result(?*(T), AllocError)),
   /// Deallocate memory pointed to by `ptr`.
-  dealloc : (fn(forall(T : Type), ref(self) : Self, ptr : *(T)) -> Result(unit, AllocError))
+  dealloc : (fn(generic(T : Type), inout(self) : Self, ptr : *(T)) -> Result(unit, AllocError))
 );
 /// Type-erased dynamic allocator wrapping any `CustomAllocator` implementation.
 Allocator :: Dyn(CustomAllocator);
 extern(
   "Yo",
   __yo_malloc :
-    fn(size : usize) -> ?*(void),
+    (fn(size : usize) -> ?*(void)),
   __yo_calloc :
-    fn(nmemb : usize, size : usize) -> ?*(void),
+    (fn(nmemb : usize, size : usize) -> ?*(void)),
   __yo_realloc :
-    fn(ptr : ?*(void), size : usize) -> ?*(void),
+    (fn(ptr : ?*(void), size : usize) -> ?*(void)),
   __yo_free :
-    fn(ptr : ?*(void)) -> unit,
+    (fn(ptr : ?*(void)) -> unit),
   __yo_aligned_alloc :
-    fn(alignment : usize, size : usize) -> ?*(void)
+    (
+      fn(alignment : usize, size : usize) -> ?*(void)
+    )
 );
 /// The process-wide global allocator (mimalloc by default, falls back to libc).
 GlobalAllocator :: impl({

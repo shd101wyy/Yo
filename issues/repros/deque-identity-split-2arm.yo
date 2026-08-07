@@ -1,0 +1,18 @@
+pragma((Pragma.AllowUnsafe));
+_(assert : assert) :: import("std/assert");
+open(import("std/collections/deque"));
+open(import("std/string"));
+();
+__yo_batch_env :: import("std/env");
+main :: (fn() -> unit)({
+  io :: __yo_builtin_io;
+  match(__yo_batch_env.env.get(`YO_TEST_INDEX`),
+    .Some(__yo_test_idx) => cond(
+      (__yo_test_idx == `34`) => { begin(d := (Deque(i32).new)(), (d.push_back)(i32(99)), (d.push_back)(i32(99)), (d.pop_front)(), (d.pop_front)(), (d.push_back)(i32(1)), (d.push_back)(i32(2)), (d.push_back)(i32(3)), sum := i32(0), for((d.into_iter)(), x => begin(sum = (sum + x), ())), assert(sum == i32(6)), ()); },
+      (__yo_test_idx == `37`) => { begin(d := (Deque(i32).new)(), (d.push_back)(i32(1)), (d.push_back)(i32(2)), (d.push_back)(i32(3)), for((d.iter)(), ptr => begin((ptr.(*)) = ((ptr.(*)) * i32(10)), ())), assert(d(usize(0)) == i32(10)), assert(d(usize(1)) == i32(20)), assert(d(usize(2)) == i32(30)), ()); },
+      true => ()
+    ),
+    .None => ()
+  );
+});
+export(main);

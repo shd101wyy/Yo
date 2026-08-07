@@ -11,6 +11,7 @@ open(import("std/string"));
 { ExprInfoTable } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
+{ panic, assert } :: import("std/assert");
 /// Function type for the main expression evaluator.
 EvaluateExprFn :: (
   fn(
@@ -58,7 +59,7 @@ evaluate_expression :: (
 )(
   match(
     g_evaluate_expression,
-    .None => panic("evaluate_expression called before set_evaluate_expression_fn"),
+    .None => __yo_panic("evaluate_expression called before set_evaluate_expression_fn"),
     .Some(f) => f(expr, env, ctx)
   )
 );
@@ -75,7 +76,7 @@ evaluate_expression_raw :: (
 )(
   match(
     g_evaluate_expression_raw,
-    .None => panic("evaluate_expression_raw called before set_evaluate_expression_raw_fn"),
+    .None => __yo_panic("evaluate_expression_raw called before set_evaluate_expression_raw_fn"),
     .Some(f) => f(expr, env, ctx, exn)
   )
 );

@@ -1,0 +1,22 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+Speak :: trait(
+  speak : (fn(self : Self) -> i32)
+);
+Dog :: ref(struct());
+DogSpeak :: impl(
+  Dog,
+  Speak(
+    speak : (
+      (self : Self) -> {
+        return(i32(77));
+      }
+    )
+  )
+);
+call_speak :: (fn(s : Dyn(Speak)) -> i32)(s.speak());
+main :: (fn() -> unit)({
+  dog := Dog();
+  unsafe(_a := putchar(int(call_speak(dyn(dog)))));
+});
+export(main);

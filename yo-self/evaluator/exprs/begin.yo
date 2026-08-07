@@ -29,13 +29,22 @@ open(import("std/string"));
   BK_BEGIN,
   BK_TUPLE,
   BK_RETURN,
+  BF_DUP,
   BF_UNWIND,
   BK_ASSIGN,
-  BK_INIT_ASSIGN
+  BK_INIT_ASSIGN,
+  BK_COND,
+  BK_MATCH,
+  BK_FN,
+  BK_CTL,
+  BK_UNSAFE_FN,
+  BK_FN_TRAIT,
+  ast_expr_is_fn_call
 } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
+  clone_expr_info_for_shared_begin_result,
   expr_info_table_set,
   expr_info_table_get,
   ControlFlowFlags,
@@ -43,40 +52,60 @@ open(import("std/string"));
   has_control_flow,
   has_any_control_flow
 } :: import("../../expr_info.yo");
-{ Environment, Variable, Frame, add_variable_to_env } :: import("../../env.yo");
+{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 {
   EvalContext,
-  ExpectedTypeCtx
+  ExpectedTypeCtx,
+  ImplConcreteTypeInfo
 } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ is_some_type } :: import("../../types/guards.yo");
+{ is_some_type, is_reference_struct_type } :: import("../../types/guards.yo");
+{ HashSet } :: import("std/collections/hash_set");
+{ is_io_async_call } :: import("../async/await_analysis.yo");
+{ expr_tree_contains_return } :: import("../../expr_traversal.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
+{ synthesize_types, TypePair, SynthesizeOptions } :: import("../types/synthesizer.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_flowable_expr, flow_options_default, FlowOptions }
 :: import("../../types/flowability.yo");
-{ type_representation_contains_raw_ptr } :: import("../../types/utils.yo");
+{ type_representation_contains_raw_ptr, type_contains_rc_type } :: import("../../types/utils.yo");
+{ generate_expr_from_code } :: import("../../parser.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 {
   attach_temp_variable_to_expr,
   throw_expr_is_implicit_variable_error,
-  consume_case_body_temp_var
+  consume_case_body_temp_var,
+  set_expr_as_needs_to_call_dup,
+  get_dup_use_site_token
 } :: import("../utils.yo");
+{ Token } :: import("../../token.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
-// DupCallsResult — stub result type for collectDupCallsConservatively.
-//
-// The full implementation traverses the AST for `___dup(...)` calls and is
-// deferred to Phase 3.  Both lists are always empty in Phase 2aa.
+// DupCallsResult — result type for collect_dup_calls_conservatively.
+// Mirrors TS `DupCallsResult` (begin.ts:343-346).
 // ---------------------------------------------------------------------------
-DupCallsResult :: object(
-  /// Maps base-variable id → list of `___dup(...)` call expressions.
-  dup_calls : HashMap(String, ArrayList(AstExpr)),
-  /// Variable ids that have dups in some branches but not all (conservative).
-  vars_with_partial_branch_dups : ArrayList(String)
+DupCallsResult :: ref(
+  struct(
+    /// Maps variable id → list of `___dup(...)` call expressions.
+    dup_calls : HashMap(String, ArrayList(AstExpr)),
+    /// Variable ids that have dups in some branches but not all (conservative).
+    vars_with_partial_branch_dups : ArrayList(String),
+    /// Insertion-ordered key list for `dup_calls` (yo-self addition: avoids
+    /// HashMap key iteration at the branch-merge and application sites; TS
+    /// iterates Map.keys() directly).
+    dup_call_var_ids : ArrayList(String)
+  )
+);
+_new_dup_calls_result :: (fn() -> DupCallsResult)(
+  DupCallsResult(
+    dup_calls : HashMap(String, ArrayList(AstExpr)).new(),
+    vars_with_partial_branch_dups : ArrayList(String).new(),
+    dup_call_var_ids : ArrayList(String).new()
+  )
 );
 // ---------------------------------------------------------------------------
 // is_unit_value_expression
@@ -88,18 +117,387 @@ DupCallsResult :: object(
 is_unit_value_expression :: (fn(expr : AstExpr) -> bool)(
   ast_expr_is_fn_call_of(expr, BK_TUPLE,.Some(usize(0)))
 );
-// ---------------------------------------------------------------------------
-// collect_dup_calls_conservatively — stub
-// ---------------------------------------------------------------------------
-/// Stub. The real implementation traverses `expr` recursively to collect all
-/// `___dup(...)` calls, keyed by the base-variable id they dup.
-/// Deferred to Phase 3.
-collect_dup_calls_conservatively :: (fn(_expr : AstExpr) -> DupCallsResult)(
-  DupCallsResult(
-    dup_calls : HashMap(String, ArrayList(AstExpr)).new(),
-    vars_with_partial_branch_dups : ArrayList(String).new()
+_ids_list_contains :: (fn(lst : ArrayList(String), s : String) -> bool)({
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < lst.len()) && (!(found)), {
+    match(
+      lst.get(i),
+      .Some(x) => if(x == s, {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// If `e` is an evaluated `___dup` call, return the duped variable's NAME.
+/// Matches BOTH shapes: the method-resolved `(x.___dup)()` (the shape TS
+/// detects, begin.ts:377-404) and the bare `___dup(x)` builtin call (the shape
+/// set_expr_as_needs_to_call_dup mints via generate_expr_from_code).
+_dup_call_target_name :: (fn(e : AstExpr) -> Option(String))(
+  match(
+    e,
+    .FnCall(_, f, eargs, _, _) => {
+      if((eargs.len() == usize(0)) && ast_expr_is_fn_call_of(f, ".", Option(usize).Some(usize(2))), {
+        match(
+          f,
+          .FnCall(_, _, fargs, _, _) => {
+            a0 := match(
+              fargs.get(usize(0)),
+              .Some(x) => x,
+              .None => return(Option(String).None)
+            );
+            a1 := match(
+              fargs.get(usize(1)),
+              .Some(x) => x,
+              .None => return(Option(String).None)
+            );
+            if((ast_expr_is_atom(a0) && ast_expr_is_atom(a1)) && ast_expr_is_atom_of(a1, BF_DUP), {
+              return(Option(String).Some(ast_expr_token(a0).value));
+            });
+          },
+          .Atom(_, _) => ()
+        );
+      });
+      if(ast_expr_is_fn_call_of(e, BF_DUP, Option(usize).Some(usize(1))), {
+        match(
+          eargs.get(usize(0)),
+          .Some(arg0) => if(ast_expr_is_atom(arg0), {
+            return(Option(String).Some(ast_expr_token(arg0).value));
+          }),
+          .None => ()
+        );
+      });
+      Option(String).None
+    },
+    .Atom(_, _) => Option(String).None
   )
 );
+/// Record a dup call for `var_id`, deduplicating by expr id (mirrors the
+/// `existingDups.includes(dupExpr)` guard, begin.ts:1850).
+_push_dup_call :: (fn(res : DupCallsResult, var_id : String, e : AstExpr) -> unit)({
+  match(
+    res.dup_calls.get(var_id.clone()),
+    .Some(lst) => {
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while((i < lst.len()) && (!(found)), {
+        match(
+          lst.get(i),
+          .Some(x) => if(ast_expr_id(x) == ast_expr_id(e), {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      if(!(found), {
+        lst.push(e);
+      });
+    },
+    .None => {
+      nl := ArrayList(AstExpr).new();
+      nl.push(e);
+      res.dup_calls.set(var_id.clone(), nl);
+      res.dup_call_var_ids.push(var_id);
+    }
+  );
+});
+/// Recursive dup-call search with conservative cross-branch analysis.
+/// Mirrors `searchRecursively` + its nested `handleBranchingExpression`
+/// (begin.ts:348-640). The branching arm is inlined (branch bodies recurse via
+/// `recur` into FRESH result containers — exactly TS's
+/// `collectDupCallsConservatively(branchBody)`). Follows a recorded
+/// `macro_expansion` INSTEAD of the raw macro-call args (added to TS
+/// 2026-08-06, same shape as `exprTreeContainsReturn`): the expansion is where
+/// branching structure (cond/match) is visible, so a dup inside an `if(...)`
+/// arm routes through the branch-aware handler and is flagged partial instead
+/// of being collected as an unconditional dup and wrongly cancelled — which
+/// leaked one reference on every path that skipped the arm
+/// (issues/fixed/where-constraints-arraylist-96b-leak.md). An earlier experiment
+/// that recursed into expansions WITHOUT the branch-aware routing + early
+/// return broke the stage-2 self-compile; the `undeclared result` class of
+/// that failure was a missed expansion-internal `return` and is owned by
+/// `_contains_return_for_opt` below.
+_search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext) -> unit)({
+  // Skip io.async captures entirely (begin.ts:358-369): the SM path needs BOTH
+  // the dup and the scope-exit drop; cancelling them would leak.
+  if(ast_expr_is_fn_call(expr) && is_io_async_call(expr), {
+    return(());
+  });
+  ei_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr));
+  // Attached deferred dups first (begin.ts:371-375).
+  match(
+    ei_opt,
+    .Some(ei) => {
+      match(
+        ei.deferred_dup_expressions,
+        .Some(dl) => {
+          (ddi : usize) = usize(0);
+          while(ddi < dl.len(), {
+            match(
+              dl.get(ddi),
+              .Some(d) => recur(d, res, ctx),
+              .None => ()
+            );
+            ddi = (ddi + usize(1));
+          });
+        },
+        .None => ()
+      );
+    },
+    .None => ()
+  );
+  // A macro call (e.g. `if`, expanding to `cond`) keeps its original head in
+  // the AST; the evaluated expansion — the FRESH-ID clone codegen emits — is
+  // recorded in `macro_expansion`. Walk the EXPANSION instead of the raw args
+  // (begin.ts searchRecursively does the same via $.macroExpansion): the
+  // expansion's cond/match head routes arm-internal dups through the
+  // branch-aware handler below, so they are flagged partial (or counted per
+  // arm) instead of cancelled as unconditional dups.
+  match(
+    ei_opt,
+    .Some(ei_mx) => match(
+      ei_mx.macro_expansion,
+      .Some(mx) => {
+        recur(mx, res, ctx);
+        return(());
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  // The node itself is a dup call (begin.ts:377-404)?
+  match(
+    _dup_call_target_name(expr),
+    .Some(vn) => {
+      match(
+        ei_opt,
+        .Some(ei2) => {
+          dvars := get_variables_from_env(ei2.env, vn);
+          if(dvars.len() > usize(0), {
+            match(
+              dvars.get(dvars.len() - usize(1)),
+              .Some(dv) => _push_dup_call(res, dv.id.to_string(), expr),
+              .None => ()
+            );
+          });
+        },
+        .None => ()
+      );
+      return(());
+    },
+    .None => ()
+  );
+  // While loops execute multiple times — never optimize across them
+  // (begin.ts:406-414).
+  if(ast_expr_is_fn_call_of(expr, "while", Option(usize).None), {
+    return(());
+  });
+  is_cond := ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None);
+  is_match := ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None);
+  if(is_cond || is_match, {
+    cargs := match(
+      expr,
+      .FnCall(_, _, xs, _, _) => xs,
+      .Atom(_, _) => ArrayList(AstExpr).new()
+    );
+    // match: search the scrutinee first (begin.ts:611-614).
+    start_idx := if(is_match, {
+      match(
+        cargs.get(usize(0)),
+        .Some(scrut) => recur(scrut, res, ctx),
+        .None => ()
+      );
+      usize(1)
+    }, usize(0));
+    // Per-branch collection (begin.ts:492-505).
+    branch_results := ArrayList(DupCallsResult).new();
+    (bi : usize) = start_idx;
+    while(bi < cargs.len(), {
+      match(
+        cargs.get(bi),
+        .Some(stmt) => if(ast_expr_is_fn_call_of(stmt, "=>", Option(usize).Some(usize(2))), {
+          match(
+            stmt,
+            .FnCall(_, _, sargs, _, _) => match(
+              sargs.get(usize(1)),
+              .Some(body) => {
+                bres := _new_dup_calls_result();
+                recur(body, bres, ctx);
+                branch_results.push(bres);
+              },
+              .None => ()
+            ),
+            .Atom(_, _) => ()
+          );
+        }),
+        .None => ()
+      );
+      bi = (bi + usize(1));
+    });
+    // Union of var ids with dups in ANY branch; merge nested partials
+    // (begin.ts:507-517).
+    all_vars := ArrayList(String).new();
+    (bri : usize) = usize(0);
+    while(bri < branch_results.len(), {
+      match(
+        branch_results.get(bri),
+        .Some(br) => {
+          (ki : usize) = usize(0);
+          while(ki < br.dup_call_var_ids.len(), {
+            match(
+              br.dup_call_var_ids.get(ki),
+              .Some(vid) => if(!(_ids_list_contains(all_vars, vid.clone())), {
+                all_vars.push(vid);
+              }),
+              .None => ()
+            );
+            ki = (ki + usize(1));
+          });
+          (pi : usize) = usize(0);
+          while(pi < br.vars_with_partial_branch_dups.len(), {
+            match(
+              br.vars_with_partial_branch_dups.get(pi),
+              .Some(pv) => if(!(_ids_list_contains(res.vars_with_partial_branch_dups, pv.clone())), {
+                res.vars_with_partial_branch_dups.push(pv);
+              }),
+              .None => ()
+            );
+            pi = (pi + usize(1));
+          });
+        },
+        .None => ()
+      );
+      bri = (bri + usize(1));
+    });
+    // Per-variable branch categorization (begin.ts handleBranchingExpression):
+    // a branch-arm dup executes only when that arm is taken, so it may be
+    // exposed to the optimizer ONLY when EVERY arm dups the variable (with
+    // 2+ arms the per-arm count then blocks cancellation anyway). Partial
+    // coverage flags the variable — the pair must be preserved. Return-arms
+    // get NO special treatment: the retired early-return-dup fast path
+    // cancelled a dup that fed the arm's RETURN VALUE, emitting
+    // `drop(x); return x;` — a use-after-free (compute_overlapping_slots).
+    (avi : usize) = usize(0);
+    while(avi < all_vars.len(), {
+      vid_opt := all_vars.get(avi);
+      match(
+        vid_opt,
+        .Some(vid) => {
+          all_branch_dups := ArrayList(AstExpr).new();
+          (branches_with_dup : usize) = usize(0);
+          (bci : usize) = usize(0);
+          while(bci < branch_results.len(), {
+            match(
+              branch_results.get(bci),
+              .Some(br2) => {
+                match(
+                  br2.dup_calls.get(vid.clone()),
+                  .Some(bdups) => if(bdups.len() > usize(0), {
+                    branches_with_dup = (branches_with_dup + usize(1));
+                    (bdi : usize) = usize(0);
+                    while(bdi < bdups.len(), {
+                      match(
+                        bdups.get(bdi),
+                        .Some(bd) => {
+                          all_branch_dups.push(bd);
+                        },
+                        .None => ()
+                      );
+                      bdi = (bdi + usize(1));
+                    });
+                  }),
+                  .None => ()
+                );
+              },
+              .None => ()
+            );
+            bci = (bci + usize(1));
+          });
+          if(branches_with_dup == branch_results.len(), {
+            // Every arm dups the variable — expose them to the optimizer.
+            (fdi : usize) = usize(0);
+            while(fdi < all_branch_dups.len(), {
+              match(
+                all_branch_dups.get(fdi),
+                .Some(fd) => _push_dup_call(res, vid.clone(), fd),
+                .None => ()
+              );
+              fdi = (fdi + usize(1));
+            });
+          }, {
+            // Some arms dup, some don't — the pair must survive.
+            if(!(_ids_list_contains(res.vars_with_partial_branch_dups, vid.clone())), {
+              res.vars_with_partial_branch_dups.push(vid.clone());
+            });
+          });
+        },
+        .None => ()
+      );
+      avi = (avi + usize(1));
+    });
+    return(());
+  });
+  // Generic recursion (begin.ts:620-626).
+  match(
+    expr,
+    .FnCall(_, f2, fargs2, _, _) => {
+      recur(f2, res, ctx);
+      (ai : usize) = usize(0);
+      while(ai < fargs2.len(), {
+        match(
+          fargs2.get(ai),
+          .Some(a) => recur(a, res, ctx),
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  );
+});
+// ---------------------------------------------------------------------------
+// collect_dup_calls_conservatively
+// ---------------------------------------------------------------------------
+/// Traverses `expr` recursively to collect all `___dup(...)` calls, keyed by
+/// the variable id they dup, with conservative cross-branch analysis.
+/// Mirrors `collectDupCallsConservatively` (begin.ts:630-636).
+collect_dup_calls_conservatively :: (fn(expr : AstExpr, ctx : EvalContext) -> DupCallsResult)({
+  res := _new_dup_calls_result();
+  _search_dup_calls(expr, res, ctx);
+  res
+});
+// ---------------------------------------------------------------------------
+// _try_synthesize_return_type
+// ---------------------------------------------------------------------------
+/// Trial-run `synthesize_types(expected, given)` for the begin return-type
+/// check (begin.ts:1607-1618 / 1646-1657 wrap the call in try/catch). Returns
+/// `false` when synthesis threw, so the caller can run the compatibility
+/// fallback. With a SomeT expected, a successful synthesis BINDS the type
+/// variable's name in the env (synthesizer.yo, mirroring synthesizer.ts:
+/// 457-490).
+_try_synthesize_return_type :: (
+  fn(
+    expected_ty : TypeValue,
+    given_ty : TypeValue,
+    env : Environment
+  ) -> bool
+)({
+  local_exn := Exception(throw : ((_err) -> unwind(false)));
+  _sr := synthesize_types(
+    expected_ty,
+    env,
+    given_ty,
+    env,
+    ArrayList(TypePair).new(),
+    Option(SynthesizeOptions).None,
+    local_exn
+  );
+  true
+});
 // ---------------------------------------------------------------------------
 // _check_keyword_position
 // ---------------------------------------------------------------------------
@@ -154,17 +552,783 @@ _check_keyword_position :: (
 ///   - `ctx`                     Mutable evaluator context (side-table, etc.).
 ///   - `variables_to_add`        Variables to inject into the new frame before
 ///                               evaluating (used for function parameters).
-///   - `_is_evaluating_function_body_begin_block`
+///   - `is_evaluating_function_body_begin_block`
 ///                               True when this begin block IS the function
-///                               body.  Affects the dup/drop optimization pass
-///                               (Phase 3); unused in Phase 2aa.
+///                               body (every fn-body eval site passes `true`;
+///                               match/cond arm and loop sites pass `false`).
+///                               Gates the single-expression shared-id
+///                               `variable_name` carry (see the carry block
+///                               before the final expr_info_table_set).
+/// True when `v` is — or recursively contains — an `UnknownVal` (a runtime
+/// hole). Used to decide whether a single-expression begin block must carry the
+/// inner expression's `runtime_arg_exprs_in_order`: a bare runtime call yields
+/// `UnknownVal`, and a RUNTIME enum/struct construction (`.Some((p &+ i).*)`,
+/// `Wrap(v : runtimeVal)`) yields an `EnumVal`/`StructVal` SHELL with an
+/// `UnknownVal` payload — both need the runtime construction codegen. A fully
+/// comptime-folded construct (`.Some(i32(7))`) has only concrete leaves and must
+/// keep the comptime-value path (see the gate in `evaluate_begin_expression`).
+_value_contains_unknown :: (fn(v : EvalValue) -> bool)(
+  match(
+    v,
+    .UnknownVal(_, _) => true,
+    .EnumVal(_, fields) => {
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while((i < fields.len()) && !(found), {
+        match(
+          fields.get(i),
+          .Some(f) => if(recur(f), {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    .StructVal(_, _, field_values) => {
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while((i < field_values.len()) && !(found), {
+        match(
+          field_values.get(i),
+          .Some(f) => if(recur(f), {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => false
+  )
+);
+/// True iff `name` equals the name carried by `opt` (if any).
+_name_matches_opt :: (fn(name : String, opt : Option(String)) -> bool)(
+  match(opt,.Some(n) => (name == n),.None => false)
+);
+/// M1 (plans/archive/YO_SELF_NAMED_LOCAL_DROPS.md): schedule scope-end `___drop` expressions
+/// for owning named-local bindings declared in `frame`, so a begin block's owning
+/// locals are reclaimed at scope exit. yo-self previously emitted NO scope-end drops
+/// for named locals (it leaked every one). Mirrors the normal scope-exit path of
+/// `begin.ts:2065-2231` + the predicate `begin.ts:242-257`.
+///
+/// M1 CONSERVATIVE SAFETY: skips the ENTIRE block if it contains any field/index-write
+/// assignment (a non-atom assignment LHS). Such a write may store an RC value WITHOUT a
+/// balancing dup (dup-on-reassign is not ported until M2), so dropping the involved
+/// locals would double-free / UAF. Skipping keeps those blocks at their current
+/// (balanced-leak) behavior. Excludes consumed / borrowed (`inout`) / module-level /
+/// generic (`SomeType`) vars and the block's result-temp / returned bare-local (moved
+/// out). The `___drop(name)` exprs are built inline (the builder in calls/helper.yo
+/// cannot be imported — begin.yo <-> helper.yo would be a mutual destructuring cycle).
+// ---------------------------------------------------------------------------
+// M3 (early-return-only drops) — evaluator-local token-order primitives + var
+// predicates. The token primitives are copies of the codegen ones in
+// return.yo (the evaluator must not import codegen). Mirror tokenIsAtOrBefore /
+// tokenIsBefore / getLastComparableTokenInExpr and variableCanNeedDrop*/
+// variableIsCapturedByCurrentFunction. (Used by the M3 walker + driver.)
+// ---------------------------------------------------------------------------
+_m3_tokens_comparable :: (fn(left : Token, right : Token) -> bool)(
+  (left.module_path == right.module_path) && (left.input == right.input)
+);
+_m3_token_is_at_or_before :: (fn(left : Token, right : Token) -> bool)(
+  if(!(_m3_tokens_comparable(left, right)), false, left.character <= right.character)
+);
+_m3_token_is_before :: (fn(left : Token, right : Token) -> bool)(
+  if(!(_m3_tokens_comparable(left, right)), false, left.character < right.character)
+);
+_m3_max_comparable_token :: (fn(node : AstExpr, reference : Token, best : Token) -> Token)({
+  tok := ast_expr_token(node);
+  best2 := if(_m3_tokens_comparable(tok, reference) && (tok.character > best.character), tok, best);
+  match(
+    node,
+    .FnCall(_, func, args, _, _) => {
+      (acc : Token) = recur(func, reference, best2);
+      n := args.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          args.get(i),
+          .Some(a) => {
+            acc = recur(a, reference, acc);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      acc
+    },
+    .Atom(_, _) => best2
+  )
+});
+_m3_last_comparable_token_in_expr :: (fn(expr : AstExpr, reference : Token) -> Token)({
+  init := ast_expr_token(expr);
+  init2 := if(!(_m3_tokens_comparable(init, reference)), reference, init);
+  _m3_max_comparable_token(expr, reference, init2)
+});
+/// A local that CAN need a scope-end drop, ignoring consumed status. Mirrors
+/// `variableCanNeedDropIgnoringConsumed`.
+_variable_can_need_drop_ignoring_consumed :: (fn(v : Variable) -> bool)({
+  if(!(v.is_owning_the_rc_value), {
+    return(false);
+  });
+  if(!(type_contains_rc_type(v.ty)), {
+    return(false);
+  });
+  if(v.is_module_level, {
+    return(false);
+  });
+  some_undroppable := match(
+    v.ty,
+    .SomeT({ required_trait_types : s_rtt, resolved_concrete : s_rc }) => ((s_rc.len() == usize(0)) && (s_rtt.len() == usize(0))),
+    _ => false
+  );
+  !(some_undroppable)
+});
+/// True iff `v` is captured by the current function/closure. Mirrors
+/// `variableIsCapturedByCurrentFunction`.
+_variable_is_captured_by_current_function :: (fn(v : Variable, ctx : EvalContext) -> bool)(
+  match(ctx.captured_variables,.Some(cv) => cv.contains_key(v.name.clone()),.None => false)
+);
+/// True iff `expr` is a nested function-definition boundary — recursion for
+/// early-return drops must stop here. Mirrors `isFunctionBoundaryForEarlyDrop`
+/// (begin.ts). (The TypeValue-fn-callee boundary sub-checks are omitted: they
+/// guard the rare case of a return value that is itself a function-type call;
+/// the token-position gate in `_attach_if_cleanup_needs_drop` already prevents a
+/// wrong attach there.)
+_is_function_boundary_for_early_drop :: (fn(expr : AstExpr, _ctx : EvalContext) -> bool)({
+  // Any `->`/`=>` arrow reaching here is a CLOSURE / effect-or-error handler body
+  // (a new C function boundary) — match-arm `=>` never reach this predicate because
+  // the walker handles cond/match arms separately (recursing into their branch
+  // PARTS, not the arm node). So treat any arrow as a boundary and STOP: an
+  // enclosing block's early-return drop must never attach to a `return`/`unwind`
+  // inside a nested function body (a different C function scope → undeclared temp).
+  // Broader than TS's is_anon/FuncVal check, but sound here: yo-self sets those
+  // markers only after closure specialization, LATER than this def-time walk, so a
+  // narrow check misses the handler and the walker cross-attaches (the
+  // dyn_error_throw_ioerror SELF-FAIL). Also stop at fn/ctl/unsafe_fn/Fn callees.
+  is_arrow := (ast_expr_is_fn_call_of(expr, "->", Option(usize).None) || ast_expr_is_fn_call_of(expr, "=>", Option(usize).None));
+  if(is_arrow, {
+    return(true);
+  });
+  match(
+    expr,
+    .FnCall(_, func, _, _, _) => if(
+      ast_expr_is_fn_call_of(func, BK_FN, Option(usize).None) || (ast_expr_is_fn_call_of(func, BK_CTL, Option(usize).None) || (ast_expr_is_fn_call_of(func, BK_UNSAFE_FN, Option(usize).None) || ast_expr_is_fn_call_of(func, BK_FN_TRAIT, Option(usize).None))),
+      return(true),
+      ()
+    ),
+    .Atom(_, _) => ()
+  );
+  false
+});
+/// If `variable` is still initialized at `cleanup_point` on the `expr`
+/// return/unwind path, and its init is at-or-before that point which is strictly
+/// before its consumption, attach `drop_expr` to `expr`'s
+/// early_return_only_deferred_drop_expressions. Mirrors the inner
+/// `attachIfCleanupPointNeedsDrop` (begin.ts).
+_attach_if_cleanup_needs_drop :: (fn(expr : AstExpr, cleanup_point : Token, variable : Variable, drop_expr : AstExpr, init_tok : Token, consumed_tok : Token, ctx : EvalContext) -> unit)({
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
+    .None => (),
+    .Some(ei) => {
+      vars := get_variables_from_env(ei.env, variable.name.clone());
+      if(vars.len() == usize(0), {
+        return(());
+      });
+      latest := match(vars.get(vars.len() - usize(1)),.Some(v) => v,.None => return(()));
+      match(latest.initialized_at_token,.None => return(()),.Some(_) => ());
+      if(_m3_token_is_at_or_before(init_tok, cleanup_point) && _m3_token_is_before(cleanup_point, consumed_tok), {
+        existing := match(ei.early_return_only_deferred_drop_expressions,.Some(l) => l,.None => ArrayList(AstExpr).new());
+        (found : bool) = false;
+        (fi : usize) = usize(0);
+        while(fi < existing.len(), {
+          match(
+            existing.get(fi),
+            .Some(e) => if(ast_expr_id(e) == ast_expr_id(drop_expr), {
+              found = true;
+            }),
+            .None => ()
+          );
+          fi = (fi + usize(1));
+        });
+        if(!(found), {
+          _p := existing.push(drop_expr);
+          ei.early_return_only_deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(existing);
+        });
+      });
+    }
+  );
+});
+/// Recursively attach `drop_expr` (for `variable`) to every return/unwind in
+/// `expr` where the variable is live-but-not-yet-consumed. Mirrors
+/// `attachEarlyReturnOnlyDropExpressionToReturns` (begin.ts:130-238).
+_attach_early_return_only_drop_to_returns :: (fn(expr : AstExpr, variable : Variable, drop_expr : AstExpr, ctx : EvalContext) -> unit)({
+  init_tok := match(variable.initialized_at_token,.Some(t) => t,.None => return(()));
+  consumed_tok := match(variable.consumed_at_token,.Some(cb) => cb.*,.None => return(()));
+  if(ast_expr_is_atom(expr), {
+    if(ast_expr_is_atom_of(expr, BK_RETURN) || ast_expr_is_atom_of(expr, BF_UNWIND), {
+      _attach_if_cleanup_needs_drop(expr, ast_expr_token(expr), variable, drop_expr, init_tok, consumed_tok, ctx);
+    });
+    return(());
+  });
+  match(
+    expr,
+    .FnCall(_, func, args, _, _) => {
+      if(ast_expr_is_fn_call_of(expr, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
+        _attach_if_cleanup_needs_drop(expr, _m3_last_comparable_token_in_expr(expr, consumed_tok), variable, drop_expr, init_tok, consumed_tok, ctx);
+        return(());
+      });
+      match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
+        .Some(ei) => match(ei.macro_expansion,.Some(mx) => recur(mx, variable, drop_expr, ctx),.None => ()),
+        .None => ()
+      );
+      if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), {
+        recur(func, variable, drop_expr, ctx);
+        (ci : usize) = usize(0);
+        while(ci < args.len(), {
+          match(
+            args.get(ci),
+            .Some(arg) => if(ast_expr_is_fn_call(arg) && ast_expr_is_fn_call_of(arg, "=>", Option(usize).None), {
+              match(
+                arg,
+                .FnCall(_, _, bargs, _, _) => {
+                  (bj : usize) = usize(0);
+                  while(bj < bargs.len(), {
+                    match(bargs.get(bj),.Some(bp) => recur(bp, variable, drop_expr, ctx),.None => ());
+                    bj = (bj + usize(1));
+                  });
+                },
+                .Atom(_, _) => ()
+              );
+            }, {
+              recur(arg, variable, drop_expr, ctx);
+            }),
+            .None => ()
+          );
+          ci = (ci + usize(1));
+        });
+        return(());
+      });
+      if(_is_function_boundary_for_early_drop(expr, ctx), {
+        return(());
+      });
+      recur(func, variable, drop_expr, ctx);
+      (ai : usize) = usize(0);
+      while(ai < args.len(), {
+        match(args.get(ai),.Some(a) => recur(a, variable, drop_expr, ctx),.None => ());
+        ai = (ai + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  )
+});
+/// Macro-aware `expr_tree_contains_return` for the optimizer's earliest-return
+/// detection. TS's `exprTreeContainsReturn` (expr-traversal.ts:311-330) checks
+/// `expr.$.macroExpansion`; yo-self's expr_traversal.yo baseline cannot (no
+/// ctx). An `if(cond, { ... return(...) })` statement hides its return in the
+/// recorded expansion — missing it left `earliest_ret` unset, the
+/// return-before-dup guard never fired, and a later child's dup+drop pair was
+/// wrongly cancelled while the if's early return still needed the scope-exit
+/// drop (the stage-2 `undeclared result` C error).
+_contains_return_for_opt :: (fn(e : AstExpr, ctx : EvalContext) -> bool)({
+  if(expr_tree_contains_return(e), {
+    return(true);
+  });
+  match(
+    e,
+    .FnCall(_, f, fargs, _, _) => {
+      match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)),
+        .Some(ei) => match(
+          ei.macro_expansion,
+          .Some(mx) => if(recur(mx, ctx), {
+            return(true);
+          }),
+          .None => ()
+        ),
+        .None => ()
+      );
+      if(recur(f, ctx), {
+        return(true);
+      });
+      (ai : usize) = usize(0);
+      (found : bool) = false;
+      while((ai < fargs.len()) && (!(found)), {
+        match(
+          fargs.get(ai),
+          .Some(a) => if(recur(a, ctx), {
+            found = true;
+          }),
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+      found
+    },
+    .Atom(_, _) => false
+  )
+});
+/// Strip cancelled dup calls from every `deferred_dup_expressions` list in the
+/// tree. Mirrors `removeDupCallsFromExpr` (begin.ts:652-671). TS reaches
+/// expansion-internal dup lists through the raw args because its expansions
+/// SHARE the spliced arg nodes; yo-self expansions are fresh-id clones, so the
+/// walk must follow `macro_expansion` explicitly — the same reachability the
+/// collector uses, or a cancelled dup would survive in the emitted tree.
+_remove_dup_calls_from_tree :: (fn(expr : AstExpr, remove_ids : HashSet(usize), ctx : EvalContext) -> unit)({
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
+    .Some(ei) => {
+      match(
+        ei.deferred_dup_expressions,
+        .Some(dl) => {
+          kept := ArrayList(AstExpr).new();
+          (i : usize) = usize(0);
+          while(i < dl.len(), {
+            match(
+              dl.get(i),
+              .Some(d) => if(!(remove_ids.contains(ast_expr_id(d))), {
+                kept.push(d);
+              }),
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          ei.deferred_dup_expressions = if(
+            kept.len() == usize(0),
+            Option(ArrayList(AstExpr)).None,
+            Option(ArrayList(AstExpr)).Some(kept)
+          );
+        },
+        .None => ()
+      );
+      match(
+        ei.macro_expansion,
+        .Some(mx) => recur(mx, remove_ids, ctx),
+        .None => ()
+      );
+    },
+    .None => ()
+  );
+  match(
+    expr,
+    .FnCall(_, f, fargs, _, _) => {
+      recur(f, remove_ids, ctx);
+      (ai : usize) = usize(0);
+      while(ai < fargs.len(), {
+        match(
+          fargs.get(ai),
+          .Some(a) => recur(a, remove_ids, ctx),
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  );
+});
+/// OPTIMIZE_DUP_AND_DROP_PAIRS (port of begin.ts:1787-2062): cancel a
+/// candidate local's single runtime dup against its scope-end drop — a MOVE.
+/// Marks each winner CONSUMED (at the dup's use-site token when unambiguous)
+/// and strips its dups from the tree. Runs BEFORE _schedule_scope_end_drops,
+/// whose e5 consumed-gate then skips the winner's drop; the M3 driver in
+/// evaluate_begin_expression attaches early-return-only drops for the
+/// [init, consume) window automatically (TS does the same at 2068-2122).
+_optimize_dup_drop_pairs :: (
+  fn(
+    frame : Frame,
+    begin_args : ArrayList(AstExpr),
+    result_var_name : Option(String),
+    last_expr : AstExpr,
+    ctx : EvalContext
+  ) -> unit
+)({
+  tail_atom_name := if(
+    ast_expr_is_atom(last_expr),
+    Option(String).Some(ast_expr_token(last_expr).value),
+    Option(String).None
+  );
+  // 1. Collect dup calls per begin child; record each dup's child index and
+  //    the earliest child containing a return (begin.ts:1826-1861).
+  merged := _new_dup_calls_result();
+  dup_child_idx := HashMap(usize, usize).new();
+  (earliest_ret : Option(usize)) = Option(usize).None;
+  (ci : usize) = usize(0);
+  while(ci < begin_args.len(), {
+    match(
+      begin_args.get(ci),
+      .Some(child) => {
+        if(earliest_ret.is_none() && _contains_return_for_opt(child, ctx), {
+          earliest_ret = Option(usize).Some(ci);
+        });
+        cres := collect_dup_calls_conservatively(child, ctx);
+        (ki : usize) = usize(0);
+        while(ki < cres.dup_call_var_ids.len(), {
+          match(
+            cres.dup_call_var_ids.get(ki),
+            .Some(vid) => match(
+              cres.dup_calls.get(vid.clone()),
+              .Some(dups) => {
+                (di : usize) = usize(0);
+                while(di < dups.len(), {
+                  match(
+                    dups.get(di),
+                    .Some(d) => {
+                      _push_dup_call(merged, vid.clone(), d);
+                      if(dup_child_idx.get(ast_expr_id(d)).is_none(), {
+                        dup_child_idx.set(ast_expr_id(d), ci);
+                      });
+                    },
+                    .None => ()
+                  );
+                  di = (di + usize(1));
+                });
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+          ki = (ki + usize(1));
+        });
+        (pi : usize) = usize(0);
+        while(pi < cres.vars_with_partial_branch_dups.len(), {
+          match(
+            cres.vars_with_partial_branch_dups.get(pi),
+            .Some(pv) => if(!(_ids_list_contains(merged.vars_with_partial_branch_dups, pv.clone())), {
+              merged.vars_with_partial_branch_dups.push(pv);
+            }),
+            .None => ()
+          );
+          pi = (pi + usize(1));
+        });
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  if(merged.dup_call_var_ids.len() == usize(0), {
+    return(());
+  });
+  // 2. Consumed DERIVED variable count per base (begin.ts:1866-1889): a
+  //    derived copy consumed by an `own` param means its dup was transferred
+  //    to the callee and cannot pair with the base's scope-end drop.
+  consumed_derived := HashMap(String, usize).new();
+  fvars := frame.variables;
+  (cdi : usize) = usize(0);
+  while(cdi < fvars.len(), {
+    match(
+      fvars.get(cdi),
+      .Some(cv) => {
+        if((cv.consumed_at_token.is_some() && cv.is_owning_the_same_rc_value_as.is_some()) && type_contains_rc_type(cv.ty), {
+          (cbase : Variable) = cv;
+          (cwalking : bool) = true;
+          while(cwalking, {
+            match(
+              cbase.is_owning_the_same_rc_value_as,
+              .Some(b) => {
+                cbase = b.*;
+              },
+              .None => {
+                cwalking = false;
+              }
+            );
+          });
+          cur := match(
+            consumed_derived.get(cbase.id.to_string()),
+            .Some(c) => c,
+            .None => usize(0)
+          );
+          consumed_derived.set(cbase.id.to_string(), cur + usize(1));
+        });
+      },
+      .None => ()
+    );
+    cdi = (cdi + usize(1));
+  });
+  // 3. Pair each drop-eligible frame local with its collected dups
+  //    (begin.ts:1891-2054). Eligibility mirrors _schedule_scope_end_drops'
+  //    e1-e7 gates plus the captured filter (begin.ts:1802-1804) so only
+  //    variables the scheduler WOULD drop are optimized.
+  remove_ids := HashSet(usize).new();
+  (vi : usize) = usize(0);
+  while(vi < fvars.len(), {
+    match(
+      fvars.get(vi),
+      .Some(v) => {
+        e1 := (v.is_owning_the_rc_value && type_contains_rc_type(v.ty));
+        e2 := (e1 && (!(v.is_module_level)));
+        e3 := (e2 && (!(v.is_ref)));
+        some_undroppable := match(
+          v.ty,
+          .SomeT({ required_trait_types : s_rtt, resolved_concrete : s_rc }) => ((s_rc.len() == usize(0)) && (s_rtt.len() == usize(0))),
+          _ => false
+        );
+        e4 := (e3 && (!(some_undroppable)));
+        e5 := (e4 && v.consumed_at_token.is_none());
+        e6 := (e5 && (!(_name_matches_opt(v.name.clone(), result_var_name))));
+        e7 := (e6 && (!(_name_matches_opt(v.name.clone(), tail_atom_name))));
+        e8 := (e7 && (!(_variable_is_captured_by_current_function(v, ctx))));
+        if(e8, {
+          // Follow the ownership-alias chain to the root base variable
+          // (begin.ts:1892-1897).
+          (base : Variable) = v;
+          (walking : bool) = true;
+          while(walking, {
+            match(
+              base.is_owning_the_same_rc_value_as,
+              .Some(b) => {
+                base = b.*;
+              },
+              .None => {
+                walking = false;
+              }
+            );
+          });
+          base_id := base.id.to_string();
+          match(
+            merged.dup_calls.get(base_id.clone()),
+            .Some(dups) => if(dups.len() > usize(0), {
+              // Value types with RC fields: `y = temp` is a C memcpy; both
+              // copies need their own drop — never cancel (begin.ts:1900-1909).
+              value_type_with_rc := ((!(is_reference_struct_type(base.ty))) && type_contains_rc_type(base.ty));
+              partial := _ids_list_contains(merged.vars_with_partial_branch_dups, base_id.clone());
+              // A main-path dup in a child AFTER an early-return child: the
+              // early return never executes the dup, so the value is still
+              // live and needs the scope-exit drop (begin.ts:1919-1935).
+              (ret_before_dup : bool) = false;
+              match(
+                earliest_ret,
+                .Some(er) => {
+                  (rdi : usize) = usize(0);
+                  while(rdi < dups.len(), {
+                    match(
+                      dups.get(rdi),
+                      .Some(d) => match(
+                        dup_child_idx.get(ast_expr_id(d)),
+                        .Some(dci) => if(dci > er, {
+                          ret_before_dup = true;
+                        }),
+                        .None => ()
+                      ),
+                      .None => ()
+                    );
+                    rdi = (rdi + usize(1));
+                  });
+                },
+                .None => ()
+              );
+              consumed_dups := match(
+                consumed_derived.get(base_id.clone()),
+                .Some(c) => c,
+                .None => usize(0)
+              );
+              // Base variable itself consumed while `v` is a derived copy:
+              // the dup is essential for COW correctness (begin.ts:1979-1991).
+              (base_consumed : bool) = false;
+              if(!(base.id == v.id), {
+                (bci2 : usize) = usize(0);
+                while(bci2 < fvars.len(), {
+                  match(
+                    fvars.get(bci2),
+                    .Some(fv) => if((fv.id.to_string() == base_id) && fv.consumed_at_token.is_some(), {
+                      base_consumed = true;
+                    }),
+                    .None => ()
+                  );
+                  bci2 = (bci2 + usize(1));
+                });
+              });
+              gates_ok := ((!(value_type_with_rc)) && ((!(partial)) && ((!(ret_before_dup)) && ((consumed_dups == usize(0)) && (!(base_consumed))))));
+              if(gates_ok, {
+                // Count RUNTIME dups — every collected dup counts
+                // (begin.ts:1930-1955).
+                (runtime_count : usize) = usize(0);
+                (single_regular : Option(AstExpr)) = Option(AstExpr).None;
+                (rci : usize) = usize(0);
+                while(rci < dups.len(), {
+                  match(
+                    dups.get(rci),
+                    .Some(d2) => {
+                      runtime_count = (runtime_count + usize(1));
+                      single_regular = Option(AstExpr).Some(d2);
+                    },
+                    .None => ()
+                  );
+                  rci = (rci + usize(1));
+                });
+                if(runtime_count <= usize(1), {
+                  // Cancel: remove the dup and mark the variable consumed
+                  // (begin.ts:1998-2044).
+                  (rmi : usize) = usize(0);
+                  while(rmi < dups.len(), {
+                    match(
+                      dups.get(rmi),
+                      .Some(d3) => {
+                        remove_ids.add(ast_expr_id(d3));
+                      },
+                      .None => ()
+                    );
+                    rmi = (rmi + usize(1));
+                  });
+                  // Consume at the dup's USE SITE when there is exactly one
+                  // runtime dup (begin.ts:2019-2040): early returns AFTER the
+                  // transfer must not re-drop the moved value; ones BEFORE it
+                  // stay inside the [init, consume) window and keep theirs.
+                  (consume_tok : Token) = ast_expr_token(last_expr);
+                  if(runtime_count == usize(1), {
+                    match(
+                      single_regular,
+                      .Some(sr) => match(
+                        get_dup_use_site_token(ast_expr_id(sr)),
+                        .Some(ut) => {
+                          consume_tok = ut;
+                        },
+                        .None => ()
+                      ),
+                      .None => ()
+                    );
+                  });
+                  v.consumed_at_token = Option(Box(Token)).Some(box(consume_tok));
+                });
+              });
+            }),
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    vi = (vi + usize(1));
+  });
+  // 4. Strip the cancelled dups from the tree (begin.ts:2056-2061).
+  if(remove_ids.len() > usize(0), {
+    (ri : usize) = usize(0);
+    while(ri < begin_args.len(), {
+      match(
+        begin_args.get(ri),
+        .Some(c) => _remove_dup_calls_from_tree(c, remove_ids, ctx),
+        .None => ()
+      );
+      ri = (ri + usize(1));
+    });
+  });
+});
+_schedule_scope_end_drops :: (
+  fn(
+    frame : Frame,
+    begin_args : ArrayList(AstExpr),
+    result_var_name : Option(String),
+    last_expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception,
+    /// When true, only PARAMETER bindings are considered (the function-body
+    /// parameters-frame pass) — a def-time body env can carry caller frames
+    /// below the params frame, and scheduling a caller local's drop into the
+    /// callee emits a drop on an undeclared C identifier.
+    (params_only : bool) ?= false
+  ) -> Option(ArrayList(AstExpr))
+)({
+  // Conservative M1 skip. Skip the ENTIRE block's scope-end drops when it directly
+  // contains either:
+  //  (a) a field/index-write assignment (`x.f = …`, `x(i) = …` — a non-atom assign
+  //      LHS): the dup-on-reassign balance isn't ported (M2), so dropping would UAF.
+  //  (b) a control-flow EXIT (`return`/`unwind`/`break`/`continue`): yo-self has no
+  //      init-position-filtered early-return drops yet (TS begin.ts:2068-2122 — M3),
+  //      and the returned value's temp isn't excluded as moved-out (consume — M2),
+  //      so scheduling drops on a control-flow block crashes codegen when it emits a
+  //      drop for a not-yet-live / moved-out local. (See plans/archive/YO_SELF_NAMED_LOCAL_DROPS.md.)
+  // M3: skip_block big-hammer REMOVED — control-flow blocks now schedule regular
+  // scope-end drops (non-consumed locals) here; consumed-local early-return drops
+  // are attached to returns by the driver in evaluate_begin_expression. See
+  // issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
+  // A bare-atom block result is a named local moved out (returned) — never drop it.
+  tail_atom_name := if(
+    ast_expr_is_atom(last_expr),
+    Option(String).Some(ast_expr_token(last_expr).value),
+    Option(String).None
+  );
+  // Collect drop-eligible owning named locals from the frame.
+  to_drop := ArrayList(Variable).new();
+  fvars := frame.variables;
+  nv := fvars.len();
+  (vi : usize) = usize(0);
+  while(vi < nv, {
+    match(
+      fvars.get(vi),
+      .Some(v) => {
+        // Mirrors TS getVariablesNeedingDrop (src/env.ts): any owning local
+        // whose type CONTAINS an RC-managed type needs a scope-end drop —
+        // including value-structs with RC fields (e.g. Bucket(K, V) locals in
+        // HashMap.set; their ___drop decrements the field). The earlier "M1"
+        // narrowing to direct ref-struct/ref-enum handles under-dropped those
+        // locals: the compound-literal dup + dup-on-store then over-counted
+        // every store by +1 and cycle collection never reclaimed HashMap
+        // cycles (issues/yo-self-compound-literal-rc-overcount.md).
+        e0 := ((!(params_only)) || v.is_parameter);
+        e1 := ((e0 && v.is_owning_the_rc_value) && type_contains_rc_type(v.ty));
+        e2 := (e1 && (!(v.is_module_level)));
+        e3 := (e2 && (!(v.is_ref)));
+        // Skip only UNRESOLVED SomeTypes with no required traits (no concrete
+        // drop possible). Bounded/resolved SomeTypes keep their drop — mirrors
+        // TS getVariablesNeedingDrop's resolvedConcreteType/requiredTraits check.
+        some_undroppable := match(
+          v.ty,
+          .SomeT({ required_trait_types : s_rtt, resolved_concrete : s_rc }) => ((s_rc.len() == usize(0)) && (s_rtt.len() == usize(0))),
+          _ => false
+        );
+        e4 := (e3 && (!(some_undroppable)));
+        e5 := (e4 && v.consumed_at_token.is_none());
+        e6 := (e5 && (!(_name_matches_opt(v.name.clone(), result_var_name))));
+        e7 := (e6 && (!(_name_matches_opt(v.name.clone(), tail_atom_name))));
+        if(e7, {
+          _p := to_drop.push(v);
+        });
+      },
+      .None => ()
+    );
+    vi = (vi + usize(1));
+  });
+  if(to_drop.len() == usize(0), {
+    return(Option(ArrayList(AstExpr)).None);
+  });
+  // Build + evaluate `___drop(name)` per var — mirrors the proven eval-side builder
+  // calls/helper.yo:234 (and begin.ts:273-334).
+  deferred := ArrayList(AstExpr).new();
+  // REVERSE declaration order — last declared is dropped FIRST. Faithful port
+  // of TS `getVariablesNeedingDrop`, which ends with
+  //     // Return in reverse order (end to start) for proper drop order
+  //     return variables.reverse();
+  // (src/env.ts:2265-2266). `to_drop` is collected in FORWARD frame order and
+  // this loop consumed it forward too, so yo-self dropped scope locals in
+  // exactly the opposite order from TS. That matters whenever one local is
+  // derived from an earlier one: dropping the earlier binding first can
+  // release storage the later one still refers to.
+  (di : usize) = to_drop.len();
+  while(di > usize(0), {
+    di = (di - usize(1));
+    match(
+      to_drop.get(di),
+      .Some(v) => {
+        drop_code := `___drop(${v.name})`;
+        drop_expr := generate_expr_from_code(drop_code, exn);
+        evaluated := evaluate_expression_raw(drop_expr, env, ctx, exn);
+        _p := deferred.push(evaluated);
+      },
+      .None => ()
+    );
+  });
+  Option(ArrayList(AstExpr)).Some(deferred)
+});
 evaluate_begin_expression :: (
   fn(
     expr : AstExpr,
     env_in : Environment,
     ctx : EvalContext,
     variables_to_add : ArrayList(Variable),
-    _is_evaluating_function_body_begin_block : bool,
+    is_evaluating_function_body_begin_block : bool,
     exn : Exception
   ) -> AstExpr
 )({
@@ -217,7 +1381,7 @@ evaluate_begin_expression :: (
       env,
       v.name,
       v.ty,
-      v.value,
+      v.value.get(usize(0)),
       v.is_compile_time_only,
       v.is_reassignable,
       v.is_owning_the_rc_value,
@@ -250,6 +1414,22 @@ evaluate_begin_expression :: (
     is_return_atom := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, BK_RETURN));
     is_return_call := ast_expr_is_fn_call_of(expr_to_eval, BK_RETURN,.None);
     is_return_expr := (is_return_atom || is_return_call);
+    // `return` (atom) AND `return()` (zero-arg call) are BOTH unit returns.
+    // Mirrors TS begin.ts:1122-1124 (`exprIsAtom(e) || (exprIsFunctionCall(e)
+    // && e.args.length === 0)`). Without the zero-arg case, `return()` fell to
+    // the `return(val)` branch, where `args.get(0)` is `.None` → `make_err_expr()`
+    // → evaluating that error expr poisons the def-time return-type inference
+    // ("Return type mismatch ... got fn(T : Type) -> Type"), the dominant
+    // codegen-async transpile-marker cluster.
+    is_return_unit := (
+      is_return_atom || (
+        is_return_call && match(
+          expr_to_eval,
+          .FnCall(_, _, ret_call_args, _, _) => (ret_call_args.len() == usize(0)),
+          .Atom(_, _) => false
+        )
+      )
+    );
     is_break_atom := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, "break"));
     is_continue_atom := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, "continue"));
     is_escape_call := ast_expr_is_fn_call_of(expr_to_eval, BF_UNWIND,.None);
@@ -272,8 +1452,8 @@ evaluate_begin_expression :: (
           );
         });
         return_expr = Option(AstExpr).Some(expr_to_eval);
-        if(is_return_atom, {
-          // `return` with no argument → unit return.
+        if(is_return_unit, {
+          // `return` / `return()` with no argument → unit return.
           out := new_expr_info(env, TypeValue.Unit);
           out.value = Option(EvalValue).Some(EvalValue.UnitVal);
           out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Return));
@@ -303,7 +1483,7 @@ evaluate_begin_expression :: (
                 fb_ctx.func_type,
                 .Some(ft) => match(
                   ft,
-                  .Func({ result : ret_box }) => Option(TypeValue).Some(ret_box.*),
+                  .Func({ result : ret_box }) => Option(TypeValue).Some(ret_box),
                   _ => Option(TypeValue).None
                 ),
                 .None => Option(TypeValue).None
@@ -359,8 +1539,9 @@ evaluate_begin_expression :: (
                 rfb_ctx.func_type,
                 .Some(rft) => match(
                   rft,
-                  .Func({ result : rfb, result_is_comptime_only : rfco }) => {
-                    if((!(rfco) && type_representation_contains_raw_ptr(rfb.*))
+                  .Func({ result : rfb, meta : __fm1 }) => {
+                    rfco := __fm1.*.result_is_comptime_only;
+                    if((!(rfco) && type_representation_contains_raw_ptr(rfb))
                     && !(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(ret_arg).module_path.clone()))), {
                       ret_slice_opts := FlowOptions(
                         allow_same_frame_local : false,
@@ -373,7 +1554,7 @@ evaluate_begin_expression :: (
                           dyn(
                             format_error_message(
                               ast_expr_token(ret_arg),
-                              `'return(...)' from a function returning '${type_to_string(rfb.*)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The returned expression is not flowable:\n  ${ast_expr_to_string(ret_arg)}`,
+                              `'return(...)' from a function returning '${type_to_string(rfb)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The returned expression is not flowable:\n  ${ast_expr_to_string(ret_arg)}`,
                               false,
                               .None
                             )
@@ -390,6 +1571,78 @@ evaluate_begin_expression :: (
             ),
             .None => ()
           );
+          // Validate Impl return types across multiple return statements
+          // (begin.ts:1273-1318): a fn whose declared return is an `Impl(...)`
+          // SomeType uses STATIC dispatch, so every `return(...)` must produce
+          // the same concrete type. The first return's concrete type is
+          // recorded in `ctx.function_return_impl_concrete_type` (the TS
+          // `functionReturnImplConcreteType` array — seeded FRESH per
+          // body/specialization eval by create_function_body_evaluation_context
+          // and the helper.yo / comptime_fn.yo save-restore sites); each later
+          // return must be compatible with it.
+          (ir_declared_impl : bool) = match(
+            ctx.is_evaluating_function_body_or_async_block,
+            .Some(ir_fb) => match(
+              ir_fb.kind,
+              .FunctionBody => match(
+                ir_fb.func_type,
+                .Some(ir_ft) => match(
+                  ir_ft,
+                  .Func({ result : ir_ret }) => is_some_type(ir_ret),
+                  _ => false
+                ),
+                .None => false
+              ),
+              _ => false
+            ),
+            .None => false
+          );
+          if(ir_declared_impl, {
+            match(
+              ctx.function_return_impl_concrete_type,
+              .Some(ir_list) => {
+                if(ir_list.len() > usize(0), {
+                  match(
+                    ir_list.get(usize(0)),
+                    .Some(ir_first) => {
+                      if(!(are_types_compatible(ir_first.concrete_type, ret_info.ty)), {
+                        ir_entries := ArrayList(TokenAndError).new();
+                        ir_entries.push(
+                          TokenAndError(
+                            token : ast_expr_token(expr_to_eval),
+                            error_message : String.from("All return statements must return the same concrete type for Impl(...).\nImpl(...) uses static dispatch and requires the same concrete type across all returns.\nConsider using Dyn(...) for dynamic dispatch if different concrete types are needed.")
+                          )
+                        );
+                        ir_entries.push(
+                          TokenAndError(
+                            token : ir_first.token,
+                            error_message : `First return has concrete type: ${type_to_string(ir_first.concrete_type)}`
+                          )
+                        );
+                        ir_entries.push(
+                          TokenAndError(
+                            token : ast_expr_token(expr_to_eval),
+                            error_message : `Conflicting return has concrete type: ${type_to_string(ret_info.ty)}`
+                          )
+                        );
+                        exn.throw(dyn(format_error_messages(ir_entries, false,.None)));
+                      });
+                    },
+                    .None => ()
+                  );
+                }, {
+                  ir_list.push(
+                    ImplConcreteTypeInfo(
+                      concrete_type : ret_info.ty,
+                      env : env,
+                      token : ast_expr_token(expr_to_eval)
+                    )
+                  );
+                });
+              },
+              .None => ()
+            );
+          });
           out := new_expr_info(env, ret_info.ty);
           out.value = ret_info.value;
           out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Return));
@@ -466,66 +1719,113 @@ evaluate_begin_expression :: (
           );
         });
         return_expr = Option(AstExpr).Some(expr_to_eval);
-        esc_arg := match(
+        esc_n_args := match(
           expr_to_eval,
-          .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
-          .Atom(_, _) => make_err_expr()
+          .FnCall(_, _, esc_args0, _, _) => esc_args0.len(),
+          .Atom(_, _) => usize(0)
         );
+        // At most one argument (TS begin.ts:1446-1451).
+        if(esc_n_args > usize(1), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr_to_eval),
+                String.from("The \"unwind\" keyword accepts at most one argument."),
+                false,
+                .None
+              )
+            )
+          );
+        });
         enclosing_ret := match(
           ctx.enclosing_function_return_type,
           .Some(t) => t,
           .None => TypeValue.Unit
         );
-        // Propagate the enclosing function's return type as the expected type.
-        old_expected := ctx.expected_type;
-        ctx.expected_type = Option(ExpectedTypeCtx).Some(
-          ExpectedTypeCtx(ty : enclosing_ret, env : env)
-        );
-        evaluated_esc_arg := evaluate_expression_raw(esc_arg, env, ctx, exn);
-        ctx.expected_type = old_expected;
-        esc_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_esc_arg));
-        if(esc_info_opt.is_none(), {
-          exn.throw(
-            dyn(
-              format_error_message(
-                ast_expr_token(esc_arg),
-                String.from("Unwind expression is not evaluated correctly."),
-                false,
-                .None
+        // Zero-arg `unwind()` — unwind with unit (TS begin.ts:1454-1479):
+        // type-check unit against the enclosing return type, stamp a
+        // unit-typed ExprInfo carrying the Unwind control flow, and stop the
+        // block. The with-arg path below fed a make_err_expr() into
+        // evaluation here, so `unwind();` never stamped and codegen emitted
+        // "// Failed to transpile unwind();" — the handler then fell
+        // through instead of exiting (tests/algebraic_effects.test.yo
+        // "Test zero-arg unwind exits unit function", the file's one
+        // genuinely failing test).
+        if(esc_n_args == usize(0), {
+          if(!(is_some_type(enclosing_ret)) && !(are_types_compatible(TypeValue.Unit, enclosing_ret)), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(expr_to_eval),
+                  `Incompatible type for \`escape\` argument:\n- Expected (enclosing function return type): ${type_to_string(enclosing_ret)}\n- Got: ${type_to_string(TypeValue.Unit)}`,
+                  false,
+                  .None
+                )
               )
-            )
+            );
+          });
+          out_esc0 := new_expr_info(env, TypeValue.Unit);
+          out_esc0.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Unwind));
+          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out_esc0);
+          last_expr = expr_to_eval;
+          done = true;
+        }, {
+          esc_arg := match(
+            expr_to_eval,
+            .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+            .Atom(_, _) => make_err_expr()
           );
-        });
-        esc_info := match(esc_info_opt,.Some(ei) => ei,.None => new_expr_info(env, TypeValue.Unit));
-        // Type-check unwind value against the enclosing return type.
-        // Skip when the enclosing return type is an unresolved SomeType.
-        esc_compat := are_types_compatible(esc_info.ty, enclosing_ret);
-        if(!(is_some_type(enclosing_ret)) && !(esc_compat), {
-          exn.throw(
-            dyn(
-              format_error_message(
-                ast_expr_token(esc_arg),
-                `Incompatible type for \`unwind\` argument:\n- Expected: ${type_to_string(enclosing_ret)}\n- Got: ${type_to_string(esc_info.ty)}`,
-                false,
-                .None
+          // Propagate the enclosing function's return type as the expected type.
+          old_expected := ctx.expected_type;
+          ctx.expected_type = Option(ExpectedTypeCtx).Some(
+            ExpectedTypeCtx(ty : enclosing_ret, env : env)
+          );
+          evaluated_esc_arg := evaluate_expression_raw(esc_arg, env, ctx, exn);
+          ctx.expected_type = old_expected;
+          esc_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_esc_arg));
+          if(esc_info_opt.is_none(), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(esc_arg),
+                  String.from("Unwind expression is not evaluated correctly."),
+                  false,
+                  .None
+                )
               )
-            )
+            );
+          });
+          esc_info := match(esc_info_opt,.Some(ei) => ei,.None => new_expr_info(env, TypeValue.Unit));
+          // Type-check unwind value against the enclosing return type.
+          // Skip when the enclosing return type is an unresolved SomeType.
+          esc_compat := are_types_compatible(esc_info.ty, enclosing_ret);
+          if(!(is_some_type(enclosing_ret)) && !(esc_compat), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(esc_arg),
+                  `Incompatible type for \`unwind\` argument:\n- Expected: ${type_to_string(enclosing_ret)}\n- Got: ${type_to_string(esc_info.ty)}`,
+                  false,
+                  .None
+                )
+              )
+            );
+          });
+          attach_temp_variable_to_expr(evaluated_esc_arg, true, ctx);
+          env = match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_esc_arg)),
+            .Some(ei) => ei.env,
+            .None => env
           );
+          out := new_expr_info(env, esc_info.ty);
+          out.value = esc_info.value;
+          out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Unwind));
+          out.path_collection = esc_info.path_collection;
+          out.variable_name = esc_info.variable_name;
+          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
+          last_expr = expr_to_eval;
+          done = true;
         });
-        attach_temp_variable_to_expr(evaluated_esc_arg, true, ctx);
-        env = match(
-          expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_esc_arg)),
-          .Some(ei) => ei.env,
-          .None => env
-        );
-        out := new_expr_info(env, esc_info.ty);
-        out.value = esc_info.value;
-        out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Unwind));
-        out.path_collection = esc_info.path_collection;
-        out.variable_name = esc_info.variable_name;
-        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
-        last_expr = expr_to_eval;
-        done = true;
       },
       // -------------------------------------------------------------------
       // Normal expression evaluation
@@ -579,7 +1879,7 @@ evaluate_begin_expression :: (
             ev_info_opt,
             .Some(ei) => match(
               ei.value,
-              .Some(v) => match(v,.UnknownVal(_) => true, _ => false),
+              .Some(v) => match(v,.UnknownVal(_, _) => true, _ => false),
               .None => false
             ),
             .None => false
@@ -625,8 +1925,15 @@ evaluate_begin_expression :: (
   last_info := match(last_info_opt,.Some(li) => li,.None => new_expr_info(env, TypeValue.Unit));
   return_type := last_info.ty;
   // -------------------------------------------------------------------------
-  // Return-type compatibility check (partial port — synthesize_types deferred)
+  // Return-type compatibility check (begin.ts:1602-1680)
   // -------------------------------------------------------------------------
+  // TS FIRST tries `synthesizeTypes(expected, given)` (begin.ts:1607-1618) —
+  // with a SomeT expected this BINDS the type variable's name in the env
+  // (synthesizer.ts:457-490); handles shapes like [i32; n] vs [i32; 5]. Only
+  // when synthesis THROWS does TS fall back to the raw compatibility check +
+  // the mismatch error. NOTE: this alone does NOT fix the io.async
+  // `return(<binop>)` void-result bug — there the GIVEN side is already the
+  // same bare SomeT (see issues/yo-self-io-async-return-binop-void.md).
   is_return_ctrl := has_control_flow(last_info.control_flow,.Return);
   if(is_return_ctrl, {
     match(
@@ -644,24 +1951,53 @@ evaluate_begin_expression :: (
                 match(
                   ft,
                   .Func({ result : result_box }) => {
-                    expected_ret := result_box.*;
-                    compat := are_types_compatible(return_type, expected_ret);
-                    if(!(is_some_type(expected_ret)) && !(compat), {
-                      exn.throw(
-                        dyn(
-                          format_error_message(
-                            ast_expr_token(last_expr),
-                            `Return type mismatch. Expected type "${type_to_string(expected_ret)}", but got "${type_to_string(return_type)}".`,
-                            false,
-                            .None
+                    expected_ret := result_box;
+                    synth_ok := _try_synthesize_return_type(expected_ret, return_type, env);
+                    if(!(synth_ok), {
+                      compat := are_types_compatible(return_type, expected_ret);
+                      if(!(is_some_type(expected_ret)) && !(compat), {
+                        exn.throw(
+                          dyn(
+                            format_error_message(
+                              ast_expr_token(last_expr),
+                              `Return type mismatch. Expected type "${type_to_string(expected_ret)}", but got "${type_to_string(return_type)}".`,
+                              false,
+                              .None
+                            )
                           )
-                        )
-                      );
+                        );
+                      });
                     });
                   },
                   _ => ()
                 );
               }
+            );
+          },
+          .AsyncBlock => {
+            // begin.ts:1642-1680 — async-block kind synthesizes against the
+            // surrounding EXPECTED type instead of a declared fn return.
+            match(
+              ctx.expected_type,
+              .Some(et) => {
+                as_synth_ok := _try_synthesize_return_type(et.ty, return_type, env);
+                if(!(as_synth_ok), {
+                  as_compat := are_types_compatible(return_type, et.ty);
+                  if(!(is_some_type(et.ty)) && !(as_compat), {
+                    exn.throw(
+                      dyn(
+                        format_error_message(
+                          ast_expr_token(last_expr),
+                          `Return type mismatch. Expected type "${type_to_string(et.ty)}", but got "${type_to_string(return_type)}".`,
+                          false,
+                          .None
+                        )
+                      )
+                    );
+                  });
+                });
+              },
+              .None => ()
             );
           },
           _ => ()
@@ -716,15 +2052,289 @@ evaluate_begin_expression :: (
   // would drop the begin frame from THAT snapshot too, hiding begin-local
   // bindings from any later consumer of the recorded env (e.g. the flowability
   // check). See issues/fixed/yo-self-recorded-env-aliasing.md.
+  // Simplified begin-tail ownership (mirrors begin.ts:1705-1778): when the
+  // block's result is a bare local, an OWNING local from the CURRENT frame
+  // (or an `own(...)` parameter of the enclosing function) transfers
+  // ownership out — mark it consumed so the scope-end scheduler skips it.
+  // A NON-OWNING local (e.g. a match pattern binding borrowing the
+  // scrutinee's payload) or one from an OUTER frame is SHARED out — mark the
+  // tail with a deferred `___dup` so codegen emits the balancing incr before
+  // the owner's scope-end `___drop` runs (without it, widening the drop
+  // predicate to value enums/structs freed payloads still in use — the
+  // hashmap_self_cycle abort).
+  (return_value_expr : AstExpr) = last_expr;
+  if(ast_expr_is_fn_call_of(last_expr, BK_RETURN, Option(usize).Some(usize(1))), {
+    match(
+      last_expr,
+      .FnCall(_, _, ret_args, _, _) => match(
+        ret_args.get(usize(0)),
+        .Some(ra) => {
+          return_value_expr = ra;
+        },
+        .None => ()
+      ),
+      _ => ()
+    );
+  });
+  rv_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(return_value_expr));
+  rv_name_opt := match(
+    rv_info_opt,
+    .Some(rv_info) => rv_info.variable_name,
+    .None => Option(String).None
+  );
+  match(
+    rv_name_opt,
+    .None => (),
+    .Some(rv_name) => {
+      rv_vars := get_variables_from_env(env, rv_name);
+      nrv := rv_vars.len();
+      if(nrv == usize(0), {
+        // The tail's recorded temp name is NOT visible in the live begin env
+        // (snapshot env threading can drop an inline field-read's temp
+        // registration on a bare-expression body — e.g. `(fn(p : Pair) ->
+        // Krate)(p.inner)`). TS's persistent env always finds it and takes
+        // the non-owning → dup branch. Delegate to set_expr_as_needs_to_call_dup,
+        // which re-checks ownership/consumption against the RECORDED ei.env
+        // (where the temp does exist): owning temps still consume, non-RC and
+        // inlinable-concrete values still decline — only the borrowed case
+        // gains its balancing +1 (the round-3 borrowed-field-tail UAF).
+        set_expr_as_needs_to_call_dup(return_value_expr, ctx, exn);
+      });
+      if(nrv > usize(0), {
+        match(
+          rv_vars.get(nrv - usize(1)),
+          .None => (),
+          .Some(rv) => {
+            ty_ok := match(
+              rv_info_opt,
+              .Some(rv_info_t) => are_types_compatible(rv.ty, rv_info_t.ty),
+              .None => false
+            );
+            if(ty_ok, {
+              // `own(name) : T` parameters in the parameter frame also transfer
+              // ownership directly when returned from ANY nested begin block —
+              // mirrors begin.ts `isOwnParamReturn` (matched by label against
+              // the enclosing function's parameter list).
+              is_own_param_return := (
+                (rv.is_owning_the_rc_value && rv.consumed_at_token.is_none()) && match(
+                  ctx.is_evaluating_function_body_or_async_block,
+                  .Some(fc) => match(
+                    fc.kind,
+                    .FunctionBody => match(
+                      fc.func_type,
+                      .Some(fty) => match(
+                        fty,
+                        .Func({ meta : own_fm }) => {
+                          (own_found : bool) = false;
+                          own_labels := own_fm.*.param_labels;
+                          own_flags := own_fm.*.param_is_owning;
+                          (own_i : usize) = usize(0);
+                          n_own := own_labels.len();
+                          while((own_i < n_own) && (!(own_found)), {
+                            lbl_match := match(own_labels.get(own_i),.Some(lbl) => (lbl == rv_name),.None => false);
+                            flag_match := match(own_flags.get(own_i),.Some(fl) => fl,.None => false);
+                            if(lbl_match && flag_match, {
+                              own_found = true;
+                            });
+                            own_i = (own_i + usize(1));
+                          });
+                          own_found
+                        },
+                        _ => false
+                      ),
+                      .None => false
+                    ),
+                    _ => false
+                  ),
+                  .None => false
+                )
+              );
+              if((rv.is_owning_the_rc_value && ((rv.frame_level == (env.frames.len() - usize(1))) || is_own_param_return)) && rv.consumed_at_token.is_none(), {
+                // Transfer: consumed — the scope-end scheduler (e5) skips it.
+                rv.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(last_expr)));
+              }, {
+                // Borrow/outer-frame share: balancing dup.
+                set_expr_as_needs_to_call_dup(return_value_expr, ctx, exn);
+              });
+            });
+          }
+        );
+      });
+    }
+  );
+  // OPTIMIZE_DUP_AND_DROP_PAIRS (begin.ts:1787-2062): cancel each candidate
+  // local's single runtime dup against its scope-end drop — a MOVE. Winners
+  // are marked consumed HERE so the scheduler's e5 gate skips their drop and
+  // the M3 driver below attaches their early-return-only drops.
+  match(
+    current_frame_opt,
+    .Some(opt_fr) => _optimize_dup_drop_pairs(opt_fr, begin_args, last_info.variable_name, last_expr, ctx),
+    .None => ()
+  );
+  // M1: schedule scope-end RC drops for this frame's owning named locals BEFORE the
+  // frame is popped (the `___drop(name)` exprs are evaluated against `env` while the
+  // names are still in scope). See _schedule_scope_end_drops + plans/archive/YO_SELF_NAMED_LOCAL_DROPS.md.
+  (scope_end_drops : Option(ArrayList(AstExpr))) = match(
+    current_frame_opt,
+    .Some(fr) => _schedule_scope_end_drops(fr, begin_args, last_info.variable_name, last_expr, env, ctx, exn),
+    .None => Option(ArrayList(AstExpr)).None
+  );
+  // For the FUNCTION-BODY begin block, also schedule drops for the
+  // PARAMETERS frame (one level below) — `own(name) : T` params carry a
+  // reference the caller transferred in (helper.yo's own-arg move/dup) and
+  // the callee must release it at scope end. Mirrors TS begin.ts:1894-1906
+  // (getVariablesNeedingDrop over the parameters frame, appended AFTER the
+  // locals so params drop last). Borrow params are excluded by the
+  // scheduler's owning gate, inout by is_ref, returned own params by the
+  // consumed mark the own-param-return transfer sets above. Without this,
+  // an own param that the body moved into a local was never released —
+  // rc() stayed +1 where TS releases (the yo-self arm of
+  // issues/fixed/own-param-discard-leak.md, caught by
+  // tests/ref_field_borrow.test.yo under the self-hosted runner).
+  if(is_evaluating_function_body_begin_block && (env.frames.len() >= usize(2)), {
+    match(
+      env.frames.get(env.frames.len() - usize(2)),
+      .Some(params_fr) => {
+        params_drops := _schedule_scope_end_drops(params_fr, begin_args, last_info.variable_name, last_expr, env, ctx, exn, true);
+        match(
+          params_drops,
+          .Some(pd_list) => {
+            (merged : ArrayList(AstExpr)) = match(
+              scope_end_drops,
+              .Some(existing) => existing,
+              .None => ArrayList(AstExpr).new()
+            );
+            (pd_i : usize) = usize(0);
+            while(pd_i < pd_list.len(), {
+              match(
+                pd_list.get(pd_i),
+                .Some(pd) => {
+                  merged.push(pd);
+                },
+                .None => ()
+              );
+              pd_i = (pd_i + usize(1));
+            });
+            scope_end_drops = Option(ArrayList(AstExpr)).Some(merged);
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+  });
+  // M3 driver: attach early-return-only `___drop`s for CONSUMED (moved-out) owning
+  // locals to each return/unwind preceding consumption (begin.ts:2068-2122). Runs
+  // before pop_frame. Consumed vars are disjoint from the scope-end drop set.
+  match(
+    current_frame_opt,
+    .Some(fr2) => {
+      begin_tok := ast_expr_token(expr);
+      (evi : usize) = usize(0);
+      while(evi < fr2.variables.len(), {
+        match(
+          fr2.variables.get(evi),
+          .Some(ev) => {
+            not_auto := !(ev.token.module_path.starts_with(String.from("auto-generated://")));
+            eligible := (ev.consumed_at_token.is_some() && (ev.initialized_at_token.is_some() && (not_auto && (!(_variable_is_captured_by_current_function(ev, ctx)) && _variable_can_need_drop_ignoring_consumed(ev)))));
+            init_ok := match(ev.initialized_at_token,.Some(it) => _m3_token_is_at_or_before(begin_tok, it),.None => false);
+            if(eligible && init_ok, {
+              drop_code := `___drop(${ev.name})`;
+              drop_expr := generate_expr_from_code(drop_code, exn);
+              evaluated := evaluate_expression_raw(drop_expr, env, ctx, exn);
+              (dai : usize) = usize(0);
+              while(dai < begin_args.len(), {
+                match(begin_args.get(dai),.Some(arg) => _attach_early_return_only_drop_to_returns(arg, ev, evaluated, ctx),.None => ());
+                dai = (dai + usize(1));
+              });
+            });
+          },
+          .None => ()
+        );
+        evi = (evi + usize(1));
+      });
+    },
+    .None => ()
+  );
   env.pop_frame_nonmutating();
   // -------------------------------------------------------------------------
-  // Build ExprInfo for the begin expression itself
+  // Build ExprInfo for the begin expression itself.
+  //
+  // A SINGLE-expression begin block (`expr` was not a real `begin(...)` call,
+  // so it was wrapped in a 1-element list at the top) has its result node
+  // EQUAL to the inner expression node — yo-self reuses `expr`'s id rather
+  // than clone+mutate-into-begin like TS (begin.ts:1016-1045, which clones
+  // the inner expr so its `$` lives on a separate node). Codegen then reads
+  // this ONE id in BOTH roles: the inner expression's shape (the match/call/
+  // address-of emitters) and the begin block (scope-end drops). A fresh info
+  // here therefore CLOBBERED every inner field codegen needs unless it was on
+  // a hand-picked carry list — four separate miscompiles came from that
+  // (issues/yo-self-begin-shared-id-clobber.md). INVERT the merge instead:
+  // start from a copy of the tail's info (preservation is the default),
+  // override what the begin level owns (env/ty in the clone helper; value +
+  // deferred_drop_expressions below), and explicitly CLEAR the fields whose
+  // begin-role meaning conflicts with the inner-role one — the old carries'
+  // gates, applied as clears:
+  //   - `runtime_arg_exprs_in_order` + the index-field triplet: cleared for a
+  //     comptime-FOLDED tail (`!carry_runtime_args`) — a folded construct
+  //     (`.Some(i32(7))`) emits via the comptime-value path, and carrying its
+  //     arg list wrongly tripped the runtime-construction codegen
+  //     (`ctor_has_runtime_args`), corrupting the literal's type name
+  //     (match_arm_folded_fncall + runtime_enum_construct regressions).
+  //   - `variable_name`: cleared unless FUNCTION-BODY begin AND runtime tail —
+  //     for match/cond ARM begins the attach_temp_variable_to_expr below would
+  //     re-register the carried name as an OWNING variable in the ENCLOSING
+  //     begin frame of the SAME C function, scheduling a scope-end drop
+  //     against a declared temp whose value the arm's `_result` assignment
+  //     already moved out (over-release); a folded tail's recorded temp would
+  //     pollute downstream type names.
+  // Kept from the tail without a gate (the old unconditional carries):
+  // `deferred_dup_expressions` (begin-tail ownership +1 — losing it freed
+  // `.Ok(map) => map` while the caller held it), `is_index_trait_address_of`
+  // (dangling stack pointer on `s(i) = ...` writes), the `rare` group's
+  // `is_primitive_match` (bare primitive `match` fn body took the enum
+  // branch), and now every OTHER inner field (source_variable, origin_type,
+  // early-return-only drops, converted type / dyn traits / async analysis...)
+  // that previously needed its own empirical carry.
   // -------------------------------------------------------------------------
-  out_info := new_expr_info(env, return_type);
+  shared_with_tail := (ast_expr_id(expr) == ast_expr_id(last_expr));
+  (out_info : ExprInfo) = if(
+    shared_with_tail,
+    clone_expr_info_for_shared_begin_result(last_info, env, return_type),
+    new_expr_info(env, return_type)
+  );
+  out_info.deferred_drop_expressions = scope_end_drops;
   out_info.value = cond(has_runtime_side_effects => Option(EvalValue).None, true => last_info.value);
   out_info.control_flow = last_info.control_flow;
   out_info.comptime_ref = last_info.comptime_ref;
-  out_info.popped_env_frame = current_frame_opt;
+  out_info.capture_type = last_info.capture_type;
+  // NOTE: `out_info.popped_env_frame = current_frame_opt` REMOVED. The field is
+  // WRITE-ONLY DEAD STATE — nothing in yo-self ever reads popped_env_frame (grep:
+  // only the field def + this former write). Storing every block's popped frame
+  // pinned its bound Variables (the per-call `new_variable` env Variables — the
+  // dominant self-compile eval leaker, 2.7M live) on the whole-compile
+  // expr_info_table forever. Not storing it lets `current_frame_opt` (and its
+  // Variables) be RC-freed at scope end. See issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
+  // Runtime-RESULT gate for the clears below: a bare runtime call
+  // (UnknownVal), a unit-returning call (UnitVal), no value, OR a RUNTIME
+  // enum/struct construction whose shell carries an UnknownVal payload
+  // (`.Some((p &+ i).*)` in ArrayList.get → runtime construction codegen). A
+  // fully comptime-FOLDED construct (`.None`, `.Some(i32(7))`, `i32(0)`) has
+  // only concrete leaves and emits via the comptime-value path.
+  carry_runtime_args := match(
+    last_info.value,
+    .None => true,
+    .Some(v) => match(v,.UnitVal => true, _ => _value_contains_unknown(v))
+  );
+  if(shared_with_tail && !(carry_runtime_args), {
+    out_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).None;
+    out_info.index_trait_ptr_type = Option(TypeValue).None;
+    out_info.index_method_type = Option(TypeValue).None;
+    out_info.index_method_value = Option(EvalValue).None;
+  });
+  if(shared_with_tail && !(is_evaluating_function_body_begin_block && carry_runtime_args), {
+    out_info.variable_name = Option(String).None;
+  });
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   // Attach temp variable for the begin block result (no-op stub in Phase 2aa).
   attach_temp_variable_to_expr(expr, true, ctx);

@@ -86,7 +86,7 @@ export(main);
 
   test("ensures(...) with old(...) violation panics", () => {
     const { code, output } = compileAndRun(`
-bump :: (fn(ref(n) : i32, ensures(n == old(n))) -> unit)({ n = (n + i32(1)); });
+bump :: (fn(inout(n) : i32, ensures(n == old(n))) -> unit)({ n = (n + i32(1)); });
 main :: (fn() -> unit)({ x := i32(5); bump(x); });
 export(main);
 `);
@@ -96,6 +96,7 @@ export(main);
 
   test("satisfying contract does NOT panic (exit 0)", () => {
     const { code } = compileAndRun(`
+{ assert } :: import("std/assert");
 divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> i32)(x / y);
 main :: (fn() -> unit)({
   d := divide(i32(10), i32(2));

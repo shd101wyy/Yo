@@ -13,11 +13,13 @@ import type {
 } from "../../types/definitions";
 import {
   isFunctionType,
+  isEnumType,
   isFunctionTypeGeneric,
   isFunctionTypeHardGeneric,
   isSourceNamespaceType,
   isSomeType,
   isStructType,
+  isUnitType,
 } from "../../types/guards";
 import {
   typeContainsSomeType,
@@ -131,7 +133,7 @@ export function generateFunctionDeclarations(
     // Skip the original (unspecialized) function when it has specialization caches.
     // The specialized versions handle codegen. The original body was evaluated
     // generically and sub-expressions may lack type annotations.
-    // Exception: isEffectRecordMember functions (e.g., Exception.throw forall handlers)
+    // Exception: isEffectRecordMember functions (e.g., Exception.throw generic handlers)
     // MUST still be emitted in their unspecialized form — their body is simple (escape)
     // and the unspecialized name is stored as a void* function pointer in async capture
     // structs by emitEffectRecordInjection in await.ts.
@@ -252,10 +254,10 @@ export function generateFunctionDeclarations(
       // (even if SomeType → void) is used consistently in both declaration and definition.
       value.isEffectRecordMember ? undefined : value.body,
       // Pass original type so evidence params are detected when specialization
-      // strips implicit parameters (e.g., for forall effects).
+      // strips implicit parameters (e.g., for generic effects).
       // Only do this when specializedType has no evidence but the original does,
-      // AND the original has forall function evidence params (which need void* passing).
-      // Non-forall using params are resolved at specialization time and don't need this.
+      // AND the original has generic function evidence params (which need void* passing).
+      // Non-generic using params are resolved at specialization time and don't need this.
       value.specializedType &&
         getEvidenceParameters(functionType).length === 0 &&
         getEvidenceParameters(value.type).some(
@@ -383,7 +385,7 @@ export function generateFunctionPrototype(
   // For non-main functions, generate based on function type.
   // `-> ref(T)` lowers to a `T*` return at the C ABI — the function
   // yields a second-class reference whose storage is rooted in one
-  // of its `ref`-typed parameters. See `plans/ITERATOR_REDESIGN.md`.
+  // of its `ref`-typed parameters. See `plans/archive/ITERATOR_REDESIGN.md`.
   let returnTypeStr: string;
   if (overrideReturnType) {
     returnTypeStr = overrideReturnType;
@@ -464,7 +466,7 @@ export function generateFunctionPrototype(
     originalFunctionType ?? functionType
   );
   for (const ep of evidenceParams) {
-    // For forall function types, use void* — the body casts to the right type at each call site.
+    // For generic function types, use void* — the body casts to the right type at each call site.
     if (
       ep.fieldFunctionType.forallParameters &&
       ep.fieldFunctionType.forallParameters.length > 0
@@ -630,7 +632,16 @@ export function generateObjectConstructorDeclarations(
     `static void __yo_gc_unregister(void* ptr); // Unregister object from cycle detection`
   );
   emitter.emitDeclarationLine(
-    `static void __yo_gc_collect(); // Trigger garbage collection`
+    `static void __yo_gc_collect(); // Thorough full-heap cycle collection (explicit Gc.collect())`
+  );
+  emitter.emitDeclarationLine(
+    `static void __yo_gc_collect_incremental(); // Bacon-Rajan incremental collection (auto-trigger)`
+  );
+  emitter.emitDeclarationLine(
+    `static void __yo_gc_add_root(void* ptr); // Bacon-Rajan: buffer a possible cycle root`
+  );
+  emitter.emitDeclarationLine(
+    `static void __yo_gc_remove_root(void* ptr); // Bacon-Rajan: unbuffer a possible cycle root`
   );
   emitter.emitDeclarationLine(
     `static void __yo_gc_init_thread(); // Initialize thread-local GC state (for worker threads)`
@@ -668,6 +679,32 @@ export function generateObjectConstructorDeclarations(
       emitter.emitDeclarationLine(
         `static ${cName}* ${constructorName}(${paramTypes}); // Constructor`
       );
+    }
+  }
+
+  // Per-variant constructor declarations for reference-semantics enums
+  // (`ref(enum(…))`). plans/REF_REFERENCE_SEMANTICS.md Phase 3.
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
+    if (isEnumType(type) && type.isReferenceSemantics) {
+      if (typeContainsSomeType(type)) {
+        continue;
+      }
+      for (const variant of type.variants) {
+        const nonUnitFields = (variant.fields ?? []).filter(
+          (field) => !isUnitType(field.type)
+        );
+        const paramTypes = nonUnitFields
+          .map((field) => {
+            const fieldType = getTypeString(field.type, context);
+            const fieldName = sanitizeForCIdentifier(field.label);
+            return `${fieldType} ${fieldName}`;
+          })
+          .join(", ");
+        emitter.emitDeclarationLine(
+          `static ${cName}* __yo_new_${cName}_${variant.name}(${paramTypes}); // Constructor`
+        );
+      }
     }
   }
 }
@@ -772,8 +809,8 @@ export function generateSpecializedFunctionDeclarations(
     // Skip if the original function type has evidence parameters — the regular
     // forward declaration loop already emits a correct declaration with evidence
     // params included (via originalFunctionType fallback).
-    // Only skip for forall evidence params (which need void* evidence passing).
-    // Non-forall using params that were resolved during specialization should still
+    // Only skip for generic evidence params (which need void* evidence passing).
+    // Non-generic using params that were resolved during specialization should still
     // have their specialized declarations emitted.
     const origEvidenceParams = getEvidenceParameters(functionValue.type);
     if (

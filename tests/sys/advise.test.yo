@@ -1,5 +1,6 @@
 pragma(Pragma.SkipWasm32Wasi); // Emscripten syscalls (__syscall_*) not available in standalone WASI
 pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
 open(import("std/string"));
 open(import("std/libc/stdio"));
 { arch, Arch } :: import("std/process");
@@ -42,7 +43,7 @@ test("madvise dontneed on anonymous mapping returns success", {
   );
   assert(!(mmap_io.is_error(mapped)), "anonymous mmap for madvise test should succeed");
   ptr := mapped.unwrap();
-  (ptr &+ usize(0)).* = u8(123);
+  (ptr.add(usize(0))).* = u8(123);
   advise_ret := advise_io.madvise(ptr, usize(4096), advise_io.MADV_DONTNEED);
   assert(advise_ret == i32(0), "madvise(MADV_DONTNEED) should return success");
   unmap_ret := mmap_io.munmap(ptr, usize(4096));

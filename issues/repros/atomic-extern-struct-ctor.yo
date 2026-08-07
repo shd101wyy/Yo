@@ -1,0 +1,29 @@
+//! Repro: `atomic(ref(struct((*) : <extern C type>)))` — the
+//! `__yo_new_<cName>` constructor is never emitted by yo-self, so the C
+//! compiler fails with "call to undeclared function '__yo_new___yo_tN'".
+//!
+//! Root cause: `type_contains_some_type` (yo-self/types/utils.yo) lacked TS's
+//! EXTERN carve-out (`typeContainsSomeType`, src/types/utils.ts:499 — "If it's
+//! an extern type, it's concrete at codegen time"). `atomic_bool` is declared
+//! `extern("c", atomic_bool : Type)`, i.e. a SomeType that IS concrete at
+//! codegen time. Counting it as generic made the ref-struct constructor loops
+//! (codegen/functions/declarations.yo + constructors.yo) skip AtomicBool and
+//! AtomicI32 as "generic structs".
+//!
+//! TS carries `isExtern` on the base Type (definitions.ts:46); yo-self's
+//! TypeValue enum has no such slot on SomeT, so extern-ness lives in the
+//! `g_extern_type_names` side table registered by extern.yo.
+//!
+//! Fixed the sync/atomic (15), sync/waitgroup (14) and sync/rwlock (15) files.
+open(import("std/fmt"));
+{ AtomicBool, AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+
+main :: (fn() -> unit)({
+  a := AtomicBool(false);
+  a.store(true, MemoryOrder.Release);
+  println(`bool=${a.load(MemoryOrder.Acquire).to_string()}`);
+  n := AtomicI32(42);
+  println(`i32=${n.load(MemoryOrder.Acquire).to_string()}`);
+});
+
+export(main);

@@ -1760,15 +1760,15 @@ non-empty slice or check at runtime.
 
 - [`MEMORY_SAFETY.md`](MEMORY_SAFETY.md) — the unsafe boundary verification
   trusts.
-- [`EXPLICIT_EFFECTS.md`](EXPLICIT_EFFECTS.md) — the effect model
+- [`EXPLICIT_EFFECTS.md`](archive/EXPLICIT_EFFECTS.md) — the effect model
   capabilities sit on top of.
-- [`UNIFIED_COMPTIME_DESIGN.md`](UNIFIED_COMPTIME_DESIGN.md) — the
+- [`UNIFIED_COMPTIME_DESIGN.md`](backlog/UNIFIED_COMPTIME_DESIGN.md) — the
   comptime evaluator the VC generator extends.
 - [`GADTS.md`](GADTS.md) — per-variant refinement, the seed of value-
   indexed types.
-- [`SLICE_FLOWABILITY.md`](SLICE_FLOWABILITY.md) — example of non-trivial
+- [`SLICE_FLOWABILITY.md`](archive/SLICE_FLOWABILITY.md) — example of non-trivial
   static analysis already running in the evaluator.
-- [`ASYNC_SM_VARIABLE_OPTIMIZATION.md`](ASYNC_SM_VARIABLE_OPTIMIZATION.md)
+- [`ASYNC_SM_VARIABLE_OPTIMIZATION.md`](archive/ASYNC_SM_VARIABLE_OPTIMIZATION.md)
   — the state-machine model async verification reuses.
 - External: Dafny (Microsoft Research), F\* (MSR Inria), Liquid Haskell,
   Rust + Kani, Frama-C/ACSL, CBMC, KLEE, SeaHorn.

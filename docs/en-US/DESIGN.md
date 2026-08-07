@@ -5,7 +5,7 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 
 **Yo** aims to be a simple to learn programming language for C and JavaScript (TypeScript) programmers 😉.
 
-**Yo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types [In Design](../../plans/IN_DESIGN.md).
+**Yo** (will &) tend to support advanced type system features such as generalized algebraic data types (GADT), dependent types, refinement types [In Design](../../plans/backlog/IN_DESIGN.md).
 
 Our goal is to be a practical language that is easy to use and easy to learn.
 
@@ -67,7 +67,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Algebraic Data Types (ADT)](#algebraic-data-types-adt)
 - [Advanced Type System](#advanced-type-system)
   - [Higher-Kinded Types (HKT)](#higher-kinded-types-hkt)
-    - [HKT forall parameters](#hkt-forall-parameters)
+    - [HKT generic parameters](#hkt-generic-parameters)
     - [HKT traits](#hkt-traits)
     - [Generic functions with HKT where clauses](#generic-functions-with-hkt-where-clauses)
   - [Generalized Algebraic Data Types (GADTs)](#generalized-algebraic-data-types-gadts)
@@ -174,7 +174,7 @@ is visible at the call site, so what you see is what runs.
 
 **A few NO design choices:**
 
-- **No operator precedence** (explicit parentheses or newline-based associativity)
+- **No operator precedence** (same-operator chains left-associate; adjacent different operators require explicit parentheses)
 - **No variable shadowing** (similar to Zig)
 - **No stop-the-world GC** (optional thread-local cycle collector for object types)
 
@@ -192,6 +192,7 @@ The **Yo** language is inspired by the following programming languages and absor
 - [Jai](https://github.com/Ivo-Balbaert/The_Way_to_Jai), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/)
 - [Koka](https://koka-lang.github.io/), [Effekt](https://effekt-lang.org/), [Flix](https://flix.dev/)
 - [Nim](https://nim-lang.org/)
+- [Dafny](https://dafny.org/)
 - [Austral](https://austral-lang.org/)
 - [Elixir](https://elixir-lang.org/)
 - [Io](https://iolanguage.org/)
@@ -287,25 +288,21 @@ y :: 14;
 // Except for the "." which is not treated as an operator, but it has the highest precedence.
 // "." has its own parsing rules, for example a.b + c.d is parsed as .(a, b) + .(c, d)
 
-// Every infix operator takes two arguments on its left and right
-// so the expression below is invalid
+// Every infix operator takes two arguments on its left and right.
 //
-//   3 + 4 - 5;
+// Yo has NO operator precedence. A chain of the SAME operator is
+// left-associative, so no parentheses are needed:
+3 + 4 + 5; // parsed as (3 + 4) + 5
+
+// But adjacent DIFFERENT operators are ambiguous and must be
+// disambiguated with explicit parentheses:
 //
-// needs to be written as
+//   3 + 4 - 5; // error: "+" and "-" are different operators
 //
+// must be written as
 3 + (4 - 5);
-//
 // or
 (3 + 4) - 5;
-// or you can use ; to separate the expressions
-3 + 4; - 5; // but apparently this is not what we meant :)
-// same for
-//
-//   3 + 4 + 5;
-//
-// needs to be written as
-(3 + 4) + 5;
 
 // Operators in Yo are combination of the following characters:
 // = + - * / < > @ $ ~ & % | ! ? ^ . : \\ #
@@ -313,24 +310,6 @@ y :: 14;
 // But they will be translated as dot method call:
 (3 + 4) * 5; // is the same as
 3.(+)(4).(*)(5);
-
-// But there is a trick with newlines and operator positioning
-// to control associativity without parentheses!
-
-// RIGHT ASSOCIATIVITY: Put operator at the end of line
-3 + // Newline after the operator enforces right associativity!
-  4 + 5
-;
-// This is equivalent to
-3 + (4 + 5);
-
-// LEFT ASSOCIATIVITY: Put operator at the start of line
-  1
-+ 2
-+ 3
-;
-// This is equivalent to
-(1 + 2) + 3;
 
 {
   // Content within {...} with separator `;` is a begin block
@@ -404,7 +383,7 @@ A type can have the following **Kind**:
 - Structs defined with `struct(...)`
 - Enums/ADTs defined with `enum(...)`
 - Unions defined with `union(...)`
-- Reference-counted object types defined with `object(...)`
+- Reference-counted reference-semantics types defined with `ref(struct(...))` or `ref(enum(...))` (and their atomic variants `atomic(ref(struct(...)))` / `atomic(ref(enum(...)))`)
 - Fixed-size arrays: `Array(T, N)` or `[T; N]`
 - The static string view: `str` (string literals; refers only to static data)
 - Newtypes defined with `newtype(...)`
@@ -430,9 +409,9 @@ A type can have the following **Kind**:
 - Fixed-size arrays: `Array(T, N)` or `[T; N]`
 - Tuples: `Tuple(T1, T2, ...)` or `(T1; T2; ...)`
 
-**Object Types** (heap-allocated, reference-counted):
+**Reference-Semantics Types** (heap-allocated, reference-counted):
 
-- Types defined with `object(...)`
+- Types defined with `ref(struct(...))` or `ref(enum(...))` (and their atomic variants `atomic(ref(struct(...)))` / `atomic(ref(enum(...)))`)
 - Automatic cycle detection and collection
 - Thread-affinity for performance (objects stay on the thread that created them)
 
@@ -442,10 +421,10 @@ Point :: struct(x : i32, y : i32);
 p1 := Point(3, 4);
 p2 := p1;  // p2 is a copy of p1
 
-// Object type - heap-allocated, reference-counted
-MyString :: object(
+// Reference-semantics type - heap-allocated, reference-counted
+MyString :: ref(struct(
   _bytes : ArrayList(u8)
-);
+));
 s1 := MyString.from("Hello");
 s2 := s1;  // s2 and s1 point to the same object (reference counted)
 ```
@@ -636,10 +615,10 @@ create_user(name: "Bob", age: 30);  // Explicit age
 
 ### Generic function
 
-You can use `forall` to define generic functions:
+You can use `generic` to define generic functions:
 
 ```rust
-identity :: (fn(forall(T : Type), arg : T) -> T)
+identity :: (fn(generic(T : Type), arg : T) -> T)
   arg
 ;
 
@@ -652,7 +631,7 @@ y := identity(true);   // Type inferred: y: bool
 You can use `where` clause to add type constraints on generic parameters:
 
 ```rust
-add :: (fn(forall(T : Type), x: T, y: T, where(T <: Add(T))) -> T)
+add :: (fn(generic(T : Type), x: T, y: T, where(T <: Add(T))) -> T)
   (x + y)
 ;
 ```
@@ -661,7 +640,7 @@ add :: (fn(forall(T : Type), x: T, y: T, where(T <: Add(T))) -> T)
 
 ```rust
 compare_and_add :: (fn(
-    forall(T : Type),
+    generic(T : Type),
     x: T,
     y: T,
     z: T,
@@ -687,12 +666,12 @@ impl(Point, T1(get_number : (self -> self.x)));
 impl(Point, T2(get_number : (self -> self.y)));
 
 // Implicit dispatch — where(T <: T1) constrains self.get_number() to T1's method
-use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32)({
+use_t1 :: (fn(generic(T : Type), self : T, where(T <: T1)) -> i32)({
   return(self.get_number());  // Returns self.x (10)
 });
 
 // Explicit dispatch — (T <: T2).method(self) syntax
-use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32)({
+use_t2 :: (fn(generic(T : Type), self : T, where(T <: T2)) -> i32)({
   return((T <: T2).get_number(self));  // Returns self.y (20)
 });
 
@@ -728,7 +707,7 @@ add1 :: add(i32(1), _);  // fn(comptime(y) : i32) -> comptime(i32)
 result :: add1(i32(2));   // 3
 ```
 
-Partially applied type constructors can be used as HKT forall arguments:
+Partially applied type constructors can be used as HKT generic arguments:
 
 ```rust
 IntResult :: Result(_, i32);
@@ -759,7 +738,7 @@ impl(Point,
         (self.y * self.y)))
   ),
 
-  move_by : (fn(ref(self) : Self, dx : i32, dy : i32) -> unit)({
+  move_by : (fn(inout(self) : Self, dx : i32, dy : i32) -> unit)({
     self.x = (self.x + dx);
     self.y = (self.y + dy);
   })
@@ -769,18 +748,18 @@ p := Point(3, 4);
 d := p.distance_from_origin();  // Type method call - OK
 
 p2 := Point(0, 0);
-p2.move_by(5, 10);  // `ref(self)` lowers to `Self*` — &(p2) is taken automatically
+p2.move_by(5, 10);  // `inout(self)` lowers to `Self*` — &(p2) is taken automatically
 // p2 is now Point(5, 10)
 ```
 
-**Automatic pointer conversion for `ref`:**
+**Automatic pointer conversion for `inout`:**
 
-`ref(name) : T` parameters lower to `T*` in C. At call sites, Yo automatically takes the address of the matching argument, so callers see plain value-call syntax:
+`inout(name) : T` parameters lower to `T*` in C. At call sites, Yo automatically takes the address of the matching argument, so callers see plain value-call syntax:
 
 ```rust
 Point :: struct(x : i32, y : i32);
 impl(Point,
-  set_x : (fn(ref(self) : Self, new_x : i32) -> unit)({
+  set_x : (fn(inout(self) : Self, new_x : i32) -> unit)({
     self.x = new_x;
   })
 );
@@ -819,19 +798,19 @@ If `recur` is the last expression, tail-call optimization will be applied.
   );
   ```
 
-### Object Types and Memory Management
+### Reference-Semantics Types and Memory Management
 
-Yo uses **object types** with [Compile-time Reference Counting with Ownership and Lifetime Analysis](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) for safe and efficient memory management.
+Yo uses **reference-semantics types** with [Compile-time Reference Counting with Ownership and Lifetime Analysis](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md) for safe and efficient memory management.
 
-#### Object Type
+#### Reference-Semantics Type
 
-Object types are heap-allocated types with automatic reference counting:
+Reference-semantics types are heap-allocated types with automatic reference counting:
 
 ```rust
-// Define an object type
-MyString :: object(
+// Define a reference-semantics type
+MyString :: ref(struct(
   _bytes : ArrayList(u8)
-);
+));
 impl(MyString,
   // Methods
   from : (fn(s : str) -> Self)({
@@ -881,7 +860,7 @@ swap(&(x), &(y));  // Pass pointers to x and y
 // Now x == 2, y == 1
 ```
 
-For day-to-day in-place mutation, prefer the `ref(name) : T` parameter form (see [Type Methods](#type-methods)) — it lowers to the same `T*` ABI but stays safe and the caller writes plain value-call syntax (`swap(x, y)`). Raw `*(T)` is reserved for FFI and the low-level cases this section covers.
+For day-to-day in-place mutation, prefer the `inout(name) : T` parameter form (see [Type Methods](#type-methods)) — it lowers to the same `T*` ABI but stays safe and the caller writes plain value-call syntax (`swap(x, y)`). Raw `*(T)` is reserved for FFI and the low-level cases this section covers.
 
 ### Pointer Operations
 
@@ -899,16 +878,16 @@ unsafe(ptr.* = 100);  // x is now 100
 // Pointer arithmetic (requires unsafe — could produce OOB address)
 arr := [1, 2, 3, 4, 5];
 ptr := &(arr(0));  // Pointer to first element
-ptr2 := unsafe(ptr &+ 2);  // Point to third element
+ptr2 := unsafe(ptr.add(2));  // Point to third element
 value := unsafe(ptr2.*);  // value == 3
 
 // Pointer casting (safe — just changes type label on the address)
 float_ptr := *(f32)(ptr);  // Cast pointer to *(f32)
 ```
 
-### Pointer Arithmetic Operations
+### Pointer Arithmetic and Comparison
 
-Yo provides a complete set of pointer arithmetic operators. The arithmetic operators (`&+`, `&-`, `&/`) require `unsafe(...)`; the comparison operators (`&<`, `&>`, `&<=`, `&>=`, `&==`, `&!=`) stay safe — comparing addresses can't violate memory safety.
+Pointer arithmetic uses methods — `p.add(n)`, `p.sub(n)`, `p.offset_from(q)` — which require `unsafe(...)`. Pointer comparison uses the ordinary operators (`==`, `!=`, `<`, `<=`, `>`, `>=`) via the `Eq`/`Ord` impls on `*(T)` and stays safe — comparing addresses can't violate memory safety. Note that `*(T) ==` compares ADDRESSES (identity), while reference-semantics object types compare VALUES via their own `Eq` impls.
 
 ```rust
 test("Pointer arithmetic", {
@@ -917,35 +896,36 @@ test("Pointer arithmetic", {
 
   // Addition and subtraction (require unsafe — could produce
   // out-of-bounds addresses):
-  q := unsafe(p &+ 2);   // Advance pointer by 2 elements
-  z := unsafe(q &- 2);   // Go back 2 elements
+  q := unsafe(p.add(2));   // Advance pointer by 2 elements
+  z := unsafe(q.sub(2));   // Go back 2 elements
 
   // Comparison operators (safe — addresses are just data):
-  assert(q &> p);  // q is after p
-  assert(p &< q);  // p is before q
-  assert(q &>= p); // Greater or equal
-  assert(p &<= q); // Less or equal
-  assert(z &== p); // Equal (same address)
-  assert(p &!= q); // Not equal
+  assert(q > p);  // q is after p
+  assert(p < q);  // p is before q
+  assert(q >= p); // Greater or equal
+  assert(p <= q); // Less or equal
+  assert(z == p); // Equal (same address)
+  assert(p != q); // Not equal
 
   // Pointer difference also requires unsafe (assumes both point
   // into the same object):
-  diff := unsafe(q &/ p);  // Distance: 2 elements
+  diff := unsafe(q.offset_from(p));  // Distance: 2 elements
   assert(diff == 2);
 });
 ```
 
-### Pointer Operators Reference
+### Pointer Operations Reference
 
-- `&+` : Pointer addition (advance)
-- `&-` : Pointer subtraction (go back)
-- `&>` : Greater than comparison
-- `&<` : Less than comparison
-- `&>=` : Greater or equal comparison
-- `&<=` : Less or equal comparison
-- `&==` : Equality comparison
-- `&!=` : Inequality comparison
-- `&/` : Pointer difference (distance)
+Arithmetic (methods, require `unsafe(...)`):
+
+- `p.add(n)` : Advance by `n` elements
+- `p.sub(n)` : Go back by `n` elements
+- `p.offset_from(q)` : Signed element distance (`isize`)
+
+Comparison (ordinary operators via `Eq`/`Ord` on `*(T)`, safe):
+
+- `==` / `!=` : Address equality / inequality
+- `<` / `<=` / `>` / `>=` : Address ordering
 
 ### The consume Function
 
@@ -982,7 +962,7 @@ match(some_ptr,
 
 ### Memory Safety
 
-For the user-facing guide, see [MEMORY_SAFETY.md](MEMORY_SAFETY.md) — covers the safe-by-default contract, `ref(name)` parameters, the `pragma(Pragma.AllowUnsafe);` opt-in, `unsafe(...)` per-op wraps, `// SAFETY:` comment convention, `yo unsafe-report`, and `-fwrapv` for signed-integer overflow.
+For the user-facing guide, see [MEMORY_SAFETY.md](MEMORY_SAFETY.md) — covers the safe-by-default contract, `inout(name)` parameters, the `pragma(Pragma.AllowUnsafe);` opt-in, `unsafe(...)` per-op wraps, `// SAFETY:` comment convention, `yo unsafe-report`, and `-fwrapv` for signed-integer overflow.
 
 Yo's safety model is layered (the design plan is [plans/MEMORY_SAFETY.md](../../plans/MEMORY_SAFETY.md)):
 
@@ -997,7 +977,7 @@ Yo's safety model is layered (the design plan is [plans/MEMORY_SAFETY.md](../../
 read :: (fn(p : *(i32)) -> i32)(unsafe(p.*));
 
 // Pointer arithmetic likewise:
-advance :: (fn(p : *(i32), n : usize) -> *(i32))(unsafe(p &+ n));
+advance :: (fn(p : *(i32), n : usize) -> *(i32))(unsafe(p.add(n)));
 
 // Multi-statement unsafe with begin-block (semicolons required —
 // `{ ... }` without semicolons is a struct literal, not a block):
@@ -1006,13 +986,13 @@ write_and_read :: (fn(p : *(i32), v : i32) -> i32)(unsafe({
   p.*
 }));
 
-// Pointer comparison (&==, &<, etc.) and *(T) casts (e.g., *(u8)(p))
+// Pointer comparison (==, <, etc.) and *(T) casts (e.g., *(u8)(p))
 // stay safe — they don't dereference, so they're not gated.
 ```
 
-**What requires `unsafe(...)`**: pointer dereference (`.*`), pointer arithmetic (`&+`, `&-`, `&/`), and `consume(p.* = v)`.
+**What requires `unsafe(...)`**: pointer dereference (`.*`), pointer arithmetic (`.add(n)`, `.sub(n)`, `.offset_from(q)`), and `consume(p.* = v)`.
 
-**What stays safe**: taking an address (`&(x)`), passing/storing/returning pointers, pointer comparison (`&<`, `&==`, etc.), pointer-type casts (`*(u8)(p)`), and `asm(...)` (already implicitly unsafe).
+**What stays safe**: taking an address (`&(x)`), passing/storing/returning pointers, pointer comparison (`<`, `==`, etc.), pointer-type casts (`*(u8)(p)`), and `asm(...)` (already implicitly unsafe).
 
 The unsafe surface is greppable: every `unsafe(` token marks a place where raw memory ops happen. A file must declare `pragma(Pragma.AllowUnsafe);` at the top before it can use `unsafe(...)` or perform raw pointer operations. `std/`, `yo-self/`, and `tests/` files declare this pragma explicitly; user code (`main.yo`, the rest of your project) defaults to safe mode and gets a compile error if it tries to use `unsafe(...)`.
 
@@ -1037,18 +1017,18 @@ main :: (fn() -> unit)({
 });
 ```
 
-### `ref` Parameters
+### `inout` Parameters
 
-For in-place mutation without raw pointers, use the `ref(name) : T` parameter modifier. The modifier wraps the parameter name (parallel to the existing `own(name)`), and the parameter behaves like a binding to the caller's variable — reads access the current value, writes update the caller's storage. At codegen time `ref(name) : T` lowers to `T*` in C; the caller passes `&(arg)` automatically.
+For in-place mutation without raw pointers, use the `inout(name) : T` parameter modifier. The modifier wraps the parameter name (parallel to the existing `own(name)`), and the parameter behaves like a binding to the caller's variable — reads access the current value, writes update the caller's storage. At codegen time `inout(name) : T` lowers to `T*` in C; the caller passes `&(arg)` automatically.
 
 ```rust
-swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
+swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
   tmp := a;
   a = b;
   b = tmp;
 });
 
-increment :: (fn(ref(n) : i32) -> unit)({
+increment :: (fn(inout(n) : i32) -> unit)({
   n = (n + i32(1));
 });
 
@@ -1066,15 +1046,15 @@ main :: (fn() -> unit)({
 });
 ```
 
-`ref(...)` cannot be combined with `own(...)` (opposite calling conventions) or with `comptime`/`forall` (`ref` is runtime-only). For chained calls, passing a `ref`-param through to another function's `ref`-param works as expected:
+`inout(...)` cannot be combined with `own(...)` (opposite calling conventions) or with `comptime`/`generic` (`inout` is runtime-only). For chained calls, passing an `inout`-param through to another function's `inout`-param works as expected:
 
 ```rust
-double :: (fn(ref(n) : i32) -> unit)({
+double :: (fn(inout(n) : i32) -> unit)({
   n = (n + n);
 });
 
-double_both :: (fn(ref(x) : i32, ref(y) : i32) -> unit)({
-  double(x);  // passes &x through to double's ref-param
+double_both :: (fn(inout(x) : i32, inout(y) : i32) -> unit)({
+  double(x);  // passes &x through to double's inout-param
   double(y);
 });
 ```
@@ -1336,7 +1316,7 @@ The `Iterator` trait defines a sequence of values. It has an associated type `It
 ```rust
 Iterator :: trait(
   Item : Type,
-  next : (fn(ref(self) : Self) -> Option(Self.Item))
+  next : (fn(inout(self) : Self) -> Option(Self.Item))
 );
 ```
 
@@ -1404,9 +1384,9 @@ while(i < usize(3), {
 // arr is now [10, 20, 30].
 ```
 
-Combinator chains (`coll.into_iter().map(f)`, `.filter(p)`, `.fold(init, f)`, etc.) keep the value-yielding `Iterator` shape; a blanket `into_iter` impl `forall(I), where(I <: Iterator), I, into_iter : fn(self) -> Self` (identity) lets `for(combinator_chain, (x) => body)` work uniformly.
+Combinator chains (`coll.into_iter().map(f)`, `.filter(p)`, `.fold(init, f)`, etc.) keep the value-yielding `Iterator` shape; a blanket `into_iter` impl `generic(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)` (identity) lets `for(combinator_chain, (x) => body)` work uniformly.
 
-The old borrow form `for(coll, ref(x) => body)` was removed (interior refs into reallocatable storage are inexpressible — see [FLOWABILITY.md](./FLOWABILITY.md)); using it produces a compile error with the migration recipe.
+The old borrow form `for(coll, inout(x) => body)` was removed (interior refs into reallocatable storage are inexpressible — see [FLOWABILITY.md](./FLOWABILITY.md)); using it produces a compile error with the migration recipe.
 
 Strings have explicit `chars()` (rune iteration) and `bytes()` (byte iteration).
 
@@ -1464,20 +1444,20 @@ Yo supports higher-kinded types through **comptime function types as kinds**. Ty
 | `* -> *`      | `fn(comptime(T) : Type) -> comptime(Type)`                     |
 | `* -> * -> *` | `fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type)` |
 
-#### HKT forall parameters
+#### HKT generic parameters
 
-Declare a forall parameter with a function-type kind to accept type constructors:
+Declare a generic parameter with a function-type kind to accept type constructors:
 
 ```rust
 // F is a type constructor (kind: Type → Type)
 identity :: (fn(
-  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
+  generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
   x: F(A)
 ) -> F(A))(x);
 
 // Usage:
 (x : Option(i32)) = .Some(i32(42));
-result := identity(forall(Option, i32), x);  // result: Option(i32)
+result := identity(generic(Option, i32), x);  // result: Option(i32)
 ```
 
 #### HKT traits
@@ -1488,13 +1468,13 @@ Define traits parameterized by type constructors:
 // Functor trait — F is a type constructor
 Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
   trait(
-    map : (fn(forall(A : Type, B : Type), self: F(A), f: (fn(a : A) -> B)) -> F(B))
+    map : (fn(generic(A : Type, B : Type), self: F(A), f: (fn(a : A) -> B)) -> F(B))
   )
 );
 
 // Implement Functor for Option
-impl(forall(A : Type), Option(A), Functor(Option)(
-  map : (fn(forall(A : Type, B : Type), self: Option(A), f: (fn(a : A) -> B)) -> Option(B))(
+impl(generic(A : Type), Option(A), Functor(Option)(
+  map : (fn(generic(A : Type, B : Type), self: Option(A), f: (fn(a : A) -> B)) -> Option(B))(
     match(self,
       .Some(v) => .Some(f(v)),
       .None => .None
@@ -1504,7 +1484,7 @@ impl(forall(A : Type), Option(A), Functor(Option)(
 
 // Use the trait method
 (x : Option(i32)) = .Some(i32(42));
-result := x.map(forall(i32), (fn(a: i32) -> i32)((a + i32(1))));
+result := x.map(generic(i32), (fn(a: i32) -> i32)((a + i32(1))));
 // result = .Some(i32(43))
 ```
 
@@ -1512,16 +1492,16 @@ result := x.map(forall(i32), (fn(a: i32) -> i32)((a + i32(1))));
 
 ```rust
 do_map :: (fn(
-  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
+  generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
   container: F(A),
   f: (fn(a : A) -> B),
   where(F(A) <: Functor(F))
 ) -> F(B))(
-  container.map(forall(B), f)
+  container.map(generic(B), f)
 );
 
 (x : Option(i32)) = .Some(i32(10));
-result := do_map(forall(Option, i32, i32), x, (fn(a: i32) -> i32)((a * i32(2))));
+result := do_map(generic(Option, i32, i32), x, (fn(a: i32) -> i32)((a * i32(2))));
 // result = .Some(i32(20))
 ```
 
@@ -1544,7 +1524,7 @@ Value :: (fn(comptime(T) : Type) -> comptime(Type))(
 When pattern matching on a GADT value, the type system refines type variables in each branch:
 
 ```rust
-eval_value :: (fn(forall(T : Type), v : Value(T)) -> T)(
+eval_value :: (fn(generic(T : Type), v : Value(T)) -> T)(
   match(v,
     .IntVal(i) => i,      // T refined to i32, returns i32 ✓
     .BoolVal(b) => b,     // T refined to bool, returns bool ✓
@@ -1582,7 +1562,7 @@ MyPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   )
 );
 
-my_fst :: (fn(forall(A : Type, B : Type), p : MyPair(A, B)) -> A)(
+my_fst :: (fn(generic(A : Type, B : Type), p : MyPair(A, B)) -> A)(
   match(p,
     .MkIntBool(x, y) => x,
     .MkBoolInt(x, y) => x
@@ -1748,11 +1728,11 @@ A trait is defined as a function that returns a `Trait` type containing field de
 ```rust
 // Define a trait (like a trait in Rust)
 Summary :: trait(
-  summarize : (fn(ref(self) : Self) -> String)
+  summarize : (fn(inout(self) : Self) -> String)
 );
 
 Display :: trait(
-  display : (fn(ref(self) : Self) -> String),
+  display : (fn(inout(self) : Self) -> String),
   where(Self <: Summary) // Constraint
 );
 
@@ -1778,12 +1758,12 @@ impl(NewsArticle, Display(
 ));
 
 // Pass in function
-notify :: (fn(ref(item) : NewsArticle) -> unit)({
+notify :: (fn(inout(item) : NewsArticle) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
 });
 
 // Generic function with trait constraint
-notify2 :: (fn(forall(T : Type), ref(item) : T, where(T <: Display)) -> unit)({
+notify2 :: (fn(generic(T : Type), inout(item) : T, where(T <: Display)) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
   println(`Breaking news! ${item.display()}`);
 });
@@ -2200,14 +2180,14 @@ test_error :: (fn() -> unit)({
 });
 ```
 
-### Closures with Object Types
+### Closures with Reference-Semantics Types
 
-Closures work seamlessly with object types:
+Closures work seamlessly with reference-semantics types:
 
 ```rust
-MyBox :: object(
+MyBox :: ref(struct(
   (*) : i32
-);
+));
 
 make_incrementer :: (fn(start : MyBox) -> Impl(Fn() -> i32))({
   return((unit) => {
@@ -2234,18 +2214,18 @@ Yo provides `Box` and `box` for heap-allocating value types with automatic refer
 
 ### Box Type
 
-`Box(T)` is a generic object type that wraps any value type:
+`Box(T)` is a generic reference-semantics type that wraps any value type:
 
 ```rust
 // Box is defined in std/prelude.yo
 Box :: (fn(comptime(V) : Type) -> comptime(Type))(
-  object(
+  ref(struct(
     (*) : V
-  )
+  ))
 );
 
 // box function creates a Box
-box :: (fn(forall(V : Type), value : V) -> Box(V))(
+box :: (fn(generic(V : Type), value : V) -> Box(V))(
   Box(V)(value)
 );
 ```
@@ -2335,7 +2315,7 @@ Id :: trait(
 
 // Function accepting any type implementing Id
 use_id :: (fn(
-  forall(T : Type),
+  generic(T : Type),
   value : T,
   where(T <: Id)
 ) -> T)({
@@ -2360,7 +2340,7 @@ result := use_id(42);  // Prints "i32: 42", returns 42
 
 ```rust
 RetI32 :: trait(
-  return_i32 : (fn(ref(self) : Self) -> i32)
+  return_i32 : (fn(inout(self) : Self) -> i32)
 );
 
 get_value :: (fn(use_bool : bool) -> Impl(RetI32))({
@@ -2386,7 +2366,7 @@ Run :: trait(
 
 // Type must implement both Speak and Run
 perform :: (fn(
-  forall(T : Type),
+  generic(T : Type),
   actor : T,
   where(T <: (Speak, Run))
 ) -> unit)({
@@ -2423,8 +2403,8 @@ Run :: trait(
   run: (fn(self : Self) -> i32)
 );
 
-// Must be object type to work with Dyn
-Dog :: object();
+// Must be a reference-semantics type to work with Dyn
+Dog :: ref(struct());
 
 DogSpeak :: impl(Dog, Speak(
   speak: ((self: Self) -> {
@@ -2462,7 +2442,7 @@ main :: (fn() -> i32)({
 
 ```rust
 // Impl - static dispatch (monomorphization)
-use_impl :: (fn(forall(T), value: T, where(T <: SomeTrait)) -> unit)({
+use_impl :: (fn(generic(T), value: T, where(T <: SomeTrait)) -> unit)({
   value.method();  // Statically dispatched
 });
 
@@ -2672,9 +2652,9 @@ Please check [ISOLATED.md](./ISOLATED.md) for details on isolated types in Yo.
 
 `Arc(T)` provides **shared ownership** with atomic reference counting. It is no longer
 a compiler built-in; it is defined in `std/prelude.yo` as a thin
-`atomic object(...)` wrapper. `Arc(T)` requires `T <: Send`, so it only wraps
+`atomic(ref(struct(...)))` wrapper. `Arc(T)` requires `T <: Send`, so it only wraps
 thread-shareable values. Use `Arc(T)` when you want to share a single value.
-Use `atomic object(...)` when defining your own shared types.
+Use `atomic(ref(struct(...)))` when defining your own shared types.
 
 ```rust
 // Create with the arc() helper
@@ -2925,14 +2905,14 @@ test("Division", {
 });
 ```
 
-### Testing with Object Types
+### Testing with Reference-Semantics Types
 
 Test cleanup and disposal:
 
 ```rust
-MyBox :: object(
+MyBox :: ref(struct(
   (*) : i32
-);
+));
 impl(MyBox, Dispose(
   dispose : (self -> {
     printf("Disposing MyBox with value: %d\n", self.*);
@@ -3312,7 +3292,7 @@ For the full design, trait definition, and implementation details, see [INDEX_TR
 
 ## In Design
 
-Please check [IN_DESIGN.md](../../plans/IN_DESIGN.md) for features that are still in design phase.
+Please check [IN_DESIGN.md](../../plans/backlog/IN_DESIGN.md) for features that are still in design phase.
 
 ## References
 

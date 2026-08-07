@@ -5,7 +5,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
 
 **Yo** 旨在成为一门对 C 和 JavaScript (TypeScript) 程序员来说**易于学习**的编程语言 😉。
 
-**Yo**（将会且）倾向于支持高级类型系统特性，如广义代数数据类型 (GADT)、依赖类型、细化类型 [设计中](../../plans/IN_DESIGN.md)。
+**Yo**（将会且）倾向于支持高级类型系统特性，如广义代数数据类型 (GADT)、依赖类型、细化类型 [设计中](../../plans/backlog/IN_DESIGN.md)。
 
 我们的目标是成为一门易用且易学的实用语言。
 
@@ -27,7 +27,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
     - [复合类型：](#复合类型)
     - [指针类型：](#指针类型)
     - [静态/动态分派类型：](#静态动态分派类型)
-    - [值类型 vs 对象类型](#值类型-vs-对象类型)
+    - [值类型 vs 引用语义类型](#值类型-vs-引用语义类型)
   - [变量声明](#变量声明)
     - [禁止变量遮蔽](#禁止变量遮蔽)
   - [类型推断](#类型推断)
@@ -41,8 +41,8 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [使用 `_` 进行偏应用（Partial Application）](#使用-_-进行偏应用partial-application)
   - [类型方法](#类型方法)
   - [recur](#recur)
-  - [对象类型与内存管理](#对象类型与内存管理)
-    - [对象类型](#对象类型)
+  - [引用语义类型与内存管理](#引用语义类型与内存管理)
+    - [引用语义类型](#引用语义类型)
     - [编译期引用计数优化](#编译期引用计数优化)
 - [指针](#指针)
   - [指针操作](#指针操作)
@@ -67,7 +67,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
 - [代数数据类型 (ADT)](#代数数据类型-adt)
 - [高级类型系统](#高级类型系统)
   - [高阶类型（Higher-Kinded Types，HKT）](#高阶类型higher-kinded-typeshkt)
-    - [HKT forall 参数](#hkt-forall-参数)
+    - [HKT generic 参数](#hkt-generic-参数)
     - [HKT Trait](#hkt-trait)
     - [使用 HKT where 子句的泛型函数](#使用-hkt-where-子句的泛型函数)
   - [广义代数数据类型（GADTs）](#广义代数数据类型gadts)
@@ -95,7 +95,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [基本闭包语法](#基本闭包语法)
   - [闭包捕获语义](#闭包捕获语义)
   - [闭包类型限制](#闭包类型限制)
-  - [闭包与对象类型](#闭包与对象类型)
+  - [闭包与引用语义类型](#闭包与引用语义类型)
 - [Box 和装箱](#box-和装箱)
   - [Box 类型](#box-类型)
   - [使用示例](#使用示例)
@@ -132,7 +132,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
     - [编译时断言](#编译时断言)
   - [测试预期错误](#测试预期错误)
   - [测试组织](#测试组织)
-  - [使用对象类型进行测试](#使用对象类型进行测试)
+  - [使用引用语义类型进行测试](#使用引用语义类型进行测试)
   - [测试文件](#测试文件)
 - [元编程](#元编程)
   - [宏函数](#宏函数)
@@ -173,9 +173,9 @@ diff 中能一眼读懂的代码。设计的关键杠杆是**显式性** —— 
 
 **一些"不做"的设计选择：**
 
-- **无运算符优先级**（使用显式括号或基于换行的结合性）
+- **无运算符优先级**（相同运算符的链左结合；相邻的不同运算符需要显式括号）
 - **无变量遮蔽**（类似 Zig）
-- **无全局停顿 GC**（可选的线程局部循环收集器，仅用于 object 类型）
+- **无全局停顿 GC**（可选的线程局部循环收集器，仅用于引用语义类型）
 
 ## 灵感来源
 
@@ -191,6 +191,7 @@ diff 中能一眼读懂的代码。设计的关键杠杆是**显式性** —— 
 - [Jai](https://github.com/Ivo-Balbaert/The_Way_to_Jai), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/)
 - [Koka](https://koka-lang.github.io/), [Effekt](https://effekt-lang.org/), [Flix](https://flix.dev/)
 - [Nim](https://nim-lang.org/)
+- [Dafny](https://dafny.org/)
 - [Austral](https://austral-lang.org/)
 - [Elixir](https://elixir-lang.org/)
 - [Io](https://iolanguage.org/)
@@ -286,25 +287,19 @@ y :: 14;
 // 除了 "." 不被视为运算符，但它具有最高优先级。
 // "." 有自己的解析规则，例如 a.b + c.d 被解析为 .(a, b) + .(c, d)
 
-// 每个中缀运算符接受左右两个参数
-// 所以下面的表达式是无效的
+// 每个中缀运算符接受左右两个参数。
 //
-//   3 + 4 - 5;
+// Yo 没有运算符优先级。相同运算符的链是左结合的，因此不需要括号：
+3 + 4 + 5; // 解析为 (3 + 4) + 5
+
+// 但相邻的不同运算符存在歧义，必须用显式括号消除歧义：
 //
-// 需要写成
+//   3 + 4 - 5; // 错误："+" 和 "-" 是不同的运算符
 //
+// 必须写成
 3 + (4 - 5);
-//
 // 或者
 (3 + 4) - 5;
-// 或者你可以用 ; 来分隔表达式
-3 + 4; - 5; // 但显然这不是我们想要的 :)
-// 同样
-//
-//   3 + 4 + 5;
-//
-// 需要写成
-(3 + 4) + 5;
 
 // Yo 中的运算符是以下字符的组合：
 // = + - * / < > @ $ ~ & % | ! ? ^ . : \\ #
@@ -312,24 +307,6 @@ y :: 14;
 // 但它们会被转换为点方法调用：
 (3 + 4) * 5; // 等同于
 3.(+)(4).(*)(5);
-
-// 但是有一个关于换行和运算符位置的技巧
-// 可以在不使用括号的情况下控制结合性！
-
-// 右结合：将运算符放在行末
-3 + // 运算符后换行强制右结合！
-  4 + 5
-;
-// 等价于
-3 + (4 + 5);
-
-// 左结合：将运算符放在行首
-  1
-+ 2
-+ 3
-;
-// 等价于
-(1 + 2) + 3;
 
 {
   // 使用分隔符 `;` 的 {...} 内容是一个 begin 块
@@ -403,7 +380,7 @@ begin(
 - 用 `struct(...)` 定义的结构体
 - 用 `enum(...)` 定义的枚举 / ADT
 - 用 `union(...)` 定义的联合体
-- 用 `object(...)` 定义的引用计数对象类型
+- 用 `ref(struct(...))` / `ref(enum(...))` 定义的引用计数引用语义类型（原子变体为 `atomic(ref(struct(...)))` / `atomic(ref(enum(...)))`）
 - 固定大小数组：`Array(T, N)` 或 `[T; N]`
 - 静态字符串视图：`str`（字符串字面量；只指向静态数据）
 - 用 `newtype(...)` 定义的新类型
@@ -418,7 +395,7 @@ begin(
 - `Impl(Trait)`（实现了 Trait 的静态分派类型）
 - `Dyn(Trait)`（实现了 Trait 的动态分派类型）
 
-#### 值类型 vs 对象类型
+#### 值类型 vs 引用语义类型
 
 **值类型**（栈分配，赋值时复制）：
 
@@ -429,9 +406,9 @@ begin(
 - 固定大小数组：`Array(T, N)` 或 `[T; N]`
 - 元组：`Tuple(T1, T2, ...)` 或 `(T1; T2; ...)`
 
-**对象类型**（堆分配，引用计数）：
+**引用语义类型**（堆分配，引用计数）：
 
-- 用 `object(...)` 定义的类型
+- 用 `ref(struct(...))` / `ref(enum(...))` 定义的类型（原子变体为 `atomic(ref(struct(...)))` / `atomic(ref(enum(...)))`）
 - 自动循环检测和回收
 - 线程亲和性以提升性能（对象留在创建它的线程上）
 
@@ -441,10 +418,10 @@ Point :: struct(x : i32, y : i32);
 p1 := Point(3, 4);
 p2 := p1;  // p2 是 p1 的副本
 
-// 对象类型 - 堆分配，引用计数
-MyString :: object(
+// 引用语义类型 - 堆分配，引用计数
+MyString :: ref(struct(
   _bytes : ArrayList(u8)
-);
+));
 s1 := MyString.from("Hello");
 s2 := s1;  // s2 和 s1 指向同一个对象（引用计数）
 ```
@@ -527,7 +504,7 @@ x := 1;
 ### 类型推断
 
 ```rust
-// String 是一个带自动引用计数的对象类型
+// String 是一个带自动引用计数的引用语义类型
 (my_string : String) = String.from("Hello, world"); // 堆分配
 my_string_2 := my_string; // 两者指向同一个对象（RC 递增）
 
@@ -539,11 +516,11 @@ my_int_2 := my_int; // my_int_2 是一个副本
 (my_int_array : Array(i32, 3)) = [1, 2, 3]; // 栈分配
 my_int_array := [1, 2, 3]; // Array(i32, 3)
 
-// ArrayList 是一个对象类型
+// ArrayList 是一个引用语义类型
 (my_array_list : ArrayList(i32)) = ArrayList(i32).new(); // 堆分配，RC
 
-// 枚举/ADT 可以是值类型或对象类型，取决于定义方式
-Person :: struct(name : String, age : i32); // 值类型（但包含对象类型字段）
+// 枚举/ADT 可以是值类型或引用语义类型，取决于定义方式
+Person :: struct(name : String, age : i32); // 值类型（但包含引用语义类型字段）
 p := Person(name : String.from("Alice"), age : 30);
 _(name, age) := p; // name : String, age : i32
 ```
@@ -635,10 +612,10 @@ create_user(name: "Bob", age: 30);  // 显式指定 age
 
 ### 泛型函数
 
-你可以使用 `forall` 来定义泛型函数：
+你可以使用 `generic` 来定义泛型函数：
 
 ```rust
-identity :: (fn(forall(T : Type), arg : T) -> T)
+identity :: (fn(generic(T : Type), arg : T) -> T)
   arg
 ;
 
@@ -651,7 +628,7 @@ y := identity(true);   // 类型推断：y: bool
 你可以使用 `where` 子句在泛型参数上添加类型约束：
 
 ```rust
-add :: (fn(forall(T : Type), x: T, y: T, where(T <: Add(T))) -> T)
+add :: (fn(generic(T : Type), x: T, y: T, where(T <: Add(T))) -> T)
   (x + y)
 ;
 ```
@@ -660,7 +637,7 @@ add :: (fn(forall(T : Type), x: T, y: T, where(T <: Add(T))) -> T)
 
 ```rust
 compare_and_add :: (fn(
-    forall(T : Type),
+    generic(T : Type),
     x: T,
     y: T,
     z: T,
@@ -686,12 +663,12 @@ impl(Point, T1(get_number : (self -> self.x)));
 impl(Point, T2(get_number : (self -> self.y)));
 
 // 隐式分派 — where(T <: T1) 约束 self.get_number() 只使用 T1 的方法
-use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32)({
+use_t1 :: (fn(generic(T : Type), self : T, where(T <: T1)) -> i32)({
   return(self.get_number());  // 返回 self.x (10)
 });
 
 // 显式分派 — 使用 (T <: T2).method(self) 语法
-use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32)({
+use_t2 :: (fn(generic(T : Type), self : T, where(T <: T2)) -> i32)({
   return((T <: T2).get_number(self));  // 返回 self.y (20)
 });
 
@@ -727,7 +704,7 @@ add1 :: add(i32(1), _);  // fn(comptime(y) : i32) -> comptime(i32)
 result :: add1(i32(2));   // 3
 ```
 
-偏应用的类型构造器可以作为 HKT forall 参数使用：
+偏应用的类型构造器可以作为 HKT generic 参数使用：
 
 ```rust
 IntResult :: Result(_, i32);
@@ -758,7 +735,7 @@ impl(Point,
         (self.y * self.y)))
   ),
 
-  move_by : (fn(ref(self) : Self, dx : i32, dy : i32) -> unit)({
+  move_by : (fn(inout(self) : Self, dx : i32, dy : i32) -> unit)({
     self.x = (self.x + dx);
     self.y = (self.y + dy);
   })
@@ -768,19 +745,19 @@ p := Point(3, 4);
 d := p.distance_from_origin();  // 类型方法调用 - OK
 
 p2 := Point(0, 0);
-p2.move_by(5, 10);  // `ref(self)` 在 C 中降为 `Self*` — 编译器自动插入 &(p2)
+p2.move_by(5, 10);  // `inout(self)` 在 C 中降为 `Self*` — 编译器自动插入 &(p2)
 // p2 现在是 Point(5, 10)
 ```
 
-**`ref` 的自动指针转换：**
+**`inout` 的自动指针转换：**
 
-`ref(name) : T` 参数在 C 中降为 `T*`。在调用点，Yo 会自动取对应实参的地址，
+`inout(name) : T` 参数在 C 中降为 `T*`。在调用点，Yo 会自动取对应实参的地址，
 所以调用方代码看起来就是普通的值传递语法：
 
 ```rust
 Point :: struct(x : i32, y : i32);
 impl(Point,
-  set_x : (fn(ref(self) : Self, new_x : i32) -> unit)({
+  set_x : (fn(inout(self) : Self, new_x : i32) -> unit)({
     self.x = new_x;
   })
 );
@@ -819,19 +796,19 @@ p.set_x(10);  // 无需写 `&(p)` — 编译器自动插入
   );
   ```
 
-### 对象类型与内存管理
+### 引用语义类型与内存管理
 
-Yo 使用**对象类型**，配合[编译期引用计数与所有权和生命周期分析](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)来实现安全高效的内存管理。
+Yo 使用**引用语义类型**，配合[编译期引用计数与所有权和生命周期分析](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)来实现安全高效的内存管理。
 
-#### 对象类型
+#### 引用语义类型
 
-对象类型是堆分配的类型，带有自动引用计数：
+引用语义类型是堆分配的类型，带有自动引用计数：
 
 ```rust
-// 定义一个对象类型
-MyString :: object(
+// 定义一个引用语义类型
+MyString :: ref(struct(
   _bytes : ArrayList(u8)
-);
+));
 impl(MyString,
   // 方法
   from : (fn(s : str) -> Self)({
@@ -881,7 +858,7 @@ swap(&(x), &(y));  // 传入 x 和 y 的指针
 // 现在 x == 2, y == 1
 ```
 
-日常的就地修改应优先使用 `ref(name) : T` 参数形式（见[Type Methods](#type-methods)）——它在 C 中降为相同的 `T*` ABI，但保持安全，调用方写成普通的值传递语法（`swap(x, y)`）。原始 `*(T)` 仅保留给 FFI 和本节涉及的底层场景。
+日常的就地修改应优先使用 `inout(name) : T` 参数形式（见[Type Methods](#type-methods)）——它在 C 中降为相同的 `T*` ABI，但保持安全，调用方写成普通的值传递语法（`swap(x, y)`）。原始 `*(T)` 仅保留给 FFI 和本节涉及的底层场景。
 
 ### 指针操作
 
@@ -899,16 +876,16 @@ unsafe(ptr.* = 100);  // x 现在是 100
 // 指针算术（需要 unsafe — 可能产生越界地址）
 arr := [1, 2, 3, 4, 5];
 ptr := &(arr(0));  // 指向第一个元素的指针
-ptr2 := unsafe(ptr &+ 2);  // 指向第三个元素
+ptr2 := unsafe(ptr.add(2));  // 指向第三个元素
 value := unsafe(ptr2.*);  // value == 3
 
 // 指针类型转换（安全 — 只修改地址的类型标签）
 float_ptr := *(f32)(ptr);  // 将指针转换为 *(f32)
 ```
 
-### 指针算术运算
+### 指针算术与比较
 
-Yo 提供了一整套指针算术运算符。算术运算符（`&+`、`&-`、`&/`）需要 `unsafe(...)` 包装；比较运算符（`&<`、`&>`、`&<=`、`&>=`、`&==`、`&!=`）保持安全 — 比较地址本身不会破坏内存安全。
+指针算术使用方法 — `p.add(n)`、`p.sub(n)`、`p.offset_from(q)` — 需要 `unsafe(...)` 包装；指针比较使用普通运算符（`==`、`!=`、`<`、`<=`、`>`、`>=`，经由 `*(T)` 上的 `Eq`/`Ord` impl）并保持安全 — 比较地址本身不会破坏内存安全。注意 `*(T) ==` 比较的是地址（同一性），而引用语义对象类型通过各自的 `Eq` impl 比较值。
 
 ```rust
 test("Pointer arithmetic", {
@@ -916,34 +893,35 @@ test("Pointer arithmetic", {
   p := &(x);
 
   // 加法和减法（需要 unsafe — 可能产生越界地址）
-  q := unsafe(p &+ 2);   // 指针前进 2 个元素
-  z := unsafe(q &- 2);   // 指针后退 2 个元素
+  q := unsafe(p.add(2));   // 指针前进 2 个元素
+  z := unsafe(q.sub(2));   // 指针后退 2 个元素
 
   // 比较运算符（安全 — 地址只是数据）
-  assert(q &> p);  // q 在 p 之后
-  assert(p &< q);  // p 在 q 之前
-  assert(q &>= p); // 大于等于
-  assert(p &<= q); // 小于等于
-  assert(z &== p); // 相等（相同地址）
-  assert(p &!= q); // 不相等
+  assert(q > p);  // q 在 p 之后
+  assert(p < q);  // p 在 q 之前
+  assert(q >= p); // 大于等于
+  assert(p <= q); // 小于等于
+  assert(z == p); // 相等（相同地址）
+  assert(p != q); // 不相等
 
   // 指针差值同样需要 unsafe（假定两指针指向同一对象）
-  diff := unsafe(q &/ p);  // 距离：2 个元素
+  diff := unsafe(q.offset_from(p));  // 距离：2 个元素
   assert(diff == 2);
 });
 ```
 
-### 指针运算符参考
+### 指针操作参考
 
-- `&+` ：指针加法（前进）
-- `&-` ：指针减法（后退）
-- `&>` ：大于比较
-- `&<` ：小于比较
-- `&>=` ：大于等于比较
-- `&<=` ：小于等于比较
-- `&==` ：相等比较
-- `&!=` ：不等比较
-- `&/` ：指针差值（距离）
+算术（方法，需要 `unsafe(...)`）：
+
+- `p.add(n)` ：前进 `n` 个元素
+- `p.sub(n)` ：后退 `n` 个元素
+- `p.offset_from(q)` ：带符号的元素距离（`isize`）
+
+比较（普通运算符，经由 `*(T)` 上的 `Eq`/`Ord` impl，安全）：
+
+- `==` / `!=` ：地址相等 / 不等
+- `<` / `<=` / `>` / `>=` ：地址排序
 
 ### consume 函数
 
@@ -976,15 +954,15 @@ match(some_ptr,
 );
 ```
 
-**注意**：裸指针是不安全的。请尽可能使用对象类型来进行安全的内存管理。
+**注意**：裸指针是不安全的。请尽可能使用引用语义类型来进行安全的内存管理。
 
 ### 内存安全
 
-面向用户的指南见 [MEMORY_SAFETY.md](MEMORY_SAFETY.md) —— 覆盖默认安全的契约、`ref(name)` 参数、`pragma(Pragma.AllowUnsafe);` opt-in、`unsafe(...)` 逐操作包装、`// SAFETY:` 注释约定、`yo unsafe-report`，以及处理有符号整数溢出的 `-fwrapv`。
+面向用户的指南见 [MEMORY_SAFETY.md](MEMORY_SAFETY.md) —— 覆盖默认安全的契约、`inout(name)` 参数、`pragma(Pragma.AllowUnsafe);` opt-in、`unsafe(...)` 逐操作包装、`// SAFETY:` 注释约定、`yo unsafe-report`，以及处理有符号整数溢出的 `-fwrapv`。
 
 Yo 的安全模型是分层的（设计计划见 [plans/MEMORY_SAFETY.md](../../plans/MEMORY_SAFETY.md)）：
 
-- **`object` 类型**通过引用计数自动释放（RC + 循环回收），从构造上保证内存安全。
+- **引用语义类型**（`ref(struct(...))` / `ref(enum(...))`）通过引用计数自动释放（RC + 循环回收），从构造上保证内存安全。
 - **`Iso(T)` / `Arc(T)`** 分别提供仿射所有权传递和原子 RC 共享所有权。
 - **`*(T)` 原始指针**的解引用、算术运算和「穿透指针的 `consume`」操作必须显式包裹在 `unsafe(...)` 中，否则编译报错。
 
@@ -995,7 +973,7 @@ Yo 的安全模型是分层的（设计计划见 [plans/MEMORY_SAFETY.md](../../
 read :: (fn(p : *(i32)) -> i32)(unsafe(p.*));
 
 // 指针算术同样：
-advance :: (fn(p : *(i32), n : usize) -> *(i32))(unsafe(p &+ n));
+advance :: (fn(p : *(i32), n : usize) -> *(i32))(unsafe(p.add(n)));
 
 // 多语句 unsafe 用 begin-block 包裹（必须含分号 —
 // 不带分号的 `{ ... }` 是结构体字面量，而不是块）：
@@ -1004,13 +982,13 @@ write_and_read :: (fn(p : *(i32), v : i32) -> i32)(unsafe({
   p.*
 }));
 
-// 指针比较（&==、&< 等）和 *(T) 类型转换（如 *(u8)(p)）
+// 指针比较（==、< 等）和 *(T) 类型转换（如 *(u8)(p)）
 // 保持安全 — 它们不解引用，因此不被门控。
 ```
 
-**需要 `unsafe(...)` 的操作**：指针解引用（`.*`）、指针算术（`&+`、`&-`、`&/`）、对指针解引用的 `consume(p.* = v)`。
+**需要 `unsafe(...)` 的操作**：指针解引用（`.*`）、指针算术（`.add(n)`、`.sub(n)`、`.offset_from(q)`）、对指针解引用的 `consume(p.* = v)`。
 
-**仍然安全的操作**：取地址（`&(x)`）、传递/存储/返回指针、指针比较（`&<`、`&==` 等）、指针类型转换（`*(u8)(p)`）、`asm(...)`（本身已经隐式不安全）。
+**仍然安全的操作**：取地址（`&(x)`）、传递/存储/返回指针、指针比较（`<`、`==` 等）、指针类型转换（`*(u8)(p)`）、`asm(...)`（本身已经隐式不安全）。
 
 不安全表面是可 grep 的：每个 `unsafe(` token 都标记了一处原始内存操作。文件必须在顶部声明 `pragma(Pragma.AllowUnsafe);` 才能使用 `unsafe(...)` 或执行原始指针操作。`std/`、`yo-self/` 和 `tests/` 下的文件都显式声明了此 pragma；用户代码（`main.yo` 及项目中的其他文件）默认是安全模式，若尝试使用 `unsafe(...)` 将得到编译错误。
 
@@ -1035,18 +1013,18 @@ main :: (fn() -> unit)({
 });
 ```
 
-### `ref` 参数
+### `inout` 参数
 
-要在不使用原始指针的情况下实现原地修改，请使用 `ref(name) : T` 参数修饰符。该修饰符包裹参数名（与现有的 `own(name)` 平行），参数行为类似于调用方变量的绑定 — 读取访问当前值，写入更新调用方的存储。在代码生成时 `ref(name) : T` 在 C 中降低为 `T*`；调用方自动传递 `&(arg)`。
+要在不使用原始指针的情况下实现原地修改，请使用 `inout(name) : T` 参数修饰符。该修饰符包裹参数名（与现有的 `own(name)` 平行），参数行为类似于调用方变量的绑定 — 读取访问当前值，写入更新调用方的存储。在代码生成时 `inout(name) : T` 在 C 中降低为 `T*`；调用方自动传递 `&(arg)`。
 
 ```rust
-swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
+swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
   tmp := a;
   a = b;
   b = tmp;
 });
 
-increment :: (fn(ref(n) : i32) -> unit)({
+increment :: (fn(inout(n) : i32) -> unit)({
   n = (n + i32(1));
 });
 
@@ -1064,22 +1042,22 @@ main :: (fn() -> unit)({
 });
 ```
 
-`ref(...)` 不能与 `own(...)`（相反的调用约定）或 `comptime`/`forall`（`ref` 是运行时专用的）组合使用。对于链式调用，将 `ref` 参数传递给另一个函数的 `ref` 参数按预期工作：
+`inout(...)` 不能与 `own(...)`（相反的调用约定）或 `comptime`/`generic`（`inout` 是运行时专用的）组合使用。对于链式调用，将 `inout` 参数传递给另一个函数的 `inout` 参数按预期工作：
 
 ```rust
-double :: (fn(ref(n) : i32) -> unit)({
+double :: (fn(inout(n) : i32) -> unit)({
   n = (n + n);
 });
 
-double_both :: (fn(ref(x) : i32, ref(y) : i32) -> unit)({
-  double(x);  // 将 &x 透传给 double 的 `ref` 参数
+double_both :: (fn(inout(x) : i32, inout(y) : i32) -> unit)({
+  double(x);  // 将 &x 透传给 double 的 `inout` 参数
   double(y);
 });
 ```
 
 ### RAII（资源获取即初始化）
 
-Yo 通过引用计数自动管理对象类型的内存。当对象的引用计数降为零时，它会被自动释放。
+Yo 通过引用计数自动管理引用语义类型的内存。当对象的引用计数降为零时，它会被自动释放。
 
 ```rust
 test :: (fn() -> unit)({
@@ -1137,7 +1115,7 @@ Yo 中不存在指向堆的切片类型。可能在底层缓冲区被释放后�
 - **`str` 是唯一的内建视图**，且只指向静态字符串数据 —— `str` 上的
   `s(a..b)` 是静态字节上的零拷贝窗口，永远不会悬空。
 - **元素访问只交出值，从不交出内部指针** —— `xs.get(i)` 返回元素
-  （object 类型返回句柄，容器增长后依然有效；struct 类型返回拷贝，用
+  （引用语义类型返回句柄，容器增长后依然有效；struct 类型返回拷贝，用
   `xs(i) = v` 写回），受流动性
   规则约束（见 [FLOWABILITY.md](./FLOWABILITY.md)）。
 
@@ -1332,7 +1310,7 @@ factorial2 :: (fn(n: i32) -> i32)({
 ```rust
 Iterator :: trait(
   Item : Type,
-  next : (fn(ref(self) : Self) -> Option(Self.Item))
+  next : (fn(inout(self) : Self) -> Option(Self.Item))
 );
 ```
 
@@ -1374,7 +1352,7 @@ for(iter_expr, (variable) => {
 });
 ```
 
-`for` 宏**按值**迭代 —— `for(coll, (x) => body)` 展开为 `coll.into_iter()` 后接标准的 `next()` 循环。对 object 元素类型，`x` 是指向元素的句柄，在循环体中变异 `x` 即就地变异元素。struct/标量元素的就地变异使用索引循环 + 索引写：
+`for` 宏**按值**迭代 —— `for(coll, (x) => body)` 展开为 `coll.into_iter()` 后接标准的 `next()` 循环。对引用语义元素类型，`x` 是指向元素的句柄，在循环体中变异 `x` 即就地变异元素。struct/标量元素的就地变异使用索引循环 + 索引写：
 
 ```rust
 // 值形式 — 每个 `x` 按值产出。
@@ -1385,7 +1363,7 @@ for(list, (value) => {
   println(value);
 });
 
-// object 元素是句柄 — 变异落在集合里。
+// 引用语义元素是句柄 — 变异落在集合里。
 for(names, (s) => {
   s.push_str("!");
 });
@@ -1400,9 +1378,9 @@ while(i < usize(3), {
 // arr 现在是 [10, 20, 30]。
 ```
 
-组合器链（`coll.into_iter().map(f)`、`.filter(p)`、`.fold(init, f)` 等）保持值产出的 `Iterator` 形状；一个全覆盖的 `into_iter` 实现 `forall(I), where(I <: Iterator), I, into_iter : fn(self) -> Self`（恒等函数）使得 `for(combinator_chain, (x) => body)` 与 `for(coll, (x) => body)` 一致。
+组合器链（`coll.into_iter().map(f)`、`.filter(p)`、`.fold(init, f)` 等）保持值产出的 `Iterator` 形状；一个全覆盖的 `into_iter` 实现 `generic(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)`（恒等函数）使得 `for(combinator_chain, (x) => body)` 与 `for(coll, (x) => body)` 一致。
 
-旧的借用形式 `for(coll, ref(x) => body)` 已移除（指向可重分配存储的内部引用已无法表达 —— 见 [FLOWABILITY.md](./FLOWABILITY.md)）；使用它会产生带迁移指引的编译错误。
+旧的借用形式 `for(coll, inout(x) => body)` 已移除（指向可重分配存储的内部引用已无法表达 —— 见 [FLOWABILITY.md](./FLOWABILITY.md)）；使用它会产生带迁移指引的编译错误。
 
 字符串有专门的 `chars()`（rune 迭代）和 `bytes()`（字节迭代）方法。
 
@@ -1460,20 +1438,20 @@ Yo 通过**编译期函数类型作为 Kind**来支持高阶类型。像 `Option
 | `* -> *`      | `fn(comptime(T) : Type) -> comptime(Type)`                     |
 | `* -> * -> *` | `fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type)` |
 
-#### HKT forall 参数
+#### HKT generic 参数
 
-声明一个具有函数类型 Kind 的 forall 参数来接受类型构造器：
+声明一个具有函数类型 Kind 的 generic 参数来接受类型构造器：
 
 ```rust
 // F 是一个类型构造器（kind: Type → Type）
 identity :: (fn(
-  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
+  generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
   x: F(A)
 ) -> F(A))(x);
 
 // 使用：
 (x : Option(i32)) = .Some(i32(42));
-result := identity(forall(Option, i32), x);  // result: Option(i32)
+result := identity(generic(Option, i32), x);  // result: Option(i32)
 ```
 
 #### HKT Trait
@@ -1484,13 +1462,13 @@ result := identity(forall(Option, i32), x);  // result: Option(i32)
 // Functor trait —— F 是一个类型构造器
 Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
   trait(
-    map : (fn(forall(A : Type, B : Type), self: F(A), f: (fn(a : A) -> B)) -> F(B))
+    map : (fn(generic(A : Type, B : Type), self: F(A), f: (fn(a : A) -> B)) -> F(B))
   )
 );
 
 // 为 Option 实现 Functor
-impl(forall(A : Type), Option(A), Functor(Option)(
-  map : (fn(forall(A : Type, B : Type), self: Option(A), f: (fn(a : A) -> B)) -> Option(B))(
+impl(generic(A : Type), Option(A), Functor(Option)(
+  map : (fn(generic(A : Type, B : Type), self: Option(A), f: (fn(a : A) -> B)) -> Option(B))(
     match(self,
       .Some(v) => .Some(f(v)),
       .None => .None
@@ -1500,7 +1478,7 @@ impl(forall(A : Type), Option(A), Functor(Option)(
 
 // 使用 trait 方法
 (x : Option(i32)) = .Some(i32(42));
-result := x.map(forall(i32), (fn(a: i32) -> i32)((a + i32(1))));
+result := x.map(generic(i32), (fn(a: i32) -> i32)((a + i32(1))));
 // result = .Some(i32(43))
 ```
 
@@ -1508,16 +1486,16 @@ result := x.map(forall(i32), (fn(a: i32) -> i32)((a + i32(1))));
 
 ```rust
 do_map :: (fn(
-  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
+  generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
   container: F(A),
   f: (fn(a : A) -> B),
   where(F(A) <: Functor(F))
 ) -> F(B))(
-  container.map(forall(B), f)
+  container.map(generic(B), f)
 );
 
 (x : Option(i32)) = .Some(i32(10));
-result := do_map(forall(Option, i32, i32), x, (fn(a: i32) -> i32)((a * i32(2))));
+result := do_map(generic(Option, i32, i32), x, (fn(a: i32) -> i32)((a * i32(2))));
 // result = .Some(i32(20))
 ```
 
@@ -1540,7 +1518,7 @@ Value :: (fn(comptime(T) : Type) -> comptime(Type))(
 对 GADT 值进行模式匹配时，类型系统会在每个分支中细化类型变量：
 
 ```rust
-eval_value :: (fn(forall(T : Type), v : Value(T)) -> T)(
+eval_value :: (fn(generic(T : Type), v : Value(T)) -> T)(
   match(v,
     .IntVal(i) => i,      // T 被细化为 i32，返回 i32 ✓
     .BoolVal(b) => b,     // T 被细化为 bool，返回 bool ✓
@@ -1578,7 +1556,7 @@ MyPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   )
 );
 
-my_fst :: (fn(forall(A : Type, B : Type), p : MyPair(A, B)) -> A)(
+my_fst :: (fn(generic(A : Type, B : Type), p : MyPair(A, B)) -> A)(
   match(p,
     .MkIntBool(x, y) => x,
     .MkBoolInt(x, y) => x
@@ -1744,11 +1722,11 @@ Trait 被定义为一个返回 `Trait` 类型的函数，其中包含字段定�
 ```rust
 // 定义一个 trait（类似于 Rust 中的 trait）
 Summary :: trait(
-  summarize : (fn(ref(self) : Self) -> String)
+  summarize : (fn(inout(self) : Self) -> String)
 );
 
 Display :: trait(
-  display : (fn(ref(self) : Self) -> String),
+  display : (fn(inout(self) : Self) -> String),
   where(Self <: Summary) // 约束
 );
 
@@ -1774,12 +1752,12 @@ impl(NewsArticle, Display(
 ));
 
 // 传入函数
-notify :: (fn(ref(item) : NewsArticle) -> unit)({
+notify :: (fn(inout(item) : NewsArticle) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
 });
 
 // 带 trait 约束的泛型函数
-notify2 :: (fn(forall(T : Type), ref(item) : T, where(T <: Display)) -> unit)({
+notify2 :: (fn(generic(T : Type), inout(item) : T, where(T <: Display)) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
   println(`Breaking news! ${item.display()}`);
 });
@@ -2150,7 +2128,7 @@ test_closure :: (fn() -> unit)({
 闭包从其环境中捕获变量：
 
 - **值类型**（基本类型、结构体）按值捕获（复制）
-- **对象类型**（引用计数类型）按引用捕获
+- **引用语义类型**（引用计数类型）按引用捕获
 - 被捕获的变量保持其可变性
 
 ```rust
@@ -2158,7 +2136,7 @@ test_capture :: (fn() -> unit)({
   // 值类型 — 按值捕获
   counter := 0;
 
-  // 对象类型 — 按引用捕获
+  // 引用语义类型 — 按引用捕获
   data := Box(i32)(42);
 
   closure := ((increment : i32) => {
@@ -2196,14 +2174,14 @@ test_error :: (fn() -> unit)({
 });
 ```
 
-### 闭包与对象类型
+### 闭包与引用语义类型
 
-闭包可以与对象类型无缝配合使用：
+闭包可以与引用语义类型无缝配合使用：
 
 ```rust
-MyBox :: object(
+MyBox :: ref(struct(
   (*) : i32
-);
+));
 
 make_incrementer :: (fn(start : MyBox) -> Impl(Fn() -> i32))({
   return((unit) => {
@@ -2230,18 +2208,18 @@ Yo 提供了 `Box` 和 `box` 用于将值类型堆分配并自动进行引用计
 
 ### Box 类型
 
-`Box(T)` 是一个泛型对象类型，可以包装任何值类型：
+`Box(T)` 是一个泛型引用语义类型，可以包装任何值类型：
 
 ```rust
 // Box 定义在 std/prelude.yo 中
 Box :: (fn(comptime(V) : Type) -> comptime(Type))(
-  object(
+  ref(struct(
     (*) : V
-  )
+  ))
 );
 
 // box 函数创建一个 Box
-box :: (fn(forall(V : Type), value : V) -> Box(V))(
+box :: (fn(generic(V : Type), value : V) -> Box(V))(
   Box(V)(value)
 );
 ```
@@ -2281,7 +2259,7 @@ test("Box assignment behavior", {
 
 ### Box 与引用计数
 
-`Box(T)` 是对象类型，因此使用自动引用计数：
+`Box(T)` 是引用语义类型，因此使用自动引用计数：
 
 ```rust
 test("Box reference counting", {
@@ -2307,7 +2285,7 @@ test("Box reference counting", {
 - **递归类型**：打破类型定义中的循环
 
 ```rust
-// 动态分发需要对象类型
+// 动态分发需要引用语义类型
 impl(i32, SomeTrait(...));
 
 // 值类型必须装箱才能用于 Dyn
@@ -2331,7 +2309,7 @@ Id :: trait(
 
 // 接受任何实现了 Id 的类型的函数
 use_id :: (fn(
-  forall(T : Type),
+  generic(T : Type),
   value : T,
   where(T <: Id)
 ) -> T)({
@@ -2356,7 +2334,7 @@ result := use_id(42);  // 打印 "i32: 42"，返回 42
 
 ```rust
 RetI32 :: trait(
-  return_i32 : (fn(ref(self) : Self) -> i32)
+  return_i32 : (fn(inout(self) : Self) -> i32)
 );
 
 get_value :: (fn(use_bool : bool) -> Impl(RetI32))({
@@ -2382,7 +2360,7 @@ Run :: trait(
 
 // 类型必须同时实现 Speak 和 Run
 perform :: (fn(
-  forall(T : Type),
+  generic(T : Type),
   actor : T,
   where(T <: (Speak, Run))
 ) -> unit)({
@@ -2399,7 +2377,7 @@ perform :: (fn(
 
 使用 `Dyn` 定义动态分发类型，该类型可以持有任何实现了指定 trait 的对象。使用 `dyn()` 函数从对象创建 `Dyn` 实例。
 
-Yo 中的 `Dyn` 类型是引用计数的对象（与闭包和常规对象类型类似）。它们通过 trait 对象实现动态分发。
+Yo 中的 `Dyn` 类型是引用计数的对象（与闭包和常规引用语义类型类似）。它们通过 trait 对象实现动态分发。
 
 **主要特性：**
 
@@ -2419,8 +2397,8 @@ Run :: trait(
   run: (fn(self : Self) -> i32)
 );
 
-// 必须是对象类型才能与 Dyn 配合使用
-Dog :: object();
+// 必须是引用语义类型才能与 Dyn 配合使用
+Dog :: ref(struct());
 
 DogSpeak :: impl(Dog, Speak(
   speak: ((self: Self) -> {
@@ -2454,11 +2432,11 @@ main :: (fn() -> i32)({
 ## Impl 与 Dyn 的对比
 
 - **Impl**：静态分发，编译时多态，无运行时开销
-- **Dyn**：动态分发，运行时多态，需要对象类型
+- **Dyn**：动态分发，运行时多态，需要引用语义类型
 
 ```rust
 // Impl — 静态分发（单态化）
-use_impl :: (fn(forall(T), value: T, where(T <: SomeTrait)) -> unit)({
+use_impl :: (fn(generic(T), value: T, where(T <: SomeTrait)) -> unit)({
   value.method();  // 静态分发
 });
 
@@ -2661,10 +2639,10 @@ export(main);
 ## Arc 类型
 
 `Arc(T)` 提供**共享所有权**并使用原子引用计数。它不再是编译器内置类型，
-而是在 `std/prelude.yo` 中被定义为一个薄包装的 `atomic object(...)`。
+而是在 `std/prelude.yo` 中被定义为一个薄包装的 `atomic(ref(struct(...)))`。
 `Arc(T)` 要求 `T <: Send`，因此它只包装可安全跨线程共享的值。
 当你想共享单个值时使用 `Arc(T)`；当你想定义自己的共享类型时使用
-`atomic object(...)`。
+`atomic(ref(struct(...)))`。
 
 ```rust
 // 使用 arc() 辅助函数创建
@@ -2915,14 +2893,14 @@ test("Division", {
 });
 ```
 
-### 使用对象类型进行测试
+### 使用引用语义类型进行测试
 
 测试清理和释放：
 
 ```rust
-MyBox :: object(
+MyBox :: ref(struct(
   (*) : i32
-);
+));
 impl(MyBox, Dispose(
   dispose : (self -> {
     printf("Disposing MyBox with value: %d\n", self.*);
@@ -3303,7 +3281,7 @@ Yo 提供了统一的 `Index` 特征，用于对任意类型的自定义索引�
 
 ## 设计中
 
-仍处于设计阶段的特性请查阅 [IN_DESIGN.md](../../plans/IN_DESIGN.md)。
+仍处于设计阶段的特性请查阅 [IN_DESIGN.md](../../plans/backlog/IN_DESIGN.md)。
 
 ## 参考文献
 

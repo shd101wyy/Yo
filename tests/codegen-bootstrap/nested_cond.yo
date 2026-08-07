@@ -1,0 +1,14 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+grade :: (fn(a : i32, b : i32) -> i32)(
+  cond(
+    (a > i32(0)) => cond((b > i32(0)) => i32(65), true => i32(66)),
+    true => i32(67)
+  )
+);
+main :: (fn() -> unit)({
+  unsafe(_a := putchar(int(grade(i32(1), i32(1)))));
+  unsafe(_b := putchar(int(grade(i32(1), i32(0)))));
+  unsafe(_c := putchar(int(grade(i32(0), i32(0)))));
+});
+export(main);

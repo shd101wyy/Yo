@@ -11,10 +11,10 @@ P :: struct(x : i32, y : i32);
 
 impl(P,
   // `caller` references `callee` defined later in the same impl block.
-  caller : (fn(ref(self) : Self) -> i32)(
+  caller : (fn(inout(self) : Self) -> i32)(
     self.callee()
   ),
-  callee : (fn(ref(self) : Self) -> i32)(
+  callee : (fn(inout(self) : Self) -> i32)(
     self.x
   )
 );
@@ -26,13 +26,13 @@ Mutual recursion across two methods works the same way:
 N :: struct(value : i32);
 
 impl(N,
-  is_even : (fn(ref(self) : Self, n : i32) -> bool)(
+  is_even : (fn(inout(self) : Self, n : i32) -> bool)(
     cond(
       (n == i32(0)) => true,
       true => self.is_odd((n - i32(1)))
     )
   ),
-  is_odd : (fn(ref(self) : Self, n : i32) -> bool)(
+  is_odd : (fn(inout(self) : Self, n : i32) -> bool)(
     cond(
       (n == i32(0)) => false,
       true => self.is_even((n - i32(1)))
@@ -100,9 +100,9 @@ sibling method bodies. For example:
 
 ```rust
 impl(MyType,
-  len : (fn(ref(self) : Self) -> usize) self.items.len(),
+  len : (fn(inout(self) : Self) -> usize) self.items.len(),
   // body declaring a local `len` would conflict with the sibling field
-  trim : (fn(ref(self) : Self) -> Self) {
+  trim : (fn(inout(self) : Self) -> Self) {
     len := usize(0); // would shadow the sibling
     // ...
   }

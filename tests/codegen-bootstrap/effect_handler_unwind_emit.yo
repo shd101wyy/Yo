@@ -1,0 +1,37 @@
+{ Exception } :: import("std/error");
+{ println } :: import("std/fmt");
+
+use_exn :: (fn(exn : Exception) -> i32)(i32(7));
+
+// A plain (non-`given`) `exn := Exception(throw : (err) -> unwind(...))` effect
+// handler, defined in a unit-returning fn, whose body is a SINGLE unwind expr.
+// Regression guard: yo-self used to (a) throw at a compensating
+// `is_inside_given_handler` gate during definition-time body eval of the handler
+// (only `given(exn) :=` set that flag), leaving the `unwind` unstamped, then
+// (b) wrap the tail `unwind` in a second `return` — so codegen emitted either
+// "// Failed to transpile unwind()" or `return return (void*){0};`. TS emits the
+// handler fine. See the "unwind handler emission" fix.
+run_single :: (fn(x : i32) -> unit)({
+  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  _r := use_exn(inner_exn);
+});
+
+// Same, but the handler body is a BLOCK that references its param before unwinding.
+run_block :: (fn(x : i32) -> unit)({
+  blk_exn := Exception(
+    throw : (
+      (err) -> {
+        err;
+        unwind(());
+      }
+    )
+  );
+  _r := use_exn(blk_exn);
+});
+
+main :: (fn() -> unit)({
+  run_single(i32(1));
+  run_block(i32(2));
+  println(i32(42));
+});
+export(main);

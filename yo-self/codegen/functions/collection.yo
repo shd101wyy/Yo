@@ -1,0 +1,1446 @@
+//! Reachable-function collection — mirrors `src/codegen/functions/collection.ts`.
+//!
+//! Mutual recursion (find_function_calls_in_expr ↔ collect_effect_record_members
+//! ↔ collect_required_functions) cannot be expressed by ordering alone (Yo has
+//! no forward references), so find_function_calls_in_expr is reached through a
+//! module-global function pointer (set by register_find_function_calls_in_expr),
+//! mirroring the evaluator's set_evaluate_expression_fn pattern.
+//!
+//! DEFERRED (Phase-3, fields absent on yo-self FuncVal / branches don't fire
+//! for the supported corpus — is_function_specializable is a `false` stub):
+//! specializedType / specializedFunctionCaches / isFunctionTypeHardGeneric /
+//! resolvedConcreteType branches; collectDisposeMethodsFromGenericImpls
+//! (needs findMethodsFromGenericImpls). See issues/retired/codegen-port-type-model-gaps.md.
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_TEST, BF_DOT, BF_COMPTIME_EXPECT_ERROR } :: import("../../expr.yo");
+{ get_type_trait_methods_by_name, type_id_or_empty, register_type_trait_method, MethodEntry } :: import("../../evaluator/values/type_trait_methods.yo");
+{ ExprInfoTable, expr_info_table_get, lookup_method_callee_value, lookup_macro_expansion, expr_info_effect_analysis, expr_info_closure_function_value, expr_info_dyn_call_trait_values } :: import("../../expr_info.yo");
+{ EvalValue, is_func_val, is_struct_val, is_type_value, is_unknown_val } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_function_type, is_unit_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_boxed_type, is_expr_type } :: import("../../types/guards.yo");
+{ is_control_fn, mark_as_effect_record_member, get_func_type } :: import("../../function_value.yo");
+{ get_all_some_types, type_contains_rc_type, type_contains_some_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
+{ CodeGenContext, DynImplEntry, type_key, sanitize_for_c_identifier } :: import("../utils/index.yo");
+// Cycle-GC trace specialization (collect_trace_methods_from_generic_impls): yo-self
+// has no codegen-time monomorphizer, so the trace collector drives the evaluator's
+// create_specialized_function_inline. These are the normal codegen->evaluator
+// direction (the evaluator is codegen-free, so no import cycle).
+{ Exception } :: import("std/error");
+{ Environment, clone_env, add_variable_to_env, synthetic_token } :: import("../../env.yo");
+{ EvalContext, ArgValues, ArgEntry, VarArgEntry } :: import("../../evaluator/context.yo");
+{ find_methods_from_generic_impls } :: import("../../evaluator/values/impl.yo");
+{ create_specialized_function_inline } :: import("../../evaluator/calls/helper.yo");
+{ get_func_param_comptime } :: import("../../evaluator/types/function.yo");
+// Auto-derived ___dispose synthesis (collect_dispose_methods): synthesize the
+// recursive RC-field-drop function from the struct's fields, parse + evaluate it,
+// register it as the type's ___dispose method. Mirrors TS evaluator/types/utils.ts
+// addRcFunctionsToStructType / generateDisposeFunctionCodeForStructType. parser.yo
+// is upstream; exprs/expr.yo is the cycle-free evaluate dispatcher (no import cycle).
+{ generate_expr_from_code } :: import("../../parser.yo");
+{ evaluate_expression_raw } :: import("../../evaluator/exprs/expr.yo");
+{ panic, assert } :: import("std/assert");
+// NOTE: collect_type (types/collection) is reached through an indirection
+// global rather than a direct import, so the dependency between this file and
+// types/collection is ONE-WAY (types/collection imports from here). A direct
+// mutual destructuring import cannot be resolved by the circular-import loader.
+// --- mutual-recursion indirection for find_function_calls_in_expr ----------
+FindFunctionCallsFn :: (fn(expr : AstExpr, context : CodeGenContext, info : ExprInfoTable) -> unit);
+(g_find_function_calls_in_expr : Option(FindFunctionCallsFn)) = Option(FindFunctionCallsFn).None;
+// --- indirection for collect_type (defined in types/collection) ------------
+CollectTypeFn :: (fn(type : TypeValue, context : CodeGenContext) -> unit);
+(g_collect_type : Option(CollectTypeFn)) = Option(CollectTypeFn).None;
+/// Register types/collection's collect_type. Call once at init.
+set_collect_type_fn :: (fn(f : CollectTypeFn) -> unit)({
+  g_collect_type = Option(CollectTypeFn).Some(f);
+  ()
+});
+/// Call the registered collect_type (panics if unregistered).
+_call_collect_type :: (fn(type : TypeValue, context : CodeGenContext) -> unit)(
+  match(
+    g_collect_type,
+    .Some(f) => f(type, context),
+    .None => __yo_panic("collect_type called before set_collect_type_fn")
+  )
+);
+/// Call the registered find_function_calls_in_expr (panics if unregistered).
+_call_find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, info : ExprInfoTable) -> unit)(
+  match(
+    g_find_function_calls_in_expr,
+    .Some(f) => f(expr, context, info),
+    .None => __yo_panic("find_function_calls_in_expr called before register_find_function_calls_in_expr")
+  )
+);
+/// True if `t` is an extern function type (any language).
+_type_is_extern :: (fn(t : TypeValue) -> bool)(
+  match(t,.Func({ meta : __fm1 }) => __fm1.*.is_extern.is_some(), _ => false)
+);
+/// Whether an expression's evaluated value is an UnknownValue (not fully
+/// evaluated), recursing through calls / macro expansions / deferred drops.
+/// An extern-fn-typed or unit-typed unknown is treated as known. Mirrors
+/// `exprContainsUnknownValue`.
+expr_contains_unknown_value :: (fn(expr : AstExpr, info : ExprInfoTable) -> bool)({
+  ei_opt := expr_info_table_get(info, ast_expr_id(expr));
+  match(
+    ei_opt,
+    .Some(ei) => match(
+      ei.value,
+      .Some(v) => if(is_unknown_val(v), {
+        cond(
+          (is_function_type(ei.ty) && _type_is_extern(ei.ty)) => (),
+          // known extern fn
+          is_unit_type(ei.ty) => (),
+          true => {
+            return(true);
+          }
+        );
+      }),
+      .None => ()
+    ),
+    .None => ()
+  );
+  // Recurse into function calls.
+  match(
+    expr,
+    .FnCall(_, func_box, args, _, _) => {
+      if(recur(func_box, info), {
+        return(true);
+      });
+      n := args.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          args.get(i),
+          .Some(arg) => {
+            arg_is_unit := match(
+              expr_info_table_get(info, ast_expr_id(arg)),
+              .Some(aei) => is_unit_type(aei.ty),
+              .None => false
+            );
+            if((!(arg_is_unit)) && recur(arg, info), {
+              return(true);
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  );
+  // Macro expansion.
+  match(
+    ei_opt,
+    .Some(ei) => match(
+      ei.macro_expansion,
+      .Some(me) => {
+        if(is_unit_type(ei.ty), {
+          return(false);
+        });
+        if(recur(me, info), {
+          return(true);
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  // Deferred dup / drop expressions.
+  match(
+    ei_opt,
+    .Some(ei) => {
+      match(
+        ei.deferred_dup_expressions,
+        .Some(dups) => {
+          nd := dups.len();
+          (di : usize) = usize(0);
+          while(di < nd, {
+            match(
+              dups.get(di),
+              .Some(de) => if(recur(de, info), {
+                return(true);
+              }),
+              .None => ()
+            );
+            di = (di + usize(1));
+          });
+        },
+        .None => ()
+      );
+      match(
+        ei.deferred_drop_expressions,
+        .Some(drops) => {
+          nr := drops.len();
+          (ri : usize) = usize(0);
+          while(ri < nr, {
+            match(
+              drops.get(ri),
+              .Some(re) => if(recur(re, info), {
+                return(true);
+              }),
+              .None => ()
+            );
+            ri = (ri + usize(1));
+          });
+        },
+        .None => ()
+      );
+    },
+    .None => ()
+  );
+  false
+});
+/// Recursively collect function values from a struct namespace (and nested
+/// records), marking them effect-record members so they compile standalone.
+/// Mirrors `collectEffectRecordMembers`.
+///
+/// MODULE-NAMESPACE records are excluded from the fn-field marking: in TS the
+/// module record's fn fields are the SAME FunctionValue objects the regular
+/// collection already registered, so the `!context.functions[funcId]` guard
+/// makes the walk a no-op for them — module fns are NEVER effect-record
+/// members in TS. yo-self re-evaluation mints per-reference FuncVal
+/// GENERATIONS with fresh func_ids, so the id-keyed guard misses and every
+/// module fn referenced through a `mod.member(...)` receiver atom was wrongly
+/// marked (its body then stripped at declaration time → generic
+/// `__yo_io_future_t*` prototype vs concrete SM-struct definition: the fs/*
+/// "conflicting types" class). Skip fn fields of `source_namespace_*` records
+/// (import.yo:230 names every module namespace that way) but STILL recurse
+/// into nested StructVal fields — a module-level effect-handler record
+/// (`h :: Exception(throw : ...)`) must keep getting marked.
+collect_effect_record_members :: (fn(mv : EvalValue, context : CodeGenContext, info : ExprInfoTable) -> unit)(
+  match(
+    mv,
+    .StructVal(cerm_ty_name, _, field_values) => {
+      is_module_namespace := cerm_ty_name.clone().starts_with(String.from("source_namespace_"));
+      n := field_values.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          field_values.get(i),
+          .Some(fv) => cond(
+            (is_func_val(fv) && !(is_module_namespace)) => {
+              func_id := match(fv,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
+              if(!(context.has_function(func_id.clone())), {
+                mark_as_effect_record_member(func_id.clone());
+                context.register_function(func_id.clone(), fv, sanitize_for_c_identifier(func_id.clone(), false));
+                body := match(fv,.FuncVal(__fvd2, _) => __fvd2.*.body, _ => make_err_expr());
+                _call_find_function_calls_in_expr(body, context, info);
+              });
+              // specializedFunctionCaches: deferred (Phase 3).
+            },
+            is_struct_val(fv) => {
+              recur(fv, context, info);
+            },
+            true => ()
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  )
+);
+/// Callee atom token value of a FnCall, or "" otherwise.
+_callee_token_value :: (fn(expr : AstExpr) -> String)(
+  match(
+    expr,
+    .FnCall(_, func_box, _, _, _) => match(func_box,.Atom(_, tok) => tok.value,.FnCall(_, _, _, _, _) => String.from("")),
+    .Atom(_, _) => String.from("")
+  )
+);
+/// func_id of a FuncVal EvalValue, or "".
+_func_val_id :: (fn(v : EvalValue) -> String)(
+  match(v,.FuncVal(__fvd3, _) => __fvd3.*.func_id, _ => String.from(""))
+);
+/// body AstExpr of a FuncVal EvalValue, or an error placeholder.
+_func_val_body :: (fn(v : EvalValue) -> AstExpr)(
+  match(v,.FuncVal(__fvd4, _) => __fvd4.*.body, _ => make_err_expr())
+);
+/// True if any type in the list is the `Expr` type (a quoted-AST param) — the
+/// signature of a MACRO (e.g. `if`, `try`: `fn(quote(x) : Expr, …) ->
+/// unquote(Expr)`). Macros are comptime-only (expanded at their call site, see
+/// the macro_expansion ExprInfo), so they must NOT be emitted as C functions
+/// (their Expr params have no C representation → "Unknown type: Expr").
+_any_expr_param :: (fn(tys : ArrayList(TypeValue)) -> bool)({
+  n := tys.len();
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < n) && !(found), {
+    match(
+      tys.get(i),
+      .Some(t) => if(is_expr_type(t), {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// True when this FuncVal is NOT emittable as a C function: a GENERIC +
+/// UNSPECIALIZED function (registered Func type still carries `generic` params —
+/// unresolved SomeTs crash get_type_string) OR a MACRO (has an `Expr`-typed
+/// param). Codegen skips it and emits only the monomorphizations / macro
+/// expansions the evaluator records. Mirrors TS isFunctionSpecializable &&
+/// !specializedType (+ macros are never emitted).
+_is_generic_unspecialized_func :: (fn(v : EvalValue) -> bool)({
+  // A function with any `comptime(...)` param is generic-unspecialized too
+  // (TS guards.ts:466 hasCompileTimeParams): its ORIGINAL can never be a
+  // valid C function — a `comptime(K) : Type` param renders
+  // `// Unknown type: Type K` in the prototype ("invalid storage class
+  // specifier" clang errors — the imm_map/imm_set family). Specializations
+  // mint fresh func_ids with no comptime flags registered (the side table
+  // is sparse), so they are never misclassified here.
+  ct_flags := get_func_param_comptime(_func_val_id(v));
+  (has_ct_param : bool) = false;
+  (ct_i : usize) = usize(0);
+  while(ct_i < ct_flags.len(), {
+    match(
+      ct_flags.get(ct_i),
+      .Some(f) => if(f, {
+        has_ct_param = true;
+      }),
+      .None => ()
+    );
+    ct_i = (ct_i + usize(1));
+  });
+  if(has_ct_param, {
+    return(true);
+  });
+  match(
+    get_func_type(_func_val_id(v)),
+    .Func({ param_types, meta : __fm2 }) => {
+      // TYPE-level half of the same rule: a param whose TYPE is the type
+      // universe (`comptime(K) : Type` whose comptime flag never reached
+      // the sparse side table — e.g. a nested helper minted during
+      // instantiation) renders `// Unknown type: Type K` in C. Same
+      // classification as TS hasCompileTimeParams.
+      (has_type_param : bool) = false;
+      (tp_i : usize) = usize(0);
+      while(tp_i < param_types.len(), {
+        match(
+          param_types.get(tp_i),
+          .Some(tp_t) => match(
+            tp_t,
+            .TypeUni(_) => {
+              has_type_param = true;
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+        tp_i = (tp_i + usize(1));
+      });
+      (has_type_param || (__fm2.*.forall_labels.len() > usize(0))) || _any_expr_param(param_types)
+    },
+    _ => false
+  )
+});
+/// True if any regular parameter type CONTAINS a SomeType (i.e. the function is
+/// still genuinely generic / unspecialized in its signature). Used to gate the
+/// `expr_contains_unknown_value` collection skip: a SPECIALIZED function has
+/// fully concrete params (e.g. a closure param lowered to its capture struct),
+/// so its runtime-unknown body (`cb(x)` → UnknownVal) must NOT be skipped — it is
+/// real code to emit. yo-self records UnknownVal for runtime call results where
+/// TS leaves them undefined, so without this gate the specialized wrapper body
+/// would be wrongly dropped (undeclared symbol). Mirrors TS's net behavior
+/// (concrete-signature functions are emitted).
+_func_has_some_param :: (fn(fid : String) -> bool)(
+  match(
+    get_func_type(fid),
+    .Func({ param_types }) => {
+      n := param_types.len();
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while((i < n) && !(found), {
+        match(
+          param_types.get(i),
+          // type_contains_some_type, NOT a raw get_all_some_types scan: a
+          // SomeT param carrying a per-object resolved_concrete (e.g. a box()
+          // specialization's Impl(Fn) param resolved to its capture struct)
+          // IS concrete at codegen (utils.yo carve-out) — the raw scan
+          // wrongly skipped collecting the box-of-closure fn ("no C function
+          // name for func value", the dyn-of-closure-capture family).
+          .Some(pt) => if(type_contains_some_type(pt), {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => false
+  )
+);
+/// Register one module field as a reachable function if it is a FuncVal,
+/// applying the main / library / executable C-naming rules, then collect the
+/// functions its body calls. Mirrors the per-field body of collectRequiredFunctions.
+_collect_required_function_field :: (
+  fn(label : String, value : EvalValue, context : CodeGenContext, info : ExprInfoTable, is_top_level_export : bool) -> unit
+)({
+  if(!(is_func_val(value)), {
+    return(());
+  });
+  if(_is_generic_unspecialized_func(value), {
+    return(());
+  });
+  func_id := _func_val_id(value);
+  cond(
+    (label == "main") => {
+      // Rename user's main to __yo_user_main — we wrap it.
+      context.register_function(func_id.clone(), value, String.from("__yo_user_main"));
+    },
+    true => {
+      // Library and executable modes share the same plain-vs-mangled logic:
+      // top-level exports from the CURRENT module use their plain label (for
+      // external linkage) unless that plain name collides; everything else is
+      // mangled by func_id.
+      from_current_module := (
+        is_top_level_export
+        && match(
+          context.current_module_id,
+          .Some(mid) => {
+            prefix := String.from("fn_");
+            prefix.push_string(mid.clone());
+            prefix.push_str("_");
+            func_id.clone().starts_with(prefix)
+          },
+          .None => false
+        )
+      );
+      cond(
+        from_current_module => {
+          plain := sanitize_for_c_identifier(label.clone(), false);
+          cond(
+            (!(context.has_function_with_c_name(plain.clone()))) => {
+              context.register_function(func_id.clone(), value, plain.clone());
+              context.set_exported_function_label(func_id.clone(), label.clone());
+            },
+            true => {
+              context.register_function(func_id.clone(), value, sanitize_for_c_identifier(func_id.clone(), false));
+            }
+          );
+        },
+        true => {
+          context.register_function(func_id.clone(), value, sanitize_for_c_identifier(func_id.clone(), false));
+        }
+      );
+    }
+  );
+  // Recursively collect functions called by this function.
+  _call_find_function_calls_in_expr(_func_val_body(value), context, info);
+});
+/// First pass: collect all functions that need to be generated, starting from
+/// a module value's exported fields. Mirrors `collectRequiredFunctions`.
+collect_required_functions :: (
+  fn(module_value : EvalValue, context : CodeGenContext, info : ExprInfoTable, is_top_level_export : bool) -> unit
+)(
+  match(
+    module_value,
+    .StructVal(_, field_names, field_values) => {
+      n := field_names.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        label := match(field_names.get(i),.Some(l) => l,.None => String.from(""));
+        match(
+          field_values.get(i),
+          .Some(value) => _collect_required_function_field(label, value, context, info, is_top_level_export),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .TraitVal(_, field_names, field_values) => {
+      n := field_names.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        label := match(field_names.get(i),.Some(l) => l,.None => String.from(""));
+        match(
+          field_values.get(i),
+          .Some(opt_value) => match(
+            opt_value,
+            .Some(value) => _collect_required_function_field(label, value, context, info, is_top_level_export),
+            .None => ()
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  )
+);
+/// Find function calls in an expression and collect the reachable functions.
+/// Mirrors `findFunctionCallsInExpr` (Phase-3 specialization/dyn-data branches
+/// deferred — see file header). All self-recursion uses `recur`.
+find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, info : ExprInfoTable) -> unit)({
+  ei_opt := expr_info_table_get(info, ast_expr_id(expr));
+  // Effect-handler functions living inside compile-time struct-namespace values.
+  match(
+    ei_opt,
+    .Some(ei) => match(
+      ei.value,
+      .Some(v) => if(is_struct_val(v), {
+        collect_effect_record_members(v, context, info);
+      }),
+      .None => ()
+    ),
+    .None => ()
+  );
+  // Skip test / comptime_expect_error blocks — no C codegen.
+  if(ast_expr_is_fn_call(expr) && (ast_expr_is_fn_call_of(expr, BK_TEST,.None) || ast_expr_is_fn_call_of(expr, BF_COMPTIME_EXPECT_ERROR,.None)), {
+    return(());
+  });
+  // Macro expansion, effect-handler body, closure fn, index method.
+  match(
+    ei_opt,
+    .Some(ei) => {
+      // Prefer the per-expr macro_expansion; fall back to the durable id-keyed
+      // side-table when a later eval pass overwrote this call's ExprInfo WITHOUT
+      // macro_expansion (e.g. a match-arm `if(...)` re-evaluated during branch
+      // type-checking). CODEGEN falls back the same way (generation.yo), so
+      // WITHOUT this fallback here the collection walks nothing while codegen
+      // walks the expansion — leaving the expansion's method-callee functions
+      // (e.g. `cv.len()` inside `if(cv.len()>0,..)` in a match arm)
+      // UNCOLLECTED → codegen's concrete-method dispatch finds no C name and
+      // emits "// Failed to transpile" (which corrupts the C line). Mirrors the
+      // same fallback in collect_types_from_expr (types/collection.yo).
+      match(
+        ei.macro_expansion,
+        .Some(me) => recur(me, context, info),
+        .None => match(lookup_macro_expansion(ast_expr_id(expr)),.Some(me) => recur(me, context, info),.None => ())
+      );
+      match(
+        expr_info_effect_analysis(ei),
+        .Some(ea) => match(
+          ea.handler_value,
+          .Some(hv) => if(is_func_val(hv), {
+            recur(_func_val_body(hv), context, info);
+          }),
+          .None => ()
+        ),
+        .None => ()
+      );
+      match(
+        expr_info_closure_function_value(ei),
+        .Some(cfv) => if(is_func_val(cfv), {
+          cid := _func_val_id(cfv);
+          if(!(context.has_function(cid.clone())), {
+            context.register_function(cid.clone(), cfv, sanitize_for_c_identifier(cid.clone(), false));
+            recur(_func_val_body(cfv), context, info);
+          });
+        }),
+        .None => ()
+      );
+      match(
+        ei.index_method_value,
+        .Some(imv) => if(is_func_val(imv), {
+          iid := _func_val_id(imv);
+          if(!(context.has_function(iid.clone())), {
+            context.register_function(iid.clone(), imv, sanitize_for_c_identifier(iid.clone(), false));
+            recur(_func_val_body(imv), context, info);
+          });
+        }),
+        .None => ()
+      );
+    },
+    .None => ()
+  );
+  // FnCall: collect the callee and recurse into func + args.
+  match(
+    expr,
+    .FnCall(_, func_box, args, _, _) => {
+      callee := func_box;
+      // "?=" default-value assignment — skip.
+      if(_callee_token_value(expr) == "?=", {
+        return(());
+      });
+      // Method call `recv.method(args)`: the callee dot-access has no ExprInfo,
+      // so the callee-collection below can't find the method FuncVal. Resolve it
+      // via the type_trait_methods registry (receiver type + method name) and
+      // collect it (+ recurse its body), so codegen's concrete-method dispatch
+      // gets a C name. Mirrors how the dyn path collects trait-value methods.
+      if(ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
+        cdot_args := match(callee,.FnCall(_, _, da, _, _) => da,.Atom(_, _) => ArrayList(AstExpr).new());
+        recv_ty := match(cdot_args.get(usize(0)),.Some(r) => match(expr_info_table_get(info, ast_expr_id(r)),.Some(ri) => ri.ty,.None => TypeValue.Unit),.None => TypeValue.Unit);
+        cmname := match(cdot_args.get(usize(1)),.Some(m) => if(ast_expr_is_atom(m), ast_expr_token(m).value, String.from("")),.None => String.from(""));
+        // A STATIC receiver (`Self.method` / `P.method`, no instance — e.g. a
+        // forward-referenced `Self.callee`) evaluates to a TypeValue, so recv_ty
+        // is the metatype `Type`, not the receiver type P — `type_id_or_empty`
+        // on it misses P's static methods in the registry, leaving the callee
+        // uncollected ("call to undeclared function"). Prefer the WRAPPED type's
+        // id from the receiver's TypeVal value. Mirrors TS collecting the type
+        // directly on `isTypeValue(value)` (collection.ts:615).
+        recv_static_id := match(cdot_args.get(usize(0)),.Some(r) => match(expr_info_table_get(info, ast_expr_id(r)),.Some(ri) => match(ri.value,.Some(rv) => match(rv,.TypeVal(t) => type_id_or_empty(t), _ => String.from("")),.None => String.from("")),.None => String.from("")),.None => String.from(""));
+        // A POINTER receiver (`self : *(Self)`) carries its methods on the
+        // POINTEE type. `type_id_or_empty` has no Pointer case, so it returns ""
+        // for `*(P)`, skipping the registry lookup below. That lookup is the ONLY
+        // path that collects a method reachable EXCLUSIVELY through a forward-ref
+        // shell thunk (a forward-ref/recursive impl method called only via
+        // `self.m()`): emission dispatches `self.m()` to the SHELL func id (from
+        // the method-callee side-table) and emits it as a thunk forwarding to the
+        // REAL evaluated func id, but the real func lives only in the registry
+        // entry (updated in place at impl.yo:2322) and is never otherwise
+        // collected → "call to undeclared function". Deref to the pointee for the
+        // id. Mirrors the match.yo:1153 / property_access.yo:524 deref idiom.
+        recv_ty_for_id := match(recv_ty,.Pointer(inner) => inner, _ => recv_ty);
+        ctid := if(recv_static_id.len() > usize(0), recv_static_id, type_id_or_empty(recv_ty_for_id));
+        if((ctid.len() > usize(0)) && (cmname.len() > usize(0)), {
+          ments := get_type_trait_methods_by_name(ctid, cmname);
+          nme := ments.len();
+          (mmi : usize) = usize(0);
+          while(mmi < nme, {
+            match(
+              ments.get(mmi),
+              .Some(me) => match(
+                me.value,
+                .Some(mv) => if(is_func_val(mv), {
+                  mfid := _func_val_id(mv);
+                  if(!(context.has_function(mfid.clone())), {
+                    context.register_function(mfid.clone(), mv, sanitize_for_c_identifier(mfid.clone(), false));
+                    recur(_func_val_body(mv), context, info);
+                  });
+                }),
+                .None => ()
+              ),
+              .None => ()
+            );
+            mmi = (mmi + usize(1));
+          });
+        });
+        // Module-namespace member call `mod.fn(args)`: yo-self's dot-access
+        // callee node has no ExprInfo (TS registers the callee from the
+        // property-access node's `$.value` at this point in the walk), so a
+        // module-member callee stays unregistered here — and when the walk
+        // then descends into the RECEIVER atom, collect_effect_record_members
+        // sees the module's StructVal and wrongly marks the member an
+        // effect-record member (its body is then stripped at declaration
+        // time → generic `__yo_io_future_t*` prototype vs concrete SM-struct
+        // definition: the fs/* "conflicting types" class). Resolve the member
+        // FuncVal from the receiver's module StructVal by label and register
+        // it as a REGULAR function first, restoring TS's registration order.
+        if(cmname.len() > usize(0), {
+          recv_mod_val := match(cdot_args.get(usize(0)),.Some(r) => match(expr_info_table_get(info, ast_expr_id(r)),.Some(ri) => ri.value,.None => Option(EvalValue).None),.None => Option(EvalValue).None);
+          match(
+            recv_mod_val,
+            .Some(rmv) => match(
+              rmv,
+              .StructVal(_, rm_names, rm_vals) => {
+                n_rm := rm_names.len();
+                (rmi : usize) = usize(0);
+                while(rmi < n_rm, {
+                  rm_hit := match(rm_names.get(rmi),.Some(nm) => (nm == cmname),.None => false);
+                  if(rm_hit, {
+                    match(
+                      rm_vals.get(rmi),
+                      .Some(rmv2) => if(is_func_val(rmv2) && !(_is_generic_unspecialized_func(rmv2)), {
+                        rm_fid := _func_val_id(rmv2);
+                        if((!(context.has_function(rm_fid.clone()))) && !(is_control_fn(rm_fid.clone())), {
+                          context.register_function(rm_fid.clone(), rmv2, sanitize_for_c_identifier(rm_fid.clone(), false));
+                          recur(_func_val_body(rmv2), context, info);
+                        });
+                      }),
+                      .None => ()
+                    );
+                    rmi = n_rm;
+                  }, {
+                    rmi = (rmi + usize(1));
+                  });
+                });
+              },
+              _ => ()
+            ),
+            .None => ()
+          );
+        });
+      });
+      // Generic-impl fallback + REWRITTEN value-calls (`v(range)` → slice_copy):
+      // the registry misses generic-impl methods, AND a range-index value-call
+      // the evaluator rewrote to a slice_copy/slice_copy_inclusive METHOD
+      // dispatch keeps its ORIGINAL non-dot callee `v` in the source AST, so
+      // neither the dot-registry path above nor the callee-ExprInfo path below
+      // collects the resolved method. The evaluator stashed the resolved method
+      // FuncVal in the method-callee VALUE side-table keyed by this call's expr
+      // id — collect it (+ recurse its body) for EVERY FnCall (dot or not) so its
+      // prototype/body are emitted and codegen's dispatch (same side-table)
+      // resolves to a real C function. Idempotent (has_function-guarded).
+      match(
+        lookup_method_callee_value(ast_expr_id(expr)),
+        .Some(scv) => if(is_func_val(scv), {
+          sfid := _func_val_id(scv);
+          if(!(context.has_function(sfid.clone())), {
+            context.register_function(sfid.clone(), scv, sanitize_for_c_identifier(sfid.clone(), false));
+            recur(_func_val_body(scv), context, info);
+          });
+        }),
+        .None => ()
+      );
+      match(
+        expr_info_table_get(info, ast_expr_id(callee)),
+        .Some(cei) => if(is_function_type(cei.ty), {
+          is_comptime_only := match(cei.ty,.Func({ meta : __fm3 }) => __fm3.*.result_is_comptime_only, _ => false);
+          match(
+            cei.value,
+            .Some(fv) => cond(
+              // ctl handler: inlined at the call site; recurse body, don't collect.
+              (is_func_val(fv) && is_control_fn(_func_val_id(fv))) => {
+                recur(_func_val_body(fv), context, info);
+              },
+              is_func_val(fv) => cond(
+                // Skip CTFE (compile-time-only return) functions.
+                is_comptime_only => (),
+                _is_generic_unspecialized_func(fv) => (),
+                context.has_function(_func_val_id(fv)) => (),
+                (expr_contains_unknown_value(_func_val_body(fv), info) && _func_has_some_param(_func_val_id(fv))) => (),
+                true => {
+                  context.register_function(_func_val_id(fv), fv, sanitize_for_c_identifier(_func_val_id(fv), false));
+                  recur(_func_val_body(fv), context, info);
+                }
+              ),
+              true => ()
+            ),
+            // No callee value → extern "c"/"yo": register as an extern function.
+            .None => match(
+              cei.ty,
+              .Func({ meta : __fm4 }) => match(
+                __fm4.*.is_extern,
+                .Some(lang) => {
+                  is_internal := match(__fm4.*.extern_name,.Some(en) => en.clone().starts_with(String.from("__yo_")),.None => false);
+                  if((lang == "c") || (!(is_internal)), {
+                    c_name := match(
+                      __fm4.*.extern_name,
+                      .Some(en) => if(lang == "c", en.clone(), sanitize_for_c_identifier(en.clone(), false)),
+                      .None => {
+                        tok := _callee_token_value(expr);
+                        if(lang == "c", tok.clone(), sanitize_for_c_identifier(tok.clone(), false))
+                      }
+                    );
+                    context.register_extern_function(type_key(cei.ty), cei.ty, c_name, Option(String).None);
+                  });
+                },
+                .None => ()
+              ),
+              _ => ()
+            )
+          );
+        }),
+        .None => ()
+      );
+      recur(callee, context, info);
+      na := args.len();
+      (ai : usize) = usize(0);
+      while(ai < na, {
+        match(args.get(ai),.Some(a) => recur(a, context, info),.None => ());
+        ai = (ai + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  );
+  // Anonymous function value bound to this expression.
+  match(
+    ei_opt,
+    .Some(ei) => match(
+      ei.value,
+      .Some(v) => if(is_func_val(v) && is_function_type(ei.ty), {
+        // A control function (ctl handler) used as a fn-pointer value must be a
+        // standalone C function marked an effect-record member so `unwind(v)`
+        // stashes into __yo_unwind_value. Mirrors collection.ts:555
+        // (functionValue.isControlFunction). The control-fn side-table can miss
+        // the codegen'd func_id (fresh-id churn across def/codegen evals), so we
+        // also read the ground truth: the func's own registered type and the
+        // use-site type carrying `is_control`.
+        v_is_control := (
+          is_control_fn(_func_val_id(v)) ||
+            (
+              match(get_func_type(_func_val_id(v)),.Func({ meta : __fm5 }) => __fm5.*.is_control, _ => false) ||
+                match(ei.ty,.Func({ meta : __fm6 }) => __fm6.*.is_control, _ => false)
+            )
+        );
+        cond(
+          v_is_control => {
+            mark_as_effect_record_member(_func_val_id(v));
+            if(!(context.has_function(_func_val_id(v))), {
+              context.register_function(_func_val_id(v), v, sanitize_for_c_identifier(_func_val_id(v), false));
+            });
+            recur(_func_val_body(v), context, info);
+          },
+          _is_generic_unspecialized_func(v) => (),
+          context.has_function(_func_val_id(v)) => (),
+          (expr_contains_unknown_value(_func_val_body(v), info) && _func_has_some_param(_func_val_id(v))) => (),
+          true => {
+            context.register_function(_func_val_id(v), v, sanitize_for_c_identifier(_func_val_id(v), false));
+            recur(_func_val_body(v), context, info);
+          }
+        );
+      }),
+      .None => ()
+    ),
+    .None => ()
+  );
+  // Comptime function call returning a type → collect the type.
+  match(
+    ei_opt,
+    .Some(ei) => if(is_type_value(ei.value), {
+      match(ei.value,.Some(v) => match(v,.TypeVal(t) => _call_collect_type(t, context), _ => ()),.None => ());
+    }),
+    .None => ()
+  );
+  // Deferred dup / drop expressions, and dyn() trait values.
+  match(
+    ei_opt,
+    .Some(ei) => {
+      match(
+        ei.deferred_dup_expressions,
+        .Some(dups) => {
+          nd := dups.len();
+          (di : usize) = usize(0);
+          while(di < nd, {
+            match(dups.get(di),.Some(de) => recur(de, context, info),.None => ());
+            di = (di + usize(1));
+          });
+        },
+        .None => ()
+      );
+      match(
+        ei.deferred_drop_expressions,
+        .Some(drops) => {
+          nr := drops.len();
+          (ri : usize) = usize(0);
+          while(ri < nr, {
+            match(drops.get(ri),.Some(re) => recur(re, context, info),.None => ());
+            ri = (ri + usize(1));
+          });
+        },
+        .None => ()
+      );
+      match(
+        expr_info_dyn_call_trait_values(ei),
+        .Some(tvs) => {
+          nt := tvs.len();
+          (ti : usize) = usize(0);
+          while(ti < nt, {
+            match(tvs.get(ti),.Some(tv) => collect_required_functions(tv, context, info, false),.None => ());
+            ti = (ti + usize(1));
+          });
+          // Register the dyn impl during collection (mirrors collection.ts
+          // 328-364) so __yo_dyn_box_<concrete> TYPES are generated BEFORE
+          // function bodies. Keyed by ids; fixup_dyn_impl_keys rewrites to C
+          // names. NOTE: type_key on a cyclic dyn (Dyn(Error)) could loop — the
+          // corpus's Dyn(Speak) is acyclic so this is corpus-safe; a cycle-safe
+          // key is future work for compiling std's self-referential traits.
+          if((tvs.len() > usize(0)) && is_dyn_type(ei.ty), {
+            // The dyn payload codegen emits is runtime_arg_exprs_in_order[0] —
+            // for `dyn(valueStruct)` this is a SYNTHESIZED `box(value)` (auto-box,
+            // type Box(Sq)) that is NOT the source arg `cargs[0]` (the bare value).
+            // Prefer it (matching generate_dyn_call) so (1) the box-construction fn
+            // is collected [recur below] and (2) the dyn impl registers with the
+            // BOXED type → the unwrapped concrete `Sq` → __yo_dyn_box_<Sq> TYPE is
+            // emitted in the pre-pass (consistent with the new/dispose). Falls back
+            // to the source arg for non-auto-boxed dyns.
+            varg_opt := match(
+              ei.runtime_arg_exprs_in_order,
+              .Some(ra) => match(ra.get(usize(0)),.Some(p) => Option(AstExpr).Some(p),.None => match(expr,.FnCall(_, _, cargs, _, _) => cargs.get(usize(0)),.Atom(_, _) => Option(AstExpr).None)),
+              .None => match(expr,.FnCall(_, _, cargs, _, _) => cargs.get(usize(0)),.Atom(_, _) => Option(AstExpr).None)
+            );
+            match(
+              varg_opt,
+              .Some(varg) => {
+                recur(varg, context, info);
+                match(
+                  expr_info_table_get(info, ast_expr_id(varg)),
+                  .Some(vei) => {
+                    vty := vei.ty;
+                    if(is_reference_struct_type(vty) || is_boxed_type(vty), {
+                      concrete := if(is_boxed_type(vty), match(vty,.Struct({ field_types }) => match(field_types.get(usize(0)),.Some(ft) => ft,.None => vty), _ => vty), vty);
+                      // Build the impl key in a FRESH string. `type_key` can
+                      // return a String sharing its buffer with the canonical
+                      // key stored in g_enum_sig_keys / g_struct_cfid_keys (a
+                      // dedup HIT returns the stored value); pushing onto it
+                      // in place APPENDED "_<dyn key>" to the stored canonical
+                      // itself, so every later type_key(IoError) returned a
+                      // longer key → a fresh __yo_tN c-name per dyn-impl
+                      // registration while the typedef stayed under the first
+                      // name (stage-2: 416 "unknown type name" clang errors).
+                      impl_key := `${type_key(concrete.clone())}_${type_key(ei.ty)}`;
+                      context.register_dyn_impl(impl_key, DynImplEntry(dyn_type : ei.ty, concrete_type : concrete, data_type : vty, trait_values : tvs));
+                    });
+                  },
+                  .None => ()
+                );
+              },
+              .None => ()
+            );
+          });
+        },
+        .None => ()
+      );
+    },
+    .None => ()
+  );
+});
+/// Monomorphize ONE container's generic `trace` method for the concrete receiver
+/// `ct` and register it (a) under `ct`'s id in the trait-method registry so the
+/// traversal generator's `get_trace_function_for_type` resolves it, and (b) in the
+/// codegen function table so its body is emitted. `fv` is the generic trace FuncVal
+/// (from `find_methods_from_generic_impls`, with the impl's generic param injected as
+/// a capture, e.g. `T -> Node`); `method_ty` its (type-substituted) Func type.
+_specialize_and_register_trace :: (
+  fn(base : CodeGenContext, ctx : EvalContext, module_env : Environment, info : ExprInfoTable, exn : Exception, ct : TypeValue, fv : EvalValue, method_ty : TypeValue) -> unit
+)({
+  // Build a callee env: a clone of the module env (so the prelude's GcTracer /
+  // Trace / __yo_gc_trace_child and all types stay visible during body re-eval)
+  // plus a fresh frame carrying the impl's generic type params, bound from the
+  // FuncVal's injected captures (mirrors function.yo's capture fallback that
+  // populates `fresh_env` before create_specialized_function_inline).
+  fresh := clone_env(module_env);
+  _pf := fresh.push_frame(false);
+  match(
+    fv,
+    .FuncVal(__fvd, cap_vals) => {
+      cns := __fvd.*.cap_names;
+      (ci : usize) = usize(0);
+      while(ci < cns.len(), {
+        cn := match(cns.get(ci),.Some(s) => s,.None => String.from(""));
+        match(
+          cap_vals.get(ci),
+          .Some(cv) => match(
+            cv,
+            .TypeVal(ctb) => {
+              _bv := add_variable_to_env(
+                fresh,
+                cn.clone(),
+                TypeValue.TypeUni(usize(0)),
+                Option(EvalValue).Some(EvalValue.TypeVal(ctb)),
+                true,
+                false,
+                false,
+                false,
+                synthetic_token(cn.clone(), module_env.module_path.clone())
+              );
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+        ci = (ci + usize(1));
+      });
+    },
+    _ => ()
+  );
+  // Bind the trace method's params into `fresh` so the body's `self` / `tracer`
+  // references resolve during re-eval. try_to_call normally binds these before
+  // create_specialized_function_inline; the collector has no call site, so bind
+  // them as runtime UnknownVals here. The receiver param binds to the CONCRETE
+  // container `ct` (its declared type is the still-unresolved `Self`); subsequent
+  // params use their post-substitution declared types.
+  p_labels := match(method_ty,.Func({ meta : __mfm }) => __mfm.*.param_labels, _ => ArrayList(String).new());
+  p_types := match(method_ty,.Func({ param_types : __mpt }) => __mpt, _ => ArrayList(TypeValue).new());
+  (pi : usize) = usize(0);
+  while(pi < p_labels.len(), {
+    plabel := match(p_labels.get(pi),.Some(l) => l,.None => String.from(""));
+    pty := if(pi == usize(0), ct.clone(), match(p_types.get(pi),.Some(t) => t,.None => TypeValue.Unit));
+    _bp := add_variable_to_env(
+      fresh,
+      plabel.clone(),
+      pty.clone(),
+      Option(EvalValue).Some(EvalValue.UnknownVal(pty.clone(), false)),
+      false,
+      false,
+      false,
+      false,
+      synthetic_token(plabel, module_env.module_path.clone())
+    );
+    pi = (pi + usize(1));
+  });
+  // The tracer (2nd) parameter type from the trace signature.
+  tracer_ty := match(
+    method_ty,
+    .Func({ param_types }) => match(param_types.get(usize(1)),.Some(t) => t,.None => TypeValue.Unit),
+    _ => TypeValue.Unit
+  );
+  // ArgValues for `trace(self : ct, tracer : GcTracer)`. The regular args drive
+  // only the runtime-param-type cache key + param binding (create_specialized
+  // reads no `.value` for regular args), so the placeholder None value is fine;
+  // `self`'s arg_type = ct binds Self, reinforced by ctx.self_type below.
+  reg_args := ArrayList(ArgEntry).new();
+  _a0 := reg_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : ct.clone(), arg_type : ct.clone()));
+  _a1 := reg_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : tracer_ty.clone(), arg_type : tracer_ty));
+  av := ArgValues(
+    forall_args : ArrayList(ArgEntry).new(),
+    args : reg_args,
+    implicit_args : Option(ArrayList(ArgEntry)).None,
+    variadic_args : ArrayList(VarArgEntry).new()
+  );
+  saved_self := ctx.self_type;
+  ctx.self_type = Option(TypeValue).Some(ct.clone());
+  spec := create_specialized_function_inline(fv, method_ty, av, fresh, module_env, ctx, exn);
+  ctx.self_type = saved_self;
+  // Register only a real monomorphization (create_specialized can soft-fall-back
+  // to unit on an unresolved body — never register garbage as a method).
+  match(
+    spec,
+    .FuncVal(__sfvd, _) => {
+      spec_fid := __sfvd.*.func_id;
+      spec_body := __sfvd.*.body;
+      if(!(base.has_function(spec_fid.clone())), {
+        base.register_function(spec_fid.clone(), spec, sanitize_for_c_identifier(spec_fid.clone(), false));
+        // Collect the types in the trace signature — notably GcTracer, which
+        // appears nowhere in the module's own type graph (only in this method),
+        // so without this its C typedef is never emitted. Uses the collect_type
+        // indirection (a direct import of types/collection would cycle — that
+        // module already imports this one). Mirrors collectTypesFromFunctionType.
+        (cti : usize) = usize(0);
+        while(cti < p_types.len(), {
+          match(p_types.get(cti),.Some(pt) => _call_collect_type(pt, base),.None => ());
+          cti = (cti + usize(1));
+        });
+        _call_collect_type(tracer_ty.clone(), base);
+        // Pull in the functions the trace body calls (the per-element
+        // GcTracer.visit / __yo_gc_trace_child intrinsic lowerings live inline,
+        // but any helper calls must be collected for emission).
+        find_function_calls_in_expr(spec_body, base, info);
+      });
+      // Key by type_key(ct), NOT the raw struct id: shared-id generics (every
+      // Bucket/ArrayList instantiation shares ONE eval struct id, differing
+      // only in type_arguments) would all register under the same id and
+      // get_trace_function_for_type would return whichever instantiation
+      // registered FIRST (HashMap iteration order → flaky) — the GC-tracer
+      // .label/.ty stage-2 cluster: one instantiation's tracer body bound to
+      // another's slot type. type_key is instantiation-precise
+      // (cfid + type-arg keys) and equals the raw id for non-generics.
+      register_type_trait_method(
+        type_key(ct),
+        MethodEntry(
+          label : String.from("trace"),
+          ty : method_ty,
+          value : Option(EvalValue).Some(spec),
+          source_trait_id : String.from("Trace"),
+          needs_pointer_conversion : false,
+          self_type : Option(TypeValue).None
+        )
+      );
+    },
+    _ => ()
+  );
+});
+/// Cycle-GC: monomorphize each cyclable container's generic `trace` method (the
+/// Trace trait) and register it under the CONCRETE container type id, so the
+/// traversal generators' `get_trace_function_for_type` delegation resolves. yo-self
+/// specializes impl methods LAZILY at call sites, but `trace` has no call site — so
+/// this pass force-specializes it. Mirrors TS `collectTraceMethodsFromGenericImpls`;
+/// but because yo-self's `find_methods_from_generic_impls` returns a generic
+/// (non-emittable) FuncVal where TS returns a specialized one, it additionally drives
+/// `create_specialized_function_inline` (re-evaluating the body with the element type
+/// bound). Needs the live ctx/exn/module env — codegen has none of its own — threaded
+/// from run_compile. Run only when needs_cycle_gc is set.
+collect_trace_methods_from_generic_impls :: (
+  fn(base : CodeGenContext, ctx : EvalContext, module_env : Environment, info : ExprInfoTable, exn : Exception) -> unit
+)({
+  // Snapshot the concrete RC types first: registering specialized functions into
+  // base.functions during the walk must not perturb the base.types iterator.
+  type_list := ArrayList(TypeValue).new();
+  vals := base.types.values();
+  (go : bool) = true;
+  while(go, {
+    match(
+      vals.next(),
+      .Some(entry) => {
+        ty := entry.ty;
+        if(is_reference_struct_type(ty) || is_reference_enum_type(ty), {
+          _p := type_list.push(ty);
+        });
+      },
+      .None => {
+        go = false;
+      }
+    );
+  });
+  nt := type_list.len();
+  (ti : usize) = usize(0);
+  while(ti < nt, {
+    ct := match(type_list.get(ti),.Some(t) => t,.None => TypeValue.Unit);
+    // Only types carrying a generic Trace impl produce a candidate; all others
+    // (auto-derived structs/enums) return [] and keep their field-walk traversal.
+    candidates := find_methods_from_generic_impls(ct, String.from("trace"), module_env);
+    if(candidates.len() > usize(0), {
+      match(
+        candidates.get(usize(0)),
+        .Some(cand) => match(
+          cand.method_value,
+          .Some(fv) => if(is_func_val(fv), {
+            _specialize_and_register_trace(base, ctx, module_env, info, exn, ct, fv, cand.method_type);
+          }),
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
+    ti = (ti + usize(1));
+  });
+});
+/// True if `s` is a valid Yo identifier (letter/underscore start, then letters,
+/// digits, underscores). Mirrors TS evaluator/types/utils.ts `isValidIdentifier`:
+/// an auto-derived destructuring label that is NOT a valid identifier (e.g. the
+/// newtype/box `*` field) must be paren-aliased — `{ (*) : a } := self` — rather
+/// than written bare — `{ * : a } := self` — which fails to parse.
+_is_valid_yo_identifier :: (fn(s : String) -> bool)({
+  // BYTE count — the loop reads byte_at; String.len() counts RUNES
+  // (multibyte content under-walks; see other_fn_call.yo's splitter fix).
+  n := s.as_bytes().len();
+  if(n == usize(0), {
+    return(false);
+  });
+  first := s.byte_at(usize(0));
+  if((first >= u8(48)) && (first <= u8(57)), {
+    return(false); // leading digit
+  });
+  (i : usize) = usize(0);
+  (ok : bool) = true;
+  while(i < n, {
+    b := s.byte_at(i);
+    is_alpha := (((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))));
+    is_digit := ((b >= u8(48)) && (b <= u8(57)));
+    is_us := (b == u8(95));
+    if(!((is_alpha || is_digit) || is_us), {
+      ok = false;
+    });
+    i = (i + usize(1));
+  });
+  ok
+});
+/// The destructuring-label fragment for `lbl`, paren-aliasing it when it is not a
+/// valid identifier (`*` → `(*)`). Mirrors the per-label branch of TS's
+/// `generateDestructuringAndCalls`.
+_destructuring_label_fragment :: (fn(lbl : String) -> String)(
+  if(_is_valid_yo_identifier(lbl.clone()), lbl.clone(), {
+    out := String.from("(");
+    out.push_string(lbl.clone());
+    out.push_str(")");
+    out
+  })
+);
+/// Evaluate a synthesized RC-method `code` (`(fn(self : Self) -> unit)({ … })`) with
+/// `Self` bound to `ct`, then register the resulting FuncVal both as a codegen function
+/// (so it gets emitted + its calls collected) and as `ct`'s `method_label` trait method
+/// (so get_drop/dispose_function_for_type resolves it). Shared by the struct-`___dispose`
+/// and value-enum-`___drop` synthesizers. Mirrors the registration half of TS's
+/// addRcFunctionsTo{Struct,Enum}Type.
+_eval_and_register_rc_method :: (
+  fn(base : CodeGenContext, ctx : EvalContext, module_env : Environment, info : ExprInfoTable, exn : Exception, ct : TypeValue, code : String, method_label : String) -> unit
+)({
+  expr := generate_expr_from_code(code.clone(), exn);
+  fresh := clone_env(module_env);
+  saved_self := ctx.self_type;
+  ctx.self_type = Option(TypeValue).Some(ct.clone());
+  evaluated := evaluate_expression_raw(expr, fresh, ctx, exn);
+  ctx.self_type = saved_self;
+  fv_opt := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),.Some(ei) => ei.value,.None => Option(EvalValue).None);
+  match(
+    fv_opt,
+    .Some(fv) => if(is_func_val(fv), {
+      match(
+        fv,
+        .FuncVal(__dfvd, _) => {
+          fid := __dfvd.*.func_id;
+          fbody := __dfvd.*.body;
+          if(!(base.has_function(fid.clone())), {
+            base.register_function(fid.clone(), fv, sanitize_for_c_identifier(fid.clone(), false));
+            find_function_calls_in_expr(fbody, base, info);
+          });
+          register_type_trait_method(
+            // Key by type_key (instantiation-precise), NOT the shared struct id:
+            // generic structs share one eval id across instantiations, so a
+            // struct-id key would collapse all instantiations onto one ___dispose
+            // (built for the first-seen V) — the HashMap(usize,bool) vs
+            // HashMap(usize,EvalValue) crash. Mirrors get_dispose_function_for_type's
+            // type_key lookup + the Trace path. This fn is ___dispose-only (see its
+            // sole caller), so ___drop/___dup keying is unaffected.
+            type_key(ct),
+            MethodEntry(
+              label : method_label.clone(),
+              ty : get_func_type(fid.clone()),
+              value : Option(EvalValue).Some(fv),
+              source_trait_id : String.from(""),
+              needs_pointer_conversion : false,
+              self_type : Option(TypeValue).None
+            )
+          );
+        },
+        _ => ()
+      );
+    }),
+    .None => ()
+  );
+});
+/// Synthesize + register the auto-derived `___dispose` (recursive RC-field drop) for a
+/// concrete RC struct that has RC runtime fields and no ___dispose yet. Builds
+/// `(fn(self : Self) -> unit)({ { f : a, … } := self; (___drop)(a); … () })` over the
+/// RC fields, evaluates it Self-bound, registers it as the type's ___dispose method, and
+/// collects it for codegen. Mirrors TS evaluator/types/utils.ts generateDisposeFunction
+/// CodeForStructType + addRcFunctionsToStructType. Then the constructor's dispose_fn
+/// (constructors.yo) resolves via get_dispose_function_for_type, and the runtime drops the
+/// fields on free (gc_runtime.yo:341/658).
+_synthesize_and_register_dispose :: (
+  fn(base : CodeGenContext, ctx : EvalContext, module_env : Environment, info : ExprInfoTable, exn : Exception, ct : TypeValue) -> unit
+)({
+  // Skip if a ___dispose is already registered for THIS instantiation (a prior
+  // pass). KEY BY type_key (instantiation-precise), NOT the raw struct id: generic
+  // structs share one eval struct id across instantiations (e.g. every HashMap(K,V)
+  // shares one id), so keying the dispose by the shared id would register ONE
+  // dispose (specialized for the first-seen V) and make every other instantiation
+  // reuse it — dropping a `bool` map's slot value as if it were the first V's
+  // reference-counted value → `__yo_decr_rc(0x1)` crash. type_key gives each
+  // instantiation its own dispose. Mirrors the Trace path (register/lookup under
+  // type_key — see _specialize_and_register_trace + get_trace_function_for_type)
+  // and the #30 fix. See issues/fixed/yo-self-container-dispose-not-wired.md.
+  if(get_type_trait_methods_by_name(type_key(ct), String.from("___dispose")).len() > usize(0), {
+    return(());
+  });
+  // Does this type carry a user `impl Dispose` (its RAII destructor)? Containers
+  // like ArrayList/HashMap keep their elements in a malloc'd BUFFER the field-walk
+  // below cannot reach, and drop them via a `Dispose` impl (a generic impl such as
+  // `impl(generic(T), ArrayList(T), Dispose(...))`, or a direct impl). Without wiring
+  // that into the type's ___dispose, freeing such a container TRANSITIVELY (as an RC
+  // field of another object whose dispose merely `decr_rc`s it) leaks ALL its
+  // elements — the dominant self-compile leak (Environment→frames→variables). Mirror
+  // TS: `collectDisposeMethodsFromGenericImpls` (collection.ts:650) +
+  // `findUserDisposeMethodForType` emitting a call at the top of ___dispose
+  // (generation.ts:1433-1473). The `self.dispose()` call in the synthesized body IS
+  // that call site: evaluating it lazily specializes the user dispose for `ct` (so a
+  // `bool`-valued map correctly skips the element drop via its own
+  // `Type.contains_rc_type(V)` comptime guard), and `_eval_and_register_rc_method`'s
+  // `find_function_calls_in_expr` collects it for emission.
+  has_user_dispose := (
+    (find_methods_from_generic_impls(ct, String.from("dispose"), module_env).len() > usize(0))
+    || (get_type_trait_methods_by_name(type_id_or_empty(ct), String.from("dispose")).len() > usize(0))
+  );
+  flabels := match(ct,.Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
+  ftypes := match(ct,.Struct({ field_types : ftys }) => ftys, _ => ArrayList(TypeValue).new());
+  // Destructuring + `___drop` calls over the RC-containing fields.
+  destructs := String.from("");
+  calls := String.from("");
+  (any : bool) = false;
+  nf := flabels.len();
+  (fi : usize) = usize(0);
+  while(fi < nf, {
+    lbl := match(flabels.get(fi),.Some(l) => l,.None => String.from(""));
+    fty := match(ftypes.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+    if(type_contains_rc_type(fty), {
+      // Index-based alias (the field label may not be a valid identifier — e.g. the
+      // newtype/box `*` field — so it must not be interpolated into the binding name).
+      alias := `__yo_disp_f${fi.to_string()}`;
+      if(any, {
+        destructs.push_str(", ");
+      });
+      destructs.push_string(_destructuring_label_fragment(lbl.clone()));
+      destructs.push_str(" : ");
+      destructs.push_string(alias.clone());
+      calls.push_str("(___drop)(");
+      calls.push_string(alias);
+      calls.push_str("); ");
+      any = true;
+    });
+    fi = (fi + usize(1));
+  });
+  // Nothing to drop AND no user destructor → no ___dispose needed.
+  if(!(any) && !(has_user_dispose), {
+    return(());
+  });
+  // Synthesize the ___dispose body: call the user destructor first (if any — mirrors
+  // TS emitting it at the top of the ___dispose body), then drop the RC fields.
+  body := String.from("");
+  if(has_user_dispose, {
+    body.push_str("self.dispose(); ");
+  });
+  if(any, {
+    body.push_str("{ ");
+    body.push_string(destructs);
+    body.push_str(" } := self; ");
+    body.push_string(calls);
+  });
+  body.push_str("()");
+  // Synthesize + evaluate the dispose function with `Self` bound to `ct`.
+  code := `(fn(self : Self) -> unit)({ ${body} })`;
+  _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, code, String.from("___dispose"));
+});
+/// Synthesize + register the auto-derived `___dispose` for a concrete reference-
+/// semantics ENUM (`ref(enum(…))`) — the enum counterpart of
+/// `_synthesize_and_register_dispose`. Builds
+/// `(fn(self : Self) -> unit)({ match(self, .V(a0, a1) => { (___drop)(aRC); … }, …, _ => ()); () })`
+/// over the variants with RC-containing fields, evaluates it Self-bound, and registers
+/// it as the type's ___dispose. Without it the ref-enum constructor stamps
+/// `type_id = 0` (no dispose dispatch) and the active variant's RC fields leak on
+/// free. Mirrors TS generateDisposeFunctionCodeForEnumType + addRcFunctionsToEnumType.
+_synthesize_and_register_enum_dispose :: (
+  fn(base : CodeGenContext, ctx : EvalContext, module_env : Environment, info : ExprInfoTable, exn : Exception, ct : TypeValue) -> unit
+)({
+  // Skip if a ___dispose is already registered for THIS instantiation (type_key —
+  // see _synthesize_and_register_dispose for why not the shared enum id).
+  if(get_type_trait_methods_by_name(type_key(ct), String.from("___dispose")).len() > usize(0), {
+    return(());
+  });
+  // User `impl Dispose` destructor: TS emits the call at the top of the ___dispose
+  // C body for ANY SelfType (generation.ts:1433-1473) — enums included. The
+  // `self.dispose()` call in the synthesized body is that call site here.
+  has_user_dispose := (
+    (find_methods_from_generic_impls(ct, String.from("dispose"), module_env).len() > usize(0))
+    || (get_type_trait_methods_by_name(type_id_or_empty(ct), String.from("dispose")).len() > usize(0))
+  );
+  variant_names := match(ct,.EnumT({ variant_names : vn }) => vn, _ => ArrayList(String).new());
+  variant_fields := match(ct,.EnumT({ variant_fields : vf }) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+  // One match arm per variant with RC-containing fields: bind every field
+  // positionally under an index alias (labels may not be valid identifiers),
+  // drop the RC-containing ones. Mirrors the TS generator's arms.
+  arms := String.from("");
+  nv := variant_names.len();
+  (rc_variants : usize) = usize(0);
+  (vi : usize) = usize(0);
+  while(vi < nv, {
+    vname := match(variant_names.get(vi),.Some(v) => v,.None => String.from(""));
+    fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+    nf := fields.len();
+    (has_rc : bool) = false;
+    (fi : usize) = usize(0);
+    while(fi < nf, {
+      match(
+        fields.get(fi),
+        .Some(ft) => if(type_contains_rc_type(ft), {
+          has_rc = true;
+        }),
+        .None => ()
+      );
+      fi = (fi + usize(1));
+    });
+    if(has_rc, {
+      if(rc_variants > usize(0), {
+        arms.push_str(", ");
+      });
+      arms.push_str(".");
+      arms.push_string(vname.clone());
+      arms.push_str("(");
+      (pi : usize) = usize(0);
+      while(pi < nf, {
+        if(pi > usize(0), {
+          arms.push_str(", ");
+        });
+        arms.push_str("__yo_disp_f");
+        arms.push_string(pi.to_string());
+        pi = (pi + usize(1));
+      });
+      arms.push_str(") => { ");
+      (di : usize) = usize(0);
+      while(di < nf, {
+        match(
+          fields.get(di),
+          .Some(ft) => if(type_contains_rc_type(ft), {
+            arms.push_str("(___drop)(__yo_disp_f");
+            arms.push_string(di.to_string());
+            arms.push_str("); ");
+          }),
+          .None => ()
+        );
+        di = (di + usize(1));
+      });
+      arms.push_str("() }");
+      rc_variants = (rc_variants + usize(1));
+    });
+    vi = (vi + usize(1));
+  });
+  // Nothing to drop AND no user destructor → no ___dispose needed.
+  if((rc_variants == usize(0)) && !(has_user_dispose), {
+    return(());
+  });
+  body := String.from("");
+  if(has_user_dispose, {
+    body.push_str("self.dispose(); ");
+  });
+  if(rc_variants > usize(0), {
+    body.push_str("match(self, ");
+    body.push_string(arms);
+    if(rc_variants < nv, {
+      body.push_str(", _ => ()");
+    });
+    body.push_str("); ");
+  });
+  body.push_str("()");
+  // Synthesize + evaluate the dispose function with `Self` bound to `ct`.
+  code := `(fn(self : Self) -> unit)({ ${body} })`;
+  _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, code, String.from("___dispose"));
+});
+/// Codegen pass: auto-derive + register the `___dispose` method for every concrete RC
+/// struct and ref-enum type that lacks one, so freeing such a value recursively drops its RC fields
+/// (the runtime invokes header.dispose_fn — gc_runtime.yo:341 normal free / :658 collector).
+/// yo-self defers the RC-function synthesis (evaluator/types/utils.yo:19), so it runs here
+/// with the live ctx/exn threaded from run_compile, mirroring
+/// collect_trace_methods_from_generic_impls. Must run before constructor emission so
+/// get_dispose_function_for_type resolves.
+collect_dispose_methods :: (
+  fn(base : CodeGenContext, ctx : EvalContext, module_env : Environment, info : ExprInfoTable, exn : Exception) -> unit
+)({
+  // Snapshot the RC struct types needing an auto-derived ___dispose (registering
+  // functions during the walk must not perturb the base.types iterator). Value enums
+  // do NOT need a synthesized ___drop method: generate_drop_code_for_value lowers their
+  // per-variant drop INLINE (drop_dup.yo is_enum_type branch), exactly as it already
+  // does for reference-semantics enums (drop_dup.yo:204). Registering a ___drop method
+  // instead would make `(___drop)(x)` resolve via method dispatch, which mis-lowers to a
+  // double-application `f(x)(x)` when the method is already registered at synthesis time.
+  type_list := ArrayList(TypeValue).new();
+  vals := base.types.values();
+  (go : bool) = true;
+  while(go, {
+    match(
+      vals.next(),
+      // Skip GENERIC (SomeT-bearing) RC struct types. TS never lets them reach
+      // codegen at all — `typeContainsSomeType` (src/types/utils.ts:477-567) is
+      // RECURSIVE (Struct fields at :534, Ptr at :559, …), so
+      // src/codegen/types/collection.ts:404 keeps `BTreeMap(K, V)` out of
+      // `context.types` entirely. yo-self's `type_contains_some_type` is only
+      // SHALLOW (types/utils.yo:860-907 — SomeT and TypeAppT arms, no struct
+      // recursion), so the generic type IS registered here and gets a
+      // synthesized `___dispose` with a c_name. The constructor then mints a
+      // dispose type-tag for it (constructors.yo:107) and emit_dispose_dispatch
+      // emits `case N: yo_id_XXXX(ptr);` — but BOTH emission passes correctly
+      // refuse the generic body via the DEEP guard in
+      // should_skip_function_codegen, so the case call is left dangling
+      // ("call to undeclared function 'yo_id_XXXX'"). Filter with the deep
+      // predicate here so no `___dispose` is registered for a body that will
+      // never be emitted.
+      .Some(entry) => if((is_reference_struct_type(entry.ty) || is_reference_enum_type(entry.ty)) && !(type_contains_some_type_deep(entry.ty)), {
+        _p := type_list.push(entry.ty);
+      }),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  nt := type_list.len();
+  (ti : usize) = usize(0);
+  while(ti < nt, {
+    ct := match(type_list.get(ti),.Some(t) => t,.None => TypeValue.Unit);
+    if(is_reference_enum_type(ct), {
+      _synthesize_and_register_enum_dispose(base, ctx, module_env, info, exn, ct);
+    }, {
+      _synthesize_and_register_dispose(base, ctx, module_env, info, exn, ct);
+    });
+    ti = (ti + usize(1));
+  });
+});
+/// Register find_function_calls_in_expr in its indirection global. Call once.
+register_find_function_calls_in_expr :: (fn() -> unit)({
+  g_find_function_calls_in_expr = Option(FindFunctionCallsFn).Some(find_function_calls_in_expr);
+  ()
+});
+export(
+  expr_contains_unknown_value,
+  collect_effect_record_members,
+  collect_required_functions,
+  find_function_calls_in_expr,
+  _call_find_function_calls_in_expr,
+  set_collect_type_fn,
+  collect_trace_methods_from_generic_impls,
+  collect_dispose_methods,
+  register_find_function_calls_in_expr
+);

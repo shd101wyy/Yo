@@ -106,7 +106,7 @@ call_consume_but_keep_using :: (fn(p : Box(i32)) -> unit) { // p borrows by defa
 Each heap allocated ARC value starts with a single owner. Its reference counter starts at 1.
 
 ```rust
-Point :: object(x : i32, y : i32);
+Point :: ref(struct(x : i32, y : i32));
 
 Point(3, 4); // temp_var owns the Point(3, 4), RC = 1
 ```
@@ -210,10 +210,16 @@ printf("%d\n", x.*); // Always works: x owns a valid reference
 **Trade-offs:**
 
 - ✅ Simple mental model (assignments always own)
-- ✅ Zero risk of memory safety bugs
 - ✅ Parameters borrow by default (efficient for reads)
 - ⚠️ May have RC overhead from assignments
 - ✅ Can be optimized away through Phase 2 analysis
+- ⚠️ **Known aliasing gap:** a borrowed parameter can be invalidated when the callee
+  mutates the same field through another handle **inside a loop** (straight-line code is
+  protected by old-value drop deferral; loop drops cannot defer across iterations). Swift
+  closes this with exclusivity enforcement, Lobster with borrow inference; Yo has not yet
+  picked its mechanism. See
+  `issues/borrowed-arg-invalidated-by-aliased-container-mutation.md` for the reproducer
+  and the design options.
 
 ## When to call `___dup` to increase the reference count?
 
@@ -300,6 +306,27 @@ x := match(optional,
 ```
 
 **Note:** The Phase 1.5 optimization often cancels these dup calls when they're paired with corresponding drop calls, effectively transferring ownership rather than creating unnecessary copies.
+
+#### Soundness condition for dup/drop cancellation
+
+Cancelling a dup against the scope-end drop is a **move**: the dup disappears AND the
+variable is marked consumed, so no path drops it. That is sound **only if the dup
+executes unconditionally on every path that reaches the scope end**. The optimizer
+(`searchRecursively` in `src/evaluator/exprs/begin.ts`) therefore:
+
+- collects dups **branch-aware** for `cond`/`match`: a dup present in only SOME
+  fallthrough arms flags the variable (`varsWithPartialBranchDups`) and the pair is
+  preserved — dup on the taken arm, scope-end drop on every path;
+- counts a dup in EVERY arm once per arm, so `runtimeDupCount > 1` also preserves the
+  pair;
+- follows `$.macroExpansion` instead of the raw macro-call args, because `if(...)`
+  keeps its macro head in the AST and only its recorded `cond` expansion exposes the
+  branch structure. Walking the raw args treated an arm-internal dup as unconditional
+  and cancelled it — leaking one reference on every path that skipped the arm
+  (`issues/fixed/where-constraints-arraylist-96b-leak.md`, fixed 2026-08-06);
+- never optimizes across `while` bodies (a loop-body dup executes N times, the
+  scope-end drop once);
+- skips `io.async` captures (the state machine needs both the dup and the drop).
 
 ### Rule 5: The `own()` Keyword
 
@@ -388,6 +415,7 @@ The compiler now detects this traversal pattern and eliminates **all** RC operat
 2. Inside a `while`-`match` loop, the variable is the match scrutinee
 3. In one match branch, the variable is reassigned from a field of the match binding (traversal step)
 4. The variable does not unwind the loop scope (no references after the loop except the begin block return value)
+5. **The loop body neither mutates the traversed structure nor lets a node escape the iteration** (`traversalLoopHasUnsafeUse`): no assignment through a projection or index (`node.next = …` severs the chain and frees the borrowed sublist mid-walk — a use-after-free, see `issues/fixed/loop-traversal-borrow-chain-mutation-uaf.md`), and no call receiving a traversal name or a value of a traversal type (the callee could sever or retain the node). Read-only traversals — field reads, scalar comparisons, `return &(node.value)` — still optimize to zero RC operations.
 
 **What gets removed:**
 

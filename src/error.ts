@@ -156,6 +156,39 @@ export function formatErrorMessages(
   return new YoError(tokenAndErrorList, isAssertionError, kind);
 }
 
+/**
+ * Render ANY thrown value into a non-empty diagnostic string.
+ *
+ * `YoError` does not extend `Error`, so generic `error.message` reads yield
+ * `undefined` on it, and a thrown value whose message/toString is empty
+ * produced diagnostics like `Failed to import module "...":` with NOTHING
+ * after the colon (see issues/fixed/basic-test-struct-batch-count-usize-i32.md —
+ * that empty message made a real batch compile failure look unactionable for
+ * weeks). Every wrap-and-rethrow diagnostic site should use this instead of
+ * hand-rolled instanceof chains.
+ */
+export function describeThrown(error: unknown): string {
+  let text = "";
+  if (error instanceof YoError || error instanceof YoLexerError) {
+    text = error.toString();
+  } else if (error instanceof Error) {
+    text = error.message;
+    if (!text.trim() && error.stack) {
+      text = error.stack;
+    }
+  } else {
+    text = String(error);
+  }
+  if (!text.trim()) {
+    try {
+      text = `(empty error message; raw value: ${JSON.stringify(error)})`;
+    } catch {
+      text = "(empty error message)";
+    }
+  }
+  return text;
+}
+
 export function formatWarningMessages({
   warningMessage,
   tokenAndWarningList,

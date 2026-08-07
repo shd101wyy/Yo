@@ -1,0 +1,21 @@
+open(import("std/string"));
+{ println } :: import("std/fmt");
+{ HashMap } :: import("std/collections/hash_map");
+
+Node :: ref(
+  struct(
+    v : i32,
+    next : Option(Self)
+  )
+);
+
+main :: (fn(io : Io) -> unit)({
+  m1 := HashMap(String, Node).new();
+  m1.set(`a`, Node(v : i32(1), next : Option(Node).None));
+  m2 := HashMap(usize, Node).new();
+  m2.set(usize(7), Node(v : i32(2), next : Option(Node).None));
+  x := match(m1.get(`a`),.Some(n) => n.v,.None => i32(0));
+  y := match(m2.get(usize(7)),.Some(n) => n.v,.None => i32(0));
+  println(x + y);
+});
+export(main);

@@ -2,7 +2,12 @@ import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import type { FnCallExpr } from "../../expr";
 import { createPtrType } from "../../types/creators";
-import { isComptimeStringType, isStrType as isStrTypeGuard } from "../../types/guards";
+import {
+  isComptimeStringType,
+  isPtrType,
+  isStrType as isStrTypeGuard,
+  isU8Type,
+} from "../../types/guards";
 import { VUnit } from "../../unit-value";
 import { isComptimeStringValue, isUnknownValue } from "../../value";
 import type { EvaluatorContext } from "../context";
@@ -24,7 +29,7 @@ export function evaluatePanic({
   ) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `panic() can only be called inside a function body or test block`,
+      errorMessage: `__yo_panic() can only be called inside a function body or test block`,
     });
   }
 
@@ -33,7 +38,7 @@ export function evaluatePanic({
   if (context.isAnalyzingCtfeCapability) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Cannot use "panic" during compile-time function evaluation analysis. Functions containing "panic" cannot be evaluated at compile time.`,
+      errorMessage: `Cannot use "__yo_panic" during compile-time function evaluation analysis. Functions containing "__yo_panic" cannot be evaluated at compile time.`,
     });
   }
 
@@ -49,7 +54,7 @@ export function evaluatePanic({
   //      mismatching against the function's overall return type.
   //
   //   2. Otherwise, fall back to the function's return type (the original
-  //      Phase B/C `*(T)` rule from plans/ITERATOR_REDESIGN.md — needed
+  //      Phase B/C `*(T)` rule from plans/archive/ITERATOR_REDESIGN.md — needed
   //      because panic in tail position of an `-> ref(T)` body must
   //      produce `*(T)` to match the body's expected C-ABI return).
   //
@@ -89,11 +94,13 @@ export function evaluatePanic({
       msgValue &&
       (isComptimeStringValue(msgValue) ||
         (isUnknownValue(msgValue) && isComptimeStringType(msgValue.type)));
+    const msgIsCStr =
+      msgType && isPtrType(msgType) && isU8Type(msgType.childType);
 
-    if (!msgIsStr && !isComptimeStr) {
+    if (!msgIsStr && !isComptimeStr && !msgIsCStr) {
       throw formatErrorMessage({
         token: messageExpr.token,
-        errorMessage: `panic message must be a comptime_str or str`,
+        errorMessage: `__yo_panic message must be comptime_str, str, or *(u8)`,
       });
     }
   }

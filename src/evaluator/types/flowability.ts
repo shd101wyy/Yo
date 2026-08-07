@@ -1,7 +1,7 @@
 /**
  * Flowability check for `ref(T)`-yielding expressions.
  *
- * Implements the structural soundness rule from `plans/ITERATOR_REDESIGN.md`:
+ * Implements the structural soundness rule from `plans/archive/ITERATOR_REDESIGN.md`:
  * an expression is "flowable" iff it roots back to a `ref`-bound
  * parameter (or another `ref`-bound local with a flowable initializer)
  * along a projection-respecting chain.
@@ -48,9 +48,10 @@ import { formatErrorMessage } from "../../error";
 import { type Token, TokenType } from "../../token";
 import type { FunctionType } from "../../types/definitions";
 import {
-  isAtomicObjectType,
+  isAtomicReferenceStructType,
   isFunctionType,
-  isObjectType,
+  isPtrType,
+  isReferenceStructType,
   isSomeType,
 } from "../../types/guards";
 import {
@@ -106,7 +107,7 @@ function unwrapBeginBlocks(expr: Expr): Expr {
  *    unset, `allowSameFrameLocal` accepts any non-module local (the
  *    `:=` binding-site semantics, where the new binding is innermost).
  *  - `allowParameterSource`: passed by the slice-flowability check
- *    (`plans/SLICE_FLOWABILITY.md`). Accepts a name reference whose
+ *    (`plans/archive/SLICE_FLOWABILITY.md`). Accepts a name reference whose
  *    binding is a parameter of the current function (any parameter,
  *    not just `ref(name)`) — the caller's value lives for at least
  *    the duration of the call, so handing a `Slice` rooted at it
@@ -149,7 +150,7 @@ export function isFlowableExpr(
   }
   if (
     exprIsFunctionCall(expr) &&
-    exprIsFunctionCallOf(expr, BuiltinFunctions.panic)
+    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_panic)
   ) {
     return true;
   }
@@ -162,7 +163,7 @@ export function isFlowableExpr(
   // `Indexable.project` impls on Array, Slice, ArrayList, String —
   // they compute the element address via `__yo_array_index` etc.
   // and wrap the result in `unsafe(...)`. See
-  // plans/ITERATOR_REDESIGN.md and plans/MEMORY_SAFETY.md.
+  // plans/archive/ITERATOR_REDESIGN.md and plans/MEMORY_SAFETY.md.
   if (
     exprIsFunctionCall(expr) &&
     exprIsFunctionCallOf(expr, BuiltinFunctions.unsafe)
@@ -215,7 +216,7 @@ export function isFlowableExpr(
     // R1'' (slice-flowability only): a parameter of the enclosing
     // function counts as flowable when the slice-flowability check
     // opts in. The caller's value is alive for the duration of the
-    // call. See plans/SLICE_FLOWABILITY.md Phase B.
+    // call. See plans/archive/SLICE_FLOWABILITY.md Phase B.
     if (options.allowParameterSource && v.isParameter) {
       return true;
     }
@@ -283,19 +284,41 @@ export function isFlowableExpr(
     return true;
   }
 
-  // Pointer arithmetic: `base &+ offset` / `base &- offset` (only legal
-  // in `pragma(Pragma.AllowUnsafe)` files) yields a pointer into the SAME
-  // storage as `base`, displaced by an integer index. The result is
-  // flowable iff the base pointer is flowable — the offset is a plain
-  // integer and introduces no new storage root. Without this, an
-  // assignment like `result = .Some(data_ptr &+ i)` in a hand-written
-  // unsafe iterator (e.g. std/collections/hash_map.yo) is wrongly rejected
-  // even though `data_ptr` roots back to a `ref(self)` field.
+  // Pointer arithmetic: `base.add(offset)` / `base.sub(offset)` (only
+  // legal in `pragma(Pragma.AllowUnsafe)` files; formerly the `&+`/`&-`
+  // operators — plans/archive/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md) yields a
+  // pointer into the SAME storage as `base`, displaced by an integer
+  // index. The result is flowable iff the base pointer is flowable — the
+  // offset is a plain integer and introduces no new storage root. Without
+  // this, an assignment like `result = .Some(data_ptr.add(i))` in a
+  // hand-written unsafe iterator (e.g. std/collections/hash_map.yo) is
+  // wrongly rejected even though `data_ptr` roots back to a `ref(self)`
+  // field. GATED on the receiver's evaluated type being a raw pointer —
+  // `add`/`sub` are ordinary method names on other types, and those calls
+  // return fresh values (not flowable through the receiver). The direct
+  // builtin forms (`__yo_ptr_add`/`__yo_ptr_sub`) keep the old
+  // positional-arg rule.
   if (
-    exprIsFunctionCallOf(call, "&+", 2) ||
-    exprIsFunctionCallOf(call, "&-", 2)
+    exprIsFunctionCallOf(call, BuiltinFunctions.__yo_ptr_add) ||
+    exprIsFunctionCallOf(call, BuiltinFunctions.__yo_ptr_sub)
   ) {
     return isFlowableExpr(call.args[0]!, options);
+  }
+  if (
+    exprIsFunctionCall(call.func) &&
+    exprIsFunctionCallOf(call.func, ".", 2) &&
+    call.args.length === 1
+  ) {
+    const recv = (call.func as FnCallExpr).args[0]!;
+    const member = (call.func as FnCallExpr).args[1]!;
+    const memberName = exprIsAtom(member) ? member.token.value : "";
+    if (
+      (memberName === "add" || memberName === "sub") &&
+      recv.$?.type &&
+      isPtrType(recv.$.type)
+    ) {
+      return isFlowableExpr(recv, options);
+    }
   }
 
   // Enum/variant construction: `.Variant(args...)`. The callee is the
@@ -492,7 +515,7 @@ export function findPropertyChainRootAtom(expr: Expr): Expr | undefined {
 }
 
 /**
- * Call-site ref/own exclusivity (v4, plans/BORROW_EXCLUSIVITY.md):
+ * Call-site ref/own exclusivity (v4, plans/archive/BORROW_EXCLUSIVITY.md):
  * within ONE call, an argument bound to an `own(...)` parameter must
  * not be (or alias) the root of another argument bound to a `ref(...)`
  * parameter. `f(h.s, h)` with `f :: fn(ref(x) : String, own(victim) :
@@ -566,7 +589,7 @@ export function requireRefOwnArgumentExclusivity({
 }
 
 /**
- * v4.1 (plans/BORROW_EXCLUSIVITY.md): validate the PLACE passed to each
+ * v4.1 (plans/archive/BORROW_EXCLUSIVITY.md): validate the PLACE passed to each
  * `ref` parameter. With local ref bindings removed, every borrow is an
  * argument lvalue evaluated at the call boundary; it is safe iff the
  * borrowed storage cannot be freed during the call:
@@ -725,7 +748,10 @@ export function requireValidRefArgumentPlaces({
         rawType && isSomeType(rawType) && rawType.resolvedConcreteType
           ? rawType.resolvedConcreteType
           : rawType;
-      if (hopType && (isObjectType(hopType) || isAtomicObjectType(hopType))) {
+      if (
+        hopType &&
+        (isReferenceStructType(hopType) || isAtomicReferenceStructType(hopType))
+      ) {
         hasObjectHop = true;
         break;
       }
@@ -753,7 +779,8 @@ export function requireValidRefArgumentPlaces({
       const rootType = rootVar?.type;
       const rootIsObject =
         rootType !== undefined &&
-        (isObjectType(rootType) || isAtomicObjectType(rootType));
+        (isReferenceStructType(rootType) ||
+          isAtomicReferenceStructType(rootType));
       const refArgType = argExprs[i]?.$?.type;
       const refTypeContainsRc =
         refArgType !== undefined && typeContainsRcType(refArgType);

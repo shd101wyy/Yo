@@ -1,0 +1,989 @@
+//! GC / reference-counting runtime prelude — mirrors the runtime-function
+//! generators in `src/codegen/functions/generation.ts`:
+//!   * generateBorrowRuntimePrimitives  (Law-of-Exclusivity backstop)
+//!   * collectUnwindValueCTypes         (sizes the unwind-value buffer)
+//!   * emitUnwindValueBuffer            (thread-local unwind-value storage)
+//!   * generateLightweightRCFunctions   (non-cyclic RC path)
+//!   * generateFullGCRuntimeFunctions   (cyclic-GC path: QuickJS trial-deletion)
+//!   * generateAtomicGCRuntimeFunctions (dispatcher: full vs lightweight)
+//!
+//! This is the prelude that `generateAllFunctions` emits before the function loop —
+//! without it the emitted translation unit does not link (`__yo_incr_rc` /
+//! `__yo_decr_rc` / borrow primitives are referenced by every RC-managed value).
+//! The dispatcher emits the FULL cyclic-GC runtime when `needs_cycle_gc` (some
+//! reference-semantics type can form an RC cycle), else the lightweight (type-tag)
+//! path. The full runtime's traversal functions are emitted by the constructor
+//! emitters (generate_ref_struct/enum_traversal_functions).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
+{ AstExpr, ast_expr_is_fn_call, ast_expr_is_fn_call_of, BF_UNWIND } :: import("../../expr.yo");
+{ EvalValue } :: import("../../value.yo");
+{ is_unit_type } :: import("../../types/guards.yo");
+{ get_type_string } :: import("../utils/index.yo");
+{ FunctionGenerationContext } :: import("./context.yo");
+{ TargetInfo, is_target_windows } :: import("../../target.yo");
+// ---------------------------------------------------------------------------
+// collectUnwindValueCTypes
+// ---------------------------------------------------------------------------
+/// Recursively collect the C type strings of every non-unit `unwind(value)`
+/// argument reachable from `expr`. Mirrors `collectUnwindValueCTypesFromExpr`.
+/// Returns a flat list (deduped by the caller into a HashSet).
+_collect_unwind_value_ctypes_from_expr :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  if(ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
+    match(
+      expr,
+      .FnCall(_, _, args, _, _) => match(
+        args.get(usize(0)),
+        .Some(arg0) => match(
+          context.base.get_expr_info(arg0),
+          .Some(ei) => if(!(is_unit_type(ei.ty)), {
+            _a := out.push(get_type_string(ei.ty, context.base));
+          }),
+          .None => ()
+        ),
+        .None => ()
+      ),
+      .Atom(_, _) => ()
+    );
+  });
+  if(ast_expr_is_fn_call(expr), {
+    match(
+      expr,
+      .FnCall(_, func, args, _, _) => {
+        n := args.len();
+        (ai : usize) = usize(0);
+        while(ai < n, {
+          match(
+            args.get(ai),
+            .Some(arg) => {
+              sub := recur(arg, context);
+              sn := sub.len();
+              (sj : usize) = usize(0);
+              while(sj < sn, {
+                match(
+                  sub.get(sj),
+                  .Some(s) => {
+                    _b := out.push(s.clone());
+                  },
+                  .None => ()
+                );
+                sj = (sj + usize(1));
+              });
+            },
+            .None => ()
+          );
+          ai = (ai + usize(1));
+        });
+        fsub := recur(func, context);
+        fn := fsub.len();
+        (fk : usize) = usize(0);
+        while(fk < fn, {
+          match(
+            fsub.get(fk),
+            .Some(s) => {
+              _c := out.push(s.clone());
+            },
+            .None => ()
+          );
+          fk = (fk + usize(1));
+        });
+      },
+      .Atom(_, _) => ()
+    );
+  });
+  out
+});
+/// Populate `context.unwind_value_c_types` from every function body in the
+/// program. MUST run before the unwind-value buffer is declared. Mirrors
+/// `collectUnwindValueCTypes`.
+collect_unwind_value_ctypes :: (fn(context : FunctionGenerationContext) -> unit)({
+  into := HashSet(String).new();
+  vals := context.base.functions.values();
+  (go : bool) = true;
+  while(go, {
+    match(
+      vals.next(),
+      .Some(entry) => match(
+        entry.value,
+        .FuncVal(__fvd1, _) => {
+          found := _collect_unwind_value_ctypes_from_expr(__fvd1.*.body, context);
+          fnlen := found.len();
+          (fj : usize) = usize(0);
+          while(fj < fnlen, {
+            match(
+              found.get(fj),
+              .Some(s) => {
+                _r := into.add(s.clone());
+              },
+              .None => ()
+            );
+            fj = (fj + usize(1));
+          });
+        },
+        _ => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  context.unwind_value_c_types = Option(HashSet(String)).Some(into);
+});
+// ---------------------------------------------------------------------------
+// emitUnwindValueBuffer
+// ---------------------------------------------------------------------------
+/// Emit the thread-local `__yo_unwind_value` buffer declaration. With one or
+/// more non-unit unwound values it is a union sized to the largest (plus a
+/// 64-byte floor); with none it is a plain 64-byte buffer. Mirrors
+/// `emitUnwindValueBuffer`.
+emit_unwind_value_buffer :: (fn(context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  empty := match(
+    context.unwind_value_c_types,
+    .Some(types) => types.is_empty(),
+    .None => true
+  );
+  if(empty, {
+    em.emit_declaration_line("static _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage");
+    return();
+  });
+  decl := String.from("// Thread-local buffer for unwind value storage, sized (via a union) to the\n");
+  decl.push_str("// largest unwound value in the program so 'unwind(v)' never overflows it.\n");
+  decl.push_str("static _Thread_local _Alignas(16) union {\n");
+  decl.push_str("    char __pad[64];\n");
+  match(
+    context.unwind_value_c_types,
+    .Some(types) => {
+      it := types.into_iter();
+      (idx : usize) = usize(0);
+      (go : bool) = true;
+      while(go, {
+        match(
+          it.next(),
+          .Some(t) => {
+            decl.push_str("    ");
+            decl.push_string(t.clone());
+            decl.push_str(" __m");
+            decl.push_string(idx.to_string());
+            decl.push_str(";\n");
+            idx = (idx + usize(1));
+          },
+          .None => {
+            go = false;
+          }
+        );
+      });
+    },
+    .None => ()
+  );
+  decl.push_str("} __yo_unwind_value_storage;\n");
+  decl.push_str("#define __yo_unwind_value ((char*)&__yo_unwind_value_storage)");
+  em.emit_declaration_string_line(decl);
+});
+// ---------------------------------------------------------------------------
+// generateBorrowRuntimePrimitives
+// ---------------------------------------------------------------------------
+/// Emit the Law-of-Exclusivity borrow primitives. Emitted unconditionally
+/// regardless of GC path. Mirrors `generateBorrowRuntimePrimitives`.
+generate_borrow_runtime_primitives :: (fn(context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  em.emit_string_line(
+    `
+// Law of Exclusivity (Swift-style runtime backstop). An interior 'ref'
+// into a container's storage (e.g. xs(i)) increments the container's
+// borrow_count for the borrow's lifetime; a container operation that
+// could reallocate/free that storage asserts borrow_count == 0. This
+// turns the one statically-unprovable interior-ref residual (a container
+// reached through a global and grown while borrowed) into a deterministic
+// panic instead of a use-after-free. Cost: a same-cache-line load + a
+// predicted-not-taken branch (measured ~0% even on a tight push loop).
+static inline void __yo_borrow_acquire(void* ptr) {
+  if (ptr == NULL) return;
+  ((__yo_ref_header_t*)ptr)->borrow_count++;
+}
+static inline void __yo_borrow_release(void* ptr) {
+  if (ptr == NULL) return;
+  ((__yo_ref_header_t*)ptr)->borrow_count--;
+}
+static inline void __yo_borrow_assert_unborrowed(void* ptr) {
+  if (ptr == NULL) return;
+  if (((__yo_ref_header_t*)ptr)->borrow_count != 0) {
+    fprintf(stderr, "panic: container operation while an interior reference (a 'ref' into an element/field) borrows from it\\n");
+    abort();
+  }
+}`
+  );
+});
+// ---------------------------------------------------------------------------
+// generateLightweightRCFunctions
+// ---------------------------------------------------------------------------
+/// Emit lightweight RC functions when no type can form reference cycles.
+/// `__yo_decr_rc` has no GC checks and the GC functions are no-ops. Mirrors
+/// `generateLightweightRCFunctions`.
+generate_lightweight_rc_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  // Forward-declare the dispose dispatch function (defined after all dispose functions).
+  em.emit_declaration_line("static void __yo_dispose_dispatch(void* ptr); // Type-tag based dispose dispatch");
+  em.emit_string_line(
+    `// Lightweight reference counting — no cycle detection needed
+// Uses type_id dispatch instead of function pointer for dispose
+// (WASM: br_table ~2 cycles vs call_indirect ~20+ cycles)
+static inline void __yo_decr_rc(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  if (header->ref_count == 1) {
+    if (header->type_id) {
+      __yo_dispose_dispatch(ptr);
+    }
+    __yo_free(ptr);
+  } else {
+    header->ref_count--;
+  }
+}
+
+static inline void* __yo_incr_rc(void* ptr) {
+  if (ptr == NULL) return NULL;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  header->ref_count++;
+  return ptr;
+}`
+  );
+  em.emit_string_line(
+    `
+// Atomic reference counting functions for Iso types (thread-safe)
+// Memory ordering follows the standard Arc pattern (Rust, Swift, C++ shared_ptr):
+//   - Increment: relaxed (no ordering needed for new reference creation)
+//   - Decrement: acq_rel (acquire on last drop to see all prior writes; release to publish our writes)
+//   - rc() check: acquire (see all prior writes before acting on uniqueness)
+static void* __yo_incr_rc_atomic(void* ptr) {
+  if (ptr == NULL) return NULL;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  atomic_fetch_add_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_relaxed);
+  return ptr;
+}
+
+static void __yo_decr_rc_atomic(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  uint32_t old_count = atomic_fetch_sub_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_acq_rel);
+  if (old_count == 1) {
+    if (header->type_id) {
+      __yo_dispose_dispatch(ptr);
+    }
+    __yo_free(ptr);
+  }
+}`
+  );
+  // Effect unwind flag and value buffer (always needed).
+  em.emit_declaration_line("static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection");
+  emit_unwind_value_buffer(context);
+  // No-op GC functions so references elsewhere compile.
+  em.emit_string_line(
+    `// No-op GC stubs — no types form reference cycles
+static void __yo_gc_register(void* ptr) { (void)ptr; }
+static void __yo_gc_unregister(void* ptr) { (void)ptr; }
+static void __yo_gc_collect() {}
+static size_t __yo_gc_tracked_count() { return 0; }
+static void __yo_gc_init_thread() {}
+static void __yo_cleanup_thread_gc() {}
+static void __yo_init_process_cleanup(void) {}`
+  );
+});
+// ---------------------------------------------------------------------------
+// generateFullGCRuntimeFunctions
+// ---------------------------------------------------------------------------
+/// Emit the FULL cyclic-GC RC runtime: GC-aware non-atomic decr/incr, atomic
+/// incr/decr, thread-local GC state + adaptive thresholds, per-thread cleanup-key
+/// infrastructure, register/unregister, the QuickJS-style trial-deletion cycle
+/// collector, and thread/process cleanup. Emitted on the needs_cycle_gc path
+/// INSTEAD of generate_lightweight_rc_functions. Verbatim port of
+/// `generateFullGCRuntimeFunctions` (src/codegen/functions/generation.ts:1963);
+/// the `isTargetWindows ? … : …` template branches become `if(is_target_windows…)`.
+/// (GC_DEBUG is macro-defined to nothing in non-debug builds — see types/generation.yo.)
+generate_full_gc_runtime_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  ti := context.base.target_info;
+  // Non-atomic (GC-aware) + atomic reference counting.
+  em.emit_string_line(
+    `// Non-atomic reference counting functions (thread-local)
+// Flag to prevent double RC decrements during GC collection.
+// When set, __yo_decr_rc skips all tracked objects because the GC
+// already accounts for their references via trial deletion.
+static _Thread_local int __yo_gc_collecting = 0;
+
+// GC tracking state + thresholds (declared here so __yo_decr_rc, below, can buffer
+// possible cycle roots and trigger collection — Bacon-Rajan).
+static _Thread_local __yo_thread_gc_state_t* __yo_current_thread_gc = NULL;  // Current thread's GC state
+static size_t __yo_gc_min_threshold = 256;       // Minimum / configured collection threshold (floor)
+static size_t __yo_gc_collect_threshold = 256;   // Incremental: collect when possible_roots reaches this
+static size_t __yo_gc_full_threshold = 256;      // Full: allocation-driven full-heap scan when tracked_count reaches this (adaptive Nx-live)
+static size_t __yo_gc_full_pct = 200;            // Full-scan growth factor as a percent of post-collection live (default 200 = 2x-live). Lower to cap peak memory on constrained boxes; raise for fewer (but larger) scans. Env: YO_GC_FULL_PCT.
+
+static inline void __yo_decr_rc(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+
+  // FAST PATH: untracked objects (their type cannot form reference cycles).
+  // No thread-local reads, no cycle bookkeeping: untracked objects are never
+  // registered, never BUFFERED, and never trial-deleted by the collector
+  // (its visitors skip non-TRACKED headers), so the collecting-skip,
+  // remove_root and unregister calls below are all no-ops for them. On Darwin
+  // every _Thread_local read is a _tlv_get_addr call, so keeping TLS out of
+  // this path measurably matters (profiled: __yo_decr_rc was 54% of a
+  // self-compile, with the TLS reads a further 10%).
+  if (!(header->gc_flags & __YO_GC_TRACKED)) {
+    GC_DEBUG("Decr: ptr=%p RC=%zu->%zu\\n", ptr, (size_t)header->ref_count, (size_t)(header->ref_count - 1));
+    if (header->ref_count == 1) {
+      GC_DEBUG("Decr: Deallocating ptr=%p (last ref)\\n", ptr);
+      if (header->dispose_fn) {
+        header->dispose_fn(ptr);
+      }
+      __yo_free(ptr);
+    } else {
+      header->ref_count--;
+    }
+    return;
+  }
+
+  // Tracked object. During GC collection, skip it: the GC handles tracked
+  // objects' lifecycle via trial deletion — decrementing here would
+  // double-count the reference removal.
+  if (__yo_gc_collecting) {
+    GC_DEBUG("Decr: Skipping ptr=%p (GC collecting, tracked)\\n", ptr);
+    return;
+  }
+
+  GC_DEBUG("Decr: ptr=%p RC=%zu->%zu\\n", ptr, (size_t)header->ref_count, (size_t)(header->ref_count - 1));
+
+  if (header->ref_count == 1) {
+    // Last reference - deallocate immediately (acyclic garbage).
+    GC_DEBUG("Decr: Deallocating ptr=%p (last ref)\\n", ptr);
+    // Bacon-Rajan: if buffered as a possible cycle root, unlink first (O(1)).
+    if (header->gc_flags & __YO_GC_BUFFERED) {
+      __yo_gc_remove_root(ptr);
+    }
+    __yo_gc_unregister(ptr);
+    if (header->dispose_fn) {
+      header->dispose_fn(ptr);
+    }
+    __yo_free(ptr);
+  } else {
+    // More than one reference - just decrement. The object's RC dropped but it
+    // is not freed → it is a possible root of a garbage CYCLE (Bacon-Rajan):
+    // buffer it for the next collection. Already-buffered objects (the steady
+    // state for hot objects) only need recoloring — a byte write on the header
+    // cache line this decrement already dirtied; the buffering + the
+    // collection-threshold check live in __yo_gc_add_root (the count can only
+    // cross the threshold when it grows there).
+    header->ref_count--;
+    if (header->gc_flags & __YO_GC_BUFFERED) {
+      header->gc_mark = __YO_GC_CANDIDATE;
+    } else {
+      __yo_gc_add_root(ptr);
+    }
+  }
+}
+
+static inline void* __yo_incr_rc(void* ptr) {
+  if (ptr == NULL) return NULL;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  header->ref_count++;
+  GC_DEBUG("Incr: ptr=%p RC=%zu\\n", ptr, (size_t)header->ref_count);
+  return ptr;
+}
+
+// Atomic reference counting functions for Iso types (thread-safe)
+// Memory ordering follows the standard Arc pattern (Rust, Swift, C++ shared_ptr):
+//   - Increment: relaxed (no ordering needed for new reference creation)
+//   - Decrement: acq_rel (acquire on last drop to see all prior writes; release to publish our writes)
+//   - rc() check: acquire (see all prior writes before acting on uniqueness)
+static void* __yo_incr_rc_atomic(void* ptr) {
+  if (ptr == NULL) return NULL;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  atomic_fetch_add_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_relaxed);
+  return ptr;
+}
+
+static void __yo_decr_rc_atomic(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  uint32_t old_count = atomic_fetch_sub_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_acq_rel);
+
+  if (old_count == 1) {
+    // Last reference - deallocate
+    // Note: No GC tracking needed for Iso types (they don't participate in cycles)
+    if (header->dispose_fn) {
+      header->dispose_fn(ptr);
+    }
+    __yo_free(ptr);
+  }
+}`
+  );
+  // Effect-unwind flag + value buffer (declaration section).
+  em.emit_declaration_line("static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection");
+  emit_unwind_value_buffer(context);
+  // Per-thread GC tracking state + adaptive thresholds.
+  em.emit_string_line(
+    `// Per-thread GC tracking state for cycle collection
+// (__yo_current_thread_gc + thresholds are declared earlier, before __yo_decr_rc)
+static __yo_thread_gc_state_t* __yo_all_thread_gcs = NULL;  // Global list of all thread GC states (for cleanup)`
+  );
+  if(is_target_windows(ti), {
+    em.emit_string_line(`static __YO_THREAD_SYNC_TYPE __yo_thread_list_mutex;`);
+  }, {
+    em.emit_string_line(`static __YO_THREAD_SYNC_TYPE __yo_thread_list_mutex = __YO_THREAD_SYNC_INIT;`);
+  });
+  em.emit_string_line(
+    `// Thread cleanup infrastructure`
+  );
+  if(is_target_windows(ti), {
+    em.emit_string_line(
+      `// Windows: Use native TLS API instead of C11 tss_t (better compiler support)
+static DWORD __yo_thread_cleanup_key = TLS_OUT_OF_INDEXES;
+static volatile LONG __yo_thread_cleanup_init_started = 0;
+static volatile LONG __yo_thread_cleanup_init_done = 0;
+
+static void __yo_init_thread_cleanup_key(void) {
+  // Simple once-only initialization using interlocked operations
+  if (InterlockedCompareExchange(&__yo_thread_cleanup_init_started, 1, 0) == 0) {
+    __yo_thread_cleanup_key = TlsAlloc();
+    InterlockedExchange(&__yo_thread_cleanup_init_done, 1);
+  } else {
+    // Wait for initialization to complete
+    while (InterlockedCompareExchange(&__yo_thread_cleanup_init_done, 1, 1) == 0) {
+      Sleep(0);
+    }
+  }
+}`
+    );
+  }, {
+    em.emit_string_line(
+      `static pthread_key_t __yo_thread_cleanup_key = (pthread_key_t)(-1);
+static pthread_once_t __yo_thread_cleanup_once = PTHREAD_ONCE_INIT;
+
+static void __yo_pthread_cleanup(void* value) {
+  if (value != NULL) {
+    __yo_cleanup_thread_gc();
+  }
+}
+
+static void __yo_init_thread_cleanup_key(void) {
+  pthread_key_create(&__yo_thread_cleanup_key, __yo_pthread_cleanup);
+}`
+    );
+  });
+  // __yo_init_thread_gc (inner Windows/POSIX branch for the cleanup-key setup).
+  em.emit_string_line(
+    `// Initialize thread-local GC state
+static void __yo_init_thread_gc() {
+  if (__yo_current_thread_gc != NULL) return;
+`
+  );
+  if(is_target_windows(ti), {
+    em.emit_string_line(
+      `  __yo_init_thread_cleanup_key();
+  if (__yo_thread_cleanup_key != TLS_OUT_OF_INDEXES) {
+    TlsSetValue(__yo_thread_cleanup_key, (void*)1);
+  }`
+    );
+  }, {
+    em.emit_string_line(
+      `  pthread_once(&__yo_thread_cleanup_once, __yo_init_thread_cleanup_key);
+  if (__yo_thread_cleanup_key != (pthread_key_t)(-1)) {
+    pthread_setspecific(__yo_thread_cleanup_key, (void*)1);
+  }`
+    );
+  });
+  em.emit_string_line(
+    `
+  __yo_init_process_cleanup();
+
+  __yo_current_thread_gc = (__yo_thread_gc_state_t*)__yo_malloc(sizeof(__yo_thread_gc_state_t));
+  __yo_current_thread_gc->tracked_objects = NULL;
+  __yo_current_thread_gc->tracked_count = 0;
+  __yo_current_thread_gc->thread_id = __yo_thread_self();
+  __yo_current_thread_gc->alloc_count = 0;
+  __yo_current_thread_gc->possible_roots = NULL;
+  __yo_current_thread_gc->possible_roots_count = 0;
+  __yo_current_thread_gc->gc_white = NULL;
+  __yo_current_thread_gc->gc_white_count = 0;
+  __yo_current_thread_gc->gc_white_cap = 0;
+
+  // One-time: honor YO_GC_THRESHOLD to raise or DISABLE the cycle collector.
+  // For allocation-heavy, short-lived runs (e.g. the compiler itself, which
+  // builds a large mostly-live graph and exits), repeated full-heap trial
+  // deletion is near-quadratic overhead the OS reclaims at exit anyway. A value
+  // of 0 disables auto-collection (threshold = SIZE_MAX); any other value sets
+  // both the live threshold and the adaptive floor. Default (env unset) keeps
+  // the adaptive 256 behavior. Mirrors the YO_MAIN_STACK_MB knob.
+  {
+    static int __yo_gc_thr_env_read = 0;
+    if (!__yo_gc_thr_env_read) {
+      __yo_gc_thr_env_read = 1;
+      const char* __yo_gc_thr = getenv("YO_GC_THRESHOLD");
+      if (__yo_gc_thr != NULL) {
+        unsigned long long __yo_gc_thr_v = strtoull(__yo_gc_thr, NULL, 10);
+        __yo_gc_collect_threshold = (__yo_gc_thr_v == 0ULL) ? (size_t)-1 : (size_t)__yo_gc_thr_v;
+        __yo_gc_min_threshold = __yo_gc_collect_threshold;
+      }
+      // YO_GC_FULL_PCT: full-scan growth factor as a percent of live (default 200
+      // = 2x-live). Lower (e.g. 130) caps peak memory on constrained boxes at the
+      // cost of more frequent full scans; must be > 100 to make progress.
+      const char* __yo_gc_full = getenv("YO_GC_FULL_PCT");
+      if (__yo_gc_full != NULL) {
+        unsigned long long __yo_gc_full_v = strtoull(__yo_gc_full, NULL, 10);
+        if (__yo_gc_full_v > 100ULL) __yo_gc_full_pct = (size_t)__yo_gc_full_v;
+      }
+    }
+  }
+
+  // Add to global thread list (for cleanup coordination)
+  __yo_mutex_lock(&__yo_thread_list_mutex);
+  __yo_current_thread_gc->next = __yo_all_thread_gcs;
+  __yo_current_thread_gc->prev = NULL;
+  if (__yo_all_thread_gcs != NULL) {
+    __yo_all_thread_gcs->prev = __yo_current_thread_gc;
+  }
+  __yo_all_thread_gcs = __yo_current_thread_gc;
+  __yo_mutex_unlock(&__yo_thread_list_mutex);
+}
+
+// Public function to initialize thread-local GC (for worker threads)
+static void __yo_gc_init_thread() {
+  __yo_init_thread_gc();
+}`
+  );
+  // Register / unregister.
+  em.emit_string_line(
+    `static void __yo_gc_register(void* ptr) {
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+
+  if (__yo_current_thread_gc == NULL) {
+    __yo_init_thread_gc();
+  }
+
+  GC_DEBUG("GC Register: ptr=%p\\n", ptr);
+
+  // Check if already tracked
+  if (header->gc_flags & __YO_GC_TRACKED) {
+    return;
+  }
+
+  header->gc_flags |= __YO_GC_TRACKED;
+  header->gc_mark = __YO_GC_UNMARKED;
+
+  // Add to thread-local tracking list
+  header->gc_next = __yo_current_thread_gc->tracked_objects;
+  header->gc_prev = NULL;
+  if (__yo_current_thread_gc->tracked_objects != NULL) {
+    __yo_current_thread_gc->tracked_objects->gc_prev = header;
+  }
+  __yo_current_thread_gc->tracked_objects = header;
+  __yo_current_thread_gc->tracked_count++;
+  // Allocation-driven FULL collection. The incremental (Bacon-Rajan) path in
+  // __yo_decr_rc reclaims cheap decrement-rooted cycles, but CANNOT see cycles
+  // formed by a move into a self/child field (no decrement event) — those would
+  // leak unboundedly. So a full-heap scan still runs when the tracked set grows
+  // past an adaptive 2x-live threshold: this bounds memory and reclaims
+  // move-formed cycles. See issues/yo-gc-full-heap-scan-bottleneck.md.
+  if (!__yo_gc_collecting && __yo_current_thread_gc->tracked_count >= __yo_gc_full_threshold) {
+    __yo_gc_collect();
+    size_t nt = (__yo_current_thread_gc->tracked_count * __yo_gc_full_pct) / 100;
+    if (nt <= __yo_current_thread_gc->tracked_count) nt = __yo_current_thread_gc->tracked_count + 1;
+    if (nt < 256) nt = 256;
+    __yo_gc_full_threshold = nt;
+  }
+}
+
+static void __yo_gc_unregister(void* ptr) {
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+
+  if (__yo_current_thread_gc == NULL) {
+    return;
+  }
+
+  if (!(header->gc_flags & __YO_GC_TRACKED)) {
+    return;
+  }
+
+  // Remove from tracking list (O(1) with doubly-linked list)
+  if (header->gc_prev != NULL) {
+    header->gc_prev->gc_next = header->gc_next;
+  } else {
+    __yo_current_thread_gc->tracked_objects = header->gc_next;
+  }
+
+  if (header->gc_next != NULL) {
+    header->gc_next->gc_prev = header->gc_prev;
+  }
+
+  __yo_current_thread_gc->tracked_count--;
+  header->gc_flags &= ~__YO_GC_TRACKED;
+}`
+  );
+  // Bacon-Rajan synchronous cycle collection (incremental possible-roots path +
+  // thorough full-heap fallback). Colors reuse gc_mark: UNMARKED=black (in use),
+  // CANDIDATE=purple (buffered candidate), TRIAL_DELETED=gray, GARBAGE=white,
+  // LIVE=gathered-for-free sentinel. See issues/yo-gc-full-heap-scan-bottleneck.md.
+  em.emit_string_line(
+    `// Bacon-Rajan: buffer a possible cycle root (decremented to non-zero).
+static void __yo_gc_add_root(void* ptr) {
+  __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
+  // Flag check BEFORE the thread-local read: already-buffered only needs a
+  // recolor, and on Darwin every _Thread_local read is a _tlv_get_addr call.
+  if (h->gc_flags & __YO_GC_BUFFERED) { h->gc_mark = __YO_GC_CANDIDATE; return; }
+  __yo_thread_gc_state_t* gc = __yo_current_thread_gc;  // single TLS read
+  if (gc == NULL) return;
+  h->gc_flags |= __YO_GC_BUFFERED;
+  h->gc_mark = __YO_GC_CANDIDATE;
+  h->roots_next = gc->possible_roots;
+  h->roots_prev = NULL;
+  if (gc->possible_roots != NULL) {
+    gc->possible_roots->roots_prev = h;
+  }
+  gc->possible_roots = h;
+  gc->possible_roots_count++;
+  // Incremental collection trigger. The possible-roots count only grows here,
+  // so the threshold can only be crossed here — checking it on every tracked
+  // decrement (as before) was pure overhead. decr_rc never calls add_root
+  // while collecting (tracked decrements are skipped), so the guard is
+  // belt-and-braces for any other caller.
+  if (!__yo_gc_collecting && gc->possible_roots_count >= __yo_gc_collect_threshold) {
+    __yo_gc_collect_incremental();
+  }
+}
+
+// Bacon-Rajan: unlink a possible root (O(1), called at free or during collection).
+static void __yo_gc_remove_root(void* ptr) {
+  __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
+  if (__yo_current_thread_gc == NULL) return;
+  if (!(h->gc_flags & __YO_GC_BUFFERED)) return;
+  if (h->roots_prev != NULL) h->roots_prev->roots_next = h->roots_next;
+  else __yo_current_thread_gc->possible_roots = h->roots_next;
+  if (h->roots_next != NULL) h->roots_next->roots_prev = h->roots_prev;
+  h->roots_next = NULL;
+  h->roots_prev = NULL;
+  h->gc_flags &= ~__YO_GC_BUFFERED;
+  __yo_current_thread_gc->possible_roots_count--;
+}
+
+// MarkGray: color the subgraph gray, trial-decrementing internal (tracked) refs.
+static void __yo_gc_mark_gray(__yo_ref_header_t* s);
+static void __yo_gc_mark_gray_visitor(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
+  if (!(h->gc_flags & __YO_GC_TRACKED)) return;
+  if (h->ref_count > 0) h->ref_count--;
+  __yo_gc_mark_gray(h);
+}
+static void __yo_gc_mark_gray(__yo_ref_header_t* s) {
+  if (s->gc_mark == __YO_GC_TRIAL_DELETED) return;
+  s->gc_mark = __YO_GC_TRIAL_DELETED;
+  if (s->traverse_fn) s->traverse_fn(s, __yo_gc_mark_gray_visitor);
+}
+
+// ScanBlack: a live object — restore the trial decrements over its subgraph.
+static void __yo_gc_scan_black(__yo_ref_header_t* s);
+static void __yo_gc_scan_black_visitor(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
+  if (!(h->gc_flags & __YO_GC_TRACKED)) return;
+  h->ref_count++;
+  if (h->gc_mark != __YO_GC_UNMARKED) __yo_gc_scan_black(h);
+}
+static void __yo_gc_scan_black(__yo_ref_header_t* s) {
+  s->gc_mark = __YO_GC_UNMARKED;
+  if (s->traverse_fn) s->traverse_fn(s, __yo_gc_scan_black_visitor);
+}
+
+// Scan: gray object with RC>0 is live (ScanBlack); otherwise it is white garbage.
+static void __yo_gc_scan(__yo_ref_header_t* s);
+static void __yo_gc_scan_visitor(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_gc_scan((__yo_ref_header_t*)ptr);
+}
+static void __yo_gc_scan(__yo_ref_header_t* s) {
+  if (s->gc_mark != __YO_GC_TRIAL_DELETED) return;
+  if (s->ref_count > 0) {
+    __yo_gc_scan_black(s);
+  } else {
+    s->gc_mark = __YO_GC_GARBAGE;
+    if (s->traverse_fn) s->traverse_fn(s, __yo_gc_scan_visitor);
+  }
+}
+
+// GatherWhite: collect the white subgraph into the scratch array (do NOT free yet,
+// so a member's dispose never dereferences an already-freed sibling).
+static void __yo_gc_gather_white(__yo_ref_header_t* s);
+static void __yo_gc_gather_white_visitor(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_gc_gather_white((__yo_ref_header_t*)ptr);
+}
+static void __yo_gc_gather_white(__yo_ref_header_t* s) {
+  if (!(s->gc_flags & __YO_GC_TRACKED)) return;
+  if (s->gc_mark != __YO_GC_GARBAGE) return;
+  s->gc_mark = __YO_GC_LIVE; // gathered sentinel (stops re-visit)
+  __yo_thread_gc_state_t* gc = __yo_current_thread_gc;
+  if (gc->gc_white_count == gc->gc_white_cap) {
+    size_t ncap = gc->gc_white_cap == 0 ? 64 : gc->gc_white_cap * 2;
+    gc->gc_white = (__yo_ref_header_t**)realloc(gc->gc_white, ncap * sizeof(__yo_ref_header_t*));
+    gc->gc_white_cap = ncap;
+  }
+  gc->gc_white[gc->gc_white_count++] = s;
+  if (s->traverse_fn) s->traverse_fn(s, __yo_gc_gather_white_visitor);
+}
+
+// INCREMENTAL collection (Bacon-Rajan): processes ONLY the possible-roots buffer
+// and the subgraph reachable from it. Auto-trigger path (the compiler's hot path).
+// Adaptive frequency: a pass that reclaims nothing grows the trigger threshold x4
+// (capped) so a dense, cycle-poor heap stops thrashing; a productive pass resets to
+// the floor. Cycles formed by a MOVE into a self/child field (codegen elides the
+// incr+decr, so no PossibleRoot event) are reclaimed by the full collector below.
+static void __yo_gc_collect_incremental() {
+  __yo_thread_gc_state_t* gc = __yo_current_thread_gc;
+  if (gc == NULL || gc->possible_roots == NULL) return;
+  __yo_gc_collecting = 1;
+
+  for (__yo_ref_header_t* s = gc->possible_roots; s != NULL; s = s->roots_next) {
+    if (s->gc_mark == __YO_GC_CANDIDATE) __yo_gc_mark_gray(s);
+  }
+  for (__yo_ref_header_t* s = gc->possible_roots; s != NULL; s = s->roots_next) {
+    __yo_gc_scan(s);
+  }
+  gc->gc_white_count = 0;
+  while (gc->possible_roots != NULL) {
+    __yo_ref_header_t* root = gc->possible_roots;
+    __yo_gc_remove_root(root);
+    __yo_gc_gather_white(root);
+  }
+  size_t nwhite = gc->gc_white_count;
+  for (size_t i = 0; i < nwhite; i++) {
+    if (gc->gc_white[i]->dispose_fn) gc->gc_white[i]->dispose_fn(gc->gc_white[i]);
+  }
+  for (size_t i = 0; i < nwhite; i++) {
+    __yo_gc_unregister(gc->gc_white[i]);
+    __yo_free(gc->gc_white[i]);
+  }
+  gc->gc_white_count = 0;
+  __yo_gc_collecting = 0;
+
+  if (__yo_gc_collect_threshold != (size_t)-1) {
+    // Heap-PROPORTIONAL trigger: collect again only once the possible-roots buffer
+    // grows to ~the live-object count, so on a large heap collections stay rare
+    // (each is ~O(heap)) while memory stays bounded (≈2x live). A pass that
+    // reclaims nothing backs off a further ×4 (cycle-poor workload); the floor is
+    // __yo_gc_min_threshold (or the env-pinned value).
+    size_t base = gc->tracked_count;
+    if (base < __yo_gc_min_threshold) base = __yo_gc_min_threshold;
+    if (nwhite == 0) base = (base < (((size_t)-1) / 4)) ? base * 4 : ((size_t)-1) / 2;
+    __yo_gc_collect_threshold = base;
+  }
+}
+
+// Full-heap trial-deletion visitor (for the thorough collector below).
+static void __yo_gc_trial_delete_visitor(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  if (!(header->gc_flags & __YO_GC_TRACKED)) return;
+  if (header->ref_count > 0) header->ref_count--;
+}
+static void __yo_gc_scan_restore_visitor(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  if (!(header->gc_flags & __YO_GC_TRACKED)) return;
+  header->ref_count++;
+  if (header->gc_mark == __YO_GC_GARBAGE) {
+    header->gc_mark = __YO_GC_UNMARKED;
+    if (header->traverse_fn) header->traverse_fn(ptr, __yo_gc_scan_restore_visitor);
+  }
+}
+
+// THOROUGH collection: full-heap trial-deletion mark-sweep over ALL tracked
+// objects. O(all tracked) — NOT the auto path; backs explicit Gc.collect() and
+// reclaims cycles the incremental path cannot see. Clears the possible-roots
+// buffer first (it supersedes incremental bookkeeping).
+static void __yo_gc_collect() {
+  __yo_thread_gc_state_t* gc = __yo_current_thread_gc;
+  if (gc == NULL) return;
+  while (gc->possible_roots != NULL) {
+    __yo_gc_remove_root(gc->possible_roots);
+  }
+  __yo_ref_header_t* head = gc->tracked_objects;
+  if (head == NULL) return;
+  __yo_gc_collecting = 1;
+
+  for (__yo_ref_header_t* obj = head; obj != NULL; obj = obj->gc_next) obj->gc_mark = __YO_GC_CANDIDATE;
+  for (__yo_ref_header_t* obj = head; obj != NULL; obj = obj->gc_next) {
+    if (obj->traverse_fn) obj->traverse_fn(obj, __yo_gc_trial_delete_visitor);
+  }
+  for (__yo_ref_header_t* obj = head; obj != NULL; obj = obj->gc_next) {
+    obj->gc_mark = (obj->ref_count == 0) ? __YO_GC_GARBAGE : __YO_GC_LIVE;
+  }
+  for (__yo_ref_header_t* obj = head; obj != NULL; obj = obj->gc_next) {
+    if (obj->gc_mark == __YO_GC_LIVE) {
+      obj->gc_mark = __YO_GC_UNMARKED;
+      if (obj->traverse_fn) obj->traverse_fn(obj, __yo_gc_scan_restore_visitor);
+    }
+  }
+  for (__yo_ref_header_t* obj = head; obj != NULL; obj = obj->gc_next) {
+    if (obj->gc_mark == __YO_GC_GARBAGE && obj->dispose_fn) obj->dispose_fn(obj);
+  }
+  __yo_ref_header_t* current = head;
+  __yo_ref_header_t* prev = NULL;
+  while (current != NULL) {
+    __yo_ref_header_t* next = current->gc_next;
+    if (current->gc_mark == __YO_GC_GARBAGE) {
+      if (prev == NULL) gc->tracked_objects = next; else prev->gc_next = next;
+      if (next != NULL) next->gc_prev = prev;
+      gc->tracked_count--;
+      __yo_free(current);
+      current = next;
+    } else {
+      current->gc_mark = __YO_GC_UNMARKED;
+      prev = current;
+      current = next;
+    }
+  }
+  __yo_gc_collecting = 0;
+}
+
+static size_t __yo_gc_tracked_count() {
+  if (__yo_current_thread_gc == NULL) return 0;
+  return __yo_current_thread_gc->tracked_count;
+}`
+  );
+  // Thread cleanup.
+  em.emit_string_line(
+    `// Clean up thread-local GC state
+static void __yo_cleanup_thread_gc() {
+  __yo_mutex_lock(&__yo_thread_list_mutex);
+
+  __yo_thread_gc_state_t* my_gc_state = __yo_current_thread_gc;
+
+  if (my_gc_state == NULL) {
+    __yo_mutex_unlock(&__yo_thread_list_mutex);
+    return;
+  }
+
+  GC_DEBUG("CleanupThread: tracked_count=%zu\\n", my_gc_state->tracked_count);
+
+  // Force dispose all remaining tracked objects — in TWO passes, like the
+  // collectors. dispose_fn side effects can __yo_decr_rc other tracked
+  // objects; the collecting flag makes those decrements skip, but the skip
+  // check itself READS the target's header (gc_flags), which is only safe
+  // while every tracked header is still allocated. The old single-pass walk
+  // (dispose + free per object) made later disposes read headers the walk
+  // had already freed — a use-after-free, and a double free / glibc
+  // "corrupted double-linked list" when the allocator had reused the chunk
+  // and TRACKED appeared cleared. Left set: the thread is exiting, and any
+  // later decrement on tracked memory would be use-after-free.
+  __yo_gc_collecting = 1;
+  // Pass 1: dispose every tracked object (all headers still alive).
+  for (__yo_ref_header_t* obj = my_gc_state->tracked_objects; obj != NULL; obj = obj->gc_next) {
+    GC_DEBUG("CleanupThread: Disposing object ptr=%p\\n", obj);
+    if (obj->dispose_fn) {
+      obj->dispose_fn(obj);
+    }
+  }
+  // Pass 2: free them all.
+  __yo_ref_header_t* current = my_gc_state->tracked_objects;
+  while (current != NULL) {
+    __yo_ref_header_t* next = current->gc_next;
+    GC_DEBUG("CleanupThread: Freeing object ptr=%p\\n", current);
+    __yo_free(current);
+    current = next;
+  }
+
+  // Remove from global list
+  if (my_gc_state->prev != NULL) {
+    my_gc_state->prev->next = my_gc_state->next;
+  } else {
+    __yo_all_thread_gcs = my_gc_state->next;
+  }
+
+  if (my_gc_state->next != NULL) {
+    my_gc_state->next->prev = my_gc_state->prev;
+  }
+
+  __yo_mutex_unlock(&__yo_thread_list_mutex);
+
+  __yo_free(my_gc_state);
+  __yo_current_thread_gc = NULL;
+}`
+  );
+  // Process cleanup (inner Windows/POSIX branch for the cleanup-key teardown).
+  em.emit_string_line(
+    `// Process cleanup
+static void __yo_process_cleanup(void) {
+  GC_DEBUG("ProcessCleanup: Called\\n");
+
+  if (__yo_current_thread_gc != NULL) {
+    __yo_gc_collect();
+    __yo_cleanup_thread_gc();
+  }
+`
+  );
+  if(is_target_windows(ti), {
+    em.emit_string_line(
+      `  if (__yo_thread_cleanup_key != TLS_OUT_OF_INDEXES) {
+    TlsFree(__yo_thread_cleanup_key);
+    __yo_thread_cleanup_key = TLS_OUT_OF_INDEXES;
+  }`
+    );
+  }, {
+    em.emit_string_line(
+      `  if (__yo_thread_cleanup_key != (pthread_key_t)(-1)) {
+    pthread_key_delete(__yo_thread_cleanup_key);
+  }`
+    );
+  });
+  em.emit_string_line(`}`);
+  if(is_target_windows(ti), {
+    em.emit_string_line(
+      `static INIT_ONCE __yo_process_cleanup_once = INIT_ONCE_STATIC_INIT;
+static BOOL CALLBACK __yo_process_cleanup_init_callback(PINIT_ONCE InitOnce, PVOID Parameter, PVOID *Context) {
+  (void)InitOnce; (void)Parameter; (void)Context;
+  InitializeCriticalSection(&__yo_thread_list_mutex);
+  atexit(__yo_process_cleanup);
+  return TRUE;
+}
+
+static void __yo_init_process_cleanup(void) {
+  InitOnceExecuteOnce(&__yo_process_cleanup_once, __yo_process_cleanup_init_callback, NULL, NULL);
+}`
+    );
+  }, {
+    em.emit_string_line(
+      `static void __yo_init_process_cleanup(void) {
+  static bool cleanup_initialized = false;
+  if (cleanup_initialized) return;
+  cleanup_initialized = true;
+  atexit(__yo_process_cleanup);
+}`
+    );
+  });
+});
+// ---------------------------------------------------------------------------
+// generateAtomicGCRuntimeFunctions (dispatcher)
+// ---------------------------------------------------------------------------
+/// Emit the borrow primitives + the RC runtime. Dispatches to the FULL cyclic-GC
+/// runtime when needs_cycle_gc, else the lightweight (type-tag) path. Mirrors
+/// `generateAtomicGCRuntimeFunctions`.
+generate_atomic_gc_runtime_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+  generate_borrow_runtime_primitives(context);
+  if(context.base.needs_cycle_gc, {
+    generate_full_gc_runtime_functions(context);
+  }, {
+    generate_lightweight_rc_functions(context);
+  });
+});
+export(
+  collect_unwind_value_ctypes,
+  emit_unwind_value_buffer,
+  generate_borrow_runtime_primitives,
+  generate_lightweight_rc_functions,
+  generate_full_gc_runtime_functions,
+  generate_atomic_gc_runtime_functions
+);

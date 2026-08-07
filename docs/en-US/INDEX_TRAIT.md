@@ -22,14 +22,14 @@ The `Index` trait is defined in the prelude and is available to all Yo programs:
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(ref(self) : Self, idx : Idx) -> *(Self.Output))
+    index : (fn(inout(self) : Self, idx : Idx) -> *(Self.Output))
   )
 );
 ```
 
 - **`Idx`**: The index type (e.g., `usize`, or a custom key type).
 - **`Output`**: An associated type specifying the element type returned.
-- **`index`**: A method that takes `self` by `ref` (so it can return a pointer into the caller's storage) and an index, returning a **pointer** to the element.
+- **`index`**: A method that takes `self` by `inout` (so it can return a pointer into the caller's storage) and an index, returning a **pointer** to the element.
 
 The `index` method returns `*(Output)` (a pointer), which is automatically dereferenced when used in value context. This design enables both reading and writing through the same trait:
 
@@ -53,7 +53,7 @@ MyArray :: struct(data0: i32, data1: i32, data2: i32);
 
 impl(MyArray, Index(usize)(
   Output : i32,
-  index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
+  index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
     cond(
       (idx == usize(0)) => &(self.data0),
       (idx == usize(1)) => &(self.data1),
@@ -71,15 +71,15 @@ assert((arr(usize(1)) == i32(20)), "should be 20");
 
 ### Generic Implementation
 
-For generic types like `ArrayList(T)`, use `forall` in the impl:
+For generic types like `ArrayList(T)`, use `generic` in the impl:
 
 ```rust
-impl(forall(T : Type), ArrayList(T), Index(usize)(
+impl(generic(T : Type), ArrayList(T), Index(usize)(
   Output : T,
-  index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))({
+  index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
     assert((idx < self._length), "ArrayList: index out of bounds");
     match(self._ptr,
-      .Some(_ptr) => (_ptr &+ idx),
+      .Some(_ptr) => (_ptr.add(idx)),
       .None => panic("ArrayList: index on empty list")
     )
   })

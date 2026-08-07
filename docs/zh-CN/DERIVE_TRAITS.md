@@ -186,9 +186,9 @@ derive(Point, MyEq(Point));
 `DeriveContext`（定义在 `std/prelude.yo` 中）提供：
 
 - `target : Expr` — 用于拼接的原始目标类型表达式
-- `forall_params : Option(Expr)` — 来自 derive 调用的可选 forall 子句
+- `forall_params : Option(Expr)` — 来自 derive 调用的可选 generic 子句
 - `where_clause : Option(Expr)` — 可选 where 子句
-- `make_impl(trait_body : Expr) -> Expr` — 构造完整的 `impl(...)` 表达式，自动包含 forall/where
+- `make_impl(trait_body : Expr) -> Expr` — 构造完整的 `impl(...)` 表达式，自动包含 generic/where
 
 ### 枚举的派生规则
 
@@ -211,19 +211,19 @@ info.is_enum() => {
 }
 ```
 
-### 泛型 derive 与 forall/where
+### 泛型 derive 与 generic/where
 
-派生规则支持使用 `forall` 和 `where` 的泛型类型：
+派生规则支持使用 `generic` 和 `where` 的泛型类型：
 
 ```rust
 Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(first : A, second : B)
 );
 
-derive(forall(T1, T2), Pair(T1, T2), where((T1 <: MyEq(T1)), (T2 <: MyEq(T2))), MyEq(Pair(T1, T2)));
+derive(generic(T1, T2), Pair(T1, T2), where((T1 <: MyEq(T1)), (T2 <: MyEq(T2))), MyEq(Pair(T1, T2)));
 ```
 
-`DeriveContext.make_impl` 方法会自动在生成的 impl 中包含 forall/where 子句。
+`DeriveContext.make_impl` 方法会自动在生成的 impl 中包含 generic/where 子句。
 
 ### 规则查找顺序
 

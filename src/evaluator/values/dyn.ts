@@ -37,7 +37,7 @@ import {
   isBoxedType,
   isDynType,
   isFunctionType,
-  isObjectType,
+  isReferenceStructType,
   isSomeType,
 } from "../../types/guards";
 import { typeToString } from "../../types/utils";
@@ -126,7 +126,7 @@ function createBoxedType(
       context,
     });
 
-  if (!isTypeValue(boxTypeValue) || !isObjectType(boxTypeValue.value)) {
+  if (!isTypeValue(boxTypeValue) || !isReferenceStructType(boxTypeValue.value)) {
     throw new Error(`Box type constructor did not return a type value`);
   }
 
@@ -249,7 +249,7 @@ export function evaluateDynValue({
 
   // Auto-box non-object types so users don't need to call box() explicitly
   if (
-    !isObjectType(valueType) &&
+    !isReferenceStructType(valueType) &&
     !(isSomeType(valueType) && typeImplementsFuture(valueType))
   ) {
     // Create boxed type

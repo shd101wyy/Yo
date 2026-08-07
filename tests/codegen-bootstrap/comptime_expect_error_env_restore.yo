@@ -1,0 +1,30 @@
+// Regression: `comptime_expect_error`'s EXPECTED error propagates (unwinds)
+// out of the argument eval, skipping every env/ctx restore on the way — the
+// expected-error handler's parameter frame stayed PUSHED on the module env,
+// so a LATER `->` effect handler in the same module resolved its own params
+// into the stale frame and was rejected with "A regular function (using ->)
+// cannot capture outer runtime variables" (whole-body FTT → clang "expected
+// expression"). comptime_expect_error must snapshot/restore env frame depth
+// and the ctx mode fields around the arg eval (TS needs no restore: persistent
+// envs + spread-copied contexts). See issues (Bug 2, algebraic_effects batch).
+open(import("std/string"));
+open(import("std/fmt"));
+_(assert : assert) :: import("std/assert");
+// The param name `msg` deliberately matches the later real handler's param.
+comptime_expect_error((escaped_handler : (ctl(msg : String) -> i32)) = (msg -> begin(unwind(i32(0)), ())));
+main :: (fn() -> unit)({
+  Raise :: (ctl(msg : String) -> i32);
+  safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
+    cond((y == 0) => raise(`div-by-zero`), true => (x / y))
+  );
+  raise_const :: (fn() -> i64)(
+    begin(
+      (raise : Raise) = (msg -> begin(println(msg), unwind(i64(42)), ())),
+      i64(safe_divide(1, 0, raise))
+    )
+  );
+  r := raise_const();
+  assert(r == i64(42));
+  println(`ok ${r.to_string()}`);
+});
+export(main);

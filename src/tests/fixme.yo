@@ -1,26 +1,15 @@
-open(import("std/collections/array_list"));
-
-g_outer := ArrayList(ArrayList(i32)).new();
-
-grow_global :: (fn() -> unit)({
-  inner := match(g_outer.get(usize(0)), .Some(x) => x, .None => ArrayList(i32).new());
-  i := usize(0);
-  while(i < usize(64), {
-    inner.push(i32(0));
-    i = (i + usize(1));
-  });
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+g_seen := ArrayList(ArrayList(i32)).new();
+mk :: (fn() -> ArrayList(i32))({
+  l := ArrayList(i32).new();
+  g_seen.push(l);
+  l
 });
-
-bump :: (fn(ref(v) : i32) -> unit)({
-  grow_global();
-  v = i32(99);
-});
-
+discard_stmt_body :: (fn() -> unit)(___ := mk());
 main :: (fn() -> unit)({
-  xs := ArrayList(i32).new();
-  xs.push(i32(41));
-  g_outer.push(xs);
-  bump(xs(usize(0)));
+  discard_stmt_body();
+  survivor := match(g_seen.get(usize(0)),.Some(l) => l,.None => ArrayList(i32).new());
+  println(`rc=${rc(survivor)}`);
 });
-
 export(main);

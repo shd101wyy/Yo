@@ -31,43 +31,51 @@ open(import("std/fmt"));
 // ---------------------------------------------------------------------------
 // Build options  (mirrors TypeScript BuildOptions interface)
 // ---------------------------------------------------------------------------
-BuildOptions :: object(
-  build_file : String,
-  target_triple : Option(String),
-  verbose : bool,
-  dry_run : bool,
-  list_steps : bool,
-  steps : ArrayList(String),
-  defines : HashMap(String, String),
-  c_compiler : Option(String),
-  sysroot : Option(String),
-  summary : bool
+BuildOptions :: ref(
+  struct(
+    build_file : String,
+    target_triple : Option(String),
+    verbose : bool,
+    dry_run : bool,
+    list_steps : bool,
+    steps : ArrayList(String),
+    defines : HashMap(String, String),
+    c_compiler : Option(String),
+    sysroot : Option(String),
+    summary : bool
+  )
 );
 // ---------------------------------------------------------------------------
 // DAG types
 // ---------------------------------------------------------------------------
 DAGNodeKind :: enum(Artifact, Test, Run, Step, Doc);
-DAGNode :: object(
-  name : String,
-  kind : DAGNodeKind,
-  depends_on : ArrayList(String)
+DAGNode :: ref(
+  struct(
+    name : String,
+    kind : DAGNodeKind,
+    depends_on : ArrayList(String)
+  )
 );
-StepResult :: object(
-  name : String,
-  kind : DAGNodeKind,
-  success : bool,
-  duration_ms : i64,
-  description : String
+StepResult :: ref(
+  struct(
+    name : String,
+    kind : DAGNodeKind,
+    success : bool,
+    duration_ms : i64,
+    description : String
+  )
 );
-ExecutionContext :: object(
-  registry : BuildRegistry,
-  project_dir : String,
-  c_compiler : String,
-  target_triple : Option(String),
-  sysroot : Option(String),
-  verbose : bool,
-  dry_run : bool,
-  summary : bool
+ExecutionContext :: ref(
+  struct(
+    registry : BuildRegistry,
+    project_dir : String,
+    c_compiler : String,
+    target_triple : Option(String),
+    sysroot : Option(String),
+    verbose : bool,
+    dry_run : bool,
+    summary : bool
+  )
 );
 // ---------------------------------------------------------------------------
 // Artifact output file name
@@ -342,7 +350,7 @@ compile_artifact :: (
       cmd.arg(String.from("--target"));
       cmd.arg(effective_target);
     });
-    if(ctx.c_compiler != String.from("clang"), {
+    if(ctx.c_compiler != "clang", {
       cmd.arg(String.from("--cc"));
       cmd.arg(ctx.c_compiler);
     });
@@ -788,9 +796,9 @@ print_steps :: (fn(registry : BuildRegistry) -> unit)({
   n := steps.len();
   while(i < n, {
     step := steps(i);
-    is_default := if(step.name == String.from("install"), " (default)", "");
+    is_default := if(step.name == "install", " (default)", "");
     println(`  ${step.name}${is_default}`);
-    if(step.description != String.from(""), {
+    if(step.description != "", {
       println(`    ${step.description}`);
     });
     i = (i + usize(1));

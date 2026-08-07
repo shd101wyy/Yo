@@ -8,8 +8,8 @@ Reference counting cannot reclaim cycles:
 
 ```rust
 // Create a cycle
-node_a := object(value: 1, next: .None);
-node_b := object(value: 2, next: .Some(node_a));
+node_a := ref(struct(value: 1, next: .None));
+node_b := ref(struct(value: 2, next: .Some(node_a)));
 node_a.next = .Some(node_b);  // Creates cycle: A → B → A
 
 // Drop external references
@@ -245,11 +245,11 @@ await task.send(x);  // Send COPY of x (value type)
 | Value structs (`struct(...)`)    | ✅ Yes    | Value type, copied              |
 | Tuples of value types            | ✅ Yes    | Value type, copied              |
 | Enums with value payloads        | ✅ Yes    | Value type, copied              |
-| `object(...)`                    | ❌ No     | Reference counted, thread-local |
+| `ref(struct(...))`               | ❌ No     | Reference counted, thread-local |
 | Closures                         | ❌ No     | May capture references          |
 | `*T` (pointers)                  | ❌ No     | Not safe across threads         |
 
-**Key Design Decision:** Reference types (`object(...)`) **never** cross thread boundaries. This means:
+**Key Design Decision:** Reference types (`ref(struct(...))`) **never** cross thread boundaries. This means:
 
 - Each thread's GC only tracks objects created on that thread
 - No cross-thread GC coordination needed
@@ -374,7 +374,7 @@ Compiler generates tracking code for cycle-forming types:
 
 ```rust
 // User code
-Node :: object(value: i32, next: Option(Node));
+Node :: ref(struct(value: i32, next: Option(Node)));
 
 // Generated tracking
 node := Node(42, .None);  // Calls __yo_gc_track(node)
@@ -382,17 +382,33 @@ node := Node(42, .None);  // Calls __yo_gc_track(node)
 
 ### Traverse Function Generation
 
-For each object type, compiler generates traverse function:
+Every cycle-forming object carries a `traverse_fn` in its header. The collector calls
+it during both trial deletion and restoration, passing a `visit` callback that must be
+applied to **every managed reference the object directly holds**. Missing an edge only
+ever leaks (conservative); visiting a wrong pointer is a use-after-free, so the
+generated traversal is built to be exact.
+
+The compiler generates this traversal **compositionally**. It descends inline through
+value structure — nested value structs, value enums (including `Option`), tuples, and
+inline arrays — and stops at each managed handle, which it visits:
 
 ```c
-// Generated for Node
+// Auto-derived for Node :: ref(struct(value : i32, next : Option(Node)))
 void Node_traverse(void* obj, void (*visit)(void*)) {
     Node* node = (Node*)obj;
-    if (node->next.tag == SOME) {
-        visit(node->next.value);  // Visit referenced Node
+    // `Option(Node)` is nullable-pointer-optimized: visit the bare pointer when set.
+    if (node->next != NULL) {
+        visit(node->next);  // the directly-held managed Node
     }
 }
 ```
+
+This per-field descent is exactly the **auto-derived `Trace` behaviour** (see
+[The `Trace` Trait](#the-trace-trait)). It works for every struct and enum because
+their children live in named fields the compiler can see. It does **not** work for
+containers like `ArrayList` or `HashMap`, whose elements live in a heap buffer behind a
+raw pointer the field walk cannot follow — those types provide a hand-written `Trace`
+impl, and their `traverse_fn` delegates to it.
 
 ### Object Registration
 
@@ -417,6 +433,92 @@ if (__yo_gc_state.alloc_count >= __YO_GC_THRESHOLD) {
 
 Since spawned tasks are completely isolated (no shared memory), there's no need to track "stealability" - each thread simply manages its own objects independently.
 
+## The `Trace` Trait
+
+Cycle collection rests on one contract: the collector must be able to enumerate the
+managed references each object holds. That contract is the `Trace` trait, defined in
+`std/prelude.yo`:
+
+```rust
+Trace :: trait(
+  id := "Trace",
+  trace : (fn(self : Self, tracer : GcTracer) -> unit),
+  where(Self <: Rc)
+);
+```
+
+A `trace` implementation calls `tracer.visit(...)` once per outgoing edge. The compiler
+turns each type's `trace` into the `traverse_fn` stored in its object header.
+
+### Auto-derived for structs, enums, and value types
+
+You almost never write a `Trace` impl. The compiler **auto-derives** one for every
+reference type whose children sit in named fields it can see:
+
+- `ref(struct(...))` — visits each managed field; descends inline through value-typed
+  fields.
+- `ref(enum(...))` — switches on the tag and visits the active variant's managed fields.
+- `Option`, tuples, nested value structs/enums, and inline arrays — traversed inline as
+  part of their containing field.
+
+So an `Option(Node)` field, a `(Node, i32)` tuple field, or a value struct holding a
+`Node` all just work — no annotation, no impl.
+
+### Hand-implemented for buffer-backed containers
+
+The only types that need a hand-written `Trace` impl are containers that store their
+elements in a heap buffer reached through a raw pointer (`ArrayList`, `HashMap`, …). The
+auto-derived field walk stops at the raw buffer pointer and never reaches the elements,
+so the container must trace each element slot itself. `ArrayList` (in
+`std/collections/array_list.yo`):
+
+```rust
+impl(generic(T : Type), ArrayList(T),
+  Trace(
+    trace : (fn(self : Self, tracer : GcTracer) -> unit)({
+      match(
+        self._ptr,
+        .Some(base) => {
+          (i : usize) = usize(0);
+          while(i < self._length, {
+            tracer.visit(base.add(i));  // pass the element's SLOT POINTER
+            i = (i + usize(1));
+          });
+        },
+        .None => ()
+      );
+    })
+  )
+);
+```
+
+### `GcTracer` and the slot-pointer rule
+
+`GcTracer` is an opaque handle that carries the collector's edge-registration callback:
+
+```rust
+GcTracer :: newtype(_callback : *(u8));
+
+// (in `impl(GcTracer, ...)`)
+visit : (fn(generic(T : Type), self : Self, slot : *(T)) -> unit)
+```
+
+`visit` takes a **pointer to where the child lives** (a struct field or a buffer slot),
+never the child by value. This is the critical correctness rule: `visit` reads `*slot`
+**without touching its reference count**, registers the edge if it is a managed handle,
+and recurses inline through value structure otherwise. Passing the element by value
+would dup it and then drop it when `trace` returns — freeing a live, RC-1 element in the
+middle of a collection (a use-after-free). Passing the slot pointer keeps tracing
+reference-count-neutral, matching the auto-derived `visit(&obj->field)` form.
+
+When implementing `Trace` for a new container, the rules are simply:
+
+1. Call `tracer.visit(slot)` for **every** element slot — missing one leaks; there is no
+   crash risk.
+2. Always pass a **pointer to the slot**, never the element by value.
+3. You do not recurse into the elements yourself — `visit` handles whatever a slot holds
+   (a managed handle, a value struct, a nested `Option`, …) compositionally.
+
 ## Comparison with Other Approaches
 
 | Approach                              | Pause Time   | Cross-Thread         | Complexity  | Performance        |
@@ -428,6 +530,107 @@ Since spawned tasks are completely isolated (no shared memory), there's no need 
 | **Java (tracing GC)**                 | O(heap)      | Yes                  | High        | Variable           |
 | **Go (mark-sweep)**                   | O(heap)      | Yes                  | High        | 10-100ms STW       |
 | **Yo (QuickJS-style trial deletion)** | O(N/threads) | No (isolated)        | Low         | 0.5-5ms per thread |
+
+## Performance: adaptive Bacon-Rajan (incremental + full-heap fallback)
+
+> **Status:** IMPLEMENTED. The trial-deletion collector above is now the
+> _thorough_ path (explicit `Gc.collect()`); the auto-trigger uses an incremental
+> Bacon-Rajan collector with adaptive frequency. With GC on by default, the
+> self-compile-class workload (`check ./std`) runs in ~5.7s (≈ GC-disabled, and
+> faster than the TS host's 17s) instead of stalling.
+
+### When the trial-deletion collector becomes a bottleneck
+
+`__yo_gc_collect` walks the whole `tracked_objects` list across all of its phases
+(mark-candidates → trial-delete-traverse → classify → scan-restore → dispose+free)
+— i.e. **O(all tracked objects)** per collection, triggered whenever
+`tracked_count` reaches the adaptive threshold (256, growing to 2× live). That is
+fine when collections reclaim a meaningful fraction of the heap, but it degrades
+badly when **most tracked objects are live and there are few cycles**: every
+collection re-scans the entire live graph to reclaim almost nothing.
+
+The compiler is the worst case — compiling a large program builds millions of
+live, RC-managed AST / type / value / environment nodes with very few cycles.
+Profiling the self-compile showed the process **stalled at ~8.7% CPU**, dominated
+by `__yo_gc_trial_delete_visitor` / `traverse` / `__yo_gc_collect`. Disabling the
+collector took the same run to **100% CPU** (no GC stalls), confirming the
+collector — not the evaluator — was the throttle.
+
+### Stopgap: `YO_GC_THRESHOLD`
+
+A one-time env read (`__yo_init_thread_gc`, mirrors `YO_MAIN_STACK_MB`) lets a run
+raise or disable auto-collection:
+
+- **unset** — default adaptive 256 collector (unchanged).
+- **`N`** — set the live threshold and adaptive floor to `N`.
+- **`0`** — disable auto-collection (threshold = `SIZE_MAX`). Use for short-lived,
+  allocation-heavy runs (e.g. the compiler) where cycles, if any, are reclaimed
+  by the OS at process exit anyway.
+
+### Peak-memory knob: `YO_GC_FULL_PCT`
+
+The full-heap collector re-arms its trigger at a multiple of the **post-collection
+live count** — by default `200` (2×-live), which bounds the tracked set to ~2× the
+live working set between full scans. On a memory-constrained box a workload with a
+large live set (e.g. the self-hosted compiler evaluating its own modules) can have
+its 2×-live peak exceed physical RAM, causing swap-thrash or an OOM kill. A second
+one-time env read (same `__yo_init_thread_gc` site) tunes this factor:
+
+- **unset** — default `200` (2×-live), unchanged.
+- **`N` (> 100)** — re-arm the full scan at `N`% of live. Lower values (e.g. `130`,
+  `115`) cap peak memory at the cost of more frequent — and individually
+  ~`O(heap)` — full scans. Values ≤ 100 are ignored (a factor ≤ 1 cannot make
+  forward progress; the trigger always advances by at least one object).
+
+This trades throughput for a lower memory ceiling; it cannot shrink the **live**
+set itself, so a workload whose live working set alone exceeds available RAM still
+needs a larger machine or a smaller live footprint.
+
+### The fix: adaptive Bacon-Rajan possible-roots (auto) + full-heap (explicit)
+
+The auto-trigger uses **Bacon-Rajan synchronous cycle collection**
+(`__yo_gc_collect_incremental`). The key observation: only an object whose
+reference count is **decremented to a non-zero value** can be the root of a
+garbage _cycle_ (a "possible root"). So instead of scanning every tracked object,
+the incremental collector processes only the **possible-roots buffer** and the
+subgraph reachable from it:
+
+1. **Buffer candidates in `__yo_decr_rc`.** When `--ref_count` leaves it `> 0`,
+   add the object to a `possible_roots` list (an intrusive doubly-linked list so
+   removal at free is O(1) and no dangling pointer can survive in the buffer) and
+   color it _purple_. Acyclic garbage (RC → 0) is still freed eagerly, exactly as
+   today.
+2. **Trigger** a collection on `possible_roots` length (not `tracked_count`).
+3. **Collect** over the roots only, using the classic colors (purple = buffered
+   candidate, gray = trial-deleted, white = garbage, black = live):
+   - **MarkGray** each purple root, trial-decrementing internal references over
+     its reachable subgraph.
+   - **Scan** each root: a gray object with RC > 0 is live → **ScanBlack**
+     (restore counts); otherwise it is white (cycle garbage).
+   - **CollectWhite** frees the white subgraph (dispose then free, in two passes
+     so a member's traversal never touches an already-freed sibling), then clears
+     the buffer.
+
+Each incremental collection is **O(possible-roots + their reachable subgraph)**
+rather than O(all tracked). Because a cycle collection still traverses that
+reachable subgraph — which on a densely-connected, mostly-live heap (the compiler)
+is ≈O(heap) — the trigger threshold is **adaptive**: a pass that reclaims nothing
+grows it ×4 (capped), so dense cycle-poor workloads stop thrashing; a productive
+pass resets to the floor.
+
+**Move-formed cycles.** A cycle created purely by _moving_ a value into its own
+field (`a.child = .Some(a)` where the codegen elides the incr+decr) produces no
+"possible root" event, so the incremental collector cannot see it. The **explicit
+`Gc.collect()`** path (`__yo_gc_collect`) remains a full-heap trial-deletion scan
+and reclaims those; it also runs on demand. So the design is a hybrid: cheap
+incremental on the hot (auto) path, thorough full-heap on the explicit path.
+
+This keeps the collector on by default with no env override (the `YO_GC_THRESHOLD`
+knob remains as a floor/disable). It is correctness-critical (it touches the free
+path) and is validated against the cycle-collector tests
+(`tests/cycle_collector.test.yo`, `tests/codegen-bootstrap/*_self_cycle.yo`,
+`ref_enum_cycle.yo`) — 16/16 plus the `arc` / `closure_capture_rc_leak` /
+`continue_rc_cleanup` / `ref_enum` suites — under AddressSanitizer.
 
 ## Summary
 

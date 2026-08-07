@@ -57,7 +57,7 @@ evaluate_anonymous_struct_value :: (
   // Validate: func must be Atom("_")
   func_expr := match(
     expr,
-    .FnCall(_, fb, _, _, _) => fb.*,
+    .FnCall(_, fb, _, _, _) => fb,
     .Atom(_, _) => {
       exn.throw(dyn(format_error_message(tok, String.from("evaluate_anonymous_struct_value: expected FnCall"), false,.None)));
       make_err_expr()
@@ -142,7 +142,7 @@ evaluate_anonymous_struct_value :: (
     ctx.self_type = Option(TypeValue).Some(prelim_ty);
     evaluated_arg := evaluate_expression(value_expr, cur_env, ctx);
     ctx.self_type = old_self;
-    set_expr_as_needs_to_call_dup(evaluated_arg, ctx);
+    set_expr_as_needs_to_call_dup(evaluated_arg, ctx, exn);
     // Extract info from expr_info_table
     arg_info := match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg)),
@@ -180,7 +180,8 @@ evaluate_anonymous_struct_value :: (
       is_comptime : false,
       default_value : Option(EvalValue).None,
       assigned_value : field_val_opt,
-      doc_comment : Option(String).None
+      doc_comment : Option(String).None,
+      is_effect_param : false
     );
     all_type_fields.push(yofield);
     // Annotate label expr if labeled
@@ -264,7 +265,7 @@ evaluate_anonymous_struct_value :: (
   func_info.value = Option(EvalValue).Some(struct_type_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(func_expr), func_info);
   // Add struct type to env as a comptime variable named by struct_id
-  ___ := add_variable_to_env(
+  add_variable_to_env(
     cur_env,
     struct_id.clone(),
     meta_ty,

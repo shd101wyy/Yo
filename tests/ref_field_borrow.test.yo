@@ -1,4 +1,4 @@
-//! v4.1 (plans/BORROW_EXCLUSIVITY.md): `ref` is parameter-only, and a
+//! v4.1 (plans/archive/BORROW_EXCLUSIVITY.md): `ref` is parameter-only, and a
 //! ref ARGUMENT is a simple lvalue place. Covered here:
 //! - field places of locals / ref params are legal (read + write-through);
 //! - a chain through an intermediate OBJECT is rejected (its handle
@@ -8,13 +8,14 @@
 //!   callee could reassign the global);
 //! - a call may not receive the same object as both a ref-rooted
 //!   argument and an `own` argument.
+{ assert } :: import("std/assert");
 open(import("std/fmt"));
 open(import("std/string"));
 
-Holder :: object(s : String, n : i32);
-Wrapper :: object(inner : Holder);
+Holder :: ref(struct(s : String, n : i32));
+Wrapper :: ref(struct(inner : Holder));
 
-bump :: (fn(ref(v) : i32) -> unit)({
+bump :: (fn(inout(v) : i32) -> unit)({
   v = (v + i32(1));
 });
 
@@ -25,7 +26,7 @@ test("field of a local object passed to a ref param", {
 });
 
 test("String field write-through via a ref param", {
-  replace_s :: (fn(ref(v) : String, nv : String) -> unit)({
+  replace_s :: (fn(inout(v) : String, nv : String) -> unit)({
     v = nv;
   });
   h := Holder(s : String.from("hello"), n : i32(1));
@@ -49,7 +50,7 @@ test("value-struct field place", {
 // or any other argument could hold a handle to it.
 comptime_expect_error(
   nested_object_hop_with_root_rejected :: (fn() -> unit)({
-    soak :: (fn(ref(v) : i32, victim : Wrapper) -> unit)({
+    soak :: (fn(inout(v) : i32, victim : Wrapper) -> unit)({
       victim.inner = Holder(s : String.from("replaced"), n : i32(0));
       v = i32(99);
     });
@@ -97,7 +98,7 @@ test("whole module-level variable to a ref param", {
 // borrow is still in use.
 comptime_expect_error(
   ref_and_own_same_call :: (fn() -> unit)({
-    use_and_sink :: (fn(ref(x) : String, own(victim) : Holder) -> usize)(
+    use_and_sink :: (fn(inout(x) : String, own(victim) : Holder) -> usize)(
       x.len()
     );
     h := Holder(s : String.from("element-zero"), n : i32(1));
@@ -109,7 +110,7 @@ comptime_expect_error(
 // An ALIAS of the owner is caught too.
 comptime_expect_error(
   ref_and_own_alias_same_call :: (fn() -> unit)({
-    use_and_sink :: (fn(ref(x) : String, own(victim) : Holder) -> usize)(
+    use_and_sink :: (fn(inout(x) : String, own(victim) : Holder) -> usize)(
       x.len()
     );
     h := Holder(s : String.from("element-zero"), n : i32(1));
@@ -121,13 +122,46 @@ comptime_expect_error(
 
 // Positive: ref + own of DISTINCT objects in one call is fine.
 test("ref and own arguments of distinct objects are allowed", {
-  use_and_sink :: (fn(ref(x) : String, own(victim) : Holder) -> usize)(
+  use_and_sink :: (fn(inout(x) : String, own(victim) : Holder) -> usize)(
     x.len()
   );
   a := Holder(s : String.from("abcde"), n : i32(1));
   b := Holder(s : String.from("other"), n : i32(2));
   n := use_and_sink(a.s, b);
   assert(n == usize(5), "borrow read fine while a distinct object was consumed");
+});
+
+// Regression (issues/fixed/yo-self-own-param-double-drop-single-expr-body.md): an
+// own param of a SINGLE-EXPRESSION body must be released exactly once, AFTER
+// the body's read. yo-self shares the body node id with the tail expression
+// (TS clones a begin wrapper), and the scope-end drop attached there was
+// emitted by BOTH the body-level flush-first (before the read!) and the tail
+// call's post-emit flush — rc()==0 double-free (glibc tcache abort in CI).
+test("own param of a single-expression body is released exactly once", {
+  read_and_sink :: (fn(own(victim) : Holder) -> usize)(victim.s.len());
+  h := Holder(s : String.from("single-expr"), n : i32(3));
+  h2 := h;
+  assert(rc(h) == 2, "two handles before the sink call");
+  n := read_and_sink(h2);
+  assert(n == usize(11), "field read before the own release");
+  assert(rc(h) == 1, "own param released exactly once at scope end");
+});
+
+// Regression (issues/fixed/own-param-discard-leak.md): discarding an own
+// param via `___ := victim` must release the owned reference exactly once.
+// The body-context capture map used to record the fn's OWN parameters as
+// captures (src/evaluator/context.ts trackVariableUsage), so the scope-end
+// drop filter treated any referenced own param as closure-captured and
+// skipped its drop — the discard leaked the Holder and its String.
+test("discarding an own param via ___ := releases it exactly once", {
+  sink :: (fn(own(victim) : Holder) -> unit)({
+    ___ := victim;
+  });
+  h := Holder(s : String.from("discard-own"), n : i32(7));
+  h2 := h;
+  assert(rc(h) == 2, "two handles before the sink call");
+  sink(h2);
+  assert(rc(h) == 1, "own param's reference released by the discard");
 });
 
 // --- Indexed-element places: `xs(i)` as a ref argument ---
@@ -145,7 +179,7 @@ test("ref and own arguments of distinct objects are allowed", {
 // ref) and the container — rejected.
 comptime_expect_error(
   index_ref_with_container_same_call :: (fn() -> unit)({
-    evil :: (fn(ref(v) : i32, victim : ArrayList(i32)) -> unit)({
+    evil :: (fn(inout(v) : i32, victim : ArrayList(i32)) -> unit)({
       victim.push(i32(0));
       v = i32(99);
     });
@@ -158,7 +192,7 @@ comptime_expect_error(
 // An ALIAS of the container is caught too.
 comptime_expect_error(
   index_ref_with_container_alias :: (fn() -> unit)({
-    evil :: (fn(ref(v) : i32, victim : ArrayList(i32)) -> unit)({
+    evil :: (fn(inout(v) : i32, victim : ArrayList(i32)) -> unit)({
       victim.push(i32(0));
       v = i32(99);
     });
@@ -174,7 +208,7 @@ comptime_expect_error(
 g_list := ArrayList(i32).new();
 comptime_expect_error(
   index_ref_of_module_container :: (fn() -> unit)({
-    bump2 :: (fn(ref(v) : i32) -> unit)({
+    bump2 :: (fn(inout(v) : i32) -> unit)({
       v = (v + i32(1));
     });
     bump2(g_list(usize(0)));
@@ -185,7 +219,7 @@ comptime_expect_error(
 // pointer and has no handle to grow the container with, so the buffer
 // cannot move during the call. Write-through lands in the live element.
 test("indexed element to a ref param without the container", {
-  bump3 :: (fn(ref(v) : i32) -> unit)({
+  bump3 :: (fn(inout(v) : i32) -> unit)({
     v = (v + i32(1));
   });
   xs := ArrayList(i32).new();
@@ -197,7 +231,7 @@ test("indexed element to a ref param without the container", {
 // Positive: the migration recipe — copy the element out, then the
 // container is freely usable in the same call.
 test("copy the element out to combine with container use", {
-  use_both :: (fn(ref(v) : i32, target : ArrayList(i32)) -> unit)({
+  use_both :: (fn(inout(v) : i32, target : ArrayList(i32)) -> unit)({
     target.push(v);
     v = i32(0);
   });
@@ -216,7 +250,7 @@ test("copy the element out to combine with container use", {
 // hits the freed buffer → SIGSEGV before this gate.
 comptime_expect_error(
   index_ref_with_capturing_closure :: (fn() -> unit)({
-    run :: (fn(ref(v) : i32, grow : Impl(Fn() -> unit)) -> unit)({
+    run :: (fn(inout(v) : i32, grow : Impl(Fn() -> unit)) -> unit)({
       grow();
       v = i32(99);
     });
@@ -235,7 +269,7 @@ comptime_expect_error(
 // rejected.
 comptime_expect_error(
   box_deref_with_box_arg :: (fn() -> unit)({
-    evil :: (fn(ref(v) : i32, victim : Box(Holder)) -> unit)({
+    evil :: (fn(inout(v) : i32, victim : Box(Holder)) -> unit)({
       victim.* = Holder(s : String.from("replacement"), n : i32(7));
       v = i32(99);
     });
@@ -247,7 +281,7 @@ comptime_expect_error(
 // Positive: element-only Box deref — the box is NOT passed, so no callee
 // can reassign it. (`owner_box.*.id.clone()`-style access.)
 test("box deref is allowed when the box is unreachable", {
-  read_n :: (fn(ref(v) : i32) -> unit)({
+  read_n :: (fn(inout(v) : i32) -> unit)({
     v = (v + i32(1));
   });
   b := box(Holder(s : String.from("x"), n : i32(5)));
@@ -259,7 +293,7 @@ test("box deref is allowed when the box is unreachable", {
 // and overwriting an i32 does not free heap storage).
 g_static_struct :: struct(s : String, n : i32);
 g_static_val := g_static_struct(s : String.from("x"), n : i32(42));
-bump_static :: (fn(ref(v) : i32) -> unit)({
+bump_static :: (fn(inout(v) : i32) -> unit)({
   v = (v + i32(1));
 });
 test("module-level struct i32 field is allowed (non-Rc)", {
@@ -273,7 +307,7 @@ test("module-level struct i32 field is allowed (non-Rc)", {
 g_rc_tuple := (ArrayList(i32).new(), i32(42));
 comptime_expect_error(
   borrow_module_tuple_rc_field :: (fn() -> unit)({
-    overwrite_rc :: (fn(ref(v) : ArrayList(i32)) -> unit)({
+    overwrite_rc :: (fn(inout(v) : ArrayList(i32)) -> unit)({
       v = ArrayList(i32).new();
     });
     overwrite_rc(g_rc_tuple.0);
@@ -285,7 +319,7 @@ g_rc_struct_ty :: struct(list : ArrayList(i32), tag : i32);
 g_rc_s := g_rc_struct_ty(list : ArrayList(i32).new(), tag : i32(0));
 comptime_expect_error(
   borrow_module_struct_rc_field :: (fn() -> unit)({
-    overwrite_rc2 :: (fn(ref(v) : ArrayList(i32)) -> unit)({
+    overwrite_rc2 :: (fn(inout(v) : ArrayList(i32)) -> unit)({
       v = ArrayList(i32).new();
     });
     overwrite_rc2(g_rc_s.list);
@@ -296,7 +330,7 @@ comptime_expect_error(
 // in the same call should be REJECTED.
 comptime_expect_error(
   borrow_index_ref_own_overlap :: (fn() -> unit)({
-    own_and_ref :: (fn(ref(x) : i32, own(victim) : ArrayList(i32)) -> unit)({
+    own_and_ref :: (fn(inout(x) : i32, own(victim) : ArrayList(i32)) -> unit)({
       x = i32(99);
     });
     xs := ArrayList(i32).new();

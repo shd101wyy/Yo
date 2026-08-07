@@ -1,5 +1,5 @@
 /**
- * plans/EXTERN_UNSAFE_WRAP.md Phase C — apply `unsafe(...)` wraps at
+ * plans/archive/EXTERN_UNSAFE_WRAP.md Phase C — apply `unsafe(...)` wraps at
  * every extern "c" call site collected by the evaluator's dump mode.
  *
  * Workflow:

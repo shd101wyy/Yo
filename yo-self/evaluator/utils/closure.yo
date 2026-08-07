@@ -24,12 +24,23 @@ open(import("std/string"));
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
+{ type_to_string } :: import("../../types/string.yo");
+// Deterministic capture-struct ids: keyed by the closure's source position +
+// capture field signature, so the SAME closure (re-evaluated across the eval and
+// codegen passes) gets the SAME capture-struct id. A fresh `random_id` per call
+// produced DIFFERENT ids for one closure (e.g. construction `..._5638` vs a
+// specialized callee's eval-time param `..._5654`), breaking the
+// impl_closure_call_map lookup that links a capture struct to its closure impl fn
+// (Thread.spawn). The key is unique per closure source AND per capture-type
+// instantiation, so distinct closures never collide.
+(g_capture_struct_ids : HashMap(String, String)) = HashMap(String, String).new();
 {
   EvalValue
 } :: import("../../value.yo");
 {
   CapturedVarInfo,
-  CaptureUsage
+  CaptureUsage,
+  EvalContext
 } :: import("../context.yo");
 {
   TypeField
@@ -38,6 +49,10 @@ open(import("std/string"));
   register_struct_fields
 } :: import("../types/field.yo");
 { random_id } :: import("../../utils.yo");
+{ type_contains_rc_type } :: import("../../types/utils.yo");
+{ generate_expr_from_code } :: import("../../parser.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ Exception } :: import("std/error");
 { auto_derive_traits_for_struct_type } :: import("../types/utils.yo");
 // ---------------------------------------------------------------------------
 // FuncCapturedVarInfo
@@ -162,7 +177,7 @@ enrich_captured_variables :: (
                         usage : cap_info.usage,
                         token : cap_info.token,
                         ty : v.ty,
-                        value : v.value,
+                        value : v.value.get(usize(0)),
                         is_effect_param : v.is_effect_param
                       );
                       _s := result.set(vn_copy.clone(), enriched);
@@ -215,7 +230,6 @@ create_capture_type_and_value :: (
       ),
     .None => {
       // Inference case: build struct from captured variables.
-      struct_id := `capture_${random_id(env.module_path)}`;
       field_labels := ArrayList(String).new();
       field_types := ArrayList(TypeValue).new();
       type_fields := ArrayList(TypeField).new();
@@ -250,7 +264,8 @@ create_capture_type_and_value :: (
                       is_comptime : false,
                       default_value : Option(EvalValue).None,
                       assigned_value : Option(EvalValue).None,
-                      doc_comment : Option(String).None
+                      doc_comment : Option(String).None,
+                      is_effect_param : fci.is_effect_param
                     )
                   );
                 }
@@ -259,6 +274,61 @@ create_capture_type_and_value :: (
           );
         });
       });
+      // Stable capture-struct id (see g_capture_struct_ids note): keyed by the
+      // closure's source position + capture field signature, reused across evals.
+      cap_key := String.from("cap@");
+      cap_key.push_string(closure_tok.module_path.clone());
+      cap_key.push_str(":");
+      cap_key.push_string(closure_tok.row.to_string());
+      cap_key.push_str(":");
+      cap_key.push_string(closure_tok.column.to_string());
+      cap_key.push_str(":");
+      cap_key.push_string(closure_tok.character.to_string());
+      cap_key.push_str("|");
+      (csi : usize) = usize(0);
+      while(csi < field_labels.len(), {
+        cap_key.push_string(match(field_labels.get(csi),.Some(l) => l,.None => String.from("")));
+        cap_key.push_str(":");
+        cap_key.push_string(match(field_types.get(csi),.Some(t) => type_to_string(t),.None => String.from("")));
+        // RESOLUTION-aware key suffix: a SomeT field type renders the SAME
+        // `type_to_string` whether abstract (def-era eval — the captured
+        // closure param is unbound, field lowers to void*) or resolved
+        // (spec-era eval — the capbind SomeT's cell holds the concrete
+        // capture struct). One shared struct froze the FIRST era's field
+        // types, so the resolved-era spec initialized a void* field with a
+        // concrete struct value (clang error; the forwarded-closure family,
+        // tests/closure_param_forwarding.test.yo arm 2). Append the resolved
+        // identity so the two eras mint DISTINCT capture structs. TS gets
+        // this for free: each spec body eval creates its own captureType
+        // object with that era's field types.
+        match(
+          field_types.get(csi),
+          .Some(ck_t) => match(
+            ck_t,
+            .SomeT({ id : ck_sid, resolved_concrete : ck_rc }) => {
+              cap_key.push_str("@res:");
+              match(
+                ck_rc.get(usize(0)),
+                .Some(ck_r) => cap_key.push_string(type_to_string(ck_r)),
+                .None => cap_key.push_string(ck_sid.clone())
+              );
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+        cap_key.push_str(",");
+        csi = (csi + usize(1));
+      });
+      struct_id := match(
+        g_capture_struct_ids.get(cap_key.clone()),
+        .Some(existing) => existing,
+        .None => {
+          fresh := `capture_${random_id(env.module_path)}`;
+          _s := g_capture_struct_ids.set(cap_key.clone(), fresh.clone());
+          fresh
+        }
+      );
       // Register field metadata.
       register_struct_fields(struct_id.clone(), type_fields);
       // Build the capture struct TypeValue.
@@ -349,23 +419,58 @@ CapturedVarDupResult :: struct(
   dup_exprs : Option(ArrayList(AstExpr)),
   env : Environment
 );
-/// Generate `___dup()` expressions for captured ARC variables.
-///
-/// Phase 3 stub: no ARC support yet — always returns None.
+/// Generate `___dup()` expressions for captured ARC variables — one evaluated
+/// `___dup(name)` per captured variable whose type contains an RC-managed
+/// type. Codegen (generate_closure_construction) emits these as the capture
+/// struct's field initializers, so the capture holds its OWN reference; the
+/// constructing scope's local can then be dropped without freeing the value
+/// under the closure (the Command.status spawn-storage UAF —
+/// issues/yo-self-async-capture-missing-dup.md).
 ///
 /// Mirrors `generateCapturedVariableDupExpressions` from
-/// `src/evaluator/utils/closure.ts`.
+/// `src/evaluator/utils/closure.ts:393` (TS threads env updates through the
+/// evaluated exprs; yo-self's env is mutated in place, so no threading needed
+/// — same as the `___drop` builder in exprs/begin.yo).
 generate_captured_variable_dup_expressions :: (
   fn(
-    _captured_vars_with_values : Option(HashMap(String, FuncCapturedVarInfo)),
-    env : Environment
+    captured_vars_with_values : Option(HashMap(String, FuncCapturedVarInfo)),
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
   ) -> CapturedVarDupResult
-)(
+)({
+  dup_exprs := ArrayList(AstExpr).new();
+  match(
+    captured_vars_with_values,
+    .Some(cvwv) => if(cvwv.len() > usize(0), {
+      key_iter := cvwv.keys();
+      (done : bool) = false;
+      while(!(done), {
+        match(
+          key_iter.next(),
+          .Some(var_name) => match(
+            cvwv.get(var_name.clone()),
+            .Some(ci) => if(type_contains_rc_type(ci.ty), {
+              dup_code := `___dup(${var_name})`;
+              dup_expr := generate_expr_from_code(dup_code, exn);
+              evaluated := evaluate_expression_raw(dup_expr, env, ctx, exn);
+              dup_exprs.push(evaluated);
+            }),
+            .None => ()
+          ),
+          .None => {
+            done = true;
+          }
+        );
+      });
+    }),
+    .None => ()
+  );
   CapturedVarDupResult(
-    dup_exprs : Option(ArrayList(AstExpr)).None,
+    dup_exprs : if(dup_exprs.len() > usize(0), Option(ArrayList(AstExpr)).Some(dup_exprs), Option(ArrayList(AstExpr)).None),
     env : env
   )
-);
+});
 export(FuncCapturedVarInfo);
 export(CaptureTypeAndValueResult);
 export(CapturedVarDupResult);

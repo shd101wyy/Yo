@@ -656,9 +656,15 @@ export function exprsAreEqual(expr1: Expr, expr2: Expr): boolean {
 export const BuiltinKeywords = {
   comptime: ["comptime" /*"@"*/],
   runtime: ["runtime"], // Force runtime evaluation, prevents CTFE
-  ref: ["ref"], // Second-class reference: `ref(name) : T` parameter modifier, `-> ref(T)` return slot, `ref(name) := expr;` local binding. See plans/ITERATOR_REDESIGN.md.
+  ref: ["ref"], // Reference-semantics TYPE constructor: `ref(struct(…))` / `ref(enum(…))` (see plans/REF_REFERENCE_SEMANTICS.md). The old second-class-reference PARAMETER modifier moved to `inout` (below).
+  inout: ["inout"], // Second-class reference PARAMETER modifier: `inout(name) : T`. In-out parameter (caller's storage, mutate in place). Cannot be returned; no local-binding form. (Renamed from `ref` — see plans/REF_REFERENCE_SEMANTICS.md.)
 
-  forall: ["forall", "∀"],
+  // Type-parameter binder. Renamed from `generic` (plans/archive/FORALL_TO_GENERIC.md):
+  // `generic`/`exists` (and `∀`/`∃`) are reserved for Dafny-style verification
+  // quantifiers in `requires`/`ensures`, where they bind VALUES and take a
+  // predicate — a different concept with a different shape. One keyword, one
+  // concept. `∀` follows the quantifier and returns with verification.
+  generic: ["generic"],
   where: ["where"],
   // Exists: ["exists", "∃"],
   // In: ["in", "∈"],
@@ -680,7 +686,6 @@ export const BuiltinKeywords = {
   test: ["test"], // Test declaration for test runner
   atomic: ["atomic"],
   struct: ["struct"],
-  object: ["object"],
   newtype: ["newtype"],
   enum: ["enum"],
   union: ["union"],
@@ -1221,7 +1226,7 @@ export const BuiltinFunctions = {
   c_include: ["c_include"],
 
   // Error handling
-  panic: ["panic"],
+  __yo_panic: ["__yo_panic"],
 
   // Rc/Gc related
   __yo_decr_rc: ["__yo_decr_rc"], // decrement the reference-counter (usize)
@@ -1234,6 +1239,7 @@ export const BuiltinFunctions = {
 
   // Garbage collection for cycle detection
   __yo_gc_collect: ["__yo_gc_collect"], // manually trigger garbage collection
+  __yo_gc_trace_child: ["__yo_gc_trace_child"], // per-value edge tracer (GcTracer.visit body)
 
   // Dynamic dispatch Rc functions
   __yo_dyn_drop: ["__yo_dyn_drop"], // drop the dyn object with wrapped object
@@ -1658,7 +1664,7 @@ export function attachTempVariableToExpr(
   isOwningTheRcValue: boolean,
   isOwningTheSameRcValueAs?: Variable,
   /**
-   * Phase B of plans/ITERATOR_REDESIGN.md — set when the expression
+   * Phase B of plans/archive/ITERATOR_REDESIGN.md — set when the expression
    * is a call to a function whose return slot is `ref(T)`. The temp
    * variable created here will hold the raw `T*` returned by the C
    * function; the codegen reads `isRef` on the variable to emit

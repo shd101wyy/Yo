@@ -19,6 +19,7 @@
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
 { ArrayList } :: import("../collections/array_list.yo");
+{ assert } :: import("../assert");
 { malloc, free } :: GlobalAllocator;
 /// Persistent immutable vector.
 ///
@@ -27,22 +28,24 @@ pragma(Pragma.AllowUnsafe);
 /// atomic reference counting when possible.
 Vec :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
   atomic(
-    object(
-      _ptr : *(T),
-      _len : usize,
-      _cap : usize
+    ref(
+      struct(
+        _ptr : *(T),
+        _len : usize,
+        _cap : usize
+      )
     )
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Send),
   Vec(T),
   Dispose(
     dispose : (fn(self : Self) -> unit)({
       i := usize(0);
       while(i < self._len, i = (i + usize(1)), {
-        unsafe.drop((self._ptr &+ i).*);
+        unsafe.drop((self._ptr.add(i)).*);
       });
       free(.Some(*(void)(self._ptr)));
     })
@@ -53,7 +56,7 @@ PopResult :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
   struct(vec : Vec(T), value : Option(T))
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Send),
   Vec(T),
   /// Allocate raw buffer without creating an intermediate atomic object.
@@ -66,7 +69,7 @@ impl(
     match(
       malloc(sz),
       .Some(p) => *(T)(p),
-      .None => panic("imm.Vec: allocation failed")
+      .None => __yo_panic("imm.Vec: allocation failed")
     )
   }),
   /// Copy elements element-by-element so RC-backed values duplicate correctly.
@@ -81,7 +84,7 @@ impl(
   )({
     i := usize(0);
     while(i < count, i = (i + usize(1)), {
-      consume((dst &+ (dst_offset + i)).* = (src &+ (src_offset + i)).*);
+      consume((dst.add(dst_offset + i)).* = (src.add(src_offset + i)).*);
     });
   }),
   /// Create a new empty vector.
@@ -101,23 +104,23 @@ impl(
     if(idx >= self._len, {
       return(.None);
     });
-    .Some((self._ptr &+ idx).*)
+    .Some((self._ptr.add(idx)).*)
   }),
   /// Return a new vector with the element at `idx` replaced by `val`.
   /// Panics if `idx >= len`.
   set : (fn(own(self) : Self, idx : usize, val : T) -> Self)({
     assert(idx < self._len, "imm.Vec.set: index out of bounds");
     if(rc(self) == usize(1), {
-      unsafe.drop((self._ptr &+ idx).*);
-      consume((self._ptr &+ idx).* = val);
+      unsafe.drop((self._ptr.add(idx)).*);
+      consume((self._ptr.add(idx)).* = val);
       return(self);
     });
     new_ptr := Self._raw_alloc(self._len);
     if(self._len > usize(0), {
       Self._copy_elems(new_ptr, self._ptr, usize(0), usize(0), self._len);
     });
-    unsafe.drop((new_ptr &+ idx).*);
-    consume((new_ptr &+ idx).* = val);
+    unsafe.drop((new_ptr.add(idx)).*);
+    consume((new_ptr.add(idx)).* = val);
     result := Self(_ptr : new_ptr, _len : self._len, _cap : self._len);
     unsafe.drop(self);
     result
@@ -135,7 +138,7 @@ impl(
         self._ptr = new_ptr;
         self._cap = new_cap;
       });
-      consume((self._ptr &+ self._len).* = val);
+      consume((self._ptr.add(self._len)).* = val);
       self._len = (self._len + usize(1));
       return(self);
     });
@@ -148,7 +151,7 @@ impl(
     if(self._len > usize(0), {
       Self._copy_elems(new_ptr, self._ptr, usize(0), usize(0), self._len);
     });
-    consume((new_ptr &+ self._len).* = val);
+    consume((new_ptr.add(self._len)).* = val);
     result := Self(_ptr : new_ptr, _len : (self._len + usize(1)), _cap : new_cap);
     unsafe.drop(self);
     result
@@ -165,14 +168,14 @@ impl(
     if(self.is_empty(), {
       return(.None);
     });
-    .Some((self._ptr &+ (self._len - usize(1))).*)
+    .Some((self._ptr.add(self._len - usize(1))).*)
   }),
   /// Return a new vector without the last element, and the removed element.
   pop : (fn(own(self) : Self) -> PopResult(T))({
     if(self.is_empty(), {
       return(PopResult(T)(vec : self, value :.None));
     });
-    val := (self._ptr &+ (self._len - usize(1))).*;
+    val := (self._ptr.add(self._len - usize(1))).*;
     new_len := (self._len - usize(1));
     if(rc(self) == usize(1), {
       self._len = new_len;
@@ -255,27 +258,27 @@ impl(
         left = (left + usize(1));
         right = (right - usize(1));
       }, {
-        tmp := (self._ptr &+ left).*;
-        consume((self._ptr &+ left).* = (self._ptr &+ right).*);
-        consume((self._ptr &+ right).* = tmp);
+        tmp := (self._ptr.add(left)).*;
+        consume((self._ptr.add(left)).* = (self._ptr.add(right)).*);
+        consume((self._ptr.add(right)).* = tmp);
       });
       return(self);
     });
     new_ptr := Self._raw_alloc(self._len);
     i := usize(0);
     while(i < self._len, i = (i + usize(1)), {
-      (new_ptr &+ i).* = (self._ptr &+ ((self._len - usize(1)) - i)).*;
+      (new_ptr.add(i)).* = (self._ptr.add((self._len - usize(1)) - i)).*;
     });
     result := Self(_ptr : new_ptr, _len : self._len, _cap : self._len);
     unsafe.drop(self);
     result
   }),
   /// Apply a function to each element, producing a new vector.
-  map : (fn(forall(U : Type), self : Self, f : Impl(Fn(a : T) -> U), where(U <: Send)) -> Vec(U))({
+  map : (fn(generic(U : Type), self : Self, f : Impl(Fn(a : T) -> U), where(U <: Send)) -> Vec(U))({
     new_ptr := Vec(U)._raw_alloc(self._len);
     i := usize(0);
     while(i < self._len, i = (i + usize(1)), {
-      (new_ptr &+ i).* = f((self._ptr &+ i).*);
+      (new_ptr.add(i)).* = f((self._ptr.add(i)).*);
     });
     Vec(U)(_ptr : new_ptr, _len : self._len, _cap : self._len)
   }),
@@ -285,20 +288,20 @@ impl(
     count := usize(0);
     i := usize(0);
     while(i < self._len, i = (i + usize(1)), {
-      elem := (self._ptr &+ i).*;
+      elem := (self._ptr.add(i)).*;
       if(f(elem), {
-        (new_ptr &+ count).* = elem;
+        (new_ptr.add(count)).* = elem;
         count = (count + usize(1));
       });
     });
     Self(_ptr : new_ptr, _len : count, _cap : self._len)
   }),
   /// Left fold over elements.
-  fold : (fn(forall(U : Type), self : Self, init : U, f : Impl(Fn(acc : U, elem : T) -> U)) -> U)({
+  fold : (fn(generic(U : Type), self : Self, init : U, f : Impl(Fn(acc : U, elem : T) -> U)) -> U)({
     (acc : U) = init;
     i := usize(0);
     while(i < self._len, i = (i + usize(1)), {
-      acc = f(acc, (self._ptr &+ i).*);
+      acc = f(acc, (self._ptr.add(i)).*);
     });
     acc
   }),
@@ -307,7 +310,7 @@ impl(
     i := usize(0);
     (found : bool) = false;
     while((i < self._len) && !(found), i = (i + usize(1)), {
-      if(f((self._ptr &+ i).*), {
+      if(f((self._ptr.add(i)).*), {
         found = true;
       });
     });
@@ -318,7 +321,7 @@ impl(
     i := usize(0);
     (ok : bool) = true;
     while((i < self._len) && ok, i = (i + usize(1)), {
-      if(!(f((self._ptr &+ i).*)), {
+      if(!(f((self._ptr.add(i)).*)), {
         ok = false;
       });
     });
@@ -329,7 +332,7 @@ impl(
     i := usize(0);
     (result : Option(T)) =.None;
     while((i < self._len) && result.is_none(), i = (i + usize(1)), {
-      elem := (self._ptr &+ i).*;
+      elem := (self._ptr.add(i)).*;
       if(f(elem), {
         result =.Some(elem);
       });
@@ -341,7 +344,7 @@ impl(
     i := usize(0);
     (result : Option(usize)) =.None;
     while((i < self._len) && result.is_none(), i = (i + usize(1)), {
-      if((self._ptr &+ i).* == val, {
+      if((self._ptr.add(i)).* == val, {
         result =.Some(i);
       });
     });
@@ -360,17 +363,17 @@ impl(
       count := usize(1);
       i := usize(1);
       while(i < self._len, i = (i + usize(1)), {
-        elem := (self._ptr &+ i).*;
+        elem := (self._ptr.add(i)).*;
         (found : bool) = false;
         j := usize(0);
         while((j < count) && !(found), j = (j + usize(1)), {
-          if((self._ptr &+ j).* == elem, {
+          if((self._ptr.add(j)).* == elem, {
             found = true;
           });
         });
         if(!(found), {
           if(count != i, {
-            consume((self._ptr &+ count).* = elem);
+            consume((self._ptr.add(count)).* = elem);
           });
           count = (count + usize(1));
         });
@@ -382,16 +385,16 @@ impl(
     count := usize(0);
     i := usize(0);
     while(i < self._len, i = (i + usize(1)), {
-      elem := (self._ptr &+ i).*;
+      elem := (self._ptr.add(i)).*;
       (found : bool) = false;
       j := usize(0);
       while((j < count) && !(found), j = (j + usize(1)), {
-        if((new_ptr &+ j).* == elem, {
+        if((new_ptr.add(j)).* == elem, {
           found = true;
         });
       });
       if(!(found), {
-        (new_ptr &+ count).* = elem;
+        (new_ptr.add(count)).* = elem;
         count = (count + usize(1));
       });
     });
@@ -400,7 +403,7 @@ impl(
     result
   }),
   /// Zip two vectors together using a combining function.
-  zip_with : (fn(forall(U : Type, V : Type), self : Self, other : Vec(U), f : Impl(Fn(a : T, b : U) -> V), where(U <: Send, V <: Send)) -> Vec(V))({
+  zip_with : (fn(generic(U : Type, V : Type), self : Self, other : Vec(U), f : Impl(Fn(a : T, b : U) -> V), where(U <: Send, V <: Send)) -> Vec(V))({
     min_len := cond(
       (self._len < other._len) => self._len,
       true => other._len
@@ -408,7 +411,7 @@ impl(
     new_ptr := Vec(V)._raw_alloc(min_len);
     i := usize(0);
     while(i < min_len, i = (i + usize(1)), {
-      (new_ptr &+ i).* = f((self._ptr &+ i).*, other(i));
+      (new_ptr.add(i)).* = f((self._ptr.add(i)).*, other(i));
     });
     Vec(V)(_ptr : new_ptr, _len : min_len, _cap : min_len)
   }),
@@ -432,7 +435,7 @@ impl(
 );
 /// Eq trait for Vec(T) — element-wise equality.
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: (Send, Eq(T))),
   Vec(T),
   Eq(Vec(T))(
@@ -443,7 +446,7 @@ impl(
       i := usize(0);
       (equal : bool) = true;
       while((i < lhs._len) && equal, i = (i + usize(1)), {
-        if((lhs._ptr &+ i).* != (rhs._ptr &+ i).*, {
+        if((lhs._ptr.add(i)).* != (rhs._ptr.add(i)).*, {
           equal = false;
         });
       });
@@ -453,16 +456,16 @@ impl(
 );
 /// Index trait — `vec(idx)` returns the element at `idx`, panicking if
 /// out of bounds. Body takes `&(self)` so the dispatcher's inlined call
-/// passes the right C-ABI shape. See plans/ITERATOR_REDESIGN.md.
+/// passes the right C-ABI shape. See plans/archive/ITERATOR_REDESIGN.md.
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Send),
   Vec(T),
   Index(usize)(
     Output : T,
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))({
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
       assert(idx < self._len, "imm.Vec: index out of bounds");
-      self._ptr &+ idx
+      self._ptr.add(idx)
     })
   )
 );

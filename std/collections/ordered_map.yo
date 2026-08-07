@@ -43,13 +43,15 @@ OrderedMap :: (
     where(K <: (Eq(K), Hash))
   ) -> comptime(Type)
 )(
-  object(
-    _map : HashMap(K, V),
-    _order : ArrayList(K)
+  ref(
+    struct(
+      _map : HashMap(K, V),
+      _order : ArrayList(K)
+    )
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   OrderedMap(K, V),
   /// Create an empty `OrderedMap`.
@@ -133,16 +135,18 @@ OrderedMapKeys :: (
     where(K <: (Eq(K), Hash))
   ) -> comptime(Type)
 )(
-  object(
-    _map : OrderedMap(K, V),
-    _index : usize
+  ref(
+    struct(
+      _map : OrderedMap(K, V),
+      _index : usize
+    )
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   OrderedMapKeys(K, V),
-  next : (fn(ref(self) : Self) -> Option(K))({
+  next : (fn(inout(self) : Self) -> Option(K))({
     cond(
       (self._index >= self._map._order.len()) => {
         return(.None);
@@ -162,16 +166,18 @@ OrderedMapValues :: (
     where(K <: (Eq(K), Hash))
   ) -> comptime(Type)
 )(
-  object(
-    _map : OrderedMap(K, V),
-    _index : usize
+  ref(
+    struct(
+      _map : OrderedMap(K, V),
+      _index : usize
+    )
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   OrderedMapValues(K, V),
-  next : (fn(ref(self) : Self) -> Option(V))({
+  next : (fn(inout(self) : Self) -> Option(V))({
     cond(
       (self._index >= self._map._order.len()) => {
         return(.None);
@@ -210,16 +216,18 @@ OrderedMapIter :: (
     where(K <: (Eq(K), Hash))
   ) -> comptime(Type)
 )(
-  object(
-    _map : OrderedMap(K, V),
-    _index : usize
+  ref(
+    struct(
+      _map : OrderedMap(K, V),
+      _index : usize
+    )
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   OrderedMapIter(K, V),
-  next : (fn(ref(self) : Self) -> Option(OrderedMapEntry(K, V)))({
+  next : (fn(inout(self) : Self) -> Option(OrderedMapEntry(K, V)))({
     cond(
       (self._index >= self._map._order.len()) => {
         return(.None);
@@ -247,7 +255,7 @@ impl(
   })
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   OrderedMap(K, V),
   /// Iterator over keys in insertion order.

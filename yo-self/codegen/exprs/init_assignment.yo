@@ -1,0 +1,357 @@
+//! Initialization-assignment emitter — mirrors
+//! `src/codegen/exprs/initialization-assignment.ts`.
+//!
+//! Handles `x := v` initializations: compile-time variables (skipped),
+//! destructuring binds (`{x, y} := p` → one `T x = p.x;` per field, with
+//! newtype/tuple/object member-access rules), array initialization (literal or
+//! struct copy), and ordinary scalar initialization (declare + assign, spilling
+//! an Rc/temp RHS into its temp variable first). Module-level globals and
+//! compile-time variables are skipped (declared elsewhere / no runtime form).
+//!
+//! DEFERRED (documented, not hit by the no-RC/no-async corpus): RHS
+//! deferred-dup rewrite + closure-capture access (Phase 4); state-machine
+//! `sm->var_N` routing + async-block struct-type inference + `inout(name) :=`
+//! `T*` storage shaping (Phase 5 / Variable has no is_ref). These branches are
+//! gated dead (in_async_state_machine = .None for the corpus).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, BK_COMPTIME, BK_ARRAY_VAL, BF_DOT } :: import("../../expr.yo");
+{ RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings } :: import("../../expr_info.yo");
+{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ resolve_some_type_to_concrete } :: import("./closures.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ emit_deferred_dup_or_code, generate_dup_code_for_value } :: import("./drop_dup.yo");
+{ type_contains_rc_type } :: import("../../types/utils.yo");
+{ get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier } :: import("../utils/index.yo");
+/// True if `s` is all ASCII digits (non-empty).
+_all_digits :: (fn(s : String) -> bool)({
+  // BYTE count — the loop reads byte_at; String.len() counts RUNES
+  // (multibyte content under-walks; see other_fn_call.yo's splitter fix).
+  n := s.as_bytes().len();
+  if(n == usize(0), false, {
+    (i : usize) = usize(0);
+    (ok : bool) = true;
+    while(i < n, {
+      b := s.byte_at(i);
+      if(!((b >= u8(48)) && (b <= u8(57))), {
+        ok = false;
+      });
+      i = (i + usize(1));
+    });
+    ok
+  })
+});
+/// The last binding for `name` is a compile-time-only variable.
+_last_is_compile_time_only :: (fn(env : Environment, name : String) -> bool)({
+  vars := get_variables_from_env(env, name);
+  m := vars.len();
+  if(m == usize(0), false, match(vars.get(m - usize(1)),.Some(v) => v.is_compile_time_only,.None => false))
+});
+/// The last binding for `name` is a module-level global.
+_last_is_module_level :: (fn(env : Environment, name : String) -> bool)({
+  vars := get_variables_from_env(env, name);
+  m := vars.len();
+  if(m == usize(0), false, match(vars.get(m - usize(1)),.Some(v) => v.is_module_level,.None => false))
+});
+/// Tuple positional index for a label, or -1-sentinel (== len) if not found.
+_tuple_index_of :: (fn(rhs_type : TypeValue, label : String) -> Option(usize))(
+  match(
+    rhs_type,
+    .Tuple({ field_labels : fls }) => {
+      n := fls.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          fls.get(i),
+          .Some(lbl) => if(lbl == label, {
+            return(Option(usize).Some(i));
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      Option(usize).None
+    },
+    _ => Option(usize).None
+  )
+);
+/// Newtype single-field label, if `rhs_type` is a 1-field newtype.
+_newtype_single_label :: (fn(rhs_type : TypeValue) -> Option(String))(
+  if(is_newtype_type(rhs_type), match(rhs_type,.Struct({ field_labels : fls }) => if(fls.len() == usize(1), fls.get(usize(0)), Option(String).None), _ => Option(String).None), Option(String).None)
+);
+/// Emit destructuring binds for `{x, y} := rhs`. Mirrors the runtimeDestructurings branch.
+_emit_destructurings :: (fn(destructurings : ArrayList(RuntimeDestructuring), rhs : AstExpr, rhs_type : TypeValue, indent : String, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  rhs_code := _call_generate_expr(rhs, indent.clone(), context);
+  member_op := if(is_reference_struct_type(rhs_type), String.from("->"), String.from("."));
+  n := destructurings.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(
+      destructurings.get(i),
+      .Some(rd) => if(!(rd.variable_name == "_"), {
+        sanitized := sanitize_for_c_identifier(rd.variable_name.clone(), false);
+        var_type_and_name := get_variable_type_string(rd.ty, sanitized, context.base);
+        // Newtype: destructuring the single field is just the value.
+        handled_newtype := match(
+          _newtype_single_label(rhs_type),
+          .Some(nl) => if(nl == rd.label, {
+            line := indent.clone();
+            line.push_string(var_type_and_name.clone());
+            line.push_str(" = ");
+            line.push_string(rhs_code.clone());
+            line.push_str("; // Destructuring ");
+            line.push_string(rd.label.clone());
+            line.push_str(" (newtype)");
+            em.emit_string_line(line);
+            true
+          }, false),
+          .None => false
+        );
+        if(!(handled_newtype), {
+          field_name := if(_all_digits(rd.label), {
+            f := String.from("_");
+            f.push_string(rd.label.clone());
+            f
+          }, sanitize_for_c_identifier(rd.label.clone(), false));
+          // Tuple label → positional `_index`.
+          field_name2 := if(
+            is_tuple_type(rhs_type) && !(_all_digits(rd.label)),
+            match(
+              _tuple_index_of(rhs_type, rd.label.clone()),
+              .Some(idx) => {
+                f := String.from("_");
+                f.push_string(idx.to_string());
+                f
+              },
+              .None => field_name
+            ),
+            field_name
+          );
+          line := indent.clone();
+          line.push_string(var_type_and_name);
+          line.push_str(" = ");
+          line.push_string(rhs_code.clone());
+          line.push_string(member_op.clone());
+          line.push_string(field_name2);
+          line.push_str("; // Destructuring ");
+          line.push_string(rd.label.clone());
+          em.emit_string_line(line);
+        });
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Initialization assignment. Mirrors `generateInitializationAssignment`.
+generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(Option(String).None));
+  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  lhs := match(args.get(usize(0)),.Some(x) => x,.None => return(Option(String).None));
+  rhs := match(args.get(usize(1)),.Some(x) => x,.None => return(Option(String).None));
+  // Compile-time variable → no runtime code.
+  if(ast_expr_is_fn_call_of(lhs, BK_COMPTIME, Option(usize).Some(usize(1))), {
+    return(Option(String).Some(String.from("")));
+  });
+  // Destructuring binds.
+  match(
+    expr_info_runtime_destructurings(ei),
+    .Some(destructurings) => {
+      rhs_type := match(context.base.get_expr_info(rhs),.Some(rei) => rei.ty,.None => TypeValue.Unit);
+      _emit_destructurings(destructurings, rhs, rhs_type, indent.clone(), context);
+      return(Option(String).Some(String.from("")));
+    },
+    .None => ()
+  );
+  if(ast_expr_is_atom(lhs), {
+    lhs_ei := match(
+      context.base.get_expr_info(lhs),
+      .Some(e) => e,
+      .None => return(
+        Option(String).Some({
+          s := String.from("// Error: No type information for variable ");
+          s.push_string(ast_expr_token(lhs).value);
+          s.push_str("\n");
+          s
+        })
+      )
+    );
+    var_name := match(lhs_ei.variable_name,.Some(vn) => vn,.None => ast_expr_token(lhs).value);
+    // Resolve a SomeT binding type through its concrete resolution BEFORE the
+    // unit guards below — a binding typed as an unresolved SomeT that resolves
+    // to unit rendered `void x = <rhs>;` (invalid C: the worker batch's
+    // `void _temp = ;` class, issues/yo-self-async-emission-cluster.md item 4).
+    // Same prototype-agreement rule as generate_function_body's result_is_unit.
+    lhs_type := resolve_some_type_to_concrete(lhs_ei.ty);
+    // Skip compile-time and module-level globals.
+    if(_last_is_compile_time_only(lhs_ei.env, var_name.clone()), {
+      return(Option(String).Some(String.from("")));
+    });
+    if(_last_is_module_level(lhs_ei.env, var_name.clone()), {
+      return(Option(String).Some(String.from("")));
+    });
+    em := context.base.emitter;
+    // State-machine variable binding: a local captured in the SM struct is
+    // ASSIGNED to its `sm->` field, never declared locally (a local decl in
+    // one state's C block is invisible to later states — the FSM `a := 20`
+    // class). Mirrors initialization-assignment.ts:175-201 + the
+    // isStateMachineVar assignment branch. The lookup goes through the `:=`
+    // node's OWN recorded env (`ei.env`, stamped post-binding) — the LHS
+    // atom's env predates the binding in yo-self and misses the variable.
+    if(context.in_async_state_machine.is_some() && context.state_machine_variables.is_some(), {
+      sm_bind_vars := get_variables_from_env(ei.env, var_name.clone());
+      if(sm_bind_vars.len() > usize(0), {
+        match(
+          sm_bind_vars.get(sm_bind_vars.len() - usize(1)),
+          .Some(sm_bind_var) => {
+            (sm_bind_id : String) = match(
+              sm_bind_var.is_owning_the_same_rc_value_as,
+              .Some(ob) => ob.*.id.to_string(),
+              .None => sm_bind_var.id.to_string()
+            );
+            match(
+              context.variable_id_remapping,
+              .Some(rm) => match(
+                rm.get(sm_bind_id.clone()),
+                .Some(mapped) => {
+                  sm_bind_id = mapped;
+                },
+                .None => ()
+              ),
+              .None => ()
+            );
+            sm_has := match(
+              context.state_machine_variables,
+              .Some(smv) => smv.get(sm_bind_id.clone()).is_some(),
+              .None => false
+            );
+            if(sm_has, {
+              sm_field := match(
+                context.state_machine_field_aliases,
+                .Some(al) => match(
+                  al.get(sm_bind_id.clone()),
+                  .Some(af) => af,
+                  .None => `var_${sm_bind_id.clone()}`
+                ),
+                .None => `var_${sm_bind_id.clone()}`
+              );
+              sm_rhs := _call_generate_expr(rhs, indent.clone(), context);
+              em.emit_string_line(`${indent.clone()}sm->${sm_field.clone()} = ${sm_rhs.clone()};`);
+              return(Option(String).Some(String.from("")));
+            });
+          },
+          .None => ()
+        );
+      });
+    });
+    if(is_array_type(lhs_type), {
+      // Array initialization (literal or struct copy — copy spills an Rc/temp
+      // RHS into its temp variable first).
+      rhs_code := if(
+        ast_expr_is_fn_call_of(rhs, BK_ARRAY_VAL, Option(usize).None),
+        _call_generate_expr(rhs, indent.clone(), context),
+        match(
+          context.base.get_expr_info(rhs),
+          .Some(rei) => match(
+            rei.variable_name,
+            .Some(tvn) => {
+              temp_var_name := get_variable_name_for_codegen(tvn, Option(Environment).Some(rei.env));
+              rhs_expr_code := _call_generate_expr(rhs, indent.clone(), context);
+              if(!(temp_var_name == rhs_expr_code), {
+                tv := get_variable_type_string(rei.ty, temp_var_name.clone(), context.base);
+                line := indent.clone();
+                line.push_string(tv);
+                line.push_str(" = ");
+                line.push_string(rhs_expr_code);
+                line.push_str(";");
+                em.emit_string_line(line);
+              });
+              temp_var_name
+            },
+            .None => _call_generate_expr(rhs, indent.clone(), context)
+          ),
+          .None => _call_generate_expr(rhs, indent.clone(), context)
+        )
+      );
+      if(!(is_unit_type(lhs_type)), {
+        var_type_and_name := get_variable_type_string(lhs_type, var_name.clone(), context.base);
+        line := indent.clone();
+        line.push_string(var_type_and_name);
+        line.push_str(" = ");
+        line.push_string(rhs_code);
+        line.push_str(";");
+        em.emit_string_line(line);
+      });
+    }, {
+      // Non-array scalar initialization.
+      sanitized_var_name := get_variable_name_for_codegen(var_name.clone(), Option(Environment).Some(lhs_ei.env));
+      rhs_code := match(
+        context.base.get_expr_info(rhs),
+        .Some(rei) => match(
+          rei.variable_name,
+          .Some(tvn) => {
+            temp_var_name := get_variable_name_for_codegen(tvn, Option(Environment).Some(rei.env));
+            // Same name as the binding, or a bare atom already named — no temp.
+            rhs_is_same_atom := (ast_expr_is_atom(rhs) && (temp_var_name == get_variable_name_for_codegen(ast_expr_token(rhs).value, Option(Environment).Some(rei.env))));
+            if((temp_var_name == sanitized_var_name) || rhs_is_same_atom, emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context), {
+              rhs_expr_code := _call_generate_expr(rhs, indent.clone(), context);
+              if(!(rhs_expr_code == temp_var_name), {
+                effective_type := match(expr_info_converted_runtime_type(rei),.Some(crt) => crt,.None => rei.ty);
+                tv := get_variable_type_string(effective_type, temp_var_name.clone(), context.base);
+                line := indent.clone();
+                line.push_string(tv);
+                line.push_str(" = ");
+                line.push_string(rhs_expr_code);
+                line.push_str(";");
+                em.emit_string_line(line);
+              });
+              emit_deferred_dup_or_code(rhs, temp_var_name, indent.clone(), context)
+            })
+          },
+          .None => _call_generate_expr(rhs, indent.clone(), context)
+        ),
+        .None => _call_generate_expr(rhs, indent.clone(), context)
+      );
+      // Raw-pointer-deref RHS (`(p &+ i).*` / `p.*`) of an RC-carrying type:
+      // TS dups the copy AT THE DEREF SITE (stage1-ref.c: `temp2 =
+      // Bucket___dup(temp);`) so the local's scope/early-return drops are
+      // balanced. yo-self's eval dup mark for this shape is pass-fragile
+      // (`.*` PA branches can re-set the table entry without re-marking), so
+      // when NO deferred dup exists on the RHS, apply the struct dup to the
+      // fresh copy after the declaration below (HashMap._find_bucket stole
+      // the map's own key+value on every probe hit — the round-6
+      // `s2 compile main.yo` UAF; see issues/fixed/yo-self-dyn-throw-double-drop.md).
+      rhs_is_deref := (ast_expr_is_fn_call_of(rhs, BF_DOT, Option(usize).Some(usize(2))) && match(rhs,.FnCall(_, _, dargs, _, _) => match(dargs.get(usize(1)),.Some(pe) => ast_expr_is_atom_of(pe, "*"),.None => false),.Atom(_, _) => false));
+      rhs_has_dup := match(context.base.get_expr_info(rhs),.Some(r2) => match(r2.deferred_dup_expressions,.Some(d2) => (d2.len() > usize(0)),.None => false),.None => false);
+      if(!(is_unit_type(lhs_type)), {
+        // get_variable_type_string (not get_type_string + manual name append)
+        // so the scalar binding's C name is REGISTERED in declared_c_var_names
+        // — _keep_pending_drop (return.yo) rejects a drop whose target was
+        // never recorded, which leaked every scalar `:=` local on early-return
+        // paths (the HashMap._find_bucket same-key-overwrite leak). The name is
+        // already the codegen name (get_variable_name_for_codegen above);
+        // sanitize_for_c_identifier is idempotent, so emission is unchanged.
+        var_type_and_name := get_variable_type_string(lhs_type, sanitized_var_name.clone(), context.base);
+        line := indent.clone();
+        line.push_string(var_type_and_name);
+        line.push_str(" = ");
+        line.push_string(rhs_code);
+        line.push_str(";");
+        em.emit_string_line(line);
+        if((rhs_is_deref && type_contains_rc_type(lhs_type)) && !(rhs_has_dup), {
+          dup_line := indent.clone();
+          dup_line.push_string(generate_dup_code_for_value(sanitized_var_name.clone(), lhs_type, context));
+          dup_line.push_str(";");
+          em.emit_string_line(dup_line);
+        });
+      });
+    });
+    return(Option(String).Some(String.from("")));
+  });
+  Option(String).None
+});
+export(generate_initialization_assignment);

@@ -1,0 +1,192 @@
+//! Assignment / initialization emitter — mirrors `src/codegen/exprs/assignment.ts`.
+//!
+//! Handles `lhs = rhs` and `(lhs : T) = rhs` (initialization). Skips
+//! compile-time-only assignments, module-level globals (declared in the main
+//! wrapper), comptime variables, and field/index writes whose base is a
+//! comptime variable. Saves the old value into a temp when the assignment has
+//! a result variable name (so the old value can be dropped). Arrays use direct
+//! struct assignment; other types emit `<type> lhs = rhs;` (init) or
+//! `lhs = rhs;` (reassignment).
+//!
+//! DEFERRED (documented, not hit by the no-RC / no-async corpus): deferred-dup
+//! rewrite of the RHS (Phase 4); Future/async-block struct-type inference and
+//! state-machine `sm->var_N` save-old-value + sm-var declaration skipping
+//! (Phase 5). The state-machine branches are gated on `in_async_state_machine`
+//! being `.Some` — dead for the corpus.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, BK_COLON, BK_COMPTIME } :: import("../../expr.yo");
+{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ is_array_type, is_unit_type } :: import("../../types/guards.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+// §C dup-on-store: a field/index/deref store of a borrowed RC value must dup it
+// (the slot takes a new owned ref) so the value survives the source's scope-end
+// drop. The eval marks the RHS via set_expr_as_needs_to_call_dup (assignment.yo
+// eval :388); this emits it. Mirrors src/codegen/exprs/assignment.ts.
+{ emit_deferred_dup_or_code } :: import("./drop_dup.yo");
+{ get_type_string, get_variable_type_string } :: import("../utils/index.yo");
+/// The last binding for `name` is a module-level global.
+_last_is_module_level :: (fn(env : Environment, name : String) -> bool)({
+  vars := get_variables_from_env(env, name);
+  m := vars.len();
+  if(m == usize(0), false, match(vars.get(m - usize(1)),.Some(v) => v.is_module_level,.None => false))
+});
+/// The last binding for `name` is a compile-time-only variable.
+_last_is_compile_time_only :: (fn(env : Environment, name : String) -> bool)({
+  vars := get_variables_from_env(env, name);
+  m := vars.len();
+  if(m == usize(0), false, match(vars.get(m - usize(1)),.Some(v) => v.is_compile_time_only,.None => false))
+});
+/// Generate an assignment / initialization. Mirrors `generateAssignment`.
+generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("")));
+  // Compile-time-only assignment (e.g. `p.* = v` where `p` is comptime).
+  if(match(ei.is_compile_time_only_assignment,.Some(b) => b,.None => false), {
+    return(String.from(""));
+  });
+  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  lhs0 := match(args.get(usize(0)),.Some(x) => x,.None => return(String.from("// Error: assignment missing lhs\n")));
+  rhs := match(args.get(usize(1)),.Some(x) => x,.None => return(String.from("// Error: assignment missing rhs\n")));
+  // `(lhs : T) = rhs` is an initialization; unwrap to the real lhs variable.
+  is_init := ast_expr_is_fn_call_of(lhs0, BK_COLON, Option(usize).Some(usize(2)));
+  lhs := if(is_init, match(lhs0,.FnCall(_, _, la, _, _) => match(la.get(usize(0)),.Some(x) => x,.None => lhs0),.Atom(_, _) => lhs0), lhs0);
+  lhs_ei := match(
+    context.base.get_expr_info(lhs),
+    .Some(e) => e,
+    .None => {
+      s := String.from("// Error: No type information for left-hand side ");
+      s.push_string(ast_expr_to_string(lhs));
+      s.push_str("\n");
+      return(s);
+    }
+  );
+  // Module-level globals are declared in the main wrapper — skip here.
+  if(is_init && ast_expr_is_atom(lhs), {
+    if(_last_is_module_level(lhs_ei.env, ast_expr_token(lhs).value), {
+      return(String.from(""));
+    });
+  });
+  // Compile-time variable.
+  if(ast_expr_is_fn_call_of(lhs, BK_COMPTIME, Option(usize).None), {
+    return(String.from(""));
+  });
+  // LHS is a field/index write whose base variable is compile-time.
+  pc := lhs_ei.path_collection;
+  if(pc.len() > usize(0), {
+    match(
+      pc.get(usize(0)),
+      .Some(path) => if(path.len() >= usize(2), {
+        match(
+          path.get(usize(0)),
+          .Some(base_var) => if(_last_is_compile_time_only(lhs_ei.env, base_var.clone()), {
+            return(String.from(""));
+          }),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+  });
+  // LHS is a simple comptime variable name.
+  if(ast_expr_is_atom(lhs), {
+    if(_last_is_compile_time_only(lhs_ei.env, ast_expr_token(lhs).value), {
+      return(String.from(""));
+    });
+  });
+  lhs_type := lhs_ei.ty;
+  lhs_code := _call_generate_expr(lhs, indent.clone(), context);
+  em := context.base.emitter;
+  // Save the old value into the result temp (for a deferred drop of it).
+  match(
+    ei.variable_name,
+    .Some(temp_var_name) => {
+      in_sm := match(context.in_async_state_machine,.Some(_) => lhs_code.starts_with("sm->"),.None => false);
+      if(
+        !(in_sm),
+        if(!(is_unit_type(lhs_type)), {
+          save := indent.clone();
+          save.push_string(get_variable_type_string(lhs_type, temp_var_name.clone(), context.base));
+          save.push_str(" = ");
+          save.push_string(lhs_code.clone());
+          save.push_str("; // Save old value for later use");
+          em.emit_string_line(save);
+        })
+      );
+    },
+    .None => ()
+  );
+  // While generating the RHS, mark the save-old-value temp so escape drops
+  // inside the RHS skip it: ownership of the old value transfers to the temp
+  // only when the assignment completes — on an escape the LOCAL still owns it
+  // and its own scope drop covers it; dropping both double-freed the old value
+  // (the round-4 `rhs = evaluate(rhs)` escape UAF; TS's point-in-time envs
+  // exclude the not-yet-defined temp naturally). Save/restore for nesting.
+  prev_save_temp := context.current_assignment_save_temp;
+  match(
+    ei.variable_name,
+    .Some(stn) => {
+      context.current_assignment_save_temp = Option(String).Some(stn.clone());
+    },
+    .None => ()
+  );
+  // Array assignment uses direct struct copy; everything else is scalar.
+  if(is_array_type(lhs_type), {
+    rhs_code := emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context);
+    // Same FTT degrade as the scalar arm below.
+    if(rhs_code.starts_with("// Failed to transpile"), {
+      ftl := indent.clone();
+      ftl.push_string(rhs_code);
+      em.emit_string_line(ftl);
+      context.current_assignment_save_temp = prev_save_temp;
+      return(match(ei.variable_name,.Some(v) => v,.None => String.from("")));
+    });
+    if(is_init, {
+      vt := get_variable_type_string(lhs_type, _call_generate_expr(lhs, indent.clone(), context), context.base);
+      line := indent.clone();
+      line.push_string(vt);
+      line.push_str(" = ");
+      line.push_string(rhs_code);
+      line.push_str(";");
+      em.emit_string_line(line);
+    }, {
+      line := indent.clone();
+      line.push_string(lhs_code.clone());
+      line.push_str(" = ");
+      line.push_string(rhs_code);
+      line.push_str(";");
+      em.emit_string_line(line);
+    });
+  }, {
+    rhs_code := emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context);
+    // DEGRADED assignment when the RHS render failed to transpile: splicing
+    // the comment into `<type> <name> = <comment>;` breaks the C
+    // ("unexpected type name", the c03 dyn(box(closure)) shape). Same
+    // convention as the return/tail FTT degrades — emit the whole statement
+    // as the comment; TS never reaches this state.
+    if(rhs_code.starts_with("// Failed to transpile"), {
+      ftl := indent.clone();
+      ftl.push_string(rhs_code);
+      em.emit_string_line(ftl);
+      context.current_assignment_save_temp = prev_save_temp;
+      return(match(ei.variable_name,.Some(v) => v,.None => String.from("")));
+    });
+    if(!(is_unit_type(lhs_type)), {
+      c_type_string := get_type_string(lhs_type, context.base);
+      is_sm_var := match(context.in_async_state_machine,.Some(_) => lhs_code.starts_with("sm->"),.None => false);
+      line := indent.clone();
+      if(is_init && !(is_sm_var), {
+        line.push_string(c_type_string);
+        line.push_str(" ");
+      });
+      line.push_string(lhs_code.clone());
+      line.push_str(" = ");
+      line.push_string(rhs_code);
+      line.push_str(";");
+      em.emit_string_line(line);
+    });
+  });
+  context.current_assignment_save_temp = prev_save_temp;
+  match(ei.variable_name,.Some(v) => v,.None => String.from(""))
+});
+export(generate_assignment);

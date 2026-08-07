@@ -23,9 +23,11 @@ open(import("../string"));
 IO_file :: import("../sys/file");
 { AT_FDCWD, AT_SYMLINK_NOFOLLOW, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, S_IFMT, S_IFREG, S_IFDIR, S_IFLNK, S_IWUSR, S_IWGRP, S_IWOTH } :: import("../sys/constants");
 /// File metadata wrapper around `Statx`.
-Metadata :: object(
-  _statx : Statx,
-  _buf_ptr : *(u8)
+Metadata :: ref(
+  struct(
+    _statx : Statx,
+    _buf_ptr : *(u8)
+  )
 );
 impl(
   Metadata,

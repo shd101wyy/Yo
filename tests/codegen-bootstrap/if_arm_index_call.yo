@@ -1,0 +1,18 @@
+open(import("std/fmt"));
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+
+// A bare Index-trait call as an if/cond ARM body: the single-expression arm
+// shares its node id with the begin-block result, whose summary ExprInfo
+// stamp must carry the index-trait fields across (begin.yo) or codegen
+// emits "Failed to transpile xs(i)".
+main :: (fn() -> unit)({
+  argv := ArrayList(String).new();
+  argv.push(String.from("a"));
+  argv.push(String.from("b"));
+  (i : usize) = usize(0);
+  v := if((i + usize(1)) < argv.len(), argv(i + usize(1)), String.from(""));
+  w := if((i + usize(5)) < argv.len(), argv(i + usize(5)), String.from("none"));
+  println(`${v} ${w}`);
+});
+export(main);

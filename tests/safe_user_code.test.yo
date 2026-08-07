@@ -1,3 +1,4 @@
+{ assert } :: import("std/assert");
 /// Positive coverage that *safe* code — code that never touches a
 /// raw pointer — compiles and runs WITHOUT declaring
 /// `pragma(Pragma.AllowUnsafe);` (Phase C of plans/MEMORY_SAFETY.md).
@@ -47,7 +48,7 @@ test("String / collection idioms without pragma", {
 });
 test("inout parameter (Phase B) without pragma", {
   swap :: (
-    fn(ref(a) : i32, ref(b) : i32) -> unit
+    fn(inout(a) : i32, inout(b) : i32) -> unit
   )({
     tmp := a;
     a = b;

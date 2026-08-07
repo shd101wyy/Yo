@@ -14,7 +14,7 @@ This is Swift's model. It's Go's model. It's Java's model. All three are widely 
 
 ## Non-Goals
 
-- **No `&(T)` reference type, no Origins, no lifetimes.** See [`FUTURE_ORIGINS.md`](FUTURE_ORIGINS.md) for the deferred design.
+- **No `&(T)` reference type, no Origins, no lifetimes.** See [`FUTURE_ORIGINS.md`](backlog/FUTURE_ORIGINS.md) for the deferred design.
 - **No `unsafe fn` (function coloring).** Only `unsafe(...)` expression calls at the use site. Unsafety doesn't propagate to callers.
 - **No borrow checker, no aliasing rules.**
 - **No changes to `&(x)` semantics.** `&(x)` still returns `*(T)` exactly as today (and is forbidden in safe code by the privilege gate, not by a semantic change).
@@ -58,13 +58,13 @@ do_stuff :: (fn(p : *(i32)) -> i32)(
 
 #### What requires `unsafe(...)`
 
-| Operation                   | Example               | Why                                     |
-| --------------------------- | --------------------- | --------------------------------------- |
-| Pointer dereference (read)  | `p.*`                 | May read freed/invalid memory           |
-| Pointer dereference (write) | `p.* = v`             | May write through dangling ptr          |
-| `consume(p.* = v)`          | initialization-assign | Same as write deref                     |
-| Pointer arithmetic          | `p &+ n`, `p &- n`    | Result usually destined to deref        |
-| Pointer difference          | `p &/ q`              | Assumes both point into the same object |
+| Operation                   | Example                | Why                                     |
+| --------------------------- | ---------------------- | --------------------------------------- |
+| Pointer dereference (read)  | `p.*`                  | May read freed/invalid memory           |
+| Pointer dereference (write) | `p.* = v`              | May write through dangling ptr          |
+| `consume(p.* = v)`          | initialization-assign  | Same as write deref                     |
+| Pointer arithmetic          | `p.add(n)`, `p.sub(n)` | Result usually destined to deref        |
+| Pointer difference          | `p.offset_from(q)`     | Assumes both point into the same object |
 
 #### What stays safe (no `unsafe(...)` wrap needed)
 
@@ -74,7 +74,7 @@ do_stuff :: (fn(p : *(i32)) -> i32)(
 | Pass `*(T)` to a function    | `foo(&(x))`                 | Caller doesn't deref               |
 | Store `*(T)` in a struct     | `Iter(_ptr : *(T), ...)`    | Storing data isn't UB              |
 | Return `*(T)`                | `(fn() -> *(T))(...)`       | Same                               |
-| Pointer comparison           | `(p &< q)`, `(p &== q)`     | Comparing addresses is harmless    |
+| Pointer comparison           | `(p < q)`, `(p == q)`       | Comparing addresses is harmless    |
 | Cast pointer types           | `*(u8)(p)`                  | Casting an address is harmless     |
 | Cast `comptime_string` → ptr | `*(u8)("hello")`            | Already supported, stays safe      |
 | `asm(...)` blocks            | `asm("..." : : : "memory")` | Implicitly unsafe — no wrap needed |
@@ -131,7 +131,7 @@ In a file without the unsafe privilege, the following are compile errors:
 | `unsafe(...)` call                                                               | `error: 'unsafe(...)' is not available in safe code. This operation requires 'pragma(Pragma.AllowUnsafe);'.`   |
 | `asm(...)` block                                                                 | `error: inline assembly is not available in safe code.`                                                        |
 | `extern fn` declaration                                                          | `error: extern FFI declarations are not available in safe code. Call stdlib wrappers (e.g. 'std/sys').`        |
-| Pointer arithmetic operators (`&+`, `&-`, `&/`, etc.)                            | `error: pointer arithmetic requires raw pointers, which are not available in safe code.`                       |
+| Pointer arithmetic operators (`.add(n)`, `.sub(n)`, `.offset_from(q)`, etc.)     | `error: pointer arithmetic requires raw pointers, which are not available in safe code.`                       |
 | `consume(p.* = v)` on a pointer deref                                            | `error: 'consume' on a pointer deref requires raw pointers, which are not available in safe code.`             |
 
 Each error includes a "what to use instead" hint pointing at the safe alternative.
@@ -388,9 +388,9 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
 - [x] In the evaluator, add an `unsafeContext: boolean` flag on the evaluation context. Push `true` when entering `unsafe(...)`, restore on exit.
 - [x] Gate the following operations: emit `error: <op> requires 'unsafe(...)'` if the context flag is false.
   - Pointer deref (`.*` on a `*(T)`) — in `property-access.ts`
-  - `__yo_ptr_add` / `__yo_ptr_sub` / `__yo_ptr_diff` calls — in `_expr.ts` dispatcher. Gates `&+`, `&-`, `&/` transitively (those dispatch through these builtins).
+  - `__yo_ptr_add` / `__yo_ptr_sub` / `__yo_ptr_diff` calls — in `_expr.ts` dispatcher. Gates `.add(n)`, `.sub(n)`, `.offset_from(q)` transitively (those dispatch through these builtins).
   - `consume(p.* = v)` — gated automatically via the LHS deref evaluation
-- [x] Pointer comparison (`&<`, `&>`, `&==`, `&!=`, `&<=`, `&>=`) stays safe — addresses are just data.
+- [x] Pointer comparison (`<`, `>`, `==`, `!=`, `<=`, `>=` via the Eq/Ord impls) stays safe — addresses are just data.
 - [x] Codegen: `unsafe(expr)` lowers to its inner expression. Pure compile-time marker.
 - [x] ~~**MVP adjustment (path-based bypass)**~~ — removed in Phase C; the gate now consults a per-file registry populated by `pragma(...)` calls. `auto-generated://...` URIs remain as a transitive bypass (macro/derive expansions inherit privilege from their callsite).
 - [x] `tests/unsafe.test.yo` — 8 positive tests for `unsafe(...)`: read/write/arithmetic deref, begin-block, transparency, nesting, cond/match wrap.
@@ -420,7 +420,7 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
   - `&(expr)` address-of — gated in `src/evaluator/builtins/ptr-fns.ts:evaluateAddressCall`. Fires at the construction site, so the diagnostic points at the `&` rather than at a downstream use.
   - `asm(...)` builtin — already gated in `src/evaluator/builtins/asm.ts`.
   - `extern(...)` declarations — already gated in `src/evaluator/exprs/extern.ts`.
-  - Pointer arithmetic operators (`&+`, `&-`, `&/`) — already gated in `src/evaluator/exprs/_expr.ts`. Pointer comparison (`&==`, `&<`, …) intentionally stays safe per design — comparing addresses can't violate memory safety.
+  - Pointer arithmetic operators (`.add(n)`, `.sub(n)`, `.offset_from(q)`) — already gated in `src/evaluator/exprs/_expr.ts`. Pointer comparison (`==`, `<`, …) intentionally stays safe per design — comparing addresses can't violate memory safety.
   - `consume(p.* = v)` — gated transitively via the inner `.* ` deref gate in `property-access.ts`.
   - Pragma re-added by `scripts/add-pragma-for-pointer-decls.ts` to every file under `std/`, `yo-self/`, and `tests/` whose source mentions `*(...)` or `&(...)`. The trim pass (`scripts/trim-pragma.ts`) had removed it from files using only pointer-type declarations; the new structural gates require it everywhere a raw-pointer-typed expression appears.
 - [x] **Diagnostic messages match the "What Safe Code Cannot Do" table.** Each gate's error names the rejected construct, suggests the safe alternative (Slice(T), ref(name) : T, stdlib wrapper), and tells the user how to opt into unsafe-capability if they really need it. Tests in `tests/safe_code_structural_gates.test.yo` (`comptime_expect_error` for each of the five structural rejections + a positive runtime guardrail using `inout`) and `src/tests/unsafe-gate.test.ts`.
@@ -446,7 +446,7 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
 
 - [x] **Clone trait migrated.** Same shape. Trait + all primitive impls + Box(T) + Option(T) + Result(T,E) + `__derive_clone` macro + ArrayList + HashMap + String. Bulk-migration of `(&(x)).clone()` → `x.clone()` in yo-self/ via `scripts/migrate-clone-calls.ts` (29 files).
 - [x] **Eq, PartialEq, Ord** — checked. Already take parameters by value (`lhs : Self, rhs : Rhs`); no migration needed.
-- [x] **Iterator trait migrated** via the separate `plans/ITERATOR_REDESIGN.md` work. Trait declaration now reads `next : fn(ref(self) : Self) -> Option(Self.Item)`; all stdlib iterator impls follow suit (`std/prelude.yo`, `std/collections/*`, `std/imm/*`, `std/string/*`). The for-loop interaction redesign (`Indexable.project` projection rule + `for(coll, ref(x) => body)`) is documented in that plan. The original "skipped per goal" stance was reversed once the value-iterator path proved its perf was within noise.
+- [x] **Iterator trait migrated** via the separate `plans/archive/ITERATOR_REDESIGN.md` work. Trait declaration now reads `next : (fn(ref(self) : Self) -> Option(Self.Item))`; all stdlib iterator impls follow suit (`std/prelude.yo`, `std/collections/*`, `std/imm/*`, `std/string/*`). The for-loop interaction redesign (`Indexable.project` projection rule + `for(coll, ref(x) => body)`) is documented in that plan. The original "skipped per goal" stance was reversed once the value-iterator path proved its perf was within noise.
 - [x] **ToString trait migrated** — trait declaration in `std/fmt/to_string.yo` plus all 28 impls (including primitives whose bodies use `self` as a bare value via `snprintf(..., "%llu", self)`, char, str, rune, String) now take `ref(self) : Self`. The `__derive_tostring` macro emits the same shape. The codegen bug that previously blocked this — `T self = (*self);` shadow on inout-param multi-statement bodies — was fixed earlier in the project (commit `d27044b1`).
 - [x] **Inherent-method `*(Self)` migrations** — bulk-migrated where `self` is only used for field access (`self.field`), not as a bare value:
   - `yo-self/emitter.yo` — 9 sigs, drops pragma
@@ -488,7 +488,7 @@ Comment-style directives (`// @skip_prelude`, `// @skip_wasm`, …) were the ori
 
 ## Open Questions
 
-1. **`extern fn` call sites.** ✅ Resolved (reversed from the original lean). Every `extern "c"` call must be wrapped in `unsafe(...)` even in pragma'd files — the pragma authorizes DECLARING the FFI symbol, the wrap is the per-call audit marker. See `plans/EXTERN_UNSAFE_WRAP.md`. The earlier "lean: no" reasoning (C calls aren't intrinsically UB) is technically correct — but in practice the wrap makes `yo unsafe-report` line up with UB-capable lines instead of just the file, which is the higher-value audit story.
+1. **`extern fn` call sites.** ✅ Resolved (reversed from the original lean). Every `extern "c"` call must be wrapped in `unsafe(...)` even in pragma'd files — the pragma authorizes DECLARING the FFI symbol, the wrap is the per-call audit marker. See `plans/archive/EXTERN_UNSAFE_WRAP.md`. The earlier "lean: no" reasoning (C calls aren't intrinsically UB) is technically correct — but in practice the wrap makes `yo unsafe-report` line up with UB-capable lines instead of just the file, which is the higher-value audit story.
 
 2. **`asm(...)` blocks.** Already inherently unsafe. **Lean: no `unsafe(asm(...))` requirement.** Document that `asm` is implicitly unsafe and only available in unsafe-capable files.
 
@@ -611,7 +611,7 @@ impl(forall(T : Type), ArrayList(T),
       (i >= self._length) => .None,
       true => match(self._ptr,
         // SAFETY: i < _length, _ptr points to allocated buffer of _capacity ≥ _length
-        .Some(p) => .Some(unsafe((p &+ i).*)),
+        .Some(p) => .Some(unsafe((p.add(i)).*)),
         .None => .None
       )
     )
@@ -632,7 +632,7 @@ strlen :: (fn(s : *(u8)) -> usize)(
     p := s;
     while((p.* != u8(0)), {
       n = (n + usize(1));
-      p = (p &+ 1);
+      p = (p.add(1));
     });
     n
   })
@@ -706,7 +706,7 @@ Considered. Rejected because a warning that doesn't block compilation is easy to
 - **Logic errors.** Memory safety only prevents UB, not bugs.
 - **Resource leaks** beyond what `object` + `___drop` handle. Orthogonal.
 - **Data races across threads.** `Send` / `Iso(T)` / `Arc(T)` handle this; orthogonal.
-- **Pointer arithmetic past array bounds in `unsafe(...)`-capable code.** `unsafe(p &+ n)` is permitted; bounds are the programmer's problem at that point.
+- **Pointer arithmetic past array bounds in `unsafe(...)`-capable code.** `unsafe(p.add(n))` is permitted; bounds are the programmer's problem at that point.
 
 The honest framing: **`unsafe(...)` makes the unsafe surface auditable; the privilege gate keeps user code outside it entirely.** Combined with `object` being the default for ownership, this gets Yo to roughly Swift/Go's safety level — strictly better than C, comparable to other widely-adopted memory-safe languages, strictly weaker than Rust.
 
@@ -723,9 +723,9 @@ The following sharp edges remain after the gates above. They were raised in revi
    });
    ```
 
-   None of the Phase C structural gates caught this — the result expression doesn't have type `*(T)`. Closed by extending the iterator flowability rule to "any returned value whose representation transitively carries a raw pointer (or could provide source storage for one via an `object` arg) must be flowable". See **`plans/SLICE_FLOWABILITY.md`** for the design and **`tests/slice_flowability.test.yo`** for the verdicts. Same shape as Open Question 7 in `plans/ITERATOR_REDESIGN.md` (also resolved).
+   None of the Phase C structural gates caught this — the result expression doesn't have type `*(T)`. Closed by extending the iterator flowability rule to "any returned value whose representation transitively carries a raw pointer (or could provide source storage for one via an `object` arg) must be flowable". See **`plans/archive/SLICE_FLOWABILITY.md`** for the design and **`tests/slice_flowability.test.yo`** for the verdicts. Same shape as Open Question 7 in `plans/archive/ITERATOR_REDESIGN.md` (also resolved).
 
-2. **`extern(...)` call sites must be wrapped in `unsafe(...)` — ✅ RESOLVED.** Every `extern "c"` call must be wrapped in `unsafe(...)` even in `pragma(Pragma.AllowUnsafe);` files. The pragma authorizes DECLARING the FFI symbol; the wrap is the per-call audit marker. `extern(...)` declarations, `c_include(...)` declarations, and `asm(...)` blocks themselves stay unwrapped — the pragma is the right gate for those. See **`plans/EXTERN_UNSAFE_WRAP.md`** for the design and **`tests/extern_unsafe_wrap.test.yo`** for the verdicts.
+2. **`extern(...)` call sites must be wrapped in `unsafe(...)` — ✅ RESOLVED.** Every `extern "c"` call must be wrapped in `unsafe(...)` even in `pragma(Pragma.AllowUnsafe);` files. The pragma authorizes DECLARING the FFI symbol; the wrap is the per-call audit marker. `extern(...)` declarations, `c_include(...)` declarations, and `asm(...)` blocks themselves stay unwrapped — the pragma is the right gate for those. See **`plans/archive/EXTERN_UNSAFE_WRAP.md`** for the design and **`tests/extern_unsafe_wrap.test.yo`** for the verdicts.
 
 3. **`asm(...)` blocks similarly carry no `unsafe(...)` wrap requirement** — they are implicitly unsafe by virtue of needing pragma. Same reasoning as #2; the audit story owns the granularity gap.
 
@@ -747,17 +747,17 @@ Resolved decisions:
 - ✅ **Migration of existing user code with `*(T)`** — auto-emit `pragma(Pragma.AllowUnsafe);` at the top of pre-existing files via `scripts/add-pragma.ts` (633 files touched in one mechanical commit).
 - ✅ **`inout` parameter capture in closures** — forbid all closure captures of inout-params for v1. Revisit if real APIs demand non-escaping-closure carve-outs.
 - ✅ **Read-only-by-ref modifier (`in(name) : T`)** — defer to v2. v1 ships only `inout`.
-- ✅ **Iterator trait redesign** — landed via `plans/ITERATOR_REDESIGN.md` (separate plan). Iterators now expose value-yielding `iter()` / `into_iter()` and the `Indexable.project` projection rule for in-place mutation. `for(coll, ref(x) => body)` works end-to-end.
-- ✅ **Dangling-slice hole** — closed via `plans/SLICE_FLOWABILITY.md`. The flowability rule now extends to any return type whose representation transitively carries a raw pointer.
-- ✅ **Per-call extern audit marker** — every `extern "c"` call must be wrapped in `unsafe(...)`, even in pragma'd files (see `plans/EXTERN_UNSAFE_WRAP.md`). The pragma authorizes declaring the FFI symbol; the wrap is the per-call review marker.
+- ✅ **Iterator trait redesign** — landed via `plans/archive/ITERATOR_REDESIGN.md` (separate plan). Iterators now expose value-yielding `iter()` / `into_iter()` and the `Indexable.project` projection rule for in-place mutation. `for(coll, ref(x) => body)` works end-to-end.
+- ✅ **Dangling-slice hole** — closed via `plans/archive/SLICE_FLOWABILITY.md`. The flowability rule now extends to any return type whose representation transitively carries a raw pointer.
+- ✅ **Per-call extern audit marker** — every `extern "c"` call must be wrapped in `unsafe(...)`, even in pragma'd files (see `plans/archive/EXTERN_UNSAFE_WRAP.md`). The pragma authorizes declaring the FFI symbol; the wrap is the per-call review marker.
 - ✅ **Integer overflow** — `-fwrapv` is passed by default to clang/gcc/zig, defining signed-overflow as two's-complement wrap. Benchmark showed < 0.5% perf impact on realistic loops.
 
 Phase ordering (foundation → leaves):
 
-1. **Phase A** ✅ — `unsafe(...)` marker. Gates `.*` deref, `&+`/`&-`/`&/` arithmetic, and `consume(p.* = v)`.
+1. **Phase A** ✅ — `unsafe(...)` marker. Gates `.*` deref, `.add`/`.sub`/`.offset_from` arithmetic, and `consume(p.* = v)`.
 2. **Phase B** ✅ — `ref(name) : T` parameter form. Used as the safe in-place-mutation primitive for user code, and as the replacement for `*(Self)` receivers in stdlib trait method signatures.
 3. **Phase C** ✅ — privilege gate + `pragma(Pragma.AllowUnsafe);` builtin + `Pragma` enum in prelude. Gates `unsafe(...)`, `asm(...)`, and `extern fn` declarations on the calling file's pragma. Pragma added to every `std/`/`yo-self/`/`tests/` file.
-4. **Phase D** ✅ — Hash, Clone, ToString, and Iterator traits migrated to `ref(self) : Self` (or `inout(self)` where state needs to mutate). Derive macros updated; ArrayList/HashMap/String/imm.List impls updated; bulk migration of `(&(x)).clone()` → `x.clone()` (29 yo-self files). Iterator migration is documented in `plans/ITERATOR_REDESIGN.md`.
+4. **Phase D** ✅ — Hash, Clone, ToString, and Iterator traits migrated to `ref(self) : Self` (or `inout(self)` where state needs to mutate). Derive macros updated; ArrayList/HashMap/String/imm.List impls updated; bulk migration of `(&(x)).clone()` → `x.clone()` (29 yo-self files). Iterator migration is documented in `plans/archive/ITERATOR_REDESIGN.md`.
 5. **Phase E** ✅ — `yo unsafe-report` (audit-friendly listing of every unsafe site, asm, extern, and pragma file), now with sub-kind classification (extern-call / deref / arith / addr-of / other) and top-callees summary. `yo audit-unsafe` (LLM-backed) remains deferred.
 6. **Phase F** ✅ — Docs (DESIGN.md en+zh, syntax instructions, cheatsheet, cross-links to `yo unsafe-report`, and the standalone `docs/{en-US,zh-CN}/MEMORY_SAFETY.md` user guide).
 

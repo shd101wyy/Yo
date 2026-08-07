@@ -10,27 +10,28 @@
 //! unification env produced while matching constraint traits against impl
 //! traits. The fix introduces `typeImplementsTraitWithBindings` which
 //! propagates that env back through where-clause validation.
+{ assert } :: import("std/assert");
 open(import("std/collections/array_list"));
 LocalMapIter :: (fn(comptime(I) : Type, comptime(A) : Type, comptime(B) : Type, comptime(F) : Type) -> comptime(Type))(
   struct(_inner : I, _f : F)
 );
 impl(
-  forall(I : Type, A : Type, B : Type, F : Type),
+  generic(I : Type, A : Type, B : Type, F : Type),
   LocalMapIter(I, A, B, F),
   Iterator(
     Item : B,
-    next : (fn(ref(self) : Self) -> Option(B))(
+    next : (fn(inout(self) : Self) -> Option(B))(
       Option(B).None
     )
   )
 );
 impl(
-  forall(I : Type),
+  generic(I : Type),
   where(I <: Iterator),
   I,
   local_map_to : (
     fn(
-      forall(A : Type, B : Type, F : Type),
+      generic(A : Type, B : Type, F : Type),
       self : Self,
       f : F,
       where(Self <: Iterator(Item := A), F <: (Fn(a : A) -> B))

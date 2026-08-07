@@ -44,6 +44,7 @@ export function generateYoIsoExtract(
     context.emitter.emitLine(
       `${indent}${getTypeString(returnType, context)} ${tempVar} = ${extractCall};`
     );
+    context.declaredCVarNames?.add(tempVar);
     return tempVar;
   }
 

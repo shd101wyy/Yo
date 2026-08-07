@@ -192,7 +192,7 @@ evaluate_macro_expand :: (
     .Some(v) => match(
       v,
       .ExprVal(expr_box) => {
-        (current_expr : AstExpr) = expr_box.*;
+        (current_expr : AstExpr) = expr_box;
         (current_env : Environment) = cur_env;
         (expansion_count : i64) = i64(0);
         // Expand while it's a function call and we haven't hit the cap.
@@ -240,7 +240,7 @@ evaluate_macro_expand :: (
                   .Some(ev) => match(
                     ev,
                     .ExprVal(new_expr_box) => {
-                      new_expr := new_expr_box.*;
+                      new_expr := new_expr_box;
                       // If no change, stop to avoid infinite loop.
                       same := (ast_expr_to_string(new_expr) == ast_expr_to_string(current_expr));
                       if(same, {
@@ -262,13 +262,13 @@ evaluate_macro_expand :: (
                 );
               }
             );
-            _ := expanded_ok;
+            expanded_ok;
           });
         });
         // Process unquotes in the final expression.
         final_expr := process_unquotes_in_expr(current_expr, current_env, ctx, exn);
         out := new_expr_info(current_env, t_expr_t());
-        out.value = Option(EvalValue).Some(EvalValue.ExprVal(box(final_expr)));
+        out.value = Option(EvalValue).Some(EvalValue.ExprVal(final_expr));
         out.path_collection = arg_info.path_collection;
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
       },

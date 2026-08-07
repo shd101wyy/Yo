@@ -1,0 +1,89 @@
+//! Repro: a method returning `Option(Self)` gets the PATTERN-ERA instance type
+//! when its result is used directly as a RECEIVER, but the correct concrete type
+//! when the result is first bound to a variable.
+//!
+//!   TS      -> rc=0, prints both lines
+//!   yo-self -> rc=1,
+//!              error: initializing '__yo_t12' with an expression of
+//!                     incompatible type '__yo_t1'
+//!
+//! This is the minimal form of the `tests/cli/arg_parser.test.yo` failure (the
+//! only TRUE struct-instance-identity red — see
+//! issues/retired/yo-self-struct-instance-family-triage.md, which shows the rest of
+//! that "family" are actually other roots).
+//!
+//! THE RULE, measured exactly. In arg_parser the same accessor
+//! (`get_subcommand_args : (fn(self : Self) -> Option(Self))`) is called SIX
+//! times, and the split in the emitted C is exactly 1 correct / 5 wrong,
+//! matching the source shapes one-for-one:
+//!
+//!     sub_args_opt := parsed.get_subcommand_args();           // :97  CORRECT
+//!     sub_args     := parsed.get_subcommand_args().unwrap();  // :117 WRONG
+//!     result.unwrap().get_subcommand_args().unwrap();         // :131 WRONG
+//!     inner        := parsed.get_subcommand_args().unwrap();  // :151 WRONG
+//!     inner2       := inner.get_subcommand_args().unwrap();   // :154 WRONG
+//!     parsed.get_subcommand_args().is_none();                 // :167 WRONG
+//!
+//! Bound to a variable first => correct. Used directly as the receiver of a
+//! further call => wrong. Note `ok.is_some()` below is fine, so it is NOT
+//! "a method call on the result" that breaks it — it is the result being the
+//! receiver expression ITSELF, without an intervening binding.
+//!
+//! WHICH type is wrong: the bad one is the EARLIER-created instance. In
+//! arg_parser's emit the accessor returns `__yo_t24` = `<enum:enum_yo_id_4936>`
+//! while the bad temps are `__yo_t35` = `<enum:enum_yo_id_2438>`; yo-self
+//! assigns ids sequentially, so 2438 is the def-time / pattern-era
+//! `Option(Self)` and 4936 is the post-definition `Option(Node)`. Both the
+//! PRODUCER (`yo_id_4986` returns t24) and the CONSUMER (`yo_id_2439_rtparam0_
+//! enum_yo_id_4936`) agree on the concrete type — ONLY the intermediate temp's
+//! declaration is pattern-era. So this is not a duplicate-type bug and must not
+//! be "fixed" by unifying the two types: BOTH compilers legitimately create the
+//! pair (measured: TS 23 enum unions with 1 duplicated payload signature x2;
+//! yo-self 14 with 1 x2).
+//!
+//! LEADING FIX HYPOTHESIS (not yet verified — verify before implementing):
+//! `adopt_receiver_struct_instance` (expr_info.yo:638) is exactly the machinery
+//! meant to swap a pattern-era return instance for the call's concrete receiver
+//! instance, and it is invoked on `resolved_ret` at three sites in
+//! evaluator/calls/function.yo (:1458, :1532, :1552). But it reads
+//!
+//!     ret_id := match(ret,.Struct({ id : ai_rid }) => ai_rid, _ => String.new());
+//!
+//! and bails when that is empty — so for a return of `Option(Self)`, an EnumT
+//! WRAPPING the Self struct rather than a top-level `.Struct`, the adoption is
+//! structurally unreachable. Extending it to descend into nested positions
+//! (enum variant fields / struct type_arguments) is the obvious candidate.
+//!
+//! This is the SAME top-level-only blind spot as the self-shell resolvers
+//! (`resolve_enum_shell` / `resolve_struct_shell`, types/creators.yo:529/574,
+//! both of which only match a top-level Enum/Struct). "Nested type positions
+//! are not handled" looks like a recurring architectural gap in yo-self, not a
+//! one-off, so a fix here is worth checking against the other blind spots.
+//!
+//! Iterate with THIS file (~1 s per compile), not with arg_parser.
+open(import("std/fmt"));
+
+Node :: ref(
+  struct(
+    value : i32,
+    child : Option(Self)
+  )
+);
+
+impl(
+  Node,
+  get_child : (fn(self : Self) -> Option(Self))(self.child)
+);
+
+main :: (fn() -> unit)({
+  leaf := Node(value : i32(2), child : Option(Node).None);
+  root := Node(value : i32(1), child : Option(Node).Some(leaf));
+  // STANDALONE binding — correct type, compiles.
+  ok := root.get_child();
+  println(`standalone is_some=${ok.is_some().to_string()}`);
+  // CHAINED — the result is the receiver expression itself. This is the bug.
+  inner := root.get_child().unwrap();
+  println(`chained value=${inner.value.to_string()}`);
+});
+
+export(main);

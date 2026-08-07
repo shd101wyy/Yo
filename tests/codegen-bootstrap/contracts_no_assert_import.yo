@@ -1,0 +1,28 @@
+// Contract lowering must be SELF-CONTAINED: requires/ensures lower to
+// assert calls, and `assert` lives in std/assert (NOT the prelude) — the
+// synthesized callee must be `import("std/assert").assert`, not a bare
+// identifier that only resolves when the USER file imports it. This file
+// deliberately imports neither std/assert nor std/fmt beyond printing.
+open(import("std/libc/stdio"));
+pragma(Pragma.AllowUnsafe);
+
+divide :: (
+  fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> i32
+)(x / y);
+
+clamp_pos :: (
+  fn(x : i32, ensures(result >= i32(0))) -> i32
+)(
+  cond(
+    (x < i32(0)) => i32(0),
+    true => x
+  )
+);
+
+main :: (fn() -> unit)({
+  d := divide(i32(10), i32(2));
+  unsafe(printf("divide: %d\n", d));
+  c := clamp_pos(i32(-(7)));
+  unsafe(printf("clamp: %d\n", c));
+});
+export(main);

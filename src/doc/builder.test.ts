@@ -179,7 +179,7 @@ export(UserId);
   test("documents an object (reference-counted struct)", () => {
     const doc = buildDocFromSource(`
 /// A ref-counted container.
-Container :: object(data : i32);
+Container :: ref(struct(data : i32));
 export(Container);
 `);
 
@@ -193,7 +193,7 @@ export(Container);
   test("documents an atomic object", () => {
     const doc = buildDocFromSource(`
 /// A thread-safe ref-counted container.
-Container :: atomic(object(data : i32));
+Container :: atomic(ref(struct(data : i32)));
 export(Container);
 `);
 
@@ -300,7 +300,7 @@ ArrayList :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(len : usize)
 );
 
-impl(forall(T : Type), ArrayList(T),
+impl(generic(T : Type), ArrayList(T),
   /// Return the number of elements.
   length : (fn(self : Self) -> usize)(self.len),
   /// Check whether the list is empty.
@@ -317,7 +317,7 @@ export(ArrayList);
       "is_empty",
     ]);
     expect(type.impls?.[0]?.signature).toContain(
-      "impl(forall(T : Type), ArrayList(T), ...)"
+      "impl(generic(T : Type), ArrayList(T), ...)"
     );
   });
 
@@ -327,7 +327,7 @@ List :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(len : usize)
 );
 
-impl(forall(T : Type), where(T <: Send), List(T),
+impl(generic(T : Type), where(T <: Send), List(T),
   size : (fn(self : Self) -> usize)(self.len)
 );
 
@@ -337,13 +337,13 @@ export(List);
     expect(doc.types).toHaveLength(1);
     const type = doc.types[0]!;
     expect(type.methods.map((method) => method.name)).toContain("size");
-    expect(type.impls?.[0]?.signature).toContain("forall(T : Type)");
+    expect(type.impls?.[0]?.signature).toContain("generic(T : Type)");
     expect(type.impls?.[0]?.signature).toContain("where(T <: Send)");
   });
 
   test("keeps trait impl signatures compact", () => {
     const doc = buildDocFromSource(`
-Boxed :: object(value : i32);
+Boxed :: ref(struct(value : i32));
 
 impl(Boxed, Dispose(
   dispose : (fn(self : Self) -> unit)(())
@@ -370,7 +370,7 @@ MyVec :: struct(data : i32, len : i32);
 
 impl(MyVec, Index(usize)(
   Output : i32,
-  index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(&(self.data))
+  index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(&(self.data))
 ));
 
 export(MyVec);

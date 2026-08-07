@@ -1,0 +1,409 @@
+//! Short-circuit `&&` / `||` emitters — mirrors `src/codegen/exprs/and-or.ts`.
+//!
+//! When every argument is side-effect-free the operator lowers to C's native
+//! `&&`/`||`. When an argument beyond the first may emit statements (temp
+//! declarations, calls), an if-chain is emitted instead so evaluation order /
+//! short-circuiting is preserved:
+//!   bool __yo_sc = false;  Type t1 = a; if (t1) { Type t2 = b; __yo_sc = t2; }
+//! Compile-time `true`/`false` operands are folded away (and short-circuit the
+//! whole expression). DIVERGENCE (documented): TS seeds the result-var name
+//! from a module-level counter; yo-self uses `random_id` (uniqueness only —
+//! same choice as loop labels — so a module-level mutable global isn't needed,
+//! which keeps the Phase-6 self-host fixpoint happy).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
+{ AstExpr, ast_expr_is_fn_call_of, BK_OP_AND, BK_OP_OR } :: import("../../expr.yo");
+{ EvalValue } :: import("../../value.yo");
+{ random_id } :: import("../../utils.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ get_deferred_drop_target_atom_name } :: import("../utils/index.yo");
+/// `base` followed by `n` levels of two-space indent.
+_indent_n :: (fn(base : String, n : usize) -> String)({
+  out := base.clone();
+  (i : usize) = usize(0);
+  while(i < n, {
+    out.push_str("  ");
+    i = (i + usize(1));
+  });
+  out
+});
+/// The compile-time boolean value of `arg`, if it has one.
+_comptime_bool :: (fn(arg : AstExpr, context : FunctionGenerationContext) -> Option(bool))(
+  match(
+    context.base.get_expr_info(arg),
+    .Some(ei) => match(ei.value,.Some(v) => match(v,.BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None),.None => Option(bool).None),
+    .None => Option(bool).None
+  )
+);
+/// Whether `generate_expr` for this node might emit side-effectful statements
+/// (a temp declaration or call). Atoms / compile-time values are safe. Mirrors
+/// `exprMayHaveSideEffects`.
+_expr_may_have_side_effects :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)({
+  ei_opt := context.base.get_expr_info(expr);
+  has_var := match(ei_opt,.Some(ei) => match(ei.variable_name,.Some(_) => true,.None => false),.None => false);
+  if(has_var, {
+    return(true);
+  });
+  has_value := match(ei_opt,.Some(ei) => match(ei.value,.Some(_) => true,.None => false),.None => false);
+  if(has_value, {
+    return(false);
+  });
+  match(
+    expr,
+    .FnCall(_, func, args, _, _) => {
+      n := args.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          args.get(i),
+          .Some(arg) => if(recur(arg, context), {
+            return(true);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      recur(func, context)
+    },
+    .Atom(_, _) => false
+  )
+});
+/// Collect the variable names newly CREATED by an expression tree (temps from
+/// function-call results). For nested `&&`/`||`, only the first (unconditional)
+/// arg is descended into. Mirrors `collectCreatedVarNamesFromExpr`.
+_collect_created_var_names_from_expr :: (fn(expr : AstExpr, result : HashSet(String), context : FunctionGenerationContext) -> unit)(
+  match(
+    expr,
+    .FnCall(_, func, args, _, _) => {
+      match(
+        context.base.get_expr_info(expr),
+        .Some(ei) => match(
+          ei.variable_name,
+          .Some(vn) => {
+            _a := result.add(vn.clone());
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      is_nested := (ast_expr_is_fn_call_of(expr, BK_OP_AND, Option(usize).None) || ast_expr_is_fn_call_of(expr, BK_OP_OR, Option(usize).None));
+      if(is_nested, {
+        if(args.len() > usize(0), {
+          match(args.get(usize(0)),.Some(a0) => recur(a0, result, context),.None => ());
+        });
+      }, {
+        n := args.len();
+        (i : usize) = usize(0);
+        while(i < n, {
+          match(args.get(i),.Some(arg) => recur(arg, result, context),.None => ());
+          i = (i + usize(1));
+        });
+        recur(func, result, context);
+      });
+    },
+    .Atom(_, _) => ()
+  )
+);
+/// Emit drops (from the enclosing scope's pending deferred drops) for temps
+/// created inside a short-circuit conditional branch, and remove them from the
+/// pending set so they aren't dropped again at scope end. No-op when there are
+/// no pending drops (the no-RC corpus). Mirrors `emitDropsForConditionalBranch`.
+_emit_drops_for_conditional_branch :: (fn(var_names : HashSet(String), indent : String, context : FunctionGenerationContext) -> unit)(
+  match(
+    context.pending_deferred_drops,
+    .Some(pending_drops) => if(var_names.len() > usize(0), {
+      match(
+        context.short_circuit_handled_drop_var_names,
+        .Some(_) => (),
+        .None => {
+          context.short_circuit_handled_drop_var_names = Option(HashSet(String)).Some(HashSet(String).new());
+        }
+      );
+      new_pending := ArrayList(AstExpr).new();
+      (removed : usize) = usize(0);
+      n := pending_drops.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          pending_drops.get(i),
+          .Some(drop_expr) => match(
+            get_deferred_drop_target_atom_name(drop_expr),
+            .Some(target) => if(var_names.contains(target.clone()), {
+              drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
+              if(drop_code.len() > usize(0), {
+                line := indent.clone();
+                line.push_string(drop_code);
+                line.push_str(";");
+                em := context.base.emitter;
+                em.emit_string_line(line);
+              });
+              match(
+                context.short_circuit_handled_drop_var_names,
+                .Some(s) => {
+                  _a := s.add(target);
+                },
+                .None => ()
+              );
+              removed = (removed + usize(1));
+            }, {
+              _p := new_pending.push(drop_expr);
+            }),
+            .None => {
+              _p := new_pending.push(drop_expr);
+            }
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      if(removed > usize(0), {
+        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(new_pending);
+      });
+    }),
+    .None => ()
+  )
+);
+/// `&&` operator with short-circuit evaluation. Mirrors `generateOpAnd`.
+generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  if(args.len() == usize(0), {
+    return(String.from("true"));
+  });
+  if(args.len() == usize(1), {
+    return(_call_generate_expr(match(args.get(usize(0)),.Some(a) => a,.None => expr), indent.clone(), context));
+  });
+  // Fold compile-time operands: a `false` short-circuits, a `true` is dropped.
+  runtime_args := ArrayList(AstExpr).new();
+  n := args.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(
+      args.get(i),
+      .Some(arg) => match(
+        _comptime_bool(arg, context),
+        .Some(b) => if(!(b), {
+          return(String.from("false"));
+        }),
+        .None => {
+          _p := runtime_args.push(arg);
+        }
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(runtime_args.len() == usize(0), {
+    return(String.from("true"));
+  });
+  rn := runtime_args.len();
+  if(rn == usize(1), {
+    return(_call_generate_expr(match(runtime_args.get(usize(0)),.Some(a) => a,.None => expr), indent.clone(), context));
+  });
+  // Does any arg beyond the first need an if-chain?
+  (needs : bool) = false;
+  (k : usize) = usize(1);
+  while(k < rn, {
+    match(
+      runtime_args.get(k),
+      .Some(arg) => if(_expr_may_have_side_effects(arg, context), {
+        needs = true;
+      }),
+      .None => ()
+    );
+    k = (k + usize(1));
+  });
+  if(!(needs), {
+    out := String.from("(");
+    (m : usize) = usize(0);
+    while(m < rn, {
+      match(
+        runtime_args.get(m),
+        .Some(arg) => {
+          if(m > usize(0), {
+            out.push_str(" && ");
+          });
+          out.push_string(_call_generate_expr(arg, indent.clone(), context));
+        },
+        .None => ()
+      );
+      m = (m + usize(1));
+    });
+    out.push_str(")");
+    return(out);
+  });
+  sc_var := String.from("__yo_sc_");
+  sc_var.push_string(random_id(String.from("")));
+  em := context.base.emitter;
+  d := indent.clone();
+  d.push_str("bool ");
+  d.push_string(sc_var.clone());
+  d.push_str(" = false;");
+  em.emit_string_line(d);
+  depth := (rn - usize(1));
+  (level : usize) = usize(0);
+  (i2 : usize) = usize(0);
+  while(i2 < rn, {
+    ci := _indent_n(indent.clone(), level);
+    match(
+      runtime_args.get(i2),
+      .Some(arg) => {
+        arg_code := _call_generate_expr(arg, ci.clone(), context);
+        if(i2 < (rn - usize(1)), {
+          line := ci.clone();
+          line.push_str("if (");
+          line.push_string(arg_code);
+          line.push_str(") {");
+          em.emit_string_line(line);
+          level = (level + usize(1));
+        }, {
+          line := ci.clone();
+          line.push_string(sc_var.clone());
+          line.push_str(" = ");
+          line.push_string(arg_code);
+          line.push_str(";");
+          em.emit_string_line(line);
+        });
+      },
+      .None => ()
+    );
+    i2 = (i2 + usize(1));
+  });
+  (c : usize) = depth;
+  while(c > usize(0), {
+    conditional_arg := match(runtime_args.get(c),.Some(a) => a,.None => expr);
+    var_names := HashSet(String).new();
+    _collect_created_var_names_from_expr(conditional_arg, var_names, context);
+    drops_indent := _indent_n(indent.clone(), level);
+    _emit_drops_for_conditional_branch(var_names, drops_indent, context);
+    level = (level - usize(1));
+    close_indent := _indent_n(indent.clone(), level);
+    cl := close_indent.clone();
+    cl.push_str("}");
+    em.emit_string_line(cl);
+    c = (c - usize(1));
+  });
+  sc_var
+});
+/// `||` operator with short-circuit evaluation. Mirrors `generateOpOr`.
+generate_op_or :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  if(args.len() == usize(0), {
+    return(String.from("false"));
+  });
+  if(args.len() == usize(1), {
+    return(_call_generate_expr(match(args.get(usize(0)),.Some(a) => a,.None => expr), indent.clone(), context));
+  });
+  // Fold compile-time operands: a `true` short-circuits, a `false` is dropped.
+  runtime_args := ArrayList(AstExpr).new();
+  n := args.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(
+      args.get(i),
+      .Some(arg) => match(
+        _comptime_bool(arg, context),
+        .Some(b) => if(b, {
+          return(String.from("true"));
+        }),
+        .None => {
+          _p := runtime_args.push(arg);
+        }
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(runtime_args.len() == usize(0), {
+    return(String.from("false"));
+  });
+  rn := runtime_args.len();
+  if(rn == usize(1), {
+    return(_call_generate_expr(match(runtime_args.get(usize(0)),.Some(a) => a,.None => expr), indent.clone(), context));
+  });
+  (needs : bool) = false;
+  (k : usize) = usize(1);
+  while(k < rn, {
+    match(
+      runtime_args.get(k),
+      .Some(arg) => if(_expr_may_have_side_effects(arg, context), {
+        needs = true;
+      }),
+      .None => ()
+    );
+    k = (k + usize(1));
+  });
+  if(!(needs), {
+    out := String.from("(");
+    (m : usize) = usize(0);
+    while(m < rn, {
+      match(
+        runtime_args.get(m),
+        .Some(arg) => {
+          if(m > usize(0), {
+            out.push_str(" || ");
+          });
+          out.push_string(_call_generate_expr(arg, indent.clone(), context));
+        },
+        .None => ()
+      );
+      m = (m + usize(1));
+    });
+    out.push_str(")");
+    return(out);
+  });
+  sc_var := String.from("__yo_sc_");
+  sc_var.push_string(random_id(String.from("")));
+  em := context.base.emitter;
+  d := indent.clone();
+  d.push_str("bool ");
+  d.push_string(sc_var.clone());
+  d.push_str(" = true;");
+  em.emit_string_line(d);
+  depth := (rn - usize(1));
+  (level : usize) = usize(0);
+  (i2 : usize) = usize(0);
+  while(i2 < rn, {
+    ci := _indent_n(indent.clone(), level);
+    match(
+      runtime_args.get(i2),
+      .Some(arg) => {
+        arg_code := _call_generate_expr(arg, ci.clone(), context);
+        if(i2 < (rn - usize(1)), {
+          line := ci.clone();
+          line.push_str("if (!(");
+          line.push_string(arg_code);
+          line.push_str(")) {");
+          em.emit_string_line(line);
+          level = (level + usize(1));
+        }, {
+          line := ci.clone();
+          line.push_string(sc_var.clone());
+          line.push_str(" = ");
+          line.push_string(arg_code);
+          line.push_str(";");
+          em.emit_string_line(line);
+        });
+      },
+      .None => ()
+    );
+    i2 = (i2 + usize(1));
+  });
+  (c : usize) = depth;
+  while(c > usize(0), {
+    conditional_arg := match(runtime_args.get(c),.Some(a) => a,.None => expr);
+    var_names := HashSet(String).new();
+    _collect_created_var_names_from_expr(conditional_arg, var_names, context);
+    drops_indent := _indent_n(indent.clone(), level);
+    _emit_drops_for_conditional_branch(var_names, drops_indent, context);
+    level = (level - usize(1));
+    close_indent := _indent_n(indent.clone(), level);
+    cl := close_indent.clone();
+    cl.push_str("}");
+    em.emit_string_line(cl);
+    c = (c - usize(1));
+  });
+  sc_var
+});
+export(generate_op_and, generate_op_or);

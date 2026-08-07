@@ -6,6 +6,7 @@ open(import("std/fmt"));
 open(import("std/error"));
 { ArrayList } :: import("std/collections/array_list");
 { Token } :: import("./token.yo");
+{ assert, panic } :: import("std/assert");
 /// The kind of a compiler error.
 ///
 /// Mirrors `ErrorKind` in `src/error.ts`.
@@ -63,15 +64,17 @@ get_line_at_position :: (fn(module_path : String, input_string : String, row : u
 /// Lexer error with character index, message, and row.
 ///
 /// Mirrors `YoLexerError` in `src/error.ts`.
-YoLexerError :: object(
-  character_index : usize,
-  message : String,
-  row : usize
+YoLexerError :: ref(
+  struct(
+    character_index : usize,
+    message : String,
+    row : usize
+  )
 );
 impl(
   YoLexerError,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)({
+    to_string : (fn(inout(self) : Self) -> String)({
       row_plus1 := (self.row + usize(1));
       `Lexer Error at row ${row_plus1}: ${self.message}`
     })
@@ -81,15 +84,17 @@ impl(YoLexerError, Error());
 /// Compiler error with a list of token + error message pairs.
 ///
 /// Mirrors `YoError` in `src/error.ts`.
-YoError :: object(
-  token_and_error_list : ArrayList(TokenAndError),
-  is_assertion_error : bool,
-  kind : Option(ErrorKind)
+YoError :: ref(
+  struct(
+    token_and_error_list : ArrayList(TokenAndError),
+    is_assertion_error : bool,
+    kind : Option(ErrorKind)
+  )
 );
 impl(
   YoError,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)({
+    to_string : (fn(inout(self) : Self) -> String)({
       parts := ArrayList(String).new();
       n := self.token_and_error_list.len();
       (i : usize) = usize(0);
@@ -165,7 +170,7 @@ format_warning_messages :: (fn(warning_message : Option(String), token_and_warni
 /// Print a `YoError` to stderr.
 ///
 /// Mirrors `printYoError` in `src/error.ts`.
-print_yo_error :: (fn(ref(error) : YoError) -> unit)(
+print_yo_error :: (fn(inout(error) : YoError) -> unit)(
   eprintln(error.to_string())
 );
 export(ErrorKind, TokenAndError, TokenAndWarning, YoLexerError, YoError);

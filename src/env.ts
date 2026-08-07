@@ -19,7 +19,7 @@ import {
   isDynType,
   isFunctionType,
   isSourceNamespaceType,
-  isObjectType,
+  isReferenceStructType,
   isPtrType,
   isSomeType,
   isTraitType,
@@ -136,7 +136,7 @@ export interface Variable {
 
   /**
    * Whether this variable was introduced as a function parameter (any
-   * kind: regular, comptime, variadic, forall, where-clause SomeType,
+   * kind: regular, comptime, variadic, generic, where-clause SomeType,
    * effect parameter). Distinguishes parameters from locals introduced
    * by `:=`, `::`, destructuring, match arms, or for-loop iteration.
    *
@@ -144,7 +144,7 @@ export interface Variable {
    * (`src/evaluator/types/flowability.ts`) to admit non-`ref`
    * parameters as a valid source when returning a `Slice(T)`-bearing
    * value — the caller's parameter storage is alive across the call.
-   * See plans/SLICE_FLOWABILITY.md Phase B.
+   * See plans/archive/SLICE_FLOWABILITY.md Phase B.
    */
   isParameter?: boolean;
 
@@ -811,6 +811,26 @@ export function getVariablesFromFrame(
  * @param variableName
  * @returns
  */
+/**
+ * Global prelude variable cache: populated once after prelude evaluation
+ * and used by `getVariablesFromEnv` to skip scanning the prelude frames
+ * (which hold ~1000 variables and dominate lookup cost).
+ */
+/**
+ * Record the prelude environment (called once after prelude evaluation).
+ *
+ * HISTORICAL: this once populated a prelude-variable cache that let
+ * `getVariablesFromEnv` skip rescanning the prelude frames. That was unsound
+ * — it assumed an env's bottom `preludeFrameCount` frames ARE the (unmodified)
+ * prelude frames. A freshly-built env, or a clone of the prelude env that
+ * appends bindings into the prelude module frame, both diverge from the
+ * snapshot and lose real bindings. Measurement showed it gave no meaningful
+ * speedup, so it was removed. Kept as a no-op so callers need not change.
+ */
+export function buildPreludeVarCache(_env: Environment): void {
+  // no-op (see doc comment)
+}
+
 export function getVariablesFromEnv(
   env: Environment,
   variableName: string,
@@ -1406,7 +1426,7 @@ export function getReceiverMethodsByNameFromEnv({
                 const selfParamType = selfParam.type;
                 // Self parameter must be a pointer type
                 if (
-                  !isObjectType(selfParamType) &&
+                  !isReferenceStructType(selfParamType) &&
                   !isDynType(selfParamType) &&
                   !isPtrType(selfParamType)
                 ) {
@@ -1523,30 +1543,31 @@ export function getReceiverMethodsByNameFromEnv({
       checkTraitForMethod(receiverType.trait, methodName);
     }
 
-    // Also check for impl'd traits (stored with empty label as StructValue)
-    // NOTE: We check impl'd traits regardless of whether direct methods were found,
-    // because both compile-time and runtime versions of a method might exist,
-    // and we need to let the function call resolution pick the right one.
-    for (const field of receiverType.trait.fields) {
-      if (
-        field.label === "" &&
-        field.assignedValue &&
-        isTraitValue(field.assignedValue)
-      ) {
-        const implTraitValue = field.assignedValue;
-        const implTraitType = implTraitValue.type;
-        const methodIndex = implTraitType.fields.findIndex(
-          (f) => f.label === methodName && isFunctionType(f.type)
-        );
-        if (methodIndex >= 0) {
-          const method = implTraitType.fields[methodIndex]!;
-          if (isFunctionType(method.type)) {
-            const value = implTraitValue.fields[methodIndex];
-            let methodType = method.type;
-            if (isFunctionValue(value) && value.specializedType) {
-              methodType = value.specializedType;
+    // Impl'd traits (empty-label TraitValue). INHERENT-FIRST: collect only when no
+    // direct/inherent method of this name exists (a type method shadows a same-name
+    // trait method — see the dereferencedReceiverType block below + §6 of the redesign).
+    if (directMethods.length === 0) {
+      for (const field of receiverType.trait.fields) {
+        if (
+          field.label === "" &&
+          field.assignedValue &&
+          isTraitValue(field.assignedValue)
+        ) {
+          const implTraitValue = field.assignedValue;
+          const implTraitType = implTraitValue.type;
+          const methodIndex = implTraitType.fields.findIndex(
+            (f) => f.label === methodName && isFunctionType(f.type)
+          );
+          if (methodIndex >= 0) {
+            const method = implTraitType.fields[methodIndex]!;
+            if (isFunctionType(method.type)) {
+              const value = implTraitValue.fields[methodIndex];
+              let methodType = method.type;
+              if (isFunctionValue(value) && value.specializedType) {
+                methodType = value.specializedType;
+              }
+              methods.push({ type: methodType, value });
             }
-            methods.push({ type: methodType, value });
           }
         }
       }
@@ -1554,14 +1575,45 @@ export function getReceiverMethodsByNameFromEnv({
   }
 
   // Check generic impl registry for the original receiver type (e.g., *(i32))
-  // This is needed for impls like `impl(forall(T : Type), *(T), Add(...))`
-  if (methods.length === 0 && receiverType !== dereferencedReceiverType) {
-    const genericMethods = findMethodsFromGenericImpls({
+  // This is needed for impls like `impl(generic(T : Type), *(T), Add(...))`.
+  //
+  // These are held back rather than pushed here: every lookup below is gated on
+  // `methods.length === 0`, so a hit at THIS point used to suppress the
+  // POINTEE's own methods entirely. Since the pointer-operator migration gave
+  // `*(T)` the plain methods `add`/`sub`/`offset_from`
+  // (plans/archive/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md), that made a method call
+  // on a `*(Self)` receiver resolve to raw pointer ARITHMETIC whenever the
+  // pointee's method shared its name — `self.add(value)` inside
+  // `impl(generic(T), MyStruct(T), add : …)` reported "Failed to synthesize
+  // types for parameter \"count\": Expected usize, Given i32", the `count`
+  // being the pointer intrinsic's parameter (tests/basic.test.yo `Test
+  // 'struct'`).
+  //
+  // The hold-back applies to ORDINARY method calls only. An INFIX OPERATOR on a
+  // pointer receiver must keep resolving against the pointer's own trait impls
+  // (`impl(generic(T), *(T), Eq(*(T))/Ord(*(T)))`) — the pointee almost always
+  // has an `==`/`<` of its own, so letting it be found first turns `p > q` into
+  // a comparison of the POINTED-TO values. Measured: doing this unconditionally
+  // broke `tests/ptr.test.yo` and `tests/unsafe.test.yo` at `q > p`.
+  //
+  // For a non-operator call the deferred methods are appended at the END, so the
+  // pointee's own method wins and raw pointer arithmetic stays reachable
+  // whenever the pointee has no method of that name (`p.add(2)` on `*(i32)`,
+  // since `i32` has the `(+)` operator but no `add` method).
+  const pointerReceiverGenericMethods: typeof methods = [];
+  if (receiverType !== dereferencedReceiverType) {
+    const pointerLevel = findMethodsFromGenericImpls({
       concreteType: receiverType,
       methodName,
       env,
     });
-    methods.push(...genericMethods);
+    if (isInfixOperatorCall) {
+      if (methods.length === 0) {
+        methods.push(...pointerLevel);
+      }
+    } else {
+      pointerReceiverGenericMethods.push(...pointerLevel);
+    }
   }
 
   // Check if the dereferencedReceiverType itself has method that can be called
@@ -1611,34 +1663,40 @@ export function getReceiverMethodsByNameFromEnv({
       checkTraitForMethod(dereferencedReceiverType.trait, methodName);
     }
 
-    // Also check for impl'd traits (stored with empty label as StructValue)
-    // NOTE: We check impl'd traits regardless of whether direct methods were found,
-    // because both compile-time and runtime versions of a method might exist,
-    // and we need to let the function call resolution pick the right one.
-    for (const field of dereferencedReceiverType.trait.fields) {
-      if (
-        field.label === "" &&
-        field.assignedValue &&
-        isTraitValue(field.assignedValue)
-      ) {
-        const implTraitValue = field.assignedValue;
-        const implTraitType = implTraitValue.type;
-        // Search for the method in the impl'd trait
-        const methodIndex = implTraitType.fields.findIndex(
-          (f) => f.label === methodName && isFunctionType(f.type)
-        );
-        if (methodIndex >= 0) {
-          const method = implTraitType.fields[methodIndex]!;
-          if (isFunctionType(method.type)) {
-            // Get the actual function value from the trait value
-            const value = implTraitValue.fields[methodIndex];
-            // Use the function value's specialized type if available,
-            // as it has Self replaced with the concrete receiver type
-            let methodType = method.type;
-            if (isFunctionValue(value) && value.specializedType) {
-              methodType = value.specializedType;
+    // Impl'd traits (stored with empty label as TraitValue). INHERENT-FIRST: only
+    // collect impl'd-trait methods when NO direct/inherent method of this name exists.
+    // A type (inherent) method shadows a same-name trait method (Rust's rule); a call
+    // matching only the trait must error, not silently fall through to it. See
+    // plans/backlog/OVERLOADING_REDESIGN.md §6 + issues/fixed/yo-inherent-first-resolution.md.
+    // (Methods provided purely by trait impls — e.g. `==` via `Eq(String)`/`Eq(str)` —
+    // have no direct field, so directMethods is empty and they are still collected and
+    // argument-type-dispatched among themselves.)
+    if (directMethods.length === 0) {
+      for (const field of dereferencedReceiverType.trait.fields) {
+        if (
+          field.label === "" &&
+          field.assignedValue &&
+          isTraitValue(field.assignedValue)
+        ) {
+          const implTraitValue = field.assignedValue;
+          const implTraitType = implTraitValue.type;
+          // Search for the method in the impl'd trait
+          const methodIndex = implTraitType.fields.findIndex(
+            (f) => f.label === methodName && isFunctionType(f.type)
+          );
+          if (methodIndex >= 0) {
+            const method = implTraitType.fields[methodIndex]!;
+            if (isFunctionType(method.type)) {
+              // Get the actual function value from the trait value
+              const value = implTraitValue.fields[methodIndex];
+              // Use the function value's specialized type if available,
+              // as it has Self replaced with the concrete receiver type
+              let methodType = method.type;
+              if (isFunctionValue(value) && value.specializedType) {
+                methodType = value.specializedType;
+              }
+              methods.push({ type: methodType, value });
             }
-            methods.push({ type: methodType, value });
           }
         }
       }
@@ -2159,7 +2217,7 @@ export function getReceiverMethodsByNameFromEnv({
    *   id :: ((self) -> self)
    * );
    *
-   * use_id :: (fn(forall(T : Type), v : Type, using(XId) : (T <: Id)) -> T) {
+   * use_id :: (fn(generic(T : Type), v : Type, using(XId) : (T <: Id)) -> T) {
    *   return v.id(); // This line could cause problem.
    * }
    *
@@ -2172,6 +2230,14 @@ export function getReceiverMethodsByNameFromEnv({
    * // The line `return v.id();` has ambiguity problem.
    *
    */
+
+  // Blanket `impl(generic(T), *(T), …)` methods found for the POINTER receiver
+  // are the LAST resort for a non-operator call (see the note at their lookup
+  // above): the pointee's own method of that name wins, and pointer arithmetic
+  // is still reachable when the pointee has none.
+  if (pointerReceiverGenericMethods.length > 0) {
+    methods.push(...pointerReceiverGenericMethods);
+  }
 
   return filterMethodsByReceiverType(methods);
 }
@@ -2219,7 +2285,7 @@ export function getVariablesNeedingDrop(env: Environment): Variable[] {
 
     // Skip variables whose types contain unresolved SomeTypes.
     // We can't generate proper drop code for abstract type parameters.
-    // This handles cases like compile-time generic functions: `comptime(id) : (fn(forall(T), x: T) -> T)`
+    // This handles cases like compile-time generic functions: `comptime(id) : (fn(generic(T), x: T) -> T)`
     // where temp variables may have type `T` that isn't resolved to a concrete type.
     // BUT: Don't skip SomeType that has required traits (like Impl(Future(T))) - these
     // have ___drop methods added by addRcFunctionsToSomeType and can be dropped.

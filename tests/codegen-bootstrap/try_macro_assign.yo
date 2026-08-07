@@ -1,0 +1,25 @@
+// `try(...)` macro used as an init-assignment RHS in a multi-statement body.
+// The `try` macro expands to `{ tmp := expr; match(tmp, .Ok(v) => v, .Err(e) =>
+// { return(.Err(e)); }) }` — a begin-block whose tail is a match with a RETURNING
+// arm. Assigning that block to `v` (`v := try(...)`) then using `v` exercises the
+// match-arm env-restore path: the returning `.Err` arm must not leak its `e`
+// binding into the shared env, or the post-match env merge throws "different
+// variable names for different cases" (the surviving `.Ok` arm binds `v`). The
+// self-compiled binary previously emitted "Failed to transpile v := try(...)".
+open(import("std/string"));
+{ println } :: import("std/fmt");
+
+parse :: (fn(ok : bool) -> Result(i32, i32))(
+  if(ok, Result(i32, i32).Ok(7), Result(i32, i32).Err(-(1)))
+);
+
+chain :: (fn(ok : bool) -> Result(i32, i32))({
+  v := try(parse(ok));
+  Result(i32, i32).Ok(v + 1)
+});
+
+main :: (fn() -> unit)({
+  match(chain(true),.Ok(n) => println(`ok ${n.to_string()}`),.Err(e) => println(`err`));
+  match(chain(false),.Ok(n) => println(`ok ${n.to_string()}`),.Err(e) => println(`err`));
+});
+export(main);

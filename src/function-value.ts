@@ -129,7 +129,7 @@ export type FunctionValue = {
 
   /**
    * When true, this function is used as an effect handler and must be compiled
-   * as a concrete C function (even if its type has forall parameters), since it
+   * as a concrete C function (even if its type has generic parameters), since it
    * will be stored as a void* function pointer for evidence passing.
    *
    * Set in two places:

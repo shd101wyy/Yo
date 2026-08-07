@@ -26,15 +26,15 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
-{ TypeValue } :: import("../types/definitions.yo");
-{ is_function_type, is_some_type, is_pointer_type, is_struct_type } :: import("../types/guards.yo");
+{ TypeValue, FuncMeta } :: import("../types/definitions.yo");
+{ is_function_type, is_some_type, is_pointer_type, is_struct_type, is_extern_type_name } :: import("../types/guards.yo");
 {
   is_fn_trait_type,
   is_future_trait_type,
   is_dyn_type,
   is_type_hierarchy_type
 } :: import("../types/guards.yo");
-{ are_types_compatible } :: import("../types/compatibility.yo");
+{ are_types_compatible, set_compat_type_implements_trait_fn } :: import("../types/compatibility.yo");
 {
   get_trait_type_from_env,
   get_value_of_some_type_from_env
@@ -44,22 +44,29 @@ open(import("std/string"));
   type_implements_runtime_builtin
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
-{ Environment } :: import("../env.yo");
+{ Environment, get_where_clause_constraints_for_some_type } :: import("../env.yo");
 { Token } :: import("../token.yo");
 { YoError, ErrorKind, format_error_message } :: import("../error.yo");
 {
   find_matching_generic_impl,
   find_matching_negative_generic_impl,
-  set_type_implements_trait_fn,
+  set_type_implements_trait_full_fn,
   set_register_trait_value_fn,
+  set_check_self_constraints_fn,
   is_concrete_impl_being_registered,
   mark_concrete_impl_being_registered : impl_mark_concrete_impl_being_registered,
   unmark_concrete_impl_being_registered : impl_unmark_concrete_impl_being_registered,
   has_negative_impl,
-  get_trait_key
+  get_trait_key,
+  find_associated_type_from_generic_impls
 }
 :: import("./values/impl.yo");
-{ type_id_or_empty } :: import("./values/type_trait_methods.yo");
+{
+  synthesize_types,
+  TypePair,
+  SynthesizeOptions
+} :: import("./types/synthesizer.yo");
+{ type_id_or_empty, get_type_trait_methods_by_name } :: import("./values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // Auto-derived trait registry (folded from former
 // `evaluator/types/trait_registry.yo`).
@@ -132,8 +139,8 @@ register_type_trait_value :: (fn(type_id : String, trait_ty : TypeValue) -> unit
 _trait_type_id :: (fn(ty : TypeValue) -> String)(
   match(
     ty,
-    .TraitT(_, _, _, _, id, _, _, _) => id,
-    .FnTraitT(base_name, _, _, _, _, _, _) => base_name,
+    .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
+    .FnTraitT(base_name, _, _, _, _, _, _, _) => base_name,
     .FutureTraitT(base_name, _, _, _, _) => base_name,
     _ => String.from("")
   )
@@ -261,8 +268,7 @@ _ondemand_guard_contains :: (fn(key : String) -> bool)({
 _type_id_for_trait_check :: (fn(ty : TypeValue) -> String)(
   match(
     ty,
-    .Struct({ id }) => id,
-    .EnumT(id, _, _, _, _, _, _) => id,
+    // `type_id_or_empty` has no Union arm — keep the name-keyed special case.
     .Union(name, _, _) => name,
     // SomeT: must mirror `type_id_or_empty` (the REGISTRATION key in
     // impl.yo) — a manual `impl(X, Send())` on an extern opaque type
@@ -275,8 +281,18 @@ _type_id_for_trait_check :: (fn(ty : TypeValue) -> String)(
     // `.trait.fields`. A never-impl'd SomeT (ordinary generic param) has a
     // fresh `sometype_<random>` id that simply misses the registry and
     // falls through to the where-clause/resolution steps as before.
-    .SomeT(id, _, _, _, _, _, _, _, _, _) => id,
-    _ => String.from("")
+    // Everything else must mirror `type_id_or_empty` (the REGISTRATION key
+    // in impl.yo) EXACTLY — Struct/EnumT/SomeT ids AND the primitive
+    // synthetic ids (`__yo_t_bool`, `__yo_t_usize`, `str`, ...). The old
+    // hand-rolled copy here covered Struct/EnumT/SomeT but returned `""` for
+    // primitives, so step 4 (registry lookup) was SKIPPED for every
+    // primitive target: `bool <: LogicalNot` came back false even though
+    // `impl(bool, LogicalNot(...))` registered fine under `__yo_t_bool` —
+    // which made the prelude `(!)` operator module's `_Self : (LogicalNot)`
+    // param reject a bool operand in the concrete-vs-constrained-SomeT
+    // compat rule. TS can't diverge this way: both sides use the same type
+    // OBJECT's `.trait.fields`.
+    _ => type_id_or_empty(ty)
   )
 );
 // ---------------------------------------------------------------------------
@@ -414,9 +430,8 @@ type_implements_acyclic_builtin :: (fn(ty : TypeValue) -> Option(bool))(
 _find_matching_generic_impl :: (fn(target : TypeValue, trait_ty : TypeValue, env : Environment) -> bool)(
   find_matching_generic_impl(target, trait_ty, env)
 );
-/// Phase 3 stub for `findAssociatedTypeFromGenericImpls`.
-/// Always returns false.
-_find_associated_type_from_generic_impls :: (fn(_target : TypeValue, _prop_name : String, _env : Environment) -> bool)(false);
+// `findAssociatedTypeFromGenericImpls` is real now — imported from
+// `values/impl.yo` as `find_associated_type_from_generic_impls`.
 /// Returns true if (type_id, trait_id) is currently being registered.
 /// Delegates to the registry in `evaluator/values/impl.yo` (where TS
 /// keeps `currentlyRegisteringConcreteImpls`). Used to handle recursive
@@ -431,26 +446,193 @@ _is_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) -
 // ---------------------------------------------------------------------------
 // _check_associated_type_constraints
 // ---------------------------------------------------------------------------
-/// Check if a concrete type satisfies associated type constraints on a trait.
+/// Bind SomeTypes in `constraint_ty` against `resolved_ty` and return the
+/// updated env — the `synthesizeTypes(constraintType, resolvedType)` call in
+/// TS `checkAssociatedTypeConstraints` (trait-checking.ts:315-320). Returns
+/// `.None` when synthesis throws (compat already passed, so a throw here is
+/// a no-binding situation, not an error).
+_assoc_synth_env :: (
+  fn(
+    constraint_ty : TypeValue,
+    resolved_ty : TypeValue,
+    env : Environment
+  ) -> Option(Environment)
+)({
+  exn_s := Exception(
+    throw : (
+      (err) -> {
+        err;
+        unwind(Option(Environment).None);
+      }
+    )
+  );
+  checked := ArrayList(TypePair).new();
+  sr := synthesize_types(
+    constraint_ty,
+    env,
+    resolved_ty,
+    env,
+    checked,
+    Option(SynthesizeOptions).None,
+    exn_s
+  );
+  Option(Environment).Some(sr.expected_env)
+});
+/// Resolve one associated type (`label`) for `target_type` through the SAME
+/// two channels `_check_associated_type_constraints` uses: the type-trait-
+/// methods registry (durable impl-provided assoc registrations) first, then
+/// the generic impl registry. Exported for the call path's early where-clause
+/// application: the check's own `A := i32` synthesis can land in a scratch
+/// frame that pops before the argument loop, so the caller re-binds the
+/// constraint target durably in the callee env (TS keeps it via the returned
+/// env chain, helper.ts:1397-1405).
+resolve_assoc_type_for_target :: (
+  fn(target_type : TypeValue, label : String, env : Environment) -> Option(TypeValue)
+)({
+  (resolved_opt : Option(TypeValue)) = Option(TypeValue).None;
+  {
+    rat_tid := type_id_or_empty(target_type);
+    if(rat_tid != "", {
+      rat_entries := get_type_trait_methods_by_name(rat_tid, label);
+      (rat_i : usize) = usize(0);
+      while((rat_i < rat_entries.len()) && resolved_opt.is_none(), {
+        match(
+          rat_entries.get(rat_i),
+          .Some(re) => match(
+            re.value,
+            .Some(rev) => match(
+              rev,
+              .TypeVal(re_t) => {
+                resolved_opt = Option(TypeValue).Some(re_t);
+              },
+              _ => ()
+            ),
+            .None => ()
+          ),
+          .None => ()
+        );
+        rat_i = (rat_i + usize(1));
+      });
+    });
+  };
+  if(resolved_opt.is_none(), {
+    resolved_opt = find_associated_type_from_generic_impls(target_type, label, env);
+  });
+  resolved_opt
+});
+/// Check if a concrete type satisfies associated type constraints on a
+/// specialized trait — e.g. for `Iterator(Item := i32)`, verify the target's
+/// `Iterator.Item` resolves to `i32`. Propagates SomeType bindings produced by
+/// matching constraint types against resolved associated types (`Item := A`
+/// against `Item = i32` binds `A := i32` via `synthesize_types`).
 ///
-/// Phase 3 stub: associated type constraints from the generic impl registry are
-/// not yet checked (step 2 is skipped). Only direct field checks and the
-/// compatibility check are performed.
+/// Mirrors `checkAssociatedTypeConstraints` in `src/evaluator/trait-checking.ts:240`.
 ///
-/// Mirrors `checkAssociatedTypeConstraints` in `src/evaluator/trait-checking.ts`.
+/// Adaptation: TS step 1 reads `targetType.trait.fields` (concrete trait VALUES
+/// attached to the type). yo-self's concrete registry (`g_type_trait_registry`)
+/// stores only trait TYPES, so the associated-type VALUE is resolved through the
+/// generic impl registry (`find_associated_type_from_generic_impls`), which is
+/// where every std iterator/collection impl registers.
 _check_associated_type_constraints :: (
   fn(
-    _target_type : TypeValue,
-    _trait_type : TypeValue,
+    target_type : TypeValue,
+    trait_type : TypeValue,
     env : Environment
   ) -> AssocTypeCheckResult
-)(
-  // Phase 3 stub: the full implementation needs the generic impl registry to
-  // resolve associated types. For now, conservatively return satisfied=true
-  // (permissive — avoids false-negative rejections at the cost of not catching
-  // mismatched associated types until Phase 3).
-  AssocTypeCheckResult(satisfied : true, env : env)
-);
+)({
+  atc_labels := match(
+    trait_type,
+    .TraitT(_, _, _, _, _, _, _, _, l, _) => l,
+    _ => ArrayList(String).new()
+  );
+  atc_types := match(
+    trait_type,
+    .TraitT(_, _, _, _, _, _, _, _, _, t) => t,
+    _ => ArrayList(TypeValue).new()
+  );
+  n_atc := atc_labels.len();
+  if(n_atc == usize(0), {
+    return(AssocTypeCheckResult(satisfied : true, env : env));
+  });
+  (cur_env : Environment) = env;
+  (ok : bool) = true;
+  (ci : usize) = usize(0);
+  while((ci < n_atc) && ok, {
+    label := match(atc_labels.get(ci),.Some(l) => l,.None => String.from(""));
+    constraint_ty := match(atc_types.get(ci),.Some(t) => t,.None => TypeValue.Unit);
+    // TS step 1: the target's OWN trait fields (a CONCRETE impl's
+    // `Item : i32` — TS reads `targetType.trait.fields[].assignedValue`,
+    // trait-checking.ts:257-286). yo-self's equivalent store is the
+    // type-trait-methods registry: impl-provided associated types are
+    // registered there under the receiver's type id with a TypeVal value
+    // (the same source property_access's assoc-type fallback (b) reads).
+    // Without this arm, a concrete impl's assoc constraint check fell
+    // through to the GENERIC-impl registry only and reported e.g.
+    // `CountIter <: Iterator(Item := A)` as unimplemented
+    // (tests/iter_filter_closure — the batch `filter` where-clause).
+    (resolved_opt : Option(TypeValue)) = Option(TypeValue).None;
+    {
+      atc_tid := type_id_or_empty(target_type);
+      if(atc_tid != "", {
+        atc_entries := get_type_trait_methods_by_name(atc_tid, label);
+        (ae_i : usize) = usize(0);
+        while((ae_i < atc_entries.len()) && resolved_opt.is_none(), {
+          match(
+            atc_entries.get(ae_i),
+            .Some(ae) => match(
+              ae.value,
+              .Some(aev) => match(
+                aev,
+                .TypeVal(ae_t) => {
+                  resolved_opt = Option(TypeValue).Some(ae_t);
+                },
+                _ => ()
+              ),
+              .None => ()
+            ),
+            .None => ()
+          );
+          ae_i = (ae_i + usize(1));
+        });
+      });
+    };
+    // TS step 2: the generic impl registry (see the adaptation note above).
+    if(resolved_opt.is_none(), {
+      resolved_opt = find_associated_type_from_generic_impls(target_type, label, cur_env);
+    });
+    match(
+      resolved_opt,
+      .None => {
+        ok = false;
+      },
+      .Some(resolved) => {
+        // Argument ROLES matter: yo-self's signature is (actual, expected)
+        // while TS's is (expected, given) — TS passes expected=constraintType,
+        // given=resolvedType (trait-checking.ts:306-311), so the resolved
+        // associated type is the ACTUAL and the constraint is the EXPECTED.
+        // With the roles swapped, `Item := A` (constraint = unbound SomeT A)
+        // against resolved `i32` missed the concrete-vs-SomeT wildcard rule
+        // and the whole trait check reported "does not implement Iterator"
+        // (the tests/closure_capture_rc_leak `any` where-clause).
+        if(!(are_types_compatible(resolved, constraint_ty)), {
+          ok = false;
+        }, {
+          // Propagate SomeType bindings from constraint matching
+          // (`Item := A` resolved to `i32` → binds A := i32).
+          match(
+            _assoc_synth_env(constraint_ty, resolved, cur_env),
+            .Some(e2) => {
+              cur_env = e2;
+            },
+            .None => ()
+          );
+        });
+      }
+    );
+    ci = (ci + usize(1));
+  });
+  AssocTypeCheckResult(satisfied : ok, env : cur_env)
+});
 // ---------------------------------------------------------------------------
 // type_implements_trait
 // ---------------------------------------------------------------------------
@@ -476,7 +658,7 @@ type_implements_trait :: (
   // trait regardless of auto-derive. Mirrors `trait-checking.ts:345-358`.
   // Concrete negative impls are keyed `type_id_or_empty:get_trait_key`
   // (registration site impl.yo). Generic negative impls
-  // (`impl(forall(T), Pattern, !(Trait))`) are matched structurally via
+  // (`impl(generic(T), Pattern, !(Trait))`) are matched structurally via
   // `find_matching_negative_generic_impl` (TS findMatchingNegativeGenericImpl).
   if(has_negative_impl(type_id_or_empty(target), get_trait_key(trait_type)), {
     return(TraitCheckResult(implemented : false, env : env));
@@ -557,31 +739,34 @@ type_implements_trait :: (
   if(is_fn_trait_type(trait_type) && is_function_type(target), {
     fn_trait_call_ty := match(
       trait_type,
-      .FnTraitT(_, param_labels, param_types, result, _, _, _) => TypeValue.Func(
-        ArrayList(String).new(),
+      .FnTraitT(_, param_labels, param_types, result, _, _, _, _) => TypeValue.Func(
         ArrayList(TypeValue).new(),
-        param_labels,
         param_types,
-        ArrayList(String).new(),
         ArrayList(TypeValue).new(),
-        ArrayList(bool).new(),
         ArrayList(TypeValue).new(),
         result,
-        false,
-        // result_is_comptime_only — Fn-trait call type (runtime)
-        ArrayList(bool).new(),
-        // param_is_ref
-        ArrayList(bool).new(),
-        // param_is_owning
-        false,
-        // result_is_ref
-        false,
-        // has_variadic
-        Option(String).None,
-        // is_extern — Fn-trait call type is not FFI
-        Option(String).None,
-        // extern_name
-        false // is_control — Fn-trait call type is `fn`, not `ctl`
+        box(
+          FuncMeta(
+            forall_labels : ArrayList(String).new(),
+            param_labels : param_labels,
+            implicit_labels : ArrayList(String).new(),
+            implicit_spreads : ArrayList(bool).new(),
+            result_is_comptime_only : false,
+            // Fn-trait call type (runtime)
+            param_is_ref : ArrayList(bool).new(),
+            param_is_owning : ArrayList(bool).new(),
+            result_is_ref : false,
+            has_variadic : false,
+            is_extern : Option(String).None,
+            // Fn-trait call type is not FFI
+            extern_name : Option(String).None,
+            is_control : false // Fn-trait call type is `fn`, not `ctl`
+            ,
+            variadic_label : Option(String).None,
+            variadic_comptime : false
+          )
+        ),
+        ArrayList(TypeValue).new()
       ),
       _ => {
         return(TraitCheckResult(implemented : false, env : env));
@@ -590,7 +775,19 @@ type_implements_trait :: (
     if(!(are_types_compatible(fn_trait_call_ty, target)), {
       return(TraitCheckResult(implemented : false, env : env));
     });
-    return(TraitCheckResult(implemented : true, env : env));
+    // Binding propagation (TS trait-checking.ts:377-394): synthesize the
+    // trait's call type against the target fn so SomeTs in parameter/return
+    // positions (`Fn(a : A) -> B` against `fn(x : i32) -> i32`) get BOUND in
+    // the returned env. Discarding this env left `A`/`B` unresolved and the
+    // method body specialized a shadow struct ("Type mismatch for type
+    // member \"_f\"" — tests/where_clause_fn_inference,
+    // tests/iterator_combinators).
+    syn_env := match(
+      _assoc_synth_env(fn_trait_call_ty, target, env),
+      .Some(se) => se,
+      .None => env
+    );
+    return(TraitCheckResult(implemented : true, env : syn_env));
   });
   // 4. Direct trait field match — the auto-derive registry stores the type's
   // derived trait VALUES; match `trait_type` against them by identity
@@ -599,7 +796,13 @@ type_implements_trait :: (
   type_id := _type_id_for_trait_check(target);
   if(!(type_id.is_empty()), {
     if(is_type_registered_as_trait(type_id, trait_type, env), {
-      return(TraitCheckResult(implemented : true, env : env));
+      // Associated-type constraints (`Iterator(Item := A)`) must hold and
+      // their bindings propagate (TS trait-checking.ts:418-431). On failure
+      // TS `continue`s to the later steps rather than rejecting outright.
+      assoc_result_reg := _check_associated_type_constraints(target, trait_type, env);
+      if(assoc_result_reg.satisfied, {
+        return(TraitCheckResult(implemented : true, env : assoc_result_reg.env));
+      });
     });
   });
   // 4b. On-demand re-derivation fallback for auto-derived markers.
@@ -662,10 +865,10 @@ type_implements_trait :: (
           fields_opt = Option(ArrayList(TypeValue)).Some(flat);
         },
         // `*(T)`: Send/Acyclic iff `T` is (mirrors the prelude
-        // `impl(forall(T), where(T <: Send), *(T), Send())`).
+        // `impl(generic(T), where(T <: Send), *(T), Send())`).
         .Pointer(pointee_box) => if((tn == "Send") || (tn == "Acyclic"), {
           pfields := ArrayList(TypeValue).new();
-          _pp := pfields.push(pointee_box.*);
+          _pp := pfields.push(pointee_box);
           fields_opt = Option(ArrayList(TypeValue)).Some(pfields);
         }),
         _ => ()
@@ -720,7 +923,7 @@ type_implements_trait :: (
         // selfConstraints of the required trait.
         match(
           req_trait,
-          .TraitT(_, _, _, _, _, _, self_constraints, _) => {
+          .TraitT(_, _, _, _, _, _, self_constraints, _, _, _) => {
             ns := self_constraints.len();
             (j : usize) = usize(0);
             while(j < ns, {
@@ -767,7 +970,7 @@ type_implements_trait :: (
   // via _add_where_clause_constraint (no separate env lookup needed).
   match(
     target,
-    .SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _, _) => {
       (found_req : bool) = false;
       (found_neg : bool) = false;
       // Check required_trait_types.
@@ -804,6 +1007,50 @@ type_implements_trait :: (
         });
         in2 = (in2 + usize(1));
       });
+      // Also consult the ENV-stored where-clause evidence
+      // (trait-checking.ts:468-483, getWhereClauseConstraintsForSomeType):
+      // a `where(V <: (Send, Acyclic))` on the enclosing fn records its
+      // constraints in the callee env frames, not always on the SomeT's own
+      // required_trait_types — e.g. `Arc`'s `atomic(ref(struct((*) : V)))`
+      // body must see V as Send during the atomic-Send enforcement.
+      match(
+        get_where_clause_constraints_for_some_type(env, target),
+        .Some(wcc) => {
+          nwr := wcc.required_traits.len();
+          (iwr : usize) = usize(0);
+          while(iwr < nwr, {
+            wr_t := match(
+              wcc.required_traits.get(iwr),
+              .Some(t) => t,
+              .None => {
+                iwr = (iwr + usize(1));
+                continue;
+              }
+            );
+            if(_trait_type_id(wr_t) == _trait_type_id(trait_type), {
+              found_req = true;
+            });
+            iwr = (iwr + usize(1));
+          });
+          nwn := wcc.negative_traits.len();
+          (iwn : usize) = usize(0);
+          while(iwn < nwn, {
+            wn_t := match(
+              wcc.negative_traits.get(iwn),
+              .Some(t) => t,
+              .None => {
+                iwn = (iwn + usize(1));
+                continue;
+              }
+            );
+            if(_trait_type_id(wn_t) == _trait_type_id(trait_type), {
+              found_neg = true;
+            });
+            iwn = (iwn + usize(1));
+          });
+        },
+        .None => ()
+      );
       if(found_req, {
         return(TraitCheckResult(implemented : !(found_neg), env : env));
       }, {
@@ -831,7 +1078,19 @@ type_implements_trait :: (
     return(TraitCheckResult(implemented : true, env : env));
   });
   // 8. Generic impl registry — delegated to impl.yo via _find_matching_generic_impl.
-  guard_key := _trait_type_id(target).concat(`:`).concat(_trait_type_id(trait_type));
+  // Guard key: TS uses `targetType.id` (unique per type instance,
+  // trait-checking.ts:531). `_trait_type_id` renders "" for STRUCT/enum
+  // targets, so every struct-vs-<trait> check shared ONE key — any nested
+  // check of the same trait through a chained combinator record
+  // (`IterTake(IterSkip(MyRange)) <: Iterator` → where-pass →
+  // `IterSkip(MyRange) <: Iterator`) self-collided and returned false
+  // (iterator_combinators arms 16-18). `_type_id_for_trait_check` is the
+  // yo-self stand-in for TS's unique type id. NOT type_key: type_key is
+  // STATEFUL codegen machinery (it registers g_struct_cfid_keys entries);
+  // calling it from eval-phase trait checks poisoned the cfid registry and
+  // split the whole imm-container family's C identities (measured
+  // 2026-08-03: imm_map/imm_set/imm_sorted_*/linked_list all RED).
+  guard_key := _type_id_for_trait_check(target).concat(`:`).concat(_trait_type_id(trait_type));
   // Recursion guard: return false if already checking this pair.
   (already_checking : bool) = false;
   gn := g_trait_check_recursion_guard.len();
@@ -858,7 +1117,14 @@ type_implements_trait :: (
   // Pop the guard key.
   last_idx := (g_trait_check_recursion_guard.len() - usize(1));
   g_trait_check_recursion_guard.remove(last_idx);
-  TraitCheckResult(implemented : result, env : env)
+  if(!(result), {
+    return(TraitCheckResult(implemented : false, env : env));
+  });
+  // Associated-type constraints on the matched trait (TS trait-checking.ts:
+  // 545-553): `Iterator(Item := A)` must resolve the target's `Item` and the
+  // returned env carries the `A := <concrete>` binding.
+  assoc_result := _check_associated_type_constraints(target, trait_type, env);
+  TraitCheckResult(implemented : assoc_result.satisfied, env : assoc_result.env)
 });
 // ---------------------------------------------------------------------------
 // type_implements_trait_bool
@@ -878,23 +1144,22 @@ type_implements_trait_bool :: (
 // ---------------------------------------------------------------------------
 // check_type_implements_self_constraints
 // ---------------------------------------------------------------------------
-/// Check that a type satisfies all positive and negative selfConstraints on a
-/// trait. Throws if any constraint is not satisfied.
-///
-/// Mirrors `checkTypeImplementsSelfConstraints` in
-/// `src/evaluator/trait-checking.ts`.
-check_type_implements_self_constraints :: (
+/// Message-returning core of the self-constraint check: `.Some(msg)` when the
+/// target violates a positive or negative selfConstraint on the trait, `.None`
+/// otherwise. Split out (throw-free) so `impl.yo`'s concrete-impl path can
+/// call it through the injected function-pointer hook
+/// (`set_check_self_constraints_fn`) without an import cycle, and throw with
+/// its own token/exn — the same routing as `RegisterTraitValueFn`.
+check_self_constraints_violation_msg :: (
   fn(
     target_type : TypeValue,
     trait_type : TypeValue,
-    env : Environment,
-    error_token : Token,
-    exn : Exception
-  ) -> unit
-)(
+    env : Environment
+  ) -> Option(String)
+)({
   match(
     trait_type,
-    .TraitT(name, _, _, _, _, _, self_constraints, neg_self_constraints) => {
+    .TraitT(name, _, _, _, _, _, self_constraints, neg_self_constraints, _, _) => {
       // Check positive constraints (must implement).
       np := self_constraints.len();
       (ip : usize) = usize(0);
@@ -909,7 +1174,7 @@ check_type_implements_self_constraints :: (
         );
         if(!(type_implements_trait_bool(target_type, constraint, env)), {
           msg := `Type "`.concat(type_to_string(target_type)).concat(`" does not implement required constraint "`).concat(type_to_string(constraint)).concat(`" from trait "`).concat(name).concat(`"'s where clause.`);
-          exn.throw(dyn(format_error_message(error_token, msg, false, Option(ErrorKind).None)));
+          return(Option(String).Some(msg));
         });
         ip = (ip + usize(1));
       });
@@ -927,12 +1192,33 @@ check_type_implements_self_constraints :: (
         );
         if(type_implements_trait_bool(target_type, constraint, env), {
           msg := `Type "`.concat(type_to_string(target_type)).concat(`" implements "`).concat(type_to_string(constraint)).concat(`" but the trait "`).concat(name).concat(`"'s where clause requires it to NOT implement this trait.`);
-          exn.throw(dyn(format_error_message(error_token, msg, false, Option(ErrorKind).None)));
+          return(Option(String).Some(msg));
         });
         in_ = (in_ + usize(1));
       });
     },
     _ => ()
+  );
+  Option(String).None
+});
+/// Check that a type satisfies all positive and negative selfConstraints on a
+/// trait. Throws if any constraint is not satisfied.
+///
+/// Mirrors `checkTypeImplementsSelfConstraints` in
+/// `src/evaluator/trait-checking.ts`.
+check_type_implements_self_constraints :: (
+  fn(
+    target_type : TypeValue,
+    trait_type : TypeValue,
+    env : Environment,
+    error_token : Token,
+    exn : Exception
+  ) -> unit
+)(
+  match(
+    check_self_constraints_violation_msg(target_type, trait_type, env),
+    .Some(msg) => exn.throw(dyn(format_error_message(error_token, msg, false, Option(ErrorKind).None))),
+    .None => ()
   )
 );
 // ---------------------------------------------------------------------------
@@ -1087,7 +1373,7 @@ type_implements_acyclic :: (fn(ty : TypeValue, env : Environment) -> bool)(
 type_implements_fn :: (fn(ty : TypeValue) -> bool)(
   match(
     ty,
-    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
@@ -1142,28 +1428,78 @@ extract_fn_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
   match(
     ty,
     .FnTraitT(base_name : _) => Option(TypeValue).Some(ty),
-    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
-      n := required_trait_types.len();
-      (i : usize) = usize(0);
-      while(i < n, {
-        t := match(
-          required_trait_types.get(i),
-          .Some(v) => v,
-          .None => {
-            i = (i + usize(1));
-            continue;
+    .SomeT(_, _, _, _, _, _, _, _, _, _, _) => {
+      // Walk the SomeT and its resolvedConcreteType chain (TS
+      // trait-checking.ts:907-921): a where-clause `F` whose Fn bound was
+      // stripped by freshening still resolves through `__impl_fn` (which
+      // carries the Fn in ITS required list). Iterative with a visited-id
+      // list — resolution cells can cycle in yo-self (the get_type_string
+      // SIGBUS family), and TS's finite-chain recursion has no guard to port.
+      (eft_cur : TypeValue) = ty;
+      (eft_seen : ArrayList(String)) = ArrayList(String).new();
+      (eft_out : Option(TypeValue)) = Option(TypeValue).None;
+      (eft_going : bool) = true;
+      while(eft_going, {
+        match(
+          eft_cur,
+          .SomeT(eft_id, _, _, _, eft_rtt, _, _, _, _, _, eft_rc) => {
+            n := eft_rtt.len();
+            (i : usize) = usize(0);
+            while((i < n) && eft_out.is_none(), {
+              match(
+                eft_rtt.get(i),
+                .Some(t) => match(
+                  t,
+                  .FnTraitT(base_name : _) => {
+                    eft_out = Option(TypeValue).Some(t);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+              i = (i + usize(1));
+            });
+            if(eft_out.is_some(), {
+              eft_going = false;
+            }, {
+              (eft_revisit : bool) = false;
+              (si : usize) = usize(0);
+              while(si < eft_seen.len(), {
+                match(
+                  eft_seen.get(si),
+                  .Some(sid) => if(sid == eft_id, {
+                    eft_revisit = true;
+                  }),
+                  .None => ()
+                );
+                si = (si + usize(1));
+              });
+              if(eft_revisit, {
+                eft_going = false;
+              }, {
+                eft_seen.push(eft_id.clone());
+                match(
+                  eft_rc.get(usize(0)),
+                  .Some(eft_next) => {
+                    eft_cur = eft_next;
+                  },
+                  .None => {
+                    eft_going = false;
+                  }
+                );
+              });
+            });
+          },
+          .FnTraitT(base_name : _) => {
+            eft_out = Option(TypeValue).Some(eft_cur);
+            eft_going = false;
+          },
+          _ => {
+            eft_going = false;
           }
         );
-        match(
-          t,
-          .FnTraitT(base_name : _) => {
-            return(Option(TypeValue).Some(t));
-          },
-          _ => ()
-        );
-        i = (i + usize(1));
       });
-      Option(TypeValue).None
+      eft_out
     },
     .DynT(required_trait_types, _, _, _) => {
       n := required_trait_types.len();
@@ -1200,7 +1536,7 @@ extract_fn_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
 type_implements_future :: (fn(ty : TypeValue) -> bool)(
   match(
     ty,
-    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
@@ -1246,7 +1582,7 @@ type_implements_future :: (fn(ty : TypeValue) -> bool)(
 /// Lives here (not `types/utils.yo`) so it can use `type_implements_fn` /
 /// `type_implements_future` without a `types/utils` import cycle.
 ///
-/// STAGED for def-time body evaluation (see plans/DEFTIME_BODY_EVAL.md): this is
+/// STAGED for def-time body evaluation (see plans/backlog/DEFTIME_BODY_EVAL.md): this is
 /// the DEEP predicate `should_defer` needs — yo-self's shallow
 /// `type_contains_some_type` (types/utils.yo) only checks top-level
 /// `SomeT`/`TypeAppT`, so generic ptr/slice/struct fns aren't deferred. NOT YET
@@ -1261,7 +1597,7 @@ type_contains_some_type_for_codegen_param :: (
   nominal_id := match(
     ty,
     .Struct({ id : sid }) => sid,
-    .EnumT(eid, _, _, _, _, _, _) => eid,
+    .EnumT(eid, _, _, _, _, _, _, _, _) => eid,
     .Union(uname, _, _) => uname,
     _ => String.from("")
   );
@@ -1292,12 +1628,19 @@ type_contains_some_type_for_codegen_param :: (
     if(type_implements_future(ty), {
       return(false);
     });
+    // Extern opaque type (`extern("Yo", X : Type)` → a SomeT placeholder named X)
+    // that codegen lowers to a concrete C type: NOT a codegen-blocking generic.
+    // Mirrors TS excluding `isExtern` SomeTypes (src/types/utils.ts:10).
+    tc_some_nm := match(ty,.SomeT({ name : snm }) => snm, _ => String.from(""));
+    if(is_extern_type_name(tc_some_nm), {
+      return(false);
+    });
     return(true);
   });
   match(
     ty,
-    .Array(element, _, _) => recur(element.*, checked_ids),
-    .Pointer(pointee) => recur(pointee.*, checked_ids),
+    .Array(element, _, _) => recur(element, checked_ids),
+    .Pointer(pointee) => recur(pointee, checked_ids),
     .Tuple(_, field_types) => {
       (found : bool) = false;
       (i : usize) = usize(0);
@@ -1324,7 +1667,7 @@ type_contains_some_type_for_codegen_param :: (
       });
       found
     },
-    .EnumT(_, _, _, variant_fields, _, _, _) => {
+    .EnumT(_, _, _, variant_fields, _, _, _, _, _) => {
       (found : bool) = false;
       (vi : usize) = usize(0);
       while((vi < variant_fields.len()) && !(found), {
@@ -1353,7 +1696,8 @@ type_contains_some_type_for_codegen_param :: (
       });
       found
     },
-    .Func({ forall_labels : forall_labels, param_types : param_types, result : result_box }) => {
+    .Func({ param_types : param_types, result : result_box, meta : __fm1 }) => {
+      forall_labels := __fm1.*.forall_labels;
       (found : bool) = (forall_labels.len() > usize(0));
       (i : usize) = usize(0);
       while((i < param_types.len()) && !(found), {
@@ -1364,7 +1708,7 @@ type_contains_some_type_for_codegen_param :: (
         i = (i + usize(1));
       });
       if(!(found), {
-        found = recur(result_box.*, checked_ids);
+        found = recur(result_box, checked_ids);
       });
       found
     },
@@ -1382,7 +1726,7 @@ extract_future_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
   match(
     ty.clone(),
     .FutureTraitT(base_name : _) => Option(TypeValue).Some(ty),
-    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
       while(i < n, {
@@ -1512,7 +1856,7 @@ find_some_type_missing_comptime_constraint :: (
         // Check required_trait_types.
         match(
           ty,
-          .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
+          .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
             n := required_trait_types.len();
             (i : usize) = usize(0);
             (has_comptime : bool) = false;
@@ -1530,6 +1874,33 @@ find_some_type_missing_comptime_constraint :: (
               });
               i = (i + usize(1));
             });
+            // TS checks the WHERE-CLAUSE constraints too
+            // (trait-checking.ts:696-704 ->
+            // `getWhereClauseConstraintsForSomeType`). A constraint written as
+            // `where(Self.Output <: Comptime)` lives in the env frame, NOT on
+            // the SomeType's own `required_trait_types`, so omitting this step
+            // rejected the prelude's own `ComptimeNegate` (whose `neg` returns
+            // `comptime(Self.Output)` under exactly that where clause).
+            if(!(has_comptime), {
+              match(
+                get_where_clause_constraints_for_some_type(env, ty.clone()),
+                .Some(wcc) => {
+                  wc_reqs := wcc.required_traits;
+                  (wi : usize) = usize(0);
+                  while(wi < wc_reqs.len(), {
+                    match(
+                      wc_reqs.get(wi),
+                      .Some(wc_t) => if(_trait_type_id(wc_t) == _trait_type_id(comptime_trait), {
+                        has_comptime = true;
+                      }),
+                      .None => ()
+                    );
+                    wi = (wi + usize(1));
+                  });
+                },
+                .None => ()
+              );
+            });
             if(!(has_comptime), {
               return(Option(TypeValue).Some(ty));
             });
@@ -1545,7 +1916,7 @@ find_some_type_missing_comptime_constraint :: (
     match(
       ty,
       .Pointer(inner) => {
-        return(recur(inner.*, env));
+        return(recur(inner, env));
       },
       _ => ()
     );
@@ -1571,9 +1942,40 @@ unmark_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String
 // Install type_implements_trait_bool as the function pointer used by
 // impl.yo's try_match_generic_impl for where-clause checking.
 // This breaks the circular dependency between the two modules.
+/// Env-less adapter for compatibility.yo's concrete-vs-constrained-SomeT rule.
+/// `type_implements_trait_bool` needs an Environment for scoped where-clause
+/// resolution; the compat check has none, so pass a fresh empty env — the
+/// registry-backed lookups (type-trait-methods / generic impls) are global
+/// side-tables and still answer; env-scoped cases degrade to "not implemented"
+/// (fall through to the old strict behavior — never a new false-positive).
+_compat_implements_adapter :: (fn(t : TypeValue, trait_type : TypeValue) -> bool)(
+  type_implements_trait_bool(t, trait_type, Environment.new(String.from("")))
+);
+/// Adapter for impl.yo's env-threading hook: `TraitCheckResult` cannot be
+/// imported there (circular), so the post-constraint bindings are written
+/// into the CALLER's env IN PLACE (`env.frames = r.env.frames` — the same
+/// pattern apply_where_clause_constraints uses at types/function.yo) and the
+/// flag is the return value. An earlier version returned the env through an
+/// `ArrayList(Environment)` out-param — a NOVEL container instantiation over
+/// the compiler's own cyclic Environment type, whose C prototype rendering
+/// self-recursed unboundedly in get_type_string and SIGBUS'd every stage-2
+/// self-emit (issues/yo-self-arraylist-environment-prototype-recursion.md).
+_type_implements_trait_full_adapter :: (
+  fn(
+    t : TypeValue,
+    trait_type : TypeValue,
+    env : Environment
+  ) -> bool
+)({
+  r := type_implements_trait(t, trait_type, env);
+  env.frames = r.env.frames;
+  r.implemented
+});
 _trait_checking_init := (fn() -> bool)({
-  set_type_implements_trait_fn(type_implements_trait_bool);
+  set_type_implements_trait_full_fn(_type_implements_trait_full_adapter);
   set_register_trait_value_fn(register_type_trait_value);
+  set_check_self_constraints_fn(check_self_constraints_violation_msg);
+  set_compat_type_implements_trait_fn(_compat_implements_adapter);
   true
 })();
 // ---------------------------------------------------------------------------
@@ -1587,6 +1989,7 @@ export(type_implements_comptime, type_implements_runtime_full);
 export(begin_send_derivation, end_send_derivation);
 export(type_implements_send, type_implements_dispose, type_implements_acyclic);
 export(type_implements_fn);
+export(resolve_assoc_type_for_target);
 export(extract_fn_trait_from_type);
 export(type_implements_future);
 export(type_contains_some_type_for_codegen_param);

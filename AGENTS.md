@@ -33,48 +33,63 @@ Yo source → Lexer → Parser → AST (expr.ts)
 
 ### Key directories
 
-| Path                                 | Role                                                                   |
-| ------------------------------------ | ---------------------------------------------------------------------- |
-| `src/lexer.ts`                       | Tokenizes Yo source into tokens                                        |
-| `src/parser.ts`                      | Parses tokens → AST                                                    |
-| `src/expr.ts`                        | Core AST node types (`Expr`, `ControlFlowKind`, `BuiltinKeywords`, …)  |
-| `src/evaluator/`                     | Compile-time evaluator — type checking, CTFE, trait resolution         |
-| `src/evaluator/exprs/`               | Per-node evaluation logic (`begin.ts`, `cond.ts`, `unwind.ts`, …)      |
-| `src/evaluator/calls/`               | Function call specialization and dispatch                              |
-| `src/evaluator/effects/`             | Algebraic effects analysis                                             |
-| `src/codegen/`                       | C11 code generation                                                    |
-| `src/codegen/exprs/`                 | Per-node C emitter (`generation.ts`, `return.ts`, `async.ts`, …)       |
-| `src/codegen/effects/`               | Effect state machine C emitter                                         |
-| `src/codegen/functions/`             | Function-level C emitters                                              |
-| `src/types/`                         | Type value definitions and compatibility helpers                       |
-| `src/yo-cli.ts`                      | CLI entry point for `yo` / `yo-cli`                                    |
-| `std/`                               | Yo standard library (`.yo` source)                                     |
-| `tests/`                             | Integration test files (`*.test.yo`)                                   |
-| `yo-self/`                           | Bootstrap: self-hosted Yo compiler written in Yo (evaluator port DONE; codegen port pending — see `plans/BOOTSTRAPPING_CODEGEN.md`) |
-| `yo-self/README.md`                  | Bootstrap status, layout, and test instructions                        |
-| `yo-self/lexer.yo`, `token.yo`       | Self-hosted lexer (ports of `src/lexer.ts`, `src/token.ts`)            |
-| `yo-self/parser.yo`                  | Self-hosted parser (port of `src/parser.ts`)                           |
-| `yo-self/tests/`                     | Tests for the self-hosted components (~60 files / ~900 tests; see `yo-self/README.md` for tiers & known-heavy files) |
-| `std/build.yo`                       | Build system API (Project, Step, Executable, etc.)                     |
-| `src/build-runner.ts`                | Build execution engine — DAG scheduler, artifact compilation           |
-| `src/install-command.ts`             | `yo install` — add git/path dependencies                               |
-| `src/fetch.ts`                       | Git dependency fetching, lock file pruning                             |
-| `src/fetch-command.ts`               | `yo fetch` CLI command                                                 |
-| `src/lock-file.ts`                   | `yo.lock` parse/write                                                  |
-| `src/cache.ts`                       | Global dependency cache (`~/.cache/yo/deps/`) + version cache helpers  |
-| `src/init.ts`                        | `yo init` — project scaffolding                                        |
-| `src/version.ts`                     | `.yo-version` discovery, parsing, validation                           |
-| `src/version-cache.ts`               | Version download from npm, cache management, runtime detection         |
-| `src/doc-command.ts`                 | `yo doc` CLI — documentation generation                                |
-| `src/doc/`                           | Doc pipeline: extractor, builder, model, renderers                     |
-| `src/pkg-config.ts`                  | pkg-config integration for system libraries                            |
-| `src/dag.ts`                         | DAG builder and level-based scheduler for build steps                  |
-| `plans/BUILD_SYSTEM.md`              | Build system design document                                           |
-| `plans/DEPENDENCY_MANAGEMENT.md`     | Dependency management design                                           |
-| `plans/VERSION_MANAGEMENT.md`        | `.yo-version` pinning and version cache design                         |
-| `plans/HIGHER_KINDED_TYPES.md`       | HKT design & implementation (TypeApplication, partial application)     |
-| `plans/FUNCTOR_APPLICATIVE_MONAD.md` | Option/Result functional combinators plan                              |
-| `plans/BOOTSTRAPPING.md`             | Bootstrapping roadmap — phases, install scripts, risk assessment       |
+| Path                                         | Role                                                                                                                                                                                                          |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/lexer.ts`                               | Tokenizes Yo source into tokens                                                                                                                                                                               |
+| `src/parser.ts`                              | Parses tokens → AST                                                                                                                                                                                           |
+| `src/expr.ts`                                | Core AST node types (`Expr`, `ControlFlowKind`, `BuiltinKeywords`, …)                                                                                                                                         |
+| `src/evaluator/`                             | Compile-time evaluator — type checking, CTFE, trait resolution                                                                                                                                                |
+| `src/evaluator/exprs/`                       | Per-node evaluation logic (`begin.ts`, `cond.ts`, `unwind.ts`, …)                                                                                                                                             |
+| `src/evaluator/calls/`                       | Function call specialization and dispatch                                                                                                                                                                     |
+| `src/evaluator/effects/`                     | Algebraic effects analysis                                                                                                                                                                                    |
+| `src/codegen/`                               | C11 code generation                                                                                                                                                                                           |
+| `src/codegen/exprs/`                         | Per-node C emitter (`generation.ts`, `return.ts`, `async.ts`, …)                                                                                                                                              |
+| `src/codegen/effects/`                       | Effect state machine C emitter                                                                                                                                                                                |
+| `src/codegen/functions/`                     | Function-level C emitters                                                                                                                                                                                     |
+| `src/types/`                                 | Type value definitions and compatibility helpers                                                                                                                                                              |
+| `src/yo-cli.ts`                              | CLI entry point for `yo` / `yo-cli`                                                                                                                                                                           |
+| `std/`                                       | Yo standard library (`.yo` source)                                                                                                                                                                            |
+| `tests/`                                     | Integration test files (`*.test.yo`)                                                                                                                                                                          |
+| `yo-self/`                                   | The self-hosted Yo compiler written in Yo (bootstrap COMPLETE: full suite green, stage-2/stage-3 FIXPOINT HOLDS, CI-gated — record: `plans/BOOTSTRAPPING.md`; next phase: `plans/SELF_HOSTING_COMPLETION.md`) |
+| `yo-self/README.md`                          | Bootstrap status, layout, and test instructions                                                                                                                                                               |
+| `yo-self/lexer.yo`, `token.yo`               | Self-hosted lexer (ports of `src/lexer.ts`, `src/token.ts`)                                                                                                                                                   |
+| `yo-self/parser.yo`                          | Self-hosted parser (port of `src/parser.ts`)                                                                                                                                                                  |
+| `tests/internal/`                            | Tests for the self-hosted compiler (58 files; **was `yo-self/tests/` until 2026-08-05** — translate that path in older docs; see `yo-self/README.md` for tiers & heavy files)                                 |
+| `std/build.yo`                               | Build system API (Project, Step, Executable, etc.)                                                                                                                                                            |
+| `src/build-runner.ts`                        | Build execution engine — DAG scheduler, artifact compilation                                                                                                                                                  |
+| `src/install-command.ts`                     | `yo install` — add git/path dependencies                                                                                                                                                                      |
+| `src/fetch.ts`                               | Git dependency fetching, lock file pruning                                                                                                                                                                    |
+| `src/fetch-command.ts`                       | `yo fetch` CLI command                                                                                                                                                                                        |
+| `src/lock-file.ts`                           | `yo.lock` parse/write                                                                                                                                                                                         |
+| `src/cache.ts`                               | Global dependency cache (`~/.cache/yo/deps/`) + version cache helpers                                                                                                                                         |
+| `src/init.ts`                                | `yo init` — project scaffolding                                                                                                                                                                               |
+| `src/version.ts`                             | `.yo-version` discovery, parsing, validation                                                                                                                                                                  |
+| `src/version-cache.ts`                       | Version download from npm, cache management, runtime detection                                                                                                                                                |
+| `src/doc-command.ts`                         | `yo doc` CLI — documentation generation                                                                                                                                                                       |
+| `src/doc/`                                   | Doc pipeline: extractor, builder, model, renderers                                                                                                                                                            |
+| `src/pkg-config.ts`                          | pkg-config integration for system libraries                                                                                                                                                                   |
+| `src/dag.ts`                                 | DAG builder and level-based scheduler for build steps                                                                                                                                                         |
+| `plans/BUILD_SYSTEM.md`                      | Build system design document                                                                                                                                                                                  |
+| `plans/DEPENDENCY_MANAGEMENT.md`             | Dependency management design                                                                                                                                                                                  |
+| `plans/VERSION_MANAGEMENT.md`                | `.yo-version` pinning and version cache design                                                                                                                                                                |
+| `plans/HIGHER_KINDED_TYPES.md`               | HKT design & implementation (TypeApplication, partial application)                                                                                                                                            |
+| `plans/FUNCTOR_APPLICATIVE_MONAD.md`         | Option/Result functional combinators plan                                                                                                                                                                     |
+| `plans/BOOTSTRAPPING.md`                     | Bootstrap campaign record (GOAL ACHIEVED — fixpoint holds, suite green); umbrella over the CLOSED per-slice docs                                                                                              |
+| `plans/SELF_HOSTING_COMPLETION.md`           | The next-phase roadmap: full CLI parity in yo-self, retire `src/`+bun, release bundles + install scripts (Koka model), LSP + VS Code                                                                          |
+| `plans/archive/YO_SELF_EXPRINFO_PRUNE.md`    | REJECTED `yo-self` memory lever: pruning the process-lifetime `ExprInfoTable` (built, measured, refuted)                                                                                                      |
+| `plans/backlog/YO_SELF_ENV_SHARING.md`       | The real `yo-self` memory root cause: def-time body envs COPY what TS SHARES (7.4 M live `Variable`s), plus the remaining ranked levers                                                                       |
+| `plans/backlog/RC_POLICY_MECHANISM_SPLIT.md` | RC dup/drop architecture: policy (evaluator) vs mechanism (codegen), the codegen-side policy-patch inventory, and why full evaluator-only generation is impossible                                            |
+
+**Renamed 2026-08-06 — translate these in older docs.** The `phase6*` prefix named an
+internal porting-plan phase and meant nothing to a reader, so the four macro/reflection
+test files (and the test names inside them) were renamed to say what they cover:
+
+| old                             | new                        |
+| ------------------------------- | -------------------------- |
+| `phase6_verify.test.yo`         | `quote_macro_eval.test.yo` |
+| `phase6c_macro.test.yo`         | `macro_expansion.test.yo`  |
+| `phase6d_reflection.test.yo`    | `ast_reflection.test.yo`   |
+| `phase6f_macro_helpers.test.yo` | `macro_helpers.test.yo`    |
 
 ### Algebraic effects model
 
@@ -107,17 +122,24 @@ bun test src/tests/build-system.test.ts --timeout 10000
 # C codegen tests — specific test by name
 ./yo-cli test ./tests/algebraic_effects.test.yo --test-name-pattern "Test fn unwind" --parallel 1
 
-# Bootstrap (yo-self) tests — run the file(s) covering what you changed.
-# Files importing evaluator internals take 1–10 min each (big Yo-compile);
-# the full directory takes ~90 min. eval_basics/eval_tail_1/eval_tail_2
-# exceed the runner's 1800s isolated-process limit (known-heavy — they
-# `check` clean; validate via yo-self-bin sweeps instead).
-./yo-cli test ./yo-self/tests/lexer.test.yo --parallel 1
-./yo-cli test ./yo-self/tests/parser.test.yo --parallel 1
-./yo-cli test ./yo-self/tests/ --parallel 2
+# Compiler internal tests (tests/internal — was yo-self/tests until 2026-08-05).
+# Run the file(s) covering what you changed.
+# Files importing evaluator internals take 1–10 min each (big Yo-compile).
+# MEASURED 2026-08-05 (58 files, --parallel 1): 40.5 min under the TS compiler,
+# 22.2 min under the self-hosted binary (it is ~2x faster), 63 min for a
+# both-compilers differential. The old "~90 min" figure was pessimistic.
+# Run ONE FILE AND ONE COMPILER AT A TIME: macro_expansion alone needs 6.52 GB, so
+# two concurrent children on a 16 GB machine swap, and the swapping trips the
+# runner's own 600 s evaluator deadline — MANUFACTURING failures that do not
+# reproduce in isolation. Note the self-hosted runner ignores --parallel anyway
+# (yo-self/main.yo: "Accepted for CLI compatibility; v1 runs sequentially").
+./yo-cli test ./tests/internal/lexer.test.yo --parallel 1
+./yo-cli test ./tests/internal/parser.test.yo --parallel 1
+./yo-cli test ./tests/internal --parallel 1
 
-# Full integration test suite (~30 min on Mac Mini M4, safe to run locally)
-./yo-cli test --bail
+# Fast language suite (~30 min on Mac Mini M4, safe to run locally). The exclude
+# is what keeps it fast — tests/internal compiles the compiler 58 times.
+./yo-cli test ./tests --exclude tests/internal --bail
 
 # Evaluator-only check (fast, no codegen — useful for type-check iteration during refactors)
 ./yo-cli check ./std
@@ -214,8 +236,8 @@ TypeScript test files that shell out to `yo-cli` (`comptime-ref-gate.test.ts`,
 - **Always run `./yo-cli fmt <file.yo>` on every `.yo` file you create or modify, before committing.** Use `./yo-cli fmt --check` to verify. Do not commit unformatted `.yo` files.
 - Always check if there is need to create/update existing instructions & rules & skill files, design/plan docs after implementing a change.
 - **Whenever you learn something new about Yo syntax, semantics, or common pitfalls — especially from trial and error — immediately update the relevant skill files** (`.github/skills/yo-syntax/syntax-cheatsheet.md`, `.github/skills/yo-core-patterns/core-patterns-cheatsheet.md`, etc.) **and instruction files** (`.github/instructions/yo-syntax.instructions.md`, `.github/instructions/yo-design.instructions.md`). This keeps the institutional knowledge accurate for future sessions.
-- Always put design/plan documents in `plans/` directory (e.g., `plans/FEATURE_NAME.md`).
-- Always put the issues or bugs you found in `issues/` directory.
+- Always put design/plan documents in `plans/` directory (e.g., `plans/FEATURE_NAME.md`). Completed/superseded plans get a closing banner and move to `plans/archive/` (see `plans/README.md`).
+- Always put the issues or bugs you found in `issues/` directory (root = open). Verified fixes move to `issues/fixed/`; snapshots made moot by later events move to `issues/retired/`; reproducers and patches go in `issues/repros/` and `issues/patches/` (see `issues/README.md`). Update references when moving (`grep -rn "issues/<name>.md"`).
 - Always add test cases for any bug you found, and verify they fail before fixing the bug. After fixing, verify the new test cases pass and add them to `tests/` test set.
 - The full test suite (`./yo-cli test --bail`) takes ~30 minutes on a Mac Mini M4 and is safe to run locally. For faster iteration, run targeted test files instead.
 - If you haven't modified the code, don't ask to run commands repeatedly.
@@ -238,6 +260,7 @@ TypeScript test files that shell out to `yo-cli` (`comptime-ref-gate.test.ts`,
 - **yargs `.scriptName("yo")`** is set in `yo-cli.ts` so help text shows `yo` instead of `bun`. Don't remove it.
 - **`yo fetch` auto-prunes stale lock entries.** When a dep is removed from `build.yo`, running `yo fetch` removes it from `yo.lock`. Global cache is not auto-cleaned.
 - **`GIT_TERMINAL_PROMPT=0`** must be set when running `git ls-remote` on potentially non-existent repos to prevent interactive credential prompts.
+- **A "move" of a named local into a struct/enum field is NOT a consumption in the evaluator.** `setExprAsConsumed` only fires for owning temps and `own` parameters; a named local passed to a struct literal gets a deferred `___dup` (copy semantics), and the move you see in the emitted C is manufactured by the **dup/drop pair optimizer** (`src/evaluator/exprs/begin.ts`) cancelling that dup against the scope-end drop. So a missing drop in the C is an optimizer bug, not a consumption-marking bug — and any tree walk in that optimizer family must follow `$.macroExpansion` (an `if(...)` keeps its macro head in the AST; its `cond` expansion is where branch structure is visible). See `issues/fixed/where-constraints-arraylist-96b-leak.md`.
 - **A `-O0` binary that SIGSEGVs (rc=139) on deep recursion is stack exhaustion, NOT heap corruption — don't chase ASan/malloc.** Compiled Yo programs run `main` on a worker thread whose stack defaults to 1 GiB (`__yo_main_stack` in `src/codegen/functions/generation.ts`) and is overridable at runtime via the `YO_MAIN_STACK_MB` env var. At `-O0` (the default, non-`--release` build) clang gives every temporary its own stack slot, so the big evaluator functions (`evaluate_match` ~9 MB, `evaluate_function_call` ~8 MB) have multi-MB frames; deep compile-time recursion — e.g. `derive(Eq)` over a ~46-variant enum unrolling `__yo_comptime_fold_range` once per variant — then exhausts a 1 GiB stack at ~45 levels (≈22 MB/level). This is why `check ./yo-self` crashed under `is_executing`. **`--release` (-O2, src/codegen/index.ts) shrinks frames ~100× via LLVM stack coloring (only runs at `-O1`+), needing <1 MB/level — it handles 1000+ levels on 1 GiB and never hits this.** So: validate the self-hosted compiler under deep recursion either with `--release`, or keep the fast `-O0` loop and bump the stack: `YO_MAIN_STACK_MB=4096 <binary> check ./yo-self`. Diagnose this class of crash by rc=139 with no ASan output + a sharp deterministic depth threshold (it scales linearly with the stack size). The default is kept at 1 GiB (reserved lazily) so CI runners are not asked to reserve gigabytes.
 
 ## Debugging codegen / C compilation issues

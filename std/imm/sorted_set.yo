@@ -26,7 +26,7 @@ SortedSet :: (fn(comptime(T) : Type, where(T <: (Eq(T), Ord(T), Send))) -> compt
   struct(_inner : SortedMap(T, bool))
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: (Eq(T), Ord(T), Send)),
   SortedSet(T),
   /// Create an empty sorted set.
@@ -180,13 +180,13 @@ impl(
     i := usize(0);
     slen := l.len();
     while(i < slen, i = (i + usize(1)), {
-      result = result.insert(match(l.get(i),.Some(__e) => __e,.None => panic("from_list: index out of bounds")));
+      result = result.insert(match(l.get(i),.Some(__e) => __e,.None => __yo_panic("from_list: index out of bounds")));
     });
     result
   })
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: (Eq(T), Ord(T), Send)),
   SortedSet(T),
   Eq(SortedSet(T))(

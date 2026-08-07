@@ -1,0 +1,25 @@
+// Regression: matching TWO levels deep into a recursive enum (a `Box(Self)`
+// field). The enum self-shell patch resolves only ONE level of self-nesting;
+// the second-level `child.*` deref surfaces the raw empty-variant shell, so the
+// match evaluator must resolve it via resolve_enum_shell before reading variants
+// (else "variant not found in <enum:..._self_shell>"). This is the shape of
+// yo-self/expr.yo's is_function_boundary_arrow. See issues/fixed/.
+open(import("std/string"));
+{ println } :: import("std/fmt");
+
+Tree :: enum(Leaf, Node(child : Box(Self)));
+
+classify :: (fn(t : Tree) -> String)(
+  match(
+    t,
+    .Leaf => String.from("leaf"),
+    .Node({ child }) => match(child.*,.Leaf => String.from("node-of-leaf"),.Node => String.from("node-of-node"))
+  )
+);
+
+main :: (fn() -> unit)({
+  println(classify(Tree.Leaf));
+  println(classify(Tree.Node(child : box(Tree.Leaf))));
+  println(classify(Tree.Node(child : box(Tree.Node(child : box(Tree.Leaf))))));
+});
+export(main);

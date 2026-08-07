@@ -1,0 +1,18 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/collections/array_list"));
+open(import("std/libc/stdio"));
+
+main :: (fn() -> unit)({
+  al := ArrayList(u8).new();
+  al.push(u8(89));
+  al.push(u8(78));
+  al.push(u8(83));
+  (i : usize) = usize(0);
+  while(i < al.len(), {
+    (b : u8) = al(i);
+    unsafe(_r := putchar(int(usize(b))));
+    i = (i + usize(1));
+  });
+  ()
+});
+export(main);

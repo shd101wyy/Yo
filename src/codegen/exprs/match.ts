@@ -12,14 +12,16 @@ import {
 import type { Type } from "../../types/definitions";
 import {
   isEnumType,
-  isObjectType,
+  isReferenceStructType,
   isPtrType,
+  isReferenceEnumType,
   isUnitType,
 } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
 import { isBooleanValue, isNumberValue, type Value } from "../../value";
 import { type FunctionGenerationContext } from "../functions/context";
 import {
+  codeContainsReturnStatement,
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
   type CodeGenContext,
@@ -45,9 +47,11 @@ function isControlFlowCode(code: string): boolean {
     code === "break" ||
     code === "continue" ||
     code.startsWith("goto") ||
-    // Use word boundary to avoid matching identifiers like `return_flag`
-    // inside struct-literal field names (issue: struct-literal-in-match-arm-not-assigned).
-    /\breturn\b/.test(code)
+    // Word-boundary + string-literal masking: identifiers like `return_flag`
+    // (issue: struct-literal-in-match-arm-not-assigned) and the word `return`
+    // INSIDE a generated string literal (issue:
+    // cond-arm-return-inside-string-literal) are NOT control flow.
+    codeContainsReturnStatement(code)
   );
 }
 
@@ -150,8 +154,22 @@ function generateCaseBody(
       }
     }
 
-    // Generate deferred drop expressions for the begin block
-    if (bodyExpr.$?.deferredDropExpressions) {
+    // Generate deferred drop expressions for the begin block — but NOT when the
+    // final expression exits via control flow (return/unwind/break/continue).
+    // On that path the control-flow exit (e.g. `return`) has already flushed
+    // pendingDeferredDrops, which — per the concatenation above (line ~75) —
+    // INCLUDES this begin block's drops. Re-emitting them here double-frees: the
+    // drops land BEFORE the `return` (finalExprCode is returned, not yet emitted),
+    // so they execute, then the return's own flush already dropped the same
+    // temps. This is the intermittent SIGTRAP-in-malloc double-free on
+    // `match(o, .Some => return(f(x.clone())), …)`. See
+    // issues/yo-self-codegen-intermittent-sigtrap.md.
+    const beginFinalExpr =
+      beginArgs.length > 0 ? beginArgs[beginArgs.length - 1] : undefined;
+    const beginFinalExits = beginFinalExpr
+      ? hasAnyControlFlow(beginFinalExpr.$?.controlFlow)
+      : false;
+    if (bodyExpr.$?.deferredDropExpressions && !beginFinalExits) {
       generateDeferredDropExpressions(bodyExpr, indent, context);
     }
 
@@ -192,6 +210,9 @@ export function generateMatchExpression(
   if (!isUnit && tempVariableName) {
     const varType = getTypeString(valueType, context);
     context.emitter.emitLine(`${indent}${varType} ${tempVariableName};`);
+    // Record the C declaration so the drop-emission gate does not skip this
+    // (declared) temp's drop as if undeclared (a skipped live-RC drop leaks).
+    context.declaredCVarNames?.add(tempVariableName);
   }
 
   // Generate the matched value
@@ -256,8 +277,11 @@ export function generateMatchExpression(
   if (isPtrType(matchValueType)) {
     enumType = matchValueType.childType;
     ptrOrRefType = matchValueType.tag;
-  } else if (isObjectType(matchValueType)) {
-    // ref enum types are represented as pointers in C
+  } else if (isReferenceStructType(matchValueType)) {
+    enumType = matchValueType;
+    ptrOrRefType = "ref_semantics";
+  } else if (isReferenceEnumType(matchValueType)) {
+    // ref(enum(…)) is a heap pointer in C — access tag/data via `->`.
     enumType = matchValueType;
     ptrOrRefType = "ref_semantics";
   } else {
@@ -352,6 +376,7 @@ export function generateMatchExpression(
           context.emitter.emitLine(
             `${indent}  ${getTypeString(varType, context)} ${destructuredVarName} = ${matchedValueCode};`
           );
+          context.declaredCVarNames?.add(destructuredVarName);
         }
       }
 

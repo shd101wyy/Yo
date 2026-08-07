@@ -1,0 +1,310 @@
+//! Per-function generation context — mirrors `src/codegen/functions/context.ts`.
+//!
+//! TS: `interface FunctionGenerationContext extends CodeGenContext { ... }`.
+//! Yo has no struct inheritance, so this COMPOSES the base via a `base :
+//! CodeGenContext` field; functions that take a FunctionGenerationContext read
+//! base fields as `ctx.base.<field>`.
+//!
+//! PORT STATUS (incremental): the non-async core fields are present. The
+//! async/effect state-machine fields (inAsyncStateMachine, stateMachineVariables,
+//! stateMachineFieldAliases, currentEvidenceParams, continuationVariables,
+//! deferredAsyncBlocks, asyncCondBranchInfo, asyncWhileLoopInfo,
+//! asyncNextWhileLoopIndex, asyncBodyReturnExpr, smWhile*) are Phase 5 and will
+//! be added then (they reference the await/effect-analysis result types).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
+{ HashMap } :: import("std/collections/hash_map");
+{ AstExpr } :: import("../../expr.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ CapturedVariable, AwaitAnalysisResult } :: import("../../evaluator/async/await_analysis_types.yo");
+{ CodeGenContext } :: import("../utils/index.yo");
+/// One closure parameter slot — a bundle value supplied at io.await/io.spawn time
+/// via `set_effect("__bundle", &value)`, stored in a dedicated `__yo_param_<i>`
+/// slot on the SM struct. Mirrors the inline `closureParamSlots` records
+/// (context.ts:101). Defined here (not in exprs/async.yo) so `DeferredAsyncBlock`
+/// can reference it without an import cycle.
+ClosureParamSlot :: ref(
+  struct(
+    field_name : String,
+    c_type : String,
+    param_name : String,
+    param_type : TypeValue
+  )
+);
+/// A deferred async-block generation request: async blocks are generated after
+/// all regular functions. Mirrors the inline `deferredAsyncBlocks[]` element type
+/// (context.ts:82). `futureType` (SomeType | DynType) and `futureTraitType`
+/// (FutureTraitType) both become `TypeValue`.
+DeferredAsyncBlock :: ref(
+  struct(
+    body_expr : AstExpr,
+    async_block_id : String,
+    struct_name : String,
+    resume_function_name : String,
+    constructor_name : String,
+    dispose_function_name : String,
+    set_effect_function_name : String,
+    future_type : TypeValue,
+    future_trait_type : TypeValue,
+    result_type : TypeValue,
+    result_type_c_name : String,
+    capture_type : Option(TypeValue),
+    analysis : AwaitAnalysisResult,
+    closure_param_slots : Option(ArrayList(ClosureParamSlot))
+  )
+);
+/// State-machine while-loop break info: the after-loop goto label and the
+/// optional while-loop active-flag index. Mirrors the `smWhileBreakInfo` shape.
+SmWhileBreakInfo :: ref(struct(label : String, active_index : Option(usize)));
+/// State-machine while-loop continue info: the loop goto label, whether to
+/// emit body drops before the goto, and the optional 3-arg step expression.
+/// Mirrors the `smWhileContinueInfo` shape.
+SmWhileContinueInfo :: ref(
+  struct(
+    label : String,
+    emit_drops_before_goto : bool,
+    step_expr : Option(AstExpr)
+  )
+);
+/// Marks that code is being generated inside an async state machine; carries
+/// the future type (a SomeType or DynType). Mirrors `inAsyncStateMachine`.
+InAsyncStateMachine :: ref(struct(future_type : TypeValue));
+/// An effect-evidence parameter threaded into a function for explicit-effects
+/// dispatch — the implicit-record label, the field label/path within it, the
+/// field's function type, and the sanitized C parameter name. Mirrors
+/// `EvidenceParameter` (declarations.ts:281).
+EvidenceParameter :: ref(
+  struct(
+    implicit_label : String,
+    field_label : String,
+    field_path : ArrayList(String),
+    field_function_type : TypeValue,
+    c_param_name : String
+  )
+);
+/// Expressions from an enclosing cond branch that come after a while loop — run
+/// only after the loop exits, guarded by the `sm->cond_branch_N` field. Mirrors
+/// the `condBranchPostWhileExprs` shape in `asyncWhileLoopInfo`.
+CondBranchPostWhileExprs :: ref(
+  struct(
+    branch_index : usize,
+    cond_branch_field_index : usize,
+    exprs : ArrayList(AstExpr),
+    deferred_drop_expressions : Option(ArrayList(AstExpr)),
+    /// When true, skip the `sm->cond_branch_N` guard (nested conds share the field).
+    skip_cond_branch_check : Option(bool)
+  )
+);
+/// Info about an OUTER while loop wrapping a while-with-await. Mirrors the
+/// `outerWhileLoop` shape in `asyncWhileLoopInfo`.
+OuterWhileLoop :: ref(
+  struct(
+    while_loop_index : usize,
+    condition_expr : AstExpr,
+    step_expr : Option(AstExpr),
+    body_expr : AstExpr,
+    body_exprs_after_await : ArrayList(AstExpr)
+  )
+);
+/// One branch of a cond/match with await. Mirrors the `branches[]` element in
+/// `asyncCondBranchInfo` (context.ts:112).
+CondBranch :: ref(
+  struct(
+    index : usize,
+    value : AstExpr,
+    has_await : bool,
+    /// Expressions after the await in this branch (resume-state code).
+    remaining_exprs : Option(ArrayList(AstExpr)),
+    /// Drop expressions for the branch's begin block.
+    deferred_drop_expressions : Option(ArrayList(AstExpr))
+  )
+);
+/// A chained cond/match continuation: an outer cond's remaining code that shares
+/// a key with a nested cond, processed as a separate switch AFTER the nested
+/// cond's switch. Mirrors the `chainedBranches[]` element (context.ts:124).
+ChainedCondBranches :: ref(
+  struct(
+    branches : ArrayList(CondBranch),
+    cond_branch_field_index : usize
+  )
+);
+/// Per-await-point info about a cond/match containing await in branches. Mirrors
+/// the value type of `asyncCondBranchInfo` (context.ts:109).
+AsyncCondBranchInfo :: ref(
+  struct(
+    branches : ArrayList(CondBranch),
+    /// Variable that receives the cond/match result (if any).
+    target_variable_id : Option(String),
+    /// C code for the assignment target (for `= (target, cond/match(...))`).
+    target_assignment_code : Option(String),
+    /// The `cond_branch_X` index to use in the switch (continuation states).
+    cond_branch_field_index : Option(usize),
+    chained_branches : Option(ArrayList(ChainedCondBranches))
+  )
+);
+/// Per-await-point info about a while loop containing an await. Mirrors the
+/// value type of `asyncWhileLoopInfo` (context.ts:137).
+WhileLoopInfo :: ref(
+  struct(
+    condition_expr : AstExpr,
+    step_expr : Option(AstExpr),
+    body_expr : AstExpr,
+    body_exprs_after_await : Option(ArrayList(AstExpr)),
+    /// The original while loop's await-point index (chained awaits).
+    while_loop_origin_index : Option(usize),
+    /// True when created by chaining from a previous await in the same loop body.
+    is_chained_await : Option(bool),
+    cond_branch_post_while_exprs : Option(CondBranchPostWhileExprs),
+    outer_while_loop : Option(OuterWhileLoop)
+  )
+);
+/// The per-function generation context. See header for the composition note.
+FunctionGenerationContext :: ref(
+  struct(
+    /// The base codegen context (TS `extends CodeGenContext`).
+    base : CodeGenContext,
+    /// Type of the current function being generated.
+    current_function_type : Option(TypeValue),
+    /// Variables captured by the current closure function.
+    current_closure_captures : Option(ArrayList(String)),
+    /// Frame level of the captured variables.
+    current_closure_capture_frame_level : Option(usize),
+    /// Current closure type being generated.
+    current_closure_type : Option(TypeValue),
+    /// C name of the capture struct type (e.g. "__yo_struct_abc_capture").
+    current_closure_capture_type_c_name : Option(String),
+    /// Set when generating an effect-record member function (e.g. an
+    /// Exception.throw handler).
+    is_effect_record_member_function : bool,
+    /// SSA-renamed variable id → original/canonical id (loop reassignment).
+    variable_id_remapping : Option(HashMap(String, String)),
+    /// Pending deferred drops from enclosing begin blocks (run before async
+    /// completion / early return).
+    pending_deferred_drops : Option(ArrayList(AstExpr)),
+    /// Drops for RC vars consumed by return values (emitted on unwind only).
+    consumed_var_pending_drops : Option(ArrayList(AstExpr)),
+    /// Variables locally shadowed (e.g. match destructuring) — use the local C
+    /// var, not the SM field.
+    local_shadowed_variables : Option(HashSet(String)),
+    /// Temp variable names already declared in the C output (avoid duplicates).
+    declared_temp_vars : Option(HashSet(String)),
+    /// Var names whose drops were already emitted inside short-circuit branches.
+    short_circuit_handled_drop_var_names : Option(HashSet(String)),
+    /// Drop code strings for effect-handler params (emitted before unwind).
+    effect_handler_param_drops : Option(ArrayList(String)),
+    /// C var names of SM args whose ownership transferred to the SM (no dup).
+    effect_sm_consumed_arg_c_names : Option(HashSet(String)),
+    /// Baseline pendingDeferredDrops count when entering the current loop body.
+    loop_body_drops_baseline_count : Option(usize),
+    /// Override C return-type string (body-derived return types).
+    override_return_type_str : Option(String),
+    /// C type strings of every non-unit `unwind(value)` argument (sizes the
+    /// unwind-value buffer union).
+    unwind_value_c_types : Option(HashSet(String)),
+    /// Set when any io.async/await/spawn is encountered (emit async runtime).
+    uses_async : bool,
+    /// Set when any thread/worker spawn is found (emit parallelism runtime).
+    uses_parallelism : bool,
+    /// Set when generating code inside an async state machine.
+    in_async_state_machine : Option(InAsyncStateMachine),
+    /// Break/continue goto info for a while loop inside a state machine (plain
+    /// break/continue don't work inside a switch/goto loop).
+    sm_while_break_info : Option(SmWhileBreakInfo),
+    sm_while_continue_info : Option(SmWhileContinueInfo),
+    /// Deferred drops for the SM while-loop body (emitted before break/continue/
+    /// normal exit).
+    sm_while_body_drops : Option(ArrayList(AstExpr)),
+    /// Variables captured in the async state machine (variable id → captured
+    /// variable). Read by atom emission to access `sm->var_<id>` / `sm->__capture.<name>`.
+    state_machine_variables : Option(HashMap(String, CapturedVariable)),
+    /// Phase-1b aliases: temp future variable id → its await_future_N SM field
+    /// name (atom emission redirects SM lookups to the existing await field).
+    state_machine_field_aliases : Option(HashMap(String, String)),
+    /// While-loop-with-await info, keyed by await-point index. Written by
+    /// `generate_while_with_await`, read by the resume generator. Mirrors
+    /// `asyncWhileLoopInfo`.
+    async_while_loop_info : Option(HashMap(usize, WhileLoopInfo)),
+    /// Next free while-loop index for nested while-with-await (so outer-while
+    /// labels don't collide with await-point indices). Mirrors
+    /// `asyncNextWhileLoopIndex`.
+    async_next_while_loop_index : Option(usize),
+    /// Cond/match-with-await branch info, keyed by await-point index. Written by
+    /// `generate_cond_with_await` / `generate_match_with_await`, read by the resume
+    /// generator. Mirrors `asyncCondBranchInfo`.
+    async_cond_branch_info : Option(HashMap(usize, AsyncCondBranchInfo)),
+    /// When set, the cond/match expression that IS the async block body's implicit
+    /// return value — its non-await branches must emit Future completion. Mirrors
+    /// `asyncBodyReturnExpr`.
+    async_body_return_expr : Option(AstExpr),
+    /// Effect-evidence parameters in scope (implicit label → evidence param), for
+    /// explicit-effects dispatch / effect injection. Mirrors `currentEvidenceParams`.
+    current_evidence_params : Option(HashMap(String, EvidenceParameter)),
+    /// Async blocks deferred to after all regular functions are generated. Mirrors
+    /// `deferredAsyncBlocks`.
+    deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock)),
+    /// Raw name of the enclosing assignment's save-old-value temp while its
+    /// RHS is being generated. The temp receives ownership of the old value
+    /// only AFTER the assignment completes, so escape-path pending drops
+    /// emitted inside the RHS must skip it (the local still owns the value;
+    /// dropping both double-frees). TS needs no flag — its per-expr
+    /// point-in-time envs simply don't contain the not-yet-defined temp.
+    current_assignment_save_temp : Option(String)
+  )
+);
+impl(
+  FunctionGenerationContext,
+  /// Wrap a base CodeGenContext in a fresh per-function generation context.
+  new : (fn(base : CodeGenContext) -> Self)(
+    Self(
+      base : base,
+      current_function_type : Option(TypeValue).None,
+      current_closure_captures : Option(ArrayList(String)).None,
+      current_closure_capture_frame_level : Option(usize).None,
+      current_closure_type : Option(TypeValue).None,
+      current_closure_capture_type_c_name : Option(String).None,
+      is_effect_record_member_function : false,
+      variable_id_remapping : Option(HashMap(String, String)).None,
+      pending_deferred_drops : Option(ArrayList(AstExpr)).None,
+      consumed_var_pending_drops : Option(ArrayList(AstExpr)).None,
+      local_shadowed_variables : Option(HashSet(String)).None,
+      declared_temp_vars : Option(HashSet(String)).None,
+      short_circuit_handled_drop_var_names : Option(HashSet(String)).None,
+      effect_handler_param_drops : Option(ArrayList(String)).None,
+      effect_sm_consumed_arg_c_names : Option(HashSet(String)).None,
+      loop_body_drops_baseline_count : Option(usize).None,
+      override_return_type_str : Option(String).None,
+      unwind_value_c_types : Option(HashSet(String)).None,
+      uses_async : false,
+      uses_parallelism : false,
+      in_async_state_machine : Option(InAsyncStateMachine).None,
+      sm_while_break_info : Option(SmWhileBreakInfo).None,
+      sm_while_continue_info : Option(SmWhileContinueInfo).None,
+      sm_while_body_drops : Option(ArrayList(AstExpr)).None,
+      state_machine_variables : Option(HashMap(String, CapturedVariable)).None,
+      state_machine_field_aliases : Option(HashMap(String, String)).None,
+      async_while_loop_info : Option(HashMap(usize, WhileLoopInfo)).None,
+      async_next_while_loop_index : Option(usize).None,
+      async_cond_branch_info : Option(HashMap(usize, AsyncCondBranchInfo)).None,
+      async_body_return_expr : Option(AstExpr).None,
+      current_evidence_params : Option(HashMap(String, EvidenceParameter)).None,
+      deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock)).None,
+      current_assignment_save_temp : Option(String).None
+    )
+  )
+);
+export(
+  FunctionGenerationContext,
+  SmWhileBreakInfo,
+  SmWhileContinueInfo,
+  InAsyncStateMachine,
+  CondBranchPostWhileExprs,
+  OuterWhileLoop,
+  WhileLoopInfo,
+  CondBranch,
+  ChainedCondBranches,
+  AsyncCondBranchInfo,
+  EvidenceParameter,
+  ClosureParamSlot,
+  DeferredAsyncBlock
+);

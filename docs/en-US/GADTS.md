@@ -67,7 +67,7 @@ MixedVal :: (fn(comptime(T) : Type) -> comptime(Type))(
 The core GADT feature: when pattern matching on a GADT value, the type system refines type variables in each branch.
 
 ```rust
-eval_value :: (fn(forall(T : Type), v : Value(T)) -> T)(
+eval_value :: (fn(generic(T : Type), v : Value(T)) -> T)(
   match(v,
     .IntVal(i) => i,      // T refined to i32, so i : i32 and return i32 ✓
     .BoolVal(b) => b,     // T refined to bool, so b : bool and return bool ✓
@@ -106,7 +106,7 @@ GADTs have the **same C representation as regular enums**. All type refinement i
 
 - `->` mirrors function return type syntax — each constructor is conceptually a function producing a specific type instantiation
 - `recur` reuses the existing keyword for self-reference — just as `recur(args)` calls the enclosing function, `recur(i32)` applies the enclosing type constructor
-- Functions consuming GADTs require explicit `forall` type annotations (already standard in Yo)
+- Functions consuming GADTs require explicit `generic` type annotations (already standard in Yo)
 
 ## Interaction with Other Features
 

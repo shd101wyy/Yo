@@ -67,7 +67,7 @@ MixedVal :: (fn(comptime(T) : Type) -> comptime(Type))(
 GADT 的核心特性：对 GADT 值进行模式匹配时，类型系统会在每个分支中细化类型变量。
 
 ```rust
-eval_value :: (fn(forall(T : Type), v : Value(T)) -> T)(
+eval_value :: (fn(generic(T : Type), v : Value(T)) -> T)(
   match(v,
     .IntVal(i) => i,      // T 被细化为 i32，i : i32，返回 i32 ✓
     .BoolVal(b) => b,     // T 被细化为 bool，b : bool，返回 bool ✓
@@ -106,7 +106,7 @@ GADTs 具有**与普通枚举相同的 C 表示**。所有类型细化都纯粹�
 
 - `->` 模仿函数返回类型语法 — 每个构造器在概念上是一个产生特定类型实例化的函数
 - `recur` 复用现有的自引用关键字 — 正如 `recur(args)` 调用外层函数，`recur(i32)` 应用外层类型构造器
-- 消费 GADTs 的函数需要显式的 `forall` 类型注解（这在 Yo 中已是标准做法）
+- 消费 GADTs 的函数需要显式的 `generic` 类型注解（这在 Yo 中已是标准做法）
 
 ## 与其他特性的交互
 

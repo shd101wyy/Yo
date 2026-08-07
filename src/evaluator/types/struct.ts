@@ -28,25 +28,28 @@ export function evaluateStructType({
   env,
   context,
   isAtomicRc = false,
+  forceReferenceSemantics = false,
 }: {
   expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
   isAtomicRc?: boolean;
+  // `ref(struct(…))` evaluates the inner `struct(…)` literal but with
+  // reference semantics forced on (plans/REF_REFERENCE_SEMANTICS.md Phase 2).
+  forceReferenceSemantics?: boolean;
 }): FnCallExpr {
-  const isObjectKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.object);
   const isStructKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.struct);
   const isNewtypeKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.newtype);
 
-  if (!isStructKeyword && !isObjectKeyword && !isNewtypeKeyword) {
+  if (!isStructKeyword && !isNewtypeKeyword) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected "struct" or "object" or "newtype", got:\n${exprToString(expr)}`,
+      errorMessage: `Expected "struct" or "newtype", got:\n${exprToString(expr)}`,
     });
   }
 
-  // For 'object' keyword, always use reference semantics
-  const isReferenceSemantics = isObjectKeyword;
+  // Reference semantics comes from `ref(struct(…))` (forceReferenceSemantics).
+  const isReferenceSemantics = forceReferenceSemantics;
   const isNewtype = isNewtypeKeyword;
 
   // Create structType with empty fields

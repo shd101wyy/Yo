@@ -33,8 +33,8 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind } :: import("../../token.yo");
-{ AstExpr, ast_expr_token } :: import("../../expr.yo");
-{ ExprInfo } :: import("../../expr_info.yo");
+{ AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
+{ ExprInfo, lookup_io_builtin_call } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 {
@@ -64,10 +64,12 @@ open(import("std/string"));
 /// Async-specific fields for a single await expression.
 /// Stored in a side-channel HashMap keyed by `expr.token.character`
 /// because `SuspensionPointDetector` only accepts base `SuspensionPoint` objects.
-AwaitPointExtra :: object(
-  result_type : TypeValue,
-  future_type : Option(TypeValue),
-  future_variable_id : Option(String)
+AwaitPointExtra :: ref(
+  struct(
+    result_type : TypeValue,
+    future_type : Option(TypeValue),
+    future_variable_id : Option(String)
+  )
 );
 // ---------------------------------------------------------------------------
 // _is_dot_access — structural AST check for `obj.method(...)` calls
@@ -85,13 +87,13 @@ _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool
     expr,
     .Atom(_, _) => false,
     .FnCall(_, outer_func_box, _, _, _) => match(
-      outer_func_box.*,
+      outer_func_box,
       .Atom(_, _) => false,
       .FnCall(_, dot_func_box, dot_args, is_infix, _) => cond(
         (is_infix == false) => false,
         (dot_args.len() != usize(2)) => false,
         true => match(
-          dot_func_box.*,
+          dot_func_box,
           .FnCall(_, _, _, _, _) => false,
           .Atom(_, dot_tok) => cond(
             (dot_tok.kind != TokenKind.Dot) => false,
@@ -101,7 +103,35 @@ _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool
                 .None => false,
                 .Some(oe) => match(
                   oe,
-                  .FnCall(_, _, _, _, _) => false,
+                  // `<recv>.io.await(...)` — the receiver is itself a dot
+                  // access whose MEMBER is the object name (e.g. the effect
+                  // bundle's IO field: `e.io.await(...)`, std/fs/metadata.yo).
+                  // TS's `ioBuiltin` type marker matches these semantically
+                  // (the field's type IS the IO module); the bare-atom-only
+                  // syntactic check missed them, so `e.io.await(statx(...))`
+                  // emitted NO await sequence at all — downstream reads of the
+                  // result produced empty operands `(() < ())` (stage-2
+                  // expected-expression cluster).
+                  .FnCall(_, inner_fb, inner_args, inner_infix, _) => cond(
+                    (inner_infix == false) => false,
+                    (inner_args.len() != usize(2)) => false,
+                    true => match(
+                      inner_fb,
+                      .FnCall(_, _, _, _, _) => false,
+                      .Atom(_, inner_tok) => cond(
+                        (inner_tok.kind != TokenKind.Dot) => false,
+                        true => match(
+                          inner_args.get(usize(1)),
+                          .None => false,
+                          .Some(ime) => match(
+                            ime,
+                            .FnCall(_, _, _, _, _) => false,
+                            .Atom(_, itok) => (itok.value == obj_name)
+                          )
+                        )
+                      )
+                    )
+                  ),
                   .Atom(_, tok) => (tok.value == obj_name)
                 )
               );
@@ -127,47 +157,73 @@ _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool
 // ---------------------------------------------------------------------------
 // Io builtin structural checks
 // ---------------------------------------------------------------------------
+/// SEMANTIC io-builtin check: true iff this call's recorded io-builtin marker
+/// equals `marker`. TS classifies io builtins by the callee TYPE's `ioBuiltin`
+/// marker (`expr.func.$?.type?.ioBuiltin`, await-analysis.ts:137-167) — set
+/// from the extern field label (`__yo_io_await` etc., extern.ts:143-158) and
+/// propagated onto the Io struct's field types at construction
+/// (calls/type.ts:176-182) — so ANY receiver variable of type `Io`
+/// classifies, not just one literally named `io`. yo-self resolves the marker
+/// once at evaluate_function_call's dispatch choke point (calls/function.yo)
+/// into the `g_io_builtin_calls` side-table read here. The name-based
+/// `_is_dot_access` checks below remain as the fast path (and cover
+/// pre-recording contexts); without this semantic path
+/// `my_io.await(task, ctx)` fell through to the JoinHandle-await shape and
+/// codegen emitted an error comment (async_await arm 72).
+_callee_io_builtin_is :: (fn(expr : AstExpr, marker : String) -> bool)(
+  match(
+    lookup_io_builtin_call(ast_expr_id(expr)),
+    .Some(cim_mk) => (cim_mk == marker),
+    .None => false
+  )
+);
 /// Checks if an expression is an io.async(closure) call.
 ///
 /// Mirrors `isIoAsyncCall` in `src/evaluator/async/await-analysis.ts`.
 is_io_async_call :: (fn(expr : AstExpr) -> bool)(
-  _is_dot_access(expr, "io", "async")
+  _is_dot_access(expr, "io", "async") || _callee_io_builtin_is(expr, String.from("__yo_io_async"))
 );
 /// Checks if an expression is an io.await(future, io) call.
 ///
 /// Mirrors `isIoAwaitCall` in `src/evaluator/async/await-analysis.ts`.
 is_io_await_call :: (fn(expr : AstExpr) -> bool)(
-  _is_dot_access(expr, "io", "await")
+  _is_dot_access(expr, "io", "await") || _callee_io_builtin_is(expr, String.from("__yo_io_await"))
 );
 /// Checks if an expression is an io.state(future) call.
 ///
 /// Mirrors `isIoStateCall` in `src/evaluator/async/await-analysis.ts`.
 is_io_state_call :: (fn(expr : AstExpr) -> bool)(
-  _is_dot_access(expr, "io", "state")
+  _is_dot_access(expr, "io", "state") || _callee_io_builtin_is(expr, String.from("__yo_io_state"))
 );
 /// Checks if an expression is an io.spawn(future) call.
 ///
 /// Mirrors `isIoSpawnCall` in `src/evaluator/async/await-analysis.ts`.
 is_io_spawn_call :: (fn(expr : AstExpr) -> bool)(
-  _is_dot_access(expr, "io", "spawn")
+  _is_dot_access(expr, "io", "spawn") || _callee_io_builtin_is(expr, String.from("__yo_io_spawn"))
 );
 /// Checks if an expression is a JoinHandle.await(io, JoinHandle) call.
 /// Structurally: any `x.await(..., x)` where x is NOT "io".
 ///
 /// Mirrors `isJoinHandleAwaitCall` in `src/evaluator/async/await-analysis.ts`.
 is_join_handle_await_call :: (fn(expr : AstExpr) -> bool)({
-  // Check if this is any X.await(..., X) method call
+  // Check if this is any X.await(..., X) method call. Match `expr` directly —
+  // a read-only structural match does NOT consume it (the sibling
+  // `_is_dot_access` matches the same shape without cloning, and `expr` is still
+  // used below in `is_io_await_call(expr)`). The previous `expr.clone()` was an
+  // unfaithful divergence (TS `isJoinHandleAwaitCall` does no clone) that
+  // deep-cloned the whole AST on EVERY generate_func_call — a large allocation
+  // source and a suspected trigger for the intermittent RC freelist corruption.
   is_method_await := match(
-    expr.clone(),
+    expr,
     .Atom(_, _) => false,
     .FnCall(_, outer_func_box, _, _, _) => match(
-      outer_func_box.*,
+      outer_func_box,
       .Atom(_, _) => false,
       .FnCall(_, dot_func_box, dot_args, is_infix, _) => cond(
         (is_infix == false) => false,
         (dot_args.len() != usize(2)) => false,
         true => match(
-          dot_func_box.*,
+          dot_func_box,
           .FnCall(_, _, _, _, _) => false,
           .Atom(_, dot_tok) => cond(
             (dot_tok.kind != TokenKind.Dot) => false,
@@ -239,8 +295,8 @@ get_future_variable_id_ :: (
   // If the variable shares RC with an owner, return the owner's ID
   match(
     last_var.is_owning_the_same_rc_value_as,
-    .Some(owner_box) => Option(String).Some(owner_box.*.id.clone()),
-    .None => Option(String).Some(last_var.id.clone())
+    .Some(owner_box) => Option(String).Some(owner_box.*.id.to_string()),
+    .None => Option(String).Some(last_var.id.to_string())
   )
 });
 // ---------------------------------------------------------------------------
@@ -302,7 +358,7 @@ detect_await_expr_ :: (
       // Extract the result type T from FutureTraitT(output: Box(T))
       result_type := match(
         future_module_type.clone(),
-        .FutureTraitT(output : output_box) => output_box.*,
+        .FutureTraitT(output : output_box) => output_box,
         _ => {
           return(());
         } // unreachable: we just verified FutureTraitT
@@ -445,7 +501,7 @@ collect_variable_bindings_ :: (
     .FnCall(_, func_box, args, _, _) => {
       // Check if this is a "let" or ":=" binding declaration
       func_is_binding := match(
-        func_box.*,
+        func_box,
         .FnCall(_, _, _, _, _) => false,
         .Atom(_, ftok) => (
           (ftok.value == "let") || (ftok.value == ":=")
@@ -494,21 +550,22 @@ collect_variable_bindings_ :: (
                                       .Some(_) => (),
                                       .None => {
                                         if(!(variable.is_compile_time_only) &&
-                                          !(seen.contains_key(variable.id.clone())), {
+                                          !(seen.contains_key(variable.id.to_string())), {
                                           cv := CapturedVariable(
                                             base : SuspensionCapturedVariable(
-                                              id : variable.id.clone(),
+                                              id : variable.id.to_string(),
                                               name : var_name.clone(),
                                               ty : var_type.clone(),
                                               is_owning_the_same_rc_value_as :
-                                                Option(Box(SuspensionCapturedVariable)).None
+                                                Option(Box(SuspensionCapturedVariable)).None,
+                                              decl_site : `${variable.token.module_path}:${variable.token.row.to_string()}:${variable.token.column.to_string()}`
                                             ),
                                             kind : CapturedVariableKind.Local,
                                             is_owning_the_same_rc_value_as :
                                               Option(Box(CapturedVariable)).None
                                           );
                                           variables.push(cv);
-                                          seen.set(variable.id.clone(), true);
+                                          seen.set(variable.id.to_string(), true);
                                         });
                                       }
                                     );
@@ -528,7 +585,7 @@ collect_variable_bindings_ :: (
         );
       });
       // Always recurse into the function expression
-      recur(func_box.*, variables, seen, get_info);
+      recur(func_box, variables, seen, get_info);
       // Always recurse into each argument
       n_args := args.len();
       (ai : usize) = usize(0);
@@ -567,9 +624,32 @@ get_local_variables_from_body :: (
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Closure await-analysis side-table (func_id → AwaitAnalysisResult)
+// ---------------------------------------------------------------------------
+/// The await analysis for an io.async closure, keyed by the closure's `func_id`.
+/// yo-self records `await_analysis` on the def-evaluated body CLONE (an
+/// inaccessible expr distinct from the FuncVal body and from the codegen-read
+/// clone), so the codegen cannot reach it via ExprInfo. The closure's `func_id`,
+/// however, IS what codegen resolves (via the closure value's FuncVal), so the
+/// analysis is side-tabled by func_id — the same eval→codegen bridge pattern as
+/// `g_some_resolved_concrete`. Set in `evaluate_anonymous_function_implementation`
+/// for marked io.async closures with awaits; read by the async dispatch +
+/// `generate_async_block` + `preregister_async_blocks_in_expr`.
+(g_closure_await_analysis : HashMap(String, AwaitAnalysisResult)) = HashMap(String, AwaitAnalysisResult).new();
+/// Register a closure's await analysis by func_id (only when it has awaits).
+register_closure_await_analysis :: (fn(func_id : String, result : AwaitAnalysisResult) -> unit)({
+  g_closure_await_analysis.set(func_id.clone(), result);
+});
+/// The await analysis recorded for `func_id`, if any.
+get_closure_await_analysis :: (fn(func_id : String) -> Option(AwaitAnalysisResult))(
+  g_closure_await_analysis.get(func_id.clone())
+);
 export(
   // Types (re-exported for convenience — canonical home is await_analysis_types.yo)
   AwaitPointExtra,
+  register_closure_await_analysis,
+  get_closure_await_analysis,
   // Future-trait helpers
   extract_future_trait_from_type,
   type_implements_future,

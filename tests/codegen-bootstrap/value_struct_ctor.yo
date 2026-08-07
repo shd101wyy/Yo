@@ -1,0 +1,13 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+Wrap :: newtype(v : i32);
+impl(
+  Wrap,
+  make : (fn(n : i32) -> Self)(Self(v : n)),
+  get : (fn(self : Self) -> i32)(self.v)
+);
+main :: (fn() -> unit)({
+  w := Wrap.make(i32(9));
+  unsafe(_a := putchar(int(w.get())));
+});
+export(main);

@@ -50,7 +50,7 @@ try_to_implement_array_by_array_type :: (
   // Extract element type and concrete length from TypeValue.Array.
   elem_type := match(
     array_type,
-    .Array(elem_box, _, _) => elem_box.*,
+    .Array(elem_box, _, _) => elem_box,
     _ => {
       exn.throw(
         dyn(
@@ -70,12 +70,23 @@ try_to_implement_array_by_array_type :: (
     .Array(_, len, _) => len,
     _ => usize(0)
   );
+  // A non-empty `length_var` means the length is an UNRESOLVED inference
+  // variable (`Array(i32, _)` or a generic-impl `Array(T, U)`): the
+  // constructor's element count IS the length (TS array-type.ts binds the
+  // UnknownValue placeholder from the arg count). Skip the arity check and
+  // resolve the result type to the concrete count below.
+  arr_len_var := match(
+    array_type,
+    .Array(_, _, lv) => lv,
+    _ => String.from("")
+  );
   // Validate argument count matches array length.
   n_args := arg_exprs.len();
-  if(n_args != expected_len, {
+  (eff_len : usize) = cond((arr_len_var.len() > usize(0)) => n_args, true => expected_len);
+  if((n_args != expected_len) && (arr_len_var.len() == usize(0)), {
     func_tok := match(
       expr,
-      .FnCall(_, func_box, _, _, _) => ast_expr_token(func_box.*),
+      .FnCall(_, func_box, _, _, _) => ast_expr_token(func_box),
       .Atom(_, tok) => tok
     );
     exn.throw(
@@ -121,7 +132,7 @@ try_to_implement_array_by_array_type :: (
       );
     });
     arg_info := match(arg_info_opt,.Some(it) => it,.None => new_expr_info(env, expected_element_type));
-    set_expr_as_needs_to_call_dup(evaluated_arg, ctx);
+    set_expr_as_needs_to_call_dup(evaluated_arg, ctx, exn);
     env.frames = arg_info.env.frames;
     env.module_path = arg_info.env.module_path;
     env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
@@ -160,7 +171,7 @@ try_to_implement_array_by_array_type :: (
   });
   // Store result in expr_info_table.
   // Re-use array_type but with refined element type (may have been updated from first element).
-  final_array_type := TypeValue.Array(box(expected_element_type), expected_len, String.from(""));
+  final_array_type := TypeValue.Array(expected_element_type, eff_len, String.from(""));
   out_info := new_expr_info(env, final_array_type);
   out_info.value =.Some(EvalValue.ArrayVal(elements));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);

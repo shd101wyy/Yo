@@ -18,7 +18,7 @@ continuations）。效应是常规函数参数，其处理器体可使用
 | 一次性续延 | `return` 恢复，`unwind` 丢弃                 |
 | 处理器类型 | `ctl(args) -> ret` 与 `fn(args) -> ret` 并列 |
 | 逃逸纪律   | 类型层检查（`typeIsControlBound`）           |
-| 效应多态   | `forall(E : Type.Struct)` + `e : E`          |
+| 效应多态   | `generic(E : Type.Struct)` + `e : E`         |
 | 效应捆绑   | 匿名结构体 `{ raise, log }` 或具名结构体类型 |
 
 ## 语法
@@ -106,13 +106,13 @@ wrapper :: (fn(x : i32, raise : Raise) -> i32)(
 
 ### 效应行多态
 
-效应多态函数使用 `forall(E : Type.Struct)`。约束 `Type.Struct` 把
+效应多态函数使用 `generic(E : Type.Struct)`。约束 `Type.Struct` 把
 `E` 限定为结构体类型（一个效应捆绑），并在特化时启用结构体函数
 指针字段自动展开为独立 C 参数。
 
 ```rust
 run :: (
-  fn(forall(T : Type, E : Type.Struct),
+  fn(generic(T : Type, E : Type.Struct),
      f : (fn(e : E) -> T),
      e : E
   ) -> T
@@ -131,7 +131,7 @@ result := run(pure_func, {});
 ### 异步 + 效应
 
 `Future` 由返回类型和零个或多个效应类型参数构成。每个效应参数应当
-本身是结构体类型（或绑定到结构体的 forall E），调用方传入含实际
+本身是结构体类型（或绑定到结构体的 generic E），调用方传入含实际
 处理器的结构体值：
 
 ```rust
@@ -200,7 +200,7 @@ result := io.await(fut, e.io);
    `ctl(T) -> R` 的位置 — 非 unwind 函数在允许 unwind 的地方使用
    是合法的。反向不安全，会被拒绝。
 
-6. **跨函数种类的泛型。** `forall(T : Type)` 既可绑定到 `fn(...)`
+6. **跨函数种类的泛型。** `generic(T : Type)` 既可绑定到 `fn(...)`
    也可绑定到 `ctl(...)`；`T` 的使用方式不变。
 
 7. **控制绑定类型。** 一个类型是「控制绑定」的，当且仅当它传递性
@@ -282,7 +282,7 @@ Raise :: (ctl(msg : String) -> i32);
 
 // 结构体记录 —— 多方法效应。
 Exception :: struct(
-  throw : (ctl(forall(T : Type), msg : String) -> T)
+  throw : (ctl(generic(T : Type), msg : String) -> T)
 );
 ```
 
@@ -293,7 +293,7 @@ Exception :: struct(
 - **多方法效应**（`exn.throw(...)`、`logger.warn(...)`）：把处理器
   包在 `struct(...)` 里，让方法共享同一个命名空间，作为一个值一起
   传递。
-- **Future 的效应捆绑**（`Future(T, E)`，`forall(E : Type.Struct)`）：
+- **Future 的效应捆绑**（`Future(T, E)`，`generic(E : Type.Struct)`）：
   捆绑本来就是 struct，处理器自然作为字段存在。
 
 两种形态在安装点、逃逸约束和代码生成上的语义完全一致。裸 `ctl`

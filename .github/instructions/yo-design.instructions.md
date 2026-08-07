@@ -9,7 +9,7 @@ description: "Use when making design decisions about the Yo language, writing st
 
 - Lowercase for value types (non-reference-counted): `rune`, `i32`, `u32`, `bool`
 - Use `struct(...)` for value types
-- Use `object(...)` for reference-counted types
+- Use `ref(struct(...))` / `ref(enum(...))` for reference-counted (reference-semantics) types; `atomic(ref(struct(...)))` / `atomic(ref(enum(...)))` for atomic RC
 - Use `newtype(...)` instead of `struct(...)` when the type has only a single field (e.g., `FilePermission :: newtype(mode : u32)`)
 - Imported source-file namespaces are represented as structs. Do not introduce
   `module(...)`, `Module`, or `SelfModule` syntax; use `struct(...)`, `Type`,
@@ -22,7 +22,7 @@ description: "Use when making design decisions about the Yo language, writing st
 
 ## `Self` in type definitions
 
-Always use `Self` to refer to the type being defined inside `struct(...)`, `object(...)`, and `enum(...)` bodies. The type name is not yet bound during its own definition, so using it causes a "Variable not found" error:
+Always use `Self` to refer to the type being defined inside `struct(...)`, `ref(struct(...))`, `ref(enum(...))`, and `enum(...)` bodies. The type name is not yet bound during its own definition, so using it causes a "Variable not found" error:
 
 ```rust
 // CORRECT — Self for recursive references:
@@ -73,7 +73,7 @@ Use `recur(args)` only when calling the type constructor with **different** type
 ## Strings
 
 - Double quote string returns `str` type (contains `[u8]` byte slice)
-- Template string returns `String` type (utf-8 encoded `object` type). Its syntax is the same as JavaScript template strings. The `${...}` interpolation is also supported for types that implement `ToString` trait.
+- Template string returns `String` type (utf-8 encoded reference-semantics type). Its syntax is the same as JavaScript template strings. The `${...}` interpolation is also supported for types that implement `ToString` trait.
 - `str` is a builtin type — don't use it as a variable or type name.
 - **Use template strings for constant `String` values**: Instead of `String.from("hello")`, write `` `hello` ``. Template strings without interpolation produce the same result but are more concise. This applies anywhere a `String` value is needed — return values, comparisons, arguments, etc.
 - Use `println` or `print` function from `std/fmt` to print instead of `printf`. You can pass template string or any value whose type implements `ToString` trait to both `println` and `print`.
@@ -84,24 +84,24 @@ Implemented in `prelude.yo`:
 
 ```rust
 Box :: (fn(comptime(V) : Type) -> comptime(Type))
-  object(
+  ref(struct(
     (*) : V
-  )
+  ))
 ;
-box :: (fn(forall(V : Type), value : V) -> Box(V))
+box :: (fn(generic(V : Type), value : V) -> Box(V))
   Box(V)(value)
 ;
 ```
 
-Single-payload object types can use the payload field syntax `(*) : T` and are
-accessed with `value.*`. Treat this as a value payload accessor for object values,
+Single-payload reference-semantics types can use the payload field syntax `(*) : T` and are
+accessed with `value.*`. Treat this as a value payload accessor for reference-semantics values,
 not automatically as a pointer dereference; pointer dereference still applies
 when the receiver itself has pointer type.
 
 ## Pointers
 
 - `Pointer` works in both compile-time and runtime contexts (`Runtime` and `Comptime` traits in `prelude.yo`).
-- Pointer arithmetic: `&+`, `&-`, `&<`, `&>`, `&<=`, `&>=`
+- Pointer comparison: plain `==`/`!=`/`<`/`<=`/`>`/`>=` (Eq/Ord impls on `*(T)`, address identity). Pointer arithmetic: the methods `p.add(n)`, `p.sub(n)`, `p.offset_from(q)` (require `unsafe(...)`).
 - No NULL in Yo. Nullable pointer: `Option(*(T))` or `?*(T)`. `Option(*(T)).None` is optimized as NULL in C codegen.
 
 ## Unsafe operations
@@ -175,7 +175,7 @@ This applies to all parameters and return types in comptime-only APIs:
 - A handler whose body may `unwind` must have type `ctl(args) -> R`. A handler that always resumes can be plain `fn(args) -> R`. Subtyping is one-way: `fn(T) -> R <: ctl(T) -> R`.
 - `return(expr)` inside an effect handler **resumes** the continuation.
 - `unwind(expr)` inside an effect handler **discards** the continuation and exits the install frame (the function that bound the handler). `unwind` is only valid inside a `ctl(...) -> R` body.
-- For effect-bundle polymorphism, quantify over a struct: `forall(E : Type.Struct)` and pass `E` as the Future's single effect argument.
+- For effect-bundle polymorphism, quantify over a struct: `generic(E : Type.Struct)` and pass `E` as the Future's single effect argument.
 - Effect handlers use Evidence Passing (function pointer parameters) for zero-overhead calls.
 - **Handler functions are standalone, not closures.** Effect handlers are compiled as standalone C functions and cannot reference variables from the enclosing scope. Pass state as explicit function arguments instead.
 - Pointers/references to control-bound types (any type transitively containing a `ctl(...) -> R`) are rejected — handlers must live on the stack of the install frame.
@@ -242,17 +242,17 @@ Traits use direct `trait(...)` syntax with associated types as labeled `Type` fi
 
 ```rust
 // Trait definition — Item is an associated type. Iterator was
-// migrated to take ref(self) : Self in plans/ITERATOR_REDESIGN.md
+// migrated to take inout(self) : Self in plans/archive/ITERATOR_REDESIGN.md
 // (the old *(Self) signature would be forbidden in safe code).
 Iterator :: trait(
   Item : Type,
-  next : (fn(ref(self) : Self) -> Option(Self.Item))
+  next : (fn(inout(self) : Self) -> Option(Self.Item))
 );
 
 // impl — provide concrete values for all fields
 impl(Counter, Iterator(
   Item : i32,
-  next : (fn(ref(self) : Self) -> Option(Self.Item))(cond(
+  next : (fn(inout(self) : Self) -> Option(Self.Item))(cond(
     (self._current >= self._max) => .None,
     true => { val := self._current; self._current = (self._current + i32(1)); .Some(val) }
   ))
@@ -284,12 +284,12 @@ impl(Point, T1(get_number : (self -> self.x)));
 impl(Point, T2(get_number : (self -> self.y)));
 
 // Implicit dispatch — where(T <: T1) constrains self.get_number() to T1's method
-use_t1 :: (fn(forall(T : Type), self : T, where(T <: T1)) -> i32)({
+use_t1 :: (fn(generic(T : Type), self : T, where(T <: T1)) -> i32)({
   return(self.get_number());  // Dispatches to T1.get_number -> returns x
 });
 
 // Explicit dispatch — (T <: T2).get_number accesses T2's method directly
-use_t2 :: (fn(forall(T : Type), self : T, where(T <: T2)) -> i32)({
+use_t2 :: (fn(generic(T : Type), self : T, where(T <: T2)) -> i32)({
   return((T <: T2).get_number(self));  // Dispatches to T2.get_number -> returns y
 });
 ```
@@ -365,13 +365,13 @@ impl(i32, Negate(
 
 Yo supports HKT by using **comptime function types as kinds**. Type constructors like `Option` and `Result` are already first-class comptime functions — HKT lets you abstract over them.
 
-### Function-typed forall parameters
+### Function-typed generic parameters
 
-Declare a forall parameter with a function-type kind to accept type constructors:
+Declare a generic parameter with a function-type kind to accept type constructors:
 
 ```rust
 // F is a type constructor (kind: Type → Type)
-identity :: (fn(forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type), x : F(A)) -> F(A))(x);
+identity :: (fn(generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type), x : F(A)) -> F(A))(x);
 ```
 
 ### HKT traits
@@ -381,7 +381,7 @@ Define traits parameterized by type constructors:
 ```rust
 Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Type))(
   trait(
-    map : (fn(forall(A : Type, B : Type), self : F(A), f : (fn(a : A) -> B)) -> F(B))
+    map : (fn(generic(A : Type, B : Type), self : F(A), f : (fn(a : A) -> B)) -> F(B))
   )
 );
 ```
@@ -392,12 +392,12 @@ Use `where(F(A) <: SomeTrait(F))` to constrain type constructor applications:
 
 ```rust
 do_map :: (fn(
-  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
+  generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
   container: F(A),
   f: (fn(a : A) -> B),
   where(F(A) <: Functor(F))
 ) -> F(B))(
-  container.map(forall(B), f)
+  container.map(generic(B), f)
 );
 ```
 
@@ -429,7 +429,7 @@ Partial application works on **any** comptime function (functions whose return t
 - **Option**: `map`, `and_then`, `filter`, `or_else`, `flatten`, `map_or`, `map_or_else`, `ok_or`, `ok_or_else`, `and`, `or`, `unwrap_or_else`
 - **Result**: `map`, `map_err`, `and_then`, `or_else`, `and`, `or`, `ok`, `err`, `map_or`, `map_or_else`, `unwrap_or_else`
 
-Combinators use `Impl(Fn(...))` callbacks, and the forall type parameter is inferred automatically. Lambda syntax `(a) => expr` works too — parameter types are inferred from context:
+Combinators use `Impl(Fn(...))` callbacks, and the generic type parameter is inferred automatically. Lambda syntax `(a) => expr` works too — parameter types are inferred from context:
 
 ```rust
 (x : Option(i32)) = .Some(i32(5));
@@ -557,8 +557,8 @@ All container indexing uses the `Index` trait. Array/Slice have special compiler
 
 ### Architecture
 
-- `Index(Idx)` — runtime indexing trait with associated type `Output`. Self is taken by `ref(self) : Self` so the index method can return a pointer to a field of the caller's value.
-- `ComptimeIndex(Idx)` — compile-time variant (parameters and return are `comptime`). Self is taken by `comptime(ref(self)) : Self` — the comptime binding is erased at runtime but mutations through it propagate to the caller via the evaluator's binding-update path.
+- `Index(Idx)` — runtime indexing trait with associated type `Output`. Self is taken by `inout(self) : Self` so the index method can return a pointer to a field of the caller's value.
+- `ComptimeIndex(Idx)` — compile-time variant (parameters and return are `comptime`). Self is taken by `comptime(inout(self)) : Self` — the comptime binding is erased at runtime but mutations through it propagate to the caller via the evaluator's binding-update path.
 - Array/Slice Index impls delegate to compiler builtins (`__yo_array_index`, `__yo_slice_index`, etc.)
 - Other types (ArrayList, HashMap, BTreeMap, Deque, String) implement Index with normal methods
 
@@ -605,10 +605,10 @@ Comptime array indexing returns an `arrayElementRef` that enables:
 When porting `src/*.ts` → `yo-self/*.yo`, these patterns cause silent drift
 that `yo-cli check` will catch:
 
-### Object parameters: never use `&()` for Environment/EvalContext
+### Reference-semantics parameters: never use `&()` for Environment/EvalContext
 
-`Environment` and `EvalContext` are `object(...)` types (reference-counted),
-not value types. Mutations to an object's fields are visible to all
+`Environment` and `EvalContext` are `ref(struct(...))` types (reference-counted),
+not value types. Mutations to a reference-semantics value's fields are visible to all
 holders of the reference. Using `&(env)` creates a pointer-to-pointer
 (`*(Environment)`) which won't match `Environment`.
 
@@ -616,7 +616,7 @@ holders of the reference. Using `&(env)` creates a pointer-to-pointer
 // WRONG — unnecessary &() creates type mismatch:
 _some_fn(&(ee), &(ge));
 
-// CORRECT — just pass the object reference:
+// CORRECT — just pass the reference-semantics value:
 _some_fn(ee, ge);
 ```
 
@@ -630,7 +630,7 @@ use field-level assignment instead of variable reassignment:
 // WRONG — cannot reassign parameter:
 env_mut = result.env;
 
-// CORRECT — mutate fields of the referenced object:
+// CORRECT — mutate fields of the referenced value:
 env_mut.frames = result.env.frames;
 env_mut.module_path = result.env.module_path;
 env_mut.function_declaration_frame_level = result.env.function_declaration_frame_level;
@@ -697,13 +697,13 @@ pass it to all callees:
 
 `env_ptr.*` and other `.*` patterns are C-level pointer operations.
 In `check` mode (no codegen), write field-level operations directly
-on the object reference:
+on the reference-semantics value:
 
 ```rust
 // WRONG — C pointer deref fails in check:
 env_ptr.* = info.env;
 
-// CORRECT — field mutation on object reference:
+// CORRECT — field mutation on reference-semantics value:
 env_ptr.frames = info.env.frames;
 env_ptr.module_path = info.env.module_path;
 // ... etc

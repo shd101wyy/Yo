@@ -4,7 +4,7 @@ open(import("./fmt"));
 /// Standard error trait for typed error propagation.
 /// All error types should implement this trait along with `ToString`.
 Error :: trait(
-  (source : (fn(ref(self) : Self) -> Option(Dyn(SelfTrait)))) ?= ((self) ->.None),
+  (source : (fn(inout(self) : Self) -> Option(Dyn(SelfTrait)))) ?= ((self) ->.None),
   where(Self <: ToString)
 );
 export(Error);
@@ -16,9 +16,9 @@ impl(String, Error());
 /// Non-resumable exception handling effect record.
 /// Use `throw` to raise an `AnyError` and abort the current computation.
 /// `throw` is `ctl(...)` — handler body may contain `unwind`, and the
-/// handler value is frame-bound (see plans/EXPLICIT_EFFECTS.md §4).
+/// handler value is frame-bound (see plans/archive/EXPLICIT_EFFECTS.md §4).
 Exception :: struct(
-  throw : (ctl(forall(ResumeType : Type), error : AnyError) -> ResumeType)
+  throw : (ctl(generic(ResumeType : Type), error : AnyError) -> ResumeType)
 );
 export(Exception);
 /// Creates a resumable exception effect record parameterized by the resume type.

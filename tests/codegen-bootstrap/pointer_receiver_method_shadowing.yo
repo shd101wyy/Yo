@@ -1,0 +1,49 @@
+// A method on a `*(Self)` receiver must resolve to the POINTEE's method, not to
+// the blanket raw-pointer arithmetic impl `impl(generic(T), *(T), add/sub/
+// offset_from)` that the pointer-operator migration introduced
+// (plans/archive/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md).
+//
+// Regression: `self.add(value)` below resolved to the pointer intrinsic
+// `add(count : usize)` and failed with
+//   Failed to synthesize types for parameter "count": Expected "usize", Given "i32"
+// which is what made tests/basic.test.yo's `Test 'struct'` fail in batch mode.
+//
+// The second half keeps the other direction honest: pointer arithmetic and
+// pointer COMPARISON must still resolve to the pointer's own impls when the
+// pointee has no method of that name.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+
+MyStruct :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(value : T)
+);
+
+impl(
+  generic(T : Type),
+  MyStruct(T),
+  new : (fn(v : T) -> Self)(Self(v)),
+  add : (fn(self : *(Self), value : T, where(T <: Add(T))) -> unit)({
+    self.value = (self.value + value);
+  }),
+  another_add : (fn(self : *(Self), value : T, where(T <: Add(T))) -> unit)({
+    self.add(value);
+  })
+);
+
+main :: (fn() -> unit)({
+  x := MyStruct(i32).new(10);
+  x.add(3);
+  assert(x.value == 13, "pointee method wins over the pointer intrinsic");
+  y := MyStruct(i32).new(10);
+  y.another_add(4);
+  assert(y.value == 14, "method-to-method call through *(Self)");
+  // Pointer arithmetic and comparison still resolve to the pointer's impls.
+  n := 12;
+  p := &(n);
+  q := p.add(2);
+  assert(q > p, "pointer arithmetic still reaches *(T).add");
+  assert(q.offset_from(p) == 2, "pointer distance");
+  z := q.sub(2);
+  assert(z == p, "pointer round trip");
+});
+export(main);

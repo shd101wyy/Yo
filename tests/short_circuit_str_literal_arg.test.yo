@@ -1,0 +1,16 @@
+//! Regression: a method call with a `str` literal argument (whose C initializer
+//! `(__yo_str){ .ptr=..., .len=N }` contains a `)` inside the string, e.g. `")"`)
+//! as the RHS of `&&` was mis-split by splitTopLevelArgsList — the `)` inside the
+//! string literal decremented the bracket-depth counter, so the comma in the str
+//! initializer was treated as a top-level argument separator, producing malformed
+//! C. Fixed by skipping string/char literals in the splitter (both compilers).
+{ assert } :: import("std/assert");
+open(import("std/string"));
+_paren_wrapped :: (fn(c : String) -> bool)(
+  (c.starts_with("(*")) && (c.ends_with(")"))
+);
+test("str-literal arg containing ) as && RHS compiles + runs", {
+  assert(_paren_wrapped(String.from("(*x)")));
+  assert(!(_paren_wrapped(String.from("(*x"))));
+  assert(!(_paren_wrapped(String.from("x)"))));
+});

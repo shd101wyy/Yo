@@ -1,0 +1,50 @@
+// Regression (round 3 of the stage-2 double-free hunt): returning a BORROWED
+// FIELD must emit the balancing `___dup` — in BOTH forms:
+//
+//   1. `return(p.inner)` — generate_return called the dup emitter BEFORE the
+//      arg temp's C declaration, so the undeclared-temp gate silently
+//      suppressed the +1 (fix: port of return.ts:556-598 — materialize the
+//      arg temp and register it in declared_c_var_names first).
+//   2. bare tail `(fn(p : Pair) -> Krate)(p.inner)` — wrap_body_in_begin
+//      skipped non-atom bodies, so the begin-tail ownership pass never ran
+//      and no dup was ever scheduled (fix: also wrap bare 2-arg `.` bodies;
+//      TS anonymous-function.ts:829 always routes through
+//      evaluateBeginExpression). Plus the begin-tail nrv==0 fallback
+//      delegating to set_expr_as_needs_to_call_dup.
+//
+// Without the +1 the caller's scope drop stole the struct's own reference —
+// the class behind stage-2's function-body-eval UAF. See
+// issues/fixed/yo-self-dyn-throw-double-drop.md. Expected output: "2 3 done".
+open(import("std/fmt"));
+open(import("std/string"));
+
+Krate :: ref(
+  struct(
+    v : i32
+  )
+);
+
+Pair :: ref(
+  struct(
+    inner : Krate
+  )
+);
+
+get_field :: (fn(p : Pair) -> Krate)({
+  return(p.inner);
+});
+
+get_field_tail :: (fn(p : Pair) -> Krate)(
+  p.inner
+);
+
+main :: (fn() -> unit)({
+  p := Pair(inner : Krate(v : 8));
+  f1 := get_field(p);
+  print(rc(p.inner));
+  print(" ");
+  f2 := get_field_tail(p);
+  println(`${rc(p.inner)} done`);
+});
+
+export(main);

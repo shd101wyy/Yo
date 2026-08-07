@@ -1,0 +1,22 @@
+open(import("std/string"));
+{ println } :: import("std/fmt");
+
+Handler :: ref(
+  struct(
+    apply : Dyn(Fn(x : i32) -> i32),
+    check : Dyn(Fn(x : i32) -> bool)
+  )
+);
+
+main :: (fn(io : Io) -> unit)({
+  base := i32(10);
+  h := Handler(
+    apply : dyn((x : i32) => (x + base)),
+    check : dyn((x : i32) => (x > i32(5)))
+  );
+  r := h.apply(i32(32));
+  ok := h.check(r);
+  println(r);
+  println(ok);
+});
+export(main);

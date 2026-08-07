@@ -1,0 +1,213 @@
+/// Tests for yo-self/evaluator/exprs/binding.yo — Phase 2u
+///
+/// Covers:
+///   - `is_valid_variable_name` — identifier/operator check
+///   - `evaluate_binding` — typed variable declaration `(x : T)`
+///     * happy path: (found : bool)
+///     * happy path with comptime wrapper: (comptime(n) : i32)
+///     * error: non-colon expression throws
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ Token, TokenKind } :: import("../../yo-self/token.yo");
+{ AstExpr, ast_expr_id, BK_COLON, BK_COMPTIME, make_err_expr }
+:: import("../../yo-self/expr.yo");
+{
+  ExprInfo,
+  ExprInfoTable,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_table_get
+}
+:: import("../../yo-self/expr_info.yo");
+{ Environment } :: import("../../yo-self/env.yo");
+{ EvalContext, eval_context_new } :: import("../../yo-self/evaluator/context.yo");
+{ EvalValue } :: import("../../yo-self/value.yo");
+{ TypeValue } :: import("../../yo-self/types/definitions.yo");
+{ t_i32, t_bool, t_unit, t_void } :: import("../../yo-self/types/creators.yo");
+{ set_evaluate_expression_fn } :: import("../../yo-self/evaluator/exprs/expr.yo");
+{ BindingResult, evaluate_binding } :: import("../../yo-self/evaluator/exprs/binding.yo");
+{ is_valid_variable_name } :: import("../../yo-self/evaluator/utils.yo");
+{ Exception } :: import("std/error");
+{ assert, panic } :: import("std/assert");
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+mk_token :: (fn(kind : TokenKind, value : str) -> Token)(
+  Token(
+    kind : kind,
+    value : String.from(value),
+    row : usize(0),
+    column : usize(0),
+    character : usize(0),
+    module_path : String.from("test"),
+    input : String.from("")
+  )
+);
+mk_ident :: (fn(id : usize, name : str) -> AstExpr)(
+  AstExpr.Atom(id, mk_token(TokenKind.Identifier, name))
+);
+mk_op :: (fn(id : usize, op : str) -> AstExpr)(
+  AstExpr.Atom(id, mk_token(TokenKind.Operator, op))
+);
+/// Build a `(name : typename)` FnCall:
+///   FnCall(call_id, Atom(":"), [Atom(name_id, name), Atom(type_id, typename)], true, ":"-token)
+mk_binding_expr :: (fn(call_id : usize, name_id : usize, name : str, type_id : usize, typename : str) -> AstExpr)({
+  callee := AstExpr.Atom(call_id + usize(10000), mk_token(TokenKind.Operator, BK_COLON));
+  args := ArrayList(AstExpr).new();
+  args.push(mk_ident(name_id, name));
+  args.push(mk_ident(type_id, typename));
+  AstExpr.FnCall(call_id, callee, args, true, mk_token(TokenKind.Operator, BK_COLON))
+});
+/// Build `comptime(inner)` FnCall.
+mk_comptime_wrap :: (fn(call_id : usize, inner : AstExpr) -> AstExpr)({
+  callee := AstExpr.Atom(call_id + usize(20000), mk_token(TokenKind.Identifier, BK_COMPTIME));
+  args := ArrayList(AstExpr).new();
+  args.push(inner);
+  AstExpr.FnCall(call_id, callee, args, false, mk_token(TokenKind.Identifier, BK_COMPTIME))
+});
+/// Build a `(comptime(name) : typename)` binding.
+mk_comptime_binding :: (fn(call_id : usize, name_id : usize, name : str, type_id : usize, typename : str) -> AstExpr)({
+  ct_call_id := (call_id + usize(500));
+  comptime_lhs := mk_comptime_wrap(ct_call_id, mk_ident(name_id, name));
+  callee := AstExpr.Atom(call_id + usize(10000), mk_token(TokenKind.Operator, BK_COLON));
+  args := ArrayList(AstExpr).new();
+  args.push(comptime_lhs);
+  args.push(mk_ident(type_id, typename));
+  AstExpr.FnCall(call_id, callee, args, true, mk_token(TokenKind.Operator, BK_COLON))
+});
+/// Stub evaluator: maps type-name identifiers to TypeVal.
+stub_evaluate_type :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext
+  ) -> AstExpr
+)({
+  (ty : TypeValue) = match(
+    expr,
+    .Atom(_, tok) => cond(
+      (tok.value == "bool") => t_bool(),
+      (tok.value == "i32") => t_i32(),
+      (tok.value == "void") => t_void(),
+      true => t_unit()
+    ),
+    .FnCall(_, _, _, _, _) => t_unit()
+  );
+  val := EvalValue.TypeVal(ty.clone());
+  info := new_expr_info(env, ty);
+  info.value =.Some(val);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr
+});
+// ---------------------------------------------------------------------------
+// is_valid_variable_name
+// ---------------------------------------------------------------------------
+test("is_valid_variable_name: identifier is valid", {
+  expr := mk_ident(usize(1), "x");
+  assert(is_valid_variable_name(expr), "identifier should be valid variable name");
+});
+test("is_valid_variable_name: operator atom is valid", {
+  expr := mk_op(usize(1), "+");
+  assert(is_valid_variable_name(expr), "operator should be valid variable name");
+});
+test("is_valid_variable_name: non-operator FnCall is invalid", {
+  callee := AstExpr.Atom(usize(5), mk_token(TokenKind.Identifier, "foo"));
+  args := ArrayList(AstExpr).new();
+  expr := AstExpr.FnCall(usize(6), callee, args, false, mk_token(TokenKind.Identifier, "foo"));
+  assert(!(is_valid_variable_name(expr)), "fn call with identifier token should be invalid");
+});
+// ---------------------------------------------------------------------------
+// evaluate_binding happy paths
+// ---------------------------------------------------------------------------
+test("evaluate_binding: (found : bool) — records variable name", {
+  set_evaluate_expression_fn(stub_evaluate_type);
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  ctx := eval_context_new(String.from("/std"), String.from("test"));
+  (env : Environment) = Environment.new(String.from("test"));
+  env.push_frame(false);
+  expr := mk_binding_expr(usize(100), usize(101), "found", usize(102), "bool");
+  result := evaluate_binding(expr, env, ctx, exn);
+  assert(result.variable_name == String.from("found"), "variable_name");
+});
+test("evaluate_binding: (found : bool) — records ExprInfo with UnitVal", {
+  set_evaluate_expression_fn(stub_evaluate_type);
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  ctx := eval_context_new(String.from("/std"), String.from("test"));
+  (env : Environment) = Environment.new(String.from("test"));
+  env.push_frame(false);
+  expr := mk_binding_expr(usize(110), usize(111), "x", usize(112), "i32");
+  result := evaluate_binding(expr, env, ctx, exn);
+  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(result.expr));
+  assert(match(info_opt,.Some(_) => true,.None => false), "ExprInfo not set for binding expr");
+  match(
+    info_opt,
+    .Some(i) => {
+      match(
+        i.value,
+        .Some(v) => match(
+          v,
+          .UnitVal => (),
+          _ => assert(false, "expected UnitVal for binding expr info")
+        ),
+        .None => assert(false, "expected Some value")
+      );
+    },
+    .None => ()
+  );
+});
+test("evaluate_binding: (comptime(n) : i32) — records variable name n", {
+  set_evaluate_expression_fn(stub_evaluate_type);
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  ctx := eval_context_new(String.from("/std"), String.from("test"));
+  (env : Environment) = Environment.new(String.from("test"));
+  env.push_frame(false);
+  expr := mk_comptime_binding(usize(200), usize(201), "n", usize(202), "i32");
+  result := evaluate_binding(expr, env, ctx, exn);
+  assert(result.variable_name == String.from("n"), "comptime variable_name");
+});
+// ---------------------------------------------------------------------------
+// evaluate_binding error cases
+// ---------------------------------------------------------------------------
+/// Wrapper to test that evaluate_binding throws for non-colon expressions.
+/// Returns true if an exception was thrown, false otherwise.
+test_binding_throws :: (fn() -> bool)({
+  set_evaluate_expression_fn(stub_evaluate_type);
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(true);
+      }
+    )
+  );
+  ctx := eval_context_new(String.from("/std"), String.from("test"));
+  (env : Environment) = Environment.new(String.from("test"));
+  env.push_frame(false);
+  expr := mk_ident(usize(300), "x");
+  _r := evaluate_binding(expr, env, ctx, exn);
+  false
+});
+test("evaluate_binding: non-colon expr throws", {
+  assert(test_binding_throws(), "expected error for non-colon expression");
+});

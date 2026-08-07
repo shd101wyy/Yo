@@ -1,0 +1,71 @@
+//! Repro: a struct field whose type is `Impl(Fn(...))` lowers to `void*` in
+//! yo-self, while the VALUE stored in it is the closure's capture struct.
+//!
+//!   TS      -> rc=0, prints "result=12 value=7"
+//!   yo-self -> C compile fails:
+//!                error: initializing 'void *' with an expression of
+//!                       incompatible type '__yo_t13'
+//!
+//! MEASURED, both compilers on THIS file. The field type is the whole story:
+//!
+//!   TS:      struct …_id_58_struct { int32_t value;
+//!                                    __yo_struct_yo22e48091_id_83 cb; };
+//!   yo-self: struct __yo_t0_struct  { int32_t value; void* cb; };
+//!
+//! TS gives the field the CAPTURE STRUCT's concrete C type; yo-self leaves it
+//! `void*` and then initializes it with the capture struct, which is the error.
+//!
+//! This is the minimal form of tests/impl_fn_field_rejection.test.yo
+//! ("workaround B: struct generic over closure type"). Two more reds share the
+//! same root in the other two positions — see
+//! issues/retired/yo-self-69-red-list-map.md cluster 3:
+//!
+//!   struct FIELD     -> this file / impl_fn_field_rejection
+//!   function RETURN  -> ref_closure_capture
+//!                       (static inline void* yo_id_4939(int32_t*, int32_t)
+//!                        returns the capture struct by value)
+//!   function PARAM   -> sync/once
+//!                       (capture struct passed to a `void (*)()` parameter;
+//!                        prototype AND definition both declare it that way)
+//!
+//! ROOT (located, not yet fixed). TS keeps the EXPECTED `Impl(Fn(...))` wrapper
+//! SomeType and mutates it IN PLACE —
+//! `wrapperType.resolvedConcreteType = captureType`
+//! (src/evaluator/values/anonymous-function.ts:1202-1226) — then records THAT
+//! resolved wrapper as the expression's type (:1237-1240). Codegen then reads
+//! `resolvedConcreteType` and emits the capture struct
+//! (src/codegen/utils/index.ts:726-733), falling back to `void*` only when it
+//! is unresolved (:742).
+//!
+//! yo-self's `evaluate_anonymous_function_implementation` — the `=>` lambda
+//! path, which is the one taken when a closure is a call argument, a
+//! struct-field initializer, or a function-body tail — instead only DERIVES a
+//! plain `Func` from the expected type
+//! (`_func_from_fn_trait`, evaluator/values/anonymous_function.yo:588) and
+//! records that as the expression type (:1416). The wrapper SomeT's
+//! `resolved_concrete` cell is never pushed and `register_some_resolved_concrete`
+//! is never called on this path (only closure_type.yo:296 does that, and only
+//! on the FnTraitT-as-callee path, which this shape does not take). So every
+//! sink falls back: codegen/utils/index.yo:945 (SomeT -> "void*"), :880
+//! (Func -> "void*"), codegen/functions/declarations.yo:178 (Func param ->
+//! `RET (*name)()`).
+//!
+//! NOTE a plausible-looking inference that is REFUTED: one might expect an
+//! unresolved `Impl(Fn)` field to be skipped by the generic-struct gate in
+//! codegen/functions/collection.yo:190-198. It is not —
+//! `type_contains_some_type` (types/utils.yo:860-895) deliberately returns
+//! false for a SomeT carrying an FnTraitT, so the field passes that gate and
+//! reaches emission as `void*`.
+//!
+//! Iterate with THIS file (~1 s per compile), not with the test.
+open(import("std/fmt"));
+
+GenericCb :: (fn(comptime(F) : Type) -> comptime(Type))(struct(value : i32, cb : F));
+
+main :: (fn() -> unit)({
+  obj := GenericCb(Impl(Fn(x : i32) -> i32))(value : i32(7), cb : ((x) => (x * i32(3))));
+  result := obj.cb(i32(4));
+  println(`result=${result.to_string()} value=${obj.value.to_string()}`);
+});
+
+export(main);

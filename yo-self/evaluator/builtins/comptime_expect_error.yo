@@ -21,13 +21,20 @@ open(import("std/string"));
   ast_expr_id,
   make_err_expr
 } :: import("../../expr.yo");
-{ Environment } :: import("../../env.yo");
+{ ArrayList } :: import("std/collections/array_list");
+{ Environment, invalidate_frame_index } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { format_error_message } :: import("../../error.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
-{ expr_info_table_get, new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
+{
+  expr_info_table_get,
+  new_expr_info,
+  expr_info_table_set,
+  branch_group_stack_len,
+  truncate_branch_group_stack
+} :: import("../../expr_info.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ set_propagate_def_time_errors } :: import("../../types/flowability.yo");
+{ set_propagate_def_time_errors, set_cee_observed_error, clear_cee_observed_error, cee_observed_error } :: import("../../types/flowability.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 /// Evaluate `arg_expr` and report whether it THREW a compile error. Uses
 /// `evaluate_expression_raw` (which propagates via `exn`) under a LOCAL
@@ -47,8 +54,14 @@ _comptime_expect_error_arg_threw :: (
       (_err) -> unwind(true)
     )
   );
+  clear_cee_observed_error();
   _r := evaluate_expression_raw(arg_expr, env, ctx, local_exn);
-  false
+  // The non-raw wrapper swallows throws raised beneath it (it has no outer
+  // exn); in propagate mode it records them on the observation channel —
+  // count that as an observed compile error (see flowability.yo).
+  observed := cee_observed_error();
+  clear_cee_observed_error();
+  observed
 });
 evaluate_comptime_expect_error :: (
   fn(
@@ -84,9 +97,139 @@ evaluate_comptime_expect_error :: (
   // the catch below and `comptime_expect_error` wrongly reports success. The flag
   // is cleared unconditionally on return (the helper's local-unwinding exn returns
   // control here), so no other def-time eval is affected.
+  // Snapshot the mutable evaluation state the EXPECTED throw will strand.
+  // TS needs no restore here: its envs are persistent (addVariableToEnv
+  // returns a new env) and its contexts are spread-copied per call, so a
+  // thrown-through eval cannot leave either dirty. yo-self's single mutable
+  // Environment/EvalContext use push/mutate + restore-on-return, and the
+  // propagating throw UNWINDS PAST those restores — e.g. the expected-error
+  // handler's parameter frame stayed pushed on the module env, so a LATER
+  // `->` handler in the same module resolved its own params into the stale
+  // frame and was rejected with "cannot capture outer runtime variables"
+  // (the algebraic_effects batch FTT). Restore env frame depth + the ctx
+  // mode fields after the arg eval, success or throw.
+  saved_frames_len := env.frames.len();
+  // Per-frame variable counts: an EXPECTED throw can strand a half-made
+  // binding in a surviving frame (e.g. `cee((z : Point1) := (3, 4))` adds
+  // `z` before the type-mismatch throw). TS's persistent envs discard the
+  // rejected child env wholesale; yo-self must truncate each surviving
+  // frame's variable list back, or the leftover shadows the NEXT `(z : T)`
+  // binding and mis-types every later use of the name.
+  saved_frame_var_counts := ArrayList(usize).new();
+  {
+    (sfv_i : usize) = usize(0);
+    while(sfv_i < env.frames.len(), {
+      match(
+        env.frames.get(sfv_i),
+        .Some(sfv_f) => {
+          saved_frame_var_counts.push(sfv_f.variables.len());
+        },
+        .None => {
+          saved_frame_var_counts.push(usize(0));
+        }
+      );
+      sfv_i = (sfv_i + usize(1));
+    });
+  };
+  saved_is_executing := ctx.is_executing;
+  saved_is_validating := ctx.is_validating_function_definition;
+  saved_expected := ctx.expected_type;
+  saved_fb_ctx := ctx.is_evaluating_function_body_or_async_block;
+  saved_impl_block := ctx.is_inside_impl_block;
+  saved_caps := ctx.captured_variables;
+  saved_own_caps := ctx.own_consumed_captures;
+  saved_loop_ctx := ctx.is_evaluating_loop_body;
+  saved_self_type := ctx.self_type;
+  saved_self_trait := ctx.self_trait_type;
+  saved_self_module := ctx.self_module_type;
+  saved_receiver := ctx.receiver_type;
+  saved_eval_fn_type := ctx.is_evaluating_function_type;
+  saved_unsafe_fn_type := ctx.is_unsafe_function_type;
+  saved_unsafe_ctx := ctx.unsafe_context;
+  saved_ctl_fn_type := ctx.is_control_function_type;
+  saved_enclosing_ret := ctx.enclosing_function_return_type;
+  saved_ctl_implicits := ctx.has_control_function_implicit_params;
+  saved_where := ctx.is_inside_where_clause;
+  saved_lhs := ctx.is_lhs_of_assignment;
+  saved_ret_impl := ctx.function_return_impl_concrete_type;
+  saved_force_ct := ctx.force_compile_time_bindings;
+  saved_ctfe_cap := ctx.is_analyzing_ctfe_capability;
+  saved_checking := ctx.is_in_function_call_checking_phase;
+  saved_io_async := ctx.is_inside_io_async_call;
+  saved_ctfe_depth := ctx.ctfe_depth;
+  saved_given := ctx.is_inside_given_handler;
+  saved_gen_impl := ctx.is_evaluating_generic_impl_specialization;
+  saved_spec := ctx.currently_specializing_function;
+  saved_spec_stack := ctx.currently_specializing_function_stack;
+  // The expected throw can strand cond.yo's branch-group entries (push
+  // without pop) — truncate back to this depth after the arg eval.
+  saved_branch_groups := branch_group_stack_len();
   set_propagate_def_time_errors(true);
   arg_threw := _comptime_expect_error_arg_threw(arg_expr.clone(), env, ctx);
   set_propagate_def_time_errors(false);
+  ctx.is_executing = saved_is_executing;
+  ctx.is_validating_function_definition = saved_is_validating;
+  ctx.expected_type = saved_expected;
+  ctx.is_evaluating_function_body_or_async_block = saved_fb_ctx;
+  ctx.is_inside_impl_block = saved_impl_block;
+  ctx.captured_variables = saved_caps;
+  ctx.own_consumed_captures = saved_own_caps;
+  ctx.is_evaluating_loop_body = saved_loop_ctx;
+  ctx.self_type = saved_self_type;
+  ctx.self_trait_type = saved_self_trait;
+  ctx.self_module_type = saved_self_module;
+  ctx.receiver_type = saved_receiver;
+  ctx.is_evaluating_function_type = saved_eval_fn_type;
+  ctx.is_unsafe_function_type = saved_unsafe_fn_type;
+  ctx.unsafe_context = saved_unsafe_ctx;
+  ctx.is_control_function_type = saved_ctl_fn_type;
+  ctx.enclosing_function_return_type = saved_enclosing_ret;
+  ctx.has_control_function_implicit_params = saved_ctl_implicits;
+  ctx.is_inside_where_clause = saved_where;
+  ctx.is_lhs_of_assignment = saved_lhs;
+  ctx.function_return_impl_concrete_type = saved_ret_impl;
+  ctx.force_compile_time_bindings = saved_force_ct;
+  ctx.is_analyzing_ctfe_capability = saved_ctfe_cap;
+  ctx.is_in_function_call_checking_phase = saved_checking;
+  ctx.is_inside_io_async_call = saved_io_async;
+  ctx.ctfe_depth = saved_ctfe_depth;
+  ctx.is_inside_given_handler = saved_given;
+  ctx.is_evaluating_generic_impl_specialization = saved_gen_impl;
+  ctx.currently_specializing_function = saved_spec;
+  ctx.currently_specializing_function_stack = saved_spec_stack;
+  while(env.frames.len() > saved_frames_len, {
+    env.pop_frame();
+  });
+  // Drop variables the (expected-to-fail) arg eval stranded in surviving
+  // frames — see the snapshot comment above.
+  {
+    (rfv_i : usize) = usize(0);
+    while(rfv_i < env.frames.len(), {
+      rfv_saved := match(saved_frame_var_counts.get(rfv_i),.Some(n) => n,.None => usize(0));
+      match(
+        env.frames.get(rfv_i),
+        .Some(rfv_f) => {
+          (rfv_popped : bool) = false;
+          while(rfv_f.variables.len() > rfv_saved, {
+            rfv_f.variables.pop();
+            rfv_popped = true;
+            ()
+          });
+          // A shrunk frame violates Frame.index_key's append-only contract —
+          // drop its name index so the next lookup rebuilds from the
+          // current list. This invalidation is what makes env.yo's
+          // g_frame_indexes size bound sound
+          // (issues/fixed/yo-self-frame-index-bound-breaks-fixpoint.md).
+          if(rfv_popped, {
+            invalidate_frame_index(rfv_f);
+          });
+        },
+        .None => ()
+      );
+      rfv_i = (rfv_i + usize(1));
+    });
+  };
+  truncate_branch_group_stack(saved_branch_groups);
   if(arg_threw, {
     out_unit := new_expr_info(env, t_unit());
     out_unit.value = Option(EvalValue).Some(EvalValue.UnitVal);

@@ -6,7 +6,7 @@
 //! the environment.  The `is_extern`/`externName` markers ARE ported (onto the
 //! `Func` variant): the extern-call `unsafe(...)` gate in `calls/function.yo`
 //! reads them to require FFI call sites be wrapped in `unsafe(...)`
-//! (plans/EXTERN_UNSAFE_WRAP.md). The earlier port dropped them as
+//! (plans/archive/EXTERN_UNSAFE_WRAP.md). The earlier port dropped them as
 //! "codegen-only" — wrong, the gate lives in the evaluator. Only `ioBuiltin`
 //! (a pure codegen concern) stays skipped.
 pragma(Pragma.AllowUnsafe);
@@ -24,9 +24,10 @@ open(import("std/string"));
 { Environment, add_variable_to_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val_with_name } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
+{ is_type_hierarchy_type, register_extern_type_name } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
@@ -207,39 +208,37 @@ User code should normally call stdlib wrappers (e.g. functions in
     field_ty_with_extern := match(
       result.field_type,
       .Func({
-        forall_labels : fls,
         forall_types : fts,
-        param_labels : pls,
         param_types : pts,
-        implicit_labels : ils,
         implicit_types : its,
-        implicit_spreads : isp,
         where_types : wts,
         result : ret,
-        result_is_comptime_only : rico,
-        param_is_ref : pir,
-        param_is_owning : pio,
-        result_is_ref : rir,
-        has_variadic : hv,
-        is_control : ic
+        meta : m
       }) => TypeValue.Func(
-        fls,
         fts,
-        pls,
         pts,
-        ils,
         its,
-        isp,
         wts,
         ret,
-        rico,
-        pir,
-        pio,
-        rir,
-        hv,
-        Option(String).Some(language.clone()),
-        Option(String).Some(result.label.clone()),
-        ic
+        box(
+          FuncMeta(
+            forall_labels : m.*.forall_labels.clone(),
+            param_labels : m.*.param_labels.clone(),
+            implicit_labels : m.*.implicit_labels.clone(),
+            implicit_spreads : m.*.implicit_spreads.clone(),
+            result_is_comptime_only : m.*.result_is_comptime_only,
+            param_is_ref : m.*.param_is_ref.clone(),
+            param_is_owning : m.*.param_is_owning.clone(),
+            result_is_ref : m.*.result_is_ref,
+            has_variadic : m.*.has_variadic,
+            is_extern : Option(String).Some(language.clone()),
+            extern_name : Option(String).Some(result.label.clone()),
+            is_control : m.*.is_control,
+            variadic_label : Option(String).None,
+            variadic_comptime : false
+          )
+        ),
+        ArrayList(TypeValue).new()
       ),
       _ => result.field_type
     );
@@ -265,6 +264,13 @@ User code should normally call stdlib wrappers (e.g. functions in
       // is_implicit
       ast_expr_token(arg)
     );
+    // An `extern("Yo", X : Type)` member declares an opaque FFI type whose value
+    // is a SomeT placeholder named X. Record X so the codegen-generic checks
+    // (type_contains_some_type_for_codegen_param) don't treat it as a blocking
+    // generic (it lowers to a concrete C type). Mirrors TS `SomeType.isExtern`.
+    if(is_type_hierarchy_type(result.field_type), {
+      register_extern_type_name(result.label.clone());
+    });
     args_idx = (args_idx + usize(1));
     field_idx = (field_idx + usize(1));
   });
@@ -273,7 +279,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   unit_info.value =.Some(EvalValue.UnitVal);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), unit_info);
   // Annotate callee (the "extern" func node) with same info.
-  callee_expr := match(expr,.FnCall(_, fb, _, _, _) => fb.*,.Atom(_, _) => expr);
+  callee_expr := match(expr,.FnCall(_, fb, _, _, _) => fb,.Atom(_, _) => expr);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), unit_info);
   expr
 });

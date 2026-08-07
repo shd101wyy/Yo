@@ -164,7 +164,8 @@ export function isStructType(type?: Type): type is StructType {
   );
 }
 
-export function isObjectType(
+/** Reference-semantics struct: `ref(struct(…))`. */
+export function isReferenceStructType(
   type?: Type
 ): type is StructType & { isReferenceSemantics: true } {
   return (
@@ -172,13 +173,35 @@ export function isObjectType(
   );
 }
 
-export function isAtomicObjectType(
+/** Atomic reference-semantics struct: `atomic(ref(struct(…)))`. */
+export function isAtomicReferenceStructType(
   type?: Type
 ): type is StructType & { isReferenceSemantics: true; isAtomicRc: true } {
   return (
     type?.tag === TypeTag.Struct &&
     (type as StructType).isReferenceSemantics &&
     (type as StructType).isAtomicRc === true
+  );
+}
+
+/** Reference-semantics enum: `ref(enum(…))`. */
+export function isReferenceEnumType(
+  type?: Type
+): type is EnumType & { isReferenceSemantics: true } {
+  return (
+    type?.tag === TypeTag.Enum &&
+    (type as EnumType).isReferenceSemantics === true
+  );
+}
+
+/** Atomic reference-semantics enum: `atomic(ref(enum(…)))`. */
+export function isAtomicReferenceEnumType(
+  type?: Type
+): type is EnumType & { isReferenceSemantics: true; isAtomicRc: true } {
+  return (
+    type?.tag === TypeTag.Enum &&
+    (type as EnumType).isReferenceSemantics === true &&
+    (type as EnumType).isAtomicRc === true
   );
 }
 
@@ -294,7 +317,9 @@ export function isRcType(type?: Type): boolean {
   }
 
   return (
-    isObjectType(type) ||
+    isReferenceStructType(type) ||
+    // Reference-semantics enums (`ref(enum(…))`) are RC-managed like objects.
+    isReferenceEnumType(type) ||
     // We assume all the SomeType is reference-counted
     // isSomeType(type) ||
     // The DynType is a struct that contains a pointer to data where the data must be an ObjectType
@@ -457,7 +482,7 @@ export function isFunctionTypeGeneric(functionType: FunctionType): boolean {
 /**
  * Check if a function type has "hard" generic parameters that make the
  * unspecialized form invalid for C codegen. This means comptime params,
- * forall params, or SomeType params — but NOT implicit-params-only.
+ * generic params, or SomeType params — but NOT implicit-params-only.
  *
  * Functions that are generic ONLY because of implicit parameters can still
  * be generated as regular C functions because implicit params are resolved
@@ -498,7 +523,7 @@ export function isFunctionTypeHardGeneric(functionType: FunctionType): boolean {
  * for C codegen?
  *
  * A function is specializable when:
- * 1. Its type is generic (has compile-time params, forall params, implicit params,
+ * 1. Its type is generic (has compile-time params, generic params, implicit params,
  *    or SomeType params) — checked by isFunctionTypeGeneric
  * 2. The evaluator actually created specialized versions for it
  *    — checked by specializedFunctionCaches
@@ -507,7 +532,7 @@ export function isFunctionTypeHardGeneric(functionType: FunctionType): boolean {
  * - using(io : Io): generic type but no caches (Io resolved at compile time) → false
  * - using(raise : Raise): generic type + evaluator created caches → true
  * - using(raise_mod : RaiseMod): generic type + evaluator created caches → true
- * - forall(T): generic type + evaluator created caches → true
+ * - generic(T): generic type + evaluator created caches → true
  */
 export function isFunctionSpecializable(functionValue: FunctionValue): boolean {
   const functionType = functionValue.type;
@@ -529,7 +554,7 @@ export function isFunctionSpecializable(functionValue: FunctionValue): boolean {
 export function isBoxedType(
   type: Type
 ): type is StructType & { isReferenceSemantics: true; __isBoxed: true } {
-  if (!isObjectType(type)) {
+  if (!isReferenceStructType(type)) {
     return false;
   } else {
     // Check if it's the Box(T) where Box is from the prelude.yo

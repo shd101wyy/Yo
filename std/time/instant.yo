@@ -30,7 +30,7 @@ impl(
   }),
   // Duration between this instant and an earlier one.
   // Returns Duration.zero() if `earlier` is actually later.
-  duration_since : (fn(ref(self) : Self, earlier : Instant) -> Duration)({
+  duration_since : (fn(inout(self) : Self, earlier : Instant) -> Duration)({
     self_ns := ((self.secs * i64(1000000000)) + self.nanos);
     earlier_ns := ((earlier.secs * i64(1000000000)) + earlier.nanos);
     cond(
@@ -39,7 +39,7 @@ impl(
     )
   }),
   // Duration elapsed since this instant was created.
-  elapsed : (fn(ref(self) : Self) -> Duration)({
+  elapsed : (fn(inout(self) : Self) -> Duration)({
     current := Instant.now();
     current.duration_since(self)
   })

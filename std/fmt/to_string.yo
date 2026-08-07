@@ -5,7 +5,7 @@ pragma(Pragma.AllowUnsafe);
 /// Trait for converting values to their `String` representation.
 /// Types implementing this trait can be used with `println`, `print`, and template strings.
 ToString :: trait(
-  to_string : (fn(ref(self) : Self) -> String)
+  to_string : (fn(inout(self) : Self) -> String)
 );
 export(ToString);
 // === Helper function for integer conversion ===
@@ -17,7 +17,7 @@ _INT_BUFFER_SIZE :: usize(24);
 impl(
   i8,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)({
+    to_string : (fn(inout(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
       unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hhd", self));
@@ -28,7 +28,7 @@ impl(
 impl(
   i16,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)({
+    to_string : (fn(inout(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
       unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hd", self));
@@ -39,7 +39,7 @@ impl(
 impl(
   i32,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)({
+    to_string : (fn(inout(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
       unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%d", self));
@@ -50,7 +50,7 @@ impl(
 impl(
   i64,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)({
+    to_string : (fn(inout(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
       unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%lld", self));
@@ -61,7 +61,7 @@ impl(
 impl(
   isize,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)({
+    to_string : (fn(inout(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
       unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%zd", self));
@@ -73,7 +73,7 @@ impl(
 impl(
   u8,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)({
+    to_string : (fn(inout(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
       unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hhu", self));
@@ -84,7 +84,7 @@ impl(
 impl(
   u16,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)({
+    to_string : (fn(inout(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
       unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hu", self));
@@ -95,7 +95,7 @@ impl(
 impl(
   u32,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)({
+    to_string : (fn(inout(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
       unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%u", self));
@@ -106,7 +106,7 @@ impl(
 impl(
   u64,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)({
+    to_string : (fn(inout(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
       unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%llu", self));
@@ -117,7 +117,7 @@ impl(
 impl(
   usize,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)({
+    to_string : (fn(inout(self) : Self) -> String)({
       buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
       unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%zu", self));
@@ -132,7 +132,7 @@ _FLOAT_BUFFER_SIZE :: usize(64);
 impl(
   f32,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)({
+    to_string : (fn(inout(self) : Self) -> String)({
       buffer := Array(u8, _FLOAT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
       // Use %g for general format (removes trailing zeros)
@@ -144,7 +144,7 @@ impl(
 impl(
   f64,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)({
+    to_string : (fn(inout(self) : Self) -> String)({
       buffer := Array(u8, _FLOAT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
       // Use %g for general format (removes trailing zeros)
@@ -157,7 +157,7 @@ impl(
 impl(
   bool,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)(
+    to_string : (fn(inout(self) : Self) -> String)(
       cond(
         self => String.from("true"),
         true => String.from("false")
@@ -169,7 +169,7 @@ impl(
 impl(
   char,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)({
+    to_string : (fn(inout(self) : Self) -> String)({
       // char is a single byte, create a 2-byte buffer (char + null)
       buffer := Array(u8, usize(2)).fill(0);
       buffer(0) = u8(self);
@@ -182,7 +182,7 @@ impl(
 impl(
   String,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)(
+    to_string : (fn(inout(self) : Self) -> String)(
       // String already is a string, just return a clone
       self
     )
@@ -192,7 +192,7 @@ impl(
 impl(
   str,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)({
+    to_string : (fn(inout(self) : Self) -> String)({
       // Convert byte array to String assuming UTF-8
       return(String.from(self));
     })
@@ -203,7 +203,7 @@ impl(
 impl(
   rune,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)({
+    to_string : (fn(inout(self) : Self) -> String)({
       // Get the code point value
       code := self.char;
       // UTF-8 encoding:

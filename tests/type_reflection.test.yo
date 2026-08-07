@@ -94,7 +94,7 @@ test("TypeInfo for struct and enum", {
 });
 test("TypeInfo for array, pointer", {
   // (Slice case retired with the builtin Slice type —
-  // plans/SLICE_REWORK.md.)
+  // plans/archive/SLICE_REWORK.md.)
   Arr3 :: [i32 ; 3];
   PtrType :: *(i32);
   comptime_assert(Type.get_info(Arr3).is_array(), "array should be Array");
@@ -233,14 +233,14 @@ test("TypeInfo compound : Type.Struct kind - NewType", {
   comptime_assert(field_count == usize(1), "newtype should have 1 field");
 });
 test("TypeInfo compound : Type.Struct kind - Object", {
-  MyObj :: object(x : i32, y : i32);
+  MyObj :: ref(struct(x : i32, y : i32));
   info :: Type.get_info(MyObj);
   comptime_assert(info.is_struct(), "object should be struct");
   is_object_kind :: match(info,.Struct(_, k) => match(k,.Object => true, _ => false), _ => false);
   comptime_assert(is_object_kind, "should be Object kind");
 });
 test("TypeInfo compound : Type.Struct kind - AtomicObject", {
-  MyAtomicObj :: atomic(object(x : i32, y : i32));
+  MyAtomicObj :: atomic(ref(struct(x : i32, y : i32)));
   info :: Type.get_info(MyAtomicObj);
   comptime_assert(info.is_struct(), "atomic object should be struct");
   is_atomic_kind :: match(info,.Struct(_, k) => match(k,.AtomicObject => true, _ => false), _ => false);

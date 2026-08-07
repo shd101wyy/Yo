@@ -4,7 +4,7 @@ import type { Type } from "../../types/definitions";
 import {
   isBoxedType,
   isDynType,
-  isObjectType,
+  isReferenceStructType,
   isSomeType,
 } from "../../types/guards";
 import { type FunctionGenerationContext } from "../functions/context";
@@ -58,7 +58,7 @@ export function generateDynCall(
   }
 
   // dyn() requires an object type (including Box(T)); value types must use box().
-  if (!isObjectType(valueType) && !isBoxedType(valueType)) {
+  if (!isReferenceStructType(valueType) && !isBoxedType(valueType)) {
     return `/* Error: dyn() requires an object type (use box() for value types) */`;
   }
 

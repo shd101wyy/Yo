@@ -1,0 +1,715 @@
+//! Reachable-type collection — mirrors `src/codegen/types/collection.ts`.
+//!
+//! PORT STATUS (incremental, plans/archive/BOOTSTRAPPING_CODEGEN.md Phase 1): this
+//! file currently carries the TYPE-structural collectors (collect_type +
+//! collect_types_from_function_type + the SomeType-in-fn-fields helpers). The
+//! EXPR walkers (collect_types_from_expr / collect_required_types) are
+//! deferred: they thread the ExprInfoTable and mutually import
+//! functions/collection (findFunctionCallsInExpr) — added with that cluster.
+//!
+//! DIVERGENCES (issues/retired/codegen-port-type-model-gaps.md):
+//!   * Gap 6: yo-self `SomeT` has no resolvedConcreteType, so collect_type
+//!     conservatively SKIPS SomeTypes (generic — monomorphized before codegen
+//!     in the supported corpus); the TS Fn/Future/resolvedConcreteType
+//!     branches are pending the env+substitute re-architecting.
+//!   * Gap 3: extern-C type names (`type.externName`) aren't modelled
+//!     generally, so C names are `sanitize(__yo_<type_key>)`.
+//!   * SourceNamespace/Trait field-FUNCTION collection (TS `field.assignedValue`)
+//!     is deferred — yo-self types carry no field values; those functions are
+//!     reached from the module StructVal via the expr walker instead.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
+{ HashMap } :: import("std/collections/hash_map");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_fn_call_of, make_err_expr, BK_TEST } :: import("../../expr.yo");
+{ ExprInfoTable, expr_info_table_get, lookup_macro_expansion, get_module_level_init_exprs, expr_info_runtime_destructurings } :: import("../../expr_info.yo");
+{ EvalValue, is_func_val, is_type_value, type_of_eval_value } :: import("../../value.yo");
+{ is_control_fn, get_func_type } :: import("../../function_value.yo");
+{
+  is_struct_type,
+  is_enum_type,
+  is_union_type,
+  is_tuple_type,
+  is_dyn_type,
+  is_iso_type,
+  is_module_type,
+  is_trait_type,
+  is_future_trait_type,
+  is_some_type,
+  is_function_type,
+  is_array_type
+} :: import("../../types/guards.yo");
+{ type_contains_some_type } :: import("../../types/utils.yo");
+{ resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
+{ stable_type_identity } :: import("../../types/type_key.yo");
+{
+  CodeGenContext,
+  type_key,
+  get_type_string,
+  get_runtime_struct_fields,
+  sanitize_for_c_identifier
+} :: import("../utils/index.yo");
+// Cross-file cycle: functions/collection imports collect_type from here; we
+// import its find-fn through the indirection call-through (which reads a
+// runtime-set global, so it does not reference find_function_calls_in_expr at
+// import time). The circular-import loader resolves the top-level exports.
+{ _call_find_function_calls_in_expr, set_collect_type_fn } :: import("../functions/collection.yo");
+/// Intern map for generated C type names. yo-self's `TypeValue` has no numeric
+/// `.id` (TS's `type.id` → short stable `context.types[id].cName`,
+/// getTypeString utils/index.ts:521), so the codegen C name was historically the
+/// FULL structural `type_key` (`__yo_<type_key>`). For the compiler's own deeply
+/// recursive enums (`TypeValue`/`AstExpr`) `type_key` expands through `Struct`
+/// wrappers to 200 KB+ identifiers → stage-2 C blew up to ~10× TS's size (497 MB
+/// vs 51.7 MB for the same source) and a few contexts hit clang identifier
+/// limits. Intern each distinct `type_key` to a short, stable `__yo_t<N>` name.
+/// This is a pure content-addressed RENAME: the registry is still keyed by the
+/// full `type_key` (all `get_type_c_name(type_key(t))` lookups are unchanged), so
+/// the same type always maps to the same short name and distinct types to
+/// distinct names — enum tags / variant names derive from the registered c_name
+/// (get_enum_variant_c_name), so they shrink consistently too.
+(_g_type_c_name_intern : HashMap(String, String)) = HashMap(String, String).new();
+_intern_type_c_name :: (fn(key : String) -> String)(
+  match(
+    _g_type_c_name_intern.get(key),
+    .Some(existing) => existing,
+    .None => {
+      id := `__yo_t${_g_type_c_name_intern.len().to_string()}`;
+      _g_type_c_name_intern.set(key.clone(), id.clone());
+      id
+    }
+  )
+);
+/// A struct whose only SomeType content lives inside function-typed fields is
+/// still registerable as a concrete C type — the fn-ptr fields get type-erased
+/// at the C ABI. Mirrors `structSomeTypeIsOnlyInFunctionFields`.
+_struct_some_type_is_only_in_function_fields :: (
+  fn(type : TypeValue, visited : HashSet(String)) -> bool
+)(
+  match(
+    type,
+    .Struct({ id, field_types }) => {
+      if(visited.contains(id.clone()), {
+        return(true); // cyclic reference is fine
+      });
+      _a := visited.add(id.clone());
+      (ok : bool) = true;
+      n := field_types.len();
+      (i : usize) = usize(0);
+      while((i < n) && ok, {
+        ft := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        cond(
+          is_function_type(ft) => (),
+          // fn-ptr field — fine
+          (is_struct_type(ft) && recur(ft, visited)) => (),
+          // nested ok
+          type_contains_some_type(ft) => {
+            ok = false;
+          },
+          true => ()
+        );
+        i = (i + usize(1));
+      });
+      ok
+    },
+    _ => false
+  )
+);
+/// Check if an enum's SomeType content is only in function-typed variant
+/// fields. Mirrors `enumSomeTypeIsOnlyInFunctionFields`.
+_enum_some_type_is_only_in_function_fields :: (
+  fn(type : TypeValue, visited : HashSet(String)) -> bool
+)(
+  match(
+    type,
+    .EnumT({ id, variant_fields }) => {
+      if(visited.contains(id.clone()), {
+        return(true);
+      });
+      _a := visited.add(id.clone());
+      (ok : bool) = true;
+      nv := variant_fields.len();
+      (vi : usize) = usize(0);
+      while((vi < nv) && ok, {
+        fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        nf := fields.len();
+        (fi : usize) = usize(0);
+        while((fi < nf) && ok, {
+          ft := match(fields.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+          cond(
+            is_function_type(ft) => (),
+            (is_struct_type(ft) && _struct_some_type_is_only_in_function_fields(ft, visited)) => (),
+            is_dyn_type(ft) => (),
+            type_contains_some_type(ft) => {
+              ok = false;
+            },
+            true => ()
+          );
+          fi = (fi + usize(1));
+        });
+        vi = (vi + usize(1));
+      });
+      ok
+    },
+    _ => false
+  )
+);
+/// Collect a single type if it's a user-defined / structural type, registering
+/// it in `context.types` and recursing into its component types. Mirrors
+/// `collectType` (TYPE-structural portion; see header for deferred branches).
+// stable_type_identity → the FIRST type_key a type registered under. A
+// type_key render EVOLVES over a compile (g_struct_cfid_keys
+// first-registration/poison transitions), so one type can reach
+// collect_type twice under two keys — registering twice emits DUPLICATE C
+// declarations (enumerator/typeid redefinitions) and splits value sites
+// across two C types (passing/initializing mismatches). The stable render
+// never changes, so a second arrival is detected and ALIASED instead.
+(g_stable_to_key : HashMap(String, String)) = HashMap(String, String).new();
+collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
+  // Resolve a leaked recursive-enum SELF-SHELL to its final BEFORE collecting, so
+  // recursion descends into the FINAL's variant fields (the shell has none) and
+  // the empty shell type is never registered/emitted — regardless of whether the
+  // shell or the final is reached first. With the type_key shell-resolve above,
+  // references to the shell also key to the final. Passthrough for non-shells.
+  // Same for STRUCT self-shells (empty-fields struct sharing the final's id,
+  // struct.yo:76-95): a `ref(struct(... : Option(Box(Self))))` field carries
+  // `Box(shell)`; if the shell reaches collection first, its EMPTY field list
+  // registers the C struct decl under the same type_key as the final, and the
+  // final is then deduped away — emitting `struct { header; }` with no members.
+  type := resolve_struct_shell(resolve_enum_shell(type_in));
+  if(context.get_type_entry(type_key(type)).is_some(), {
+    return(()); // Already collected this type
+  });
+  // Gap 6: SomeTypes (generic) — conservatively skip (monomorphized before
+  // codegen in the supported corpus). The TS Fn/Future/resolvedConcreteType
+  // branches need env+substitute resolution.
+  if(is_some_type(type), {
+    return(());
+  });
+  // Skip types that contain SomeType (generic params), except struct/enum
+  // whose only SomeType content is inside function-typed fields.
+  if(type_contains_some_type(type), {
+    keep := (
+      (is_struct_type(type) && _struct_some_type_is_only_in_function_fields(type, HashSet(String).new()))
+      || (is_enum_type(type) && _enum_some_type_is_only_in_function_fields(type, HashSet(String).new()))
+    );
+    if(!(keep), {
+      return(());
+    });
+  });
+  // Concrete-length arrays lower to a generated `struct { T data[N]; }` wrapper.
+  // get_type_string registers it (array_struct_types) but only LAZILY when a
+  // value/body references the type — which is AFTER generate_array_struct_
+  // declarations runs in the type-decl phase. Register it here, during
+  // collection, so the typedef is emitted before any reference; also collect
+  // the element type. (Mirrors the Iso side-effect registration below.)
+  if(is_array_type(type), {
+    match(type,.Array({ element }) => recur(element, context), _ => ());
+    _gs := get_type_string(type, context);
+    return(());
+  });
+  is_registerable := (
+    (
+      ((is_struct_type(type) || is_union_type(type)) || (is_enum_type(type) || is_tuple_type(type)))
+      // FutureTraitT: the generic Future trait-object interface struct — TS's
+      // FutureTraitType is a TraitType subtype so `isTraitType` covers it
+      // (collection.ts:420); yo-self models it as a SEPARATE variant, so it
+      // needs its own clause. Registered so a future-typed parameter's
+      // `__yo_future_trait_*` interface struct gets a C name + declaration
+      // (generation.yo's is_future_trait_type declaration pass).
+      || ((is_dyn_type(type) || is_trait_type(type)) || is_future_trait_type(type))
+    )
+    || (is_module_type(type) || is_iso_type(type))
+  );
+  if(is_registerable, {
+    // Gap 3: extern-C names not modelled generally. Intern the (full) type_key
+    // to a short stable `__yo_t<N>` C name — see `_intern_type_c_name`. The
+    // registry stays keyed by the full type_key, so all lookups are unchanged;
+    // this only shrinks the EMITTED identifier (was `__yo_<full type_key>`,
+    // which reached 200 KB+ for recursive types → ~10× C bloat).
+    tk := type_key(type);
+    stable := stable_type_identity(type);
+    (aliased : bool) = false;
+    match(
+      g_stable_to_key.get(stable.clone()),
+      .Some(prev_key) => if(!(prev_key == tk), {
+        // Same type, EVOLVED key render: alias to the first registration
+        // instead of adding (and later emitting) a second entry. Do NOT skip
+        // the field recursion below: this arrival may embed DIFFERENT inner
+        // instances than the first one (two memo renditions of the same
+        // constructor chain — e.g. SortedMap's `_root` holding the
+        // pattern-era `Option` instance while the first-collected rendition
+        // held the concrete-era one). Emission walks THIS rendition's actual
+        // embedded instances, so each must be collected (or aliased) too.
+        context.register_type_alias(tk, prev_key.clone());
+        aliased = true;
+      }),
+      .None => {
+        g_stable_to_key.set(stable.clone(), tk.clone());
+      }
+    );
+    if(!(aliased), {
+      c_name := _intern_type_c_name(tk.clone());
+      context.register_type(tk, type, c_name, Option(String).None);
+    });
+    // Future trait interface: collect the OUTPUT type (T in Future(T)) — its
+    // C name appears as the interface struct's `result` field. Mirrors TS
+    // collecting `futureModule.isFuture.outputType` (collection.ts:384).
+    match(
+      type,
+      .FutureTraitT({ output : ftc_out }) => if(!(is_some_type(ftc_out)), {
+        recur(ftc_out, context);
+      }),
+      _ => ()
+    );
+    // Struct fields (skip function-typed fields — emitted inline at call sites).
+    match(
+      type,
+      .Struct({}) => {
+        runtime_fields := get_runtime_struct_fields(type);
+        n := runtime_fields.len();
+        (i : usize) = usize(0);
+        while(i < n, {
+          match(
+            runtime_fields.get(i),
+            .Some(rf) => if(!(is_function_type(rf.ty)), {
+              recur(rf.ty, context);
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+      },
+      _ => ()
+    );
+    // Enum variant fields.
+    match(
+      type,
+      .EnumT({ variant_fields }) => {
+        nv := variant_fields.len();
+        (vi : usize) = usize(0);
+        while(vi < nv, {
+          fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+          nf := fields.len();
+          (fi : usize) = usize(0);
+          while(fi < nf, {
+            match(
+              fields.get(fi),
+              .Some(ft) => if(!(is_function_type(ft)), {
+                recur(ft, context);
+              }),
+              .None => ()
+            );
+            fi = (fi + usize(1));
+          });
+          vi = (vi + usize(1));
+        });
+      },
+      _ => ()
+    );
+    // Union fields.
+    match(
+      type,
+      .Union({ field_types }) => {
+        n := field_types.len();
+        (i : usize) = usize(0);
+        while(i < n, {
+          match(field_types.get(i),.Some(ft) => recur(ft, context),.None => ());
+          i = (i + usize(1));
+        });
+      },
+      _ => ()
+    );
+    // Dyn required traits.
+    match(
+      type,
+      .DynT({ required_trait_types }) => {
+        n := required_trait_types.len();
+        (i : usize) = usize(0);
+        while(i < n, {
+          match(required_trait_types.get(i),.Some(tt) => recur(tt, context),.None => ());
+          i = (i + usize(1));
+        });
+      },
+      _ => ()
+    );
+    // Iso child + register the Iso type (via get_type_string side-effect).
+    match(
+      type,
+      .IsoT({ child }) => {
+        recur(child, context);
+        _gs := get_type_string(type, context);
+      },
+      _ => ()
+    );
+    // SourceNamespace / Trait field TYPES (field-function collection deferred).
+    // A trait METHOD is a `Func` field type; `collect_type(Func)` erases the
+    // function and never walks its param/return types, so a method's return type
+    // (which codegen LOWERS when emitting the trait's Dyn vtable) goes
+    // uncollected — e.g. `Error.source : fn(self : Self) -> Option(Dyn(Error))`
+    // leaves `Option(Dyn(Error))` uncollected → "type not collected before
+    // lowering" when compiling any module using `std/error` (lexer.yo). So for a
+    // Func field, recur into its param + result types. (Can't call
+    // `collect_types_from_function_type` — it is defined after this; no forward
+    // refs. The register-before-recurse order above breaks the Error→source→Error
+    // cycle: the second encounter early-returns on the already-registered key.)
+    match(
+      type,
+      .TraitT({ field_types }) => {
+        n := field_types.len();
+        (i : usize) = usize(0);
+        while(i < n, {
+          match(
+            field_types.get(i),
+            .Some(ft) => match(
+              ft,
+              .Func({ param_types : __mpt, result : __mres }) => {
+                (__mpi : usize) = usize(0);
+                while(__mpi < __mpt.len(), {
+                  match(__mpt.get(__mpi),.Some(__pt) => recur(__pt, context),.None => ());
+                  __mpi = (__mpi + usize(1));
+                });
+                recur(__mres, context);
+              },
+              _ => recur(ft, context)
+            ),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+      },
+      _ => ()
+    );
+  });
+});
+/// Collect any pointer POINTEE found directly in `ft` or one level inside an
+/// enum variant of `ft`. Covers `*(T)` and the nullable-pointer `?*(T)` (=
+/// `Option(*(T))`) shapes used by container `data` fields. One level only (no
+/// deep enum recursion) — sufficient for `data : ?*(Bucket)` / `?*(T)` and
+/// guaranteed terminating; `collect_type`'s already-collected guard handles the
+/// rest. (Defined before collect_pointer_pointees — Yo has no forward refs.)
+_collect_field_pointees :: (fn(ft : TypeValue, context : CodeGenContext) -> unit)(
+  match(
+    ft,
+    .Pointer(p) => collect_type(p, context),
+    .EnumT({ variant_fields }) => {
+      nv := variant_fields.len();
+      (vi : usize) = usize(0);
+      while(vi < nv, {
+        fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        nfi := fields.len();
+        (fj : usize) = usize(0);
+        while(fj < nfi, {
+          match(
+            fields.get(fj),
+            .Some(vf) => match(vf,.Pointer(p) => collect_type(p, context), _ => ()),
+            .None => ()
+          );
+          fj = (fj + usize(1));
+        });
+        vi = (vi + usize(1));
+      });
+      ()
+    },
+    _ => ()
+  )
+);
+/// SECOND PASS (run after collect_required_types, before generate_type_
+/// declarations): register the pointee types behind pointer FIELDS of
+/// already-registered structs. A container like `HashMap.data : ?*(Bucket(K,V))`
+/// or `ArrayList.data : ?*(T)` lowers to `T*`, so emitting the OWNER struct's
+/// typedef calls get_type_string(T) and REQUIRES `T` registered. The main
+/// collection reaches `T` only via the container's generated dup/drop bodies; for
+/// the async/effect-codegen value types whose dup/drop involve recursive members
+/// (AstExpr / Box(Self) self-shells), that path does NOT fire in the self-compile,
+/// leaving e.g. `Bucket(usize, WhileLoopInfo)` unregistered → "type not collected
+/// before lowering" panic. Running as a SEPARATE pass (not inline in collect_type)
+/// leaves the MAIN collection ORDER untouched, so it cannot perturb the
+/// order-sensitive lazy array-struct registration. Fixpoint loop handles
+/// transitive container nesting. DIVERGENCE from collection.ts (no such pass) —
+/// see issues/fixed/yo-self-p1-uncollected-pointee.md.
+collect_pointer_pointees :: (fn(context : CodeGenContext) -> unit)({
+  (changed : bool) = true;
+  while(changed, {
+    changed = false;
+    before := context.types.len();
+    // Snapshot registered struct TypeValues FIRST (collect_type mutates the map;
+    // do not call it while iterating context.types.values()).
+    snapshot := ArrayList(TypeValue).new();
+    vit := context.types.values();
+    (done : bool) = false;
+    while(!(done), {
+      match(
+        vit.next(),
+        .Some(entry) => {
+          if(is_struct_type(entry.ty), {
+            _p := snapshot.push(entry.ty);
+          });
+        },
+        .None => {
+          done = true;
+        }
+      );
+    });
+    n := snapshot.len();
+    (i : usize) = usize(0);
+    while(i < n, {
+      match(
+        snapshot.get(i),
+        .Some(t) => {
+          rfs := get_runtime_struct_fields(t);
+          nf := rfs.len();
+          (fi : usize) = usize(0);
+          while(fi < nf, {
+            match(rfs.get(fi),.Some(rf) => _collect_field_pointees(rf.ty, context),.None => ());
+            fi = (fi + usize(1));
+          });
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    after := context.types.len();
+    if(after > before, {
+      changed = true;
+    });
+  });
+});
+/// Collect types from a function type signature (parameters, generic params,
+/// return). Mirrors `collectTypesFromFunctionType`.
+collect_types_from_function_type :: (fn(function_type : TypeValue, context : CodeGenContext) -> unit)(
+  match(
+    function_type,
+    .Func({ param_types, forall_types, result }) => {
+      np := param_types.len();
+      (pi : usize) = usize(0);
+      while(pi < np, {
+        match(param_types.get(pi),.Some(pt) => collect_type(pt, context),.None => ());
+        pi = (pi + usize(1));
+      });
+      nf := forall_types.len();
+      (fi : usize) = usize(0);
+      while(fi < nf, {
+        match(forall_types.get(fi),.Some(ft) => collect_type(ft, context),.None => ());
+        fi = (fi + usize(1));
+      });
+      collect_type(result, context);
+    },
+    _ => ()
+  )
+);
+/// func_id of a FuncVal EvalValue, or "".
+_fv_id :: (fn(v : EvalValue) -> String)(
+  match(v,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""))
+);
+/// body AstExpr of a FuncVal EvalValue, or an error placeholder.
+_fv_body :: (fn(v : EvalValue) -> AstExpr)(
+  match(v,.FuncVal(__fvd2, _) => __fvd2.*.body, _ => make_err_expr())
+);
+/// Collect types referenced by an expression (its evaluated type, any function
+/// value it resolves to, deferred drops, macro expansion, runtime
+/// destructurings, capture struct, and recursively its sub-expressions).
+/// Mirrors `collectTypesFromExpr`.
+///
+/// DIVERGENCES: the per-function SIGNATURE-type collection
+/// (collectTypesFromFunctionType(functionValue.type)) is omitted — yo-self's
+/// FuncVal carries no Func type (Gap 2); signature types are picked up by
+/// walking the body. The SomeType-Future-resolvedConcrete skip (Gap 6) and the
+/// captureType.trait function-collection are also omitted (corpus-safe).
+collect_types_from_expr :: (fn(expr : AstExpr, context : CodeGenContext, info : ExprInfoTable) -> unit)({
+  ei_opt := expr_info_table_get(info, ast_expr_id(expr));
+  match(
+    ei_opt,
+    .Some(ei) => {
+      // The expression's own type.
+      collect_type(ei.ty, context);
+      // A function value it resolves to (e.g. method lookups like temp.___drop).
+      match(
+        ei.value,
+        .Some(v) => if(is_func_val(v), {
+          fid := _fv_id(v);
+          cond(
+            is_control_fn(fid.clone()) => {
+              _call_find_function_calls_in_expr(_fv_body(v), context, info);
+            },
+            (!(context.has_function(fid.clone()))) => {
+              context.register_function(fid.clone(), v, sanitize_for_c_identifier(fid.clone(), false));
+              _call_find_function_calls_in_expr(_fv_body(v), context, info);
+            },
+            true => ()
+          );
+        }),
+        .None => ()
+      );
+      // Deferred drop expressions.
+      match(
+        ei.deferred_drop_expressions,
+        .Some(drops) => {
+          nd := drops.len();
+          (di : usize) = usize(0);
+          while(di < nd, {
+            match(drops.get(di),.Some(de) => recur(de, context, info),.None => ());
+            di = (di + usize(1));
+          });
+        },
+        .None => ()
+      );
+      // Macro expansion. Fall back to the durable side-table when this call's
+      // per-pass ExprInfo lost its macro_expansion (same overwrite that the
+      // codegen dispatch handles — keep collection consistent with codegen so a
+      // macro call like `if(...recur...)` has its expansion's types collected;
+      // otherwise codegen emits the expansion but its capture/closure structs
+      // were never collected → get_type_string panic).
+      match(
+        ei.macro_expansion,
+        .Some(me) => recur(me, context, info),
+        .None => match(
+          lookup_macro_expansion(ast_expr_id(expr)),
+          .Some(me) => recur(me, context, info),
+          .None => ()
+        )
+      );
+      // Runtime destructurings (comptime→runtime conversions).
+      match(
+        expr_info_runtime_destructurings(ei),
+        .Some(rds) => {
+          nr := rds.len();
+          (ri : usize) = usize(0);
+          while(ri < nr, {
+            match(rds.get(ri),.Some(rd) => collect_type(rd.ty, context),.None => ());
+            ri = (ri + usize(1));
+          });
+        },
+        .None => ()
+      );
+      // Capture struct type for closures / async blocks (registers + recurses
+      // into field types via collect_type).
+      match(ei.capture_type,.Some(ct) => collect_type(ct, context),.None => ());
+    },
+    .None => ()
+  );
+  match(
+    expr,
+    .FnCall(_, func_box, args, _, _) => {
+      // Skip test blocks — they should not generate code.
+      if(ast_expr_is_fn_call_of(expr, BK_TEST,.None), {
+        return(());
+      });
+      recur(func_box, context, info);
+      n := args.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(args.get(i),.Some(a) => recur(a, context, info),.None => ());
+        i = (i + usize(1));
+      });
+    },
+    .Atom(_, _) => match(
+      ei_opt,
+      .Some(ei) => if(is_type_value(ei.value), {
+        match(ei.value,.Some(v) => match(v,.TypeVal(t) => collect_type(t, context), _ => ()),.None => ());
+      }),
+      .None => ()
+    )
+  );
+});
+/// Collect all user-defined types reachable from a module value: from each
+/// exported function's body, from module-level non-function fields, and then
+/// (fixpoint) from every function discovered along the way. Mirrors
+/// `collectRequiredTypes`. (Signature-type collection omitted — Gap 2; the
+/// moduleLevelInitExprs pass is deferred until the context carries them.)
+collect_required_types :: (fn(module_value : EvalValue, context : CodeGenContext, info : ExprInfoTable) -> unit)({
+  match(
+    module_value,
+    .StructVal(_, _, field_values) => {
+      n := field_values.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          field_values.get(i),
+          .Some(value) => cond(
+            is_func_val(value) => {
+              // Collect the function's SIGNATURE types (param + return), not just
+              // its body — a param type used only in the signature (e.g. a
+              // non-async `main(io : Io)` whose body never mentions Io) would
+              // otherwise never be collected. Bridges Gap 2 via the get_func_type
+              // side-table. Mirrors collectTypesFromFunctionType (collection.ts:127).
+              collect_types_from_function_type(get_func_type(_fv_id(value)), context);
+              collect_types_from_expr(_fv_body(value), context, info);
+            },
+            true => {
+              vt := type_of_eval_value(value);
+              if(!(is_function_type(vt)), {
+                collect_type(vt, context);
+              });
+            }
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+  // Collect types from module-level mutable variable init expressions — these
+  // may reference types from imported modules not otherwise reachable (e.g. a
+  // `(g_map : HashMap(K, V)) = HashMap(K, V).new()` global whose HashMap
+  // instantiation is used nowhere else). Mirrors collection.ts:138-144.
+  mlv_inits := get_module_level_init_exprs();
+  (mli : usize) = usize(0);
+  while(mli < mlv_inits.len(), {
+    match(
+      mlv_inits.get(mli),
+      .Some(ie) => collect_types_from_expr(ie, context, info),
+      .None => ()
+    );
+    mli = (mli + usize(1));
+  });
+  // Fixpoint: keep collecting from newly-discovered functions until none are
+  // new. Snapshot the keys each pass (the registry grows during collection).
+  processed := HashSet(String).new();
+  (found_new : bool) = true;
+  while(found_new, {
+    found_new = false;
+    keys := ArrayList(String).new();
+    kit := context.functions.keys();
+    (kdone : bool) = false;
+    while(!(kdone), {
+      match(
+        kit.next(),
+        .Some(k) => {
+          _kp := keys.push(k);
+        },
+        .None => {
+          kdone = true;
+        }
+      );
+    });
+    nk := keys.len();
+    (ki : usize) = usize(0);
+    while(ki < nk, {
+      key := match(keys.get(ki),.Some(k) => k,.None => String.from(""));
+      if(!(processed.contains(key.clone())), {
+        _p := processed.add(key.clone());
+        found_new = true;
+        match(
+          context.get_function_entry(key.clone()),
+          .Some(entry) => {
+            // Signature types (param + return) in addition to the body — see the
+            // module-level branch above. Mirrors collectTypesFromFunctionType.
+            collect_types_from_function_type(get_func_type(key.clone()), context);
+            collect_types_from_expr(_fv_body(entry.value), context, info);
+          },
+          .None => ()
+        );
+      });
+      ki = (ki + usize(1));
+    });
+  });
+});
+/// Register collect_type into functions/collection's indirection global so its
+/// find_function_calls_in_expr can collect comptime-returned types. Call once
+/// at init (alongside register_find_function_calls_in_expr).
+register_collect_type :: (fn() -> unit)(
+  set_collect_type_fn(collect_type)
+);
+export(collect_type, collect_types_from_function_type, collect_types_from_expr, collect_required_types, collect_pointer_pointees, register_collect_type);

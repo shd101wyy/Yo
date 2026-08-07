@@ -186,9 +186,9 @@ derive(Point, MyEq(Point));
 `DeriveContext` (defined in `std/prelude.yo`) provides:
 
 - `target : Expr` — the raw target type expression for splicing
-- `forall_params : Option(Expr)` — optional forall clause from the derive call
+- `forall_params : Option(Expr)` — optional generic clause from the derive call
 - `where_clause : Option(Expr)` — optional where clause
-- `make_impl(trait_body : Expr) -> Expr` — constructs the complete `impl(...)` expression with proper forall/where wrapping
+- `make_impl(trait_body : Expr) -> Expr` — constructs the complete `impl(...)` expression with proper generic/where wrapping
 
 ### Enum Derive Rules
 
@@ -211,19 +211,19 @@ info.is_enum() => {
 }
 ```
 
-### Generic Derive with forall/where
+### Generic Derive with generic/where
 
-Derive rules work with generic types using `forall` and `where`:
+Derive rules work with generic types using `generic` and `where`:
 
 ```rust
 Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(first : A, second : B)
 );
 
-derive(forall(T1, T2), Pair(T1, T2), where((T1 <: MyEq(T1)), (T2 <: MyEq(T2))), MyEq(Pair(T1, T2)));
+derive(generic(T1, T2), Pair(T1, T2), where((T1 <: MyEq(T1)), (T2 <: MyEq(T2))), MyEq(Pair(T1, T2)));
 ```
 
-The `DeriveContext.make_impl` method automatically includes the forall/where clauses in the generated impl.
+The `DeriveContext.make_impl` method automatically includes the generic/where clauses in the generated impl.
 
 ### Rule Lookup Order
 

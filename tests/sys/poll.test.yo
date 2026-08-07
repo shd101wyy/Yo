@@ -1,6 +1,7 @@
 pragma(Pragma.SkipWasm32Emscripten); // poll/epoll not available in WASM (no async I/O multiplexing)
 pragma(Pragma.SkipWasm32Wasi); // poll/epoll not available in WASM (no async I/O multiplexing)
 pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
 open(import("std/libc/stdio"));
 file :: import("std/sys/file");
 pipe_io :: import("std/sys/pipe");
@@ -17,8 +18,8 @@ test("poll init/start/stop", {
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe creation failed");
-  read_fd := (pipefd &+ usize(0)).*;
-  write_fd := (pipefd &+ usize(1)).*;
+  read_fd := (pipefd.add(usize(0))).*;
+  write_fd := (pipefd.add(usize(1))).*;
   handle := events.poll_init(read_fd);
   result_buf := MaybeUninit(i32).new();
   result_ptr := *(i32)(result_buf.as_ptr());
@@ -38,8 +39,8 @@ test("poll detects readable pipe", {
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe creation failed");
-  read_fd := (pipefd &+ usize(0)).*;
-  write_fd := (pipefd &+ usize(1)).*;
+  read_fd := (pipefd.add(usize(0))).*;
+  write_fd := (pipefd.add(usize(1))).*;
   // Write data to make read end readable BEFORE starting poll
   data := *(u8)("hello");
   wr := io.await(file.write(write_fd, data, u32(5), u64(0)), io);
@@ -68,8 +69,8 @@ test("poll detects writable pipe", {
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe creation failed");
-  read_fd := (pipefd &+ usize(0)).*;
-  write_fd := (pipefd &+ usize(1)).*;
+  read_fd := (pipefd.add(usize(0))).*;
+  write_fd := (pipefd.add(usize(1))).*;
   result_buf := MaybeUninit(i32).new();
   result_ptr := *(i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
@@ -95,8 +96,8 @@ test("poll detects disconnect", {
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe creation failed");
-  read_fd := (pipefd &+ usize(0)).*;
-  write_fd := (pipefd &+ usize(1)).*;
+  read_fd := (pipefd.add(usize(0))).*;
+  write_fd := (pipefd.add(usize(1))).*;
   result_buf := MaybeUninit(i32).new();
   result_ptr := *(i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
@@ -122,8 +123,8 @@ test("poll stop prevents further callbacks", {
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe creation failed");
-  read_fd := (pipefd &+ usize(0)).*;
-  write_fd := (pipefd &+ usize(1)).*;
+  read_fd := (pipefd.add(usize(0))).*;
+  write_fd := (pipefd.add(usize(1))).*;
   result_buf := MaybeUninit(i32).new();
   result_ptr := *(i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);

@@ -11,6 +11,7 @@
 //! Unquoted value = raw.substring(1, raw.len()-1).
 //! To create a StrLit from unquoted string s: wrap with quotes.
 open(import("std/string"));
+{ str_lit_unquote_bytes } :: import("../../utils.yo");
 {
   AstExpr,
   ast_expr_token,
@@ -49,14 +50,10 @@ open(import("std/string"));
 // Helpers for StrLit quote-stripping / quote-wrapping.
 // ---------------------------------------------------------------------------
 // Extract unquoted content from StrLit.raw (raw includes surrounding `"`).
-str_lit_unquote :: (fn(raw : String) -> String)({
-  rn := raw.len();
-  if(
-    rn >= usize(2),
-    raw.substring(usize(1), rn - usize(1)),
-    String.new()
-  )
-});
+// BYTE-exact (see utils.yo str_lit_unquote_bytes): the old
+// `substring(1, len()-1)` mixed byte len() with char-indexed substring,
+// corrupting multibyte content.
+str_lit_unquote :: (fn(raw : String) -> String)(str_lit_unquote_bytes(raw));
 // Wrap an unquoted string with quote chars to produce a StrLit.raw.
 str_lit_quote :: (fn(s : String) -> String)(
   (String.from("\"") + s) + String.from("\"")

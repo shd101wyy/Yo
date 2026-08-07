@@ -1,0 +1,43 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ assert } :: import("std/assert");
+{ HashMap } :: import("std/collections/hash_map");
+
+Detector :: struct(
+  detect : Dyn(Fn(x : i32) -> i32),
+  skip : Dyn(Fn(x : i32) -> bool)
+);
+
+walk :: (fn(d : Detector, seed : i32) -> i32)({
+  (acc : i32) = seed;
+  (i : i32) = i32(0);
+  while(i < i32(3), {
+    if(!((d.skip)(acc)), {
+      acc = (d.detect)(acc);
+    });
+    i = (i + i32(1));
+  });
+  acc
+});
+
+helper :: (fn(x : i32, name : String, flag : bool, extras : HashMap(String, i32), probe : Impl(Fn(v : i32) -> i32)) -> i32)({
+  extras.set(name.clone(), probe(x));
+  if(flag, (x + i32(1)), x)
+});
+
+analyze :: (fn(name : String, flag : bool, probe : Impl(Fn(v : i32) -> i32)) -> i32)({
+  extras := HashMap(String, i32).new();
+  walk(
+    Detector(
+      detect : dyn((x) => helper(x, name.clone(), flag, extras, probe)),
+      skip : dyn((x) => (x < i32(0)))
+    ),
+    i32(39)
+  )
+});
+
+main :: (fn() -> unit)({
+  assert(analyze(String.from("k"), true, (v) => (v * i32(2))) == i32(42), "39+3");
+  println(`ok`);
+});
+export(main);

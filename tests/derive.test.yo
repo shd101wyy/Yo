@@ -1,3 +1,4 @@
+{ assert } :: import("std/assert");
 // Tests for derive(Type, Trait(Type)) — auto-generated trait implementations
 open(import("std/string"));
 open(import("std/fmt"));
@@ -365,14 +366,14 @@ test("multiple derives in one call share accumulated impl env", {
   assert(p1.uses_eq(p2), "UsesEq derive should see Eq derived earlier in the same call");
   assert(!(p1.uses_eq(p3)), "UsesEq derive should use the derived Eq implementation");
 });
-// ========== Test: generic derive_rule with forall/where ==========
+// ========== Test: generic derive_rule with generic/where ==========
 // Generic struct type constructor
 DRPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(first : A, second : B)
 );
-// Generic derive with forall/where
-derive(forall(T1, T2), DRPair(T1, T2), where(T1 <: MyEq(T1), T2 <: MyEq(T2)), MyEq(DRPair(T1, T2)));
-test("derive_rule MyEq for generic struct with forall/where", {
+// Generic derive with generic/where
+derive(generic(T1, T2), DRPair(T1, T2), where(T1 <: MyEq(T1), T2 <: MyEq(T2)), MyEq(DRPair(T1, T2)));
+test("derive_rule MyEq for generic struct with generic/where", {
   p1 := DRPair(i32, i32)(i32(1), i32(2));
   p2 := DRPair(i32, i32)(i32(1), i32(2));
   p3 := DRPair(i32, i32)(i32(1), i32(3));
@@ -386,12 +387,12 @@ test("derive_rule MyEq for generic struct with mixed types", {
   assert(m1.my_eq(m2), "equal mixed pairs should be equal");
   assert(!(m1.my_eq(m3)), "different mixed pairs should not be equal");
 });
-// ========== Test: built-in derive with forall/where ==========
+// ========== Test: built-in derive with generic/where ==========
 DRGenericBox :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(value : T)
 );
-derive(forall(T), DRGenericBox(T), where(T <: Eq(T)), Eq(DRGenericBox(T)));
-test("built-in derive Eq for generic struct with forall/where", {
+derive(generic(T), DRGenericBox(T), where(T <: Eq(T)), Eq(DRGenericBox(T)));
+test("built-in derive Eq for generic struct with generic/where", {
   b1 := DRGenericBox(i32)(i32(10));
   b2 := DRGenericBox(i32)(i32(10));
   b3 := DRGenericBox(i32)(i32(20));

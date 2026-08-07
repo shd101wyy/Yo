@@ -35,7 +35,7 @@ BF_COMPTIME_FN :: "comptime_fn";
 BF_COMPTIME_PRINT :: "comptime_print";
 BF_COMPTIME_EXPECT_ERROR :: "comptime_expect_error";
 BF_COMPTIME_EVAL :: "comptime_eval";
-BF_PANIC :: "panic";
+BF_PANIC :: "__yo_panic";
 BF_ASM :: "asm";
 BF_GLOBAL_ASM :: "global_asm";
 BF_MACRO_EXPAND :: "macro_expand";
@@ -87,6 +87,7 @@ BF_YO_DYN_DUP :: "__yo_dyn_dup";
 BF_YO_SOMETYPE_DROP :: "__yo_sometype_drop";
 BF_YO_SOMETYPE_DUP :: "__yo_sometype_dup";
 BF_YO_GC_COLLECT :: "__yo_gc_collect";
+BF_YO_GC_TRACE_CHILD :: "__yo_gc_trace_child";
 // Inline operator builtins (mirrors src/expr.ts BuiltinFunctions.__yo_op_*)
 BF_YO_OP_ADD :: "__yo_op_add";
 BF_YO_OP_SUB :: "__yo_op_sub";
@@ -122,6 +123,13 @@ BF_YO_PTR_GT :: "__yo_ptr_gt";
 BF_YO_PTR_GTE :: "__yo_ptr_gte";
 BF_YO_SLICE_LEN :: "__yo_slice_len";
 BF_YO_SLICE_PTR :: "__yo_slice_ptr";
+// `str` builtins (mirrors src/expr.ts BuiltinFunctions.__yo_str_*)
+BF_YO_STR_FROM_RAW_PARTS :: "__yo_str_from_raw_parts";
+BF_YO_STR_LEN :: "__yo_str_len";
+BF_YO_STR_PTR :: "__yo_str_ptr";
+BF_YO_STR_BYTE :: "__yo_str_byte";
+// Borrow-flag backstop builtin (mirrors src/expr.ts __yo_borrow_assert_unborrowed)
+BF_YO_BORROW_ASSERT_UNBORROWED :: "__yo_borrow_assert_unborrowed";
 BF_YO_GETRANDOM :: "__yo_getrandom";
 BF_YO_ARC4RANDOM_BUF :: "__yo_arc4random_buf";
 BF_YO_BCRYPT_GEN_RANDOM :: "__yo_bcrypt_gen_random";
@@ -222,7 +230,7 @@ BF_COMPTIME_ARRAY_INDEX :: "__yo_comptime_array_index";
 /// Mirrors the `BuiltinKeywords` enum in `src/expr.ts`.
 BK_COMPTIME :: "comptime";
 BK_GIVEN :: "given";
-BK_FORALL :: "forall";
+BK_GENERIC :: "generic";
 BK_COLON :: ":";
 BK_ASSIGN :: "=";
 BK_INIT_ASSIGN :: ":=";
@@ -243,12 +251,10 @@ BK_UNSAFE_FN :: "unsafe_fn";
 BK_CTL :: "ctl"; // Control-function type — parallel to `fn`, may contain `unwind`
 BK_FN_TRAIT :: "Fn";
 BK_ATOMIC :: "atomic";
-BK_OBJECT :: "object";
 BK_STRUCT :: "struct";
 BK_NEWTYPE :: "newtype";
 BK_ENUM :: "enum";
 BK_UNION :: "union";
-BK_MODULE :: "module";
 BK_TRAIT :: "trait";
 BK_IMPL_UPPER :: "Impl";
 BK_IMPL_LOWER :: "impl";
@@ -265,16 +271,39 @@ BK_QUOTE :: "quote";
 BK_GENSYM :: "gensym";
 BK_COMPTIME_LIST_VAL :: "comptime_list";
 BK_REF :: "ref";
+BK_INOUT :: "inout";
 /// A stable identifier for an AST expression node. Assigned during parsing.
 ExprId :: usize;
 /// An AST expression node. There are exactly two kinds:
 ///  - Atom: a single token (identifier, literal, operator, dot, …)
 ///  - FnCall: a function call with a func expression, args list, infix flag, and token
-AstExpr :: enum(
-  Atom(id : ExprId, token : Token),
-  FnCall(id : ExprId, func : Box(Self), args : ArrayList(Self), is_infix : bool, token : Token)
+AstExpr :: ref(
+  enum(
+    Atom(id : ExprId, token : Token),
+    FnCall(id : ExprId, func : Self, args : ArrayList(Self), is_infix : bool, token : Token)
+  )
 );
-derive(AstExpr, Clone);
+// SHARE-on-recursion Clone (replaces `derive(AstExpr, Clone)`). `AstExpr` is now
+// a `ref(enum)`, so its `func` (a `Self` handle) and `args` (`ArrayList(Self)`)
+// fields are RC handles — cloning SHARES them (RC-bump) rather than deep-copying.
+// This is O(1), preserves node ids (matching the derived clone's id-keeping
+// semantics that the ExprInfo table relies on), and avoids the def-time
+// body-eval infinite recursion a deep clone hits on a shell-less recursive
+// ref-enum (`ArrayList(Self).clone` → `elem.clone` → here). Same rationale as the
+// manual `TypeValue` clone in `types/definitions.yo`. Use `clone_expr_fresh_ids`
+// (below) when fresh ids are needed.
+impl(
+  AstExpr,
+  Clone(
+    clone : (fn(inout(self) : Self) -> Self)(
+      match(
+        self,
+        .Atom(aid, atok) => AstExpr.Atom(aid, atok.clone()),
+        .FnCall(fid, ffunc, fargs, finfix, ftok) => AstExpr.FnCall(fid, ffunc, fargs, finfix, ftok.clone())
+      )
+    )
+  )
+);
 /// Global expression-id counter — moved here from parser.yo so SYNTHESIZED
 /// nodes (gensym, quote expansions, fresh-id clones below) can mint ids
 /// from the SAME sequence as parsed nodes. In TS, per-node eval data lives
@@ -313,7 +342,7 @@ clone_expr_fresh_ids :: (fn(e : AstExpr) -> AstExpr)(
         );
         ci = (ci + usize(1));
       });
-      AstExpr.FnCall(alloc_global_expr_id(), box(recur(func_box.*)), new_args, is_infix, tok.clone())
+      AstExpr.FnCall(alloc_global_expr_id(), recur(func_box), new_args, is_infix, tok.clone())
     }
   )
 );
@@ -381,7 +410,7 @@ ast_expr_is_infix_op_fn_call :: (fn(e : AstExpr) -> bool)(
       (is_infix == false) => false,
       (args.len() != usize(2)) => false,
       true => match(
-        func_box.*,
+        func_box,
         .Atom(_, ftok) => (ftok.kind == TokenKind.Operator),
         .FnCall(_, _, _, _, _) => false
       )
@@ -396,19 +425,19 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
     .FnCall(_, func_box, args, is_infix, _) => {
       n := args.len();
       func_is_op_or_dot := match(
-        func_box.*,
+        func_box,
         .Atom(_, ftok) => ((ftok.kind == TokenKind.Operator) || (ftok.kind == TokenKind.Dot)),
         .FnCall(_, _, _, _, _) => false
       );
       func_is_tuple_kw := match(
-        func_box.*,
+        func_box,
         .Atom(_, ftok) => (ftok.value == BK_TUPLE),
         .FnCall(_, _, _, _, _) => false
       );
       cond(
         func_is_op_or_dot => {
           func_tok_val := match(
-            func_box.*,
+            func_box,
             .Atom(_, ftok) => ftok.value,
             .FnCall(_, _, _, _, _) => String.from("?")
           );
@@ -447,7 +476,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
               )
             },
             true => {
-              func_str := recur(func_box.*);
+              func_str := recur(func_box);
               sb := StringBuilder.new();
               i := usize(0);
               while(i < n, {
@@ -481,9 +510,9 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
         },
         true => {
           // General function call
-          func_str0 := recur(func_box.*);
+          func_str0 := recur(func_box);
           func_str := cond(
-            (ast_expr_is_infix_op_fn_call(func_box.*) || ast_expr_is_atom_and_operator(func_box.*)) => `(${func_str0})`,
+            (ast_expr_is_infix_op_fn_call(func_box) || ast_expr_is_atom_and_operator(func_box)) => `(${func_str0})`,
             true => func_str0
           );
           sb := StringBuilder.new();
@@ -504,7 +533,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
 );
 export(AstExpr, ExprId, BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_SLICE, BK_ARRAY_VAL, BK_BEGIN, BK_IMPORT, BK_ANON_STRUCT, BK_EXPORT, BK_OPEN);
 export(BF_TYPEOF, BF_SIZEOF, BF_ALIGNOF, BF_TYPEID, BF_RUNTIME, BF_UNWIND, BF_RECUR, BF_DOT);
-export(BK_COMPTIME, BK_GIVEN, BK_FORALL, BK_COLON, BK_ASSIGN, BK_INIT_ASSIGN, BK_CONST, BK_COND, BK_MATCH);
+export(BK_COMPTIME, BK_GIVEN, BK_GENERIC, BK_COLON, BK_ASSIGN, BK_INIT_ASSIGN, BK_CONST, BK_COND, BK_MATCH);
 export(BK_WHILE, BK_RETURN, BK_BREAK, BK_TEST);
 export(BK_EXTERN, BK_C_INCLUDE, BK_SUBTYPE_OF, BK_EXISTS, BK_WHERE);
 export(make_err_expr, ast_expr_token, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_atom_and_operator, ast_expr_is_infix_op_fn_call, ast_expr_to_string);
@@ -516,7 +545,7 @@ export(make_err_expr, ast_expr_token, ast_expr_id, ast_expr_is_atom, ast_expr_is
 ast_expr_is_atom_of :: (fn(e : AstExpr, value : str) -> bool)(
   match(
     e,
-    .Atom(_, tok) => (tok.value == String.from(value)),
+    .Atom(_, tok) => (tok.value == value),
     .FnCall(_, _, _, _, _) => false
   )
 );
@@ -530,7 +559,7 @@ ast_expr_is_atom_of_any :: (fn(e : AstExpr, values : ArrayList(str)) -> bool)(
       i := usize(0);
       while(i < n, {
         v := match(values.get(i),.Some(s) => s,.None => "~unreachable~");
-        if(tok.value == String.from(v), {
+        if(tok.value == v, {
           return(true);
         });
         i = (i + usize(1));
@@ -549,8 +578,8 @@ ast_expr_is_fn_call_of :: (fn(e : AstExpr, func_name : str, arg_count : Option(u
     .Atom(_, _) => false,
     .FnCall(_, func_box, args, _, _) => {
       func_name_matches := match(
-        func_box.*,
-        .Atom(_, tok) => (tok.value == String.from(func_name)),
+        func_box,
+        .Atom(_, tok) => (tok.value == func_name),
         .FnCall(_, _, _, _, _) => false
       );
       if(!(func_name_matches), {
@@ -574,14 +603,14 @@ ast_expr_is_fn_call_of_any :: (fn(e : AstExpr, func_names : ArrayList(str), arg_
     .Atom(_, _) => false,
     .FnCall(_, func_box, args, _, _) => {
       func_name_in_list := match(
-        func_box.*,
+        func_box,
         .Atom(_, tok) => {
           n := func_names.len();
           i := usize(0);
           found := false;
           while(i < n, {
             v := match(func_names.get(i),.Some(s) => s,.None => "~unreachable~");
-            if(tok.value == String.from(v), {
+            if(tok.value == v, {
               found = true;
               return(found);
             });
@@ -620,7 +649,7 @@ exprs_are_equal :: (fn(e1 : AstExpr, e2 : AstExpr) -> bool)(
       e2,
       .Atom(_, _) => false,
       .FnCall(_, func2, args2, _, _) => {
-        if(!(recur(func1.*, func2.*)), {
+        if(!(recur(func1, func2)), {
           return(false);
         });
         n1 := args1.len();
@@ -656,13 +685,13 @@ is_function_boundary_arrow :: (fn(e : AstExpr) -> bool)(
     e,
     .Atom(_, _) => false,
     .FnCall(_, func_box, _, _, _) => match(
-      func_box.*,
+      func_box,
       .Atom(_, tok) => {
         v := tok.value.clone();
         (v == "->") || ((v == "=>") || (v == "=>>"))
       },
       .FnCall(_, inner_func_box, _, _, _) => match(
-        inner_func_box.*,
+        inner_func_box,
         .Atom(_, inner_tok) => {
           iv := inner_tok.value.clone();
           (iv == BK_FN) || ((iv == BK_UNSAFE_FN) || ((iv == BK_CTL) || (iv == BK_FN_TRAIT)))
@@ -679,10 +708,10 @@ is_function_boundary_arrow :: (fn(e : AstExpr) -> bool)(
 ///
 // `evaluated_body_contains_unwind` and `expr_tree_contains_return` were
 // relocated to `./expr_traversal.yo` (mirrors `src/expr-traversal.ts`).
-export(BK_FN, BK_UNSAFE_FN, BK_CTL, BK_FN_TRAIT, BK_ATOMIC, BK_OBJECT, BK_STRUCT, BK_NEWTYPE, BK_ENUM, BK_UNION);
-export(BK_MODULE, BK_TRAIT, BK_IMPL_UPPER, BK_IMPL_LOWER, BK_PTR, BK_ISO);
+export(BK_FN, BK_UNSAFE_FN, BK_CTL, BK_FN_TRAIT, BK_ATOMIC, BK_STRUCT, BK_NEWTYPE, BK_ENUM, BK_UNION);
+export(BK_TRAIT, BK_IMPL_UPPER, BK_IMPL_LOWER, BK_PTR, BK_ISO);
 export(BK_COMPTIME_LIST_TYPE, BK_FUTURE, BK_CONCRETE, BK_DYN_UPPER, BK_DYN_LOWER);
-export(BK_OP_AND, BK_OP_OR, BK_QUOTE, BK_GENSYM, BK_COMPTIME_LIST_VAL, BK_REF);
+export(BK_OP_AND, BK_OP_OR, BK_QUOTE, BK_GENSYM, BK_COMPTIME_LIST_VAL, BK_REF, BK_INOUT);
 export(BF_COMPTIME_ASSERT, BF_COMPTIME_FN, BF_COMPTIME_PRINT, BF_COMPTIME_EXPECT_ERROR, BF_COMPTIME_EVAL);
 export(BF_PANIC, BF_ASM, BF_GLOBAL_ASM, BF_MACRO_EXPAND, BF_CONSUME, BF_DROP, BF_DUP, BF_VA_START);
 export(BF_REQUIRES, BF_ENSURES, BF_INVARIANT, BF_GHOST, BF_GHOST_FN, BF_OLD);
@@ -691,7 +720,7 @@ export(BF_ADDRESS_OF, BF_ARRAY_FILL, BF_DERIVE, BF_DERIVE_RULE, BF_RC, BF_THE, B
 export(BF_YO_DECR_RC, BF_YO_INCR_RC, BF_YO_DECR_RC_ATOMIC, BF_YO_INCR_RC_ATOMIC);
 export(BF_YO_ISO_EXTRACT, BF_YO_ISO_DISPOSE, BF_YO_DROP_ARRAY_ELEMENT, BF_YO_DUP_ARRAY_ELEMENT);
 export(BF_YO_DROP_TUPLE_ELEMENT, BF_YO_DUP_TUPLE_ELEMENT, BF_YO_RC_OWN);
-export(BF_YO_DYN_DROP, BF_YO_DYN_DUP, BF_YO_SOMETYPE_DROP, BF_YO_SOMETYPE_DUP, BF_YO_GC_COLLECT);
+export(BF_YO_DYN_DROP, BF_YO_DYN_DUP, BF_YO_SOMETYPE_DROP, BF_YO_SOMETYPE_DUP, BF_YO_GC_COLLECT, BF_YO_GC_TRACE_CHILD);
 export(BF_YO_OP_ADD, BF_YO_OP_SUB, BF_YO_OP_MUL, BF_YO_OP_DIV, BF_YO_OP_MOD, BF_YO_OP_NEG);
 export(BF_YO_OP_EQ, BF_YO_OP_NEQ, BF_YO_OP_LT, BF_YO_OP_LTE, BF_YO_OP_GT, BF_YO_OP_GTE);
 export(BF_YO_OP_NOT, BF_YO_OP_BIT_AND, BF_YO_OP_BIT_OR, BF_YO_OP_BIT_XOR);
@@ -700,6 +729,8 @@ export(BF_YO_NOOP, BF_YO_RETURN_SELF, BF_YO_MS_SLEEP);
 export(BF_YO_PTR_ADD, BF_YO_PTR_SUB, BF_YO_PTR_DIFF);
 export(BF_YO_PTR_EQ, BF_YO_PTR_NEQ, BF_YO_PTR_LT, BF_YO_PTR_LTE, BF_YO_PTR_GT, BF_YO_PTR_GTE);
 export(BF_YO_SLICE_LEN, BF_YO_SLICE_PTR);
+export(BF_YO_STR_FROM_RAW_PARTS, BF_YO_STR_LEN, BF_YO_STR_PTR, BF_YO_STR_BYTE);
+export(BF_YO_BORROW_ASSERT_UNBORROWED);
 export(BF_YO_GETRANDOM, BF_YO_ARC4RANDOM_BUF, BF_YO_BCRYPT_GEN_RANDOM, BF_YO_GETENTROPY);
 export(BF_YO_ARRAY_INDEX, BF_YO_MAYBE_UNINIT_ASSUME_INIT);
 export(BF_YO_AS, BF_YO_SLICE_NEW, BF_YO_MAYBE_UNINIT_NEW, BF_YO_MAYBE_UNINIT_AS_PTR);
@@ -851,3 +882,44 @@ export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);
 export(is_function_boundary_arrow);
 export(alloc_global_expr_id, clone_expr_fresh_ids);
+/// Wrap `body` in a synthetic `begin(body)` call when it is not already a
+/// `begin(...)` node. Mirrors TS's function-body evaluation, which ALWAYS
+/// routes through `evaluateBeginExpression` (anonymous-function.ts:829) whose
+/// implicit single-expression wrap (begin.ts:1016-1045) gives even a
+/// bare-atom body the begin machinery — in particular the begin-tail
+/// ownership pass, so a borrowed-param tail like `to_string : (...)(self)`
+/// receives its balancing ___dup. yo-self's def-time trials route through
+/// the expression DISPATCHER (a direct begin.yo import from values/ would
+/// close an import cycle), so the wrap happens here at the AST level; a
+/// curly body is already a begin call and passes through untouched.
+wrap_body_in_begin :: (fn(body : AstExpr) -> AstExpr)({
+  // Narrow to bare-ATOM and bare FIELD-ACCESS (2-arg `.`) bodies: a curly
+  // body IS a begin; a general call body's result flows through the call's
+  // ExprInfo, and wrapping closure call bodies perturbed the async closure
+  // result-refine pipeline (io_async corpus). But an atom tail
+  // (`(...)(self)`) AND a bare field-access tail (`(fn(p : Pair) ->
+  // Krate)(p.inner)`) both return a BORROWED value and miss the begin-tail
+  // ownership pass without the wrap — the field case emitted no balancing
+  // ___dup, so the caller's scope drop over-dropped the field (round-3
+  // borrowed-field-tail UAF; TS anonymous-function.ts:829 always routes
+  // through evaluateBeginExpression). Method-call bodies (`x.f()`) are NOT
+  // 2-arg dot calls (their func is the dot) and stay unwrapped.
+  is_bare_field_access := ast_expr_is_fn_call_of(body, BF_DOT, Option(usize).Some(usize(2)));
+  if(!(ast_expr_is_atom(body) || is_bare_field_access), {
+    return(body);
+  });
+  tok := ast_expr_token(body);
+  begin_tok := Token(
+    kind : TokenKind.Identifier,
+    value : String.from(BK_BEGIN),
+    row : tok.row,
+    column : tok.column,
+    character : tok.character,
+    module_path : tok.module_path,
+    input : tok.input
+  );
+  args := ArrayList(AstExpr).new();
+  args.push(body);
+  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), begin_tok.clone()), args, false, begin_tok)
+});
+export(wrap_body_in_begin);

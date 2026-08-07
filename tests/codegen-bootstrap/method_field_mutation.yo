@@ -1,0 +1,15 @@
+pragma(Pragma.AllowUnsafe);
+{ putchar } :: import("std/libc/stdio");
+Pair :: ref(struct(a : i32, b : i32));
+impl(
+  Pair,
+  bump : (fn(self : Self) -> unit)({
+    self.a = (self.a + i32(1));
+  })
+);
+main :: (fn() -> unit)({
+  p := Pair(a : i32(64), b : i32(0));
+  p.bump();
+  unsafe(putchar(int(p.a)));
+});
+export(main);

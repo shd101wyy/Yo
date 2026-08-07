@@ -1,0 +1,44 @@
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+open(import("std/collections/array_list"));
+CountIter :: struct(_count : i32, _max : i32);
+impl(
+  CountIter,
+  Iterator(
+    Item : i32,
+    next : (fn(inout(self) : Self) -> Option(i32))(
+      cond(
+        (self._count >= self._max) =>.None,
+        true => {
+          val := self._count;
+          self._count = (self._count + i32(1));
+          .Some(val)
+        }
+      )
+    )
+  )
+);
+main :: (fn() -> unit)({
+  it := CountIter(i32(1), i32(4)).map(x => (x * i32(2)));
+  out := ArrayList(i32).new();
+  while(runtime(true), {
+    match(
+      it.next(),
+      .Some(v) => {
+        out.push(v);
+        ()
+      },
+      .None => {
+        break;
+        ()
+      }
+    );
+    ()
+  });
+  assert(out.len() == usize(3), "3 elements");
+  assert(out(usize(0)) == i32(2), "1*2");
+  assert(out(usize(1)) == i32(4), "2*2");
+  assert(out(usize(2)) == i32(6), "3*2");
+  ()
+});
+export(main);

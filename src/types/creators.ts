@@ -770,7 +770,11 @@ export function createTraitType(env: Environment): TraitType {
   return traitType;
 }
 
-export function createEnumType(env: Environment): EnumType {
+export function createEnumType(
+  env: Environment,
+  isReferenceSemantics: boolean = false,
+  isAtomicRc: boolean = false
+): EnumType {
   const trait = createTraitType(env);
 
   const enumType: EnumType = {
@@ -779,6 +783,8 @@ export function createEnumType(env: Environment): EnumType {
     variants: [],
     trait,
     env,
+    isReferenceSemantics,
+    isAtomicRc: isAtomicRc || undefined,
   };
 
   trait.receiverType = enumType;

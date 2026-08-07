@@ -13,10 +13,15 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_set }
-:: import("../../expr_info.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_set,
+  expr_info_paths_for_write,
+  expr_info_set_origin_type
+} :: import("../../expr_info.yo");
 { Token, string_is_operator } :: import("../../token.yo");
-{ Environment, Variable, get_variables_from_env } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, find_variable_in_env, find_variable_in_env_at } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage }
 :: import("../context.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -51,41 +56,78 @@ evaluate_identifier_and_operator :: (
   // Built-in type keywords
   // Match identifier to a TypeValue. If matched, build the ExprInfo
   // (value = TypeVal(ty), meta-type = Type(0)) and return immediately.
+  // PERF: grouped by LENGTH — the former flat 33-arm chain issued up to
+  // 33 `String == str` CALLS on EVERY identifier eval (nearly always
+  // all-miss; a top self-time entry of the stage2-emit `sample`). One
+  // numeric len() gate first, then at most 9 compares in the worst
+  // bucket. (A hashed map was tried and MEASURED 26% SLOWER end-to-end:
+  // hashing every identifier costs more than length-first rejections —
+  // see the handoff perf section.)
   // ------------------------------------------------------------------
+  id_len := identifier.len();
   type_kw_opt := cond(
-    (identifier == "Type") => Option(TypeValue).Some(t_type()),
-    (identifier == "Module") => Option(TypeValue).Some(t_type_1()),
-    (identifier == "Trait") => Option(TypeValue).Some(t_type_1()),
-    (identifier == "unit") => Option(TypeValue).Some(t_unit()),
-    (identifier == "comptime_int") => Option(TypeValue).Some(t_comptime_int()),
-    (identifier == "comptime_float") => Option(TypeValue).Some(t_comptime_float()),
-    (identifier == "comptime_str") => Option(TypeValue).Some(t_comptime_string()),
-    (identifier == "str") => Option(TypeValue).Some(t_str()),
-    (identifier == "bool") => Option(TypeValue).Some(t_bool()),
-    (identifier == "usize") => Option(TypeValue).Some(t_usize()),
-    (identifier == "isize") => Option(TypeValue).Some(t_isize()),
-    (identifier == "u8") => Option(TypeValue).Some(t_u8()),
-    (identifier == "i8") => Option(TypeValue).Some(t_i8()),
-    (identifier == "u16") => Option(TypeValue).Some(t_u16()),
-    (identifier == "i16") => Option(TypeValue).Some(t_i16()),
-    (identifier == "u32") => Option(TypeValue).Some(t_u32()),
-    (identifier == "i32") => Option(TypeValue).Some(t_i32()),
-    (identifier == "u64") => Option(TypeValue).Some(t_u64()),
-    (identifier == "i64") => Option(TypeValue).Some(t_i64()),
-    (identifier == "f32") => Option(TypeValue).Some(t_f32()),
-    (identifier == "f64") => Option(TypeValue).Some(t_f64()),
-    (identifier == "char") => Option(TypeValue).Some(t_c_char()),
-    (identifier == "short") => Option(TypeValue).Some(t_c_short()),
-    (identifier == "ushort") => Option(TypeValue).Some(t_c_ushort()),
-    (identifier == "int") => Option(TypeValue).Some(t_c_int()),
-    (identifier == "uint") => Option(TypeValue).Some(t_c_uint()),
-    (identifier == "long") => Option(TypeValue).Some(t_c_long()),
-    (identifier == "ulong") => Option(TypeValue).Some(t_c_ulong()),
-    (identifier == "longlong") => Option(TypeValue).Some(t_c_longlong()),
-    (identifier == "ulonglong") => Option(TypeValue).Some(t_c_ulonglong()),
-    (identifier == "longdouble") => Option(TypeValue).Some(t_c_longdouble()),
-    (identifier == "void") => Option(TypeValue).Some(t_void()),
-    (identifier == "Expr") => Option(TypeValue).Some(t_expr_t()),
+    (id_len == usize(3)) => cond(
+      (identifier == "str") => Option(TypeValue).Some(t_str()),
+      (identifier == "i32") => Option(TypeValue).Some(t_i32()),
+      (identifier == "u32") => Option(TypeValue).Some(t_u32()),
+      (identifier == "u64") => Option(TypeValue).Some(t_u64()),
+      (identifier == "i64") => Option(TypeValue).Some(t_i64()),
+      (identifier == "u16") => Option(TypeValue).Some(t_u16()),
+      (identifier == "i16") => Option(TypeValue).Some(t_i16()),
+      (identifier == "f32") => Option(TypeValue).Some(t_f32()),
+      (identifier == "f64") => Option(TypeValue).Some(t_f64()),
+      (identifier == "int") => Option(TypeValue).Some(t_c_int()),
+      true => Option(TypeValue).None
+    ),
+    (id_len == usize(4)) => cond(
+      (identifier == "Type") => Option(TypeValue).Some(t_type()),
+      (identifier == "unit") => Option(TypeValue).Some(t_unit()),
+      (identifier == "bool") => Option(TypeValue).Some(t_bool()),
+      (identifier == "char") => Option(TypeValue).Some(t_c_char()),
+      (identifier == "uint") => Option(TypeValue).Some(t_c_uint()),
+      (identifier == "long") => Option(TypeValue).Some(t_c_long()),
+      (identifier == "void") => Option(TypeValue).Some(t_void()),
+      (identifier == "Expr") => Option(TypeValue).Some(t_expr_t()),
+      true => Option(TypeValue).None
+    ),
+    (id_len == usize(5)) => cond(
+      (identifier == "usize") => Option(TypeValue).Some(t_usize()),
+      (identifier == "isize") => Option(TypeValue).Some(t_isize()),
+      (identifier == "Trait") => Option(TypeValue).Some(t_type_1()),
+      (identifier == "short") => Option(TypeValue).Some(t_c_short()),
+      (identifier == "ulong") => Option(TypeValue).Some(t_c_ulong()),
+      true => Option(TypeValue).None
+    ),
+    (id_len == usize(2)) => cond(
+      (identifier == "u8") => Option(TypeValue).Some(t_u8()),
+      (identifier == "i8") => Option(TypeValue).Some(t_i8()),
+      true => Option(TypeValue).None
+    ),
+    (id_len == usize(6)) => cond(
+      (identifier == "ushort") => Option(TypeValue).Some(t_c_ushort()),
+      true => Option(TypeValue).None
+    ),
+    (id_len == usize(8)) => cond(
+      (identifier == "longlong") => Option(TypeValue).Some(t_c_longlong()),
+      true => Option(TypeValue).None
+    ),
+    (id_len == usize(9)) => cond(
+      (identifier == "ulonglong") => Option(TypeValue).Some(t_c_ulonglong()),
+      true => Option(TypeValue).None
+    ),
+    (id_len == usize(10)) => cond(
+      (identifier == "longdouble") => Option(TypeValue).Some(t_c_longdouble()),
+      true => Option(TypeValue).None
+    ),
+    (id_len == usize(12)) => cond(
+      (identifier == "comptime_int") => Option(TypeValue).Some(t_comptime_int()),
+      (identifier == "comptime_str") => Option(TypeValue).Some(t_comptime_string()),
+      true => Option(TypeValue).None
+    ),
+    (id_len == usize(14)) => cond(
+      (identifier == "comptime_float") => Option(TypeValue).Some(t_comptime_float()),
+      true => Option(TypeValue).None
+    ),
     true => Option(TypeValue).None
   );
   match(
@@ -144,44 +186,24 @@ evaluate_identifier_and_operator :: (
   // Variable lookup
   // ------------------------------------------------------------------
   identifier_string := token.value;
-  variables := get_variables_from_env(env, identifier_string);
-  if(variables.len() == usize(0), {
-    // Unresolved OPERATOR names keep the soft fallback: prelude pre-load
-    // hits this for operator-trait names like `==` (bound to
-    // `impl({...})` in a way the bootstrap's lookup can't yet resolve).
-    // Tracked in `issues/yo-self-evaluator-gaps.md`.
-    if(string_is_operator(identifier_string.clone()), {
-      fallback_info := new_expr_info(env, t_unit());
-      fallback_info.value = Option(EvalValue).Some(create_unknown_val(t_unit()));
-      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), fallback_info);
-      return(expr);
-    });
-    // Ordinary identifiers throw, mirroring TS `Variable "X" not found.`
-    // (env-lookup error). The previous unconditional soft fallback let
-    // `ref(i32)` in expression position evaluate to unknown-unit and the
-    // surrounding type application succeed — tests/ref_return.test.yo's
-    // comptime_expect_error then saw no error.
-    exn.throw(
-      dyn(
-        format_error_message(
-          token,
-          `Variable "${identifier_string}" not found.`,
-          false,
-          Option(ErrorKind).None
-        )
-      )
-    );
-    return(expr);
-  });
+  found_frame_idx_out := ArrayList(usize).new();
   variable := match(
-    variables.get(variables.len() - usize(1)),
+    find_variable_in_env_at(env, identifier_string, found_frame_idx_out),
     .Some(v) => v,
     .None => {
+      // Unresolved OPERATOR names keep the soft fallback.
+      if(string_is_operator(identifier_string.clone()), {
+        fallback_info := new_expr_info(env, t_unit());
+        fallback_info.value = Option(EvalValue).Some(create_unknown_val(t_unit()));
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), fallback_info);
+        return(expr);
+      });
+      // Ordinary identifiers throw.
       exn.throw(
         dyn(
           format_error_message(
             token,
-            (String.from("Variable \"") + identifier_string) + String.from("\" not found (internal)."),
+            `Variable "${identifier_string}" not found.`,
             false,
             Option(ErrorKind).None
           )
@@ -192,7 +214,7 @@ evaluate_identifier_and_operator :: (
   );
   // Check initialization (unless it's a function type or type value — mutual recursion)
   if((variable.initialized_at_token == Option(Token).None) && throw_error_on_undefined, {
-    if(!(is_function_type(variable.ty) || is_type_value(variable.value)), {
+    if(!(is_function_type(variable.ty) || is_type_value(variable.value.get(usize(0)))), {
       exn.throw(
         dyn(
           format_error_message(
@@ -209,17 +231,17 @@ evaluate_identifier_and_operator :: (
   // Treat them as runtime values so operators like | use runtime BitOr.
   // NOTE: `is_extern` is not yet ported to yo-self; skip this special-case
   // and always use the variable's compile-time value.
-  resolved_value := variable.value;
+  resolved_value := variable.value.get(usize(0));
   // Build ExprInfo
   info := new_expr_info(env, variable.ty);
   info.value = resolved_value;
-  info.origin_type = Option(TypeValue).Some(variable.ty);
+  expr_info_set_origin_type(info, Option(TypeValue).Some(variable.ty));
   info.variable_name = Option(String).Some(variable.name);
   info.source_variable = Option(Variable).Some(variable);
   // Add [[variable.name]] to path_collection
   name_path := ArrayList(String).new();
   name_path.push(variable.name);
-  info.path_collection.push(name_path);
+  expr_info_paths_for_write(info).push(name_path);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   // ------------------------------------------------------------------
   // Closure capture tracking — function body
@@ -234,10 +256,54 @@ evaluate_identifier_and_operator :: (
             ctx.captured_variables,
             .Some(_) => {
               closure_frame_level := sub_ctx.eval_env.frame_count();
-              if(variable.frame_level < closure_frame_level, {
+              // Generation-safe INNER test: `variable.frame_level` is stamped
+              // at the variable's CREATION env — for the enclosing fn's
+              // PARAMS that is a DEEP call-time generation, so comparing it
+              // against THIS eval's shallow frame count wrongly classified
+              // them as inner and never tracked them (the dyn+Impl(Fn)
+              // capture loss, issues/repros/dyn-closure-implfn-capture-loss
+              // .yo: params dropped, same-generation locals kept). A
+              // variable is inner iff its NAME is bound within the closure's
+              // OWN frames (frames at/above closure_frame_level in the
+              // CURRENT env — same generation by construction: the
+              // FunctionBody ctx is created with the very env the body
+              // evaluates in). Names not bound there are outer → captured.
+              // Inner iff the name is bound within the closure's OWN frames.
+              // Under innermost-first resolution that is EXACTLY "the frame
+              // the lookup found it at is >= closure_frame_level" — the
+              // index find_variable_in_env_at already recovered. The former
+              // per-identifier frames x vars name RESCAN here was a top
+              // self-time entry of the stage2-emit `sample` (with its
+              // String == calls the #2 entry).
+              (cap_is_inner : bool) = false;
+              match(
+                found_frame_idx_out.get(usize(0)),
+                .Some(cap_found_fi) => if(cap_found_fi >= closure_frame_level, {
+                  cap_is_inner = true;
+                }),
+                .None => ()
+              );
+              if(!(cap_is_inner) && (variable.frame_level < closure_frame_level), {
                 track_variable_usage(
                   variable.name,
                   variable.frame_level,
+                  CaptureUsage.Own,
+                  token,
+                  ctx
+                );
+              });
+              if(!(cap_is_inner) && (variable.frame_level >= closure_frame_level), {
+                // Cross-generation outer variable (stamped deeper than this
+                // eval's frames): record it with a level INSIDE the current
+                // generation so the enrichment/access-rewriting math stays
+                // in range.
+                (cap_rec_level : usize) = usize(0);
+                if(closure_frame_level > usize(0), {
+                  cap_rec_level = (closure_frame_level - usize(1));
+                });
+                track_variable_usage(
+                  variable.name,
+                  cap_rec_level,
                   CaptureUsage.Own,
                   token,
                   ctx

@@ -26,10 +26,16 @@ export function evaluateEnumType({
   expr,
   env,
   context,
+  forceReferenceSemantics = false,
+  isAtomicRc = false,
 }: {
   expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
+  // `ref(enum(…))` / `atomic(ref(enum(…)))` evaluate the inner `enum(…)` literal
+  // with reference semantics (plans/REF_REFERENCE_SEMANTICS.md Phase 3).
+  forceReferenceSemantics?: boolean;
+  isAtomicRc?: boolean;
 }): FnCallExpr {
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.enum)) {
     throw formatErrorMessage({
@@ -39,7 +45,7 @@ export function evaluateEnumType({
   }
 
   // Create enumType with empty variants
-  const enumType = createEnumType(env);
+  const enumType = createEnumType(env, forceReferenceSemantics, isAtomicRc);
   addRcFunctionSignaturesToEnumType({ enumType, env, context });
 
   // Set the definedInModulePath for orphan rule checks.

@@ -1,4 +1,5 @@
 pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
 open(import("std/libc/stdio"));
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
@@ -45,8 +46,10 @@ test("Test 'rc' function", {
   };
 });
 test("Test explicit return and implicit return", {
-  Foo :: object(
-    data : Box(i32)
+  Foo :: ref(
+    struct(
+      data : Box(i32)
+    )
   );
   impl(
     Foo,
@@ -279,7 +282,7 @@ test("Test ArrayList index access - no RC leak", {
   };
 });
 test("Test array of objects - no RC leak", {
-  Container :: object(value : i32);
+  Container :: ref(struct(value : i32));
   // Inline access to array of objects
   {
     c1 := Container(i32(1));
@@ -403,4 +406,203 @@ test("Test early return of reassigned RC variable does not leak", {
   assert(s.len() == usize(11), "result should be 'hello world' (11 chars)");
   // If the RC is wrong (leak), ASAN will report it.
   assert(rc(s) == 1, "rc(s) should be 1 after early return");
+});
+test("Returning an OWNED RC local from inside a branch is not double-dropped", {
+  // The `return(out)` below dups `out` for the caller (rc 1 -> 2) and the
+  // early-return path must release the local exactly once (2 -> 1). Codegen
+  // used to emit that release TWICE — once from the return's
+  // earlyReturnOnlyDeferredDropExpressions and again from the consumed-var
+  // escape drops — so rc hit 0, the buffer was freed, and the caller received a
+  // dangling pointer. See issues/fixed/yo-return-owned-local-in-branch-double-drop.md.
+  build :: (fn(early : bool) -> ArrayList(i32))({
+    out := ArrayList(i32).new();
+    if(early, {
+      out.push(i32(7));
+      return(out);
+    });
+    out.push(i32(2));
+    out.push(i32(3));
+    out
+  });
+  a := build(true);
+  assert(a.len() == usize(1), "early-return branch should yield 1 element");
+  assert(a(usize(0)) == i32(7), "the surviving element should be 7");
+  assert(rc(a) == 1, "rc(a) should be 1 — dup for the caller, one release of the local");
+  b := build(false);
+  assert(b.len() == usize(2), "fallthrough should yield 2 elements");
+  assert(b(usize(0)) == i32(2), "b(0) should be 2");
+  assert(b(usize(1)) == i32(3), "b(1) should be 3");
+  assert(rc(b) == 1, "rc(b) should be 1");
+});
+// --- Inline `ref(enum)` payload-free variant construction ---
+// Regression for issues/fixed/ref-enum-unit-variant-inline-construction-leak.md.
+//
+// A payload-free variant of a `ref(enum)` heap-allocates exactly like the
+// payload-carrying form — codegen emits `__yo_new_<Enum>_<Variant>()`, which
+// mallocs with ref_count = 1 — but the evaluator never attached an owning temp
+// variable to it, so nothing was ever registered to drop the allocation.
+// Passing one inline as an argument leaked it once per evaluation: the callee
+// treats the parameter as borrowed and dups whatever it retains, so the
+// constructor's own +1 was never released. LeakSanitizer caught this in
+// tests/internal/context.test.yo, where `EvalValue.UnitVal` is passed inline to
+// create_function_body_evaluation_context.
+//
+// The `rc()` assertions are the deterministic gate. The argument temp is
+// released at `mk_*`'s scope end, so a caller reading the retained field
+// afterwards sees rc == 1 when the release happened and rc == 2 when it leaked.
+// That holds on every platform, unlike LeakSanitizer (Linux only) or macOS
+// `leaks` (at -O2, LLVM deletes an allocation whose result is discarded, which
+// hides exactly the non-argument positions covered by the second test).
+//
+// `mk_unit` / `mk_payload` use bare tail-expression bodies, so this test also
+// gates the bare-tail scope-end drop: the self-hosted compiler used to emit no
+// drop at all for the argument temp of a bare tail-expression body (both arms
+// reported rc == 2 under it even though TS emitted the drop) — see
+// issues/fixed/yo-self-tail-expression-arg-temp-drop-missing.md.
+test("Inline ref-enum unit-variant argument is released by the caller", {
+  Val :: ref(enum(UnitVal, IntVal(v : i32)));
+  Held :: struct(v : Val);
+  keep :: (fn(x : Val) -> Held)(Held(v : x));
+  mk_unit :: (fn() -> Held)(keep(Val.UnitVal));
+  mk_payload :: (fn() -> Held)(keep(Val.IntVal(v : i32(7))));
+  u := mk_unit();
+  assert(rc(u.v) == 1, "payload-free variant: the caller must release its argument temp");
+  p := mk_payload();
+  assert(rc(p.v) == 1, "payload-carrying variant: unchanged");
+  // A direct binding must TRANSFER ownership of the temp, not add a second owner.
+  a := Val.UnitVal;
+  assert(rc(a) == 1, "binding a unit variant owns exactly one reference");
+  // Struct-literal field: the aggregate takes the allocation by move.
+  h := Held(v : Val.UnitVal);
+  assert(rc(h.v) == 1, "struct-literal field takes the unit variant by move");
+});
+test("Inline ref-enum unit-variant in non-argument positions does not leak", {
+  Val :: ref(enum(UnitVal, IntVal(v : i32)));
+  is_unit :: (fn(x : Val) -> bool)(
+    match(
+      x,
+      .UnitVal => true,
+      .IntVal(v) => false
+    )
+  );
+  // Discarded statement expression.
+  Val.UnitVal;
+  // Match subject.
+  match(Val.UnitVal,.UnitVal => (),.IntVal(v) => ());
+  // Condition and short-circuit operand positions, inside a loop so a
+  // per-iteration leak accumulates instead of costing one object.
+  (i : usize) = usize(0);
+  while(i < usize(3), {
+    c := cond(is_unit(Val.UnitVal) => true, true => false);
+    assert(c, "cond condition");
+    b := (is_unit(Val.UnitVal) && is_unit(Val.IntVal(v : i32(1))));
+    assert(!(b), "short-circuit operands");
+    i = (i + usize(1));
+  });
+  // Enum-payload position: the outer variant takes the inner one by move.
+  o := Option(Val).Some(Val.UnitVal);
+  assert(
+    match(
+      o,
+      .Some(v) => is_unit(v),
+      .None => false
+    ),
+    "Option payload"
+  );
+});
+// Regression: a local dup'd inside ONE arm of an `if` (a macro expanding to
+// cond) must keep its scope-end drop. The dup/drop pair optimizer used to
+// reach the arm's dup through the raw macro-call args (branch-blind), cancel
+// the pair, and mark the variable consumed — leaking one reference on every
+// path that did not take the arm (issues/fixed/where-constraints-arraylist-96b-leak.md).
+CondMoveHolder :: struct(items : ArrayList(i32));
+g_cond_move_seen := ArrayList(ArrayList(i32)).new();
+cond_move_make_fresh :: (fn() -> ArrayList(i32))({
+  l := ArrayList(i32).new();
+  g_cond_move_seen.push(l);
+  l
+});
+cond_move_work :: (fn(flag : bool) -> unit)({
+  entries := cond_move_make_fresh();
+  if(flag, {
+    h := CondMoveHolder(items : entries);
+    assert(h.items.len() == usize(0), "held list is empty");
+  });
+});
+test("Conditional move into a struct field balances both paths", {
+  cond_move_work(true);
+  cond_move_work(false);
+  taken := match(g_cond_move_seen.get(usize(0)),.Some(l) => l,.None => ArrayList(i32).new());
+  skipped := match(g_cond_move_seen.get(usize(1)),.Some(l) => l,.None => ArrayList(i32).new());
+  assert(
+    rc(taken) == rc(skipped),
+    "skipped-branch call must not retain an extra reference"
+  );
+});
+// Regression: the loop-traversal borrow-chain optimization
+// (optimizeLoopTraversalBorrowChain) must NOT fire when the loop body
+// mutates the structure it traverses. Severing head.next while current_opt
+// borrowed the severed sublist freed the nodes mid-walk — the traversal then
+// read freed memory and visited garbage (use-after-free, found 2026-08-06).
+TraversalNode :: ref(struct(value : i32, next : Option(Self)));
+traversal_walk_with_sever :: (fn(head : TraversalNode) -> i32)({
+  (current_opt : Option(TraversalNode)) = head.next;
+  (first : bool) = true;
+  (total : i32) = 0;
+  while(runtime(true), {
+    match(
+      current_opt,
+      .None => return(total),
+      .Some(current) => {
+        if(first, {
+          first = false;
+          head.next = Option(TraversalNode).None;
+        });
+        total = (total + current.value);
+        current_opt = current.next;
+      }
+    );
+  });
+  total
+});
+test("Loop traversal keeps ownership when the loop mutates the structure", {
+  head := TraversalNode(
+    value : 1,
+    next : Option(TraversalNode).Some(
+      TraversalNode(
+        value : 2,
+        next : Option(TraversalNode).Some(TraversalNode(value : 3, next : Option(TraversalNode).None))
+      )
+    )
+  );
+  assert(
+    traversal_walk_with_sever(head) == 5,
+    "severed traversal must still visit nodes 2 and 3 (owned, not borrowed)"
+  );
+});
+// Regression: a fn whose ENTIRE body is a bare `___ := <owned value>`
+// statement. The self-hosted compiler once flushed the body-level deferred
+// drops BEFORE the statement, emitting `___drop(___)` against a binding not
+// yet declared in C — the emitted program failed to compile (`use of
+// undeclared identifier '___'`), and reordering must still drop the
+// discarded value (issues/fixed/yo-self-tail-expression-arg-temp-drop-missing.md,
+// follow-up commit).
+g_discard_seen := ArrayList(ArrayList(i32)).new();
+discard_make_tracked :: (fn() -> ArrayList(i32))({
+  l := ArrayList(i32).new();
+  g_discard_seen.push(l);
+  l
+});
+discard_stmt_body :: (fn() -> unit)(___ := discard_make_tracked());
+test("Bare discard-statement fn body compiles and drops the discarded value", {
+  discard_stmt_body();
+  survivor := match(g_discard_seen.get(usize(0)),.Some(l) => l,.None => ArrayList(i32).new());
+  // rc = 3: the g_discard_seen element, the match-arm extraction, and
+  // `survivor` itself. Before the fix the discarded value kept a 4th ref
+  // (and, under the self-hosted compiler, this file did not even compile —
+  // `use of undeclared identifier '___'`).
+  assert(
+    rc(survivor) == 3,
+    "discarded value must be dropped (rc 3, not 4)"
+  );
 });

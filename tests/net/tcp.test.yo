@@ -1,6 +1,7 @@
 pragma(Pragma.SkipWasm32Emscripten); // no network stack in WASM (TCP sockets unavailable)
 pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM (TCP sockets unavailable)
 pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
 open(import("std/libc/stdio"));
 { GlobalAllocator } :: import("std/allocator");
 { malloc, free } :: GlobalAllocator;
@@ -91,11 +92,11 @@ test("TCP echo with write_str and read", {
   nr := io.await(server_stream.read(recv_buf, usize(256), io), IoExn(io : io, exn : exn));
   unsafe(printf("  received = %d\n", nr));
   assert(nr == i32(10), "should receive 10 bytes");
-  assert((recv_buf &+ usize(0)).* == u8(72), "H");
-  assert((recv_buf &+ usize(1)).* == u8(101), "e");
-  assert((recv_buf &+ usize(2)).* == u8(108), "l");
-  assert((recv_buf &+ usize(3)).* == u8(108), "l");
-  assert((recv_buf &+ usize(4)).* == u8(111), "o");
+  assert((recv_buf.add(usize(0))).* == u8(72), "H");
+  assert((recv_buf.add(usize(1))).* == u8(101), "e");
+  assert((recv_buf.add(usize(2))).* == u8(108), "l");
+  assert((recv_buf.add(usize(3))).* == u8(108), "l");
+  assert((recv_buf.add(usize(4))).* == u8(111), "o");
   free(.Some(*(void)(recv_buf)));
   io.await(server_stream.close(io), IoExn(io : io, exn : exn));
   io.await(client.close(io), IoExn(io : io, exn : exn));
@@ -156,10 +157,10 @@ test("TCP write_bytes", {
   nr := io.await(server_stream.read(recv_buf, usize(256), io), IoExn(io : io, exn : exn));
   unsafe(printf("  received = %d\n", nr));
   assert(nr == i32(4), "should receive 4 bytes");
-  assert((recv_buf &+ usize(0)).* == u8(1), "byte 0");
-  assert((recv_buf &+ usize(1)).* == u8(2), "byte 1");
-  assert((recv_buf &+ usize(2)).* == u8(3), "byte 2");
-  assert((recv_buf &+ usize(3)).* == u8(4), "byte 3");
+  assert((recv_buf.add(usize(0))).* == u8(1), "byte 0");
+  assert((recv_buf.add(usize(1))).* == u8(2), "byte 1");
+  assert((recv_buf.add(usize(2))).* == u8(3), "byte 2");
+  assert((recv_buf.add(usize(3))).* == u8(4), "byte 3");
   free(.Some(*(void)(recv_buf)));
   io.await(server_stream.close(io), IoExn(io : io, exn : exn));
   io.await(client.close(io), IoExn(io : io, exn : exn));

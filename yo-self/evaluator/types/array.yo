@@ -21,12 +21,13 @@ open(import("std/fmt"));
   BK_ARRAY
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, add_variable_to_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_array, t_array_var, t_usize } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
+{ random_id } :: import("../../utils.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -61,19 +62,6 @@ evaluate_array_type :: (
   );
   element_type_expr := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
   length_expr := match(args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
-  // `Array(T, _)` underscore length inference is NOT supported in the self-hosted compiler.
-  if(ast_expr_is_atom_of(length_expr, "_"), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(length_expr),
-          `Array length inference with "_" is not supported in the self-hosted compiler. Please specify the length explicitly, e.g. Array(i32, 10)`,
-          false,
-          .None
-        )
-      )
-    );
-  });
   // Evaluate the element type expression.
   evaluated_elem_type := evaluate_expression_raw(element_type_expr, env, ctx, exn);
   elem_type_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_elem_type));
@@ -110,7 +98,7 @@ evaluate_array_type :: (
     elem_type_info.value,
     .Some(v) => match(
       v,
-      .TypeVal(inner) => inner.*,
+      .TypeVal(inner) => inner,
       _ => {
         exn.throw(
           dyn(
@@ -140,6 +128,36 @@ evaluate_array_type :: (
     }
   );
   env_after_elem := elem_type_info.env;
+  // `Array(T, _)` — underscore length INFERENCE (TS array.ts:71-106): mint a
+  // UNIQUE placeholder variable name, bind it compile-time as an
+  // UnknownVal(usize) in the env, and record the name as the array type's
+  // `length_var` — the SAME variable-length representation the generic-impl
+  // `Array(T, U)` path below uses, so the existing synthesis machinery binds
+  // it from the value side (`Array(i32, _)(1, 2, 3)` → length 3) at match
+  // time. This replaces the former hard "not supported in the self-hosted
+  // compiler" throw, which emptied every batch main whose test file used
+  // `Array(T, _)` (the array-family hollow).
+  if(ast_expr_is_atom_of(length_expr, "_"), {
+    lp_name := `_array_length_${random_id(env_after_elem.module_path)}`;
+    _lp := add_variable_to_env(
+      env_after_elem,
+      lp_name.clone(),
+      t_usize(),
+      Option(EvalValue).Some(create_unknown_val(t_usize())),
+      true,
+      false,
+      false,
+      false,
+      ast_expr_token(length_expr)
+    );
+    u_array_type := t_array_var(child_type, lp_name);
+    u_val := create_type_value(u_array_type);
+    u_meta := type_of_type(u_array_type);
+    u_info := new_expr_info(env_after_elem, u_meta);
+    u_info.value = Option(EvalValue).Some(u_val);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), u_info);
+    return(expr);
+  });
   // Evaluate the length expression with expected type usize.
   old_expected := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_usize(), env : env_after_elem));
@@ -165,10 +183,10 @@ evaluate_array_type :: (
   );
   // Length type / value checks are best-effort under the bootstrap's
   // partial HKT support. The legacy strict checks fired on
-  // `forall(U : usize)` → `Array(T, U)` and on UnknownVal-fallback
+  // `generic(U : usize)` → `Array(T, U)` and on UnknownVal-fallback
   // shapes; silently accept and continue with `usize(0)` placeholder
   // (set further down). Tracked in §5b/§5c of the gap doc.
-  _ := len_info.ty;
+  len_info.ty;
   if(false, {
     exn.throw(
       dyn(
@@ -189,14 +207,14 @@ evaluate_array_type :: (
     .None => create_unknown_val(t_usize())
   );
   // Extract the usize value from the length expression. If the length is
-  // an `UnknownVal` (forall-bound, e.g. `Array(T, N)` with `N : usize` in
-  // a `forall(...)` parameter list), use `usize(0)` as a placeholder so
+  // an `UnknownVal` (generic-bound, e.g. `Array(T, N)` with `N : usize` in
+  // a `generic(...)` parameter list), use `usize(0)` as a placeholder so
   // the surrounding type expression can still be evaluated. The proper
   // representation of an abstract array length is tracked in
   // `issues/yo-self-evaluator-gaps.md` §5 (HKT) — until the Array variant
   // carries an EvalValue length, the placeholder is a deliberate
   // simplification: it lets prelude function signatures with HKT-style
-  // forall-bound lengths typecheck without segfaulting at this site.
+  // generic-bound lengths typecheck without segfaulting at this site.
   // Mirrors TS `evaluator/types/array.ts` which accepts any compile-time
   // value (including UnknownValue) and stores it in `ArrayType.length`.
   (len_is_var : bool) = false;
@@ -219,11 +237,11 @@ evaluate_array_type :: (
         usize(0) // unreachable
       }
     ),
-    .UnknownVal(_) => {
+    .UnknownVal(_, _) => {
       len_is_var = true;
       usize(0)
     },
-    // Any other value shape (TypeVal for forall-bound SomeT length,
+    // Any other value shape (TypeVal for generic-bound SomeT length,
     // VarRef, ...) is also an unresolved variable length.
     _ => {
       len_is_var = true;

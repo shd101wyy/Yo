@@ -1,0 +1,21 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ assert } :: import("std/assert");
+
+main :: (fn() -> unit)({
+  x := 1;
+  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(
+    box((y) => {
+      x = (x + y);
+      return(x);
+    })
+  );
+  closure2 := closure; // Test dup on closure
+  closure(1); // 2
+  closure2(1); // 3
+  result := closure(2); // 5
+  assert(x == 1, "Captured variable x should remain unchanged outside closure");
+  assert(result == 5, "Expected final result to be 5");
+  println(`ok`);
+});
+export(main);

@@ -1,6 +1,6 @@
 # Immutable Collections (`std/imm`)
 
-`std/imm` provides persistent, immutable collections built on `atomic object(...)`.
+`std/imm` provides persistent, immutable collections built on `atomic(ref(struct(...)))`.
 Every "mutation" returns a **new** value while the old one remains valid, so
 structural sharing is safe across threads.
 
@@ -12,7 +12,7 @@ per-module API surface, prefer the generated `yo doc` output (locally or from CI
 | Property                | Detail                                                                         |
 | ----------------------- | ------------------------------------------------------------------------------ |
 | **Persistent**          | Old versions remain valid after insert/update/remove-style operations.         |
-| **Thread-safe sharing** | Backing nodes use `atomic object(...)` and atomic reference counting.          |
+| **Thread-safe sharing** | Backing nodes use `atomic(ref(struct(...)))` and atomic reference counting.    |
 | **`Send`-constrained**  | Collection type constructors require `Send` element/value types.               |
 | **Acyclic by design**   | The data structures are trees/lists/tries and do not rely on cycle collection. |
 
@@ -70,7 +70,7 @@ those pages for method-by-method reference.
 
 ## Design notes
 
-1. **`atomic object(...)` instead of `Arc(...)` wrappers**: the collections are
+1. **`atomic(ref(struct(...)))` instead of `Arc(...)` wrappers**: the collections are
    defined directly as atomic reference-counted types, so the compiler sees the
    ownership model explicitly.
 2. **No cycle collector participation**: immutable collections are acyclic by
@@ -82,7 +82,7 @@ those pages for method-by-method reference.
 
 ### Acyclic trait and self-referential nodes
 
-`atomic object` types use atomic reference counting without a cycle collector.
+`atomic(ref(struct(...)))` types use atomic reference counting without a cycle collector.
 The compiler automatically derives the `Acyclic` trait for types whose structure
 cannot form cycles. Self-referential types (e.g., linked list nodes with
 `_next : Option(Self)`) fail auto-derivation because the structure _could_ form
@@ -94,9 +94,9 @@ internal node types declare a **manual `Acyclic` impl**:
 
 ```rust
 ListNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
-  atomic object(_value : T, _next : Option(Self))
+  atomic(ref(struct(_value : T, _next : Option(Self))))
 );
-impl(forall(T : Type), where(T <: Send), ListNode(T), Acyclic());
+impl(generic(T : Type), where(T <: Send), ListNode(T), Acyclic());
 ```
 
 This is analogous to Rust's `unsafe impl Send` — the programmer asserts a safety

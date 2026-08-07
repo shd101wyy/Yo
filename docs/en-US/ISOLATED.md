@@ -32,8 +32,8 @@ The user should implement this trait for their own types to indicate if the type
 For example:
 
 ```rust
-Data :: object(v : i32);
-Point :: object(x : Data, y : Data);
+Data :: ref(struct(v : i32));
+Point :: ref(struct(x : Data, y : Data));
 
 impl(Data, Isolation(
   can_isolate : ((self) -> rc(self) == 1)

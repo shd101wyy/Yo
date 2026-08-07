@@ -37,6 +37,45 @@ import {
 } from "../utils";
 
 /**
+ * `generateComptimeValue` HEAP-ALLOCATES for exactly two shapes: a
+ * reference-semantics enum variant becomes `__yo_new_<cName>_<Variant>(…)`
+ * (see the `isRefEnum` branches below) and a reference-semantics struct /
+ * `object` value becomes `__yo_new_<cName>(…)`. Both malloc with
+ * `ref_count = 1`, so the expression owns an RC value and needs a C binding to
+ * hang its `___drop` on. Every other comptime value renders as a literal or a
+ * compound literal and owns nothing — materializing one into a temp would make
+ * the scope-end pass emit a `___drop` against memory that was never allocated.
+ *
+ * Keep in sync with the branches below, and with `canOptimizeAsSimpleEnum` /
+ * `canOptimizeAsNullablePointer` (src/codegen/utils/index.ts) — both collapse a
+ * ref-enum into a non-allocating form: a plain C enum constant, or `NULL` /
+ * a bare pointer.
+ */
+export function comptimeValueAllocatesRcObject(value: Value): boolean {
+  if (isEnumValue(value)) {
+    const enumType = value.type;
+    if (enumType.isReferenceSemantics !== true) return false;
+    if (canOptimizeAsNullablePointer(enumType)) return false;
+    if (canOptimizeAsSimpleEnum(enumType)) return false;
+    return true;
+  }
+  if (isStructValue(value)) {
+    const structType = value.type;
+    if (!isStructType(structType)) return false;
+    // A newtype renders as a cast over its single underlying field.
+    if (
+      structType.isNewtype &&
+      structType.fields.length === 1 &&
+      value.fields.length === 1
+    ) {
+      return false;
+    }
+    return structType.isReferenceSemantics === true;
+  }
+  return false;
+}
+
+/**
  * Generate C code for a compile-time value - extracted from original codegen-c.ts
  */
 export function generateComptimeValue(
@@ -75,7 +114,9 @@ export function generateComptimeValue(
   } else if (isComptimeStringValue(value)) {
     // Check if there's a converted runtime type (e.g., comptime_str -> str or [u8])
     const targetType =
-      _sourceExpr?.$?.convertedRuntimeType || _sourceExpr?.$?.type || expectedType;
+      _sourceExpr?.$?.convertedRuntimeType ||
+      _sourceExpr?.$?.type ||
+      expectedType;
 
     // Builtin str target: emit the fat pointer over the static literal.
     if (targetType && isStrType(targetType)) {
@@ -144,9 +185,14 @@ export function generateComptimeValue(
       context
     );
 
+    // Reference-semantics enums (`ref(enum(…))`) heap-allocate via a
+    // per-variant constructor; value enums use a compound literal.
+    const isRefEnum = enumType.isReferenceSemantics === true;
     if (!value.fields || value.fields.length === 0) {
       // Variant with no data
-      return `(${cName}){ .tag = ${variantTag} }`;
+      return isRefEnum
+        ? `__yo_new_${cName}_${value.variantName}()`
+        : `(${cName}){ .tag = ${variantTag} }`;
     } else {
       // Variant with data
       const variant = enumType.variants.find(
@@ -156,25 +202,38 @@ export function generateComptimeValue(
         return `// Error: Variant ${value.variantName} not found or has no fields`;
       }
 
-      // Filter out unit type fields
-      const nonUnitFields = value.fields
+      // Filter out unit type fields; collect both designated (value enum) and
+      // positional (ref-enum constructor) forms.
+      const fieldEntries = value.fields
         .map((field, index) => {
           const variantElement = variant.fields![index];
           if (variantElement && !isUnitType(variantElement.type)) {
             const fieldName = sanitizeForCIdentifier(variantElement.label);
             const fieldCode = generateComptimeValue(field, context);
-            return `.${fieldName} = ${fieldCode}`;
+            return {
+              designated: `.${fieldName} = ${fieldCode}`,
+              positional: fieldCode,
+            };
           }
           return null;
         })
-        .filter((f) => f !== null);
+        .filter(
+          (f): f is { designated: string; positional: string } => f !== null
+        );
 
       // If all fields are unit types, just return the tag
-      if (nonUnitFields.length === 0) {
-        return `(${cName}){ .tag = ${variantTag} }`;
+      if (fieldEntries.length === 0) {
+        return isRefEnum
+          ? `__yo_new_${cName}_${value.variantName}()`
+          : `(${cName}){ .tag = ${variantTag} }`;
       }
 
-      return `(${cName}){ .tag = ${variantTag}, .data = { .${value.variantName} = { ${nonUnitFields.join(", ")} } } }`;
+      if (isRefEnum) {
+        const positionalArgs = fieldEntries.map((e) => e.positional).join(", ");
+        return `__yo_new_${cName}_${value.variantName}(${positionalArgs})`;
+      }
+      const designatedArgs = fieldEntries.map((e) => e.designated).join(", ");
+      return `(${cName}){ .tag = ${variantTag}, .data = { .${value.variantName} = { ${designatedArgs} } } }`;
     }
   } else if (isTupleValue(value)) {
     // For tuple values, generate tuple struct initialization with numeric field names

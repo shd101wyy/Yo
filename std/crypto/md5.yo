@@ -151,14 +151,14 @@ _rotl32 :: (fn(x : u32, n : u32) -> u32)(
   (x << n) | (x >> (u32(32) - n))
 );
 _le32 :: (fn(p : *(u8)) -> u32)(
-  (u32(p.*) | (u32((p &+ usize(1)).*) << u32(8))) |
-    ((u32((p &+ usize(2)).*) << u32(16)) | (u32((p &+ usize(3)).*) << u32(24)))
+  (u32(p.*) | (u32((p.add(usize(1))).*) << u32(8))) |
+    ((u32((p.add(usize(2))).*) << u32(16)) | (u32((p.add(usize(3))).*) << u32(24)))
 );
 _md5_block :: (fn(block : *(u8), h : *(u32)) -> unit)({
-  a := (h &+ usize(0)).*;
-  b := (h &+ usize(1)).*;
-  c := (h &+ usize(2)).*;
-  d := (h &+ usize(3)).*;
+  a := (h.add(usize(0))).*;
+  b := (h.add(usize(1))).*;
+  c := (h.add(usize(2))).*;
+  d := (h.add(usize(3))).*;
   i := usize(0);
   while(i < usize(64), i = (i + usize(1)), {
     fv := u32(0);
@@ -181,16 +181,16 @@ _md5_block :: (fn(block : *(u8), h : *(u32)) -> unit)({
         g = ((i * usize(7)) % usize(16));
       }
     );
-    fv = (((fv + a) + _T(i)) + _le32(block &+ (g * usize(4))));
+    fv = (((fv + a) + _T(i)) + _le32(block.add(g * usize(4))));
     a = d;
     d = c;
     c = b;
     b = (b + _rotl32(fv, _S(i)));
   });
-  (h &+ usize(0)).* = ((h &+ usize(0)).* + a);
-  (h &+ usize(1)).* = ((h &+ usize(1)).* + b);
-  (h &+ usize(2)).* = ((h &+ usize(2)).* + c);
-  (h &+ usize(3)).* = ((h &+ usize(3)).* + d);
+  (h.add(usize(0))).* = ((h.add(usize(0))).* + a);
+  (h.add(usize(1))).* = ((h.add(usize(1))).* + b);
+  (h.add(usize(2))).* = ((h.add(usize(2))).* + c);
+  (h.add(usize(3))).* = ((h.add(usize(3))).* + d);
 });
 // Compute an MD5 digest over `data`.
 md5 :: (fn(data : ArrayList(u8)) -> Array(u8, usize(16)))({
@@ -205,7 +205,7 @@ md5 :: (fn(data : ArrayList(u8)) -> Array(u8, usize(16)))({
   // Process full blocks
   i := usize(0);
   while((i + usize(64)) <= n, i = (i + usize(64)), {
-    chunk_ptr := (*(u8)(data.ptr().unwrap()) &+ i);
+    chunk_ptr := (*(u8)(data.ptr().unwrap()).add(i));
     _md5_block(chunk_ptr, h_ptr);
   });
   // Final block(s) with padding
@@ -214,21 +214,21 @@ md5 :: (fn(data : ArrayList(u8)) -> Array(u8, usize(16)))({
   rem := (n - i);
   j := usize(0);
   while(j < rem, j = (j + usize(1)), {
-    (pad_ptr &+ j).* = data(i + j);
+    (pad_ptr.add(j)).* = data(i + j);
   });
-  (pad_ptr &+ rem).* = u8(0x80);
+  (pad_ptr.add(rem)).* = u8(0x80);
   cond(
     (rem < usize(56)) => {
       // Length fits in this block
       bit_len := u64(n * usize(8));
-      (pad_ptr &+ usize(56)).* = u8(bit_len);
-      (pad_ptr &+ usize(57)).* = u8(bit_len >> u64(8));
-      (pad_ptr &+ usize(58)).* = u8(bit_len >> u64(16));
-      (pad_ptr &+ usize(59)).* = u8(bit_len >> u64(24));
-      (pad_ptr &+ usize(60)).* = u8(bit_len >> u64(32));
-      (pad_ptr &+ usize(61)).* = u8(bit_len >> u64(40));
-      (pad_ptr &+ usize(62)).* = u8(bit_len >> u64(48));
-      (pad_ptr &+ usize(63)).* = u8(bit_len >> u64(56));
+      (pad_ptr.add(usize(56))).* = u8(bit_len);
+      (pad_ptr.add(usize(57))).* = u8(bit_len >> u64(8));
+      (pad_ptr.add(usize(58))).* = u8(bit_len >> u64(16));
+      (pad_ptr.add(usize(59))).* = u8(bit_len >> u64(24));
+      (pad_ptr.add(usize(60))).* = u8(bit_len >> u64(32));
+      (pad_ptr.add(usize(61))).* = u8(bit_len >> u64(40));
+      (pad_ptr.add(usize(62))).* = u8(bit_len >> u64(48));
+      (pad_ptr.add(usize(63))).* = u8(bit_len >> u64(56));
       _md5_block(pad_ptr, h_ptr);
     },
     true => {
@@ -237,14 +237,14 @@ md5 :: (fn(data : ArrayList(u8)) -> Array(u8, usize(16)))({
       pad2 := Array(u8, usize(64)).fill(u8(0));
       pad2_ptr := &(pad2(usize(0)));
       bit_len := u64(n * usize(8));
-      (pad2_ptr &+ usize(56)).* = u8(bit_len);
-      (pad2_ptr &+ usize(57)).* = u8(bit_len >> u64(8));
-      (pad2_ptr &+ usize(58)).* = u8(bit_len >> u64(16));
-      (pad2_ptr &+ usize(59)).* = u8(bit_len >> u64(24));
-      (pad2_ptr &+ usize(60)).* = u8(bit_len >> u64(32));
-      (pad2_ptr &+ usize(61)).* = u8(bit_len >> u64(40));
-      (pad2_ptr &+ usize(62)).* = u8(bit_len >> u64(48));
-      (pad2_ptr &+ usize(63)).* = u8(bit_len >> u64(56));
+      (pad2_ptr.add(usize(56))).* = u8(bit_len);
+      (pad2_ptr.add(usize(57))).* = u8(bit_len >> u64(8));
+      (pad2_ptr.add(usize(58))).* = u8(bit_len >> u64(16));
+      (pad2_ptr.add(usize(59))).* = u8(bit_len >> u64(24));
+      (pad2_ptr.add(usize(60))).* = u8(bit_len >> u64(32));
+      (pad2_ptr.add(usize(61))).* = u8(bit_len >> u64(40));
+      (pad2_ptr.add(usize(62))).* = u8(bit_len >> u64(48));
+      (pad2_ptr.add(usize(63))).* = u8(bit_len >> u64(56));
       _md5_block(pad2_ptr, h_ptr);
     }
   );

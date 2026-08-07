@@ -18,21 +18,24 @@
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
 { ArrayList } :: import("../collections/array_list.yo");
+{ assert } :: import("../assert");
 { malloc, free } :: GlobalAllocator;
 { memcpy } :: import("../libc/string.yo");
 /// Internal cons cell — atomic object for thread-safe structural sharing.
 ListNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
   atomic(
-    object(
-      _value : T,
-      _next : Option(Self)
+    ref(
+      struct(
+        _value : T,
+        _next : Option(Self)
+      )
     )
   )
 );
 // SAFETY: Manual Acyclic impl — ListNode is self-referential, so auto-derivation skips it.
 // This is safe because ListNode is immutable: all operations create new nodes and never
 // mutate existing ones, making it impossible to form cycles at runtime.
-impl(forall(T : Type), where(T <: Send), ListNode(T), Acyclic());
+impl(generic(T : Type), where(T <: Send), ListNode(T), Acyclic());
 /// Persistent immutable singly-linked list.
 ///
 /// A value-type wrapper around an optional chain of `ListNode` atomic objects.
@@ -45,7 +48,7 @@ List :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Send),
   List(T),
   /// Create an empty list.
@@ -134,7 +137,7 @@ impl(
     result
   }),
   /// Apply a function to each element, producing a new list. O(n).
-  map : (fn(forall(U : Type), self : Self, f : Impl(Fn(a : T) -> U), where(U <: Send)) -> List(U))({
+  map : (fn(generic(U : Type), self : Self, f : Impl(Fn(a : T) -> U), where(U <: Send)) -> List(U))({
     (result : List(U)) = List(U).new();
     (current : Option(ListNode(T))) = self._head;
     while(runtime(current.is_some()), {
@@ -158,7 +161,7 @@ impl(
     result.reverse()
   }),
   /// Left fold over the list. O(n).
-  fold : (fn(forall(U : Type), self : Self, init : U, f : Impl(Fn(acc : U, item : T) -> U)) -> U)({
+  fold : (fn(generic(U : Type), self : Self, init : U, f : Impl(Fn(acc : U, item : T) -> U)) -> U)({
     (acc : U) = init;
     (current : Option(ListNode(T))) = self._head;
     while(runtime(current.is_some()), {
@@ -203,14 +206,14 @@ impl(
     (i : usize) = l.len();
     while(i > usize(0), {
       i = (i - usize(1));
-      result = result.prepend(match(l.get(i),.Some(__e) => __e,.None => panic("from_list: index out of bounds")));
+      result = result.prepend(match(l.get(i),.Some(__e) => __e,.None => __yo_panic("from_list: index out of bounds")));
     });
     result
   })
 );
 /// Equality: two lists are equal if they have the same length and elements.
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: (Send, Eq(T))),
   List(T),
   Eq(List(T))(
@@ -251,12 +254,12 @@ impl(
 /// pointer for the immediate read; the dispatcher inlines and
 /// dereferences before any drop runs.
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Send),
   List(T),
   Index(usize)(
     Output : T,
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))({
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
       assert(idx < self._len, "imm.List: index out of bounds");
       (current : Option(ListNode(T))) = self._head;
       i := usize(0);
@@ -270,10 +273,10 @@ impl(
             current = node._next;
             i = (i + usize(1));
           },
-          .None => panic("imm.List: unreachable past length check")
+          .None => __yo_panic("imm.List: unreachable past length check")
         );
       });
-      panic("imm.List: index loop exited without return")
+      __yo_panic("imm.List: index loop exited without return")
     })
   )
 );

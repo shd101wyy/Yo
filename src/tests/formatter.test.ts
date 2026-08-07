@@ -184,13 +184,16 @@ export(main);
   });
 
   test("preserves operator rhs newline needed for right-associative parsing", () => {
+    // Fixture updated for current syntax: `escape` renamed to `unwind`
+    // (a3510d20) and a `->` handler after `:` now requires parentheses
+    // (the adjacent-different-operators grouping rule).
     const source = `main::(fn()->unit)({
 Raise :: struct(raise : (fn(msg : String) -> i32));
 value := Raise(
 raise :
-(msg) -> {
-escape(());
-}
+((msg) -> {
+unwind(());
+})
 );
 });`;
 
@@ -200,9 +203,11 @@ escape(());
   Raise :: struct(raise : (fn(msg : String) -> i32));
   value := Raise(
     raise :
-      (msg) -> {
-        escape(());
-      }
+      (
+        (msg) -> {
+          unwind(());
+        }
+      )
   );
 });
 `);
@@ -210,20 +215,25 @@ escape(());
   });
 
   test("indents operator newline right-hand side as a continuation", () => {
+    // Fixture updated for current syntax: `given(...)` retired by
+    // explicit-effects, and a `->` handler after `=` now requires
+    // parentheses (the adjacent-different-operators grouping rule).
     const source = `main::(fn()->unit)({
-(given(yield) : Yield) =
-(v) -> {
+(yield : Yield) =
+((v) -> {
 return((v * i32(3)));
-};
+});
 });`;
 
     const once = formatYoSource(source);
 
     expect(once).toBe(`main :: (fn() -> unit)({
-  (given(yield) : Yield) =
-    (v) -> {
-      return(v * i32(3));
-    };
+  (yield : Yield) =
+    (
+      (v) -> {
+        return(v * i32(3));
+      }
+    );
 });
 `);
     expect(formatYoSource(once)).toBe(once);
@@ -556,8 +566,7 @@ describe("formatYoFiles", () => {
     const secondResult = formatYoFiles(["tests"], { cwd: tmpDir });
 
     expect(secondResult.changed).toEqual([]);
-  }, // Copies the whole ./tests tree and formats it twice — inherently
-  // expensive and grows with the corpus. The default 60s `bun test`
+  }, // expensive and grows with the corpus. The default 60s `bun test` // Copies the whole ./tests tree and formats it twice — inherently
   // timeout is too tight on slower CI runners (macOS GitHub runners
   // took ~70s); give this one test a generous budget. It is a
   // correctness (idempotency) check, not a performance gate.

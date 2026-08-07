@@ -1,4 +1,5 @@
 pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
 open(import("std/string"));
 open(import("std/collections/array_list"));
 // ===== Construction Tests =====
@@ -21,7 +22,7 @@ test("String.from_bytes creates string from byte array", {
 test("String.from creates string from str", {
   // (Former "from byte slice" test: constructing a str view over mortal
   // stack bytes is no longer possible — str is the builtin STATIC view;
-  // see plans/SLICE_REWORK.md.)
+  // see plans/archive/SLICE_REWORK.md.)
   s := String.from("Hello");
   assert(s.len() == usize(5));
 });
@@ -1326,6 +1327,17 @@ test("String replace only occurrence", {
   result := s.replace(String.from("world"), String.from("universe"));
   assert(result == String.from("hello universe"));
 });
+// Regression: `replace` with a needle LONGER than the haystack used to
+// compute `self_bytes - search_bytes` on usize as the loop bound — the
+// subtraction underflowed and the scan ran ~2^64 iterations (an
+// effective hang; found via the module-global registry's
+// `"test".replace("file://", "")` canonicalization).
+test("String replace with needle longer than the string", {
+  s := String.from("test");
+  result := s.replace(String.from("file://"), String.from(""));
+  assert(result == s, "needle longer than haystack: unchanged, no hang");
+});
+
 test("String replace not found", {
   s := String.from("hello world");
   result := s.replace(String.from("xyz"), String.from("abc"));
@@ -1864,7 +1876,7 @@ test("Test String.substring", {
   empty := s.substring(usize(3), usize(3));
   assert(empty == ``, "substring with equal start/end should be empty");
 });
-// ===== Heterogeneous Eq: String <-> str (plans/SLICE_REWORK.md step 1) =====
+// ===== Heterogeneous Eq: String <-> str (plans/archive/SLICE_REWORK.md step 1) =====
 test("String == str compares bytes directly", {
   x := String.from("abc");
   e := String.new();

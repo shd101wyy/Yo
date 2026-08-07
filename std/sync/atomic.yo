@@ -87,7 +87,7 @@ impl(
 // ============================================================================
 // AtomicBool
 // ============================================================================
-AtomicBool :: atomic(object((*) : atomic_bool));
+AtomicBool :: atomic(ref(struct((*) : atomic_bool)));
 impl(
   AtomicBool,
   new : (fn(value : bool) -> Self)({
@@ -95,19 +95,19 @@ impl(
     cond(value => unsafe(atomic_store_explicit(&(v.*), true, memory_order_release)), true => ());
     v
   }),
-  load : (fn(ref(self) : Self, order : MemoryOrder) -> bool)(
+  load : (fn(inout(self) : Self, order : MemoryOrder) -> bool)(
     unsafe(atomic_load_explicit(&(self.*), order.to_c_order())) == true
   ),
-  store : (fn(ref(self) : Self, value : bool, order : MemoryOrder) -> unit)(
+  store : (fn(inout(self) : Self, value : bool, order : MemoryOrder) -> unit)(
     unsafe(atomic_store_explicit(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(ref(self) : Self, value : bool, order : MemoryOrder) -> bool)(
+  swap : (fn(inout(self) : Self, value : bool, order : MemoryOrder) -> bool)(
     unsafe(atomic_exchange_explicit(&(self.*), value, order.to_c_order())) == true
   ),
   compare_exchange : (
     fn(
-      ref(self) : Self,
-      ref(expected) : bool,
+      inout(self) : Self,
+      inout(expected) : bool,
       new_value : bool,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -128,7 +128,7 @@ impl(
 // ============================================================================
 // AtomicI8
 // ============================================================================
-AtomicI8 :: atomic(object((*) : atomic_schar));
+AtomicI8 :: atomic(ref(struct((*) : atomic_schar)));
 impl(
   AtomicI8,
   new : (fn(value : i8) -> Self)({
@@ -136,19 +136,19 @@ impl(
     unsafe(__yo_atomic_store_schar(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(ref(self) : Self, order : MemoryOrder) -> i8)(
+  load : (fn(inout(self) : Self, order : MemoryOrder) -> i8)(
     unsafe(i8(__yo_atomic_load_schar(&(self.*), order.to_c_order())))
   ),
-  store : (fn(ref(self) : Self, value : i8, order : MemoryOrder) -> unit)(
+  store : (fn(inout(self) : Self, value : i8, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_schar(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(ref(self) : Self, value : i8, order : MemoryOrder) -> i8)(
+  swap : (fn(inout(self) : Self, value : i8, order : MemoryOrder) -> i8)(
     unsafe(i8(__yo_atomic_exchange_schar(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      ref(self) : Self,
-      ref(expected) : i8,
+      inout(self) : Self,
+      inout(expected) : i8,
       new_value : i8,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -169,7 +169,7 @@ impl(
 // ============================================================================
 // AtomicI16
 // ============================================================================
-AtomicI16 :: atomic(object((*) : atomic_short));
+AtomicI16 :: atomic(ref(struct((*) : atomic_short)));
 impl(
   AtomicI16,
   new : (fn(value : i16) -> Self)({
@@ -177,19 +177,19 @@ impl(
     unsafe(__yo_atomic_store_short(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(ref(self) : Self, order : MemoryOrder) -> i16)(
+  load : (fn(inout(self) : Self, order : MemoryOrder) -> i16)(
     unsafe(i16(__yo_atomic_load_short(&(self.*), order.to_c_order())))
   ),
-  store : (fn(ref(self) : Self, value : i16, order : MemoryOrder) -> unit)(
+  store : (fn(inout(self) : Self, value : i16, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_short(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(ref(self) : Self, value : i16, order : MemoryOrder) -> i16)(
+  swap : (fn(inout(self) : Self, value : i16, order : MemoryOrder) -> i16)(
     unsafe(i16(__yo_atomic_exchange_short(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      ref(self) : Self,
-      ref(expected) : i16,
+      inout(self) : Self,
+      inout(expected) : i16,
       new_value : i16,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -210,7 +210,7 @@ impl(
 // ============================================================================
 // AtomicI32
 // ============================================================================
-AtomicI32 :: atomic(object((*) : atomic_int));
+AtomicI32 :: atomic(ref(struct((*) : atomic_int)));
 impl(
   AtomicI32,
   new : (fn(value : i32) -> Self)({
@@ -218,25 +218,25 @@ impl(
     unsafe(__yo_atomic_store_int(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(ref(self) : Self, order : MemoryOrder) -> i32)(
+  load : (fn(inout(self) : Self, order : MemoryOrder) -> i32)(
     unsafe(i32(__yo_atomic_load_int(&(self.*), order.to_c_order())))
   ),
-  store : (fn(ref(self) : Self, value : i32, order : MemoryOrder) -> unit)(
+  store : (fn(inout(self) : Self, value : i32, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_int(&(self.*), value, order.to_c_order()))
   ),
-  fetch_add : (fn(ref(self) : Self, value : i32, order : MemoryOrder) -> i32)(
+  fetch_add : (fn(inout(self) : Self, value : i32, order : MemoryOrder) -> i32)(
     unsafe(i32(atomic_fetch_add_explicit(&(self.*), int(value), order.to_c_order())))
   ),
-  fetch_sub : (fn(ref(self) : Self, value : i32, order : MemoryOrder) -> i32)(
+  fetch_sub : (fn(inout(self) : Self, value : i32, order : MemoryOrder) -> i32)(
     unsafe(i32(atomic_fetch_sub_explicit(&(self.*), int(value), order.to_c_order())))
   ),
-  swap : (fn(ref(self) : Self, value : i32, order : MemoryOrder) -> i32)(
+  swap : (fn(inout(self) : Self, value : i32, order : MemoryOrder) -> i32)(
     unsafe(i32(__yo_atomic_exchange_int(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      ref(self) : Self,
-      ref(expected) : i32,
+      inout(self) : Self,
+      inout(expected) : i32,
       new_value : i32,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -257,7 +257,7 @@ impl(
 // ============================================================================
 // AtomicI64
 // ============================================================================
-AtomicI64 :: atomic(object((*) : atomic_llong));
+AtomicI64 :: atomic(ref(struct((*) : atomic_llong)));
 impl(
   AtomicI64,
   new : (fn(value : i64) -> Self)({
@@ -265,19 +265,19 @@ impl(
     unsafe(__yo_atomic_store_llong(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(ref(self) : Self, order : MemoryOrder) -> i64)(
+  load : (fn(inout(self) : Self, order : MemoryOrder) -> i64)(
     unsafe(i64(__yo_atomic_load_llong(&(self.*), order.to_c_order())))
   ),
-  store : (fn(ref(self) : Self, value : i64, order : MemoryOrder) -> unit)(
+  store : (fn(inout(self) : Self, value : i64, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_llong(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(ref(self) : Self, value : i64, order : MemoryOrder) -> i64)(
+  swap : (fn(inout(self) : Self, value : i64, order : MemoryOrder) -> i64)(
     unsafe(i64(__yo_atomic_exchange_llong(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      ref(self) : Self,
-      ref(expected) : i64,
+      inout(self) : Self,
+      inout(expected) : i64,
       new_value : i64,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -298,7 +298,7 @@ impl(
 // ============================================================================
 // AtomicU8
 // ============================================================================
-AtomicU8 :: atomic(object((*) : atomic_uchar));
+AtomicU8 :: atomic(ref(struct((*) : atomic_uchar)));
 impl(
   AtomicU8,
   new : (fn(value : u8) -> Self)({
@@ -306,19 +306,19 @@ impl(
     unsafe(__yo_atomic_store_uchar(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(ref(self) : Self, order : MemoryOrder) -> u8)(
+  load : (fn(inout(self) : Self, order : MemoryOrder) -> u8)(
     unsafe(u8(__yo_atomic_load_uchar(&(self.*), order.to_c_order())))
   ),
-  store : (fn(ref(self) : Self, value : u8, order : MemoryOrder) -> unit)(
+  store : (fn(inout(self) : Self, value : u8, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_uchar(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(ref(self) : Self, value : u8, order : MemoryOrder) -> u8)(
+  swap : (fn(inout(self) : Self, value : u8, order : MemoryOrder) -> u8)(
     unsafe(u8(__yo_atomic_exchange_uchar(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      ref(self) : Self,
-      ref(expected) : u8,
+      inout(self) : Self,
+      inout(expected) : u8,
       new_value : u8,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -339,7 +339,7 @@ impl(
 // ============================================================================
 // AtomicU16
 // ============================================================================
-AtomicU16 :: atomic(object((*) : atomic_ushort));
+AtomicU16 :: atomic(ref(struct((*) : atomic_ushort)));
 impl(
   AtomicU16,
   new : (fn(value : u16) -> Self)({
@@ -347,19 +347,19 @@ impl(
     unsafe(__yo_atomic_store_ushort(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(ref(self) : Self, order : MemoryOrder) -> u16)(
+  load : (fn(inout(self) : Self, order : MemoryOrder) -> u16)(
     unsafe(u16(__yo_atomic_load_ushort(&(self.*), order.to_c_order())))
   ),
-  store : (fn(ref(self) : Self, value : u16, order : MemoryOrder) -> unit)(
+  store : (fn(inout(self) : Self, value : u16, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_ushort(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(ref(self) : Self, value : u16, order : MemoryOrder) -> u16)(
+  swap : (fn(inout(self) : Self, value : u16, order : MemoryOrder) -> u16)(
     unsafe(u16(__yo_atomic_exchange_ushort(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      ref(self) : Self,
-      ref(expected) : u16,
+      inout(self) : Self,
+      inout(expected) : u16,
       new_value : u16,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -380,7 +380,7 @@ impl(
 // ============================================================================
 // AtomicU32
 // ============================================================================
-AtomicU32 :: atomic(object((*) : atomic_uint));
+AtomicU32 :: atomic(ref(struct((*) : atomic_uint)));
 impl(
   AtomicU32,
   new : (fn(value : u32) -> Self)({
@@ -388,19 +388,19 @@ impl(
     unsafe(__yo_atomic_store_uint(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(ref(self) : Self, order : MemoryOrder) -> u32)(
+  load : (fn(inout(self) : Self, order : MemoryOrder) -> u32)(
     unsafe(u32(__yo_atomic_load_uint(&(self.*), order.to_c_order())))
   ),
-  store : (fn(ref(self) : Self, value : u32, order : MemoryOrder) -> unit)(
+  store : (fn(inout(self) : Self, value : u32, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_uint(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(ref(self) : Self, value : u32, order : MemoryOrder) -> u32)(
+  swap : (fn(inout(self) : Self, value : u32, order : MemoryOrder) -> u32)(
     unsafe(u32(__yo_atomic_exchange_uint(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      ref(self) : Self,
-      ref(expected) : u32,
+      inout(self) : Self,
+      inout(expected) : u32,
       new_value : u32,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -421,7 +421,7 @@ impl(
 // ============================================================================
 // AtomicU64
 // ============================================================================
-AtomicU64 :: atomic(object((*) : atomic_ullong));
+AtomicU64 :: atomic(ref(struct((*) : atomic_ullong)));
 impl(
   AtomicU64,
   new : (fn(value : u64) -> Self)({
@@ -429,19 +429,19 @@ impl(
     unsafe(__yo_atomic_store_ullong(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(ref(self) : Self, order : MemoryOrder) -> u64)(
+  load : (fn(inout(self) : Self, order : MemoryOrder) -> u64)(
     unsafe(u64(__yo_atomic_load_ullong(&(self.*), order.to_c_order())))
   ),
-  store : (fn(ref(self) : Self, value : u64, order : MemoryOrder) -> unit)(
+  store : (fn(inout(self) : Self, value : u64, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_ullong(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(ref(self) : Self, value : u64, order : MemoryOrder) -> u64)(
+  swap : (fn(inout(self) : Self, value : u64, order : MemoryOrder) -> u64)(
     unsafe(u64(__yo_atomic_exchange_ullong(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      ref(self) : Self,
-      ref(expected) : u64,
+      inout(self) : Self,
+      inout(expected) : u64,
       new_value : u64,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -462,7 +462,7 @@ impl(
 // ============================================================================
 // AtomicUsize
 // ============================================================================
-AtomicUsize :: atomic(object((*) : atomic_size_t));
+AtomicUsize :: atomic(ref(struct((*) : atomic_size_t)));
 impl(
   AtomicUsize,
   new : (fn(value : usize) -> Self)({
@@ -470,19 +470,19 @@ impl(
     unsafe(__yo_atomic_store_size_t(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(ref(self) : Self, order : MemoryOrder) -> usize)(
+  load : (fn(inout(self) : Self, order : MemoryOrder) -> usize)(
     unsafe(usize(__yo_atomic_load_size_t(&(self.*), order.to_c_order())))
   ),
-  store : (fn(ref(self) : Self, value : usize, order : MemoryOrder) -> unit)(
+  store : (fn(inout(self) : Self, value : usize, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_size_t(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(ref(self) : Self, value : usize, order : MemoryOrder) -> usize)(
+  swap : (fn(inout(self) : Self, value : usize, order : MemoryOrder) -> usize)(
     unsafe(usize(__yo_atomic_exchange_size_t(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      ref(self) : Self,
-      ref(expected) : usize,
+      inout(self) : Self,
+      inout(expected) : usize,
       new_value : usize,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -503,7 +503,7 @@ impl(
 // ============================================================================
 // AtomicIsize
 // ============================================================================
-AtomicIsize :: atomic(object((*) : atomic_ptrdiff_t));
+AtomicIsize :: atomic(ref(struct((*) : atomic_ptrdiff_t)));
 impl(
   AtomicIsize,
   new : (fn(value : isize) -> Self)({
@@ -511,19 +511,19 @@ impl(
     unsafe(__yo_atomic_store_ptrdiff(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(ref(self) : Self, order : MemoryOrder) -> isize)(
+  load : (fn(inout(self) : Self, order : MemoryOrder) -> isize)(
     unsafe(isize(__yo_atomic_load_ptrdiff(&(self.*), order.to_c_order())))
   ),
-  store : (fn(ref(self) : Self, value : isize, order : MemoryOrder) -> unit)(
+  store : (fn(inout(self) : Self, value : isize, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_ptrdiff(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(ref(self) : Self, value : isize, order : MemoryOrder) -> isize)(
+  swap : (fn(inout(self) : Self, value : isize, order : MemoryOrder) -> isize)(
     unsafe(isize(__yo_atomic_exchange_ptrdiff(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      ref(self) : Self,
-      ref(expected) : isize,
+      inout(self) : Self,
+      inout(expected) : isize,
       new_value : isize,
       success : MemoryOrder,
       failure : MemoryOrder

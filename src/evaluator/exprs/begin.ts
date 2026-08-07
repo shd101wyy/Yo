@@ -34,7 +34,12 @@ import { exprTreeContainsReturn } from "../../expr-traversal";
 import { generateExprFromCode } from "../../parser";
 import type { Token } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
-import { isFunctionType, isObjectType, isSomeType } from "../../types/guards";
+import type { Type } from "../../types/definitions";
+import {
+  isFunctionType,
+  isReferenceStructType,
+  isSomeType,
+} from "../../types/guards";
 import {
   typeContainsRcType,
   typeIsControlBound,
@@ -374,6 +379,22 @@ function searchRecursively(
     }
   }
 
+  // A macro call (e.g. `if`, which expands to `cond`) keeps its original
+  // head in the AST; the evaluated expansion is stored in $.macroExpansion.
+  // Walk the EXPANSION, not the raw macro args: the expansion is where
+  // branching structure (cond/match) is visible, and recursing into the raw
+  // args would treat a dup inside a conditional arm as unconditional —
+  // cancelling it against the scope-end drop then leaks on every path that
+  // does not take that arm.
+  if (expr.$?.macroExpansion) {
+    searchRecursively(
+      expr.$.macroExpansion,
+      dupCalls,
+      varsWithPartialBranchDups
+    );
+    return;
+  }
+
   // Look for function calls like (x.___dup)()
   if (
     exprIsFunctionCall(expr) &&
@@ -418,76 +439,12 @@ function searchRecursively(
   //   return;
   // }
 
-  // Helper function to check if a branch has a control flow statement (return, break, continue)
-  function branchHasControlFlow(branchBody: Expr): boolean {
-    if (hasAnyControlFlow(branchBody.$?.controlFlow)) {
-      return true;
-    }
-    // Check if it's a begin block that ends with control flow
-    if (
-      exprIsFunctionCall(branchBody) &&
-      exprIsFunctionCallOf(branchBody, BuiltinKeywords.begin)
-    ) {
-      const lastArg = branchBody.args[branchBody.args.length - 1];
-      if (hasAnyControlFlow(lastArg?.$?.controlFlow)) {
-        return true;
-      }
-      // Also check if the last expression is a return statement
-      if (
-        exprIsFunctionCall(lastArg) &&
-        exprIsFunctionCallOf(lastArg, BuiltinKeywords.return)
-      ) {
-        return true;
-      }
-    }
-    // Check if it's directly a return statement
-    if (
-      exprIsFunctionCall(branchBody) &&
-      exprIsFunctionCallOf(branchBody, BuiltinKeywords.return)
-    ) {
-      return true;
-    }
-    return false;
-  }
-
-  // Helper function to check if a branch is empty/unit (just falls through)
-  function branchIsEmptyOrUnit(branchBody: Expr): boolean {
-    // Check for unit literal () - parsed as tuple() with 0 args
-    if (
-      exprIsFunctionCall(branchBody) &&
-      exprIsFunctionCallOf(branchBody, BuiltinKeywords.tuple, 0)
-    ) {
-      return true;
-    }
-    // Check for empty begin block or begin block with just unit
-    if (
-      exprIsFunctionCall(branchBody) &&
-      exprIsFunctionCallOf(branchBody, BuiltinKeywords.begin)
-    ) {
-      if (branchBody.args.length === 0) {
-        return true;
-      }
-      if (branchBody.args.length === 1) {
-        const onlyArg = branchBody.args[0]!;
-        if (
-          exprIsFunctionCall(onlyArg) &&
-          exprIsFunctionCallOf(onlyArg, BuiltinKeywords.tuple, 0)
-        ) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
   // Helper function to handle branching expressions (cond, match)
   function handleBranchingExpression(
     branchingExpr: FnCallExpr,
     startIndex: number
   ): void {
     const branchDupCalls: DupCallsResult[] = [];
-    const branchHasReturn: boolean[] = []; // Track if each branch has a return
-    const branchIsEmpty: boolean[] = []; // Track if each branch is empty/falls through
 
     // Process each statement/pattern which should be a "=>" expression with [condition/pattern, body]
     for (let i = startIndex; i < branchingExpr.args.length; i++) {
@@ -499,8 +456,6 @@ function searchRecursively(
         const branchBody = statement.args[1]!; // The body is the second argument
         const branchResult = collectDupCallsConservatively(branchBody);
         branchDupCalls.push(branchResult);
-        branchHasReturn.push(branchHasControlFlow(branchBody));
-        branchIsEmpty.push(branchIsEmptyOrUnit(branchBody));
       }
     }
 
@@ -516,79 +471,48 @@ function searchRecursively(
       }
     }
 
-    // Process each variable that has dups in at least one branch
+    // Process each variable that has dups in at least one branch.
+    //
+    // A dup inside a branch arm executes only when that arm is taken, so the
+    // dup/drop pair optimizer may see it ONLY when EVERY arm dups the
+    // variable (with 2+ arms the per-arm count then blocks cancellation
+    // anyway; a single-arm construct is unconditional). Partial coverage
+    // flags the variable instead — the pair must be preserved: dup on the
+    // taken arm, drop on every path that still owns.
+    //
+    // Return-arms get NO special treatment. An earlier version marked
+    // return-arm dups `__isEarlyReturnDup` ("independent — has its own drop
+    // at the return point") and excluded them from the count. That is wrong
+    // when the dup feeds the arm's RETURN VALUE: the dup is the caller's
+    // reference, and cancelling it while marking the variable consumed made
+    // the early-return drop machinery emit `drop(x); return x;` — a
+    // use-after-free (seen in yo-self's compute_overlapping_slots once macro
+    // expansions exposed `if`-arm returns to this classification).
     if (branchDupCalls.length > 0) {
       for (const varId of allVarsWithDups) {
-        // Separate branches into categories:
-        // 1. Branches with dup + early return: independent dup+drop pair
-        // 2. Branches with dup + fallthrough: share drop with code after cond
-        // 3. Branches without dup (empty or not): don't affect optimization for this variable
-
-        const earlyReturnBranchDups: FnCallExpr[] = [];
-        const fallthroughBranchDups: FnCallExpr[] = [];
+        const allBranchDups: FnCallExpr[] = [];
+        let branchesWithDup = 0;
 
         for (let i = 0; i < branchDupCalls.length; i++) {
           const branchResult = branchDupCalls[i]!;
-          const hasDup = branchResult.dupCalls.has(varId);
-          const hasReturn = branchHasReturn[i]!;
-
-          if (hasDup) {
-            const dups = branchResult.dupCalls.get(varId)!;
-            if (hasReturn) {
-              // This branch has dup + early return: independent dup+drop
-              earlyReturnBranchDups.push(...dups);
-            } else {
-              // This branch has dup + fallthrough: shares drop with code after cond
-              fallthroughBranchDups.push(...dups);
-            }
+          const dups = branchResult.dupCalls.get(varId);
+          if (dups && dups.length > 0) {
+            branchesWithDup++;
+            allBranchDups.push(...dups);
           }
-          // Branches without dup don't affect optimization for THIS variable
-          // (the variable isn't used in those branches)
         }
 
-        // Add early return branch dups - these are independent and can always be optimized
-        // Each early return has its own drop at the return point
-        // Mark them with __isEarlyReturnDup so we know they don't pair with end-of-scope drop
-        for (const dupExpr of earlyReturnBranchDups) {
+        if (branchesWithDup === branchDupCalls.length) {
+          // Every arm dups the variable — expose them to the optimizer.
           if (!dupCalls.has(varId)) {
             dupCalls.set(varId, []);
           }
-          // Mark as early return dup
-          (
-            dupExpr as FnCallExpr & { __isEarlyReturnDup?: boolean }
-          ).__isEarlyReturnDup = true;
-          dupCalls.get(varId)!.push(dupExpr);
-        }
-
-        // Fallthrough branch dups share one drop at end of scope
-        // Only mark as partial branch dup if:
-        // - There are fallthrough dups AND
-        // - Not ALL fallthrough branches have the dup
-        if (fallthroughBranchDups.length > 0) {
-          // Count how many fallthrough branches exist (non-early-return branches)
-          let fallthroughBranchCount = 0;
-          let fallthroughBranchesWithDup = 0;
-          for (let i = 0; i < branchDupCalls.length; i++) {
-            if (!branchHasReturn[i]) {
-              fallthroughBranchCount++;
-              if (branchDupCalls[i]!.dupCalls.has(varId)) {
-                fallthroughBranchesWithDup++;
-              }
-            }
+          for (const dupExpr of allBranchDups) {
+            dupCalls.get(varId)!.push(dupExpr);
           }
-
-          if (fallthroughBranchesWithDup === fallthroughBranchCount) {
-            // All fallthrough branches have the dup - can optimize
-            if (!dupCalls.has(varId)) {
-              dupCalls.set(varId, []);
-            }
-            for (const dupExpr of fallthroughBranchDups) {
-              dupCalls.get(varId)!.push(dupExpr);
-            }
-          } else {
-            // Some fallthrough branches have dup, some don't - can't optimize
-            varsWithPartialBranchDups.add(varId);
-          }
+        } else {
+          // Some arms dup, some don't — the pair must survive.
+          varsWithPartialBranchDups.add(varId);
         }
       }
     }
@@ -701,6 +625,160 @@ function removeDupCallsFromExpr(
  * Returns the set of variable names that were optimized, so the caller can
  * exclude them from variablesNeedingDrop.
  */
+/**
+ * Root atom name of a (possibly chained) field projection: `self.head.next`
+ * → "self". Undefined when the expression is not rooted at a plain atom.
+ */
+function projectionRootAtomName(expr: Expr): string | undefined {
+  let cur: Expr = expr;
+  while (exprIsFunctionCall(cur) && exprIsFunctionCallOf(cur, ".", 2)) {
+    cur = cur.args[0]!;
+  }
+  return exprIsAtom(cur) ? cur.token.value : undefined;
+}
+
+/**
+ * Operators whose arguments cannot receive a mutable handle on the traversed
+ * structure (comparisons/arithmetic yield fresh scalars; `.` is a projection,
+ * `&` a borrow whose result the surrounding checks see).
+ */
+const TRAVERSAL_SAFE_OPERATOR_HEADS = new Set<string>([
+  ".",
+  "&",
+  "!",
+  "==",
+  "!=",
+  "<",
+  "<=",
+  ">",
+  ">=",
+  "&&",
+  "||",
+  "+",
+  "-",
+  "*",
+  "/",
+  "%",
+]);
+
+/**
+ * Conservative mutation/escape scan for the loop-traversal borrow-chain
+ * optimization. The optimization's safety argument — every node the traversal
+ * variable borrows stays alive through the parameter's ownership of the
+ * structure — holds only while the loop body neither mutates the structure
+ * nor lets a node escape the iteration. Reject when the while body contains:
+ *
+ * 1. an assignment through a projection or index (`node.next = …`,
+ *    `arr(i) = …`) — severing a link drops the borrowed sublist mid-walk;
+ * 2. a call (including `return`/`unwind` and constructors) receiving one of
+ *    the traversal names as a bare-atom argument or method receiver, or any
+ *    argument/receiver whose evaluated type is compatible with a traversal
+ *    type — the callee could sever the chain through it or keep the node
+ *    alive past the loop.
+ *
+ * Known residual holes (issues/loop-traversal-borrow-chain-mutation-uaf.md):
+ * mutation through a global alias inside a callee that never receives the
+ * structure, and node access through intermediate values whose static type
+ * does not mention the traversal types.
+ */
+function traversalLoopHasUnsafeUse(
+  expr: Expr,
+  trackedNames: ReadonlySet<string>,
+  traversalTypes: { type: Type; env: Environment }[]
+): boolean {
+  if (!exprIsFunctionCall(expr)) {
+    return false;
+  }
+
+  // `=>`: the pattern position binds names, it does not use them — scan
+  // only the arm body.
+  if (exprIsFunctionCallOf(expr, "=>", 2)) {
+    return traversalLoopHasUnsafeUse(
+      expr.args[1]!,
+      trackedNames,
+      traversalTypes
+    );
+  }
+
+  // Assignments: a non-atom LHS (other than a typed declaration
+  // `(x : T) = …`) writes through a projection or index.
+  if (
+    exprIsFunctionCallOf(expr, "=", 2) ||
+    exprIsFunctionCallOf(expr, ":=", 2)
+  ) {
+    const lhs = expr.args[0]!;
+    const isTypedDecl =
+      exprIsFunctionCall(lhs) &&
+      exprIsFunctionCallOf(lhs, ":", 2) &&
+      exprIsAtom(lhs.args[0]!);
+    if (!exprIsAtom(lhs) && !isTypedDecl) {
+      return true;
+    }
+    return traversalLoopHasUnsafeUse(
+      expr.args[1]!,
+      trackedNames,
+      traversalTypes
+    );
+  }
+
+  const valueIsUnsafeToPass = (arg: Expr): boolean => {
+    if (exprIsAtom(arg)) {
+      return trackedNames.has(arg.token.value);
+    }
+    const argType = arg.$?.type;
+    const argEnv = arg.$?.env;
+    if (argType && argEnv) {
+      for (const traversalType of traversalTypes) {
+        if (
+          areTypesCompatible(
+            { type: traversalType.type, env: traversalType.env },
+            { type: argType, env: argEnv }
+          )
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  const headAtom = exprIsAtom(expr.func) ? expr.func.token.value : undefined;
+  const isStructuralHead =
+    headAtom !== undefined &&
+    (BuiltinKeywords.begin.includes(headAtom) ||
+      BuiltinKeywords.cond.includes(headAtom) ||
+      BuiltinKeywords.match.includes(headAtom) ||
+      BuiltinKeywords.while.includes(headAtom) ||
+      BuiltinKeywords.tuple.includes(headAtom) ||
+      TRAVERSAL_SAFE_OPERATOR_HEADS.has(headAtom));
+
+  if (!isStructuralHead) {
+    // Method call: the receiver gets a mutable handle too.
+    if (
+      exprIsFunctionCall(expr.func) &&
+      exprIsFunctionCallOf(expr.func, ".", 2) &&
+      valueIsUnsafeToPass(expr.func.args[0]!)
+    ) {
+      return true;
+    }
+    for (const arg of expr.args) {
+      if (valueIsUnsafeToPass(arg)) {
+        return true;
+      }
+    }
+  }
+
+  if (traversalLoopHasUnsafeUse(expr.func, trackedNames, traversalTypes)) {
+    return true;
+  }
+  for (const arg of expr.args) {
+    if (traversalLoopHasUnsafeUse(arg, trackedNames, traversalTypes)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function optimizeLoopTraversalBorrowChain(
   beginBlockExpr: FnCallExpr,
   env: Environment
@@ -872,6 +950,34 @@ function optimizeLoopTraversalBorrowChain(
         }
       }
       if (varEscapes) {
+        continue;
+      }
+
+      // Mutation/escape guard: the borrow-chain argument only holds while
+      // the loop body neither mutates the traversed structure nor lets a
+      // node escape the iteration (see traversalLoopHasUnsafeUse). Without
+      // this, severing a link inside the loop (`head.next = Option.None`)
+      // freed the sublist the un-dup'd traversal variable still pointed at.
+      const trackedNames = new Set<string>([varName]);
+      const bindingRootName = projectionRootAtomName(reassignmentRhsExpr);
+      if (bindingRootName) {
+        trackedNames.add(bindingRootName);
+      }
+      const initRootName = projectionRootAtomName(initialAssignRhsExpr);
+      if (initRootName) {
+        trackedNames.add(initRootName);
+      }
+      const traversalTypes: { type: Type; env: Environment }[] = [];
+      if (scrutinee.$?.type && scrutinee.$.env) {
+        traversalTypes.push({ type: scrutinee.$.type, env: scrutinee.$.env });
+      }
+      if (reassignmentRhsExpr.$?.type && reassignmentRhsExpr.$.env) {
+        traversalTypes.push({
+          type: reassignmentRhsExpr.$.type,
+          env: reassignmentRhsExpr.$.env,
+        });
+      }
+      if (traversalLoopHasUnsafeUse(whileBody, trackedNames, traversalTypes)) {
         continue;
       }
 
@@ -1234,7 +1340,7 @@ Install the handler at its use site instead:
           }
         }
 
-        // plans/SLICE_FLOWABILITY.md Phase D — explicit `return(expr)`
+        // plans/archive/SLICE_FLOWABILITY.md Phase D — explicit `return(expr)`
         // inside a function whose declared return type carries a raw
         // pointer in its representation (Slice/str/struct-wrapping-slice,
         // etc.) must root the value in caller-owned storage. Matches the
@@ -1495,7 +1601,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       exprToEvaluate.args[0] = evaluatedEscapeArgExpr;
 
       // Type-check against enclosingFunctionReturnType.
-      // Skip when it is a SomeType (e.g., forall T hasn't resolved yet) —
+      // Skip when it is a SomeType (e.g., generic T hasn't resolved yet) —
       // the unwind value's type will determine the actual return type.
       if (
         !isSomeType(context.enclosingFunctionReturnType) &&
@@ -1905,7 +2011,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       // Check the base variable (the temp being assigned from), not the derived variable.
       // Only pointer types (object(...)) can be safely optimized here.
       const isValueTypeWithRCFields =
-        !isObjectType(baseVariable.type) &&
+        !isReferenceStructType(baseVariable.type) &&
         typeContainsRcType(baseVariable.type);
 
       // Check if this variable has dups in some but not all branches.
@@ -1923,10 +2029,6 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       let hasReturnBeforeDup = false;
       if (earliestChildWithReturn >= 0 && dupCalls && dupCalls.length > 0) {
         for (const dupCallExpr of dupCalls) {
-          const marker = dupCallExpr as FnCallExpr & {
-            __isEarlyReturnDup?: boolean;
-          };
-          if (marker.__isEarlyReturnDup) continue;
           const childIdx = dupToChildIndex.get(dupCallExpr);
           if (childIdx !== undefined && childIdx > earliestChildWithReturn) {
             hasReturnBeforeDup = true;
@@ -1952,13 +2054,8 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         for (const dupCallExpr of dupCalls) {
           const marker = dupCallExpr as FnCallExpr & {
             __branchGroup?: FnCallExpr[];
-            __isEarlyReturnDup?: boolean;
           };
-          if (marker.__isEarlyReturnDup) {
-            // Early return dups are INDEPENDENT - they have their own drop at the return point
-            // They don't count toward runtimeDupCount for the end-of-scope drop
-            allDupExprsToRemove.push(dupCallExpr);
-          } else if (marker.__branchGroup) {
+          if (marker.__branchGroup) {
             // This is a branch group - counts as 1 runtime dup
             runtimeDupCount++;
             branchGroups.push(marker.__branchGroup);
@@ -1996,16 +2093,14 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
           // The dups for derived copies are needed to maintain correct RC.
           variablesActuallyNeedingDrop.push(variable);
         } else if (runtimeDupCount <= 1) {
-          // Zero or one runtime dup that pairs with end-of-scope drop - can optimize
-          // Zero means only early return dups exist (all independent)
-          // One means one dup pairs with one drop
+          // One runtime dup that pairs with end-of-scope drop - can optimize
           // Add all branch group expressions (they all represent the same runtime dup)
           for (const group of branchGroups) {
             for (const dupExpr of group) {
               dupCallsToRemove.add(dupExpr);
             }
           }
-          // Add regular dup expressions (including early return dups)
+          // Add regular dup expressions
           for (const dupExpr of allDupExprsToRemove) {
             dupCallsToRemove.add(dupExpr);
           }
@@ -2029,11 +2124,9 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
           // which preserves the drop on every early return.
           let consumeSiteToken = lastExpr.token;
           if (runtimeDupCount === 1 && branchGroups.length === 0) {
-            const regularDup = allDupExprsToRemove.find(
-              (dupExpr) =>
-                !(dupExpr as FnCallExpr & { __isEarlyReturnDup?: boolean })
-                  .__isEarlyReturnDup
-            ) as (FnCallExpr & { __useSiteToken?: Token }) | undefined;
+            const regularDup = allDupExprsToRemove[0] as
+              | (FnCallExpr & { __useSiteToken?: Token })
+              | undefined;
             if (regularDup?.__useSiteToken) {
               consumeSiteToken = regularDup.__useSiteToken;
             }

@@ -1,0 +1,25 @@
+// Dyn dispatch over an explicitly-boxed VALUE struct: `dyn(box(Sq))`. The dyn
+// payload's runtime type is `Box(Sq)` but the trait impl is on the underlying
+// `Sq`, so codegen must:
+//   - recognise `Box(Sq)` as a box (is_boxed_type — needs the `Box(...)` name
+//     stamped on the instantiation),
+//   - resolve trait methods on the UNDERLYING `Sq`, emitting the unbox wrapper
+//     `(Box(Sq)*)self_ptr -> &box->* -> Sq.area`,
+//   - key the impl/vtable/dyn-box on the unwrapped concrete `Sq` (not `Box(Sq)`).
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+Shape :: trait(
+  area : (fn(self : *(Self)) -> i32)
+);
+Sq :: struct(s : i32);
+SqShape :: impl(
+  Sq,
+  Shape(
+    area : (fn(self : *(Self)) -> i32)(self.s * self.s)
+  )
+);
+use_shape :: (fn(sh : Dyn(Shape)) -> i32)(sh.area());
+main :: (fn() -> unit)({
+  unsafe(_a := putchar(int(use_shape(dyn(box(Sq(9))))))); // 9*9 = 81 = 'Q'
+});
+export(main);

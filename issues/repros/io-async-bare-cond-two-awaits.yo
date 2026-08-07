@@ -1,0 +1,23 @@
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+open(import("std/libc/stdio"));
+open(import("std/string"));
+{ sleep } :: import("std/sys/timer");
+test("two awaits in one bare-cond arm both run", {
+  marker := Box(i32)(0);
+  task := io.async(
+    (io : Io) => cond(
+      (marker.* > i32(100)) => (),
+      true => {
+        r1 := io.await(sleep(u64(5)), io);
+        unsafe(printf("first await done r1=%d\n", r1));
+        r2 := io.await(sleep(u64(5)), io);
+        unsafe(printf("second await done r2=%d\n", r2));
+        marker.* = i32(42);
+      }
+    )
+  );
+  io.await(task, io);
+  unsafe(printf("marker=%d\n", marker.*));
+  assert(marker.* == i32(42), "both awaits and the tail must run");
+});

@@ -26,13 +26,15 @@ IO_file :: import("../file");
 { malloc, free } :: GlobalAllocator;
 _DEFAULT_BUF_SIZE :: usize(4096);
 _NEWLINE :: u8(10); // '\n'
-BufReader :: object(
-  _fd : i32,
-  _buf : ArrayList(u8),
-  _pos : usize,
-  _filled : usize,
-  _offset : u64,
-  _capacity : usize
+BufReader :: ref(
+  struct(
+    _fd : i32,
+    _buf : ArrayList(u8),
+    _pos : usize,
+    _filled : usize,
+    _offset : u64,
+    _capacity : usize
+  )
 );
 impl(
   BufReader,
@@ -111,7 +113,7 @@ impl(
                 self._buf = ArrayList(u8).with_capacity(self._capacity);
                 i := usize(0);
                 while(runtime(i < usize(n)), {
-                  self._buf.push((raw_buf &+ i).*);
+                  self._buf.push((raw_buf.add(i)).*);
                   i = (i + usize(1));
                 });
                 self._pos = usize(0);
@@ -152,7 +154,7 @@ impl(
           i := usize(0);
           while(runtime(i < to_copy), {
             b := self._buf(self._pos + i);
-            (buf &+ i).* = b;
+            (buf.add(i)).* = b;
             i = (i + usize(1));
           });
           self._pos = (self._pos + to_copy);
@@ -197,7 +199,7 @@ impl(
               self._buf = ArrayList(u8).with_capacity(self._capacity);
               i := usize(0);
               while(runtime(i < usize(n)), {
-                self._buf.push((raw_buf &+ i).*);
+                self._buf.push((raw_buf.add(i)).*);
                 i = (i + usize(1));
               });
               self._pos = usize(0);
@@ -210,7 +212,7 @@ impl(
               j := usize(0);
               while(runtime(j < to_copy), {
                 b := self._buf(j);
-                (buf &+ j).* = b;
+                (buf.add(j)).* = b;
                 j = (j + usize(1));
               });
               self._pos = to_copy;
@@ -259,7 +261,7 @@ impl(
             self._offset = (self._offset + u64(n));
             j := usize(0);
             while(runtime(j < usize(n)), {
-              result.push((raw_buf &+ j).*);
+              result.push((raw_buf.add(j)).*);
               j = (j + usize(1));
             });
           }

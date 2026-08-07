@@ -6,6 +6,25 @@ open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("./definitions.yo");
+/// Is `s` already on the expansion path? (`visited`, see `_tts`.)
+_tts_seen :: (fn(xs : ArrayList(String), s : String) -> bool)({
+  n := xs.len();
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < n) && !(found), {
+    // Compare in place — no deep clone per probe (see _tk_seen; statement-arm
+    // shape required — the bool-valued match form miscompiles self-hosted).
+    match(
+      xs.get(i),
+      .Some(e) => if(e == s, {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
 /// Depth-bounded core of `type_to_string`. `_d` is the current recursion
 /// depth; once it exceeds the cap we return an ellipsis instead of recursing.
 /// This is the recursion guard: a cyclic / pathologically-deep TypeValue
@@ -15,7 +34,33 @@ open(import("std/fmt"));
 /// into such fields (`synthesis_type_id` falls back to `type_to_string` for
 /// non-struct types). A bounded string is still a fine "unique-enough" key
 /// for the synthesizer's anti-circularity check.
-_tts :: (fn(t : TypeValue, _d : usize) -> String)(
+///
+/// `visited` = ids of named types already expanded in THIS top-level render
+/// (fresh per `type_to_string` call). A re-encounter renders an id-only
+/// placeholder instead of expanding again. Ports the cycle guard TS carries on
+/// `typeToString` (src/types/utils.ts:1210-1233 — "Check for circular
+/// references using type ID"), which yo-self lacked entirely; the depth cap
+/// alone does NOT bound it, because the cost is fanout^depth, not depth.
+///
+/// MEASURED (2026-07-26, tests/collections/priority_queue.test.yo): without
+/// this guard 100% of samples sat in ONE `_tts` render reached from
+/// `_impl_type_captures_sig` → `value_to_signature_string`, at 6.8 GB RSS and
+/// climbing after 7 minutes — the file is one of the six cluster-A "stalls".
+/// TS never hits this: it has no `_impl_type_captures_sig` (each generic-impl
+/// instantiation gets a unique funcId, impl.ts:1551), and its own
+/// `typeToString` peaks at 44 characters over the whole file.
+///
+/// The set is MONOTONIC (never popped) rather than path-scoped like TS's,
+/// which bounds a shared-but-acyclic type graph too — the same deliberate
+/// divergence, for the same measured reason, as yo-self's two sibling key
+/// functions: `type_intern_key` (types/intern.yo, "Never-pop keeps rendering
+/// deterministic (=> injective)") and `_type_key_at` (types/type_key.yo,
+/// whose `g_tk_visited` header records the identical pathology: multi-MB key
+/// strings, 7→62 GB footprint). Rendering stays DETERMINISTIC — the traversal
+/// is fixed and the set starts empty on every top-level call — and the
+/// placeholders carry the type's id, so distinct types never collapse onto one
+/// rendering.
+_tts :: (fn(t : TypeValue, _d : usize, visited : ArrayList(String)) -> String)(
   cond(
     (_d > usize(40)) => String.from("…"),
     true => match(
@@ -60,11 +105,11 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
         (level == usize(0)) => `Type`,
         true => `Type(${level})`
       ),
-      .Pointer(inner) => `*(${recur(inner.*, _d + usize(1))})`,
+      .Pointer(inner) => `*(${recur(inner, _d + usize(1), visited)})`,
       .Str => String.from("str"),
       .Array(inner, n, lv) => cond(
-        (lv.len() > usize(0)) => `Array(${recur(inner.*, _d + usize(1))}, ${lv})`,
-        true => `Array(${recur(inner.*, _d + usize(1))}, ${n})`
+        (lv.len() > usize(0)) => `Array(${recur(inner, _d + usize(1), visited)}, ${lv})`,
+        true => `Array(${recur(inner, _d + usize(1), visited)}, ${n})`
       ),
       .Tuple(labels, types) => {
         body := String.from("");
@@ -75,7 +120,7 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
             body = `${body}, `;
           });
           label := match(labels.get(i),.Some(s) => s,.None => `""`);
-          ts := match(types.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          ts := match(types.get(i),.Some(t2) => recur(t2, _d + usize(1), visited),.None => `?`);
           if(label.len() > usize(0), {
             body = `${body}${label} : ${ts}`;
           }, {
@@ -85,8 +130,11 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
         });
         `Tuple(${body})`
       },
-      .Func({ forall_labels : fls, forall_types : fts, param_labels : plabels, param_types : ptypes, implicit_labels : ils, implicit_types : its, result : ret }) => {
-        // forall prefix: forall(T, U, ...)
+      .Func({ forall_types : fts, param_types : ptypes, implicit_types : its, result : ret, meta : __fm1 }) => {
+        fls := __fm1.*.forall_labels;
+        plabels := __fm1.*.param_labels;
+        ils := __fm1.*.implicit_labels;
+        // generic prefix: generic(T, U, ...)
         body := String.from("");
         fn := usize(0);
         while((fn < fts.len()), {
@@ -97,7 +145,7 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
           body = `${body}${fl}`;
           fn = (fn + usize(1));
         });
-        forall_prefix := if(body.len() > usize(0), `forall(${body}) `, String.from(""));
+        forall_prefix := if(body.len() > usize(0), `generic(${body}) `, String.from(""));
         // params
         body = String.from("");
         i := usize(0);
@@ -107,7 +155,7 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
             body = `${body}, `;
           });
           label := match(plabels.get(i),.Some(s) => s,.None => `""`);
-          ts := match(ptypes.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          ts := match(ptypes.get(i),.Some(t2) => recur(t2, _d + usize(1), visited),.None => `?`);
           if(label.len() > usize(0), {
             body = `${body}${label} : ${ts}`;
           }, {
@@ -124,7 +172,7 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
             ibody = `${ibody}, `;
           });
           ilabel := match(ils.get(ii),.Some(s) => s,.None => `""`);
-          its2 := match(its.get(ii),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          its2 := match(its.get(ii),.Some(t2) => recur(t2, _d + usize(1), visited),.None => `?`);
           if(ilabel.len() > usize(0), {
             ibody = `${ibody}${ilabel} : ${its2}`;
           }, {
@@ -133,7 +181,7 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
           ii = (ii + usize(1));
         });
         using_suffix := if(ibody.len() > usize(0), ` ${ibody}`, String.from(""));
-        `fn(${forall_prefix}${body}) -> ${recur(ret.*, _d + usize(1))}${using_suffix}`
+        `fn(${forall_prefix}${body}) -> ${recur(ret, _d + usize(1), visited)}${using_suffix}`
       },
       .Struct({ id, name, field_labels : s_fls, field_types : s_fts, is_source_namespace : s_sns }) => cond(
         // Source-namespace structs (anonymous modules / imports) keep the
@@ -142,6 +190,15 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
           if(s_fls.len() == usize(0), {
             return(`module ${name}`);
           });
+          // Already expanded in this render — emit the id, not the field dump.
+          // A module's fields are its exported functions, whose parameter and
+          // result types are other modules, so expanding one twice multiplies.
+          if((id.len() > usize(0)) && _tts_seen(visited, id.clone()), {
+            return(`<module:${id}>`);
+          });
+          if(id.len() > usize(0), {
+            visited.push(id.clone());
+          });
           body := String.from("");
           i := usize(0);
           while(i < s_fls.len(), {
@@ -149,7 +206,7 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
               body = `${body}, `;
             });
             fl := match(s_fls.get(i),.Some(s) => s,.None => `""`);
-            ft := match(s_fts.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+            ft := match(s_fts.get(i),.Some(t2) => recur(t2, _d + usize(1), visited),.None => `?`);
             body = `${body}${fl} : ${ft}`;
             i = (i + usize(1));
           });
@@ -157,9 +214,9 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
         },
         true => if(name.len() > usize(0), name, `<struct:${id}>`)
       ),
-      .EnumT(id, name, _, _, _, _, _) => if(name.len() > usize(0), name, `<enum:${id}>`),
+      .EnumT(id, name, _, _, _, _, _, _, _) => if(name.len() > usize(0), name, `<enum:${id}>`),
       .Union(name, _, _) => if(name.len() > usize(0), name, `<union>`),
-      .TraitT(name : n, field_labels : fls, field_types : fts) => {
+      .TraitT(id : t_id, name : n, field_labels : fls, field_types : fts) => {
         // Prefer the trait's NAME whenever it has one (mirrors TS
         // typeToString printing "Send", not the trait's field dump) — the
         // field dump is the fallback for genuinely anonymous traits only.
@@ -169,6 +226,14 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
         if(fls.len() == usize(0), {
           return(n);
         });
+        // See the Struct arm: an anonymous trait's field dump is its method
+        // signatures, which mention the constrained type variable again.
+        if((t_id.len() > usize(0)) && _tts_seen(visited, t_id.clone()), {
+          return(`<trait:${t_id}>`);
+        });
+        if(t_id.len() > usize(0), {
+          visited.push(t_id.clone());
+        });
         body := String.from("");
         i := usize(0);
         while(i < fls.len(), {
@@ -176,15 +241,25 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
             body = `${body}, `;
           });
           fl := match(fls.get(i),.Some(s) => s,.None => `""`);
-          ft := match(fts.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          ft := match(fts.get(i),.Some(t2) => recur(t2, _d + usize(1), visited),.None => `?`);
           body = `${body}${fl} : ${ft}`;
           i = (i + usize(1));
         });
         `${n}(${body})`
       },
-      .SomeT(name : n, required_trait_types : rts, negative_trait_types : nts) => {
+      .SomeT(id : sm_id, name : n, required_trait_types : rts, negative_trait_types : nts) => {
         if((rts.len() == usize(0)) && (nts.len() == usize(0)), {
           return(n);
+        });
+        // See the Struct arm. This is the arm that closes the loop: a trait
+        // constraint's method signatures mention the very type variable being
+        // constrained (`T : (Ord)` where `Ord.cmp : fn(self : T, ...)`), so
+        // `T` → `Ord` → `cmp` → `T` … expands without this.
+        if((sm_id.len() > usize(0)) && _tts_seen(visited, sm_id.clone()), {
+          return(n);
+        });
+        if(sm_id.len() > usize(0), {
+          visited.push(sm_id.clone());
         });
         body := String.from("");
         i := usize(0);
@@ -192,7 +267,7 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
           if(i > usize(0), {
             body = `${body} + `;
           });
-          rt := match(rts.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          rt := match(rts.get(i),.Some(t2) => recur(t2, _d + usize(1), visited),.None => `?`);
           body = `${body}${rt}`;
           i = (i + usize(1));
         });
@@ -201,14 +276,14 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
           if((body.len() > usize(0)) || (ii > usize(0)), {
             body = `${body} + `;
           });
-          nt := match(nts.get(ii),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          nt := match(nts.get(ii),.Some(t2) => recur(t2, _d + usize(1), visited),.None => `?`);
           body = `${body}!(${nt})`;
           ii = (ii + usize(1));
         });
         `${n} : (${body})`
       },
       .ExprT => `Expr`,
-      .ComptimeListT(child) => `ComptimeList(${recur(child.*, _d + usize(1))})`,
+      .ComptimeListT(child) => `ComptimeList(${recur(child, _d + usize(1), visited)})`,
       .EffectsRowT(implicit_labels : labels, implicit_types : types) => {
         body := String.from("");
         i := usize(0);
@@ -217,7 +292,7 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
             body = `${body}, `;
           });
           lbl := match(labels.get(i),.Some(s) => s,.None => ``);
-          ts := match(types.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          ts := match(types.get(i),.Some(t2) => recur(t2, _d + usize(1), visited),.None => `?`);
           body = `${body}${lbl} : ${ts}`;
           i = (i + usize(1));
         });
@@ -230,13 +305,13 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
           if(i > usize(0), {
             body = `${body}, `;
           });
-          ts := match(args.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          ts := match(args.get(i),.Some(t2) => recur(t2, _d + usize(1), visited),.None => `?`);
           body = `${body}${ts}`;
           i = (i + usize(1));
         });
-        `TypeApp(${recur(constructor.*, _d + usize(1))}, [${body}])`
+        `TypeApp(${recur(constructor, _d + usize(1), visited)}, [${body}])`
       },
-      .IsoT(child) => `iso(${recur(child.*, _d + usize(1))})`,
+      .IsoT(child) => `iso(${recur(child, _d + usize(1), visited)})`,
       .DynT(required_trait_types : rtt, required_trait_levels : _, negative_trait_types : ntt, negative_trait_levels : _) => {
         body := String.from("");
         i := usize(0);
@@ -244,7 +319,7 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
           if(i > usize(0), {
             body = `${body} + `;
           });
-          ts := match(rtt.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          ts := match(rtt.get(i),.Some(t2) => recur(t2, _d + usize(1), visited),.None => `?`);
           body = `${body}${ts}`;
           i = (i + usize(1));
         });
@@ -253,7 +328,7 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
           if(body.len() > usize(0), {
             body = `${body} + `;
           });
-          ts := match(ntt.get(ii),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          ts := match(ntt.get(ii),.Some(t2) => recur(t2, _d + usize(1), visited),.None => `?`);
           body = `${body}!(${ts})`;
           ii = (ii + usize(1));
         });
@@ -266,11 +341,11 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
           if(i > usize(0), {
             body = `${body}, `;
           });
-          ts := match(cpts.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          ts := match(cpts.get(i),.Some(t2) => recur(t2, _d + usize(1), visited),.None => `?`);
           body = `${body}${ts}`;
           i = (i + usize(1));
         });
-        `${bn}(${body}) -> ${recur(cr.*, _d + usize(1))}`
+        `${bn}(${body}) -> ${recur(cr, _d + usize(1), visited)}`
       },
       .FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets, effect_spreads : _) => {
         body := String.from("");
@@ -280,13 +355,13 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
             body = `${body}, `;
           });
           el := match(els.get(i),.Some(s) => s,.None => ``);
-          ts := match(ets.get(i),.Some(t2) => recur(t2, _d + usize(1)),.None => `?`);
+          ts := match(ets.get(i),.Some(t2) => recur(t2, _d + usize(1), visited),.None => `?`);
           body = `${body}${el} : ${ts}`;
           i = (i + usize(1));
         });
         cond(
-          (body.len() > usize(0)) => `Future[${bn}](${recur(out.*, _d + usize(1))}) ${body}`,
-          true => `Future[${bn}](${recur(out.*, _d + usize(1))})`
+          (body.len() > usize(0)) => `Future[${bn}](${recur(out, _d + usize(1), visited)}) ${body}`,
+          true => `Future[${bn}](${recur(out, _d + usize(1), visited)})`
         )
       }
     )
@@ -295,7 +370,9 @@ _tts :: (fn(t : TypeValue, _d : usize) -> String)(
 /// Render a TypeValue as a string. Recursive over
 /// Pointer/Array/Tuple/Func/Struct/EnumT/Union, with a depth cap (see
 /// `_tts`) so cyclic / very deep types can't overflow the stack.
-type_to_string :: (fn(t : TypeValue) -> String)(_tts(t, usize(0)));
+type_to_string :: (fn(t : TypeValue) -> String)(
+  _tts(t, usize(0), ArrayList(String).new())
+);
 /// A cheap, shallow key for the synthesizer's anti-circularity check. Renders
 /// only the top few levels of structure (then `…`), so it can't blow up the way
 /// full `type_to_string` (depth 40) does when called O(n) times over a large or
@@ -303,5 +380,7 @@ type_to_string :: (fn(t : TypeValue) -> String)(_tts(t, usize(0)));
 /// hangs recursive-type synthesis). For shallow types it's identical to
 /// `type_to_string`; only deep types are truncated. (TS uses O(1) object
 /// identity for `checkedTypePairs`; this is the value-semantic proxy.)
-type_to_string_key :: (fn(t : TypeValue) -> String)(_tts(t, usize(36)));
+type_to_string_key :: (fn(t : TypeValue) -> String)(
+  _tts(t, usize(36), ArrayList(String).new())
+);
 export(type_to_string, type_to_string_key);

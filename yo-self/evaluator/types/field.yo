@@ -57,7 +57,23 @@ TypeField :: struct(
   is_comptime : bool,
   default_value : Option(EvalValue),
   assigned_value : Option(EvalValue),
-  doc_comment : Option(String)
+  doc_comment : Option(String),
+  /// True for an effect-parameter field of a closure capture struct (an effect
+  /// handler / Io bundle threaded into the closure). Mirrors TS
+  /// `TypeField.isEffectParam` (definitions.ts:355). Set only at capture-struct
+  /// creation (closure.yo); false everywhere else.
+  is_effect_param : bool,
+  /// The `?= <expr>` / `= <expr>` EXPRESSIONS, mirroring TS
+  /// `TypeField.exprs.defaultValueExpr` / `.assignedValueExpr`. A constructor
+  /// call that OMITS such a field puts this expr in the corresponding
+  /// `runtime_arg_exprs_in_order` slot (src/evaluator/calls/type.ts:206), which
+  /// is what codegen emits for that field. yo-self previously had no place to
+  /// put them and parked the CALLEE expr in the slot as a placeholder — fine
+  /// while codegen was unimplemented, but it now emits the struct's own C TYPE
+  /// NAME as the field value (`(Point){ .x = __yo_t0, .y = __yo_t0 }` for
+  /// `Point()`). Defaulted so no existing `TypeField(...)` site needs changing.
+  (default_value_expr : Option(AstExpr)) ?= Option(AstExpr).None,
+  (assigned_value_expr : Option(AstExpr)) ?= Option(AstExpr).None
 );
 /// Result type for evaluate_type_field.
 EvalTypeFieldResult :: struct(
@@ -242,7 +258,7 @@ evaluate_type_field :: (
         expected_type_val,
         .Tuple(_, types) => types.get(tuple_field_index),
         .Struct({ field_types : types }) => types.get(tuple_field_index),
-        .TraitT(_, _, _, types, _, _, _, _) => types.get(tuple_field_index),
+        .TraitT(_, _, _, types, _, _, _, _, _, _) => types.get(tuple_field_index),
         _ => Option(TypeValue).None
       );
       if(maybe_field_ty.is_none(), {
@@ -300,7 +316,7 @@ evaluate_type_field :: (
       te_info.value,
       .Some(v) => match(
         v,
-        .TypeVal(inner) => Option(TypeValue).Some(inner.*),
+        .TypeVal(inner) => Option(TypeValue).Some(inner),
         _ => Option(TypeValue).None
       ),
       .None => Option(TypeValue).None
@@ -593,7 +609,10 @@ evaluate_type_field :: (
     is_comptime : is_comptime,
     default_value : default_value,
     assigned_value : assigned_value,
-    doc_comment : final_doc_comment
+    doc_comment : final_doc_comment,
+    is_effect_param : false,
+    default_value_expr : default_value_expr,
+    assigned_value_expr : assigned_value_expr
   );
   EvalTypeFieldResult(field : field, env : env)
 });

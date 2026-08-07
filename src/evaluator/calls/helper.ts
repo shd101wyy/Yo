@@ -374,7 +374,7 @@ export function checkIfFunctionParameterMatchesArgument({
       // For io.await, evaluate the argument WITHOUT expectedType so the argument
       // retains its natural type (e.g., IoFuture = Impl(Concrete(...), Future(i32))).
       // This prevents the expected SomeType from coercing the arg type, which would
-      // make synthesis unable to resolve forall type parameter T from Future(T).
+      // make synthesis unable to resolve generic type parameter T from Future(T).
       const expectedType =
         functionType.ioBuiltin === "io_await" ||
         functionType.ioBuiltin === "io_state" ||
@@ -541,7 +541,7 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
   const isParamCompileTimeOnly =
     parameter.isCompileTimeOnly || context.forceCompileTimeBindings === true;
 
-  // If the parameter type is a constrained forall SomeType (from an early-applied
+  // If the parameter type is a constrained generic SomeType (from an early-applied
   // where clause like `where(T <: Trait)`), use the SomeType as the binding type
   // instead of the concrete argType. This preserves the trait constraint in the
   // function body so that method dispatch on this parameter only considers methods
@@ -934,13 +934,13 @@ function _tryToCallFunctionWithArgumentsImpl({
   const definitionSiteEnclosingFunctionType =
     functionValue?.definitionSiteEnclosingFunctionType;
 
-  // Check if there is `forall(...)` argument.
+  // Check if there is `generic(...)` argument.
   // If yes, then it should be the first argument (or second for method calls where self is first)
   let regularArgStartIndex = 0;
   if (
     argExprs.length > 0 &&
     exprIsFunctionCall(argExprs[0]!) &&
-    exprIsFunctionCallOf(argExprs[0]!, BuiltinKeywords.forall)
+    exprIsFunctionCallOf(argExprs[0]!, BuiltinKeywords.generic)
   ) {
     forallArgsExpr = argExprs[0]! as FnCallExpr;
     regularArgStartIndex = 1;
@@ -948,12 +948,12 @@ function _tryToCallFunctionWithArgumentsImpl({
     isMethodCall &&
     argExprs.length > 1 &&
     exprIsFunctionCall(argExprs[1]!) &&
-    exprIsFunctionCallOf(argExprs[1]!, BuiltinKeywords.forall)
+    exprIsFunctionCallOf(argExprs[1]!, BuiltinKeywords.generic)
   ) {
-    // For method calls, self is prepended as the first arg, so forall(...)
+    // For method calls, self is prepended as the first arg, so generic(...)
     // appears at index 1 instead of index 0
     forallArgsExpr = argExprs[1]! as FnCallExpr;
-    // Keep self at index 0, remove forall from the middle
+    // Keep self at index 0, remove generic from the middle
     argExprs = [argExprs[0]!, ...argExprs.slice(2)];
   }
 
@@ -1161,7 +1161,7 @@ Got:   ${regularArgsToCheck.length} arguments`,
           callerEnv = evaluatedTypeExpr.$.env;
         }
 
-        // For HKT: when the forall parameter has a function-type kind,
+        // For HKT: when the generic parameter has a function-type kind,
         // accept FunctionValue (type constructors like Option)
         const isHktForallParam = isFunctionType(forallParameter.type);
         if (isHktForallParam) {
@@ -1192,12 +1192,12 @@ Got:   ${regularArgsToCheck.length} arguments`,
         };
       }
 
-      // For HKT forall params (function-type kind), skip the standard type synthesis
+      // For HKT generic params (function-type kind), skip the standard type synthesis
       // and comparison since the argument is a FunctionValue, not a TypeValue.
       const isHktParam = isFunctionType(forallParameter.type);
       let evaluatedForallParameterType: Type = forallParameter.type;
       if (!isHktParam) {
-        // Evaluate the forall parameter type first (like we do for regular and implicit parameters)
+        // Evaluate the generic parameter type first (like we do for regular and implicit parameters)
         const {
           parameterType: reEvaluatedParamType,
           calleeEnv: updatedCalleeEnv,
@@ -1280,9 +1280,9 @@ Got:   ${typeToString(typeValue.type)}`,
     }
   }
 
-  // If we have an expected return type and forall parameters without explicit arguments,
-  // try to do early synthesis to resolve forall parameters before processing regular arguments.
-  // This is necessary when parameter types reference forall parameters (e.g., value : V in box).
+  // If we have an expected return type and generic parameters without explicit arguments,
+  // try to do early synthesis to resolve generic parameters before processing regular arguments.
+  // This is necessary when parameter types reference generic parameters (e.g., value : V in box).
   // Skip for macro functions (isUnquote return type) as the actual return type is determined after expansion.
   if (
     context.expectedType &&
@@ -1314,9 +1314,9 @@ Got:   ${typeToString(typeValue.type)}`,
   if (functionType.ioBuiltin === "io_async") {
     context = { ...context, isInsideIoAsyncCall: true };
 
-    // Pre-bind io.async's forall(T, E) from the expected return type when
+    // Pre-bind io.async's generic(T, E) from the expected return type when
     // available. io.async's signature is
-    //   fn(forall(T, E), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))
+    //   fn(generic(T, E), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))
     // and the closure argument's parameter type references E. Without this
     // binding the closure body walks with `e : SomeType_E` and field
     // accesses like `e.io.await(...)` fail (E has no `.io` field at
@@ -1366,13 +1366,13 @@ Got:   ${typeToString(typeValue.type)}`,
   }
 
   // Early where-clause application: Apply where-clause constraints BEFORE argument
-  // processing so that forall SomeType parameters have their trait constraints when
+  // processing so that generic SomeType parameters have their trait constraints when
   // binding runtime arguments. This is needed for trait disambiguation — when a type
   // implements multiple traits with identically-named methods, the where-clause
   // constraint must be in place so method lookup on the parameter only considers
   // methods from the constrained trait.
   //
-  // Guard: Only apply early when ALL where-clause LHS types are forall params that
+  // Guard: Only apply early when ALL where-clause LHS types are generic params that
   // already exist in calleeEnv. This prevents issues with comptime params that
   // haven't been bound yet (e.g., `comptime(Rhs)` in operator traits).
   if (functionType.whereClauseExprs?.length) {
@@ -1386,7 +1386,7 @@ Got:   ${typeToString(typeValue.type)}`,
         const lhsName =
           lhsExpr.tag === ExprTag.Atom ? lhsExpr.token.value : undefined;
         if (!lhsName) return false;
-        // Check if this name exists as a variable in calleeEnv (bound by forall)
+        // Check if this name exists as a variable in calleeEnv (bound by generic)
         const vars = getVariablesFromEnv(calleeEnv, lhsName);
         return vars.length > 0;
       }
@@ -1407,7 +1407,7 @@ Got:   ${typeToString(typeValue.type)}`,
     }
   }
 
-  // Call-site ref/own exclusivity (v4, plans/BORROW_EXCLUSIVITY.md):
+  // Call-site ref/own exclusivity (v4, plans/archive/BORROW_EXCLUSIVITY.md):
   // an own-bound argument must not alias the root of a ref-bound
   // argument in the same call — the callee could release the object
   // the borrow points into.
@@ -1461,7 +1461,7 @@ Got:   ${typeToString(typeValue.type)}`,
     env: callerEnv,
   });
 
-  // After processing regular arguments, propagate resolvedConcreteType from forall SomeTypes
+  // After processing regular arguments, propagate resolvedConcreteType from generic SomeTypes
   // back to the calleeEnv. This handles the case where closure evaluation resolves
   // type parameters (e.g., T = i32) via resolvedConcreteType on the SomeType objects,
   // but the calleeEnv variable bindings still point to the SomeType.
@@ -1493,7 +1493,7 @@ Got:   ${typeToString(typeValue.type)}`,
     }
   }
 
-  // If forall arguments were not explicitly provided (i.e., forallArgsExpr is undefined),
+  // If generic arguments were not explicitly provided (i.e., forallArgsExpr is undefined),
   // we need to extract the inferred type parameter values from calleeEnv after
   // argument type checking has resolved them via synthesizeTypes.
   if (!forallArgsExpr && functionType.forallParameters.length > 0) {
@@ -1560,7 +1560,7 @@ Got:   ${typeToString(typeValue.type)}`,
     // `bodyExpectedType`). When the caller asks for the raw `T` (auto-
     // deref'd by the consumer, e.g. binding the call result to a value
     // variable, or comparing in an arm), leave it raw. Skip when
-    // returnType is already a Ptr — a generic forall T may have been
+    // returnType is already a Ptr — a generic generic T may have been
     // pre-resolved upstream to `*(JsonValue)` and double-wrapping would
     // re-introduce the mismatch (std/encoding/json's Index.index calling
     // `values.project(...)`).
@@ -1597,7 +1597,7 @@ Got:   ${typeToString(typeValue.type)}`,
       ) &&
       // Don't replace a concrete return type with a SomeType-containing expected type.
       // The expectedType may contain unresolved SomeTypes (e.g., List(SomeType U) from
-      // a forall method's original function type), while the actual return type is already
+      // a generic method's original function type), while the actual return type is already
       // fully resolved (e.g., List(i32)). Using the SomeType-containing type would cause
       // codegen to encounter types with no C representation.
       !typeContainsSomeType(context.expectedType.type)
@@ -1825,7 +1825,7 @@ Got:   ${typeToString(typeValue.type)}`,
 
   validateFunctionReturnType({
     returnType,
-    env: calleeEnv, // Use calleeEnv to check SomeTypes inferred from forall parameters
+    env: calleeEnv, // Use calleeEnv to check SomeTypes inferred from generic parameters
     expr,
     context,
   });
@@ -1889,7 +1889,7 @@ Got:   ${typeToString(typeValue.type)}`,
   // Skip specialization for functions that are only generic due to implicit
   // parameters (e.g., using(raise : Raise)) AND have evidence-passing-capable
   // implicits (record fields that can be passed as fn ptrs). These use evidence
-  // passing instead of per-call-site specialization. Functions with forall-only
+  // passing instead of per-call-site specialization. Functions with generic-only
   // effect records still need specialization (they use SM-inlining).
   const isGenericOnlyBecauseOfImplicits =
     isFunctionTypeGeneric(functionType) &&
@@ -1935,7 +1935,7 @@ Got:   ${typeToString(typeValue.type)}`,
       context,
     });
 
-    // For generic functions where the return type is a SomeType (e.g., forall(T) -> T),
+    // For generic functions where the return type is a SomeType (e.g., generic(T) -> T),
     // update returnType to the concrete type from the evaluated body so the call site
     // gets the right type. This handles resume handlers and other generic functions
     // where T can only be resolved after body evaluation.
@@ -2012,7 +2012,7 @@ Got:   ${typeToString(typeValue.type)}`,
   }
 
   // Direct ctl function call: the ctl function is called without an intermediate
-  // function with `using(ctl)`. The function body was deferred because of forall
+  // function with `using(ctl)`. The function body was deferred because of generic
   // parameters. We need to evaluate it with concrete types so codegen can inline it.
   //
   // Previously, this was skipped when inside a function that receives the ctl handler
@@ -2035,7 +2035,7 @@ Got:   ${typeToString(typeValue.type)}`,
     });
     // Update returnType to the concrete type from the specialization.
     // For escape-only handlers (isControlFunction, e.g. Exception.throw), the
-    // specialization uses the enclosing function's return type as the forall
+    // specialization uses the enclosing function's return type as the generic
     // concrete type (e.g. unit → void). Using specializedType.return.type here
     // prevents a phantom RC-owning temp when context.expectedType has already
     // overridden returnType with a concrete RC type (e.g. String) before this
@@ -2116,7 +2116,7 @@ function valueToSignatureString(value: Value): string {
 /**
  * Compute the compile-time signature string for a function specialization.
  * This deterministically produces the same string for the same set of
- * compile-time args, forall args, implicit args, and runtime param types.
+ * compile-time args, generic args, implicit args, and runtime param types.
  */
 function computeCompileTimeSignature({
   functionType,
@@ -2131,7 +2131,7 @@ function computeCompileTimeSignature({
 }): string {
   const parts: string[] = [];
 
-  // Include forall type arguments
+  // Include generic type arguments
   functionType.forallParameters.forEach((param, index) => {
     if (index < argValues.forallArgs.length) {
       const arg = argValues.forallArgs[index]!;
@@ -2217,7 +2217,7 @@ function createSpecializedFunctionInline({
   const compileTimeArgValues: Value[] = [];
   const runtimeParameters: FunctionParameter[] = [];
 
-  // Add forall type arguments (always compile-time)
+  // Add generic type arguments (always compile-time)
   if (argValues.forallArgs) {
     compileTimeArgValues.push(...argValues.forallArgs.map((v) => v.value));
   }
@@ -2575,9 +2575,9 @@ function createSpecializedFunctionInline({
           }
 
           // Fallback inference for common effect signatures like
-          //   Raise :: fn(forall(T : Type), ...) -> T
+          //   Raise :: fn(generic(T : Type), ...) -> T
           // If we couldn't infer from returnType SomeType name, bind the single
-          // forall parameter to the concrete operation result type.
+          // generic parameter to the concrete operation result type.
           if (
             forallTypeMap.size === 0 &&
             ctlType.forallParameters.length === 1
@@ -2641,9 +2641,9 @@ function createSpecializedFunctionInline({
               context: handlerContext,
             });
 
-            // Specialize handler parameter types with concrete forall bindings.
+            // Specialize handler parameter types with concrete generic bindings.
             // The handler's parameters may have SomeType types corresponding to
-            // forall type parameters (e.g., ResumeType). Resolve them using the
+            // generic type parameters (e.g., ResumeType). Resolve them using the
             // concrete types from the forallTypeMap.
             const specializedParams: FunctionParameter[] =
               handlerFnType.parameters.map((param) => {
@@ -2657,7 +2657,7 @@ function createSpecializedFunctionInline({
                 return param;
               });
 
-            // Resolve return type if it's a forall SomeType
+            // Resolve return type if it's a generic SomeType
             let handlerReturnType = handlerFnType.return.type;
             if (isSomeType(handlerReturnType)) {
               const concreteType = forallTypeMap.get(handlerReturnType.name);
@@ -2683,7 +2683,7 @@ function createSpecializedFunctionInline({
             effectAnalysis.handlerValue = reEvaluatedHandler;
             // Update the effectParameterType to use the specialized handler type.
             // This ensures the outer/transitive SM struct uses concrete types
-            // (e.g., int32_t) instead of unresolved forall SomeType (void*).
+            // (e.g., int32_t) instead of unresolved generic SomeType (void*).
             effectAnalysis.effectParameterType = specializedHandlerType;
 
             // Also update operationArgTypes on transitive call points.
@@ -2833,7 +2833,7 @@ function createSpecializedFunctionInline({
   // Use the signature computed before body evaluation — inputs are identical
   const compileTimeSignature = earlyCompileTimeSignature;
 
-  // Resolve implicit parameters by substituting SomeType forall params
+  // Resolve implicit parameters by substituting SomeType generic params
   // Functions no longer carry implicit parameters; evidence passing
   // is handled by regular parameters now.
 
@@ -2894,10 +2894,10 @@ function createSpecializedFunctionInline({
  * Evaluate a ctl function body with concrete types for a direct ctl call.
  *
  * When a `ctl` function is called directly (not through a `using` parameter),
- * its body was deferred (not evaluated at definition time) because of forall parameters.
+ * its body was deferred (not evaluated at definition time) because of generic parameters.
  * We need to evaluate it here with the concrete types from the call context.
  *
- * The forall type parameter T is resolved from the enclosing function's return type
+ * The generic type parameter T is resolved from the enclosing function's return type
  * (since `escape val` exits the enclosing function with a value of type T).
  */
 function evaluateCtlFunctionBodyInline({
@@ -2914,10 +2914,10 @@ function evaluateCtlFunctionBodyInline({
 }): FunctionValue {
   const functionType = originalFunction.type;
 
-  // Determine the concrete type for the forall parameter T.
+  // Determine the concrete type for the generic parameter T.
   // For `return` handlers, T is the return type of the ctl operation at the call site.
   // For `escape` handlers, T can be anything (continuation is discarded), but we
-  // use the call-site type for consistent forall binding.
+  // use the call-site type for consistent generic binding.
   const concreteTypeForForall =
     context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
       ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
@@ -2944,7 +2944,7 @@ function evaluateCtlFunctionBodyInline({
     return existingCache.specializedFunction;
   }
 
-  // Build an env with forall parameters bound to their concrete types.
+  // Build an env with generic parameters bound to their concrete types.
   // Start with calleeEnv (function closure + parameters), then add compile-time
   // bindings from callerEnv that aren't already in calleeEnv. This is needed because
   // the handler's closure env comes from the ctl type definition (e.g., Raise) which
@@ -2977,7 +2977,7 @@ function evaluateCtlFunctionBodyInline({
   }
 
   for (const forallParam of functionType.forallParameters) {
-    // Map the forall type variable to the concrete call-site type
+    // Map the generic type variable to the concrete call-site type
     const concreteType = concreteTypeForForall;
     const { env: nextEnv } = addVariableToEnv({
       env: specializedEnv,
@@ -3029,7 +3029,7 @@ function evaluateCtlFunctionBodyInline({
     specializedFunctionCaches: [],
   };
 
-  // Build a specialized type with forall parameters resolved to concrete types.
+  // Build a specialized type with generic parameters resolved to concrete types.
   // This ensures the forward declaration uses the correct concrete types.
   const forallSomeTypes = new Set(
     functionType.forallParameters.map((fp) => fp.type)

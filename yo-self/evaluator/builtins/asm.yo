@@ -1,13 +1,695 @@
-//! evaluator/builtins/asm — stubs for evaluate_asm and evaluate_global_asm.
+//! evaluator/builtins/asm — evaluate_asm and evaluate_global_asm.
 //!
-//! Phase 3 stub. Full implementation planned for Phase 3.
 //! 1:1 port of `src/evaluator/builtins/asm.ts`.
+//!
+//! Yo-port notes:
+//!   - TS string-Set membership → `_str_in(list, s)` over ArrayList literals.
+//!   - `AsmOperand` interface → ref struct with Option fields.
+//!   - TS's placeholder regex `/\{([^}:]+)(?::[^}]*)?\}/g` → a hand-rolled
+//!     scanner over the joined template (`_validate_template_placeholders`).
+//!   - Helpers that throw report through `exn` and return a sentinel; the
+//!     caller checks a validity flag (established builtins idiom).
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
-{ AstExpr, ast_expr_token, make_err_expr } :: import("../../expr.yo");
-{ Environment } :: import("../../env.yo");
-{ EvalContext } :: import("../context.yo");
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr } :: import("../../expr.yo");
+{ Token } :: import("../../token.yo");
+{ Environment, get_variables_from_env, Variable } :: import("../../env.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ t_unit } :: import("../../types/creators.yo");
+{ is_integer_type, is_float_type, is_pointer_type, is_bool_type, is_comptime_string_type } :: import("../../types/guards.yo");
+{ EvalValue, is_unknown_val } :: import("../../value.yo");
+{ EvalContext, FuncOrAsyncBlockKind } :: import("../context.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ decode_str_lit_escapes } :: import("../values/string.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
+// ---------------------------------------------------------------------------
+// Name sets (TS Set constants)
+// ---------------------------------------------------------------------------
+_str_in :: (fn(names : ArrayList(String), s : String) -> bool)({
+  (i : usize) = usize(0);
+  n := names.len();
+  while(i < n, {
+    match(
+      names.get(i),
+      .Some(x) => if(x == s, {
+        return(true);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  false
+});
+_register_classes :: (fn() -> ArrayList(String))({
+  l := ArrayList(String).new();
+  l.push(String.from("reg"));
+  l.push(String.from("reg_byte"));
+  l.push(String.from("reg_abcd"));
+  l.push(String.from("xmm_reg"));
+  l.push(String.from("ymm_reg"));
+  l.push(String.from("imm"));
+  l.push(String.from("mem"));
+  l
+});
+_is_input_kind :: (fn(k : String) -> bool)(k == "in");
+_is_output_kind :: (fn(k : String) -> bool)((k == "out") || (k == "lateout"));
+_is_inout_kind :: (fn(k : String) -> bool)(((k == "inout") || (k == "inlateout")) || (k == "ref"));
+_is_special_kind :: (fn(k : String) -> bool)((k == "const_val") || (k == "sym"));
+_is_asm_subcall_name :: (fn(k : String) -> bool)(
+  ((((_is_input_kind(k) || _is_output_kind(k)) || _is_inout_kind(k)) || _is_special_kind(k)) || (k == "clobber")) ||
+    ((k == "clobber_abi") || (k == "asm_options"))
+);
+_asm_option_flags :: (fn() -> ArrayList(String))({
+  l := ArrayList(String).new();
+  l.push(String.from("pure"));
+  l.push(String.from("nomem"));
+  l.push(String.from("readonly"));
+  l.push(String.from("nostack"));
+  l.push(String.from("preserves_flags"));
+  l.push(String.from("att_syntax"));
+  l.push(String.from("intel_syntax"));
+  l.push(String.from("volatile"));
+  l.push(String.from("noreturn"));
+  l
+});
+// ---------------------------------------------------------------------------
+// AsmOperand (TS interface)
+// ---------------------------------------------------------------------------
+AsmOperand :: ref(
+  struct(
+    kind : String,
+    name : Option(String),
+    constraint : Option(String),
+    value_expr : Option(AstExpr),
+    output_type : Option(TypeValue),
+    target_var_name : Option(String),
+    discarded : bool
+  )
+);
+/// Check whether a Yo type is valid for asm operands.
+_is_valid_asm_operand_type :: (fn(t : TypeValue) -> bool)(
+  ((is_integer_type(t) || is_float_type(t)) || is_pointer_type(t)) || is_bool_type(t)
+);
+_atom_value :: (fn(e : AstExpr) -> String)(
+  match(e,.Atom(_, tok) => tok.value.clone(), _ => String.from(""))
+);
+_is_register_class_atom :: (fn(e : AstExpr) -> bool)(
+  ast_expr_is_atom(e) && _str_in(_register_classes(), _atom_value(e))
+);
+_is_asm_subcall :: (fn(e : AstExpr) -> bool)({
+  if(!(ast_expr_is_fn_call(e)), {
+    return(false);
+  });
+  fname := match(
+    e,
+    .FnCall(_, f, _, _, _) => _atom_value(f),
+    .Atom(_, _) => String.from("")
+  );
+  (fname.len() > usize(0)) && _is_asm_subcall_name(fname)
+});
+_is_discard_atom :: (fn(e : AstExpr) -> bool)(
+  ast_expr_is_atom(e) && (_atom_value(e) == String.from("_"))
+);
+_fn_call_args_of :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+  match(e,.FnCall(_, _, args, _, _) => args,.Atom(_, _) => ArrayList(AstExpr).new())
+);
+/// Strip the surrounding `"` delimiters that yo-self's StrLit convention
+/// keeps (see evaluator/values/string.yo — raw stores the QUOTED token).
+_strip_delims :: (fn(s : String) -> String)({
+  b := s.as_bytes();
+  n := b.len();
+  first_q := match(b.get(usize(0)),.Some(x) => (x == u8(34)),.None => false);
+  last_q := match(b.get(n - usize(1)),.Some(x) => (x == u8(34)),.None => false);
+  if(((n >= usize(2)) && first_q) && last_q, {
+    out := String.new();
+    (i : usize) = usize(1);
+    while(i < (n - usize(1)), {
+      match(
+        b.get(i),
+        .Some(x) => {
+          out.push_byte(x);
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    out
+  }, s)
+});
+/// Evaluate `e` and return its comptime-string value if it has one.
+_eval_comptime_str :: (
+  fn(e : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> Option(String)
+)({
+  evaluated := evaluate_expression_raw(e, env, ctx, exn);
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+    .Some(info) => match(
+      info.value,
+      .Some(v) => match(
+        v,
+        .StrLit(s) => Option(String).Some(_strip_delims(decode_str_lit_escapes(s.clone()))),
+        _ => Option(String).None
+      ),
+      .None => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+});
+/// Evaluate a constraint argument (register class atom, explicit register
+/// string, or raw("constraint")). Mirrors evaluateConstraint (asm.ts:135).
+_evaluate_constraint :: (
+  fn(constraint_expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> String
+)({
+  if(_is_register_class_atom(constraint_expr), {
+    return(_atom_value(constraint_expr));
+  });
+  match(
+    _eval_comptime_str(constraint_expr, env, ctx, exn),
+    .Some(s) => {
+      return(s);
+    },
+    .None => ()
+  );
+  if(ast_expr_is_fn_call_of(constraint_expr, "raw", Option(usize).Some(usize(1))), {
+    raw_arg := match(_fn_call_args_of(constraint_expr).get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    match(
+      _eval_comptime_str(raw_arg, env, ctx, exn),
+      .Some(rs) => {
+        rr := String.from("raw:");
+        rr.push_string(rs);
+        return(rr);
+      },
+      .None => ()
+    );
+  });
+  exn.throw(
+    dyn(
+      format_error_message(
+        ast_expr_token(constraint_expr),
+        String.from(
+          "Invalid asm constraint. Expected a register class (reg, imm, mem, ...), an explicit register name string, or raw(\"constraint\")."
+        ),
+        false,
+        .None
+      )
+    )
+  );
+  String.from("")
+});
+/// Parse const_val/sym operands. Mirrors parseSpecialOperand (asm.ts:420).
+_parse_special_operand :: (
+  fn(operand_expr : AstExpr, env : Environment, ctx : EvalContext, kind : String, exn : Exception) -> AsmOperand
+)({
+  args := _fn_call_args_of(operand_expr);
+  if((args.len() < usize(1)) || (args.len() > usize(2)), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(operand_expr),
+          `asm ${kind}() expects 1 or 2 arguments, got ${args.len().to_string()}.`,
+          false,
+          .None
+        )
+      )
+    );
+  });
+  (name : Option(String)) = Option(String).None;
+  (value_idx : usize) = usize(0);
+  if(args.len() == usize(2), {
+    first := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    match(
+      _eval_comptime_str(first, env, ctx, exn),
+      .Some(s) => {
+        name = Option(String).Some(s);
+        value_idx = usize(1);
+      },
+      .None => ()
+    );
+  });
+  value_expr := match(args.get(value_idx),.Some(a) => a,.None => make_err_expr());
+  evaluated := evaluate_expression_raw(value_expr, env, ctx, exn);
+  AsmOperand(
+    kind : kind.clone(),
+    name : name,
+    constraint : Option(String).None,
+    value_expr : Option(AstExpr).Some(evaluated),
+    output_type : Option(TypeValue).None,
+    target_var_name : Option(String).None,
+    discarded : false
+  )
+});
+/// Parse a single operand sub-call. Mirrors parseOperand (asm.ts:186).
+_parse_operand :: (
+  fn(operand_expr : AstExpr, env : Environment, ctx : EvalContext, kind_in : String, exn : Exception) -> AsmOperand
+)({
+  // Normalize the `ref` alias to `inout` (asm.ts:196-198).
+  kind := cond((kind_in == String.from("ref")) => String.from("inout"), true => kind_in.clone());
+  args := _fn_call_args_of(operand_expr);
+  if(_is_special_kind(kind), {
+    return(_parse_special_operand(operand_expr, env, ctx, kind, exn));
+  });
+  if((args.len() < usize(1)) || (args.len() > usize(3)), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(operand_expr),
+          `asm ${kind}() expects 1 to 3 arguments, got ${args.len().to_string()}.`,
+          false,
+          .None
+        )
+      )
+    );
+  });
+  (name : Option(String)) = Option(String).None;
+  (constraint_idx : usize) = usize(0);
+  // Detect if first arg is a name (comptime_str that is NOT a register class).
+  if(args.len() >= usize(2), {
+    first := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    if(_is_register_class_atom(first) || _is_discard_atom(first), {
+      constraint_idx = usize(0);
+    }, {
+      match(
+        _eval_comptime_str(first, env, ctx, exn),
+        .Some(s) => {
+          name = Option(String).Some(s);
+          constraint_idx = usize(1);
+        },
+        .None => {
+          constraint_idx = usize(0);
+        }
+      );
+    });
+  });
+  // Explicit register names: the name IS the constraint and the next arg is
+  // the value/type (asm.ts:246-259).
+  has_constraint := (constraint_idx < (args.len() - usize(1)));
+  (constraint : Option(String)) = Option(String).None;
+  (value_type_idx : usize) = usize(0);
+  if(has_constraint, {
+    c_expr := match(args.get(constraint_idx),.Some(a) => a,.None => make_err_expr());
+    constraint = Option(String).Some(_evaluate_constraint(c_expr, env, ctx, exn));
+    value_type_idx = (constraint_idx + usize(1));
+  }, {
+    match(
+      name,
+      .Some(nm) => {
+        constraint = Option(String).Some(nm.clone());
+      },
+      .None => ()
+    );
+    value_type_idx = constraint_idx;
+  });
+  value_or_type_expr := match(
+    args.get(value_type_idx),
+    .Some(a) => a,
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(operand_expr),
+            `asm ${kind}() is missing its value/type argument.`,
+            false,
+            .None
+          )
+        )
+      );
+      make_err_expr()
+    }
+  );
+  is_output_kind := _is_output_kind(kind);
+  if(is_output_kind, {
+    if(_is_discard_atom(value_or_type_expr), {
+      return(
+        AsmOperand(
+          kind : kind.clone(),
+          name : name,
+          constraint : constraint,
+          value_expr : Option(AstExpr).None,
+          output_type : Option(TypeValue).None,
+          target_var_name : Option(String).None,
+          discarded : true
+        )
+      );
+    });
+    // Variable-target mode: look the variable up directly (it may be
+    // uninitialized). Skip variables holding TYPE values (asm.ts:290-336).
+    if(ast_expr_is_atom(value_or_type_expr), {
+      var_name := _atom_value(value_or_type_expr);
+      variables := get_variables_from_env(env, var_name.clone());
+      if(variables.len() > usize(0), {
+        (is_type_var : bool) = false;
+        (var_type : TypeValue) = t_unit();
+        (var_initialized : bool) = false;
+        match(
+          variables.get(variables.len() - usize(1)),
+          .Some(variable) => {
+            is_type_var = match(
+              variable.value.get(usize(0)),
+              .Some(vv) => match(vv,.TypeVal(_) => true, _ => false),
+              .None => false
+            );
+            var_type = variable.ty;
+            var_initialized = variable.initialized_at_token.is_some();
+          },
+          .None => ()
+        );
+        if(!(is_type_var), {
+          if(!(_is_valid_asm_operand_type(var_type)), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(value_or_type_expr),
+                  `asm ${kind}() target variable '${var_name}' has type that is not valid for inline assembly. Must be a primitive numeric, pointer, or bool type.`,
+                  false,
+                  .None
+                )
+              )
+            );
+          });
+          // Evaluate to annotate for codegen; an UNINITIALIZED variable is
+          // annotated manually (asm.ts:312-323).
+          (evaluated_out : AstExpr) = value_or_type_expr;
+          if(var_initialized, {
+            evaluated_out = evaluate_expression_raw(value_or_type_expr, env, ctx, exn);
+          }, {
+            manual_info := new_expr_info(env, var_type);
+            expr_info_table_set(ctx.expr_info_table, ast_expr_id(value_or_type_expr), manual_info);
+          });
+          return(
+            AsmOperand(
+              kind : kind.clone(),
+              name : name,
+              constraint : constraint,
+              value_expr : Option(AstExpr).Some(evaluated_out),
+              output_type : Option(TypeValue).Some(var_type),
+              target_var_name : Option(String).Some(var_name),
+              discarded : false
+            )
+          );
+        });
+      });
+    });
+    // Return-value mode: evaluate as a type expression (asm.ts:338-362).
+    evaluated_ty_e := evaluate_expression_raw(value_or_type_expr, env, ctx, exn);
+    (out_ty : Option(TypeValue)) = Option(TypeValue).None;
+    match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ty_e)),
+      .Some(info) => match(
+        info.value,
+        .Some(v) => match(
+          v,
+          .TypeVal(tv) => {
+            out_ty = Option(TypeValue).Some(tv);
+          },
+          _ => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+    match(
+      out_ty,
+      .Some(ot) => {
+        if(!(_is_valid_asm_operand_type(ot)), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(value_or_type_expr),
+                `asm ${kind}() output type must be a primitive numeric, pointer, or bool type.`,
+                false,
+                .None
+              )
+            )
+          );
+        });
+        return(
+          AsmOperand(
+            kind : kind.clone(),
+            name : name,
+            constraint : constraint,
+            value_expr : Option(AstExpr).None,
+            output_type : Option(TypeValue).Some(ot),
+            target_var_name : Option(String).None,
+            discarded : false
+          )
+        );
+      },
+      .None => ()
+    );
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(value_or_type_expr),
+          `asm ${kind}() last argument must be a type, variable, or _ (discard).`,
+          false,
+          .None
+        )
+      )
+    );
+    return(
+      AsmOperand(
+        kind : kind.clone(),
+        name : Option(String).None,
+        constraint : Option(String).None,
+        value_expr : Option(AstExpr).None,
+        output_type : Option(TypeValue).None,
+        target_var_name : Option(String).None,
+        discarded : false
+      )
+    );
+  });
+  // Input / inout operands: evaluate the value expression (asm.ts:365-411).
+  evaluated := evaluate_expression_raw(value_or_type_expr, env, ctx, exn);
+  value_ty := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+    .Some(info) => info.ty,
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(value_or_type_expr),
+            `Failed to evaluate asm ${kind}() value expression.`,
+            false,
+            .None
+          )
+        )
+      );
+      t_unit()
+    }
+  );
+  if(!(_is_valid_asm_operand_type(value_ty)), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(value_or_type_expr),
+          `asm ${kind}() value type is not valid for inline assembly. Must be a primitive numeric, pointer, or bool type.`,
+          false,
+          .None
+        )
+      )
+    );
+  });
+  if(_is_input_kind(kind), {
+    return(
+      AsmOperand(
+        kind : kind.clone(),
+        name : name,
+        constraint : constraint,
+        value_expr : Option(AstExpr).Some(evaluated),
+        output_type : Option(TypeValue).None,
+        target_var_name : Option(String).None,
+        discarded : false
+      )
+    );
+  });
+  AsmOperand(
+    kind : kind.clone(),
+    name : name,
+    constraint : constraint,
+    value_expr : Option(AstExpr).Some(evaluated),
+    output_type : Option(TypeValue).Some(value_ty),
+    target_var_name : Option(String).None,
+    discarded : false
+  )
+});
+/// Parse asm_options(...) flags. Mirrors parseAsmOptions (asm.ts:468).
+/// Returns the `noreturn` flag (the only one the evaluator consumes).
+_parse_asm_options :: (
+  fn(option_expr : AstExpr, exn : Exception) -> bool
+)({
+  (noreturn : bool) = false;
+  flags := _asm_option_flags();
+  args := _fn_call_args_of(option_expr);
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+    if(ast_expr_is_atom(arg), {
+      flag := _atom_value(arg);
+      if(!(_str_in(flags, flag.clone())), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(arg),
+              `Unknown asm_options flag: '${flag}'. Valid flags: pure, nomem, readonly, nostack, preserves_flags, att_syntax, intel_syntax, volatile, noreturn.`,
+              false,
+              .None
+            )
+          )
+        );
+      });
+      if(flag == String.from("noreturn"), {
+        noreturn = true;
+      });
+    }, {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(option_expr),
+            String.from("asm_options() arguments must be flag identifiers (e.g., pure, nomem, noreturn)."),
+            false,
+            .None
+          )
+        )
+      );
+    });
+    i = (i + usize(1));
+  });
+  noreturn
+});
+/// Validate template placeholders `{N}` / `{name}` against the operand list.
+/// Hand-rolled port of the TS regex scan (asm.ts:726-756).
+_validate_template_placeholders :: (
+  fn(template : String, operands : ArrayList(AsmOperand), tok : Token, exn : Exception) -> unit
+)({
+  // Duplicate-name check (asm.ts:731-742).
+  operand_names := ArrayList(String).new();
+  {
+    (i : usize) = usize(0);
+    while(i < operands.len(), {
+      match(
+        operands.get(i),
+        .Some(op) => match(
+          op.name,
+          .Some(nm) => {
+            if(_str_in(operand_names, nm.clone()), {
+              exn.throw(
+                dyn(
+                  format_error_message(tok, `Duplicate asm operand name: '${nm}'.`, false,.None)
+                )
+              );
+            });
+            operand_names.push(nm.clone());
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+  };
+  bytes := template.as_bytes();
+  n := bytes.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    c := match(bytes.get(i),.Some(b) => b,.None => u8(0));
+    if(c == u8(123), {
+      // '{' — check for escaped '{{'
+      next := match(bytes.get(i + usize(1)),.Some(b) => b,.None => u8(0));
+      if(next == u8(123), {
+        i = (i + usize(2));
+      }, {
+        // Scan the reference up to ':' (modifier) or '}'
+        ref_str := String.new();
+        (j : usize) = (i + usize(1));
+        (in_ref : bool) = true;
+        while((j < n) && in_ref, {
+          cj := match(bytes.get(j),.Some(b) => b,.None => u8(0));
+          cond(
+            (cj == u8(125)) => {
+              in_ref = false;
+            },
+            (cj == u8(58)) => {
+              (k : usize) = j;
+              while((k < n) && match(bytes.get(k),.Some(bk) => !(bk == u8(125)),.None => false), {
+                k = (k + usize(1));
+              });
+              j = k;
+              in_ref = false;
+            },
+            true => {
+              ref_str.push_byte(cj);
+              j = (j + usize(1));
+            }
+          );
+        });
+        if(ref_str.len() > usize(0), {
+          (all_digits : bool) = true;
+          {
+            rb := ref_str.as_bytes();
+            (di : usize) = usize(0);
+            while(di < rb.len(), {
+              db := match(rb.get(di),.Some(b) => b,.None => u8(0));
+              if((db < u8(48)) || (db > u8(57)), {
+                all_digits = false;
+              });
+              di = (di + usize(1));
+            });
+          };
+          if(all_digits, {
+            (pos : usize) = usize(0);
+            {
+              rb2 := ref_str.as_bytes();
+              (pi : usize) = usize(0);
+              while(pi < rb2.len(), {
+                db2 := match(rb2.get(pi),.Some(b) => b,.None => u8(0));
+                pos = ((pos * usize(10)) + usize(db2 - u8(48)));
+                pi = (pi + usize(1));
+              });
+            };
+            if(pos >= operands.len(), {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    tok,
+                    `asm template references positional operand {${ref_str}} but only ${operands.len().to_string()} operands are defined.`,
+                    false,
+                    .None
+                  )
+                )
+              );
+            });
+          }, {
+            if(!(_str_in(operand_names, ref_str.clone())), {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    tok,
+                    `asm template references undefined operand '{${ref_str}}'.`,
+                    false,
+                    .None
+                  )
+                )
+              );
+            });
+          });
+        });
+        i = cond((j > i) => (j + usize(1)), true => (i + usize(1)));
+      });
+    }, {
+      if((c == u8(125)) && match(bytes.get(i + usize(1)),.Some(b) => (b == u8(125)),.None => false), {
+        i = (i + usize(2));
+      }, {
+        i = (i + usize(1));
+      });
+    });
+  });
+  ()
+});
+/// Mirrors evaluateAsm (asm.ts:498).
 evaluate_asm :: (
   fn(
     expr : AstExpr,
@@ -16,20 +698,326 @@ evaluate_asm :: (
     exn : Exception
   ) -> AstExpr
 )({
-  _ := env;
-  _ := ctx;
-  exn.throw(
-    dyn(
-      format_error_message(
-        ast_expr_token(expr),
-        String.from("evaluate_asm: not yet implemented (Phase 3)"),
-        false,
-        .None
+  tok := ast_expr_token(expr);
+  // Phase C privilege gate (asm.ts:506-518).
+  if(!(is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.clone()))), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          String.from(
+            "'asm(...)' is not available in safe code.\n\nInline assembly can corrupt memory, violate calling conventions, and\nbreak the type system. To use it, declare at the top of this file:\n\n    pragma(Pragma.AllowUnsafe);"
+          ),
+          false,
+          .None
+        )
       )
-    )
+    );
+    return(expr);
+  });
+  // asm can only be called inside a function body or test block (asm.ts:520-529).
+  in_fn_or_test := match(
+    ctx.is_evaluating_function_body_or_async_block,
+    .Some(fab) => match(fab.kind,.FunctionBody => true,.TestBlock => true, _ => false),
+    .None => false
   );
-  make_err_expr()
+  if(!(in_fn_or_test), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          String.from("asm() can only be called inside a function body or test block."),
+          false,
+          .None
+        )
+      )
+    );
+    return(expr);
+  });
+  // Block CTFE (asm.ts:531-537).
+  if(ctx.is_analyzing_ctfe_capability, {
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          String.from("Cannot use \"asm\" during compile-time function evaluation analysis."),
+          false,
+          .None
+        )
+      )
+    );
+    return(expr);
+  });
+  args := _fn_call_args_of(expr);
+  if(args.len() == usize(0), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          String.from("asm() requires at least one argument (the assembly template string)."),
+          false,
+          .None
+        )
+      )
+    );
+    return(expr);
+  });
+  // --- Parse template strings (asm.ts:545-583) ---
+  template_parts := ArrayList(String).new();
+  (arg_idx : usize) = usize(0);
+  (scanning_template : bool) = true;
+  while((arg_idx < args.len()) && scanning_template, {
+    arg := match(args.get(arg_idx),.Some(a) => a,.None => make_err_expr());
+    if(_is_asm_subcall(arg), {
+      scanning_template = false;
+    }, {
+      evaluated := evaluate_expression_raw(arg, env, ctx, exn);
+      (matched : bool) = false;
+      match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+        .Some(info) => match(
+          info.value,
+          .Some(v) => match(
+            v,
+            .StrLit(s) => {
+              template_parts.push(_strip_delims(decode_str_lit_escapes(s.clone())));
+              matched = true;
+            },
+            .UnknownVal(uty, _) => if(is_comptime_string_type(uty), {
+              template_parts.push(String.new());
+              matched = true;
+            }),
+            _ => ()
+          ),
+          .None => ()
+        ),
+        .None => ()
+      );
+      if(matched, {
+        arg_idx = (arg_idx + usize(1));
+      }, {
+        scanning_template = false;
+      });
+    });
+  });
+  if(template_parts.len() == usize(0), {
+    first_tok := match(args.get(usize(0)),.Some(a) => ast_expr_token(a),.None => tok);
+    exn.throw(
+      dyn(
+        format_error_message(
+          first_tok,
+          String.from("First argument to asm() must be a compile-time string (the assembly template)."),
+          false,
+          .None
+        )
+      )
+    );
+    return(expr);
+  });
+  // --- Parse operands and options (asm.ts:585-660) ---
+  operands := ArrayList(AsmOperand).new();
+  (noreturn : bool) = false;
+  while(arg_idx < args.len(), {
+    arg := match(args.get(arg_idx),.Some(a) => a,.None => make_err_expr());
+    if(!(ast_expr_is_fn_call(arg)), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg),
+            String.from("asm() arguments after the template must be operand or option calls (in, out, inout, clobber, asm_options, etc.)."),
+            false,
+            .None
+          )
+        )
+      );
+      return(expr);
+    });
+    call_name := match(
+      arg,
+      .FnCall(_, f, _, _, _) => _atom_value(f),
+      .Atom(_, _) => String.from("")
+    );
+    if(call_name.len() == usize(0), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg),
+            String.from("asm() operand must be a named call like in(...), out(...), etc."),
+            false,
+            .None
+          )
+        )
+      );
+      return(expr);
+    });
+    cond(
+      (((_is_input_kind(call_name) || _is_output_kind(call_name)) || _is_inout_kind(call_name)) || _is_special_kind(call_name)) => {
+        operands.push(_parse_operand(arg, env, ctx, call_name, exn));
+      },
+      ((call_name == String.from("clobber")) || (call_name == String.from("clobber_abi"))) => {
+        // Validate clobber args (asm.ts:614-649): bare `memory`/`cc` atoms
+        // pass; everything else must be a comptime string.
+        cargs := _fn_call_args_of(arg);
+        (ci : usize) = usize(0);
+        while(ci < cargs.len(), {
+          carg := match(cargs.get(ci),.Some(a) => a,.None => make_err_expr());
+          is_bare := (ast_expr_is_atom(carg) && ((_atom_value(carg) == String.from("memory")) || (_atom_value(carg) == String.from("cc"))));
+          if(!(is_bare), {
+            match(
+              _eval_comptime_str(carg, env, ctx, exn),
+              .Some(_) => (),
+              .None => {
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(carg),
+                      `${call_name}() arguments must be compile-time strings (e.g., "memory", "cc", "rax").`,
+                      false,
+                      .None
+                    )
+                  )
+                );
+              }
+            );
+          });
+          ci = (ci + usize(1));
+        });
+      },
+      (call_name == String.from("asm_options")) => {
+        noreturn = _parse_asm_options(arg, exn);
+      },
+      true => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(arg),
+              `Unknown asm() operand or option: '${call_name}'. Expected: in, out, inout, lateout, inlateout, const_val, sym, clobber, clobber_abi, asm_options.`,
+              false,
+              .None
+            )
+          )
+        );
+        return(expr);
+      }
+    );
+    arg_idx = (arg_idx + usize(1));
+  });
+  // --- Mark variable-target output variables as initialized (asm.ts:662-680) ---
+  {
+    (oi : usize) = usize(0);
+    while(oi < operands.len(), {
+      match(
+        operands.get(oi),
+        .Some(op) => match(
+          op.target_var_name,
+          .Some(tvn) => if((op.kind == String.from("out")) || (op.kind == String.from("lateout")), {
+            variables := get_variables_from_env(env, tvn.clone());
+            if(variables.len() > usize(0), {
+              match(
+                variables.get(variables.len() - usize(1)),
+                .Some(variable) => match(
+                  variable.initialized_at_token,
+                  .None => {
+                    variable.initialized_at_token = Option(Token).Some(tok);
+                  },
+                  .Some(_) => ()
+                ),
+                .None => ()
+              );
+            });
+          }),
+          .None => ()
+        ),
+        .None => ()
+      );
+      oi = (oi + usize(1));
+    });
+  };
+  // --- Infer return type (asm.ts:682-724) ---
+  return_output_types := ArrayList(TypeValue).new();
+  {
+    (oi : usize) = usize(0);
+    while(oi < operands.len(), {
+      match(
+        operands.get(oi),
+        .Some(op) => {
+          keep := (((!(op.discarded) && op.target_var_name.is_none()) && !(_is_special_kind(op.kind))) && !(op.kind == String.from("in")));
+          if(keep, {
+            match(
+              op.output_type,
+              .Some(ot) => {
+                return_output_types.push(ot);
+              },
+              .None => ()
+            );
+          });
+        },
+        .None => ()
+      );
+      oi = (oi + usize(1));
+    });
+  };
+  (return_type : TypeValue) = t_unit();
+  cond(
+    noreturn => {
+      return_type = match(
+        ctx.is_evaluating_function_body_or_async_block,
+        .Some(fab) => match(
+          fab.kind,
+          .FunctionBody => match(
+            fab.func_type,
+            .Some(ft) => match(ft,.Func({ result : r }) => r, _ => t_unit()),
+            .None => t_unit()
+          ),
+          _ => t_unit()
+        ),
+        .None => t_unit()
+      );
+    },
+    (return_output_types.len() == usize(0)) => {
+      return_type = t_unit();
+    },
+    (return_output_types.len() == usize(1)) => {
+      return_type = match(return_output_types.get(usize(0)),.Some(t) => t,.None => t_unit());
+    },
+    true => {
+      // Multiple outputs → tuple with positional labels (asm.ts:711-723).
+      labels := ArrayList(String).new();
+      types := ArrayList(TypeValue).new();
+      (ti : usize) = usize(0);
+      while(ti < return_output_types.len(), {
+        labels.push(ti.to_string());
+        types.push(match(return_output_types.get(ti),.Some(t) => t,.None => t_unit()));
+        ti = (ti + usize(1));
+      });
+      return_type = TypeValue.Tuple(labels, types);
+    }
+  );
+  // --- Validate template placeholders (asm.ts:726-756) ---
+  joined := String.new();
+  {
+    (tpi : usize) = usize(0);
+    while(tpi < template_parts.len(), {
+      if(tpi > usize(0), {
+        joined.push_str("\n");
+      });
+      match(
+        template_parts.get(tpi),
+        .Some(tp) => {
+          joined.push_string(tp);
+        },
+        .None => ()
+      );
+      tpi = (tpi + usize(1));
+    });
+  };
+  _validate_template_placeholders(joined, operands, tok, exn);
+  // Stamp: asm is always a runtime expression (asm.ts:758-765).
+  out_info := new_expr_info(env, return_type);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
 });
+/// Mirrors evaluateGlobalAsm (asm.ts:776).
 evaluate_global_asm :: (
   fn(
     expr : AstExpr,
@@ -38,18 +1026,72 @@ evaluate_global_asm :: (
     exn : Exception
   ) -> AstExpr
 )({
-  _ := env;
-  _ := ctx;
-  exn.throw(
-    dyn(
-      format_error_message(
-        ast_expr_token(expr),
-        String.from("evaluate_global_asm: not yet implemented (Phase 3)"),
-        false,
-        .None
+  tok := ast_expr_token(expr);
+  if(!(is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.clone()))), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          String.from(
+            "'global_asm(...)' is not available in safe code. Declare 'pragma(Pragma.AllowUnsafe);' at the top of the file to use inline assembly."
+          ),
+          false,
+          .None
+        )
       )
-    )
+    );
+    return(expr);
+  });
+  args := _fn_call_args_of(expr);
+  if(args.len() == usize(0), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          String.from("global_asm() requires at least one argument (the assembly string)."),
+          false,
+          .None
+        )
+      )
+    );
+    return(expr);
+  });
+  template_expr := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+  evaluated := evaluate_expression_raw(template_expr, env, ctx, exn);
+  (ok : bool) = false;
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+    .Some(info) => match(
+      info.value,
+      .Some(v) => match(
+        v,
+        .StrLit(_) => {
+          ok = true;
+        },
+        .UnknownVal(uty, _) => if(is_comptime_string_type(uty), {
+          ok = true;
+        }),
+        _ => ()
+      ),
+      .None => ()
+    ),
+    .None => ()
   );
-  make_err_expr()
+  if(!(ok), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(template_expr),
+          String.from("global_asm() argument must be a compile-time string."),
+          false,
+          .None
+        )
+      )
+    );
+    return(expr);
+  });
+  out_info := new_expr_info(env, t_unit());
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
 });
 export(evaluate_asm, evaluate_global_asm);

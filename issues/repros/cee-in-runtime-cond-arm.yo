@@ -1,0 +1,31 @@
+pragma(Pragma.AllowUnsafe);
+rt_flag :: (fn(x : i32) -> bool)(x == i32(1));
+run :: (fn(n : i32) -> unit)({
+  cond(
+    rt_flag(n) => begin(
+      begin(
+        comptime_expect_error(
+          MyBadComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
+            trait(
+              Output : Type,
+              index : (fn(comptime(self) : *(Self), comptime(idx) : Idx) -> comptime(*(Self.Output))),
+              where(Self <: Comptime)
+            )
+          )
+        ),
+        MyGoodComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
+          trait(
+            Output : Type,
+            index : (fn(comptime(self) : *(Self), comptime(idx) : Idx) -> comptime(*(Self.Output))),
+            where(Self <: Comptime, Self.Output <: Comptime)
+          )
+        ),
+        ()
+      ),
+      ()
+    ),
+    true => ()
+  );
+});
+main :: (fn() -> unit)(run(i32(0)));
+export(main);

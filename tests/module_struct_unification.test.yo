@@ -1,4 +1,5 @@
-// Baseline tests for the Module/Struct unification (plans/UNIFY_MODULE_AND_STRUCT.md).
+{ assert } :: import("std/assert");
+// Baseline tests for the Module/Struct unification (plans/archive/UNIFY_MODULE_AND_STRUCT.md).
 //
 // These tests pin the surface behavior at the Module/Struct boundary that
 // must keep working across every phase of the unification:
@@ -28,10 +29,12 @@ test("Phase 4c: migrated struct effect record unwind", {
   );
   (r : Raise) = Raise(
     raise :
-      (msg) -> {
-        println(msg);
-        unwind(());
-      }
+      (
+        (msg) -> {
+          println(msg);
+          unwind(());
+        }
+      )
   );
   divide(10, 0, r);
   assert(false, "should not reach here after unwind");
@@ -45,10 +48,12 @@ test("Phase 4c: migrated struct effect record resume", {
   );
   (l : Logger) = Logger(
     log :
-      (msg) -> {
-        println(msg);
-        return(());
-      }
+      (
+        (msg) -> {
+          println(msg);
+          return(());
+        }
+      )
   );
   shout("hello-effect".to_string(), l);
   // If we reach here, the continuation resumed correctly.
@@ -66,10 +71,12 @@ test("Baseline: struct(...) builds a usable effect record type", {
   );
   (r : Raise) = Raise(
     raise :
-      (msg) -> {
-        println(msg);
-        unwind(());
-      }
+      (
+        (msg) -> {
+          println(msg);
+          unwind(());
+        }
+      )
   );
   divide(10, 0, r);
   assert(false, "should not reach here after unwind");
@@ -84,10 +91,12 @@ test("Baseline: given/using round-trip with resume (struct)", {
   count := 0;
   (l : Logger) = Logger(
     log :
-      (msg) -> {
-        println(msg);
-        return(());
-      }
+      (
+        (msg) -> {
+          println(msg);
+          return(());
+        }
+      )
   );
   shout("hello-effect".to_string(), l);
   // If we reach here, the continuation resumed correctly.

@@ -100,7 +100,7 @@ evaluate_yo_expr_is_atom :: (
     arg_info.value,
     .Some(v) => if(
       is_expr_val(v),
-      match(v,.ExprVal(e_box) => EvalValue.BoolVal(ast_expr_is_atom(e_box.*)), _ => create_unknown_val(t_bool())),
+      match(v,.ExprVal(e_box) => EvalValue.BoolVal(ast_expr_is_atom(e_box)), _ => create_unknown_val(t_bool())),
       create_unknown_val(t_bool())
     ),
     .None => {
@@ -182,7 +182,7 @@ evaluate_yo_expr_is_fn_call :: (
     arg_info.value,
     .Some(v) => if(
       is_expr_val(v),
-      match(v,.ExprVal(e_box) => EvalValue.BoolVal(ast_expr_is_fn_call(e_box.*)), _ => create_unknown_val(t_bool())),
+      match(v,.ExprVal(e_box) => EvalValue.BoolVal(ast_expr_is_fn_call(e_box)), _ => create_unknown_val(t_bool())),
       create_unknown_val(t_bool())
     ),
     .None => {
@@ -268,8 +268,8 @@ evaluate_yo_expr_get_callee :: (
     .Some(v) => match(
       v,
       .ExprVal(e_box) => {
-        if(ast_expr_is_fn_call(e_box.*), match(
-          e_box.*,
+        if(ast_expr_is_fn_call(e_box), match(
+          e_box,
           .FnCall(_, func_box, _, _, _) => {
             out_info.value = Option(EvalValue).Some(EvalValue.ExprVal(func_box));
             ()
@@ -373,14 +373,14 @@ evaluate_yo_expr_get_args :: (
     .Some(v) => match(
       v,
       .ExprVal(e_box) => {
-        if(ast_expr_is_fn_call(e_box.*), match(
-          e_box.*,
+        if(ast_expr_is_fn_call(e_box), match(
+          e_box,
           .FnCall(_, _, fn_args, _, _) => {
             elems := ArrayList(EvalValue).new();
             (i : usize) = usize(0);
             while(i < fn_args.len(), {
               fn_arg := match(fn_args.get(i),.Some(a) => a,.None => make_err_expr());
-              elems.push(EvalValue.ExprVal(box(fn_arg)));
+              elems.push(EvalValue.ExprVal(fn_arg));
               i = (i + usize(1));
             });
             out_info.value = Option(EvalValue).Some(EvalValue.ComptimeListVal(elems));
@@ -484,7 +484,7 @@ evaluate_yo_expr_to_string :: (
     .Some(v) => match(
       v,
       .ExprVal(e_box) => {
-        str_val := ast_expr_to_string(e_box.*);
+        str_val := ast_expr_to_string(e_box);
         out_info.value = Option(EvalValue).Some(EvalValue.StrLit(str_val));
         ()
       },

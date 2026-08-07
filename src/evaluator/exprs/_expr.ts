@@ -121,7 +121,6 @@ import { evaluateFnTraitType } from "../types/fn-trait";
 import { evaluateFunctionType } from "../types/function";
 import { evaluateFutureType } from "../types/future-trait";
 import { evaluateNewtypeType } from "../types/newtype";
-import { evaluateObjectType } from "../types/object";
 import { evaluateStructType } from "../types/struct";
 import { evaluateTraitType } from "../types/trait";
 import { evaluateTupleType } from "../types/tuple";
@@ -409,43 +408,116 @@ ${exprToString(expr)}`,
       // dyn
       return evaluateDynValue({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.atomic)) {
-      // atomic object(...) — atomic reference counted object
+      // atomic(ref(struct(...))) — atomic reference-counted reference type
+      // (thread-safe RC, cycles disallowed). `atomic(object(...))` is the
+      // deprecated spelling. plans/REF_REFERENCE_SEMANTICS.md Phase 2.
       if (expr.args.length !== 1) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `"atomic" expects exactly one argument: atomic object(...)`,
+          errorMessage: `"atomic" expects exactly one argument: atomic(ref(struct(...)))`,
         });
       }
       const innerExpr = expr.args[0]!;
+      let result: FnCallExpr;
       if (
-        !exprIsFunctionCall(innerExpr) ||
-        !exprIsFunctionCallOf(innerExpr, BuiltinKeywords.object)
+        exprIsFunctionCall(innerExpr) &&
+        exprIsFunctionCallOf(innerExpr, BuiltinKeywords.ref)
       ) {
+        // atomic(ref(struct(...))) — the canonical form. `ref` wraps an inline
+        // `struct(...)` literal (enum support is Phase 3).
+        if (innerExpr.args.length !== 1) {
+          throw formatErrorMessage({
+            token: innerExpr.token,
+            errorMessage: `"ref" expects exactly one argument: ref(struct(...))`,
+          });
+        }
+        const refInner = innerExpr.args[0]!;
+        if (
+          exprIsFunctionCall(refInner) &&
+          exprIsFunctionCallOf(refInner, BuiltinKeywords.struct)
+        ) {
+          result = evaluateStructType({
+            expr: refInner,
+            env,
+            context: { ...context },
+            isAtomicRc: true,
+            forceReferenceSemantics: true,
+          });
+        } else if (
+          exprIsFunctionCall(refInner) &&
+          exprIsFunctionCallOf(refInner, BuiltinKeywords.enum)
+        ) {
+          result = evaluateEnumType({
+            expr: refInner,
+            env,
+            context: { ...context },
+            isAtomicRc: true,
+            forceReferenceSemantics: true,
+          });
+        } else {
+          throw formatErrorMessage({
+            token: refInner.token,
+            errorMessage: `"atomic(ref(...))" wraps an inline "struct(...)" or "enum(...)" literal. Got:\n${exprToString(refInner)}`,
+          });
+        }
+        // Stamp both the ref(...) node and the outer atomic(...) node.
+        innerExpr.$ = result.$;
+        innerExpr.func.$ = result.$;
+      } else {
         throw formatErrorMessage({
           token: innerExpr.token,
-          errorMessage: `"atomic" modifier is only valid before "object(...)". Got:\n${exprToString(innerExpr)}`,
+          errorMessage: `"atomic" modifier is only valid before "ref(struct(...))". Got:\n${exprToString(innerExpr)}`,
         });
       }
-      const result = evaluateObjectType({
-        expr: innerExpr,
-        env,
-        context: { ...context },
-        isAtomicRc: true,
-      });
       // Propagate the evaluated result back to the atomic expr
+      expr.$ = result.$;
+      expr.func.$ = result.$;
+      return expr;
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.ref)) {
+      // ref(struct(...)) / ref(enum(...)) — reference-semantics type
+      // constructor. `ref` wraps an inline struct/enum literal only.
+      // plans/REF_REFERENCE_SEMANTICS.md.
+      if (expr.args.length !== 1) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `"ref" expects exactly one argument: ref(struct(...)) or ref(enum(...))`,
+        });
+      }
+      const refInner = expr.args[0]!;
+      let result: FnCallExpr;
+      if (
+        exprIsFunctionCall(refInner) &&
+        exprIsFunctionCallOf(refInner, BuiltinKeywords.struct)
+      ) {
+        result = evaluateStructType({
+          expr: refInner,
+          env,
+          context: { ...context },
+          forceReferenceSemantics: true,
+        });
+      } else if (
+        exprIsFunctionCall(refInner) &&
+        exprIsFunctionCallOf(refInner, BuiltinKeywords.enum)
+      ) {
+        result = evaluateEnumType({
+          expr: refInner,
+          env,
+          context: { ...context },
+          forceReferenceSemantics: true,
+        });
+      } else {
+        throw formatErrorMessage({
+          token: refInner.token,
+          errorMessage: `"ref(...)" wraps an inline "struct(...)" or "enum(...)" literal. Got:\n${exprToString(refInner)}`,
+        });
+      }
+      // Propagate the inner type's evaluated info to the ref(...) node.
       expr.$ = result.$;
       expr.func.$ = result.$;
       return expr;
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.struct)) {
       // struct
       return evaluateStructType({
-        expr,
-        env,
-        context: { ...context },
-      });
-    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.object)) {
-      // object (reference semantics struct)
-      return evaluateObjectType({
         expr,
         env,
         context: { ...context },
@@ -634,7 +706,7 @@ ${exprToString(expr)}`,
         env,
         context: { ...context },
       });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.panic)) {
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_panic)) {
       // panic
       return evaluatePanic({
         expr,
@@ -1219,39 +1291,34 @@ ${exprToString(expr)}`,
       // va_start
       return evaluateVaStart({ expr, env, context: { ...context } });
     } else if (
-      exprIsFunctionCallOf(expr, "&+", 2) ||
-      exprIsFunctionCallOf(expr, "&-", 2) ||
-      exprIsFunctionCallOf(expr, "&/", 2) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_add) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_sub) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_diff)
     ) {
       // Memory safety gate: pointer arithmetic requires `unsafe(...)`.
-      // See plans/MEMORY_SAFETY.md. Pointer comparison (&==, &<, etc.
-      // and the __yo_ptr_eq family) stays safe — addresses are just
-      // data. Files under std/, yo-self/, tests/, and
+      // See plans/MEMORY_SAFETY.md. Pointer comparison (`==`, `<`, etc.
+      // via the Eq/Ord impls and the __yo_ptr_eq family) stays safe —
+      // addresses are just data. Files under std/, yo-self/, tests/, and
       // auto-generated:// are implicitly unsafe-capable (Phase C will
       // replace this with the explicit pragma mechanism).
       //
-      // We gate on BOTH the operator-name (&+, &-, &/) and the
-      // underlying builtin (__yo_ptr_add, etc.). The operator-name
-      // gate fires at the user's call site (token in user file); the
-      // builtin gate catches direct __yo_ptr_add calls (rare in user
-      // code). For the operator case, the inner builtin call lives
-      // in the prelude impl body — implicitly unsafe-capable by path
-      // — so it does NOT fire the builtin gate redundantly.
+      // This branch catches DIRECT builtin calls (rare in user code).
+      // The `p.add(n)` / `p.sub(n)` / `p.offset_from(q)` METHOD calls
+      // (plans/archive/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md — formerly the
+      // `&+`/`&-`/`&/` operators) are gated at method resolution
+      // (calls/function.ts), where the receiver type is known; the
+      // builtin call inside the prelude impl body is implicitly
+      // unsafe-capable by path, so it cannot fire here on the user's
+      // behalf.
       if (
         !context.unsafeContext &&
         !isImplicitlyUnsafeCapableFile(expr.token.modulePath)
       ) {
-        const fnName =
-          exprIsFunctionCallOf(expr, "&+", 2) ||
-          exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_add)
-            ? "&+"
-            : exprIsFunctionCallOf(expr, "&-", 2) ||
-                exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_sub)
-              ? "&-"
-              : "&/";
+        const fnName = exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_add)
+          ? "__yo_ptr_add"
+          : exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_ptr_sub)
+            ? "__yo_ptr_sub"
+            : "__yo_ptr_diff";
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `Pointer arithmetic ('${fnName}') requires 'unsafe(...)'.

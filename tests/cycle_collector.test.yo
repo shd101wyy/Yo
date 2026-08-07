@@ -1,9 +1,13 @@
 pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
 open(import("std/libc/stdio.yo"));
 Gc :: import("std/gc");
-List :: object(
-  value : i32,
-  next : Option(Self)
+{ ArrayList } :: import("std/collections/array_list");
+List :: ref(
+  struct(
+    value : i32,
+    next : Option(Self)
+  )
 );
 impl(
   List,
@@ -48,9 +52,11 @@ test("Test freeing many objects", {
 });
 // --- New tests for Bug 1: Reachable objects through cycles ---
 // Node type with a child pointer (can form cycles)
-Node :: object(
-  value : i32,
-  child : Option(Self)
+Node :: ref(
+  struct(
+    value : i32,
+    child : Option(Self)
+  )
 );
 impl(
   Node,
@@ -257,4 +263,88 @@ test("Diamond reference pattern - all reachable", {
   do_test();
   Gc.collect();
   assert(Gc.tracked_count() == u64(0), "All freed after scope + GC");
+});
+// --- ref(enum(...)) cycle collection (Phase-4 reference-semantics enums) ---
+// A recursive ref(enum) with a direct Self-typed variant field can form an RC
+// cycle just like a ref(struct); the cycle collector must reclaim it. (`ENil` is
+// the acyclic terminator; the initial `ENil` is freed on each `next` reassign.)
+ENode :: ref(
+  enum(
+    ENil,
+    ECons(value : i32, next : Self)
+  )
+);
+test("ref-enum self-referential cycle collected", {
+  do_test :: (fn() -> unit)({
+    a := ENode.ECons(42, ENode.ENil);
+    a.next = a; // a -> a: simplest ref-enum cycle (RC never reaches 0)
+  });
+  do_test();
+  Gc.collect();
+  assert(Gc.tracked_count() == u64(0), "ref-enum self-referential cycle collected");
+});
+test("ref-enum two-node cycle all garbage", {
+  do_test :: (fn() -> unit)({
+    a := ENode.ECons(1, ENode.ENil);
+    b := ENode.ECons(2, ENode.ENil);
+    a.next = b;
+    b.next = a; // a <-> b: two-node ref-enum cycle, unreachable after return
+  });
+  do_test();
+  Gc.collect();
+  assert(Gc.tracked_count() == u64(0), "ref-enum two-node cycle collected");
+});
+// A ref(enum) whose recursive edge is wrapped in a value enum — `next :
+// Option(Self)`. The collector's traversal must descend INLINE through the
+// `Option` to reach the managed `Self` in `.Some` (compositional traverse_value,
+// plans/archive/CYCLE_GC_TRACE_HOOKS.md phase 1). `.None` allocates nothing, so the cycle
+// is the only allocation and fully reclaims.
+ONode :: ref(
+  enum(
+    ONil,
+    OCons(value : i32, next : Option(Self))
+  )
+);
+test("ref-enum Option(Self) self cycle collected", {
+  do_test :: (fn() -> unit)({
+    a := ONode.OCons(42,.None);
+    a.next =.Some(a); // a -> Some(a): cycle through the value-enum edge
+  });
+  do_test();
+  Gc.collect();
+  assert(Gc.tracked_count() == u64(0), "ref-enum Option(Self) self cycle collected");
+});
+test("ref-enum Option(Self) two-node cycle all garbage", {
+  do_test :: (fn() -> unit)({
+    a := ONode.OCons(1,.None);
+    b := ONode.OCons(2,.None);
+    a.next =.Some(b);
+    b.next =.Some(a); // a <-> b through Option(Self), unreachable after return
+  });
+  do_test();
+  Gc.collect();
+  assert(Gc.tracked_count() == u64(0), "ref-enum Option(Self) two-node cycle collected");
+});
+// --- container-held self-reference: children : ArrayList(Self) ---
+// The recursive edge lives in the ArrayList's malloc'd buffer, which the
+// auto-derived field walk can't reach — only the hand-written Trace impl iterates
+// it. Detection also requires the Acyclic auto-derive to see THROUGH the buffer
+// (ArrayList(LNode) is NOT Acyclic because LNode is not). This is the self-host
+// `TypeValue.field_types : ArrayList(Self)` shape.
+LNode :: ref(
+  struct(
+    value : i32,
+    children : ArrayList(Self)
+  )
+);
+test("ArrayList(Self) two-node cycle collected", {
+  do_test :: (fn() -> unit)({
+    a := LNode(1, ArrayList(LNode).new());
+    b := LNode(2, ArrayList(LNode).new());
+    consume(a.children.push(b)); // a -> b
+    consume(b.children.push(a)); // b -> a : cycle through ArrayList(Self)
+  });
+  do_test();
+  Gc.collect();
+  assert(Gc.tracked_count() == u64(0), "ArrayList(Self) cycle collected");
 });

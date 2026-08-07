@@ -30,10 +30,12 @@ pragma(Pragma.AllowUnsafe);
 /// to the counter still happen under the mutex so the `_count == 0`
 /// observation that triggers `broadcast()` is serialized with `wait()`.
 WaitGroup :: atomic(
-  object(
-    _count : AtomicI32,
-    _mutex : Mutex(bool),
-    _cv : Cond
+  ref(
+    struct(
+      _count : AtomicI32,
+      _mutex : Mutex(bool),
+      _cv : Cond
+    )
   )
 );
 impl(

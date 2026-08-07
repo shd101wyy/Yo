@@ -1,0 +1,19 @@
+pragma(Pragma.AllowUnsafe);
+{ putchar } :: import("std/libc/stdio");
+MyVec :: (fn(comptime(T) : Type) -> comptime(Type))(
+  ref(struct(_ptr : ?*(T), _len : usize))
+);
+impl(
+  generic(T : Type),
+  MyVec(T),
+  mk : (fn() -> Self)(Self(_ptr :.None, _len : usize(0))),
+  glen : (fn(self : Self) -> usize)({
+    return(self._len);
+  })
+);
+main :: (fn() -> unit)({
+  v := MyVec(u8).mk();
+  n := v.glen();
+  unsafe(putchar(int(i32(usize(48) + n))));
+});
+export(main);

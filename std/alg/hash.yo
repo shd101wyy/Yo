@@ -14,7 +14,7 @@ fnv1a_hash_bytes :: (fn(bytes : RawSlice(u8)) -> u64)({
   i := usize(0);
   while(i < length, i = (i + usize(1)), {
     // SAFETY: i < len; the RawSlice contract requires ptr to cover len bytes.
-    byte := unsafe((bytes.ptr &+ i).*);
+    byte := unsafe((bytes.ptr.add(i)).*);
     xor := (hash ^ u64(byte));
     hash = (xor * FNV_PRIME);
   });

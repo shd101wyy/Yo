@@ -1,0 +1,48 @@
+//! Explicit call-site type application: `f(generic(T), args...)`.
+//!
+//! The type arguments are peeled off the regular argument list before the arity
+//! check and bound to the callee's `generic(...)` binders positionally, so
+//! inference is skipped for the binders that were supplied
+//! (`tryToCallFunctionWithArguments` in `src/evaluator/calls/helper.ts`;
+//! mirrored in `yo-self/evaluator/calls/helper.yo` and the inline FuncVal arm of
+//! `yo-self/evaluator/calls/function.yo`). `_` in a type-argument position means
+//! "keep inferring this one".
+{ assert } :: import("std/assert");
+
+pick :: (fn(generic(T : Type), a : T, b : T) -> T)(a);
+
+echo_where :: (fn(generic(T : Type), x : T, where(T <: Runtime)) -> T)(x);
+
+ct_pick :: (
+  fn(
+    generic(T : Type),
+    comptime(a) : T,
+    comptime(b) : T,
+    where(T <: Comptime)
+  ) -> comptime(T)
+)(a);
+
+test("explicit type argument on a plain generic call", {
+  assert(pick(generic(i32), i32(1), i32(2)) == i32(1), "explicit i32");
+  assert(pick(generic(u8), u8(7), u8(9)) == u8(7), "explicit u8");
+  // The same function still infers when no type argument is supplied.
+  assert(pick(i32(3), i32(4)) == i32(3), "inference still works");
+});
+
+test("explicit type argument alongside a where clause", {
+  assert(echo_where(generic(i32), i32(7)) == i32(7), "explicit arg + where");
+  assert(echo_where(i32(8)) == i32(8), "inferred + where");
+});
+
+test("explicit type argument in a comptime call", {
+  comptime_assert(ct_pick(generic(i32), i32(5), i32(6)) == i32(5), "CTFE with an explicit type arg");
+});
+
+// The negative case: `generic(i32)` fixes `T`, so a `u8` argument must no
+// longer fit. Previously parked (the cee arm hollowed the whole batch under
+// the self-hosted compiler); un-parked 2026-08-07 after the def-time
+// re-raise/overload fixes closed the hollow
+// (issues/fixed/yo-self-explicit-call-site-generic-args.md).
+test("explicit type argument rejects a mismatching argument", {
+  comptime_expect_error(pick(generic(i32), u8(1), u8(2)));
+});

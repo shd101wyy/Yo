@@ -594,11 +594,11 @@ test_step.depend_on(tests);
 ```rust
 { println } :: import "std/fmt";
 
-main :: fn() {
+main :: (fn()-> unit) {
   println("Hello, world!");
 };
 
-export main;
+export(main);
 ```
 
 **`src/lib.yo`:**
@@ -607,7 +607,7 @@ export main;
 add :: (fn(a: i32, b: i32) -> i32)(
   (a + b)
 );
-export add;
+export(add);
 ```
 
 **`tests/main.test.yo`:**
@@ -615,7 +615,7 @@ export add;
 ```rust
 { test } :: import "std/testing";
 
-test("it works", fn() {
+test("it works", {
   assert((1 + 1) == 2, "math is broken");
 });
 ```

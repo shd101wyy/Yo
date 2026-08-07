@@ -1,0 +1,364 @@
+//! Field / property access emitter — mirrors `src/codegen/exprs/property-access.ts`.
+//!
+//! Lowers `object.field` for structs, objects (ref-semantics), enums, pointers
+//! (deref + arrow), tuples (label→index), dyn (vtable), newtypes (zero-cost),
+//! and module namespaces (compile-time field values). A field access that
+//! resolves to a method (the expr's value is a function) emits the method's C
+//! function name directly.
+//!
+//! DEFERRED (documented — these need type-model work, not mechanical porting;
+//! none reached by the no-RC corpus):
+//!  * Evidence-param field access + state-machine `sm->__capture` / `sm->var_N`
+//!    routing (Phase 5; FGC has no currentEvidenceParams, in_async only).
+//!  * Late-dispatch trait-walk + Rc-method (___drop/dup/dispose) trait lookup:
+//!    TS reads `objectType.trait.fields[].assignedValue`, but yo-self's Struct/
+//!    EnumT carry NO `.trait` field — methods live in a separate type-method
+//!    registry. Porting these requires routing through that registry (Phase 3/4).
+//!  * Module-namespace UnknownValue.variableName resolution: yo-self
+//!    `UnknownVal(ty)` carries no variableName, so that sub-branch falls through
+//!    to the plain identifier lookup.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_is_atom, ast_expr_token } :: import("../../expr.yo");
+{ EvalValue, is_func_val, is_struct_val, is_unknown_val } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_struct_type, is_enum_type, is_pointer_type, is_tuple_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_newtype_type, is_module_type } :: import("../../types/guards.yo");
+{ Environment } :: import("../../env.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ sanitize_for_c_identifier, get_variable_name_for_codegen, get_enum_variant_c_name, can_optimize_as_nullable_pointer, type_key } :: import("../utils/index.yo");
+{ generate_comptime_value } :: import("./comptime_value.yo");
+/// True if `s` is all ASCII digits (non-empty).
+_all_digits :: (fn(s : String) -> bool)({
+  // BYTE count — the loop reads byte_at; String.len() counts RUNES
+  // (multibyte content under-walks; see other_fn_call.yo's splitter fix).
+  n := s.as_bytes().len();
+  if(n == usize(0), false, {
+    (i : usize) = usize(0);
+    (ok : bool) = true;
+    while(i < n, {
+      b := s.byte_at(i);
+      if(!((b >= u8(48)) && (b <= u8(57))), {
+        ok = false;
+      });
+      i = (i + usize(1));
+    });
+    ok
+  })
+});
+/// `n` asterisks.
+_stars :: (fn(n : usize) -> String)({
+  out := String.from("");
+  (i : usize) = usize(0);
+  while(i < n, {
+    out.push_str("*");
+    i = (i + usize(1));
+  });
+  out
+});
+/// The C function name for a func id (registered cName, else the id itself).
+_c_function_name :: (fn(context : FunctionGenerationContext, func_id : String) -> String)(
+  match(context.base.get_function_entry(func_id.clone()),.Some(e) => e.c_name,.None => func_id)
+);
+/// Whether `object_value` is a TypeValue wrapping an enum type.
+_is_typevalue_enum :: (fn(object_value : Option(EvalValue)) -> bool)(
+  match(object_value,.Some(v) => match(v,.TypeVal(t) => is_enum_type(t), _ => false),.None => false)
+);
+/// Enum field access: nullable-pointer optimization returns the pointer; else
+/// resolve `object.data.<Variant>.<field>` by locating the variant declaring it.
+_enum_field_access :: (fn(object_type : TypeValue, object_code : String, field_name : String, context : FunctionGenerationContext) -> String)(
+  match(
+    can_optimize_as_nullable_pointer(object_type),
+    .Some(_) => object_code,
+    .None => match(
+      object_type,
+      .EnumT({ variant_names : vnames, variant_field_labels : vlabels, name : ename }) => {
+        nv := vnames.len();
+        (vi : usize) = usize(0);
+        while(vi < nv, {
+          match(
+            vlabels.get(vi),
+            .Some(lbls) => {
+              nl := lbls.len();
+              (li : usize) = usize(0);
+              while(li < nl, {
+                match(
+                  lbls.get(li),
+                  .Some(lbl) => if(lbl == field_name, {
+                    vname := match(vnames.get(vi),.Some(v) => v,.None => String.from(""));
+                    out := object_code.clone();
+                    // A reference-semantics enum (`ref(enum(…))`) value is a pointer,
+                    // so its variant data is reached with `->`, not `.` (mirrors match).
+                    if(is_reference_enum_type(object_type), {
+                      out.push_str("->data.");
+                    }, {
+                      out.push_str(".data.");
+                    });
+                    out.push_string(vname);
+                    out.push_str(".");
+                    out.push_string(sanitize_for_c_identifier(field_name.clone(), false));
+                    return(out);
+                  }),
+                  .None => ()
+                );
+                li = (li + usize(1));
+              });
+            },
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+        err := String.from("/* ERROR: field ");
+        err.push_string(field_name);
+        err.push_str(" not found in enum ");
+        err.push_string(ename);
+        err.push_str(" */");
+        err
+      },
+      _ => String.from("/* ERROR: not an enum */")
+    )
+  )
+);
+/// `EnumType.Variant` (fieldless variant) → a C compound literal with the tag.
+_typevalue_enum_access :: (fn(object_value : Option(EvalValue), field_name : String, context : FunctionGenerationContext) -> String)(
+  match(
+    object_value,
+    .Some(v) => match(
+      v,
+      .TypeVal(t) => {
+        et := t;
+        match(
+          et,
+          .EnumT({ variant_names : vnames, variant_fields : vfields }) => {
+            nv := vnames.len();
+            (vi : usize) = usize(0);
+            while(vi < nv, {
+              match(
+                vnames.get(vi),
+                .Some(vn) => if(vn == field_name, {
+                  fields_empty := match(vfields.get(vi),.Some(fs) => (fs.len() == usize(0)),.None => true);
+                  if(
+                    fields_empty,
+                    match(
+                      context.base.get_type_c_name(type_key(et)),
+                      .Some(c_name) => {
+                        tag_name := get_enum_variant_c_name(et, field_name.clone(), context.base);
+                        out := String.from("(");
+                        out.push_string(c_name);
+                        out.push_str("){ .tag = ");
+                        out.push_string(tag_name);
+                        out.push_str(", .data = {  } }");
+                        return(out);
+                      },
+                      .None => ()
+                    )
+                  );
+                }),
+                .None => ()
+              );
+              vi = (vi + usize(1));
+            });
+            String.from("/* ERROR: field name must be an identifier */")
+          },
+          _ => String.from("/* ERROR: field name must be an identifier */")
+        )
+      },
+      _ => String.from("/* ERROR: field name must be an identifier */")
+    ),
+    .None => String.from("/* ERROR: field name must be an identifier */")
+  )
+);
+/// Pointer/reference field access: dereference to the value type (extra level
+/// for ref-semantics objects), then `->`/`.` as appropriate. Mirrors the
+/// pointer branch of `generateFieldAccess`.
+_ptr_field_access :: (fn(object_type : TypeValue, object_code : String, field_name : String) -> String)(
+  if(field_name == "*", {
+    out := String.from("(*");
+    out.push_string(object_code);
+    out.push_str(")");
+    out
+  }, {
+    (deref_level : usize) = usize(0);
+    (current_type : TypeValue) = object_type;
+    while(is_pointer_type(current_type), {
+      current_type = match(current_type,.Pointer(p) => p, _ => current_type);
+      deref_level = (deref_level + usize(1));
+    });
+    // Reference-semantics structs are already pointers in C — one more deref.
+    ref_sem := match(current_type,.Struct({ is_reference_semantics : rs }) => rs, _ => false);
+    if((deref_level > usize(0)) && ref_sem, {
+      deref_level = (deref_level + usize(1));
+    });
+    // Newtype field through a pointer is just the dereference.
+    nt_match := if(is_newtype_type(current_type), match(current_type,.Struct({ field_labels : fls }) => if(fls.len() == usize(1), match(fls.get(usize(0)),.Some(lbl) => (lbl == field_name),.None => false), false), _ => false), false);
+    if(nt_match, {
+      res := if(deref_level == usize(1), {
+        out := String.from("(*");
+        out.push_string(object_code.clone());
+        out.push_str(")");
+        out
+      }, {
+        out := _stars(deref_level);
+        out.push_str("(");
+        out.push_string(object_code.clone());
+        out.push_str(")");
+        out
+      });
+      return(res);
+    });
+    if(deref_level > usize(0), if(deref_level == usize(1), {
+      out := object_code.clone();
+      out.push_str("->");
+      out.push_string(sanitize_for_c_identifier(field_name.clone(), false));
+      out
+    }, {
+      deref := String.from("(");
+      deref.push_string(_stars(deref_level - usize(1)));
+      deref.push_string(object_code.clone());
+      deref.push_str(")");
+      deref.push_str("->");
+      deref.push_string(sanitize_for_c_identifier(field_name.clone(), false));
+      deref
+    }), {
+      out := object_code.clone();
+      out.push_str(".");
+      out.push_string(sanitize_for_c_identifier(field_name.clone(), false));
+      out
+    })
+  })
+);
+/// Tuple field access: numeric `._N` directly, else label → positional index.
+_tuple_field_access :: (fn(object_type : TypeValue, object_code : String, field_name : String) -> String)(
+  if(_all_digits(field_name), {
+    out := object_code.clone();
+    out.push_str("._");
+    out.push_string(field_name);
+    out
+  }, match(
+    object_type,
+    .Tuple({ field_labels : fls }) => {
+      n := fls.len();
+      (i : usize) = usize(0);
+      (idx : usize) = usize(0);
+      (found : bool) = false;
+      while((i < n) && !(found), {
+        match(
+          fls.get(i),
+          .Some(lbl) => if(lbl == field_name, {
+            idx = i;
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      out := object_code.clone();
+      out.push_str("._");
+      out.push_string(idx.to_string());
+      out
+    },
+    _ => {
+      out := object_code.clone();
+      out.push_str("._0");
+      out
+    }
+  ))
+);
+/// Generate field access for structs, objects, enums, pointers, tuples, dyn,
+/// newtypes, and module namespaces. Mirrors `generateFieldAccess`.
+generate_field_access :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("/* ERROR: field access not evaluated */")));
+  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  if(args.len() != usize(2), {
+    return(String.from("/* ERROR: field access requires exactly 2 arguments */"));
+  });
+  object_expr := match(args.get(usize(0)),.Some(x) => x,.None => return(String.from("/* ERROR: invalid field access arguments */")));
+  field_expr := match(args.get(usize(1)),.Some(x) => x,.None => return(String.from("/* ERROR: invalid field access arguments */")));
+  if(!(ast_expr_is_atom(field_expr)), {
+    return(String.from("/* ERROR: field name must be an identifier */"));
+  });
+  field_name := ast_expr_token(field_expr).value;
+  object_code := _call_generate_expr(object_expr, indent.clone(), context);
+  obj_ei_opt := context.base.get_expr_info(object_expr);
+  object_type := match(obj_ei_opt,.Some(oei) => oei.ty,.None => TypeValue.Unit);
+  object_value := match(obj_ei_opt,.Some(oei) => oei.value,.None => Option(EvalValue).None);
+  // Dyn method access takes PRIORITY over static method resolution: even when
+  // the evaluator resolved `obj.method` to a concrete impl FuncVal, a dyn
+  // receiver must dispatch through the vtable (`obj.vtable->method`), not call
+  // the impl statically. The call site (other_fn_call) supplies `(obj).data` as
+  // self. Without this guard the funcval branch below emits a static method
+  // name that isn't collected for a dyn call → the call fails to transpile.
+  if(is_dyn_type(object_type), {
+    out := object_code.clone();
+    out.push_str(".vtable->");
+    out.push_string(sanitize_for_c_identifier(field_name, false));
+    return(out);
+  });
+  // Method access: the field resolved to a function → emit its C name.
+  match(
+    ei.value,
+    .Some(v) => if(is_func_val(v), {
+      fid := match(v,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
+      return(_c_function_name(context, fid));
+    }),
+    .None => ()
+  );
+  // Module namespace / struct-value field access (compile-time field value).
+  if(is_module_type(object_type) || match(object_value,.Some(v) => is_struct_val(v),.None => false), {
+    match(
+      ei.value,
+      .Some(fv) => if(
+        !(is_unknown_val(fv)),
+        if(!(is_struct_val(fv)), {
+          return(generate_comptime_value(fv, ei.ty, context.base));
+        })
+      ),
+      .None => ()
+    );
+    return(get_variable_name_for_codegen(field_name.clone(), Option(Environment).Some(ei.env)));
+  });
+  // Newtype: accessing the single field returns the value itself (zero-cost).
+  // A by-`ref` receiver is already dereferenced by generate_atom (`(*self)`), so
+  // `object_code` is the newtype VALUE here — just return it.
+  if(is_newtype_type(object_type), {
+    match(
+      object_type,
+      .Struct({ field_labels : fls }) => if(fls.len() == usize(1), {
+        match(
+          fls.get(usize(0)),
+          .Some(lbl) => if(lbl == field_name, {
+            return(object_code.clone());
+          }),
+          .None => ()
+        );
+      }),
+      _ => ()
+    );
+  });
+  // Value-shape field access, mutually exclusive (mirrors the TS else-if chain).
+  cond(
+    is_enum_type(object_type) => _enum_field_access(object_type, object_code, field_name, context),
+    _is_typevalue_enum(object_value) => _typevalue_enum_access(object_value, field_name, context),
+    is_pointer_type(object_type) => _ptr_field_access(object_type, object_code, field_name),
+    is_tuple_type(object_type) => _tuple_field_access(object_type, object_code, field_name),
+    is_dyn_type(object_type) => {
+      out := object_code.clone();
+      out.push_str(".vtable->");
+      out.push_string(sanitize_for_c_identifier(field_name, false));
+      out
+    },
+    is_reference_struct_type(object_type) => {
+      out := object_code.clone();
+      out.push_str("->");
+      out.push_string(sanitize_for_c_identifier(field_name, false));
+      out
+    },
+    true => {
+      out := object_code.clone();
+      out.push_str(".");
+      out.push_string(sanitize_for_c_identifier(field_name, false));
+      out
+    }
+  )
+});
+export(generate_field_access);

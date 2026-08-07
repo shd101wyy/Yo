@@ -1,0 +1,2684 @@
+//! state_machine — async/effect state-machine codegen (Phase 5).
+//! Incremental 1:1 port of `src/codegen/async/state-machine.ts` (2605 LOC).
+//!
+//! PORT STATUS: bottom-up. The leaf type-guard `is_io_future_type` lands first;
+//! the StateMachineInfo model, the FSM transformation, and the resume/struct
+//! emitters follow (they consume `suspension_codegen.yo` + `async_completion.yo`
+//! and the `g_some_resolved_concrete` side-table).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_some_type, is_concrete_trait_type, is_struct_type, is_function_type, is_dyn_type, is_unit_type } :: import("../../types/guards.yo");
+{ type_implements_future, extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
+{ lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
+{ SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
+{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code } :: import("./state_code_gen.yo");
+{ is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
+{ _call_generate_expr } :: import("../exprs/_expr.yo");
+{ generate_step_expression } :: import("../exprs/while_loop.yo");
+{ _c_string_literal } :: import("../exprs/comptime_value.yo");
+{ TokenKind } :: import("../../token.yo");
+{ EvalValue } :: import("../../value.yo");
+{ Variable, get_variables_from_env, get_variables_from_env_by_filter } :: import("../../env.yo");
+{ type_contains_rc_type } :: import("../../types/utils.yo");
+{ FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine, CondBranchPostWhileExprs, OuterWhileLoop, SmWhileBreakInfo, SmWhileContinueInfo } :: import("../functions/context.yo");
+{ expr_contains_await } :: import("../../expr_traversal.yo");
+{ is_temp_variable_name } :: import("../../utils.yo");
+{ get_type_string } :: import("../utils/index.yo");
+{ get_state_machine_field_name } :: import("./state_machine_naming.yo");
+{ Emitter } :: import("../../emitter.yo");
+{ emit_async_future_completion, emit_async_future_escape } :: import("../exprs/async_completion.yo");
+{ get_dup_function_for_type } :: import("../exprs/drop_dup.yo");
+/// True when `ty` is an io.async/io.await Future SomeType (vs an extern
+/// `__yo_io_future_t`). Mirrors `isIoFutureType` (state-machine.ts:496).
+///
+/// TS has TWO signals:
+///   (1) `resolvedConcreteType` is itself an EXTERN SomeType — an extern C type
+///       like `__yo_io_future_t` (so NOT a state-machine Future).
+///   (2) any required trait is a `Concrete(...)` trait.
+/// Branch (2) is ported faithfully. Branch (1) is a DOCUMENTED GAP: yo-self's
+/// `SomeT` has no `is_extern` field, so although the resolved concrete type is
+/// available via `g_some_resolved_concrete`, its extern-ness is unrepresentable
+/// (a second SomeT model gap alongside resolved-concrete; see
+/// plans/archive/BOOTSTRAPPING_CODEGEN.md Phase 5 #3 — needs a `g_some_is_extern`
+/// side-table or a SomeT field). The `lookup_some_resolved_concrete` read is kept
+/// to mark the wiring point. Inert until the FSM emitters call this.
+is_io_future_type :: (fn(ty : TypeValue) -> bool)({
+  if(!(is_some_type(ty)), {
+    return(false);
+  });
+  // Branch (1): resolved concrete is an extern SomeType — wiring point present,
+  // extern check pending the SomeT `is_extern` model gap (see doc above).
+  some_id := match(ty,.SomeT({ id }) => id, _ => String.from(""));
+  _rc := lookup_some_resolved_concrete(some_id);
+  // Branch (2): any required trait is a `Concrete(...)` trait.
+  rts := match(ty,.SomeT({ required_trait_types }) => required_trait_types, _ => ArrayList(TypeValue).new());
+  (i : usize) = usize(0);
+  while(i < rts.len(), {
+    rt := match(rts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+    if(is_concrete_trait_type(rt), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// Information about a generated state machine. Mirrors `StateMachineInfo`
+/// (state-machine.ts:516).
+StateMachineInfo :: ref(
+  struct(
+    /// The C struct name for this state machine.
+    struct_name : String,
+    /// The C function name for the resume function.
+    resume_function_name : String,
+    /// Analysis result containing await points and captured variables.
+    analysis : AwaitAnalysisResult
+  )
+);
+/// Emit the forward declaration for the resume function. Mirrors
+/// `generateResumeFunctionDeclaration` (state-machine.ts:535).
+generate_resume_function_declaration :: (
+  fn(info : StateMachineInfo, context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  line := String.from("void ");
+  line.push_string(info.resume_function_name.clone());
+  line.push_str("(");
+  line.push_string(info.struct_name.clone());
+  line.push_str("* sm);");
+  em.emit_declaration_string_line(line);
+});
+/// The state-machine field name for the Future being awaited. Prefers the
+/// captured Future variable's field (`<name>` for an outer capture, `var_<id>`
+/// for a local) over a dedicated `await_future_<index>` field. Mirrors
+/// `getFutureFieldName` (state-machine.ts:461).
+get_future_field_name :: (
+  fn(await_point : AwaitPoint, analysis : AwaitAnalysisResult) -> String
+)({
+  match(
+    await_point.future_variable_id,
+    .Some(fvid) => {
+      cvs := analysis.captured_variables;
+      (i : usize) = usize(0);
+      (found : Option(CapturedVariable)) = Option(CapturedVariable).None;
+      while((i < cvs.len()) && found.is_none(), {
+        match(
+          cvs.get(i),
+          .Some(cv) => if(cv.base.id.to_string() == fvid, {
+            found = Option(CapturedVariable).Some(cv);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      match(
+        found,
+        .Some(cv) => match(
+          cv.kind,
+          .Outer => return(cv.base.name.clone()),
+          .Local => {
+            s := String.from("var_");
+            s.push_string(cv.base.id.to_string());
+            return(s);
+          }
+        ),
+        .None => ()
+      );
+    },
+    .None => ()
+  );
+  out := String.from("await_future_");
+  out.push_string(await_point.base.index.to_string());
+  out
+});
+/// The cleanup "segment" pseudo-index. TS uses `-1`; yo-self uses `usize.MAX`
+/// (segment counts are tiny, so this never collides with a real state number)
+/// to keep the segment sets unsigned. A variable referenced only here lives in
+/// the struct because the body-level deferred drops run in the last segment.
+CLEANUP_SEGMENT :: usize.MAX;
+/// Collect the IDs of all runtime variables referenced in `expr` into `refs`,
+/// resolving SSA remapping and RC-ownership aliasing. Skips nested async-block
+/// bodies (their refs belong to the inner state machine) but still walks their
+/// deferred dup expressions. Mirrors `collectVariableRefsInExpr`
+/// (state-machine.ts:76). yo-self threads `context` because the ExprInfo (env +
+/// deferred expressions) lives in the codegen side-table, not on the expr.
+collect_variable_refs_in_expr :: (
+  fn(
+    expr : AstExpr,
+    refs : HashSet(String),
+    variable_id_remapping : HashMap(String, String),
+    captured_name_ids : HashMap(String, String),
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  ei_opt := context.base.get_expr_info(expr);
+  // Atom case: an identifier that resolves to a non-comptime env variable.
+  if(ast_expr_is_atom(expr), {
+    tok := ast_expr_token(expr);
+    if(tok.kind == TokenKind.Identifier, {
+      // Name-unification with the ANALYSIS's captured set: later eval
+      // passes re-stamp ExprInfos with fresh variable ids (or record envs
+      // that miss the name entirely), so the env resolution below can fail
+      // or resolve to an id the suspension analysis never saw — the
+      // captured id then counts too few segments and its SM field is
+      // dropped (fs/file `content`). When the env RESOLVES, unify through
+      // the DECLARATION-SITE-qualified key only (a bare-name match may be a
+      // DIFFERENT same-named variable — the bufio two-`i`s class); the
+      // bare-name key is the env-failure fallback.
+      (env_resolved : bool) = false;
+      match(
+        ei_opt,
+        .Some(ei) => {
+          var_name := tok.value;
+          variables := get_variables_from_env(ei.env, var_name);
+          if(variables.len() > usize(0), {
+            // The last binding wins (innermost scope).
+            variable := match(
+              variables.get(variables.len() - usize(1)),
+              .Some(v) => v,
+              .None => return()
+            );
+            env_resolved = true;
+            if(!(variable.is_compile_time_only), {
+              // Resolve SSA remapping, then RC owner.
+              canonical_id := match(
+                variable_id_remapping.get(variable.id.to_string()),
+                .Some(c) => c,
+                .None => variable.id.to_string()
+              );
+              owner_id := match(
+                variable.is_owning_the_same_rc_value_as,
+                .Some(ob) => ob.*.id.to_string(),
+                .None => canonical_id
+              );
+              refs.add(owner_id.clone());
+              site_key_a := `${var_name}@${variable.token.module_path}:${variable.token.row.to_string()}:${variable.token.column.to_string()}`;
+              match(
+                captured_name_ids.get(site_key_a),
+                .Some(site_id) => if(!(site_id == owner_id), {
+                  refs.add(site_id);
+                }),
+                .None => ()
+              );
+            });
+          });
+        },
+        .None => ()
+      );
+      if(!(env_resolved), {
+        match(
+          captured_name_ids.get(tok.value),
+          .Some(cap_id) => {
+            refs.add(cap_id);
+          },
+          .None => ()
+        );
+      });
+    });
+    return();
+  });
+  // Binding target: `x := rhs` must record `x` as referenced in THIS segment.
+  // The LHS atom's recorded env predates the binding (yo-self stamps the atom
+  // during LHS evaluation, before add_variable_to_env), so the atom walk above
+  // finds nothing for it — a variable declared in one state segment and used
+  // in a later one then counted only ONE segment and was dropped from the SM
+  // struct (`int32_t a = 20;` in state 1, undeclared `a` in state 2 — the
+  // io_async_fsm_multi class). Resolve the target through the `:=` node's OWN
+  // recorded env, which is stamped post-binding. (TS reaches the same effect
+  // through its per-object point-in-time envs.)
+  if(ast_expr_is_fn_call_of(expr, ":=", Option(usize).Some(usize(2))), {
+    bind_args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    match(
+      bind_args.get(usize(0)),
+      .Some(lhs) => if(ast_expr_is_atom(lhs), {
+        lhs_tok := ast_expr_token(lhs);
+        if(lhs_tok.kind == TokenKind.Identifier, {
+          // Same site-qualified unification as the atom case above.
+          (bind_env_resolved : bool) = false;
+          match(
+            ei_opt,
+            .Some(bind_ei) => {
+              bind_vars := get_variables_from_env(bind_ei.env, lhs_tok.value);
+              if(bind_vars.len() > usize(0), {
+                bind_var := match(
+                  bind_vars.get(bind_vars.len() - usize(1)),
+                  .Some(v) => v,
+                  .None => return()
+                );
+                bind_env_resolved = true;
+                if(!(bind_var.is_compile_time_only), {
+                  bind_canonical := match(
+                    variable_id_remapping.get(bind_var.id.to_string()),
+                    .Some(c) => c,
+                    .None => bind_var.id.to_string()
+                  );
+                  bind_owner := match(
+                    bind_var.is_owning_the_same_rc_value_as,
+                    .Some(ob) => ob.*.id.to_string(),
+                    .None => bind_canonical
+                  );
+                  refs.add(bind_owner.clone());
+                  site_key_b := `${lhs_tok.value}@${bind_var.token.module_path}:${bind_var.token.row.to_string()}:${bind_var.token.column.to_string()}`;
+                  match(
+                    captured_name_ids.get(site_key_b),
+                    .Some(site_id_b) => if(!(site_id_b == bind_owner), {
+                      refs.add(site_id_b);
+                    }),
+                    .None => ()
+                  );
+                });
+              });
+            },
+            .None => ()
+          );
+          if(!(bind_env_resolved), {
+            match(
+              captured_name_ids.get(lhs_tok.value),
+              .Some(cap_id_b) => {
+                refs.add(cap_id_b);
+              },
+              .None => ()
+            );
+          });
+        });
+      }),
+      .None => ()
+    );
+    // fall through to the FnCall walk below (RHS refs still collected).
+  });
+  // FnCall case.
+  if(ast_expr_is_fn_call(expr), {
+    if(is_io_async_call(expr), {
+      // Nested async block — skip its body, but walk its deferred dups (captures).
+      match(
+        ei_opt,
+        .Some(ei) => match(
+          ei.deferred_dup_expressions,
+          .Some(dups) => {
+            (di : usize) = usize(0);
+            while(di < dups.len(), {
+              match(
+                dups.get(di),
+                .Some(d) => {
+                  recur(d, refs, variable_id_remapping, captured_name_ids, context);
+                },
+                .None => ()
+              );
+              di = (di + usize(1));
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      return();
+    });
+    func_expr := match(expr,.FnCall(_, fb, _, _, _) => fb, _ => expr);
+    recur(func_expr, refs, variable_id_remapping, captured_name_ids, context);
+    args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    (ai : usize) = usize(0);
+    while(ai < args.len(), {
+      match(
+        args.get(ai),
+        .Some(a) => {
+          recur(a, refs, variable_id_remapping, captured_name_ids, context);
+        },
+        .None => ()
+      );
+      ai = (ai + usize(1));
+    });
+    // Also walk deferred drop/dup expressions.
+    match(
+      ei_opt,
+      .Some(ei) => {
+        match(
+          ei.deferred_drop_expressions,
+          .Some(drops) => {
+            (dri : usize) = usize(0);
+            while(dri < drops.len(), {
+              match(
+                drops.get(dri),
+                .Some(d) => {
+                  recur(d, refs, variable_id_remapping, captured_name_ids, context);
+                },
+                .None => ()
+              );
+              dri = (dri + usize(1));
+            });
+          },
+          .None => ()
+        );
+        match(
+          ei.deferred_dup_expressions,
+          .Some(dups2) => {
+            (dui : usize) = usize(0);
+            while(dui < dups2.len(), {
+              match(
+                dups2.get(dui),
+                .Some(d) => {
+                  recur(d, refs, variable_id_remapping, captured_name_ids, context);
+                },
+                .None => ()
+              );
+              dui = (dui + usize(1));
+            });
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+  });
+});
+/// Result of cross-boundary variable analysis. Mirrors `CrossBoundaryResult`
+/// (state-machine.ts:152). `variable_segments` maps each variable id to the set
+/// of segment indices it is referenced in (`CLEANUP_SEGMENT` = body-level drops).
+CrossBoundaryResult :: ref(
+  struct(
+    /// Variable IDs that must be stored as struct fields (cross await boundaries).
+    cross_boundary_ids : HashSet(String),
+    /// Maps temp variable IDs to their `await_future_N` field name (Phase 1b dedup).
+    await_future_temp_var_aliases : HashMap(String, String),
+    /// Maps each captured variable id to the segment indices where it is referenced.
+    variable_segments : HashMap(String, HashSet(usize))
+  )
+);
+/// Add `seg` to the segment set of `var_id` in `variable_segments`
+/// (get-mutate-set-back: always stores the mutated set back so the map reflects
+/// any resize). Helper for `compute_cross_boundary_variables`.
+_add_variable_segment :: (
+  fn(variable_segments : HashMap(String, HashSet(usize)), var_id : String, seg : usize) -> unit
+)({
+  existing := match(
+    variable_segments.get(var_id.clone()),
+    .Some(s) => s,
+    .None => HashSet(usize).new()
+  );
+  existing.add(seg);
+  variable_segments.set(var_id.clone(), existing);
+});
+/// Determine which captured local variables cross await boundaries (referenced in
+/// more than one state segment, or in the cleanup segment, or in a single
+/// branching-await segment). Such variables must be stored as struct fields;
+/// segment-local ones in non-branching segments can be C locals. Mirrors
+/// `computeCrossBoundaryVariables` (state-machine.ts:171).
+compute_cross_boundary_variables :: (
+  fn(body_expr : AstExpr, analysis : AwaitAnalysisResult, context : FunctionGenerationContext) -> CrossBoundaryResult
+)({
+  await_points := analysis.await_points;
+  captured_variables := analysis.captured_variables;
+  variable_id_remapping := analysis.variable_id_remapping;
+  // No await points → nothing crosses a boundary.
+  if(await_points.len() == usize(0), {
+    return(
+      CrossBoundaryResult(
+        cross_boundary_ids : HashSet(String).new(),
+        await_future_temp_var_aliases : HashMap(String, String).new(),
+        variable_segments : HashMap(String, HashSet(usize)).new()
+      )
+    );
+  });
+  segments := split_into_state_segments(body_expr, await_points);
+  // Segment indices whose await point branches (cond/while): a variable found
+  // ONLY in such a segment must stay in the struct (continuation runs elsewhere).
+  branching_await_segment_indices := HashSet(usize).new();
+  (sgi : usize) = usize(0);
+  while(sgi < segments.len(), {
+    match(
+      segments.get(sgi),
+      .Some(seg) => match(
+        seg.await_point,
+        .Some(ap) => {
+          in_cond := match(ap.base.is_inside_cond,.Some(b) => b,.None => false);
+          in_while := match(ap.base.is_inside_while,.Some(b) => b,.None => false);
+          if(in_cond || in_while, {
+            branching_await_segment_indices.add(seg.state_number);
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    sgi = (sgi + usize(1));
+  });
+  // Name → captured id, for unifying re-stamped variable ids with the
+  // analysis's captured set (see collect_variable_refs_in_expr). Two key
+  // forms: `name@module:row:col` (declaration-site-qualified — used when the
+  // reading site's env resolution produced a Variable, so the site is known)
+  // and bare `name` (used only when the env resolution failed entirely).
+  // Site-qualification keeps same-named DISTINCT variables separate (the
+  // bufio two-`i`s class).
+  captured_name_ids := HashMap(String, String).new();
+  (cni : usize) = usize(0);
+  cn_cvs := analysis.captured_variables;
+  while(cni < cn_cvs.len(), {
+    match(
+      cn_cvs.get(cni),
+      .Some(cv) => {
+        if(!(captured_name_ids.contains_key(cv.base.name.clone())), {
+          _r := captured_name_ids.set(cv.base.name.clone(), cv.base.id.to_string());
+        });
+        if(cv.base.decl_site.len() > usize(0), {
+          site_key := `${cv.base.name.clone()}@${cv.base.decl_site.clone()}`;
+          if(!(captured_name_ids.contains_key(site_key.clone())), {
+            _r2 := captured_name_ids.set(site_key, cv.base.id.to_string());
+          });
+        });
+      },
+      .None => ()
+    );
+    cni = (cni + usize(1));
+  });
+  // For each segment, collect referenced variable ids and record the segment.
+  variable_segments := HashMap(String, HashSet(usize)).new();
+  (sgj : usize) = usize(0);
+  while(sgj < segments.len(), {
+    match(
+      segments.get(sgj),
+      .Some(seg) => {
+        refs := HashSet(String).new();
+        (ei : usize) = usize(0);
+        while(ei < seg.expressions.len(), {
+          match(
+            seg.expressions.get(ei),
+            .Some(e) => {
+              collect_variable_refs_in_expr(e, refs, variable_id_remapping, captured_name_ids, context);
+            },
+            .None => ()
+          );
+          ei = (ei + usize(1));
+        });
+        ref_iter := refs.into_iter();
+        (go : bool) = true;
+        while(go, {
+          match(
+            ref_iter.next(),
+            .Some(var_id) => {
+              _add_variable_segment(variable_segments, var_id, seg.state_number);
+            },
+            .None => {
+              go = false;
+            }
+          );
+        });
+      },
+      .None => ()
+    );
+    sgj = (sgj + usize(1));
+  });
+  // Body-level deferred drops run at the end → CLEANUP_SEGMENT.
+  body_ei_opt := context.base.get_expr_info(body_expr);
+  match(
+    body_ei_opt,
+    .Some(body_ei) => match(
+      body_ei.deferred_drop_expressions,
+      .Some(body_drops) => {
+        body_drop_refs := HashSet(String).new();
+        (bi : usize) = usize(0);
+        while(bi < body_drops.len(), {
+          match(
+            body_drops.get(bi),
+            .Some(d) => {
+              collect_variable_refs_in_expr(d, body_drop_refs, variable_id_remapping, captured_name_ids, context);
+            },
+            .None => ()
+          );
+          bi = (bi + usize(1));
+        });
+        bd_iter := body_drop_refs.into_iter();
+        (bgo : bool) = true;
+        while(bgo, {
+          match(
+            bd_iter.next(),
+            .Some(var_id) => {
+              _add_variable_segment(variable_segments, var_id, CLEANUP_SEGMENT);
+            },
+            .None => {
+              bgo = false;
+            }
+          );
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  // A captured local crosses a boundary if used in >1 segment, in cleanup, or in
+  // a single branching-await segment. Outer vars live in __capture (skipped).
+  cross_boundary_ids := HashSet(String).new();
+  (cvi : usize) = usize(0);
+  while(cvi < captured_variables.len(), {
+    match(
+      captured_variables.get(cvi),
+      .Some(v) => {
+        is_outer := match(v.kind,.Outer => true,.Local => false);
+        if(!(is_outer), {
+          vid := v.base.id.to_string();
+          match(
+            variable_segments.get(vid.clone()),
+            .None => {
+              // Not found in any segment — keep in struct (conservative).
+              cross_boundary_ids.add(vid.clone());
+            },
+            .Some(segs_used) => {
+              if(segs_used.len() > usize(1), {
+                cross_boundary_ids.add(vid.clone());
+              }, {
+                if(segs_used.contains(CLEANUP_SEGMENT), {
+                  cross_boundary_ids.add(vid.clone());
+                }, {
+                  // Exactly one numbered segment — struct only if it branches.
+                  seg_iter := segs_used.into_iter();
+                  single := match(seg_iter.next(),.Some(s) => s,.None => usize(0));
+                  if(branching_await_segment_indices.contains(single), {
+                    cross_boundary_ids.add(vid.clone());
+                  });
+                });
+              });
+            }
+          );
+        });
+      },
+      .None => ()
+    );
+    cvi = (cvi + usize(1));
+  });
+  // Phase 1b: temp vars holding futures already stored in await_future_N — alias
+  // them to that field and drop them from the struct.
+  await_future_temp_var_aliases := HashMap(String, String).new();
+  (api : usize) = usize(0);
+  while(api < await_points.len(), {
+    match(
+      await_points.get(api),
+      .Some(ap) => {
+        // Named future variables are already aliased — skip.
+        has_named := match(ap.future_variable_id,.Some(_) => true,.None => false);
+        if(!(has_named), {
+          await_expr := ap.base.expr;
+          if(ast_expr_is_fn_call(await_expr), {
+            future_arg_opt := match(await_expr,.FnCall(_, _, a, _, _) => a.get(usize(0)), _ => Option(AstExpr).None);
+            match(
+              future_arg_opt,
+              .Some(future_arg) => {
+                tmp_name_opt := match(context.base.get_expr_info(future_arg),.Some(fei) => fei.variable_name,.None => Option(String).None);
+                match(
+                  tmp_name_opt,
+                  .Some(temp_var_name) => {
+                    // Find the captured local matching this temp var name/id.
+                    (cfi : usize) = usize(0);
+                    (matched : Option(String)) = Option(String).None;
+                    while((cfi < captured_variables.len()) && matched.is_none(), {
+                      match(
+                        captured_variables.get(cfi),
+                        .Some(cv2) => {
+                          is_local := match(cv2.kind,.Local => true,.Outer => false);
+                          if(is_local && ((cv2.base.name == temp_var_name) || (cv2.base.id == temp_var_name)), {
+                            matched = Option(String).Some(cv2.base.id.to_string());
+                          });
+                        },
+                        .None => ()
+                      );
+                      cfi = (cfi + usize(1));
+                    });
+                    match(
+                      matched,
+                      .Some(cap_id) => {
+                        field := String.from("await_future_");
+                        field.push_string(ap.base.index.to_string());
+                        await_future_temp_var_aliases.set(cap_id.clone(), field);
+                        cross_boundary_ids.remove(cap_id);
+                      },
+                      .None => ()
+                    );
+                  },
+                  .None => ()
+                );
+              },
+              .None => ()
+            );
+          });
+        });
+      },
+      .None => ()
+    );
+    api = (api + usize(1));
+  });
+  CrossBoundaryResult(
+    cross_boundary_ids : cross_boundary_ids,
+    await_future_temp_var_aliases : await_future_temp_var_aliases,
+    variable_segments : variable_segments
+  )
+});
+/// A variable's live range `[min_segment, max_segment]` over numbered segments.
+_SlotRange :: ref(struct(min : usize, max : usize));
+/// An overlapping storage slot shared by ≥2 non-RC value vars with disjoint live
+/// ranges. Mirrors `OverlappingSlot` (state-machine.ts:310).
+OverlappingSlot :: ref(
+  struct(
+    /// The struct field name, e.g. `slot_0`.
+    field_name : String,
+    /// The C type string for this slot.
+    c_type : String,
+    /// Variable names sharing this slot (for comments).
+    variable_names : ArrayList(String)
+  )
+);
+/// Result of overlapping storage analysis. Mirrors `OverlappingStorageResult`
+/// (state-machine.ts:322).
+OverlappingStorageResult :: ref(
+  struct(
+    /// Maps variable IDs to their aliased slot field name.
+    slot_aliases : HashMap(String, String),
+    /// Slot field definitions for the struct.
+    slots : ArrayList(OverlappingSlot)
+  )
+);
+/// Find the eligible captured variable with the given id. Helper for slot naming.
+_find_captured_by_id :: (
+  fn(eligible : ArrayList(CapturedVariable), id : String) -> Option(CapturedVariable)
+)({
+  (i : usize) = usize(0);
+  (found : Option(CapturedVariable)) = Option(CapturedVariable).None;
+  while((i < eligible.len()) && found.is_none(), {
+    match(
+      eligible.get(i),
+      .Some(v) => if(v.base.id == id, {
+        found = Option(CapturedVariable).Some(v);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// Compute overlapping storage slots for cross-boundary variables: same-C-type
+/// non-RC value vars whose live ranges don't overlap can share one struct field
+/// (greedy graph coloring per type group). Mirrors `computeOverlappingSlots`
+/// (state-machine.ts:339). NOTE: yo-self HashMap is not insertion-ordered, so
+/// type/var iteration is driven off the ordered `eligible`/`ordered_c_types`
+/// lists to keep slot assignment deterministic (any valid coloring is correct —
+/// disjoint live ranges never collide — so the exact slot_N numbering may differ
+/// from the TS reference without affecting correctness).
+compute_overlapping_slots :: (
+  fn(
+    cross_boundary_ids : HashSet(String),
+    variable_segments : HashMap(String, HashSet(usize)),
+    captured_variables : ArrayList(CapturedVariable),
+    await_future_temp_var_aliases : HashMap(String, String),
+    context : FunctionGenerationContext
+  ) -> OverlappingStorageResult
+)({
+  empty_result := OverlappingStorageResult(
+    slot_aliases : HashMap(String, String).new(),
+    slots : ArrayList(OverlappingSlot).new()
+  );
+  // Eligible = cross-boundary local vars of non-RC value type, not future-aliased.
+  eligible := ArrayList(CapturedVariable).new();
+  (e0 : usize) = usize(0);
+  while(e0 < captured_variables.len(), {
+    match(
+      captured_variables.get(e0),
+      .Some(v) => {
+        is_local := match(v.kind,.Local => true,.Outer => false);
+        if(((is_local && cross_boundary_ids.contains(v.base.id.to_string())) && !(await_future_temp_var_aliases.contains_key(v.base.id.to_string()))) && !(type_contains_rc_type(v.base.ty)), {
+          eligible.push(v);
+        });
+      },
+      .None => ()
+    );
+    e0 = (e0 + usize(1));
+  });
+  if(eligible.len() < usize(2), {
+    return(empty_result);
+  });
+  // Live range [min,max] over numbered segments (exclude CLEANUP_SEGMENT).
+  ranges := HashMap(String, _SlotRange).new();
+  (r0 : usize) = usize(0);
+  while(r0 < eligible.len(), {
+    match(
+      eligible.get(r0),
+      .Some(v) => match(
+        variable_segments.get(v.base.id.to_string()),
+        .Some(segs) => {
+          (has_any : bool) = false;
+          (mn : usize) = usize(0);
+          (mx : usize) = usize(0);
+          seg_it := segs.into_iter();
+          (sgo : bool) = true;
+          while(sgo, {
+            match(
+              seg_it.next(),
+              .Some(s) => if(s != CLEANUP_SEGMENT, {
+                if(!(has_any), {
+                  mn = s;
+                  mx = s;
+                  has_any = true;
+                }, {
+                  if(s < mn, {
+                    mn = s;
+                  });
+                  if(s > mx, {
+                    mx = s;
+                  });
+                });
+              }),
+              .None => {
+                sgo = false;
+              }
+            );
+          });
+          if(has_any, {
+            ranges.set(v.base.id.to_string(), _SlotRange(min : mn, max : mx));
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    r0 = (r0 + usize(1));
+  });
+  if(ranges.len() < usize(2), {
+    return(empty_result);
+  });
+  // Group eligible vars (that have a range) by C type — iterate `eligible` order
+  // for determinism; `ordered_c_types` records first-appearance order.
+  by_type := HashMap(String, ArrayList(String)).new();
+  ordered_c_types := ArrayList(String).new();
+  (g0 : usize) = usize(0);
+  while(g0 < eligible.len(), {
+    match(
+      eligible.get(g0),
+      .Some(v) => {
+        vid := v.base.id.to_string();
+        if(ranges.contains_key(vid.clone()), {
+          ctype := get_type_string(v.base.ty, context.base);
+          if(!(by_type.contains_key(ctype.clone())), {
+            ordered_c_types.push(ctype.clone());
+          });
+          group := match(by_type.get(ctype.clone()),.Some(grp) => grp,.None => ArrayList(String).new());
+          group.push(vid.clone());
+          by_type.set(ctype.clone(), group);
+        });
+      },
+      .None => ()
+    );
+    g0 = (g0 + usize(1));
+  });
+  slot_aliases := HashMap(String, String).new();
+  slots := ArrayList(OverlappingSlot).new();
+  (next_slot_index : usize) = usize(0);
+  (ot : usize) = usize(0);
+  while(ot < ordered_c_types.len(), {
+    ctype := match(ordered_c_types.get(ot),.Some(c) => c,.None => String.new());
+    var_ids := match(by_type.get(ctype.clone()),.Some(g) => g,.None => ArrayList(String).new());
+    if(var_ids.len() >= usize(2), {
+      // Interference graph: two vars conflict if their ranges overlap.
+      conflicts := HashMap(String, HashSet(String)).new();
+      (ii : usize) = usize(0);
+      while(ii < var_ids.len(), {
+        id_i := match(var_ids.get(ii),.Some(x) => x,.None => String.new());
+        (jj : usize) = (ii + usize(1));
+        while(jj < var_ids.len(), {
+          id_j := match(var_ids.get(jj),.Some(x) => x,.None => String.new());
+          ra := match(ranges.get(id_i.clone()),.Some(r) => r,.None => _SlotRange(min : usize(0), max : usize(0)));
+          rb := match(ranges.get(id_j.clone()),.Some(r) => r,.None => _SlotRange(min : usize(0), max : usize(0)));
+          if((ra.min <= rb.max) && (rb.min <= ra.max), {
+            ci := match(conflicts.get(id_i.clone()),.Some(s) => s,.None => HashSet(String).new());
+            ci.add(id_j.clone());
+            conflicts.set(id_i.clone(), ci);
+            cj := match(conflicts.get(id_j.clone()),.Some(s) => s,.None => HashSet(String).new());
+            cj.add(id_i.clone());
+            conflicts.set(id_j.clone(), cj);
+          });
+          jj = (jj + usize(1));
+        });
+        ii = (ii + usize(1));
+      });
+      // Greedy coloring.
+      colors := HashMap(String, usize).new();
+      (ki : usize) = usize(0);
+      while(ki < var_ids.len(), {
+        var_id := match(var_ids.get(ki),.Some(x) => x,.None => String.new());
+        used_colors := HashSet(usize).new();
+        cset := match(conflicts.get(var_id.clone()),.Some(s) => s,.None => HashSet(String).new());
+        c_it := cset.into_iter();
+        (cgo : bool) = true;
+        while(cgo, {
+          match(
+            c_it.next(),
+            .Some(conflict_id) => match(
+              colors.get(conflict_id),
+              .Some(col) => {
+                used_colors.add(col);
+              },
+              .None => ()
+            ),
+            .None => {
+              cgo = false;
+            }
+          );
+        });
+        (color : usize) = usize(0);
+        while(used_colors.contains(color), {
+          color = (color + usize(1));
+        });
+        colors.set(var_id.clone(), color);
+        ki = (ki + usize(1));
+      });
+      // Group var_ids by color (iterate var_ids order; ordered_colors for output).
+      color_to_vars := HashMap(usize, ArrayList(String)).new();
+      ordered_colors := ArrayList(usize).new();
+      (cti : usize) = usize(0);
+      while(cti < var_ids.len(), {
+        var_id := match(var_ids.get(cti),.Some(x) => x,.None => String.new());
+        col := match(colors.get(var_id.clone()),.Some(c) => c,.None => usize(0));
+        if(!(color_to_vars.contains_key(col)), {
+          ordered_colors.push(col);
+        });
+        cgroup := match(color_to_vars.get(col),.Some(g) => g,.None => ArrayList(String).new());
+        cgroup.push(var_id.clone());
+        color_to_vars.set(col, cgroup);
+        cti = (cti + usize(1));
+      });
+      // Create a slot per color group with ≥2 members (actual sharing).
+      (oci : usize) = usize(0);
+      while(oci < ordered_colors.len(), {
+        col := match(ordered_colors.get(oci),.Some(c) => c,.None => usize(0));
+        group_var_ids := match(color_to_vars.get(col),.Some(g) => g,.None => ArrayList(String).new());
+        if(group_var_ids.len() >= usize(2), {
+          field_name := String.from("slot_");
+          field_name.push_string(next_slot_index.to_string());
+          var_names := ArrayList(String).new();
+          (vni : usize) = usize(0);
+          while(vni < group_var_ids.len(), {
+            gid := match(group_var_ids.get(vni),.Some(x) => x,.None => String.new());
+            nm := match(
+              _find_captured_by_id(eligible, gid.clone()),
+              .Some(fv) => fv.base.name.clone(),
+              .None => gid.clone()
+            );
+            var_names.push(nm);
+            slot_aliases.set(gid.clone(), field_name.clone());
+            vni = (vni + usize(1));
+          });
+          slots.push(
+            OverlappingSlot(field_name : field_name.clone(), c_type : ctype.clone(), variable_names : var_names)
+          );
+          next_slot_index = (next_slot_index + usize(1));
+        });
+        oci = (oci + usize(1));
+      });
+    });
+    ot = (ot + usize(1));
+  });
+  OverlappingStorageResult(slot_aliases : slot_aliases, slots : slots)
+});
+/// True when an expression contains a `return`. Mirrors `exprContainsReturn`
+/// (state-machine.ts:2346) — the resume generator's local copy (TS keeps a
+/// duplicate of `exprContainsReturnStatement` in this file).
+expr_contains_return :: (fn(expr : AstExpr) -> bool)({
+  if(ast_expr_is_atom_of(expr, "return"), {
+    return(true);
+  });
+  if(ast_expr_is_fn_call_of(expr, "return", Option(usize).None), {
+    return(true);
+  });
+  if(ast_expr_is_fn_call(expr), {
+    args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    (i : usize) = usize(0);
+    while(i < args.len(), {
+      arg := match(args.get(i),.Some(a) => a,.None => expr);
+      if(recur(arg), {
+        return(true);
+      });
+      i = (i + usize(1));
+    });
+  });
+  false
+});
+/// True when `future_type` must be driven through the GENERIC Future vtable
+/// (`__yo_set_effect_fn` etc.) rather than a concrete capture struct — i.e. it is
+/// a Future SomeType with no concrete C type registered (nor a registered
+/// resolved-concrete). Mirrors `usesGenericFutureInterface` (state-machine.ts:2366).
+uses_generic_future_interface :: (fn(future_type : TypeValue, context : FunctionGenerationContext) -> bool)({
+  if(!(is_some_type(future_type) && type_implements_future(future_type)), {
+    return(false);
+  });
+  fid := match(future_type,.SomeT({ id }) => id, _ => String.from(""));
+  if(context.base.types.contains_key(fid.clone()), {
+    return(false);
+  });
+  match(
+    lookup_some_resolved_concrete(fid),
+    .Some(rc) => {
+      if(is_some_type(rc), {
+        rcid := match(rc,.SomeT({ id }) => id, _ => String.from(""));
+        if(context.base.types.contains_key(rcid), {
+          return(false);
+        });
+      });
+      if(is_struct_type(rc), {
+        capture_id := match(rc,.Struct({ id }) => id, _ => String.from(""));
+        it := context.base.types.into_iter();
+        (go : bool) = true;
+        while(go, {
+          match(
+            it.next(),
+            .Some(bucket) => {
+              ety := bucket.value.ty;
+              if(is_some_type(ety) && type_implements_future(ety), {
+                esid := match(ety,.SomeT({ id }) => id, _ => String.from(""));
+                match(
+                  lookup_some_resolved_concrete(esid),
+                  .Some(erc) => if(is_struct_type(erc), {
+                    ercid := match(erc,.Struct({ id }) => id, _ => String.from(""));
+                    if(ercid == capture_id, {
+                      return(false);
+                    });
+                  }),
+                  .None => ()
+                );
+              });
+            },
+            .None => {
+              go = false;
+            }
+          );
+        });
+      });
+    },
+    .None => ()
+  );
+  extract_future_trait_from_type(future_type).is_some()
+});
+/// Emit the effect-injection line for one captured effect member of a Future:
+/// the generic vtable `__yo_set_effect_fn` call for generic-interface Futures, or
+/// a direct `__capture.<label>` store for concrete Futures. Mirrors
+/// `emitFutureEffectInjectionLine` (state-machine.ts:2401).
+emit_future_effect_injection_line :: (
+  fn(
+    future_type : TypeValue,
+    future_access : String,
+    field_label : String,
+    member_code : String,
+    indent : String,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  if(uses_generic_future_interface(future_type, context), {
+    lbl := _c_string_literal(field_label.clone());
+    em.emit_string_line(`${indent}if (${future_access}->__yo_set_effect_fn) ${future_access}->__yo_set_effect_fn((void*)${future_access}, ${lbl}, (void*)${member_code});`);
+    return();
+  });
+  em.emit_string_line(`${indent}${future_access}->__capture.${field_label} = (void*)${member_code};`);
+});
+/// Resolve the C code for an effect-handler field from the surrounding
+/// state-machine scope: a caller evidence param (`current_evidence_params`) wins,
+/// else an outer captured variable (`sm->__capture.<label>`), else `.None`.
+/// Mirrors `resolveEffectFieldFromSMScope` (state-machine.ts:2583).
+resolve_effect_field_from_sm_scope :: (
+  fn(field_label : String, context : FunctionGenerationContext, _expr : AstExpr) -> Option(String)
+)({
+  _expr;
+  match(
+    context.current_evidence_params,
+    .Some(eps) => {
+      it := eps.into_iter();
+      (go : bool) = true;
+      while(go, {
+        match(
+          it.next(),
+          .Some(b) => if(b.value.field_label == field_label, {
+            return(Option(String).Some(b.value.c_param_name));
+          }),
+          .None => {
+            go = false;
+          }
+        );
+      });
+    },
+    .None => ()
+  );
+  match(
+    context.state_machine_variables,
+    .Some(svm) => {
+      it2 := svm.into_iter();
+      (go2 : bool) = true;
+      while(go2, {
+        match(
+          it2.next(),
+          .Some(b) => {
+            cv := b.value;
+            is_outer := match(cv.kind,.Outer => true,.Local => false);
+            if((cv.base.name == field_label) && is_outer, {
+              s := String.from("sm->__capture.");
+              s.push_string(field_label.clone());
+              return(Option(String).Some(s));
+            });
+          },
+          .None => {
+            go2 = false;
+          }
+        );
+      });
+    },
+    .None => ()
+  );
+  Option(String).None
+});
+/// Build the state-machine variable map (variable id → captured variable) the
+/// resume generator binds while emitting resume-state code: the analysis's
+/// captured variables (keyed by id) plus the closure's `__capture` struct fields
+/// (as `outer` captures, keyed by label). Mirrors the `combinedVariables`
+/// construction repeated throughout `generateAsyncBlockResumeFunction`.
+_build_combined_sm_variables :: (
+  fn(analysis : AwaitAnalysisResult, capture_type : Option(TypeValue)) -> HashMap(String, CapturedVariable)
+)({
+  combined := HashMap(String, CapturedVariable).new();
+  cvs := analysis.captured_variables;
+  (i : usize) = usize(0);
+  while(i < cvs.len(), {
+    match(
+      cvs.get(i),
+      .Some(v) => {
+        combined.set(v.base.id.to_string(), v);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  match(
+    capture_type,
+    .Some(ct) => {
+      flabels := match(ct,.Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
+      ftypes := match(ct,.Struct({ field_types : ft }) => ft, _ => ArrayList(TypeValue).new());
+      (j : usize) = usize(0);
+      while(j < flabels.len(), {
+        lbl := match(flabels.get(j),.Some(l) => l,.None => String.from(""));
+        ty := match(ftypes.get(j),.Some(t) => t,.None => TypeValue.Unit);
+        cv := CapturedVariable(
+          base : SuspensionCapturedVariable(
+            id : lbl.clone(),
+            name : lbl.clone(),
+            ty : ty,
+            is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).None,
+            decl_site : String.from("")
+          ),
+          kind : CapturedVariableKind.Outer,
+          is_owning_the_same_rc_value_as : Option(Box(CapturedVariable)).None
+        );
+        combined.set(lbl.clone(), cv);
+        j = (j + usize(1));
+      });
+    },
+    .None => ()
+  );
+  combined
+});
+/// The SM struct field holding the outer effect-bundle to forward into an inner
+/// future via `set_effect("__bundle", ...)` — the captured local (`var_<id>`, or
+/// its field alias) whose type matches the future's struct effect. Mirrors
+/// `findBundleFieldName` (async.ts:515; placed here to break the
+/// async.yo<->state_machine.yo cycle — it is a future-trait/SM-var helper).
+find_bundle_field_name :: (
+  fn(
+    future_trait_type : TypeValue,
+    state_machine_variables : Option(HashMap(String, CapturedVariable)),
+    state_machine_field_aliases : Option(HashMap(String, String))
+  ) -> Option(String)
+)({
+  eff_types := match(future_trait_type,.FutureTraitT({ effect_types : et }) => et, _ => ArrayList(TypeValue).new());
+  (eff_id : Option(String)) = Option(String).None;
+  (ei : usize) = usize(0);
+  while((ei < eff_types.len()) && eff_id.is_none(), {
+    match(
+      eff_types.get(ei),
+      .Some(et) => if(is_struct_type(et), {
+        eff_id = Option(String).Some(match(et,.Struct({ id }) => id, _ => String.from("")));
+      }),
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  match(
+    eff_id,
+    .None => Option(String).None,
+    .Some(target_id) => match(
+      state_machine_variables,
+      .Some(svm) => {
+        (fallback : Option(String)) = Option(String).None;
+        it := svm.into_iter();
+        (go : bool) = true;
+        while(go, {
+          match(
+            it.next(),
+            .Some(b) => {
+              smvar := b.value;
+              is_outer := match(smvar.kind,.Outer => true,.Local => false);
+              if(!(is_outer), {
+                svid := match(smvar.base.ty,.Struct({ id }) => id, _ => String.from(""));
+                if(svid == target_id, {
+                  aliased := match(state_machine_field_aliases,.Some(al) => al.get(smvar.base.id.to_string()),.None => Option(String).None);
+                  match(
+                    aliased,
+                    .Some(a) => return(Option(String).Some(a)),
+                    .None => if(fallback.is_none(), {
+                      f := String.from("var_");
+                      f.push_string(smvar.base.id.to_string());
+                      fallback = Option(String).Some(f);
+                    })
+                  );
+                });
+              });
+            },
+            .None => {
+              go = false;
+            }
+          );
+        });
+        fallback
+      },
+      .None => Option(String).None
+    )
+  )
+});
+/// Inject each function-typed member of a struct/source-namespace effect bundle
+/// into the awaited future (resolving the member's C code from SM captures /
+/// the using-arg value / evidence params / env given-bindings), via the generic
+/// vtable or a direct capture store. Mirrors `emitEffectRecordInjectionForSM`
+/// (state-machine.ts:2493).
+emit_effect_record_injection_for_sm :: (
+  fn(
+    source_namespace_type : TypeValue,
+    future_type : TypeValue,
+    future_access : String,
+    indent : String,
+    using_arg_value : Option(EvalValue),
+    context : FunctionGenerationContext,
+    expr : AstExpr
+  ) -> unit
+)({
+  field_labels := match(source_namespace_type,.Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
+  field_types := match(source_namespace_type,.Struct({ field_types : ft }) => ft, _ => ArrayList(TypeValue).new());
+  (fi : usize) = usize(0);
+  while(fi < field_labels.len(), {
+    flabel := match(field_labels.get(fi),.Some(l) => l,.None => String.from(""));
+    ftype := match(field_types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+    if(is_function_type(ftype), {
+      (member_code : Option(String)) = Option(String).None;
+      // 1. Captured outer SM variable matching the field label.
+      match(
+        context.state_machine_variables,
+        .Some(svm) => {
+          it := svm.into_iter();
+          (go : bool) = true;
+          while(go && member_code.is_none(), {
+            match(
+              it.next(),
+              .Some(b) => {
+                cv := b.value;
+                is_outer := match(cv.kind,.Outer => true,.Local => false);
+                if((cv.base.name == flabel) && is_outer, {
+                  s := String.from("sm->__capture.");
+                  s.push_string(flabel.clone());
+                  member_code = Option(String).Some(s);
+                });
+              },
+              .None => {
+                go = false;
+              }
+            );
+          });
+        },
+        .None => ()
+      );
+      // 2. Explicit using-arg effect record value.
+      if(member_code.is_none(), {
+        match(
+          using_arg_value,
+          .Some(uav) => match(
+            uav,
+            .StructVal(_, ulabels, uvals) => {
+              (ui : usize) = usize(0);
+              while((ui < ulabels.len()) && member_code.is_none(), {
+                match(
+                  ulabels.get(ui),
+                  .Some(ul) => if(ul == flabel, {
+                    match(
+                      uvals.get(ui),
+                      .Some(mv) => match(
+                        mv,
+                        .FuncVal(__fvd1, _) => match(
+                          context.base.functions.get(__fvd1.*.func_id),
+                          .Some(fe) => {
+                            member_code = Option(String).Some(fe.c_name);
+                          },
+                          .None => ()
+                        ),
+                        _ => ()
+                      ),
+                      .None => ()
+                    );
+                  }),
+                  .None => ()
+                );
+                ui = (ui + usize(1));
+              });
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+      });
+      // 3. Caller evidence params.
+      if(member_code.is_none(), {
+        match(
+          context.current_evidence_params,
+          .Some(eps) => {
+            it := eps.into_iter();
+            (go : bool) = true;
+            while(go && member_code.is_none(), {
+              match(
+                it.next(),
+                .Some(b) => if(b.value.field_label == flabel, {
+                  member_code = Option(String).Some(b.value.c_param_name);
+                }),
+                .None => {
+                  go = false;
+                }
+              );
+            });
+          },
+          .None => ()
+        );
+      });
+      // 4. Given bindings in the call environment (innermost-first).
+      if(member_code.is_none(), {
+        match(
+          context.base.get_expr_info(expr),
+          .Some(ei) => {
+            implicit_vars := get_variables_from_env_by_filter(ei.env, (v : Variable) => true);
+            (k : usize) = implicit_vars.len();
+            while((k > usize(0)) && member_code.is_none(), {
+              k = (k - usize(1));
+              match(
+                implicit_vars.get(k),
+                .Some(v) => match(
+                  v.value.get(usize(0)),
+                  .Some(val) => match(
+                    val,
+                    .StructVal(_, vlabels, vvals) => {
+                      (vi : usize) = usize(0);
+                      while((vi < vlabels.len()) && member_code.is_none(), {
+                        match(
+                          vlabels.get(vi),
+                          .Some(vl) => if(vl == flabel, {
+                            match(
+                              vvals.get(vi),
+                              .Some(fv) => match(
+                                fv,
+                                .FuncVal(__fvd2, _) => match(
+                                  context.base.functions.get(__fvd2.*.func_id),
+                                  .Some(fe) => {
+                                    member_code = Option(String).Some(fe.c_name);
+                                  },
+                                  .None => ()
+                                ),
+                                _ => ()
+                              ),
+                              .None => ()
+                            );
+                          }),
+                          .None => ()
+                        );
+                        vi = (vi + usize(1));
+                      });
+                    },
+                    _ => ()
+                  ),
+                  .None => ()
+                ),
+                .None => ()
+              );
+            });
+          },
+          .None => ()
+        );
+      });
+      match(member_code,.Some(mc) => emit_future_effect_injection_line(future_type, future_access, flabel, mc, indent, context),.None => ());
+    });
+    fi = (fi + usize(1));
+  });
+});
+/// Inject effect handlers into an awaited future inside a state machine: for each
+/// effect on the future's trait, a function-type effect resolves its handler from
+/// the SM scope; a struct/source-namespace effect forwards the outer bundle field
+/// (or injects each member). Mirrors `emitEffectInjectionForSM`
+/// (state-machine.ts:2423). yo-self iterates the `FutureTraitT` effect arrays
+/// (TS models a single `effect`).
+emit_effect_injection_for_sm :: (
+  fn(await_expr : AstExpr, future_access : String, indent : String, context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  args := match(await_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  match(
+    args.get(usize(0)),
+    .Some(fut_arg) => match(
+      context.base.get_expr_info(fut_arg),
+      .Some(fei) => {
+        fut_ty := fei.ty;
+        match(
+          extract_future_trait_from_type(fut_ty),
+          .Some(ftrait) => {
+            eff_labels := match(ftrait,.FutureTraitT({ effect_labels : el }) => el, _ => ArrayList(String).new());
+            eff_types := match(ftrait,.FutureTraitT({ effect_types : et }) => et, _ => ArrayList(TypeValue).new());
+            (i : usize) = usize(0);
+            while(i < eff_labels.len(), {
+              elabel := match(eff_labels.get(i),.Some(l) => l,.None => String.from(""));
+              etype := match(eff_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+              if(is_function_type(etype), {
+                has_forall := match(etype,.Func({ meta : __fm1 }) => (__fm1.*.forall_labels.len() > usize(0)), _ => false);
+                if(!(has_forall), {
+                  match(
+                    resolve_effect_field_from_sm_scope(elabel, context, await_expr),
+                    .Some(handler) => emit_future_effect_injection_line(fut_ty, future_access, elabel, handler, indent, context),
+                    .None => ()
+                  );
+                });
+              }, {
+                if(is_struct_type(etype), {
+                  match(
+                    find_bundle_field_name(ftrait, context.state_machine_variables, context.state_machine_field_aliases),
+                    .Some(obf) => {
+                      em.emit_string_line(`${indent}if (${future_access}->__yo_set_effect_fn) ${future_access}->__yo_set_effect_fn((void*)${future_access}, "__bundle", (void*)&sm->${obf});`);
+                    },
+                    .None => {
+                      emit_effect_record_injection_for_sm(etype, fut_ty, future_access, indent, Option(EvalValue).None, context, await_expr);
+                    }
+                  );
+                });
+              });
+              i = (i + usize(1));
+            });
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+});
+/// Store the awaited Future for an EXTRA await in a cond/match branch (chained
+/// awaits): a `:= await` / standalone `io.await` stores into the SM future field;
+/// a nested cond/match/while/begin delegates to `generate_await_expression`.
+/// Mirrors `generateRemainingExprFuture` (state-machine.ts:2257).
+generate_remaining_expr_future :: (
+  fn(expr : AstExpr, await_point : AwaitPoint, analysis : AwaitAnalysisResult, indent : String, context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  future_field_name := get_future_field_name(await_point, analysis);
+  // varName := await(futureExpr)
+  if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, ":=", Option(usize).None), {
+    args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    match(
+      args.get(usize(1)),
+      .Some(value_expr) => if(ast_expr_is_fn_call(value_expr) && is_io_await_call(value_expr), {
+        v_args := match(value_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+        match(
+          v_args.get(usize(0)),
+          .Some(future_expr) => {
+            fc := _call_generate_expr(future_expr, indent, context);
+            em.emit_string_line(`${indent}// Store Future for additional await in cond branch`);
+            em.emit_string_line(`${indent}sm->${future_field_name} = ${fc};`);
+          },
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    return();
+  });
+  // Standalone io.await(futureExpr)
+  if(ast_expr_is_fn_call(expr) && is_io_await_call(expr), {
+    args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    match(
+      args.get(usize(0)),
+      .Some(future_expr) => {
+        fc := _call_generate_expr(future_expr, indent, context);
+        em.emit_string_line(`${indent}// Store Future for additional await in cond branch`);
+        em.emit_string_line(`${indent}sm->${future_field_name} = ${fc};`);
+      },
+      .None => ()
+    );
+    return();
+  });
+  // Nested cond / match / while / begin → delegate to the await emitter.
+  is_block := (((ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None)) || ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None)) || ast_expr_is_fn_call_of(expr, BK_BEGIN, Option(usize).None));
+  if(ast_expr_is_fn_call(expr) && is_block, {
+    generate_await_expression(expr, await_point, usize(0), indent, context);
+    return();
+  });
+  em.emit_string_line(`${indent}// Warning: unhandled await pattern in remaining expressions`);
+});
+/// Emit the await suspension for a segment ending at an await: transition to the
+/// next state, the bounded inline fast-path for an already-complete future, the
+/// cold-start (effect injection + resume-fn call, non-Io futures only), and
+/// continuation registration. Wrapped in while-active / cond-non-NULL guards when
+/// the await is inside a while/cond. Mirrors the await block in
+/// `generateAsyncBlockResumeFunction` (state-machine.ts:2018).
+_emit_await_suspension :: (
+  fn(
+    segment : StateSegment,
+    state_number : usize,
+    async_block_id : String,
+    resume_function_name : String,
+    analysis : AwaitAnalysisResult,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  match(
+    segment.await_point,
+    .Some(ap) => {
+      next_s := (state_number + usize(1)).to_string();
+      ffn := get_future_field_name(ap, analysis);
+      // Io futures (extern __yo_io_future_t) are already submitted — no cold-start.
+      fut_expr_ty := match(
+        ap.base.expr,
+        .FnCall(_, _, a, _, _) => match(
+          a.get(usize(0)),
+          .Some(fe) => match(context.base.get_expr_info(fe),.Some(ei) => Option(TypeValue).Some(ei.ty),.None => Option(TypeValue).None),
+          .None => Option(TypeValue).None
+        ),
+        .Atom(_, _) => Option(TypeValue).None
+      );
+      is_io_future := match(fut_expr_ty,.Some(t) => is_io_future_type(t),.None => false);
+      in_cond := match(ap.base.is_inside_cond,.Some(b) => b,.None => false);
+      if(in_cond, {
+        em.emit_string_line(`      // Only await if the cond branch with await was taken`);
+        em.emit_string_line(`      if (sm->${ffn} != NULL) {`);
+      });
+      in_while := match(ap.base.is_inside_while,.Some(b) => b,.None => false);
+      while_info := if(
+        in_while,
+        match(context.async_while_loop_info,.Some(m) => m.get(ap.base.index),.None => Option(WhileLoopInfo).None),
+        Option(WhileLoopInfo).None
+      );
+      match(
+        while_info,
+        .Some(wi) => {
+          wli := match(wi.while_loop_origin_index,.Some(o) => o,.None => ap.base.index);
+          em.emit_string_line(`      // Only await if while loop is still active (not broken)`);
+          em.emit_string_line(`      if (sm->while_loop_${wli.to_string()}_active) {`);
+        },
+        .None => ()
+      );
+      em.emit_string_line(`      // Transition to next state after await`);
+      em.emit_string_line(`      sm->state = ${next_s};`);
+      em.emit_string_line(``);
+      em.emit_string_line(`      // Check if future is ready`);
+      em.emit_string_line(`      int future_state = sm->${ffn}->state;`);
+      em.emit_string_line(`      if (future_state == -1 || future_state == -2) {  // -1 = completed, -2 = aborted`);
+      em.emit_string_line(`        // Already complete — bounded inline fast-path to avoid scheduler round-trip`);
+      em.emit_string_line(`        if (__yo_inline_budget > 0) {`);
+      em.emit_string_line(`          __yo_inline_budget--;`);
+      em.emit_string_line(`          goto state_${next_s};`);
+      em.emit_string_line(`        }`);
+      em.emit_string_line(`        // Budget exhausted — yield once for fairness (microtask yield)`);
+      em.emit_string_line(`        __yo_async_spawn_task((void (*)(void*))${resume_function_name}, (void*)sm);`);
+      em.emit_string_line(`        return;`);
+      em.emit_string_line(`      }`);
+      em.emit_string_line(``);
+      if(!(is_io_future), {
+        em.emit_string_line(`      // Future not complete — take event loop reference and start if cold`);
+        em.emit_string_line(`      __yo_incr_rc((void*)sm->${ffn});  // event loop reference`);
+      }, {
+        em.emit_string_line(`      // Io future: no extra ref needed (completion handler does not decr_rc)`);
+      });
+      if(!(is_io_future), {
+        em.emit_string_line(`      if (future_state == 0) {  // 0 = cold (not started)`);
+        ffn_access := String.from("sm->");
+        ffn_access.push_string(ffn.clone());
+        emit_effect_injection_for_sm(ap.base.expr, ffn_access, `        `, context);
+        em.emit_string_line(`        // Cold future — start it via stored resume function pointer`);
+        em.emit_string_line(`        sm->${ffn}->__yo_resume_fn((void*)sm->${ffn});`);
+        em.emit_string_line(``);
+        em.emit_string_line(`        // Re-check: may have completed synchronously`);
+        em.emit_string_line(`        future_state = sm->${ffn}->state;`);
+        em.emit_string_line(`        if (future_state == -1 || future_state == -2) {`);
+        em.emit_string_line(`          // Completed or aborted synchronously — yield for fairness`);
+        em.emit_string_line(`          __yo_async_spawn_task((void (*)(void*))${resume_function_name}, (void*)sm);`);
+        em.emit_string_line(`          return;`);
+        em.emit_string_line(`        }`);
+        em.emit_string_line(`      }`);
+      });
+      em.emit_string_line(``);
+      em.emit_string_line(`      // Still pending — register continuation and suspend`);
+      em.emit_string_line(`      sm->${ffn}->continuation_fn = (void (*)(void*))${resume_function_name};`);
+      em.emit_string_line(`      sm->${ffn}->continuation_sm = (void*)sm;`);
+      em.emit_string_line(`      return;`);
+      match(
+        while_info,
+        .Some(wi) => {
+          wli := match(wi.while_loop_origin_index,.Some(o) => o,.None => ap.base.index);
+          em.emit_string_line(`      } else {`);
+          em.emit_string_line(`        // While loop was broken, jump to code after loop`);
+          em.emit_string_line(`        goto after_while_loop_${wli.to_string()};`);
+          em.emit_string_line(`      }`);
+        },
+        .None => ()
+      );
+      if(in_cond, {
+        em.emit_string_line(`      } else {`);
+        em.emit_string_line(`        // Non-await cond branch was taken, skip directly to next state`);
+        em.emit_string_line(`        sm->state = ${next_s};`);
+        em.emit_string_line(`        goto state_${next_s};`);
+        em.emit_string_line(`      }`);
+      });
+    },
+    .None => ()
+  );
+});
+/// Emit the final-state completion for the last segment: unless the segment
+/// already has an explicit `return`, emit the body-level deferred drops (captured
+/// via a temp emitter so direct-emitting drops are caught too, and collected into
+/// `local_var_drop_codes` for the dispose function) and then the Future
+/// completion. Mirrors the last-segment branch in
+/// `generateAsyncBlockResumeFunction` (state-machine.ts:2184).
+_emit_last_segment_completion :: (
+  fn(segment : StateSegment, body_expr : AstExpr, local_var_drop_codes : ArrayList(String), context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  (has_return : bool) = false;
+  (i : usize) = usize(0);
+  while((i < segment.expressions.len()) && !(has_return), {
+    match(
+      segment.expressions.get(i),
+      .Some(e) => if(expr_contains_return(e), {
+        has_return = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(!(has_return), {
+    match(
+      context.base.get_expr_info(body_expr),
+      .Some(ei) => match(
+        ei.deferred_drop_expressions,
+        .Some(drops) => {
+          temp := Emitter.new();
+          context.base.emitter = temp;
+          (di : usize) = usize(0);
+          while(di < drops.len(), {
+            match(
+              drops.get(di),
+              .Some(d) => {
+                dc := _call_generate_expr(d, String.from(""), context);
+                if(dc.len() > usize(0), {
+                  temp.emit_string_line(`${dc};`);
+                });
+              },
+              .None => ()
+            );
+            di = (di + usize(1));
+          });
+          context.base.emitter = em;
+          captured := temp.print().trim();
+          if(captured.len() > usize(0), {
+            em.emit_string_line(`      // Drop local variables before completion`);
+            clines := captured.split("\n");
+            (li : usize) = usize(0);
+            while(li < clines.len(), {
+              trimmed := match(clines.get(li),.Some(l) => l.trim(),.None => String.from(""));
+              if(trimmed.len() > usize(0), {
+                em.emit_string_line(`      ${trimmed}`);
+                local_var_drop_codes.push(trimmed.clone());
+              });
+              li = (li + usize(1));
+            });
+            em.emit_string_line(String.from(""));
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    em.emit_string_line(`      // Final state - complete the Future`);
+    emit_async_future_completion(em, `      `, Option(String).None, Option(String).Some(String.from("Future %p completed")));
+  });
+});
+/// Emit the previous-await result extraction at the top of a resume state: the
+/// abort check (Future state == -2 → escape), the result copy (into
+/// `await_result_N` for cond awaits, or directly into the target SM var for
+/// linear awaits; RC results are dup'd), and the temp-future RC decrement when
+/// the awaited future was anonymous. Mirrors the result-extraction prologue in
+/// `generateAsyncBlockResumeFunction` (state-machine.ts:661). Caller guarantees
+/// `state_number >= 1`.
+_emit_prev_await_result_extraction :: (
+  fn(async_block_id : String, state_number : usize, prev_await : AwaitPoint, analysis : AwaitAnalysisResult, context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  pffn := get_future_field_name(prev_await, analysis);
+  prev_idx_s := (state_number - usize(1)).to_string();
+  // Abort check.
+  em.emit_string_line(`      // Check if the awaited Future was aborted`);
+  em.emit_string_line(`      if (sm->${pffn}->state == -2) {`);
+  em.emit_string_line(`        __yo_decr_rc((void*)sm->${pffn});`);
+  em.emit_string_line(`        sm->${pffn} = NULL;`);
+  emit_async_future_escape(em, `        `, Option(String).None, Option(String).Some(async_block_id.clone()));
+  em.emit_string_line(`      }`);
+  // Result is unit when the type is unit, or an unresolved Future SomeType.
+  is_prev_unit := (
+    is_unit_type(prev_await.result_type) || (
+      is_some_type(prev_await.result_type) && match(prev_await.result_type,.SomeT({ id }) => lookup_some_resolved_concrete(id).is_none(), _ => false)
+    )
+  );
+  if(!(is_prev_unit), {
+    em.emit_string_line(`      // Extract result from await ${prev_idx_s}`);
+    em.emit_string_line(`      int state_before_read = sm->${pffn}->state;`);
+    em.emit_string_line(`      ASYNC_DEBUG("${async_block_id}: Reading result from await ${prev_idx_s}, state=%d\\n", state_before_read);`);
+    use_await_result_field := match(prev_await.base.is_inside_cond,.Some(b) => b,.None => false);
+    (result_target : Option(String)) = Option(String).None;
+    if(use_await_result_field, {
+      rt := String.from("sm->await_result_");
+      rt.push_string(prev_idx_s.clone());
+      result_target = Option(String).Some(rt);
+    }, {
+      match(
+        prev_await.base.target_variable_id,
+        .Some(tvid) => {
+          fname := get_state_machine_field_name(tvid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
+          rt := String.from("sm->");
+          rt.push_string(fname);
+          result_target = Option(String).Some(rt);
+        },
+        .None => ()
+      );
+    });
+    match(
+      result_target,
+      .Some(rt) => if(type_contains_rc_type(prev_await.result_type), {
+        match(
+          get_dup_function_for_type(prev_await.result_type, context),
+          .Some(dup) => em.emit_string_line(`      ${rt} = ${dup}(sm->${pffn}->result);`),
+          .None => {
+            em.emit_string_line(`      /* Warning: No ___dup function found for result type, shallow copy may cause use-after-free */`);
+            em.emit_string_line(`      ${rt} = sm->${pffn}->result;`);
+          }
+        );
+      }, {
+        em.emit_string_line(`      ${rt} = sm->${pffn}->result;`);
+      }),
+      .None => ()
+    );
+    if(use_await_result_field, {
+      match(
+        prev_await.base.target_variable_id,
+        .Some(tvid) => {
+          fname := get_state_machine_field_name(tvid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
+          em.emit_string_line(`      sm->${fname} = sm->await_result_${prev_idx_s};`);
+        },
+        .None => ()
+      );
+    });
+    em.emit_string_line(String.from(""));
+  });
+  // Drop the temp future (anonymous awaited future stored in await_future_N).
+  match(
+    prev_await.future_variable_id,
+    .Some(_) => (),
+    .None => match(
+      prev_await.base.expr,
+      .FnCall(_, _, a, _, _) => match(
+        a.get(usize(0)),
+        .Some(fa) => match(
+          context.base.get_expr_info(fa),
+          .Some(ei) => if(is_some_type(ei.ty) || is_dyn_type(ei.ty), {
+            em.emit_string_line(`      if (sm->${pffn} != NULL) { __yo_decr_rc((void*)sm->${pffn}); sm->${pffn} = NULL; }`);
+            em.emit_string_line(String.from(""));
+          }),
+          .None => ()
+        ),
+        .None => ()
+      ),
+      .Atom(_, _) => ()
+    )
+  );
+});
+/// Append all of `src` onto `dst`. Small helper for building pending-drop lists.
+_append_exprs :: (fn(dst : ArrayList(AstExpr), src : ArrayList(AstExpr)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < src.len(), {
+    match(
+      src.get(i),
+      .Some(e) => {
+        dst.push(e);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Register the post-await continuation of a cond/match branch for the NEXT
+/// resume state: when an existing entry is present, push a chained-branch layer;
+/// otherwise create a fresh entry holding the branch. Mirrors the chaining blocks
+/// in `generateAsyncBlockResumeFunction` (state-machine.ts:920/1098/1628). The
+/// branch `has_await` is `additional_remaining.len() > 0` (TS's `||
+/// some(exprContainsAwait)` is redundant — non-empty ⇒ true, empty ⇒ false).
+_chain_additional_remaining :: (
+  fn(
+    context : FunctionGenerationContext,
+    next_index : usize,
+    branch_index : usize,
+    branch_value : AstExpr,
+    additional_remaining : ArrayList(AstExpr),
+    deferred_drops : Option(ArrayList(AstExpr)),
+    cond_branch_field_index : usize
+  ) -> unit
+)({
+  has_await := (additional_remaining.len() > usize(0));
+  cb := CondBranch(
+    index : branch_index,
+    value : branch_value,
+    has_await : has_await,
+    remaining_exprs : Option(ArrayList(AstExpr)).Some(additional_remaining),
+    deferred_drop_expressions : deferred_drops
+  );
+  if(context.async_cond_branch_info.is_none(), {
+    context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(HashMap(usize, AsyncCondBranchInfo).new());
+  });
+  m := match(context.async_cond_branch_info,.Some(x) => x,.None => HashMap(usize, AsyncCondBranchInfo).new());
+  match(
+    m.get(next_index),
+    .Some(existing) => {
+      chained := match(existing.chained_branches,.Some(c) => c,.None => ArrayList(ChainedCondBranches).new());
+      bl := ArrayList(CondBranch).new();
+      bl.push(cb);
+      chained.push(ChainedCondBranches(branches : bl, cond_branch_field_index : cond_branch_field_index));
+      existing.chained_branches = Option(ArrayList(ChainedCondBranches)).Some(chained);
+      m.set(next_index, existing);
+    },
+    .None => {
+      bl := ArrayList(CondBranch).new();
+      bl.push(cb);
+      m.set(
+        next_index,
+        AsyncCondBranchInfo(
+          branches : bl,
+          target_variable_id : Option(String).None,
+          target_assignment_code : Option(String).None,
+          cond_branch_field_index : Option(usize).Some(cond_branch_field_index),
+          chained_branches : Option(ArrayList(ChainedCondBranches)).None
+        )
+      );
+    }
+  );
+  context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(m);
+});
+/// Emit one cond/match branch's post-await remaining code in a resume state:
+/// set up SM context (combined vars + pending drops), emit each remaining expr
+/// (chaining to the next state on an additional await, else emitting drops), and
+/// restore context. `indent` is 10 spaces for the main switch, 6 for chained
+/// layers. Mirrors the per-branch body in the cond-branch-continuation handler
+/// (state-machine.ts:809). (The TS `remainingExprs.length === 0` block at :906 is
+/// dead — it sits inside a `length > 0` guard — and is omitted.)
+_emit_cond_branch_remaining :: (
+  fn(
+    branch : CondBranch,
+    prev_await : AwaitPoint,
+    segment : StateSegment,
+    body_expr : AstExpr,
+    future_type : TypeValue,
+    capture_type : Option(TypeValue),
+    analysis : AwaitAnalysisResult,
+    cond_field : usize,
+    branch_target_assignment : Option(String),
+    indent : String,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  has_additional := match(segment.await_point,.Some(ap) => match(ap.base.is_inside_cond,.Some(b) => b,.None => false),.None => false);
+  match(
+    branch.remaining_exprs,
+    .Some(rem) => if(rem.len() > usize(0), {
+      prev_in_sm := context.in_async_state_machine;
+      prev_smv := context.state_machine_variables;
+      prev_var_remap := context.variable_id_remapping;
+      prev_pdd := context.pending_deferred_drops;
+      context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+      context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+      pdd := ArrayList(AstExpr).new();
+      match(branch.deferred_drop_expressions,.Some(d) => _append_exprs(pdd, d),.None => ());
+      match(
+        context.async_while_loop_info,
+        .Some(wm) => match(
+          wm.get(prev_await.base.index),
+          .Some(wi) => match(context.base.get_expr_info(wi.body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(pdd, d),.None => ()),.None => ()),
+          .None => ()
+        ),
+        .None => ()
+      );
+      match(context.base.get_expr_info(body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(pdd, d),.None => ()),.None => ());
+      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
+      context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+      (found_additional : bool) = false;
+      additional_remaining := ArrayList(AstExpr).new();
+      (i : usize) = usize(0);
+      while(i < rem.len(), {
+        expr := match(rem.get(i),.Some(e) => e,.None => body_expr);
+        is_last := (i == (rem.len() - usize(1)));
+        if(found_additional, {
+          additional_remaining.push(expr);
+        }, {
+          if(has_additional && expr_contains_await(expr), {
+            found_additional = true;
+            match(segment.await_point,.Some(ap) => generate_remaining_expr_future(expr, ap, analysis, indent.clone(), context),.None => ());
+          }, {
+            code := _call_generate_expr(expr, indent.clone(), context);
+            skip := if(
+              code.len() == usize(0),
+              true,
+              match(context.base.get_expr_info(expr),.Some(ein) => is_temp_variable_name(ein.env.module_path, code),.None => true)
+            );
+            if(!(skip), {
+              match(
+                branch_target_assignment,
+                .Some(tac) => if(is_last, {
+                  em.emit_string_line(`${indent}${tac} = ${code};`);
+                }, {
+                  em.emit_string_line(`${indent}${code};`);
+                }),
+                .None => {
+                  em.emit_string_line(`${indent}${code};`);
+                }
+              );
+            });
+          });
+        });
+        i = (i + usize(1));
+      });
+      chained := match(
+        segment.await_point,
+        .Some(ap) => if(found_additional, {
+          _chain_additional_remaining(context, ap.base.index, branch.index, branch.value, additional_remaining, branch.deferred_drop_expressions, cond_field);
+          true
+        }, false),
+        .None => false
+      );
+      if(!(chained), {
+        match(
+          branch.deferred_drop_expressions,
+          .Some(drops) => {
+            (di : usize) = usize(0);
+            while(di < drops.len(), {
+              match(
+                drops.get(di),
+                .Some(d) => {
+                  dc := _call_generate_expr(d, indent.clone(), context);
+                  if((dc.len() > usize(0)) && dc.contains("sm->"), {
+                    em.emit_string_line(`${indent}${dc};`);
+                  });
+                },
+                .None => ()
+              );
+              di = (di + usize(1));
+            });
+          },
+          .None => ()
+        );
+      });
+      context.in_async_state_machine = prev_in_sm;
+      context.state_machine_variables = prev_smv;
+      context.variable_id_remapping = prev_var_remap;
+      context.pending_deferred_drops = prev_pdd;
+    }),
+    .None => ()
+  );
+});
+/// Emit the cond/match-branch continuation at the top of a resume state: a
+/// `switch (sm->cond_branch_N)` over the await-bearing branches (each runs its
+/// post-await remaining code), then any chained-branch layers, then the cond
+/// result assignment. `cond_field == usize.MAX` is the TS `-1` unconditional
+/// sentinel (skip the switch). Mirrors the cond-branch handler in
+/// `generateAsyncBlockResumeFunction` (state-machine.ts:774).
+_emit_cond_branch_continuation :: (
+  fn(
+    async_block_id : String,
+    prev_await : AwaitPoint,
+    segment : StateSegment,
+    body_expr : AstExpr,
+    future_type : TypeValue,
+    capture_type : Option(TypeValue),
+    analysis : AwaitAnalysisResult,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  match(
+    context.async_cond_branch_info,
+    .Some(cbi_map) => match(
+      cbi_map.get(prev_await.base.index),
+      .Some(cbd) => {
+        (any_await : bool) = false;
+        (bi : usize) = usize(0);
+        while((bi < cbd.branches.len()) && !(any_await), {
+          match(
+            cbd.branches.get(bi),
+            .Some(b) => if(b.has_await, {
+              any_await = true;
+            }),
+            .None => ()
+          );
+          bi = (bi + usize(1));
+        });
+        if(any_await, {
+          cond_field := match(cbd.cond_branch_field_index,.Some(x) => x,.None => prev_await.base.index);
+          skip_switch := (cond_field == usize.MAX);
+          em.emit_string_line(`      // Execute remaining code from chosen cond branch`);
+          if(!(skip_switch), {
+            em.emit_string_line(`      switch (sm->cond_branch_${cond_field.to_string()}) {`);
+          });
+          (mbi : usize) = usize(0);
+          while(mbi < cbd.branches.len(), {
+            match(
+              cbd.branches.get(mbi),
+              .Some(branch) => if(branch.has_await, {
+                if(!(skip_switch), {
+                  em.emit_string_line(`        case ${branch.index.to_string()}: {`);
+                });
+                em.emit_string_line(`          ASYNC_DEBUG("${async_block_id}: Executing remaining code from branch ${branch.index.to_string()}\\n");`);
+                _emit_cond_branch_remaining(branch, prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, cbd.target_assignment_code, `          `, context);
+                if(!(skip_switch), {
+                  em.emit_string_line(`          break;`);
+                  em.emit_string_line(`        }`);
+                });
+              }),
+              .None => ()
+            );
+            mbi = (mbi + usize(1));
+          });
+          if(!(skip_switch), {
+            em.emit_string_line(`      }`);
+          });
+          match(
+            cbd.chained_branches,
+            .Some(layers) => {
+              (li : usize) = usize(0);
+              while(li < layers.len(), {
+                match(
+                  layers.get(li),
+                  .Some(layer) => {
+                    (ci : usize) = usize(0);
+                    while(ci < layer.branches.len(), {
+                      match(
+                        layer.branches.get(ci),
+                        .Some(cb) => if(cb.has_await && match(cb.remaining_exprs,.Some(r) => (r.len() > usize(0)),.None => false), {
+                          _emit_cond_branch_remaining(cb, prev_await, segment, body_expr, future_type, capture_type, analysis, layer.cond_branch_field_index, Option(String).None, `      `, context);
+                        }),
+                        .None => ()
+                      );
+                      ci = (ci + usize(1));
+                    });
+                  },
+                  .None => ()
+                );
+                li = (li + usize(1));
+              });
+            },
+            .None => ()
+          );
+          match(
+            cbd.target_variable_id,
+            .Some(tvid) => {
+              fname := get_state_machine_field_name(tvid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
+              em.emit_string_line(`      // Assign cond result to target variable`);
+              em.emit_string_line(`      sm->${fname} = sm->await_result_${prev_await.base.index.to_string()};`);
+            },
+            .None => ()
+          );
+          em.emit_string_line(String.from(""));
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+});
+/// Emit the post-while-loop expressions from an enclosing cond branch (they run
+/// once, after the loop exits, guarded by `sm->cond_branch_N` unless the nested
+/// cond overwrote it). Caller invokes only when the body's after-await code did
+/// NOT itself chain to the next state. Mirrors the post-while block in
+/// `generateAsyncBlockResumeFunction` (state-machine.ts:1540).
+_emit_post_while_cond_branch :: (
+  fn(
+    while_data : WhileLoopInfo,
+    segment : StateSegment,
+    body_expr : AstExpr,
+    future_type : TypeValue,
+    capture_type : Option(TypeValue),
+    analysis : AwaitAnalysisResult,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  match(
+    while_data.cond_branch_post_while_exprs,
+    .Some(pw) => {
+      skip_check := match(pw.skip_cond_branch_check,.Some(b) => b,.None => false);
+      if(skip_check, {
+        em.emit_string_line(`      // Execute post-while-loop code from cond branch (unconditional)`);
+        em.emit_string_line(`      {`);
+      }, {
+        em.emit_string_line(`      // Execute post-while-loop code from cond branch`);
+        em.emit_string_line(`      if (sm->cond_branch_${pw.cond_branch_field_index.to_string()} == ${pw.branch_index.to_string()}) {`);
+      });
+      prev_in_sm := context.in_async_state_machine;
+      prev_smv := context.state_machine_variables;
+      prev_var_remap := context.variable_id_remapping;
+      prev_pdd := context.pending_deferred_drops;
+      context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+      context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+      pdd := ArrayList(AstExpr).new();
+      match(context.base.get_expr_info(body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(pdd, d),.None => ()),.None => ());
+      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
+      context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+      has_next := match(segment.await_point,.Some(_) => true,.None => false);
+      (found : bool) = false;
+      additional := ArrayList(AstExpr).new();
+      (i : usize) = usize(0);
+      while(i < pw.exprs.len(), {
+        expr := match(pw.exprs.get(i),.Some(e) => e,.None => body_expr);
+        if(found, {
+          additional.push(expr);
+        }, {
+          if(has_next && expr_contains_await(expr), {
+            found = true;
+            match(segment.await_point,.Some(ap) => generate_remaining_expr_future(expr, ap, analysis, `        `, context),.None => ());
+          }, {
+            code := _call_generate_expr(expr, `        `, context);
+            skip := if(
+              code.len() == usize(0),
+              true,
+              match(context.base.get_expr_info(expr),.Some(ein) => is_temp_variable_name(ein.env.module_path, code),.None => true)
+            );
+            if(!(skip), {
+              em.emit_string_line(`        ${code};`);
+            });
+          });
+        });
+        i = (i + usize(1));
+      });
+      chained := match(
+        segment.await_point,
+        .Some(ap) => if(found, {
+          ccf := if(skip_check, usize.MAX, pw.cond_branch_field_index);
+          bv := match(pw.exprs.get(usize(0)),.Some(e) => e,.None => body_expr);
+          _chain_additional_remaining(context, ap.base.index, pw.branch_index, bv, additional, pw.deferred_drop_expressions, ccf);
+          true
+        }, false),
+        .None => false
+      );
+      if(!(chained), {
+        match(
+          pw.deferred_drop_expressions,
+          .Some(drops) => {
+            (di : usize) = usize(0);
+            while(di < drops.len(), {
+              match(
+                drops.get(di),
+                .Some(d) => {
+                  dc := _call_generate_expr(d, `        `, context);
+                  if((dc.len() > usize(0)) && dc.contains("sm->"), {
+                    em.emit_string_line(`        ${dc};`);
+                  });
+                },
+                .None => ()
+              );
+              di = (di + usize(1));
+            });
+          },
+          .None => ()
+        );
+      });
+      em.emit_string_line(`      }`);
+      context.in_async_state_machine = prev_in_sm;
+      context.state_machine_variables = prev_smv;
+      context.variable_id_remapping = prev_var_remap;
+      context.pending_deferred_drops = prev_pdd;
+    },
+    .None => ()
+  );
+});
+/// Emit the OUTER while-loop continuation for a nested while-with-await: run the
+/// outer body's after-await expressions, then its continue label + body drops +
+/// step + condition re-eval (loop back to `prev_await.index` or fall through to
+/// `after_while_loop_<outer>`). Mirrors the outer-while block in
+/// `generateAsyncBlockResumeFunction` (state-machine.ts:1703).
+_emit_outer_while_continuation :: (
+  fn(
+    while_data : WhileLoopInfo,
+    prev_await : AwaitPoint,
+    body_expr : AstExpr,
+    future_type : TypeValue,
+    capture_type : Option(TypeValue),
+    analysis : AwaitAnalysisResult,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  match(
+    while_data.outer_while_loop,
+    .Some(outer) => {
+      oidx := outer.while_loop_index.to_string();
+      em.emit_string_line(`      // Execute remaining code from outer while loop body`);
+      em.emit_string_line(`      if (sm->while_loop_${oidx}_active) {`);
+      if(outer.body_exprs_after_await.len() > usize(0), {
+        p_in := context.in_async_state_machine;
+        p_smv := context.state_machine_variables;
+        p_vr := context.variable_id_remapping;
+        p_pdd := context.pending_deferred_drops;
+        p_brk := context.sm_while_break_info;
+        p_cont := context.sm_while_continue_info;
+        p_bd := context.sm_while_body_drops;
+        context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+        context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+        pdd := ArrayList(AstExpr).new();
+        match(context.base.get_expr_info(outer.body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(pdd, d),.None => ()),.None => ());
+        match(context.base.get_expr_info(body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(pdd, d),.None => ()),.None => ());
+        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
+        context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+        obd := ArrayList(AstExpr).new();
+        match(context.base.get_expr_info(outer.body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(obd, d),.None => ()),.None => ());
+        context.sm_while_break_info = Option(SmWhileBreakInfo).Some(SmWhileBreakInfo(label : `after_while_loop_${oidx}`, active_index : Option(usize).Some(outer.while_loop_index)));
+        context.sm_while_continue_info = Option(SmWhileContinueInfo).Some(SmWhileContinueInfo(label : `while_loop_${oidx}_continue`, emit_drops_before_goto : false, step_expr : Option(AstExpr).None));
+        context.sm_while_body_drops = Option(ArrayList(AstExpr)).Some(obd);
+        (i : usize) = usize(0);
+        while(i < outer.body_exprs_after_await.len(), {
+          expr := match(outer.body_exprs_after_await.get(i),.Some(e) => e,.None => body_expr);
+          code := _call_generate_expr(expr, `        `, context);
+          skip := if(code.len() == usize(0), true, match(context.base.get_expr_info(expr),.Some(ein) => is_temp_variable_name(ein.env.module_path, code),.None => true));
+          if(!(skip), {
+            em.emit_string_line(`        ${code};`);
+          });
+          i = (i + usize(1));
+        });
+        context.sm_while_break_info = p_brk;
+        context.sm_while_continue_info = p_cont;
+        context.sm_while_body_drops = p_bd;
+        context.in_async_state_machine = p_in;
+        context.state_machine_variables = p_smv;
+        context.variable_id_remapping = p_vr;
+        context.pending_deferred_drops = p_pdd;
+      });
+      em.emit_string_line(`      while_loop_${oidx}_continue:`);
+      // Outer body drops before condition re-evaluation.
+      match(
+        context.base.get_expr_info(outer.body_expr),
+        .Some(ei0) => match(
+          ei0.deferred_drop_expressions,
+          .Some(outer_drops) => if(outer_drops.len() > usize(0), {
+            p_in2 := context.in_async_state_machine;
+            p_smv2 := context.state_machine_variables;
+            p_vr2 := context.variable_id_remapping;
+            context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+            context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+            context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+            (di : usize) = usize(0);
+            while(di < outer_drops.len(), {
+              match(
+                outer_drops.get(di),
+                .Some(d) => {
+                  dc := _call_generate_expr(d, `        `, context);
+                  if((dc.len() > usize(0)) && dc.contains("sm->"), {
+                    em.emit_string_line(`        ${dc};`);
+                  });
+                },
+                .None => ()
+              );
+              di = (di + usize(1));
+            });
+            context.in_async_state_machine = p_in2;
+            context.state_machine_variables = p_smv2;
+            context.variable_id_remapping = p_vr2;
+          }),
+          .None => ()
+        ),
+        .None => ()
+      );
+      p_dtv := context.declared_temp_vars;
+      context.declared_temp_vars = Option(HashSet(String)).None;
+      // Outer step expression (3-arg while form).
+      match(
+        outer.step_expr,
+        .Some(step) => {
+          p_in3 := context.in_async_state_machine;
+          p_smv3 := context.state_machine_variables;
+          p_vr3 := context.variable_id_remapping;
+          context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+          context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+          context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+          sc := _call_generate_expr(step, `        `, context);
+          if(sc.len() > usize(0), {
+            em.emit_string_line(`        ${sc};`);
+          });
+          context.in_async_state_machine = p_in3;
+          context.state_machine_variables = p_smv3;
+          context.variable_id_remapping = p_vr3;
+        },
+        .None => ()
+      );
+      // Outer condition re-evaluation.
+      p_in4 := context.in_async_state_machine;
+      p_smv4 := context.state_machine_variables;
+      p_vr4 := context.variable_id_remapping;
+      context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+      context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+      context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+      oc := _call_generate_expr(outer.condition_expr, `        `, context);
+      context.in_async_state_machine = p_in4;
+      context.state_machine_variables = p_smv4;
+      context.variable_id_remapping = p_vr4;
+      em.emit_string_line(`        if (!(${oc})) {`);
+      em.emit_string_line(`          sm->while_loop_${oidx}_active = false;`);
+      em.emit_string_line(`        } else {`);
+      em.emit_string_line(`          sm->state = ${prev_await.base.index.to_string()};`);
+      em.emit_string_line(`          goto while_loop_${oidx}_start;`);
+      em.emit_string_line(`        }`);
+      context.declared_temp_vars = p_dtv;
+      em.emit_string_line(`      }`);
+      em.emit_string_line(String.from(""));
+      em.emit_string_line(`      after_while_loop_${oidx}:`);
+    },
+    .None => ()
+  );
+});
+/// Emit the while-loop continuation at the top of a resume state: run the loop
+/// body's after-await expressions (chaining to the next state + re-registering
+/// the loop info if they contain another await), else emit the continue label +
+/// body drops + step + condition re-eval + loop-back goto; then the post-while
+/// cond-branch code and the outer-while continuation. Mirrors the while-handling
+/// in `generateAsyncBlockResumeFunction` (state-machine.ts:1196).
+_emit_while_continuation :: (
+  fn(
+    prev_await : AwaitPoint,
+    segment : StateSegment,
+    body_expr : AstExpr,
+    async_block_id : String,
+    future_type : TypeValue,
+    capture_type : Option(TypeValue),
+    analysis : AwaitAnalysisResult,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  match(
+    context.async_while_loop_info,
+    .Some(wm) => match(
+      wm.get(prev_await.base.index),
+      .Some(while_data) => {
+        wai := match(while_data.while_loop_origin_index,.Some(o) => o,.None => prev_await.base.index);
+        wai_s := wai.to_string();
+        em.emit_string_line(`      // Execute remaining code from while loop body and continue loop`);
+        em.emit_string_line(`      if (sm->while_loop_${wai_s}_active) {`);
+        (chained_to_next : bool) = false;
+        match(
+          while_data.body_exprs_after_await,
+          .Some(after) => if(after.len() > usize(0), {
+            p_in := context.in_async_state_machine;
+            p_smv := context.state_machine_variables;
+            p_vr := context.variable_id_remapping;
+            p_pdd := context.pending_deferred_drops;
+            p_brk := context.sm_while_break_info;
+            p_cont := context.sm_while_continue_info;
+            p_bd := context.sm_while_body_drops;
+            context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+            context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+            pdd := ArrayList(AstExpr).new();
+            match(context.base.get_expr_info(while_data.body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(pdd, d),.None => ()),.None => ());
+            match(context.base.get_expr_info(body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(pdd, d),.None => ()),.None => ());
+            context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
+            context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+            bdrops := ArrayList(AstExpr).new();
+            match(context.base.get_expr_info(while_data.body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(bdrops, d),.None => ()),.None => ());
+            context.sm_while_break_info = Option(SmWhileBreakInfo).Some(SmWhileBreakInfo(label : `after_while_loop_${wai_s}`, active_index : Option(usize).Some(wai)));
+            context.sm_while_continue_info = Option(SmWhileContinueInfo).Some(SmWhileContinueInfo(label : `while_loop_${wai_s}_continue`, emit_drops_before_goto : false, step_expr : Option(AstExpr).None));
+            context.sm_while_body_drops = Option(ArrayList(AstExpr)).Some(bdrops);
+            (i : usize) = usize(0);
+            (stop : bool) = false;
+            while((i < after.len()) && !(stop), {
+              expr := match(after.get(i),.Some(e) => e,.None => body_expr);
+              has_aw := match(segment.await_point,.Some(_) => expr_contains_await(expr),.None => false);
+              if(has_aw, {
+                match(
+                  segment.await_point,
+                  .Some(ap) => {
+                    generate_remaining_expr_future(expr, ap, analysis, `        `, context);
+                    further := ArrayList(AstExpr).new();
+                    (k : usize) = (i + usize(1));
+                    while(k < after.len(), {
+                      match(
+                        after.get(k),
+                        .Some(e) => {
+                          further.push(e);
+                        },
+                        .None => ()
+                      );
+                      k = (k + usize(1));
+                    });
+                    new_wi := WhileLoopInfo(
+                      condition_expr : while_data.condition_expr,
+                      step_expr : while_data.step_expr,
+                      body_expr : while_data.body_expr,
+                      body_exprs_after_await : Option(ArrayList(AstExpr)).Some(further),
+                      while_loop_origin_index : Option(usize).Some(wai),
+                      is_chained_await : Option(bool).Some(true),
+                      cond_branch_post_while_exprs : while_data.cond_branch_post_while_exprs,
+                      outer_while_loop : while_data.outer_while_loop
+                    );
+                    wm.set(ap.base.index, new_wi);
+                    context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(wm);
+                    chained_to_next = true;
+                    stop = true;
+                  },
+                  .None => ()
+                );
+              }, {
+                code := _call_generate_expr(expr, `        `, context);
+                skip := if(code.len() == usize(0), true, match(context.base.get_expr_info(expr),.Some(ein) => is_temp_variable_name(ein.env.module_path, code),.None => true));
+                if(!(skip), {
+                  em.emit_string_line(`        ${code};`);
+                });
+              });
+              i = (i + usize(1));
+            });
+            context.sm_while_break_info = p_brk;
+            context.sm_while_continue_info = p_cont;
+            context.sm_while_body_drops = p_bd;
+            context.in_async_state_machine = p_in;
+            context.state_machine_variables = p_smv;
+            context.variable_id_remapping = p_vr;
+            context.pending_deferred_drops = p_pdd;
+          }),
+          .None => ()
+        );
+        if(chained_to_next, {
+          em.emit_string_line(`      }`);
+          em.emit_string_line(String.from(""));
+        }, {
+          em.emit_string_line(`      while_loop_${wai_s}_continue:`);
+          match(
+            context.base.get_expr_info(while_data.body_expr),
+            .Some(ei0) => match(
+              ei0.deferred_drop_expressions,
+              .Some(wbd) => if(wbd.len() > usize(0), {
+                q_in := context.in_async_state_machine;
+                q_smv := context.state_machine_variables;
+                q_vr := context.variable_id_remapping;
+                context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+                context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+                context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+                (di : usize) = usize(0);
+                while(di < wbd.len(), {
+                  match(
+                    wbd.get(di),
+                    .Some(d) => {
+                      dc := _call_generate_expr(d, `        `, context);
+                      if((dc.len() > usize(0)) && dc.contains("sm->"), {
+                        em.emit_string_line(`        ${dc};`);
+                      });
+                    },
+                    .None => ()
+                  );
+                  di = (di + usize(1));
+                });
+                context.in_async_state_machine = q_in;
+                context.state_machine_variables = q_smv;
+                context.variable_id_remapping = q_vr;
+              }),
+              .None => ()
+            ),
+            .None => ()
+          );
+          em.emit_string_line(`        ASYNC_DEBUG("${async_block_id}: Re-evaluating while loop condition\\n");`);
+          r_dtv := context.declared_temp_vars;
+          context.declared_temp_vars = Option(HashSet(String)).None;
+          match(
+            while_data.step_expr,
+            .Some(step) => {
+              s_in := context.in_async_state_machine;
+              s_smv := context.state_machine_variables;
+              s_vr := context.variable_id_remapping;
+              context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+              context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+              context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+              // Use the 3-arg-while STEP generator, not the general expr
+              // generator: an assignment step (`i = i + 1`) generates itself
+              // as a statement and RETURNS its value-temp name — emitting
+              // that name here produced a bare undeclared-identifier
+              // statement (`_file____User_temp_N;`, the 3-arg-while-in-SM
+              // regression arm). generate_step_expression renders the
+              // assignment inline (`lhs = rhs`) exactly like the non-async
+              // while emitter.
+              sc := generate_step_expression(step, context);
+              if(sc.len() > usize(0), {
+                em.emit_string_line(`        ${sc};`);
+              });
+              context.in_async_state_machine = s_in;
+              context.state_machine_variables = s_smv;
+              context.variable_id_remapping = s_vr;
+            },
+            .None => ()
+          );
+          c_in := context.in_async_state_machine;
+          c_smv := context.state_machine_variables;
+          c_vr := context.variable_id_remapping;
+          context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+          context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+          context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+          cc := _call_generate_expr(while_data.condition_expr, `        `, context);
+          context.in_async_state_machine = c_in;
+          context.state_machine_variables = c_smv;
+          context.variable_id_remapping = c_vr;
+          context.declared_temp_vars = r_dtv;
+          em.emit_string_line(`        if (!(${cc})) {`);
+          em.emit_string_line(`          sm->while_loop_${wai_s}_active = false;`);
+          em.emit_string_line(`          ASYNC_DEBUG("${async_block_id}: While loop condition false, exiting loop\\n");`);
+          em.emit_string_line(`        } else {`);
+          em.emit_string_line(`          ASYNC_DEBUG("${async_block_id}: While loop condition true, continuing iteration\\n");`);
+          em.emit_string_line(`          // Loop back by transitioning to while loop state`);
+          em.emit_string_line(`          sm->state = ${wai_s};`);
+          em.emit_string_line(`          goto while_loop_${wai_s}_start;`);
+          em.emit_string_line(`        }`);
+          em.emit_string_line(`      }`);
+          em.emit_string_line(String.from(""));
+          em.emit_string_line(`      after_while_loop_${wai_s}:`);
+        });
+        if(!(chained_to_next), {
+          _emit_post_while_cond_branch(while_data, segment, body_expr, future_type, capture_type, analysis, context);
+        });
+        _emit_outer_while_continuation(while_data, prev_await, body_expr, future_type, capture_type, analysis, context);
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+});
+/// Emit the full resume function for an async block: the `switch (sm->state)`
+/// header, then per state segment the previous-await result extraction +
+/// cond/while continuation, the segment's own code (`generate_state_segment_code`),
+/// and either the await suspension or the final-state completion. Returns the
+/// body-local drop-code lines (for the dispose function). Mirrors
+/// `generateAsyncBlockResumeFunction` (state-machine.ts:572).
+generate_async_block_resume_function :: (
+  fn(
+    body_expr : AstExpr,
+    async_block_id : String,
+    struct_name : String,
+    resume_function_name : String,
+    analysis : AwaitAnalysisResult,
+    future_type : TypeValue,
+    capture_type : Option(TypeValue),
+    context : FunctionGenerationContext
+  ) -> ArrayList(String)
+)({
+  em := context.base.emitter;
+  is_unit_result := match(
+    extract_future_trait_from_type(future_type),
+    .Some(ft) => match(ft,.FutureTraitT({ output : o }) => is_unit_type(o), _ => false),
+    .None => false
+  );
+  context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(HashMap(usize, AsyncCondBranchInfo).new());
+  context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(HashMap(usize, WhileLoopInfo).new());
+  context.async_next_while_loop_index = Option(usize).Some(analysis.await_points.len());
+  segments := split_into_state_segments(body_expr, analysis.await_points);
+  body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), match(body_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
+    single := ArrayList(AstExpr).new();
+    single.push(body_expr);
+    single
+  });
+  body_last_expr := if(
+    body_exprs.len() > usize(0),
+    match(body_exprs.get(body_exprs.len() - usize(1)),.Some(e) => Option(AstExpr).Some(e),.None => Option(AstExpr).None),
+    Option(AstExpr).None
+  );
+  em.emit_string_line(`// Resume function for async block ${async_block_id}`);
+  em.emit_string_line(`void ${resume_function_name}(${struct_name}* sm) {`);
+  em.emit_string_line(`  ASYNC_DEBUG("${async_block_id}_resume: state=%d\\n", sm->state);`);
+  em.emit_string_line(`  int __yo_inline_budget = 32;  // bounded inline fast-path for sync-completed awaits`);
+  em.emit_string_line(`  switch (sm->state) {`);
+  local_var_drop_codes := ArrayList(String).new();
+  (seg_idx : usize) = usize(0);
+  while(seg_idx < segments.len(), {
+    match(
+      segments.get(seg_idx),
+      .Some(segment) => {
+        sn_s := segment.state_number.to_string();
+        is_last_segment := (seg_idx == (segments.len() - usize(1)));
+        em.emit_string_line(
+          `
+    state_${sn_s}:`
+        );
+        em.emit_string_line(`    case ${sn_s}: { // State ${sn_s}`);
+        em.emit_string_line(`      ASYNC_DEBUG("${async_block_id}: Entering state ${sn_s}\\n");`);
+        if(segment.state_number > usize(0), {
+          match(
+            analysis.await_points.get(segment.state_number - usize(1)),
+            .Some(prev_await) => {
+              pffn := get_future_field_name(prev_await, analysis);
+              in_cond := match(prev_await.base.is_inside_cond,.Some(b) => b,.None => false);
+              if(in_cond, {
+                em.emit_string_line(`      if (sm->${pffn} != NULL) {`);
+              });
+              _emit_prev_await_result_extraction(async_block_id, segment.state_number, prev_await, analysis, context);
+              _emit_cond_branch_continuation(async_block_id, prev_await, segment, body_expr, future_type, capture_type, analysis, context);
+              if(in_cond, {
+                em.emit_string_line(`      }`);
+              });
+              _emit_while_continuation(prev_await, segment, body_expr, async_block_id, future_type, capture_type, analysis, context);
+            },
+            .None => ()
+          );
+        });
+        p_in := context.in_async_state_machine;
+        p_smv := context.state_machine_variables;
+        p_vr := context.variable_id_remapping;
+        context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+        context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+        context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+        p_pdd := context.pending_deferred_drops;
+        pdd := ArrayList(AstExpr).new();
+        match(context.base.get_expr_info(body_expr),.Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => _append_exprs(pdd, d),.None => ()),.None => ());
+        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
+        is_last_with_result := ((is_last_segment && !(is_unit_result)) && (segment.expressions.len() > usize(0)));
+        seg_last := if(
+          segment.expressions.len() > usize(0),
+          match(segment.expressions.get(segment.expressions.len() - usize(1)),.Some(e) => Option(AstExpr).Some(e),.None => Option(AstExpr).None),
+          Option(AstExpr).None
+        );
+        same_as_body_last := match(
+          seg_last,
+          .Some(sl) => match(body_last_expr,.Some(bl) => (ast_expr_id(sl) == ast_expr_id(bl)),.None => false),
+          .None => false
+        );
+        has_seg_await := match(segment.await_point,.Some(_) => true,.None => false);
+        p_abre := context.async_body_return_expr;
+        if((!(is_unit_result) && same_as_body_last) && has_seg_await, {
+          context.async_body_return_expr = seg_last;
+        }, {
+          context.async_body_return_expr = Option(AstExpr).None;
+        });
+        generate_state_segment_code(segment, `      `, context, is_last_with_result);
+        context.async_body_return_expr = p_abre;
+        context.pending_deferred_drops = p_pdd;
+        em.emit_string_line(String.from(""));
+        match(
+          segment.await_point,
+          .Some(_) => {
+            context.in_async_state_machine = p_in;
+            context.state_machine_variables = p_smv;
+            context.variable_id_remapping = p_vr;
+            _emit_await_suspension(segment, segment.state_number, async_block_id, resume_function_name, analysis, context);
+          },
+          .None => if(is_last_segment, {
+            _emit_last_segment_completion(segment, body_expr, local_var_drop_codes, context);
+            context.in_async_state_machine = p_in;
+            context.state_machine_variables = p_smv;
+            context.variable_id_remapping = p_vr;
+          }, {
+            context.in_async_state_machine = p_in;
+            context.state_machine_variables = p_smv;
+            context.variable_id_remapping = p_vr;
+          })
+        );
+        em.emit_string_line(`    }`);
+      },
+      .None => ()
+    );
+    seg_idx = (seg_idx + usize(1));
+  });
+  em.emit_string_line(`  }`);
+  em.emit_string_line(`}`);
+  em.emit_string_line(String.from(""));
+  local_var_drop_codes
+});
+export(
+  is_io_future_type,
+  StateMachineInfo,
+  generate_resume_function_declaration,
+  get_state_machine_field_name,
+  get_future_field_name,
+  CrossBoundaryResult,
+  collect_variable_refs_in_expr,
+  compute_cross_boundary_variables,
+  OverlappingSlot,
+  OverlappingStorageResult,
+  compute_overlapping_slots,
+  expr_contains_return,
+  uses_generic_future_interface,
+  emit_future_effect_injection_line,
+  generate_remaining_expr_future,
+  resolve_effect_field_from_sm_scope,
+  find_bundle_field_name,
+  emit_effect_record_injection_for_sm,
+  emit_effect_injection_for_sm,
+  _build_combined_sm_variables,
+  _emit_await_suspension,
+  _emit_last_segment_completion,
+  _emit_prev_await_result_extraction,
+  _append_exprs,
+  _chain_additional_remaining,
+  _emit_cond_branch_remaining,
+  _emit_cond_branch_continuation,
+  _emit_post_while_cond_branch,
+  _emit_outer_while_continuation,
+  _emit_while_continuation,
+  generate_async_block_resume_function
+);

@@ -5,9 +5,11 @@ import {
   exprIsFunctionCallOf,
   type FnCallExpr,
 } from "../../expr";
+import { isCodegenTempName } from "../../utils";
 import type { FunctionGenerationContext } from "../functions/context";
-import { type CodeGenContext } from "../utils";
+import { getDeferredDropTargetAtomName, type CodeGenContext } from "../utils";
 import { generateExpr } from "./expr";
+import { getDeferredDropTargetCName } from "./return";
 
 /**
  * Generate step expression for for loop increment section.
@@ -108,9 +110,40 @@ function generateLoopBody(
       }
     }
 
-    // Generate deferred drop expressions before end of loop body
+    // Generate deferred drop expressions before end of loop body.
+    // Apply the SAME two skip-guards as begin.ts's scope-end drop pass —
+    // this inlined loop-body variant used to apply neither
+    // (issues/fixed/ts-while-loop-body-drops-missing-guards.md):
+    //   1. a codegen TEMP whose C declaration was never emitted in this
+    //      scope (e.g. it lives inside a short-circuit conditional block)
+    //      must not be referenced — clang "use of undeclared identifier";
+    //   2. a drop already emitted inside a short-circuit conditional branch
+    //      (and-or.ts emitDropsForConditionalBranch) must not be re-emitted
+    //      — double drop.
     if (bodyExpr.$?.deferredDropExpressions) {
       for (const dropExpr of bodyExpr.$.deferredDropExpressions) {
+        {
+          const dropCName = getDeferredDropTargetCName(dropExpr);
+          if (
+            dropCName &&
+            isCodegenTempName(dropCName) &&
+            !(context.declaredCVarNames?.has(dropCName) ?? true)
+          ) {
+            continue;
+          }
+        }
+        if (functionContext.shortCircuitHandledDropVarNames) {
+          const targetVarName = getDeferredDropTargetAtomName(dropExpr);
+          if (
+            targetVarName &&
+            functionContext.shortCircuitHandledDropVarNames.has(targetVarName)
+          ) {
+            functionContext.shortCircuitHandledDropVarNames.delete(
+              targetVarName
+            );
+            continue;
+          }
+        }
         const dropCode = generateExpr(dropExpr, indent, context);
         if (dropCode) {
           context.emitter.emitLine(`${indent}${dropCode};`);

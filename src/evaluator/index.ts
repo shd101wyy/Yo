@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "path";
 import {
   addVariableToEnv,
+  buildPreludeVarCache,
   createNewEnv,
   pushEnvFrame,
   setEnvContainingPrelude,
@@ -15,7 +16,7 @@ import type { StructValue } from "../value";
 import { extractDocComments, getDocCommentLookupKey } from "../doc/extractor";
 
 // Import extracted evaluator functions
-import { YoError, YoLexerError } from "../error";
+import { describeThrown } from "../error";
 import { preScanForSkipPrelude } from "./builtins/pragma";
 import type { LoadModuleFn } from "./context";
 import { evaluateAnonymousModuleBeginExprs } from "./values/anonymous-module";
@@ -98,7 +99,7 @@ export default class Evaluator {
       this.evaluateProgram(stdPath, loadModule);
     } catch (error) {
       throw new Error(
-        `Failed to import module "${modulePath}":\n${error instanceof YoError || error instanceof YoLexerError ? error.toString() : error instanceof Error ? error.message : String(error)}`
+        `Failed to import module "${modulePath}":\n${describeThrown(error)}`
       );
     }
   }
@@ -206,6 +207,14 @@ export default class Evaluator {
     this.env = env;
     this.moduleValue = moduleValue;
     this.moduleError = partialModuleError;
+
+    // Build the O(1) prelude variable cache after prelude evaluation.
+    if (
+      this.modulePath.endsWith("/std/prelude.yo") ||
+      this.modulePath.endsWith("/prelude.yo")
+    ) {
+      buildPreludeVarCache(env);
+    }
   }
 
   public getModuleValue(): StructValue {

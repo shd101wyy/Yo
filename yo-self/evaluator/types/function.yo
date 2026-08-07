@@ -3,13 +3,13 @@
 //! 1:1 port of `src/evaluator/types/function.ts` (Phase 3w).
 //!
 //! Implements the full multi-pass parameter evaluation algorithm:
-//!   Pass 1 — process forall type parameters (create SomeTypes)
+//!   Pass 1 — process generic type parameters (create SomeTypes)
 //!   Pass 2 — process  implicit parameters
 //!   Pass 3 — pre-add comptime parameters to env (so where clauses can reference them)
 //!   Pass 4 — scan where clause and try to evaluate constraints (with pending retry)
 //!   Pass 5 — process regular parameters; retry pending constraints after each
 //!
-//! Phase 3w: effect-row forall `E : Type.Struct` and effect-row spread `E : Type.Struct` in  are now fully implemented.
+//! Phase 3w: effect-row generic `E : Type.Struct` and effect-row spread `E : Type.Struct` in  are now fully implemented.
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
@@ -22,23 +22,25 @@ open(import("std/fmt"));
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   make_err_expr,
-  BK_FORALL,
+  BK_GENERIC,
   BK_WHERE,
   BK_COMPTIME,
   BK_QUOTE,
-  BK_REF,
+  BK_INOUT,
   BK_COLON,
   BK_FN,
   BK_UNSAFE_FN,
   BK_CTL,
-  BK_TUPLE
+  BK_TUPLE,
+  BF_REQUIRES,
+  BF_ENSURES
 }
 :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_some_resolved_concrete, register_some_resolved_concrete, adopt_receiver_struct_instance } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, generate_some_type_id } :: import("../../types/creators.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0 } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
@@ -64,7 +66,7 @@ open(import("std/fmt"));
 { format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_valid_variable_name } :: import("../utils.yo");
-{ type_implements_trait_bool } :: import("../trait_checking.yo");
+{ type_implements_trait } :: import("../trait_checking.yo");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -96,14 +98,14 @@ open(import("std/fmt"));
 register_macro_quoted_params :: (fn(func_id : String, indices : ArrayList(usize)) -> unit)({
   cond(
     (indices.len() > usize(0)) => {
-      ___ := g_macro_quoted_param_indices.set(func_id.clone(), indices);
+      g_macro_quoted_param_indices.set(func_id.clone(), indices);
     },
     true => ()
   );
 });
 /// Mark a function as having an `unquote(...)` return type. Idempotent.
 register_macro_return_is_unquote :: (fn(func_id : String) -> unit)({
-  ___ := g_macro_return_is_unquote.set(func_id.clone(), true);
+  g_macro_return_is_unquote.set(func_id.clone(), true);
 });
 /// Returns the list of quoted parameter indices, or an empty list if none.
 get_macro_quoted_param_indices :: (fn(func_id : String) -> ArrayList(usize))(
@@ -168,14 +170,14 @@ copy_macro_registration :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_macro_quoted_param_indices.get(from_id.clone()),
     .Some(idxs) => {
-      ___ := g_macro_quoted_param_indices.set(to_id.clone(), idxs);
+      g_macro_quoted_param_indices.set(to_id.clone(), idxs);
     },
     .None => ()
   );
   match(
     g_macro_return_is_unquote.get(from_id.clone()),
     .Some(_) => {
-      ___ := g_macro_return_is_unquote.set(to_id.clone(), true);
+      g_macro_return_is_unquote.set(to_id.clone(), true);
     },
     .None => ()
   );
@@ -214,7 +216,7 @@ register_func_param_defaults :: (fn(func_id : String, defaults : ArrayList(Optio
     i = (i + usize(1));
   });
   if(any_default, {
-    ___ := g_func_param_defaults.set(func_id.clone(), defaults);
+    g_func_param_defaults.set(func_id.clone(), defaults);
   });
 });
 /// Copy a registered default-values entry from `from_id` to `to_id`
@@ -224,7 +226,7 @@ copy_func_param_defaults :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_func_param_defaults.get(from_id.clone()),
     .Some(defaults) => {
-      ___ := g_func_param_defaults.set(to_id.clone(), defaults);
+      g_func_param_defaults.set(to_id.clone(), defaults);
     },
     .None => ()
   );
@@ -242,14 +244,14 @@ VariadicParamEntry :: struct(label : String, ty : TypeValue);
   HashMap(String, VariadicParamEntry).new();
 register_func_variadic_param :: (fn(func_id : String, label : String, ty : TypeValue) -> unit)({
   if(label != "...", {
-    ___ := g_func_variadic_params.set(func_id.clone(), VariadicParamEntry(label : label, ty : ty));
+    g_func_variadic_params.set(func_id.clone(), VariadicParamEntry(label : label, ty : ty));
   });
 });
 copy_func_variadic_param :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_func_variadic_params.get(from_id.clone()),
     .Some(entry) => {
-      ___ := g_func_variadic_params.set(to_id.clone(), entry);
+      g_func_variadic_params.set(to_id.clone(), entry);
     },
     .None => ()
   );
@@ -266,6 +268,207 @@ get_func_param_defaults :: (fn(func_id : String) -> ArrayList(Option(EvalValue))
     .None => ArrayList(Option(EvalValue)).new()
   )
 );
+// Per-parameter `= <value>` ASSIGNED values (TS `FunctionParameter
+// .assignedValue`). `TypeValue.Func`/`FuncMeta` carry no per-param assigned
+// value, so — like the defaults and the comptime flags above — it rides a
+// func-id-keyed side table, keyed/copied fn-type-expr id -> FuncVal id.
+// The call site (helper.yo) reads it to replicate TS helper.ts:481-497: an
+// argument whose value differs from the parameter's assigned value REJECTS
+// the candidate. That rejection is the only thing that distinguishes two
+// impls of the same parameterized trait — `TryInto(i32).try_into` and
+// `TryInto(i64).try_into` have identical parameter TYPES
+// (`self : Self, comptime(_To) : Type`) and differ only in `_To`'s assigned
+// value (std/prelude.yo:7645).
+(g_func_param_assigned_values : HashMap(String, ArrayList(Option(EvalValue)))) =
+  HashMap(String, ArrayList(Option(EvalValue))).new();
+register_func_param_assigned_values :: (fn(func_id : String, assigned : ArrayList(Option(EvalValue))) -> unit)({
+  // Keep the table sparse — only register when at least one param has one.
+  (any_assigned : bool) = false;
+  (i : usize) = usize(0);
+  while((i < assigned.len()) && !(any_assigned), {
+    match(
+      assigned.get(i),
+      .Some(a) => if(a.is_some(), {
+        any_assigned = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(any_assigned, {
+    g_func_param_assigned_values.set(func_id.clone(), assigned);
+  });
+});
+copy_func_param_assigned_values :: (fn(from_id : String, to_id : String) -> unit)({
+  match(
+    g_func_param_assigned_values.get(from_id.clone()),
+    .Some(assigned) => {
+      g_func_param_assigned_values.set(to_id.clone(), assigned);
+    },
+    .None => ()
+  );
+});
+get_func_param_assigned_values :: (fn(func_id : String) -> ArrayList(Option(EvalValue)))(
+  match(
+    g_func_param_assigned_values.get(func_id.clone()),
+    .Some(assigned) => assigned,
+    .None => ArrayList(Option(EvalValue)).new()
+  )
+);
+// Per-parameter `is_compile_time_only` flags (the `comptime(name) : T` param
+// modifier). `TypeValue.Func`/`FuncMeta` do NOT carry a per-param comptime bit
+// (only `param_is_ref`/`param_is_owning`), so — like the defaults above — it
+// rides a func-id-keyed side table. The call site (helper.yo) reads it to
+// replicate TS's `!parameter.isCompileTimeOnly` guard on the comptime→runtime
+// argument-type conversion (helper.ts:508): a RUNTIME parameter that receives a
+// comptime-only argument (e.g. the operator `neg`'s `self : _Self` given
+// `comptime_float`) must lower the arg to its runtime type, or the specialized
+// body dispatches to the COMPTIME impl (`__yo_comptime_float_neg`, undeclared).
+// Keyed/copied like the defaults (fn-type-expr id → FuncVal id).
+(g_func_param_comptime : HashMap(String, ArrayList(bool))) = HashMap(String, ArrayList(bool)).new();
+register_func_param_comptime :: (fn(func_id : String, flags : ArrayList(bool)) -> unit)({
+  // Keep the table sparse — only register when at least one param is comptime.
+  (any_ct : bool) = false;
+  (i : usize) = usize(0);
+  while((i < flags.len()) && !(any_ct), {
+    match(
+      flags.get(i),
+      .Some(f) => if(f, {
+        any_ct = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(any_ct, {
+    g_func_param_comptime.set(func_id.clone(), flags);
+  });
+});
+copy_func_param_comptime :: (fn(from_id : String, to_id : String) -> unit)({
+  match(
+    g_func_param_comptime.get(from_id.clone()),
+    .Some(flags) => {
+      g_func_param_comptime.set(to_id.clone(), flags);
+    },
+    .None => ()
+  );
+});
+// Side-table: the declared RETURN TYPE EXPRESSION (the normalized `-> RET`
+// AST), keyed/copied like the defaults (fn-type-expr id → FuncVal id). TS
+// carries this on the type itself (`functionType.return.typeExpr`) and
+// specialization RE-EVALUATES it in the specialized env
+// (evaluateFunctionReturnTypeAgain, function.ts:2822) so a generic
+// instantiation in the return (`*(Pair(K, V))`) routes through the SAME
+// memoized type-constructor as the body's own calls — one instantiation
+// lineage. yo-self's substitution-based re-resolution kept the def-era
+// instance and split the lineage (the imm_map `_alloc_pairs` expected/actual
+// struct-id mismatch).
+(g_func_return_type_expr : HashMap(String, AstExpr)) = HashMap(String, AstExpr).new();
+register_func_return_type_expr :: (fn(func_id : String, e : AstExpr) -> unit)({
+  g_func_return_type_expr.set(func_id.clone(), e);
+});
+copy_func_return_type_expr :: (fn(from_id : String, to_id : String) -> unit)({
+  match(
+    g_func_return_type_expr.get(from_id.clone()),
+    .Some(e) => {
+      g_func_return_type_expr.set(to_id.clone(), e.clone());
+    },
+    .None => ()
+  );
+});
+get_func_return_type_expr :: (fn(func_id : String) -> Option(AstExpr))(
+  g_func_return_type_expr.get(func_id.clone())
+);
+get_func_param_comptime :: (fn(func_id : String) -> ArrayList(bool))(
+  match(g_func_param_comptime.get(func_id.clone()),.Some(f) => f,.None => ArrayList(bool).new())
+);
+// Parallel side-table: per-parameter default-value EXPRESSIONS (the `?= EXPR`
+// AST). The value table above suffices for the call-site count check and the
+// def-time binding, but CODEGEN must EMIT an omitted default as a C argument —
+// TS evaluates `parameter.exprs.defaultValueExpr` and pushes it to
+// `runtimeArgExprsInOrder` (helper.ts:328-344). yo-self keeps the exprs here so
+// the omitted-parameter branch can clone+evaluate+emit them. Keyed/copied like
+// the values (fn-type-expr id → FuncVal id).
+(g_func_param_default_exprs : HashMap(String, ArrayList(Option(AstExpr)))) =
+  HashMap(String, ArrayList(Option(AstExpr))).new();
+register_func_param_default_exprs :: (fn(func_id : String, exprs : ArrayList(Option(AstExpr))) -> unit)({
+  (any_default : bool) = false;
+  (i : usize) = usize(0);
+  while((i < exprs.len()) && !(any_default), {
+    match(
+      exprs.get(i),
+      .Some(e) => if(e.is_some(), {
+        any_default = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(any_default, {
+    g_func_param_default_exprs.set(func_id.clone(), exprs);
+  });
+});
+copy_func_param_default_exprs :: (fn(from_id : String, to_id : String) -> unit)({
+  match(
+    g_func_param_default_exprs.get(from_id.clone()),
+    .Some(exprs) => {
+      g_func_param_default_exprs.set(to_id.clone(), exprs);
+    },
+    .None => ()
+  );
+});
+get_func_param_default_exprs :: (fn(func_id : String) -> ArrayList(Option(AstExpr)))(
+  match(
+    g_func_param_default_exprs.get(func_id.clone()),
+    .Some(exprs) => exprs,
+    .None => ArrayList(Option(AstExpr)).new()
+  )
+);
+/// Per-parameter declared TYPE expressions (the raw AST right of `:`), keyed
+/// like the defaults (fn-type-expr id, re-keyed under the FuncVal id by
+/// try_to_implement_function_by_function_type). TS `parameter.exprs.typeExpr`,
+/// consumed by evaluateFunctionParameterTypeAgain: the call site RE-EVALUATES
+/// the expr in the bound callee env so comptime type-constructor
+/// instantiations route through the memoized constructor (canonical ids)
+/// instead of substituting into the def-era nocache mint — the
+/// imm_sorted_map-family id split (issues/retired/yo-self-69-red-list-map.md, ROOT
+/// CAUSE 2026-07-30). The list is parallel to the param order; `.None` for
+/// params without a written type.
+(g_func_param_type_exprs : HashMap(String, ArrayList(Option(AstExpr)))) =
+  HashMap(String, ArrayList(Option(AstExpr))).new();
+register_func_param_type_exprs :: (fn(func_id : String, exprs : ArrayList(Option(AstExpr))) -> unit)({
+  (any_te : bool) = false;
+  (tei : usize) = usize(0);
+  while((tei < exprs.len()) && !(any_te), {
+    match(
+      exprs.get(tei),
+      .Some(e) => if(e.is_some(), {
+        any_te = true;
+      }),
+      .None => ()
+    );
+    tei = (tei + usize(1));
+  });
+  if(any_te, {
+    g_func_param_type_exprs.set(func_id.clone(), exprs);
+  });
+});
+copy_func_param_type_exprs :: (fn(from_id : String, to_id : String) -> unit)({
+  match(
+    g_func_param_type_exprs.get(from_id.clone()),
+    .Some(exprs) => {
+      g_func_param_type_exprs.set(to_id.clone(), exprs);
+    },
+    .None => ()
+  );
+});
+get_func_param_type_exprs :: (fn(func_id : String) -> ArrayList(Option(AstExpr)))(
+  match(
+    g_func_param_type_exprs.get(func_id.clone()),
+    .Some(exprs) => exprs,
+    .None => ArrayList(Option(AstExpr)).new()
+  )
+);
 /// Where-clause constraint side table: `fn(...)`-type-expression id (then the
 /// FuncVal id via the same two-step as the defaults) → the function's
 /// where-clause constraints as (LHS param label, trait type, negated) triples.
@@ -277,7 +480,7 @@ get_func_param_defaults :: (fn(func_id : String) -> ArrayList(Option(EvalValue))
 /// `TypeValue.Func` cannot carry AstExprs (definitions.yo must not depend on
 /// expr.yo), so the constraints live here in evaluated form: the label of the
 /// constrained parameter plus the trait it must (or, negated, must NOT)
-/// implement. Only simple-atom LHS constraints naming a forall/comptime param
+/// implement. Only simple-atom LHS constraints naming a generic/comptime param
 /// are recorded — exactly the ones whose LHS can resolve to a concrete bound
 /// type at a call site.
 WhereConstraintEntry :: struct(
@@ -291,16 +494,47 @@ WhereConstraintEntry :: struct(
 /// No-op when the function has none (keeps the table sparse).
 register_func_where_constraints :: (fn(func_id : String, entries : ArrayList(WhereConstraintEntry)) -> unit)({
   if(entries.len() > usize(0), {
-    ___ := g_func_where_constraints.set(func_id.clone(), entries);
+    g_func_where_constraints.set(func_id.clone(), entries);
   });
 });
+/// Call-site RE-APPLICATION needs the original constraint EXPRESSIONS: TS
+/// re-applies `FunctionType.whereClauseExprs` at every call once parameters
+/// are bound (helper.ts:1515-1530 → applyWhereClauseConstraints). The
+/// evaluated `WhereConstraintEntry` form above cannot express a PARAMETERIZED
+/// trait — `K <: Eq(K)` must be re-evaluated with the call's concrete `K` to
+/// yield `Eq(String)`. Keyed and re-keyed exactly like the entries table.
+(g_func_where_clause_exprs : HashMap(String, ArrayList(AstExpr))) =
+  HashMap(String, ArrayList(AstExpr)).new();
+/// Register the where-clause constraint expressions for a function.
+/// No-op when the function has none (keeps the table sparse).
+register_func_where_clause_exprs :: (fn(func_id : String, exprs : ArrayList(AstExpr)) -> unit)({
+  if(exprs.len() > usize(0), {
+    g_func_where_clause_exprs.set(func_id.clone(), exprs);
+  });
+});
+/// Return the where-clause constraint expressions for `func_id` (empty when none).
+get_func_where_clause_exprs :: (fn(func_id : String) -> ArrayList(AstExpr))(
+  match(
+    g_func_where_clause_exprs.get(func_id.clone()),
+    .Some(exprs) => exprs,
+    .None => ArrayList(AstExpr).new()
+  )
+);
 /// Copy a registered where-constraints entry from `from_id` to `to_id`
 /// (re-key from the fn-type-expr id to the FuncVal id). No-op when absent.
+/// Also re-keys the where-clause EXPRESSIONS table (the two travel together).
 copy_func_where_constraints :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_func_where_constraints.get(from_id.clone()),
     .Some(entries) => {
-      ___ := g_func_where_constraints.set(to_id.clone(), entries);
+      g_func_where_constraints.set(to_id.clone(), entries);
+    },
+    .None => ()
+  );
+  match(
+    g_func_where_clause_exprs.get(from_id.clone()),
+    .Some(exprs) => {
+      g_func_where_clause_exprs.set(to_id.clone(), exprs);
     },
     .None => ()
   );
@@ -313,6 +547,68 @@ get_func_where_constraints :: (fn(func_id : String) -> ArrayList(WhereConstraint
     .None => ArrayList(WhereConstraintEntry).new()
   )
 );
+// ---------------------------------------------------------------------------
+// Phase-0 contract-clause side-tables (plans/FORMAL_VERIFICATION.md).
+// ---------------------------------------------------------------------------
+/// `fn(...)`-type-expression id (then the FuncVal id via the same two-step as
+/// the defaults) → the signature's `requires(...)` predicate expressions.
+/// TS stores these as `FunctionType.requiresExprs`
+/// (src/types/definitions.ts:865); yo-self's `TypeValue.Func` cannot carry
+/// AstExprs (definitions.yo must not depend on expr.yo — see the
+/// where-constraints table above), so they live here and are read by the
+/// body-wrapping lowering in `evaluator/builtins/contracts.yo`.
+(g_func_requires_exprs : HashMap(String, ArrayList(AstExpr))) =
+  HashMap(String, ArrayList(AstExpr)).new();
+/// Same, for `ensures(...)`. Mirrors `FunctionType.ensuresExprs`
+/// (src/types/definitions.ts:875).
+(g_func_ensures_exprs : HashMap(String, ArrayList(AstExpr))) =
+  HashMap(String, ArrayList(AstExpr)).new();
+/// Register the signature's `requires(...)` predicates. No-op when empty
+/// (keeps the table sparse, like the where-constraints table).
+register_func_requires_exprs :: (fn(func_id : String, preds : ArrayList(AstExpr)) -> unit)({
+  if(preds.len() > usize(0), {
+    g_func_requires_exprs.set(func_id.clone(), preds);
+  });
+});
+/// Register the signature's `ensures(...)` predicates. No-op when empty.
+register_func_ensures_exprs :: (fn(func_id : String, preds : ArrayList(AstExpr)) -> unit)({
+  if(preds.len() > usize(0), {
+    g_func_ensures_exprs.set(func_id.clone(), preds);
+  });
+});
+/// Re-key both contract tables from the fn-type-expr id to the FuncVal id.
+copy_func_contract_exprs :: (fn(from_id : String, to_id : String) -> unit)({
+  match(
+    g_func_requires_exprs.get(from_id.clone()),
+    .Some(preds) => {
+      g_func_requires_exprs.set(to_id.clone(), preds);
+    },
+    .None => ()
+  );
+  match(
+    g_func_ensures_exprs.get(from_id.clone()),
+    .Some(preds) => {
+      g_func_ensures_exprs.set(to_id.clone(), preds);
+    },
+    .None => ()
+  );
+});
+/// Return the `requires(...)` predicates for `func_id` (empty when none).
+get_func_requires_exprs :: (fn(func_id : String) -> ArrayList(AstExpr))(
+  match(
+    g_func_requires_exprs.get(func_id.clone()),
+    .Some(preds) => preds,
+    .None => ArrayList(AstExpr).new()
+  )
+);
+/// Return the `ensures(...)` predicates for `func_id` (empty when none).
+get_func_ensures_exprs :: (fn(func_id : String) -> ArrayList(AstExpr))(
+  match(
+    g_func_ensures_exprs.get(func_id.clone()),
+    .Some(preds) => preds,
+    .None => ArrayList(AstExpr).new()
+  )
+);
 /// Append (label, trait, negated) entries for every required/negative trait
 /// carried on `ty` when it is a SomeT (the where clause mutated the param
 /// placeholder's lists in place). No-op for non-SomeT types.
@@ -321,7 +617,7 @@ _collect_where_constraints_from_some_t :: (
 )({
   match(
     ty,
-    .SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _, _) => {
       (ri : usize) = usize(0);
       while(ri < required_trait_types.len(), {
         match(
@@ -366,11 +662,33 @@ FuncParam :: struct(
   // matching can treat trailing defaulted params as optional AND bind an
   // omitted argument to the recorded default value.
   default_value : Option(EvalValue),
-  /// True when the parameter was declared `ref(name) : T` (a by-reference
+  /// True when the parameter was declared `inout(name) : T` (a by-reference
   /// borrow). Recorded so the Func type's `param_is_ref` can be populated for
-  /// the `ref(T)`-flow soundness check (`is_flowable_expr`). Appended last so
-  /// existing positional constructions only need a trailing argument.
-  is_ref : bool
+  /// the `inout(T)`-flow soundness check (`is_flowable_expr`).
+  is_ref : bool,
+  /// The parameter's `?= default` value EXPRESSION (the raw AST), or `.None`
+  /// for a required parameter. Parallel to `default_value` (the evaluated
+  /// value): codegen must EMIT an omitted default as a C argument, so the
+  /// expr is carried into the default-expr side-table at registration. Appended
+  /// last so existing positional constructions only need a trailing argument.
+  default_value_expr : Option(AstExpr),
+  /// The parameter's declared TYPE expression (the raw AST right of `:`), or
+  /// `.None` when the param has no written type (default-only shorthand,
+  /// synthetic params). TS `parameter.exprs.typeExpr` — the call site
+  /// RE-EVALUATES it in the bound callee env so comptime type-constructor
+  /// instantiations (`Map(K)` with K := i32) route through the memoized
+  /// constructor and unify with the body's instantiations, instead of
+  /// substituting into the def-era nocache mint (the imm_sorted_map family's
+  /// id split; issues/retired/yo-self-69-red-list-map.md ROOT CAUSE 2026-07-30).
+  ty_expr : Option(AstExpr),
+  /// The parameter's `= <value>` ASSIGNED value (TS `FunctionParameter
+  /// .assignedValue`, definitions.ts:432), or `.None` for a normal parameter.
+  /// Only `comptime` parameters may carry one, so it is always a `TypeVal`.
+  /// The call site uses it to REJECT an argument that does not equal it —
+  /// this is how two impls of the same parameterized trait are told apart
+  /// (`TryInto(i32)` vs `TryInto(i64)`; helper.ts:481-497). Defaulted so the
+  /// synthetic `FuncParam(...)` constructions need no change.
+  (assigned_value : Option(EvalValue)) ?= Option(EvalValue).None
 );
 /// Pending where-clause constraint that failed to evaluate.
 PendingConstraint :: struct(
@@ -385,7 +703,14 @@ FuncParamsResult :: struct(
   implicit_params : ArrayList(FuncParam),
   where_clause_exprs : ArrayList(AstExpr),
   has_variadic : bool,
-  variadic_param : FuncParam
+  variadic_param : FuncParam,
+  /// Phase-0 `requires(...)` predicates extracted from the parameter list.
+  /// TS returns these on the FunctionType (function.ts:2273); yo-self carries
+  /// them out here so `evaluate_function_type` can register the side-table.
+  /// Appended last so existing positional constructions only need trailing args.
+  requires_exprs : ArrayList(AstExpr),
+  /// Phase-0 `ensures(...)` predicates (same rationale).
+  ensures_exprs : ArrayList(AstExpr)
 );
 // ---------------------------------------------------------------------------
 // Local helpers
@@ -400,7 +725,7 @@ _fn_call_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
 _fn_call_func :: (fn(e : AstExpr) -> AstExpr)(
   match(
     e,
-    .FnCall(_, func_box, _, _, _) => func_box.*,
+    .FnCall(_, func_box, _, _, _) => func_box,
     .Atom(_, _) => make_err_expr()
   )
 );
@@ -447,7 +772,7 @@ _get_expr_type :: (
   });
   match(
     info.value,
-    .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+    .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
     .None => TypeValue.Unit
   )
 });
@@ -475,7 +800,7 @@ _eval_and_update_env :: (
         .Some(
           match(
             info.value,
-            .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+            .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
             .None => TypeValue.Unit
           )
         ),
@@ -515,6 +840,50 @@ _is_dots_atom :: (fn(expr : AstExpr) -> bool)(
     )
   )
 );
+// ---------------------------------------------------------------------------
+// Phase 0 of plans/FORMAL_VERIFICATION.md: canonical signature clause order.
+// Each parameter belongs to an ordered "zone"; zones must appear
+// non-decreasing left-to-right:
+//   generic(0) -> regular params (1) -> where(2) -> requires(3) -> ensures(4)
+// Mirrors the `zoneOf` / `zoneLabels` block in
+// `src/evaluator/types/function.ts:1700-1743`.
+// ---------------------------------------------------------------------------
+/// The clause zone of a parameter expression.
+_clause_zone :: (fn(e : AstExpr) -> usize)(
+  cond(
+    ast_expr_is_fn_call_of(e, BK_GENERIC, Option(usize).None) => usize(0),
+    ast_expr_is_fn_call_of(e, BK_WHERE, Option(usize).None) => usize(2),
+    ast_expr_is_fn_call_of(e, BF_REQUIRES, Option(usize).None) => usize(3),
+    ast_expr_is_fn_call_of(e, BF_ENSURES, Option(usize).None) => usize(4),
+    true => usize(1)
+  )
+);
+/// The diagnostic name of a parameter expression's clause (TS `zoneOf().name`).
+_clause_name :: (fn(e : AstExpr) -> String)(
+  cond(
+    ast_expr_is_fn_call_of(e, BK_GENERIC, Option(usize).None) => String.from("generic(...)"),
+    ast_expr_is_fn_call_of(e, BK_WHERE, Option(usize).None) => String.from("where(...)"),
+    ast_expr_is_fn_call_of(e, BF_REQUIRES, Option(usize).None) => String.from("requires(...)"),
+    ast_expr_is_fn_call_of(e, BF_ENSURES, Option(usize).None) => String.from("ensures(...)"),
+    true => String.from("parameter")
+  )
+);
+/// The zone label used in the "Move X before Y" hint (TS `zoneLabels`).
+_zone_label :: (fn(zone : usize) -> String)(
+  cond(
+    (zone == usize(0)) => String.from("generic(...)"),
+    (zone == usize(1)) => String.from("regular parameters"),
+    (zone == usize(2)) => String.from("where(...)"),
+    (zone == usize(3)) => String.from("requires(...)"),
+    true => String.from("ensures(...)")
+  )
+);
+/// True when `e` is a Phase-0 contract clause (`requires(...)`/`ensures(...)`).
+/// Such clauses are NOT runtime parameters: every parameter pass skips them.
+_is_contract_clause :: (fn(e : AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, BF_REQUIRES, Option(usize).None) ||
+    ast_expr_is_fn_call_of(e, BF_ENSURES, Option(usize).None)
+);
 /// Add a where-clause trait constraint directly to a SomeType's constraint lists.
 /// Since `required_trait_types` in SomeT is an `ArrayList(TypeValue)` (object =
 /// reference type), we can mutate it in-place. The mutation is visible everywhere
@@ -523,6 +892,33 @@ _is_dots_atom :: (fn(expr : AstExpr) -> bool)(
 /// Mirrors `addWhereClauseConstraintToEnv` from TypeScript, but using in-place
 /// mutation instead of env-frame constraint map (yo-self's SomeT stores constraints
 /// directly in required_trait_types / negative_trait_types ArrayLists).
+/// The identity TS compares trait bounds by (`traitType.id`). Restated here
+/// because env.yo's `_trait_type_id` (env.yo:1837) is private.
+_wcc_trait_id :: (fn(t : TypeValue) -> String)(
+  match(
+    t,
+    .TraitT(_, _, _, _, wcc_tid, _, _, _, _, _) => wcc_tid,
+    _ => String.from("")
+  )
+);
+/// True iff `list` already holds a trait with the same id as `trait_ty`.
+_wcc_has_trait :: (fn(list : ArrayList(TypeValue), trait_ty : TypeValue) -> bool)({
+  wcc_want := _wcc_trait_id(trait_ty);
+  wcc_n := list.len();
+  (wcc_found : bool) = false;
+  (wcc_i : usize) = usize(0);
+  while((wcc_i < wcc_n) && !(wcc_found), {
+    match(
+      list.get(wcc_i),
+      .Some(wcc_e) => if(_wcc_trait_id(wcc_e) == wcc_want, {
+        wcc_found = true;
+      }),
+      .None => ()
+    );
+    wcc_i = (wcc_i + usize(1));
+  });
+  wcc_found
+});
 _add_where_clause_constraint :: (
   fn(
     some_ty : TypeValue,
@@ -532,13 +928,28 @@ _add_where_clause_constraint :: (
 )(
   match(
     some_ty,
-    .SomeT(_, _, _, _, required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels, _, _, _) => {
+      // Dedup by trait id before appending. A SomeT's trait lists are shared by
+      // REFERENCE, so re-validating the same where clause used to append another
+      // copy every time — measured at the entries.yo codegen panic, one SomeT's
+      // identity rendered as `V : (Send + Send + ... x32)` and a `==`/`Hash`
+      // bound repeated ~30 times. TS dedups by `traitType.id` at both of its
+      // write sites: src/env.ts:420-423 for env-frame constraints, and
+      // src/evaluator/types/function.ts:656-682 when merging into a SomeType's
+      // own `requiredTraits`/`negativeTraits`. yo-self already ports the first
+      // (env.yo:1883 `add_where_clause_constraint_to_env`, same id scan) and has
+      // the read-side twin (`_merge_trait_list`, env.yo:1846); this SomeT-list
+      // push was the one site that kept appending.
       if(is_negated, {
-        negative_trait_types.push(trait_ty);
-        negative_trait_levels.push(usize(0));
+        if(!(_wcc_has_trait(negative_trait_types, trait_ty)), {
+          negative_trait_types.push(trait_ty);
+          negative_trait_levels.push(usize(0));
+        });
       }, {
-        required_trait_types.push(trait_ty);
-        required_trait_levels.push(usize(0));
+        if(!(_wcc_has_trait(required_trait_types, trait_ty)), {
+          required_trait_types.push(trait_ty);
+          required_trait_levels.push(usize(0));
+        });
       });
     },
     _ => ()
@@ -549,7 +960,7 @@ _add_where_clause_constraint :: (
 _trait_has_receiver :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .TraitT(_, _, _, _, _, is_concrete, _, _) => is_concrete.is_some(),
+    .TraitT(_, _, _, _, _, is_concrete, _, _, _, _) => is_concrete.is_some(),
     _ => false
   )
 );
@@ -738,7 +1149,7 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(lhs_mut),
-                `"forall"/"using" parameters are "comptime" by default. Not needed to use "comptime" modifier.`,
+                `"generic"/"using" parameters are "comptime" by default. Not needed to use "comptime" modifier.`,
                 false,
                 .None
               )
@@ -763,7 +1174,7 @@ evaluate_function_parameter :: (
       });
       // ref modifier — strip the wrapper and record the `ref` flag (consumed
       // into the Func type's `param_is_ref` for the flow-soundness check).
-      if(ast_expr_is_fn_call_of(lhs_mut, BK_REF, Option(usize).None), {
+      if(ast_expr_is_fn_call_of(lhs_mut, BK_INOUT, Option(usize).None), {
         r_args := _fn_call_args(lhs_mut);
         if(!(r_args.len() == usize(1)), {
           exn.throw(
@@ -853,7 +1264,7 @@ evaluate_function_parameter :: (
     );
   });
   // Disallow "Self" as label
-  if(match(label,.Some(l) => (l == String.from("Self")),.None => false), {
+  if(match(label,.Some(l) => (l == "Self"),.None => false), {
     exn.throw(
       dyn(
         format_error_message(
@@ -865,7 +1276,7 @@ evaluate_function_parameter :: (
       )
     );
   });
-  // Evaluate assigned value expression (forall((T : Type) = Impl(Id)) form)
+  // Evaluate assigned value expression (generic((T : Type) = Impl(Id)) form)
   (param_type : Option(TypeValue)) = Option(TypeValue).None;
   (assigned_value : Option(EvalValue)) = Option(EvalValue).None;
   match(
@@ -891,7 +1302,7 @@ evaluate_function_parameter :: (
           dyn(
             format_error_message(
               ast_expr_token(ave),
-              `Assigned value (=) is only allowed for compile-time parameters. Use "comptime(${match(label, .Some(l) => l, .None => String.from("?"))})" or put this in "forall(...)".`,
+              `Assigned value (=) is only allowed for compile-time parameters. Use "comptime(${match(label, .Some(l) => l, .None => String.from("?"))})" or put this in "generic(...)".`,
               false,
               .None
             )
@@ -975,7 +1386,13 @@ evaluate_function_parameter :: (
                   param_type =.Some(dv_ty);
                 },
                 .Some(pt) => {
-                  if(!(are_types_compatible(pt, dv_ty)), {
+                  // When the parameter type still contains an unresolved
+                  // generic (`(msg : T) ?= "..."` with `generic(T)`), defer
+                  // the check to the call site: binding the default there
+                  // infers T from the default value and validates any
+                  // `where` constraints, exactly like an explicitly passed
+                  // argument. Mirrors TS function.ts (same guard).
+                  if((!(type_contains_some_type(pt))) && (!(are_types_compatible(pt, dv_ty))), {
                     exn.throw(
                       dyn(
                         format_error_message(
@@ -1038,7 +1455,7 @@ evaluate_function_parameter :: (
       TypeValue.Unit
     }
   );
-  // Raw-view naming gate (plans/SLICE_REWORK.md): a SAFE file may not
+  // Raw-view naming gate (plans/archive/SLICE_REWORK.md): a SAFE file may not
   // annotate a parameter with a type whose representation carries a raw
   // pointer (RawSlice(T), structs wrapping *(T), ...). Mirrors the TS gate
   // in src/evaluator/types/function.ts.
@@ -1049,7 +1466,7 @@ evaluate_function_parameter :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Raw-pointer-carrying types ('${type_to_string(final_param_type)}') are not available in safe code.\n\nUse owned collections (ArrayList/String), 'ref(name) : T' parameters for in-place mutation, or 'str' for static string views. If this file genuinely needs the raw view, add 'pragma(Pragma.AllowUnsafe);' at the top.`,
+          `Raw-pointer-carrying types ('${type_to_string(final_param_type)}') are not available in safe code.\n\nUse owned collections (ArrayList/String), 'inout(name) : T' parameters for in-place mutation, or 'str' for static string views. If this file genuinely needs the raw view, add 'pragma(Pragma.AllowUnsafe);' at the top.`,
           false,
           .None
         )
@@ -1087,7 +1504,7 @@ evaluate_function_parameter :: (
   if(!(is_compile_time_only) && is_function_type(final_param_type), {
     has_forall := match(
       final_param_type,
-      .Func({ forall_labels }) => (forall_labels.len() > usize(0)),
+      .Func({ meta : __fm1 }) => (__fm1.*.forall_labels.len() > usize(0)),
       _ => false
     );
     if(has_forall, {
@@ -1126,7 +1543,7 @@ evaluate_function_parameter :: (
   if(is_trait_type(final_param_type), {
     has_receiver := match(
       final_param_type,
-      .TraitT(_, _, _, _, _, is_concrete, _, _) => is_concrete.is_some(),
+      .TraitT(_, _, _, _, _, is_concrete, _, _, _, _) => is_concrete.is_some(),
       _ => true
     );
     if(!(has_receiver), {
@@ -1140,7 +1557,7 @@ Please consider using "<:" to specify the receiver type for a trait type, for ex
 
 Id :: trait(id   : (fn(self : Self) -> Self)));
 
-use_id :: (fn(forall(T : Type),
+use_id :: (fn(generic(T : Type),
               val : T, 
               where(T <: Id)
           ) -> T)({
@@ -1173,12 +1590,12 @@ use_id :: (fn(forall(T : Type),
       }
     );
     match(
-      v.value,
+      v.value.get(usize(0)),
       .Some(ev) => {
         match(
           ev,
           .TypeVal(b) => {
-            if(is_some_type(b.*), {
+            if(is_some_type(b), {
               existing_where_var =.Some(v);
               vi = usize(0); // break
             });
@@ -1204,7 +1621,9 @@ use_id :: (fn(forall(T : Type),
           false,
           false,
           captured_default_value,
-          is_param_ref
+          is_param_ref,
+          default_value_expr,
+          type_expr
         )
       )
     );
@@ -1219,7 +1638,7 @@ use_id :: (fn(forall(T : Type),
     existing_where_var,
     .Some(wv) => {
       // Variable pre-created by where clause — reuse its SomeT
-      existing_some_ty := match(wv.value,.Some(ev) => match(ev,.TypeVal(b) => b.*, _ => TypeValue.Unit),.None => TypeValue.Unit);
+      existing_some_ty := match(wv.value.get(usize(0)),.Some(ev) => match(ev,.TypeVal(b) => b, _ => TypeValue.Unit),.None => TypeValue.Unit);
       // If assigned_value is a SomeT, merge traits from it
       match(
         assigned_value,
@@ -1227,11 +1646,11 @@ use_id :: (fn(forall(T : Type),
           match(
             av,
             .TypeVal(av_box) => {
-              if(is_some_type(av_box.*), {
-                new_some := av_box.*;
+              if(is_some_type(av_box), {
+                new_some := av_box;
                 match(
                   new_some,
-                  .SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _, _) => {
+                  .SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _, _, _) => {
                     // Merge required traits
                     (ri : usize) = usize(0);
                     while(ri < new_rtt.len(), {
@@ -1276,7 +1695,7 @@ use_id :: (fn(forall(T : Type),
         label_expr,
         .Some(le) => {
           le_info := new_expr_info(env_mut, actual_param_type);
-          le_info.value =.Some(match(wv.value,.Some(v) => v,.None => EvalValue.UnitVal));
+          le_info.value =.Some(match(wv.value.get(usize(0)),.Some(v) => v,.None => EvalValue.UnitVal));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(le), le_info);
         },
         .None => ()
@@ -1292,7 +1711,7 @@ use_id :: (fn(forall(T : Type),
             label_expr,
             .Some(le) => {
               le_info := new_expr_info(env_mut, actual_param_type);
-              le_info.value = pv.value;
+              le_info.value = pv.value.get(usize(0));
               expr_info_table_set(ctx.expr_info_table, ast_expr_id(le), le_info);
             },
             .None => ()
@@ -1302,7 +1721,7 @@ use_id :: (fn(forall(T : Type),
           // No existing variable — add new one.
           //
           // When the parameter type is `Type` (TypeUni(0)) — e.g.
-          // `forall(T : Type)` — bind to `TypeVal(SomeT(...))` rather
+          // `generic(T : Type)` — bind to `TypeVal(SomeT(...))` rather
           // than `UnknownVal(...)`. Mirrors TS `createUnknownValue`
           // (src/value.ts:573-588) which returns a TypeValue wrapping
           // a fresh SomeType for level-0 type-hierarchy types. Where
@@ -1329,7 +1748,7 @@ use_id :: (fn(forall(T : Type),
                   if(
                     match(
                       final_param_type,
-                      .Func({ result, result_is_comptime_only }) => (result_is_comptime_only && is_type_0(result.*)),
+                      .Func({ result, meta : __fm2 }) => (__fm2.*.result_is_comptime_only && is_type_0(result)),
                       _ => false
                     ),
                     Option(EvalValue).Some(create_type_value(t_some_t_with_kind(label_str, param_frame_level, final_param_type))),
@@ -1339,7 +1758,7 @@ use_id :: (fn(forall(T : Type),
                 Option(EvalValue).None
               )
           );
-          _ := add_variable_to_env(
+          add_variable_to_env(
             env_mut,
             label_str,
             final_param_type,
@@ -1388,7 +1807,10 @@ use_id :: (fn(forall(T : Type),
     false,
     false,
     captured_default_value,
-    is_param_ref
+    is_param_ref,
+    default_value_expr,
+    type_expr,
+    assigned_value
   )
 });
 // ---------------------------------------------------------------------------
@@ -1456,7 +1878,7 @@ validate_concrete_type_constraints :: (
     (negated : bool) = match(trait_negated.get(j),.Some(b) => b,.None => false);
     evaled_t := evaluate_expression_raw(t_expr, env_mut, ctx, exn);
     info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_t));
-    _ := evaled_t;
+    evaled_t;
     info := match(
       info_opt,
       .Some(i) => i,
@@ -1483,7 +1905,7 @@ validate_concrete_type_constraints :: (
         info.value,
         .Some(ev) => match(
           ev,
-          .TypeVal(b) => b.*,
+          .TypeVal(b) => b,
           _ => {
             exn.throw(
               dyn(
@@ -1524,7 +1946,16 @@ validate_concrete_type_constraints :: (
           )
         );
       });
-      implemented := type_implements_trait_bool(concrete_type, tv, env_mut);
+      // Use the FULL type_implements_trait (not the Bool wrapper) so bindings
+      // produced during trait satisfaction — synthesizing `A := i32`,
+      // `B := i32` from `F <: (Fn(a : A) -> B)` against `fn(x : i32) -> i32`
+      // — propagate back into `env_mut`. TS threads `envAfterCheck` the same
+      // way (function.ts:979-987 and 1598-1603); discarding it left A/B as
+      // SomeTs and the method body specialized a shadow struct
+      // ("Type mismatch for type member \"_f\"").
+      tc_res := type_implements_trait(concrete_type, tv, env_mut);
+      implemented := tc_res.implemented;
+      env_mut.frames = tc_res.env.frames;
       if(negated, {
         if(implemented, {
           exn.throw(
@@ -1605,18 +2036,18 @@ apply_single_trait_constraint :: (
     });
     last_var := match(existing_vars.get(existing_vars.len() - usize(1)),.Some(v) => v,.None => return(false));
     match(
-      last_var.value,
+      last_var.value.get(usize(0)),
       .Some(ev) => {
         match(
           ev,
           .TypeVal(b) => {
-            if(is_some_type(b.*), {
-              some_ty_opt =.Some(b.*);
+            if(is_some_type(b), {
+              some_ty_opt =.Some(b);
             }, {
               // Concrete type — validate constraint using validate_concrete_type_constraints.
               // Use outer exn directly (hard failure) — the given/using soft-failure pattern
               // generates incomplete C calls (missing exn__throw argument).
-              validate_concrete_type_constraints(b.*, unwrapped_trait_expr, original_constraint_expr, env_mut, ctx, exn);
+              validate_concrete_type_constraints(b, unwrapped_trait_expr, original_constraint_expr, env_mut, ctx, exn);
               return(true);
             });
           },
@@ -1648,7 +2079,7 @@ apply_single_trait_constraint :: (
     env_mut.module_path = info.env.module_path;
     env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
     env_mut.input_string = info.env.input_string;
-    lhs_ty = match(info.value,.Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),.None => TypeValue.Unit);
+    lhs_ty = match(info.value,.Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),.None => TypeValue.Unit);
     if(is_some_type(lhs_ty), {
       some_ty_opt =.Some(lhs_ty);
     }, {
@@ -1682,7 +2113,7 @@ apply_single_trait_constraint :: (
   env_mut.module_path = info_rhs.env.module_path;
   env_mut.function_declaration_frame_level = info_rhs.env.function_declaration_frame_level;
   env_mut.input_string = info_rhs.env.input_string;
-  trait_ty = match(info_rhs.value,.Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),.None => TypeValue.Unit);
+  trait_ty = match(info_rhs.value,.Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),.None => TypeValue.Unit);
   if(!(is_trait_type(trait_ty)), {
     exn.throw(
       dyn(
@@ -1769,19 +2200,19 @@ parse_where_clause_constraints :: (
       if(existing_vars.len() > usize(0), {
         last_v := match(existing_vars.get(existing_vars.len() - usize(1)),.Some(v) => v,.None => return(pending_traits));
         match(
-          last_v.value,
+          last_v.value.get(usize(0)),
           .Some(ev) => {
             match(
               ev,
               .TypeVal(b) => {
-                if(is_some_type(b.*), {
-                  some_ty_opt =.Some(b.*);
+                if(is_some_type(b), {
+                  some_ty_opt =.Some(b);
                 }, {
                   // Concrete type — use outer exn (hard failure).
                   // The given/using soft-failure pattern generates incomplete C calls.
                   // collect_pending behavior is simplified: hard failure on constraint violation.
                   is_concrete_type = true;
-                  validate_concrete_type_constraints(b.*, rhs_expr, constraint_expr, env_mut, ctx, exn);
+                  validate_concrete_type_constraints(b, rhs_expr, constraint_expr, env_mut, ctx, exn);
                   skip_constraint = true;
                 });
               },
@@ -1820,7 +2251,7 @@ parse_where_clause_constraints :: (
         });
         new_some_ty := t_some_t(var_name, top_frame - usize(1));
         tv := create_type_value(new_some_ty);
-        _ := add_variable_to_env(
+        add_variable_to_env(
           env_mut,
           var_name,
           type_of_type(new_some_ty),
@@ -1879,7 +2310,7 @@ parse_where_clause_constraints :: (
       env_mut.module_path = lhs_info.env.module_path;
       env_mut.function_declaration_frame_level = lhs_info.env.function_declaration_frame_level;
       env_mut.input_string = lhs_info.env.input_string;
-      lhs_tv := match(lhs_info.value,.Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),.None => TypeValue.Unit);
+      lhs_tv := match(lhs_info.value,.Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),.None => TypeValue.Unit);
       // HKT TypeApplication case: record `F(A) <: Trait` via the dedicated
       // type-application constraint table (mirrors function.ts:1265-1348 +
       // addWhereClauseConstraintForTypeApplication). The RHS trait parsing
@@ -1965,7 +2396,7 @@ parse_where_clause_constraints :: (
               )
             );
           });
-          _ := pending_traits.push(PendingConstraint(lhs_expr, trait_expr_item, constraint_expr));
+          pending_traits.push(PendingConstraint(lhs_expr, trait_expr_item, constraint_expr));
           skip_iter = true;
           new_expr_info(env_mut, TypeValue.Unit)
         }
@@ -1986,7 +2417,7 @@ parse_where_clause_constraints :: (
             )
           );
         });
-        _ := pending_traits.push(PendingConstraint(lhs_expr, trait_expr_item, constraint_expr));
+        pending_traits.push(PendingConstraint(lhs_expr, trait_expr_item, constraint_expr));
         skip_iter = true;
       });
       if(skip_iter, {
@@ -1996,7 +2427,7 @@ parse_where_clause_constraints :: (
       env_mut.module_path = trait_info.env.module_path;
       env_mut.function_declaration_frame_level = trait_info.env.function_declaration_frame_level;
       env_mut.input_string = trait_info.env.input_string;
-      trait_ty2 = match(trait_info.value,.Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),.None => TypeValue.Unit);
+      trait_ty2 = match(trait_info.value,.Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),.None => TypeValue.Unit);
       if(!(is_trait_type(trait_ty2)), {
         exn.throw(
           dyn(
@@ -2100,7 +2531,7 @@ prepare_where_clause_variables :: (
         });
         new_some_ty := t_some_t(var_name, top_frame - usize(1));
         tv := create_type_value(new_some_ty);
-        _ := add_variable_to_env(
+        add_variable_to_env(
           env_mut,
           var_name,
           type_of_type(new_some_ty),
@@ -2198,7 +2629,7 @@ evaluate_function_parameters :: (
     exn : Exception
   ) -> FuncParamsResult
 )({
-  _ := env_mut.push_frame(false);
+  env_mut.push_frame(false);
   params := ArrayList(FuncParam).new();
   forall_params := ArrayList(FuncParam).new();
   implicit_params := ArrayList(FuncParam).new();
@@ -2213,15 +2644,17 @@ evaluate_function_parameters :: (
     false,
     false,
     Option(EvalValue).None,
-    false
+    false,
+    Option(AstExpr).None,
+    Option(AstExpr).None
   );
   (find_variadic : bool) = false;
   // --------------------------------------------------------------------------
-  // Pass 1 — process forall type parameters (first parameter only)
+  // Pass 1 — process generic type parameters (first parameter only)
   // --------------------------------------------------------------------------
   if(param_exprs.len() > usize(0), {
     first_param := match(param_exprs.get(usize(0)),.Some(e) => e,.None => make_err_expr());
-    if(ast_expr_is_fn_call_of(first_param, BK_FORALL, Option(usize).None), {
+    if(ast_expr_is_fn_call_of(first_param, BK_GENERIC, Option(usize).None), {
       forall_args := _fn_call_args(first_param);
       (j : usize) = usize(0);
       while(j < forall_args.len(), {
@@ -2272,20 +2705,21 @@ evaluate_function_parameters :: (
             generate_some_type_id(),
             row_var_name.clone(),
             er_frame_level,
-            Box(TypeValue)(TypeValue.TypeUni(usize(1))),
+            TypeValue.TypeUni(usize(1)),
             ArrayList(TypeValue).new(),
             ArrayList(usize).new(),
             ArrayList(TypeValue).new(),
             ArrayList(usize).new(),
             true,
-            Option(Box(TypeValue)).None
+            Option(TypeValue).None,
+            ArrayList(TypeValue).new()
           );
           row_kind_type := TypeValue.TypeUni(usize(1));
-          _ := add_variable_to_env(
+          add_variable_to_env(
             env_mut,
             row_var_name.clone(),
             row_kind_type.clone(),
-            Option(EvalValue).Some(EvalValue.TypeVal(Box(TypeValue)(eff_row_some_type.clone()))),
+            Option(EvalValue).Some(EvalValue.TypeVal(eff_row_some_type.clone())),
             true,
             false,
             false,
@@ -2302,7 +2736,9 @@ evaluate_function_parameters :: (
               false,
               false,
               Option(EvalValue).None,
-              false
+              false,
+              Option(AstExpr).None,
+              Option(AstExpr).None
             )
           );
           is_eff_row_forall = true;
@@ -2380,14 +2816,14 @@ evaluate_function_parameters :: (
         ast_expr_is_atom(match(_fn_call_args(impl_expr).get(usize(0)),.Some(a) => a,.None => make_err_expr())), {
         inner_arg2 := match(_fn_call_args(impl_expr).get(usize(0)),.Some(a) => a,.None => make_err_expr());
         row_var_name2 := ast_expr_token(inner_arg2).value.clone();
-        // Look up E (must have been declared in forall)
+        // Look up E (must have been declared in generic)
         row_vars := get_variables_from_env(env_mut, row_var_name2.clone());
         if(row_vars.len() == usize(0), {
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(impl_expr),
-                `Effect row variable "${row_var_name2}" not found in scope. Declare it with forall(..., ...(${row_var_name2}))`,
+                `Effect row variable "${row_var_name2}" not found in scope. Declare it with generic(..., ...(${row_var_name2}))`,
                 false,
                 .None
               )
@@ -2410,13 +2846,13 @@ evaluate_function_parameters :: (
             );
           },
           .Some(row_var) => {
-            e_val := row_var.value;
+            e_val := row_var.value.get(usize(0));
             (eff_row_handled : bool) = false;
             match(
               e_val,
               .Some(ev) => {
                 if(is_type_val(ev) && !(eff_row_handled), {
-                  inner_ty := match(ev,.TypeVal(b) => b.*, _ => TypeValue.Unit);
+                  inner_ty := match(ev,.TypeVal(b) => b, _ => TypeValue.Unit);
                   if(is_effects_row_type(inner_ty.clone()), {
                     // Expand concrete EffectsRowT into individual params
                     match(
@@ -2436,7 +2872,9 @@ evaluate_function_parameters :: (
                               true,
                               false,
                               Option(EvalValue).None,
-                              false
+                              false,
+                              Option(AstExpr).None,
+                              Option(AstExpr).None
                             )
                           );
                           ki = (ki + usize(1));
@@ -2449,7 +2887,7 @@ evaluate_function_parameters :: (
                     // TypeVal but not EffectsRowT — must be a SomeT with is_effects_row
                     is_er_some := match(
                       inner_ty.clone(),
-                      .SomeT(_, _, _, _, _, _, _, _, is_er, _) => is_er,
+                      .SomeT(_, _, _, _, _, _, _, _, is_er, _, _) => is_er,
                       _ => false
                     );
                     if(!(is_er_some), {
@@ -2457,7 +2895,7 @@ evaluate_function_parameters :: (
                         dyn(
                           format_error_message(
                             ast_expr_token(impl_expr),
-                            `"...(${row_var_name2})" requires "${row_var_name2}" to be a forall-declared effect row variable, but it resolves to a concrete type.`,
+                            `"...(${row_var_name2})" requires "${row_var_name2}" to be a generic-declared effect row variable, but it resolves to a concrete type.`,
                             false,
                             .None
                           )
@@ -2475,14 +2913,16 @@ evaluate_function_parameters :: (
                         true,
                         true,
                         Option(EvalValue).None,
-                        false
+                        false,
+                        Option(AstExpr).None,
+                        Option(AstExpr).None
                       )
                     );
                     eff_row_handled = true;
                   });
                 });
                 if(is_unknown_val(ev) && !(eff_row_handled), {
-                  inner_ty2 := match(ev,.UnknownVal(b) => b.*, _ => TypeValue.Unit);
+                  inner_ty2 := match(ev,.UnknownVal(b, _) => b, _ => TypeValue.Unit);
                   if(is_effects_row_type(inner_ty2.clone()), {
                     // Expand EffectsRowT
                     match(
@@ -2502,7 +2942,9 @@ evaluate_function_parameters :: (
                               true,
                               false,
                               Option(EvalValue).None,
-                              false
+                              false,
+                              Option(AstExpr).None,
+                              Option(AstExpr).None
                             )
                           );
                           ki2 = (ki2 + usize(1));
@@ -2521,13 +2963,14 @@ evaluate_function_parameters :: (
                       generate_some_type_id(),
                       row_var_name2.clone(),
                       er_fl,
-                      Box(TypeValue)(TypeValue.TypeUni(usize(1))),
+                      TypeValue.TypeUni(usize(1)),
                       ArrayList(TypeValue).new(),
                       ArrayList(usize).new(),
                       ArrayList(TypeValue).new(),
                       ArrayList(usize).new(),
                       true,
-                      Option(Box(TypeValue)).None
+                      Option(TypeValue).None,
+                      ArrayList(TypeValue).new()
                     );
                     implicit_params.push(
                       FuncParam(
@@ -2539,7 +2982,9 @@ evaluate_function_parameters :: (
                         true,
                         true,
                         Option(EvalValue).None,
-                        false
+                        false,
+                        Option(AstExpr).None,
+                        Option(AstExpr).None
                       )
                     );
                     eff_row_handled = true;
@@ -2621,7 +3066,7 @@ evaluate_function_parameters :: (
           dyn(
             format_error_message(
               ast_expr_token(impl_expr),
-              `Duplicate label "${param.label}" in implicit parameter (already in forall)`,
+              `Duplicate label "${param.label}" in implicit parameter (already in generic)`,
               false,
               .None
             )
@@ -2666,7 +3111,9 @@ evaluate_function_parameters :: (
         true,
         false,
         Option(EvalValue).None,
-        false
+        false,
+        Option(AstExpr).None,
+        Option(AstExpr).None
       );
       implicit_params.push(impl_param);
       // Mark variable as implicit in env top frame
@@ -2696,6 +3143,127 @@ evaluate_function_parameters :: (
     });
   });
   // --------------------------------------------------------------------------
+  // Pass 2b — Phase 0 of plans/FORMAL_VERIFICATION.md: enforce the canonical
+  // signature clause order, then extract the contract clauses.
+  // Mirrors src/evaluator/types/function.ts:1700-1783.
+  // --------------------------------------------------------------------------
+  (max_zone : usize) = usize(0);
+  (max_name : String) = String.from("generic(...)");
+  (zi : usize) = usize(0);
+  while(zi < param_exprs.len(), {
+    z_expr := match(param_exprs.get(zi),.Some(e) => e,.None => make_err_expr());
+    zi = (zi + usize(1));
+    z_zone := _clause_zone(z_expr);
+    z_name := _clause_name(z_expr);
+    if(z_zone < max_zone, {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(z_expr),
+            `${z_name} appears after ${max_name} in the function signature. The canonical clause order is: generic(...), parameters, where(...), requires(...), ensures(...). Move ${z_name} before ${_zone_label(max_zone)}.`,
+            false,
+            .None
+          )
+        )
+      );
+    });
+    if(z_zone > max_zone, {
+      max_zone = z_zone;
+      max_name = z_name;
+    });
+  });
+  // Each contract builtin may appear at most once in a signature (single-call
+  // rule: `requires(P1, P2, ...)`). Zero-argument forms are rejected.
+  (requires_exprs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+  (ensures_exprs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+  (seen_requires : bool) = false;
+  (seen_ensures : bool) = false;
+  (ci : usize) = usize(0);
+  while(ci < param_exprs.len(), {
+    c_expr := match(param_exprs.get(ci),.Some(e) => e,.None => make_err_expr());
+    ci = (ci + usize(1));
+    if(ast_expr_is_fn_call_of(c_expr, BF_REQUIRES, Option(usize).None), {
+      c_args := _fn_call_args(c_expr);
+      if(c_args.len() == usize(0), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(c_expr),
+              String.from("'requires(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no precondition."),
+              false,
+              .None
+            )
+          )
+        );
+      });
+      if(seen_requires, {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(c_expr),
+              String.from("Multiple 'requires(...)' clauses in the same signature are a syntax error. Combine the predicates into one call: 'requires(P1, P2, ...)'."),
+              false,
+              .None
+            )
+          )
+        );
+      });
+      seen_requires = true;
+      (cri : usize) = usize(0);
+      while(cri < c_args.len(), {
+        match(
+          c_args.get(cri),
+          .Some(p) => {
+            requires_exprs.push(p);
+          },
+          .None => ()
+        );
+        cri = (cri + usize(1));
+      });
+      continue;
+    });
+    if(ast_expr_is_fn_call_of(c_expr, BF_ENSURES, Option(usize).None), {
+      e_args := _fn_call_args(c_expr);
+      if(e_args.len() == usize(0), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(c_expr),
+              String.from("'ensures(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no postcondition."),
+              false,
+              .None
+            )
+          )
+        );
+      });
+      if(seen_ensures, {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(c_expr),
+              String.from("Multiple 'ensures(...)' clauses in the same signature are a syntax error. Combine the predicates into one call: 'ensures(Q1, Q2, ...)'."),
+              false,
+              .None
+            )
+          )
+        );
+      });
+      seen_ensures = true;
+      (cei : usize) = usize(0);
+      while(cei < e_args.len(), {
+        match(
+          e_args.get(cei),
+          .Some(p) => {
+            ensures_exprs.push(p);
+          },
+          .None => ()
+        );
+        cei = (cei + usize(1));
+      });
+      continue;
+    });
+  });
+  // --------------------------------------------------------------------------
   // Pass 3 — pre-add all comptime parameters to env (so where clauses can ref them)
   // --------------------------------------------------------------------------
   (pre_added_indices : ArrayList(usize)) = ArrayList(usize).new();
@@ -2704,11 +3272,15 @@ evaluate_function_parameters :: (
     param_expr := match(param_exprs.get(pi3),.Some(e) => e,.None => make_err_expr());
     (current_idx : usize) = pi3;
     pi3 = (pi3 + usize(1));
-    // Skip forall, using, where, ...
-    if(ast_expr_is_fn_call_of(param_expr, BK_FORALL, Option(usize).None) ||
+    // Skip generic, using, where, ..., and Phase-0 contract clauses
+    // (requires/ensures). The contract clauses are recognized here so they
+    // don't get treated as runtime parameters; their bodies are lowered later
+    // by `wrap_function_body_with_contracts`.
+    if(ast_expr_is_fn_call_of(param_expr, BK_GENERIC, Option(usize).None) ||
       ast_expr_is_fn_call_of(param_expr, "using", Option(usize).None) ||
         ast_expr_is_fn_call_of(param_expr, BK_WHERE, Option(usize).None) ||
-          ast_expr_is_fn_call_of(param_expr, "...", Option(usize).None), {
+          ast_expr_is_fn_call_of(param_expr, "...", Option(usize).None) ||
+            _is_contract_clause(param_expr), {
       continue;
     });
     ct_info := extract_comptime_parameter_info(param_expr);
@@ -2734,7 +3306,7 @@ evaluate_function_parameters :: (
           create_type_value(t_some_t(info.name, ct_frame_level)),
           create_unknown_val(param_type)
         );
-        _ := add_variable_to_env(
+        add_variable_to_env(
           env_mut,
           info.name,
           param_type,
@@ -2759,7 +3331,27 @@ evaluate_function_parameters :: (
   // --------------------------------------------------------------------------
   (pending_constraints : ArrayList(PendingConstraint)) = ArrayList(PendingConstraint).new();
   if(param_exprs.len() > usize(0), {
-    last_param := match(param_exprs.get(param_exprs.len() - usize(1)),.Some(e) => e,.None => make_err_expr());
+    // `where` must come at the end of the signature, but Phase-0 contract
+    // clauses (requires/ensures) may follow it. Scan from the end past any
+    // trailing contract clauses to find the where clause.
+    // Mirrors src/evaluator/types/function.ts:1863-1878.
+    (where_idx : usize) = (param_exprs.len() - usize(1));
+    (where_scanning : bool) = true;
+    while(where_scanning, {
+      cand := match(param_exprs.get(where_idx),.Some(e) => e,.None => make_err_expr());
+      cond(
+        !(_is_contract_clause(cand)) => {
+          where_scanning = false;
+        },
+        (where_idx == usize(0)) => {
+          where_scanning = false;
+        },
+        true => {
+          where_idx = (where_idx - usize(1));
+        }
+      );
+    });
+    last_param := match(param_exprs.get(where_idx),.Some(e) => e,.None => make_err_expr());
     if(ast_expr_is_fn_call_of(last_param, BK_WHERE, Option(usize).None), {
       where_args := _fn_call_args(last_param);
       // Copy where_args to where_clause_exprs
@@ -2793,8 +3385,8 @@ evaluate_function_parameters :: (
     param_expr := match(param_exprs.get(pi5),.Some(e) => e,.None => make_err_expr());
     (current_i : usize) = pi5;
     pi5 = (pi5 + usize(1));
-    // Skip forall (already processed in pass 1)
-    if(ast_expr_is_fn_call_of(param_expr, BK_FORALL, Option(usize).None), {
+    // Skip generic (already processed in pass 1)
+    if(ast_expr_is_fn_call_of(param_expr, BK_GENERIC, Option(usize).None), {
       if(!(current_i == usize(0)), {
         exn.throw(
           dyn(
@@ -2813,20 +3405,18 @@ evaluate_function_parameters :: (
     if(ast_expr_is_fn_call_of(param_expr, "using", Option(usize).None), {
       continue;
     });
-    // Skip where clause (already processed in pass 4)
+    // Skip where clause (already processed in pass 4). Clause ordering —
+    // including "where may only be followed by requires/ensures" — is
+    // validated up front by the zone check in pass 2b, so no positional check
+    // is needed here. Mirrors src/evaluator/types/function.ts:1924-1933.
     if(ast_expr_is_fn_call_of(param_expr, BK_WHERE, Option(usize).None), {
-      if(!(current_i == (param_exprs.len() - usize(1))), {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(param_expr),
-              String.from("The where clause must be the last parameter in the function signature."),
-              false,
-              .None
-            )
-          )
-        );
-      });
+      continue;
+    });
+    // Skip Phase-0 contract clauses (requires/ensures). They were extracted in
+    // pass 2b; their predicates are lowered into the body by
+    // `wrap_function_body_with_contracts`.
+    // Mirrors src/evaluator/types/function.ts:1934-1943.
+    if(_is_contract_clause(param_expr), {
       continue;
     });
     // Variadic parameter: ... or ...(name)
@@ -2916,7 +3506,7 @@ evaluate_function_parameters :: (
             is_vcomptime = true;
             vlabel_expr = match(_fn_call_args(varg).get(usize(0)),.Some(a) => a,.None => make_err_expr());
             vparam_name = ast_expr_token(vlabel_expr).value;
-            vparam_type = TypeValue.ComptimeListT(Box(TypeValue)(t_type()));
+            vparam_type = TypeValue.ComptimeListT(t_type());
           }, {
             // ...(quote(name)) or ...(:(name)) — the unary quote
             // macro. `:` (unary) aliases `quote` semantically.
@@ -2969,10 +3559,12 @@ evaluate_function_parameters :: (
         false,
         false,
         Option(EvalValue).None,
-        false
+        false,
+        Option(AstExpr).None,
+        Option(AstExpr).None
       );
       // Add to env if named
-      if(!(vparam_name == String.from("...")), {
+      if(!(vparam_name == "..."), {
         v_frame_level := if(
           env_mut.frames.len() > usize(0),
           env_mut.frames.len() - usize(1),
@@ -2987,7 +3579,7 @@ evaluate_function_parameters :: (
           ),
           Option(EvalValue).None
         );
-        _ := add_variable_to_env(
+        add_variable_to_env(
           env_mut,
           vparam_name,
           vparam_type,
@@ -3101,7 +3693,9 @@ evaluate_function_parameters :: (
             implicit_params,
             where_clause_exprs,
             has_variadic,
-            variadic_param
+            variadic_param,
+            requires_exprs,
+            ensures_exprs
           )
         )
       );
@@ -3111,7 +3705,7 @@ evaluate_function_parameters :: (
       _retry_errors := parse_where_clause_constraints(one_failed, env_mut, ctx, false, exn);
     });
   });
-  FuncParamsResult(params, forall_params, implicit_params, where_clause_exprs, has_variadic, variadic_param)
+  FuncParamsResult(params, forall_params, implicit_params, where_clause_exprs, has_variadic, variadic_param, requires_exprs, ensures_exprs)
 });
 // Helper to get a param expr for error reporting
 param_exprs_for_error :: (fn(arg_list : ArrayList(AstExpr), idx : usize) -> Option(AstExpr))(
@@ -3192,17 +3786,17 @@ evaluate_function_type :: (
     ret_args := _fn_call_args(return_type_expr);
     (rl_expr : AstExpr) = match(ret_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
     return_type_expr = match(ret_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
-    // `(ref(name) : T)` / `(name : ref(T))` — ref-return forms are
+    // `(inout(name) : T)` / `(name : inout(T))` — ref-return forms are
     // BANNED: refs are second-class and may appear only in parameter
     // position and local lvalue borrows. (Mirrors the TS ban in
     // evaluateFunctionType.)
-    if(ast_expr_is_fn_call_of(rl_expr, BK_REF, Option(usize).None) ||
-      (ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None)), {
+    if(ast_expr_is_fn_call_of(rl_expr, BK_INOUT, Option(usize).None) ||
+      (ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_INOUT, Option(usize).None)), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(rl_expr),
-            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'ref(name) : T'."),
+            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'inout(name) : T'."),
             false,
             .None
           )
@@ -3277,16 +3871,16 @@ evaluate_function_type :: (
       );
     });
     // In a labeled return slot, a `ref`/`comptime` modifier goes on the LABEL,
-    // never on the TYPE. Reject `-> (name : ref(T))` / `-> (name : comptime(T))`;
-    // use `-> (ref(name) : T)` / `-> (comptime(name) : T)` (or unlabeled
-    // `-> ref(T)` / `-> comptime(T)`). The `(ref(name) : ref(T))` double-ref
+    // never on the TYPE. Reject `-> (name : inout(T))` / `-> (name : comptime(T))`;
+    // use `-> (inout(name) : T)` / `-> (comptime(name) : T)` (or unlabeled
+    // `-> inout(T)` / `-> comptime(T)`). The `(inout(name) : inout(T))` double-ref
     // case is caught above with a more specific message. Mirrors function.ts.
-    if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None), {
+    if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_INOUT, Option(usize).None), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(return_type_expr),
-            String.from("In a labeled return slot, 'ref' goes on the label, not the type. Use '-> (ref(name) : T)' (or unlabeled '-> ref(T)'), not '-> (name : ref(T))'."),
+            String.from("In a labeled return slot, 'ref' goes on the label, not the type. Use '-> (inout(name) : T)' (or unlabeled '-> inout(T)'), not '-> (name : inout(T))'."),
             false,
             .None
           )
@@ -3320,15 +3914,15 @@ evaluate_function_type :: (
     return_label =.Some(ast_expr_token(rl_expr).value);
   }, {
     // -> i32 or -> comptime(i32) or -> unquote(Expr)
-    // `-> ref(T)` is BANNED: refs are second-class and may appear only
+    // `-> inout(T)` is BANNED: refs are second-class and may appear only
     // in parameter position and local lvalue borrows. (Mirrors the TS
     // ban in evaluateFunctionType.)
-    if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None), {
+    if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_INOUT, Option(usize).None), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(return_type_expr),
-            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'ref(name) : T'."),
+            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'inout(name) : T'."),
             false,
             .None
           )
@@ -3399,15 +3993,15 @@ evaluate_function_type :: (
       );
     });
   });
-  // `-> ref(T)` in the return slot is BANNED: refs are second-class and
+  // `-> inout(T)` in the return slot is BANNED: refs are second-class and
   // may appear only in parameter position and local lvalue borrows.
   // (Mirrors the TS ban in evaluateFunctionType.)
-  if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_REF, Option(usize).None), {
+  if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_INOUT, Option(usize).None), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(return_type_expr),
-          String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'ref(name) : T'."),
+          String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'inout(name) : T'."),
           false,
           .None
         )
@@ -3548,10 +4142,10 @@ evaluate_function_type :: (
         match(
           ct_vars.get(ct_vars.len() - usize(1)),
           .Some(ct_var) => match(
-            ct_var.value,
+            ct_var.value.get(usize(0)),
             .Some(cv) => match(
               cv,
-              .TypeVal(ct_tb) => _collect_where_constraints_from_some_t(wpp.label, ct_tb.*, where_constraint_entries),
+              .TypeVal(ct_tb) => _collect_where_constraints_from_some_t(wpp.label, ct_tb, where_constraint_entries),
               _ => ()
             ),
             .None => ()
@@ -3591,6 +4185,10 @@ evaluate_function_type :: (
   });
   (ppi : usize) = usize(0);
   param_defaults := ArrayList(Option(EvalValue)).new();
+  param_default_exprs := ArrayList(Option(AstExpr)).new();
+  param_type_exprs := ArrayList(Option(AstExpr)).new();
+  param_comptime_flags := ArrayList(bool).new();
+  param_assigned_values := ArrayList(Option(EvalValue)).new();
   quoted_param_indices := ArrayList(usize).new();
   while(ppi < params_result.params.len(), {
     pp := match(
@@ -3606,6 +4204,10 @@ evaluate_function_type :: (
     param_is_ref.push(pp.is_ref);
     param_is_owning.push(pp.is_owning_rc_value);
     param_defaults.push(pp.default_value);
+    param_default_exprs.push(pp.default_value_expr);
+    param_type_exprs.push(pp.ty_expr);
+    param_comptime_flags.push(pp.is_compile_time_only);
+    param_assigned_values.push(pp.assigned_value);
     if(pp.is_quote, {
       quoted_param_indices.push(ppi);
     });
@@ -3616,10 +4218,34 @@ evaluate_function_type :: (
   // re-keys them under the FuncVal id so call-site arg matching can treat
   // trailing defaulted params as optional. (See the side-table above.)
   register_func_param_defaults(ast_expr_id(expr).to_string(), param_defaults);
+  // Per-param comptime flags (same two-step re-keying as the defaults) so the
+  // call site can lower comptime-only args passed to RUNTIME params.
+  register_func_param_comptime(ast_expr_id(expr).to_string(), param_comptime_flags);
+  // Per-param `= <value>` assigned values (same two-step re-keying) so the
+  // call site can reject a mismatching argument (TS helper.ts:481-497).
+  register_func_param_assigned_values(ast_expr_id(expr).to_string(), param_assigned_values);
+  // Keep the declared return-type EXPR for specialization-time re-evaluation
+  // (see the side-table comment above; TS functionType.return.typeExpr).
+  register_func_return_type_expr(ast_expr_id(expr).to_string(), return_type_expr.clone());
+  // Register the per-parameter default-value EXPRESSIONS (parallel to the
+  // values above) so codegen can EMIT an omitted default as a C argument.
+  register_func_param_default_exprs(ast_expr_id(expr).to_string(), param_default_exprs);
+  // Per-parameter declared TYPE expressions (TS parameter.exprs.typeExpr) for
+  // specialization-time re-evaluation — see the side-table comment above.
+  register_func_param_type_exprs(ast_expr_id(expr).to_string(), param_type_exprs);
   // Register the where-clause constraints (keyed like the defaults; re-keyed
   // under the FuncVal id by try_to_implement_function_by_function_type) so the
   // call site can validate bound concrete types against them.
   register_func_where_constraints(ast_expr_id(expr).to_string(), where_constraint_entries);
+  // Register the where-clause EXPRESSIONS too (TS functionType.whereClauseExprs)
+  // for the call-site re-application — see the exprs side-table comment above.
+  register_func_where_clause_exprs(ast_expr_id(expr).to_string(), params_result.where_clause_exprs);
+  // Register the Phase-0 contract predicates (keyed like the defaults; re-keyed
+  // under the FuncVal id by try_to_implement_function_by_function_type) so the
+  // body-wrapping lowering can splice them into the function body.
+  // Mirrors function.ts:2273-2274 storing them on the FunctionType.
+  register_func_requires_exprs(ast_expr_id(expr).to_string(), params_result.requires_exprs);
+  register_func_ensures_exprs(ast_expr_id(expr).to_string(), params_result.ensures_exprs);
   // Register the variadic parameter's name/type (see the side table above).
   if(params_result.has_variadic, {
     register_func_variadic_param(
@@ -3667,7 +4293,7 @@ evaluate_function_type :: (
     );
     match(
       fp.ty,
-      .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
+      .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
         (ti2 : usize) = usize(0);
         while(ti2 < required_trait_types.len(), {
           tt := match(
@@ -3686,34 +4312,62 @@ evaluate_function_type :: (
     );
     wci = (wci + usize(1));
   });
+  (mint_vlabel : Option(String)) = Option(String).None;
+  (mint_vcomptime : bool) = false;
+  vts_mint := ArrayList(TypeValue).new();
+  if(params_result.has_variadic, {
+    mint_vlabel = Option(String).Some(params_result.variadic_param.label.clone());
+    mint_vcomptime = params_result.variadic_param.is_compile_time_only;
+    vts_mint.push(params_result.variadic_param.ty);
+  });
   func_type := TypeValue.Func(
-    forall_labels,
     forall_types,
-    param_labels,
     param_types,
-    implicit_labels,
     implicit_types,
-    implicit_spreads,
     where_types,
-    Box(TypeValue)(return_type),
-    // result_is_comptime_only — mirrors TS `return.isCompileTimeOnly`,
-    // set from the `comptime(...)` wrapper on the declared return.
-    is_return_comptime_only,
-    // param_is_ref / param_is_owning / result_is_ref — mirrors TS
-    // `FunctionParameter.isRef`, `isOwningTheRcValue`, and `return.isRef`.
-    param_is_ref,
-    param_is_owning,
-    is_return_type_ref,
-    // has_variadic — mirrors TS `FunctionType.variadicParameter` presence,
-    // set from the trailing `...` marker (C-style variadic externs).
-    params_result.has_variadic,
-    // is_extern / extern_name — None here; a bare `fn(...)` type carries no
-    // FFI marker. `evaluate_extern`/`evaluate_c_include` rebuild the field's
-    // type with `Some(language)`/`Some(label)` (mirrors extern.ts:138-161).
-    Option(String).None,
-    Option(String).None,
-    // is_control — true when the head was `ctl(...)` (mirrors isControl).
-    is_ctl_fn_type
+    return_type,
+    box(
+      FuncMeta(
+        forall_labels : forall_labels,
+        param_labels : param_labels,
+        implicit_labels : implicit_labels,
+        implicit_spreads : implicit_spreads,
+        // result_is_comptime_only — mirrors TS `return.isCompileTimeOnly`,
+        // set from the `comptime(...)` wrapper on the declared return.
+        result_is_comptime_only : is_return_comptime_only,
+        // param_is_ref / param_is_owning / result_is_ref — mirrors TS
+        // `FunctionParameter.isRef`, `isOwningTheRcValue`, and `return.isRef`.
+        param_is_ref : param_is_ref,
+        param_is_owning : param_is_owning,
+        result_is_ref : is_return_type_ref,
+        // has_variadic — mirrors TS `FunctionType.variadicParameter` presence,
+        // set from the trailing `...` marker (C-style variadic externs).
+        has_variadic : params_result.has_variadic,
+        // is_extern / extern_name — None here; a bare `fn(...)` type carries no
+        // FFI marker. `evaluate_extern`/`evaluate_c_include` rebuild the field's
+        // type with `Some(language)`/`Some(label)` (mirrors extern.ts:138-161).
+        is_extern : Option(String).None,
+        extern_name : Option(String).None,
+        // is_control — true when the head was `ctl(...)` (mirrors isControl).
+        is_control : is_ctl_fn_type,
+        // variadic_label / variadic_comptime — the variadic parameter's
+        // binding name + comptime flag (mirrors TS
+        // `FunctionType.variadicParameter.{label,isCompileTimeOnly}`); the
+        // TYPE rides in Func.variadic_types below.
+        variadic_label : mint_vlabel,
+        variadic_comptime : mint_vcomptime,
+        // origin_id — this `fn(...)` TYPE EXPRESSION's id, the key under which
+        // every side table above (param comptime flags, param type exprs,
+        // return type expr, defaults, where clauses, contracts) was just
+        // registered. Carrying it ON the type is what lets a consumer that only
+        // ever sees the TYPE — an anonymous function checked against it —
+        // re-key those tables onto its own FuncVal id, the way the `::` path
+        // does explicitly. TS needs no such channel because the data lives on
+        // its FunctionType and its anonymous-function evaluator spreads it.
+        origin_id : Option(String).Some(ast_expr_id(expr).to_string())
+      )
+    ),
+    vts_mint
   );
   // Set expr info on the expr
   out_info := new_expr_info(env_mut, type_of_type(func_type));
@@ -3732,11 +4386,267 @@ evaluate_function_type :: (
 /// resolve each via `get_value_of_some_type_from_env`, and `substitute`.
 /// A bare-SomeT input keeps the direct single-lookup path (identical result,
 /// no list allocation).
+/// Collect the SomeTypes nested inside a SomeT wrapper's `Fn`-trait carrier —
+/// the `E`/`T` inside `Impl(Fn(e : E) -> T)`. `get_all_some_types` deliberately
+/// stops at a SomeT boundary (a faithful mirror of TS's `getAllSomeTypes`, which
+/// never recurses into a SomeType and reaches inner vars only via type-expr
+/// re-evaluation). yo-self stores no type expr, so `_resolve_some_types_deep`
+/// walks the `Fn` carrier here so a closure parameter's bundle type resolves at
+/// the call site.
+///
+/// Deliberately does NOT descend into a `Future` carrier (`Impl(Future(T, E))`):
+/// yo-self's async codegen keeps the future's output/effect UNRESOLVED through
+/// eval (the sync-future struct is registered against the wrapper SomeType id).
+/// Resolving them would change the return type's identity and break that
+/// registration. The `Fn` carrier yields the same `E`/`T` instances (shared
+/// generic vars) so their self-markers still get recreated.
+collect_wrapper_trait_somes :: (fn(wrapper : TypeValue) -> ArrayList(TypeValue))({
+  acc := ArrayList(TypeValue).new();
+  rtts := match(
+    wrapper,
+    .SomeT(_, _, _, _, required_trait_types : rts, _, _, _, _, _, _) => rts,
+    _ => ArrayList(TypeValue).new()
+  );
+  (i : usize) = usize(0);
+  while(i < rtts.len(), {
+    rtt := match(rtts.get(i),.Some(t) => t,.None => t_unit());
+    match(
+      rtt,
+      // Future carrier — `Impl(Future(T, E))`. Without this arm the type
+      // variables living ONLY inside the Future trait's arguments were
+      // invisible here, so Step 9's `_resolve_some_types_deep` returned the
+      // raw declared `Impl(Future(T, E))` even though Step 6b had already
+      // bound `T := i32` / `E := Io` in callee_env from the annotation —
+      // the assignment's compat check then rejected two identically-
+      // printing Impl SomeTs (tests/async_await.test.yo arm 65;
+      // scratchpad/t5/B_io_variant.yo). Mirrors TS, where
+      // evaluateFunctionReturnTypeAgain re-evaluates the return-type
+      // EXPRESSION and the `Future(T, E)` application re-reads T/E from
+      // calleeEnv. The no-expected case is unaffected: an unbound T/E
+      // resolves to itself and the substitution below no-ops, so the async
+      // pipeline's unresolved-SomeT registrations keep their identity.
+      .FutureTraitT({ output : fut_out, effect_types : fut_ets }) => {
+        fo_inner := get_all_some_types(fut_out);
+        (foi : usize) = usize(0);
+        while(foi < fo_inner.len(), {
+          match(
+            fo_inner.get(foi),
+            .Some(s) => {
+              acc.push(s);
+            },
+            .None => ()
+          );
+          foi = (foi + usize(1));
+        });
+        (fei : usize) = usize(0);
+        while(fei < fut_ets.len(), {
+          match(
+            fut_ets.get(fei),
+            .Some(fet) => {
+              fe_inner := get_all_some_types(fet);
+              (fej : usize) = usize(0);
+              while(fej < fe_inner.len(), {
+                match(
+                  fe_inner.get(fej),
+                  .Some(s2) => {
+                    acc.push(s2);
+                  },
+                  .None => ()
+                );
+                fej = (fej + usize(1));
+              });
+            },
+            .None => ()
+          );
+          fei = (fei + usize(1));
+        });
+      },
+      .FnTraitT({ call_param_types : cpts, call_result : cr, implicit_types : its }) => {
+        (cj : usize) = usize(0);
+        while(cj < cpts.len(), {
+          match(
+            cpts.get(cj),
+            .Some(pt) => {
+              inner := get_all_some_types(pt);
+              (ii : usize) = usize(0);
+              while(ii < inner.len(), {
+                match(
+                  inner.get(ii),
+                  .Some(s) => {
+                    acc.push(s);
+                  },
+                  .None => ()
+                );
+                ii = (ii + usize(1));
+              });
+            },
+            .None => ()
+          );
+          cj = (cj + usize(1));
+        });
+        cr_inner := get_all_some_types(cr);
+        (ci : usize) = usize(0);
+        while(ci < cr_inner.len(), {
+          match(
+            cr_inner.get(ci),
+            .Some(s) => {
+              acc.push(s);
+            },
+            .None => ()
+          );
+          ci = (ci + usize(1));
+        });
+        (ij : usize) = usize(0);
+        while(ij < its.len(), {
+          match(
+            its.get(ij),
+            .Some(it) => {
+              inner := get_all_some_types(it);
+              (ik : usize) = usize(0);
+              while(ik < inner.len(), {
+                match(
+                  inner.get(ik),
+                  .Some(s) => {
+                    acc.push(s);
+                  },
+                  .None => ()
+                );
+                ik = (ik + usize(1));
+              });
+            },
+            .None => ()
+          );
+          ij = (ij + usize(1));
+        });
+      },
+      _ => ()
+    );
+    i = (i + usize(1));
+  });
+  acc
+});
 _resolve_some_types_deep :: (
   fn(ty : TypeValue, env : Environment) -> TypeValue
 )({
   if(is_some_type(ty), {
-    return(get_value_of_some_type_from_env(env, ty));
+    (r : TypeValue) = get_value_of_some_type_from_env(env, ty);
+    // POISONED-LINEAGE guard: a wrapper whose OWN required traits include
+    // Future must never resolve to a bare Func — io.async's declared return
+    // `Impl(Future(T, E))` and io.await's `fut` param share ONE wrapper cell
+    // lineage (substitution copies cell handles), and the async return-stamp
+    // bridge writes the CLOSURE's Fn type into it; adopting that here made
+    // io.await's `fut` param type `fn(e : Ctx) -> i32` and the arg check
+    // threw (async_await arm 65 —
+    // issues/yo-self-io-await-shared-wrapper-poisoning.md). TS's equivalent
+    // resolution is per-call-freshened and cannot cross-contaminate.
+    (rsd_fut_poisoned : bool) = false;
+    if(!(is_some_type(r)) && is_function_type(r), {
+      match(
+        ty,
+        .SomeT({ required_trait_types : rsd_rtt }) => {
+          (rsd_i : usize) = usize(0);
+          while((rsd_i < rsd_rtt.len()) && !(rsd_fut_poisoned), {
+            match(
+              rsd_rtt.get(rsd_i),
+              .Some(rsd_rt) => match(
+                rsd_rt,
+                .FutureTraitT(base_name : _) => {
+                  rsd_fut_poisoned = true;
+                },
+                _ => ()
+              ),
+              .None => ()
+            );
+            rsd_i = (rsd_i + usize(1));
+          });
+        },
+        _ => ()
+      );
+    });
+    // A poisoned resolution is NOT adopted, but resolution CONTINUES with
+    // the raw wrapper as the base so the nested-substitution path below can
+    // still rebuild it from the env-bound carrier SomeTs (T := i32,
+    // E := Ctx from the arg synthesis).
+    if(rsd_fut_poisoned, {
+      r = ty;
+    });
+    // Wrapper resolved to a concrete type → done.
+    if((!(is_some_type(r))) && !(rsd_fut_poisoned), {
+      return(r);
+    });
+    // The wrapper is still an unbound SomeT (e.g. `Impl(Fn(e : E) -> T)` whose
+    // `Impl` var is unbound while an inner var like `E` is now concrete). Resolve
+    // the SomeTypes nested in its `Fn` carrier and substitute them back — the
+    // value-space equivalent of TS re-evaluating the parameter's type expr.
+    // Without it a closure bundle param stays `Impl(Fn(e : E) -> T)`, `e` lowers
+    // to `void*`, and `e.io` / `e.exn` field accesses fail.
+    nested := collect_wrapper_trait_somes(r);
+    if(nested.len() == usize(0), {
+      return(r);
+    });
+    ns := subst_new();
+    (nbound : bool) = false;
+    (nti : usize) = usize(0);
+    while(nti < nested.len(), {
+      nst := match(nested.get(nti),.Some(t) => t,.None => t_unit());
+      (nres : TypeValue) = get_value_of_some_type_from_env(env, nst);
+      // Track whether the resolution came from the env (true) or from
+      // the global lookup_some_resolved_concrete fallback (false).
+      // Only register when sourced from env to avoid re-caching IoExn.
+      (nres_from_env : bool) = !(is_some_type(nres));
+      if(is_some_type(nres), {
+        // Only fall back to the global table when the env lookup
+        // returned a FRESH SomeType (from get_value_of_some_type_from_env's
+        // self-bound/def-frame gating). Skip the fallback for "E" (effect
+        // param) — the global table is poisoned by prior IoExn registrations
+        // and would resolve E to IoExn even for single-effect io.async calls.
+        _skip_fallback := match(
+          nst,
+          .SomeT(_, _nsn, _, _, _, _, _, _, _, _, _) => (_nsn == "E"),
+          _ => false
+        );
+        if(!(_skip_fallback), {
+          match(
+            nres,
+            .SomeT({ id : nrsid }) => match(
+              lookup_some_resolved_concrete(nrsid),
+              .Some(c) => {
+                nres = c;
+              },
+              .None => ()
+            ),
+            _ => ()
+          );
+        });
+      });
+      if(!(is_some_type(nres)), {
+        match(
+          nst,
+          .SomeT(nst_id, nst_name, nst_lvl, _, _, _, _, _, _, _, _) => {
+            subst_add(ns, nst_name, nst_lvl, nres);
+            // Register the concrete type in the global table when
+            // resolved from the env (not from the stale fallback).
+            // Skip registering IoExn — it's a compound effect that
+            // would overwrite single-effect Io and poison subsequent
+            // io.async calls that only need Io.
+            if(nres_from_env, {
+              _is_ioexn := match(
+                nres,
+                .Struct({ id : _reg_sid }) => (_reg_sid == "IoExn"),
+                _ => false
+              );
+              if(!(_is_ioexn), {
+                register_some_resolved_concrete(nst_id, nres);
+              });
+            });
+            nbound = true;
+          },
+          _ => ()
+        );
+      });
+      nti = (nti + usize(1));
+    });
+    return(cond(nbound => substitute(ns, r), true => r));
   });
   some_types := get_all_some_types(ty);
   if(some_types.len() == usize(0), {
@@ -3747,11 +4657,31 @@ _resolve_some_types_deep :: (
   (sti : usize) = usize(0);
   while(sti < some_types.len(), {
     st := match(some_types.get(sti),.Some(t) => t,.None => t_unit());
-    resolved := get_value_of_some_type_from_env(env, st);
+    (resolved : TypeValue) = get_value_of_some_type_from_env(env, st);
+    // If the env resolves `st` only to ANOTHER SomeType (e.g. an async future's
+    // output type, which yo-self keeps unresolved through eval), try the codegen
+    // resolved-concrete registry — the same resolvedConcreteType bridge the
+    // io.await/io.spawn refinements use. This lets `io.spawn`'s `JoinHandle(T)`
+    // return type concretize `T` to the spawned future's actual output so the
+    // `handle.await` generic-impl match can bind it. See
+    // issues/fixed/yo-self-async-await-struct-result-eval.md.
+    if(is_some_type(resolved), {
+      match(
+        resolved,
+        .SomeT({ id : rsid }) => match(
+          lookup_some_resolved_concrete(rsid),
+          .Some(c) => {
+            resolved = c;
+          },
+          .None => ()
+        ),
+        _ => ()
+      );
+    });
     if(!(is_some_type(resolved)), {
       match(
         st,
-        .SomeT(_, st_name, st_lvl, _, _, _, _, _, _, _) => {
+        .SomeT(_, st_name, st_lvl, _, _, _, _, _, _, _, _) => {
           subst_add(s, st_name, st_lvl, resolved);
           bound_any = true;
         },
@@ -3776,7 +4706,7 @@ _resolve_some_types_deep :: (
 ///
 /// Input:
 ///   `param_type`  — pre-evaluated parameter type from `TypeValue.Func.param_types[i]`
-///   `callee_env`  — callee-side environment (has forall bindings)
+///   `callee_env`  — callee-side environment (has generic bindings)
 /// Output: the resolved parameter type (concrete if a SomeT was bound, else unchanged)
 ///
 /// Mirrors `evaluateFunctionParameterTypeAgain` in
@@ -3791,6 +4721,184 @@ evaluate_function_parameter_type_again :: (
   _resolve_some_types_deep(param_type, callee_env)
 );
 // ---------------------------------------------------------------------------
+/// Has `cta_id` already been walked on this branch? Mirrors
+/// `_id_already_visited` in types/utils.yo (not exported, so re-stated here).
+_cta_seen :: (fn(cta_v : ArrayList(String), cta_id : String) -> bool)({
+  (cta_k : usize) = usize(0);
+  (cta_found : bool) = false;
+  while((cta_k < cta_v.len()) && !(cta_found), {
+    match(
+      cta_v.get(cta_k),
+      .Some(cta_e) => if(cta_e == cta_id, {
+        cta_found = true;
+      }),
+      .None => ()
+    );
+    cta_k = (cta_k + usize(1));
+  });
+  cta_found
+});
+/// Collect the SomeTs that live ONLY in a generic instantiation's
+/// `type_arguments` — the yo-self-only slot standing in for TS's
+/// `StructType.env` (types/definitions.yo:212). `get_all_some_types` walks
+/// FIELD types only, a faithful mirror of TS's `getAllSomeTypes`
+/// (src/types/utils.ts:813-864), which has nothing more to walk: TS never
+/// substitutes into an instantiation, it RE-EVALUATES the return-type
+/// EXPRESSION (src/evaluator/types/function.ts:2836, called unconditionally
+/// from src/evaluator/calls/helper.ts:1538). yo-self resolves by substitution,
+/// and `substitute()` DOES rewrite `type_arguments`
+/// (types/substitution.yo:290-298) — the gap is only in the MAP, so a forall
+/// occurring solely as an instantiation ARGUMENT is never a substitution key.
+/// `type_key` keys an instance as `gs_<ctor_fid>_<type_arguments>`
+/// (types/type_key.yo:137), so a raw SomeT in an argument slot emits a SECOND
+/// C struct with the same layout (tests/where_clause_fn_inference).
+///
+/// `visited_ids` is the same cycle guard `_collect_some_types_into` needs
+/// (types/utils.yo:961) — a recursive struct type is a CYCLIC TypeValue graph
+/// and an unguarded walk both recurses forever and re-visits shared subtrees
+/// exponentially.
+_collect_type_arg_somes :: (
+  fn(ty : TypeValue, acc : ArrayList(TypeValue), visited_ids : ArrayList(String)) -> unit
+)(
+  match(
+    ty,
+    .Struct({ id : cta_sid, field_types : cta_fts, type_arguments : cta_args }) => {
+      if(_cta_seen(visited_ids, cta_sid), {
+        return(());
+      });
+      if(cta_sid.len() > usize(0), {
+        visited_ids.push(cta_sid.clone());
+      });
+      (cta_a : usize) = usize(0);
+      while(cta_a < cta_args.len(), {
+        match(
+          cta_args.get(cta_a),
+          .Some(cta_at) => {
+            if(is_some_type(cta_at), {
+              acc.push(cta_at);
+            });
+            recur(cta_at, acc, visited_ids);
+          },
+          .None => ()
+        );
+        cta_a = (cta_a + usize(1));
+      });
+      (cta_f : usize) = usize(0);
+      while(cta_f < cta_fts.len(), {
+        match(cta_fts.get(cta_f),.Some(cta_ft) => recur(cta_ft, acc, visited_ids),.None => ());
+        cta_f = (cta_f + usize(1));
+      });
+    },
+    .EnumT(cta_eid, _, _, cta_vfs, _, _, _, _, _) => {
+      if(_cta_seen(visited_ids, cta_eid), {
+        return(());
+      });
+      if(cta_eid.len() > usize(0), {
+        visited_ids.push(cta_eid.clone());
+      });
+      (cta_v : usize) = usize(0);
+      while(cta_v < cta_vfs.len(), {
+        cta_vf := match(cta_vfs.get(cta_v),.Some(vf) => vf,.None => ArrayList(TypeValue).new());
+        (cta_j : usize) = usize(0);
+        while(cta_j < cta_vf.len(), {
+          match(cta_vf.get(cta_j),.Some(cta_vt) => recur(cta_vt, acc, visited_ids),.None => ());
+          cta_j = (cta_j + usize(1));
+        });
+        cta_v = (cta_v + usize(1));
+      });
+    },
+    .Func({ param_types : cta_pts, result : cta_res }) => {
+      (cta_p : usize) = usize(0);
+      while(cta_p < cta_pts.len(), {
+        match(cta_pts.get(cta_p),.Some(cta_pt) => recur(cta_pt, acc, visited_ids),.None => ());
+        cta_p = (cta_p + usize(1));
+      });
+      recur(cta_res, acc, visited_ids);
+    },
+    .Tuple(_, field_types : cta_tfs) => {
+      (cta_t : usize) = usize(0);
+      while(cta_t < cta_tfs.len(), {
+        match(cta_tfs.get(cta_t),.Some(cta_tt) => recur(cta_tt, acc, visited_ids),.None => ());
+        cta_t = (cta_t + usize(1));
+      });
+    },
+    .Pointer(pointee : cta_p2) => recur(cta_p2, acc, visited_ids),
+    .Array(element : cta_e, _, _) => recur(cta_e, acc, visited_ids),
+    .IsoT(child : cta_c) => recur(cta_c, acc, visited_ids),
+    _ => ()
+  )
+);
+/// Resolve those type-argument SomeTs through the SAME three channels
+/// `_resolve_some_types_deep` already uses at this very site (env by name →
+/// the SomeT's own shared resolved-concrete cell → the id-keyed
+/// `lookup_some_resolved_concrete` registry). The registry channel is REQUIRED:
+/// the measured record for this call (issues/retired/yo-self-hollow-root-cause-map.md
+/// "A resolved via the registry, B needed the env fallback") says `A` is
+/// reachable only there. It is a RESOLUTION channel, exactly as
+/// `_resolve_some_types_deep` uses it — NOT a memo-COMPARISON channel, which is
+/// what F-era attempt 4 did inside `_ctfe_args_equal` and what the recorded
+/// verdict forbids.
+_resolve_type_arg_somes :: (fn(ty : TypeValue, env : Environment) -> TypeValue)({
+  targ_somes := ArrayList(TypeValue).new();
+  tas_visited := ArrayList(String).new();
+  _collect_type_arg_somes(ty, targ_somes, tas_visited);
+  if(targ_somes.len() == usize(0), {
+    return(ty);
+  });
+  tas_s := subst_new();
+  (tas_bound_any : bool) = false;
+  (tas_i : usize) = usize(0);
+  while(tas_i < targ_somes.len(), {
+    match(
+      targ_somes.get(tas_i),
+      .Some(tas_st) => {
+        (tas_r : TypeValue) = get_value_of_some_type_from_env(env, tas_st);
+        if(is_some_type(tas_r), {
+          match(
+            tas_st,
+            .SomeT({ resolved_concrete : tas_cell }) => match(
+              tas_cell.get(usize(0)),
+              .Some(tas_c) => {
+                tas_r = tas_c;
+              },
+              .None => ()
+            ),
+            _ => ()
+          );
+        });
+        if(is_some_type(tas_r), {
+          match(
+            tas_r,
+            .SomeT({ id : tas_rid }) => match(
+              lookup_some_resolved_concrete(tas_rid),
+              .Some(tas_g) => {
+                tas_r = tas_g;
+              },
+              .None => ()
+            ),
+            _ => ()
+          );
+        });
+        if(!(is_some_type(tas_r)), {
+          match(
+            tas_st,
+            .SomeT(_, tas_name, tas_lvl, _, _, _, _, _, _, _, _) => {
+              subst_add(tas_s, tas_name, tas_lvl, tas_r);
+              tas_bound_any = true;
+            },
+            _ => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    tas_i = (tas_i + usize(1));
+  });
+  cond(
+    tas_bound_any => substitute(tas_s, ty),
+    true => ty
+  )
+});
 // evaluate_function_return_type_again
 // ---------------------------------------------------------------------------
 /// Re-evaluate (resolve) a function's return type at call site.
@@ -3800,7 +4908,7 @@ evaluate_function_parameter_type_again :: (
 ///
 /// Input:
 ///   `return_type` — pre-evaluated return type from `TypeValue.Func`
-///   `callee_env`  — callee-side environment (has forall bindings)
+///   `callee_env`  — callee-side environment (has generic bindings)
 /// Output: the resolved return type
 ///
 /// Mirrors `evaluateFunctionReturnTypeAgain` in
@@ -3811,9 +4919,31 @@ evaluate_function_return_type_again :: (
     callee_env : Environment,
     _ctx : EvalContext
   ) -> TypeValue
-)(
-  _resolve_some_types_deep(return_type, callee_env)
-);
+)({
+  resolved := _resolve_some_types_deep(return_type, callee_env);
+  // Gap-6 attempt #8(a): a declared-`Self` return resolves through the env to
+  // the impl's PATTERN-ERA instance (its unresolved `T#N` lives ONLY in
+  // type_arguments, which no resolution path walks). The dispatcher put the
+  // call's CONCRETE receiver instance in ctx.self_type — adopt it whenever
+  // the resolved return is a same-ctor, tyarg-compatible sibling (TS gets
+  // this natively from `context.SelfType = dereferencedReceiverType`). This
+  // is the CENTRAL exit every spec-signature/return stamping funnels through.
+  (rr_out : TypeValue) = match(
+    _ctx.self_type,
+    .Some(rr_recv) => match(
+      adopt_receiver_struct_instance(resolved, rr_recv),
+      .Some(rr_adopted) => rr_adopted,
+      .None => resolved
+    ),
+    .None => resolved
+  );
+  // Applied AFTER the adopt, never before: `adopt_receiver_struct_instance`'s
+  // tyarg gate (expr_info.yo:857-890) treats an UNRESOLVED ret tyarg as a
+  // wildcard and requires a RESOLVED one to match the receiver's by rendered
+  // type, so concretising first could flip a currently-passing adopt to
+  // `.None` and silently switch off the Gap-6 attempt-#8(a) fix.
+  _resolve_type_arg_somes(rr_out, callee_env)
+});
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
@@ -3822,6 +4952,7 @@ export(evaluate_function_parameters);
 export(apply_where_clause_constraints);
 export(evaluate_function_parameter_type_again);
 export(evaluate_function_return_type_again);
+export(collect_wrapper_trait_somes);
 export(FuncParam, FuncParamsResult, PendingConstraint, ExtractComptimeResult);
 export(_add_where_clause_constraint, _trait_has_receiver);
 export(
@@ -3837,6 +4968,21 @@ export(
   register_func_param_defaults,
   copy_func_param_defaults,
   get_func_param_defaults,
+  register_func_param_comptime,
+  copy_func_param_comptime,
+  get_func_param_comptime,
+  register_func_param_assigned_values,
+  copy_func_param_assigned_values,
+  get_func_param_assigned_values,
+  register_func_return_type_expr,
+  copy_func_return_type_expr,
+  get_func_return_type_expr,
+  register_func_param_default_exprs,
+  copy_func_param_default_exprs,
+  register_func_param_type_exprs,
+  copy_func_param_type_exprs,
+  get_func_param_type_exprs,
+  get_func_param_default_exprs,
   register_func_variadic_param,
   copy_func_variadic_param,
   get_func_variadic_param,
@@ -3846,5 +4992,13 @@ export(
   register_func_where_constraints,
   copy_func_where_constraints,
   get_func_where_constraints,
+  get_func_where_clause_exprs,
   WhereConstraintEntry
+);
+export(
+  register_func_requires_exprs,
+  register_func_ensures_exprs,
+  copy_func_contract_exprs,
+  get_func_requires_exprs,
+  get_func_ensures_exprs
 );

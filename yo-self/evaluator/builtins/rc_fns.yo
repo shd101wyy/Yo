@@ -23,23 +23,30 @@ open(import("std/string"));
 { evaluate_expression } :: import("../exprs/expr.yo");
 create_option_type :: (fn(inner_type : TypeValue) -> TypeValue)({
   variant_names := ArrayList(String).new();
-  _ := variant_names.push(String.from("None"));
-  _ := variant_names.push(String.from("Some"));
+  variant_names.push(String.from("None"));
+  variant_names.push(String.from("Some"));
   none_fields := ArrayList(TypeValue).new();
   some_fields := ArrayList(TypeValue).new();
-  _ := some_fields.push(inner_type);
+  some_fields.push(inner_type);
   variant_fields := ArrayList(ArrayList(TypeValue)).new();
-  _ := variant_fields.push(none_fields);
-  _ := variant_fields.push(some_fields);
+  variant_fields.push(none_fields);
+  variant_fields.push(some_fields);
   none_labels := ArrayList(String).new();
   some_labels := ArrayList(String).new();
-  _ := some_labels.push(String.from("val"));
+  // "value" — MUST match prelude Option's `Some(value : T)` label: TS's
+  // createOptionType calls the real env Option constructor, so its label is
+  // always "value". The enum-signature dedup collapses this synthesized
+  // rendition with real Option instances into ONE C type (labels are not in
+  // the sig), and the downcast/await emitters hardcode `.Some = { .value =`
+  // — a "val"-labelled winner made the field designator miss (the lexer
+  // batch "field designator 'value' does not refer to any field").
+  some_labels.push(String.from("value"));
   variant_field_labels := ArrayList(ArrayList(String)).new();
-  _ := variant_field_labels.push(none_labels);
-  _ := variant_field_labels.push(some_labels);
+  variant_field_labels.push(none_labels);
+  variant_field_labels.push(some_labels);
   discs := ArrayList(i64).new();
-  _ := discs.push(i64(0));
-  _ := discs.push(i64(1));
+  discs.push(i64(0));
+  discs.push(i64(1));
   TypeValue.EnumT(
     String.from(""),
     // id: empty (compat checks use name only)
@@ -49,7 +56,9 @@ create_option_type :: (fn(inner_type : TypeValue) -> TypeValue)({
     Option(String).None,
     // selected_variant_name
     variant_field_labels,
-    discs
+    discs,
+    false,
+    false
   )
 });
 // ---------------------------------------------------------------------------
@@ -270,9 +279,15 @@ evaluate_yo_iso_extract :: (
       )
     );
   });
-  inner_type := match(arg_type,.IsoT(child_box) => child_box.*, _ => t_unit());
-  option_type := create_option_type(inner_type);
-  out := new_expr_info(info.env, option_type);
+  // Phase H (mirrors TS evaluateYoIsoExtract): extract() returns T DIRECTLY (it
+  // panics at runtime on failure), NOT Option(T). The prelude method is
+  // `extract : (fn(self) -> T)(__yo_iso_extract(self))`, so wrapping the builtin's
+  // result in Option(T) here made the method body's type (Option(T)) mismatch its
+  // declared return (T) → the `(iso.extract)()` call failed to transpile. Set the
+  // expr type to the inner T; value stays `.None` (a runtime value, not a comptime
+  // Option).
+  inner_type := match(arg_type,.IsoT(child_box) => child_box, _ => t_unit());
+  out := new_expr_info(info.env, inner_type);
   out.value =.None;
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
   expr
@@ -291,7 +306,7 @@ evaluate_yo_drop_array_element :: (
 )({
   info0 := _eval_arg("evaluate_yo_drop_array_element", expr, env, ctx, usize(0), exn);
   info1 := _eval_arg("evaluate_yo_drop_array_element", expr, info0.env, ctx, usize(1), exn);
-  _ := info1;
+  info1;
   out := new_expr_info(info0.env, t_unit());
   out.value =.Some(EvalValue.UnitVal);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
@@ -308,7 +323,7 @@ evaluate_yo_drop_tuple_element :: (
 )({
   info0 := _eval_arg("evaluate_yo_drop_tuple_element", expr, env, ctx, usize(0), exn);
   info1 := _eval_arg("evaluate_yo_drop_tuple_element", expr, info0.env, ctx, usize(1), exn);
-  _ := info1;
+  info1;
   out := new_expr_info(info0.env, t_unit());
   out.value =.Some(EvalValue.UnitVal);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
@@ -328,7 +343,7 @@ evaluate_yo_dup_array_element :: (
 )({
   info0 := _eval_arg("evaluate_yo_dup_array_element", expr, env, ctx, usize(0), exn);
   info1 := _eval_arg("evaluate_yo_dup_array_element", expr, info0.env, ctx, usize(1), exn);
-  _ := info1;
+  info1;
   array_type := info0.ty;
   args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   if(!(is_array_type(array_type)), {
@@ -344,7 +359,7 @@ evaluate_yo_dup_array_element :: (
       )
     );
   });
-  element_type := match(array_type,.Array(child_box, _, _) => child_box.*, _ => t_unit());
+  element_type := match(array_type,.Array(child_box, _, _) => child_box, _ => t_unit());
   out := new_expr_info(info0.env, element_type);
   out.value =.None;
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);

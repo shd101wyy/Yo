@@ -1,0 +1,1460 @@
+//! C codegen utility helpers — mirrors `src/codegen/utils/index.ts`.
+//!
+//! PORT STATUS (incremental, per plans/archive/BOOTSTRAPPING_CODEGEN.md Phase 1):
+//! This file carries the `CodeGenContext` base struct (the flat-composition
+//! base for FunctionGenerationContext — Yo has no struct inheritance) and the
+//! context- and type-model-independent helpers. The following TS functions
+//! are DEFERRED and tracked in issues/retired/codegen-port-type-model-gaps.md:
+//!   * `getTypeString`'s SomeType/Future/Dyn/Iso branches (the Phase-1/2
+//!     cases are ported) — these panic with a phase marker; they need
+//!     re-architecting to yo-self's env+substitute SomeType resolution
+//!     (yo-self omits `SomeT.resolvedConcreteType`; `DynT`/`IsoT` carry no
+//!     id). Phase 3/5.
+//!   * `isComptimeFunction` — yo-self `FuncVal` does not store the function's
+//!     `TypeValue`; the return-comptime flag is reached via a func_id
+//!     side-table (Gap 2).
+//!   * `getDeferredDropTargetVariable` — needs the `ExprInfoTable` to resolve
+//!     the target atom's binding env (TS reads `atom.$.env`).
+//!
+//! Ported here so far: CodeGenContext (base) + FunctionGenerationContext via
+//! composition; sanitize/shouldAvoidConst/canOptimize*; type_key +
+//! get_type_string family; get_runtime_struct_fields (side-table);
+//! get_variable_name_for_codegen; the deferred dup/drop atom-name extractors;
+//! isDeferredDropForClosureCapture; findReturnedAsyncBlock;
+//! isFunctionValueWithOnlyBuiltinYoInlineFunctionCall.
+open(import("std/string"));
+_(env : cgu_env) :: import("std/env");
+// YO_DEBUG_MG=1 prints every module-global name resolution (name, token
+// path, param-ness, registry hit) — the fastest way to see WHY a global's
+// declaration and reads disagree. Snapshot once at module init: name
+// resolution is hot, a per-call getenv is not acceptable there.
+(g_debug_mg : bool) = cgu_env.get(`YO_DEBUG_MG`).is_some();
+{ eprintln } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
+{ HashMap } :: import("std/collections/hash_map");
+{ TypeValue, get_struct_field_comptime_flags } :: import("../../types/definitions.yo");
+{
+  is_reference_struct_type,
+  is_pointer_type,
+  is_struct_type,
+  is_enum_type,
+  is_extern_type_name
+} :: import("../../types/guards.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
+{ type_key } :: import("../../types/type_key.yo");
+{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ Emitter } :: import("../../emitter.yo");
+{ TargetInfo } :: import("../../target.yo");
+// Module-level mirror of `needs_intel_asm_syntax` (the per-run context flag):
+// main.yo builds the C-compiler command AFTER compile_module returns only the
+// C source, so the flag needs an out-of-band channel (TS reads it via
+// moduleManager.needsIntelAsmSyntax, codegen/index.ts:581).
+(g_needs_intel_asm_syntax : bool) = false;
+mark_needs_intel_asm_syntax :: (fn() -> unit)({
+  g_needs_intel_asm_syntax = true;
+});
+get_needs_intel_asm_syntax :: (fn() -> bool)(g_needs_intel_asm_syntax);
+{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_type, is_module_level_global, module_global_c_suffix, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{
+  AstExpr,
+  BF_UNSAFE,
+  BF_DROP,
+  BF_DUP,
+  BF_DOT,
+  BK_BEGIN,
+  BF_YO_AS,
+  ast_expr_id,
+  ast_expr_is_atom,
+  ast_expr_is_fn_call,
+  ast_expr_is_fn_call_of
+} :: import("../../expr.yo");
+{ EvalValue } :: import("../../value.yo");
+{ is_io_async_call } :: import("../../evaluator/async/await_analysis.yo");
+{ is_builtin_yo_inline_function } :: import("../constants.yo");
+{ panic, assert } :: import("std/assert");
+// ===========================================================================
+// CodeGenContext — mirrors the `CodeGenContext` interface in
+// src/codegen/utils/index.ts. This is the BASE generation context; the
+// FunctionGenerationContext (src/codegen/functions/context.ts) extends it.
+// Yo has no struct inheritance, so functions/context.yo composes this via a
+// `base : CodeGenContext` field. Grown incrementally per the plan ("add
+// fields as emitters demand them") — only the registries + flags the current
+// pipeline needs are present so far.
+//
+// Registry value records. TS keys context.types/externFunctions by TypeId
+// (a string) → { type, cName(, cInclude) }. yo-self uses HashMap(String, _)
+// with these record objects. NOTE (issues/retired/codegen-port-type-model-gaps.md):
+// yo-self's TypeValue carries no general `cInclude`, so the entry carries it
+// (supplied at registration) rather than being read off the type.
+// ===========================================================================
+CodegenTypeEntry :: ref(struct(ty : TypeValue, c_name : String, c_include : Option(String)));
+CodegenExternFnEntry :: ref(struct(ty : TypeValue, c_name : String, c_include : Option(String)));
+/// A reachable function to be generated. `value` is the FuncVal EvalValue.
+CodegenFunctionEntry :: ref(struct(value : EvalValue, c_name : String));
+/// An entry in `impl_closure_call_map`: the resolved concrete capture-struct
+/// type id → the generated closure implementation function for that type.
+/// Mirrors the `implClosureCallMap` value type (utils/index.ts:139).
+ImplClosureCallInfo :: ref(
+  struct(
+    function_c_name : String,
+    call_type_id : String,
+    call_type : Option(TypeValue),
+    consumed_captures : Option(ArrayList(String)),
+    /// The closure impl fn's func_id (for get_func_type → its runtime param types,
+    /// e.g. the spawn-wrapper's closure-arg zero-inits).
+    closure_fid : String
+  )
+);
+ArrayStructInfo :: ref(struct(child_type : String, length : i64));
+IsoTypeInfo :: ref(
+  struct(
+    child_type_c_name : String,
+    iso_type : TypeValue,
+    // Per-pass "already emitted" guards (mirrors TS isoInfo.*Generated), mutated
+    // in place by generate_iso_type_declarations.
+    struct_generated : bool,
+    create_generated : bool,
+    extract_generated : bool,
+    dispose_generated : bool
+  )
+);
+/// A `dyn()` usage: a concrete type used with a specific dyn trait. `dyn_type`
+/// is the DynT; `concrete_type` is the user type; `data_type` is what is
+/// stored in Dyn.data (object/Box); `trait_values` are the TraitVal evidence
+/// values in trait order. Mirrors the `dynImpls` map value.
+DynImplEntry :: ref(
+  struct(
+    dyn_type : TypeValue,
+    concrete_type : TypeValue,
+    data_type : TypeValue,
+    trait_values : ArrayList(EvalValue)
+  )
+);
+/// The base C code generation context. See header above.
+CodeGenContext :: ref(
+  struct(
+    /// Collected types that need to be generated (keyed by TypeId string).
+    types : HashMap(String, CodegenTypeEntry),
+    /// Collected functions that need to be generated (keyed by func_id).
+    functions : HashMap(String, CodegenFunctionEntry),
+    /// Insertion order of func_ids registered into `functions`. Codegen emits
+    /// functions by iterating THIS list, mirroring TS's
+    /// `for (funcId in context.functions)` (JS objects iterate in insertion
+    /// order). yo-self's HashMap iterates in bucket order, which is unstable
+    /// across the TS-compiled s1 and the self-compiled s2 when the function
+    /// set changes — breaking the stage2≡stage3 fixpoint. See
+    /// issues/fixed/yo-self-emission-order-nondeterminism.md.
+    function_order : ArrayList(String),
+    /// Extern functions (keyed by TypeId string).
+    extern_functions : HashMap(String, CodegenExternFnEntry),
+    /// Array struct types that need to be generated (keyed by C name).
+    array_struct_types : HashMap(String, ArrayStructInfo),
+    /// Iso struct types that need to be generated (keyed by Iso C name).
+    iso_types : HashMap(String, IsoTypeInfo),
+    /// C header files that need to be included.
+    c_includes : HashSet(String),
+    /// Emitter for generating C code.
+    emitter : Emitter,
+    /// Per-expression evaluation metadata (TS reads `expr.$`; yo-self looks each
+    /// node up here by ExprId). Read by the emitters for type/value/control-flow.
+    info_table : ExprInfoTable,
+    /// Compilation target info (arch, os, abi).
+    target_info : TargetInfo,
+    /// Memory allocator: "mimalloc" (default) or "libc".
+    allocator : String,
+    /// The current function being generated (for `recur`).
+    current_function_name : String,
+    /// Debug logging flags.
+    debug_gc : bool,
+    debug_parallelism : bool,
+    debug_async_await : bool,
+    /// True when at least one object type can form RC cycles (GC tracking on).
+    needs_cycle_gc : bool,
+    /// True when compiling as a library (no main() wrapper).
+    is_library : bool,
+    /// True when any asm block uses intel_syntax (`-masm=intel` needed).
+    needs_intel_asm_syntax : bool,
+    /// Current loop label for break/continue in nested match (goto target);
+    /// `.None` outside a loop. Mirrors CodeGenContext.currentLoopLabel.
+    current_loop_label : Option(String),
+    /// Current continue label for 3-arg while loops (jump before the step);
+    /// `.None` outside such a loop. Mirrors CodeGenContext.currentContinueLabel.
+    current_continue_label : Option(String),
+    /// True while emitting inside a match (a C switch) — break needs goto, not
+    /// plain break. Mirrors CodeGenContext.insideMatch.
+    inside_match : bool,
+    /// typeid static declarations: type id → the C static variable name whose
+    /// address is the type's runtime id. Mirrors CodeGenContext.typeIdStatics.
+    type_id_statics : HashMap(String, String),
+    /// C NAMES of already-emitted `__yo_typeid_*` statics. The dedup must key
+    /// on the NAME, not the type_key: two evolved keys ALIAS onto one C name
+    /// (register_type_alias), so key-based dedup emits the SAME static twice
+    /// ("redefinition of __yo_typeid___yo_tN" — the lexer batch). Shared by
+    /// the typeid/downcast expression emitters and the Dyn vtable pass.
+    type_id_static_names : HashSet(String),
+    /// __yo_dyn_box_* typedefs already emitted. Shared between the type-decl
+    /// phase's box pass and the function phase's ctor pass: dyn impls register
+    /// LAZILY (at use sites during body generation), so a box first seen by
+    /// the ctor pass needs its typedef emitted THERE (into the declarations
+    /// section — still assembled before code) or the ctor references an
+    /// unknown type (the suspension_analysis batch).
+    dyn_box_typedefs : HashSet(String),
+    /// dyn() usages → box types / vtables / wrappers (keyed by a
+    /// "<concrete_id>_<dyn_id>" string, fixed up to C names post type-gen).
+    dyn_impls : HashMap(String, DynImplEntry),
+    /// Module id of the module being compiled (e.g. "yo3818ce2d"); `.None`
+    /// until set. Used in library mode to distinguish user exports from std.
+    current_module_id : Option(String),
+    /// Exported label names → func_id, for stable non-mangled C names in
+    /// library/executable mode.
+    exported_function_labels : HashMap(String, String),
+    /// Type-tag dispose dispatch: dispose-function C name → its unique type id
+    /// (1-based). The constructor stamps `header.type_id = id`; the dispose
+    /// dispatch switch (deferred) reads the same map. Mirrors
+    /// CodeGenContext.disposeTypeIds / nextDisposeTypeId.
+    dispose_type_ids : HashMap(String, usize),
+    next_dispose_type_id : usize,
+    /// C variable names actually emitted as declarations (recorded by
+    /// get_variable_type_string, the choke-point for every `<Type> <name>`
+    /// declaration). Read by generate_deferred_drop_expressions to skip a drop
+    /// whose target TEMP was never materialized (declaration elided while its
+    /// deferred-drop survived) — emitting `__yo_decr_rc(undeclared_temp)` is an
+    /// undeclared-identifier error. Temp names are globally unique, so this
+    /// accumulates across functions without needing a per-function reset.
+    declared_c_var_names : HashSet(String),
+    /// Block-scope stack of declared C var names (named locals + temps), encoded
+    /// as a flat list with `"{"` sentinels at block boundaries, maintained by the
+    /// emitter (`_emitter_track_scope`) during function-body emission. Read ONLY by
+    /// the __yo_effect_escaped escape gate (return.yo _keep_pending_drop, !use_env):
+    /// a pending drop is kept iff its target's C name appears in the list (declared-
+    /// before AND still in scope). This is the block-scope-aware C-emission-order
+    /// signal that the flat set and source-token heuristics could not provide. See
+    /// issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
+    declared_scopes : ArrayList(String),
+    /// Resolved concrete capture-struct type id → its generated closure impl fn.
+    /// Populated at closure construction; read at closure call sites to emit
+    /// `fn(&(cb), args)`. Mirrors CodeGenContext.implClosureCallMap (utils/index.ts:139).
+    impl_closure_call_map : HashMap(String, ImplClosureCallInfo),
+    // type_key ALIASES: an EVOLVED type_key render of an already-collected
+    // type maps to the FIRST registration's key (collect_type's stable-identity
+    // dedup). Consulted by get_type_entry/get_type_c_name on a primary miss so
+    // value sites keyed under either render resolve to ONE C type.
+    type_key_aliases : HashMap(String, String)
+  )
+);
+impl(
+  CodeGenContext,
+  /// Create a fresh generation context with empty registries.
+  new : (
+    fn(
+      emitter : Emitter,
+      info_table : ExprInfoTable,
+      target_info : TargetInfo,
+      allocator : String,
+      debug_gc : bool,
+      debug_parallelism : bool,
+      debug_async_await : bool,
+      is_library : bool
+    ) -> Self
+  )(
+    Self(
+      types : HashMap(String, CodegenTypeEntry).new(),
+      functions : HashMap(String, CodegenFunctionEntry).new(),
+      function_order : ArrayList(String).new(),
+      extern_functions : HashMap(String, CodegenExternFnEntry).new(),
+      array_struct_types : HashMap(String, ArrayStructInfo).new(),
+      iso_types : HashMap(String, IsoTypeInfo).new(),
+      c_includes : HashSet(String).new(),
+      emitter : emitter,
+      info_table : info_table,
+      target_info : target_info,
+      allocator : allocator,
+      current_function_name : String.from(""),
+      debug_gc : debug_gc,
+      debug_parallelism : debug_parallelism,
+      debug_async_await : debug_async_await,
+      needs_cycle_gc : false,
+      is_library : is_library,
+      needs_intel_asm_syntax : false,
+      current_loop_label : Option(String).None,
+      current_continue_label : Option(String).None,
+      inside_match : false,
+      type_id_statics : HashMap(String, String).new(),
+      type_id_static_names : HashSet(String).new(),
+      dyn_box_typedefs : HashSet(String).new(),
+      dyn_impls : HashMap(String, DynImplEntry).new(),
+      current_module_id : Option(String).None,
+      exported_function_labels : HashMap(String, String).new(),
+      dispose_type_ids : HashMap(String, usize).new(),
+      next_dispose_type_id : usize(1),
+      declared_c_var_names : HashSet(String).new(),
+      declared_scopes : ArrayList(String).new(),
+      impl_closure_call_map : HashMap(String, ImplClosureCallInfo).new(),
+      type_key_aliases : HashMap(String, String).new()
+    )
+  ),
+  /// Allocate (or reuse) the type-tag id for a dispose function's C name.
+  /// Mirrors the disposeTypeIds get-or-assign in generateRefStructConstructorFunctions.
+  dispose_type_id_for : (fn(self : Self, dispose_c_name : String) -> usize)(
+    match(
+      self.dispose_type_ids.get(dispose_c_name.clone()),
+      .Some(id) => id,
+      .None => {
+        id := self.next_dispose_type_id;
+        self.next_dispose_type_id = (id + usize(1));
+        _r := self.dispose_type_ids.set(dispose_c_name.clone(), id);
+        id
+      }
+    )
+  ),
+  /// Register a type to be generated.
+  register_type : (
+    fn(self : Self, id : String, ty : TypeValue, c_name : String, c_include : Option(String)) -> unit
+  )({
+    _r := self.types.set(id, CodegenTypeEntry(ty : ty, c_name : c_name, c_include : c_include));
+    ()
+  }),
+  /// Alias an EVOLVED type_key render to an already-registered key (the
+  /// stable-identity dedup in collect_type). One level only — the target is
+  /// always a PRIMARY registered key.
+  register_type_alias : (fn(self : Self, alias_id : String, target_id : String) -> unit)({
+    _r := self.type_key_aliases.set(alias_id, target_id);
+    ()
+  }),
+  /// Look up a registered type entry by id (following one alias level).
+  get_type_entry : (fn(self : Self, id : String) -> Option(CodegenTypeEntry))(
+    match(
+      self.types.get(id.clone()),
+      .Some(e) =>.Some(e),
+      .None => match(
+        self.type_key_aliases.get(id),
+        .Some(target) => self.types.get(target),
+        .None => Option(CodegenTypeEntry).None
+      )
+    )
+  ),
+  /// Look up a registered type's C name by id.
+  get_type_c_name : (fn(self : Self, id : String) -> Option(String))(
+    // Return a CLONE, not the stored String. yo-self `String` is reference-
+    // semantics, so handing out the registry's own `c_name` lets a caller that
+    // builds e.g. a temp declaration `<type> <var>` (via `decl := get_type_string(..);
+    // decl.push_str(" "); decl.push_string(var)`) MUTATE the registry entry in
+    // place — corrupting the type's canonical C name for every later reader (it
+    // surfaced as a sibling match arm's enum cast becoming
+    // `(__yo_enum_yo_id_N _file____tmp__temp_M)`). TS strings are immutable, so
+    // this aliasing hazard does not exist there; cloning here restores that
+    // contract. See issues/fixed/codegen-runtime-enum-sibling-cname-pollution.md.
+    match(self.get_type_entry(id),.Some(entry) =>.Some(entry.c_name.clone()),.None =>.None)
+  ),
+  /// The per-expression evaluation metadata for `expr` (TS `expr.$`), or
+  /// `.None` if the node was never evaluated.
+  get_expr_info : (fn(self : Self, expr : AstExpr) -> Option(ExprInfo))(
+    expr_info_table_get(self.info_table, ast_expr_id(expr))
+  ),
+  /// Register a reachable function to be generated (idempotent on func_id).
+  register_function : (fn(self : Self, func_id : String, value : EvalValue, c_name : String) -> unit)({
+    // Record first-registration order (insertion order) so codegen emits
+    // functions deterministically, mirroring TS `for..in` semantics rather
+    // than HashMap bucket order. Re-registration keeps the original position.
+    if(!(self.functions.contains_key(func_id.clone())), {
+      _o := self.function_order.push(func_id.clone());
+    });
+    _r := self.functions.set(func_id, CodegenFunctionEntry(value : value, c_name : c_name));
+    ()
+  }),
+  /// True if a function with this func_id is already registered.
+  has_function : (fn(self : Self, func_id : String) -> bool)(
+    self.functions.contains_key(func_id)
+  ),
+  /// Look up a registered function entry by func_id.
+  get_function_entry : (fn(self : Self, func_id : String) -> Option(CodegenFunctionEntry))(
+    // Return an entry whose c_name is a CLONE, never the registry's own
+    // String — yo-self String is reference-semantics, so handing out the
+    // stored buffer lets any consumer that builds on it (e.g. the index-call
+    // `${e.c_name}(recv, idx)` path) MUTATE the canonical C name in place;
+    // the function DEFINITION then emits the polluted name while call sites
+    // used the clean one (the phase6 batch "expected parameter declarator" —
+    // a def named `fn_x(&(*frame_ptr)->variables, j)`). Same hardening as
+    // get_type_c_name above (the enum sibling-cname pollution).
+    match(
+      self.functions.get(func_id),
+      .Some(fe) => Option(CodegenFunctionEntry).Some(CodegenFunctionEntry(value : fe.value, c_name : fe.c_name.clone())),
+      .None => Option(CodegenFunctionEntry).None
+    )
+  ),
+  /// True if any registered function already uses this C name (collision check
+  /// for plain-name exports). Mirrors `Object.values(...).some(f => f.cName === …)`.
+  has_function_with_c_name : (fn(self : Self, c_name : String) -> bool)({
+    vals := self.functions.values();
+    (found : bool) = false;
+    while(!(found), {
+      match(
+        vals.next(),
+        .Some(entry) => if(entry.c_name == c_name, {
+          found = true;
+        }),
+        .None => return(found)
+      );
+    });
+    found
+  }),
+  /// Record an exported function's label → func_id mapping (stable C name).
+  set_exported_function_label : (fn(self : Self, func_id : String, label : String) -> unit)({
+    _r := self.exported_function_labels.set(func_id, label);
+    ()
+  }),
+  /// Register a dyn() usage (idempotent on key).
+  register_dyn_impl : (fn(self : Self, key : String, entry : DynImplEntry) -> unit)({
+    _r := self.dyn_impls.set(key, entry);
+    ()
+  }),
+  /// Register an extern function.
+  register_extern_function : (
+    fn(self : Self, id : String, ty : TypeValue, c_name : String, c_include : Option(String)) -> unit
+  )({
+    _r := self.extern_functions.set(id, CodegenExternFnEntry(ty : ty, c_name : c_name, c_include : c_include));
+    ()
+  }),
+  /// Register an array struct type (idempotent).
+  register_array_struct_type : (
+    fn(self : Self, c_name : String, child_type : String, length : i64) -> unit
+  )({
+    _r := self.array_struct_types.set(c_name, ArrayStructInfo(child_type : child_type, length : length));
+    ()
+  }),
+  /// True if an array struct type with this C name is registered.
+  has_array_struct_type : (fn(self : Self, c_name : String) -> bool)(
+    self.array_struct_types.contains_key(c_name)
+  ),
+  /// Register an Iso struct type (idempotent).
+  register_iso_type : (
+    fn(self : Self, c_name : String, child_type_c_name : String, iso_type : TypeValue) -> unit
+  )({
+    _r := self.iso_types.set(
+      c_name,
+      IsoTypeInfo(
+        child_type_c_name : child_type_c_name,
+        iso_type : iso_type,
+        struct_generated : false,
+        create_generated : false,
+        extract_generated : false,
+        dispose_generated : false
+      )
+    );
+    ()
+  }),
+  /// True if an Iso struct type with this C name is registered.
+  has_iso_type : (fn(self : Self, c_name : String) -> bool)(
+    self.iso_types.contains_key(c_name)
+  ),
+  /// Add a C include header.
+  add_c_include : (fn(self : Self, include : String) -> unit)({
+    _r := self.c_includes.add(include);
+    ()
+  })
+);
+// ===========================================================================
+// Runtime struct fields (getRuntimeStructFields / isComptimeOnlyStructField).
+// TS carries `isCompileTimeOnly` on each `TypeField`; yo-self's `Struct`
+// variant has no per-field flag, so the flags live in a side-table keyed by
+// struct id (registered at construction in evaluator/types/struct.yo). A
+// struct with no side-table entry is treated as all-runtime. See
+// issues/retired/codegen-port-type-model-gaps.md Gap 1.
+// ===========================================================================
+/// A runtime (non-comptime-only) struct field: its label and type, in
+/// declaration order. The faithful stand-in for the subset of TS `TypeField`
+/// that codegen consumes (`.label` / `.type`).
+RuntimeStructField :: ref(struct(label : String, ty : TypeValue));
+/// The runtime (non-comptime-only) fields of a struct type, in declaration
+/// order. Mirrors `getRuntimeStructFields`. Non-struct types yield an empty
+/// list. A struct with no registered comptime-flags is treated as all-runtime.
+get_runtime_struct_fields :: (fn(struct_type : TypeValue) -> ArrayList(RuntimeStructField))(
+  match(
+    struct_type,
+    .Struct({ id, field_labels, field_types }) => {
+      result := ArrayList(RuntimeStructField).new();
+      flags_opt := get_struct_field_comptime_flags(id.clone());
+      n := field_types.len();
+      (fi : usize) = usize(0);
+      while(fi < n, {
+        is_comptime := match(
+          flags_opt,
+          .Some(flags) => match(flags.get(fi),.Some(f) => f,.None => false),
+          .None => false
+        );
+        if(!(is_comptime), {
+          label := match(field_labels.get(fi),.Some(l) => l,.None => String.from(""));
+          ty := match(field_types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+          result.push(RuntimeStructField(label : label, ty : ty));
+        });
+        fi = (fi + usize(1));
+      });
+      result
+    },
+    _ => ArrayList(RuntimeStructField).new()
+  )
+);
+/// C keywords and common macros that must be avoided as identifiers.
+/// Mirrors the `cReservedWords` set in `sanitizeForCIdentifier`.
+_build_c_reserved_words :: (fn() -> HashSet(String))({
+  words := HashSet(String).new();
+  // C keywords
+  _w0 := words.add(String.from("auto"));
+  _w1 := words.add(String.from("break"));
+  _w2 := words.add(String.from("case"));
+  _w3 := words.add(String.from("char"));
+  _w4 := words.add(String.from("const"));
+  _w5 := words.add(String.from("continue"));
+  _w6 := words.add(String.from("default"));
+  _w7 := words.add(String.from("do"));
+  _w8 := words.add(String.from("double"));
+  _w9 := words.add(String.from("else"));
+  _w10 := words.add(String.from("enum"));
+  _w11 := words.add(String.from("extern"));
+  _w12 := words.add(String.from("float"));
+  _w13 := words.add(String.from("for"));
+  _w14 := words.add(String.from("goto"));
+  _w15 := words.add(String.from("if"));
+  _w16 := words.add(String.from("inline"));
+  _w17 := words.add(String.from("int"));
+  _w18 := words.add(String.from("long"));
+  _w19 := words.add(String.from("register"));
+  _w20 := words.add(String.from("restrict"));
+  _w21 := words.add(String.from("return"));
+  _w22 := words.add(String.from("short"));
+  _w23 := words.add(String.from("signed"));
+  _w24 := words.add(String.from("sizeof"));
+  _w25 := words.add(String.from("static"));
+  _w26 := words.add(String.from("struct"));
+  _w27 := words.add(String.from("switch"));
+  _w28 := words.add(String.from("typedef"));
+  _w29 := words.add(String.from("union"));
+  _w30 := words.add(String.from("unsigned"));
+  _w31 := words.add(String.from("void"));
+  _w32 := words.add(String.from("volatile"));
+  _w33 := words.add(String.from("while"));
+  // C11 keywords
+  _w34 := words.add(String.from("_Alignas"));
+  _w35 := words.add(String.from("_Alignof"));
+  _w36 := words.add(String.from("_Atomic"));
+  _w37 := words.add(String.from("_Bool"));
+  _w38 := words.add(String.from("_Complex"));
+  _w39 := words.add(String.from("_Generic"));
+  _w40 := words.add(String.from("_Imaginary"));
+  _w41 := words.add(String.from("_Noreturn"));
+  _w42 := words.add(String.from("_Static_assert"));
+  _w43 := words.add(String.from("_Thread_local"));
+  // Common standard library macros that expand to complex expressions
+  _w44 := words.add(String.from("errno"));
+  _w45 := words.add(String.from("stdin"));
+  _w46 := words.add(String.from("stdout"));
+  _w47 := words.add(String.from("stderr"));
+  _w48 := words.add(String.from("NULL"));
+  _w49 := words.add(String.from("true"));
+  _w50 := words.add(String.from("false"));
+  words
+});
+_c_reserved_words := _build_c_reserved_words();
+/// True if byte `b` is a valid C-identifier byte: `[a-zA-Z0-9_]`.
+_is_c_identifier_byte :: (fn(b : u8) -> bool)(
+  (
+    ((b >= u8(97)) && (b <= u8(122))) // a-z
+    || ((b >= u8(65)) && (b <= u8(90)))
+  ) // A-Z
+  || (
+    ((b >= u8(48)) && (b <= u8(57))) // 0-9
+    || (b == u8(95))
+  ) // _
+);
+/// Sanitize a string to be a valid C identifier. Replaces any byte that is
+/// not `[a-zA-Z0-9_]` with `_u<byte>_` (ASCII byte value — operators in
+/// identifiers are ASCII, so this matches TS `charCodeAt` for the cases that
+/// occur). If the result is a C reserved word/macro and not extern-C, it is
+/// prefixed with `__yo_c_reserved_`. Mirrors `sanitizeForCIdentifier`.
+sanitize_for_c_identifier :: (fn(s : String, is_extern_c : bool) -> String)({
+  sanitized := String.new();
+  // BYTE count — the loop reads byte_at; String.len() counts RUNES
+  // (multibyte content under-walks; see other_fn_call.yo's splitter fix).
+  n := s.as_bytes().len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    b := s.byte_at(i);
+    if(_is_c_identifier_byte(b), {
+      sanitized.push_byte(b);
+    }, {
+      sanitized.push_str("_u");
+      sanitized.push_string(b.to_string());
+      sanitized.push_str("_");
+    });
+    i = (i + usize(1));
+  });
+  if(!(is_extern_c) && _c_reserved_words.contains(sanitized), {
+    prefixed := String.from("__yo_c_reserved_");
+    prefixed.push_string(sanitized);
+    return(prefixed);
+  });
+  sanitized
+});
+/// Check if a type should avoid the `const` qualifier even when not mutable.
+/// Object types need this so reference-counting operations remain legal.
+/// Mirrors `shouldAvoidConst`.
+should_avoid_const :: (fn(t : TypeValue) -> bool)(
+  is_reference_struct_type(t)
+);
+/// Local helper: the callee atom's token value if `e` is a `FnCall` whose
+/// `func` is an `Atom`; `.None` otherwise.
+_fn_call_callee_name :: (fn(e : AstExpr) -> Option(String))(
+  match(
+    e,
+    .Atom(_, _) =>.None,
+    .FnCall(_, func_box, _, _, _) => match(
+      func_box,
+      .Atom(_, tok) =>.Some(tok.value),
+      .FnCall(_, _, _, _, _) =>.None
+    )
+  )
+);
+/// Local helper: look through `unsafe(expr)` transparently. A body shaped
+/// like `unsafe(__yo_op_add(a,b))` is equivalent to `__yo_op_add(a,b)` for
+/// inlining. Mirrors the `unwrapUnsafe` closure in
+/// `isFunctionValueWithOnlyBuiltinYoInlineFunctionCall`.
+_unwrap_unsafe :: (fn(e : AstExpr) -> AstExpr)(
+  match(
+    e,
+    .Atom(_, _) => e,
+    .FnCall(_, _, args, _, _) => if(
+      ast_expr_is_fn_call_of(e, BF_UNSAFE,.None) && (args.len() == usize(1)),
+      match(args.get(usize(0)),.Some(a) => a,.None => e),
+      e
+    )
+  )
+);
+/// Check if a function value's body only calls a single builtin
+/// `__yo_op_xxx`-style inline function (optionally wrapped in `unsafe` and/or
+/// a single-expression `begin`). Returns the operator name, or `.None`.
+/// `__yo_as` casts are excluded (they need real call handling).
+/// Mirrors `isFunctionValueWithOnlyBuiltinYoInlineFunctionCall`.
+is_function_value_with_only_builtin_yo_inline_function_call :: (
+  fn(fv : EvalValue) -> Option(String)
+)({
+  body_box := match(fv,.FuncVal(__fvd1, _) => __fvd1.*.body, _ => return(.None));
+  body := _unwrap_unsafe(body_box);
+  operator_name := match(
+    body,
+    .Atom(_, _) => Option(String).None,
+    .FnCall(_, _, body_args, _, _) => if(ast_expr_is_fn_call_of(body, BK_BEGIN,.None) && (body_args.len() == usize(1)), {
+      inner := _unwrap_unsafe(match(body_args.get(usize(0)),.Some(a) => a,.None => body));
+      match(
+        _fn_call_callee_name(inner),
+        .Some(callee) => if(is_builtin_yo_inline_function(callee),.Some(callee),.None),
+        .None => Option(String).None
+      )
+    }, match(
+      _fn_call_callee_name(body),
+      .Some(callee) => if(is_builtin_yo_inline_function(callee),.Some(callee),.None),
+      .None => Option(String).None
+    ))
+  );
+  // Don't inline __yo_as — it needs proper call handling for complex args.
+  match(
+    operator_name,
+    .Some(op) => if(op == BF_YO_AS, Option(String).None,.Some(op)),
+    .None =>.None
+  )
+});
+/// Check if an enum can be optimized as a nullable pointer. Returns the
+/// pointer variant's field type if so, `.None` otherwise. Requires exactly
+/// two variants: one fieldless and one carrying a single pointer field.
+/// Mirrors `canOptimizeAsNullablePointer`.
+can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
+  match(
+    t,
+    .EnumT({ variant_fields }) => {
+      if(variant_fields.len() != usize(2), {
+        return(.None);
+      });
+      (empty_found : bool) = false;
+      (pointer_type : Option(TypeValue)) =.None;
+      (valid : bool) = true;
+      (vi : usize) = usize(0);
+      while(valid && (vi < usize(2)), {
+        fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        fc := fields.len();
+        cond(
+          (fc == usize(0)) => {
+            if(empty_found, {
+              valid = false;
+            }, {
+              empty_found = true;
+            });
+          },
+          (fc == usize(1)) => {
+            child := match(fields.get(usize(0)),.Some(c) => c,.None => return(.None));
+            cond(
+              is_pointer_type(child) => {
+                match(
+                  pointer_type,
+                  .Some(_) => {
+                    valid = false;
+                  },
+                  .None => {
+                    pointer_type =.Some(child);
+                  }
+                );
+              },
+              true => {
+                valid = false;
+              }
+            );
+          },
+          true => {
+            valid = false;
+          }
+        );
+        vi = (vi + usize(1));
+      });
+      cond(
+        (valid && empty_found) => pointer_type,
+        true => Option(TypeValue).None
+      )
+    },
+    _ => Option(TypeValue).None
+  )
+);
+/// Check if an enum can be optimized as a simple C enum (all variants have no
+/// data members and there is at least one variant). Mirrors
+/// `canOptimizeAsSimpleEnum`.
+can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .EnumT({ variant_fields, is_reference_semantics }) => {
+      // Reference-semantics enums (`ref(enum(...))`) are heap RC objects:
+      // constructors write obj->header.ref_count and match lowers to
+      // switch(obj->tag) — those sites don't follow the collapse, so a
+      // payload-free ref enum must NOT collapse to a bare C enum. Mirrors
+      // canOptimizeAsSimpleEnum
+      // (issues/fixed/fieldless-ref-enum-simple-enum-collapse.md).
+      if(is_reference_semantics, {
+        return(false);
+      });
+      (all_empty : bool) = true;
+      n := variant_fields.len();
+      (vi : usize) = usize(0);
+      while(vi < n, {
+        match(
+          variant_fields.get(vi),
+          .Some(fields) => {
+            if(fields.len() > usize(0), {
+              all_empty = false;
+            });
+          },
+          .None => ()
+        );
+        vi = (vi + usize(1));
+      });
+      all_empty && (n > usize(0))
+    },
+    _ => false
+  )
+);
+// ===========================================================================
+// Type lowering (getTypeString family). ORDERING DIVERGENCE from
+// src/codegen/utils/index.ts: TS places getTypeString before
+// canOptimizeAs* and getEnumVariantCName, but Yo has no forward references,
+// so the optimizer helpers (above) precede get_type_string here.
+// ===========================================================================
+/// Look up the registered C type name for a named/structural type, panicking
+/// with a diagnostic if it was not collected. Mirrors the `context.types[...]`
+/// lookup + throw inside getTypeString's Tuple/Struct/Union/Enum arm.
+/// (Defined before get_type_string — Yo has no forward references.)
+// --- on-demand late-type declaration hook (set by codegen_c at init) -------
+// A specialization minted DURING C emission (lazy call-site spec) can carry a
+// type instance the collection pass never saw — collection ran before the
+// spec existed, so no pre-registration can precede the lookup (the stage-2
+// arm-65 "no C type name found for IoExn" abort). The hook aliases the
+// drifted key to the existing nominal entry (or collects + declares a
+// genuinely-new type into the DECLARATIONS buffer, which the three-buffer
+// emitter places before all function code).
+OnDemandDeclareFn :: (fn(t : TypeValue, context : CodeGenContext) -> unit);
+(g_on_demand_declare_fn : Option(OnDemandDeclareFn)) = Option(OnDemandDeclareFn).None;
+set_on_demand_declare_fn :: (fn(f : OnDemandDeclareFn) -> unit)({
+  g_on_demand_declare_fn = Option(OnDemandDeclareFn).Some(f);
+  ()
+});
+_lookup_named_c_type :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
+  match(
+    context.get_type_c_name(type_key(t)),
+    .Some(c_name) => c_name,
+    .None => {
+      // ON-DEMAND recovery: alias/collect the late type, then retry.
+      match(
+        g_on_demand_declare_fn,
+        .Some(odf) => odf(t, context),
+        .None => ()
+      );
+      match(
+        context.get_type_c_name(type_key(t)),
+        .Some(c_name2) => c_name2,
+        .None => {
+          // panic requires a `str`; the dynamic type name goes to stderr.
+          eprintln(`get_type_string: no C type name found for ${type_to_string(t)} (type not collected before lowering; current_function=${context.current_function_name}, key=${type_key(t)})`);
+          __yo_panic("get_type_string: type not registered in context.types (see stderr)")
+        }
+      )
+    }
+  )
+);
+/// Convert a Yo type to its C type string. Mirrors `getTypeString`.
+///
+/// PORT STATUS: the Phase-1/2 cases (primitives, C-compat scalars, str,
+/// pointer, array, tuple/struct/union/enum) are ported. The
+/// SomeType/Future/Fn/Dyn/Iso cases are Phase-3/5 (dyn / async) and need
+/// yo-self's env+substitute SomeType resolution (Gap 6); they panic loudly
+/// with a phase marker rather than emit a wrong type — they are not reached
+/// by the Phase-1 corpus (generics monomorphize before codegen).
+///
+/// DIVERGENCE: TS's `type.isExtern && type.externName` early return is
+/// omitted (Gap 3 — yo-self models is_extern only on Func; extern-C struct
+/// types are a later-phase concern).
+/// Local Future check for the SomeT `get_type_string` fallback: true iff the
+/// SomeT's required traits contain a `FutureTraitT` (the SomeT shape of
+/// `Impl(Future(T, E))`). Kept local so this foundational module does not
+/// import the evaluator's trait_checking.
+_some_t_requires_future :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .SomeT({ required_trait_types : rtts }) => {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      n := rtts.len();
+      while((i < n) && !(found), {
+        match(
+          rtts.get(i),
+          .Some(rt) => match(
+            rt,
+            .FutureTraitT(_, _, _, _, _) => {
+              found = true;
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => false
+  )
+);
+
+/// The `FutureTraitT` among a SomeT's required traits, if any (the trait
+/// carried by `Impl(Future(T, E))`). Companion to `_some_t_requires_future`;
+/// local structural extraction so this foundational module does not import
+/// the evaluator's trait_checking (TS `extractFutureTraitFromType`).
+_extract_future_trait_of_some_t :: (fn(t : TypeValue) -> Option(TypeValue))(
+  match(
+    t,
+    .SomeT({ required_trait_types : eft_rtts }) => {
+      (eft_found : Option(TypeValue)) = Option(TypeValue).None;
+      (eft_i : usize) = usize(0);
+      n := eft_rtts.len();
+      while((eft_i < n) && eft_found.is_none(), {
+        match(
+          eft_rtts.get(eft_i),
+          .Some(eft_rt) => match(
+            eft_rt,
+            .FutureTraitT(_, _, _, _, _) => {
+              eft_found = Option(TypeValue).Some(eft_rt);
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+        eft_i = (eft_i + usize(1));
+      });
+      eft_found
+    },
+    _ => Option(TypeValue).None
+  )
+);
+/// Remove all `*` bytes from a C type string. Mirrors TS `childTypeCName
+/// .replace(/\*/g, "")` used to build the clean Iso type name (a by-value C
+/// identifier can't contain `*`; sanitize would otherwise turn it into `_u42_`).
+_strip_stars :: (fn(s : String) -> String)({
+  out := String.from("");
+  n := s.as_bytes().len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    b := s.byte_at(i);
+    if(b != u8(42), {
+      out.push_byte(b);
+    });
+    i = (i + usize(1));
+  });
+  out
+});
+/// get_type_string's SomeT-RESOLUTION cycle guard. The `.SomeT` arm hops to
+/// the resolved concrete (`recur(rct)`); a resolution CYCLE — a SomeT whose
+/// cell/global entry resolves (directly or via a chain) back to a type
+/// containing the same SomeT — made that hop recurse unboundedly and every
+/// stage-2 self-emit died on the stack guard (SIGBUS, ~5M frames of
+/// get_type_string under generate_function_prototype; PRE-EXISTING —
+/// reproduced with the 784b72ded baseline binary on the 784b72ded tree,
+/// issues/yo-self-stage2-get-type-string-cycle.md). On a revisit the SomeT
+/// is treated as UNRESOLVED (registered-name / void* fallback) — the same
+/// "bounded by a monotonic visited set" convention type_to_string follows.
+(g_gts_some_stack : ArrayList(String)) = ArrayList(String).new();
+_gts_stack_contains :: (fn(sid : String) -> bool)({
+  (found : bool) = false;
+  (i : usize) = usize(0);
+  n := g_gts_some_stack.len();
+  while((i < n) && !(found), {
+    match(
+      g_gts_some_stack.get(i),
+      .Some(x) => if(x == sid, {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
+  match(
+    t,
+    .Unit => String.from("void"),
+    .Void => String.from("void"),
+    .BoolT => String.from("bool"),
+    .Usize => String.from("size_t"),
+    .Isize => String.from("intptr_t"),
+    .Int(bits, signed) => cond(
+      (bits == u8(8)) => if(signed, String.from("int8_t"), String.from("uint8_t")),
+      (bits == u8(16)) => if(signed, String.from("int16_t"), String.from("uint16_t")),
+      (bits == u8(32)) => if(signed, String.from("int32_t"), String.from("uint32_t")),
+      (bits == u8(64)) => if(signed, String.from("int64_t"), String.from("uint64_t")),
+      true => String.from("int32_t")
+    ),
+    .Float(bits) => if(bits == u8(32), String.from("float"), String.from("double")),
+    .ComptimeInt => String.from("int32_t"),
+    .ComptimeFloat => String.from("double"),
+    // At runtime, comptime_str values materialize as the builtin str.
+    .ComptimeString => String.from("__yo_str"),
+    .CChar => String.from("char"),
+    .CShort => String.from("short"),
+    .CUShort => String.from("unsigned short"),
+    .CInt => String.from("int"),
+    .CUInt => String.from("unsigned int"),
+    .CLong => String.from("long"),
+    .CULong => String.from("unsigned long"),
+    .CLongLong => String.from("long long"),
+    .CULongLong => String.from("unsigned long long"),
+    .CLongDouble => String.from("long double"),
+    // Builtin static string view — canonical fat-pointer typedef.
+    .Str => String.from("__yo_str"),
+    .Tuple(_, _) => _lookup_named_c_type(t, context),
+    .Union(_, _, _) => _lookup_named_c_type(t, context),
+    .Struct({ is_reference_semantics : is_ref }) => {
+      base := _lookup_named_c_type(t, context);
+      // Reference-semantics structs (object/atomic object) are pointers in C.
+      if(is_ref, {
+        ptr := base.clone();
+        ptr.push_str("*");
+        return(ptr);
+      });
+      base
+    },
+    // Nullable-pointer optimization: a 2-variant enum (one empty, one
+    // single-pointer) lowers to the bare pointer type. Otherwise a
+    // reference-semantics enum (`ref(enum(…))`) is a pointer to its
+    // heap-allocated RC handle, exactly like a reference-semantics struct.
+    .EnumT({ is_reference_semantics : is_ref }) => match(
+      can_optimize_as_nullable_pointer(t),
+      .Some(ptr_type) => recur(ptr_type, context),
+      .None => {
+        base := _lookup_named_c_type(t, context);
+        if(is_ref, {
+          ptr := base.clone();
+          ptr.push_str("*");
+          return(ptr);
+        });
+        base
+      }
+    ),
+    // Function pointers use void* (resolved by the prototype generator).
+    .Func({}) => String.from("void*"),
+    .Pointer(pointee) => {
+      // In Yo a PtrType is a borrow `*(T)`. Object types are already pointers
+      // in C; for value types a borrow is a pointer to the value. Either way
+      // the C type is `<base>*`.
+      base := recur(pointee, context);
+      base.push_str("*");
+      base
+    },
+    // Concrete-length arrays lower to a generated struct wrapper so they are
+    // returnable by value. (`length_var` non-empty = unresolved generic
+    // length — falls through to the unknown fallback, as in TS.)
+    .Array(element, length, length_var) => cond(
+      (length_var.len() == usize(0)) => {
+        element_type_string := recur(element, context);
+        array_type_name := String.from("Array_");
+        array_type_name.push_string(sanitize_for_c_identifier(element_type_string.clone(), false));
+        array_type_name.push_str("_");
+        array_type_name.push_string(length.to_string());
+        if(!(context.has_array_struct_type(array_type_name.clone())), {
+          context.register_array_struct_type(array_type_name.clone(), element_type_string, i64(length));
+        });
+        array_type_name
+      },
+      true => {
+        fallback := String.from("// Unknown type: ");
+        fallback.push_string(type_to_string(t));
+        fallback
+      }
+    ),
+    // --- Phase-3/5 (dyn / async): need env+substitute SomeType resolution ---
+    // SomeType (used for `Impl(...)` or `Self` references in modules/traits).
+    // yo-self's `SomeT` does not carry TS's mutable `resolvedConcreteType`
+    // codegen field. When a concrete C type HAS been registered for this SomeType
+    // (keyed by type_key) — e.g. the async pre-pass registers an `io.async`
+    // future's SM / sync-future struct under the future SomeType — return that
+    // (mirrors TS getTypeString resolving through `resolvedConcreteType`).
+    // Otherwise fall back to `void*` (an unresolved generic `Self`/SomeType is
+    // passed by opaque pointer; field/method access casts at use).
+    .SomeT({ id : sid, name : snm, resolved_concrete : src }) => match(
+      // Prefer the PER-OBJECT resolved concrete (survives clone/substitute/
+      // intern — the id-keyed global misses when ids re-mint, e.g. the Box
+      // CTFE's cloned field SomeT in the Dyn(Fn) family). Global as fallback.
+      // The cycle guard (g_gts_some_stack above) demotes a REVISITED SomeT
+      // to the unresolved fallback instead of recursing forever.
+      cond(
+        _gts_stack_contains(sid) => Option(TypeValue).None,
+        true => match(src.get(usize(0)),.Some(rc0) => Option(TypeValue).Some(rc0),.None => lookup_some_resolved_concrete(sid))
+      ),
+      .Some(rct) => {
+        g_gts_some_stack.push(sid.clone());
+        gts_out := recur(rct, context);
+        g_gts_some_stack.remove(g_gts_some_stack.len() - usize(1), usize(1));
+        gts_out
+      },
+      // An `extern("Yo", X : Type)` opaque type is a SomeT placeholder that
+      // codegen emits as a concrete C typedef named X (e.g. `__yo_thread_t`,
+      // hard-coded in the parallelism runtime) — lower it to that name, not
+      // `void*`. Mirrors TS lowering an extern SomeType to its C name.
+      .None => if(
+        is_extern_type_name(snm),
+        snm.clone(),
+        match(
+          context.get_type_c_name(type_key(t)),
+          .Some(cn) => cn,
+          // A FUTURE-implementing SomeType with no registration lowers to the
+          // generic Future TRAIT-OBJECT interface struct pointer
+          // (`__yo_future_trait_*`) — TS's FutureTraitType fallback in
+          // getTypeString (utils/index.ts:700-712: `context.types[
+          // futureModule.id].cName + "*"`). This is the C type of a
+          // future-typed PARAMETER (`task : Impl(Future(T, E))`): every async
+          // SM struct begins with the interface's prefix, so the concrete
+          // future pointer casts to it. The trait struct is minted on demand
+          // (the same hook `_lookup_named_c_type` uses). Only when even that
+          // fails, fall back to `__yo_io_future_t*` (an unregistered EXTERN
+          // future, TS case 3) — never `void*`, so sync-await polling sites
+          // still read `->state`/`->result` on a real struct.
+          .None => if(
+            _some_t_requires_future(t),
+            match(
+              _extract_future_trait_of_some_t(t),
+              .Some(gft_ftt) => match(
+                context.get_type_c_name(type_key(gft_ftt)),
+                .Some(gft_cn) => `${gft_cn}*`,
+                .None => {
+                  match(
+                    g_on_demand_declare_fn,
+                    .Some(gft_odf) => gft_odf(gft_ftt, context),
+                    .None => ()
+                  );
+                  match(
+                    context.get_type_c_name(type_key(gft_ftt)),
+                    .Some(gft_cn2) => `${gft_cn2}*`,
+                    .None => String.from("__yo_io_future_t*")
+                  )
+                }
+              ),
+              .None => String.from("__yo_io_future_t*")
+            ),
+            String.from("void*")
+          )
+        )
+      )
+    ),
+    // Iso type (reference-counted isolated value). Mirrors getTypeString's
+    // TypeTag.Iso case (utils/index.ts:788): the C name is `Iso_<cleanChild>`
+    // and the type is registered (idempotent) so its struct + runtime helpers
+    // (__yo_create_iso_*, __yo_iso_extract_*, __yo_iso_dispose_*) get emitted.
+    .IsoT(c) => {
+      child_c_name := recur(c, context);
+      clean := _strip_stars(child_c_name.clone()).trim();
+      iso_name := String.from("Iso_");
+      iso_name.push_string(sanitize_for_c_identifier(clean, false));
+      if(!(context.has_iso_type(iso_name.clone())), {
+        context.register_iso_type(iso_name.clone(), child_c_name.clone(), t);
+      });
+      iso_name
+    },
+    // Dynamic dispatch type — a value struct { data ptr, vtable ptr } passed
+    // by value. Mirrors getTypeString's TypeTag.Dyn case (utils/index.ts:547):
+    // return the registered fat-pointer C type name (keyed by type_key here,
+    // not TS's numeric type.id).
+    .DynT({}) => match(
+      context.get_type_c_name(type_key(t)),
+      .Some(cn) => cn,
+      .None => __yo_panic("No C type name found for dynamic dispatch type")
+    ),
+    .FnTraitT({}) => __yo_panic("get_type_string: Fn-trait lowering is Phase 3/5 — not yet ported"),
+    .FutureTraitT({}) => __yo_panic("get_type_string: Future-trait lowering is Phase 5 — not yet ported"),
+    // Comptime-only / type-level types should not reach codegen.
+    _ => {
+      fallback := String.from("// Unknown type: ");
+      fallback.push_string(type_to_string(t));
+      fallback
+    }
+  )
+);
+/// True iff `cn` appears in the emitter-maintained block-scope stack
+/// (`CodeGenContext.declared_scopes`) — i.e. its C variable was declared before
+/// this emission point AND its enclosing C block is still open (a closed
+/// block's names are popped; see `_emitter_track_scope`, emitter.yo). This is
+/// the C-emission-order liveness signal every pending-drop gate must use:
+/// yo-self's recorded envs are END-of-scope (TS envs are persistent
+/// point-in-time snapshots), and the flat `declared_c_var_names` set is
+/// monotonic — a same-named local declared in an earlier, already-closed
+/// sibling block keeps its name in the set forever, so a set-only gate emits
+/// `__yo_decr_rc(x)` for an out-of-scope `x`. The `"{"` block sentinels never
+/// match a real C name.
+scope_stack_contains :: (fn(stack : ArrayList(String), cn : String) -> bool)({
+  n := stack.len();
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < n) && !(found), {
+    match(
+      stack.get(i),
+      .Some(nm) => if(nm == cn, {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// C type string for a variable declaration (`<type> <name>`), sanitizing the
+/// variable name to avoid C reserved words/macros. Mirrors `getVariableTypeString`.
+get_variable_type_string :: (
+  fn(t : TypeValue, var_name : String, context : CodeGenContext) -> String
+)({
+  result := get_type_string(t, context);
+  result.push_str(" ");
+  c_name := sanitize_for_c_identifier(var_name, false);
+  // Record the declared C name (choke-point for every typed declaration) so the
+  // deferred-drop pass can skip drops for temps that were never materialized.
+  _dv := context.declared_c_var_names.add(c_name.clone());
+  result.push_string(c_name);
+  result
+});
+/// Generate the C name for an enum variant: `<ENUM_CNAME>_<VARIANT>` (both
+/// upper-cased). Mirrors `getEnumVariantCName`.
+get_enum_variant_c_name :: (
+  fn(enum_type : TypeValue, variant_name : String, context : CodeGenContext) -> String
+)(
+  match(
+    context.get_type_c_name(type_key(enum_type)),
+    .Some(enum_c_name) => {
+      // An enum VALUE's variant name (from `EnumVal.variant`) carries the
+      // leading `.` of the `.Variant` source form (e.g. `.Green`); the match
+      // path reads clean names from `EnumT.variant_names`, so this only bites
+      // the value path. Strip it — a leading `.` is never part of a C
+      // identifier. Variant names are ASCII identifiers, so the rune-indexed
+      // substring(1, len) is byte-safe here.
+      clean := if(variant_name.starts_with("."), variant_name.substring(usize(1), variant_name.len()), variant_name.clone());
+      result := enum_c_name.to_uppercase();
+      result.push_str("_");
+      result.push_string(clean.to_uppercase());
+      result
+    },
+    .None => {
+      eprintln(`get_enum_variant_c_name: no C type name found for enum ${type_to_string(enum_type)}`);
+      __yo_panic("get_enum_variant_c_name: enum type not registered (see stderr)")
+    }
+  )
+);
+/// The variable name to use in generated C code: the actual binding name
+/// (sanitized), not a parameter alias. If the env lookup returns a generated
+/// `fn_*` C name (a module-level function shadowing a local), prefer the
+/// original name. Mirrors `getVariableNameForCodegen`.
+///
+/// DIVERGENCE (Gap 3): TS checks `variable.type.isExtern === "c"` for the
+/// extern-C sanitize flag; yo-self models is_extern only on the Func variant,
+/// so it is read from there (false for non-Func types — the common case).
+get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Environment)) -> String)(
+  match(
+    env,
+    .None => sanitize_for_c_identifier(variable_name.clone(), false),
+    .Some(e) => {
+      variables := get_variables_from_env(e, variable_name.clone());
+      n := variables.len();
+      cond(
+        (n > usize(0)) => {
+          variable := match(variables.get(n - usize(1)),.Some(v) => v,.None => return(sanitize_for_c_identifier(variable_name.clone(), false)));
+          // Extern-C: a Func with is_extern="c", OR a c_include'd GLOBAL symbol
+          // (`stdout`/`stderr` — non-Func, so it can't carry is_extern on its type;
+          // tracked in the g_extern_c_globals registry). Either way, keep the REAL
+          // C name (skip the `__yo_c_reserved_` reserved-word prefix).
+          is_extern_c_fn := match(variable.ty,.Func({ meta : __fm1 }) => match(__fm1.*.is_extern,.Some(lang) => (lang == "c"),.None => false), _ => false);
+          // The registry is NAME-keyed, but TS's rule is per-RESOLVED-variable
+          // (`variable.type.isExtern === "c"` — extern-ness rides the TYPE):
+          // a LOCAL binding that merely shares the name (IoError.from_errno's
+          // `errno : i32` parameter shadowing <errno.h>'s `errno : *(int)`)
+          // must still be renamed — emitting the raw name made the body read
+          // the C `errno` MACRO instead of the parameter (from_errno(2)
+          // returned Other instead of NotFound under the self-compiled
+          // binary). Match the RESOLVED variable's type against the global's
+          // DECLARED type to restore the per-variable semantics.
+          is_extern_c_glob := match(
+            get_extern_c_global_type(variable.name.clone()),
+            .Some(gty) => (type_key(gty) == type_key(variable.ty)),
+            .None => false
+          );
+          is_extern_c := ((is_extern_c_fn) || (is_extern_c_glob));
+          var_name := sanitize_for_c_identifier(variable.name.clone(), is_extern_c);
+          // A generated fn_* name shadowing a local → prefer the original name.
+          if((var_name != variable_name) && var_name.starts_with(String.from("fn_")), {
+            return(sanitize_for_c_identifier(variable_name.clone(), false));
+          });
+          // Module-qualify module-level globals — without this, same-named
+          // globals in two modules alias to ONE C static (silent shared
+          // state + a leaked initializer). TS suffixes its yoXXXXXXXX
+          // module hash (getVariableNameForCodegen, keyed on
+          // Variable.isModuleLevel); yo-self keys on the DATA-keyed
+          // registry instead of the is_module_level flag, because env
+          // copies drop the flag on some resolution paths while keeping it
+          // on others — which split the declaration (unmangled) from the
+          // reads (mangled). The qualifier is the module path's FNV-1a
+          // hash (std String.hash — deterministic per path, so stage-2 ≡
+          // stage-3 is unaffected). extern-C globals keep their raw name
+          // (ABI contract); parameters may shadow a registered name and
+          // must keep theirs.
+          // issues/fixed/module-global-c-names-are-not-namespaced.md.
+          if(g_debug_mg, {
+            eprintln(`[mg] name=${variable.name} path=${variable.token.module_path} param=${variable.is_parameter} hit=${is_module_level_global(variable.token.module_path, variable.name)}`);
+          });
+          // Never qualify when ANY match for this name is a PARAMETER: a
+          // same-named parameter lexically shadows the global, so the bare
+          // name in this scope means the parameter (whose C name is the
+          // bare name). yo-self's specialized-body envs can list a
+          // caller-module global as the LAST match ahead of the parameter
+          // (divergence from TS resolution order) — std/assert's
+          // `flag` parameter resolved to the test batch's `flag` global,
+          // which was harmless only while both emitted the same C name.
+          (mg_any_param : bool) = false;
+          {
+            (mg_i : usize) = usize(0);
+            while(mg_i < n, {
+              match(
+                variables.get(mg_i),
+                .Some(mv) => {
+                  if(mv.is_parameter, {
+                    mg_any_param = true;
+                  });
+                },
+                .None => ()
+              );
+              mg_i = (mg_i + usize(1));
+            });
+          };
+          if((!(is_extern_c) && !(mg_any_param)) && is_module_level_global(variable.token.module_path, variable.name), {
+            return(`${var_name}${module_global_c_suffix(variable.token.module_path)}`);
+          });
+          var_name
+        },
+        true => sanitize_for_c_identifier(variable_name.clone(), false)
+      )
+    }
+  )
+);
+/// Extract the target atom name from a deferred dup expression.
+///   Form 1: `___dup(varName)` — pre-evaluation form (first arg atom).
+///   Form 2: `(varName.___dup)()` — post-evaluation method-style form.
+/// Mirrors `getDeferredDupTargetAtomName`.
+get_deferred_dup_target_atom_name :: (fn(dup_expr : AstExpr) -> Option(String))(
+  match(
+    dup_expr,
+    .Atom(_, _) =>.None,
+    .FnCall(_, func_box, args, _, _) => {
+      // Form 1: first arg is an atom.
+      if(args.len() >= usize(1), {
+        match(
+          args.get(usize(0)),
+          .Some(first_arg) => {
+            if(ast_expr_is_atom(first_arg), {
+              return(.Some(match(first_arg,.Atom(_, tok) => tok.value,.FnCall(_, _, _, _, _) => String.from(""))));
+            });
+          },
+          .None => ()
+        );
+      });
+      // Form 2: (varName.___dup)() with zero args.
+      if(args.len() == usize(0), {
+        match(
+          func_box,
+          .FnCall(_, _, dot_args, _, _) => {
+            if(ast_expr_is_fn_call_of(func_box, BF_DOT,.Some(usize(2))), {
+              first_ok := match(dot_args.get(usize(0)),.Some(a) => ast_expr_is_atom(a),.None => false);
+              second_is_dup := match(
+                dot_args.get(usize(1)),
+                .Some(a) => match(a,.Atom(_, tok) => (tok.value == BF_DUP),.FnCall(_, _, _, _, _) => false),
+                .None => false
+              );
+              if(first_ok && second_is_dup, {
+                return(.Some(match(dot_args.get(usize(0)),.Some(a) => match(a,.Atom(_, tok) => tok.value,.FnCall(_, _, _, _, _) => String.from("")),.None => String.from(""))));
+              });
+            });
+          },
+          .Atom(_, _) => ()
+        );
+      });
+      Option(String).None
+    }
+  )
+);
+/// Extract the target atom name from a deferred drop expression.
+///   Form A: `varName.drop()` (method-call syntax).
+///   Form B: `___drop(varName)`.
+/// Mirrors `getDeferredDropTargetAtomName`.
+get_deferred_drop_target_atom_name :: (fn(drop_expr : AstExpr) -> Option(String))(
+  match(
+    drop_expr,
+    .Atom(_, _) =>.None,
+    .FnCall(_, func_box, args, _, _) => {
+      // Form A: (varName.___drop)() with zero args.
+      if(args.len() == usize(0), {
+        match(
+          func_box,
+          .FnCall(_, _, dot_args, _, _) => {
+            if(ast_expr_is_fn_call_of(func_box, BF_DOT,.Some(usize(2))), {
+              second_is_drop := match(
+                dot_args.get(usize(1)),
+                .Some(a) => match(a,.Atom(_, tok) => (tok.value == BF_DROP),.FnCall(_, _, _, _, _) => false),
+                .None => false
+              );
+              first_is_atom := match(dot_args.get(usize(0)),.Some(a) => ast_expr_is_atom(a),.None => false);
+              if(second_is_drop && first_is_atom, {
+                return(.Some(match(dot_args.get(usize(0)),.Some(a) => match(a,.Atom(_, tok) => tok.value,.FnCall(_, _, _, _, _) => String.from("")),.None => String.from(""))));
+              });
+            });
+          },
+          .Atom(_, _) => ()
+        );
+      });
+      // Form B: ___drop(varName).
+      if(ast_expr_is_fn_call_of(drop_expr, BF_DROP,.None) && (args.len() >= usize(1)), {
+        match(
+          args.get(usize(0)),
+          .Some(first_arg) => {
+            if(ast_expr_is_atom(first_arg), {
+              return(.Some(match(first_arg,.Atom(_, tok) => tok.value,.FnCall(_, _, _, _, _) => String.from(""))));
+            });
+          },
+          .None => ()
+        );
+      });
+      Option(String).None
+    }
+  )
+);
+/// True if a deferred drop targets a variable captured by the current
+/// closure. Mirrors `isDeferredDropForClosureCapture`.
+is_deferred_drop_for_closure_capture :: (
+  fn(drop_expr : AstExpr, current_closure_captures : Option(ArrayList(String))) -> bool
+)({
+  target := get_deferred_drop_target_atom_name(drop_expr);
+  match(
+    target,
+    .None => false,
+    .Some(name) => match(
+      current_closure_captures,
+      .None => false,
+      .Some(captures) => captures.contains(name)
+    )
+  )
+});
+/// Find the first async block in an expression that might be returned.
+/// For functions returning `Impl(Future(T))`, any async block in the body
+/// could be the return value, so the first one found is returned.
+/// Mirrors `findReturnedAsyncBlock`.
+find_returned_async_block :: (fn(expr : Option(AstExpr)) -> Option(AstExpr))(
+  match(
+    expr,
+    .None =>.None,
+    .Some(e) => cond(
+      is_io_async_call(e) =>.Some(e),
+      ast_expr_is_fn_call(e) => match(
+        e,
+        .FnCall(_, _, args, _, _) => {
+          (found : Option(AstExpr)) =.None;
+          n := args.len();
+          (ai : usize) = usize(0);
+          while(ai < n, {
+            match(
+              found,
+              .Some(_) => (),
+              .None => {
+                match(
+                  args.get(ai),
+                  .Some(arg) => {
+                    found = recur(.Some(arg));
+                  },
+                  .None => ()
+                );
+              }
+            );
+            ai = (ai + usize(1));
+          });
+          found
+        },
+        .Atom(_, _) => Option(AstExpr).None
+      ),
+      true => Option(AstExpr).None
+    )
+  )
+);
+export(
+  CodeGenContext,
+  CodegenTypeEntry,
+  CodegenFunctionEntry,
+  ImplClosureCallInfo,
+  CodegenExternFnEntry,
+  DynImplEntry,
+  ArrayStructInfo,
+  IsoTypeInfo,
+  RuntimeStructField,
+  get_runtime_struct_fields,
+  type_key,
+  get_type_string,
+  get_variable_type_string,
+  get_enum_variant_c_name,
+  sanitize_for_c_identifier,
+  scope_stack_contains,
+  should_avoid_const,
+  is_function_value_with_only_builtin_yo_inline_function_call,
+  can_optimize_as_nullable_pointer,
+  can_optimize_as_simple_enum,
+  get_variable_name_for_codegen,
+  get_deferred_dup_target_atom_name,
+  get_deferred_drop_target_atom_name,
+  is_deferred_drop_for_closure_capture,
+  find_returned_async_block,
+  mark_needs_intel_asm_syntax,
+  get_needs_intel_asm_syntax,
+  set_on_demand_declare_fn
+);

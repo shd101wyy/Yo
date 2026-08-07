@@ -25,8 +25,8 @@ open(import("std/fmt"));
   BK_COLON,
   make_err_expr
 } :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
-{ Environment, add_variable_to_env } :: import("../../env.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_paths_for_write, register_module_level_global } :: import("../../expr_info.yo");
+{ Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind } :: import("../context.yo");
 { EvalValue, is_type_value, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -44,21 +44,31 @@ open(import("std/fmt"));
   type_prohibits_comptime_modifier,
   type_contains_rc_type
 } :: import("../../types/utils.yo");
-{ format_error_message, YoError } :: import("../../error.yo");
+{ format_error_message, format_error_messages, TokenAndError, YoError } :: import("../../error.yo");
+{ type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { Exception } :: import("std/error");
 { evaluate_expression } :: import("./expr.yo");
 { is_valid_variable_name } :: import("../utils.yo");
+/// Deferred-check flag for the generic-fn-type rule (see the gate below and
+/// exprs/assignment.yo). Module-global because EvalContext field additions
+/// ripple through every explicit constructor; evaluation is single-threaded.
+(g_defer_generic_fn_type_check : bool) = false;
+set_defer_generic_fn_type_check :: (fn(v : bool) -> unit)({
+  g_defer_generic_fn_type_check = v;
+});
 // ---------------------------------------------------------------------------
 // Return type
 // ---------------------------------------------------------------------------
 /// The result of `evaluate_binding`. Mirrors the anonymous TS return type.
-BindingResult :: object(
-  /// The fully annotated `:` expression.
-  expr : AstExpr,
-  /// The lhs name expression (after stripping `comptime(...)` / `given(...)`).
-  variable_expr : AstExpr,
-  /// The plain string name of the variable being declared.
-  variable_name : String
+BindingResult :: ref(
+  struct(
+    /// The fully annotated `:` expression.
+    expr : AstExpr,
+    /// The lhs name expression (after stripping `comptime(...)` / `given(...)`).
+    variable_expr : AstExpr,
+    /// The plain string name of the variable being declared.
+    variable_name : String
+  )
 );
 // ---------------------------------------------------------------------------
 // evaluate_binding
@@ -143,15 +153,35 @@ evaluate_binding :: (
     rhs_info.value,
     .Some(v) => match(
       v,
-      .TypeVal(bt) => bt.*,
+      .TypeVal(bt) => bt,
       _ => t_unit()
     ),
     .None => t_unit()
   );
-  // Array types with inferred length are not allowed in type annotations.
-  // NOTE: yo-self TypeValue.Array stores length as `usize` (always concrete),
-  // so this check only applies when a future `UnknownLen` variant is added.
-  // (TS: `isArrayType(t) && isUnknownValue(t.length)` — skipped for now.)
+  // Array types with inferred length are not allowed in type annotations
+  // (TS binding.ts:76: `isArrayType(t) && isUnknownValue(t.length)`). The
+  // `_` placeholder is value-position-only (`arr := Array(i32, _)(1,2,3)`).
+  // yo-self's `_` path (evaluator/types/array.yo) mints a length_var named
+  // `_array_length_*` — gate on that prefix so legitimate generic-impl
+  // length variables (`Array(T, U)`) in other positions are unaffected.
+  // Without this, the array.test.yo cee that EXPECTS this rejection
+  // evaluated successfully and emptied the whole batch main.
+  match(
+    user_defined_type,
+    .Array(_, _, udt_lvar) => if(udt_lvar.starts_with("_array_length_"), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(rhs),
+            `Array type with inferred length '_' is not allowed in type annotations.\nUse explicit length like 'Array(i32, 3)' or omit the type annotation and initialize with 'arr := Array(i32, _)(1, 2, 3)'`,
+            false,
+            .None
+          )
+        )
+      );
+    }),
+    _ => ()
+  );
   // Prohibit void type.
   prohibit_void_type(user_defined_type, ast_expr_token(rhs), exn);
   // Strip optional `comptime(...)` wrapper from lhs.
@@ -258,7 +288,10 @@ evaluate_binding :: (
     );
   });
   // Reject type annotations that require comptime but binding is runtime.
-  if(type_requires_comptime_modifier(user_defined_type) && !(is_compile_time_only), {
+  // Env-aware fallback for COMPOUND comptime-only types — see the twin gate
+  // in initialization_assignment.yo.
+  binding_requires_ct := (type_requires_comptime_modifier(user_defined_type) || (type_implements_comptime(user_defined_type, env) && !(type_implements_runtime_full(user_defined_type, env))));
+  if(binding_requires_ct && !(is_compile_time_only), {
     ty_str := type_to_string(user_defined_type);
     exn.throw(
       dyn(
@@ -286,8 +319,12 @@ evaluate_binding :: (
     );
   });
   variable_name := ast_expr_token(lhs).value;
-  // Reject runtime vars with generic function types.
-  if((!(is_compile_time_only)) && (is_function_type(user_defined_type) && is_function_type_generic(user_defined_type)), {
+  // Reject runtime vars with generic function types — DEFERRABLE: exprs/
+  // assignment.yo sets the flag around its typed-binding eval and re-runs
+  // the check itself after the RHS is evaluated, relaxing it for ctl
+  // handlers whose body ALWAYS unwinds (TS binding.ts:160
+  // `deferGenericFnTypeCheckToAssignment` + assignment.ts:447-470).
+  if(((!(is_compile_time_only)) && !(g_defer_generic_fn_type_check)) && (is_function_type(user_defined_type) && is_function_type_generic(user_defined_type)), {
     ty_str := type_to_string(user_defined_type);
     exn.throw(
       dyn(
@@ -325,6 +362,34 @@ evaluate_binding :: (
     is_compile_time_only => Option(EvalValue).Some(create_unknown_val(user_defined_type)),
     true => Option(EvalValue).None
   );
+  // No-shadowing rule (TS env.ts:644-658, enforced inside addVariableToEnv) —
+  // same check as initialization_assignment.yo; see the comment there for why
+  // yo-self keeps it at the user binding-introduction sites.
+  if(variable_name != String.from("__yo_self"), {
+    shadow_existing := get_variables_from_env(env, variable_name);
+    if(shadow_existing.len() > usize(0), {
+      match(
+        shadow_existing.get(shadow_existing.len() - usize(1)),
+        .Some(shadow_var) => {
+          sh_entries := ArrayList(TokenAndError).new();
+          sh_entries.push(
+            TokenAndError(
+              token : ast_expr_token(lhs),
+              error_message : `Failed to define variable "${variable_name}":`
+            )
+          );
+          sh_entries.push(
+            TokenAndError(
+              token : shadow_var.token,
+              error_message : `Variable "${variable_name}" is already defined here (variable shadowing is not allowed):`
+            )
+          );
+          exn.throw(dyn(format_error_messages(sh_entries, false,.None)));
+        },
+        .None => ()
+      );
+    });
+  });
   // Add the variable to the environment.
   _var_opt := add_variable_to_env(
     env,
@@ -339,12 +404,36 @@ evaluate_binding :: (
     is_implicit,
     ast_expr_token(lhs)
   );
+  // The variable is NOT initialized yet — initialization happens in the
+  // enclosing `=` assignment. Mirrors binding.ts:211
+  // (`initializedAtToken: undefined`). add_variable_to_env stamps
+  // Some(token) (correct for params and `:=` bindings), so clear it here.
+  // Without this, `(x : T) = rhs` reads as a REASSIGNMENT in
+  // evaluate_assignment (is_mutating_defined_variable true) and wrongly
+  // attaches a save-old-value temp for a variable that has no old value —
+  // emitting `T temp = x; // Save old value` before `x` is even declared.
+  match(
+    _var_opt,
+    .Some(new_binding_var) => {
+      new_binding_var.initialized_at_token =.None;
+      // Stamp module-level-ness — computed above but previously never
+      // patched onto the variable for the `(name : T) = ...` binding form
+      // (add_variable_to_env has no is_module_level parameter). Also record
+      // it in the data-keyed registry, which survives env copies (see
+      // expr_info.yo g_module_level_globals).
+      new_binding_var.is_module_level = is_module_level;
+      if(is_module_level, {
+        register_module_level_global(ast_expr_token(lhs).module_path.clone(), variable_name.clone());
+      });
+    },
+    .None => ()
+  );
   // Write ExprInfo for the lhs expression.
   // pathCollection = [[variableName]] (one-element path collection, matches TS).
   lhs_path := ArrayList(String).new();
   lhs_path.push(variable_name);
   lhs_info := new_expr_info(env, user_defined_type);
-  lhs_info.path_collection.push(lhs_path);
+  expr_info_paths_for_write(lhs_info).push(lhs_path);
   lhs_info.variable_name =.Some(variable_name);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs), lhs_info);
   // Write ExprInfo for the whole ":" expression.
@@ -358,3 +447,4 @@ evaluate_binding :: (
   )
 });
 export(BindingResult, evaluate_binding);
+export(set_defer_generic_fn_type_check);

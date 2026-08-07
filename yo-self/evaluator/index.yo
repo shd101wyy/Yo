@@ -1,12 +1,20 @@
 //! Self-hosted Evaluator entry point.
 //!
-//! Mirrors `src/evaluator/index.ts` — the `Evaluator` class wraps
-//! the proto-evaluator and handles:
+//! Mirrors `src/evaluator/index.ts` — the `Evaluator` class handles:
 //!   - Parsing the input source
 //!   - Pre-scanning the program for `pragma(Pragma.SkipPrelude);`
 //!   - Injecting prelude exports into a dedicated env frame
-//!   - Wiring up the module loader via `set_module_loader`
-//!   - Calling `evaluate_module_body`
+//!   - Evaluating the module body via `evaluate_anonymous_module_begin_exprs`
+//!
+//! (Until 2026-08-05 this also wrapped the legacy `eval.yo` proto-evaluator and
+//! wired it via `set_module_loader`. That file was retired — it was a
+//! bootstrap-only divergence with no `src/` counterpart, superseded by
+//! `evaluator/exprs/*.yo`, and outside `main.yo`'s import closure. Its
+//! `g_module_loader` was read nowhere but inside itself, so the wiring call was
+//! inert: the real loader is installed by `load_module_fn(prelude_path)` below
+//! and by `g_evaluator_load_fn`. Dropping the setter also matches
+//! `src/evaluator/index.ts`, which has no such global and calls `loadModule`
+//! directly.)
 //!
 //! Phase G (plans/MEMORY_SAFETY.md): `SkipPrelude` detection runs as
 //! an AST-level pre-scan of `pragma(Pragma.SkipPrelude);` calls via
@@ -15,10 +23,9 @@
 //! external caller that hasn't yet migrated, but the constructor no
 //! longer consults it.
 //!
-//! Phase 2i: Structural port using the proto-evaluator (`eval.yo`) as the
-//! evaluation backend.  Stubs for: impl registry cleanup, doc-comment
-//! extraction.  `allowPartialModule` / `registerPartialModule` are not
-//! supported by the proto-evaluator and are omitted.
+//! Stubs remain for: impl registry cleanup, doc-comment extraction.
+//! `allowPartialModule` / `registerPartialModule` are not yet supported and are
+//! omitted.
 //!
 //! Phase 3y: `register_evaluate_expression()` is called during initialization
 //! to wire the modular dispatcher into `g_evaluate_expression`. This allows
@@ -27,12 +34,11 @@
 //!
 //! Translation decisions vs `src/evaluator/index.ts`:
 //!   - TypeScript class → Yo `object` + `impl` block.
-//!   - `loadModule: LoadModuleFn` → `(fn(path : String) -> Option(EvalValue))`,
-//!     matching `set_module_loader`'s expected type directly.
+//!   - `loadModule: LoadModuleFn` → `(fn(path : String) -> Option(EvalValue))`.
 //!   - Prelude load failure sets `module_error`; does not throw.
 //!   - `getModuleValue()` returns `Option(EvalValue)` independent of error state.
 //!   - `program.clone()` is used so the stored `program` field remains valid
-//!     after `evaluate_module_body` consumes its copy.
+//!     after module-body evaluation consumes its copy.
 open(import("std/string"));
 open(import("std/fmt"));
 open(import("std/error"));
@@ -40,12 +46,53 @@ open(import("std/error"));
 { Token, TokenKind } :: import("../token.yo");
 { Parser } :: import("../parser.yo");
 { AstExpr } :: import("../expr.yo");
-{ Environment } :: import("../env.yo");
+{ Environment, build_prelude_var_cache } :: import("../env.yo");
 { TypeValue } :: import("../types/definitions.yo");
 { EvalValue } :: import("../value.yo");
-{ evaluate_module_body, set_module_loader } :: import("./eval.yo");
 { register_evaluate_expression } :: import("./exprs/_expr.yo");
 { pre_scan_for_skip_prelude } :: import("./builtins/pragma.yo");
+{ eval_context_new, LoadModuleResult } :: import("./context.yo");
+{ evaluate_anonymous_module_begin_exprs } :: import("./values/anonymous_module.yo");
+// ---------------------------------------------------------------------------
+// Context module loader bridge
+// ---------------------------------------------------------------------------
+// `EvalContext.load_module` has a fixed `(path) -> LoadModuleResult`
+// signature, so the user-supplied `(path) -> Option(EvalValue)` loader is
+// stashed here and adapted by `_evaluator_ctx_load_module` (same pattern as
+// main.yo's `g_demand_loader`).
+(g_evaluator_load_fn : Option((fn(path : String) -> Option(EvalValue)))) =.None;
+_evaluator_ctx_load_module :: (fn(path : String) -> LoadModuleResult)(
+  match(
+    g_evaluator_load_fn,
+    .Some(f) =>
+      match(
+        f(path.clone()),
+        .Some(v) => LoadModuleResult(
+          module_value : v,
+          module_type : TypeValue.Unit,
+          module_error : Option(String).None
+        ),
+        .None => LoadModuleResult(
+          module_value : EvalValue.UnitVal,
+          module_type : TypeValue.Unit,
+          module_error : Option(String).Some(`Module not found: ${path}`)
+        )
+      ),
+    .None => LoadModuleResult(
+      module_value : EvalValue.UnitVal,
+      module_type : TypeValue.Unit,
+      module_error : Option(String).Some(String.from("No module loader registered"))
+    )
+  )
+);
+(g_evaluator_ctx_loader : Option((fn(path : String) -> LoadModuleResult))) =.None;
+// Wire the slot (mirrors main.yo's `_demand_loader_init`).
+_evaluator_loader_init := (fn() -> bool)({
+  g_evaluator_ctx_loader = Option((fn(path : String) -> LoadModuleResult)).Some(
+    _evaluator_ctx_load_module
+  );
+  true
+})();
 // ---------------------------------------------------------------------------
 // Comment-attribute check
 // ---------------------------------------------------------------------------
@@ -96,14 +143,16 @@ has_comment_attribute :: (fn(tokens : ArrayList(Token), attribute : String) -> b
 /// Wraps parse + evaluate into a single reusable handle.
 ///
 /// Mirrors the `Evaluator` class in `src/evaluator/index.ts`.
-Evaluator :: object(
-  input_string : String,
-  module_path : String,
-  program : ArrayList(AstExpr),
-  tokens : ArrayList(Token),
-  module_value : Option(EvalValue),
-  module_error : Option(String),
-  env : Option(Environment)
+Evaluator :: ref(
+  struct(
+    input_string : String,
+    module_path : String,
+    program : ArrayList(AstExpr),
+    tokens : ArrayList(Token),
+    module_value : Option(EvalValue),
+    module_error : Option(String),
+    env : Option(Environment)
+  )
 );
 impl(
   Evaluator,
@@ -131,8 +180,12 @@ impl(
     program := parser.get_program(exn);
     // --- Create base environment ---
     (env : Environment) = Environment.new(module_path);
-    // Wire the module loader so `import("...")` resolves during evaluation.
-    set_module_loader(load_module_fn);
+    // NOTE: no module-loader wiring call here. `import("...")` resolves through
+    // `load_module_fn` directly (used for the prelude just below) and through
+    // `g_evaluator_load_fn`. The retired `eval.yo` proto-evaluator had its own
+    // `g_module_loader` global, read nowhere else, so the old
+    // `set_module_loader(load_module_fn)` call was inert. `src/evaluator/index.ts`
+    // has no such setter either.
     // --- Prelude injection ---
     // Phase G: scan top-level `pragma(Pragma.SkipPrelude);` calls
     // before the prelude loads. This replaces the legacy
@@ -186,9 +239,37 @@ impl(
     // dispatches through the correct function slot even without a test stub.
     register_evaluate_expression();
     // Clone program so the stored `program` field remains valid after
-    // `evaluate_module_body` consumes its copy.
+    // evaluation consumes its copy.
     program_for_eval := program.clone();
-    module_value := evaluate_module_body(program_for_eval, env);
+    // Mirror TS `Evaluator.evaluateProgram`: drive the REAL module evaluator
+    // (`evaluateAnonymousModuleBeginExprs`) with an EXECUTING context — not
+    // the legacy `evaluate_module_body` flat walker, whose non-executing walk
+    // diverges from TS (e.g. macro bodies evaluated without `is_executing`
+    // lose comptime values; issues/yo-self-expr-eq-macro-body-false.md).
+    (module_value : Option(EvalValue)) =.None;
+    (final_env : Option(Environment)) =.Some(env);
+    if(module_error.is_none(), {
+      g_evaluator_load_fn =.Some(load_module_fn);
+      ctx := eval_context_new(std_path.clone(), module_path.clone());
+      ctx.is_executing = true;
+      ctx.load_module = g_evaluator_ctx_loader;
+      result := evaluate_anonymous_module_begin_exprs(
+        program_for_eval,
+        env,
+        ctx,
+        false,
+        true,
+        exn
+      );
+      module_value = Option(EvalValue).Some(result.module_value);
+      module_error = result.partial_module_error;
+      final_env = Option(Environment).Some(result.env);
+      // Mirror TS: build the O(1) prelude variable cache after evaluating
+      // the prelude itself.
+      if(module_path.ends_with(String.from("prelude.yo")), {
+        build_prelude_var_cache(result.env);
+      });
+    });
     Evaluator(
       input_string : input_string,
       module_path : module_path,
@@ -196,7 +277,7 @@ impl(
       tokens : toks,
       module_value : module_value,
       module_error : module_error,
-      env :.Some(env)
+      env : final_env
     )
   }),
   get_program : (fn(self : Self) -> ArrayList(AstExpr))(self.program),

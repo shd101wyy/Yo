@@ -59,9 +59,19 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
   match(
     t,
     .Struct({ id }) => id,
-    .EnumT(id, _, _, _, _, _, _) => id,
-    .TraitT(_, _, _, _, id, _, _, _) => id,
-    .SomeT(id, _, _, _, _, _, _, _, _, _) => id,
+    .EnumT(id, _, _, _, _, _, _, _, _) => id,
+    .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
+    .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id,
+    // A union's `name` IS its unique id: evaluate_union_type mints
+    // `union_<random_id>` and passes it as the name (evaluator/types/union.yo),
+    // and the binding rename replaces it with the declared name consistently on
+    // both the registration and the lookup side. Without this arm the id was
+    // empty, so `impl(<union>, …)` registered NOTHING and every union method —
+    // static or instance — was unresolvable (tests/basic.test.yo arm 14), while
+    // the identical struct form worked. TS has no such gap: `UnionType extends
+    // Type` so it carries an `id` like every other type
+    // (src/types/definitions.ts:11-20).
+    .Union({ name : un_id }) => un_id,
     // Primitive types get stable synthetic ids so `impl(usize, ...)`,
     // `impl(i32, ...)`, etc. can register `MAX`/`MIN`/operator methods
     // in the trait-methods registry — without an id the registration
@@ -133,13 +143,15 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
 /// signature to the concrete receiver type. Direct-on-type
 /// registry hits leave it `.None` (TS doesn't need it there —
 /// the method's `Self` is already the concrete type).
-MethodEntry :: object(
-  label : String,
-  ty : TypeValue,
-  value : Option(EvalValue),
-  source_trait_id : String,
-  needs_pointer_conversion : bool,
-  self_type : Option(TypeValue)
+MethodEntry :: ref(
+  struct(
+    label : String,
+    ty : TypeValue,
+    value : Option(EvalValue),
+    source_trait_id : String,
+    needs_pointer_conversion : bool,
+    self_type : Option(TypeValue)
+  )
 );
 /// Module-level storage: `type id` → list of method entries.
 (_type_trait_methods : HashMap(String, ArrayList(MethodEntry))) =
@@ -152,11 +164,11 @@ register_type_trait_method :: (
   match(
     _type_trait_methods.get(type_id),
     .Some(list) => {
-      ___ := list.push(entry);
+      list.push(entry);
     },
     .None => {
       fresh := ArrayList(MethodEntry).new();
-      ___ := fresh.push(entry);
+      fresh.push(entry);
       ___set := _type_trait_methods.set(type_id, fresh);
     }
   );
@@ -172,6 +184,70 @@ get_type_trait_methods_for_type :: (
     .None => ArrayList(MethodEntry).new()
   )
 );
+/// PROVISIONAL (in-flight) trait-method entries: the yo-self port of TS's
+/// receiver-trait splice in `tryToImplementTraitWithArgumentsByTraitType`
+/// (trait-type.ts:176-203). TS mutates `receiverType.trait.fields` BEFORE
+/// evaluating the impl's member expressions, so a member body that calls back
+/// into the impl's own methods (recursive types — `TreeNode` with
+/// `Box(Self)` fields under `derive(TreeNode, Clone)`: the derived clone
+/// validates `Box(TreeNode).clone`, whose body calls `TreeNode.clone`) finds
+/// the method TYPE from the trait signature while the real `FuncVal` is still
+/// being built. yo-self's value-semantics TypeValue can't be mutated in
+/// place, so the in-flight signatures live here, keyed by receiver type id,
+/// and are consulted FIRST by `get_receiver_methods_by_name_from_env`
+/// (mirroring TS splicing them AHEAD of existing fields). Entries carry
+/// `value : None` (TS: `assignedValue` still undefined during the window) and
+/// `self_type : Some(receiver)` (TS: `SelfType: receiverType` substitution).
+/// They are cleared when the member-evaluation loop finishes — the real
+/// registration (`register_type_trait_method`, with the concrete `FuncVal`)
+/// happens after `try_to_implement_trait_with_arguments_by_trait_type`
+/// returns, so provisional and final entries never coexist.
+(_provisional_trait_methods : HashMap(String, ArrayList(MethodEntry))) =
+  HashMap(String, ArrayList(MethodEntry)).new();
+register_provisional_trait_method :: (
+  fn(type_id : String, entry : MethodEntry) -> unit
+)({
+  match(
+    _provisional_trait_methods.get(type_id),
+    .Some(list) => {
+      list.push(entry);
+    },
+    .None => {
+      fresh := ArrayList(MethodEntry).new();
+      fresh.push(entry);
+      ___set := _provisional_trait_methods.set(type_id, fresh);
+    }
+  );
+});
+get_provisional_trait_methods_by_name :: (
+  fn(type_id : String, method_name : String) -> ArrayList(MethodEntry)
+)({
+  result := ArrayList(MethodEntry).new();
+  match(
+    _provisional_trait_methods.get(type_id),
+    .Some(all) => {
+      n := all.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          all.get(i),
+          .Some(entry) => {
+            if(entry.label == method_name, {
+              result.push(entry);
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .None => ()
+  );
+  result
+});
+clear_provisional_trait_methods :: (fn(type_id : String) -> unit)({
+  _provisional_trait_methods.remove(type_id);
+});
 /// Return only the method entries whose `label` matches
 /// `method_name`. Mirrors the inner `.find` / `.filter` calls inside
 /// TS `getTypeTraitMethodsByNameFromEnv`.
@@ -187,7 +263,7 @@ get_type_trait_methods_by_name :: (
       all.get(i),
       .Some(entry) => {
         if(entry.label == method_name, {
-          ___ := result.push(entry);
+          result.push(entry);
         });
       },
       .None => ()
@@ -203,11 +279,47 @@ clear_type_trait_methods :: (fn() -> unit)({
   fresh := HashMap(String, ArrayList(MethodEntry)).new();
   _type_trait_methods = fresh;
 });
+/// Trait-method DEFAULT values (`?=` defaults). yo-self's `TraitT` does not store
+/// per-field default values (divergence — trait_type.yo:6-8), so the trait
+/// evaluator records each defaulted method's FuncVal here, keyed by
+/// `${trait_id}::${label}`. Consumers (`_resolve_dyn_trait_values`, method
+/// dispatch) fall back to this when a concrete type implements the trait WITHOUT
+/// overriding a defaulted method (e.g. `Error.source ?= (self) -> .None`).
+(_trait_method_defaults : HashMap(String, EvalValue)) = HashMap(String, EvalValue).new();
+register_trait_default :: (fn(trait_id : String, label : String, value : EvalValue) -> unit)({
+  _trait_method_defaults.set((trait_id + String.from("::")) + label, value);
+});
+get_trait_default :: (fn(trait_id : String, label : String) -> Option(EvalValue))(
+  _trait_method_defaults.get((trait_id + String.from("::")) + label)
+);
+/// Forward-shell → real-method func_id REDIRECT (`shell_func_id` → `real_func_id`,
+/// both Strings — NOT FuncVals, since EvalValue has no `.clone()` and `clone_value`
+/// consumes its arg, so the real FuncVal can't live in both the registry entry and
+/// here). A forward-referenced/recursive impl method has TWO func_ids: forward-ref
+/// /self-recursive call sites captured the SHELL id; non-forward sites use the REAL
+/// id. The impl evaluator records shell→real on the shell entry-update; codegen's
+/// `generate_function` emits the shell-id function as a THUNK forwarding to the
+/// real method's C name — so both ids resolve to the real evaluated body. Fixes
+/// parser.yo's recursive `get_program` emitting a shell's unevaluated body.
+(_shell_redirect : HashMap(String, String)) = HashMap(String, String).new();
+register_shell_redirect :: (fn(shell_func_id : String, real_func_id : String) -> unit)({
+  _shell_redirect.set(shell_func_id, real_func_id);
+});
+get_shell_redirect :: (fn(shell_func_id : String) -> Option(String))(
+  _shell_redirect.get(shell_func_id)
+);
 export(
   MethodEntry,
+  register_trait_default,
+  get_trait_default,
+  register_shell_redirect,
+  get_shell_redirect,
   register_type_trait_method,
   get_type_trait_methods_for_type,
   get_type_trait_methods_by_name,
   clear_type_trait_methods,
+  register_provisional_trait_method,
+  get_provisional_trait_methods_by_name,
+  clear_provisional_trait_methods,
   type_id_or_empty
 );

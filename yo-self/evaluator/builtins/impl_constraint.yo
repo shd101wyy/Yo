@@ -129,7 +129,7 @@ evaluate_impl_constraint :: (
           mod_info.value,
           .Some(v) => match(
             v,
-            .TypeVal(tv_box) => tv_box.*,
+            .TypeVal(tv_box) => tv_box,
             _ => TypeValue.TypeUni(usize(0))
           ),
           .None => TypeValue.TypeUni(usize(0))
@@ -170,13 +170,14 @@ evaluate_impl_constraint :: (
     generate_some_type_id(),
     String.from("Impl"),
     fl,
-    Box(TypeValue)(TypeValue.TypeUni(usize(0))),
+    TypeValue.TypeUni(usize(0)),
     required_trait_types,
     required_trait_levels,
     negative_trait_types,
     negative_trait_levels,
     false,
-    Option(Box(TypeValue)).None
+    Option(TypeValue).None,
+    ArrayList(TypeValue).new()
   );
   type_val := create_type_value(some_type);
   out_info := new_expr_info(cur_env, TypeValue.TypeUni(usize(0)));

@@ -1,0 +1,21 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+open(import("std/fmt"));
+{ assert } :: import("std/assert");
+
+main :: (fn() -> unit)({
+  x := 12;
+  p := &(x);
+  q := unsafe(p.add(2));
+  assert(q > p, "gt");
+  assert(p < q, "lt");
+  assert(q >= p, "ge");
+  assert(p <= q, "le");
+  assert(unsafe(q.offset_from(p)) == 2, "diff");
+  z := unsafe(q.sub(2));
+  assert(z == p, "eq");
+  assert(z <= p, "le2");
+  assert(p >= z, "ge2");
+  println(`ok`);
+});
+export(main);

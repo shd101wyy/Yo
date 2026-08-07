@@ -1,0 +1,113 @@
+//! Iso-type emitters — mirrors `src/codegen/exprs/iso.ts`.
+//!
+//! `Iso(T)(value)` constructor → `__yo_create_iso_<T>(value)`; `__yo_iso_extract`
+//! → `__yo_iso_extract_<T>(self)` (into a temp when the node has a result var);
+//! `__yo_iso_dispose` → `__yo_iso_dispose_<T>(self)`. The Iso type's child C
+//! name is registered for the runtime helpers.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr } :: import("../../expr.yo");
+{ EvalValue, is_type_val } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_iso_type } :: import("../../types/guards.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ get_type_string } :: import("../utils/index.yo");
+/// The `i`-th argument of a FnCall (or `.None`).
+_arg :: (fn(expr : AstExpr, i : usize) -> Option(AstExpr))(
+  match(expr,.FnCall(_, _, args, _, _) => args.get(i),.Atom(_, _) => Option(AstExpr).None)
+);
+/// The iso type's child type (`.IsoT(child)`), or the type itself otherwise.
+_iso_child :: (fn(t : TypeValue) -> TypeValue)(
+  match(t,.IsoT(c) => c, _ => t)
+);
+/// `__yo_iso_extract(<self>)`. Mirrors `generateYoIsoExtract`.
+generate_yo_iso_extract :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("// Error: __yo_iso_extract not evaluated")));
+  self_arg := match(_arg(expr, usize(0)),.Some(a) => a,.None => return(String.from("// Error: __yo_iso_extract requires exactly 1 argument")));
+  self_code := _call_generate_expr(self_arg, indent.clone(), context);
+  self_type := match(context.base.get_expr_info(self_arg),.Some(sei) => sei.ty,.None => return(String.from("// Error: __yo_iso_extract requires an Iso type")));
+  if(!(is_iso_type(self_type)), {
+    return(String.from("// Error: __yo_iso_extract requires an Iso type"));
+  });
+  iso_type_c_name := get_type_string(self_type, context.base);
+  // Lazily fill the registered child C name if it was left empty.
+  if(context.base.has_iso_type(iso_type_c_name.clone()), {
+    match(
+      context.base.iso_types.get(iso_type_c_name.clone()),
+      .Some(iso_info) => if(iso_info.child_type_c_name.len() == usize(0), {
+        child_name := get_type_string(_iso_child(self_type), context.base);
+        context.base.register_iso_type(iso_type_c_name.clone(), child_name, self_type);
+      }),
+      .None => ()
+    );
+  });
+  extract_call := String.from("__yo_iso_extract_");
+  extract_call.push_string(iso_type_c_name);
+  extract_call.push_str("(");
+  extract_call.push_string(self_code);
+  extract_call.push_str(")");
+  match(
+    ei.variable_name,
+    .Some(temp_var) => {
+      line := indent.clone();
+      line.push_string(get_type_string(ei.ty, context.base));
+      line.push_str(" ");
+      line.push_string(temp_var.clone());
+      line.push_str(" = ");
+      line.push_string(extract_call);
+      line.push_str(";");
+      em := context.base.emitter;
+      em.emit_string_line(line);
+      temp_var
+    },
+    .None => extract_call
+  )
+});
+/// `__yo_iso_dispose(<self>)`. Mirrors `generateYoIsoDispose`.
+generate_yo_iso_dispose :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  self_arg := match(_arg(expr, usize(0)),.Some(a) => a,.None => return(String.from("// Error: __yo_iso_dispose requires exactly 1 argument")));
+  self_code := _call_generate_expr(self_arg, indent.clone(), context);
+  self_type := match(context.base.get_expr_info(self_arg),.Some(sei) => sei.ty,.None => return(String.from("// Error: __yo_iso_dispose requires an Iso type")));
+  if(!(is_iso_type(self_type)), {
+    return(String.from("// Error: __yo_iso_dispose requires an Iso type"));
+  });
+  iso_type_c_name := get_type_string(self_type, context.base);
+  out := String.from("__yo_iso_dispose_");
+  out.push_string(iso_type_c_name);
+  out.push_str("(");
+  out.push_string(self_code);
+  out.push_str(")");
+  out
+});
+/// True if `expr` is a call to an Iso type constructor. Mirrors `isIsoTypeCall`.
+is_iso_type_call :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+  match(
+    expr,
+    .FnCall(_, func, args, _, _) => if(args.len() == usize(1), match(context.base.get_expr_info(func),.Some(fei) => match(fei.value,.Some(v) => if(is_type_val(v), match(v,.TypeVal(t) => is_iso_type(t), _ => false), false),.None => false),.None => false), false),
+    .Atom(_, _) => false
+  )
+);
+/// `Iso(T)(value)` constructor. Mirrors `generateIsoTypeCall`.
+generate_iso_type_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  if(!(is_iso_type_call(expr, context)), {
+    return(String.from("/* Error: generateIsoTypeCall called on non-Iso type call */"));
+  });
+  func := match(expr,.FnCall(_, f, _, _, _) => f,.Atom(_, _) => return(String.from("/* Error: non-Iso type call */")));
+  iso_type := match(context.base.get_expr_info(func),.Some(fei) => match(fei.value,.Some(v) => match(v,.TypeVal(t) => t, _ => return(String.from("/* Error: non-Iso type call */"))),.None => return(String.from("/* Error: non-Iso type call */"))),.None => return(String.from("/* Error: non-Iso type call */")));
+  child_type := _iso_child(iso_type);
+  value_arg := match(_arg(expr, usize(0)),.Some(a) => a,.None => return(String.from("/* Error: Iso constructor requires 1 argument */")));
+  value_code := _call_generate_expr(value_arg, indent.clone(), context);
+  iso_type_c_name := get_type_string(iso_type, context.base);
+  child_type_c_name := get_type_string(child_type, context.base);
+  if(!(context.base.has_iso_type(iso_type_c_name.clone())), {
+    context.base.register_iso_type(iso_type_c_name.clone(), child_type_c_name, iso_type);
+  });
+  out := String.from("__yo_create_iso_");
+  out.push_string(iso_type_c_name);
+  out.push_str("(");
+  out.push_string(value_code);
+  out.push_str(")");
+  out
+});
+export(generate_yo_iso_extract, generate_yo_iso_dispose, is_iso_type_call, generate_iso_type_call);

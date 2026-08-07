@@ -33,16 +33,36 @@ description: "Use when running tests, setting up test files, or debugging test f
 - Currently 86+ tests
 - These are TypeScript unit tests, not `.yo` integration tests
 
-## Bootstrap (yo-self) tests
+## Compiler internal tests — `tests/internal/`
 
-- Run all: `./yo-cli test ./yo-self/tests/`
-- Run lexer only: `./yo-cli test ./yo-self/tests/lexer.test.yo`
-- Run parser only: `./yo-cli test ./yo-self/tests/parser.test.yo`
-- Run evaluator only: `./yo-cli test ./yo-self/tests/eval_part1.test.yo` (split into parts 1-4)
-- Currently ~2010 evaluator tests across `eval_part{1..4}.test.yo`. Each split takes ~5 min Yo→C compile + several min C compile on native. WASM targets are too slow (>10 min Yo compile each, ~6 MB C output) and are skipped via `pragma(Pragma.SkipWasm32*);` calls.
-- These are integration tests for `yo-self/` — the self-hosted compiler components.
-- Tests import from `yo-self/` with relative paths; no WASM directives needed (pure logic, no I/O syscalls).
-- Run these whenever modifying `yo-self/` source or tests.
+These are the self-hosted compiler's own tests. **They lived at `yo-self/tests/`
+until 2026-08-05**; translate that path when reading older `issues/` and `plans/`
+documents. They moved because `src/` (TypeScript) will eventually be retired and
+`yo-self/` will become `src/`, so the tests belong under `tests/` now rather than
+being shuffled again later.
+
+```bash
+./yo-cli test ./tests/internal --parallel 1        # all 58 files
+./yo-cli test ./tests/internal/lexer.test.yo --parallel 1
+./yo-cli test ./tests/internal/parser.test.yo --parallel 1
+```
+
+- 58 files. They import `yo-self/` internals via `../../yo-self/...`, so every file
+  that reaches `evaluator/index.yo` pays a full compiler-sized Yo compile.
+- **MEASURED 2026-08-05, M4, `--parallel 1`:** 40.5 min under the TS compiler,
+  22.2 min under the self-hosted binary (which is ~2x faster), 63 min for a
+  both-compilers differential.
+- **Use `--parallel 1`, and run one compiler at a time.** `macro_expansion` alone
+  peaks at ~6.5 GB, so two concurrent children on a 16 GB machine swap — and the
+  swapping trips the runner's own 600 s evaluator deadline, MANUFACTURING failures
+  that do not reproduce in isolation. (The self-hosted runner ignores `--parallel`
+  regardless: "Accepted for CLI compatibility; v1 runs sequentially".)
+- The fast language suite excludes them: `./yo-cli test ./tests --exclude tests/internal`.
+  CI does the same, and runs `tests/internal` as its own informational job under
+  both compilers (`compiler-internal-tests` in `.github/workflows/test.yml`).
+- Run them whenever modifying `yo-self/` source or these tests.
+- No WASM directives needed (pure logic, no I/O syscalls) — but they are
+  host-toolchain-only in CI, excluded from the emcc and wasm-wasi jobs.
 - Large `.test.yo` files are batch-compiled in chunks of 100 tests by default. Use `--test-batch-size N` to tune this when a generated C batch is too large or when you need tighter failure isolation. Smaller batches reduce C size but repeat Yo compilation, so avoid lowering this unless needed.
 - Do not run multiple `./yo-self/yo-self-bin test ...` commands concurrently. The self-hosted test path currently writes shared scratch files such as `/tmp/yo_self_out.c`, so concurrent runs can collide and produce misleading compile errors or skipped-test counts.
 
@@ -58,22 +78,23 @@ affects ALL branches and ALL test files, including a trivial `assert(true)`.
 
 ```bash
 ./yo-cli test ./tests/basic.test.yo --disable-sanitize --parallel 1
-./yo-cli test ./yo-self/tests/ --disable-sanitize --parallel 1
+./yo-cli test ./tests/internal --disable-sanitize --parallel 1
 ```
 
 This disables leak detection on macOS, but tests still validate logic.
-See `issues/macos-26-asan-blocked-by-amfi.md` for the kernel-log evidence.
+See `issues/retired/macos-26-asan-blocked-by-amfi.md` for the kernel-log evidence.
 
 **Alternative** (slower, but keeps ASAN coverage on Linux/WASI): use
 `--target wasm-wasi` to run via `wasmtime`:
 
 ```bash
-./yo-cli test ./yo-self/tests/ --target wasm-wasi --parallel 1
+./yo-cli test ./tests/internal --target wasm-wasi --parallel 1
 ```
 
-> Note: `eval_part{1..4}.test.yo` carry `pragma(Pragma.SkipWasm32*);` calls because each
-> split would take >15 min on WASM (5 min Yo compile + ~10 min emcc on a 6 MB C file).
-> Run them natively (with `--disable-sanitize` on macOS) only.
+> Note: no file in `tests/internal` carries a `SkipWasm32*` pragma (verified
+> 2026-08-05) — the split evaluator files that used to need them are gone. They are
+> kept out of the cross-target CI jobs by `--exclude tests/internal` instead, since
+> compiling the compiler for a WASM target costs far more than it proves.
 
 The WASM test runner uses Emscripten (`emcc`) with `-sSTANDALONE_WASM` and
 `-sINITIAL_MEMORY=67108864` / `-sSTACK_SIZE=8388608` so large test binaries
@@ -84,8 +105,16 @@ skipped via `pragma(Pragma.SkipWasm32Wasi);` and are not required for CI on affe
 
 ### Stack depth limit for yo-self evaluator tests
 
-The `evaluate()` function in `yo-self/evaluator/eval.yo` has ~2482 local variables
-(grown from ~693 in early phases) and occupies **~1.5 MB of stack space per frame**
+> **HISTORICAL (2026-08-05).** The specific function measured below,
+> `evaluate()` in `yo-self/evaluator/eval.yo`, was RETIRED along with that whole
+> legacy proto-evaluator file. The **mechanism and the platform numbers still
+> apply** to the other large evaluator frames (`evaluate_match` ~9 MB,
+> `evaluate_function_call` ~8 MB at `-O0`), and the stack reserve in
+> `src/test-runner.ts` is still required because of them — so this section is kept
+> as the explanation for why that reserve exists.
+
+The `evaluate()` function in `yo-self/evaluator/eval.yo` had ~2482 local variables
+(grown from ~693 in early phases) and occupied **~1.5 MB of stack space per frame**
 at `-O0` without ASAN, due to the large `EvalValue`/`TypeValue` enum types stored
 directly on the stack. ASAN inflates this further by disabling stack frame reuse
 and adding redzones around every variable.
@@ -142,10 +171,15 @@ Do NOT use `ASAN_OPTIONS=stack_size=N` — that sets the fake stack, not the rea
 Tests use the `test` keyword with exactly 2 arguments: a name string and a body block.
 
 ```rust
+{ assert } :: import("std/assert");
 test("my test", {
   assert(true, "ok");
 });
 ```
+
+`assert`/`panic` are NOT prelude-ambient — every test file that uses them
+needs `{ assert, panic } :: import("std/assert");` at the top (after any
+`pragma(...)` line).
 
 **`io : Io` is automatically bound** inside every test body — no parameter is needed. All tests can use `io.async(...)`, `io.await(...)`, `io.spawn(...)`, etc. directly:
 
@@ -162,19 +196,21 @@ test("Async test", {
 
 ## Assertion builtins for Yo tests
 
-- `assert(condition, "message")` — runtime assertion (evaluates at runtime in the compiled C code)
+- `assert(condition, "message")` — runtime assertion (evaluates at runtime in the compiled C code); requires `{ assert } :: import("std/assert");`. The message accepts any `ToString` type; `assert(condition)` uses the default message.
 - `comptime_assert(condition, "message")` — compile-time assertion (evaluates during compilation). Use this for testing comptime behavior.
 - `comptime_expect_error(expr)` — expects the expression to produce a compile-time error. Use this to test that invalid code is properly rejected.
 
-**IMPORTANT**: `assert(condition, msg)` takes `str` for `msg`. Do NOT pass a template string (`` `...` ``):
+`assert(condition, msg)` accepts any `msg` implementing `ToString` — plain
+`str` literals, template strings, integers, etc. all work:
 
 ```rust
-// ❌ WRONG — template string is String, not str
 assert(false, `unexpected: ${value}`);
-
-// ✅ CORRECT — use a plain str literal
 assert(false, "unexpected");
 ```
+
+For a diverging panic in a VALUE-position match/cond arm (the arm must yield
+`T`), use the builtin `__yo_panic("...")` — `std/assert`'s `panic` returns
+`unit` and cannot adopt the sibling arm's type.
 
 ## Exception effect in yo-self tests
 
@@ -200,9 +236,9 @@ Prefer `comptime_assert` over `assert` when the value being tested is compile-ti
 Partial application tests live in `tests/fn.test.yo`. Key facts:
 
 - Partial application with `_` only works on **comptime functions** (return type must be `comptime(...)`)
-- It does NOT work on runtime functions or `forall` parameters — use `comptime` parameters instead
+- It does NOT work on runtime functions or `generic` parameters — use `comptime` parameters instead
 - Type constructors like `Result`, `Option` use comptime params and work with `_`
-- `fn(forall(A, B, C)) -> comptime(Type)` does NOT support `_` — the partial application checks `origFuncType.parameters.length` which excludes forall params
+- `fn(generic(A, B, C)) -> comptime(Type)` does NOT support `_` — the partial application checks `origFuncType.parameters.length` which excludes generic params
 - Use `fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type)` for custom type constructors that need `_`
 
 ## Linting and formatting

@@ -20,7 +20,7 @@ open(import("std/string"));
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_iso, t_type } :: import("../../types/creators.yo");
-{ is_iso_type, is_atomic_object_type } :: import("../../types/guards.yo");
+{ is_iso_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { can_type_form_rc_cycle } :: import("../../types/utils.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
@@ -136,13 +136,13 @@ evaluate_iso_type_call :: (
       )
     );
   });
-  // EvalValue.TypeVal has a Box(TypeValue) — extract the child type.
+  // EvalValue.TypeVal has a TypeValue — extract the child type.
   eval_val_opt := arg_info.value;
   child_type := match(
     eval_val_opt,
     .Some(ev) => match(
       ev,
-      .TypeVal(ty_box) => ty_box.*,
+      .TypeVal(ty_box) => ty_box,
       _ => TypeValue.Unit
     ),
     .None => TypeValue.Unit
@@ -150,7 +150,7 @@ evaluate_iso_type_call :: (
   // Phase H: Ban Iso(Arc(T)) — Iso's uniqueness is about the Iso wrapper's
   // rc, not the inner Arc cell. After extract() you get the Arc back; Iso adds
   // nothing over naked Arc + move-on-spawn. Mirrors iso.ts:62-73.
-  if(is_atomic_object_type(child_type) && _struct_has_deref_field(child_type), {
+  if(is_atomic_reference_struct_type(child_type) && _struct_has_deref_field(child_type), {
     exn.throw(
       dyn(
         format_error_message(
@@ -211,10 +211,10 @@ _find_rc_aliases :: (fn(env : Environment, owner_id : String) -> ArrayList(Strin
             .Some(v) => {
               same_owner_id := match(
                 v.is_owning_the_same_rc_value_as,
-                .Some(ref_box) => ref_box.*.id,
+                .Some(ref_box) => ref_box.*.id.to_string(),
                 .None => String.from("")
               );
-              if((same_owner_id == owner_id) && !(v.id == owner_id), {
+              if((same_owner_id == owner_id) && !(v.id.to_string() == owner_id), {
                 result.push(v.name);
               });
             },
@@ -250,7 +250,7 @@ evaluate_iso_value_call :: (
   (env : Environment) = env_in;
   iso_child_type := match(
     iso_type,
-    .IsoT(child_box) => child_box.*,
+    .IsoT(child_box) => child_box,
     _ => TypeValue.Unit
   );
   arg_exprs := match(
@@ -350,7 +350,7 @@ evaluate_iso_value_call :: (
         });
         // Check for aliases: look for variables whose is_owning_the_same_rc_value_as
         // points to this variable's id.
-        var_id := variable.id;
+        var_id := variable.id.to_string();
         alias_names := _find_rc_aliases(env, var_id);
         if(alias_names.len() > usize(0), {
           // Build comma-separated list.

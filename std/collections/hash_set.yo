@@ -22,8 +22,22 @@ MAX_LOAD_FACTOR_NUMERATOR :: usize(7);
 MAX_LOAD_FACTOR_DENOMINATOR :: usize(8);
 /// Extract H2 hash (lower 7 bits) from full hash.
 h2_hash :: (fn(hash : u64) -> u8)(u8(hash & u64(127)));
+/// Avalanche-mix a 64-bit hash (murmur3 fmix64 finalizer) so weakly-distributed
+/// hashes — notably the IDENTITY hash of integer keys — spread uniformly across
+/// slots. Without it, sequential integer keys collapse 128 consecutive keys into
+/// one h1 slot under `(hash >> 7) % capacity`, giving O(n) linear-probe chains.
+/// `*` wraps on u64 overflow (as FNV-1a relies on).
+mix_u64 :: (fn(hash : u64) -> u64)({
+  h := hash;
+  h = (h ^ (h >> u64(33)));
+  h = (h * u64(0xff51afd7ed558ccd));
+  h = (h ^ (h >> u64(33)));
+  h = (h * u64(0xc4ceb9fe1a85ec53));
+  h = (h ^ (h >> u64(33)));
+  return(h);
+});
 /// Extract H1 hash (upper bits) for slot index.
-h1_hash :: (fn(hash : u64, capacity : usize) -> usize)(usize(hash >> u64(7)) % capacity);
+h1_hash :: (fn(hash : u64, capacity : usize) -> usize)(usize(mix_u64(hash) >> u64(7)) % capacity);
 /// High-performance hash set using SwissTable algorithm.
 /// Elements must implement `Eq` and `Hash`. Provides O(1) average lookup and insert.
 HashSet :: (
@@ -32,15 +46,17 @@ HashSet :: (
     where(T <: (Eq(T), Hash))
   ) -> comptime(Type)
 )(
-  object(
-    ctrl : ?*(u8),
-    data : ?*(T),
-    capacity : usize,
-    size : usize
+  ref(
+    struct(
+      ctrl : ?*(u8),
+      data : ?*(T),
+      capacity : usize,
+      size : usize
+    )
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: (Eq(T), Hash)),
   HashSet(T),
   /**
@@ -68,7 +84,7 @@ impl(
             data_ptr := *(T)(data_void_ptr);
             i := usize(0);
             while(i < capacity, i = (i + usize(1)), {
-              (ctrl_ptr &+ i).* = CTRL_EMPTY;
+              (ctrl_ptr.add(i)).* = CTRL_EMPTY;
             });
             .Ok(
               Self(
@@ -91,7 +107,7 @@ impl(
     match(
       result,
       .Ok(set) => set,
-      .Err(_) => panic("Failed to allocate HashSet")
+      .Err(_) => __yo_panic("Failed to allocate HashSet")
     )
   }),
   /**
@@ -116,7 +132,7 @@ impl(
     match(
       result,
       .Ok(set) => set,
-      .Err(_) => panic("Failed to allocate HashSet")
+      .Err(_) => __yo_panic("Failed to allocate HashSet")
     )
   }),
   /**
@@ -126,7 +142,7 @@ impl(
     match(
       self.ctrl,
       .Some(ptr) => ptr,
-      .None => panic("HashSet ctrl pointer is null")
+      .None => __yo_panic("HashSet ctrl pointer is null")
     )
   ),
   /**
@@ -136,7 +152,7 @@ impl(
     match(
       self.data,
       .Some(ptr) => ptr,
-      .None => panic("HashSet data pointer is null")
+      .None => __yo_panic("HashSet data pointer is null")
     )
   ),
   /**
@@ -151,13 +167,13 @@ impl(
     data_ptr := Self._data_ptr(self);
     while(probe < self.capacity, probe = (probe + usize(1)), {
       probe_index := ((index + probe) % self.capacity);
-      ctrl_byte := (ctrl_ptr &+ probe_index).*;
+      ctrl_byte := (ctrl_ptr.add(probe_index)).*;
       cond(
         (ctrl_byte == CTRL_EMPTY) => {
           return(.None);
         },
         (ctrl_byte == h2) => {
-          stored_element := (data_ptr &+ probe_index).*;
+          stored_element := (data_ptr.add(probe_index)).*;
           cond(
             (stored_element == element) => {
               return(.Some(probe_index));
@@ -180,7 +196,7 @@ impl(
     ctrl_ptr := Self._ctrl_ptr(self);
     while(probe < self.capacity, probe = (probe + usize(1)), {
       probe_index := ((index + probe) % self.capacity);
-      ctrl_byte := (ctrl_ptr &+ probe_index).*;
+      ctrl_byte := (ctrl_ptr.add(probe_index)).*;
       cond(
         ((ctrl_byte == CTRL_EMPTY) || (ctrl_byte == CTRL_DELETED)) => {
           return(probe_index);
@@ -188,7 +204,7 @@ impl(
         true => ()
       );
     });
-    panic("HashSet is full - should have resized")
+    __yo_panic("HashSet is full - should have resized")
   }),
   /**
   * Check if HashSet needs resizing based on load factor
@@ -210,17 +226,17 @@ impl(
         ctrl_ptr := Self._ctrl_ptr(self);
         data_ptr := Self._data_ptr(self);
         while(i < self.capacity, i = (i + usize(1)), {
-          ctrl_byte := (ctrl_ptr &+ i).*;
+          ctrl_byte := (ctrl_ptr.add(i)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              element := (data_ptr &+ i).*;
+              element := (data_ptr.add(i)).*;
               hash := element.hash();
               h2 := h2_hash(hash);
               new_index := Self._find_insert_slot(new_set, hash);
               new_ctrl_ptr := Self._ctrl_ptr(new_set);
               new_data_ptr := Self._data_ptr(new_set);
-              (new_ctrl_ptr &+ new_index).* = h2;
-              consume((new_data_ptr &+ new_index).* = element);
+              (new_ctrl_ptr.add(new_index)).* = h2;
+              consume((new_data_ptr.add(new_index)).* = element);
               new_set.size = (new_set.size + usize(1));
             },
             true => ()
@@ -232,10 +248,10 @@ impl(
           Type.contains_rc_type(T) => {
             j := usize(0);
             while(j < self.capacity, j = (j + usize(1)), {
-              ctrl_byte := (ctrl_ptr &+ j).*;
+              ctrl_byte := (ctrl_ptr.add(j)).*;
               cond(
                 ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                  element_ptr := (data_ptr &+ j);
+                  element_ptr := data_ptr.add(j);
                   unsafe.drop(element_ptr.*);
                 },
                 true => ()
@@ -289,8 +305,8 @@ impl(
             index := Self._find_insert_slot(self, hash);
             ctrl_ptr := Self._ctrl_ptr(self);
             data_ptr := Self._data_ptr(self);
-            (ctrl_ptr &+ index).* = h2;
-            consume((data_ptr &+ index).* = element);
+            (ctrl_ptr.add(index)).* = h2;
+            consume((data_ptr.add(index)).* = element);
             self.size = (self.size + usize(1));
             .Ok(true)
           }
@@ -324,13 +340,13 @@ impl(
         cond(
           Type.contains_rc_type(T) => {
             data_ptr := Self._data_ptr(self);
-            element_ptr := (data_ptr &+ index);
+            element_ptr := data_ptr.add(index);
             unsafe.drop(element_ptr.*);
           },
           true => ()
         );
         ctrl_ptr := Self._ctrl_ptr(self);
-        (ctrl_ptr &+ index).* = CTRL_DELETED;
+        (ctrl_ptr.add(index)).* = CTRL_DELETED;
         self.size = (self.size - usize(1));
         true
       },
@@ -361,10 +377,10 @@ impl(
         data_ptr := Self._data_ptr(self);
         i := usize(0);
         while(i < self.capacity, i = (i + usize(1)), {
-          ctrl_byte := (ctrl_ptr &+ i).*;
+          ctrl_byte := (ctrl_ptr.add(i)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              element_ptr := (data_ptr &+ i);
+              element_ptr := data_ptr.add(i);
               unsafe.drop(element_ptr.*);
             },
             true => ()
@@ -376,7 +392,7 @@ impl(
     ctrl_ptr := Self._ctrl_ptr(self);
     i := usize(0);
     while(i < self.capacity, i = (i + usize(1)), {
-      (ctrl_ptr &+ i).* = CTRL_EMPTY;
+      (ctrl_ptr.add(i)).* = CTRL_EMPTY;
     });
     self.size = usize(0);
   }),
@@ -393,10 +409,10 @@ impl(
         data_ptr := Self._data_ptr(self);
         is_sub := true;
         while(i < self.capacity, i = (i + usize(1)), {
-          ctrl_byte := (ctrl_ptr &+ i).*;
+          ctrl_byte := (ctrl_ptr.add(i)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              element := (data_ptr &+ i).*;
+              element := (data_ptr.add(i)).*;
               contains_result := other.contains(element);
               cond(
                 (contains_result == false) => {
@@ -431,10 +447,10 @@ impl(
     data_ptr := Self._data_ptr(smaller);
     result := true;
     while(i < smaller.capacity, i = (i + usize(1)), {
-      ctrl_byte := (ctrl_ptr &+ i).*;
+      ctrl_byte := (ctrl_ptr.add(i)).*;
       cond(
         ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-          element := (data_ptr &+ i).*;
+          element := (data_ptr.add(i)).*;
           contains_result := larger.contains(element);
           cond(
             (contains_result == true) => {
@@ -476,10 +492,10 @@ impl(
         ctrl_ptr := Self._ctrl_ptr(self);
         data_ptr := Self._data_ptr(self);
         while(i < self.capacity, i = (i + usize(1)), {
-          ctrl_byte := (ctrl_ptr &+ i).*;
+          ctrl_byte := (ctrl_ptr.add(i)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              element := (data_ptr &+ i).*;
+              element := (data_ptr.add(i)).*;
               result_set.add(element);
             },
             true => ()
@@ -489,10 +505,10 @@ impl(
         other_ctrl_ptr := Self._ctrl_ptr(other);
         other_data_ptr := Self._data_ptr(other);
         while(j < other.capacity, j = (j + usize(1)), {
-          ctrl_byte := (other_ctrl_ptr &+ j).*;
+          ctrl_byte := (other_ctrl_ptr.add(j)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              element := (other_data_ptr &+ j).*;
+              element := (other_data_ptr.add(j)).*;
               result_set.add(element);
             },
             true => ()
@@ -518,10 +534,10 @@ impl(
         ctrl_ptr := Self._ctrl_ptr(smaller);
         data_ptr := Self._data_ptr(smaller);
         while(i < smaller.capacity, i = (i + usize(1)), {
-          ctrl_byte := (ctrl_ptr &+ i).*;
+          ctrl_byte := (ctrl_ptr.add(i)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              element := (data_ptr &+ i).*;
+              element := (data_ptr.add(i)).*;
               cond(
                 (larger.contains(element)) => {
                   _ := result_set.add(element);
@@ -550,10 +566,10 @@ impl(
         ctrl_ptr := Self._ctrl_ptr(self);
         data_ptr := Self._data_ptr(self);
         while(i < self.capacity, i = (i + usize(1)), {
-          ctrl_byte := (ctrl_ptr &+ i).*;
+          ctrl_byte := (ctrl_ptr.add(i)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              element := (data_ptr &+ i).*;
+              element := (data_ptr.add(i)).*;
               contains_result := other.contains(element);
               cond(
                 (contains_result == false) => {
@@ -583,10 +599,10 @@ impl(
         ctrl_ptr := Self._ctrl_ptr(self);
         data_ptr := Self._data_ptr(self);
         while(i < self.capacity, i = (i + usize(1)), {
-          ctrl_byte := (ctrl_ptr &+ i).*;
+          ctrl_byte := (ctrl_ptr.add(i)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              element := (data_ptr &+ i).*;
+              element := (data_ptr.add(i)).*;
               contains_result := other.contains(element);
               cond(
                 (contains_result == false) => {
@@ -602,10 +618,10 @@ impl(
         other_ctrl_ptr := Self._ctrl_ptr(other);
         other_data_ptr := Self._data_ptr(other);
         while(j < other.capacity, j = (j + usize(1)), {
-          ctrl_byte := (other_ctrl_ptr &+ j).*;
+          ctrl_byte := (other_ctrl_ptr.add(j)).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              element := (other_data_ptr &+ j).*;
+              element := (other_data_ptr.add(j)).*;
               contains_result := self.contains(element);
               cond(
                 (contains_result == false) => {
@@ -623,7 +639,7 @@ impl(
   })
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: (Eq(T), Hash)),
   HashSet(T),
   Dispose(
@@ -642,10 +658,10 @@ impl(
                 .Some(data_ptr) => {
                   i := usize(0);
                   while(i < self.capacity, i = (i + usize(1)), {
-                    ctrl_byte := (ctrl_ptr &+ i).*;
+                    ctrl_byte := (ctrl_ptr.add(i)).*;
                     cond(
                       ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                        element_ptr := (data_ptr &+ i);
+                        element_ptr := data_ptr.add(i);
                         unsafe.drop(element_ptr.*);
                       },
                       true => ()
@@ -684,12 +700,12 @@ HashSetIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: (Eq(T), Hash)),
   HashSetIter(T),
   Iterator(
     Item : T,
-    next : (fn(ref(self) : Self) -> Option(T))(
+    next : (fn(inout(self) : Self) -> Option(T))(
       cond(
         (self._set.capacity == usize(0)) =>.None,
         true => {
@@ -697,10 +713,10 @@ impl(
           data_ptr := self._set.data.unwrap();
           result := Option(T).None;
           while((self._index < self._set.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ self._index).*;
+            ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result =.Some((data_ptr &+ self._index).*);
+                result =.Some((data_ptr.add(self._index)).*);
               },
               true => ()
             );
@@ -712,7 +728,7 @@ impl(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: (Eq(T), Hash)),
   HashSet(T),
   into_iter : (fn(self : Self) -> HashSetIter(T))(
@@ -730,12 +746,12 @@ HashSetIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: (Eq(T), Hash)),
   HashSetIterPtr(T),
   Iterator(
     Item : *(T),
-    next : (fn(ref(self) : Self) -> Option(*(T)))(
+    next : (fn(inout(self) : Self) -> Option(*(T)))(
       cond(
         (self._set.capacity == usize(0)) =>.None,
         true => {
@@ -743,10 +759,10 @@ impl(
           data_ptr := self._set.data.unwrap();
           result := Option(*(T)).None;
           while((self._index < self._set.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ self._index).*;
+            ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result =.Some(data_ptr &+ self._index);
+                result =.Some(data_ptr.add(self._index));
               },
               true => ()
             );
@@ -758,11 +774,50 @@ impl(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: (Eq(T), Hash)),
   HashSet(T),
   iter : (fn(self : Self) -> HashSetIterPtr(T))(
     HashSetIterPtr(T)(_set : self, _index : usize(0))
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: (Eq(T), Hash)),
+  HashSet(T),
+  Trace(
+    /**
+    * Cycle-GC tracing. Elements live in a malloc'd open-addressing buffer the
+    * compiler's auto-derived field walk cannot reach, so trace each FULL slot
+    * (its control byte is neither EMPTY nor DELETED). `tracer.visit` takes the slot
+    * POINTER and reads it WITHOUT touching the element's reference count (a by-value
+    * managed handle would be dup'd then dropped, freeing a live element
+    * mid-collection). Mirrors the ArrayList `Trace` impl + the SwissTable slot scan.
+    */
+    trace : (fn(self : Self, tracer : GcTracer) -> unit)({
+      match(
+        self.ctrl,
+        .Some(ctrl_ptr) => match(
+          self.data,
+          .Some(data_ptr) => {
+            (i : usize) = usize(0);
+            while(i < self.capacity, {
+              ctrl_byte := (ctrl_ptr.add(i)).*;
+              // Full slot iff the SwissTable control high bit is clear (a full byte
+              // stores the 7-bit h2 hash); EMPTY (255) and DELETED (254) both set it.
+              // Uses the control-bit directly so the trace body needs no module-level
+              // constant in scope.
+              if((ctrl_byte & u8(128)) == u8(0), {
+                tracer.visit(data_ptr.add(i));
+              });
+              i = (i + usize(1));
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+    })
   )
 );
 export(

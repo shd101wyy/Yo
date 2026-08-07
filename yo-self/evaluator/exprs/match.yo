@@ -25,20 +25,25 @@ open(import("std/string"));
   ControlFlowFlags,
   has_control_flow,
   has_any_control_flow,
-  merge_control_flows
+  merge_control_flows,
+  lookup_some_resolved_concrete,
+  expr_info_set_case_executed,
+  expr_info_set_is_primitive_match,
+  expr_info_set_primitive_pattern_values
 } :: import("../../expr_info.yo");
-{ Environment, Variable } :: import("../../env.yo");
-{ add_variable_to_env } :: import("../../env.yo");
+{ Environment, Variable, pop_env_frame } :: import("../../env.yo");
+{ add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 {
   EvalValue,
   create_unknown_val,
+  is_runtime_only_unknown_val,
   is_enum_val,
   is_unknown_val
 } :: import("../../value.yo");
 { value_to_string } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_ptr } :: import("../../types/creators.yo");
+{ t_unit, t_ptr, resolve_enum_shell } :: import("../../types/creators.yo");
 {
   is_bool_type,
   is_enum_type,
@@ -110,6 +115,81 @@ find_str_in_list :: (fn(list : ArrayList(String), s : String) -> Option(usize))(
 is_or_pattern :: (fn(expr : AstExpr) -> bool)(
   ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, "|",.Some(usize(2)))
 );
+/// True for a *place* expression: a plain variable (Atom) or a bare
+/// field-access chain rooted at one (`self._bytes`, `a.b.c`).
+/// Port of `exprIsPlaceExpression` (src/evaluator/exprs/match.ts).
+///
+/// A place is already owned by the enclosing scope for the whole duration of
+/// the match, so — exactly like the Atom case — it must NOT be wrapped in an
+/// implicit begin() scope: that materializes an owning temp copy (a `___dup`
+/// before the switch and a `___drop` after it) on every single match. Matching
+/// on a field is the hottest shape in a self-compile (`String ==` alone was
+/// 33% of all decr_rc traffic) and the pair is pure overhead there — the arms
+/// only borrow the payload.
+///
+/// A method call (`x.f()`) is NOT a 2-arg dot call (its func IS the dot), so
+/// it still takes the begin() path and keeps its owning temp.
+is_place_expression :: (fn(e : AstExpr, env : Environment) -> bool)({
+  if(ast_expr_is_atom(e), {
+    return(true);
+  });
+  outer_field_is_atom := match(
+    e,
+    .FnCall(_, _, eargs, _, _) =>
+      match(eargs.get(usize(1)),.Some(a1) => ast_expr_is_atom(a1),.None => false),
+    .Atom(_, _) => false
+  );
+  if(!(ast_expr_is_fn_call_of(e, ".",.Some(usize(2))) && outer_field_is_atom), {
+    return(false);
+  });
+  // Walk to the root of the `a.b.c` chain.
+  (root : AstExpr) = match(
+    e,
+    .FnCall(_, _, eargs0, _, _) => match(eargs0.get(usize(0)),.Some(a0) => a0,.None => e),
+    .Atom(_, _) => e
+  );
+  walking := true;
+  while(walking, {
+    nxt := match(
+      root,
+      .FnCall(_, _, rargs, _, _) =>
+        if(
+          ast_expr_is_fn_call_of(root, ".",.Some(usize(2)))
+          && match(rargs.get(usize(1)),.Some(a1) => ast_expr_is_atom(a1),.None => false),
+          rargs.get(usize(0)),
+          Option(AstExpr).None
+        ),
+      .Atom(_, _) => Option(AstExpr).None
+    );
+    match(
+      nxt,
+      .Some(n) => {
+        root = n;
+      },
+      .None => {
+        walking = false;
+      }
+    );
+  });
+  if(!(ast_expr_is_atom(root)), {
+    return(false);
+  });
+  // The chain must bottom out in a RUNTIME variable. A compile-time dot such
+  // as `Kind.Func` (an enum variant) or a module member is not a place:
+  // evaluating it directly yields no variable_name for the match to bind, and
+  // it carries no RC traffic to save in the first place.
+  root_vars := get_variables_from_env(env, ast_expr_token(root).value);
+  if(root_vars.len() == usize(0), {
+    return(false);
+  });
+  return(
+    match(
+      root_vars.get(root_vars.len() - usize(1)),
+      .Some(rv) => !(rv.is_compile_time_only),
+      .None => false
+    )
+  );
+});
 /// Flatten an or-pattern `(a | b | c)` into `[a, b, c]`.
 /// Uses `recur` for self-recursion.
 flatten_or_pattern :: (fn(expr : AstExpr) -> ArrayList(AstExpr))({
@@ -247,9 +327,9 @@ evaluate_primitive_match :: (
       });
       used_wildcard = true;
       mae_wc_info := new_expr_info(case_env, scrutinee_type);
-      mae_wc_info.case_executed = Option(bool).Some(true);
+      expr_info_set_case_executed(mae_wc_info, Option(bool).Some(true));
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(match_arm_expr), mae_wc_info);
-      ___ := env.push_frame(false);
+      env.push_frame(false);
       is_arm_executing_wc := match(
         scrutinee_val_opt,
         .None => false,
@@ -257,7 +337,20 @@ evaluate_primitive_match :: (
       );
       old_executing_wc := ctx.is_executing;
       ctx.is_executing = is_arm_executing_wc;
+      // Pass the running unified result type as the arm body's expected type so a
+      // bare `.None` / `.Variant` (shorthand enum construction) in this arm can
+      // infer its enum type from earlier arms. Mirrors TS match.ts:471
+      // (`expectedType: resultType ?? context.expectedType`).
+      old_expected_wc := ctx.expected_type;
+      match(
+        result_type_pm,
+        .Some(rt_wc) => {
+          ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : rt_wc, env : env));
+        },
+        .None => ()
+      );
       evaluated_body_wc := evaluate_begin_expression(rhs_expr, env, ctx, ArrayList(Variable).new(), false, exn);
+      ctx.expected_type = old_expected_wc;
       ctx.is_executing = old_executing_wc;
       env.pop_frame();
       body_info_wc_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_wc));
@@ -275,10 +368,11 @@ evaluate_primitive_match :: (
         return(expr);
       });
       body_info_wc := match(body_info_wc_opt,.Some(bi) => bi,.None => new_expr_info(env, t_unit()));
+      pop_env_frame(body_info_wc.env);
       consume_case_body_temp_var(evaluated_body_wc, body_info_wc.env, ctx);
-      if(scrutinee_val_opt.is_none(), {
-        body_info_wc.value = Option(EvalValue).None;
-      });
+      // Do NOT null the shared arm-body ExprInfo for an unknown scrutinee — it
+      // corrupts the arm body's stored value (see the fieldless-arm note); the
+      // match RESULT value is nulled by the post-loop instead.
       if(has_any_control_flow(body_info_wc.control_flow), {
         cf_wc := match(
           body_info_wc.control_flow,
@@ -370,7 +464,7 @@ evaluate_primitive_match :: (
           );
           out_wc_early := new_expr_info(env, result_ty_wc3);
           out_wc_early.value = body_info_wc.value;
-          out_wc_early.is_primitive_match = Option(bool).Some(true);
+          expr_info_set_is_primitive_match(out_wc_early, Option(bool).Some(true));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_wc_early);
           attach_temp_variable_to_expr(expr, true, ctx);
           return(expr);
@@ -436,7 +530,16 @@ evaluate_primitive_match :: (
           return(expr);
         });
         fp_info := match(fp_info_opt,.Some(fi) => fi,.None => new_expr_info(case_env, scrutinee_type));
-        if(!(are_types_compatible(scrutinee_type, fp_info.ty)), {
+        // Argument ROLES: yo-self's are_types_compatible is (actual, expected)
+        // — the PATTERN's type is the actual/given and the SCRUTINEE type is
+        // the expected (TS match.ts:1650-1656 passes expected=scrutineeType,
+        // given=evaluatedPattern). With the roles swapped, a COMPTIME-CONST
+        // identifier pattern (`TEN => 1`, TEN :: 10) asked "is runtime i32
+        // acceptable where comptime_int is expected" → false → the whole
+        // match threw and the enclosing fn hollowed (basic arm 19). Literal
+        // patterns never hit this because their eval coerces to the expected
+        // scrutinee type first.
+        if(!(are_types_compatible(fp_info.ty, scrutinee_type)), {
           exn.throw(
             dyn(
               format_error_message(
@@ -521,13 +624,24 @@ evaluate_primitive_match :: (
         pvs_i = (pvs_i + usize(1));
       });
       mae_lit_info := new_expr_info(case_env, scrutinee_type);
-      mae_lit_info.case_executed = Option(bool).Some(true);
-      mae_lit_info.primitive_pattern_values = Option(ArrayList(Option(EvalValue))).Some(pattern_value_opts);
+      expr_info_set_case_executed(mae_lit_info, Option(bool).Some(true));
+      expr_info_set_primitive_pattern_values(mae_lit_info, Option(ArrayList(Option(EvalValue))).Some(pattern_value_opts));
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(match_arm_expr), mae_lit_info);
-      ___ := env.push_frame(false);
+      env.push_frame(false);
       old_executing_lit := ctx.is_executing;
       ctx.is_executing = matches_at_ct;
+      // Running-result-type as expected type (bare `.None`/`.Variant` inference);
+      // mirrors TS match.ts:471 (`expectedType: resultType ?? context.expectedType`).
+      old_expected_lit := ctx.expected_type;
+      match(
+        result_type_pm,
+        .Some(rt_lit) => {
+          ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : rt_lit, env : env));
+        },
+        .None => ()
+      );
       evaluated_body_lit := evaluate_begin_expression(rhs_expr, env, ctx, ArrayList(Variable).new(), false, exn);
+      ctx.expected_type = old_expected_lit;
       ctx.is_executing = old_executing_lit;
       env.pop_frame();
       body_info_lit_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_lit));
@@ -545,10 +659,11 @@ evaluate_primitive_match :: (
         return(expr);
       });
       body_info_lit := match(body_info_lit_opt,.Some(bi) => bi,.None => new_expr_info(env, t_unit()));
+      pop_env_frame(body_info_lit.env);
       consume_case_body_temp_var(evaluated_body_lit, body_info_lit.env, ctx);
-      if(scrutinee_val_opt.is_none(), {
-        body_info_lit.value = Option(EvalValue).None;
-      });
+      // Do NOT null the shared arm-body ExprInfo for an unknown scrutinee — it
+      // corrupts the arm body's stored value (see the fieldless-arm note); the
+      // match RESULT value is nulled by the post-loop instead.
       if(has_any_control_flow(body_info_lit.control_flow), {
         cf_lit := match(
           body_info_lit.control_flow,
@@ -620,7 +735,7 @@ evaluate_primitive_match :: (
           );
           out_lit_early := new_expr_info(body_info_lit.env, result_ty_lit_early);
           out_lit_early.value = body_info_lit.value;
-          out_lit_early.is_primitive_match = Option(bool).Some(true);
+          expr_info_set_is_primitive_match(out_lit_early, Option(bool).Some(true));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_lit_early);
           attach_temp_variable_to_expr(expr, true, ctx);
           return(expr);
@@ -760,6 +875,15 @@ evaluate_primitive_match :: (
     });
     out_val_pm := cond(
       scrutinee_val_opt.is_none() => Option(EvalValue).None,
+      // A match over a RUNTIME-ONLY scrutinee is a runtime result — mark it
+      // runtime-only so a comptime-only parameter cannot be filled with it
+      // (TS: a runtime match has NO `$.value` at all; a plain UnknownVal is
+      // yo-self's CTFE-analysis placeholder and would slip past helper.yo's
+      // Step-5 check — `!(match(param_ct_flags.get(i), ...))` then stamped
+      // comptime_not and the stage2 self-compile called an unemitted C fn,
+      // the FIXPOINT_BROKEN shape from the comptime-overload gate removal).
+      match(scrutinee_val_opt,.Some(sv_ro) => is_runtime_only_unknown_val(sv_ro),.None => false) =>
+        Option(EvalValue).Some(EvalValue.UnknownVal(rt_pm.clone(), true)),
       true => Option(EvalValue).Some(create_unknown_val(rt_pm))
     );
     result_ty_final_pm := cond(
@@ -769,7 +893,7 @@ evaluate_primitive_match :: (
     );
     out_pm := new_expr_info(env, result_ty_final_pm);
     out_pm.value = out_val_pm;
-    out_pm.is_primitive_match = Option(bool).Some(true);
+    expr_info_set_is_primitive_match(out_pm, Option(bool).Some(true));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_pm);
     attach_temp_variable_to_expr(expr, true, ctx);
   }, {
@@ -828,7 +952,7 @@ evaluate_primitive_match :: (
                       match(
                         ft,
                         .Func({ result : result_box }) => {
-                          ret_type_pm = Option(TypeValue).Some(result_box.*);
+                          ret_type_pm = Option(TypeValue).Some(result_box);
                         },
                         _ => ()
                       );
@@ -889,7 +1013,7 @@ evaluate_primitive_match :: (
             out_ret_pm := new_expr_info(env, rt);
             out_ret_pm.value = ret_val_pm;
             out_ret_pm.control_flow = final_cf_pm;
-            out_ret_pm.is_primitive_match = Option(bool).Some(true);
+            expr_info_set_is_primitive_match(out_ret_pm, Option(bool).Some(true));
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ret_pm);
           }
         );
@@ -911,7 +1035,7 @@ evaluate_primitive_match :: (
         esc_ty_pm := match(ctx.enclosing_function_return_type,.Some(t) => t,.None => t_unit());
         out_esc_pm := new_expr_info(env, esc_ty_pm);
         out_esc_pm.control_flow = final_cf_pm;
-        out_esc_pm.is_primitive_match = Option(bool).Some(true);
+        expr_info_set_is_primitive_match(out_esc_pm, Option(bool).Some(true));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_esc_pm);
       },
       has_control_flow(final_cf_pm,.Break) => {
@@ -931,7 +1055,7 @@ evaluate_primitive_match :: (
         out_brk_pm := new_expr_info(env, t_unit());
         out_brk_pm.value = Option(EvalValue).Some(EvalValue.UnitVal);
         out_brk_pm.control_flow = final_cf_pm;
-        out_brk_pm.is_primitive_match = Option(bool).Some(true);
+        expr_info_set_is_primitive_match(out_brk_pm, Option(bool).Some(true));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_brk_pm);
       },
       has_control_flow(final_cf_pm,.Continue) => {
@@ -951,7 +1075,7 @@ evaluate_primitive_match :: (
         out_cnt_pm := new_expr_info(env, t_unit());
         out_cnt_pm.value = Option(EvalValue).Some(EvalValue.UnitVal);
         out_cnt_pm.control_flow = final_cf_pm;
-        out_cnt_pm.is_primitive_match = Option(bool).Some(true);
+        expr_info_set_is_primitive_match(out_cnt_pm, Option(bool).Some(true));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_cnt_pm);
       },
       true => ()
@@ -973,6 +1097,58 @@ evaluate_primitive_match :: (
 /// is unreachable because `BoolVal -> recur(bool)` and `bool != i32`).
 /// Non-GADT enums and SomeT (unrefined) instantiation args make every
 /// branch reachable. `variant_idx` indexes the enum's variant order.
+/// Resolve a GADT type-constructor arg through the SomeT resolution channel
+/// (lineage cell first, then the id-keyed registry). TS substitutes
+/// `EnumType.typeConstructorArgs` ON the type object when a generic fn is
+/// specialized; yo-self's side-registry keys by enum id — which `substitute`
+/// PRESERVES — so the substituted instance still maps to the tca recorded at
+/// def-instantiation time ([SomeT T], not [i32]). Reading each entry through
+/// the resolution channel recovers the specialization's concrete binding.
+_gadt_resolve_tca_entry :: (fn(t : TypeValue) -> TypeValue)(
+  match(
+    t,
+    .SomeT({ id : rt_id, resolved_concrete : rt_cell }) => match(
+      rt_cell.get(usize(0)),
+      .Some(rt_c) => rt_c,
+      .None => match(
+        lookup_some_resolved_concrete(rt_id),
+        .Some(rt_g) => rt_g,
+        .None => t
+      )
+    ),
+    _ => t
+  )
+);
+/// Compute the GADT-refined expected type for a match branch (port of
+/// match.ts:93 getGadtRefinedExpectedType). If the expected type is the
+/// SAME SomeT as one of the enum's type-constructor args, the branch
+/// refines it to the variant's `-> recur(...)` arg at that position
+/// (e.g. expected `T`, tca `[T]`, variant args `[i32]` → `i32`).
+_gadt_refined_expected :: (
+  fn(expected : TypeValue, tca : ArrayList(TypeValue), gra : ArrayList(TypeValue)) -> TypeValue
+)({
+  exp_id := match(expected,.SomeT({ id : sid }) => sid, _ => String.new());
+  if(exp_id.len() == usize(0), {
+    return(expected);
+  });
+  (refined : Option(TypeValue)) = Option(TypeValue).None;
+  (k : usize) = usize(0);
+  while((k < tca.len()) && refined.is_none(), {
+    tk := match(tca.get(k),.Some(t) => t,.None => TypeValue.Unit);
+    tk_id := match(tk,.SomeT({ id : tid }) => tid, _ => String.new());
+    if((tk_id.len() > usize(0)) && (tk_id == exp_id), {
+      match(
+        gra.get(k),
+        .Some(g) => {
+          refined = Option(TypeValue).Some(g);
+        },
+        .None => ()
+      );
+    });
+    k = (k + usize(1));
+  });
+  match(refined,.Some(r) => r,.None => expected)
+});
 _is_gadt_branch_reachable :: (
   fn(enum_id : String, variant_idx : usize) -> bool
 )({
@@ -993,7 +1169,7 @@ _is_gadt_branch_reachable :: (
         (reachable : bool) = true;
         (k : usize) = usize(0);
         while((k < tca.len()) && reachable, {
-          tk := match(tca.get(k),.Some(t) => t,.None => TypeValue.Unit);
+          tk := _gadt_resolve_tca_entry(match(tca.get(k),.Some(t) => t,.None => TypeValue.Unit));
           gk := match(gra.get(k),.Some(g) => g,.None => TypeValue.Unit);
           // Skip unrefined (SomeT) instantiation args — TS `!isSomeType(tca)`.
           if(!(is_some_type(tk)), {
@@ -1071,7 +1247,7 @@ evaluate_match :: (
   old_expected_scr := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   evaluated_scrutinee := cond(
-    ast_expr_is_atom(scrutinee_expr) =>
+    is_place_expression(scrutinee_expr, env) =>
       evaluate_expression(scrutinee_expr, env, ctx),
     true =>
       evaluate_begin_expression(scrutinee_expr, env, ctx, ArrayList(Variable).new(), false, exn)
@@ -1124,9 +1300,19 @@ evaluate_match :: (
   (matched_type : TypeValue) = scrutinee_type;
   (is_ptr_match : bool) = false;
   if(is_pointer_type(scrutinee_type), {
-    matched_type = match(scrutinee_type,.Pointer(inner) => inner.*, _ => scrutinee_type);
+    matched_type = match(scrutinee_type,.Pointer(inner) => inner, _ => scrutinee_type);
     is_ptr_match = true;
   });
+  // Resolve a leaked recursive-enum SELF-SHELL (an empty-variant EnumT whose id
+  // is registered in the enum-final registry) to its finalized form before
+  // reading variants. The shell-patch in evaluate_enum_type replaces only ONE
+  // level of self-nesting, so a deeper deref — e.g. matching `inner_func_box`
+  // where `func : Box(Self)` is two levels into AstExpr — surfaces the raw shell
+  // here. Without this, the variant lookup throws "variant not found in
+  // <enum:..._self_shell>" (the def-time body-eval of `is_function_boundary_arrow`
+  // swallowed exactly that). Mirrors the resolve_enum_shell use sites in
+  // synthesizer.yo / property_access.yo.
+  matched_type = resolve_enum_shell(matched_type);
   // Dispatch to primitive match
   if(is_matchable_primitive_type(matched_type), {
     return(evaluate_primitive_match(expr, env, ctx, evaluated_scrutinee, matched_type, scrutinee_val_opt, exn));
@@ -1146,11 +1332,40 @@ evaluate_match :: (
     return(expr);
   });
   // Extract enum type fields
-  en_id := match(matched_type,.EnumT(eid, _, _, _, _, _, _) => eid, _ => String.new());
-  en_name := match(matched_type,.EnumT(_, n, _, _, _, _, _) => n, _ => String.new());
-  en_vnames := match(matched_type,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
-  en_vfields := match(matched_type,.EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-  en_vflabels := match(matched_type,.EnumT(_, _, _, _, _, vfl, _) => vfl, _ => ArrayList(ArrayList(String)).new());
+  en_id := match(matched_type,.EnumT(eid, _, _, _, _, _, _, _, _) => eid, _ => String.new());
+  en_name := match(matched_type,.EnumT(_, n, _, _, _, _, _, _, _) => n, _ => String.new());
+  en_vnames := match(matched_type,.EnumT(_, _, vn, _, _, _, _, _, _) => vn, _ => ArrayList(String).new());
+  en_vfields := match(matched_type,.EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+  en_vflabels := match(matched_type,.EnumT(_, _, _, _, _, vfl, _, _, _) => vfl, _ => ArrayList(ArrayList(String)).new());
+  // GADT match detection (match.ts:354-360): the enum is a GADT, an expected
+  // type exists to refine against, and this instantiation recorded its
+  // type-constructor args. The entry expected type is CAPTURED here — the arm
+  // loop overwrites ctx.expected_type with the running result type, so the
+  // refinement (and the final stamp, match.ts:1278) must read the original.
+  gadt_va_em := get_gadt_variant_args(en_id);
+  gadt_tca_em := {
+    tca_resolved_em := ArrayList(TypeValue).new();
+    match(
+      get_gadt_type_constructor_args(en_id),
+      .Some(tca_raw_em) => {
+        (tca_i_em : usize) = usize(0);
+        while(tca_i_em < tca_raw_em.len(), {
+          match(
+            tca_raw_em.get(tca_i_em),
+            .Some(tca_e_em) => {
+              tca_resolved_em.push(_gadt_resolve_tca_entry(tca_e_em));
+            },
+            .None => ()
+          );
+          tca_i_em = (tca_i_em + usize(1));
+        });
+      },
+      .None => ()
+    );
+    tca_resolved_em
+  };
+  gadt_exp_em := ctx.expected_type;
+  is_gadt_match_em := ((gadt_va_em.is_some() && gadt_exp_em.is_some()) && (gadt_tca_em.len() > usize(0)));
   // Arm loop state
   bodies := ArrayList(AstExpr).new();
   (result_type_em : Option(TypeValue)) = Option(TypeValue).None;
@@ -1201,7 +1416,7 @@ evaluate_match :: (
     );
     func_of_mae := match(
       match_arm_expr,
-      .FnCall(_, func_box, _, _, _) => Option(AstExpr).Some(func_box.*),
+      .FnCall(_, func_box, _, _, _) => Option(AstExpr).Some(func_box),
       .Atom(_, _) => Option(AstExpr).None
     );
     is_with_fields := cond(
@@ -1275,40 +1490,35 @@ evaluate_match :: (
         );
         return(expr);
       });
-      // Check variant has no fields (fieldless form must have empty fields)
-      if(variant_idx_fl_opt.is_some(), {
-        vf_idx := match(variant_idx_fl_opt,.Some(idx) => idx,.None => usize(0));
-        vf_fields := match(en_vfields.get(vf_idx),.Some(vf) => vf,.None => ArrayList(TypeValue).new());
-        if(vf_fields.len() > usize(0), {
-          exn.throw(
-            dyn(
-              format_error_message(
-                ast_expr_token(match_arm_expr),
-                `Enum variant "${variant_name_fl}" has ${vf_fields.len()} field(s) and must be destructured. Use .${variant_name_fl}(...) instead of .${variant_name_fl}`,
-                false,
-                .None
-              )
-            )
-          );
-          return(expr);
-        });
-      });
+      // Bare `.Variant` is allowed even for variants WITH fields: it matches
+      // the variant and binds none of its fields (the "ignore all fields"
+      // form, equivalent to `.Variant({})`). Use `.Variant(a, b)` or
+      // `.Variant({label, ...})` when you need the field values.
       // Record checked variant (BEFORE skip check)
       checked_variant_names.push(variant_name_fl.clone());
+      // Skip unreachable GADT branches (match.ts:459: e.g. BoolVal when
+      // matching Value(i32) — BoolVal -> recur(bool) and bool != i32).
+      gadt_reachable_fl := match(
+        variant_idx_fl_opt,
+        .Some(vidx_fl) => _is_gadt_branch_reachable(en_id.clone(), vidx_fl),
+        .None => true
+      );
       // Skip if concrete CT scrutinee doesn't match this variant (and it's not wildcard)
-      should_process_fl := !(
-        (!(variant_name_fl == "_")) &&
-          match(
-            scrutinee_val_opt,
-            .None => false,
-            .Some(sv) => (
-              is_enum_val(sv) && match(
-                sv,
-                .EnumVal(sv_vname, _) => !(_variant_name_eq(sv_vname.clone(), variant_name_fl.clone())),
-                _ => true
+      should_process_fl := (
+        gadt_reachable_fl && !(
+          (!(variant_name_fl == "_")) &&
+            match(
+              scrutinee_val_opt,
+              .None => false,
+              .Some(sv) => (
+                is_enum_val(sv) && match(
+                  sv,
+                  .EnumVal(sv_vname, _) => !(_variant_name_eq(sv_vname.clone(), variant_name_fl.clone())),
+                  _ => true
+                )
               )
             )
-          )
+        )
       );
       if(should_process_fl, {
         // Build new enum type with selectedVariantName
@@ -1318,7 +1528,7 @@ evaluate_match :: (
         );
         new_enum_type_fl := match(
           matched_type,
-          .EnumT(id, n, vn, vf, _, vfl, discs) => TypeValue.EnumT(id, n, vn, vf, new_selected_fl, vfl, discs),
+          .EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar) => TypeValue.EnumT(id, n, vn, vf, new_selected_fl, vfl, discs, eirs, eiar),
           _ => matched_type
         );
         variable_type_fl := cond(
@@ -1328,11 +1538,13 @@ evaluate_match :: (
         // Set ExprInfo for variantNameExpr (BEFORE push_frame)
         vne_fl_info := new_expr_info(env, new_enum_type_fl);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(variant_name_expr), vne_fl_info);
+        // Save pre-arm frame count for cleanup (mirrors with-fields branch).
+        base_frame_count_fl := env.frames.len();
         // Push frame for this arm
-        ___ := env.push_frame(false);
+        env.push_frame(false);
         // Set ExprInfo for matchArmExpr (AFTER push_frame)
         mae_fl_info := new_expr_info(env, variable_type_fl);
-        mae_fl_info.case_executed = Option(bool).Some(true);
+        expr_info_set_case_executed(mae_fl_info, Option(bool).Some(true));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(match_arm_expr), mae_fl_info);
         // Evaluate arm body
         is_arm_executing_fl := match(
@@ -1348,9 +1560,22 @@ evaluate_match :: (
         );
         old_executing_fl := ctx.is_executing;
         ctx.is_executing = is_arm_executing_fl;
+        // Running-result-type as expected type (bare `.None`/`.Variant` inference);
+        // mirrors TS match.ts:471 (`expectedType: resultType ?? context.expectedType`).
+        old_expected_fl := ctx.expected_type;
+        match(
+          result_type_em,
+          .Some(rt_fl) => {
+            ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : rt_fl, env : env));
+          },
+          .None => ()
+        );
         evaluated_body_fl := evaluate_begin_expression(rhs_expr_em, env, ctx, ArrayList(Variable).new(), false, exn);
+        ctx.expected_type = old_expected_fl;
         ctx.is_executing = old_executing_fl;
-        env.pop_frame();
+        while(env.frames.len() > base_frame_count_fl, {
+          env.pop_frame_nonmutating();
+        });
         body_info_fl_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_fl));
         if(body_info_fl_opt.is_none(), {
           exn.throw(
@@ -1366,10 +1591,20 @@ evaluate_match :: (
           return(expr);
         });
         body_info_fl := match(body_info_fl_opt,.Some(bi) => bi,.None => new_expr_info(env, t_unit()));
-        consume_case_body_temp_var(evaluated_body_fl, body_info_fl.env, ctx);
-        if(scrutinee_val_opt.is_none(), {
-          body_info_fl.value = Option(EvalValue).None;
+        while(body_info_fl.env.frames.len() > base_frame_count_fl, {
+          pop_env_frame(body_info_fl.env);
         });
+        consume_case_body_temp_var(evaluated_body_fl, body_info_fl.env, ctx);
+        // NOTE: do NOT null body_info_fl.value here for a runtime/unknown
+        // scrutinee. `body_info_fl` IS the shared ExprInfo object stored in the
+        // table for this arm-body node (ExprInfo is an object → reference);
+        // nulling it corrupts the arm body's own stored value, so codegen reads
+        // value=None and emits "Failed to transpile" for a foldable arm body
+        // like `i32(0)` (whose value DID fold to 0). The match RESULT value is
+        // already set to None for an unknown scrutinee by the post-loop
+        // (`out_val_em`, scrutinee_val_opt.is_none() branch), so the per-arm
+        // nulling was redundant as well as harmful. Each arm's body keeps its
+        // own value, which is exactly what codegen emits per switch case.
         if(has_any_control_flow(body_info_fl.control_flow), {
           cf_fl := match(
             body_info_fl.control_flow,
@@ -1454,32 +1689,72 @@ evaluate_match :: (
         });
         // Result type consistency
         if(!(has_any_control_flow(body_info_fl.control_flow)), {
-          match(
-            result_type_em,
-            .None => {
-              result_type_em = Option(TypeValue).Some(body_info_fl.ty);
-            },
-            .Some(rt_fl) => {
-              if(!(are_types_compatible(body_info_fl.ty, rt_fl)), {
-                rt_fl_rt := convert_comptime_type_to_runtime_type(rt_fl, env);
-                if(are_types_compatible(body_info_fl.ty, rt_fl_rt), {
-                  result_type_em = Option(TypeValue).Some(body_info_fl.ty);
-                }, {
-                  exn.throw(
-                    dyn(
-                      format_error_message(
-                        ast_expr_token(evaluated_body_fl),
-                        `Incompatible types:\n- Previous: ${type_to_string(rt_fl)}\n- Current : ${type_to_string(body_info_fl.ty)}`,
-                        false,
-                        .None
+          if(is_gadt_match_em, {
+            // GADT match (match.ts:646-676): verify each branch body against
+            // its GADT-REFINED expected type instead of cross-branch
+            // consistency, and pin the result to the unrefined expected type.
+            gadt_gra_fl := match(
+              gadt_va_em,
+              .Some(av_fl) => match(
+                variant_idx_fl_opt,
+                .Some(vidx2_fl) => match(av_fl.get(vidx2_fl),.Some(g) => g,.None => ArrayList(TypeValue).new()),
+                .None => ArrayList(TypeValue).new()
+              ),
+              .None => ArrayList(TypeValue).new()
+            );
+            match(
+              gadt_exp_em,
+              .Some(ge_fl) => {
+                if(gadt_gra_fl.len() > usize(0), {
+                  refined_fl := _gadt_refined_expected(ge_fl.ty, gadt_tca_em, gadt_gra_fl);
+                  if(!(are_types_compatible(body_info_fl.ty, refined_fl)), {
+                    exn.throw(
+                      dyn(
+                        format_error_message(
+                          ast_expr_token(evaluated_body_fl),
+                          `GADT type mismatch in branch ".${variant_name_fl}":\n- Expected: ${type_to_string(refined_fl)}\n- Actual  : ${type_to_string(body_info_fl.ty)}`,
+                          false,
+                          .None
+                        )
                       )
-                    )
-                  );
-                  return(expr);
+                    );
+                    return(expr);
+                  });
                 });
-              });
-            }
-          );
+                if(result_type_em.is_none(), {
+                  result_type_em = Option(TypeValue).Some(ge_fl.ty);
+                });
+              },
+              .None => ()
+            );
+          }, {
+            match(
+              result_type_em,
+              .None => {
+                result_type_em = Option(TypeValue).Some(body_info_fl.ty);
+              },
+              .Some(rt_fl) => {
+                if(!(are_types_compatible(body_info_fl.ty, rt_fl)), {
+                  rt_fl_rt := convert_comptime_type_to_runtime_type(rt_fl, env);
+                  if(are_types_compatible(body_info_fl.ty, rt_fl_rt), {
+                    result_type_em = Option(TypeValue).Some(body_info_fl.ty);
+                  }, {
+                    exn.throw(
+                      dyn(
+                        format_error_message(
+                          ast_expr_token(evaluated_body_fl),
+                          `Incompatible types:\n- Previous: ${type_to_string(rt_fl)}\n- Current : ${type_to_string(body_info_fl.ty)}`,
+                          false,
+                          .None
+                        )
+                      )
+                    );
+                    return(expr);
+                  });
+                });
+              }
+            );
+          });
         });
       });
     }, {
@@ -1545,16 +1820,21 @@ evaluate_match :: (
         variant_labels_wf := match(en_vflabels.get(variant_idx_wf),.Some(vl) => vl,.None => ArrayList(String).new());
         // Record checked variant (BEFORE skip check)
         checked_variant_names.push(variant_name_wf.clone());
+        // Skip unreachable GADT branches (match.ts:747: e.g. BoolVal when
+        // matching Value(i32) — BoolVal -> recur(bool) and bool != i32).
+        gadt_reachable_wf := _is_gadt_branch_reachable(en_id.clone(), variant_idx_wf);
         // Skip if concrete CT scrutinee doesn't match this variant
-        should_process_wf := !(
-          match(
-            scrutinee_val_opt,
-            .None => false,
-            .Some(sv) => (
-              is_enum_val(sv) && match(
-                sv,
-                .EnumVal(sv_vname, _) => !(_variant_name_eq(sv_vname.clone(), variant_name_wf.clone())),
-                _ => true
+        should_process_wf := (
+          gadt_reachable_wf && !(
+            match(
+              scrutinee_val_opt,
+              .None => false,
+              .Some(sv) => (
+                is_enum_val(sv) && match(
+                  sv,
+                  .EnumVal(sv_vname, _) => !(_variant_name_eq(sv_vname.clone(), variant_name_wf.clone())),
+                  _ => true
+                )
               )
             )
           )
@@ -1581,19 +1861,9 @@ evaluate_match :: (
               .FnCall(_, _, cargs, _, _) => cargs,
               .Atom(_, _) => ArrayList(AstExpr).new()
             );
-            if(curly_inner.len() == usize(0), {
-              exn.throw(
-                dyn(
-                  format_error_message(
-                    ast_expr_token(curly_arg),
-                    `Empty curly destructuring "{}" is not allowed in match patterns. Use ".${variant_name_wf}" without arguments for variants with no fields.`,
-                    false,
-                    .None
-                  )
-                )
-              );
-              return(expr);
-            });
+            // Empty curly `.Variant({})` is the explicit "match this variant,
+            // bind none of its fields" form — the zero case of curly partial
+            // destructuring. Permitted for any variant (fields or not).
             // Validate: no nested curly, no bare "_"
             (cvi : usize) = usize(0);
             while(cvi < curly_inner.len(), {
@@ -1686,7 +1956,7 @@ evaluate_match :: (
           // Build new enum type with selected variant
           new_enum_type_wf := match(
             matched_type,
-            .EnumT(id, n, vn, vf, _, vfl, discs) => TypeValue.EnumT(id, n, vn, vf, Option(String).Some(variant_name_wf.clone()), vfl, discs),
+            .EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar) => TypeValue.EnumT(id, n, vn, vf, Option(String).Some(variant_name_wf.clone()), vfl, discs, eirs, eiar),
             _ => matched_type
           );
           variable_type_wf := cond(
@@ -1696,8 +1966,24 @@ evaluate_match :: (
           // Set ExprInfo for fb_vne (BEFORE push_frame)
           vne_wf_info := new_expr_info(env, new_enum_type_wf);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(fb_vne), vne_wf_info);
+          // Pre-arm frame count: the shared `env` must be restored to EXACTLY this
+          // depth after evaluating the arm body, so each arm (and the post-loop
+          // env merge) sees the same clean base. TS keeps the shared env untouched
+          // entirely — it pushes the arm frame into a LOCAL `caseEnv` copy
+          // (match.ts:343/445) and never pops. yo-self mutates the shared `env`, so
+          // it must restore it here. A single `pop_frame()` is NOT enough: when the
+          // arm body is a begin-block whose tail `return`s, evaluate_begin_expression
+          // leaves `env` one frame deep (it threads `env.frames` to the returning
+          // statement's recorded snapshot, which still carries the begin frame), so a
+          // lone pop removes the begin frame and LEAKS this arm's pattern binding —
+          // a later sibling arm then sees it at the same frame level and the env
+          // merge throws "different variable names for different cases". Truncating
+          // to `base_frame_count_wf` removes both the stray begin frame and the arm
+          // frame regardless. Use pop_frame_nonmutating so recorded body-env
+          // snapshots (which may alias env.frames) are not corrupted.
+          base_frame_count_wf := env.frames.len();
           // Push frame for this arm
-          ___ := env.push_frame(false);
+          env.push_frame(false);
           // is_comptime_scrutinee: concrete known enum value
           is_comptime_scr_wf := match(
             scrutinee_val_opt,
@@ -1885,7 +2171,7 @@ evaluate_match :: (
           });
           // Set ExprInfo for matchArmExpr (AFTER push_frame and var adds)
           mae_wf_info := new_expr_info(env, variable_type_wf);
-          mae_wf_info.case_executed = Option(bool).Some(true);
+          expr_info_set_case_executed(mae_wf_info, Option(bool).Some(true));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(match_arm_expr), mae_wf_info);
           // Evaluate arm body
           is_arm_executing_wf := match(
@@ -1901,9 +2187,25 @@ evaluate_match :: (
           );
           old_executing_wf := ctx.is_executing;
           ctx.is_executing = is_arm_executing_wf;
+          // Running-result-type as expected type (bare `.None`/`.Variant` inference);
+          // mirrors TS match.ts:471 (`expectedType: resultType ?? context.expectedType`).
+          old_expected_wf := ctx.expected_type;
+          match(
+            result_type_em,
+            .Some(rt_wf) => {
+              ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : rt_wf, env : env));
+            },
+            .None => ()
+          );
           evaluated_body_wf := evaluate_begin_expression(rhs_expr_em, env, ctx, ArrayList(Variable).new(), false, exn);
+          ctx.expected_type = old_expected_wf;
           ctx.is_executing = old_executing_wf;
-          env.pop_frame();
+          // Restore the shared env to its exact pre-arm depth (see base_frame_count_wf
+          // comment): pop every frame the arm + its (possibly unbalanced, returning)
+          // body left behind, not just one.
+          while(env.frames.len() > base_frame_count_wf, {
+            env.pop_frame_nonmutating();
+          });
           body_info_wf_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body_wf));
           if(body_info_wf_opt.is_none(), {
             exn.throw(
@@ -1919,10 +2221,13 @@ evaluate_match :: (
             return(expr);
           });
           body_info_wf := match(body_info_wf_opt,.Some(bi) => bi,.None => new_expr_info(env, t_unit()));
-          consume_case_body_temp_var(evaluated_body_wf, body_info_wf.env, ctx);
-          if(scrutinee_val_opt.is_none(), {
-            body_info_wf.value = Option(EvalValue).None;
+          while(body_info_wf.env.frames.len() > base_frame_count_wf, {
+            pop_env_frame(body_info_wf.env);
           });
+          consume_case_body_temp_var(evaluated_body_wf, body_info_wf.env, ctx);
+          // Do NOT null the shared arm-body ExprInfo for an unknown scrutinee — it
+          // corrupts the arm body's stored value (see the fieldless-arm note); the
+          // match RESULT value is nulled by the post-loop instead.
           if(has_any_control_flow(body_info_wf.control_flow), {
             cf_wf := match(
               body_info_wf.control_flow,
@@ -1987,32 +2292,69 @@ evaluate_match :: (
           });
           // Result type consistency
           if(!(has_any_control_flow(body_info_wf.control_flow)), {
-            match(
-              result_type_em,
-              .None => {
-                result_type_em = Option(TypeValue).Some(body_info_wf.ty);
-              },
-              .Some(rt_wf) => {
-                if(!(are_types_compatible(body_info_wf.ty, rt_wf)), {
-                  rt_wf_rt := convert_comptime_type_to_runtime_type(rt_wf, env);
-                  if(are_types_compatible(body_info_wf.ty, rt_wf_rt), {
-                    result_type_em = Option(TypeValue).Some(body_info_wf.ty);
-                  }, {
-                    exn.throw(
-                      dyn(
-                        format_error_message(
-                          ast_expr_token(evaluated_body_wf),
-                          `Incompatible types:\n- Previous: ${type_to_string(rt_wf)}\n- Current : ${type_to_string(body_info_wf.ty)}`,
-                          false,
-                          .None
+            if(is_gadt_match_em, {
+              // GADT match (match.ts:1115-1140): verify each branch body
+              // against its GADT-REFINED expected type instead of
+              // cross-branch consistency, and pin the result to the
+              // unrefined expected type.
+              gadt_gra_wf := match(
+                gadt_va_em,
+                .Some(av_wf) => match(av_wf.get(variant_idx_wf),.Some(g) => g,.None => ArrayList(TypeValue).new()),
+                .None => ArrayList(TypeValue).new()
+              );
+              match(
+                gadt_exp_em,
+                .Some(ge_wf) => {
+                  if(gadt_gra_wf.len() > usize(0), {
+                    refined_wf := _gadt_refined_expected(ge_wf.ty, gadt_tca_em, gadt_gra_wf);
+                    if(!(are_types_compatible(body_info_wf.ty, refined_wf)), {
+                      exn.throw(
+                        dyn(
+                          format_error_message(
+                            ast_expr_token(evaluated_body_wf),
+                            `GADT type mismatch in branch ".${variant_name_wf}":\n- Expected: ${type_to_string(refined_wf)}\n- Actual  : ${type_to_string(body_info_wf.ty)}`,
+                            false,
+                            .None
+                          )
                         )
-                      )
-                    );
-                    return(expr);
+                      );
+                      return(expr);
+                    });
                   });
-                });
-              }
-            );
+                  if(result_type_em.is_none(), {
+                    result_type_em = Option(TypeValue).Some(ge_wf.ty);
+                  });
+                },
+                .None => ()
+              );
+            }, {
+              match(
+                result_type_em,
+                .None => {
+                  result_type_em = Option(TypeValue).Some(body_info_wf.ty);
+                },
+                .Some(rt_wf) => {
+                  if(!(are_types_compatible(body_info_wf.ty, rt_wf)), {
+                    rt_wf_rt := convert_comptime_type_to_runtime_type(rt_wf, env);
+                    if(are_types_compatible(body_info_wf.ty, rt_wf_rt), {
+                      result_type_em = Option(TypeValue).Some(body_info_wf.ty);
+                    }, {
+                      exn.throw(
+                        dyn(
+                          format_error_message(
+                            ast_expr_token(evaluated_body_wf),
+                            `Incompatible types:\n- Previous: ${type_to_string(rt_wf)}\n- Current : ${type_to_string(body_info_wf.ty)}`,
+                            false,
+                            .None
+                          )
+                        )
+                      );
+                      return(expr);
+                    });
+                  });
+                }
+              );
+            });
           });
         });
       }, {
@@ -2205,9 +2547,16 @@ Supported patterns:
     out_val_em := cond(
       scrutinee_val_opt.is_none() => Option(EvalValue).None,
       matched_body_val.is_some() => matched_body_val,
+      // Runtime-only scrutinee → runtime-only result (see the pattern-match
+      // twin above).
+      match(scrutinee_val_opt,.Some(sv_ro2) => is_runtime_only_unknown_val(sv_ro2),.None => false) =>
+        Option(EvalValue).Some(EvalValue.UnknownVal(rt_em.clone(), true)),
       true => Option(EvalValue).Some(create_unknown_val(rt_em))
     );
     result_ty_final_em := cond(
+      // GADT match: the result IS the (unrefined) expected type even though
+      // it contains SomeT (match.ts:1275-1279).
+      is_gadt_match_em => match(gadt_exp_em,.Some(ge_fin) => ge_fin.ty,.None => rt_em),
       match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
         match(ctx.expected_type,.Some(et) => et.ty,.None => rt_em),
       true => rt_em
@@ -2272,7 +2621,7 @@ Supported patterns:
                       match(
                         ft,
                         .Func({ result : result_box }) => {
-                          ret_type_em = Option(TypeValue).Some(result_box.*);
+                          ret_type_em = Option(TypeValue).Some(result_box);
                         },
                         _ => ()
                       );

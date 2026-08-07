@@ -25,7 +25,7 @@ import {
   isDynType,
   isEnumType,
   isFunctionType,
-  isObjectType,
+  isReferenceStructType,
   isPtrType,
   isSomeType,
   isStructType,
@@ -212,7 +212,7 @@ function resolveVarNameInContext(
  * corresponding sm->var_xxx field. This ensures deferred drops in the final
  * state can access a valid value instead of the zero-initialized struct field.
  */
-function storeTempVarToStateMachineIfNeeded(
+export function storeTempVarToStateMachineIfNeeded(
   tempVar: string,
   indent: string,
   context: CodeGenContext
@@ -260,8 +260,29 @@ function splitTopLevelArgsList(s: string): string[] {
   const out: string[] = [];
   let depth = 0;
   let cur = "";
+  // Track whether we're inside a C string/char literal so that bracket and
+  // comma characters within a literal (e.g. the `)` in the str initializer
+  // `(__yo_str){ .ptr=(const uint8_t*)")", .len=1 }`) don't corrupt the depth
+  // count and cause a split inside the literal.
+  let inStr: string | null = null;
   for (let i = 0; i < s.length; i++) {
     const ch = s[i]!;
+    if (inStr !== null) {
+      cur += ch;
+      if (ch === "\\") {
+        // Escape sequence: consume the next char verbatim.
+        i++;
+        if (i < s.length) cur += s[i];
+        continue;
+      }
+      if (ch === inStr) inStr = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inStr = ch;
+      cur += ch;
+      continue;
+    }
     if (ch === "(" || ch === "[" || ch === "{") depth++;
     else if (ch === ")" || ch === "]" || ch === "}") depth--;
     if (ch === "," && depth === 0) {
@@ -367,7 +388,7 @@ function isInsideObjectMethod(context: CodeGenContext): boolean {
   if (!fnType || !fnType.parameters[0]) return false;
   const selfParam = fnType.parameters[0];
   if (selfParam.label !== "self") return false;
-  return isObjectType(selfParam.type);
+  return isReferenceStructType(selfParam.type);
 }
 
 /**
@@ -1122,7 +1143,7 @@ export function generateOtherFunctionCall(
           // Evidence passing call site: callee has effect-record implicit params
           // that compile to extra C function pointer parameters.
           // Use specializedType (which now includes resolved implicits) if available,
-          // otherwise fall back to original type for forall evidence params (void* cast).
+          // otherwise fall back to original type for generic evidence params (void* cast).
           const evidenceCheckType =
             functionValue.specializedType ?? functionValue.type;
           let calleeEvidenceParams = getEvidenceParameters(evidenceCheckType);
@@ -1335,6 +1356,12 @@ export function generateOtherFunctionCall(
             );
 
             // If the function returns unit, just call it without assignment
+            // Clear __yo_effect_escaped before the call so a stale flag from
+            // a previous unwind (already handled by a higher-level handler)
+            // doesn't leak into this call's escape check.
+            if (callMayUnwind) {
+              context.emitter.emitLine(`${indent}__yo_effect_escaped = 0;`);
+            }
             context.emitter.emitLine(
               `${indent}${cFuncName}(${namedCastedArgsList});`
             );
@@ -1431,7 +1458,7 @@ export function generateOtherFunctionCall(
                 cTypeString = getTypeString(returnType ?? exprType, context);
               }
 
-              // Phase B of plans/ITERATOR_REDESIGN.md — for a function
+              // Phase B of plans/archive/ITERATOR_REDESIGN.md — for a function
               // whose return slot is `-> ref(T)`, the C signature returns
               // `T*`. The temp variable that holds the result must
               // therefore be declared `T*` too. The evaluator marks
@@ -1461,6 +1488,12 @@ export function generateOtherFunctionCall(
                 funcCtx.declaredTempVars = new Set();
               if (!funcCtx.declaredTempVars.has(tempVar)) {
                 funcCtx.declaredTempVars.add(tempVar);
+                // Clear __yo_effect_escaped before the call so a stale flag from
+                // a previous unwind (already handled by a higher-level handler)
+                // doesn't leak into this call's escape check.
+                if (callMayUnwind) {
+                  context.emitter.emitLine(`${indent}__yo_effect_escaped = 0;`);
+                }
                 context.emitter.emitLine(
                   `${indent}${cTypeString} ${tempVar} = ${cFuncName}(${namedCastedArgsList});`
                 );
@@ -1544,7 +1577,7 @@ export function generateOtherFunctionCall(
             }
           }
 
-          // Use the call expression's resolved type when available (handles forall monomorphization)
+          // Use the call expression's resolved type when available (handles generic monomorphization)
           const resolvedReturnType = expr.$?.type ?? functionType.return.type;
           const returnTypeStr = getTypeString(resolvedReturnType, context);
           const runtimeParams = functionType.parameters.filter(
@@ -1635,6 +1668,9 @@ export function generateOtherFunctionCall(
             !!functionContext.inAsyncStateMachine;
 
           if (isEffectRecordCapture) {
+            context.emitter.emitLine(`${indent}__yo_effect_escaped = 0;`);
+          } else if (isFunctionType(functionType) && functionType.isControl) {
+            // Clear before indirect ctl call (e.g. exn.throw(error))
             context.emitter.emitLine(`${indent}__yo_effect_escaped = 0;`);
           }
 
@@ -1746,9 +1782,17 @@ export function generateOtherFunctionCall(
                 funcCtx2.declaredTempVars = new Set();
               if (!funcCtx2.declaredTempVars.has(tempVar)) {
                 funcCtx2.declaredTempVars.add(tempVar);
+                // Clear before indirect ctl call (e.g. exn.throw(error))
+                if (
+                  isFunctionType(functionType) &&
+                  (functionType.isControl || exprIsAtom(expr.func))
+                ) {
+                  context.emitter.emitLine(`${indent}__yo_effect_escaped = 0;`);
+                }
                 context.emitter.emitLine(
                   `${indent}${getTypeString(typeToUse, context)} ${tempVar} = ${fnPtrCast}(${castedArgsList});`
                 );
+                context.declaredCVarNames?.add(tempVar);
               }
               storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
 
@@ -2000,7 +2044,7 @@ export function generateOtherFunctionCall(
         // - Dyn(Fn(...)) uses vtable: closure.vtable->call(closure.data, args...)
         // - Impl(Fn(...)) uses static dispatch: closure_impl(&closure, args...)
         // - Function pointer parameter: direct call f(args...)
-        //   (when the parameter is a forall F constrained by where(F <: Fn(...)),
+        //   (when the parameter is a generic F constrained by where(F <: Fn(...)),
         //    specialization replaces F with a concrete FunctionType, and the C
         //    parameter is declared as a function pointer in declarations.ts.)
         let closureCall: string;
@@ -2027,7 +2071,7 @@ export function generateOtherFunctionCall(
                 .return.type;
             } else if (isSomeType(matchedParam.type)) {
               // Walk the SomeType chain to find the concrete FunctionType.
-              // This occurs when a forall parameter constrained by Impl(Fn(...))
+              // This occurs when a generic parameter constrained by Impl(Fn(...))
               // is specialized with a concrete function type — the C param is
               // declared as void*, so we need an explicit cast.
               let cur: Type = matchedParam.type;
@@ -2159,6 +2203,7 @@ export function generateOtherFunctionCall(
             context.emitter.emitLine(
               `${indent}${getTypeString(returnType, context)} ${tempVar} = ${closureCall};`
             );
+            context.declaredCVarNames?.add(tempVar);
             storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
 
             // Release borrow flags after the call
@@ -2565,7 +2610,7 @@ export function generateOtherFunctionCall(
 
           const functionContext = context as FunctionGenerationContext;
 
-          const argsList = runtimeArgExprs
+          const argEntries = runtimeArgExprs
             .map((arg, index) => {
               if (variant.fields) {
                 const field = variant.fields[index];
@@ -2675,19 +2720,28 @@ export function generateOtherFunctionCall(
                     }
                   }
 
-                  return `.${sanitizedLabel} = ` + finalArgValue;
+                  return {
+                    designated: `.${sanitizedLabel} = ` + finalArgValue,
+                    positional: finalArgValue,
+                  };
                 }
-                return ""; // Skip if no field matches or if it's unit type
+                return null; // Skip if no field matches or if it's unit type
               } else {
-                return "";
+                return null;
               }
             })
-            .filter((s) => s) // Remove empty strings
-            .join(", ");
+            .filter(
+              (e): e is { designated: string; positional: string } => e !== null
+            );
+          const argsList = argEntries.map((e) => e.designated).join(", ");
+          const positionalArgs = argEntries.map((e) => e.positional).join(", ");
 
-          // If there are no non-unit fields, we only need the tag
-          const enumValue =
-            nonUnitElements.length > 0
+          // Reference-semantics enums (`ref(enum(…))`) heap-allocate via a
+          // per-variant constructor; value enums use a compound literal.
+          // If there are no non-unit fields, we only need the tag.
+          const enumValue = enumType.isReferenceSemantics
+            ? `__yo_new_${cName}_${variantName}(${positionalArgs})`
+            : nonUnitElements.length > 0
               ? `(${cName}){ .tag = ${getEnumVariantCName(enumType, variantName, context)}, .data = { .${variantName} = { ${argsList} } } }`
               : `(${cName}){ .tag = ${getEnumVariantCName(enumType, variantName, context)} }`;
           if (tempVar && expr.$?.type) {
@@ -2762,6 +2816,14 @@ function emitEffectUnwindCheck(
 ): void {
   const emitter = context.emitter;
   emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
+  // This call's own result temp must never be dropped on the escape path: the
+  // handler unwound instead of returning, so the temp was never assigned and
+  // still holds whatever the ABI left in the return registers. On x86_64 that
+  // is routinely a stack address (a `void` handler reached through a
+  // value-returning function-pointer cast leaves RAX from the previous
+  // sret-class call), so the drop dereferences it and jumps into the stack.
+  // See issues/fixed/escape-path-drops-unwound-call-result-temp.md.
+  const escapedCallResultCName = expr.$?.variableName;
   // In async SMs, local variable cleanup is handled by _state_dispose when
   // the SM is freed (state == -2). Dropping here would cause double-free.
   if (!context.inAsyncStateMachine) {
@@ -2772,11 +2834,20 @@ function emitEffectUnwindCheck(
       expr,
       false,
       true,
-      false
+      false,
+      undefined,
+      escapedCallResultCName
     );
     // Also drop consumed variables (their drops were optimized away because
     // they'd be consumed by the return value, but escape discards the return)
-    generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+    generateConsumedVarDropsForEscape(
+      indent + "  ",
+      context,
+      expr,
+      false,
+      undefined,
+      escapedCallResultCName
+    );
   }
   if (context.inAsyncStateMachine) {
     // Drop RC-typed arg temporaries that are segment-local C locals.
@@ -2831,7 +2902,7 @@ function emitEffectUnwindCheck(
     emitter.emitLine(`${indent}  __yo_effect_escaped = 0;`);
     const callerReturnType = context.currentFunctionType?.return.type;
     if (callerReturnType && !isUnitType(callerReturnType)) {
-      // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+      // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
       // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
       // ill-typed. Wrap with `*` when the function declares a ref return.
       let callerCType = getTypeString(callerReturnType, context);
@@ -2857,7 +2928,7 @@ function emitEffectUnwindCheck(
   } else {
     const callerReturnType = context.currentFunctionType?.return.type;
     if (callerReturnType && !isUnitType(callerReturnType)) {
-      // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+      // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
       // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
       // ill-typed. Wrap with `*` when the function declares a ref return.
       let callerCType = getTypeString(callerReturnType, context);
@@ -2888,7 +2959,7 @@ function emitEffectUnwindCheck(
  *   result = evidence_fn_ptr(args);
  *   if (__yo_effect_escaped) { return dummy; }
  *
- * For forall evidence (void* parameter), generates a cast:
+ * For generic evidence (void* parameter), generates a cast:
  *   result = ((ReturnType (*)(ParamTypes...))evidence_fn_ptr)(args);
  */
 function generateEvidenceFnPtrCall(
@@ -2905,12 +2976,12 @@ function generateEvidenceFnPtrCall(
   const returnType = functionType.return.type;
   const emitter = context.emitter;
 
-  // For forall evidence parameters (passed as void*), cast to the concrete
-  // function pointer type at this call site. The forall type vars (SomeType)
+  // For generic evidence parameters (passed as void*), cast to the concrete
+  // function pointer type at this call site. The generic type vars (SomeType)
   // resolve to void* in the function type, so we build the cast from the
   // concrete argument and return types at this call expression.
   let callExpr: string;
-  // Track whether the handler has a forall/SomeType return type (compiled as void).
+  // Track whether the handler has a generic/SomeType return type (compiled as void).
   // The cast must use void to match the handler's actual C return type.
   let handlerReturnsVoid = false;
   if (
@@ -2920,9 +2991,9 @@ function generateEvidenceFnPtrCall(
     // Build concrete fn ptr type from the FUNCTION TYPE's parameters, not the
     // argument expression types. This avoids mismatches like ComptimeString
     // (uint8_t*) vs str (Slice_uint8_t) when the arg gets coerced.
-    // For SomeType (forall type vars), resolve from the call-site arg types.
+    // For SomeType (generic type vars), resolve from the call-site arg types.
     const fieldRetType = evidenceParam.fieldFunctionType.return.type;
-    // When the handler's return type is SomeType (forall type variable), it's
+    // When the handler's return type is SomeType (generic type variable), it's
     // compiled as void in C. The cast must use void to avoid ABI mismatch —
     // casting a void-returning function to return a struct is undefined behavior
     // and crashes on WASM.
@@ -2939,7 +3010,7 @@ function generateEvidenceFnPtrCall(
     );
     for (let i = 0; i < runtimeParams.length; i++) {
       const paramType = runtimeParams[i]!.type;
-      // For SomeType (forall type variable T), use the concrete type from
+      // For SomeType (generic type variable T), use the concrete type from
       // the call-site argument expression instead.
       const resolvedType =
         isSomeType(paramType) && runtimeArgExprs?.[i]?.$?.type
@@ -2990,7 +3061,7 @@ function generateEvidenceFnPtrCall(
     } else {
       const callerReturnType = context.currentFunctionType?.return.type;
       if (callerReturnType && !isUnitType(callerReturnType)) {
-        // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+        // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
         // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
         // ill-typed. Wrap with `*` when the function declares a ref return.
         let callerCType = getTypeString(callerReturnType, context);
@@ -3015,7 +3086,7 @@ function generateEvidenceFnPtrCall(
   } else {
     const tempVar = expr.$?.variableName;
     if (tempVar) {
-      // For forall evidence calls, use the concrete return type from the call expression
+      // For generic evidence calls, use the concrete return type from the call expression
       // rather than the generic function type's return type (which may be SomeType/void*).
       const concreteReturnType =
         evidenceParam?.fieldFunctionType.forallParameters?.length &&
@@ -3024,7 +3095,7 @@ function generateEvidenceFnPtrCall(
           : returnType;
       const cTypeString = getTypeString(concreteReturnType, context);
 
-      // When the concrete return type resolves to void (e.g., forall ResumeType resolved
+      // When the concrete return type resolves to void (e.g., generic ResumeType resolved
       // to unit), we must not assign to a temp — treat like the unit case above.
       if (cTypeString === "void" || isUnitType(concreteReturnType)) {
         emitter.emitLine(`${indent}${callExpr}(${argsList});`);
@@ -3059,7 +3130,7 @@ function generateEvidenceFnPtrCall(
         } else {
           const callerReturnType = context.currentFunctionType?.return.type;
           if (callerReturnType && !isUnitType(callerReturnType)) {
-            // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+            // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
             // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
             // ill-typed. Wrap with `*` when the function declares a ref return.
             let callerCType = getTypeString(callerReturnType, context);
@@ -3083,7 +3154,7 @@ function generateEvidenceFnPtrCall(
         return "";
       }
 
-      // When the handler has a forall/SomeType return type, it's compiled as
+      // When the handler has a generic/SomeType return type, it's compiled as
       // void in C (isEffectRecordMember). We must NOT assign the handler's
       // (void) "return value" to a typed temp — that's undefined behavior and
       // crashes on WASM. Instead: declare the temp var zero-initialized before
@@ -3123,7 +3194,7 @@ function generateEvidenceFnPtrCall(
         } else {
           const callerReturnType = context.currentFunctionType?.return.type;
           if (callerReturnType && !isUnitType(callerReturnType)) {
-            // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+            // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
             // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
             // ill-typed. Wrap with `*` when the function declares a ref return.
             let callerCType = getTypeString(callerReturnType, context);
@@ -3161,16 +3232,27 @@ function generateEvidenceFnPtrCall(
       emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
       // In async SMs, local variable cleanup is handled by _state_dispose
       if (!context.inAsyncStateMachine) {
-        // Drop in-scope RC-typed locals before early return to prevent leaks
+        // Drop in-scope RC-typed locals before early return to prevent leaks.
+        // `tempVar` is excluded: the callee unwound, so it never assigned a
+        // value and the temp still holds return-register garbage.
         generatePendingDeferredDrops(
           indent + "  ",
           context,
           expr,
           false,
           true,
-          false
+          false,
+          undefined,
+          tempVar
         );
-        generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+        generateConsumedVarDropsForEscape(
+          indent + "  ",
+          context,
+          expr,
+          false,
+          undefined,
+          tempVar
+        );
       }
       if (context.inAsyncStateMachine) {
         emitAsyncFutureEscape({
@@ -3183,7 +3265,7 @@ function generateEvidenceFnPtrCall(
         // Return type for unwind propagation must match the CALLER's return type, not the callee's
         const callerReturnType = context.currentFunctionType?.return.type;
         if (callerReturnType && !isUnitType(callerReturnType)) {
-          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
           // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
           // ill-typed. Wrap with `*` when the function declares a ref return.
           let callerCType = getTypeString(callerReturnType, context);
@@ -3260,7 +3342,7 @@ function resolveEvidenceArgsForCallSite(
           }
           const handlerValue = hi.handlerValue as FunctionValue | undefined;
           if (handlerValue && isFunctionValue(handlerValue)) {
-            // For forall handlers, use the specialized version cast to void*
+            // For generic handlers, use the specialized version cast to void*
             if (handlerValue.specializedFunctionCaches?.length) {
               const specialized =
                 handlerValue.specializedFunctionCaches[0]!.specializedFunction;
@@ -3296,7 +3378,7 @@ function resolveEvidenceArgsForCallSite(
           | FunctionValue
           | undefined;
         if (handlerValue && isFunctionValue(handlerValue)) {
-          // For forall handlers, use the specialized version cast to void*
+          // For generic handlers, use the specialized version cast to void*
           if (handlerValue.specializedFunctionCaches?.length) {
             const specialized =
               handlerValue.specializedFunctionCaches[0]!.specializedFunction;
@@ -3404,9 +3486,9 @@ function resolveEvidenceArgsForCallSite(
             if (fieldIndex >= 0) {
               const fieldValue = currentModule.fields[fieldIndex];
               if (fieldValue && isFunctionValue(fieldValue)) {
-                // For forall functions that were specialized, the unspecialized C function
+                // For generic functions that were specialized, the unspecialized C function
                 // is not generated — only specialized versions exist. Use one of those
-                // and cast to void* (the evidence param type for forall functions).
+                // and cast to void* (the evidence param type for generic functions).
                 if (fieldValue.specializedFunctionCaches?.length > 0) {
                   const specialized =
                     fieldValue.specializedFunctionCaches[0]!
@@ -3430,7 +3512,7 @@ function resolveEvidenceArgsForCallSite(
           }
         } else if (givenValue && isFunctionValue(givenValue)) {
           // Bare function evidence (non-module) — look up cName directly.
-          // For forall handlers, use the specialized version (cast to void*)
+          // For generic handlers, use the specialized version (cast to void*)
           // since the unspecialized version has void* params that don't match.
           if (givenValue.specializedFunctionCaches?.length) {
             const specialized =
@@ -3548,7 +3630,7 @@ function generateEvidenceCallSite(
       }
       if (callerReturnType && !isUnitType(callerReturnType)) {
         if (isHandlerInstallation) {
-          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
           // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
           // ill-typed. Wrap with `*` when the function declares a ref return.
           let callerCType = getTypeString(callerReturnType, context);
@@ -3569,7 +3651,7 @@ function generateEvidenceCallSite(
             emitter.emitLine(`${indent}  return;`);
           }
         } else {
-          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
           // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
           // ill-typed. Wrap with `*` when the function declares a ref return.
           let callerCType = getTypeString(callerReturnType, context);
@@ -3610,15 +3692,26 @@ function generateEvidenceCallSite(
       if (!context.inAsyncStateMachine) {
         // Drop in-scope local variables before unwind propagation
         // (includes RC-typed args and other locals like closure captures)
+        // `tempVar` is excluded: the callee unwound, so it never assigned a
+        // value and the temp still holds return-register garbage.
         generatePendingDeferredDrops(
           indent + "  ",
           context,
           expr,
           false,
           true,
-          false
+          false,
+          undefined,
+          tempVar
         );
-        generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+        generateConsumedVarDropsForEscape(
+          indent + "  ",
+          context,
+          expr,
+          false,
+          undefined,
+          tempVar
+        );
       }
       if (context.inAsyncStateMachine) {
         emitAsyncFutureEscape({
@@ -3634,7 +3727,7 @@ function generateEvidenceCallSite(
           callerReturnType &&
           !isUnitType(callerReturnType)
         ) {
-          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
           // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
           // ill-typed. Wrap with `*` when the function declares a ref return.
           let callerCType = getTypeString(callerReturnType, context);
@@ -3652,7 +3745,7 @@ function generateEvidenceCallSite(
           emitter.emitLine(`${indent}  __yo_effect_escaped = 0;`);
           emitter.emitLine(`${indent}  return _unw_result;`);
         } else if (callerReturnType && !isUnitType(callerReturnType)) {
-          // Phase B of plans/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
+          // Phase B of plans/archive/ITERATOR_REDESIGN.md — `-> ref(T)` lowers to
           // `T*` at the C ABI, so the unwind-fallback `(T){0}` would be
           // ill-typed. Wrap with `*` when the function declares a ref return.
           let callerCType = getTypeString(callerReturnType, context);

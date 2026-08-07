@@ -1,0 +1,611 @@
+//! TypeValue hash-consing / interning (P2 memory — plans/backlog/TYPEVALUE_HASH_CONSING.md).
+//!
+//! STATUS (2026-07-02): the key + `intern_type` are VALIDATED CORRECT (the earlier
+//! id-only key WRONG-MERGED → 32 corpus SELF-FAIL; this full-content key does not).
+//! WIRED at CONSTRUCTION: `substitute` (types/substitution.yo) wraps its result in
+//! `intern_type`. Since `substitute` recurses, this interns every level bottom-up
+//! → generic-instantiation types dedup. MEASURED: TypeValue count 13.04 M → 11.59 M
+//! (−1.45 M), heap 5.72 → 5.44 GB, corpus 96/96 + check ./std 152/152. Whole-tree
+//! interning at the ExprInfo.ty *storage* chokepoint alone was a no-op (only ~688 K
+//! root tys) — CONSTRUCTION sites (which also see transients → the peak) are the
+//! win. To dedup more, wrap other type-construction sources (synthesize, the
+//! type-eval/struct/enum builders) in `intern_type` too. Gate: differential corpus
+//! 96/96 (NOT check ./std — it skips codegen).
+//!
+//! DELIBERATE yo-self-specific divergence from TS (which memoizes only atomic
+//! types in src/types/creators.ts). Dedup structurally-identical TypeValues so the
+//! evaluator retains D distinct types instead of ~13 M (each dragging 2-4 ArrayLists).
+//!
+//! `intern_type(tv)` returns a canonical instance for a structurally-equal type
+//! (whole-tree interning). Applied at the ExprInfo.ty storage chokepoint.
+//!
+//! CORRECTNESS: the key MUST NOT be coarser than codegen's type identity
+//! (_type_key_at / g_struct_cfid_keys / g_enum_sig_keys), else interning merges
+//! types codegen emits as distinct C types (the 2026-07-02 wrong-merge: EnumT keyed
+//! by id alone merged generic instantiations differing in variant_fields → malformed
+//! C). So named types render their FULL distinguishing content (name + all flags +
+//! field/variant types recursively), guarded by a monotonic visited-id set that
+//! breaks reference cycles (a self-referential enum's field references it by id →
+//! rendered id-only on re-encounter). Never-pop keeps rendering deterministic
+//! (=> injective). A full-content key is at-least-as-fine as codegen's identity, so
+//! it can never wrong-merge; worst case it under-dedups (safe). Sound because
+//! TypeValues are rebuilt-not-mutated. Gate: differential corpus 96/96 (NOT
+//! check ./std — that skips codegen). List-of-types rendering is INLINE (not a
+//! helper) because a helper calling the key renderer would be mutual recursion,
+//! which Yo forbids; self-recursion uses `recur(child, sb, depth + 1, visited)`.
+//!
+//! PERF (2026-08-04): the renderer writes into a caller-owned `StringBuilder`
+//! instead of returning a `String` per node. The returning form allocated one
+//! `String` (+ its byte buffer, + reallocs) for EVERY node at EVERY level and for
+//! every `_join_*`/`_b`/`_meta_key` fragment — measured at ~320 M of the 603 M
+//! string-buffer allocations of one self-emit, because `substitute` re-keys the
+//! whole subtree at each of its recursion levels. `StringBuilder` is a
+//! `ref(struct)`, so passing it by value shares the one buffer. The emitted bytes
+//! are unchanged (same write order) — the fixpoint gate is the proof.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ TypeValue, FuncMeta } :: import("./definitions.yo");
+_append_b :: (fn(sb : StringBuilder, x : bool) -> unit)(
+  if(x, sb.write_str("1"), sb.write_str("0"))
+);
+_contains :: (fn(xs : ArrayList(String), s : String) -> bool)({
+  n := xs.len();
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < n) && !(found), {
+    // Compare in place — no deep clone per probe (see _tk_seen; this was the
+    // 83.8 M-allocation `_contains` site in the constructor census).
+    // Compact bool-valued arm form (an r3-era self-hosted miscompile of
+    // this shape was fixed by later work — restored 2026-08-07;
+    // issues/retired/yo-self-bool-match-arm-miscompile.md).
+    found = match(xs.get(i),.Some(e) => (e == s),.None => false);
+    i = (i + usize(1));
+  });
+  found
+});
+_append_strings :: (fn(sb : StringBuilder, xs : ArrayList(String)) -> unit)({
+  n := xs.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(xs.get(i),.Some(s) => sb.write_string(s),.None => ());
+    sb.write_str(",");
+    i = (i + usize(1));
+  });
+});
+_append_bools :: (fn(sb : StringBuilder, xs : ArrayList(bool)) -> unit)({
+  n := xs.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    _append_b(sb, match(xs.get(i),.Some(b) => b,.None => false));
+    i = (i + usize(1));
+  });
+});
+_append_i64s :: (fn(sb : StringBuilder, xs : ArrayList(i64)) -> unit)({
+  n := xs.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(xs.get(i),.Some(v) => sb.write_string(v.to_string()),.None => ());
+    sb.write_str(",");
+    i = (i + usize(1));
+  });
+});
+_append_usizes :: (fn(sb : StringBuilder, xs : ArrayList(usize)) -> unit)({
+  n := xs.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(xs.get(i),.Some(v) => sb.write_string(v.to_string()),.None => ());
+    sb.write_str(",");
+    i = (i + usize(1));
+  });
+});
+_append_meta_key :: (fn(sb : StringBuilder, m : FuncMeta) -> unit)({
+  _append_strings(sb, m.forall_labels);
+  sb.write_str(";");
+  _append_strings(sb, m.param_labels);
+  sb.write_str(";");
+  _append_strings(sb, m.implicit_labels);
+  sb.write_str(";");
+  _append_bools(sb, m.implicit_spreads);
+  sb.write_str(";");
+  _append_b(sb, m.result_is_comptime_only);
+  _append_bools(sb, m.param_is_ref);
+  sb.write_str(";");
+  _append_bools(sb, m.param_is_owning);
+  sb.write_str(";");
+  _append_b(sb, m.result_is_ref);
+  _append_b(sb, m.has_variadic);
+  _append_b(sb, m.is_control);
+  sb.write_str("e");
+  sb.write_string(m.is_extern.unwrap_or(String.from("")));
+  sb.write_str("x");
+  sb.write_string(m.extern_name.unwrap_or(String.from("")));
+  sb.write_str("v");
+  sb.write_string(m.variadic_label.unwrap_or(String.from("")));
+  _append_b(sb, m.variadic_comptime);
+});
+// ---------------------------------------------------------------------------
+// _intern_key_into — total, injective, recursion-safe structural key, written
+// into a caller-owned StringBuilder.
+// `visited` = tag+id tokens of named types currently in the render path; a
+// re-encounter renders id-only (breaks cycles). Monotonic (never popped) → the
+// rendering is deterministic → the key is injective.
+// ---------------------------------------------------------------------------
+_intern_key_into :: (
+  fn(t : TypeValue, sb : StringBuilder, depth : usize, visited : ArrayList(String)) -> unit
+)(
+  if(
+    depth > usize(600),
+    sb.write_str("~"),
+    match(
+      t,
+      .Unit => sb.write_str("u"),
+      .BoolT => sb.write_str("b"),
+      .Void => sb.write_str("v"),
+      .Str => sb.write_str("s"),
+      .Usize => sb.write_str("z"),
+      .Isize => sb.write_str("Z"),
+      .ComptimeInt => sb.write_str("ci"),
+      .ComptimeFloat => sb.write_str("cf"),
+      .ComptimeString => sb.write_str("cs"),
+      .CChar => sb.write_str("cc"),
+      .CShort => sb.write_str("csh"),
+      .CUShort => sb.write_str("cush"),
+      .CInt => sb.write_str("cin"),
+      .CUInt => sb.write_str("cuin"),
+      .CLong => sb.write_str("cl"),
+      .CULong => sb.write_str("cul"),
+      .CLongLong => sb.write_str("cll"),
+      .CULongLong => sb.write_str("cull"),
+      .CLongDouble => sb.write_str("cld"),
+      .ExprT => sb.write_str("X"),
+      .Int(bits, signed) => {
+        sb.write_str("I");
+        sb.write_string(bits.to_string());
+        _append_b(sb, signed);
+      },
+      .Float(bits) => {
+        sb.write_str("F");
+        sb.write_string(bits.to_string());
+      },
+      .TypeUni(level) => {
+        sb.write_str("T");
+        sb.write_string(level.to_string());
+      },
+      .Pointer(pointee) => {
+        sb.write_str("P");
+        recur(pointee, sb, depth + usize(1), visited);
+      },
+      .ComptimeListT(child) => {
+        sb.write_str("CL");
+        recur(child, sb, depth + usize(1), visited);
+      },
+      .IsoT(child) => {
+        sb.write_str("Is");
+        recur(child, sb, depth + usize(1), visited);
+      },
+      .Array(element, length, length_var) => {
+        sb.write_str("A");
+        recur(element, sb, depth + usize(1), visited);
+        sb.write_str("#");
+        sb.write_string(length.to_string());
+        sb.write_str("#");
+        sb.write_string(length_var);
+      },
+      .Tuple(field_labels, field_types) => {
+        sb.write_str("Tup[");
+        _append_strings(sb, field_labels);
+        sb.write_str("|");
+        n := field_types.len();
+        (i : usize) = usize(0);
+        while(i < n, {
+          match(field_types.get(i),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
+          i = (i + usize(1));
+        });
+        sb.write_str("]");
+      },
+      .Func({ forall_types : fa, param_types : pp, implicit_types : ii, where_types : ww, result : res, meta : m, variadic_types : vv }) => {
+        sb.write_str("Fn[");
+        na := fa.len();
+        (ia : usize) = usize(0);
+        while(ia < na, {
+          match(fa.get(ia),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
+          ia = (ia + usize(1));
+        });
+        sb.write_str("|");
+        np := pp.len();
+        (ip : usize) = usize(0);
+        while(ip < np, {
+          match(pp.get(ip),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
+          ip = (ip + usize(1));
+        });
+        sb.write_str("|");
+        ni := ii.len();
+        (ki : usize) = usize(0);
+        while(ki < ni, {
+          match(ii.get(ki),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
+          ki = (ki + usize(1));
+        });
+        sb.write_str("|");
+        nw := ww.len();
+        (kw : usize) = usize(0);
+        while(kw < nw, {
+          match(ww.get(kw),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
+          kw = (kw + usize(1));
+        });
+        sb.write_str("|");
+        recur(res, sb, depth + usize(1), visited);
+        sb.write_str("|");
+        _append_meta_key(sb, m.*);
+        sb.write_str("|");
+        nv := vv.len();
+        (iv : usize) = usize(0);
+        while(iv < nv, {
+          match(vv.get(iv),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
+          iv = (iv + usize(1));
+        });
+        sb.write_str("]");
+      },
+      .Struct({ id : sid, name : snm, field_labels : sfl, field_types : sft, is_reference_semantics : irs, is_atomic_rc : iar, is_newtype : isnt, constructor_func_id : cfid, type_arguments : sta, is_source_namespace : isns }) => {
+        tok := String.from("S:");
+        tok.push_string(sid);
+        if(_contains(visited, tok), {
+          sb.write_string(tok);
+        }, {
+          visited.push(tok.clone());
+          sb.write_string(tok);
+          sb.write_str("{");
+          sb.write_string(snm);
+          sb.write_str("|");
+          sb.write_string(cfid);
+          sb.write_str("|");
+          _append_b(sb, irs);
+          _append_b(sb, iar);
+          _append_b(sb, isnt);
+          _append_b(sb, isns);
+          sb.write_str("|");
+          _append_strings(sb, sfl);
+          sb.write_str("|");
+          nsf := sft.len();
+          (isf : usize) = usize(0);
+          while(isf < nsf, {
+            match(sft.get(isf),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+            sb.write_str(",");
+            isf = (isf + usize(1));
+          });
+          sb.write_str("|");
+          nsa := sta.len();
+          (isa : usize) = usize(0);
+          while(isa < nsa, {
+            match(sta.get(isa),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+            sb.write_str(",");
+            isa = (isa + usize(1));
+          });
+          sb.write_str("}");
+        });
+      },
+      .EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar) => {
+        tok := String.from("E:");
+        tok.push_string(eid);
+        if(_contains(visited, tok), {
+          sb.write_string(tok);
+        }, {
+          visited.push(tok.clone());
+          sb.write_string(tok);
+          sb.write_str("{");
+          sb.write_string(enm);
+          sb.write_str("|");
+          _append_strings(sb, evns);
+          sb.write_str("|");
+          _append_i64s(sb, edis);
+          sb.write_str("|");
+          nvf := evfs.len();
+          (ivf : usize) = usize(0);
+          while(ivf < nvf, {
+            inner := match(evfs.get(ivf),.Some(x) => x,.None => ArrayList(TypeValue).new());
+            nin := inner.len();
+            (iin : usize) = usize(0);
+            while(iin < nin, {
+              match(inner.get(iin),.Some(y) => recur(y, sb, depth + usize(1), visited),.None => ());
+              sb.write_str(",");
+              iin = (iin + usize(1));
+            });
+            sb.write_str(";");
+            ivf = (ivf + usize(1));
+          });
+          sb.write_str("|");
+          nvl := evfl.len();
+          (ivl : usize) = usize(0);
+          while(ivl < nvl, {
+            match(evfl.get(ivl),.Some(labs) => _append_strings(sb, labs),.None => ());
+            sb.write_str(";");
+            ivl = (ivl + usize(1));
+          });
+          sb.write_str("|");
+          sb.write_string(esvn.unwrap_or(String.from("n")));
+          sb.write_str("|");
+          _append_b(sb, eirs);
+          _append_b(sb, eiar);
+          sb.write_str("}");
+        });
+      },
+      .TraitT(tnm, tatn, tfl, tft, tid, tisc, tsc, tnsc, tatcl, tatct) => {
+        tok := String.from("Tr:");
+        tok.push_string(tid);
+        if(_contains(visited, tok), {
+          sb.write_string(tok);
+        }, {
+          visited.push(tok.clone());
+          sb.write_string(tok);
+          sb.write_str("{");
+          sb.write_string(tnm);
+          sb.write_str("|");
+          _append_strings(sb, tatn);
+          sb.write_str("|");
+          _append_strings(sb, tfl);
+          sb.write_str("|");
+          ntf := tft.len();
+          (itf : usize) = usize(0);
+          while(itf < ntf, {
+            match(tft.get(itf),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+            sb.write_str(",");
+            itf = (itf + usize(1));
+          });
+          sb.write_str("|");
+          match(
+            tisc,
+            .Some(c) => recur(c, sb, depth + usize(1), visited),
+            .None => sb.write_str("n")
+          );
+          sb.write_str("|");
+          nsc := tsc.len();
+          (isc : usize) = usize(0);
+          while(isc < nsc, {
+            match(tsc.get(isc),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+            sb.write_str(",");
+            isc = (isc + usize(1));
+          });
+          sb.write_str("|");
+          nnc := tnsc.len();
+          (inc : usize) = usize(0);
+          while(inc < nnc, {
+            match(tnsc.get(inc),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+            sb.write_str(",");
+            inc = (inc + usize(1));
+          });
+          // Associated-type constraints (`Item := X`) distinguish otherwise
+          // same-id trait applications — key them like the constraint lists.
+          sb.write_str("|");
+          _append_strings(sb, tatcl);
+          sb.write_str("|");
+          natc := tatct.len();
+          (iatc : usize) = usize(0);
+          while(iatc < natc, {
+            match(tatct.get(iatc),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+            sb.write_str(",");
+            iatc = (iatc + usize(1));
+          });
+          sb.write_str("}");
+        });
+      },
+      // SomeT keyed by id ALONE wrong-merges: the shared `Impl(Fn(e : E) -> T)`
+      // io.async action wrapper keeps ONE id across all call sites, but
+      // `substitute` produces per-call variants whose required_trait_types
+      // differ (`Fn(e : IoExn) -> i32` vs `Fn(e : Io) -> bool`). An id-only
+      // key canonicalizes every later call's substituted wrapper back to the
+      // FIRST interned variant — the stage-2 statx cluster (single-effect
+      // closure param typed IoExn). Render the full distinguishing content,
+      // same shape as the TraitT/EnumT arms (visited-guarded for cycles).
+      .SomeT(smid, smnm, smfl, smpt, smrtt, smrtl, smntt, smntl, smier, smkft, smrcp) => {
+        tok := String.from("So:");
+        tok.push_string(smid);
+        if(_contains(visited, tok), {
+          sb.write_string(tok);
+        }, {
+          visited.push(tok.clone());
+          sb.write_string(tok);
+          sb.write_str("{");
+          sb.write_string(smnm);
+          sb.write_str("|");
+          sb.write_string(smfl.to_string());
+          sb.write_str("|");
+          recur(smpt, sb, depth + usize(1), visited);
+          sb.write_str("|");
+          nrt := smrtt.len();
+          (irt : usize) = usize(0);
+          while(irt < nrt, {
+            match(smrtt.get(irt),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+            sb.write_str(",");
+            irt = (irt + usize(1));
+          });
+          sb.write_str("|");
+          nrl := smrtl.len();
+          (irl : usize) = usize(0);
+          while(irl < nrl, {
+            match(smrtl.get(irl),.Some(l) => sb.write_string(l.to_string()),.None => ());
+            sb.write_str(",");
+            irl = (irl + usize(1));
+          });
+          sb.write_str("|");
+          nnt := smntt.len();
+          (int_ : usize) = usize(0);
+          while(int_ < nnt, {
+            match(smntt.get(int_),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+            sb.write_str(",");
+            int_ = (int_ + usize(1));
+          });
+          sb.write_str("|");
+          nnl := smntl.len();
+          (inl : usize) = usize(0);
+          while(inl < nnl, {
+            match(smntl.get(inl),.Some(l) => sb.write_string(l.to_string()),.None => ());
+            sb.write_str(",");
+            inl = (inl + usize(1));
+          });
+          sb.write_str("|");
+          _append_b(sb, smier);
+          sb.write_str("|");
+          match(
+            smkft,
+            .Some(k) => recur(k, sb, depth + usize(1), visited),
+            .None => sb.write_str("n")
+          );
+          // resolved_concrete is resolution METADATA, not identity — but the
+          // intern canonical must not STRIP it: a field-carrying SomeT that
+          // key-collides with a field-less one canonicalizes to the field-less
+          // instance and the resolution is lost (the Dyn(Fn) box payload
+          // emitted void*). Render it so carriers stay distinct instances
+          // (under-dedup is safe per the header doctrine).
+          sb.write_str("|");
+          match(
+            smrcp.get(usize(0)),
+            .Some(rc) => recur(rc, sb, depth + usize(1), visited),
+            .None => sb.write_str("n")
+          );
+          sb.write_str("}");
+        });
+      },
+      .Union(unm, ufl, uft) => {
+        sb.write_str("Un:");
+        sb.write_string(unm);
+        sb.write_str("[");
+        _append_strings(sb, ufl);
+        sb.write_str("|");
+        nu := uft.len();
+        (iu : usize) = usize(0);
+        while(iu < nu, {
+          match(uft.get(iu),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
+          iu = (iu + usize(1));
+        });
+        sb.write_str("]");
+      },
+      .EffectsRowT(erl, ert) => {
+        sb.write_str("ER[");
+        _append_strings(sb, erl);
+        sb.write_str("|");
+        ne := ert.len();
+        (ie : usize) = usize(0);
+        while(ie < ne, {
+          match(ert.get(ie),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
+          ie = (ie + usize(1));
+        });
+        sb.write_str("]");
+      },
+      .TypeAppT(tac, taa) => {
+        sb.write_str("TA");
+        recur(tac, sb, depth + usize(1), visited);
+        sb.write_str("[");
+        nta := taa.len();
+        (ita : usize) = usize(0);
+        while(ita < nta, {
+          match(taa.get(ita),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
+          ita = (ita + usize(1));
+        });
+        sb.write_str("]");
+      },
+      .DynT(drtt, drtl, dntt, dntl) => {
+        sb.write_str("Dy[");
+        nr := drtt.len();
+        (ir : usize) = usize(0);
+        while(ir < nr, {
+          match(drtt.get(ir),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
+          ir = (ir + usize(1));
+        });
+        sb.write_str("|");
+        _append_usizes(sb, drtl);
+        sb.write_str("|");
+        nd := dntt.len();
+        (idn : usize) = usize(0);
+        while(idn < nd, {
+          match(dntt.get(idn),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
+          idn = (idn + usize(1));
+        });
+        sb.write_str("|");
+        _append_usizes(sb, dntl);
+        sb.write_str("]");
+      },
+      .FnTraitT({ base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit, implicit_spreads : fnisp, call_param_is_ref : fncprf }) => {
+        sb.write_str("FT:");
+        sb.write_string(fnbn);
+        sb.write_str("[");
+        _append_strings(sb, fncpl);
+        sb.write_str("|");
+        ncp := fncpt.len();
+        (icp : usize) = usize(0);
+        while(icp < ncp, {
+          match(fncpt.get(icp),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
+          icp = (icp + usize(1));
+        });
+        sb.write_str("|");
+        recur(fncr, sb, depth + usize(1), visited);
+        sb.write_str("|");
+        _append_strings(sb, fnil);
+        sb.write_str("|");
+        nfi := fnit.len();
+        (ifi : usize) = usize(0);
+        while(ifi < nfi, {
+          match(fnit.get(ifi),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
+          ifi = (ifi + usize(1));
+        });
+        sb.write_str("|");
+        _append_bools(sb, fnisp);
+        sb.write_str("|");
+        _append_bools(sb, fncprf);
+        sb.write_str("]");
+      },
+      .FutureTraitT({ base_name : ftbn, output : ftout, effect_labels : ftel, effect_types : ftet, effect_spreads : ftesp }) => {
+        sb.write_str("FuT:");
+        sb.write_string(ftbn);
+        sb.write_str("[");
+        recur(ftout, sb, depth + usize(1), visited);
+        sb.write_str("|");
+        _append_strings(sb, ftel);
+        sb.write_str("|");
+        nft := ftet.len();
+        (ift : usize) = usize(0);
+        while(ift < nft, {
+          match(ftet.get(ift),.Some(x) => recur(x, sb, depth + usize(1), visited),.None => ());
+          sb.write_str(",");
+          ift = (ift + usize(1));
+        });
+        sb.write_str("|");
+        _append_bools(sb, ftesp);
+        sb.write_str("]");
+      }
+    )
+  )
+);
+/// Render the structural key of `t` as a String. Thin wrapper over
+/// `_intern_key_into` (kept for callers outside this module).
+type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)) -> String)({
+  sb := StringBuilder.new();
+  _intern_key_into(t, sb, depth, visited);
+  sb.to_string()
+});
+(g_type_intern : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
+/// Return the canonical instance for a structurally-equal type. Whole-tree.
+intern_type :: (fn(t : TypeValue) -> TypeValue)({
+  key := type_intern_key(t, usize(0), ArrayList(String).new());
+  match(
+    g_type_intern.get(key),
+    .Some(canon) => canon,
+    .None => {
+      g_type_intern.set(key.clone(), t);
+      match(g_type_intern.get(key),.Some(c) => c,.None => TypeValue.Unit)
+    }
+  )
+});
+export(intern_type, type_intern_key);

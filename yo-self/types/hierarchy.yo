@@ -116,7 +116,7 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
     // Array: recurse into element type --------------------------------------
     .Array(elem_box, _, _) => match(
       g_type_of_type_visited_fn,
-      .Some(f) => f(elem_box.*, visited),
+      .Some(f) => f(elem_box, visited),
       .None => TypeValue.TypeUni(usize(0))
     ),
     // Tuple: check all field types ------------------------------------------
@@ -138,7 +138,7 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
         }
       ),
     // EnumT: flatten all variant field types, then check the universe ------
-    .EnumT(_, ename, _, variant_fields, _, _, _) =>
+    .EnumT(_, ename, _, variant_fields, _, _, _, _, _) =>
       cond(
         _name_in_visited(visited, ename) => TypeValue.TypeUni(usize(0)),
         true => {
@@ -170,11 +170,11 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
         }
       ),
     // Traits and modules are type-level-1 types ----------------------------
-    .TraitT(_, _, _, _, _, _, _, _) => TypeValue.TypeUni(usize(1)),
+    .TraitT(_, _, _, _, _, _, _, _, _, _) => TypeValue.TypeUni(usize(1)),
     .FnTraitT(base_name : _) => TypeValue.TypeUni(usize(1)),
     .FutureTraitT(base_name : _) => TypeValue.TypeUni(usize(1)),
     // SomeT: return its parent_type (meta-type) ----------------------------
-    .SomeT(parent_type : pt) => pt.*,
+    .SomeT(parent_type : pt) => pt,
     // Remaining Phase 2f variants that live at type level 0 ---------------
     _ => TypeValue.TypeUni(usize(0))
   )

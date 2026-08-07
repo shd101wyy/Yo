@@ -36,6 +36,7 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 - [贡献](#贡献)
   - [环境设置](#环境设置)
 - [编辑器支持](#编辑器支持)
+- [版本管理](#版本管理)
 - [AI Agent 技能包](#ai-agent-技能包)
   - [在自己的项目中使用](#在自己的项目中使用)
 - [Star 历史](#star-历史)
@@ -53,13 +54,13 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 - 编译时求值（Compile-time evaluation）。
 - 同像性（Homoiconicity）和元编程（**Yo** 语法受 **Lisp** S 表达式启发。简单的语法规则，对人类和 AI 友好）。
 - 闭包（Closure）。
-- [代数效应与处理器](./ALGEBRAIC_EFFECTS.md)（一次性 delimited continuation、尾调用恢复式、通过 `using`/`given` 的隐式参数、通过 `return`/`unwind` 的效应处理器，基于 [证据传递/Evidence Passing](https://xnning.github.io/papers/multip.pdf)）。
+- [代数效应与处理器](./ALGEBRAIC_EFFECTS.md)（一次性 delimited continuation、尾调用恢复式、通过 `return`/`unwind` 的效应处理器，基于 [证据传递/Evidence Passing](https://xnning.github.io/papers/multip.pdf)）。
 - [Async/Await](./ASYNC_AWAIT.md)（内置 `Io` 效应。无栈协程与合作式多任务。惰性 Future、多 await、通过状态机转换实现的单线程并发）。
-- [默认内存安全](./MEMORY_SAFETY.md) —— 用户代码无法在不显式声明 `pragma(Pragma.AllowUnsafe);` opt-in 的情况下写出 UB（无原始指针、无 FFI、无内联汇编）。原地修改使用 `ref(name)`；`yo unsafe-report` 用于审计 unsafe 表面。
-- 带有 [非原子引用计数与线程本地循环回收](./CYCLE_COLLECTION.md) 的 `object` 类型。
+- [默认内存安全](./MEMORY_SAFETY.md) —— 用户代码无法在不显式声明 `pragma(Pragma.AllowUnsafe);` opt-in 的情况下写出 UB（无原始指针、无 FFI、无内联汇编）。原地修改使用 `inout(name)`；`yo unsafe-report` 用于审计 unsafe 表面。
+- 带有 [非原子引用计数与线程本地循环回收](./CYCLE_COLLECTION.md) 的引用语义类型（`ref(struct(...))`/`ref(enum(...))`）。
 - [基于所有权和生命周期分析的编译时引用计数](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)。
 - 每核并行模型（详见 [PARALLELISM.md](./PARALLELISM.md)）。
-- 受 Zig 和 Nix 启发的[声明式构建系统](./BUILD_SYSTEM.md)（`yo build`、`yo init`、交叉编译）。
+- 受 Zig 和 Nix 启发的[声明式构建系统](./BUILD_SYSTEM.md)（`yo build`、`yo init`、WASM 目标）。
 - **C** 语言互操作。
 - 等等。
 
@@ -317,18 +318,57 @@ $ bun run build
 测试本地 yo-cli：
 
 ```bash
-$ bun run src/yo-cli.ts compile src/tests/examples/fixme.yo
+$ bun run src/yo-cli.ts compile src/tests/fixme.yo
 
 # 项目中还有一个 `yo-cli` 脚本用于测试：
-$ ./yo-cli compile src/tests/examples/fixme.yo
+$ ./yo-cli compile src/tests/fixme.yo
 ```
 
 ## 编辑器支持
 
-- VS Code 扩展可在 [这里](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang) 获取，支持基本语法高亮。尚无 LSP。
+- VS Code 扩展可在 [这里](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang) 获取，内置 **语言服务器协议（LSP）** 支持，提供：
+
+  - **悬停信息** —— 任意标识符的类型、值和文档注释
+  - **自动补全** —— 结构体字段、枚举变体、模块成员、impl 方法、关键字
+  - **跳转到定义** —— 跳转到任意符号的定义处
+  - **查找引用** —— 定位符号的所有使用位置
+  - **重命名符号** —— 跨所有引用重命名
+  - **文档符号** —— 顶层声明的大纲视图
+  - **签名帮助** —— 输入函数调用时的参数提示
+  - **诊断** —— 实时错误报告
+  - **代码折叠** —— 折叠函数体、结构体、impl 块
+
+  LSP 服务器也可以通过 stdio JSON-RPC 在其他编辑器中使用：
+
+  ```bash
+  node out/cjs/yo-lsp.cjs --stdio
+  ```
+
+  完整文档请参阅 [docs/zh-CN/LSP.md](./LSP.md)。
 
 - Vim / Neovim：最小化的语法文件和使用说明位于 `vscode-extension/syntaxes/`。
   详见 [vscode-extension/syntaxes/README.md](../../vscode-extension/syntaxes/README.md) 了解安装步骤、`ftdetect` 示例和 `home-manager` 片段。
+
+## 版本管理
+
+Yo 支持通过 `.yo-version` 文件进行项目级版本固定（类似 `.nvmrc` 或 `.python-version`）：
+
+```bash
+# 将项目固定到特定的 Yo 版本
+yo version pin 0.1.12
+
+# 显示当前版本和固定版本
+yo version
+
+# 安装、列出和清理缓存的版本
+yo version install 0.1.13
+yo version list
+yo version clean
+```
+
+当 `.yo-version` 文件存在时，`yo` CLI 会自动分发到固定的版本 —— 首次使用时下载并缓存。LSP 服务器也会读取 `.yo-version`，为跳转到定义和补全解析正确的标准库。
+
+完整文档请参阅 [docs/zh-CN/VERSION_MANAGEMENT.md](./VERSION_MANAGEMENT.md)。
 
 ## AI Agent 技能包
 
@@ -343,7 +383,15 @@ $ ./yo-cli compile src/tests/examples/fixme.yo
 
 ### 在自己的项目中使用
 
-将技能目录复制到你的 Yo 项目中：
+最简单的方式是使用 `yo` CLI：
+
+```bash
+yo skills install
+```
+
+该命令会将所有技能文件复制到当前项目中发现的每个 Agent 配置目录（`.github`、`.agents`、`.claude`、`.opencode`、`.openai`、`.cursor`）。如果都不存在，会自动创建 `.agents/skills/`。
+
+你也可以手动复制：
 
 ```bash
 cp -r .github/skills /path/to/your-yo-project/.github/

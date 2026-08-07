@@ -16,7 +16,11 @@ open(import("std/string"));
   ast_expr_is_atom_of,
   ast_expr_is_fn_call_of,
   make_err_expr,
-  BK_COMPTIME
+  BK_COMPTIME,
+  BK_BEGIN,
+  BK_WHILE,
+  BF_INVARIANT,
+  clone_expr_fresh_ids
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -49,6 +53,89 @@ open(import("std/string"));
 /// Phase 2 stub: fixed at 10000 (no YO_MAX_COMPTIME_LOOP_ITERATIONS env var).
 /// Mirrors the `MAX_COMPTIME_LOOP_ITERATIONS` IIFE in `src/evaluator/exprs/while.ts`.
 MAX_COMPTIME_LOOP_ITERATIONS :: usize(10000);
+// ---------------------------------------------------------------------------
+// Phase 0 of plans/FORMAL_VERIFICATION.md §A2: loop invariants must appear as
+// the first statement of the loop body. 1:1 port of
+// `enforceLoopInvariantPlacement` / `walkForMisplacedInvariant`
+// (src/evaluator/exprs/while.ts:106-166).
+// ---------------------------------------------------------------------------
+/// Find any `invariant(...)` call NESTED inside an expression (cond/match
+/// branches, nested begin blocks). Returns the offending node instead of
+/// throwing: an `exn.throw` from inside this recursive helper was measured
+/// INERT under the def-time trial exn chain (the escaped-flag early-return
+/// is not honored here — execution continued past the throw and the
+/// misplacement was never reported; tests/spec/contracts_phase0 arm 8).
+/// The caller (`evaluate_while`) throws from its own frame instead.
+/// Does NOT descend into nested `while(...)` bodies — those are checked by
+/// their own `_enforce_loop_invariant_placement` call.
+_find_misplaced_invariant :: (fn(expr : AstExpr) -> Option(AstExpr))({
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    .Atom(_, _) => return(Option(AstExpr).None)
+  );
+  if(ast_expr_is_fn_call_of(expr, BF_INVARIANT, Option(usize).None), {
+    return(Option(AstExpr).Some(expr));
+  });
+  if(ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None), {
+    return(Option(AstExpr).None);
+  });
+  (found : Option(AstExpr)) = Option(AstExpr).None;
+  (wi : usize) = usize(0);
+  while((wi < args.len()) && found.is_none(), {
+    match(
+      args.get(wi),
+      .Some(sub) => {
+        found = recur(sub);
+      },
+      .None => ()
+    );
+    wi = (wi + usize(1));
+  });
+  found
+});
+/// Enforce that `invariant(...)` appears only as the first statement of a
+/// loop body. Returns the offending node and whether it was a NON-FIRST
+/// direct statement (true) or nested in a branch/block (false); the caller
+/// throws (see _find_misplaced_invariant on why no throw happens here).
+InvariantViolation :: struct(node : AstExpr, non_first_stmt : bool);
+_enforce_loop_invariant_placement :: (fn(body_expr : AstExpr) -> Option(InvariantViolation))({
+  stmts := cond(
+    ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None) => match(
+      body_expr,
+      .FnCall(_, _, a, _, _) => a,
+      .Atom(_, _) => ArrayList(AstExpr).new()
+    ),
+    true => {
+      single := ArrayList(AstExpr).new();
+      single.push(body_expr);
+      single
+    }
+  );
+  (si : usize) = usize(0);
+  while(si < stmts.len(), {
+    stmt := match(stmts.get(si),.Some(s) => s,.None => make_err_expr());
+    idx := si;
+    si = (si + usize(1));
+    is_inv := ast_expr_is_fn_call_of(stmt, BF_INVARIANT, Option(usize).None);
+    cond(
+      (is_inv && (idx == usize(0))) => (),
+      is_inv => {
+        return(Option(InvariantViolation).Some(InvariantViolation(node : stmt, non_first_stmt : true)));
+      },
+      true => {
+        match(
+          _find_misplaced_invariant(stmt),
+          .Some(bad) => {
+            return(Option(InvariantViolation).Some(InvariantViolation(node : bad, non_first_stmt : false)));
+          },
+          .None => ()
+        );
+      }
+    );
+  });
+  Option(InvariantViolation).None
+});
 // ---------------------------------------------------------------------------
 // Helper: _body_has_any_terminator_guaranteed / _body_has_any_terminator_possible
 // ---------------------------------------------------------------------------
@@ -161,6 +248,21 @@ evaluate_while :: (
     step_opt_inner := match(all_args.get(usize(1)),.Some(e) => e,.None => make_err_expr());
     step_expr_opt = Option(AstExpr).Some(step_opt_inner);
   });
+  // Phase 0 invariant-placement rule: inside a `while(...)` body,
+  // `invariant(...)` may only appear as the first statement of the loop body.
+  // See plans/FORMAL_VERIFICATION.md §A2 / while.ts:206-211. The helper
+  // RETURNS the violation and the throw happens here — see its doc comment.
+  match(
+    _enforce_loop_invariant_placement(body_expr),
+    .Some(inv_viol) => {
+      inv_msg := cond(
+        inv_viol.non_first_stmt => String.from("'invariant(...)' must be the first statement of a 'while(...)' loop body. Move this invariant to the top of the loop body, before any other statements."),
+        true => String.from("'invariant(...)' must be the first statement of the enclosing 'while(...)' loop body. It cannot appear inside cond/match branches, nested blocks, or as a non-first statement.")
+      );
+      exn.throw(dyn(format_error_message(ast_expr_token(inv_viol.node), inv_msg, false,.None)));
+    },
+    .None => ()
+  );
   // Detect comptime() modifier on the condition.
   // Re-detected on each recursive call so the AST stays clean across evaluations.
   raw_cond_expr := match(all_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
@@ -300,13 +402,20 @@ evaluate_while :: (
       is_compile_time => Option(EvalValue).Some(EvalValue.UnitVal),
       true => Option(EvalValue).None
     );
+    // ADAPTATION: record EMPTY unrolled bodies so codegen emits NOTHING for
+    // the eliminated loop. TS emits a dead runtime loop whose unevaluated
+    // body statements degrade to benign `// Error:` comments; yo-self's
+    // equivalent degradation is `// Failed to transpile` markers, which the
+    // honest-hollow gate counts (basic arm 26's `i :: 10; while(comptime(
+    // i < 5), ...)`). Semantically identical: zero iterations.
+    out_info.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     return(expr);
   });
   // Evaluate the body with the loop-body context set so that break/continue
   // inside the body know they are inside a while loop.
   old_loop_body := ctx.is_evaluating_loop_body;
-  ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(LoopBodyCtx(kind : LoopKind.While, env : env));
+  ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(LoopBodyCtx(kind : LoopKind.While, env : env, entry_frame_count : env.frames.len()));
   evaluated_body := evaluate_begin_expression(body_expr, env, ctx, ArrayList(Variable).new(), false, exn);
   ctx.is_evaluating_loop_body = old_loop_body;
   // Require ExprInfo for the body.
@@ -463,7 +572,7 @@ evaluate_while :: (
     possible := _body_has_any_terminator_possible(body_expr, body_info.control_flow);
     if(!(guaranteed) && !(possible), {
       // No terminator anywhere — this loop can never end.
-      _ := _throw_max_iterations_error(expr, body_expr, body_info.control_flow, exn);
+      _throw_max_iterations_error(expr, body_expr, body_info.control_flow, exn);
     });
     if(!(guaranteed) && possible, {
       // Conditional terminator exists — emit as a runtime loop.
@@ -513,20 +622,127 @@ evaluate_while :: (
       env = match(step_info_s_opt,.Some(si) => si.env,.None => env);
     }
   );
-  // Phase 2 stub: comptime while loop unrolling with runtime body is deferred to Phase 3.
-  // TypeScript's evaluateWhile (lines 449-547) deep-clones and re-evaluates the loop body
-  // multiple times when the condition is compile-time true but the body has runtime values.
-  // Without clone_expr, we fall through to the iteration counter check below.
-  // If the effective condition is compile-time true, recurse to evaluate the next iteration.
+  // Comptime while loop unrolling with a RUNTIME body — port of TS
+  // while.ts:534-634. When the condition is compile-time TRUE but the body
+  // carries runtime values, deep-clone and re-evaluate the body per
+  // iteration (each clone's ExprInfos bake THAT iteration's comptime
+  // constants) and record the clones on `comptime_unrolled_bodies`; the
+  // codegen emits them sequentially with no C loop. Without this the stub
+  // recursion re-evaluated the SAME nodes (last iteration's constants won)
+  // and codegen emitted a runtime loop whose comptime step leaked a raw
+  // identifier (`i = 5;` — basic arm 26's undeclared-identifier hard fail).
   eff_cond_is_true_main := match(
     effective_condition_value,
     .None => false,
     .Some(v) => match(v,.BoolVal(b) => b, _ => false)
   );
+  body_has_runtime_value := body_info.value.is_none();
+  if(eff_cond_is_true_main && body_has_runtime_value, {
+    check_cond := clone_expr_fresh_ids(inner_cond_expr);
+    check_res := evaluate_begin_expression(check_cond, env, ctx, ArrayList(Variable).new(), false, exn);
+    next_cond_val := match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(check_res)),
+      .Some(ci) => ci.value,
+      .None => Option(EvalValue).None
+    );
+    next_is_bool := match(next_cond_val,.Some(v) => match(v,.BoolVal(_) => true, _ => false),.None => false);
+    if(next_is_bool, {
+      unrolled_bodies := ArrayList(AstExpr).new();
+      unrolled_bodies.push(body_expr);
+      (current_env : Environment) = env;
+      (cond_still_true : bool) = match(next_cond_val,.Some(v) => match(v,.BoolVal(b) => b, _ => false),.None => false);
+      (unroll_iter : usize) = usize(1);
+      (unroll_abort : bool) = false;
+      while((cond_still_true && (unroll_iter < MAX_COMPTIME_LOOP_ITERATIONS)) && !(unroll_abort), {
+        cloned_body := clone_expr_fresh_ids(body_expr);
+        old_loop_body_u := ctx.is_evaluating_loop_body;
+        ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(LoopBodyCtx(kind : LoopKind.While, env : current_env, entry_frame_count : current_env.frames.len()));
+        eval_body_u := evaluate_begin_expression(cloned_body, current_env, ctx, ArrayList(Variable).new(), false, exn);
+        ctx.is_evaluating_loop_body = old_loop_body_u;
+        match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_body_u)),
+          .None => {
+            unroll_abort = true;
+          },
+          .Some(ebi) => {
+            unrolled_bodies.push(cloned_body);
+            current_env = ebi.env;
+            // Execute step if provided (3-argument form).
+            match(
+              step_expr_opt,
+              .None => (),
+              .Some(step_expr_u) => {
+                cloned_step := clone_expr_fresh_ids(step_expr_u);
+                eval_step_u := evaluate_expression_raw(cloned_step, current_env, ctx, exn);
+                match(
+                  expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_step_u)),
+                  .Some(sui) => {
+                    current_env = sui.env;
+                  },
+                  .None => {
+                    unroll_abort = true;
+                  }
+                );
+              }
+            );
+            if(!(unroll_abort), {
+              // Re-evaluate the condition with the updated env.
+              cond_clone_u := clone_expr_fresh_ids(inner_cond_expr);
+              cond_res_u := evaluate_begin_expression(cond_clone_u, current_env, ctx, ArrayList(Variable).new(), false, exn);
+              cond_val_u := match(
+                expr_info_table_get(ctx.expr_info_table, ast_expr_id(cond_res_u)),
+                .Some(cui) => cui.value,
+                .None => Option(EvalValue).None
+              );
+              match(
+                cond_val_u,
+                .Some(cv_u) => match(
+                  cv_u,
+                  .BoolVal(b_u) => {
+                    cond_still_true = b_u;
+                  },
+                  _ => {
+                    // Condition became runtime — can't unroll further; keep
+                    // what we have and fall back (TS while.ts:607-616).
+                    out_rt_u := new_expr_info(current_env, t_unit());
+                    out_rt_u.value = Option(EvalValue).None;
+                    out_rt_u.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(unrolled_bodies);
+                    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt_u);
+                    return(expr);
+                  }
+                ),
+                .None => {
+                  out_rt_u2 := new_expr_info(current_env, t_unit());
+                  out_rt_u2.value = Option(EvalValue).None;
+                  out_rt_u2.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(unrolled_bodies);
+                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt_u2);
+                  return(expr);
+                }
+              );
+            });
+          }
+        );
+        unroll_iter = (unroll_iter + usize(1));
+      });
+      if(!(cond_still_true), {
+        // Loop terminates — store unrolled bodies (TS while.ts:619-629).
+        out_done_u := new_expr_info(current_env, t_unit());
+        out_done_u.value = Option(EvalValue).None;
+        out_done_u.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(unrolled_bodies);
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_done_u);
+        return(expr);
+      });
+    });
+    // Unrolling failed: condition stayed comptime true (or a body/step eval
+    // lost its info). Mirrors TS while.ts:632-634.
+    _throw_max_iterations_error(expr, body_expr, body_info.control_flow, exn);
+  });
+  // If the effective condition is compile-time true (pure-comptime body),
+  // recurse to evaluate the next iteration.
   if(eff_cond_is_true_main, {
     next_count := (comptime_iteration_count + usize(1));
     if(next_count >= MAX_COMPTIME_LOOP_ITERATIONS, {
-      _ := _throw_max_iterations_error(expr, body_expr, body_info.control_flow, exn);
+      _throw_max_iterations_error(expr, body_expr, body_info.control_flow, exn);
     });
     return(recur(expr, env, ctx, next_count, exn));
   }, {

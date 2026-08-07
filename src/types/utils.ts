@@ -53,7 +53,7 @@ import {
   isIntegerType,
   isIsizeType,
   isSourceNamespaceType,
-  isObjectType,
+  isReferenceStructType,
   isPtrType,
   isRcType,
   isSomeType,
@@ -209,7 +209,7 @@ export function typeContainsRcType(
  * frame-bound: they cannot escape via function return, module-level
  * binding, heap allocation, closure capture, or pointer indirection.
  *
- * See plans/EXPLICIT_EFFECTS.md §4 "Handler value unwind-escape
+ * See plans/archive/EXPLICIT_EFFECTS.md §4 "Handler value unwind-escape
  * restrictions — `ctl()` type constructor".
  *
  * Rules:
@@ -284,7 +284,7 @@ export function typeIsControlBound(
  * but **stops at heap-owning `object` types** — those manage their own
  * pointer's lifetime via Rc and cannot dangle through a return slot.
  *
- * Used by the flowability rule from `plans/SLICE_FLOWABILITY.md`:
+ * Used by the flowability rule from `plans/archive/SLICE_FLOWABILITY.md`:
  * a function returning a type for which this predicate is true (and
  * whose return is NOT already `-> ref(T)`) must have a flowable
  * return expression, because the return slot would otherwise smuggle
@@ -331,11 +331,11 @@ export function typeRepresentationContainsRawPtr(
   // pointer lifetime via Rc. They are safe to return at the value layer.
   // Check this BEFORE the generic Struct fall-through so a struct's
   // `isReferenceSemantics` short-circuits the field walk.
-  if (isObjectType(type)) {
+  if (isReferenceStructType(type)) {
     return false;
   }
   // `Dyn(Trait)` is a fat pointer (data + vtable) into RC-managed
-  // object storage. Same reasoning as `isObjectType`: returning a
+  // object storage. Same reasoning as `isReferenceStructType`: returning a
   // `Dyn` transfers (or shares) the Rc, so the data pointer stays
   // alive. Skip the field walk.
   if (isDynType(type)) {
@@ -347,7 +347,7 @@ export function typeRepresentationContainsRawPtr(
       return true;
     // str is the builtin view of STATIC string bytes (immortal backing) —
     // it carries a pointer, but never a dangling one: as_str/as_slice are
-    // deleted and ranges copy (plans/SLICE_REWORK.md). No flow constraints.
+    // deleted and ranges copy (plans/archive/SLICE_REWORK.md). No flow constraints.
     case TypeTag.Str:
       return false;
     case TypeTag.Struct:
@@ -424,7 +424,7 @@ export function typeMayProvideSliceSource(
   if (checkedTypes.includes(type)) return false;
   checkedTypes.push(type);
 
-  if (isObjectType(type)) return true;
+  if (isReferenceStructType(type)) return true;
   // `Dyn(Trait)` carries an RC-managed object behind a fat pointer.
   // A callee can project a slice into that object's heap data, so a
   // `Dyn` arg is just as much a source candidate as an `object` arg.
@@ -569,27 +569,27 @@ export function typeContainsSomeType(
 
 /**
  * Like `typeContainsSomeType` but distinguishes "free" SomeTypes from those
- * locally bound by a nested function's `forall(...)`. A function type's
+ * locally bound by a nested function's `generic(...)`. A function type's
  * `forallParameters` introduce SomeType bindings whose scope is just that
  * function's signature; references to those names inside the parameters or
  * return type are NOT free in the outer position.
  *
  * Without this distinction, `typeContainsSomeType(Io)` returns true via the
- * recursion into Io's fn-typed fields (`async : fn(forall(T, E), ...) -> ...`),
+ * recursion into Io's fn-typed fields (`async : fn(generic(T, E), ...) -> ...`),
  * which causes `shouldDeferBodyEvaluation` in anonymous-function.ts to defer
  * any function body that takes `io : Io` as a parameter. The test runner's
  * batched-main function hit exactly this trap and silently dropped every test
  * body until commit `7b3b788b` worked around it by removing the parameter.
  *
- * This function tracks the set of forall-bound SomeType names per scope
+ * This function tracks the set of generic-bound SomeType names per scope
  * (innermost wins, supporting shadowing). When recursing into a FunctionType,
- * the function's own forall labels are added to the bound set for the inner
+ * the function's own generic labels are added to the bound set for the inner
  * walk. SomeTypes whose `name` matches a bound entry are skipped.
  *
- * NOTE: name-based tracking is sufficient because forall parameter names are
+ * NOTE: name-based tracking is sufficient because generic parameter names are
  * unique within a single function signature and Yo's evaluator generates a
- * fresh SomeType per forall declaration. A SomeType encountered inside the
- * function whose name matches a forall label IS that forall's variable.
+ * fresh SomeType per generic declaration. A SomeType encountered inside the
+ * function whose name matches a generic label IS that generic's variable.
  */
 export function typeContainsUnboundSomeType(
   type?: Type,
@@ -644,7 +644,7 @@ export function typeContainsUnboundSomeType(
       );
     case TypeTag.Function: {
       const fnType = type as FunctionType;
-      // Extend bound set with this function's forall labels for the inner walk.
+      // Extend bound set with this function's generic labels for the inner walk.
       // Use a per-recursion copy so siblings don't see each other's bindings.
       const innerBound = new Set(boundNames);
       for (const fp of fnType.forallParameters) {
@@ -682,12 +682,12 @@ export function typeContainsUnboundSomeType(
  *
  * Rationale: effect-record types like `Exception` are concrete C structs
  * whose only "generic" content lives inside function-typed fields (e.g.
- * `throw : ctl(forall(R), error : AnyError) -> R`). At C codegen time those
+ * `throw : ctl(generic(R), error : AnyError) -> R`). At C codegen time those
  * fields are type-erased function pointers — concrete bytes — so a regular
  * function taking `exn : Exception` is NOT itself generic and must still be
  * emitted with a forward declaration and body. The plain
  * `typeContainsSomeType` returns true for `Exception` (because the field
- * walk hits the forall inside `throw`), which causes declarations.ts and
+ * walk hits the generic inside `throw`), which causes declarations.ts and
  * generation.ts to incorrectly skip the function — leaving call sites with
  * an undeclared `fn_*_parse` and similar.
  */
@@ -1162,7 +1162,7 @@ function functionTypeToString(
 
   const typeParams =
     func.forallParameters.length > 0
-      ? `forall(${func.forallParameters
+      ? `generic(${func.forallParameters
           .map((param) => functionParameterToString(param, visited))
           .join(", ")})`
       : "";
@@ -1778,6 +1778,13 @@ export function getAlignmentOfType(type: Type): number | null {
     }
     return maxAlign;
   } else if (isEnumType(type)) {
+    // A reference-semantics enum (`ref(enum(…))`) is a heap RC handle — a
+    // pointer — so it is pointer-aligned, exactly like the ref-struct branch
+    // above. Without this short-circuit the variant-field walk recurses forever
+    // on a recursive ref-enum whose variant field is typed `Self` (no `Box`).
+    if (type.isReferenceSemantics) {
+      return getTargetPointerSizeBytes();
+    }
     // Enum alignment is the maximum alignment of its variants
     let maxAlign = 1;
     for (const variant of type.variants) {
@@ -1868,6 +1875,16 @@ export function getSizeOfType(type: Type): number | null {
     }
     return getStructTypeSize(type);
   } else if (isEnumType(type)) {
+    // A reference-semantics enum (`ref(enum(…))` / `atomic(ref(enum(…)))`) is a
+    // heap RC handle — a pointer — so its size is the pointer size, exactly like
+    // a reference-semantics struct above. Without this short-circuit,
+    // `getEnumTypeSize` walks the variant field types inline, and a recursive
+    // ref-enum (a variant field typed `Self`, with no `Box`) recurses into
+    // itself forever. (Value enums break the same recursion via `Box(Self)`,
+    // whose deref is a pointer.)
+    if (type.isReferenceSemantics) {
+      return getTargetPointerSizeBits();
+    }
     return getEnumTypeSize(type);
   } else if (isUnionType(type)) {
     return getUnionType(type);
@@ -1907,13 +1924,36 @@ Please consider use 'unit' type instead.
  * @param visitedTypes Internal tracking of visited types
  * @param env Environment for trait checking (used to check if SomeType implements Acyclic)
  */
+/**
+ * Extract the element type a container holds behind its heap buffer field — the
+ * pointee `E` of an `Option(*(E))` (`?*(E)`) field, the idiom every RC-capable std
+ * container uses (`ArrayList._ptr : ?*(T)`, `HashMap.data : ?*(Bucket(K,V))`). A
+ * bare `*(E)` field is intentionally NOT matched: it is treated as a non-owning raw
+ * pointer that does not participate in ARC cycles, matching the field walk's existing
+ * `isPtrType → false` behaviour. Used to see through a container to its elements both
+ * for cycle detection and for the Acyclic auto-derive.
+ */
+export function bufferElementType(fieldType: Type): Type | undefined {
+  if (isEnumType(fieldType)) {
+    for (const variant of fieldType.variants) {
+      for (const f of variant.fields ?? []) {
+        if (isPtrType(f.type)) {
+          return f.type.childType;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
 export function canTypeFormRcCycle(
   type: Type,
   visitedTypes: Set<string>,
   env: Environment
 ): boolean {
-  if (!isObjectType(type)) {
-    return false; // Only objects can form cycles through reference counting
+  const isRefEnumRoot = isEnumType(type) && type.isReferenceSemantics;
+  if (!isReferenceStructType(type) && !isRefEnumRoot) {
+    return false; // Only reference-semantics structs/enums can form RC cycles
   }
 
   if (typeImplementsAcyclic(type, env)) {
@@ -1928,10 +1968,31 @@ export function canTypeFormRcCycle(
   visitedTypes.add(type.id);
 
   try {
-    // Check all fields in the struct
-    for (const field of type.fields) {
+    // Check every field — the struct's fields, or (for a ref-enum root) the
+    // fields of all variants — for a reference path back to this type (a cycle).
+    const fields = isStructType(type)
+      ? type.fields
+      : (type as EnumType).variants.flatMap((v) => v.fields ?? []);
+    for (const field of fields) {
       if (typeCanFormCyclicRcReference(field.type, type, visitedTypes, env)) {
         return true;
+      }
+    }
+
+    // Containers hold their elements behind a raw buffer pointer that the field
+    // walk above treats as non-participating (raw pointers don't form ARC cycles).
+    // Walk the buffer ELEMENT type so element cycles — `ArrayList(Self)`,
+    // `HashMap(_, Self)`, the self-host `TypeValue.field_types : ArrayList(Self)`
+    // shape — are detected.
+    if (isStructType(type)) {
+      for (const field of type.fields) {
+        const elem = bufferElementType(field.type);
+        if (
+          elem &&
+          typeCanFormCyclicRcReference(elem, type, visitedTypes, env)
+        ) {
+          return true;
+        }
       }
     }
 
@@ -1944,15 +2005,28 @@ export function canTypeFormRcCycle(
 /**
  * Helper function to check if a type can reference back to a cyclic object.
  * This traverses through containers (enums, arrays, etc.) to find object references.
+ *
+ * Exported for per-VARIANT GC-registration gating: a ref-enum variant whose
+ * fields cannot reach back to the enum has no outgoing RC edge that could
+ * close a cycle, so instances of that variant never need GC tracking even
+ * when the enum as a whole is cycle-capable (e.g. EvalValue.IntLit /
+ * TypeValue.BoolT leaves vs EvalValue.EnumVal).
  */
-function typeCanFormCyclicRcReference(
+export function typeCanFormCyclicRcReference(
   type: Type,
-  originalRefStruct: StructType,
+  originalRefStruct: StructType | EnumType,
   visitedTypes: Set<string>,
   env: Environment
 ): boolean {
-  // If this type is the same as the original object, we have a direct self-reference
-  if (isStructType(type) && type.id === originalRefStruct.id) {
+  // If this type is the same as the original root (a ref-struct OR a ref-enum),
+  // we have a direct self-reference. Compare by id so it covers ref-enum roots
+  // too (must precede the enum visited-guard below, which would otherwise hide
+  // the root's own id).
+  if (
+    (isStructType(type) || isEnumType(type)) &&
+    type.id !== undefined &&
+    type.id === originalRefStruct.id
+  ) {
     return true;
   }
 
@@ -1980,22 +2054,39 @@ function typeCanFormCyclicRcReference(
     }
   }
 
-  // Check through enum variants
+  // Check through enum variants. A reference-semantics enum (`ref(enum(…))`)
+  // can be recursive via a `Self` variant field (no `Box` — a ref-enum value is
+  // already a pointer); guard with `visitedTypes` (keyed by enum id) so we don't
+  // descend into the same enum forever. Mirrors the struct guard in
+  // `canTypeFormRcCycle`. Re-visiting an enum already on the path finds no NEW
+  // route back to `originalRefStruct`, so returning false is sound.
   if (isEnumType(type)) {
-    for (const variant of type.variants) {
-      if (variant.fields) {
-        for (const field of variant.fields) {
-          if (
-            typeCanFormCyclicRcReference(
-              field.type,
-              originalRefStruct,
-              visitedTypes,
-              env
-            )
-          ) {
-            return true;
+    if (type.id && visitedTypes.has(type.id)) {
+      return false;
+    }
+    if (type.id) {
+      visitedTypes.add(type.id);
+    }
+    try {
+      for (const variant of type.variants) {
+        if (variant.fields) {
+          for (const field of variant.fields) {
+            if (
+              typeCanFormCyclicRcReference(
+                field.type,
+                originalRefStruct,
+                visitedTypes,
+                env
+              )
+            ) {
+              return true;
+            }
           }
         }
+      }
+    } finally {
+      if (type.id) {
+        visitedTypes.delete(type.id);
       }
     }
   }

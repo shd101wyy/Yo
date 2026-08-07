@@ -1,0 +1,45 @@
+// Regression: a cond BEGIN-BLOCK arm whose tail is a BORROWED value must emit
+// the balancing `___dup` before assigning the arm result to the cond temp.
+// The self-hosted codegen's `_emit_begin_arm` (yo-self/codegen/exprs/cond.yo)
+// originally emitted the final expression bare (`temp = expr;`) while
+// `_emit_value_arm` carried the full port of cond.ts:293-365 — so
+// `evaluate_raw_pointer_call`'s `is_type_value(...) => { ...; expr }` arm
+// returned the borrowed param without +1, the caller's scope drop stole the
+// AST parent's reference, and stage-2's next parameter pass read a freed
+// `*(Array(T, N))` type expr (the round-2 rc=139 UAF; see
+// issues/fixed/yo-self-dyn-throw-double-drop.md). Expected output: "2 3 3 done".
+open(import("std/fmt"));
+open(import("std/string"));
+
+Krate :: ref(
+  struct(
+    v : i32
+  )
+);
+
+// Borrowed param returned as a cond BEGIN-ARM tail (statements before the
+// tail force the begin-block arm path, not the value-arm path).
+pick_begin_arm :: (fn(k : Krate, flag : bool) -> Krate)(
+  cond(
+    flag => {
+      note := String.from("side work in the arm");
+      _n := note.len();
+      k
+    },
+    true => k
+  )
+);
+
+main :: (fn() -> unit)({
+  k := Krate(v : 7);
+  a := pick_begin_arm(k, true);
+  print(rc(k));
+  print(" ");
+  // The false branch exercises the value-arm path for contrast.
+  b := pick_begin_arm(k, false);
+  print(rc(a));
+  print(" ");
+  println(`${rc(k)} done`);
+});
+
+export(main);

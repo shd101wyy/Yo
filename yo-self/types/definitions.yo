@@ -8,7 +8,7 @@
 //!   * Fixed-width integers are encoded as `Int(bits, signed)`. Pointer-sized
 //!     integers (`usize`/`isize`) and C-compatible types (whose width is
 //!     platform-dependent) get their own variants.
-//!   * Compound variants store children via `Box(Self)` to allow recursion.
+//!   * Compound variants store children via `Self` to allow recursion.
 //!   * Tuple/Struct field types are stored as parallel `ArrayList`s so we
 //!     don't need a separate mutually-recursive struct (which would require
 //!     a forward-reference dance during evaluation).
@@ -21,303 +21,437 @@
 //! Variant-shape predicates (`is_int_type`, …) live in `guards.yo`.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+/// Non-recursive ("meta") fields of a function type, factored out of the
+/// `TypeValue.Func` variant and stored behind a `Box` (P2 memory: the inline
+/// Func variant set `sizeof(TypeValue)` to ~150 B — wasted in every small-type
+/// inline copy across millions of `Variable.ty` / `ExprInfo` fields). These
+/// fields reference only `String`/`bool`/`Option(String)` — NOT `Self` — so the
+/// struct can be defined BEFORE `TypeValue` without the forward-reference dance
+/// (see the parallel-array note above). The Self-typed Func fields
+/// (`*_types`/`result`) stay inline on the variant.
+FuncMeta :: struct(
+  forall_labels : ArrayList(String),
+  // generic type-var names (parallel to Func.forall_types)
+  param_labels : ArrayList(String),
+  // normal parameter labels (parallel to Func.param_types)
+  implicit_labels : ArrayList(String),
+  // implicit (`using`) parameter labels (parallel to Func.implicit_types)
+  implicit_spreads : ArrayList(bool),
+  // isEffectRowSpread flags
+  /// Mirrors `FunctionType.return.isCompileTimeOnly` (src/types/definitions.ts):
+  /// true when the declared return is `comptime(...)`. `helper.ts:1731` gates
+  /// CTFE on this; the FuncVal-call delegation + `evaluate_comptime_fn_call`'s
+  /// `should_cache` use it to route type-constructor calls through memoization.
+  result_is_comptime_only : bool,
+  /// Per-parameter `ref` flags (parallel to param labels/types). `inout(name):T`
+  /// = by-reference borrow. Mirrors `FunctionParameter.isRef`. Used by
+  /// `is_flowable_expr` (the `inout(T)`-flow soundness check).
+  param_is_ref : ArrayList(bool),
+  /// Per-parameter `own` flags. `own(name):T` = callee takes ownership of the
+  /// Rc value. Mirrors `FunctionParameter.isOwningTheRcValue`. Used by
+  /// `require_ref_own_argument_exclusivity`.
+  param_is_owning : ArrayList(bool),
+  /// True when the return was declared `-> inout(T)`. Mirrors
+  /// `FunctionType.return.isRef`. `is_flowable_expr` requires a flowable return.
+  result_is_ref : bool,
+  /// True when the param list ends with a `...` variadic marker (C-style
+  /// variadic externs). Mirrors `FunctionType.variadicParameter` presence; the
+  /// call-site arg-count check is skipped when set (helper.ts:965).
+  has_variadic : bool,
+  /// FFI language tag (`extern "c"`/`"yo"` / `c_include`). `Some("c")` etc. for
+  /// FFI symbols, `None` for ordinary Yo functions. Mirrors
+  /// `FunctionType.isExtern`. Read by the extern-call `unsafe(...)` gate in
+  /// `calls/function.yo` (a call to an `is_extern == Some("c")` function outside
+  /// `unsafe(...)`/an auto-generated expansion is rejected).
+  is_extern : Option(String),
+  /// The FFI symbol name to bind, when known (mirrors `FunctionType.externName`).
+  /// Used only for the gate's diagnostic message.
+  extern_name : Option(String),
+  /// True for a `ctl(...) -> ret` control-function type. Mirrors
+  /// `FunctionType.isControl`. A `ctl` value is FRAME-BOUND (its body may
+  /// `unwind` out of the enclosing install frame) so it must not escape. Read
+  /// by `type_is_control_bound` + the §4 escape-boundary checks.
+  is_control : bool,
+  /// The variadic parameter's BINDING NAME (`...(xs : T)` → "xs"), when the
+  /// fn type has one. Mirrors `FunctionType.variadicParameter.label`. The
+  /// variadic TYPE cannot live here (FuncMeta is declared before TypeValue —
+  /// no forward references) — it rides in `Func.variadic_types` (0-or-1).
+  /// TypeInfo.Function reads both (type-fns.ts:1134 appends the variadic to
+  /// the ParamInfo list).
+  variadic_label : Option(String),
+  /// True when the variadic parameter is comptime (`...(xs : ComptimeList)`).
+  /// Mirrors `variadicParameter.isCompileTimeOnly`.
+  variadic_comptime : bool,
+  /// AST id of the `fn(...)` TYPE EXPRESSION this function type was evaluated
+  /// from, when there is one. yo-self keeps `is_compile_time_only`, the
+  /// per-parameter type exprs and the return-type expr in func-id-keyed SIDE
+  /// TABLES registered under that expression's id
+  /// (evaluator/types/function.yo). The `::` path re-keys them onto the FuncVal
+  /// id (evaluator/calls/function_type.yo); an ANONYMOUS function checked
+  /// against an expected function type mints its own id and had no way to reach
+  /// them, so a `comptime(T) : Type` parameter/return was lost. TS needs no such
+  /// channel — `isCompileTimeOnly` and `exprs.typeExpr` live ON the
+  /// FunctionType, and its anonymous-function evaluator SPREADS the expected
+  /// type (anonymous-function.ts:597-638) so they are inherited verbatim. This
+  /// field is yo-self's equivalent: it travels with the type through the same
+  /// `meta.clone()` the spread models. Defaulted so the 20+ existing
+  /// construction sites are unaffected.
+  (origin_id : Option(String)) ?= Option(String).None
+);
+derive(FuncMeta, Clone);
 /// The Yo type universe.
-TypeValue :: enum(
-  // Primitive value types ---------------------------------------------------
-  Unit,
-  BoolT,
-  Void,
-  /// `str` — builtin immutable fat-pointer view of STATIC string bytes.
-  /// Mirrors TS `StrType` (tag TypeTag.Str, fieldless). C lowering:
-  /// `typedef struct { const uint8_t* ptr; size_t len; } __yo_str;`
-  Str,
-  /// Fixed-width integer. `bits` ∈ {8, 16, 32, 64}; `signed` distinguishes
-  /// `iN` vs `uN`.
-  Int(bits : u8, signed : bool),
-  /// Floating-point. `bits` ∈ {32, 64}.
-  Float(bits : u8),
-  /// Pointer-sized unsigned integer.
-  Usize,
-  /// Pointer-sized signed integer.
-  Isize,
-  // Compile-time numeric / string types -------------------------------------
-  ComptimeInt,
-  ComptimeFloat,
-  ComptimeString,
-  // C-compatible types (platform-dependent width) ---------------------------
-  CChar,
-  CShort,
-  CUShort,
-  CInt,
-  CUInt,
-  CLong,
-  CULong,
-  CLongLong,
-  CULongLong,
-  CLongDouble,
-  // Type universes ---------------------------------------------------------
-  /// `Type`, `Type(1)`, `Type(2)`, …  `level` ∈ {0,1,2,…}.
-  TypeUni(level : usize),
-  // Compound types ---------------------------------------------------------
-  Pointer(pointee : Box(Self)),
-  /// `length_var` mirrors the VALUE-ness of TS `ArrayType.length: Value`:
-  /// "" = `length` is the concrete element count; non-empty = the length is
-  /// an unresolved forall VARIABLE of that name (e.g. the `U` in
-  /// `impl(forall(T : Type, U : usize), Array(T, U), ...)`) and `length`
-  /// is a meaningless placeholder. TS stores an UnknownValue carrying
-  /// `variableName` and binds it during synthesis (synthesizer.ts:884).
-  Array(element : Box(Self), length : usize, length_var : String),
-  /// Anonymous tuple. `field_labels(i)` is the optional label for the i-th
-  /// field (empty `String` means positional). `field_types(i)` is the type.
-  Tuple(field_labels : ArrayList(String), field_types : ArrayList(Self)),
-  /// Function type. Phase 2b: forall type-vars, implicit (using) params,
-  /// effect-row-spread flags, and where-clause constraint types.
-  Func(
-    forall_labels : ArrayList(String),
-    // forall type-var names
-    forall_types : ArrayList(Self),
-    // forall type-var kinds (usually TypeUni)
-    param_labels : ArrayList(String),
-    // normal parameter labels
-    param_types : ArrayList(Self),
-    // normal parameter types
-    implicit_labels : ArrayList(String),
-    // ... parameter labels
-    implicit_types : ArrayList(Self),
-    // ... parameter types
-    implicit_spreads : ArrayList(bool),
-    // isEffectRowSpread flags
-    where_types : ArrayList(Self),
-    // where-clause constraint types
-    result : Box(Self),
-    // return type
-    /// Mirrors `FunctionType.return.isCompileTimeOnly` in
-    /// `src/types/definitions.ts` (TS models the return as a
-    /// `FunctionParameter { type, isCompileTimeOnly, … }`; yo-self flattened
-    /// that to a bare `result`, so this restores the one bit the CTFE gate
-    /// needs). True when the declared return is `comptime(...)` — i.e. the
-    /// function is a compile-time-only function (a type constructor, macro,
-    /// or comptime-value producer). `helper.ts:1731` gates CTFE on this; the
-    /// FuncVal-call delegation + `evaluate_comptime_fn_call`'s `should_cache`
-    /// use it so type-constructor calls whose return RESOLVED to a concrete
-    /// struct (not bare `Type`) are still routed through memoization.
-    result_is_comptime_only : bool,
-    /// Per-parameter `ref` flags, parallel to `param_labels`/`param_types`.
-    /// `param_is_ref(i)` is true when the i-th parameter was declared
-    /// `ref(name) : T` (a by-reference borrow). Mirrors
-    /// `FunctionParameter.isRef` in `src/types/definitions.ts` (yo-self
-    /// flattened FunctionParameter to parallel arrays, so this restores the
-    /// `isRef` bit). Used by `is_flowable_expr` (the `ref(T)`-flow soundness
-    /// check). Empty/all-false for functions with no `ref` parameters.
-    param_is_ref : ArrayList(bool),
-    /// Per-parameter `own` flags, parallel to param_labels/param_types.
-    /// `param_is_owning(i)` is true when the i-th parameter was declared
-    /// `own(name) : T` (the callee takes ownership of the Rc value). Mirrors
-    /// `FunctionParameter.isOwningTheRcValue`. Used by
-    /// `require_ref_own_argument_exclusivity` to reject calls that pass the
-    /// same object as both a ref-rooted and an own argument.
-    param_is_owning : ArrayList(bool),
-    /// True when the return type was declared `-> ref(T)` (a by-reference
-    /// return borrow). Mirrors `FunctionType.return.isRef`. Used by
-    /// `is_flowable_expr` to require the return expression be flowable.
-    result_is_ref : bool,
-    /// True when the parameter list ends with a `...` variadic marker
-    /// (C-style variadic externs like `snprintf`). Mirrors
-    /// `FunctionType.variadicParameter` in `src/types/definitions.ts`
-    /// (yo-self restores just the presence bit; the variadic parameter's
-    /// optional type annotation is not yet carried). The call-site
-    /// argument-count check is skipped when set (TS helper.ts:965
-    /// `if (!functionType.variadicParameter)`).
-    has_variadic : bool,
-    /// FFI language tag when this function was declared inside an
-    /// `extern "c"`/`extern "yo"` block or a `c_include(...)` (mirrors
-    /// `FunctionType.isExtern: ExternLanguage` in `src/types/definitions.ts`).
-    /// `Some("c")`/`Some("yo")` for FFI symbols, `None` for ordinary Yo
-    /// functions. Set by `evaluate_extern`/`evaluate_c_include` on the field
-    /// type (mirrors `extern.ts:138-161`). Read by the extern-call
-    /// `unsafe(...)` gate in `calls/function.yo` (plans/EXTERN_UNSAFE_WRAP.md):
-    /// a call to an `is_extern == Some("c")` function outside `unsafe(...)`
-    /// and outside an auto-generated expansion is rejected. (The original
-    /// port dropped this as "codegen-only" — wrong: the gate lives in the
-    /// evaluator call path, not codegen.)
-    is_extern : Option(String),
-    /// The FFI symbol name to bind, when known (mirrors
-    /// `FunctionType.externName`). `Some(field.label)` for extern function
-    /// declarations, `None` otherwise. Used only for the gate's diagnostic
-    /// message (the call-site falls back to the printed callee expression
-    /// when this is `None`).
-    extern_name : Option(String),
-    /// True when this is a `ctl(...) -> ret` control-function type (declared
-    /// with the `ctl` constructor instead of `fn`). Mirrors
-    /// `FunctionType.isControl` in `src/types/definitions.ts`. A `ctl` value
-    /// is FRAME-BOUND — its body may `unwind` out of the enclosing install
-    /// frame — so it must not escape (be stored at module level, captured by a
-    /// closure, or have a pointer formed to it). Read by `type_is_control_bound`
-    /// (types/utils.yo) and the §4 escape-boundary checks (the algebraic-effect
-    /// ctl rules). A plain `fn(...)` whose params/return merely reference `ctl`
-    /// is NOT control-bound — only the `ctl` value itself carries the CF.
-    is_control : bool
-  ),
-  // Named user-defined types ------------------------------------------------
-  /// `id` uniquely identifies this struct definition (mirrors `StructType.id`
-  /// in `src/types/definitions.ts`).  Set to `""` for types reconstructed
-  /// from runtime values via `type_of_eval_value`.
-  /// `is_reference_semantics` = true for `object(...)`, false for `struct(...)`.
-  /// `is_atomic_rc` = true for `atomic object(...)`.
-  /// `is_newtype` = true for `newtype(...)`.
-  /// `constructor_func_id` mirrors `StructType.functionValue` in
-  /// `src/types/definitions.ts:222`: the `funcId` of the comptime
-  /// type-constructor that produced this type (set at the comptime-fn call
-  /// site, `src/evaluator/calls/comptime-fn.ts:274`). The synthesizer uses
-  /// it to unify two instantiations of the SAME generic constructor
-  /// (`src/evaluator/types/synthesizer.ts:662` compares `functionValue.funcId`).
-  /// `""` = unknown origin (mirrors TS `functionValue` being optional).
-  /// Only the `funcId` is stored, not the whole `FunctionValue`, because
-  /// `TypeValue` (this module) cannot import `EvalValue` (`value.yo`) without
-  /// a cycle — and `funcId` is the only part the synthesizer reads.
-  Struct(
-    id : String,
-    name : String,
-    field_labels : ArrayList(String),
-    field_types : ArrayList(Self),
-    is_reference_semantics : bool,
-    is_atomic_rc : bool,
-    is_newtype : bool,
-    constructor_func_id : String,
-    /// Concrete type arguments of a generic instantiation, in constructor-
-    /// parameter order (`HashMap(String, String)` → `[String, String]`). Empty
-    /// for non-generic or not-yet-instantiated structs. Faithful stand-in for
-    /// `StructType.env` (TS carries the instantiation env): a method dispatched
-    /// on this struct binds its `forall` params positionally from here. See
-    /// plans/STRUCT_TYPE_ARGUMENTS.md.
-    type_arguments : ArrayList(Self),
-    /// True for source-namespace structs — anonymous modules (`impl({...})`,
-    /// extern blocks) and imported modules. Mirrors TS
-    /// `StructType.isSourceNamespace` (`SourceNamespaceType`,
-    /// src/types/definitions.ts:514-518): TS has NO separate module type;
-    /// modules ARE structs with this marker. See
-    /// plans/MODULE_AS_STRUCT_ALIGNMENT.md.
-    is_source_namespace : bool
-  ),
-  /// `EnumT` rather than `Enum` to avoid clashing with the keyword.
-  /// Each variant has a name and an `ArrayList` of field types (possibly empty).
-  /// `selected_variant_name` is set when the type has been narrowed to a specific
-  /// variant (e.g. after pattern matching or destructuring).
-  /// Mirrors `EnumType.selectedVariantName` in `src/types/definitions.ts`.
-  /// `variant_field_labels` holds the per-variant label names in declaration
-  /// order — used by labeled destructuring and match (Phase 2ae+).
-  /// `id` uniquely identifies this enum definition (mirrors `EnumType.id`).
-  /// `variant_discriminants` holds one discriminant value per variant (in order).
-  /// Mirrors `EnumVariant.discriminant` in `src/types/definitions.ts`.
-  EnumT(
-    id : String,
-    name : String,
-    variant_names : ArrayList(String),
-    variant_fields : ArrayList(ArrayList(Self)),
-    selected_variant_name : Option(String),
-    variant_field_labels : ArrayList(ArrayList(String)),
-    variant_discriminants : ArrayList(i64)
-  ),
-  Union(
-    name : String,
-    field_labels : ArrayList(String),
-    field_types : ArrayList(Self)
-  ),
-  // Traits / modules --------------------------------------------------------
-  /// Named trait type. Phase 2b: associated type names and method/field list.
-  /// Phase 2aq: `id` for unique identity, `is_concrete` for `Concrete(T)` marker
-  /// (mirrors TypeScript `TraitType.id` and `TraitType.isConcrete`).
-  /// Phase 2az: `self_constraints` and `neg_self_constraints` mirror
-  /// TypeScript `TraitType.selfConstraints` / `TraitType.negativeSelfConstraints`.
-  TraitT(
-    name : String,
-    assoc_type_names : ArrayList(String),
-    // names of associated type members
-    field_labels : ArrayList(String),
-    // method / field names
-    field_types : ArrayList(Self),
-    // method / field types
-    id : String,
-    // unique identity string
-    is_concrete : Option(Box(Self)),
-    // Some(T) when this is `Concrete(T)`
-    self_constraints : ArrayList(Self),
-    // where-clause constraints on Self
-    neg_self_constraints : ArrayList(Self) // negative where-clause constraints on Self
-  ),
-  // Generic / unresolved ----------------------------------------------------
-  /// A `SomeType` introduced by `forall` or by a yet-to-be-resolved generic
-  /// parameter. `frame_level` is the env frame at which it was introduced.
-  /// Phase 2b: required and negative trait constraint lists.
-  /// Phase 2d: `id` for unique identity (mirrors TypeScript SomeType.id).
-  /// Phase 2e: `parent_type` — the meta-type of this type variable (usually TypeUni(0)).
-  ///           Mirrors TypeScript `SomeType.parentType`.
-  SomeT(
-    id : String,
-    // unique identity string
-    name : String,
-    frame_level : usize,
-    parent_type : Box(Self),
-    // meta-type (TypeUni(0) by default)
-    required_trait_types : ArrayList(Self),
-    // required trait constraints
-    required_trait_levels : ArrayList(usize),
-    // frame-level of each constraint
-    negative_trait_types : ArrayList(Self),
-    // negative trait constraints
-    negative_trait_levels : ArrayList(usize),
-    // frame-level of each negative constraint
-    is_effects_row : bool,
-    // true when this SomeType represents an effect-row spread `E : Type.Struct`
-    // When present, this SomeT represents a higher-kinded type variable
-    // (e.g. `F : (fn(T : Type) -> Type)`). The boxed `Func` TypeValue
-    // captures the kind so `F(A)` can be evaluated as a TypeApplication.
-    // Mirrors `SomeType.kindFunctionType` in `src/types/definitions.ts:238`.
-    kind_function_type : Option(Box(Self))
-  ),
-  // Phase 2f: advanced type variants ----------------------------------------
-  /// The Yo `Expr` type (a quoted expression node).
-  ExprT,
-  /// A compile-time homogeneous list. `child` is the element type.
-  ComptimeListT(child : Box(Self)),
-  /// An effects row — labels and types for `...` constraints.
-  EffectsRowT(
-    implicit_labels : ArrayList(String),
-    implicit_types : ArrayList(Self)
-  ),
-  /// Application of a generic type constructor to arguments.
-  /// `constructor` is always a `SomeT` (the type-constructor variable).
-  TypeAppT(
-    constructor : Box(Self),
-    args : ArrayList(Self)
-  ),
-  /// Iso-wrapped type (linear / unique reference).
-  IsoT(child : Box(Self)),
-  /// Dynamic-dispatch type with trait bounds.
-  DynT(
-    required_trait_types : ArrayList(Self),
-    required_trait_levels : ArrayList(usize),
-    negative_trait_types : ArrayList(Self),
-    negative_trait_levels : ArrayList(usize)
-  ),
-  /// Fn-trait type (Fn / FnMut / FnOnce).
-  FnTraitT(
-    base_name : String,
-    call_param_labels : ArrayList(String),
-    call_param_types : ArrayList(Self),
-    call_result : Box(Self),
-    implicit_labels : ArrayList(String),
-    implicit_types : ArrayList(Self),
-    implicit_spreads : ArrayList(bool)
-  ),
-  /// Future-trait type with associated output and effects.
-  FutureTraitT(
-    base_name : String,
-    output : Box(Self),
-    effect_labels : ArrayList(String),
-    effect_types : ArrayList(Self),
-    effect_spreads : ArrayList(bool)
+///
+/// Reference-semantics enum (`ref(enum(…))`, plans/REF_REFERENCE_SEMANTICS.md
+/// Phase 4): `TypeValue` is self-referential (`Self` / `ArrayList(Self)`),
+/// so a value enum needs the self-shell workaround. As a `ref(enum)` its `Self`
+/// fields are heap-pointer handles — the recursion is broken by indirection,
+/// no shell is needed, and clones share the handle instead of deep-copying.
+TypeValue :: ref(
+  enum(
+    // Primitive value types ---------------------------------------------------
+    Unit,
+    BoolT,
+    Void,
+    /// `str` — builtin immutable fat-pointer view of STATIC string bytes.
+    /// Mirrors TS `StrType` (tag TypeTag.Str, fieldless). C lowering:
+    /// `typedef struct { const uint8_t* ptr; size_t len; } __yo_str;`
+    Str,
+    /// Fixed-width integer. `bits` ∈ {8, 16, 32, 64}; `signed` distinguishes
+    /// `iN` vs `uN`.
+    Int(bits : u8, signed : bool),
+    /// Floating-point. `bits` ∈ {32, 64}.
+    Float(bits : u8),
+    /// Pointer-sized unsigned integer.
+    Usize,
+    /// Pointer-sized signed integer.
+    Isize,
+    // Compile-time numeric / string types -------------------------------------
+    ComptimeInt,
+    ComptimeFloat,
+    ComptimeString,
+    // C-compatible types (platform-dependent width) ---------------------------
+    CChar,
+    CShort,
+    CUShort,
+    CInt,
+    CUInt,
+    CLong,
+    CULong,
+    CLongLong,
+    CULongLong,
+    CLongDouble,
+    // Type universes ---------------------------------------------------------
+    /// `Type`, `Type(1)`, `Type(2)`, …  `level` ∈ {0,1,2,…}.
+    TypeUni(level : usize),
+    // Compound types ---------------------------------------------------------
+    Pointer(pointee : Self),
+    /// `length_var` mirrors the VALUE-ness of TS `ArrayType.length: Value`:
+    /// "" = `length` is the concrete element count; non-empty = the length is
+    /// an unresolved generic VARIABLE of that name (e.g. the `U` in
+    /// `impl(generic(T : Type, U : usize), Array(T, U), ...)`) and `length`
+    /// is a meaningless placeholder. TS stores an UnknownValue carrying
+    /// `variableName` and binds it during synthesis (synthesizer.ts:884).
+    Array(element : Self, length : usize, length_var : String),
+    /// Anonymous tuple. `field_labels(i)` is the optional label for the i-th
+    /// field (empty `String` means positional). `field_types(i)` is the type.
+    Tuple(field_labels : ArrayList(String), field_types : ArrayList(Self)),
+    /// Function type. Phase 2b: generic type-vars, implicit (using) params,
+    /// effect-row-spread flags, and where-clause constraint types.
+    /// Self-typed (recursive) fields stay inline; the non-recursive metadata
+    /// (labels, ref/own/variadic/extern/control flags) lives in `meta`
+    /// (`Box(FuncMeta)`) so this variant no longer sets `sizeof(TypeValue)` to
+    /// ~150 B. `forall_types`/`param_types`/`implicit_types`/`where_types` are
+    /// parallel to the label arrays in `meta`; `result` is the return type.
+    Func(
+      forall_types : ArrayList(Self),
+      param_types : ArrayList(Self),
+      implicit_types : ArrayList(Self),
+      where_types : ArrayList(Self),
+      result : Self,
+      meta : Box(FuncMeta),
+      /// The variadic parameter's TYPE (0 or 1 elements — the ArrayList is a
+      /// poor man's Option(Self) since Self-typed Options are unavailable in
+      /// a variant position). Mirrors `FunctionType.variadicParameter.type`;
+      /// the label/comptime flags live in `FuncMeta.variadic_label` /
+      /// `variadic_comptime` (FuncMeta cannot reference TypeValue).
+      variadic_types : ArrayList(Self)
+    ),
+    // Named user-defined types ------------------------------------------------
+    /// `id` uniquely identifies this struct definition (mirrors `StructType.id`
+    /// in `src/types/definitions.ts`).  Set to `""` for types reconstructed
+    /// from runtime values via `type_of_eval_value`.
+    /// `is_reference_semantics` = true for `object(...)`, false for `struct(...)`.
+    /// `is_atomic_rc` = true for `atomic object(...)`.
+    /// `is_newtype` = true for `newtype(...)`.
+    /// `constructor_func_id` mirrors `StructType.functionValue` in
+    /// `src/types/definitions.ts:222`: the `funcId` of the comptime
+    /// type-constructor that produced this type (set at the comptime-fn call
+    /// site, `src/evaluator/calls/comptime-fn.ts:274`). The synthesizer uses
+    /// it to unify two instantiations of the SAME generic constructor
+    /// (`src/evaluator/types/synthesizer.ts:662` compares `functionValue.funcId`).
+    /// `""` = unknown origin (mirrors TS `functionValue` being optional).
+    /// Only the `funcId` is stored, not the whole `FunctionValue`, because
+    /// `TypeValue` (this module) cannot import `EvalValue` (`value.yo`) without
+    /// a cycle — and `funcId` is the only part the synthesizer reads.
+    Struct(
+      id : String,
+      name : String,
+      field_labels : ArrayList(String),
+      field_types : ArrayList(Self),
+      is_reference_semantics : bool,
+      is_atomic_rc : bool,
+      is_newtype : bool,
+      constructor_func_id : String,
+      /// Concrete type arguments of a generic instantiation, in constructor-
+      /// parameter order (`HashMap(String, String)` → `[String, String]`). Empty
+      /// for non-generic or not-yet-instantiated structs. Faithful stand-in for
+      /// `StructType.env` (TS carries the instantiation env): a method dispatched
+      /// on this struct binds its `generic` params positionally from here. See
+      /// plans/archive/STRUCT_TYPE_ARGUMENTS.md.
+      type_arguments : ArrayList(Self),
+      /// True for source-namespace structs — anonymous modules (`impl({...})`,
+      /// extern blocks) and imported modules. Mirrors TS
+      /// `StructType.isSourceNamespace` (`SourceNamespaceType`,
+      /// src/types/definitions.ts:514-518): TS has NO separate module type;
+      /// modules ARE structs with this marker. See
+      /// plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
+      is_source_namespace : bool
+    ),
+    /// `EnumT` rather than `Enum` to avoid clashing with the keyword.
+    /// Each variant has a name and an `ArrayList` of field types (possibly empty).
+    /// `selected_variant_name` is set when the type has been narrowed to a specific
+    /// variant (e.g. after pattern matching or destructuring).
+    /// Mirrors `EnumType.selectedVariantName` in `src/types/definitions.ts`.
+    /// `variant_field_labels` holds the per-variant label names in declaration
+    /// order — used by labeled destructuring and match (Phase 2ae+).
+    /// `id` uniquely identifies this enum definition (mirrors `EnumType.id`).
+    /// `variant_discriminants` holds one discriminant value per variant (in order).
+    /// Mirrors `EnumVariant.discriminant` in `src/types/definitions.ts`.
+    /// `is_reference_semantics` = true for `ref(enum(...))`, false for `enum(...)`.
+    /// `is_atomic_rc` = true for `atomic(ref(enum(...)))`. Mirror
+    /// `EnumType.isReferenceSemantics` / `EnumType.isAtomicRc` in
+    /// `src/types/definitions.ts`. plans/REF_REFERENCE_SEMANTICS.md Phase 3.
+    EnumT(
+      id : String,
+      name : String,
+      variant_names : ArrayList(String),
+      variant_fields : ArrayList(ArrayList(Self)),
+      selected_variant_name : Option(String),
+      variant_field_labels : ArrayList(ArrayList(String)),
+      variant_discriminants : ArrayList(i64),
+      is_reference_semantics : bool,
+      is_atomic_rc : bool
+    ),
+    Union(
+      name : String,
+      field_labels : ArrayList(String),
+      field_types : ArrayList(Self)
+    ),
+    // Traits / modules --------------------------------------------------------
+    /// Named trait type. Phase 2b: associated type names and method/field list.
+    /// Phase 2aq: `id` for unique identity, `is_concrete` for `Concrete(T)` marker
+    /// (mirrors TypeScript `TraitType.id` and `TraitType.isConcrete`).
+    /// Phase 2az: `self_constraints` and `neg_self_constraints` mirror
+    /// TypeScript `TraitType.selfConstraints` / `TraitType.negativeSelfConstraints`.
+    TraitT(
+      name : String,
+      assoc_type_names : ArrayList(String),
+      // names of associated type members
+      field_labels : ArrayList(String),
+      // method / field names
+      field_types : ArrayList(Self),
+      // method / field types
+      id : String,
+      // unique identity string
+      is_concrete : Option(Self),
+      // Some(T) when this is `Concrete(T)`
+      self_constraints : ArrayList(Self),
+      // where-clause constraints on Self
+      neg_self_constraints : ArrayList(Self),
+      // negative where-clause constraints on Self
+      assoc_constraint_labels : ArrayList(String),
+      // labels of `Item := X` associated-type constraints (TS `associatedTypeConstraints[].label`)
+      assoc_constraint_types : ArrayList(Self) // constraint types (TS `associatedTypeConstraints[].constraintType`)
+    ),
+    // Generic / unresolved ----------------------------------------------------
+    /// A `SomeType` introduced by `generic` or by a yet-to-be-resolved generic
+    /// parameter. `frame_level` is the env frame at which it was introduced.
+    /// Phase 2b: required and negative trait constraint lists.
+    /// Phase 2d: `id` for unique identity (mirrors TypeScript SomeType.id).
+    /// Phase 2e: `parent_type` — the meta-type of this type variable (usually TypeUni(0)).
+    ///           Mirrors TypeScript `SomeType.parentType`.
+    SomeT(
+      id : String,
+      // unique identity string
+      name : String,
+      frame_level : usize,
+      parent_type : Self,
+      // meta-type (TypeUni(0) by default)
+      required_trait_types : ArrayList(Self),
+      // required trait constraints
+      required_trait_levels : ArrayList(usize),
+      // frame-level of each constraint
+      negative_trait_types : ArrayList(Self),
+      // negative trait constraints
+      negative_trait_levels : ArrayList(usize),
+      // frame-level of each negative constraint
+      is_effects_row : bool,
+      // true when this SomeType represents an effect-row spread `E : Type.Struct`
+      // When present, this SomeT represents a higher-kinded type variable
+      // (e.g. `F : (fn(T : Type) -> Type)`). The boxed `Func` TypeValue
+      // captures the kind so `F(A)` can be evaluated as a TypeApplication.
+      // Mirrors `SomeType.kindFunctionType` in `src/types/definitions.ts:238`.
+      kind_function_type : Option(Self),
+      // The resolved concrete type for this SomeType, carried as a SHARED
+      // MUTABLE CELL (a one-element ArrayList used as a ref-semantics box:
+      // empty = unresolved, [t] = resolved). Every clone/substitute of a
+      // SomeT copies the ArrayList HANDLE, so a resolution stamped at ANY
+      // site propagates to every copy in that lineage — including copies
+      // already stored inside func types and registries. This is the
+      // value-semantics equivalent of TS mutating `resolvedConcreteType` on
+      // the shared type object (src/types/definitions.ts:191). ArrayList is
+      // used (not a dedicated cell struct) because Yo has no forward
+      // references and a cell type mentioning TypeValue cannot be declared
+      // before it. EXCLUDED from type_key / type_intern_key / compatibility
+      // identity — resolution metadata, not identity. HAZARD: a SomeT cloned
+      // from ONE declaration across many calls is ONE lineage (the prelude
+      // ResumeType) — per-call resolutions must seed a FRESH SomeT + cell
+      // (rebuild), never mutate the shared cell (see helper.yo ctl-throw).
+      resolved_concrete : ArrayList(Self)
+    ),
+    // Phase 2f: advanced type variants ----------------------------------------
+    /// The Yo `Expr` type (a quoted expression node).
+    ExprT,
+    /// A compile-time homogeneous list. `child` is the element type.
+    ComptimeListT(child : Self),
+    /// An effects row — labels and types for `...` constraints.
+    EffectsRowT(
+      implicit_labels : ArrayList(String),
+      implicit_types : ArrayList(Self)
+    ),
+    /// Application of a generic type constructor to arguments.
+    /// `constructor` is always a `SomeT` (the type-constructor variable).
+    TypeAppT(
+      constructor : Self,
+      args : ArrayList(Self)
+    ),
+    /// Iso-wrapped type (linear / unique reference).
+    IsoT(child : Self),
+    /// Dynamic-dispatch type with trait bounds.
+    DynT(
+      required_trait_types : ArrayList(Self),
+      required_trait_levels : ArrayList(usize),
+      negative_trait_types : ArrayList(Self),
+      negative_trait_levels : ArrayList(usize)
+    ),
+    /// Fn-trait type (Fn / FnMut / FnOnce).
+    FnTraitT(
+      base_name : String,
+      call_param_labels : ArrayList(String),
+      call_param_types : ArrayList(Self),
+      call_result : Self,
+      implicit_labels : ArrayList(String),
+      implicit_types : ArrayList(Self),
+      implicit_spreads : ArrayList(bool),
+      /// Per-call-param `inout` flags, parallel to `call_param_labels`. TS
+      /// keeps the whole `callType: FunctionType` on `FnTraitType` (its
+      /// parameters carry `isRef`); yo-self flattens the call signature into
+      /// the variant, and dropping this flag made a closure typed against
+      /// `Impl(Fn(inout(v) : T) -> R)` bind `v` BY VALUE (the sync/mutex
+      /// `with_lock` write-through failure). Empty = all by-value.
+      call_param_is_ref : ArrayList(bool)
+    ),
+    /// Future-trait type with associated output and effects.
+    FutureTraitT(
+      base_name : String,
+      output : Self,
+      effect_labels : ArrayList(String),
+      effect_types : ArrayList(Self),
+      effect_spreads : ArrayList(bool)
+    )
   )
 );
-derive(TypeValue, Clone);
-export(TypeValue);
+// Cycle-aware, SHARE-on-recursion Clone for TypeValue (replaces
+// `derive(TypeValue, Clone)`).
+//
+// The compiler's own `TypeValue` enum is SELF-REFERENTIAL (its variants hold
+// `Self` / `ArrayList(Self)`), so a naive deep clone recurses forever on a
+// cyclic value (e.g. a `TypeValue` reached via capture analysis), overflowing the
+// stack. It is also ruinously expensive even when finite: during the self-compile,
+// the def-time body eval of the compiler's own giant functions stores each expr's
+// type into ExprInfo via a clone, and those types are frequently the ~40-variant
+// `TypeValue` / `AstExpr` enums — deep-cloning all their variant field types
+// thousands of times peaked the unified `main.yo` self-compile at ~10 GB and then
+// OOM-killed it (Phase-6 P2; see plans/archive/BOOTSTRAPPING_CODEGEN.md).
+//
+// Both problems have the SAME fix: EVERY `TypeValue`-typed field — whether a
+// direct `Self` (e.g. `Pointer.pointee`, `Func.result`, `SomeT.parent_type`), an
+// `ArrayList(Self)` (`field_types`, `param_types`, `variant_fields`, …), or an
+// `Option(Self)` (`TraitT.is_concrete`, `SomeT.kind_function_type`) — is SHARED
+// (RC-bump) rather than deep-cloned. Now that `TypeValue` is a `ref(enum)`, each
+// such field is itself an RC handle (or an RC `ArrayList` of them), so passing the
+// matched binding straight through bumps a refcount instead of deep-copying. Only
+// the non-`TypeValue` scalar/label fields (`String`, `ArrayList(String)`,
+// `ArrayList(usize)`, `ArrayList(i64)`, `ArrayList(bool)`, and `Box(FuncMeta)`) are
+// `.clone()`d (cheap, terminating).
+//
+// This is REQUIRED, not just an optimization: a deep clone would recurse forever.
+// `types.clone()` on a `Tuple`/`Func`/… `ArrayList(Self)` field calls
+// `item.clone()` on each element, which re-enters THIS clone, which clones its
+// `ArrayList(Self)` fields, … With the old value-enum `TypeValue` the def-time
+// self-shell (an empty placeholder enum) terminated this recursion; a `ref(enum)`
+// has no shell (its `Self` fields are pointers), so the def-time body eval of this
+// clone would blow the stack (`Maximum call stack size exceeded`). Sharing breaks
+// the recursion UNCONDITIONALLY (the clone never re-enters itself) and is sound
+// because TypeValues are rebuilt-not-mutated: `substitute` and every other consumer
+// constructs FRESH values, and a codebase-wide audit found NO in-place mutation of
+// these fields. `EvalValue` clones are fixed TRANSITIVELY (its clone delegates here
+// for `TypeValue` fields).
+impl(
+  TypeValue,
+  Clone(
+    // RC-bump the WHOLE node (return `self`) — like `Token.clone`. `TypeValue`
+    // is a `ref(enum)`, so `self` is an RC handle; returning it shares the entire
+    // node (top node + all children) instead of allocating a fresh top node.
+    // This SUPERSEDES the former share-children/rebuild-top-node clone: that still
+    // allocated one new ~176 B top node per call (the self-compile calls
+    // `TypeValue.clone` millions of times storing expr types into ExprInfo /
+    // Variable.ty), which was the dominant residual TypeValue-count source after
+    // the `substitute` interning win. Sound for the same reason (TypeValues are
+    // rebuilt-not-mutated — a codebase-wide audit found NO in-place mutation of
+    // any TypeValue field; every consumer, e.g. `substitute`, constructs FRESH
+    // values) and it equally breaks the infinite-recursion problem the manual
+    // clone existed to solve (returning a handle never re-enters clone). Verified
+    // corpus-neutral (96/96). See plans/backlog/TYPEVALUE_HASH_CONSING.md §5.
+    clone : (fn(inout(self) : Self) -> Self)(self)
+  )
+);
+// ---------------------------------------------------------------------------
+// Struct per-field compile-time-only flags — side-table (Gap 1).
+// ---------------------------------------------------------------------------
+/// Side-table: struct id → per-field "is compile-time only" flags, parallel
+/// to the `Struct` variant's `field_types`. TS carries this on each
+/// `TypeField.isCompileTimeOnly`; yo-self's `Struct` variant has no per-field
+/// flag, so codegen's `get_runtime_struct_fields` reads it from here.
+/// Populated at struct construction (`evaluator/types/struct.yo`). Structs
+/// with no entry (e.g. reconstructed from runtime values, id == "") are
+/// treated as all-runtime by the consumer. See
+/// issues/retired/codegen-port-type-model-gaps.md Gap 1.
+(g_struct_field_comptime_flags : HashMap(String, ArrayList(bool))) =
+  HashMap(String, ArrayList(bool)).new();
+/// Register the per-field compile-time-only flags for a struct id.
+register_struct_field_comptime_flags :: (
+  fn(struct_id : String, flags : ArrayList(bool)) -> unit
+)({
+  g_struct_field_comptime_flags.set(struct_id.clone(), flags);
+  ()
+});
+/// Get the per-field compile-time-only flags for a struct id (`.None` if the
+/// struct was not registered — treat as all-runtime).
+get_struct_field_comptime_flags :: (
+  fn(struct_id : String) -> Option(ArrayList(bool))
+)(
+  g_struct_field_comptime_flags.get(struct_id.clone())
+);
+export(TypeValue, FuncMeta, register_struct_field_comptime_flags, get_struct_field_comptime_flags);

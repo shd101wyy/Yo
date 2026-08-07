@@ -1,0 +1,307 @@
+//! SUPERSEDED AS THE ENTRY POINT — use
+//! `issues/repros/box-self-struct-field-derive-clone.yo` instead. That one is
+//! a PLAIN STRUCT with one `Option(Box(Self))` field (no enum, no recursion
+//! through variants), reproduces the same failure, additionally exhibits the
+//! `__yo_t15` vs `__yo_t1` struct-instance-identity error, and carries the
+//! up-to-date findings — including two further disproven hypotheses (7 and 8)
+//! and how to read the specialization name. This file is kept for its
+//! investigation record.
+//!
+//! Repro: `derive(Clone)` on a RECURSIVE enum with `Box(Self)` fields emits a
+//! `Box.new` specialization whose type parameter V was bound to UNIT.
+//!
+//!   TS      -> prints "cloned"
+//!   yo-self -> C compile fails:
+//!                error: argument may not have 'void' type
+//!                error: call to undeclared function '__yo_new___yo_t3'
+//!
+//! The emitted specialization (from /tmp/tn_s1.c):
+//!
+//!   static inline __yo_t1* yo_id_2747_V_id_1598_ret_R_gs_yo_id_2743_
+//!     enum_decl_56319_…_i32_R_struct_yo_id_4932_R_struct_yo_id_4932(void value) {
+//!     __yo_t3* _tmp = __yo_new___yo_t3();     // __yo_t3 = GENERIC Box(V)
+//!     return _tmp;
+//!   }
+//!   struct __yo_t3_struct { // Box(V) : Box(V) (reference counted)
+//!     __yo_ref_header_t header; void* _u42_; };
+//!
+//! Note the split: the RETURN type WAS substituted (`ret_…enum_decl_56319…` is
+//! Box(TreeNode)), but the PARAMETER lowered to `void` — i.e. V bound to UNIT,
+//! since get_type_string gives "void" for unit and "void*" for an unresolved
+//! SomeT — and the body constructs the GENERIC `Box(V)`.
+//!
+//! ISOLATION: `derive(Clone)` is required. The same recursive enum with
+//! `Box(Self)` fields, constructed and matched WITHOUT derive, compiles clean
+//! (rc=0). So the loss happens while evaluating the derive rule
+//! (`__derive_clone`, std/prelude.yo:6688-6784) — which is SHARED std code that
+//! TS evaluates correctly, so the divergence is in yo-self's comptime
+//! evaluation of it, not in std.
+//!
+//! This is the minimal form of tests/derive_clone_complex.test.yo's failure
+//! (same two error classes; that file's TreeNode is the same shape).
+//!
+//! FINDINGS (two of my earlier hypotheses were DISPROVEN — recorded so they
+//! are not re-tried):
+//!
+//!   1. NOT derive-specific. Writing the same impl BY HAND —
+//!        impl(TreeNode, Clone(clone : ((self) -> match(self,
+//!          .Leaf(v) => .Leaf(v.clone()),
+//!          .Branch(l, r) => .Branch(l.clone(), r.clone())))))
+//!      fails IDENTICALLY. So `__derive_clone` is not implicated; it just
+//!      happens to generate this shape.
+//!
+//!   2. NOT return-type inference. I hypothesised that the untyped lambda
+//!      `clone : ((self) -> …)` left the return type unknown during the
+//!      recursion, collapsing it to unit. Writing an EXPLICIT signature —
+//!        clone : (fn(self : Self) -> Self)(match(…))
+//!      fails IDENTICALLY too. So the inferred return type is not the cause.
+//!
+//! WHAT IS IMPLICATED: `Self` inside the FIELD type. `Box(i32)` clones fine
+//! (a struct with a `Box(i32)` field and derive(Clone) compiles and runs), and
+//! only `Box(Self)` fails. So `self.*` on a `Box(Self)` field appears to yield
+//! an unresolved `Self` rather than TreeNode, whereupon `.clone()` on it gives
+//! unit and `box`'s `forall(V)` unifies with unit — producing the `void`
+//! parameter and the generic `Box(V)`.
+//!
+//! For reference, the chain the failure runs through (std/prelude.yo):
+//!   box :: (fn(forall(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
+//!   Box's Clone:  clone : ((self) -> box(self.*.clone()))
+//!
+//! ISOLATION MATRIX (each piece proven fine ALONE — only the recursion fails):
+//!
+//!   deref a Box(Self) field .......................... WORKS (rc=0)
+//!     match(tree,.Branch(l,r) => match(l.*, …))  -> "deref leaf=7"
+//!   forall inference on a deref'd Box(Self) .......... WORKS (rc=0)
+//!     box(l.*)                                    -> "rebox leaf=7"
+//!   the SAME calls inside a self-recursive clone ..... FAILS
+//!
+//! So `Self` DOES resolve, and `box`'s forall(V) DOES infer, on a
+//! `Box(Self)` value. The failure needs the recursion
+//! TreeNode.clone -> Box.clone -> box(self.*.clone()) -> TreeNode.clone.
+//! With an explicit `-> Self` it still fails, so the recursive call's RESULT
+//! is what degenerates — V ends up UNIT (get_type_string gives "void", not the
+//! "void*" an unresolved SomeT would give).
+//!
+//! That "call result degenerated to unit" is the SAME signature the Round-2
+//! ledger records (`Expected: <struct:…> / Given: unit`,
+//! issues/retired/yo-self-gap6-ctor-memo-reconciliation-attempt7.md), which is the
+//! strongest evidence that this and blocker (i) are one bug.
+//!
+//! This looks like a MINIMAL INSTANCE of the handoff's Round-2' blocker (i),
+//! the "pattern-era pointer-Self leak" — and unlike that one, it reproduces
+//! WITHOUT applying the WIP patch, so it is a much cheaper way in.
+//!
+//! FOURTH DISPROVEN HYPOTHESIS: `_build_forward_ref_funcval`
+//! (evaluator/calls/helper.yo:1135) empties `cap_names`/`cap_tys`, and this
+//! file's own comment at :1040 says yo-self injects a generic impl's bindings
+//! as TypeVal CAPTURES — so dropping them looked like it would strip `Self`
+//! from the forward-referenced recursive call. PRESERVING them
+//! (`cap_names/cap_tys : __fvm1.*.….clone()`) builds clean but does NOT fix
+//! the repro — identical errors. Reverted.
+//!
+//! Four hypotheses now disproven (derive-specific / return-type inference /
+//! missing Acyclic / forward-ref captures). STOP GUESSING: the next step is a
+//! PROBE — instrument the mutual-recursion branch in helper.yo (~:3676, the
+//! `_find_mutual_specializing_info` / `_build_forward_ref_funcval` path) to
+//! print the callee fid, the bindings sig, and the RESULT TYPE handed back for
+//! the recursive `TreeNode.clone` call, and find where it becomes unit.
+//!
+//! PROBE RESULT (this is the actual answer — supersedes the guesses above).
+//!
+//! Instrumenting the recursion branches in helper.yo (~:3676) printed ZERO
+//! hits: neither `is_recursive_spec` nor `mutual_is_some` ever fires here, so
+//! the recursion guards are NOT involved at all.
+//!
+//! The emitted C instead contains TWO specializations of `box` (yo_id_2747):
+//!
+//!   yo_id_2747_TreeNode_id_enum_decl_56319…_rtparam0_enum_decl_56319…   <- CORRECT
+//!   yo_id_2747_V_id_1598_ret_…                                          <- BOGUS
+//!
+//! The correct one (forall V = TreeNode) IS created. The failure is a SPURIOUS
+//! SECOND specialization whose forall segment is literally `V_id_1598` — V
+//! bound to its OWN unresolved type parameter (id_1598 is V itself). That is
+//! what lowers the parameter to `void` and constructs the generic `Box(V)`.
+//!
+//! Where it comes from: the GENERIC body of Box's Clone impl
+//! (`clone : ((self) -> box(self.*.clone()))`) is being evaluated/emitted, not
+//! just its instantiation. Inside that generic body `self.*` has Box's still-
+//! unresolved V, so the nested `box(…)` call specializes against an unresolved
+//! forall.
+//!
+//! This ties the repro directly to the round-2 work item: generic ORIGINALS
+//! should not be emitted (`_is_generic_unspecialized_func`, see the "Round-2
+//! outcome" entry in
+//! issues/retired/yo-self-gap6-ctor-memo-reconciliation-attempt7.md). Two candidate
+//! fixes, both narrow enough to gate independently:
+//!   (a) refuse to create a specialization when any forall binding resolves to
+//!       the forall parameter itself (bind-to-self is never a real
+//!       instantiation); or
+//!   (b) stop emitting the generic original of an impl method that has a
+//!       concrete instantiation.
+//!
+//! SECOND PROBE — the creation CONTEXT, which pins the fix location.
+//! Instrumenting the single `create_specialized_function_inline` call site
+//! (evaluator/calls/function.yo:1623) to print the spec fid plus
+//! `ctx.currently_specializing_function`:
+//!
+//!   fid=yo_id_2747_TreeNode_id_… (CORRECT)  inside=<none>
+//!   fid=yo_id_2747_V_id_1598_…   (BOGUS)    inside=fn_yo_id_2767
+//!
+//! `fn_yo_id_2767` is TreeNode.clone's own specialization. So the correct
+//! `box` spec comes from main's explicit `box(...)` calls, while the bogus one
+//! is created WHILE SPECIALIZING TreeNode.clone.
+//!
+//! Causal chain, fully measured:
+//!   TreeNode.clone spec evaluates `__v_left.clone()` on a `Box(Self)` field
+//!     -> calls Box.clone, but does NOT specialize it at V = TreeNode; its body
+//!        is evaluated with V still UNRESOLVED
+//!     -> the nested `box(self.*.clone())` therefore specializes with V bound
+//!        to V itself  =>  `void` parameter + generic Box(V)
+//!
+//! So the defect is that `Self -> TreeNode` substitution does not reach the
+//! CALLEE METHOD'S forall binding when the receiver is a `Box(Self)` FIELD.
+//! Fix there — not in the recursion guards (proven uninvolved: zero hits), not
+//! in derive, not in return-type inference, and not in the forward-ref
+//! captures.
+//!
+//! FINAL ISOLATION (all with the same Box(Self) field binding, same binary):
+//!
+//!   __v_left.*            deref ..................... WORKS
+//!   box(__v_left.*)       forall free function ...... WORKS  (rc=0, "cloned")
+//!   __v_left.clone()      GENERIC-IMPL METHOD ....... FAILS
+//!
+//! And a fully CONCRETE receiver (`clone : (fn(self : TreeNode) -> TreeNode)`,
+//! no `Self` anywhere in the signature) STILL FAILS — so it is not the
+//! receiver's Self either (fifth disproven hypothesis).
+//!
+//! Conclusion: the field type and forall inference are both sound. What fails
+//! is GENERIC-IMPL METHOD DISPATCH on that field — `Box`'s
+//! `impl(Box(T), where(T <: Clone), Clone(...))` is not instantiated at
+//! T = TreeNode, so its body runs generic and the nested `box(...)` binds V to
+//! itself. That is the `_impl_type_captures_sig` machinery described at
+//! helper.yo:1040 ("yo-self keeps the shared original func_id and injects the
+//! bindings as CAPTURES") failing to inject T for this call.
+//!
+//! NEXT PROBE (do this first, do not guess — six hypotheses have now been
+//! disproven): instrument the generic-impl method instantiation path to print
+//! the receiver type and the injected TypeVal captures for the
+//! `__v_left.clone()` call, and compare against the working `Box(i32)` case
+//! (a struct with a `Box(i32)` field + derive(Clone) compiles and runs).
+//!
+//! STRUCTURAL LEAD (evaluator/values/generic_impl_registry.yo:355,
+//! `find_methods_from_generic_impls`):
+//!
+//!     if(!(try_match_generic_impl(resolved, entry, env)), { continue; });
+//!     …
+//!     results.push(MethodCandidate(method_type : ftype, method_value : fvalue));
+//!
+//! `try_match_generic_impl` returns a BOOL. To decide the match it must compute
+//! the impl substitution (T := TreeNode), and then DISCARDS it — the candidate
+//! is pushed with the RAW generic field type/value, carrying no bindings. That
+//! is precisely the "bindings not injected" condition the isolation above
+//! points at.
+//!
+//! Likely fix shape: have the match return its bindings and attach them to
+//! MethodCandidate (then inject them as the TypeVal captures
+//! `_impl_type_captures_sig` already expects). NOTE this changes
+//! MethodCandidate's shape and every caller, so it is a real change, not a
+//! one-liner — gate it on its own. It does not explain by itself why
+//! `Box(i32)` works and `Box(Self)` does not, so PROBE that difference first:
+//! print `resolved` and the entry's forall bindings for both cases.
+//!
+//! ^^^ THAT STRUCTURAL LEAD WAS WRONG — it named a DEAD DUPLICATE.
+//! `generic_impl_registry.yo` also defines `find_methods_from_generic_impls`
+//! (the "simplified port, no specialization" one), but NOTHING imports it:
+//! every consumer (env.yo's callback, property_access.yo,
+//! codegen/functions/collection.yo) imports the FULL version in
+//! `evaluator/values/impl.yo:880`, which DOES compute the bindings and inject
+//! them via `_inject_forall_captures`. Probing the registry copy would have
+//! printed zero hits. Read both definitions before trusting a grep hit.
+//!
+//! THE ACTUAL ANSWER (measured; supersedes every hypothesis above).
+//!
+//! Probing the REAL `find_methods_from_generic_impls` with both shapes in one
+//! file (working `Box(i32)` + failing `Box(Self)`) printed:
+//!
+//!   recv=Box(i32)                        pat=Box(T) binds=i32          <- OK
+//!   recv=Box(<enum:…_yo__self_shell>)    pat=Box(T) binds=<enum:…_yo>  <- BAD
+//!
+//! Two things are now pinned:
+//!
+//!   1. The generic-impl match is NOT at fault — `binds=` is the FINALIZED
+//!      `TreeNode` in both cases, so the capture injected into the method
+//!      value already carries the correct `T`.
+//!   2. The RECEIVER is `Box(<TreeNode__self_shell>)` — the empty
+//!      `${enum}__self_shell` placeholder that recursive-type declaration
+//!      creates (evaluator/types/enum.yo:224) is still sitting inside the
+//!      generic's `type_arguments`.
+//!
+//! Why the shell survives: shells are BY DESIGN resolved lazily at use sites
+//! through the finals registries (`resolve_enum_shell` / `resolve_struct_shell`,
+//! types/creators.yo:529/574) — but every existing call resolves only the
+//! TOP-LEVEL type (function.yo:278, property_access.yo:1199). A shell nested in
+//! a generic instantiation's `type_arguments` matches no top-level arm and is
+//! never resolved. `Box(i32)` has no shell, which is the whole `Box(i32)` vs
+//! `Box(Self)` split.
+//!
+//! Why that breaks the call: in `_funcval_bind_foralls`
+//! (evaluator/calls/function.yo) the argument-driven synthesis binds `Box`'s
+//! forall from the arg type, and a shell is a concrete-looking `EnumT`, so it
+//! passes the `!is_some_type(...)` guard, binds `V := <shell>`, and sets
+//! `fa_bound` — which PREEMPTS the capture fallback holding the correct
+//! `V := TreeNode`. Hence a specialization over the empty placeholder.
+//!
+//! SEVENTH DISPROVEN HYPOTHESIS — resolving the shell at the forall-binding
+//! use sites does NOT fix this. Implemented it (both the synthesis arm and the
+//! receiver-`type_arguments` arm of `_funcval_bind_foralls`, via
+//! `resolve_enum_shell(resolve_struct_shell(...))`), rebuilt s1, and the emitted
+//! C is UNCHANGED — byte-identical error signature, same bogus spec. REVERTED.
+//!
+//! Why it was the wrong link: the bogus spec's forall segment is
+//! `yo_id_2747_V_id_1598` — `V` bound to its OWN SomeT (id 1598), NOT to the
+//! shell. So `V` is not mis-bound to the placeholder; it is NEVER BOUND AT ALL,
+//! and lowers to a `void` parameter. Note the split inside that one name: the
+//! `ret_…` segment IS fully substituted to TreeNode, so the RETURN type
+//! resolved while the PARAMETER did not.
+//!
+//! The shell leak is REAL and still worth recording (a shell nested in a
+//! generic's `type_arguments` is never resolved, because every existing
+//! `resolve_enum_shell`/`resolve_struct_shell` call is top-level only) — it is
+//! simply not what breaks this repro.
+//!
+//! WHAT IS NOW EXCLUDED, with evidence, on the path from the candidate to the
+//! emit — do not re-check these:
+//!   * the generic-impl MATCH: `binds=` is the finalized TreeNode (probe).
+//!   * the CANDIDATE's value: `find_methods_from_generic_impls` returns exactly
+//!     ONE candidate for `clone` on `Box(<shell>)`, so property_access.yo:845
+//!     (`len() == 1`) installs `method_value` — the capture-injected one — as
+//!     the property's value.
+//! So the correct `T := TreeNode` capture IS produced AND IS installed, and is
+//! then lost between there and the evaluation of `Box.clone`'s body.
+//!
+//! NEXT PROBE (the narrowest remaining gap): instrument the point where
+//! `Box.clone`'s BODY is specialized/evaluated and print the captures actually
+//! in scope (`cap_names` / `cap_vals`) plus the resolved type of `self.*`.
+//! Compare against `Box(i32)` in the same run — put a
+//! `struct(inner : Box(i32)) + derive(Clone)` beside the recursive type in ONE
+//! file, so a single build yields both traces.
+//!
+//! DONE, AND ITS EXPECTATION WAS WRONG. That probe predicted `T` would be
+//! "absent or unresolved" in the spec body. It is NOT: `self` binds as
+//! `Box(<concrete>)` and the concrete `T` capture is present. See PROBE 4 in
+//! issues/repros/box-self-struct-field-derive-clone.yo, which supersedes this
+//! whole paragraph and reframes the question.
+open(import("std/fmt"));
+
+TreeNode :: enum(Leaf(value : i32), Branch(left : Box(Self), right : Box(Self)));
+derive(TreeNode, Clone);
+
+main :: (fn() -> unit)({
+  leaf_a := TreeNode.Leaf(i32(1));
+  leaf_b := TreeNode.Leaf(i32(2));
+  tree := TreeNode.Branch(box(leaf_a), box(leaf_b));
+  t2 := tree.clone();
+  println(`cloned`);
+});
+
+export(main);

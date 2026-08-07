@@ -1,0 +1,15 @@
+{ println } :: import("std/fmt");
+apply :: (fn(x : i32, f : (fn(n : i32) -> i32)) -> i32)(
+  cond(
+    (x == 0) => f(i32(7)),
+    true => x
+  )
+);
+run :: (fn() -> i32)({
+  (h : (fn(n : i32) -> i32)) = (fn(n : i32) -> i32)(n + i32(1));
+  apply(0, h) + apply(5, h)
+});
+main :: (fn() -> unit)({
+  println(run());
+});
+export(main);

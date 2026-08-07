@@ -3,9 +3,9 @@ import {
   isBoxedType,
   isDynType,
   isEnumType,
-  isAtomicObjectType,
+  isAtomicReferenceStructType,
   isNewtypeType,
-  isObjectType,
+  isReferenceStructType,
   isSomeType,
 } from "../../types/guards";
 import { isTypeValue } from "../../value";
@@ -121,9 +121,9 @@ export function generateDowncast(
     // Check if the type has a ___dup function (handles newtypes, enums with RC fields, etc.)
     const dupFnCName = getDupFunctionForType(targetType, context);
 
-    if (isObjectType(targetType)) {
+    if (isReferenceStructType(targetType)) {
       // Direct object pointer — use atomic or non-atomic incr_rc
-      const incrFn = isAtomicObjectType(targetType)
+      const incrFn = isAtomicReferenceStructType(targetType)
         ? "__yo_incr_rc_atomic"
         : "__yo_incr_rc";
       castExpr = `((${targetTypeCName})${incrFn}((void*)${extractExpr}))`;
@@ -138,8 +138,8 @@ export function generateDowncast(
       while (isNewtypeType(unwrapped) && unwrapped.fields.length === 1) {
         unwrapped = unwrapped.fields[0]!.type;
       }
-      needsRcDup = isObjectType(unwrapped);
-      isAtomic = isAtomicObjectType(unwrapped);
+      needsRcDup = isReferenceStructType(unwrapped);
+      isAtomic = isAtomicReferenceStructType(unwrapped);
 
       if (needsRcDup) {
         const incrFn = isAtomic ? "__yo_incr_rc_atomic" : "__yo_incr_rc";

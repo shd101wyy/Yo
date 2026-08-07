@@ -58,7 +58,7 @@ function isFunctionBoundaryArrow(expr: Expr): boolean {
   }
 
   // Case 3: Unevaluated anonymous function — no $ data means the body was deferred
-  // (function has forall parameters). In a deferred body, the only way to reach
+  // (function has generic parameters). In a deferred body, the only way to reach
   // this function is through the explicit cond/match handling below, which skips
   // branch arrows. So any unrecognized arrow without $ is an anonymous function.
   if (!expr.$) return true;
@@ -103,7 +103,7 @@ function traverseCondMatchBranches(
  * Used by `src/evaluator/exprs/assignment.ts` to relax the
  * "Runtime variables with generic function types are not allowed" check
  * when the bound lambda's body always unwinds. In that case the
- * forall-quantified return type is never delivered through the C
+ * generic-quantified return type is never delivered through the C
  * function pointer, so the ABI mismatch (one C fn pointer can't carry
  * different return shapes per monomorphization) is moot.
  *
@@ -143,7 +143,11 @@ export function allPathsUnwind(expr: Expr): boolean {
   // so renames don't bypass the check silently.
   if (exprIsAtom(expr.func)) {
     const callee = expr.func.token.value;
-    if (callee === "panic" || callee === "abort" || callee === "unreachable") {
+    if (
+      callee === "__yo_panic" ||
+      callee === "abort" ||
+      callee === "unreachable"
+    ) {
       return true;
     }
   }

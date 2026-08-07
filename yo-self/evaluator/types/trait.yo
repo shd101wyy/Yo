@@ -12,7 +12,10 @@
 //! Phase 2az known stubs / skips:
 //!   - `selfType.trait = traitType` skipped — SomeT has no `trait` field in yo-self
 //!   - `attachTraitToReceiverType` for Runtime trait skipped
-//!   - `findSomeTypeMissingComptimeConstraint` check skipped (same as function.yo)
+//!   - `findSomeTypeMissingComptimeConstraint` RETURN-side check ported (TS
+//!     trait.ts:1074-1102, after the pending-constraint retry); the PARAMETER
+//!     side (trait.ts:1104-1123) is still skipped — trait-field fn types do
+//!     not register per-param comptime flags
 //!   - Function parameter annotation validation skipped (no exprs stored in TraitT fields)
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
@@ -42,9 +45,11 @@ open(import("std/fmt"));
 { EvalValue, create_type_value, create_unknown_val, is_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_some_t, generate_some_type_id } :: import("../../types/creators.yo");
-{ is_some_type, is_trait_type } :: import("../../types/guards.yo");
+{ is_some_type, is_trait_type, is_function_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
+{ get_all_some_types } :: import("../../types/utils.yo");
+{ find_some_type_missing_comptime_constraint } :: import("../trait_checking.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
 { is_valid_variable_name } :: import("../utils.yo");
@@ -53,6 +58,7 @@ open(import("std/fmt"));
 { _add_where_clause_constraint, _trait_has_receiver } :: import("./function.yo");
 { ArrayList } :: import("std/collections/array_list");
 { random_id } :: import("../../utils.yo");
+{ register_trait_default } :: import("../values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // Local data structures
 // ---------------------------------------------------------------------------
@@ -132,13 +138,13 @@ _get_or_create_some_ty_for_trait :: (
         }
       );
       match(
-        last_v.value,
+        last_v.value.get(usize(0)),
         .Some(ev) => {
           match(
             ev,
             .TypeVal(b) => {
-              if(is_some_type(b.*), {
-                return(_SomeTyResolvedResult(b.*, false));
+              if(is_some_type(b), {
+                return(_SomeTyResolvedResult(b, false));
               });
             },
             _ => ()
@@ -164,7 +170,7 @@ _get_or_create_some_ty_for_trait :: (
     });
     new_some_ty := t_some_t(var_name, top_frame - usize(1));
     tv := create_type_value(new_some_ty);
-    _ := add_variable_to_env(
+    add_variable_to_env(
       env_mut,
       var_name,
       type_of_type(new_some_ty),
@@ -229,7 +235,7 @@ _get_or_create_some_ty_for_trait :: (
   env_mut.input_string = lhs_info.env.input_string;
   lhs_tv := match(
     lhs_info.value,
-    .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+    .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
     .None => TypeValue.Unit
   );
   if(!(is_some_type(lhs_tv)), {
@@ -328,7 +334,7 @@ _apply_single_constraint_for_trait :: (
   env_mut.input_string = te_info.env.input_string;
   trait_ty2 = match(
     te_info.value,
-    .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+    .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
     .None => TypeValue.Unit
   );
   if(!(is_trait_type(trait_ty2)), {
@@ -343,7 +349,7 @@ _apply_single_constraint_for_trait :: (
   if(res.is_self, {
     match(
       trait_ty,
-      .TraitT(_, _, _, _, _, _, sc, nc) => {
+      .TraitT(_, _, _, _, _, _, sc, nc, _, _) => {
         if(is_negated, {
           nc.push(trait_ty2);
         }, {
@@ -503,7 +509,7 @@ _parse_trait_where_clauses :: (
       env_mut.input_string = te_info.env.input_string;
       trait_ty2 = match(
         te_info.value,
-        .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+        .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
         .None => TypeValue.Unit
       );
       if(!(is_trait_type(trait_ty2)), {
@@ -534,7 +540,7 @@ _parse_trait_where_clauses :: (
       if(res.is_self, {
         match(
           trait_ty,
-          .TraitT(_, _, _, _, _, _, sc, nc) => {
+          .TraitT(_, _, _, _, _, _, sc, nc, _, _) => {
             if(is_neg, {
               nc.push(trait_ty2);
             }, {
@@ -573,7 +579,7 @@ _drop_where_constraint_failures :: (
   retry_exn := Exception(
     throw : ((_err) -> unwind(()))
   );
-  _ := _parse_trait_where_clauses(
+  _parse_trait_where_clauses(
     retry_list,
     self_type,
     trait_ty,
@@ -733,7 +739,7 @@ _evaluate_trait_field :: (
     .Some(expected_tt) => {
       match(
         expected_tt,
-        .TraitT(_, _, _, fts, _, _, _, _) => {
+        .TraitT(_, _, _, fts, _, _, _, _, _, _) => {
           match(
             fts.get(trait_field_index),
             .Some(ft) => {
@@ -767,7 +773,12 @@ _evaluate_trait_field :: (
       old_self_trait_type := ctx.self_trait_type;
       ctx.self_type =.Some(self_type);
       ctx.self_trait_type =.Some(trait_ty);
-      evaluated_te := evaluate_expression(type_expr, env_mut, ctx);
+      // RAW (propagating) eval, like the sibling field-type paths at 313/458:
+      // a trait method's function TYPE can throw a compile error (e.g. the
+      // `-> inout(T)` inout-return ban in evaluate_function_type). The
+      // swallowing non-raw form ate that throw, so `comptime_expect_error` on a
+      // `trait(... m : (fn(...) -> inout(T)))` saw success (tests/ref_return_ban).
+      evaluated_te := evaluate_expression_raw(type_expr, env_mut, ctx, exn);
       ctx.expected_type = old_expected_type;
       ctx.self_type = old_self_type;
       ctx.self_trait_type = old_self_trait_type;
@@ -791,7 +802,7 @@ _evaluate_trait_field :: (
       });
       ty := match(
         te_info.value,
-        .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+        .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
         .None => TypeValue.Unit
       );
       field_ty_opt =.Some(ty);
@@ -1031,13 +1042,13 @@ _evaluate_trait_field :: (
         existing_vars.get(existing_vars.len() - usize(1)),
         .Some(last_v) => {
           match(
-            last_v.value,
+            last_v.value.get(usize(0)),
             .Some(ev) => {
               match(
                 ev,
                 .TypeVal(b) => {
-                  if(is_some_type(b.*), {
-                    assoc_some_ty_opt =.Some(b.*);
+                  if(is_some_type(b), {
+                    assoc_some_ty_opt =.Some(b);
                     found_existing = true;
                   });
                 },
@@ -1110,12 +1121,14 @@ evaluate_trait_type :: (
     field_labels,
     field_types,
     trait_id,
-    Option(Box(TypeValue)).None,
+    Option(TypeValue).None,
     self_constraints,
-    neg_self_constraints
+    neg_self_constraints,
+    ArrayList(String).new(),
+    ArrayList(TypeValue).new()
   );
   // Push a scoped env frame for trait evaluation
-  _ := env_mut.push_frame(false);
+  env_mut.push_frame(false);
   args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
   // Create "Self" SomeType for the trait
   top_frame := env_mut.frames.len();
@@ -1194,7 +1207,7 @@ evaluate_trait_type :: (
       ctx.expected_type,
       .Some(et) => match(
         et.ty,
-        .TraitT(_, _, _, _, _, _, _, _) => Option(TypeValue).Some(et.ty),
+        .TraitT(_, _, _, _, _, _, _, _, _, _) => Option(TypeValue).Some(et.ty),
         _ => Option(TypeValue).None
       ),
       .None => Option(TypeValue).None
@@ -1211,6 +1224,15 @@ evaluate_trait_type :: (
       exn
     );
     field_index = (field_index + usize(1));
+    // Record a `?=` default method value so a type implementing this trait
+    // WITHOUT overriding the method can fall back to it (TraitT itself stores no
+    // per-field defaults — divergence). Keyed by trait_id + label; read by
+    // `_resolve_dyn_trait_values` (and method dispatch) on a missing override.
+    match(
+      field_result.default_value_opt,
+      .Some(__dv) => register_trait_default(trait_id.clone(), field_result.label.clone(), __dv),
+      .None => ()
+    );
     // Check for duplicate labels
     (is_duplicate : bool) = false;
     (li : usize) = usize(0);
@@ -1249,12 +1271,12 @@ evaluate_trait_type :: (
             existing_vars.get(existing_vars.len() - usize(1)),
             .Some(last_v) => {
               match(
-                last_v.value,
+                last_v.value.get(usize(0)),
                 .Some(ev) => {
                   match(
                     ev,
                     .TypeVal(b) => {
-                      if(is_some_type(b.*), {
+                      if(is_some_type(b), {
                         already_bound = true;
                       });
                     },
@@ -1269,7 +1291,7 @@ evaluate_trait_type :: (
         });
         if(!(already_bound), {
           tv := create_type_value(some_ty);
-          _ := add_variable_to_env(
+          add_variable_to_env(
             env_mut,
             field_result.label,
             type_of_type(some_ty),
@@ -1325,6 +1347,63 @@ evaluate_trait_type :: (
     ctx.self_type = old_self_type;
     ctx.self_trait_type = old_self_trait_type;
   });
+  // Validate comptime function types in trait fields. Mirrors TS
+  // trait.ts:1074-1102 — and, like TS, this MUST run after the pending
+  // where-clause retry above: `Self.Output <: Comptime` lands on the assoc
+  // SomeT only then (and only reaches the field types at all because
+  // `Self.Output` resolves to the ONE env-bound assoc SomeT — see the
+  // property_access.yo assoc branch). Only the RETURN side is ported; the
+  // parameter side (trait.ts:1104-1123) needs the per-param comptime side
+  // table, which trait FIELD fn-types do not register — no known witness.
+  (vf_i : usize) = usize(0);
+  while(vf_i < field_types.len(), {
+    vf_ty := match(
+      field_types.get(vf_i),
+      .Some(t) => t,
+      .None => {
+        vf_i = (vf_i + usize(1));
+        continue;
+      }
+    );
+    if(is_function_type(vf_ty), {
+      match(
+        vf_ty,
+        .Func(_, _, _, _, vf_ret, vf_meta, _) => {
+          // Deep contains-SomeT check: yo-self's `type_contains_some_type` is
+          // SHALLOW (bare SomeT / TypeAppT only) — `*(Output)` walks right
+          // past it. TS's typeContainsSomeType recurses (utils.ts:526+); the
+          // deep equivalent here is get_all_some_types (whose collector
+          // descends Pointer/Array/Func/...).
+          if(vf_meta.*.result_is_comptime_only && (get_all_some_types(vf_ret).len() > usize(0)), {
+            match(
+              find_some_type_missing_comptime_constraint(vf_ret, env_mut),
+              .Some(vf_missing) => {
+                vf_label := match(field_labels.get(vf_i),.Some(l) => l,.None => String.from("?"));
+                vf_missing_name := match(
+                  vf_missing,
+                  .SomeT(id : _, name : vf_mn) => vf_mn,
+                  _ => type_to_string(vf_missing)
+                );
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(expr),
+                      `Return type "${type_to_string(vf_ret)}" in trait field "${vf_label}" is used with "comptime" but type parameter "${type_to_string(vf_missing)}" does not implement the Comptime trait. Add "${vf_missing_name} <: Comptime" to the where clause.`,
+                      false,
+                      .None
+                    )
+                  )
+                );
+              },
+              .None => ()
+            );
+          });
+        },
+        _ => ()
+      );
+    });
+    vf_i = (vf_i + usize(1));
+  });
   // Pop the scoped env frame
   env_mut.pop_frame();
   // Build final trait type value and set expr info
@@ -1336,7 +1415,7 @@ evaluate_trait_type :: (
   match(
     expr,
     .FnCall(_, func_box, _, _, _) => {
-      expr_info_table_set(ctx.expr_info_table, ast_expr_id(func_box.*), out_info);
+      expr_info_table_set(ctx.expr_info_table, ast_expr_id(func_box), out_info);
     },
     .Atom(_, _) => ()
   );

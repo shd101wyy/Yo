@@ -1,0 +1,12 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+{ putchar } :: import("std/libc/stdio");
+main :: (fn() -> unit)({
+  s := String.from("AB");
+  s.push_byte(u8(67));
+  i := usize(0);
+  while(i < s.len(), i = (i + usize(1)), {
+    unsafe(putchar(int(i32(s.byte_at(i)))));
+  });
+});
+export(main);

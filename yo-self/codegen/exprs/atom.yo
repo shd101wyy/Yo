@@ -1,0 +1,739 @@
+//! Atom expression emission — mirrors `src/codegen/exprs/atom.ts` (`generateAtom`).
+//!
+//! PORT STATUS (incremental). The corpus path is ported: control-flow keywords
+//! (continue/break/return) with loop-body drop emission, unit, comptime-only
+//! constant inlining, closure-captured access, and variable-name resolution.
+//!
+//! DEFERRED / gated branches (documented divergences):
+//!   * Async/effect state-machine variable resolution (the `sm->var_<id>` /
+//!     `sm->__capture` block, and the async-completion `return`) — Phase 5;
+//!     gated by `in_async_state_machine` (false for the corpus) and replaced
+//!     with a phase-marker panic.
+//!   * `inout(name) : T` deref to `(*name)` — yo-self `Variable` has no `is_ref`
+//!     flag (model gap), so the deref branch is omitted (no inout in the corpus).
+//!   * The `value.type.isClosure` fallback closure-detection (Gap 2: FuncVal
+//!     carries no TypeValue) is omitted.
+open(import("std/string"));
+{ AstExpr, ast_expr_token } :: import("../../expr.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ generate_comptime_value } :: import("./comptime_value.yo");
+{ check_variable_is_closure_captured } :: import("./closures.yo");
+{
+  get_variable_name_for_codegen,
+  get_deferred_drop_target_atom_name,
+  scope_stack_contains,
+  get_type_string,
+  sanitize_for_c_identifier
+} :: import("../utils/index.yo");
+{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ is_unit_type } :: import("../../types/guards.yo");
+{ expr_info_converted_runtime_type } :: import("../../expr_info.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ t_unit } :: import("../../types/creators.yo");
+{ extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
+{ emit_async_future_completion } :: import("./async_completion.yo");
+{ EvalValue, is_unknown_val } :: import("../../value.yo");
+{ panic, assert } :: import("std/assert");
+/// Emit the state-machine while-body drops (only those resolving to `sm->`
+/// fields — plain locals live in the resume frame and are dropped by the
+/// regular scope machinery). Mirrors the `smWhileBodyDrops` loops in
+/// atom.ts:127-138 / :169-181.
+_emit_sm_while_body_drops :: (fn(context : FunctionGenerationContext, indent : String) -> unit)(
+  match(
+    context.sm_while_body_drops,
+    .Some(drops) => {
+      em := context.base.emitter;
+      (i : usize) = usize(0);
+      n := drops.len();
+      while(i < n, {
+        match(
+          drops.get(i),
+          .Some(drop_expr) => {
+            drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
+            if((drop_code.len() > usize(0)) && drop_code.contains("sm->"), {
+              em.emit_string_line(`${indent.clone()}${drop_code.clone()};`);
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .None => ()
+  )
+);
+/// Async/effect state-machine variable resolution — the `sm->var_<id>` /
+/// `sm->__capture.<name>` mapping. Returns `.None` when the atom is not an
+/// SM-resolvable variable (the caller falls through to the regular path).
+/// Faithful port of atom.ts:258-460.
+_generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGenerationContext) -> Option(String))({
+  // Locally-shadowed (match-arm destructure) → the local C variable.
+  if(match(context.local_shadowed_variables,.Some(s) => s.contains(var_name.clone()),.None => false), {
+    return(Option(String).Some(sanitize_for_c_identifier(var_name.clone(), false)));
+  });
+  smv := match(context.state_machine_variables,.Some(m) => m,.None => return(Option(String).None));
+  ei_opt := context.base.get_expr_info(expr);
+  // 1) Env-ID lookup (handles shadowing: same name, different ids).
+  match(
+    ei_opt,
+    .Some(ei) => {
+      vars := get_variables_from_env(ei.env, var_name.clone());
+      if(vars.len() > usize(0), {
+        match(
+          vars.get(vars.len() - usize(1)),
+          .Some(variable) => {
+            (var_id : String) = match(
+              variable.is_owning_the_same_rc_value_as,
+              .Some(owner_box) => owner_box.*.id.to_string(),
+              .None => variable.id.to_string()
+            );
+            // SSA-renamed ids (loop reassignment) resolve to the canonical id.
+            match(
+              context.variable_id_remapping,
+              .Some(rm) => match(
+                rm.get(var_id.clone()),
+                .Some(mapped) => {
+                  var_id = mapped;
+                },
+                .None => ()
+              ),
+              .None => ()
+            );
+            match(
+              smv.get(var_id.clone()),
+              .Some(cv) => {
+                // Phase 1b: aliased to an await_future_N field.
+                match(
+                  context.state_machine_field_aliases,
+                  .Some(aliases) => match(
+                    aliases.get(var_id.clone()),
+                    .Some(aliased_field) => return(Option(String).Some(`sm->${aliased_field.clone()}`)),
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                // Closure-param coordination: prefer a SAME-NAME entry that
+                // HAS an alias (the synthetic slot set_effect writes into).
+                // Restricted to SYNTHETIC entries (empty decl_site — the
+                // closure-param slots this exists for): a same-name entry
+                // from a DIFFERENT declaration site is another variable, and
+                // redirecting to its alias cross-wired two branch-local `i`s
+                // (the bufio slot-alias class).
+                match(
+                  context.state_machine_field_aliases,
+                  .Some(aliases2) => {
+                    it := smv.into_iter();
+                    (go : bool) = true;
+                    while(go, {
+                      match(
+                        it.next(),
+                        .Some(e) => {
+                          if(!(e.key == var_id), {
+                            if((e.value.base.name == var_name) && (e.value.base.decl_site.len() == usize(0)), {
+                              match(
+                                aliases2.get(e.key.clone()),
+                                .Some(other_alias) => return(Option(String).Some(`sm->${other_alias.clone()}`)),
+                                .None => ()
+                              );
+                            });
+                          });
+                        },
+                        .None => {
+                          go = false;
+                        }
+                      );
+                    });
+                  },
+                  .None => ()
+                );
+                // Plain SM field: outer → __capture.<name>; local → var_<id>.
+                field_name := match(
+                  cv.kind,
+                  .Outer => `__capture.${var_name.clone()}`,
+                  _ => `var_${cv.base.id.to_string()}`
+                );
+                return(Option(String).Some(`sm->${field_name.clone()}`));
+              },
+              .None => ()
+            );
+          },
+          .None => ()
+        );
+      });
+    },
+    .None => ()
+  );
+  // 2) Name-based fallback (no env info / no id match): DECLARATION-SITE
+  //    aware. When the env resolved a Variable (so its decl token is known),
+  //    a same-name entry must ALSO match the site — same-named DISTINCT
+  //    variables (two branch-local `i`s) otherwise cross-resolve: a
+  //    re-stamped read of one picked the OTHER's entry, which was
+  //    legitimately slot-packed with a live variable (the bufio
+  //    "read partial then remaining" wrong-bytes bug). Site-matching pass
+  //    first; the name-only pass runs ONLY when no site is known.
+  {
+    (read_site : Option(String)) = Option(String).None;
+    match(
+      ei_opt,
+      .Some(ei_s) => {
+        svars := get_variables_from_env(ei_s.env, var_name.clone());
+        if(svars.len() > usize(0), {
+          match(
+            svars.get(svars.len() - usize(1)),
+            .Some(sv) => {
+              read_site = Option(String).Some(`${sv.token.module_path}:${sv.token.row.to_string()}:${sv.token.column.to_string()}`);
+            },
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    (fallback_key : String) = String.from("");
+    (fallback_found : bool) = false;
+    it2 := smv.into_iter();
+    (go2 : bool) = true;
+    while(go2, {
+      match(
+        it2.next(),
+        .Some(e) => {
+          name_hit := (e.value.base.name == var_name);
+          site_ok := match(
+            read_site,
+            .Some(rs) => ((e.value.base.decl_site == rs) || (e.value.base.decl_site.len() == usize(0))),
+            .None => true
+          );
+          if(name_hit && site_ok, {
+            match(
+              context.state_machine_field_aliases,
+              .Some(al) => match(
+                al.get(e.key.clone()),
+                .Some(af) => return(Option(String).Some(`sm->${af.clone()}`)),
+                .None => ()
+              ),
+              .None => ()
+            );
+            if(!(fallback_found), {
+              fallback_key = e.key.clone();
+              fallback_found = true;
+            });
+          });
+        },
+        .None => {
+          go2 = false;
+        }
+      );
+    });
+    if(fallback_found, {
+      match(
+        smv.get(fallback_key.clone()),
+        .Some(cv2) => {
+          field_name2 := match(
+            cv2.kind,
+            .Outer => `__capture.${var_name.clone()}`,
+            _ => `var_${fallback_key.clone()}`
+          );
+          return(Option(String).Some(`sm->${field_name2.clone()}`));
+        },
+        .None => ()
+      );
+    });
+  };
+  // 3) Borrowing variable: the OWNER may be captured instead.
+  match(
+    ei_opt,
+    .Some(ei2) => {
+      vars2 := get_variables_from_env(ei2.env, var_name.clone());
+      if(vars2.len() > usize(0), {
+        match(
+          vars2.get(vars2.len() - usize(1)),
+          .Some(variable2) => match(
+            variable2.is_owning_the_same_rc_value_as,
+            .Some(owner_box2) => {
+              owner_name := owner_box2.*.name.clone();
+              owner_id := owner_box2.*.id.to_string();
+              it3 := smv.into_iter();
+              (go3 : bool) = true;
+              while(go3, {
+                match(
+                  it3.next(),
+                  .Some(e3) => {
+                    if((e3.value.base.name == owner_name) || (e3.key == owner_id), {
+                      field_name3 := match(
+                        e3.value.kind,
+                        .Outer => `__capture.${owner_name.clone()}`,
+                        _ => `var_${e3.key.clone()}`
+                      );
+                      return(Option(String).Some(`sm->${field_name3.clone()}`));
+                    });
+                  },
+                  .None => {
+                    go3 = false;
+                  }
+                );
+              });
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+      });
+    },
+    .None => ()
+  );
+  // 4) Closure-captured (closure+effect SM): access through closure_context.
+  if(match(context.current_closure_captures,.Some(caps) => caps.contains(var_name.clone()),.None => false)
+  && context.current_closure_capture_frame_level.is_some(), {
+    cn := get_variable_name_for_codegen(var_name.clone(), match(ei_opt,.Some(e4) => Option(Environment).Some(e4.env),.None => Option(Environment).None));
+    match(
+      context.current_closure_capture_type_c_name,
+      .Some(ct) => return(Option(String).Some(`((${ct.clone()}*)closure_context)->${cn.clone()}`)),
+      .None => return(Option(String).Some(`closure_context->${cn.clone()}`))
+    );
+  });
+  // 5) Local C variable in the resume function: comptime-only constants
+  //    inline their value; otherwise the codegen name. (`inout` deref is
+  //    omitted — yo-self Variable has no is_ref flag; documented divergence.)
+  match(
+    ei_opt,
+    .Some(ei5) => match(
+      ei5.variable_name,
+      .Some(vn) => {
+        is_ct_const := match(
+          ei5.value,
+          .Some(v) => if(!(is_unknown_val(v)), {
+            vars5 := get_variables_from_env(ei5.env, vn.clone());
+            n5 := vars5.len();
+            cond(
+              (n5 == usize(0)) => false,
+              true => match(vars5.get(n5 - usize(1)),.Some(lv) => lv.is_compile_time_only,.None => false)
+            )
+          }, false),
+          .None => false
+        );
+        if(is_ct_const, {
+          return(Option(String).Some(generate_comptime_value(match(ei5.value,.Some(v2) => v2,.None => EvalValue.UnitVal), match(expr_info_converted_runtime_type(ei5),.Some(crt) => crt,.None => ei5.ty), context.base)));
+        });
+        return(Option(String).Some(get_variable_name_for_codegen(vn.clone(), Option(Environment).Some(ei5.env))));
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  Option(String).None
+});
+/// Emit `___drop` lines for the loop-body locals declared since entering the
+/// current loop body, before a break/continue exit, filtered by liveness at
+/// the exit point. Mirrors `emitLoopBodyDropsBeforeExit`.
+_emit_loop_body_drops_before_exit :: (fn(context : FunctionGenerationContext, indent : String, exit_expr : AstExpr) -> unit)(
+  match(
+    context.pending_deferred_drops,
+    .Some(drops) => match(
+      context.loop_body_drops_baseline_count,
+      .Some(baseline) => {
+        total := drops.len();
+        emit_count := if(total > baseline, total - baseline, usize(0));
+        exit_env_opt := match(context.base.get_expr_info(exit_expr),.Some(ei) => Option(Environment).Some(ei.env),.None => Option(Environment).None);
+        (i : usize) = usize(0);
+        while(i < emit_count, {
+          match(
+            drops.get(i),
+            .Some(drop_expr) => {
+              // Skip a drop whose target C variable is not IN SCOPE at this
+              // emission point. `x := match(...)`/`cond(...)` bindings emit
+              // their C declaration AFTER the RHS switch, so a `continue`/`break`
+              // inside the RHS precedes the declaration — the env-liveness check
+              // below (source order) sees the binding as live, but the C var
+              // doesn't exist yet → "use of undeclared identifier". Ground truth
+              // is the emitter-maintained block-scope stack (declared_scopes):
+              // the target's C declaration was emitted AND its enclosing C block
+              // is still open. The flat declared_c_var_names set is NOT enough —
+              // it is monotonic, so a same-named local declared in an earlier,
+              // already-CLOSED sibling loop/arm keeps the name in the set and
+              // the drop would reference an out-of-scope identifier (the stage-2
+              // self-emit `fp`/`res`/`gt` clang-error class). Safe by
+              // construction: a target absent from the stack holds no C value
+              // here, so skipping the drop can't double-free or leak. Same
+              // signal as `_keep_pending_drop` (return.yo).
+              skip := match(
+                get_deferred_drop_target_atom_name(drop_expr),
+                .Some(var_name) => {
+                  c_name := get_variable_name_for_codegen(var_name.clone(), exit_env_opt);
+                  (sk : bool) = false;
+                  if(!(scope_stack_contains(context.base.declared_scopes, c_name)), {
+                    sk = true;
+                  }, {
+                    // env-liveness: skip drops for variables not yet in
+                    // scope/initialized at the exit point (exit env available).
+                    sk = match(
+                      exit_env_opt,
+                      .Some(exit_env) => {
+                        vars := get_variables_from_env(exit_env, var_name);
+                        nv := vars.len();
+                        cond(
+                          (nv == usize(0)) => true,
+                          // not in scope
+                          true => match(vars.get(nv - usize(1)),.Some(lv) => lv.initialized_at_token.is_none(),.None => true)
+                        )
+                      },
+                      .None => false
+                    );
+                  });
+                  sk
+                },
+                .None => false
+              );
+              if(!(skip), {
+                drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
+                if(drop_code.len() > usize(0), {
+                  line := indent.clone();
+                  line.push_string(drop_code);
+                  line.push_str(";");
+                  em := context.base.emitter;
+                  em.emit_string_line(line);
+                });
+              });
+            },
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  )
+);
+/// Resolve a plain identifier read to its C code: the variable's C name, wrapped
+/// in `(*name)` when the binding is a by-`ref` borrow (`inout(name) : T` param — at
+/// the C level `name` is `T*`, so a read dereferences). Mirrors TS generateAtom
+/// (atom.ts:583). The deref here means a by-ref RECEIVER passed/used as a value
+/// (e.g. `String.from(self)` in str.to_string) reads `(*self)`, not the raw pointer.
+_var_read_code :: (fn(tv : String, env_opt : Option(Environment)) -> String)({
+  vn := get_variable_name_for_codegen(tv.clone(), env_opt);
+  is_ref := match(
+    env_opt,
+    .Some(e) => {
+      vs := get_variables_from_env(e, tv.clone());
+      cond(
+        (vs.len() == usize(0)) => false,
+        true => match(vs.get(vs.len() - usize(1)),.Some(v) => v.is_ref,.None => false)
+      )
+    },
+    .None => false
+  );
+  cond(
+    is_ref => {
+      o := String.from("(*");
+      o.push_string(vn);
+      o.push_str(")");
+      o
+    },
+    true => vn
+  )
+});
+/// Generate C for an atom expression (literal / identifier / control-flow
+/// keyword). Mirrors `generateAtom`.
+generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent : String) -> String)({
+  tok := ast_expr_token(expr);
+  tv := tok.value;
+  // --- control flow keywords ---
+  if(tv == "continue", {
+    match(
+      context.base.current_continue_label,
+      .Some(label) => {
+        _emit_loop_body_drops_before_exit(context, indent.clone(), expr);
+        out := String.from("goto ");
+        out.push_string(label);
+        return(out);
+      },
+      .None => ()
+    );
+    match(
+      context.base.current_loop_label,
+      .Some(_) => {
+        _emit_loop_body_drops_before_exit(context, indent.clone(), expr);
+        return(String.from("continue"));
+      },
+      .None => ()
+    );
+    // State-machine while-loop body: `continue` must goto the loop label
+    // (plain `continue` doesn't work inside a switch / goto-based loop).
+    // Mirrors atom.ts:124-152.
+    match(
+      context.sm_while_continue_info,
+      .Some(sci) => {
+        if(sci.emit_drops_before_goto, {
+          _emit_sm_while_body_drops(context, indent.clone());
+        });
+        match(
+          sci.step_expr,
+          .Some(se) => {
+            step_code := _call_generate_expr(se, indent.clone(), context);
+            if(step_code.len() > usize(0), {
+              em_sc := context.base.emitter;
+              em_sc.emit_string_line(`${indent.clone()}${step_code.clone()};`);
+            });
+          },
+          .None => ()
+        );
+        out_sc := String.from("goto ");
+        out_sc.push_string(sci.label.clone());
+        return(out_sc);
+      },
+      .None => ()
+    );
+    return(String.from("continue"));
+  });
+  if(tv == "break", {
+    match(
+      context.base.current_loop_label,
+      .Some(loop_label) => {
+        _emit_loop_body_drops_before_exit(context, indent.clone(), expr);
+        if(context.base.inside_match, {
+          out := String.from("goto ");
+          out.push_string(loop_label);
+          return(out);
+        });
+        return(String.from("break"));
+      },
+      .None => ()
+    );
+    // State-machine while-loop body: `break` emits body drops + goto the
+    // after-loop label (plain `break` only exits a C switch, not the
+    // goto-based SM loop). Mirrors atom.ts:166-194.
+    match(
+      context.sm_while_break_info,
+      .Some(sbi) => {
+        _emit_sm_while_body_drops(context, indent.clone());
+        match(
+          sbi.active_index,
+          .Some(ai) => {
+            // Reset the active flag as a side effect; return a plain goto so
+            // cond.yo's startsWith("goto") control-flow detection still works.
+            em_sb := context.base.emitter;
+            em_sb.emit_string_line(`${indent.clone()}sm->while_loop_${ai}_active = false;`);
+          },
+          .None => ()
+        );
+        out_sb := String.from("goto ");
+        out_sb.push_string(sbi.label.clone());
+        return(out_sb);
+      },
+      .None => ()
+    );
+    return(String.from("break"));
+  });
+  if(tv == "return", {
+    // Async state machine: early `return` completes the result Future
+    // (sm->state = -1 + continuation dispatch) instead of a C return.
+    // Mirrors atom.ts:197-245.
+    match(
+      context.in_async_state_machine,
+      .Some(iasm) => {
+        em := context.base.emitter;
+        child_type := match(
+          extract_future_trait_from_type(iasm.future_type),
+          .Some(ftt) => match(ftt,.FutureTraitT({ output : o }) => o, _ => t_unit()),
+          .None => t_unit()
+        );
+        is_unit_result := is_unit_type(child_type);
+        // Deferred drops on the return expr itself — only those resolving
+        // to state-machine fields.
+        match(
+          context.base.get_expr_info(expr),
+          .Some(rei) => match(
+            rei.deferred_drop_expressions,
+            .Some(dd) => {
+              (rdi : usize) = usize(0);
+              while(rdi < dd.len(), {
+                match(
+                  dd.get(rdi),
+                  .Some(de) => {
+                    dc := _call_generate_expr(de, indent.clone(), context);
+                    if((dc.len() > usize(0)) && dc.contains("sm->"), {
+                      em.emit_string_line(`${indent.clone()}${dc.clone()};`);
+                    });
+                  },
+                  .None => ()
+                );
+                rdi = (rdi + usize(1));
+              });
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+        // Pending deferred drops from enclosing scopes (SM fields only).
+        match(
+          context.pending_deferred_drops,
+          .Some(pdd) => if(pdd.len() > usize(0), {
+            em.emit_string_line(`${indent.clone()}// Drop local variables before early completion`);
+            (pdi : usize) = usize(0);
+            while(pdi < pdd.len(), {
+              match(
+                pdd.get(pdi),
+                .Some(pe) => {
+                  pc := _call_generate_expr(pe, indent.clone(), context);
+                  if((pc.len() > usize(0)) && pc.contains("sm->"), {
+                    em.emit_string_line(`${indent.clone()}${pc.clone()};`);
+                  });
+                },
+                .None => ()
+              );
+              pdi = (pdi + usize(1));
+            });
+          }),
+          .None => ()
+        );
+        em.emit_string_line(`${indent.clone()}// Early return - complete the result Future`);
+        result_code := if(
+          !(is_unit_result),
+          Option(String).Some(`(${get_type_string(child_type, context.base)}){0}`),
+          Option(String).None
+        );
+        emit_async_future_completion(em, indent.clone(), result_code, Option(String).Some(context.base.current_function_name.clone()));
+        return(String.from(""));
+      },
+      .None => ()
+    );
+    return(String.from("return"));
+  });
+  // --- boolean literals: emit the C literal, not a sanitized identifier ---
+  // `true`/`false` are reserved C words (stdbool), so the general identifier
+  // path's `sanitize_for_c_identifier` mangles them to the undeclared
+  // `__yo_c_reserved_true`/`_false`. They are valid C bool literals, so emit
+  // them verbatim. Surfaced self-compiling yo-self/token.yo (`while(true, …)`).
+  if((tv == "true") || (tv == "false"), {
+    return(tv);
+  });
+  // --- unit-typed expression → empty ---
+  ei_opt := context.base.get_expr_info(expr);
+  match(
+    ei_opt,
+    .Some(ei) => if(is_unit_type(ei.ty), {
+      return(String.from(""));
+    }),
+    .None => ()
+  );
+  // --- async/effect SM variable resolution (atom.ts:258-460). TS also gates
+  // on inEffectStateMachine; yo-self has not modeled that flag yet (effect
+  // SMs unported) — async-only until then. ---
+  if(context.in_async_state_machine.is_some() && context.state_machine_variables.is_some(), {
+    match(
+      _generate_sm_atom(expr, tv.clone(), context),
+      .Some(sm_out) => return(sm_out),
+      .None => ()
+    );
+  });
+  // --- variable / comptime-constant / closure-capture ---
+  match(
+    ei_opt,
+    .Some(ei) => {
+      env_opt := Option(Environment).Some(ei.env);
+      // Locally-shadowed variable (a match-arm destructured field, declared in
+      // the arm's C block under its SOURCE name): resolve to that source name,
+      // not the evaluator's temp `variable_name`. Mirrors TS
+      // `localShadowedVariables` (the destructure bind declares `<T> v = ...`
+      // and the body must reference `v`, not the temp). Keyed by the source
+      // TOKEN; the matching declaration uses the same sanitized source name.
+      if(match(context.local_shadowed_variables,.Some(s) => s.contains(tv.clone()),.None => false), {
+        return(get_variable_name_for_codegen(tv.clone(), Option(Environment).None));
+      });
+      // variableName path: comptime-only constant inline, else the name.
+      match(
+        ei.variable_name,
+        .Some(var_name) => {
+          // Compile-time-only variable with a known value → inline the value.
+          is_comptime_const := match(
+            env_opt,
+            .Some(e) => match(
+              ei.value,
+              .Some(v) => if(!(is_unknown_val(v)), {
+                vars := get_variables_from_env(e, var_name.clone());
+                nv := vars.len();
+                cond(
+                  (nv == usize(0)) => false,
+                  true => match(vars.get(nv - usize(1)),.Some(lv) => lv.is_compile_time_only,.None => false)
+                )
+              }, false),
+              .None => false
+            ),
+            .None => false
+          );
+          if(is_comptime_const, {
+            return(match(ei.value,.Some(v) => generate_comptime_value(v, match(expr_info_converted_runtime_type(ei),.Some(crt) => crt,.None => ei.ty), context.base),.None => String.from("")));
+          });
+          // Closure-captured variable → access through closure_context.
+          captured := match(
+            env_opt,
+            .Some(e) => match(
+              context.current_closure_captures,
+              .Some(caps) => match(
+                context.current_closure_capture_frame_level,
+                .Some(level) => (caps.contains(var_name.clone()) && check_variable_is_closure_captured(var_name.clone(), e, level)),
+                .None => false
+              ),
+              .None => false
+            ),
+            .None => false
+          );
+          if(!(captured), {
+            // Resolve a plain identifier by its SOURCE TOKEN, not the recorded
+            // `variable_name`. Mirrors TS generateAtom (atom.ts:262 uses
+            // `expr.token.value`). yo-self's attach_temp_variable_to_expr can
+            // stamp a SPURIOUS temp `variable_name` onto a bare reference used as
+            // a cond/match arm value (e.g. `(cap == 0) => min_cap`); emitting that
+            // temp yields an undeclared identifier. The token resolves via env
+            // lookup to the current binding's C name, so SSA/shadowing still work
+            // (for a normal reference token == variable_name, so this is a no-op).
+            // `_var_read_code` also derefs a by-ref (`inout(...)`) binding to `(*name)`.
+            return(_var_read_code(tv.clone(), env_opt));
+          });
+        },
+        .None => ()
+      );
+      // Closure-captured access (the general path); otherwise a literal with a
+      // comptime value is inlined, else the bare variable name.
+      cap_name := tv.clone();
+      is_captured := match(
+        context.current_closure_captures,
+        .Some(caps) => match(
+          context.current_closure_capture_frame_level,
+          .Some(level) => (caps.contains(cap_name.clone()) && match(env_opt,.Some(e) => check_variable_is_closure_captured(cap_name.clone(), e, level),.None => true)),
+          .None => false
+        ),
+        .None => false
+      );
+      cond(
+        is_captured => match(
+          context.current_closure_capture_type_c_name,
+          .Some(cap_ty) => {
+            out := String.from("((");
+            out.push_string(cap_ty);
+            out.push_str("*)closure_context)->");
+            out.push_string(get_variable_name_for_codegen(cap_name.clone(), env_opt));
+            out
+          },
+          .None => {
+            out := String.from("closure_context->");
+            out.push_string(get_variable_name_for_codegen(cap_name.clone(), env_opt));
+            out
+          }
+        ),
+        // Non-variable atom with a comptime value → inline it. Use the
+        // coerced runtime type when present (e.g. a comptime_str arg coerced
+        // to `*(char)` must emit a bare C string literal, not a `__yo_str`).
+        (match(ei.value,.Some(v) => !(is_unknown_val(v)),.None => false)) => match(
+          ei.value,
+          .Some(v) => generate_comptime_value(v, match(expr_info_converted_runtime_type(ei),.Some(crt) => crt,.None => ei.ty), context.base),
+          .None => _var_read_code(tv.clone(), env_opt)
+        ),
+        true => _var_read_code(tv.clone(), env_opt)
+      )
+    },
+    .None => get_variable_name_for_codegen(tv.clone(), Option(Environment).None)
+  )
+});
+export(generate_atom, _generate_sm_atom);

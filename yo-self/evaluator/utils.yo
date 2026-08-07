@@ -53,19 +53,29 @@ open(import("std/string"));
   ast_expr_id,
   ast_expr_is_atom,
   ast_expr_to_string,
-  make_err_expr
+  make_err_expr,
+  BF_DUP
 } :: import("../expr.yo");
-{ ExprInfo, ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
+{
+  ExprInfo,
+  ExprInfoTable,
+  expr_info_table_get,
+  expr_info_origin_type,
+  expr_info_set_origin_type,
+  get_arm_init_range,
+  get_branch_init_record
+} :: import("../expr_info.yo");
 {
   Environment,
   Variable,
+  value_cell_of,
   Frame,
   new_frame,
   get_variables_from_env,
+  find_variable_in_env,
   make_err_variable,
   generate_variable_id,
-  add_variable_to_begin_block_frame,
-  update_existing_variable
+  add_variable_to_begin_block_frame
 } :: import("../env.yo");
 { Token, TokenKind } :: import("../token.yo");
 { EvalContext } :: import("./context.yo");
@@ -81,9 +91,16 @@ open(import("std/string"));
 :: import("../utils.yo");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref } :: import("../value.yo");
 { TypeValue } :: import("../types/definitions.yo");
-{ are_types_compatible } :: import("../types/compatibility.yo");
+{ are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
+{ type_to_string } :: import("../types/string.yo");
 { type_contains_rc_type } :: import("../types/utils.yo");
 { expr_info_table_set } :: import("../expr_info.yo");
+// `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
+// `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
+// late-binding dispatcher (it imports neither utils.yo nor any handler).
+{ generate_expr_from_code } :: import("../parser.yo");
+{ evaluate_expression_raw } :: import("./exprs/expr.yo");
+{ panic, assert } :: import("std/assert");
 // Phase A.4.1: `generate_temp_variable_name_prefix`,
 // `generate_new_temp_variable_name`, `is_temp_variable_name`, and `random_id`
 // were relocated to `yo-self/utils.yo` (mirroring src/utils.ts).
@@ -126,7 +143,17 @@ attach_temp_variable_to_expr :: (
       // Only mark as owning if the effective type actually contains RC.
       _is_owning_rc := (is_owning_the_rc_value && type_contains_rc_type(effective_ty));
       // Compute compile-time-only flag and value: owning RC vars are always runtime.
-      is_ctonly := cond(_is_owning_rc => false, true => match(info.value,.Some(_) => true,.None => false));
+      // yo-self runtime results are `Some(UnknownVal)` where TS uses `undefined`
+      // (same convention note as set_expr_as_needs_to_call_dup) — TS
+      // `isCompileTimeOnly: Boolean(value)` must therefore read UnknownVal as
+      // NO value, or a non-owning runtime temp (e.g. the index-trait element)
+      // gets marked compile-time-only and codegen never declares it.
+      has_inlinable_value := match(
+        info.value,
+        .Some(iv) => !(is_unknown_val(iv)),
+        .None => false
+      );
+      is_ctonly := cond(_is_owning_rc => false, true => has_inlinable_value);
       var_value := cond(_is_owning_rc => Option(EvalValue).None, true => info.value);
       expr_tok := ast_expr_token(expr);
       match(
@@ -142,20 +169,20 @@ attach_temp_variable_to_expr :: (
               true => _is_owning_rc
             );
             existing_var.ty = effective_ty;
-            existing_var.value = cond(preserved_rc => Option(EvalValue).None, true => var_value);
+            existing_var.value = value_cell_of(cond(preserved_rc => Option(EvalValue).None, true => var_value));
             existing_var.is_compile_time_only = cond(preserved_rc => false, true => is_ctonly);
             existing_var.is_owning_the_rc_value = preserved_rc;
             // Update origin_type if not already set.
             match(
-              info.origin_type,
+              expr_info_origin_type(info),
               .None => {
-                info.origin_type = Option(TypeValue).Some(effective_ty);
+                expr_info_set_origin_type(info, Option(TypeValue).Some(effective_ty));
               },
               .Some(_) => ()
             );
           }, {
             // Variable name exists but not in env: add it to begin-block frame.
-            ___ := add_variable_to_begin_block_frame(
+            add_variable_to_begin_block_frame(
               info.env,
               existing_name,
               effective_ty,
@@ -165,9 +192,9 @@ attach_temp_variable_to_expr :: (
               expr_tok
             );
             match(
-              info.origin_type,
+              expr_info_origin_type(info),
               .None => {
-                info.origin_type = Option(TypeValue).Some(effective_ty);
+                expr_info_set_origin_type(info, Option(TypeValue).Some(effective_ty));
               },
               .Some(_) => ()
             );
@@ -177,7 +204,7 @@ attach_temp_variable_to_expr :: (
         .None => {
           // Create a new temp variable.
           temp_name := generate_new_temp_variable_name(info.env.module_path);
-          ___ := add_variable_to_begin_block_frame(
+          add_variable_to_begin_block_frame(
             info.env,
             temp_name,
             effective_ty,
@@ -188,9 +215,9 @@ attach_temp_variable_to_expr :: (
           );
           info.variable_name = Option(String).Some(temp_name);
           match(
-            info.origin_type,
+            expr_info_origin_type(info),
             .None => {
-              info.origin_type = Option(TypeValue).Some(effective_ty);
+              expr_info_set_origin_type(info, Option(TypeValue).Some(effective_ty));
             },
             .Some(_) => ()
           );
@@ -245,7 +272,7 @@ find_rc_value_owner_relationship :: (
       (candidate_opt : Option(Variable)) = Option(Variable).Some(
         match(vars.get(vars.len() - usize(1)),.Some(v) => v,.None => make_err_variable(env))
       );
-      visited := HashSet(String).new();
+      visited := HashSet(usize).new();
       // Follow the chain until we find an owning variable or it breaks.
       while(match(
         candidate_opt,
@@ -333,9 +360,8 @@ throw_expr_is_implicit_variable_error :: (
     var_name_opt,
     .None => (),
     .Some(var_name) => {
-      root_vars := get_variables_from_env(env, var_name);
       match(
-        root_vars.get(root_vars.len() - usize(1)),
+        find_variable_in_env(env, var_name),
         .None => (),
         .Some(rv) => {
           if(rv.is_implicit, {
@@ -395,6 +421,27 @@ require_expr_not_consumed :: (
         v.consumed_at_token,
         .None => (),
         .Some(consumed_tok) => {
+          // RE-EVALUATION exemption: when the recorded move site IS this very
+          // token, the "move" came from an earlier evaluation of the SAME
+          // expression node (yo-self re-evaluates a call node when it becomes
+          // the receiver/argument of an enclosing call; TS's immutable env
+          // threading means its re-evaluations read the PRE-consumption env —
+          // its ownership block even carries the note "Allow to consume again
+          // here is necessary"). A genuine use-after-move always has a
+          // DIFFERENT move site, which TS distinguishes the same way its
+          // error output does. Without this, `v1_copy.concat(v2).len()`
+          // reported 'use of moved value' with BOTH carets on the same
+          // token (tests/imm_vec arms 14/17, surfaced by the Step-4a port).
+          same_site := (
+            (
+              (consumed_tok.*.row == ast_expr_token(rhs).row)
+              && (consumed_tok.*.column == ast_expr_token(rhs).column)
+            )
+            && (consumed_tok.*.module_path == ast_expr_token(rhs).module_path)
+          );
+          if(same_site, {
+            return(());
+          });
           entries := ArrayList(TokenAndError).new();
           entries.push(
             TokenAndError(
@@ -404,7 +451,7 @@ require_expr_not_consumed :: (
           );
           entries.push(
             TokenAndError(
-              token : consumed_tok,
+              token : consumed_tok.*,
               error_message : String.from("value moved here")
             )
           );
@@ -421,7 +468,7 @@ require_expr_not_consumed :: (
 /// `.None` branch. `exn.throw` unwinds before this is hit; the call
 /// only exists so the match arms unify to `ExprInfo`.
 new_expr_info_placeholder_for_unreachable_ :: (fn(_expr : AstExpr) -> ExprInfo)(
-  panic("unreachable: expect_expr_to_have_been_evaluated placeholder")
+  __yo_panic("unreachable: expect_expr_to_have_been_evaluated placeholder")
 );
 /// Throw if `expr` has no `ExprInfo` attached — i.e. the evaluator
 /// has not yet processed this expression. Returns the `ExprInfo` on
@@ -512,18 +559,18 @@ set_expr_as_consumed :: (
           v := match(vars.get(vars.len() - usize(1)),.Some(x) => x,.None => make_err_variable(env));
           match(
             v.consumed_at_token,
-            // Step 5: not yet consumed → mark now.
+            // Step 5: not yet consumed → mark now. `v` IS the env's Variable
+            // (refs from get_variables_from_env; Variable is reference-
+            // semantics) so the in-place write is the update — the former
+            // alias-then-update_existing_variable write-back was a no-op
+            // full-env scan on the hot consumed-marking path (see consume.yo).
             .None => {
-              new_var := v;
-              new_var.consumed_at_token = Option(Token).Some(ast_expr_token(expr));
-              update_existing_variable(env, v, new_var);
+              v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(expr)));
             },
             .Some(consumed_tok) => cond(
               // Allowed to re-consume — overwrite the consumption point.
               allow_consume_again => {
-                new_var := v;
-                new_var.consumed_at_token = Option(Token).Some(ast_expr_token(expr));
-                update_existing_variable(env, v, new_var);
+                v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(expr)));
               },
               // Step 4: throw `use of moved value`.
               true => {
@@ -536,7 +583,7 @@ set_expr_as_consumed :: (
                 );
                 entries.push(
                   TokenAndError(
-                    token : consumed_tok,
+                    token : consumed_tok.*,
                     error_message : String.from("value moved here")
                   )
                 );
@@ -550,21 +597,180 @@ set_expr_as_consumed :: (
   );
 });
 // ---------------------------------------------------------------------------
-// set_expr_as_needs_to_call_dup  (Phase 2w stub)
+// set_expr_as_needs_to_call_dup  (Phase A: dup-on-store)
 // ---------------------------------------------------------------------------
-/// Mark `rhs` as needing a `___dup` call to transfer RC ownership.
+/// Mark `rhs` as needing a `___dup` call to transfer/share RC ownership.
 ///
-/// Phase 2w stub: no-op.  The full implementation (Phase 3) will insert a
-/// deferred `___dup` expression into `ctx.expr_info_table` for `rhs` and
-/// may consume a temp-variable owner.
+/// When an owning RC value is shared (stored into a binding/field, passed to an
+/// owned param), this either (a) marks the source temp **consumed** and emits no
+/// dup when ownership simply transfers, or (b) builds + evaluates `___dup(name)`,
+/// stores it in `rhs`'s `deferred_dup_expressions` (codegen emits it and uses the
+/// dup-result temp), and consumes that dup-result temp.
 ///
+/// yo-self note: `Variable`/`ExprInfo` are RC objects, so `consumed_at_token` and
+/// `deferred_dup_expressions` are mutated in place (mirroring
+/// `consume_case_body_temp_var`); the TS `updateExistingVariable`/`expr.$.env =`
+/// reassignments are implicit because the underlying objects are shared.
+/// `exn` is threaded because yo-self's `generate_expr_from_code` /
+/// `evaluate_expression_raw` require an explicit exception handler (TS throws).
+///
+/// Side-table: evaluated `___dup` call expr id → the USE SITE's source token
+/// (the token of the rhs whose dup it is). Mirrors TS's ad-hoc `__useSiteToken`
+/// property (expr.ts:2571-2579): the dup expr itself is built from generated
+/// code (auto-generated token, not comparable with source tokens); the begin
+/// block's dup/drop pair optimizer needs the real source position of the
+/// ownership transfer to record an accurate consumed_at_token (early returns
+/// AFTER the transfer must not re-drop the moved value).
+(g_dup_use_site_tokens : HashMap(usize, Token)) = HashMap(usize, Token).new();
+get_dup_use_site_token :: (fn(id : usize) -> Option(Token))(g_dup_use_site_tokens.get(id));
 /// Mirrors `setExprAsNeedsToCallDup` in `src/expr.ts`.
 set_expr_as_needs_to_call_dup :: (
   fn(
-    _rhs : AstExpr,
-    _ctx : EvalContext
+    rhs : AstExpr,
+    ctx : EvalContext,
+    exn : Exception
   ) -> unit
-)(());
+)({
+  // `expr.$.variableName` — no ExprInfo or no temp variable name ⇒ nothing to do.
+  var_name_opt := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs)),
+    .Some(info) => info.variable_name,
+    .None => Option(String).None
+  );
+  match(
+    var_name_opt,
+    .None => (),
+    .Some(variable_name) => {
+      // Re-fetch the ExprInfo to mutate (guaranteed Some — the table is
+      // unchanged since the var_name lookup above; the .None arm is unreachable).
+      ei := match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs)),
+        .Some(info) => info,
+        .None => new_expr_info_placeholder_for_unreachable_(rhs)
+      );
+      // --- Compile-time value handling (mirrors `if (expr.$.value)`). ---
+      // yo-self runtime results are `Some(UnknownVal)` where TS uses
+      // `undefined` — treat UnknownVal as NO value here, or a runtime PARAM
+      // bound by create_specialized_function_inline's Some(UnknownVal) rebind
+      // early-returns WITHOUT the dup (a non-temp name skips the
+      // needs_dup_for_non_owning_rc_temp fallthrough): ArrayList.push's
+      // `(*target_ptr) = value` then specialized with NO element retain in
+      // exactly those specializations — the stage-2 t1.yo impl-method-registry
+      // UAF (one EvalValue push retained, its twin didn't).
+      // ...AND the value must be one codegen actually INLINES into C (the
+      // gate's premise: "compile-time values are inlined, so no C variable
+      // exists for the dup to reference"). A concrete value of an RC-BEARING
+      // type (AstExprVal in a def-time trial pass, a comptime StructVal…) is
+      // NOT inlinable — codegen falls back to the variable NAME, so the C
+      // variable DOES exist and skipping the dup here loses the borrowed-
+      // return +1 (every `return(expr)` of a borrowed AstExpr param emitted
+      // bare while TS dups — the round-2 stage-2 UAF: the eval-dispatch chain
+      // under-counts each evaluated node by one, killing AST children read
+      // back later, e.g. evaluate_function_parameter's args.get(1); see
+      // issues/fixed/yo-self-dyn-throw-double-drop.md). TS's textual gate is the
+      // same (`if (expr.$.value)`), but its last-before-codegen pass carries
+      // no concrete values for runtime params; yo-self's def-time trial
+      // passes do, so the gate must also require inlinability.
+      has_concrete_value := match(
+        ei.value,
+        .Some(cv) => (!(is_unknown_val(cv)) && !(type_contains_rc_type(ei.ty))),
+        .None => false
+      );
+      if(has_concrete_value, {
+        (needs_dup_for_non_owning_rc_temp : bool) = false;
+        if(is_temp_variable_name(ei.env.module_path, variable_name) && type_contains_rc_type(ei.ty), {
+          match(
+            find_variable_in_env(ei.env, variable_name),
+            .Some(v) => {
+              if(v.is_owning_the_rc_value && v.consumed_at_token.is_none(), {
+                v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(rhs)));
+              });
+              // Non-owning RC temp (e.g. index-trait result): codegen does not
+              // dup inline for these, so fall through to generate the dup.
+              if(!(v.is_owning_the_rc_value), {
+                needs_dup_for_non_owning_rc_temp = true;
+              });
+            },
+            .None => ()
+          );
+        });
+        if(!(needs_dup_for_non_owning_rc_temp), {
+          return(());
+        });
+      });
+      // --- Only RC-bearing types need dup/consume. ---
+      if(!(type_contains_rc_type(ei.ty)), {
+        return(());
+      });
+      // Owning temp already holding the value: ownership transfers ⇒ consume, no dup.
+      if(is_temp_variable_name(ei.env.module_path, variable_name), {
+        is_atom_with_other_name := (ast_expr_is_atom(rhs) && (ast_expr_token(rhs).value != variable_name));
+        if(!(is_atom_with_other_name), {
+          match(
+            find_variable_in_env(ei.env, variable_name),
+            .Some(v) => {
+              if(v.is_owning_the_rc_value, {
+                if(v.consumed_at_token.is_none(), {
+                  v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(rhs)));
+                });
+                return(());
+              });
+            },
+            .None => ()
+          );
+        });
+      });
+      // --- Copy semantics: build + evaluate `___dup(variableName)`. ---
+      dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);
+      saved_expected := ctx.expected_type;
+      ctx.expected_type =.None;
+      evaluated_dup := evaluate_expression_raw(dup_expr, ei.env, ctx, exn);
+      ctx.expected_type = saved_expected;
+      // Consume the dup-result temp so it is not dropped separately later. The
+      // dup temp was added in-place to `ei.env`'s current frame during eval.
+      dup_var_name_opt := match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_dup)),
+        .Some(di) => di.variable_name,
+        .None => Option(String).None
+      );
+      match(
+        dup_var_name_opt,
+        .None => (),
+        .Some(dvn) => {
+          dvars := get_variables_from_env(ei.env, dvn);
+          if(dvars.len() > usize(0), {
+            dv := match(dvars.get(dvars.len() - usize(1)),.Some(x) => x,.None => make_err_variable(ei.env));
+            if(dv.consumed_at_token.is_none(), {
+              dv.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(evaluated_dup)));
+            });
+          });
+        }
+      );
+      // Stamp the USE SITE's source token for the dup/drop pair optimizer
+      // (mirrors TS `__useSiteToken`, expr.ts:2577-2579).
+      g_dup_use_site_tokens.set(ast_expr_id(evaluated_dup), ast_expr_token(rhs));
+      // Stash the deferred dup expression on the rhs's ExprInfo (codegen emits it).
+      dup_list := ArrayList(AstExpr).new();
+      dup_list.push(evaluated_dup);
+      ei.deferred_dup_expressions = Option(ArrayList(AstExpr)).Some(dup_list);
+      // Propagate the dup call's env onto the rhs's ExprInfo (mirrors TS
+      // `expr.$.env = evaluatedDupCallExpr.$!.env` in expr.ts:2581). The dup
+      // eval added the `___dup` temp to that env; the deferred-dup codegen in
+      // begin/match resolves the dup temp's C name via the rhs ExprInfo's env,
+      // so without this the temp is unresolved and the balancing incr is
+      // silently dropped (over-release of a borrowed match-arm return — e.g.
+      // `func_expr := match(expr, .FnCall(_, fb,…) => fb)` in
+      // evaluate_function_call, the stage-2 specialized-body UAF).
+      match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_dup)),
+        .Some(dup_ei) => {
+          ei.env = dup_ei.env;
+        },
+        .None => ()
+      );
+    }
+  );
+});
 // ---------------------------------------------------------------------------
 // doc_comment_lookup_key_from_token
 // ---------------------------------------------------------------------------
@@ -612,7 +818,7 @@ consume_case_body_temp_var :: (
       v := match(vars.get(vars.len() - usize(1)),.Some(x) => x,.None => make_err_variable(env));
       if(v.consumed_at_token.is_none(), {
         // Variable is an RC object; mutation is in-place and visible through env.
-        v.consumed_at_token = Option(Token).Some(ast_expr_token(evaluated_body));
+        v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(evaluated_body)));
       });
     }
   );
@@ -699,16 +905,40 @@ merge_and_check_envs :: (
   // ownership loop below keeps using the outer `max_frame_level`, so it scans
   // exactly the outer frames (present in every arm env) and skips the transient
   // per-arm frame.
-  base_case_depth := match(case_envs.get(usize(0)),.Some(e0) => e0.frames.len(),.None => env.frames.len());
+  // Each arm env must CONTAIN the outer frames (indices 0..max_frame_level) that
+  // the per-frame ownership merge below scans — but arms need NOT have identical
+  // TOTAL depth. yo-self evaluates each arm under a per-arm `push_frame`, and a
+  // `begin`-block arm pushes a SECOND (binding) frame while a simple-expr arm
+  // does not, so requiring exact depth equality (TS's `frames.length-1 ===
+  // maxFrameLevel`, which holds in TS because arm envs sit at the outer level)
+  // spuriously rejected a cond/match that MIXES begin and non-begin arms — e.g.
+  // naming_checker's `index_of`: `cond(… => .Some(i), true => begin(…))`. The
+  // transient per-arm / begin frames sit ABOVE max_frame_level and are NOT
+  // scanned by the ownership loop; the real inter-arm consistency guard is the
+  // per-frame variable-count comparison there.
+  //
+  // FURTHER RELAXED: even the "outer frames all present" pre-check
+  // (`frames.len() < required_depth`) is too strict — an arm whose ONLY missing
+  // frame is the innermost (== max_frame_level) is handled safely by the merge
+  // loop below (it reads the base frame at :735, falls back to `new_frame(false)`
+  // for a missing case frame at :747, and SKIPS the count check at
+  // `frame_i == max_frame_level` at :750). And a case env genuinely missing a
+  // NON-innermost frame the base has is still rejected by that loop's count
+  // check (:789) / name check (:817). So the pre-check is redundant with the
+  // loop's own validation; keep only a floor against a fully-uninitialized
+  // (0-frame) case env. This drains the "has N, need N+1" def-time-eval throws
+  // (await/return/var_fns/function/suspension_analysis/trait_checking) whose
+  // arms legitimately differ by one transient frame.
+  required_depth := (max_frame_level + usize(1));
   (ci : usize) = usize(0);
   while(ci < case_envs.len(), {
     case_env := match(case_envs.get(ci),.Some(e) => e,.None => env);
-    if(case_env.frames.len() != base_case_depth, {
+    if(case_env.frames.len() == usize(0), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(match(bodies.get(ci),.Some(b) => b,.None => make_err_expr())),
-            `Frame level is different for different cases.`,
+            `Case env is missing outer frames (has ${case_env.frames.len().to_string()}, need ${required_depth.to_string()}).`,
             false,
             .None
           )
@@ -738,60 +968,68 @@ merge_and_check_envs :: (
           if((frame_i != max_frame_level) && (case_vars_len != base_vars_len), {
             cond(
               (case_vars_len > base_vars_len) => {
-                // Check whether all extra variables are temp variables.
-                (all_temps : bool) = true;
-                (ek : usize) = base_vars_len;
-                while(ek < case_vars_len, {
-                  extra_var := match(case_frame.variables.get(ek),.Some(v) => v,.None => make_err_variable(env));
-                  if(!(is_temp_variable_name(env.module_path, extra_var.name)), {
-                    all_temps = false;
-                  });
-                  ek = (ek + usize(1));
-                });
-                if(all_temps, {
-                  // Adopt extra temps into the base env frame. Adopted temps
-                  // must NOT own RC values (each branch handles its own drops).
-                  (ek2 : usize) = base_vars_len;
-                  while(ek2 < case_vars_len, {
-                    extra_var2 := match(case_frame.variables.get(ek2),.Some(v) => v,.None => make_err_variable(env));
+                // Adopt extra TEMP variables into the base env frame (adopted
+                // temps must NOT own RC values — each branch handles its own
+                // drops); SKIP extra non-temp variables instead of rejecting.
+                // A non-temp extra is an ARM-LOCAL binding that yo-self's
+                // per-arm frame accounting placed in a non-innermost frame —
+                // sibling arms legitimately don't have it, and TS has no such
+                // count check at all (case locals pop with their frames). The
+                // previous all-or-nothing throw ("Frame level N has different
+                // number of values for different cases", no TS counterpart)
+                // rejected big match-bodied fns during def-eval and left their
+                // WHOLE bodies unstamped (the 16-FTT stage-2 cluster in
+                // yo_id_264770/yo_id_360923). Third relaxation of this merge —
+                // see [[yo-self-branch-merge-trivial-arm]] for the first two.
+                (ek2 : usize) = base_vars_len;
+                while(ek2 < case_vars_len, {
+                  extra_var2 := match(case_frame.variables.get(ek2),.Some(v) => v,.None => make_err_variable(env));
+                  if(is_temp_variable_name(env.module_path, extra_var2.name), {
                     extra_var2.is_owning_the_rc_value = false;
                     {
-                      ___ := frame.variables.push(extra_var2);
+                      frame.variables.push(extra_var2);
                     };
-                    ek2 = (ek2 + usize(1));
                   });
-                }, {
-                  exn.throw(
-                    dyn(
-                      format_error_message(
-                        ast_expr_token(match(bodies.get(cj),.Some(b) => b,.None => make_err_expr())),
-                        `Frame level ${frame_i} has different number of values for different cases.`,
-                        false,
-                        .None
-                      )
-                    )
-                  );
+                  ek2 = (ek2 + usize(1));
                 });
               },
-              true => {
-                exn.throw(
-                  dyn(
-                    format_error_message(
-                      ast_expr_token(match(bodies.get(cj),.Some(b) => b,.None => make_err_expr())),
-                      `Frame level ${frame_i} has different number of values for different cases.`,
-                      false,
-                      .None
-                    )
-                  )
-                );
-              }
+              // case_vars_len < base_vars_len: this case env is SHORTER than the
+              // base at a non-innermost frame. This is NOT an inconsistency to
+              // reject — it has two legitimate causes, both already handled by
+              // the names check + per-column merge below (which read a missing
+              // case var as the base var, lines 827/866):
+              //   (1) the base frame GREW earlier in THIS cj loop via temp
+              //       adoption (line 783), so a later case env compared against
+              //       the grown base appears short (the missing vars are exactly
+              //       the adopted, non-owning temps);
+              //   (2) a trivial arm (`.None => .None`) records no copy of an
+              //       enclosing binding the base + destructuring siblings carry
+              //       — a yo-self recorded-env divergence from TS (TS arm envs
+              //       sit at the outer level with enclosing bindings intact).
+              // A genuine inconsistency (an arm missing a NON-temp binding the
+              // others bound, or a consume/init split) is still caught by the
+              // names check (:828) and the per-column consume/init merge (:889+).
+              // So defer to them rather than throwing here — symmetric with the
+              // case>base all-temps branch above. See
+              // issues/yo-self-p1-transpile-tail.md (branch-merge) +
+              // [[yo-self-branch-merge-trivial-arm]].
+              true => ()
             );
           });
           // Check variable name consistency.
           (kk : usize) = usize(0);
           while(kk < frame.variables.len(), {
             base_var := match(frame.variables.get(kk),.Some(v) => v,.None => make_err_variable(env));
-            case_var_k := match(case_frame.variables.get(kk),.Some(v) => v,.None => make_err_variable(env));
+            // A case env may be SHORTER than the base at this frame: a trivial
+            // match arm (e.g. `.None => .None`) records no copy of an enclosing
+            // binding (`self_al`) that the base and destructuring sibling arms
+            // carry — a yo-self recorded-env divergence (TS arm envs keep the
+            // enclosing bindings). Such a binding was initialized BEFORE the
+            // match, so an arm that simply doesn't re-bind it "retains the base
+            // state" — treat a missing case var as the base var rather than a
+            // mismatch. (Mirrored in the per-column merge below.) See
+            // issues/yo-self-p1-transpile-tail.md Candidate 3.
+            case_var_k := match(case_frame.variables.get(kk),.Some(v) => v,.None => base_var);
             if(((base_var.name != case_var_k.name) && !(is_temp_variable_name(env.module_path, base_var.name))) && !(is_temp_variable_name(env.module_path, case_var_k.name)), {
               exn.throw(
                 dyn(
@@ -819,35 +1057,155 @@ merge_and_check_envs :: (
           initialized_at_tokens := ArrayList(Option(Token)).new();
           consumed_at_tokens := ArrayList(Option(Token)).new();
           owning_at_tokens := ArrayList(Option(Token)).new();
-          var_ids := ArrayList(String).new();
+          var_ids := ArrayList(usize).new();
           case_types := ArrayList(TypeValue).new();
           (ck : usize) = usize(0);
           while(ck < case_envs.len(), {
             case_env := match(case_envs.get(ck),.Some(e) => e,.None => env);
             case_frame_k := match(case_env.frames.get(frame_i),.Some(f) => f,.None => new_frame(false));
-            case_var := match(case_frame_k.variables.get(var_j),.Some(v) => v,.None => make_err_variable(env));
+            // Missing case var → retains the base (pre-match) state: a trivial
+            // arm that doesn't re-bind an enclosing binding leaves it untouched
+            // (init'd before the match). Using base_var (vs make_err_variable)
+            // keeps the consume/init merge consistent. See the names-check note
+            // above + issues/yo-self-p1-transpile-tail.md Candidate 3.
+            case_var := match(case_frame_k.variables.get(var_j),.Some(v) => v,.None => base_var);
             {
-              ___ := initialized_at_tokens.push(case_var.initialized_at_token);
+              initialized_at_tokens.push(case_var.initialized_at_token);
             };
             {
-              ___ := consumed_at_tokens.push(case_var.consumed_at_token);
+              consumed_at_tokens.push(match(case_var.consumed_at_token,.Some(b) => Option(Token).Some(b.*),.None => Option(Token).None));
             };
             owning_token := cond(
               case_var.is_owning_the_rc_value => Option(Token).Some(case_var.token),
               true => Option(Token).None
             );
             {
-              ___ := owning_at_tokens.push(owning_token);
+              owning_at_tokens.push(owning_token);
             };
             {
-              ___ := var_ids.push(case_var.id);
+              var_ids.push(case_var.id);
             };
             {
-              ___ := case_types.push(case_var.ty);
+              case_types.push(case_var.ty);
             };
             ck = (ck + usize(1));
           });
           n_cases := case_envs.len();
+          // ---- Cross-branch type checks (TS expr.ts:2009-2094) ----
+          // Per-branch assigned types come from the branch-init LOG (see
+          // expr_info.yo BranchInitRecord) — yo-self's shared mutable
+          // Variable cannot carry them. Each body's [start,end) window was
+          // registered by the arm evaluator; records matching this
+          // variable's id give the per-branch (ty, capture).
+          {
+            cb_tys := ArrayList(TypeValue).new();
+            cb_caps := ArrayList(Option(TypeValue)).new();
+            cb_body_idx := ArrayList(usize).new();
+            (cb_i : usize) = usize(0);
+            while(cb_i < bodies.len(), {
+              cb_body := match(bodies.get(cb_i),.Some(b) => b,.None => make_err_expr());
+              match(
+                get_arm_init_range(ast_expr_id(cb_body)),
+                .Some(cb_rng) => {
+                  cb_s := match(cb_rng.get(usize(0)),.Some(x) => x,.None => usize(0));
+                  cb_e := match(cb_rng.get(usize(1)),.Some(x) => x,.None => usize(0));
+                  // LAST record per arm wins (an arm may assign repeatedly).
+                  (cb_found : bool) = false;
+                  (cb_ri : usize) = cb_s;
+                  while(cb_ri < cb_e, {
+                    match(
+                      get_branch_init_record(cb_ri),
+                      .Some(cb_rec) => if(cb_rec.var_id == base_var.id, {
+                        if(cb_found, {
+                          cb_tys(cb_tys.len() - usize(1)) = cb_rec.ty;
+                          cb_caps(cb_caps.len() - usize(1)) = cb_rec.capture;
+                        }, {
+                          cb_tys.push(cb_rec.ty);
+                          cb_caps.push(cb_rec.capture);
+                          cb_body_idx.push(cb_i);
+                          cb_found = true;
+                        });
+                      }),
+                      .None => ()
+                    );
+                    cb_ri = (cb_ri + usize(1));
+                  });
+                },
+                .None => ()
+              );
+              cb_i = (cb_i + usize(1));
+            });
+            if(cb_tys.len() > usize(1), {
+              cb_first_ty := match(cb_tys.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
+              cb_first_cap := match(cb_caps.get(usize(0)),.Some(c) => c,.None => Option(TypeValue).None);
+              (cb_k : usize) = usize(1);
+              while(cb_k < cb_tys.len(), {
+                cb_cur_ty := match(cb_tys.get(cb_k),.Some(t) => t,.None => TypeValue.Unit);
+                cb_cur_cap := match(cb_caps.get(cb_k),.Some(c) => c,.None => Option(TypeValue).None);
+                cb_tok := match(
+                  bodies.get(match(cb_body_idx.get(usize(0)),.Some(x) => x,.None => usize(0))),
+                  .Some(cb_b0) => ast_expr_token(cb_b0),
+                  .None => base_var.token
+                );
+                // Impl(...) static-dispatch rule: branches resolving to
+                // DIFFERENT concrete (capture) types must be rejected.
+                (cb_impl_conflict : bool) = false;
+                match(
+                  cb_first_cap,
+                  .Some(cb_fc) => match(
+                    cb_cur_cap,
+                    .Some(cb_cc) => {
+                      // Capture structs are NOMINAL per closure: two
+                      // different closures' captures are different concrete
+                      // types even when structurally identical (both
+                      // capture one i32) — compare struct IDs; yo-self's
+                      // structural compat wrongly accepts them.
+                      cb_id_conflict := match(
+                        cb_fc,
+                        .Struct({ id : cb_fid2 }) => match(
+                          cb_cc,
+                          .Struct({ id : cb_cid2 }) => ((cb_fid2.len() > usize(0)) && (cb_fid2 != cb_cid2)),
+                          _ => false
+                        ),
+                        _ => false
+                      );
+                      if(cb_id_conflict || !(are_types_compatible(cb_cc, cb_fc)), {
+                        cb_impl_conflict = true;
+                        cb_entries := ArrayList(TokenAndError).new();
+                        cb_entries.push(
+                          TokenAndError(
+                            token : cb_tok,
+                            error_message :
+                              `Variable "${base_var.name}" has type Impl(...) but different concrete types across branches.
+Impl(...) uses static dispatch and requires the same concrete type in all branches.
+Consider using Dyn(...) for dynamic dispatch if different concrete types are needed.`
+                          )
+                        );
+                        exn.throw(dyn(format_error_messages(cb_entries, false,.None)));
+                      });
+                    },
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                // General cross-case initialized-type compatibility.
+                if(!(cb_impl_conflict) && !(are_types_compatible(cb_cur_ty, cb_first_ty)), {
+                  cb_entries2 := ArrayList(TokenAndError).new();
+                  cb_entries2.push(
+                    TokenAndError(
+                      token : cb_tok,
+                      error_message :
+                        `Variable "${base_var.name}" has incompatible types across different cases:
+First initialization: ${type_to_string(cb_first_ty)}
+Conflicting initialization: ${type_to_string(cb_cur_ty)}`
+                    )
+                  );
+                  exn.throw(dyn(format_error_messages(cb_entries2, false,.None)));
+                });
+                cb_k = (cb_k + usize(1));
+              });
+            });
+          };
           // ---- Check initialized_at_token ----
           // Case 1: single branch, initialized there but not before → error
           if(n_cases == usize(1), {
@@ -917,7 +1275,7 @@ merge_and_check_envs :: (
                 );
                 err_tok := match(tok_opt,.Some(t) => t,.None => body_tok);
                 {
-                  ___ := err_list.push(TokenAndError(token : err_tok, error_message : msg));
+                  err_list.push(TokenAndError(token : err_tok, error_message : msg));
                 };
                 ei = (ei + usize(1));
               });
@@ -934,7 +1292,7 @@ merge_and_check_envs :: (
                 match(
                   base_var.consumed_at_token,
                   .None => {
-                    base_var.consumed_at_token = Option(Token).Some(ct);
+                    base_var.consumed_at_token = Option(Box(Token)).Some(box(ct.clone()));
                   },
                   .Some(_) => ()
                 );
@@ -965,7 +1323,7 @@ merge_and_check_envs :: (
               match(
                 first_tok,
                 .Some(t) => {
-                  base_var.consumed_at_token = Option(Token).Some(t);
+                  base_var.consumed_at_token = Option(Box(Token)).Some(box(t.clone()));
                 },
                 .None => ()
               );
@@ -984,7 +1342,7 @@ merge_and_check_envs :: (
                 );
                 err_tok := match(tok_opt,.Some(t) => t,.None => body_tok);
                 {
-                  ___ := err_list.push(TokenAndError(token : err_tok, error_message : msg));
+                  err_list.push(TokenAndError(token : err_tok, error_message : msg));
                 };
                 eci = (eci + usize(1));
               });
@@ -1027,7 +1385,7 @@ merge_and_check_envs :: (
               );
               err_tok := match(tok_opt,.Some(t) => t,.None => body_tok);
               {
-                ___ := err_list.push(TokenAndError(token : err_tok, error_message : msg));
+                err_list.push(TokenAndError(token : err_tok, error_message : msg));
               };
               oei = (oei + usize(1));
             });
@@ -1039,7 +1397,7 @@ merge_and_check_envs :: (
           (has_reassignment : bool) = false;
           (rid_i : usize) = usize(0);
           while(rid_i < n_cases, {
-            case_id := match(var_ids.get(rid_i),.Some(s) => s,.None => String.from(""));
+            case_id := match(var_ids.get(rid_i),.Some(s) => s,.None => usize(0));
             if(case_id != original_id, {
               has_reassignment = true;
             });
@@ -1048,7 +1406,7 @@ merge_and_check_envs :: (
           if(has_reassignment, {
             new_id := generate_variable_id(env.module_path, var_name);
             base_var.id = new_id;
-            base_var.value = Option(EvalValue).None;
+            base_var.value = value_cell_of(Option(EvalValue).None);
             base_var.is_owning_the_same_rc_value_as = Option(Box(Variable)).None;
           });
           var_j = (var_j + usize(1));
@@ -1074,7 +1432,7 @@ _try_resolve_last_var :: (fn(vars : ArrayList(Variable)) -> Option(EvalValue))(
       vars.get(vars.len() - usize(1)),
       .None => Option(EvalValue).None,
       .Some(last) => match(
-        last.value,
+        last.value.get(usize(0)),
         .None => Option(EvalValue).None,
         .Some(v) => cond(
           ((is_unknown_val(v)) || (is_var_ref(v))) => Option(EvalValue).None,
@@ -1160,9 +1518,9 @@ are_values_equal :: (
       )
     },
     // val1 is UnknownVal: compare types with are_types_compatible.
-    .UnknownVal(ty1) => match(
+    .UnknownVal(ty1, _) => match(
       val2,
-      .UnknownVal(ty2) => are_types_compatible(ty1.*, ty2.*),
+      .UnknownVal(ty2, _) => are_types_compatible(ty1, ty2),
       _ => false
     ),
     // val1 is a concrete value.
@@ -1175,7 +1533,19 @@ are_values_equal :: (
         match(resolved2,.Some(r2) => recur(val1, env1, r2, env2),.None => false)
       },
       // val2 is UnknownVal: not equal to a concrete value.
-      .UnknownVal(_) => false,
+      .UnknownVal(_, _) => false,
+      // Two TYPE values compare by EXACT type compatibility, not structurally
+      // (TS value.ts:699-705: `areTypesCompatible(expected, given, /* exact */
+      // true)`; val1 is the expected side, and yo-self's argument order is
+      // (actual, expected)). Overload selection on `= <value>` type
+      // parameters relies on this branch (helper.ts:481-497 → calls/helper.yo
+      // Step 5b): `TryInto(i32).try_into` vs `TryInto(i64).try_into` differ
+      // ONLY in the assigned `_To` value.
+      .TypeVal(ty2) => match(
+        val1,
+        .TypeVal(ty1) => are_types_compatible_exact(ty2, ty1),
+        _ => (val1 == val2)
+      ),
       // Both concrete: structural equality.
       _ => (val1 == val2)
     )
@@ -1282,6 +1652,7 @@ export(
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
 export(set_expr_as_needs_to_call_dup);
+export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);
 export(doc_comment_lookup_key_from_token);
 export(consume_case_body_temp_var, merge_and_check_envs);

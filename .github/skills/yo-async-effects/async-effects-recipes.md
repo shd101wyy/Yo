@@ -322,11 +322,11 @@ A function can be polymorphic over the effect bundle a Future carries by quantif
 over `E : Type.Struct`:
 
 ```rust
-wait_then :: (fn(forall(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T)(
+wait_then :: (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T)(
   io.await(fut, e)
 );
 ```
 
-- `forall(E : Type.Struct)` constrains `E` to be a struct (so its fields can be looked
+- `generic(E : Type.Struct)` constrains `E` to be a struct (so its fields can be looked
   up at call sites and injected into the underlying state machine).
 - See [ALGEBRAIC_EFFECTS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ALGEBRAIC_EFFECTS.md) for the full design.

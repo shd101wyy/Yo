@@ -1,3 +1,4 @@
+{ assert } :: import("std/assert");
 // Regression tests for: Impl(Fn(...)) is not a valid struct/enum/union field type.
 // See: issues/impl-fn-in-struct-field.md
 test("Impl(Fn) in struct field is rejected", {
@@ -10,9 +11,11 @@ test("Impl(Fn) in struct field is rejected", {
 });
 test("Impl(Fn) in object field is rejected", {
   comptime_expect_error({
-    BadObject :: object(
-      value : i32,
-      cb : Impl(Fn(x : i32) -> i32)
+    BadObject :: ref(
+      struct(
+        value : i32,
+        cb : Impl(Fn(x : i32) -> i32)
+      )
     );
   });
 });
@@ -25,9 +28,11 @@ test("Impl(Fn) in enum variant field is rejected", {
   });
 });
 // --- Workarounds: confirm Dyn(Fn(...)) and generic-over-F both work ---
-WithDynCb :: object(
-  value : i32,
-  cb : Dyn(Fn(x : i32) -> i32)
+WithDynCb :: ref(
+  struct(
+    value : i32,
+    cb : Dyn(Fn(x : i32) -> i32)
+  )
 );
 make_dyn_adder :: (fn(n : i32) -> WithDynCb)(
   WithDynCb(

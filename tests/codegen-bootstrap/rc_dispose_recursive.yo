@@ -1,0 +1,29 @@
+// Regression: freeing an RC struct must recursively drop an RC value held only
+// through a VALUE-ENUM field — `next : Option(Self)`. This is the p4 case from
+// plans/archive/YO_SELF_RC_EMISSION_LAYER.md §10: `b := N(5, Some(a))` moves `a` into
+// `b.next`; when `b` is dropped at scope end, its auto-derived `___dispose` must
+// drop `b.next` (an `Option(N)`), whose per-variant drop must in turn decrement
+// the inner `N` — else `a` leaks. Exercises both halves of the fix: the struct
+// `___dispose` synthesis AND the INLINE value-enum per-variant drop. Acyclic, so
+// RC alone reclaims everything on scope exit (no `Gc.collect` needed); we assert
+// `after == before` and emit a count-independent string for the differential.
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio.yo"));
+Gc :: import("std/gc");
+N :: ref(struct(v : i32, next : Option(Self)));
+build_and_drop :: (fn() -> unit)({
+  a := N(4, Option(N).None);
+  b := N(5, Option(N).Some(a)); // a moved into b.next
+  (); // a + b dropped at scope end; dropping b must recurse into b.next -> a
+});
+main :: (fn() -> unit)({
+  before := Gc.tracked_count();
+  build_and_drop();
+  after := Gc.tracked_count();
+  if(after == before, {
+    unsafe(printf("recursive dispose freed all\n"));
+  }, {
+    unsafe(printf("recursive dispose leaked\n"));
+  });
+});
+export(main);

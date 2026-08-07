@@ -173,13 +173,13 @@ Pass \`${varName}\` as a regular function parameter instead of capturing it in a
 
   // Check if the closure body type matches the closure return type
   const closureBodyReturnType = evaluatedClosureBody.$.type;
-  // Synthesize the return-type forall vars from the closure body's
+  // Synthesize the return-type generic vars from the closure body's
   // actual return type. The closure's `fnTraitType` is the EXPECTED
   // Fn(e : E) -> T pulled from the surrounding call site (e.g.
   // `io.async`'s `action : Impl(Fn(e : E) -> T)` where E and T are
-  // async's outer forall vars). After body evaluation we know what
+  // async's outer generic vars). After body evaluation we know what
   // T concretely is — synthesize against the trait's return type so
-  // the outer forall(T) gets bound and the io.async call can derive
+  // the outer generic(T) gets bound and the io.async call can derive
   // `Impl(Future(T, E))` correctly. Without this, the compatibility
   // check below silently accepts the SomeType match but leaves T (and
   // by extension E, when the closure body uses other fields of E)
@@ -192,7 +192,7 @@ Pass \`${varName}\` as a regular function parameter instead of capturing it in a
     );
   } catch {
     // synthesizeTypes is best-effort here — if it fails (e.g. the
-    // return is unrelated to any forall) the compatibility check
+    // return is unrelated to any generic) the compatibility check
     // below still gates correctness.
   }
   if (

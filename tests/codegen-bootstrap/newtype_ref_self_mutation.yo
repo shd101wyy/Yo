@@ -1,0 +1,15 @@
+pragma(Pragma.AllowUnsafe);
+{ putchar } :: import("std/libc/stdio");
+Wrap :: newtype(v : i32);
+impl(
+  Wrap,
+  bump : (fn(inout(self) : Self) -> unit)({
+    self.v = (self.v + i32(1));
+  })
+);
+main :: (fn() -> unit)({
+  w := Wrap(v : i32(64));
+  w.bump();
+  unsafe(putchar(int(w.v)));
+});
+export(main);

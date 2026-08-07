@@ -15,14 +15,16 @@ ArrayListError :: enum(
 /// Generic growable array similar to Rust's `Vec<T>`.
 /// Heap-allocated with automatic resizing and reference-counted cleanup.
 ArrayList :: (fn(comptime(T) : Type) -> comptime(Type))(
-  object(
-    _ptr : ?*(T),
-    _length : usize,
-    _capacity : usize
+  ref(
+    struct(
+      _ptr : ?*(T),
+      _length : usize,
+      _capacity : usize
+    )
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   ArrayList(T),
   len : (fn(self : Self) -> usize)({
     return(self._length);
@@ -46,7 +48,7 @@ impl(
       (new_len <= self._capacity) => {
         self._length = new_len;
       },
-      true => panic("set_len: new length exceeds capacity")
+      true => __yo_panic("set_len: new length exceeds capacity")
     );
   }),
   /**
@@ -62,11 +64,11 @@ impl(
   /**
   * Create an ArrayList by copying the elements of a fixed-size array.
   * The owned-copy companion to array range-indexing
-  * (plans/SLICE_REWORK.md).
+  * (plans/archive/SLICE_REWORK.md).
   */
   /**
   * Owned copy of the elements in `[r.start, r.end)` — JS-style range
-  * slicing with value semantics (plans/SLICE_REWORK.md: `list(a..b)`
+  * slicing with value semantics (plans/archive/SLICE_REWORK.md: `list(a..b)`
   * lowers to this).
   */
   slice_copy : (fn(self : Self, r : Range(usize)) -> Self)({
@@ -100,7 +102,7 @@ impl(
     });
     out
   }),
-  from_array : (fn(forall(N : usize), arr : Array(T, N)) -> Self)({
+  from_array : (fn(generic(N : usize), arr : Array(T, N)) -> Self)({
     out := Self.with_capacity(N);
     i := usize(0);
     while(i < N, i = (i + usize(1)), {
@@ -125,7 +127,7 @@ impl(
               _length : usize(0),
               _capacity : cap
             ),
-          .None => panic("malloc returned None")
+          .None => __yo_panic("malloc returned None")
         )
       }
     )
@@ -158,7 +160,7 @@ impl(
             self._ptr =.Some(typed_ptr);
             self._capacity = new_capacity;
             // Now add the element at position length
-            target_ptr := (typed_ptr &+ self._length);
+            target_ptr := typed_ptr.add(self._length);
             consume(target_ptr.* = value);
             self._length = (self._length + usize(1));
             .Ok(())
@@ -171,12 +173,12 @@ impl(
         match(
           self._ptr,
           .Some(_ptr) => {
-            target_ptr := (_ptr &+ self._length);
+            target_ptr := _ptr.add(self._length);
             consume(target_ptr.* = value);
             self._length = (self._length + usize(1));
             .Ok(())
           },
-          .None => panic("ArrayList has capacity but no ptr")
+          .None => __yo_panic("ArrayList has capacity but no ptr")
         )
     )
   ),
@@ -192,7 +194,7 @@ impl(
           self._ptr,
           .None =>.None,
           .Some(_ptr) => {
-            last_element_ptr := (_ptr &+ self._length);
+            last_element_ptr := _ptr.add(self._length);
             last_element := last_element_ptr.*;
             // Drop the slot's reference since it's no longer tracked
             // (length was decremented, so dispose won't reach this slot)
@@ -213,7 +215,7 @@ impl(
         match(
           self._ptr,
           .None =>.None,
-          .Some(_ptr) =>.Some((_ptr &+ index).*)
+          .Some(_ptr) =>.Some((_ptr.add(index)).*)
         )
     )
   ),
@@ -244,7 +246,7 @@ impl(
             // Otherwise, reallocate to exact size
             match(
               self._ptr,
-              .None => panic("ArrayList has capacity but no ptr"),
+              .None => __yo_panic("ArrayList has capacity but no ptr"),
               .Some(old_ptr) => {
                 new_some_ptr := GlobalAllocator.realloc(
                   .Some(*(void)(old_ptr)),
@@ -271,7 +273,7 @@ impl(
           i := usize(0);
           base_ptr := self._ptr.unwrap();
           while(i < self._length, i = (i + usize(1)), {
-            element_ptr := (base_ptr &+ i);
+            element_ptr := base_ptr.add(i);
             unsafe.drop(element_ptr.*);
           });
         });
@@ -302,7 +304,7 @@ impl(
           true =>
             match(
               self._ptr,
-              .None => panic("ArrayList has length but no ptr"),
+              .None => __yo_panic("ArrayList has length but no ptr"),
               .Some(_ptr) => {
                 // Shift remaining elements left to fill the gap
                 // We need to move elements from [start + actual_count, length) to [start, ...)
@@ -310,8 +312,8 @@ impl(
                 new_length := (self._length - actual_count);
                 cond(
                   (elements_after > usize(0)) => {
-                    src_ptr := (_ptr &+ (start + actual_count));
-                    dst_ptr := (_ptr &+ start);
+                    src_ptr := _ptr.add(start + actual_count);
+                    dst_ptr := _ptr.add(start);
                     cond(
                       Type.contains_rc_type(T) => {
                         // For RC types, iterate and properly manage RC
@@ -321,8 +323,8 @@ impl(
                         // 3. Write to dst.*
                         i := usize(0);
                         while(i < elements_after, i = (i + usize(1)), {
-                          dst := (dst_ptr &+ i);
-                          src := (src_ptr &+ i);
+                          dst := dst_ptr.add(i);
+                          src := src_ptr.add(i);
                           dst.* = src.*;
                         });
                         // Drop the non-overlapping tail stale pointers
@@ -330,7 +332,7 @@ impl(
                         tail_start := (start + elements_after);
                         tail_count := actual_count;
                         while(j < tail_count, j = (j + usize(1)), {
-                          tail_ptr := (_ptr &+ (tail_start + j));
+                          tail_ptr := _ptr.add(tail_start + j);
                           unsafe.drop(tail_ptr.*);
                         });
                       },
@@ -355,7 +357,7 @@ impl(
                       Type.contains_rc_type(T) => {
                         i := usize(0);
                         while(i < actual_count, i = (i + usize(1)), {
-                          element_ptr := (_ptr &+ (start + i));
+                          element_ptr := _ptr.add(start + i);
                           unsafe.drop(element_ptr.*);
                         });
                       },
@@ -395,7 +397,7 @@ impl(
           true =>
             match(
               self._ptr,
-              .None => panic("ArrayList has length but no ptr"),
+              .None => __yo_panic("ArrayList has length but no ptr"),
               .Some(src_ptr) => {
                 // Create new ArrayList with exact capacity
                 new_list := Self.with_capacity(slice_length);
@@ -406,8 +408,8 @@ impl(
                     // Copy elements
                     i := usize(0);
                     while(i < slice_length, i = (i + usize(1)), {
-                      src := (src_ptr &+ (start + i));
-                      dst := (dst_ptr &+ i);
+                      src := src_ptr.add(start + i);
+                      dst := dst_ptr.add(i);
                       consume(dst.* = src.*);
                     });
                     // Set the length of the new list
@@ -453,7 +455,7 @@ impl(
             self._ptr =.Some((*(T))(new_ptr));
             self._capacity = new_capacity;
           },
-          .None => panic("ArrayList.ensure_total_capacity: allocation failed")
+          .None => __yo_panic("ArrayList.ensure_total_capacity: allocation failed")
         );
       }
     );
@@ -470,11 +472,11 @@ impl(
         match(
           self._ptr,
           .Some(dst_base) => {
-            dst := (*(void))(dst_base &+ self._length);
+            dst := (*(void))(dst_base.add(self._length));
             _ := unsafe(memcpy(dst, (*(void))(src), count * sizeof(T)));
             self._length = (self._length + count);
           },
-          .None => panic("ArrayList.extend_from_ptr: no ptr after ensure_total_capacity")
+          .None => __yo_panic("ArrayList.extend_from_ptr: no ptr after ensure_total_capacity")
         );
       }
     );
@@ -515,36 +517,40 @@ impl(
         match(
           self._ptr,
           .Some(_ptr) => {
-            start := (*(void))(_ptr &+ self._length);
+            start := (*(void))(_ptr.add(self._length));
             fill_count := ((new_len - self._length) * sizeof(T));
             _ := unsafe(memset(start, byte_val, fill_count));
             self._length = new_len;
           },
-          .None => panic("ArrayList.resize_with_byte: no ptr after ensure")
+          .None => __yo_panic("ArrayList.resize_with_byte: no ptr after ensure")
         );
       }
     );
   })
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   ArrayList(T),
   Index(usize)(
     /// The output type is the element type `T`.
     Output : T,
     /// Returns a pointer to the element at the given index. Panics if the index is out of bounds.
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))({
-      assert(idx < self._length, "ArrayList: index out of bounds");
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
+      // Bounds check via `if` + `__yo_panic` (not `assert`: this module is
+      // inside `std/assert`'s dependency cycle and cannot import it).
+      if(idx >= self._length, {
+        __yo_panic("ArrayList: index out of bounds");
+      });
       match(
         self._ptr,
-        .Some(_ptr) => (_ptr &+ idx),
-        .None => panic("ArrayList: index on empty list")
+        .Some(_ptr) => _ptr.add(idx),
+        .None => __yo_panic("ArrayList: index on empty list")
       )
     })
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   ArrayList(T),
   Dispose(
     /**
@@ -565,6 +571,32 @@ impl(
     })
   )
 );
+impl(
+  generic(T : Type),
+  ArrayList(T),
+  Trace(
+    /**
+    * Cycle-GC tracing. The elements live in a malloc'd buffer the compiler's
+    * auto-derived field walk cannot reach, so trace each element's buffer slot.
+    * `tracer.visit` takes the slot POINTER and reads it WITHOUT touching the
+    * element's reference count — a by-value managed handle would be dup'd then
+    * dropped, freeing a live element mid-collection.
+    */
+    trace : (fn(self : Self, tracer : GcTracer) -> unit)({
+      match(
+        self._ptr,
+        .Some(base) => {
+          (i : usize) = usize(0);
+          while(i < self._length, {
+            tracer.visit(base.add(i));
+            i = (i + usize(1));
+          });
+        },
+        .None => ()
+      );
+    })
+  )
+);
 // === Iterator support ===
 /**
 * Value iterator for ArrayList - yields elements by value (T)
@@ -577,11 +609,11 @@ ArrayListIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   ArrayListIter(T),
   Iterator(
     Item : T,
-    next : (fn(ref(self) : Self) -> Option(T))(
+    next : (fn(inout(self) : Self) -> Option(T))(
       cond(
         (self._index >= self._list._length) =>.None,
         true => {
@@ -594,14 +626,14 @@ impl(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   ArrayList(T),
   into_iter : (fn(self : Self) -> ArrayListIter(T))(
     ArrayListIter(T)(_list : self, _index : usize(0))
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Eq(T)),
   ArrayList(T),
   /**
@@ -615,7 +647,7 @@ impl(
         i := usize(0);
         while((i < self._length) && !(found), i = (i + usize(1)), {
           cond(
-            ((_ptr &+ i).* == value) => {
+            ((_ptr.add(i)).* == value) => {
               found = true;
             },
             true => ()
@@ -639,7 +671,7 @@ impl(
         i := usize(0);
         while((i < self._length) && !(found), i = (i + usize(1)), {
           cond(
-            ((_ptr &+ i).* == value) => {
+            ((_ptr.add(i)).* == value) => {
               result =.Some(i);
               found = true;
             },
@@ -653,7 +685,7 @@ impl(
   })
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   ArrayList(T),
   /**
   * Reverse elements in place
@@ -671,9 +703,9 @@ impl(
               i = (i + usize(1));
               j = (j - usize(1));
             }, {
-              tmp := (_ptr &+ i).*;
-              (_ptr &+ i).* = (_ptr &+ j).*;
-              (_ptr &+ j).* = tmp;
+              tmp := (_ptr.add(i)).*;
+              (_ptr.add(i)).* = (_ptr.add(j)).*;
+              (_ptr.add(j)).* = tmp;
             });
           },
           .None => ()
@@ -682,7 +714,7 @@ impl(
   })
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Ord(T)),
   ArrayList(T),
   /**
@@ -697,21 +729,21 @@ impl(
           .Some(_ptr) => {
             i := usize(1);
             while(i < self._length, i = (i + usize(1)), {
-              key := (_ptr &+ i).*;
+              key := (_ptr.add(i)).*;
               j := i;
               shifting := cond(
-                (j > usize(0)) => ((_ptr &+ (j - usize(1))).* > key),
+                (j > usize(0)) => ((_ptr.add(j - usize(1))).* > key),
                 true => false
               );
               while(shifting, (), {
-                (_ptr &+ j).* = (_ptr &+ (j - usize(1))).*;
+                (_ptr.add(j)).* = (_ptr.add(j - usize(1))).*;
                 j = (j - usize(1));
                 shifting = cond(
-                  (j > usize(0)) => ((_ptr &+ (j - usize(1))).* > key),
+                  (j > usize(0)) => ((_ptr.add(j - usize(1))).* > key),
                   true => false
                 );
               });
-              (_ptr &+ j).* = key;
+              (_ptr.add(j)).* = key;
             });
           },
           .None => ()
@@ -722,7 +754,7 @@ impl(
 /// Equality for ArrayList — two lists are equal if they have the same length
 /// and every pair of elements at corresponding indices is equal.
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Eq(T)),
   ArrayList(T),
   Eq(ArrayList(T))(
@@ -759,11 +791,11 @@ impl(
 );
 /// Clone implementation for ArrayList — deep-clones each element.
 impl(
-  forall(T : Type),
+  generic(T : Type),
   where(T <: Clone),
   ArrayList(T),
   Clone(
-    clone : (fn(ref(self) : Self) -> Self)({
+    clone : (fn(inout(self) : Self) -> Self)({
       n := self.len();
       result := Self.with_capacity(n);
       i := usize(0);
@@ -843,9 +875,9 @@ array_list :: (fn(...(quote(elems))) -> unquote(Expr))({
   })
 });
 /// Range slicing on fixed-size arrays returns an OWNED ArrayList copy
-/// (`arr(a..b)` lowers to this — plans/SLICE_REWORK.md).
+/// (`arr(a..b)` lowers to this — plans/archive/SLICE_REWORK.md).
 impl(
-  forall(T : Type, N : usize),
+  generic(T : Type, N : usize),
   Array(T, N),
   slice_copy : (fn(self : Array(T, N), r : Range(usize)) -> ArrayList(T))({
     e := cond((r.end > N) => N, true => r.end);

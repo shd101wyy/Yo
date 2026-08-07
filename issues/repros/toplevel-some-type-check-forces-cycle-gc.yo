@@ -1,0 +1,109 @@
+//! Repro: yo-self ignores the `Acyclic` marker trait when deciding
+//! `needs_cycle_gc`, so a program TS compiles with the LIGHTWEIGHT RC runtime
+//! gets the full cycle-GC runtime instead.
+//!
+//! Measure on the emitted C (`--emit-c --skip-c-compiler`):
+//!   TS      -> grep -c __yo_gc_collecting = 0   (lightweight, type_id dispatch)
+//!   yo-self -> grep -c __yo_gc_collecting = 9   (full Bacon-Rajan cycle GC)
+//!
+//! ROOT CAUSE (probe-confirmed; an earlier `Acyclic`-trait hypothesis was
+//! WRONG — yo-self's pre-scan already has the `!is_atomic_reference_struct_type`
+//! exclusion that TS has, so Mutex is never the root):
+//!
+//! A probe in `compute_needs_cycle_gc` (codegen/codegen_c.yo) naming the
+//! offending entry printed:
+//!
+//!   // PROBE cycle-root: c_name=__yo_t10 struct_root=true enum_root=false
+//!   //   ty=<struct:struct_yo_id_3049>
+//!
+//! and `__yo_t10` is a GENERIC ArrayList whose element type erased to void:
+//!
+//!   struct __yo_t10_struct {   // <struct:struct_yo_id_3049>
+//!     __yo_ref_header_t header;
+//!     void** _ptr; size_t _length; size_t _capacity;
+//!   };
+//!
+//! (TS monomorphizes these — `uint8_t* _ptr`, `size_t* _ptr`, … — and never
+//! leaves a void** one in its type table.)
+//!
+//! It is treated as a CONCRETE cycle root because the pre-scan's
+//! `!_struct_has_generic_field(ty)` guard says it has no generic field, and
+//! that guard calls `type_contains_some_type`, which in yo-self is
+//! **TOP-LEVEL ONLY** (types/utils.yo: arms for `.SomeT` and `.TypeAppT`, then
+//! `_ => false`; the module header documents the simplification). The field is
+//! `?*(E)` — a SomeT nested under Option/Ptr — so the top-level check misses
+//! it. TS's `typeContainsSomeType` is a full structural walk and returns true.
+//!
+//! So the fix is to make `type_contains_some_type` recurse structurally like
+//! TS. NOTE that is a HIGH-BLAST-RADIUS change: the predicate gates constructor
+//! emission, specialization decisions and several codegen paths, so it needs
+//! the full battery + corpus + fixpoint, and it may flip other families at the
+//! same time (the ordered-collections "dispose_fn referencing a never-emitted
+//! drop method" class is plausibly the same root).
+//!
+//!
+//! DIRECTION-OF-CHANGE WARNING. Making the predicate recurse makes it return
+//! TRUE more often, i.e. STRICTLY MORE CONSERVATIVE. The constructor loops skip
+//! types it calls generic, so the naive fix REMOVES constructors that are
+//! currently emitted and could turn green files red — the opposite of what the
+//! undeclared-ctor families need. TS gets away with the strict predicate
+//! because it monomorphizes and never leaves a `void**` ArrayList in its type
+//! table at all. MEASURED on this repro's two emits: TS has ZERO `void**`
+//! fields (its ArrayLists are all monomorphized — `uint8_t*`, `size_t*`,
+//! `__yo_struct_…_id_23*`), yo-self has EIGHT.
+//! So the real divergence may be UPSTREAM: yo-self registers a
+//! generic ArrayList in the codegen type table where TS registers only
+//! monomorphized instances. Consider fixing THAT before, or instead of,
+//! widening the predicate; at minimum land the two separately so the blast
+//! radius stays attributable.
+//!
+//! OUTCOME (2026-07-25): fixed NARROWLY — `type_contains_some_type_deep`
+//! (types/utils.yo) reuses `get_all_some_types` for the structural recursion
+//! and `type_contains_some_type` for the carve-outs, and is used ONLY in the
+//! `compute_needs_cycle_gc` pre-scan, per the warning above. Verified on this
+//! repro: gc_collecting 9 -> 0, matching TS exactly. Canaries green
+//! (cycle_collector 16/16, rc 15/15), so cycle GC is not lost where needed.
+//!
+//! It flips NO red file on its own. `sync/channel` still fails, but with a
+//! DIFFERENT error (`yo_id_5522` undeclared instead of the dispose_fn one), so
+//! this removed one layer and another remains beneath it. Landed as a
+//! faithfulness + perf fix (affected user programs now get the lightweight RC
+//! runtime instead of full Bacon-Rajan), not as a test flip.
+//!
+//! UPSTREAM FIX ATTEMPTED AND REVERTED (2026-07-25) — the warning above is
+//! EMPIRICALLY CONFIRMED, do not retry it as-is.
+//!
+//! yo-self's `collect_required_types` skip guard (codegen/types/collection.yo,
+//! the `if(type_contains_some_type(type), …)` at ~line 190, plus the two
+//! `_*_some_type_is_only_in_function_fields` field guards) uses the TOP-LEVEL
+//! predicate where TS's collection.ts:403 uses the RECURSIVE one. Swapping all
+//! three to `type_contains_some_type_deep` builds clean (hollow markers
+//! unchanged) and DOES flip `sync/channel` GREEN at 24/24 — exact TS parity.
+//!
+//! But it REGRESSES `tests/imm_list.test.yo` from GREEN (16 passed) to a hard
+//! SIGABRT (rc=134, non-empty log, so not a phantom kill). Net zero files, at
+//! the cost of breaking a working one — reverted per THE METHOD.
+//!
+//! Interpretation: skipping a type from COLLECTION also removes its typedef and
+//! constructor, so anything still referencing it breaks. TS gets away with the
+//! strict guard because it monomorphizes thoroughly enough never to reference
+//! the skipped generics; yo-self does not yet. So the collection guard is a
+//! CONSEQUENCE of incomplete monomorphization, not the root — fix the
+//! specialization gap first, then this guard can be tightened to match TS.
+//!
+//! SECOND ATTEMPT, ALSO REVERTED: narrowing to the MAIN guard only (leaving the
+//! two `_*_some_type_is_only_in_function_fields` exception helpers shallow) is
+//! WORSE, not better — imm_list still SIGABRTs AND sync/channel no longer
+//! flips. So the main guard is the breaker (not the exception helpers, as first
+//! guessed), and the exception helpers are what channel needed. Both
+//! combinations break imm_list, which reinforces that the collection guard
+//! cannot be tightened until monomorphization is complete.
+open(import("std/fmt"));
+{ Mutex } :: import("std/sync/mutex");
+
+main :: (fn() -> unit)({
+  m := Mutex(i32).new(i32(5));
+  println(`ok`);
+});
+
+export(main);

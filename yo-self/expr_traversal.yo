@@ -32,8 +32,10 @@ open(import("std/string"));
   BK_BREAK,
   BK_RETURN,
   BK_COND,
-  BK_MATCH
+  BK_MATCH,
+  BK_BEGIN
 } :: import("./expr.yo");
+{ is_io_await_call, is_io_async_call } :: import("./evaluator/async/await_analysis.yo");
 /// Traverse an evaluated expression tree checking for an `unwind` usage.
 /// Skips new function/closure boundaries; recurses into cond/match branches.
 ///
@@ -52,7 +54,7 @@ evaluated_body_contains_unwind :: (fn(e : AstExpr) -> bool)(
         // Inline traverseCondMatchBranches: recurse into each arg.
         // Branch arrows `condition => body` are NOT function boundaries:
         // recurse into both the condition and the body parts.
-        if(recur(func_box.*), {
+        if(recur(func_box), {
           return(true);
         });
         na := args.len();
@@ -88,7 +90,7 @@ evaluated_body_contains_unwind :: (fn(e : AstExpr) -> bool)(
       if(is_function_boundary_arrow(e), {
         return(false);
       });
-      if(recur(func_box.*), {
+      if(recur(func_box), {
         return(true);
       });
       n := args.len();
@@ -118,7 +120,7 @@ expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
   match(
     e,
     .Atom(_, tok) => {
-      v := tok.value.clone();
+      v := tok.value;
       (v == BK_RETURN) || (v == BF_UNWIND)
     },
     .FnCall(_, func_box, args, _, _) => {
@@ -131,7 +133,7 @@ expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
       is_cond := ast_expr_is_fn_call_of(e, BK_COND,.None);
       is_match := ast_expr_is_fn_call_of(e, BK_MATCH,.None);
       if(is_cond || is_match, {
-        if(recur(func_box.*), {
+        if(recur(func_box), {
           return(true);
         });
         na := args.len();
@@ -167,7 +169,7 @@ expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
       if(is_function_boundary_arrow(e), {
         return(false);
       });
-      if(recur(func_box.*), {
+      if(recur(func_box), {
         return(true);
       });
       n := args.len();
@@ -217,7 +219,7 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
           ast_expr_is_fn_call_of(expr, BK_MATCH,.None)
       );
       if(is_cond_or_match, {
-        if(recur(fn_box.*), {
+        if(recur(fn_box), {
           return(true);
         });
         (n_cm : usize) = args.len();
@@ -251,7 +253,7 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
         return(false);
       });
       // General case: recurse into func and all args
-      if(recur(fn_box.*), {
+      if(recur(fn_box), {
         return(true);
       });
       (n : usize) = args.len();
@@ -267,8 +269,183 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
     }
   )
 );
+/// Walk `expr` looking for an `io.await(...)` call. Skips nested `io.async(...)`
+/// scopes and function/closure boundaries (`=>`), but recurses directly into
+/// `cond`/`match` branch parts (bypassing the `=>` boundary check there).
+///
+/// Mirrors `exprContainsAwait` in `src/expr-traversal.ts`. Faithful adaptations
+/// to the yo-self AST-only convention (like the siblings above): io.await /
+/// io.async are detected via `is_io_await_call` / `is_io_async_call` (dot-access
+/// pattern) instead of the TS `Func.ioBuiltin` marker (not in yo-self's Func
+/// TypeValue); the ExprInfo-only cases (`macroExpansion`, type-value /
+/// `typeImplementsFn` callee skips) are omitted — `ExprInfo` lives in a side
+/// table not reachable from a raw `AstExpr`.
+expr_contains_await :: (fn(expr : AstExpr) -> bool)(
+  match(
+    expr,
+    .Atom(_, _) => false,
+    .FnCall(_, fn_box, args, _, _) => {
+      // io.await(future) — the await we are looking for.
+      if(is_io_await_call(expr), {
+        return(true);
+      });
+      // cond/match: recurse into branch parts directly (bypassing => at arg level).
+      (is_cond_or_match : bool) = (
+        ast_expr_is_fn_call_of(expr, BK_COND,.None) ||
+          ast_expr_is_fn_call_of(expr, BK_MATCH,.None)
+      );
+      if(is_cond_or_match, {
+        if(recur(fn_box), {
+          return(true);
+        });
+        (n_cm : usize) = args.len();
+        (i_cm : usize) = usize(0);
+        while(i_cm < n_cm, {
+          arg := match(args.get(i_cm),.Some(a) => a,.None => make_err_expr());
+          if(ast_expr_is_fn_call_of(arg, "=>",.None), {
+            match(
+              arg,
+              .Atom(_, _) => (),
+              .FnCall(_, _, branch_args, _, _) => {
+                (n_ba : usize) = branch_args.len();
+                (j : usize) = usize(0);
+                while(j < n_ba, {
+                  ba := match(branch_args.get(j),.Some(a) => a,.None => make_err_expr());
+                  if(recur(ba), {
+                    return(true);
+                  });
+                  j = (j + usize(1));
+                });
+              }
+            );
+          }, {
+            if(recur(arg), {
+              return(true);
+            });
+          });
+          i_cm = (i_cm + usize(1));
+        });
+        return(false);
+      });
+      // Skip nested io.async scopes and function/closure boundaries.
+      if(is_io_async_call(expr) || is_function_boundary_arrow(expr), {
+        return(false);
+      });
+      // General case: recurse into func and all args.
+      if(recur(fn_box), {
+        return(true);
+      });
+      (n : usize) = args.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+        if(recur(arg), {
+          return(true);
+        });
+        i = (i + usize(1));
+      });
+      false
+    }
+  )
+);
+/// TRUE when EVERY control path through the evaluated body terminates in
+/// `unwind(...)` (or a diverging builtin: `__yo_panic` / `abort` /
+/// `unreachable`) — i.e. the caller can never receive a normal return value.
+///
+/// Used by exprs/assignment.yo to relax the "Runtime variables with generic
+/// function types are not allowed" check for ctl handlers whose body always
+/// unwinds: the generic-quantified return is never delivered through the C
+/// function pointer, so the ABI mismatch the rule guards against is moot.
+///
+/// Conservative (false when unprovable); honors function/closure boundaries
+/// like `evaluated_body_contains_unwind`. `return(...)` counts as a NORMAL
+/// delivery (false). Mirrors `allPathsUnwind` (src/expr-traversal.ts:116).
+all_paths_unwind :: (fn(e : AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => false,
+    .FnCall(_, apw_func, apw_args, _, _) => {
+      if(ast_expr_is_fn_call_of(e, BF_UNWIND,.None), {
+        return(true);
+      });
+      if(ast_expr_is_fn_call_of(e, BK_RETURN,.None), {
+        return(false);
+      });
+      match(
+        apw_func,
+        .Atom(_, apw_ftok) => {
+          if(((apw_ftok.value == "__yo_panic") || (apw_ftok.value == "abort")) || (apw_ftok.value == "unreachable"), {
+            return(true);
+          });
+        },
+        _ => ()
+      );
+      if(is_function_boundary_arrow(e), {
+        return(false);
+      });
+      if(ast_expr_is_fn_call_of(e, BK_BEGIN,.None), {
+        (apw_i : usize) = usize(0);
+        while(apw_i < apw_args.len(), {
+          match(
+            apw_args.get(apw_i),
+            .Some(apw_a) => if(recur(apw_a), {
+              return(true);
+            }),
+            .None => ()
+          );
+          apw_i = (apw_i + usize(1));
+        });
+        return(false);
+      });
+      apw_is_match := ast_expr_is_fn_call_of(e, BK_MATCH,.None);
+      if(ast_expr_is_fn_call_of(e, BK_COND,.None) || apw_is_match, {
+        (apw_has_default : bool) = false;
+        (apw_all_unwind : bool) = true;
+        (apw_has_arm : bool) = false;
+        (apw_j : usize) = if(apw_is_match, usize(1), usize(0));
+        while(apw_j < apw_args.len(), {
+          apw_arm := match(apw_args.get(apw_j),.Some(a) => a,.None => make_err_expr());
+          if(ast_expr_is_fn_call_of(apw_arm, "=>",.None), {
+            apw_arm_args := match(apw_arm,.FnCall(_, _, aa, _, _) => aa,.Atom(_, _) => ArrayList(AstExpr).new());
+            if(apw_arm_args.len() >= usize(2), {
+              apw_has_arm = true;
+              match(
+                apw_arm_args.get(usize(0)),
+                .Some(apw_c) => match(
+                  apw_c,
+                  .Atom(_, apw_ctok) => if((apw_ctok.value == "true") || (apw_ctok.value == "_"), {
+                    apw_has_default = true;
+                  }),
+                  _ => ()
+                ),
+                .None => ()
+              );
+              match(
+                apw_arm_args.get(usize(1)),
+                .Some(apw_b) => if(!(recur(apw_b)), {
+                  apw_all_unwind = false;
+                }),
+                .None => ()
+              );
+            });
+          });
+          apw_j = (apw_j + usize(1));
+        });
+        return((apw_has_arm && apw_has_default) && apw_all_unwind);
+      });
+      if(ast_expr_is_fn_call_of(e, "if",.None) && (apw_args.len() >= usize(3)), {
+        apw_then := match(apw_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+        apw_else := match(apw_args.get(usize(2)),.Some(a) => a,.None => make_err_expr());
+        return(recur(apw_then) && recur(apw_else));
+      });
+      false
+    }
+  )
+);
 export(
   evaluated_body_contains_unwind,
   expr_tree_contains_return,
-  expr_contains_loop_terminator
+  expr_contains_loop_terminator,
+  expr_contains_await,
+  all_paths_unwind
 );

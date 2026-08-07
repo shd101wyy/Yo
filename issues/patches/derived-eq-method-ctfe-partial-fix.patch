@@ -1,0 +1,88 @@
+diff --git a/yo-self/evaluator/calls/function.yo b/yo-self/evaluator/calls/function.yo
+index e62615f5..806e7fbc 100644
+--- a/yo-self/evaluator/calls/function.yo
++++ b/yo-self/evaluator/calls/function.yo
+@@ -2198,8 +2198,46 @@ evaluate_function_call :: (
+             false,
+             exn
+           );
++          // CTFE-execute comptime-returning methods. `try_to_call...`
++          // resolves the return TYPE but never runs the body
++          // (return_value is always None), and the default below fabricates
++          // an UnknownVal — fine for runtime-returning methods (e.g. derived
++          // `==` on a runtime receiver), but a comptime method like
++          // `TypeInfo.is_struct` (`-> comptime(bool)`) needs its concrete
++          // VALUE (the derive machinery asserts on it). The inline FuncVal
++          // arm and the operator-dispatch block already route comptime calls
++          // through `evaluate_comptime_fn_call`; this is the `.method()` arm
++          // doing the same. Gated on a comptime return so runtime methods
++          // keep the cheap path. `evaluate_comptime_fn_call` itself returns
++          // an UnknownVal (without executing) when any arg is unknown, so a
++          // runtime receiver is handled safely.
++          m_ret_ty := match(method_info.method_ty,.Func({ result : _mrb }) => _mrb.*, _ => t_unit());
++          m_is_comptime := match(method_info.method_ty,.Func({ result_is_comptime_only : _mrico }) => _mrico, _ => false);
++          (m_result_val : Option(EvalValue)) = if(is_type_hierarchy_type(m_ret_ty) || m_is_comptime, {
++            m_self_ty_saved := ctx.self_type;
++            match(
++              _static_dot_receiver_self_type(func_expr, ctx),
++              .Some(m_st) => {
++                ctx.self_type = Option(TypeValue).Some(m_st);
++              },
++              .None => ()
++            );
++            m_fv := match(method_info.method_val_opt,.Some(v) => v,.None => EvalValue.UnitVal);
++            m_ctfe := evaluate_comptime_fn_call(
++              Option(AstExpr).Some(evaluated_callee),
++              method_info.method_ty,
++              m_fv,
++              call_result_m.arg_values,
++              call_result_m.caller_env,
++              call_result_m.callee_env,
++              ctx,
++              exn
++            );
++            ctx.self_type = m_self_ty_saved;
++            Option(EvalValue).Some(m_ctfe.value)
++          }, Option(EvalValue).Some(_call_result_unknown(call_result_m.return_type, callee_env)));
+           out_m := new_expr_info(call_result_m.caller_env, call_result_m.return_type);
+-          out_m.value = Option(EvalValue).Some(_call_result_unknown(call_result_m.return_type, callee_env));
++          out_m.value = m_result_val;
+           out_m.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_m.runtime_arg_exprs_in_order);
+           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_m);
+           expr
+diff --git a/yo-self/main.yo b/yo-self/main.yo
+index a6eb9487..bd35276b 100644
+--- a/yo-self/main.yo
++++ b/yo-self/main.yo
+@@ -107,6 +107,7 @@ try_populate_expr_info_table :: (
+   // any evaluator coverage gap (e.g. unported HKT/RC features in prelude).
+   env := Environment.new(module_path);
+   ctx := eval_context_new(resolve_std_path(), module_path);
++  ctx.is_executing = true;
+   // Wire the proper expression-evaluator function pointer.
+   register_evaluate_expression();
+   // Drive the module body through the proper evaluator. We discard the
+@@ -395,6 +396,7 @@ _load_module_at_abs :: (fn(abs : String) -> unit)({
+   env := clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(abs.clone())));
+   env.module_path = abs.clone();
+   ctx := eval_context_new(String.from(std_path.as_str()), abs.clone());
++  ctx.is_executing = true;
+   ctx.load_module = g_demand_loader;
+   register_evaluate_expression();
+   register_loading(abs.clone(), env);
+@@ -588,6 +590,7 @@ check_single_file :: (
+   if(is_prelude, {
+     prelude_env := Environment.new(input_path.clone());
+     prelude_ctx := eval_context_new(std_path.clone(), input_path.clone());
++    prelude_ctx.is_executing = true;
+     register_evaluate_expression();
+     println(`check: invoking evaluate_anonymous_module_begin_exprs (prelude)`);
+     // keep_frame_at_end=true so the prelude's bindings survive into the
+@@ -632,6 +635,7 @@ check_single_file :: (
+   env := clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(entry_abs.clone())));
+   env.module_path = entry_abs.clone();
+   ctx := eval_context_new(std_path.clone(), entry_abs.clone());
++  ctx.is_executing = true;
+   ctx.load_module = g_demand_loader;
+   register_evaluate_expression();
+   register_loading(entry_abs.clone(), env);

@@ -1,0 +1,155 @@
+//! Tests for type_to_string and are_types_compatible.
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TypeValue } :: import("../../yo-self/types/definitions.yo");
+{ t_unit, t_bool, t_i32, t_i64, t_u8, t_f32, t_f64, t_usize, t_comptime_int, t_comptime_float, t_comptime_string, t_ptr, t_array, t_expr_t, t_comptime_list, t_effects_row, t_type_app, t_iso, t_dyn, t_dyn_simple, t_fn_trait, t_fn_trait_simple, t_future_trait, t_future_trait_simple, t_some_t, generate_some_type_id } :: import("../../yo-self/types/creators.yo");
+{ type_to_string } :: import("../../yo-self/types/string.yo");
+{ are_types_compatible, are_types_compatible_exact, are_function_types_compatible } :: import("../../yo-self/types/compatibility.yo");
+{ assert, panic } :: import("std/assert");
+assert_str_eq :: (fn(actual : String, expected : String, msg : str) -> unit)(
+  if(actual == expected, (), {
+    println(`assert_str_eq FAILED: expected="${expected}" actual="${actual}" — ${msg}`);
+    assert(false, msg);
+  })
+);
+// ─── type_to_string ──────────────────────────────────────────────────────────
+test("type_to_string primitives", {
+  assert_str_eq(type_to_string(t_unit()), `unit`, "unit");
+  assert_str_eq(type_to_string(t_bool()), `bool`, "bool");
+  assert_str_eq(type_to_string(t_i32()), `i32`, "i32");
+  assert_str_eq(type_to_string(t_u8()), `u8`, "u8");
+  assert_str_eq(type_to_string(t_f64()), `f64`, "f64");
+  assert_str_eq(type_to_string(t_usize()), `usize`, "usize");
+  assert_str_eq(type_to_string(t_comptime_int()), `comptime_int`, "comptime_int");
+  assert_str_eq(type_to_string(t_comptime_float()), `comptime_float`, "comptime_float");
+  assert_str_eq(type_to_string(t_comptime_string()), `comptime_str`, "comptime_str");
+});
+test("type_to_string compound", {
+  assert_str_eq(type_to_string(t_ptr(t_i32())), `*(i32)`, "*(i32)");
+  assert_str_eq(type_to_string(TypeValue.Str), `str`, "str");
+  assert_str_eq(type_to_string(t_ptr(t_ptr(t_i64()))), `*(*(i64))`, "**(i64)");
+  // Array length is rendered as its usize literal
+  assert_str_eq(type_to_string(t_array(t_i32(), usize(8))), `Array(i32, 8)`, "Array(i32,8)");
+});
+// ─── are_types_compatible ────────────────────────────────────────────────────
+test("compatibility — same primitives", {
+  assert(are_types_compatible(t_i32(), t_i32()), "i32 ~ i32");
+  assert(are_types_compatible(t_unit(), t_unit()), "unit ~ unit");
+  assert(!(are_types_compatible(t_i32(), t_i64())), "i32 !~ i64");
+  assert(!(are_types_compatible(t_i32(), t_u8())), "i32 !~ u8 (sign)");
+  assert(!(are_types_compatible(t_f32(), t_f64())), "f32 !~ f64");
+});
+test("compatibility — comptime widening", {
+  assert(are_types_compatible(t_comptime_int(), t_i32()), "ci ~ i32");
+  assert(are_types_compatible(t_comptime_int(), t_u8()), "ci ~ u8");
+  assert(are_types_compatible(t_comptime_int(), t_usize()), "ci ~ usize");
+  assert(are_types_compatible(t_comptime_int(), t_f32()), "ci ~ f32 (int → float widen)");
+  assert(are_types_compatible(t_comptime_float(), t_f64()), "cf ~ f64");
+  // Reverse direction does not widen
+  assert(!(are_types_compatible(t_i32(), t_comptime_int())), "i32 !~ ci");
+  assert(!(are_types_compatible(t_f32(), t_comptime_float())), "f32 !~ cf");
+});
+test("compatibility — pointers and slices recurse", {
+  assert(are_types_compatible(t_ptr(t_i32()), t_ptr(t_i32())), "*(i32) ~ *(i32)");
+  assert(!(are_types_compatible(t_ptr(t_i32()), t_ptr(t_i64()))), "*(i32) !~ *(i64)");
+  assert(are_types_compatible(TypeValue.Str, TypeValue.Str), "str ~ str");
+  assert(
+    are_types_compatible(
+      t_ptr(t_ptr(t_i32())),
+      t_ptr(t_ptr(t_i32()))
+    ),
+    "**(i32) ~ **(i32)"
+  );
+});
+test("compatibility — arrays require equal length", {
+  assert(are_types_compatible(t_array(t_i32(), usize(4)), t_array(t_i32(), usize(4))), "len match");
+  assert(!(are_types_compatible(t_array(t_i32(), usize(4)), t_array(t_i32(), usize(5)))), "len mismatch");
+  assert(!(are_types_compatible(t_array(t_i32(), usize(4)), t_array(t_i64(), usize(4)))), "elem mismatch");
+});
+// ─── Phase 2f: type_to_string for new variants ───────────────────────────────
+test("type_to_string ExprT", {
+  assert_str_eq(type_to_string(t_expr_t()), `Expr`, "ExprT");
+});
+test("type_to_string ComptimeListT", {
+  assert_str_eq(type_to_string(t_comptime_list(t_i32())), `ComptimeList(i32)`, "ComptimeList(i32)");
+  assert_str_eq(type_to_string(t_comptime_list(t_expr_t())), `ComptimeList(Expr)`, "ComptimeList(Expr)");
+});
+test("type_to_string IsoT", {
+  assert_str_eq(type_to_string(t_iso(t_i32())), `iso(i32)`, "iso(i32)");
+});
+test("type_to_string DynT empty", {
+  assert_str_eq(type_to_string(t_dyn_simple(ArrayList(TypeValue).new())), `dyn()`, "dyn() empty");
+});
+test("type_to_string FnTraitT simple", {
+  assert_str_eq(
+    type_to_string(t_fn_trait_simple(String.from("Fn"), ArrayList(TypeValue).new(), t_unit())),
+    `Fn() -> unit`,
+    "Fn() -> unit"
+  );
+});
+test("type_to_string FutureTraitT simple", {
+  assert_str_eq(
+    type_to_string(t_future_trait_simple(String.from("Io"), t_unit())),
+    `Future[Io](unit)`,
+    "Future[Io](unit)"
+  );
+});
+test("type_to_string EffectsRowT", {
+  labels := ArrayList(String).new();
+  types := ArrayList(TypeValue).new();
+  assert_str_eq(type_to_string(t_effects_row(labels, types)), `EffectsRow()`, "empty effects row");
+});
+// ─── Phase 2f: compatibility for new variants ────────────────────────────────
+test("compatibility — ExprT", {
+  assert(are_types_compatible(t_expr_t(), t_expr_t()), "Expr ~ Expr");
+  assert(!(are_types_compatible(t_expr_t(), t_i32())), "Expr !~ i32");
+  assert(!(are_types_compatible(t_i32(), t_expr_t())), "i32 !~ Expr");
+});
+test("compatibility — ComptimeListT", {
+  assert(are_types_compatible(t_comptime_list(t_i32()), t_comptime_list(t_i32())), "CL(i32) ~ CL(i32)");
+  assert(!(are_types_compatible(t_comptime_list(t_i32()), t_comptime_list(t_i64()))), "CL(i32) !~ CL(i64)");
+  assert(!(are_types_compatible(t_comptime_list(t_i32()), t_i32())), "CL !~ i32");
+});
+test("compatibility — IsoT", {
+  assert(are_types_compatible(t_iso(t_i32()), t_iso(t_i32())), "iso(i32) ~ iso(i32)");
+  assert(!(are_types_compatible(t_iso(t_i32()), t_iso(t_i64()))), "iso(i32) !~ iso(i64)");
+});
+test("compatibility — DynT subset rule", {
+  // dyn(i32) is compatible with dyn(i32)
+  rtt_a := ArrayList(TypeValue).new();
+  rtt_a.push(t_i32());
+  rtt_e := ArrayList(TypeValue).new();
+  rtt_e.push(t_i32());
+  a := t_dyn_simple(rtt_a);
+  e := t_dyn_simple(rtt_e);
+  assert(are_types_compatible(a, e), "dyn(i32) ~ dyn(i32)");
+  // dyn(i32+i64) is compatible with dyn(i32) — actual is a superset
+  rtt_b := ArrayList(TypeValue).new();
+  rtt_b.push(t_i32());
+  rtt_b.push(t_i64());
+  assert(are_types_compatible(t_dyn_simple(rtt_b), e), "dyn(i32+i64) ~ dyn(i32)");
+  // dyn(i32) is NOT compatible with dyn(i64) — missing trait
+  rtt_c := ArrayList(TypeValue).new();
+  rtt_c.push(t_i64());
+  assert(!(are_types_compatible(t_dyn_simple(rtt_a), t_dyn_simple(rtt_c))), "dyn(i32) !~ dyn(i64)");
+});
+test("compatibility — FnTraitT structural", {
+  fn1 := t_fn_trait_simple(String.from("Fn"), ArrayList(TypeValue).new(), t_unit());
+  fn2 := t_fn_trait_simple(String.from("Fn"), ArrayList(TypeValue).new(), t_unit());
+  fn3 := t_fn_trait_simple(String.from("FnMut"), ArrayList(TypeValue).new(), t_unit());
+  assert(are_types_compatible(fn1, fn2), "Fn()→unit ~ Fn()→unit");
+  assert(!(are_types_compatible(fn1, fn3)), "Fn !~ FnMut");
+});
+test("compatibility — FutureTraitT simple", {
+  f1 := t_future_trait_simple(String.from("Io"), t_unit());
+  f2 := t_future_trait_simple(String.from("Io"), t_unit());
+  f3 := t_future_trait_simple(String.from("Io"), t_i32());
+  assert(are_types_compatible(f1, f2), "Future[Io](unit) ~ Future[Io](unit)");
+  assert(!(are_types_compatible(f1, f3)), "Future[Io](unit) !~ Future[Io](i32)");
+});
+test("compatibility — are_types_compatible_exact no comptime widening", {
+  assert(!(are_types_compatible_exact(t_comptime_int(), t_i32())), "ci !~exact i32");
+  assert(are_types_compatible_exact(t_comptime_int(), t_comptime_int()), "ci ~exact ci");
+  assert(are_types_compatible_exact(t_i32(), t_i32()), "i32 ~exact i32");
+});

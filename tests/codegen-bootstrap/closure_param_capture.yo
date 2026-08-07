@@ -1,0 +1,32 @@
+// A dyn closure capturing BOTH a local HashMap and the enclosing function's
+// Impl(Fn) PARAM: the param must bind runtime (capturable), its capture-struct
+// field must order after the captured closure's own capture struct, and the
+// dyn-box specialization must collect (resolved_concrete carve-out).
+open(import("std/fmt"));
+open(import("std/string"));
+{ HashMap } :: import("std/collections/hash_map");
+
+Detector :: struct(detect : Dyn(Fn(x : i32) -> unit));
+
+run_detector :: (fn(d : Detector, x : i32) -> unit)({
+  (d.detect)(x);
+});
+
+analyze :: (
+  fn(get_info : Impl(Fn(e : i32) -> i32)) -> unit
+)({
+  extras := HashMap(String, i32).new();
+  d := Detector(
+    detect : dyn((x) => {
+      _s := extras.set(`k${x}`, get_info(x));
+      ()
+    })
+  );
+  run_detector(d, i32(7));
+  match(extras.get(String.from("k7")),.Some(v) => println(`${v}`),.None => println(`missing`));
+});
+
+main :: (fn() -> unit)({
+  analyze((e) => (e * i32(3)));
+});
+export(main);

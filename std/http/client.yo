@@ -68,10 +68,12 @@ export(HttpError);
 // FetchOptions
 // ============================================================================
 /// Options for configuring an HTTP request.
-FetchOptions :: object(
-  method : HttpMethod,
-  headers : ArrayList(HttpHeader),
-  body : String
+FetchOptions :: ref(
+  struct(
+    method : HttpMethod,
+    headers : ArrayList(HttpHeader),
+    body : String
+  )
 );
 impl(
   FetchOptions,
@@ -191,7 +193,7 @@ _read_http_response :: (fn(stream : TcpStream, e : IoExn) -> String)({
       true => {
         i := usize(0);
         while(runtime(i < usize(n)), {
-          result.push((buf &+ i).*);
+          result.push((buf.add(i)).*);
           i = (i + usize(1));
         });
         // Check if we've received the full response by looking for

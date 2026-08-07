@@ -1,0 +1,377 @@
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ assert, panic } :: import("std/assert");
+{
+  is_local_path,
+  _url_to_dep_name,
+  _is_all_digits,
+  _parse_semver_tag,
+  _compare_semver,
+  _parse_tags_for_latest_semver,
+  _build_imports_block,
+  _append_dep_to_content,
+  parse_package_specifier,
+  dependency_exists_in_deps_file,
+  parse_dependency_names,
+  regenerate_imports_list,
+  ParsedPackage,
+  SemVer
+} :: import("../../yo-self/install_command.yo");
+// ---------------------------------------------------------------------------
+// is_local_path
+// ---------------------------------------------------------------------------
+test("is_local_path: dot is local", {
+  assert(is_local_path(String.from(".")), "dot is local");
+});
+test("is_local_path: dotdot is local", {
+  assert(is_local_path(String.from("..")), "dotdot is local");
+});
+test("is_local_path: ./foo is local", {
+  assert(is_local_path(String.from("./foo")), "./foo is local");
+});
+test("is_local_path: ../bar is local", {
+  assert(is_local_path(String.from("../bar")), "../bar is local");
+});
+test("is_local_path: /abs/path is local", {
+  assert(is_local_path(String.from("/abs/path")), "/abs is local");
+});
+test("is_local_path: user/repo is not local", {
+  assert(!(is_local_path(String.from("user/repo"))), "user/repo is not local");
+});
+test("is_local_path: https:// is not local", {
+  assert(!(is_local_path(String.from("https://github.com/user/repo"))), "https url not local");
+});
+// ---------------------------------------------------------------------------
+// _url_to_dep_name
+// ---------------------------------------------------------------------------
+test("_url_to_dep_name: strips .git and last path segment", {
+  result := _url_to_dep_name(String.from("https://github.com/user/myrepo.git"));
+  assert(result == String.from("myrepo"), "stripped .git and got last segment");
+});
+test("_url_to_dep_name: no .git suffix", {
+  result := _url_to_dep_name(String.from("https://github.com/user/mylib"));
+  assert(result == String.from("mylib"), "last segment without .git");
+});
+test("_url_to_dep_name: no slash falls back to whole string", {
+  result := _url_to_dep_name(String.from("myrepo.git"));
+  assert(result == String.from("myrepo"), "no slash, stripped .git");
+});
+test("_url_to_dep_name: plain name with no slash and no .git", {
+  result := _url_to_dep_name(String.from("myrepo"));
+  assert(result == String.from("myrepo"), "plain name unchanged");
+});
+// ---------------------------------------------------------------------------
+// _is_all_digits
+// ---------------------------------------------------------------------------
+test("_is_all_digits: all digits", {
+  assert(_is_all_digits(String.from("123")), "123 all digits");
+});
+test("_is_all_digits: empty string is false", {
+  assert(!(_is_all_digits(String.from(""))), "empty is false");
+});
+test("_is_all_digits: has letter", {
+  assert(!(_is_all_digits(String.from("12a3"))), "letter makes it false");
+});
+test("_is_all_digits: single zero", {
+  assert(_is_all_digits(String.from("0")), "single 0 is digits");
+});
+// ---------------------------------------------------------------------------
+// _parse_semver_tag
+// ---------------------------------------------------------------------------
+test("_parse_semver_tag: v1.2.3 parses correctly", {
+  result := _parse_semver_tag(String.from("v1.2.3"));
+  match(
+    result,
+    .None => assert(false, "expected Some"),
+    .Some(sv) => {
+      assert(sv.major == i32(1), "major is 1");
+      assert(sv.minor == i32(2), "minor is 2");
+      assert(sv.patch == i32(3), "patch is 3");
+    }
+  );
+});
+test("_parse_semver_tag: uppercase V prefix parses correctly", {
+  result := _parse_semver_tag(String.from("V2.0.0"));
+  match(
+    result,
+    .None => assert(false, "expected Some"),
+    .Some(sv) => {
+      assert(sv.major == i32(2), "major is 2");
+      assert(sv.minor == i32(0), "minor is 0");
+      assert(sv.patch == i32(0), "patch is 0");
+    }
+  );
+});
+test("_parse_semver_tag: no prefix parses correctly", {
+  result := _parse_semver_tag(String.from("3.4.5"));
+  match(
+    result,
+    .None => assert(false, "expected Some"),
+    .Some(sv) => {
+      assert(sv.major == i32(3), "major is 3");
+      assert(sv.minor == i32(4), "minor is 4");
+      assert(sv.patch == i32(5), "patch is 5");
+    }
+  );
+});
+test("_parse_semver_tag: empty string returns None", {
+  result := _parse_semver_tag(String.from(""));
+  match(
+    result,
+    .None => assert(true, "None as expected"),
+    .Some(_) => assert(false, "expected None for empty")
+  );
+});
+test("_parse_semver_tag: only two parts returns None", {
+  result := _parse_semver_tag(String.from("v1.2"));
+  match(
+    result,
+    .None => assert(true, "None as expected"),
+    .Some(_) => assert(false, "expected None for v1.2")
+  );
+});
+test("_parse_semver_tag: non-numeric part returns None", {
+  result := _parse_semver_tag(String.from("v1.beta.3"));
+  match(
+    result,
+    .None => assert(true, "None as expected"),
+    .Some(_) => assert(false, "expected None for v1.beta.3")
+  );
+});
+// ---------------------------------------------------------------------------
+// _compare_semver
+// ---------------------------------------------------------------------------
+test("_compare_semver: equal versions return(0)", {
+  a := SemVer(tag : String.from("v1.0.0"), major : i32(1), minor : i32(0), patch : i32(0));
+  b := SemVer(tag : String.from("v1.0.0"), major : i32(1), minor : i32(0), patch : i32(0));
+  assert(_compare_semver(a, b) == i32(0), "equal versions give 0");
+});
+test("_compare_semver: higher major wins", {
+  a := SemVer(tag : String.from("v2.0.0"), major : i32(2), minor : i32(0), patch : i32(0));
+  b := SemVer(tag : String.from("v1.9.9"), major : i32(1), minor : i32(9), patch : i32(9));
+  assert(_compare_semver(a, b) > i32(0), "a > b by major");
+});
+test("_compare_semver: higher minor wins when major equal", {
+  a := SemVer(tag : String.from("v1.3.0"), major : i32(1), minor : i32(3), patch : i32(0));
+  b := SemVer(tag : String.from("v1.2.9"), major : i32(1), minor : i32(2), patch : i32(9));
+  assert(_compare_semver(a, b) > i32(0), "a > b by minor");
+});
+test("_compare_semver: higher patch wins when major and minor equal", {
+  a := SemVer(tag : String.from("v1.2.3"), major : i32(1), minor : i32(2), patch : i32(3));
+  b := SemVer(tag : String.from("v1.2.2"), major : i32(1), minor : i32(2), patch : i32(2));
+  assert(_compare_semver(a, b) > i32(0), "a > b by patch");
+});
+// ---------------------------------------------------------------------------
+// _parse_tags_for_latest_semver
+// ---------------------------------------------------------------------------
+test("_parse_tags_for_latest_semver: empty input returns None", {
+  result := _parse_tags_for_latest_semver(String.from(""));
+  match(
+    result,
+    .None => assert(true, "None for empty"),
+    .Some(_) => assert(false, "expected None for empty input")
+  );
+});
+test("_parse_tags_for_latest_semver: picks highest semver tag", {
+  raw := String.from("abc123\trefs/tags/v1.0.0\n").concat(
+    String.from("def456\trefs/tags/v2.1.0\n")
+  ).concat(
+    String.from("ghi789\trefs/tags/v1.5.3\n")
+  );
+  result := _parse_tags_for_latest_semver(raw);
+  match(
+    result,
+    .None => assert(false, "expected Some"),
+    .Some(tag) => assert(tag == String.from("v2.1.0"), "highest tag is v2.1.0")
+  );
+});
+test("_parse_tags_for_latest_semver: ignores non-tag refs", {
+  raw := String.from("abc123\trefs/heads/main\n").concat(
+    String.from("def456\trefs/tags/v0.3.1\n")
+  );
+  result := _parse_tags_for_latest_semver(raw);
+  match(
+    result,
+    .None => assert(false, "expected Some"),
+    .Some(tag) => assert(tag == String.from("v0.3.1"), "picks the tag")
+  );
+});
+// ---------------------------------------------------------------------------
+// parse_package_specifier
+// ---------------------------------------------------------------------------
+test("parse_package_specifier: user/repo shorthand", {
+  result := parse_package_specifier(String.from("user/myrepo"));
+  match(
+    result,
+    .Err(msg) => assert_dyn(false, msg),
+    .Ok(pkg) => match(
+      pkg,
+      .Path(_, _) => assert(false, "expected Git"),
+      .Git(name, url, pinned_ref) => {
+        assert(name == String.from("myrepo"), "name is myrepo");
+        assert(url == String.from("https://github.com/user/myrepo.git"), "url is github https");
+        match(
+          pinned_ref,
+          .None => assert(true, "no pinned ref"),
+          .Some(_) => assert(false, "no ref expected")
+        );
+      }
+    )
+  );
+});
+test("parse_package_specifier: user/repo@v1.2.3 pinned", {
+  result := parse_package_specifier(String.from("user/myrepo@v1.2.3"));
+  match(
+    result,
+    .Err(msg) => assert_dyn(false, msg),
+    .Ok(pkg) => match(
+      pkg,
+      .Path(_, _) => assert(false, "expected Git"),
+      .Git(name, url, pinned_ref) => {
+        assert(name == String.from("myrepo"), "name is myrepo");
+        match(
+          pinned_ref,
+          .None => assert(false, "expected pinned ref"),
+          .Some(ref) => assert(ref == String.from("v1.2.3"), "pinned ref is v1.2.3")
+        );
+      }
+    )
+  );
+});
+test("parse_package_specifier: full https URL", {
+  result := parse_package_specifier(String.from("https://github.com/user/repo.git"));
+  match(
+    result,
+    .Err(msg) => assert_dyn(false, msg),
+    .Ok(pkg) => match(
+      pkg,
+      .Path(_, _) => assert(false, "expected Git"),
+      .Git(name, url, _) => {
+        assert(name == String.from("repo"), "name from url");
+        assert(url == String.from("https://github.com/user/repo.git"), "url preserved");
+      }
+    )
+  );
+});
+test("parse_package_specifier: local path", {
+  result := parse_package_specifier(String.from("./my-lib"));
+  match(
+    result,
+    .Err(msg) => assert_dyn(false, msg),
+    .Ok(pkg) => match(
+      pkg,
+      .Git(_, _, _) => assert(false, "expected Path"),
+      .Path(name, rel_path) => {
+        assert(name == String.from("my-lib"), "name is my-lib");
+        assert(rel_path == String.from("./my-lib"), "rel_path preserved");
+      }
+    )
+  );
+});
+test("parse_package_specifier: invalid specifier returns Err", {
+  result := parse_package_specifier(String.from("notvalid"));
+  match(
+    result,
+    .Ok(_) => assert(false, "expected Err for invalid spec"),
+    .Err(_) => assert(true, "got Err as expected")
+  );
+});
+// ---------------------------------------------------------------------------
+// dependency_exists_in_deps_file
+// ---------------------------------------------------------------------------
+test("dependency_exists_in_deps_file: finds git dep", {
+  content := String.from(
+    "mylib :: build.dependency(url: \"https://github.com/u/mylib.git\", ref: \"v1.0.0\");\n"
+  );
+  assert(dependency_exists_in_deps_file(content, String.from("mylib")), "git dep found");
+});
+test("dependency_exists_in_deps_file: finds path dep", {
+  content := String.from(
+    "locallib :: build.path_dependency(path: \"./local\");\n"
+  );
+  assert(dependency_exists_in_deps_file(content, String.from("locallib")), "path dep found");
+});
+test("dependency_exists_in_deps_file: not present returns false", {
+  content := String.from(
+    "other :: build.dependency(url: \"https://github.com/u/other.git\", ref: \"v1.0.0\");\n"
+  );
+  assert(!(dependency_exists_in_deps_file(content, String.from("mylib"))), "mylib not found");
+});
+// ---------------------------------------------------------------------------
+// parse_dependency_names
+// ---------------------------------------------------------------------------
+test("parse_dependency_names: parses git deps", {
+  content := String.from("mylib :: build.dependency(url: \"https://github.com/u/mylib.git\", ref: \"v1.0.0\");\n").concat(
+    String.from("other :: build.dependency(url: \"https://github.com/u/other.git\", ref: \"main\");\n")
+  );
+  names := parse_dependency_names(content);
+  assert(names.len() == usize(2), "two deps found");
+  match(
+    names.get(usize(0)),
+    .None => assert(false, "first dep"),
+    .Some(n) => assert(n == String.from("mylib"), "first dep is mylib")
+  );
+  match(
+    names.get(usize(1)),
+    .None => assert(false, "second dep"),
+    .Some(n) => assert(n == String.from("other"), "second dep is other")
+  );
+});
+test("parse_dependency_names: parses path deps", {
+  content := String.from(
+    "locallib :: build.path_dependency(path: \"./local\");\n"
+  );
+  names := parse_dependency_names(content);
+  assert(names.len() == usize(1), "one dep found");
+  match(
+    names.get(usize(0)),
+    .None => assert(false, "first dep"),
+    .Some(n) => assert(n == String.from("locallib"), "dep is locallib")
+  );
+});
+test("parse_dependency_names: empty content returns empty list", {
+  names := parse_dependency_names(String.from(""));
+  assert(names.len() == usize(0), "no deps in empty content");
+});
+// ---------------------------------------------------------------------------
+// _build_imports_block
+// ---------------------------------------------------------------------------
+test("_build_imports_block: empty list gives empty ComptimeList", {
+  result := _build_imports_block(ArrayList(String).new());
+  assert(result.contains(String.from("ComptimeList(build.ImportEntry)()")), "empty list form");
+  assert(result.contains(String.from("export(imports);")), "export(line present)");
+});
+test("_build_imports_block: single dep", {
+  deps := ArrayList(String).new();
+  deps.push(String.from("mylib"));
+  result := _build_imports_block(deps);
+  assert(result.contains(String.from("mylib.module()")), "module() call present");
+  assert(result.contains(String.from("export(imports);")), "export(line present)");
+});
+// ---------------------------------------------------------------------------
+// _append_dep_to_content
+// ---------------------------------------------------------------------------
+test("_append_dep_to_content: appends to empty content", {
+  dep_line := String.from("mylib :: build.dependency(url: \"https://github.com/u/mylib.git\", ref: \"v1.0.0\");");
+  result := _append_dep_to_content(String.from(""), dep_line);
+  assert(result.contains(dep_line), "dep line in result");
+  assert(result.contains(String.from("export(imports);")), "imports regenerated");
+});
+test("_append_dep_to_content: inserts after dep marker", {
+  content := String.from("// --- Dependencies ---\n").concat(
+    String.from("other :: build.dependency(url: \"https://github.com/u/other.git\", ref: \"main\");\n")
+  ).concat(
+    String.from("\n// --- Import list ---\n")
+  ).concat(
+    String.from("imports :: ComptimeList(build.ImportEntry)(\n")
+  ).concat(
+    String.from("  { name: \"other\", module: other.module() }\n")
+  ).concat(
+    String.from(");\nexport(imports);\n")
+  );
+  dep_line := String.from("mylib :: build.dependency(url: \"https://github.com/u/mylib.git\", ref: \"v1.0.0\");");
+  result := _append_dep_to_content(content, dep_line);
+  assert(result.contains(dep_line), "new dep line present");
+  assert(result.contains(String.from("other")), "existing dep preserved");
+  assert(result.contains(String.from("mylib.module()")), "mylib in imports block");
+});

@@ -1,0 +1,23 @@
+// Regression: a generic type param used INSIDE a composite parameter type —
+// `run(generic(T : Type, E : (Type.Struct)), f : (fn(e : E) -> T), e : E)` —
+// must be inferred STRUCTURALLY from the argument's type (TS: synthesizeTypes
+// per param descends into Func types, binding E := Raise, T := i32). yo-self's
+// FuncVal-path name-match inference only bound a generic used as a WHOLE param
+// type (`v : T`), leaving T/E unbound: `result := run(might_fail, raise)`
+// typed unit (assert specialized with `void flag` + `if ()`), and `run`'s
+// specialization keyed on the unresolved return SomeT was called but never
+// emitted. The effect-polymorphism tests in tests/algebraic_effects.test.yo
+// (batch arms 19/20) hit exactly this.
+open(import("std/string"));
+open(import("std/fmt"));
+_(assert : assert) :: import("std/assert");
+main :: (fn() -> unit)({
+  Raise :: (ctl(msg : String) -> i32);
+  might_fail :: (fn(raise : Raise) -> i32)(raise(`oops`));
+  run :: (fn(generic(T : Type, E : Type.Struct), f : (fn(e : E) -> T), e : E) -> T)(f(e));
+  (raise : Raise) = (msg -> begin(println(msg), return(i32(42)), ()));
+  result := run(might_fail, raise);
+  assert(result == i32(42), "effect polymorphism: should be 42");
+  println(`ok`);
+});
+export(main);

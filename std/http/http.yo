@@ -23,7 +23,7 @@ impl(
   )
 );
 /// An HTTP header as a name-value pair.
-HttpHeader :: object(name : String, value : String);
+HttpHeader :: ref(struct(name : String, value : String));
 impl(
   HttpHeader,
   /// Create a new header with the given name and value.
@@ -32,11 +32,13 @@ impl(
   )
 );
 /// An HTTP request with method, path, headers, and optional body.
-HttpRequest :: object(
-  method : HttpMethod,
-  path : String,
-  headers : ArrayList(HttpHeader),
-  body : String
+HttpRequest :: ref(
+  struct(
+    method : HttpMethod,
+    path : String,
+    headers : ArrayList(HttpHeader),
+    body : String
+  )
 );
 impl(
   HttpRequest,
@@ -85,11 +87,13 @@ impl(
   })
 );
 /// An HTTP response with status code, headers, and body.
-HttpResponse :: object(
-  status_code : i32,
-  status_text : String,
-  headers : ArrayList(HttpHeader),
-  body : String
+HttpResponse :: ref(
+  struct(
+    status_code : i32,
+    status_text : String,
+    headers : ArrayList(HttpHeader),
+    body : String
+  )
 );
 impl(
   HttpResponse,

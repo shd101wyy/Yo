@@ -1,0 +1,134 @@
+//! Anonymous-tuple constructor emitter — mirrors `src/codegen/exprs/tuple-fn.ts`.
+//!
+//! Emits `(<cName>){ ._0 = a, ._1 = b, ... }` for a `tuple(...)` call. If the
+//! tuple has a result variable name, emits it into a named temp and returns
+//! the temp; otherwise returns the C compound-literal inline. A zero-arg tuple
+//! is the unit value — optimized away (returns ""). Per-field deferred-dup
+//! emission for moved RC fields IS ported (rc layer 4 — without it the tuple
+//! literal aliased its field's refcount and scope-end drops over-released).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_is_fn_call } :: import("../../expr.yo");
+{ Environment } :: import("../../env.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ type_key, get_variable_type_string, get_variable_name_for_codegen } :: import("../utils/index.yo");
+{ generate_deferred_dup_expressions } :: import("./drop_dup.yo");
+/// Args of a FnCall (empty for an Atom).
+_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+  match(e,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new())
+);
+/// Build `(<cName>){ ._0 = a, ... }`, emitting into a named temp when the
+/// tuple has a result variable name. Shared by the main and fallback paths.
+_build_tuple :: (fn(arg_exprs : ArrayList(AstExpr), c_name : String, expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("")));
+  args_list := String.from("");
+  n := arg_exprs.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(
+      arg_exprs.get(i),
+      .Some(arg) => {
+        if(i > usize(0), {
+          args_list.push_str(", ");
+        });
+        args_list.push_str("._");
+        args_list.push_string(i.to_string());
+        args_list.push_str(" = ");
+        arg_code := _call_generate_expr(arg, indent.clone(), context);
+        // Deferred dup for a moved RC field (mirrors tuple-fn.ts:36-48):
+        // emit the field's deferred `___dup` expressions and reference the
+        // DUP RESULT temp — the literal owns its own +1 per field.
+        (used_dup_temp : bool) = false;
+        match(
+          context.base.get_expr_info(arg),
+          .Some(arg_ei) => match(
+            arg_ei.deferred_dup_expressions,
+            .Some(arg_dups) => if(arg_dups.len() > usize(0), {
+              generate_deferred_dup_expressions(arg, indent.clone(), context);
+              match(
+                arg_dups.get(usize(0)),
+                .Some(dup_expr) => if(ast_expr_is_fn_call(dup_expr), {
+                  match(
+                    context.base.get_expr_info(dup_expr),
+                    .Some(dup_ei) => match(
+                      dup_ei.variable_name,
+                      .Some(dup_vn) => {
+                        args_list.push_string(get_variable_name_for_codegen(dup_vn.clone(), Option(Environment).Some(dup_ei.env)));
+                        used_dup_temp = true;
+                      },
+                      .None => ()
+                    ),
+                    .None => ()
+                  );
+                }),
+                .None => ()
+              );
+            }),
+            .None => ()
+          ),
+          .None => ()
+        );
+        if(!(used_dup_temp), {
+          args_list.push_string(arg_code);
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  tuple_value := String.from("(");
+  tuple_value.push_string(c_name);
+  tuple_value.push_str("){ ");
+  tuple_value.push_string(args_list);
+  tuple_value.push_str(" }");
+  match(
+    ei.variable_name,
+    .Some(temp_var) => {
+      decl := indent.clone();
+      decl.push_string(get_variable_type_string(ei.ty, temp_var.clone(), context.base));
+      decl.push_str(" = ");
+      decl.push_string(tuple_value);
+      decl.push_str(";");
+      em := context.base.emitter;
+      em.emit_string_line(decl);
+      temp_var
+    },
+    .None => tuple_value
+  )
+});
+/// Error comment when the tuple's C type was never registered.
+_type_not_found :: (fn(ei_ty_key : String) -> String)({
+  out := String.from("/* Error: tuple type not found - typeId: ");
+  out.push_string(ei_ty_key);
+  out.push_str(" */");
+  out
+});
+/// The `tuple(...)` function call, generating a tuple value. Mirrors
+/// `generateAnonymousTuple`.
+generate_anonymous_tuple :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("// Error: tuple has no evaluation info")));
+  ty_key := type_key(ei.ty);
+  c_name_opt := context.base.get_type_c_name(ty_key.clone());
+  match(
+    ei.runtime_arg_exprs_in_order,
+    .Some(arg_exprs) => match(
+      c_name_opt,
+      .Some(c_name) => _build_tuple(arg_exprs, c_name, expr, indent, context),
+      .None => if(_args(expr).len() == usize(0), String.from(""), _type_not_found(ty_key))
+    ),
+    .None => {
+      args := _args(expr);
+      if(
+        args.len() == usize(0),
+        String.from(""),
+        match(
+          c_name_opt,
+          .Some(c_name) => _build_tuple(args, c_name, expr, indent, context),
+          .None => _type_not_found(ty_key)
+        )
+      )
+    }
+  )
+});
+export(generate_anonymous_tuple);

@@ -1,3 +1,4 @@
+{ assert } :: import("std/assert");
 // Tests for module features: impl modules, open, export, spread, module-level variables.
 { printf } :: import("std/libc/stdio");
 // ── Module basics ──
@@ -161,4 +162,18 @@ test("Test impl functions access module-level variables", {
   m_access.write_global(i32(42));
   assert(m_access.read_global() == i32(42), "should read 42 after write");
   assert(global_val == i32(42), "direct access should also see 42");
+});
+
+// Regression (issues/fixed/module-global-c-names-are-not-namespaced.md):
+// module-level globals used to be emitted with their bare Yo name as the C
+// identifier, so the same-named `g_cache` in global_a.yo and global_b.yo
+// became ONE C static — a_put() was visible through b_len() (observed 1,
+// should be 0) and one of the two initializers leaked. Module-global C names
+// now carry the module hash like every other emitted identifier class.
+test("module-level globals are isolated per module", {
+  { a_put, a_len } :: import("./module_globals/global_a.yo");
+  { b_len } :: import("./module_globals/global_b.yo");
+  a_put();
+  assert(a_len() == usize(1), "module A sees its own write");
+  assert(b_len() == usize(0), "module B's same-named global is a distinct variable");
 });

@@ -1,0 +1,229 @@
+/// Tests for yo-self/expr_info.yo — Phase 2k
+///
+/// Covers: PathCollection, path utility functions, ControlFlowKind/Flags,
+/// ComptimeRef construction, RuntimeDestructuring, ExprInfo creation.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr } :: import("../../yo-self/expr.yo");
+{ TypeValue } :: import("../../yo-self/types/definitions.yo");
+{ EvalValue } :: import("../../yo-self/value.yo");
+{ Environment } :: import("../../yo-self/env.yo");
+{ assert, panic } :: import("std/assert");
+{
+  Path,
+  PathCollection,
+  path_collection_new,
+  path_contains_path,
+  path_conflicts_with_path,
+  path_collection_conflicts_with_path_collection,
+  ControlFlowKind,
+  ControlFlowFlags,
+  control_flow_of,
+  has_control_flow,
+  has_any_control_flow,
+  merge_control_flows,
+  control_flow_to_string,
+  ComptimeRef,
+  RuntimeDestructuring,
+  ExprInfo,
+  new_expr_info
+} :: import("../../yo-self/expr_info.yo");
+// ---------------------------------------------------------------------------
+// PathCollection
+// ---------------------------------------------------------------------------
+test("path_collection_new returns empty list", {
+  pc := path_collection_new();
+  assert(pc.len() == usize(0), "expected empty PathCollection");
+});
+// ---------------------------------------------------------------------------
+// path_contains_path
+// ---------------------------------------------------------------------------
+test("path_contains_path — prefix is contained", {
+  p1 := ArrayList(String).new();
+  p1.push(String.from("x"));
+  p1.push(String.from("a"));
+  p2 := ArrayList(String).new();
+  p2.push(String.from("x"));
+  assert(path_contains_path(p1, p2), "p1=[x,a] contains p2=[x]");
+});
+test("path_contains_path — equal paths are contained", {
+  p1 := ArrayList(String).new();
+  p1.push(String.from("x"));
+  p1.push(String.from("a"));
+  p2 := ArrayList(String).new();
+  p2.push(String.from("x"));
+  p2.push(String.from("a"));
+  assert(path_contains_path(p1, p2), "equal paths are contained");
+});
+test("path_contains_path — shorter path is not contained in longer prefix", {
+  p1 := ArrayList(String).new();
+  p1.push(String.from("x"));
+  p2 := ArrayList(String).new();
+  p2.push(String.from("x"));
+  p2.push(String.from("a"));
+  assert(!(path_contains_path(p1, p2)), "[x] does not contain [x,a]");
+});
+test("path_contains_path — disjoint paths are not contained", {
+  p1 := ArrayList(String).new();
+  p1.push(String.from("x"));
+  p1.push(String.from("a"));
+  p2 := ArrayList(String).new();
+  p2.push(String.from("y"));
+  assert(!(path_contains_path(p1, p2)), "disjoint paths not contained");
+});
+// ---------------------------------------------------------------------------
+// path_conflicts_with_path
+// ---------------------------------------------------------------------------
+test("path_conflicts_with_path — conflicting paths", {
+  p1 := ArrayList(String).new();
+  p1.push(String.from("x"));
+  p2 := ArrayList(String).new();
+  p2.push(String.from("x"));
+  p2.push(String.from("a"));
+  assert(path_conflicts_with_path(p1, p2), "[x] conflicts with [x,a]");
+});
+test("path_conflicts_with_path — non-conflicting paths", {
+  p1 := ArrayList(String).new();
+  p1.push(String.from("x"));
+  p2 := ArrayList(String).new();
+  p2.push(String.from("y"));
+  assert(!(path_conflicts_with_path(p1, p2)), "[x] does not conflict with [y]");
+});
+// ---------------------------------------------------------------------------
+// path_collection_conflicts_with_path_collection
+// ---------------------------------------------------------------------------
+test("path_collection_conflicts — overlapping collections", {
+  p1 := ArrayList(String).new();
+  p1.push(String.from("a"));
+  p2 := ArrayList(String).new();
+  p2.push(String.from("a"));
+  p2.push(String.from("b"));
+  c1 := ArrayList(ArrayList(String)).new();
+  c1.push(p1);
+  c2 := ArrayList(ArrayList(String)).new();
+  c2.push(p2);
+  assert(path_collection_conflicts_with_path_collection(c1, c2), "collections conflict");
+});
+test("path_collection_conflicts — disjoint collections", {
+  p1 := ArrayList(String).new();
+  p1.push(String.from("x"));
+  p2 := ArrayList(String).new();
+  p2.push(String.from("y"));
+  c1 := ArrayList(ArrayList(String)).new();
+  c1.push(p1);
+  c2 := ArrayList(ArrayList(String)).new();
+  c2.push(p2);
+  assert(!(path_collection_conflicts_with_path_collection(c1, c2)), "disjoint collections don't conflict");
+});
+test("path_collection_conflicts — empty collections don't conflict", {
+  c1 := ArrayList(ArrayList(String)).new();
+  c2 := ArrayList(ArrayList(String)).new();
+  assert(!(path_collection_conflicts_with_path_collection(c1, c2)), "empty collections don't conflict");
+});
+// ---------------------------------------------------------------------------
+// ControlFlowKind + ControlFlowFlags
+// ---------------------------------------------------------------------------
+test("control_flow_of Return", {
+  cf := control_flow_of(ControlFlowKind.Return);
+  assert(cf.return_flag, "return(flag set)");
+  assert(!(cf.unwind_flag), "unwind(flag not set)");
+  assert(!(cf.break_flag), "break flag not set");
+  assert(!(cf.continue_flag), "continue flag not set");
+});
+test("control_flow_of Break", {
+  cf := control_flow_of(ControlFlowKind.Break);
+  assert(!(cf.return_flag), "return(not set)");
+  assert(cf.break_flag, "break set");
+});
+test("has_control_flow — correct flag", {
+  cf := control_flow_of(ControlFlowKind.Unwind);
+  assert(has_control_flow(.Some(cf), ControlFlowKind.Unwind), "unwind(set)");
+  assert(!(has_control_flow(.Some(cf), ControlFlowKind.Return)), "return(not set)");
+});
+test("has_control_flow — None", {
+  assert(!(has_control_flow(Option(ControlFlowFlags).None, ControlFlowKind.Return)), "None has no control flow");
+});
+test("has_any_control_flow", {
+  cf := control_flow_of(ControlFlowKind.Continue);
+  assert(has_any_control_flow(.Some(cf)), "has any");
+  assert(!(has_any_control_flow(Option(ControlFlowFlags).None)), "None has none");
+  empty := ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : false, continue_flag : false);
+  assert(!(has_any_control_flow(.Some(empty))), "all-false has none");
+});
+test("merge_control_flows", {
+  r := control_flow_of(ControlFlowKind.Return);
+  b := control_flow_of(ControlFlowKind.Break);
+  flows := ArrayList(ControlFlowFlags).new();
+  flows.push(r);
+  flows.push(b);
+  merged := merge_control_flows(flows);
+  assert(merged.return_flag, "return(merged)");
+  assert(merged.break_flag, "break merged");
+  assert(!(merged.unwind_flag), "unwind(not merged)");
+});
+test("control_flow_to_string — single flag", {
+  cf := control_flow_of(ControlFlowKind.Return);
+  s := control_flow_to_string(cf);
+  assert(s == String.from("return"), "single flag string");
+});
+test("control_flow_to_string — multiple flags", {
+  cf := ControlFlowFlags(return_flag : true, unwind_flag : true, break_flag : false, continue_flag : false);
+  s := control_flow_to_string(cf);
+  assert(s == String.from("return+unwind"), "two flags string");
+});
+// ---------------------------------------------------------------------------
+// ComptimeRef construction
+// ---------------------------------------------------------------------------
+test("ComptimeRef ArrayRef construction", {
+  elems := ArrayList(EvalValue).new();
+  ref := ComptimeRef.ArrayRef(elements : elems, index : usize(0));
+  match(
+    ref,
+    .ArrayRef(_, idx) => assert(idx == usize(0), "ArrayRef index"),
+    .ComptimeListRef(_, _) => assert(false, "wrong variant"),
+    .StructRef(_, _) => assert(false, "wrong variant"),
+    .TupleRef(_, _) => assert(false, "wrong variant")
+  );
+});
+test("ComptimeRef StructRef construction", {
+  fields := ArrayList(EvalValue).new();
+  ref := ComptimeRef.StructRef(field_values : fields, field_index : usize(2));
+  match(
+    ref,
+    .StructRef(_, fi) => assert(fi == usize(2), "StructRef field_index"),
+    .ArrayRef(_, _) => assert(false, "wrong variant"),
+    .ComptimeListRef(_, _) => assert(false, "wrong variant"),
+    .TupleRef(_, _) => assert(false, "wrong variant")
+  );
+});
+// ---------------------------------------------------------------------------
+// RuntimeDestructuring construction
+// ---------------------------------------------------------------------------
+test("RuntimeDestructuring construction", {
+  rd := RuntimeDestructuring(
+    label : String.from("x"),
+    ty : TypeValue.BoolT,
+    variable_name : String.from("_x")
+  );
+  assert(rd.label == String.from("x"), "label");
+  assert(rd.variable_name == String.from("_x"), "variable_name");
+});
+// ---------------------------------------------------------------------------
+// ExprInfo creation
+// ---------------------------------------------------------------------------
+test("new_expr_info creates ExprInfo with None optionals", {
+  env := Environment.new(String.from("test"));
+  info := new_expr_info(env, TypeValue.BoolT);
+  ty_ok := match(info.ty,.BoolT => true, _ => false);
+  assert(ty_ok, "ty set to BoolT");
+  assert(info.path_collection.len() == usize(0), "path_collection empty");
+  assert(info.value == Option(EvalValue).None, "value is None");
+  assert(info.control_flow == Option(ControlFlowFlags).None, "control_flow is None");
+  assert(info.variable_name == Option(String).None, "variable_name is None");
+});
+test("new_expr_info env field is set", {
+  env := Environment.new(String.from("mod/path"));
+  info := new_expr_info(env, TypeValue.Int(u8(32), true));
+  ty_ok := match(info.ty,.Int(bits, signed) => ((bits == u8(32)) && signed), _ => false);
+  assert(ty_ok, "ty is i32");
+});

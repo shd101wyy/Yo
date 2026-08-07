@@ -97,4 +97,4 @@ All planned optimizations have been implemented:
 
 **Phase 3** — Await result deduplication: linear awaits skip `await_result_N` intermediate struct fields; results assigned directly to target variables.
 
-See `plans/ASYNC_SM_VARIABLE_OPTIMIZATION.md` for the full optimization plan and implementation details.
+See `plans/archive/ASYNC_SM_VARIABLE_OPTIMIZATION.md` for the full optimization plan and implementation details.

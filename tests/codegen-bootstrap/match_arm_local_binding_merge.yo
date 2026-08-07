@@ -1,0 +1,30 @@
+// A match whose arm declares a NON-temp local binding used to build the arm
+// result while sibling arms declare none. yo-self's per-arm frame accounting
+// can place such an arm-local in a non-innermost frame, giving the arms
+// DIFFERENT variable counts at that frame level; the branch-merge check
+// rejected this ("Frame level N has different number of values for different
+// cases" — no TS counterpart) during def-time body eval, leaving the whole
+// enclosing fn body unstamped (the stage-2 16-FTT cluster in
+// yo_id_264770/yo_id_360923). The merge now adopts extra TEMPs and skips
+// arm-locals instead of throwing.
+open(import("std/libc/stdio"));
+pragma(Pragma.AllowUnsafe);
+
+classify :: (fn(o : Option(i32)) -> i32)({
+  r := match(
+    o,
+    .Some(v) => {
+      doubled := (v + v);
+      bumped := (doubled + i32(1));
+      bumped
+    },
+    .None => i32(0)
+  );
+  r
+});
+
+main :: (fn() -> unit)({
+  a := classify(Option(i32).Some(i32(40)));
+  unsafe(_x := putchar(int(a))); // 40+40+1 = 81 = 'Q'
+});
+export(main);

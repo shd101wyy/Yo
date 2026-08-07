@@ -1,0 +1,713 @@
+//! Expression-dispatch body — mirrors `src/codegen/exprs/generation.ts`
+//! (`_generateExpr` / `generateFuncCall`). Routes a node to its emitter and is
+//! registered as the target of the `_call_generate_expr` indirection
+//! (set_generate_expr_fn) so every emitter's recursive calls land here.
+//!
+//! DEFERRED (documented — emitted as `/* TODO[codegen-port] */` so the
+//! differential harness surfaces them): match (match.ts), other-fn-call
+//! (other-fn-call.ts — the call/method/trait dispatcher, the real blocker for
+//! any program with calls), async/await/spawn/state/JoinHandle (Phase 5), asm/
+//! global_asm, unwind (Phase 5 effects), closure-CONSTRUCTION with captures
+//! (closures.ts generateClosureConstruction), Index-trait dispatch, the
+//! SomeType-Future ___drop/___dup fast path (Phase 5), thread_set_maximum_threads
+//! (Phase 5 parallelism). Simple closure/anon-fn VALUES route to
+//! generate_comptime_value (the FuncVal), which IS ported.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{
+  AstExpr,
+  ast_expr_is_fn_call,
+  ast_expr_is_fn_call_of,
+  ast_expr_token,
+  ast_expr_to_string,
+  BF_YO_OP_ADD,
+  BF_YO_OP_SUB,
+  BF_YO_OP_MUL,
+  BF_YO_OP_DIV,
+  BF_YO_OP_MOD,
+  BF_YO_OP_EQ,
+  BF_YO_OP_NEQ,
+  BF_YO_OP_NOT,
+  BF_YO_OP_LT,
+  BF_YO_OP_LTE,
+  BF_YO_OP_GT,
+  BF_YO_OP_GTE,
+  BF_YO_OP_BIT_AND,
+  BF_YO_OP_BIT_OR,
+  BF_YO_OP_BIT_XOR,
+  BF_YO_OP_BIT_LEFT_SHIFT,
+  BF_YO_OP_BIT_RIGHT_SHIFT,
+  BF_YO_DECR_RC,
+  BF_YO_INCR_RC,
+  BF_YO_RC_OWN,
+  BF_YO_DROP_ARRAY_ELEMENT,
+  BF_YO_DUP_ARRAY_ELEMENT,
+  BF_YO_DROP_TUPLE_ELEMENT,
+  BF_YO_DUP_TUPLE_ELEMENT,
+  BF_DROP,
+  BF_DUP,
+  BF_YO_DYN_DROP,
+  BF_YO_DYN_DUP,
+  BF_YO_INCR_RC_ATOMIC,
+  BF_YO_DECR_RC_ATOMIC,
+  BF_YO_ISO_EXTRACT,
+  BF_YO_ISO_DISPOSE,
+  BF_YO_SOMETYPE_DROP,
+  BF_YO_SOMETYPE_DUP,
+  BF_YO_GC_COLLECT,
+  BF_YO_GC_TRACE_CHILD,
+  BF_RC,
+  BF_PANIC,
+  BF_ASM,
+  BF_GLOBAL_ASM,
+  BK_TEST,
+  BK_OP_AND,
+  BK_OP_OR,
+  BK_DYN_LOWER,
+  BK_RETURN,
+  BF_UNWIND,
+  BF_ARRAY_FILL,
+  BF_DOT,
+  BK_BEGIN,
+  BK_COND,
+  BK_MATCH,
+  BF_ADDRESS_OF,
+  BK_TUPLE,
+  BK_ARRAY_VAL,
+  BF_RECUR,
+  BF_RUNTIME,
+  BF_SIZEOF,
+  BF_TYPEID,
+  BF_DOWNCAST,
+  BK_WHILE,
+  BK_FN,
+  BF_CONSUME,
+  BF_UNSAFE,
+  BF_OLD,
+  BF_GHOST_FN,
+  BF_COMPTIME_EXPECT_ERROR,
+  BF_COMPTIME_ASSERT,
+  BF_YO_VAR_PRINT_INFO,
+  BF_YO_VAR_IS_OWNING_RC,
+  BF_YO_VAR_HAS_OTHER_ALIASES,
+  BF_REQUIRES,
+  BF_ENSURES,
+  BF_INVARIANT,
+  BF_GHOST,
+  BK_OPEN,
+  BF_YO_ARRAY_INDEX,
+  ast_expr_id,
+  ast_expr_is_atom
+} :: import("../../expr.yo");
+{ has_any_control_flow, ExprInfo, lookup_macro_expansion } :: import("../../expr_info.yo");
+{ is_func_val, is_unknown_val, is_struct_val, is_enum_val, EvalValue } :: import("../../value.yo");
+{ is_unit_type, is_primitive_type, is_pointer_type } :: import("../../types/guards.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ set_generate_expr_fn, _call_generate_expr } :: import("./_expr.yo");
+{ is_builtin_yo_inline_function } :: import("../constants.yo");
+{ generate_atom } :: import("./atom.yo");
+{ generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_rc_own, generate_yo_decr_rc_atomic, generate_yo_incr_rc_atomic, generate_yo_dyn_drop, generate_yo_dyn_dup, generate_drop, generate_dup, generate_yo_drop_array_element, generate_yo_dup_array_element, generate_yo_drop_tuple_element, generate_yo_dup_tuple_element, generate_yo_sometype_drop, generate_yo_sometype_dup, generate_rc_call } :: import("./rc_fns.yo");
+{ generate_yo_iso_extract, generate_yo_iso_dispose, is_iso_type_call, generate_iso_type_call } :: import("./iso.yo");
+{ generate_yo_gc_collect, generate_yo_gc_trace_child } :: import("./gc.yo");
+{ generate_panic } :: import("./panic.yo");
+{ generate_asm, generate_global_asm } :: import("./asm.yo");
+{ generate_dyn_call } :: import("./dyn.yo");
+{ generate_return, generate_unwind } :: import("./return.yo");
+{ generate_yo_array_fill, generate_anonymous_array } :: import("./array_fns.yo");
+{ generate_binding } :: import("./binding.yo");
+{ generate_initialization_assignment } :: import("./init_assignment.yo");
+{ generate_assignment } :: import("./assignment.yo");
+{ generate_comptime_value, comptime_value_allocates_rc_object } :: import("./comptime_value.yo");
+{ generate_field_access } :: import("./property_access.yo");
+{ generate_begin } :: import("./begin.yo");
+{ generate_cond_expression } :: import("./cond.yo");
+{ generate_address_of } :: import("./ptr_fns.yo");
+{ generate_anonymous_tuple } :: import("./tuple_fn.yo");
+{ generate_recur } :: import("./recur.yo");
+{ generate_sizeof } :: import("./sizeof.yo");
+{ generate_typeid } :: import("./typeid.yo");
+{ generate_downcast } :: import("./downcast.yo");
+{ generate_yo_inline_function_call } :: import("./inline_fns.yo");
+{ generate_while_loop } :: import("./while_loop.yo");
+{ generate_consume } :: import("./consume.yo");
+{ generate_open } :: import("./open.yo");
+{ generate_op_and, generate_op_or } :: import("./and_or.yo");
+{ generate_match_expression } :: import("./match.yo");
+{ generate_other_function_call, _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
+{ is_closure_construction, generate_closure_construction } :: import("./closures.yo");
+{ generate_deferred_dup_expressions } :: import("./drop_dup.yo");
+{ get_variable_name_for_codegen, get_variable_type_string, get_type_string, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
+{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ is_temp_variable_name } :: import("../../utils.yo");
+{ generate_async_block, generate_io_async_sync_call, io_async_await_analysis, io_async_closure_body } :: import("./async.yo");
+{
+  generate_await,
+  generate_state,
+  generate_join_handle_await,
+  emit_io_spawn_effect_injection
+} :: import("./await.yo");
+{
+  is_io_async_call,
+  is_io_await_call,
+  is_io_state_call,
+  is_io_spawn_call,
+  is_join_handle_await_call
+} :: import("../../evaluator/async/await_analysis.yo");
+{ is_io_future_type } :: import("../async/state_machine.yo");
+{ panic, assert } :: import("std/assert");
+/// The callee name of a FnCall (empty for an Atom).
+_func_name :: (fn(expr : AstExpr) -> String)(
+  match(expr,.FnCall(_, func, _, _, _) => ast_expr_token(func).value,.Atom(_, _) => String.from(""))
+);
+/// Map an infix operator SYMBOL (`+`, `==`, …) to the builtin-inline function
+/// name (`__yo_op_add`, `__yo_op_eq`, …) that generate_yo_inline_function_call
+/// lowers to a C operator. `.None` for non-operators. Used to route a primitive
+/// infix-operator call to the inline path WITHOUT resolving the (generic) operator
+/// trait method in codegen — the std numeric/bool/bitwise impls all lower to these.
+_operator_inline_name :: (fn(op : String) -> Option(String))(
+  cond(
+    (op == "+") => Option(String).Some(String.from(BF_YO_OP_ADD)),
+    (op == "-") => Option(String).Some(String.from(BF_YO_OP_SUB)),
+    (op == "*") => Option(String).Some(String.from(BF_YO_OP_MUL)),
+    (op == "/") => Option(String).Some(String.from(BF_YO_OP_DIV)),
+    (op == "%") => Option(String).Some(String.from(BF_YO_OP_MOD)),
+    (op == "==") => Option(String).Some(String.from(BF_YO_OP_EQ)),
+    (op == "!=") => Option(String).Some(String.from(BF_YO_OP_NEQ)),
+    // UNARY. `inline_fns.yo:135` already lowers BF_YO_OP_NOT to `(!(x))` (a
+    // faithful port of src/codegen/exprs/inline-fns.ts:71), but without this
+    // mapping the symbol callee `!` never resolved to that name, so the unary
+    // inline path was unreachable. See `_is_primitive_unary_operator`.
+    (op == "!") => Option(String).Some(String.from(BF_YO_OP_NOT)),
+    (op == "<") => Option(String).Some(String.from(BF_YO_OP_LT)),
+    (op == "<=") => Option(String).Some(String.from(BF_YO_OP_LTE)),
+    (op == ">") => Option(String).Some(String.from(BF_YO_OP_GT)),
+    (op == ">=") => Option(String).Some(String.from(BF_YO_OP_GTE)),
+    (op == "&") => Option(String).Some(String.from(BF_YO_OP_BIT_AND)),
+    (op == "|") => Option(String).Some(String.from(BF_YO_OP_BIT_OR)),
+    (op == "^") => Option(String).Some(String.from(BF_YO_OP_BIT_XOR)),
+    (op == "<<") => Option(String).Some(String.from(BF_YO_OP_BIT_LEFT_SHIFT)),
+    (op == ">>") => Option(String).Some(String.from(BF_YO_OP_BIT_RIGHT_SHIFT)),
+    // The former `&`-prefixed pointer OPERATORS were retired
+    // (plans/archive/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md): comparison goes
+    // through the Eq/Ord impls, arithmetic through the add/sub/offset_from
+    // methods — all of whose bodies call the `__yo_ptr_*` builtins, which
+    // the builtin-inline path lowers directly.
+    true => Option(String).None
+  )
+);
+/// True when `expr` is a primitive infix-operator call (`x op y` on primitive
+/// operands) that should lower via the builtin-inline path. Gated to primitive
+/// operands so custom operator overloads on non-primitive types still route to
+/// the trait-method path.
+_is_primitive_infix_operator :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+  match(
+    expr,
+    .FnCall(_, _, op_args, is_infix, _) => if(
+      (is_infix && (op_args.len() == usize(2))) && _operator_inline_name(_func_name(expr)).is_some(),
+      match(
+        op_args.get(usize(0)),
+        // Gated to primitive operands so custom overloads on non-primitive
+        // types still route to the trait-method path. (The retired
+        // `&`-prefixed pointer operators had a pointer-LHS carve-out here;
+        // pointer arithmetic now lowers through the add/sub/offset_from
+        // method bodies' `__yo_ptr_*` builtins instead.)
+        .Some(lhs) => match(
+          context.base.get_expr_info(lhs),
+          .Some(lei) => is_primitive_type(lei.ty),
+          .None => false
+        ),
+        .None => false
+      ),
+      false
+    ),
+    .Atom(_, _) => false
+  )
+);
+/// The unary counterpart of `_is_primitive_infix_operator`: a 1-arg, NON-infix
+/// operator-symbol call (`!(x)`) whose operand is primitive.
+///
+/// Without this, a unary operator applied DIRECTLY to a PARAMETER inside a
+/// closure-specialized function emitted
+/// `if (// Failed to transpile !(b)) {` — an FTT comment inline in the condition,
+/// whose `//` swallows the closing `)` and the `{` and wrecks the whole C parse
+/// (issues/retired/yo-self-selftest-codegen-divergences.md). The dispatcher bailed at
+/// `other_fn_call.yo:1612` because `runtime_arg_exprs_in_order` was `.None` for
+/// that node, and only the INFIX fast path existed to route around it.
+///
+/// The inline path is safe here precisely because `_generate_inline_call` falls
+/// back to the expression's own syntactic args when
+/// `runtime_arg_exprs_in_order` is absent, so it does not depend on the field
+/// that was missing.
+///
+/// Gated to primitive operands for the same reason as the infix gate: a custom
+/// `Not` overload on a non-primitive type must still reach the trait-method path.
+///
+/// ONLY `!` qualifies, and the check must be on the RESOLVED INLINE NAME being
+/// `BF_YO_OP_NOT` — not merely on `_operator_inline_name` returning something.
+/// Every other entry in that map is a BINARY lowering: an earlier version of this
+/// gate admitted any 1-arg operator with an inline name, which diverted unary
+/// MINUS (`-y`) into `BF_YO_OP_SUB` and emitted `(y) - ()` — caught by
+/// `tests/operator_grouping.test.yo` ("runtime negation of an i32 variable").
+/// Unary minus must keep reaching the trait-method path.
+_is_primitive_unary_operator :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+  match(
+    expr,
+    .FnCall(_, _, op_args, is_infix, _) => if(
+      ((!(is_infix)) && (op_args.len() == usize(1)))
+      && match(
+        _operator_inline_name(_func_name(expr)),
+        .Some(inline_nm) => (inline_nm == BF_YO_OP_NOT),
+        .None => false
+      ),
+      match(
+        op_args.get(usize(0)),
+        .Some(operand) => match(
+          context.base.get_expr_info(operand),
+          .Some(oei) => is_primitive_type(oei.ty),
+          .None => false
+        ),
+        .None => false
+      ),
+      false
+    ),
+    .Atom(_, _) => false
+  )
+);
+/// Generate the C for a builtin-inline-function call: each arg's code, with
+/// deferred-dup rewrite, fed to generate_yo_inline_function_call.
+_generate_inline_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei_opt := context.base.get_expr_info(expr);
+  arg_exprs := match(ei_opt,.Some(ei) => match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new())),.None => match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new()));
+  args := ArrayList(String).new();
+  n := arg_exprs.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(
+      arg_exprs.get(i),
+      .Some(arg) => {
+        arg_code := _call_generate_expr(arg, indent.clone(), context);
+        final_code := match(
+          context.base.get_expr_info(arg),
+          .Some(aei) => match(
+            aei.deferred_dup_expressions,
+            .Some(dups) => if(dups.len() > usize(0), {
+              generate_deferred_dup_expressions(arg, indent.clone(), context);
+              match(dups.get(usize(0)),.Some(dup_expr) => if(ast_expr_is_fn_call(dup_expr), match(context.base.get_expr_info(dup_expr),.Some(dei) => match(dei.variable_name,.Some(dvn) => get_variable_name_for_codegen(dvn, Option(Environment).Some(dei.env)),.None => arg_code),.None => arg_code), arg_code),.None => arg_code)
+            }, arg_code),
+            .None => arg_code
+          ),
+          .None => arg_code
+        );
+        _p := args.push(final_code);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  // Resolve an operator SYMBOL callee (`+`) to its inline name (`__yo_op_add`);
+  // non-operator inline calls (`__yo_op_add(...)`) pass through unchanged.
+  inline_name := match(_operator_inline_name(_func_name(expr)),.Some(opn) => opn,.None => _func_name(expr));
+  generate_yo_inline_function_call(inline_name, args, expr, context, indent)
+});
+/// Lower a transparent wrapper (`unsafe`/`old`/`ghost_fn`/`runtime`) to its
+/// inner expression's code.
+_passthrough_first_arg :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(expr,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(inner) => _call_generate_expr(inner, indent.clone(), context),.None => String.from("")),.Atom(_, _) => String.from(""))
+);
+/// The function-value of an anon-fn/closure node → its comptime C reference.
+_anon_fn_value :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, err : str) -> String)(
+  match(context.base.get_expr_info(expr),.Some(ei) => match(ei.value,.Some(v) => if(is_func_val(v), generate_comptime_value(v, ei.ty, context.base), String.from(err)),.None => String.from(err)),.None => String.from(err))
+);
+/// `io.spawn(future)` — start a cold Future and return a JoinHandle (non-owning
+/// view). Faithful port of the inline io.spawn block in `generateFuncCall`
+/// (generation.ts:702).
+_generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  args := match(expr,.FnCall(_, _, a, _, _) => a, _ => return(String.from("// Error: spawn requires a Future argument")));
+  future_arg := match(args.get(usize(0)),.Some(a) => a,.None => return(String.from("// Error: spawn requires a Future argument")));
+  em := context.base.emitter;
+  future_code := _call_generate_expr(future_arg, indent.clone(), context);
+  future_type_name := match(context.base.get_expr_info(future_arg),.Some(ei) => get_type_string(ei.ty, context.base),.None => String.from("void*"));
+  expr_ei := context.base.get_expr_info(expr);
+  join_handle_type_name := match(expr_ei,.Some(ei) => Option(String).Some(get_type_string(ei.ty, context.base)),.None => Option(String).None);
+  name_suffix := match(expr_ei,.Some(ei) => match(ei.variable_name,.Some(n) => n,.None => String.from("")),.None => String.from(""));
+  // Statement-level spawns (no bound variable) still need UNIQUE temp names:
+  // two unbound `io.spawn(...)` statements in one C scope redefine
+  // `__spawn_future`. TS never hits this (its evaluator attaches a temp
+  // variableName to every spawn); yo-self's variable_name is absent there, so
+  // fall back to the deterministic ast expr id
+  // (issues/yo-self-async-emission-cluster.md item 1).
+  spawn_suffix := if(name_suffix.len() > usize(0), name_suffix.clone(), `expr_${ast_expr_id(expr).to_string()}`);
+  spawn_var := `__spawn_future_${spawn_suffix.clone()}`;
+  spawn_state_var := `__spawn_state_${spawn_suffix.clone()}`;
+  em.emit_string_line(`${indent.clone()}// io.spawn — start cold Future, return JoinHandle`);
+  em.emit_string_line(`${indent.clone()}${future_type_name} ${spawn_var.clone()} = ${future_code};`);
+  em.emit_string_line(`${indent.clone()}int ${spawn_state_var.clone()} = ${spawn_var.clone()}->state;`);
+  em.emit_string_line(`${indent.clone()}if (${spawn_state_var.clone()} == -2) {`);
+  em.emit_string_line(`${indent.clone()}  fprintf(stderr, "panic: attempted to spawn an aborted Future\\n");`);
+  em.emit_string_line(`${indent.clone()}  abort();`);
+  em.emit_string_line(`${indent.clone()}}`);
+  // Inject the bundle effect into the future's SM before cold-starting.
+  emit_io_spawn_effect_injection(expr, spawn_var.clone(), indent.clone(), context);
+  is_io_future := match(context.base.get_expr_info(future_arg),.Some(ei) => is_io_future_type(ei.ty),.None => false);
+  if(!(is_io_future), {
+    em.emit_string_line(`${indent.clone()}if (${spawn_state_var.clone()} == 0 && ${spawn_var.clone()}->__yo_resume_fn) {`);
+    em.emit_string_line(`${indent.clone()}  __yo_incr_rc((void*)${spawn_var.clone()});`);
+    em.emit_string_line(`${indent.clone()}  ${spawn_var.clone()}->__yo_resume_fn((void*)${spawn_var.clone()});`);
+    em.emit_string_line(`${indent.clone()}}`);
+  });
+  match(
+    join_handle_type_name,
+    .Some(jh) => `(${jh}){ .__future = (void*)${spawn_var.clone()} }`,
+    .None => `(void*)${spawn_var.clone()}`
+  )
+});
+/// `<method_c_name>(recv_arg, idx)` for a non-inline Index `index()` method.
+/// `recv_arg` is the already-formed receiver argument (the caller decides whether
+/// to take its address — see _generate_index_trait_call). Looks the specialized
+/// FuncVal's func_id up in the codegen function registry (populated by
+/// collection.yo's index_method_value pass).
+_index_method_call_by_name :: (fn(method_value : EvalValue, recv_arg : String, index_code : String, context : FunctionGenerationContext) -> String)({
+  fid := match(method_value,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => return(String.from("/* Error: Index method not a FuncVal */")));
+  match(
+    context.base.get_function_entry(fid),
+    .Some(e) => `${e.c_name.clone()}(${recv_arg}, ${index_code})`,
+    .None => String.from("/* Error: Index method not found in function registry */")
+  )
+});
+/// Generate C for Index-trait dispatch: `value(i)` → `*index_fn(&value, i)`.
+/// Mirrors `generateIndexTraitCall` (generation.ts). The evaluator stamps the
+/// specialized `index()` method FuncVal on `ei.index_method_value` and the
+/// pointer-return type on `ei.index_trait_ptr_type`; collection.yo registers the
+/// method for emission. We emit `&receiver`, call the method, and auto-deref the
+/// returned pointer unless this is an `&(value(i))` (is_index_trait_address_of).
+_generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String, context : FunctionGenerationContext) -> String)({
+  method_value := match(
+    ei.index_method_value,
+    .Some(v) => if(is_func_val(v), v, return(String.from("/* Error: Index trait method value missing */"))),
+    .None => return(String.from("/* Error: Index trait method value missing */"))
+  );
+  // callee = expr.func; the receiver whose address we take.
+  callee := match(expr,.FnCall(_, func, _, _, _) => func,.Atom(_, _) => return(String.from("/* Error: Index trait call on non-call */")));
+  (callee_code : String) = _call_generate_expr(callee, indent.clone(), context);
+  // rvalue spill: if the callee is a function call returning a temporary (not an
+  // atom, not a `.` property access which yields an lvalue), store it into a temp
+  // first so we can take its address. Keyed by ast id for a unique temp name.
+  if(ast_expr_is_fn_call(callee) && (!(ast_expr_is_atom(callee)) && !(ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))))), {
+    match(
+      context.base.get_expr_info(callee),
+      .Some(cei) => {
+        already_var := match(cei.variable_name,.Some(vn) => (callee_code == get_variable_name_for_codegen(vn, Option(Environment).Some(cei.env))),.None => false);
+        if(!(already_var), {
+          callee_type := get_type_string(cei.ty, context.base);
+          temp_name := `__yo_idx_tmp_${ast_expr_id(callee).to_string()}`;
+          em := context.base.emitter;
+          em.emit_string_line(`${indent.clone()}${callee_type} ${temp_name.clone()} = ${callee_code.clone()};`);
+          callee_code = temp_name;
+        });
+      },
+      .None => ()
+    );
+  });
+  // The single index argument.
+  index_code := match(
+    expr,
+    .FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(ix) => _call_generate_expr(ix, indent.clone(), context),.None => String.from("0")),
+    .Atom(_, _) => String.from("0")
+  );
+  // The receiver argument is its address (`&callee`): the specialized index
+  // method's `inout(self) : Self` lowers to a `Self*` C param (for an RC object
+  // type Self, a `Self*` is a pointer-to-handle), and the method body
+  // dereferences it via the param's is_ref flag (`(*self)->field`). Mirrors
+  // generation.ts, which always passes `&calleeCode`.
+  recv_arg := `&${callee_code.clone()}`;
+  // Inline builtin (`__yo_array_index` → `&((&recv)->data[idx])`) vs by-name call.
+  call_code := match(
+    is_function_value_with_only_builtin_yo_inline_function_call(method_value),
+    .Some(inline_op) => if(
+      inline_op == BF_YO_ARRAY_INDEX,
+      `(&((&${callee_code.clone()})->data[${index_code.clone()}]))`,
+      _index_method_call_by_name(method_value, recv_arg.clone(), index_code.clone(), context)
+    ),
+    .None => _index_method_call_by_name(method_value, recv_arg.clone(), index_code.clone(), context)
+  );
+  // Auto-deref the returned pointer unless this is `&(value(i))`.
+  match(ei.is_index_trait_address_of,.Some(true) => call_code, _ => `(*${call_code})`)
+});
+/// Some compile-time values ALLOCATE when they materialize in C. The clearest
+/// case is a payload-free variant of a reference-semantics enum: its comptime
+/// value emits `__yo_new_<Enum>_<Variant>()`, which mallocs with
+/// `ref_count = 1`. Inlined at the use site that produces an owned RC object
+/// nothing ever drops — `f(E.UnitVal)` leaks it, because the callee treats the
+/// parameter as borrowed and dups whatever it retains.
+///
+/// When the evaluator recorded such an expression as owning its RC value
+/// (`attach_temp_variable_to_expr(expr, true, ctx)`), it registered a temp
+/// variable at the enclosing begin-block frame so the normal scope-end drop
+/// pass releases it. That only works if codegen actually DECLARES the temp: the
+/// drop emitters skip any target missing from `declared_c_var_names`. So
+/// materialize the value into its temp and hand back the temp's name.
+///
+/// Non-allocating comptime values (numbers, string literals, value-enum
+/// compound literals like `Color.Red`) carry no owning temp and are returned
+/// unchanged.
+///
+/// Mirrors `materializeOwnedRcComptimeValue` in
+/// `src/codegen/exprs/generation.ts`.
+_materialize_owned_rc_comptime_value :: (
+  fn(
+    ei : ExprInfo,
+    value : EvalValue,
+    comptime_code : String,
+    indent : String,
+    context : FunctionGenerationContext
+  ) -> String
+)({
+  var_name := match(ei.variable_name,.Some(vn) => vn,.None => String.from(""));
+  if(var_name.len() == usize(0), return(comptime_code));
+  // Only shapes that actually malloc need an owner (see the predicate's doc).
+  if(!(comptime_value_allocates_rc_object(value, ei.ty)), return(comptime_code));
+  if(!(is_temp_variable_name(ei.env.module_path, var_name)), return(comptime_code));
+  vars := get_variables_from_env(ei.env, var_name.clone());
+  is_owning := match(
+    vars.get(vars.len() - usize(1)),
+    .Some(v) => v.is_owning_the_rc_value,
+    .None => false
+  );
+  if(!(is_owning), return(comptime_code));
+  c_name := get_variable_name_for_codegen(var_name.clone(), Option(Environment).Some(ei.env));
+  line := indent.clone();
+  line.push_string(get_variable_type_string(ei.ty, c_name.clone(), context.base));
+  line.push_str(" = ");
+  line.push_string(comptime_code);
+  line.push_str(";");
+  em := context.base.emitter;
+  em.emit_string_line(line);
+  _store_temp_var_to_state_machine_if_needed(var_name.clone(), indent.clone(), context);
+  c_name
+});
+/// Generate a function-call expression. Mirrors `generateFuncCall`.
+generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  // The unit value `()` is a 0-arg BK_TUPLE call (parser make_unit_call). The
+  // parser-appended begin terminator has NO ExprInfo, so handle it before the
+  // get_expr_info lookup below: a unit value emits no C (empty string), which
+  // generate_function_body / begin then skip.
+  if(ast_expr_is_fn_call_of(expr, BK_TUPLE, Option(usize).Some(usize(0))), {
+    return(String.from(""));
+  });
+  // Transparent wrappers (unsafe/old/ghost_fn) lower to their inner expression
+  // and do NOT need the wrapper's own ExprInfo — handle them before the
+  // get_expr_info lookup, since a wrapper node (e.g. `unsafe(exit(r))` as a
+  // statement) may itself lack an ExprInfo entry.
+  if(ast_expr_is_fn_call_of(expr, BF_UNSAFE, Option(usize).None), return(_passthrough_first_arg(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_OLD, Option(usize).None), return(_passthrough_first_arg(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_GHOST_FN, Option(usize).None), return(_passthrough_first_arg(expr, indent.clone(), context)));
+  ei := match(
+    context.base.get_expr_info(expr),
+    .Some(e) => e,
+    .None => {
+      out := String.from("// Failed to transpile ");
+      out.push_string(ast_expr_to_string(expr));
+      return(out);
+    }
+  );
+  // RC drop/dup builtins are lowered by their dedicated generators (generate_drop /
+  // generate_dup), which resolve the operation from the value's TYPE and are
+  // authoritative — they must never be diverted through a macro_expansion. yo-self
+  // keeps `(___drop)(x)` / `(___dup)(x)` as builtin calls (TS instead rewrites them to
+  // `(x).___drop()` method calls in evaluate_drop, so TS's original builtin expr never
+  // reaches codegen — see the stub note in evaluator/builtins/drop.yo). Because the
+  // builtin expr DOES survive here, a stale id-keyed side-table entry (from a colliding
+  // expr id) could otherwise mis-route it and double-emit `f(x)(x)`. Route them first.
+  if(ast_expr_is_fn_call_of(expr, BF_DROP, Option(usize).None), return(generate_drop(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_DUP, Option(usize).None), return(generate_dup(expr, indent.clone(), context)));
+  // Macro expansion: generate the already-expanded form. Prefer the per-expr
+  // ExprInfo; fall back to the durable id-keyed side-table when a later eval
+  // pass overwrote this call's ExprInfo without `macro_expansion` (e.g. a macro
+  // call like `if(...recur...)` — see record_macro_expansion in expr_info.yo).
+  match(
+    ei.macro_expansion,
+    .Some(mx) => return(_call_generate_expr(mx, indent.clone(), context)),
+    .None => match(
+      lookup_macro_expansion(ast_expr_id(expr)),
+      .Some(mx) => return(_call_generate_expr(mx, indent.clone(), context)),
+      .None => ()
+    )
+  );
+  // (SomeType-Future ___drop/___dup fast path — Phase 5, omitted.)
+  // Closure construction: `(x) => body` used as a value/arg — emit the capture
+  // struct construction + register the impl-closure-call mapping. Mirrors the
+  // isClosureConstruction branch in generateFuncCall (other-fn-call.ts).
+  if(is_closure_construction(expr, context), return(generate_closure_construction(expr, indent.clone(), context)));
+  // RC builtins.
+  if(ast_expr_is_fn_call_of(expr, BF_YO_DECR_RC, Option(usize).None), return(generate_yo_decr_rc(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_INCR_RC, Option(usize).None), return(generate_yo_incr_rc(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_RC_OWN, Option(usize).None), return(generate_yo_rc_own(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_DROP_ARRAY_ELEMENT, Option(usize).None), return(generate_yo_drop_array_element(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_DUP_ARRAY_ELEMENT, Option(usize).None), return(generate_yo_dup_array_element(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_DROP_TUPLE_ELEMENT, Option(usize).None), return(generate_yo_drop_tuple_element(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_DUP_TUPLE_ELEMENT, Option(usize).None), return(generate_yo_dup_tuple_element(expr, indent.clone(), context)));
+  // (BF_DUP / BF_DROP routed above, before the macro_expansion check.)
+  if(ast_expr_is_fn_call_of(expr, BF_YO_DYN_DROP, Option(usize).None), return(generate_yo_dyn_drop(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_DYN_DUP, Option(usize).None), return(generate_yo_dyn_dup(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_INCR_RC_ATOMIC, Option(usize).None), return(generate_yo_incr_rc_atomic(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_DECR_RC_ATOMIC, Option(usize).None), return(generate_yo_decr_rc_atomic(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_ISO_EXTRACT, Option(usize).None), return(generate_yo_iso_extract(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_ISO_DISPOSE, Option(usize).None), return(generate_yo_iso_dispose(expr, indent.clone(), context)));
+  if(is_iso_type_call(expr, context), return(generate_iso_type_call(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_SOMETYPE_DROP, Option(usize).None), return(generate_yo_sometype_drop(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_SOMETYPE_DUP, Option(usize).None), return(generate_yo_sometype_dup(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_GC_COLLECT, Option(usize).None), return(generate_yo_gc_collect(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_GC_TRACE_CHILD, Option(usize).None), return(generate_yo_gc_trace_child(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_RC, Option(usize).None), return(generate_rc_call(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_PANIC, Option(usize).None), return(generate_panic(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_ASM, Option(usize).None), return(generate_asm(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_GLOBAL_ASM, Option(usize).None), return(generate_global_asm(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BK_TEST, Option(usize).None), return(String.from("/* test declaration skipped */")));
+  if(ast_expr_is_fn_call_of(expr, BK_OP_AND, Option(usize).None), return(generate_op_and(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BK_OP_OR, Option(usize).None), return(generate_op_or(expr, indent.clone(), context)));
+  // io.async / io.await / io.state / io.spawn / JoinHandle.await (Phase 5).
+  if(is_io_async_call(expr), {
+    // FSM path requires BOTH the await analysis AND an extractable closure
+    // body — when the closure FuncVal is unreachable from the ExprInfo (the
+    // value-less-io def-eval path), generate_async_block cannot emit the
+    // state machine (its SM struct would be forward-declared but never
+    // defined → stage-2 incomplete-type cascade). Route those to the
+    // sync-future path, which emits valid blocking awaits.
+    // Read the analysis AND the closure body ONCE (Option(EvalValue) field
+    // reads are destructive moves — a re-read inside generate_async_block
+    // would find the value consumed) and pass both through; when either is
+    // missing, fall through to the sync path rather than emitting a broken
+    // FSM body whose SM struct is never defined. (Mirrors TS: closures WITH
+    // await analysis get the state machine; closures without it get the
+    // lazy sync future.)
+    io_async_analysis := io_async_await_analysis(expr, context);
+    if(io_async_analysis.is_some(), {
+      io_async_body := io_async_closure_body(expr, context);
+      if(io_async_body.is_some(), {
+        return(generate_async_block(expr, io_async_body, io_async_analysis, indent.clone(), context));
+      });
+    });
+    return(generate_io_async_sync_call(expr, indent.clone(), context));
+  });
+  if(is_io_await_call(expr), return(generate_await(expr, indent.clone(), context)));
+  if(is_io_state_call(expr), return(generate_state(expr, indent.clone(), context)));
+  if(is_io_spawn_call(expr), return(_generate_io_spawn(expr, indent.clone(), context)));
+  if(is_join_handle_await_call(expr), return(generate_join_handle_await(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BK_DYN_LOWER, Option(usize).None), return(generate_dyn_call(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BK_RETURN, Option(usize).None), return(generate_return(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), return(generate_unwind(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_ARRAY_FILL, Option(usize).Some(usize(2))), return(generate_yo_array_fill(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, "::", Option(usize).Some(usize(2))), return(String.from("")));
+  if(ast_expr_is_fn_call_of(expr, ":", Option(usize).Some(usize(2))), return(generate_binding(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, ":=", Option(usize).Some(usize(2))), match(generate_initialization_assignment(expr, indent.clone(), context),.Some(r) => return(r),.None => ()));
+  if(ast_expr_is_fn_call_of(expr, "=", Option(usize).Some(usize(2))), return(generate_assignment(expr, indent.clone(), context)));
+  // Already-computed comptime value (non-unit, no control flow).
+  //
+  // EXCEPTION: a value-struct/newtype CONSTRUCTOR call with runtime field args
+  // (e.g. `Self(v : n)` in a method body) carries a `StructVal` shell value AND
+  // a non-empty `runtime_arg_exprs_in_order`. TS produces an UnknownValue here
+  // (so its `!isUnknownValue` guard fails and it falls through to the call
+  // path); yo-self's evaluator produces a `StructVal` with runtime holes, which
+  // `generate_comptime_value` cannot fill (its field values are unknown → it
+  // emits `/* skip generating value */`). Detect this and fall through to
+  // `generate_other_function_call`'s value-struct constructor branch, which
+  // emits the compound literal / newtype cast from the runtime arg exprs.
+  //
+  // The SAME exception applies to a runtime ENUM constructor (`.Some(v)` with `v`
+  // runtime): the evaluator carries an `EnumVal` shell with runtime holes, which
+  // generate_comptime_value can't fill (emits `/* skip generating value */`).
+  // Fall through to generate_other_function_call's runtime enum-construction
+  // branch. Mirrors other-fn-call.ts:2500 (the isEnumType construction case).
+  ctor_has_runtime_args := match(ei.runtime_arg_exprs_in_order,.Some(ra) => (ra.len() > usize(0)),.None => false);
+  match(
+    ei.value,
+    .Some(v) => {
+      is_plain_comptime := ((!(is_unknown_val(v)) && !(is_unit_type(ei.ty))) && !(has_any_control_flow(ei.control_flow)));
+      is_runtime_ctor := ((is_struct_val(v) || is_enum_val(v)) && ctor_has_runtime_args);
+      if(is_plain_comptime && !(is_runtime_ctor), {
+        comptime_code := generate_comptime_value(v, ei.ty, context.base);
+        return(_materialize_owned_rc_comptime_value(ei, v, comptime_code, indent.clone(), context));
+      });
+    },
+    .None => ()
+  );
+  if(ast_expr_is_fn_call_of(expr, BF_DOT, Option(usize).Some(usize(2))), return(generate_field_access(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BK_BEGIN, Option(usize).None), return(generate_begin(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None), return(generate_cond_expression(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), return(generate_match_expression(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_ADDRESS_OF, Option(usize).Some(usize(1))), return(generate_address_of(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BK_TUPLE, Option(usize).None), return(generate_anonymous_tuple(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BK_ARRAY_VAL, Option(usize).None), match(generate_anonymous_array(expr, indent.clone(), context),.Some(r) => return(r),.None => ()));
+  if(ast_expr_is_fn_call_of(expr, BF_RECUR, Option(usize).None), return(generate_recur(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_RUNTIME, Option(usize).Some(usize(1))), return(match(expr,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(inner) => _call_generate_expr(inner, indent.clone(), context),.None => String.from("")),.Atom(_, _) => String.from(""))));
+  if(ast_expr_is_fn_call_of(expr, BF_SIZEOF, Option(usize).Some(usize(1))), return(generate_sizeof(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_TYPEID, Option(usize).Some(usize(1))), return(generate_typeid(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_DOWNCAST, Option(usize).Some(usize(2))), return(generate_downcast(expr, indent.clone(), context)));
+  if(is_builtin_yo_inline_function(_func_name(expr)), return(_generate_inline_call(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None), return(generate_while_loop(expr, indent.clone(), context)));
+  // Anonymous function `fn(x) -> body` → its function value.
+  if(ast_expr_is_fn_call_of(expr, "->", Option(usize).Some(usize(2))), {
+    arg0_is_fn := match(expr,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(a0) => ast_expr_is_fn_call_of(a0, BK_FN, Option(usize).None),.None => false),.Atom(_, _) => false);
+    if(arg0_is_fn, {
+      return(_anon_fn_value(expr, indent.clone(), context, "// Error: Anonymous function missing function value"));
+    });
+  });
+  // Closure `x => body` / `x =>> body` → its function value (capture-struct
+  // construction is Phase 3; closure-type annotations fall through).
+  if(ast_expr_is_fn_call_of(expr, "=>", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(expr, "=>>", Option(usize).Some(usize(2))), {
+    is_closure_type := match(expr,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(a0) => ast_expr_is_fn_call_of(a0, BK_FN, Option(usize).None),.None => false),.Atom(_, _) => false);
+    if(!(is_closure_type), {
+      return(_anon_fn_value(expr, indent.clone(), context, "// Error: Anonymous closure missing function value"));
+    });
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_CONSUME, Option(usize).None), return(generate_consume(expr, indent.clone(), context)));
+  // (unsafe / old / ghost_fn transparent pass-through handled at the top, before
+  // the ExprInfo lookup.)
+  // Compile-time-only markers: no C output.
+  if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_EXPECT_ERROR, Option(usize).None), return(String.from("")));
+  if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_ASSERT, Option(usize).None), return(String.from("")));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_VAR_PRINT_INFO, Option(usize).None), return(String.from("")));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_VAR_IS_OWNING_RC, Option(usize).None), return(String.from("")));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_VAR_HAS_OTHER_ALIASES, Option(usize).None), return(String.from("")));
+  if(ast_expr_is_fn_call_of(expr, BF_REQUIRES, Option(usize).None), return(String.from("")));
+  if(ast_expr_is_fn_call_of(expr, BF_ENSURES, Option(usize).None), return(String.from("")));
+  if(ast_expr_is_fn_call_of(expr, BF_INVARIANT, Option(usize).None), return(String.from("")));
+  if(ast_expr_is_fn_call_of(expr, BF_GHOST, Option(usize).None), return(String.from("")));
+  if(ast_expr_is_fn_call_of(expr, BK_OPEN, Option(usize).None), return(generate_open(expr, indent.clone(), context)));
+  // Index trait dispatch: `value(i)` → `*index_fn(&value, i)`. The evaluator
+  // stamps the specialized `index()` method FuncVal + pointer-return type on the
+  // ExprInfo (function.yo's index branch). Mirrors generation.ts:991. (Fixed-array
+  // `a(i)` resolves to a comptime ref instead and never reaches here.)
+  if(ei.index_trait_ptr_type.is_some() && ei.index_method_type.is_some(), return(_generate_index_trait_call(expr, ei, indent.clone(), context)));
+  // Primitive infix operator (`x + y`, `a == b`, …): lower directly to the
+  // builtin-inline (`__yo_op_add` → `(a + b)`) via the inline path. This avoids
+  // resolving the (generic, SomeType-bearing) operator trait method in codegen,
+  // which get_type_string cannot lower (Gap 6). Gated to primitive operands so
+  // custom non-primitive operator overloads still use the trait-method path.
+  if(_is_primitive_infix_operator(expr, context), return(_generate_inline_call(expr, indent.clone(), context)));
+  // Same treatment for a primitive UNARY operator (`!(x)`) — see
+  // `_is_primitive_unary_operator`. Without this the dispatcher below bails when
+  // `runtime_arg_exprs_in_order` is missing and emits an FTT comment INSIDE the
+  // enclosing `if (...)`, breaking the C parse.
+  if(_is_primitive_unary_operator(expr, context), return(_generate_inline_call(expr, indent.clone(), context)));
+  // Fallback: ordinary function call (the call/method/trait dispatcher).
+  match(
+    generate_other_function_call(expr, indent.clone(), context),
+    .Some(r) => r,
+    .None => {
+      out := String.from("// Failed to transpile ");
+      out.push_string(ast_expr_to_string(expr));
+      out
+    }
+  )
+});
+/// Top-level expression dispatch. Mirrors `_generateExpr`.
+_generate_expr :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(expr,.FnCall(_, _, _, _, _) => generate_func_call(expr, indent, context),.Atom(_, _) => generate_atom(expr, context, indent))
+);
+/// Register `_generate_expr` as the `_call_generate_expr` indirection target.
+/// The driver calls this once before walking function bodies.
+register_generate_expr :: (fn() -> unit)({
+  set_generate_expr_fn(_generate_expr);
+});
+export(_generate_expr, generate_func_call, register_generate_expr);

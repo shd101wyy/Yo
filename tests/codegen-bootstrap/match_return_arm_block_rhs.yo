@@ -1,0 +1,35 @@
+// Minimal root cause behind the `try(...)`-in-assignment failure, written WITHOUT
+// the macro: a begin-block assigned to a variable whose tail is a `match` with one
+// arm that RETURNS (binding a differently-named pattern var than the surviving
+// arm). `v := { t := ...; match(t, .Ok(value) => value, .Err(error) => { return(...);
+// }) }`. The returning `.Err(error)` arm must restore the shared env to its pre-arm
+// depth so `error` does not leak — otherwise the env merge of the surviving
+// `.Ok(value)` arm sees `error` vs `value` at the same frame level and throws
+// "different variable names for different cases". (Works directly as `v := match(...)`;
+// only the begin-block wrapping, which yields scrutinee_val = None, exposed the leak.)
+open(import("std/string"));
+{ println } :: import("std/fmt");
+
+parse :: (fn(ok : bool) -> Result(i32, i32))(
+  if(ok, Result(i32, i32).Ok(7), Result(i32, i32).Err(-(1)))
+);
+
+chain :: (fn(ok : bool) -> Result(i32, i32))({
+  v := {
+    t := parse(ok);
+    match(
+      t,
+      .Ok(value) => value,
+      .Err(error) => {
+        return(Result(i32, i32).Err(error));
+      }
+    )
+  };
+  Result(i32, i32).Ok(v)
+});
+
+main :: (fn() -> unit)({
+  match(chain(true),.Ok(n) => println(`ok ${n.to_string()}`),.Err(e) => println(`err`));
+  match(chain(false),.Ok(n) => println(`ok ${n.to_string()}`),.Err(e) => println(`err`));
+});
+export(main);

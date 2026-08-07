@@ -60,7 +60,7 @@ file_has_pragma :: (fn(module_path : Option(String), kind : Pragma) -> bool)(
 /// Mirrors `registerFilePragma`.
 register_file_pragma :: (fn(module_path : String, kind : Pragma) -> unit)({
   if(!(file_has_pragma(Option(String).Some(module_path.clone()), kind)), {
-    _ := g_privileged_files.push(PragmaEntry(module_path : module_path, kind : kind));
+    g_privileged_files.push(PragmaEntry(module_path : module_path, kind : kind));
   });
 });
 /// Reset the registry. Used between independent `check` runs. Mirrors
@@ -79,7 +79,7 @@ _clear_pragma_for_module :: (fn(module_path : String) -> unit)({
     match(
       g_privileged_files.get(i),
       .Some(entry) => if(entry.module_path != module_path, {
-        _ := kept.push(entry);
+        kept.push(entry);
       }),
       .None => ()
     );

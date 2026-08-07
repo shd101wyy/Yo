@@ -1,0 +1,21 @@
+{ assert } :: import("std/assert");
+open(import("std/fmt"));
+{ yield } :: import("std/async");
+main :: (fn() -> unit)({
+  io :: __yo_builtin_io;
+  t0 := io.async((io : Io) => {
+    io.await(yield(io), io);
+    i32(42)
+  });
+  r0 := io.await(t0, io);
+  assert(r0 == i32(42), "t0 result");
+  order := Box(i32)(0);
+  task1 := io.async((io : Io) => {
+    order.* = i32(1);
+    io.await(yield(io), io);
+    order.* = i32(2);
+  });
+  io.await(task1, io);
+  assert(order.* == i32(2), "task1 should fully complete");
+});
+export(main);

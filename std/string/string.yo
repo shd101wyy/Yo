@@ -4,6 +4,19 @@ pragma(Pragma.AllowUnsafe);
 { rune } :: import("./rune.yo");
 { memcpy, memcmp, strlen } :: import("../libc/string.yo");
 { fwrite, stderr } :: import("../libc/stdio.yo");
+// Pointer-identity builtin for the interned `==` fast path below, called
+// DIRECTLY (not via the Eq(*(T)) trait impl): a trait-method `==` on
+// pointers inside this `||` triggers a pre-existing yo-self emission bug
+// (short_circuit_rc_temp_drop corpus DIFF, rc=133 — see
+// issues/fixed/yo-self-ptr-eq-trait-call-in-shortcircuit.md), and the direct
+// builtin also skips trait dispatch in the hottest function in the
+// compiler. Same local-extern pattern as std/gc.yo.
+extern(
+  "Yo",
+  __yo_ptr_eq : (fn(generic(T : Type), ptr1 : T, ptr2 : T) -> bool)
+);
+{ GlobalAllocator } :: import("../allocator.yo");
+{ malloc } :: GlobalAllocator;
 /// String operation error variants.
 StringError :: enum(
   /// The input bytes are not valid UTF-8.
@@ -170,7 +183,7 @@ impl(
   * or dies — callers must not let it escape the borrow site.
   * (This replaces the deleted `as_str()`: heap bytes can no longer be
   * viewed as `str`, which is the STATIC string view.
-  * See plans/SLICE_REWORK.md.)
+  * See plans/archive/SLICE_REWORK.md.)
   */
   raw_bytes : (fn(self : Self) -> RawSlice(u8))(
     match(
@@ -183,6 +196,27 @@ impl(
       )
     )
   ),
+  /**
+  * Allocate a null-terminated C string copy on the heap.
+  * The caller MUST free the returned pointer to avoid a memory leak.
+  */
+  to_c_str : (fn(self : Self) -> *(u8))({
+    raw := self.raw_bytes();
+    sz := (raw.len + usize(1));
+    ptr_opt := malloc(sz);
+    ptr := match(
+      ptr_opt,
+      .Some(p) => *(u8)(p),
+      .None => __yo_panic("to_c_str: allocation failed")
+    );
+    if(raw.len > usize(0), {
+      unsafe(memcpy(*(void)(ptr), *(void)(raw.ptr), raw.len));
+    });
+    // Null-terminate
+    (null_byte : *(u8)) = ptr.add(raw.len);
+    null_byte.* = u8(0);
+    ptr
+  }),
   /**
   * Decode a UTF-8 encoded rune starting at the given byte index
   * Internal helper method
@@ -337,7 +371,7 @@ impl(
     return(Self(_bytes :.Some(new_bytes)));
   }),
   /// Append another `String` to this string in-place (mutates `self`).
-  push_string : (fn(ref(self) : Self, other : Self) -> unit)({
+  push_string : (fn(inout(self) : Self, other : Self) -> unit)({
     (olen : usize) = match(other._bytes,.Some(b) => b.len(),.None => usize(0));
     if(olen > usize(0), {
       match(
@@ -364,7 +398,7 @@ impl(
     });
   }),
   /// Append a `str` slice to this string in-place (mutates `self`).
-  push_str : (fn(ref(self) : Self, s : str) -> unit)({
+  push_str : (fn(inout(self) : Self, s : str) -> unit)({
     (slen : usize) = s.len();
     if(slen > usize(0), {
       match(
@@ -382,7 +416,7 @@ impl(
   }),
   /// Append a single byte to this string in-place (mutates `self`).
   /// The caller must ensure the byte maintains valid UTF-8.
-  push_byte : (fn(ref(self) : Self, b : u8) -> unit)({
+  push_byte : (fn(inout(self) : Self, b : u8) -> unit)({
     match(
       self._bytes,
       .None => {
@@ -397,7 +431,7 @@ impl(
   }),
   /// Reserve capacity for at least `additional` more bytes.
   /// If the string is empty, creates a new buffer with the given capacity.
-  reserve : (fn(ref(self) : Self, additional : usize) -> unit)({
+  reserve : (fn(inout(self) : Self, additional : usize) -> unit)({
     match(
       self._bytes,
       .None => {
@@ -410,7 +444,7 @@ impl(
     );
   }),
   /// Clear the string content but keep the allocated buffer for reuse.
-  clear : (fn(ref(self) : Self) -> unit)(
+  clear : (fn(inout(self) : Self) -> unit)(
     match(
       self._bytes,
       .Some(al) => al.clear(),
@@ -418,7 +452,7 @@ impl(
     )
   ),
   // (Inherent `clone` removed; the Clone trait impl below provides
-  // the same semantics via ref(self) : Self after the Phase D
+  // the same semantics via inout(self) : Self after the Phase D
   // migration. Calling `s.clone()` resolves to the trait method.)
   /// Get the number of bytes in the string (not Unicode characters).
   /// Use `len()` for Unicode character count.
@@ -434,9 +468,9 @@ impl(
       .Some(b) => match(
         b.get(index),
         .Some(v) => v,
-        .None => panic("String.byte_at: index out of bounds")
+        .None => __yo_panic("String.byte_at: index out of bounds")
       ),
-      .None => panic("String.byte_at: index out of bounds")
+      .None => __yo_panic("String.byte_at: index out of bounds")
     )
   ),
   /**
@@ -501,7 +535,7 @@ impl(
         new_bytes := ArrayList(u8).with_capacity(count);
         match(
           al.ptr(),
-          .Some(src_p) => new_bytes.extend_from_ptr(src_p &+ start_byte, count),
+          .Some(src_p) => new_bytes.extend_from_ptr(src_p.add(start_byte), count),
           .None => ()
         );
         Self(_bytes :.Some(new_bytes))
@@ -513,7 +547,7 @@ impl(
   * Returns the character index of the first match, or None if not found
   * from_index specifies the character index to start searching from
   */
-  index_of : (fn(self : Self, substr : Self, (from_index : usize) ?= 0) -> Option(usize))(
+  _index_of_impl : (fn(self : Self, substr : Self, (from_index : usize) ?= 0) -> Option(usize))(
     cond(
       substr.is_empty() =>.Some(from_index),
       true => {
@@ -609,9 +643,9 @@ impl(
   /**
   * Check if the string contains a substring
   */
-  contains : (fn(self : Self, substr : Self, (from_index : usize) ?= 0) -> bool)(
+  _contains_impl : (fn(self : Self, substr : Self, (from_index : usize) ?= 0) -> bool)(
     match(
-      self.index_of(substr, from_index),
+      self._index_of_impl(substr, from_index),
       .Some(_) => true,
       .None => false
     )
@@ -620,7 +654,7 @@ impl(
   * Split the string by a separator into an array of strings (like JavaScript split)
   * Returns an ArrayList of String
   */
-  split : (fn(self : Self, separator : Self) -> ArrayList(Self))({
+  _split_impl : (fn(self : Self, separator : Self) -> ArrayList(Self))({
     result := ArrayList(Self).new();
     cond(
       separator.is_empty() => {
@@ -727,7 +761,7 @@ impl(
   * Returns the character index of the last match, or None if not found
   * from_index specifies the character index to start searching backwards from
   */
-  last_index_of : (fn(self : Self, substr : Self, (from_index : usize) ?= usize.MAX) -> Option(usize))(
+  _last_index_of_impl : (fn(self : Self, substr : Self, (from_index : usize) ?= usize.MAX) -> Option(usize))(
     cond(
       substr.is_empty() =>.Some(self.len()),
       true => match(
@@ -836,10 +870,12 @@ impl(
     )
   ),
   /**
-  * Check if the string starts with the specified substring (like JavaScript startsWith)
-  * position: The character index to start checking from (default 0)
+  * Private: does this string have `prefix` (a String) starting at `position`?
+  * The UTF-8-aware byte-compare reused by the `Pattern` impls behind the generic
+  * `starts_with<P : Pattern>` (see plans/backlog/OVERLOADING_REDESIGN.md §4). Not called
+  * directly — go through `starts_with`.
   */
-  starts_with : (fn(self : Self, prefix : Self, (position : usize) ?= 0) -> bool)({
+  _has_prefix : (fn(self : Self, prefix : Self, (position : usize) ?= 0) -> bool)({
     (prefix_bytes : usize) = match(prefix._bytes,.Some(b) => b.len(),.None => usize(0));
     (self_bytes : usize) = match(self._bytes,.Some(b) => b.len(),.None => usize(0));
     cond(
@@ -922,7 +958,7 @@ impl(
   * Check if the string ends with the specified substring (like JavaScript endsWith)
   * end_position: The character length to consider (default is string length)
   */
-  ends_with : (fn(self : Self, suffix : Self, (end_position : usize) ?= usize.MAX) -> bool)({
+  _ends_with_impl : (fn(self : Self, suffix : Self, (end_position : usize) ?= usize.MAX) -> bool)({
     (suffix_bytes : usize) = match(suffix._bytes,.Some(b) => b.len(),.None => usize(0));
     (self_bytes : usize) = match(self._bytes,.Some(b) => b.len(),.None => usize(0));
     cond(
@@ -1026,6 +1062,14 @@ impl(
           .Some(search_al) => {
             self_bytes := self_al.len();
             search_bytes := search_al.len();
+            // A needle longer than the haystack cannot occur — and the loop
+            // bound below computes `self_bytes - search_bytes` on usize, so
+            // without this guard the subtraction UNDERFLOWS and the scan
+            // runs ~2^64 iterations (an effective hang). _index_of_impl has
+            // the same guard; replace_all uses an additive bound.
+            if(search_bytes > self_bytes, {
+              return(self);
+            });
             byte_index := usize(0);
             (found_at : Option(usize)) =.None;
             while(byte_index <= (self_bytes - search_bytes), byte_index = (byte_index + usize(1)), {
@@ -1094,7 +1138,7 @@ impl(
                 if(after_pos < self_bytes, {
                   match(
                     self_al.ptr(),
-                    .Some(p) => new_bytes.extend_from_ptr(p &+ after_pos, self_bytes - after_pos),
+                    .Some(p) => new_bytes.extend_from_ptr(p.add(after_pos), self_bytes - after_pos),
                     .None => ()
                   );
                 });
@@ -1298,7 +1342,7 @@ impl(
         new_bytes := ArrayList(u8).with_capacity(count);
         match(
           al.ptr(),
-          .Some(p) => new_bytes.extend_from_ptr(p &+ start_idx, count),
+          .Some(p) => new_bytes.extend_from_ptr(p.add(start_idx), count),
           .None => ()
         );
         Self(_bytes :.Some(new_bytes))
@@ -1339,7 +1383,7 @@ impl(
                 new_bytes := ArrayList(u8).with_capacity(count);
                 match(
                   al.ptr(),
-                  .Some(p) => new_bytes.extend_from_ptr(p &+ start_idx, count),
+                  .Some(p) => new_bytes.extend_from_ptr(p.add(start_idx), count),
                   .None => ()
                 );
                 Self(_bytes :.Some(new_bytes))
@@ -1410,8 +1454,14 @@ impl(
   String,
   Eq(String)(
     (==) : (fn(self : Self, other : Self) -> bool)({
-      (self_len : usize) = match(self._bytes,.Some(b) => b.len(),.None => usize(0));
-      (other_len : usize) = match(other._bytes,.Some(b) => b.len(),.None => usize(0));
+      // Direct field reads instead of the trivial `.len()`/`.ptr()`
+      // accessors: this compare is ~38% of a yo-self stage2 emit purely
+      // from call volume, and each call paid four non-inlined accessor
+      // calls before the memcmp (issues/
+      // yo-self-compile-performance-rc-string-eq.md, lever 1). Same
+      // semantics — `len()` returns `_length`, `ptr()` returns `_ptr`.
+      (self_len : usize) = match(self._bytes,.Some(b) => b._length,.None => usize(0));
+      (other_len : usize) = match(other._bytes,.Some(b) => b._length,.None => usize(0));
       cond(
         (self_len != other_len) => false,
         (self_len == usize(0)) => true,
@@ -1423,17 +1473,21 @@ impl(
                 other._bytes,
                 .Some(other_al) =>
                   match(
-                    self_al.ptr(),
+                    self_al._ptr,
                     .Some(self_ptr) =>
                       match(
-                        other_al.ptr(),
+                        other_al._ptr,
                         // SAFETY: self_len equals other_len (checked
                         // above) and both equal each ArrayList's
-                        // .len() (the inner Option's ptr is Some only
+                        // ._length (the inner Option's _ptr is Some only
                         // when len > 0); memcmp reads exactly that many
                         // bytes from each Rc-managed buffer.
+                        // Interned fast path: the SAME buffer with the
+                        // same length is trivially equal — hit constantly
+                        // once identifier tokens are interned (yo-self
+                        // lexer intern table).
                         .Some(other_ptr) =>
-                          (unsafe(memcmp((*(void))(self_ptr), (*(void))(other_ptr), self_len)) == int(0)),
+                          (unsafe(__yo_ptr_eq(self_ptr, other_ptr)) || (unsafe(memcmp((*(void))(self_ptr), (*(void))(other_ptr), self_len)) == int(0))),
                         .None => false
                       ),
                     .None => false
@@ -1452,7 +1506,7 @@ impl(
 /// Heterogeneous comparison: `String == str` (and `!=`). Compares bytes
 /// DIRECTLY against the static `str` — no intermediate view of the String's
 /// heap buffer is constructed (`as_str()` is being removed; see
-/// plans/SLICE_REWORK.md step 1). This is the replacement for the dominant
+/// plans/archive/SLICE_REWORK.md step 1). This is the replacement for the dominant
 /// `x.as_str() == "literal"` pattern: write `x == "literal"`.
 impl(
   String,
@@ -1480,9 +1534,10 @@ impl(
             .None => false
           )
       )
+    }),
+    (!=) : (fn(self : Self, other : str) -> bool)({
+      return(!(self == other));
     })
-    // `(!=)` comes from the trait's `?=` default (not(Self.(==)(lhs, rhs))),
-    // which dispatches to this overload by argument types.
   )
 );
 /// The symmetric direction: `str == String` (and `!=`), so literal-first
@@ -1511,13 +1566,15 @@ impl(
             .None => false
           )
       )
+    }),
+    (!=) : (fn(self : Self, other : String) -> bool)({
+      return(!(self == other));
     })
-    // `(!=)` comes from the trait's `?=` default.
   )
 );
 /// Byte-lexicographic ordering, mirroring `str`'s `Ord(str)` impl in the
 /// prelude. Enables `a < b` on Strings directly (the `a.as_str() <
-/// b.as_str()` workaround is retired; see plans/SLICE_REWORK.md step 3).
+/// b.as_str()` workaround is retired; see plans/archive/SLICE_REWORK.md step 3).
 impl(
   String,
   Ord(String)(
@@ -1550,64 +1607,121 @@ impl(
     })
   )
 );
-/// Search/pattern operations accepting a static `str` argument
-/// (plans/SLICE_REWORK.md step 1). Inherent methods cannot be overloaded
-/// in Yo, so the `str`-pattern variants of `contains`/`starts_with`/… are
-/// provided through this trait; method dispatch picks the overload by
-/// argument type (`x.contains("lit")` vs `x.contains(other_string)`).
-StrPattern :: trait(
-  contains : (fn(self : Self, substr : str, (from_index : usize) ?= 0) -> bool),
-  starts_with : (fn(self : Self, prefix : str, (position : usize) ?= 0) -> bool),
-  ends_with : (fn(self : Self, suffix : str, (end_position : usize) ?= usize.MAX) -> bool),
-  index_of : (fn(self : Self, substr : str, (from_index : usize) ?= 0) -> Option(usize)),
-  last_index_of : (fn(self : Self, substr : str, (from_index : usize) ?= usize.MAX) -> Option(usize)),
-  split : (fn(self : Self, separator : str) -> ArrayList(Self))
+/// `Pattern` — a value usable as a search pattern against a `String` haystack
+/// (mirrors Rust's `core::str::pattern::Pattern`). The PATTERN type implements the
+/// match, so a single generic method per operation accepts any pattern type with no
+/// overload resolution. Implemented by `str` and `String` (and, later, `char`).
+/// See plans/backlog/OVERLOADING_REDESIGN.md §4.
+Pattern :: trait(
+  is_prefix_of : (fn(self : Self, haystack : String, position : usize) -> bool),
+  is_suffix_of : (fn(self : Self, haystack : String, end_position : usize) -> bool),
+  is_contained_in : (fn(self : Self, haystack : String, from_index : usize) -> bool),
+  index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize)),
+  last_index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize)),
+  split_of : (fn(self : Self, haystack : String) -> ArrayList(String))
 );
 impl(
   String,
-  StrPattern(
-    contains : (fn(self : Self, substr : str, (from_index : usize) ?= 0) -> bool)(
-      self.contains(String.from(substr), from_index)
+  Pattern(
+    is_prefix_of : (fn(self : Self, haystack : String, position : usize) -> bool)(
+      haystack._has_prefix(self, position)
     ),
-    starts_with : (fn(self : Self, prefix : str, (position : usize) ?= 0) -> bool)(
-      self.starts_with(String.from(prefix), position)
+    is_suffix_of : (fn(self : Self, haystack : String, end_position : usize) -> bool)(
+      haystack._ends_with_impl(self, end_position)
     ),
-    ends_with : (fn(self : Self, suffix : str, (end_position : usize) ?= usize.MAX) -> bool)(
-      self.ends_with(String.from(suffix), end_position)
+    is_contained_in : (fn(self : Self, haystack : String, from_index : usize) -> bool)(
+      haystack._contains_impl(self, from_index)
     ),
-    index_of : (fn(self : Self, substr : str, (from_index : usize) ?= 0) -> Option(usize))(
-      self.index_of(String.from(substr), from_index)
+    index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize))(
+      haystack._index_of_impl(self, from_index)
     ),
-    last_index_of : (fn(self : Self, substr : str, (from_index : usize) ?= usize.MAX) -> Option(usize))(
-      self.last_index_of(String.from(substr), from_index)
+    last_index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize))(
+      haystack._last_index_of_impl(self, from_index)
     ),
-    split : (fn(self : Self, separator : str) -> ArrayList(Self))(
-      self.split(String.from(separator))
+    split_of : (fn(self : Self, haystack : String) -> ArrayList(String))(
+      haystack._split_impl(self)
     )
   )
 );
+impl(
+  str,
+  Pattern(
+    is_prefix_of : (fn(self : Self, haystack : String, position : usize) -> bool)(
+      haystack._has_prefix(String.from(self), position)
+    ),
+    is_suffix_of : (fn(self : Self, haystack : String, end_position : usize) -> bool)(
+      haystack._ends_with_impl(String.from(self), end_position)
+    ),
+    is_contained_in : (fn(self : Self, haystack : String, from_index : usize) -> bool)(
+      haystack._contains_impl(String.from(self), from_index)
+    ),
+    index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize))(
+      haystack._index_of_impl(String.from(self), from_index)
+    ),
+    last_index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize))(
+      haystack._last_index_of_impl(String.from(self), from_index)
+    ),
+    split_of : (fn(self : Self, haystack : String) -> ArrayList(String))(
+      haystack._split_impl(String.from(self))
+    )
+  )
+);
+/// The pattern-search methods — ONE generic method each over `Pattern` (Rust's
+/// `str::starts_with<P : Pattern>` family). These replace the old inherent
+/// `X(arg : String)` + `StrPattern.X(arg : str)` overload pairs: `s.X("lit")`
+/// (P = str) and `s.X(other)` (P = String) both resolve to the one generic method via
+/// trait dispatch — no overload resolution. See plans/backlog/OVERLOADING_REDESIGN.md §4.
+impl(
+  String,
+  starts_with : (fn(generic(P : Type), self : Self, prefix : P, (position : usize) ?= 0, where(P <: Pattern)) -> bool)(
+    prefix.is_prefix_of(self, position)
+  ),
+  ends_with : (fn(generic(P : Type), self : Self, suffix : P, (end_position : usize) ?= usize.MAX, where(P <: Pattern)) -> bool)(
+    suffix.is_suffix_of(self, end_position)
+  ),
+  contains : (fn(generic(P : Type), self : Self, substr : P, (from_index : usize) ?= 0, where(P <: Pattern)) -> bool)(
+    substr.is_contained_in(self, from_index)
+  ),
+  index_of : (fn(generic(P : Type), self : Self, substr : P, (from_index : usize) ?= 0, where(P <: Pattern)) -> Option(usize))(
+    substr.index_in(self, from_index)
+  ),
+  last_index_of : (fn(generic(P : Type), self : Self, substr : P, (from_index : usize) ?= usize.MAX, where(P <: Pattern)) -> Option(usize))(
+    substr.last_index_in(self, from_index)
+  ),
+  split : (fn(generic(P : Type), self : Self, separator : P, where(P <: Pattern)) -> ArrayList(String))(
+    separator.split_of(self)
+  )
+);
 /// Hash trait implementation — FNV-1a hash over the string's bytes.
+/// Bytes are read through the raw buffer pointer (same pattern as `==`'s
+/// memcmp path): the previous per-byte `al.get(i)` paid a bounds check +
+/// `Option(u8)` construction + match PER BYTE, which made hashing long keys
+/// (e.g. the compiler's structural type keys) the top profiled cost of
+/// HashMap-heavy phases.
 impl(
   String,
   Hash(
-    (hash) : (fn(ref(self) : Self) -> u64)({
+    (hash) : (fn(inout(self) : Self) -> u64)({
       h := u64(14695981039346656037);
       match(
         self._bytes,
         .None => (),
         .Some(al) => {
-          i := usize(0);
           len := al.len();
-          while(i < len, i = (i + usize(1)), {
-            match(
-              al.get(i),
-              .Some(b) => {
+          match(
+            al.ptr(),
+            // SAFETY: `ptr()` is Some only for a live buffer of exactly
+            // `len` bytes; reads stay in [0, len).
+            .Some(p) => {
+              i := usize(0);
+              while(i < len, i = (i + usize(1)), {
+                b := unsafe((p.add(i)).*);
                 h = (h ^ u64(b));
                 h = (h * u64(1099511628211));
-              },
-              .None => ()
-            );
-          });
+              });
+            },
+            .None => ()
+          );
         }
       );
       h
@@ -1627,7 +1741,7 @@ impl(
   StringChars,
   Iterator(
     Item : rune,
-    next : (fn(ref(self) : Self) -> Option(rune))(
+    next : (fn(inout(self) : Self) -> Option(rune))(
       match(
         self._string._bytes,
         .None =>.None,
@@ -1669,7 +1783,7 @@ impl(
   StringBytes,
   Iterator(
     Item : u8,
-    next : (fn(ref(self) : Self) -> Option(u8))(
+    next : (fn(inout(self) : Self) -> Option(u8))(
       match(
         self._string._bytes,
         .None =>.None,
@@ -1720,7 +1834,7 @@ impl(
   StringLines,
   Iterator(
     Item : String,
-    next : (fn(ref(self) : Self) -> Option(String))(
+    next : (fn(inout(self) : Self) -> Option(String))(
       match(
         self._string._bytes,
         .None =>.None,
@@ -2284,11 +2398,11 @@ impl(
   String,
   Index(usize)(
     Output : u8,
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
       match(
         self._bytes,
         .Some(bytes) => &(bytes(idx)),
-        .None => panic("String: index on empty string")
+        .None => __yo_panic("String: index on empty string")
       )
     )
   )
@@ -2297,7 +2411,7 @@ impl(
 impl(
   String,
   Clone(
-    clone : (fn(ref(self) : Self) -> Self)(
+    clone : (fn(inout(self) : Self) -> Self)(
       match(
         self._bytes,
         .None => Self(_bytes :.None),
@@ -2328,13 +2442,13 @@ impl(
 panic_dyn :: (fn(msg : String) -> unit)({
   // Write the heap message bytes to stderr, then abort via panic.
   // (str is the STATIC string view now — a heap String can't be passed
-  // to panic(str); see plans/SLICE_REWORK.md.)
+  // to __yo_panic(str); see plans/archive/SLICE_REWORK.md.)
   rb := msg.raw_bytes();
   // SAFETY: rb points into msg's live buffer for the duration of the call.
   // fwrite (ANSI C) instead of POSIX write(2, …) so the emitted C is portable
   // to Windows targets.
   ___ := unsafe(fwrite(*(void)(rb.ptr), usize(1), rb.len, stderr));
-  panic("");
+  __yo_panic("");
 }); /// Like `assert`, but accepts a runtime `String` message (e.g. a template
 /// string with interpolation: `` `error: ${value}` ``).
 ///
@@ -2354,7 +2468,7 @@ export(
   StringChars,
   StringBytes,
   StringLines,
-  StrPattern,
+  Pattern,
   assert_dyn,
   panic_dyn
 );

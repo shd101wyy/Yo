@@ -1,10 +1,11 @@
+{ assert } :: import("std/assert");
 // Regression tests for closure-capture RC leak.
 //
 // See: issues/closure-capture-rc-value-leak.md
 //
 // These tests pass under AddressSanitizer (`./yo-cli test ... --sanitize address`).
 // The bug was that generic Iterator combinators that take `f: F` by value
-// (where F is forall-typed with a Fn trait constraint) did not call
+// (where F is generic-typed with a Fn trait constraint) did not call
 // `___drop(f)` at function exit, leaking the closure's captured RC values.
 pragma(Pragma.AllowUnsafe);
 open(import("std/collections/array_list"));

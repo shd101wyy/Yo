@@ -36,13 +36,14 @@ import type {
 } from "../../types/definitions";
 import {
   isEnumType,
-  isObjectType,
+  isReferenceStructType,
   isPtrType,
   isSomeType,
   isStructType,
 } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
 import { typeToString } from "../../types/utils";
+import { generateModuleId } from "../../utils";
 import { isNumberValue, type TraitValue } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
 
@@ -51,6 +52,20 @@ export interface CodeGenContext {
    * Collected types that need to be generated
    */
   types: Record<TypeId, { type: Type; cName: string }>;
+
+  /**
+   * C-emission-order ground truth: the C identifiers actually declared so far in
+   * the CURRENT function (reset per function in generateFunction, seeded with the
+   * function's params, grown as each variable declaration string is built via
+   * getVariableTypeString). The early-return/unwind drop emitters consult it to
+   * skip dropping a TEMP whose C declaration has not been emitted yet at that
+   * exit point — a synthetic temp can carry an initializedAtToken (so the
+   * position check is inconclusive) while its declaration lives in a later/other
+   * branch, which would otherwise emit `___drop` on an undeclared C identifier.
+   * Only consulted for temp names, so regular named locals are unaffected.
+   * Mirrors yo-self's `declared_c_var_names` (codegen/utils/index.yo).
+   */
+  declaredCVarNames?: Set<string>;
 
   /**
    * Collected functions that need to be generated
@@ -382,11 +397,28 @@ export function sanitizeForCIdentifier(str: string, isExternC = false): string {
 }
 
 /**
+ * True when generated C code contains a `return` STATEMENT — the word
+ * `return` OUTSIDE any C string literal. cond/match arm emission uses this to
+ * decide whether an arm is control flow (emit bare) or a value (assign to the
+ * result temp). Generated string literals can legally contain the word (e.g.
+ * a Yo source literal "...before early return"); matching those made the
+ * emitter treat the arm as control flow and SKIP the result-temp assignment,
+ * leaving the temp UNINITIALIZED — a read of garbage (ptr,len) at runtime
+ * (SIGBUS; see issues/cond-arm-return-inside-string-literal.md).
+ */
+export function codeContainsReturnStatement(code: string): boolean {
+  // Mask double-quoted C string literals (handles \" and other escapes),
+  // then scan for the keyword.
+  const masked = code.replace(/"(?:[^"\\]|\\[\s\S])*"/g, '""');
+  return /\breturn\b/.test(masked);
+}
+
+/**
  * Check if a type should avoid const qualifier even when not mutable
  * This is needed for object types that need to support reference counting operations
  */
 export function shouldAvoidConst(type: Type): boolean {
-  return isObjectType(type);
+  return isReferenceStructType(type);
 }
 
 /**
@@ -508,11 +540,11 @@ export function getTypeString(
         );
       }
 
-      // For reference semantics structs/enums, return pointer type
+      // For reference-semantics structs (objects) and enums (ref(enum(…))),
+      // return a pointer type — the value is a heap-allocated RC handle.
       if (
-        (type.tag === TypeTag.Struct || type.tag === TypeTag.Enum) &&
-        isStructType(type) &&
-        type.isReferenceSemantics
+        (isStructType(type) && type.isReferenceSemantics) ||
+        (isEnumType(type) && type.isReferenceSemantics)
       ) {
         return `${cTypeName}*`;
       } else {
@@ -737,7 +769,7 @@ export function getTypeString(
       const baseTypeStr = getTypeString(childType, context);
 
       // Borrowing an object type should keep the same C type (already a pointer)
-      if (isObjectType(childType)) {
+      if (isReferenceStructType(childType)) {
         return `${baseTypeStr}*`;
       }
       // Borrowing an enum that is represented as a pointer (nullable pointer optimization)
@@ -790,6 +822,10 @@ export function getVariableTypeString(
 ): string {
   // Sanitize the variable name to avoid C reserved words/macros like errno
   const sanitizedVarName = sanitizeForCIdentifier(varName);
+  // Record this identifier as C-declared for the current function (see
+  // declaredCVarNames). Building the declaration string is the choke point for
+  // every emitted C variable declaration, mirroring yo-self.
+  context.declaredCVarNames?.add(sanitizedVarName);
   // For all types (including arrays), use the consistent struct wrapper approach
   return `${getTypeString(type, context)} ${sanitizedVarName}`;
 }
@@ -924,6 +960,15 @@ export function canOptimizeAsNullablePointer(enumType: EnumType): Type | null {
  * Returns true if all variants have no data members.
  */
 export function canOptimizeAsSimpleEnum(enumType: EnumType): boolean {
+  // Reference-semantics enums (`ref(enum(...))`) are heap RC objects:
+  // per-variant constructors write obj->header.ref_count and match lowers
+  // to switch(obj->tag). Those emission sites do not follow the collapse,
+  // so collapsing an all-payload-free ref enum to a bare C enum emitted
+  // member accesses on a non-struct type (9 clang errors — see
+  // issues/fixed/fieldless-ref-enum-simple-enum-collapse.md).
+  if (enumType.isReferenceSemantics) {
+    return false;
+  }
   // All variants must have no fields
   for (const variant of enumType.variants) {
     if (variant.fields && variant.fields.length > 0) {
@@ -963,6 +1008,15 @@ export function getVariableNameForCodegen(
     // where a module-level function shadows a local variable.
     if (varName !== variableName && /^fn_/.test(varName)) {
       return sanitizeForCIdentifier(variableName);
+    }
+    // Module-qualify module-level globals like every other emitted
+    // identifier class (types/functions/temps all carry a yoXXXXXXXX
+    // module hash). Without this, same-named globals in two modules
+    // become ONE C static — silent shared state plus a leaked
+    // initializer (issues/fixed/module-global-c-names-are-not-namespaced.md).
+    // extern "c" globals keep their raw name: it is an ABI contract.
+    if (variable.isModuleLevel && variable.type.isExtern !== "c") {
+      return `${varName}_${generateModuleId(variable.token.modulePath)}`;
     }
     return varName;
   }

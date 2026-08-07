@@ -193,7 +193,7 @@ export interface EvaluatorContext {
    * Whether the function type being evaluated was declared with `ctl(...)
    * -> ret` (the control-function constructor). Control functions may
    * contain `unwind` in their body and are frame-bound — see
-   * plans/EXPLICIT_EFFECTS.md §4 for the type-system rules.
+   * plans/archive/EXPLICIT_EFFECTS.md §4 for the type-system rules.
    */
   isControlFunctionType?: boolean;
 
@@ -255,7 +255,7 @@ export interface EvaluatorContext {
    * `evaluateAssignment`) takes responsibility for performing an
    * equivalent check after evaluating the RHS, where it has enough
    * information to relax the constraint for ctl handlers whose body
-   * always unwinds (the C ABI never delivers the forall'd return value
+   * always unwinds (the C ABI never delivers the generic'd return value
    * in that case). See `allPathsUnwind` in `src/expr-traversal.ts`.
    */
   deferGenericFnTypeCheckToAssignment?: boolean;
@@ -680,6 +680,20 @@ export function trackVariableUsage(
   }
 
   if (!variable || actualFrameLevel < 0) {
+    return;
+  }
+
+  // A variable found in the TOP frame of a function body's evaluationEnv is
+  // the function's OWN parameter — every body-context creator pushes the
+  // parameters frame before creating the context (function-type.ts:380,
+  // closure-type.ts:67, anonymous-function.ts:340). Parameters are not
+  // captures: recording them made variableIsCapturedByCurrentFunction skip
+  // the scope-end drop of any `own` parameter the body referenced
+  // (issues/fixed/own-param-discard-leak.md).
+  if (
+    context.isEvaluatingFunctionBodyOrAsyncBlock.kind === "function-body" &&
+    actualFrameLevel === evaluationEnv.frames.length - 1
+  ) {
     return;
   }
 

@@ -650,7 +650,7 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(`      if (sm->${prevFutureFieldName} != NULL) {`);
       }
 
-      // When the output type is an unresolved SomeType (e.g., forall(T) from
+      // When the output type is an unresolved SomeType (e.g., generic(T) from
       // io.await evaluated with io=UnknownValue), treat it as unit.
       const isPrevAwaitResultUnit =
         isUnitType(prevAwait.resultType) ||

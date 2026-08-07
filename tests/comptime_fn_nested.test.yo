@@ -1,0 +1,81 @@
+//! Regression coverage for the CTFE nested-function analysis gap
+//! (`issues/yo-self-ctfe-nested-fn-analysis-gap.md`, fixed 2026-08-05).
+//!
+//! `comptime_fn` over a function whose body defines a NESTED `fn`, with the
+//! result USED AT RUNTIME, folded to a literal under the TypeScript compiler but
+//! emitted `use of undeclared identifier` under the self-hosted one: yo-self
+//! reached `analyze_ctfe_capability` from the `comptime_fn` builtin only, never
+//! from the nested-function site (TS `calls/function-type.ts:669`), so the nested
+//! helper stayed runtime-only and the enclosing CTFE fold produced no value.
+//!
+//! BOTH factors are required, which is why nothing here was covered before:
+//! `tests/fn.test.yo` already has the nested shape but only ever checks it with
+//! `comptime_assert`, and a `comptime_assert` that cannot prove its argument
+//! passes VACUOUSLY (verified: `comptime_assert(r == 999)` compiles under both
+//! compilers for this shape). So every assertion below deliberately uses the
+//! folded value AT RUNTIME via `assert`, which is what forces codegen to
+//! materialise it.
+{ assert } :: import("std/assert");
+test("comptime_fn: nested named fn, result used at runtime", {
+  outer :: (fn(x : i32) -> i32)({
+    helper :: (fn(y : i32) -> i32)({
+      return(y * 2);
+    });
+    return(helper(x));
+  });
+  c :: comptime_fn(outer);
+  r :: c(20);
+  assert(r == 40, "nested-fn CTFE result must fold to 40 at runtime");
+});
+test("comptime_fn: nested fn result feeding an operator", {
+  outer :: (fn(x : i32) -> i32)({
+    helper :: (fn(y : i32) -> i32)({
+      return(y * 2);
+    });
+    return(helper(x) + 1);
+  });
+  c :: comptime_fn(outer);
+  r :: c(20);
+  assert(r == 41, "nested-fn CTFE result must fold to 41 at runtime");
+});
+test("comptime_fn: two levels of nesting", {
+  outer :: (fn(x : i32) -> i32)({
+    mid :: (fn(y : i32) -> i32)({
+      inner :: (fn(z : i32) -> i32)({
+        return(z + 1);
+      });
+      return(inner(y) * 3);
+    });
+    return(mid(x));
+  });
+  c :: comptime_fn(outer);
+  r :: c(6);
+  assert(r == 21, "two-level nested CTFE must fold to 21 at runtime");
+});
+test("comptime_fn: no nesting still folds (control)", {
+  f :: (fn(x : i32) -> i32)({
+    return(x * 2);
+  });
+  c :: comptime_fn(f);
+  r :: c(20);
+  assert(r == 40, "flat CTFE must still fold to 40");
+});
+test("comptime_fn: the nested helper is STILL callable at runtime", {
+  // The fix swaps the comptime version into the nested fn's ExprInfo. Because
+  // yo-self keys ExprInfo by expr id, analysing the ORIGINAL body tree clobbered
+  // the runtime annotation with the comptime clone — which is marked UNEMITTABLE —
+  // and the enclosing runtime function emitted `// Failed to transpile helper(x)`.
+  // Analysing a fresh-id CLONE (as TS does) keeps both paths alive, so the SAME
+  // function must remain callable at runtime as well as at comptime.
+  outer :: (fn(x : i32) -> i32)({
+    helper :: (fn(y : i32) -> i32)({
+      return(y * 2);
+    });
+    return(helper(x) + 1);
+  });
+  c :: comptime_fn(outer);
+  folded :: c(20);
+  at_runtime := outer(20);
+  assert(folded == 41, "comptime path must fold to 41");
+  assert(at_runtime == 41, "runtime path through the same nested fn must still work");
+});

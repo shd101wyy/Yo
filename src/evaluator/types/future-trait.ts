@@ -106,7 +106,7 @@ To combine multiple effects, declare a struct that bundles them and pass that st
  * Resolve a single effect argument in Future(T, ...).
  * Each effect is now an individual type (Raise, Log, IoExn, ...);
  * the legacy `...(E)` spread syntax has been removed in favour of
- * `forall(E : Type.Struct)` + `Future(T, E)`.
+ * `generic(E : Type.Struct)` + `Future(T, E)`.
  */
 function resolveEffectArg(
   effectExpr: Expr,

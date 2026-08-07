@@ -22,12 +22,14 @@ pragma(Pragma.AllowUnsafe);
 /// Reader-writer lock built on `Mutex` and `Cond`.
 /// Uses atomic reference counting for safe cross-thread sharing.
 RwLock :: atomic(
-  object(
-    _readers : i32,
-    _writer : bool,
-    _mutex : Mutex(bool),
-    _read_cv : Cond,
-    _write_cv : Cond
+  ref(
+    struct(
+      _readers : i32,
+      _writer : bool,
+      _mutex : Mutex(bool),
+      _read_cv : Cond,
+      _write_cv : Cond
+    )
   )
 );
 impl(

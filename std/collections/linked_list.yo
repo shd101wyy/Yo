@@ -1,6 +1,7 @@
 //! Doubly-linked list with O(1) push/pop at both ends.
 /// Error variants for LinkedList operations.
 pragma(Pragma.AllowUnsafe);
+{ assert } :: import("../assert");
 LinkedListError :: enum(
   /// Index is out of bounds for the current length.
   IndexOutOfBounds(index : usize, length : usize),
@@ -9,22 +10,26 @@ LinkedListError :: enum(
 );
 /// Internal node for the linked list. Reference-counted via `object`.
 Node :: (fn(comptime(T) : Type) -> comptime(Type))(
-  object(
-    value : T,
-    next : Option(Self),
-    prev : Option(Self)
+  ref(
+    struct(
+      value : T,
+      next : Option(Self),
+      prev : Option(Self)
+    )
   )
 );
 /// Doubly-linked list with O(1) push/pop at both ends.
 LinkedList :: (fn(comptime(T) : Type) -> comptime(Type))(
-  object(
-    head : Option(Node(T)),
-    tail : Option(Node(T)),
-    length : usize
+  ref(
+    struct(
+      head : Option(Node(T)),
+      tail : Option(Node(T)),
+      length : usize
+    )
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   LinkedList(T),
   /**
   * Create a new empty LinkedList
@@ -385,7 +390,7 @@ impl(
   })
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   LinkedList(T),
   Dispose(
     /**
@@ -406,11 +411,11 @@ LinkedListIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   LinkedListIter(T),
   Iterator(
     Item : T,
-    next : (fn(ref(self) : Self) -> Option(T))(
+    next : (fn(inout(self) : Self) -> Option(T))(
       match(
         self._current,
         .None =>.None,
@@ -423,7 +428,7 @@ impl(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   LinkedList(T),
   into_iter : (fn(self : Self) -> LinkedListIter(T))(
     LinkedListIter(T)(_current : self.head)
@@ -440,11 +445,11 @@ LinkedListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   LinkedListIterPtr(T),
   Iterator(
     Item : *(T),
-    next : (fn(ref(self) : Self) -> Option(*(T)))(
+    next : (fn(inout(self) : Self) -> Option(*(T)))(
       match(
         self._current,
         .None =>.None,
@@ -457,7 +462,7 @@ impl(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   LinkedList(T),
   iter : (fn(self : Self) -> LinkedListIterPtr(T))(
     LinkedListIterPtr(T)(_current : self.head)
@@ -468,11 +473,11 @@ impl(
 /// Rc chain alive — the dispatcher inlines and dereferences this
 /// before any drop runs. Same pattern as `LinkedListIterPtr.next`.
 impl(
-  forall(T : Type),
+  generic(T : Type),
   LinkedList(T),
   Index(usize)(
     Output : T,
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))({
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
       assert(idx < self.length, "LinkedList: index out of bounds");
       (current : Option(Node(T))) = self.head;
       i := usize(0);
@@ -482,7 +487,7 @@ impl(
           .Some(node) => {
             if(i == idx, {
               // SAFETY: `node` is held in an Rc-managed chain rooted
-              // at `self.head`; while `self` is borrowed (ref(self))
+              // at `self.head`; while `self` is borrowed (inout(self))
               // every node we've walked stays alive, so `&node.value`
               // is a valid borrow into Rc storage.
               return(unsafe(&(node.value)));
@@ -490,10 +495,10 @@ impl(
             current = node.next;
             i = (i + usize(1));
           },
-          .None => panic("LinkedList: unreachable past length check")
+          .None => __yo_panic("LinkedList: unreachable past length check")
         );
       });
-      panic("LinkedList: index loop exited without return")
+      __yo_panic("LinkedList: index loop exited without return")
     })
   )
 );

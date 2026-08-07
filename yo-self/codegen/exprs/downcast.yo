@@ -1,0 +1,173 @@
+//! `downcast(dyn_value, T)` emitter — mirrors `src/codegen/exprs/downcast.ts`.
+//!
+//! Safe downcast returning `Option(T)`. Dyn only wraps object types, so the
+//! result is an owned RC reference (we dup, since the Dyn also holds one). The
+//! is-check compares the Dyn's vtable type-id against a per-target static whose
+//! address is the canonical type id. If `Option` is nullable-pointer-optimized,
+//! emits `(check) ? cast : NULL`; otherwise the full tagged-union Some/None.
+//!
+//! DEFERRED (documented): the `wasBoxed` branch (auto-boxed value types, where
+//! `dyn.data` points to a Box struct and the value is extracted via its
+//! ___dup) is UNREACHABLE — yo-self `is_boxed_type` is hardcoded false (Box is
+//! not modeled in the type system yet). When Box lands, port the dyn_impls scan
+//! (it also needs Gap-6 SomeType.resolvedConcreteType). The unboxed object cast
+//! is the live path.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr } :: import("../../expr.yo");
+{ EvalValue } :: import("../../value.yo");
+{ is_dyn_type, is_enum_type, is_reference_struct_type } :: import("../../types/guards.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ type_key, get_type_string, sanitize_for_c_identifier, get_enum_variant_c_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields } :: import("../utils/index.yo");
+{ get_dup_function_for_type } :: import("./drop_dup.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+/// Generate code for `downcast(dyn_value, T)`. Mirrors `generateDowncast`.
+generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("/* ERROR: downcast not evaluated */")));
+  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  dyn_arg := match(args.get(usize(0)),.Some(x) => x,.None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
+  type_arg := match(args.get(usize(1)),.Some(x) => x,.None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
+  // First argument: the dyn value (runtime).
+  dyn_ei := match(context.base.get_expr_info(dyn_arg),.Some(e) => e,.None => return(String.from("/* ERROR: downcast dyn arg not evaluated */")));
+  if(!(is_dyn_type(dyn_ei.ty)), {
+    return(String.from("/* ERROR: downcast expected Dyn type as first argument */"));
+  });
+  dyn_code := _call_generate_expr(dyn_arg, indent.clone(), context);
+  // Second argument: the target type T (comptime).
+  target_type := match(context.base.get_expr_info(type_arg),.Some(tei) => match(tei.value,.Some(v) => match(v,.TypeVal(t) => t, _ => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))),.None => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))),.None => return(String.from("/* ERROR: downcast type arg not evaluated */")));
+  target_type_c_name := get_type_string(target_type, context.base);
+  // Register the typeid static for the target type (address = canonical id).
+  type_id := type_key(target_type);
+  type_id_c_name := match(context.base.get_type_c_name(type_id.clone()),.Some(cn) => cn,.None => target_type_c_name.clone());
+  static_var_name := String.from("__yo_typeid_");
+  static_var_name.push_string(sanitize_for_c_identifier(type_id_c_name, false));
+  if(!(context.base.type_id_static_names.contains(static_var_name.clone())), {
+    _n := context.base.type_id_static_names.add(static_var_name.clone());
+    _r := context.base.type_id_statics.set(type_id.clone(), static_var_name.clone());
+    decl := String.from("static const char ");
+    decl.push_string(static_var_name.clone());
+    decl.push_str(" = 0;");
+    em := context.base.emitter;
+    em.emit_declaration_string_line(decl);
+  });
+  context.base.add_c_include(String.from("<stdint.h>"));
+  // is-check: the Dyn's vtable type-id equals this target's static address.
+  is_check := dyn_code.clone();
+  is_check.push_str(".vtable->__yo_type_id == (uintptr_t)&");
+  is_check.push_string(static_var_name);
+  // Extraction. A REFERENCE-struct target is stored directly as the object
+  // pointer — cast + incr_rc (the Dyn also holds a reference). A VALUE/newtype
+  // target (e.g. `String`, a value enum) is BOXED at dyn creation:
+  // `dyn.data` points to a Box struct `{ header; <value> }` (a ref struct), so
+  // casting the pointer straight to the value STRUCT is invalid C
+  // ("used type … where arithmetic or pointer type is required"). Extract the
+  // boxed value via the Box's value field and dup it (the Box keeps its copy).
+  // Mirrors TS's `wasBoxed` branch (downcast.ts:111-150); yo-self DOES box value
+  // types into dyns (the dyn_impl records concrete=<value>, data=Box(<value>)),
+  // so the branch the file header called "unreachable" is in fact the live path
+  // for a value target. See issues/fixed/yo-self-downcast-value-type.md.
+  cast_expr := if(is_reference_struct_type(target_type), {
+    o := String.from("((");
+    o.push_string(target_type_c_name.clone());
+    o.push_str(")__yo_incr_rc((void*)");
+    o.push_string(dyn_code.clone());
+    o.push_str(".data))");
+    o
+  }, {
+    // Value/newtype target: find the Box in the dyn_impls (same dyn, concrete ==
+    // target), then extract `((Box*)data)->valueField`.
+    tkey := type_key(target_type);
+    dyn_tkey := type_key(dyn_ei.ty);
+    (box_opt : Option(TypeValue)) = Option(TypeValue).None;
+    it := context.base.dyn_impls.keys();
+    (scan_done : bool) = false;
+    while(!(scan_done), {
+      match(
+        it.next(),
+        .Some(dk) => match(
+          context.base.dyn_impls.get(dk.clone()),
+          .Some(de) => if((type_key(de.dyn_type) == dyn_tkey) && (type_key(de.concrete_type) == tkey), {
+            box_opt = Option(TypeValue).Some(de.data_type);
+            scan_done = true;
+          }),
+          .None => ()
+        ),
+        .None => {
+          scan_done = true;
+        }
+      );
+    });
+    match(
+      box_opt,
+      .Some(box_ty) => {
+        box_cname := get_type_string(box_ty, context.base);
+        box_fields := get_runtime_struct_fields(box_ty);
+        field_c := match(box_fields.get(usize(0)),.Some(f) => sanitize_for_c_identifier(f.label, false),.None => String.from("_u42_"));
+        extract := String.from("((");
+        extract.push_string(box_cname);
+        extract.push_str(")");
+        extract.push_string(dyn_code.clone());
+        extract.push_str(".data)->");
+        extract.push_string(field_c);
+        // Dup the extracted value (the Box retains its copy).
+        match(
+          get_dup_function_for_type(target_type, context),
+          .Some(dupfn) => {
+            d := dupfn.clone();
+            d.push_str("(");
+            d.push_string(extract);
+            d.push_str(")");
+            d
+          },
+          .None => extract
+        )
+      },
+      .None => {
+        // No box found — fall back to the object cast (keeps prior behaviour).
+        o := String.from("((");
+        o.push_string(target_type_c_name.clone());
+        o.push_str(")__yo_incr_rc((void*)");
+        o.push_string(dyn_code.clone());
+        o.push_str(".data))");
+        o
+      }
+    )
+  });
+  // Result Option type.
+  option_type := ei.ty;
+  if(!(is_enum_type(option_type)), {
+    return(String.from("/* ERROR: downcast expected Option enum as result type */"));
+  });
+  match(
+    can_optimize_as_nullable_pointer(option_type),
+    .Some(_) => {
+      out := String.from("((");
+      out.push_string(is_check);
+      out.push_str(") ? ");
+      out.push_string(cast_expr);
+      out.push_str(" : NULL)");
+      out
+    },
+    .None => {
+      option_c_name := get_type_string(option_type, context.base);
+      some_tag := get_enum_variant_c_name(option_type, String.from("Some"), context.base);
+      none_tag := get_enum_variant_c_name(option_type, String.from("None"), context.base);
+      out := String.from("((");
+      out.push_string(is_check);
+      out.push_str(") ? (");
+      out.push_string(option_c_name.clone());
+      out.push_str("){ .tag = ");
+      out.push_string(some_tag);
+      out.push_str(", .data = { .Some = { .value = ");
+      out.push_string(cast_expr);
+      out.push_str(" } } } : (");
+      out.push_string(option_c_name);
+      out.push_str("){ .tag = ");
+      out.push_string(none_tag);
+      out.push_str(" })");
+      out
+    }
+  )
+});
+export(generate_downcast);

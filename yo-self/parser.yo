@@ -40,17 +40,19 @@ FnArgsResult :: struct(
   index : usize
 );
 /// An error produced by the parser.
-ParseError :: object(
-  message : String,
-  row : usize,
-  column : usize,
-  module_path : String,
-  source_line : String
+ParseError :: ref(
+  struct(
+    message : String,
+    row : usize,
+    column : usize,
+    module_path : String,
+    source_line : String
+  )
 );
 impl(
   ParseError,
   ToString(
-    to_string : (fn(ref(self) : Self) -> String)({
+    to_string : (fn(inout(self) : Self) -> String)({
       sb := StringBuilder.new();
       sb.write_str("error: ");
       sb.write_string(self.message);
@@ -144,12 +146,12 @@ impl(
     )
   }),
   get_tokens : (fn(self : Self) -> ArrayList(Token))(self.tokens),
-  alloc_id : (fn(ref(self) : Self) -> ExprId)({
+  alloc_id : (fn(inout(self) : Self) -> ExprId)({
     id := alloc_global_expr_id();
     self.next_expr_id = (self.next_expr_id + usize(1));
     id
   }),
-  make_syn_tok : (fn(ref(self) : Self, kind : TokenKind, value : String) -> Token)(
+  make_syn_tok : (fn(inout(self) : Self, kind : TokenKind, value : String) -> Token)(
     Token(
       kind : kind,
       value : value,
@@ -160,7 +162,7 @@ impl(
       input : self.input_string
     )
   ),
-  make_unit_call : (fn(ref(self) : Self, ref_tok : Token) -> AstExpr)({
+  make_unit_call : (fn(inout(self) : Self, ref_tok : Token) -> AstExpr)({
     unit_tok := Token(
       kind : TokenKind.Identifier,
       value : String.from(BK_TUPLE),
@@ -170,9 +172,9 @@ impl(
       module_path : ref_tok.module_path,
       input : ref_tok.input
     );
-    .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), unit_tok)), ArrayList(AstExpr).new(), false, unit_tok)
+    .FnCall(self.alloc_id(),.Atom(self.alloc_id(), unit_tok), ArrayList(AstExpr).new(), false, unit_tok)
   }),
-  skip_ws_fwd : (fn(ref(self) : Self, index : usize) -> usize)({
+  skip_ws_fwd : (fn(inout(self) : Self, index : usize) -> usize)({
     i := index;
     n := self.tokens.len();
     while(i < n, {
@@ -192,7 +194,7 @@ impl(
     });
     i
   }),
-  skip_ws_bwd : (fn(ref(self) : Self, index : usize) -> usize)({
+  skip_ws_bwd : (fn(inout(self) : Self, index : usize) -> usize)({
     i := index;
     while(true, {
       match(
@@ -214,7 +216,7 @@ impl(
     });
     i
   }),
-  range_has_newline : (fn(ref(self) : Self, start : usize, end : usize) -> bool)({
+  range_has_newline : (fn(inout(self) : Self, start : usize, end : usize) -> bool)({
     nl_str := String.from("\n");
     i := start;
     result := false;
@@ -235,7 +237,7 @@ impl(
     });
     result
   }),
-  is_op_at_line_start : (fn(ref(self) : Self, op_idx : usize) -> bool)({
+  is_op_at_line_start : (fn(inout(self) : Self, op_idx : usize) -> bool)({
     if(op_idx == usize(0), {
       return(true);
     });
@@ -288,7 +290,7 @@ impl(
     });
     result
   }),
-  is_parenthesized_expr : (fn(ref(self) : Self, start : usize, end : usize) -> bool)({
+  is_parenthesized_expr : (fn(inout(self) : Self, start : usize, end : usize) -> bool)({
     s := self.skip_ws_fwd(start);
     e := self.skip_ws_bwd(end);
     s_tok := match(
@@ -320,21 +322,7 @@ impl(
     );
     match_idx == e
   }),
-  range_after_op_has_newline : (fn(ref(self) : Self, op_idx : usize, rhs_start : usize) -> bool)(
-    self.range_has_newline(op_idx + usize(1), rhs_start)
-  ),
-  is_op_alone_on_line : (fn(ref(self) : Self, op_idx : usize, rhs_start : usize) -> bool)({
-    if(self.is_op_at_line_start(op_idx) == false, {
-      return(false);
-    });
-    nl_str := String.from("\n");
-    match(
-      self.tokens.get(op_idx + usize(1)),
-      .None => false,
-      .Some(t) => ((t.kind == TokenKind.Whitespace) && t.value.contains(nl_str))
-    )
-  }),
-  parse_template_string : (fn(ref(self) : Self, tok : Token, index : usize, exn : Exception) -> ParseResult)({
+  parse_template_string : (fn(inout(self) : Self, tok : Token, index : usize, exn : Exception) -> ParseResult)({
     self.has_template_string = true;
     template_value := tok.value;
     // Collect chars of the template string into an ArrayList(rune)
@@ -459,8 +447,8 @@ impl(
       prop_args := ArrayList(AstExpr).new();
       prop_args.push(e);
       prop_args.push(.Atom(id_ts_atom, ts_tok));
-      (prop : AstExpr) =.FnCall(id_prop, box(.Atom(id_dot_atom, d_tok)), prop_args, true, d_tok);
-      .FnCall(id_outer, box(prop), ArrayList(AstExpr).new(), false, outer_tok)
+      (prop : AstExpr) =.FnCall(id_prop,.Atom(id_dot_atom, d_tok), prop_args, true, d_tok);
+      .FnCall(id_outer, prop, ArrayList(AstExpr).new(), false, outer_tok)
     });
     num_parts := part_content.len();
     (result_expr_opt : Option(AstExpr)) =.None;
@@ -509,10 +497,10 @@ impl(
           prop_args := ArrayList(AstExpr).new();
           prop_args.push(prev);
           prop_args.push(.Atom(self.alloc_id(), plus_tok));
-          (prop : AstExpr) =.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), dot_tok)), prop_args, true, dot_tok);
+          (prop : AstExpr) =.FnCall(self.alloc_id(),.Atom(self.alloc_id(), dot_tok), prop_args, true, dot_tok);
           call_args := ArrayList(AstExpr).new();
           call_args.push(part_expr);
-          Option(AstExpr).Some(.FnCall(self.alloc_id(), box(prop), call_args, false, tok))
+          Option(AstExpr).Some(.FnCall(self.alloc_id(), prop, call_args, false, tok))
         }
       );
       pi = (pi + usize(1));
@@ -528,7 +516,7 @@ impl(
   }),
   parse_fn_args : (
     fn(
-      ref(self) : Self,
+      inout(self) : Self,
       index : usize,
       has_whitespace : bool,
       exn : Exception
@@ -556,23 +544,12 @@ impl(
       );
       cond(
         (curr.kind == TokenKind.Comma) => {
+          // TS (parser.ts:1269-1271) just advances past the comma and loops
+          // back into parseExpression — a trailing comma before `)` is then
+          // REJECTED there ("Unexpected token"). A previous port accepted
+          // trailing commas here, silently admitting programs the TS
+          // bootstrap rejects.
           idx = (idx + usize(1));
-          // Accept trailing comma: skip whitespace, check for RParen.
-          nxt_idx := self.skip_ws_fwd(idx);
-          nxt := match(
-            self.tokens.get(nxt_idx),
-            .Some(t) => t,
-            .None => {
-              return(FnArgsResult(args : args, index : nxt_idx));
-            }
-          );
-          is_rp := (nxt.kind == TokenKind.RParen);
-          cond(
-            is_rp => {
-              return(FnArgsResult(args : args, index : (nxt_idx + usize(1))));
-            },
-            true => ()
-          );
         },
         (((curr.kind == TokenKind.Semicolon) || (curr.kind == TokenKind.RBracket)) || (curr.kind == TokenKind.RCurlyBracket)) => {
           return(FnArgsResult(args : args, index : idx));
@@ -605,7 +582,7 @@ impl(
   }),
   parse_fn_call : (
     fn(
-      ref(self) : Self,
+      inout(self) : Self,
       func : AstExpr,
       index : usize,
       has_whitespace : bool,
@@ -615,11 +592,11 @@ impl(
     fn_tok := ast_expr_token(func);
     fa := self.parse_fn_args(index, has_whitespace, exn);
     ParseResult(
-      expr :.FnCall(self.alloc_id(), box(func), fa.args, false, fn_tok),
+      expr :.FnCall(self.alloc_id(), func, fa.args, false, fn_tok),
       index : fa.index
     )
   }),
-  parse_paren_expr : (fn(ref(self) : Self, index : usize, exn : Exception) -> ParseResult)({
+  parse_paren_expr : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
       .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
@@ -646,7 +623,7 @@ impl(
       );
       return(
         ParseResult(
-          expr :.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), unit_tok)), ArrayList(AstExpr).new(), false, unit_tok),
+          expr :.FnCall(self.alloc_id(),.Atom(self.alloc_id(), unit_tok), ArrayList(AstExpr).new(), false, unit_tok),
           index : (index + usize(2))
         )
       );
@@ -734,11 +711,11 @@ impl(
       input : tok.input
     );
     ParseResult(
-      expr :.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), func_tok)), args, false, func_tok),
+      expr :.FnCall(self.alloc_id(),.Atom(self.alloc_id(), func_tok), args, false, func_tok),
       index : (idx + usize(1))
     )
   }),
-  parse_array_expr : (fn(ref(self) : Self, index : usize, exn : Exception) -> ParseResult)({
+  parse_array_expr : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
       .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
@@ -826,29 +803,29 @@ impl(
       input : tok.input
     );
     ParseResult(
-      expr :.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), func_tok)), args, false, func_tok),
+      expr :.FnCall(self.alloc_id(),.Atom(self.alloc_id(), func_tok), args, false, func_tok),
       index : (idx + usize(1))
     )
   }),
-  is_valid_struct_field_arg : (fn(ref(self) : Self, expr : AstExpr) -> bool)(
+  is_valid_struct_field_arg : (fn(inout(self) : Self, expr : AstExpr) -> bool)(
     match(
       expr,
       .Atom(_, _) => true,
       .FnCall(_, func_box, _, is_infix, _) => cond(
         is_infix => match(
-          func_box.*,
+          func_box,
           .Atom(_, func_tok) => (func_tok.value == ":"),
           .FnCall(_, _, _, _, _) => false
         ),
         true => match(
-          func_box.*,
+          func_box,
           .Atom(_, func_tok2) => (func_tok2.value == "..."),
           .FnCall(_, _, _, _, _) => false
         )
       )
     )
   ),
-  parse_curly_bracket_expr : (fn(ref(self) : Self, index : usize, exn : Exception) -> ParseResult)({
+  parse_curly_bracket_expr : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
       .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
@@ -931,7 +908,7 @@ impl(
             module_path : last_tok.module_path,
             input : last_tok.input
           );
-          args.push(.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), unit_tok)), ArrayList(AstExpr).new(), false, unit_tok));
+          args.push(.FnCall(self.alloc_id(),.Atom(self.alloc_id(), unit_tok), ArrayList(AstExpr).new(), false, unit_tok));
         });
         break;
       });
@@ -993,7 +970,7 @@ impl(
                     input : tok.input
                   );
                   arg_copy := match(args.get(ai),.Some(a) => a,.None => make_err_expr());
-                  .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), colon_tok)), array_list(arg, arg_copy), true, colon_tok)
+                  .FnCall(self.alloc_id(),.Atom(self.alloc_id(), colon_tok), array_list(arg, arg_copy), true, colon_tok)
                 },
                 true => arg
               );
@@ -1012,7 +989,7 @@ impl(
           input : tok.input
         );
         ParseResult(
-          expr :.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), anon_tok)), final_args, false, tok),
+          expr :.FnCall(self.alloc_id(),.Atom(self.alloc_id(), anon_tok), final_args, false, tok),
           index : (idx + usize(1))
         )
       },
@@ -1028,7 +1005,7 @@ impl(
           input : tok.input
         );
         ParseResult(
-          expr :.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), begin_tok)), args, false, begin_tok),
+          expr :.FnCall(self.alloc_id(),.Atom(self.alloc_id(), begin_tok), args, false, begin_tok),
           index : (idx + usize(1))
         )
       }
@@ -1036,7 +1013,7 @@ impl(
   }),
   parse_left_assoc_op : (
     fn(
-      ref(self) : Self,
+      inout(self) : Self,
       primary : AstExpr,
       op_tok : Token,
       rhs : AstExpr,
@@ -1044,29 +1021,23 @@ impl(
       exn : Exception
     ) -> ParseResult
   )({
+    // Mirrors parser.ts:894-899 EXACTLY: rhs is a FnCall AND isInfix AND its
+    // callee is an Atom whose token is NOT a Dot. No arg-count restriction
+    // and no callee-token-kind restriction — TS has neither (same guard
+    // pattern removed from the infix branch's rhs_is_chained_op).
     rhs_is_infix_non_dot := match(
       rhs,
-      .FnCall(_, rfb, rargs, ris_infix, _) => cond(
+      .FnCall(_, rfb, _, ris_infix, _) => cond(
         (ris_infix == false) => false,
-        (rargs.len() != usize(2)) => false,
         true => match(
-          rfb.*,
-          .Atom(_, ft) => ((ft.kind == TokenKind.Operator) || (ft.kind == TokenKind.Dot)),
+          rfb,
+          .Atom(_, ft) => (ft.kind != TokenKind.Dot),
           .FnCall(_, _, _, _, _) => false
         )
       ),
       .Atom(_, _) => false
     );
-    is_dot_func := match(
-      rhs,
-      .FnCall(_, rfb, _, _, _) => match(
-        rfb.*,
-        .Atom(_, ft) => (ft.kind == TokenKind.Dot),
-        .FnCall(_, _, _, _, _) => false
-      ),
-      .Atom(_, _) => false
-    );
-    if(rhs_is_infix_non_dot && (is_dot_func == false), {
+    if(rhs_is_infix_non_dot, {
       (left_operand : AstExpr) = match(
         rhs,
         .FnCall(_, _, rargs, _, _) => match(
@@ -1088,7 +1059,7 @@ impl(
       rhs_func_tok := match(
         rhs,
         .FnCall(_, rfb, _, _, _) => match(
-          rfb.*,
+          rfb,
           .Atom(_, ft) => ft,
           .FnCall(_, _, _, _, ft) => ft
         ),
@@ -1097,20 +1068,20 @@ impl(
       left_side_args := ArrayList(AstExpr).new();
       left_side_args.push(primary);
       left_side_args.push(left_operand);
-      (left_side : AstExpr) =.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), op_tok)), left_side_args, true, op_tok);
+      (left_side : AstExpr) =.FnCall(self.alloc_id(),.Atom(self.alloc_id(), op_tok), left_side_args, true, op_tok);
       new_args := ArrayList(AstExpr).new();
       new_args.push(left_side);
       new_args.push(right_operand);
-      (new_primary : AstExpr) =.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), rhs_func_tok)), new_args, true, rhs_func_tok);
+      (new_primary : AstExpr) =.FnCall(self.alloc_id(),.Atom(self.alloc_id(), rhs_func_tok), new_args, true, rhs_func_tok);
       self.parse_primary_end(new_primary, index, exn)
     }, {
       simple_args := ArrayList(AstExpr).new();
       simple_args.push(primary);
       simple_args.push(rhs);
-      self.parse_primary_end(.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), op_tok)), simple_args, true, op_tok), index, exn)
+      self.parse_primary_end(.FnCall(self.alloc_id(),.Atom(self.alloc_id(), op_tok), simple_args, true, op_tok), index, exn)
     })
   }),
-  parse_primary : (fn(ref(self) : Self, index : usize, exn : Exception) -> ParseResult)({
+  parse_primary : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
     idx := self.skip_ws_fwd(index);
     (tok : Token) = match(
       self.tokens.get(idx),
@@ -1131,7 +1102,7 @@ impl(
   }),
   parse_primary_end : (
     fn(
-      ref(self) : Self,
+      inout(self) : Self,
       primary_expr : AstExpr,
       index : usize,
       exn : Exception
@@ -1221,7 +1192,7 @@ impl(
         );
         init_infix := (primary_is_dot == false);
         // Accumulate further immediate dot-chains (no whitespace)
-        (cur_expr : AstExpr) =.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), dot_fn_tok)), init_args, init_infix, dot_fn_tok);
+        (cur_expr : AstExpr) =.FnCall(self.alloc_id(),.Atom(self.alloc_id(), dot_fn_tok), init_args, init_infix, dot_fn_tok);
         cur_idx := rhs_idx;
         while(true, {
           match(
@@ -1235,7 +1206,7 @@ impl(
               });
               chain_pr := self.parse_primary(cur_idx + usize(1), exn);
               chain_args := array_list(cur_expr, chain_pr.expr);
-              cur_expr =.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), dot_tok)), chain_args, true, dot_tok);
+              cur_expr =.FnCall(self.alloc_id(),.Atom(self.alloc_id(), dot_tok), chain_args, true, dot_tok);
               cur_idx = chain_pr.index;
             }
           );
@@ -1249,59 +1220,52 @@ impl(
         rhs := rhs_pr.expr;
         rhs_end := rhs_pr.index;
         // Check if rhs is an infix (non-dot) expression
-        rhs_is_infix := match(
+        // Check if the RHS is already an operator expression (chained
+        // operators). Mirrors parser.ts:1083-1088 EXACTLY: rhs is a FnCall
+        // AND isInfix AND its callee is an Atom whose token is NOT a Dot
+        // (dot chains are allowed). No arg-count restriction and no
+        // callee-token-kind restriction — TS has neither (a previous port
+        // added `rargs.len() == 2` and `kind ∈ {Operator, Dot}` guards,
+        // which silently ACCEPTED chains TS rejects).
+        rhs_is_chained_op := match(
           rhs,
-          .FnCall(_, rfb, rargs, ris_infix, _) => cond(
+          .FnCall(_, rfb, _, ris_infix, _) => cond(
             (ris_infix == false) => false,
-            (rargs.len() != usize(2)) => false,
             true => match(
-              rfb.*,
-              .Atom(_, ft) => ((ft.kind == TokenKind.Operator) || (ft.kind == TokenKind.Dot)),
+              rfb,
+              .Atom(_, ft) => (ft.kind != TokenKind.Dot),
               .FnCall(_, _, _, _, _) => false
             )
           ),
           .Atom(_, _) => false
         );
-        rhs_is_dot := match(
-          rhs,
-          .FnCall(_, rfb, _, _, _) => match(
-            rfb.*,
-            .Atom(_, ft) => (ft.kind == TokenKind.Dot),
-            .FnCall(_, _, _, _, _) => false
-          ),
-          .Atom(_, _) => false
-        );
         rhs_is_parenthesized := self.is_parenthesized_expr(rhs_start, rhs_end - usize(1));
-        if((rhs_is_infix && (rhs_is_dot == false)) && (rhs_is_parenthesized == false), {
-          has_nl_after_op := self.range_after_op_has_newline(idx, rhs_start);
-          op_at_line_start := self.is_op_at_line_start(idx);
-          op_alone := self.is_op_alone_on_line(idx, rhs_start);
+        if(rhs_is_chained_op && (rhs_is_parenthesized == false), {
+          // Stricter operator grouping (plans/OPERATOR_ASSOCIATIVITY.md): a chain
+          // of the SAME operator left-associates; adjacent DIFFERENT operators
+          // require explicit parentheses. No precedence, no newline rule (source
+          // layout no longer affects grouping).
+          rhs_op_value := match(
+            rhs,
+            .FnCall(_, rfb2, _, _, _) => match(
+              rfb2,
+              .Atom(_, ft2) => ft2.value,
+              .FnCall(_, _, _, _, _) => String.from("")
+            ),
+            .Atom(_, _) => String.from("")
+          );
           cond(
-            (has_nl_after_op && (op_at_line_start == false)) => {
-              rhs_args := ArrayList(AstExpr).new();
-              rhs_args.push(primary_expr);
-              rhs_args.push(rhs);
-              recur(
-                self,
-                .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), tok)), rhs_args, true, tok),
-                rhs_end,
-                exn
-              )
-            },
-            op_alone => {
-              rhs_args := ArrayList(AstExpr).new();
-              rhs_args.push(primary_expr);
-              rhs_args.push(rhs);
-              recur(
-                self,
-                .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), tok)), rhs_args, true, tok),
-                rhs_end,
-                exn
-              )
-            },
-            op_at_line_start =>
+            (tok.value == rhs_op_value) =>
               self.parse_left_assoc_op(primary_expr, tok, rhs, rhs_end, exn),
-            true => exn.throw(dyn(make_parse_error(tok, `ambiguous operator precedence near ${tok.value} — use parentheses`)))
+            true =>
+              exn.throw(
+                dyn(
+                  make_parse_error(
+                    tok,
+                    `Adjacent different operators need parentheses to clarify grouping (near ${tok.value}).`
+                  )
+                )
+              )
           )
         }, {
           rhs_args := ArrayList(AstExpr).new();
@@ -1309,7 +1273,7 @@ impl(
           rhs_args.push(rhs);
           recur(
             self,
-            .FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), tok)), rhs_args, true, tok),
+            .FnCall(self.alloc_id(),.Atom(self.alloc_id(), tok), rhs_args, true, tok),
             rhs_end,
             exn
           )
@@ -1330,12 +1294,12 @@ impl(
       }
     )
   }),
-  parse_expression : (fn(ref(self) : Self, index : usize, exn : Exception) -> ParseResult)({
+  parse_expression : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
     idx := self.skip_ws_fwd(index);
     pr := self.parse_primary(idx, exn);
     self.parse_primary_end(pr.expr, pr.index, exn)
   }),
-  do_parse : (fn(ref(self) : Self, exn : Exception) -> unit)({
+  do_parse : (fn(inout(self) : Self, exn : Exception) -> unit)({
     idx := usize(0);
     n := self.tokens.len();
     exprs := ArrayList(AstExpr).new();
@@ -1374,14 +1338,14 @@ impl(
               module_path : last_tok.module_path,
               input : last_tok.input
             );
-            exprs.push(.FnCall(self.alloc_id(), box(.Atom(self.alloc_id(), unit_tok)), ArrayList(AstExpr).new(), false, unit_tok));
+            exprs.push(.FnCall(self.alloc_id(),.Atom(self.alloc_id(), unit_tok), ArrayList(AstExpr).new(), false, unit_tok));
           });
         }
       );
     });
     self.program = exprs;
   }),
-  get_program : (fn(ref(self) : Self, exn : Exception) -> ArrayList(AstExpr))({
+  get_program : (fn(inout(self) : Self, exn : Exception) -> ArrayList(AstExpr))({
     self.do_parse(exn);
     if(self.has_template_string, {
       import_tok := Token(
@@ -1406,7 +1370,7 @@ impl(
       (str_atom : AstExpr) =.Atom(self.alloc_id(), str_tok);
       (import_expr : AstExpr) =.FnCall(
         self.alloc_id(),
-        box(import_atom),
+        import_atom,
         array_list(str_atom),
         false,
         import_tok

@@ -1,0 +1,407 @@
+//! Top-level C code-generation orchestrator — mirrors `src/codegen/codegen-c.ts`
+//! (`CodeGeneratorC.compileModule`).
+//!
+//! PORT STATUS (incremental, plans/archive/BOOTSTRAPPING_CODEGEN.md): this file currently
+//! carries the two self-contained orchestration steps that pair with the
+//! already-ported type/constructor layers:
+//!   * compute_needs_cycle_gc  — the pre-scan that sets context.needs_cycle_gc
+//!     before type declarations (it affects __yo_ref_header_t layout)
+//!   * emit_dispose_dispatch    — the type-tag __yo_dispose_dispatch switch over
+//!     the dispose_type_ids the object constructors populate
+//!
+//! The full compile_module pipeline (build context → collect → emit includes →
+//! Future-state enum → this pre-scan → generate_type_declarations → argv shim →
+//! generate_function_declarations → register_generate_expr + generate_all_functions
+//! → generate_main_wrapper → this dispatch switch) is the next increment; the
+//! dyn-box / async / specialized / effectful subsystems it also calls are
+//! Phase-3/5 and stubbed there.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TypeValue } :: import("../types/definitions.yo");
+{ type_key } :: import("../types/type_key.yo");
+{ EvalValue } :: import("../value.yo");
+{ TargetInfo } :: import("../target.yo");
+{ ExprInfoTable, lookup_some_resolved_concrete } :: import("../expr_info.yo");
+{ Emitter } :: import("../emitter.yo");
+{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_newtype_type, set_lookup_some_resolved_concrete } :: import("../types/guards.yo");
+{ type_contains_some_type, type_contains_some_type_deep, can_type_form_rc_cycle } :: import("../types/utils.yo");
+{ Exception } :: import("std/error");
+{ Environment } :: import("../env.yo");
+{ EvalContext } :: import("../evaluator/context.yo");
+{ CodeGenContext, set_on_demand_declare_fn, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum } :: import("./utils/index.yo");
+{ FunctionGenerationContext } :: import("./functions/context.yo");
+{ collect_required_functions, collect_trace_methods_from_generic_impls, collect_dispose_methods, register_find_function_calls_in_expr } :: import("./functions/collection.yo");
+{ collect_type, collect_required_types, collect_pointer_pointees, register_collect_type } :: import("./types/collection.yo");
+{ collect_c_includes, emit_c_includes } :: import("./c/collection.yo");
+{ generate_type_declarations, generate_dyn_box_types, generate_struct_declaration, generate_enum_declaration, generate_tuple_declaration, generate_union_declaration, generate_future_trait_declaration } :: import("./types/generation.yo");
+{ fixup_dyn_impl_keys } :: import("./utils/fixup.yo");
+{ generate_function_declarations } :: import("./functions/declarations.yo");
+{ generate_all_functions, generate_main_wrapper, emit_module_level_variable_declarations } :: import("./functions/generation.yo");
+{ generate_dyn_box_functions, generate_dyn_wrapper_functions, generate_dyn_vtables, generate_dyn_dup_drop } :: import("./functions/dyn.yo");
+{ register_generate_expr } :: import("./exprs/generation.yo");
+{ register_impl_closure_call_mappings, set_sm_atom_resolver } :: import("./exprs/closures.yo");
+{ _generate_sm_atom } :: import("./exprs/atom.yo");
+{ preregister_async_block_types, generate_deferred_async_blocks } :: import("./exprs/async.yo");
+{ register_fsm_emitters_impl } :: import("./async/state_code_gen.yo");
+/// True if any field of the struct contains a SomeType (generic). Mirrors the
+/// `!type.fields.some(field => typeContainsSomeType(field.type))` guard.
+/// On-demand recovery for a type first seen DURING emission (a lazily-minted
+/// call-site specialization's param/local type — see the hook comment in
+/// utils/index.yo). Tier 1: when exactly ONE registered entry shares the
+/// nominal id, alias the drifted key to it (a fresh mint would SPLIT the C
+/// identity). Tier 2: genuinely-new type — collect + append fwd typedef +
+/// body to the declarations buffer.
+_on_demand_collect_and_declare :: (fn(t : TypeValue, context : CodeGenContext) -> unit)({
+  odk := type_key(t);
+  od_sid := match(
+    t,
+    .Struct({ id : od_s_id, is_source_namespace : od_s_ns }) => if(od_s_ns, String.new(), od_s_id.clone()),
+    .EnumT(od_e_id, _, _, _, _, _, _, _, _) => od_e_id.clone(),
+    _ => String.new()
+  );
+  if(od_sid.len() > usize(0), {
+    (od_hit : Option(String)) = Option(String).None;
+    (od_count : usize) = usize(0);
+    od_keys := context.types.keys();
+    (od_go : bool) = true;
+    while(od_go, {
+      match(
+        od_keys.next(),
+        .Some(od_tid) => match(
+          context.types.get(od_tid.clone()),
+          .Some(od_entry) => {
+            od_esid := match(
+              od_entry.ty,
+              .Struct({ id : od_es_id, is_source_namespace : od_es_ns }) => if(od_es_ns, String.new(), od_es_id.clone()),
+              .EnumT(od_ee_id, _, _, _, _, _, _, _, _) => od_ee_id.clone(),
+              _ => String.new()
+            );
+            if((od_esid.len() > usize(0)) && (od_esid == od_sid), {
+              od_count = (od_count + usize(1));
+              od_hit = Option(String).Some(od_tid.clone());
+            });
+          },
+          .None => ()
+        ),
+        .None => {
+          od_go = false;
+        }
+      );
+    });
+    if(od_count == usize(1), {
+      match(
+        od_hit,
+        .Some(od_target) => {
+          context.register_type_alias(odk.clone(), od_target);
+          return(());
+        },
+        .None => ()
+      );
+    });
+  });
+  collect_type(t, context);
+  match(
+    context.get_type_entry(odk),
+    .Some(od_e) => {
+      od_cn := od_e.c_name.clone();
+      od_ty := od_e.ty;
+      od_is_struct := match(od_ty,.Struct({ is_source_namespace : od_ns }) => !(od_ns), _ => false);
+      od_is_enum := match(od_ty,.EnumT(_, _, _, _, _, _, _, _, _) => true, _ => false);
+      od_is_tuple := match(od_ty,.Tuple(_, _) => true, _ => false);
+      od_is_union := match(od_ty,.Union(_, _, _) => true, _ => false);
+      od_is_future := match(od_ty,.FutureTraitT(_, _, _, _, _) => true, _ => false);
+      od_need_fwd := cond(
+        od_is_struct => !(
+          is_newtype_type(od_ty) && match(od_ty,.Struct({ field_types : od_fts }) => (od_fts.len() == usize(1)), _ => false)
+        ),
+        od_is_enum => !(can_optimize_as_nullable_pointer(od_ty).is_some() || can_optimize_as_simple_enum(od_ty)),
+        // Future trait interface uses the same `<cn>_struct` typedef pattern
+        // (TS generation.ts:504-509 emits the forward decl for Future types).
+        od_is_future => true,
+        true => false
+      );
+      if(od_need_fwd, {
+        od_l := String.from("typedef struct ");
+        od_l.push_string(od_cn.clone());
+        od_l.push_str("_struct ");
+        od_l.push_string(od_cn.clone());
+        od_l.push_str("; // Forward declaration (on-demand)");
+        context.emitter.emit_declaration_string_line(od_l);
+      });
+      cond(
+        od_is_struct => generate_struct_declaration(od_ty, od_cn.clone(), context),
+        od_is_enum => generate_enum_declaration(od_ty, od_cn.clone(), context),
+        od_is_tuple => generate_tuple_declaration(od_ty, od_cn.clone(), context),
+        od_is_union => generate_union_declaration(od_ty, od_cn.clone(), context),
+        od_is_future => generate_future_trait_declaration(od_ty, od_cn.clone(), context),
+        true => ()
+      );
+    },
+    .None => ()
+  );
+});
+/// Install the on-demand hook. Called at codegen init (next to register_collect_type).
+register_on_demand_declare :: (fn() -> unit)({
+  set_on_demand_declare_fn(_on_demand_collect_and_declare);
+});
+_struct_has_generic_field :: (fn(ty : TypeValue) -> bool)(
+  match(
+    ty,
+    .Struct({ field_types }) => {
+      n := field_types.len();
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while((i < n) && !(found), {
+        match(
+          field_types.get(i),
+          // RECURSIVE: TS's needs-cycle-GC pre-scan uses `typeContainsSomeType`,
+          // which walks the whole type. A generic `ArrayList(E)` has field
+          // `?*(E)` — a SomeT nested under Option/Ptr — which the top-level
+          // test misses, so the generic instantiation was accepted as a
+          // concrete CYCLE ROOT and forced the heavy GC runtime for the entire
+          // program. See issues/repros/toplevel-some-type-check-forces-cycle-gc.yo.
+          .Some(ft) => if(type_contains_some_type_deep(ft), {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => false
+  )
+);
+/// Pre-scan to determine whether any object type can form an RC cycle. Must run
+/// before generate_type_declarations because it selects the __yo_ref_header_t
+/// layout (with or without GC fields). Mirrors the needs-cycle-GC loop in
+/// `CodeGeneratorC.compileModule` (src/codegen/codegen-c.ts 162-176).
+///
+/// Sets needs_cycle_gc when any reference-struct type can form an RC cycle
+/// (`can_type_form_rc_cycle`), which selects the FULL cyclic-GC runtime
+/// (`generate_full_gc_runtime_functions`) over the lightweight RC path.
+compute_needs_cycle_gc :: (fn(context : CodeGenContext) -> unit)({
+  context.needs_cycle_gc = false;
+  vals := context.types.values();
+  (go : bool) = true;
+  while(go, {
+    match(
+      vals.next(),
+      .Some(entry) => {
+        ty := entry.ty;
+        is_struct_root := ((is_reference_struct_type(ty) && !(is_atomic_reference_struct_type(ty))) && !(_struct_has_generic_field(ty)));
+        // A reference-semantics enum can also form an RC cycle (recursive Self
+        // variant field), so it is a cycle root too.
+        is_enum_root := ((is_reference_enum_type(ty) && !(is_atomic_reference_enum_type(ty))) && !(type_contains_some_type_deep(ty)));
+        if((is_struct_root || is_enum_root) && can_type_form_rc_cycle(ty), {
+          context.needs_cycle_gc = true;
+          go = false;
+        });
+      },
+      .None => {
+        go = false;
+      }
+    );
+  });
+});
+/// Emit the type-tag dispose dispatch function (lightweight RC only). Reads the
+/// dispose_type_ids side-table the object constructors populate and emits a
+/// switch; when empty, emits the no-op stub the RC runtime forward-declares.
+/// Mirrors the inline `__yo_dispose_dispatch` emission in
+/// `CodeGeneratorC.compileModule` (src/codegen/codegen-c.ts 258-283).
+///
+/// The needs_cycle_gc branch (function-pointer dispatch) is part of the deferred
+/// cyclic-GC subsystem; under lightweight RC this is the dispatch path.
+emit_dispose_dispatch :: (fn(context : CodeGenContext) -> unit)({
+  if(context.needs_cycle_gc, {
+    return();
+  });
+  em := context.emitter;
+  // Collect the dispose-fn C names (keys) so we can emit one case per id.
+  names := ArrayList(String).new();
+  kit := context.dispose_type_ids.keys();
+  (gk : bool) = true;
+  while(gk, {
+    match(
+      kit.next(),
+      .Some(k) => {
+        _p := names.push(k);
+      },
+      .None => {
+        gk = false;
+      }
+    );
+  });
+  if(names.len() > usize(0), {
+    em.emit_string_line(
+      `// Type-tag dispatch for dispose — replaces function pointers
+// WASM: br_table (~2 cycles) vs call_indirect (~20+ cycles)
+static void __yo_dispose_dispatch(void* ptr) {
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  switch (header->type_id) {`
+    );
+    n := names.len();
+    (i : usize) = usize(0);
+    while(i < n, {
+      match(
+        names.get(i),
+        .Some(name) => match(
+          context.dispose_type_ids.get(name.clone()),
+          .Some(id) => {
+            line := String.from("    case ");
+            line.push_string(id.to_string());
+            line.push_str(": ");
+            line.push_string(name.clone());
+            line.push_str("(ptr); return;");
+            em.emit_string_line(line);
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    em.emit_string_line(
+      `    default: return;
+  }
+}`
+    );
+  }, {
+    em.emit_string_line(String.from("static void __yo_dispose_dispatch(void* ptr) { (void)ptr; }"));
+  });
+});
+/// Compile a module value to a C11 source string. Mirrors
+/// `CodeGeneratorC.compileModule` + `print()` (src/codegen/codegen-c.ts).
+///
+/// Pipeline: register the collection/dispatch indirections → build the context →
+/// collect required functions + types → emit C includes → the Future-state enum →
+/// the needs_cycle_gc pre-scan → type declarations → the argv shim → function
+/// declarations → (register the expr dispatcher) function bodies → the main
+/// wrapper (executable mode) → the dispose-dispatch switch.
+///
+/// DEFERRED (documented, gated dead for the corpus): module-level mutable-var
+/// init collection + emission (no field), collectDisposeMethodsFromGenericImpls
+/// (Phase 3), fixupDynImplKeys / generateDynBox* / generateDyn* (Phase 3 dyn),
+/// preRegisterAsyncBlockTypes / preRegisterEffectfulFunctions /
+/// generateDeferredAsyncBlocks (Phase 5), generateClosureDisposeFunctions
+/// (Phase 5), generateSpecialized* (Gap 2), generateLibraryInitFunction.
+compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception) -> String)({
+  // Wire the mutual-recursion indirections before any collection / body walk.
+  register_collect_type();
+  register_on_demand_declare();
+  register_find_function_calls_in_expr();
+  register_generate_expr();
+  // Closure-capture SM-field resolution (closures.yo cannot import atom.yo —
+  // atom.yo imports closures.yo).
+  set_sm_atom_resolver(_generate_sm_atom);
+  // Register the FSM await/cond/match/while emitter indirections.
+  register_fsm_emitters_impl();
+  // Inject the resolved-concrete lookup into the low-level type guards so
+  // is_function_type_hard_generic can exclude SomeType params that resolved to a
+  // concrete type (mirrors TS reading someType.resolvedConcreteType).
+  set_lookup_some_resolved_concrete(lookup_some_resolved_concrete);
+  emitter := Emitter.new();
+  base := CodeGenContext.new(emitter, info, target, allocator, debug_gc, debug_parallelism, debug_async_await, is_library);
+  // Seed the always-needed standard C headers (mirrors the cIncludes set the TS
+  // CodeGeneratorC.compileModule constructs). <unistd.h>/<sys/stat.h> are
+  // platform-specific and added by emit_c_includes.
+  base.add_c_include(String.from("<stdbool.h>"));
+  base.add_c_include(String.from("<stdint.h>"));
+  base.add_c_include(String.from("<stddef.h>"));
+  base.add_c_include(String.from("<stdarg.h>"));
+  base.add_c_include(String.from("<stdatomic.h>"));
+  base.add_c_include(String.from("<stdlib.h>"));
+  base.add_c_include(String.from("<stdio.h>"));
+  base.add_c_include(String.from("<string.h>"));
+  base.add_c_include(String.from("<errno.h>"));
+  base.add_c_include(String.from("<fcntl.h>"));
+  ctx := FunctionGenerationContext.new(base);
+  base.emitter.emit_declaration_line("// Module (self-hosted codegen)");
+  // First pass: collect functions and types reachable from the module exports.
+  collect_required_functions(module_value, base, info, true);
+  collect_required_types(module_value, base, info);
+  // Pointer-field pointees missed by the dup/drop walk (e.g. HashMap/ArrayList
+  // element types behind `data : ?*(T)`); a separate pass so the main collection
+  // order — which the lazy array-struct registration depends on — is untouched.
+  // See issues/fixed/yo-self-p1-uncollected-pointee.md.
+  collect_pointer_pointees(base);
+  collect_c_includes(base);
+  emit_c_includes(base);
+  // Future state enum (needed before type declarations reference it).
+  base.emitter.emit_declaration_string_line(
+    `
+// Future state enum - shared by all Future types
+typedef enum {
+  __YO_FUTURE_RUNNING = 0,
+  __YO_FUTURE_COMPLETED = 1,
+  __YO_FUTURE_ERROR = 2
+} __yo_future_state_t;
+`
+  );
+  // Pre-scan: select the __yo_ref_header_t layout (must precede type decls).
+  compute_needs_cycle_gc(base);
+  // Cycle-GC: when any type can form an RC cycle, monomorphize each cyclable
+  // container's generic `trace` method (the Trace trait) and register it under the
+  // concrete container id, so the traversal generators delegate to it. Must run
+  // before function declarations so the specialized `trace` gets a prototype+body.
+  // (yo-self has no codegen-time monomorphizer; the collector drives the
+  // evaluator's create_specialized_function_inline with the threaded ctx/exn/env.)
+  if(base.needs_cycle_gc, {
+    collect_trace_methods_from_generic_impls(base, eval_ctx, module_env, info, exn);
+  });
+  // Auto-derive the ___dispose (recursive RC-field drop) for RC struct types lacking
+  // one, so freeing them drops their RC fields (runtime calls header.dispose_fn). yo-self
+  // defers the RC-function synthesis; this runs it with the threaded ctx/exn. Must precede
+  // function declarations + constructor emission (which read get_dispose_function_for_type).
+  collect_dispose_methods(base, eval_ctx, module_env, info, exn);
+  // Second pass: type declarations (runtime preamble + topo-sorted types).
+  generate_type_declarations(base);
+  // Re-key dyn impls to C names (now available), then emit dyn box types.
+  // Mirrors codegen-c.ts: fixupDynImplKeys → generateDynBoxTypes.
+  fixup_dyn_impl_keys(base);
+  generate_dyn_box_types(base);
+  // Command-line arguments runtime shim.
+  base.emitter.emit_declaration_string_line(
+    `
+// Command-line arguments (initialized in main)
+typedef struct { uint8_t** data; size_t length; } Slice_uint8_t_u42_;
+static int32_t __yo_argc;
+static uint8_t** __yo_argv;
+static Slice_uint8_t_u42_ __yo_args;
+`
+  );
+  // Pre-register async-block state-machine types (forward-declared struct
+  // typedefs + uses_async flag) before function declarations, so prototypes use
+  // the right SM struct names. Mirrors codegen-c.ts:205.
+  preregister_async_block_types(ctx);
+  // Third pass: function declarations (prototypes).
+  generate_function_declarations(base);
+  // Register Impl(Fn) closure → impl-fn mappings BEFORE function bodies, so a
+  // specialized callee whose body calls a closure (e.g. Thread.spawn →
+  // __yo_thread_spawn(cb)) resolves the closure regardless of generation order.
+  // Mirrors TS registerImplClosureCallMappings (codegen-c.ts before generateAllFunctions).
+  register_impl_closure_call_mappings(ctx);
+  // Fourth pass: function bodies (the dispatcher was registered above).
+  generate_all_functions(ctx);
+  // Dyn dispatch scaffolding (box ctor/dispose, wrapper functions, typeid
+  // vtables, and RC dup/drop — all ported). Mirrors codegen-c.ts 219-228.
+  generate_dyn_box_functions(ctx);
+  generate_dyn_wrapper_functions(ctx);
+  generate_dyn_vtables(ctx);
+  generate_dyn_dup_drop(ctx);
+  // Deferred async-block implementations (resume / set_effect / dispose / ctor),
+  // after all regular + dyn functions to avoid nesting. Mirrors codegen-c.ts:232.
+  generate_deferred_async_blocks(ctx);
+  // Module-level mutable variable declarations (file-scope statics). Emitted for
+  // both executable and library builds so the C symbols exist. Mirrors
+  // codegen-c.ts:251. Returns the (c_var_name, rhs) list for initialization.
+  module_vars := emit_module_level_variable_declarations(ctx);
+  // Main wrapper (executable mode only); initializes the module-level vars first.
+  if(!(is_library), {
+    generate_main_wrapper(ctx, module_vars);
+  });
+  // Type-tag dispose dispatch switch.
+  emit_dispose_dispatch(base);
+  base.emitter.print()
+});
+export(compute_needs_cycle_gc, emit_dispose_dispatch, compile_module);

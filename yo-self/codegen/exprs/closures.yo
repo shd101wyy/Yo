@@ -1,0 +1,356 @@
+//! Closure construction + capture emission — mirrors `src/codegen/exprs/closures.ts`.
+//!
+//! PORT STATUS (incremental): the leaf helpers
+//! (`check_variable_is_closure_captured`, `resolve_some_type_to_concrete`,
+//! `is_closure_construction`) are ported. The closure-construction emitter
+//! (`generateClosureConstruction`), the capture-struct allocation
+//! (`allocateClosureCapture`), and `registerImplClosureCallMappings` remain — they
+//! depend on the capture-param closure calling convention (declarations/generation
+//! capture param) + an impl-closure-call registry, which is the deferred Phase-3
+//! closure-codegen subsystem (issues/fixed/yo-self-closure-codegen-gate.md).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr } :: import("../../expr.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_some_type, is_dyn_type, is_function_type } :: import("../../types/guards.yo");
+{ type_implements_fn, extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
+{ lookup_some_resolved_concrete, expr_info_closure_function_value } :: import("../../expr_info.yo");
+{ type_key, get_variable_name_for_codegen, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name } :: import("../utils/index.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ is_closure_fn, get_closure_capture_info } :: import("../../function_value.yo");
+{ EvalValue, is_func_val } :: import("../../value.yo");
+{ Environment, get_variables_from_env } :: import("../../env.yo");
+/// Monotonic counter for unique closure capture temp names. yo-self has no
+/// Date.now(); a module-level counter gives the per-site uniqueness TS gets from
+/// `Date.now()_<row>`.
+(g_closure_capture_counter : usize) = usize(0);
+/// Hook to atom.yo's `_generate_sm_atom` (the `sm->` alias/capture resolution
+/// for variables inside a state machine). atom.yo imports THIS module
+/// (check_variable_is_closure_captured), so a direct import back would be a
+/// cycle — codegen_c.yo installs the fn at codegen init instead (the same
+/// pattern as register_collect_type / register_on_demand_declare).
+SmAtomResolverFn :: (fn(expr : AstExpr, var_name : String, context : FunctionGenerationContext) -> Option(String));
+(g_sm_atom_resolver : Option(SmAtomResolverFn)) = Option(SmAtomResolverFn).None;
+set_sm_atom_resolver :: (fn(f : SmAtomResolverFn) -> unit)({
+  g_sm_atom_resolver = Option(SmAtomResolverFn).Some(f);
+  ()
+});
+_resolve_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGenerationContext) -> Option(String))(
+  match(
+    g_sm_atom_resolver,
+    .Some(f) => f(expr, var_name, context),
+    .None => Option(String).None
+  )
+);
+/// True if `variable_name` resolves (in `env`) to a binding at or below the
+/// closure's capture frame level — i.e. it is captured by the closure rather
+/// than a local of the closure body. Mirrors `checkVariableIsClosureCaptured`.
+check_variable_is_closure_captured :: (
+  fn(variable_name : String, env : Environment, closure_capture_frame_level : usize) -> bool
+)({
+  variables := get_variables_from_env(env, variable_name.clone());
+  n := variables.len();
+  cond(
+    (n == usize(0)) => false,
+    true => {
+      latest := match(variables.get(n - usize(1)),.Some(v) => v,.None => return(false));
+      latest.frame_level <= closure_capture_frame_level
+    }
+  )
+});
+/// Walk a SomeType's resolved-concrete chain until a non-SomeType is reached
+/// (or no resolution / a self-cycle). Mirrors `resolveSomeTypeToConcrete`
+/// (closures.ts:21). yo-self reads the resolved concrete via the
+/// `lookup_some_resolved_concrete` side-table (no `.resolvedConcreteType` field).
+resolve_some_type_to_concrete :: (fn(t : TypeValue) -> TypeValue)({
+  (cur : TypeValue) = t;
+  (go : bool) = true;
+  // Cycle guard by VISITED SomeT id — not by type_key equality: type_key's
+  // SomeT arm hops through the resolution cell, so a resolved SomeT keys
+  // EQUAL to its own resolution and the old `type_key(rct) == type_key(cur)`
+  // check stopped the walk one hop short (Piece C then keyed the closure-call
+  // map by the SomeT id instead of the capture struct id — the fold-closure
+  // fn-pointer-cast miss).
+  (rsc_seen : ArrayList(String)) = ArrayList(String).new();
+  while(go && is_some_type(cur), {
+    sid := match(cur,.SomeT({ id : i }) => i, _ => String.from(""));
+    (rsc_revisit : bool) = false;
+    (rsc_i : usize) = usize(0);
+    while(rsc_i < rsc_seen.len(), {
+      match(
+        rsc_seen.get(rsc_i),
+        .Some(rsc_s) => if(rsc_s == sid, {
+          rsc_revisit = true;
+        }),
+        .None => ()
+      );
+      rsc_i = (rsc_i + usize(1));
+    });
+    if(rsc_revisit, {
+      go = false;
+    }, {
+      rsc_seen.push(sid.clone());
+      // Per-object resolved concrete first (survives clone/substitute/intern);
+      // global table as fallback.
+      own_rc := match(cur,.SomeT({ resolved_concrete : orc }) => orc.get(usize(0)), _ => Option(TypeValue).None);
+      match(
+        match(own_rc,.Some(o1) => Option(TypeValue).Some(o1),.None => lookup_some_resolved_concrete(sid)),
+        .Some(rct) => {
+          cur = rct;
+        },
+        .None => {
+          go = false;
+        }
+      );
+    });
+  });
+  cur
+});
+/// True if `expr` is a closure-construction call: its ExprInfo carries a
+/// `closure_function_value` and its type implements `Fn`. Mirrors
+/// `isClosureConstruction` (closures.ts:68).
+is_closure_construction :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+  match(
+    context.base.get_expr_info(expr),
+    // closure_function_value OR (the documented fallback) info.value being a
+    // FuncVal — anonymous_function.yo records the closure FuncVal on info.value,
+    // not closure_function_value.
+    // yo-self records the closure type as a bare `Func`/`FnTraitT` (TS uses the
+    // Impl(Fn) SomeT that `type_implements_fn`), so accept is_function_type too.
+    // The capture_type gate keeps this from firing on non-closure fn values and
+    // on io.async closures handled by the state-machine path.
+    .Some(ei) => (
+      (
+        expr_info_closure_function_value(ei).is_some()
+        || match(ei.value,.Some(v) => is_func_val(v),.None => false)
+      ) && ((type_implements_fn(ei.ty) || is_function_type(ei.ty)) && ei.capture_type.is_some())
+    ),
+    .None => false
+  )
+);
+/// Generate C for an Impl(Fn(...)) closure construction (piece A). Mirrors
+/// `generateClosureConstruction` + `allocateClosureCapture` (closures.ts:99,250),
+/// ADAPTED to yo-self's data model: the capture struct (a `Struct` TypeValue)
+/// carries only field labels (no per-field source exprs), so each capture field
+/// value is the captured variable accessed by name in the constructing scope
+/// (`get_variable_name_for_codegen(label, env)`). For Impl closures the capture
+/// struct is stack-allocated (value semantics); the closure impl fn C name is
+/// registered in `impl_closure_call_map` keyed by the concrete capture struct id
+/// so the call site (`cb(x)`) can emit `closure_fn(&(cb), x)`.
+///
+/// DEFERRED (faithful incremental): Dyn(Fn(...)) heap-allocated closures + the
+/// ARC dup-expr capture-field path (Rc captures) — the corpus/repro paths are
+/// value-type Impl closures with plain captures.
+generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("// Error: Missing closure metadata")));
+  closure_fv := match(
+    expr_info_closure_function_value(ei),
+    .Some(v) => v,
+    // Fallback: anonymous_function.yo records the closure FuncVal on info.value.
+    .None => match(ei.value,.Some(v) => v,.None => return(String.from("// Error: Missing closure_function_value")))
+  );
+  // The Fn call signature (for evidence params) — yo-self records the closure
+  // type as a bare Func/FnTraitT, so the FnTrait may be absent; fall back to the
+  // recorded type itself. Only the evidence path needs the precise call type.
+  call_type_opt := extract_fn_trait_from_type(ei.ty);
+  fid := match(closure_fv,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
+  function_c_name := match(context.base.functions.get(fid),.Some(fe) => fe.c_name,.None => return(String.from("// Error: Closure implementation function not found in context")));
+  if(is_dyn_type(ei.ty), {
+    return(String.from("// Error: Dyn(Fn(...)) closure construction not yet ported"));
+  });
+  // Resolve the capture struct + its fields.
+  capture_ty := match(ei.capture_type,.Some(ct) => ct,.None => TypeValue.Unit);
+  field_labels := match(capture_ty,.Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
+  call_type_id := type_key(ei.ty);
+  if(field_labels.len() > usize(0), {
+    // Impl closure WITH captures — stack-allocate the capture struct.
+    struct_id := match(capture_ty,.Struct({ id : sid }) => sid, _ => String.from(""));
+    // Look up by the FULL type_key, not the bare struct id: the registry is
+    // keyed by type_key(t), and for a cfid-empty struct with field types the
+    // key is now STRUCTURAL (sid + field keys) — bare-sid lookup only worked
+    // while type_key collapsed such structs to their sid (the Bucket visit-fn
+    // collision). TS looks up by struct id because TS ids are per-instantiation
+    // AND are the registry key; type_key is yo-self's equivalent identity.
+    capture_c_name := match(context.base.get_type_c_name(type_key(capture_ty)),.Some(n) => n,.None => return(String.from("// Error: Capture type not found for closure")));
+    // Build `(captureCName){ .label = <value>, ... }`. An RC-typed capture
+    // field uses the evaluator's deferred `___dup(name)` expr as its
+    // initializer (matched by dup TARGET name), so the capture struct holds
+    // its OWN reference — without it, dropping the constructing scope's local
+    // freed the value under the still-pending closure (the Command.status
+    // spawn-storage UAF). Mirrors TS `allocateClosureCapture`
+    // (closures.ts:99-170).
+    data := String.from("(");
+    data.push_string(capture_c_name.clone());
+    data.push_str("){ ");
+    (fi : usize) = usize(0);
+    while(fi < field_labels.len(), {
+      label := match(field_labels.get(fi),.Some(l) => l,.None => String.from(""));
+      if(fi > usize(0), {
+        data.push_str(", ");
+      });
+      data.push_str(".");
+      data.push_string(label.clone());
+      data.push_str(" = ");
+      (field_code : Option(String)) = Option(String).None;
+      match(
+        ei.deferred_dup_expressions,
+        .Some(dups) => {
+          (di : usize) = usize(0);
+          while((di < dups.len()) && field_code.is_none(), {
+            match(
+              dups.get(di),
+              .Some(de) => match(
+                get_deferred_dup_target_atom_name(de),
+                .Some(tn) => if(tn == label, {
+                  field_code = Option(String).Some(_call_generate_expr(de, indent.clone(), context));
+                }),
+                .None => ()
+              ),
+              .None => ()
+            );
+            di = (di + usize(1));
+          });
+        },
+        .None => ()
+      );
+      data.push_string(
+        match(
+          field_code,
+          .Some(fc) => fc,
+          // Inside an ENCLOSING state machine (a closure constructed in an
+          // async while-loop body), the captured variable is an SM field —
+          // map it through the sm-> alias/capture resolution the atom
+          // emitter uses. A bare C name referenced identifiers that do not
+          // exist in the resume fn ("use of undeclared identifier 'i'",
+          // async closure-in-while arms). Fall back to the scope name
+          // outside SMs.
+          .None => match(
+            _resolve_sm_atom(expr, label.clone(), context),
+            .Some(sm_name) => sm_name,
+            .None => get_variable_name_for_codegen(label.clone(), Option(Environment).Some(ei.env))
+          )
+        )
+      );
+      fi = (fi + usize(1));
+    });
+    data.push_str(" }");
+    // Unique stack temp.
+    temp := String.from("__capture_");
+    temp.push_string(fid.clone());
+    temp.push_str("_");
+    temp.push_string(g_closure_capture_counter.to_string());
+    g_closure_capture_counter = (g_closure_capture_counter + usize(1));
+    decl := indent.clone();
+    decl.push_string(capture_c_name.clone());
+    decl.push_str(" ");
+    decl.push_string(temp.clone());
+    decl.push_str(" = ");
+    decl.push_string(data);
+    decl.push_str(";");
+    em := context.base.emitter;
+    em.emit_string_line(decl);
+    // Register the impl-closure-call mapping (key = concrete capture struct id).
+    key := match(resolve_some_type_to_concrete(capture_ty),.Struct({ id : kid }) => kid, _ => struct_id.clone());
+    _r := context.base.impl_closure_call_map.set(
+      key,
+      ImplClosureCallInfo(
+        function_c_name : function_c_name,
+        call_type_id : call_type_id,
+        call_type : call_type_opt.clone(),
+        consumed_captures : Option(ArrayList(String)).None,
+        closure_fid : fid.clone()
+      )
+    );
+    temp
+  }, {
+    // Impl closure WITHOUT captures — empty capture struct value; still static
+    // dispatch (register by the resolved concrete capture/SomeT id).
+    concrete := resolve_some_type_to_concrete(ei.ty);
+    concrete_id := match(concrete,.Struct({ id : kid }) => kid,.SomeT({ id : sid }) => sid, _ => type_key(ei.ty));
+    // The compound literal's type must be the CAPTURE STRUCT — take it from
+    // the closure's registered capture info (keyed by fid; always present,
+    // an empty struct for capture-free closures). The ExprInfo ty here can be
+    // an UNRESOLVED SomeT whose C lowering is void*/"void" — that emitted
+    // `(void){}` / `(void*){}` (incomplete-type C errors).
+    concrete_c_name := match(
+      get_closure_capture_info(fid.clone()),
+      .Some(nc_cci) => get_type_string(nc_cci.capture_type, context.base),
+      .None => match(
+        context.base.get_type_c_name(concrete_id.clone()),
+        .Some(n) => n,
+        .None => get_type_string(concrete, context.base)
+      )
+    );
+    key := concrete_id;
+    _r := context.base.impl_closure_call_map.set(
+      key,
+      ImplClosureCallInfo(
+        function_c_name : function_c_name,
+        call_type_id : call_type_id,
+        call_type : call_type_opt.clone(),
+        consumed_captures : Option(ArrayList(String)).None,
+        closure_fid : fid.clone()
+      )
+    );
+    out := String.from("(");
+    out.push_string(concrete_c_name);
+    out.push_str("){}");
+    out
+  })
+});
+/// Pre-pass: register every collected closure's impl fn into impl_closure_call_map
+/// (keyed by its concrete capture-struct id) BEFORE any function body is generated.
+/// Without this, a specialized callee whose body calls the closure (e.g. the
+/// specialized `Thread.spawn` body → `__yo_thread_spawn(cb)`) can be codegen'd
+/// before the closure's construction site (which also registers the map), so the
+/// call-site lookup misses. Mirrors TS `registerImplClosureCallMappings`
+/// (closures.ts:223); yo-self has no FunctionValue.closureInfo, so it reads the
+/// capture struct from the get_closure_capture_info side-table (keyed by func_id).
+register_impl_closure_call_mappings :: (fn(context : FunctionGenerationContext) -> unit)({
+  it := context.base.functions.keys();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(fid) => {
+        if(is_closure_fn(fid.clone()), {
+          match(
+            get_closure_capture_info(fid.clone()),
+            .Some(cci) => {
+              key := match(
+                resolve_some_type_to_concrete(cci.capture_type),
+                .Struct({ id : sid }) => sid,
+                .SomeT({ id : sid }) => sid,
+                _ => String.from("")
+              );
+              if(key.len() > usize(0), {
+                match(
+                  context.base.functions.get(fid.clone()),
+                  .Some(entry) => {
+                    _r := context.base.impl_closure_call_map.set(
+                      key,
+                      ImplClosureCallInfo(
+                        function_c_name : entry.c_name,
+                        call_type_id : String.from(""),
+                        call_type : Option(TypeValue).None,
+                        consumed_captures : Option(ArrayList(String)).None,
+                        closure_fid : fid.clone()
+                      )
+                    );
+                  },
+                  .None => ()
+                );
+              });
+            },
+            .None => ()
+          );
+        });
+      },
+      .None => {
+        go = false;
+      }
+    );
+  });
+});
+export(check_variable_is_closure_captured, resolve_some_type_to_concrete, is_closure_construction, generate_closure_construction, register_impl_closure_call_mappings, set_sm_atom_resolver);

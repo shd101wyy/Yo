@@ -1,0 +1,29 @@
+// A `generic(T)` generic method call (`Option.unwrap` via GlobalAllocator's
+// `?*(void)` malloc) INSIDE an io.async closure. Regression for the L1
+// over-reach: binding the io.async generic OUTPUT `T` into the closure's
+// body_eval_env by NAME shadowed every `generic(T)` generic the body calls —
+// `unwrap`'s T resolved to the future output instead of the receiver's
+// pointee, failed to unify, and the whole statement soft-fell to unit (the
+// stage-2 `Cannot cast unit to *(u8)` FTT cluster in std/fs / std/process
+// closures). Only `E` (the effect bundle, needed for `io : E` param
+// resolution) may be bound by name.
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc, free } :: GlobalAllocator;
+
+f :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io) => {
+    m := malloc(usize(16));
+    p := m.unwrap();
+    buf := *(u8)(p);
+    free(.Some(*(void)(buf)));
+    i32(81)
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  v := io.await(f(io), io);
+  unsafe(_a := putchar(int(v))); // 81 = 'Q'
+});
+export(main);

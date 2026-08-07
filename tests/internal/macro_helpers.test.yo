@@ -1,0 +1,240 @@
+/// Verifies: gensym, .car/.cdr, ExprVal Atom equality.
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/error"));
+{ ArrayList } :: import("std/collections/array_list");
+{ Token, TokenKind } :: import("../../yo-self/token.yo");
+{ EvalValue } :: import("../../yo-self/value.yo");
+{ has_comment_attribute, Evaluator } :: import("../../yo-self/evaluator/index.yo");
+{ MACRO_DISPATCH_ENABLED } :: import("../../yo-self/evaluator/calls/function.yo");
+{ assert, panic } :: import("std/assert");
+noop_loader :: (fn(_path : String) -> Option(EvalValue))(
+  Option(EvalValue).None
+);
+test("macro helpers: ExprVal Atom equality via __yo_expr_eq", {
+  // Was skipped on issues/yo-self-expr-eq-macro-body-false.md (macro-body
+  // `__yo_expr_eq(quote(x), quote(x))` FALSE); fixed by the 2026-07-16
+  // env/ctx restore fixes — the check-path differential passes with a
+  // correct negative control (re-verified 2026-07-17).
+  if(MACRO_DISPATCH_ENABLED, {
+    exn := Exception(
+      throw : (
+        (err) -> {
+          assert(false, "unexpected error");
+          unwind(());
+        }
+      )
+    );
+    src := String.from("pragma(Pragma.SkipPrelude);\nis_same :: (fn() -> unquote(Expr))(cond(__yo_expr_eq(quote(x), quote(x)) => quote(1), true => quote(0)));\nv :: is_same();\nexport(v);\n");
+    eval := Evaluator.new(String.from("<phase6f1>"), String.from("<no-std>"), noop_loader, src, exn);
+    match(
+      eval.get_module_error(),
+      .Some(_) => {
+        assert(false, "module error");
+      },
+      .None => ()
+    );
+    match(
+      eval.get_module_value(),
+      .None => {
+        assert(false, "no module value");
+      },
+      .Some(mv) => match(
+        mv,
+        .StructVal(_, names, values) => {
+          (i : usize) = usize(0);
+          n := names.len();
+          (found : Option(usize)) =.None;
+          while(i < n, {
+            match(
+              names.get(i),
+              .Some(nm) => cond(
+                (nm == "v") => {
+                  found =.Some(i);
+                },
+                true => ()
+              ),
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          match(
+            found,
+            .None => {
+              assert(false, "v not found");
+            },
+            .Some(idx) => match(
+              values.get(idx),
+              .None => {
+                assert(false, "v idx missing");
+              },
+              .Some(rv) => match(
+                rv,
+                .IntLit(s) => assert(s == "1", "expr_eq(quote(x), quote(x)) should pick 1"),
+                _ => {
+                  assert(false, "v not IntLit");
+                }
+              )
+            )
+          );
+        },
+        _ => {
+          assert(false, "not ModuleVal");
+        }
+      )
+    );
+  });
+});
+test("macro helpers: gensym produces fresh atoms", {
+  // MACRO_DISPATCH_ENABLED is true (re-enabled 2026-06-11 — the old heap
+  // corruption is fixed, see issues/fixed/); this body runs for real.
+  if(MACRO_DISPATCH_ENABLED, {
+    exn := Exception(
+      throw : (
+        (err) -> {
+          assert(false, "unexpected error");
+          unwind(());
+        }
+      )
+    );
+    // Comptime `::` bindings, no operators — `+`/`==` need the prelude and
+    // TS rejects the old `:=`-based source outright (the real module
+    // evaluator matches TS; the legacy walker never truly evaluated this).
+    // Freshness is still what's under test: both gensym'd bindings coexist
+    // in one block, and `v` picks the second (4).
+    src := String.from("pragma(Pragma.SkipPrelude);\nmake_pair :: (fn() -> unquote(Expr))({ a :: gensym(\"u\"); b :: gensym(\"v\"); quote({ unquote(a) :: 3; unquote(b) :: 4; unquote(b) }) });\nv :: make_pair();\nexport(v);\n");
+    eval := Evaluator.new(String.from("<phase6f2>"), String.from("<no-std>"), noop_loader, src, exn);
+    match(
+      eval.get_module_error(),
+      .Some(_) => {
+        assert(false, "module error");
+      },
+      .None => ()
+    );
+    match(
+      eval.get_module_value(),
+      .None => {
+        assert(false, "no module value");
+      },
+      .Some(mv) => match(
+        mv,
+        .StructVal(_, names, values) => {
+          (i : usize) = usize(0);
+          n := names.len();
+          (found : Option(usize)) =.None;
+          while(i < n, {
+            match(
+              names.get(i),
+              .Some(nm) => cond(
+                (nm == "v") => {
+                  found =.Some(i);
+                },
+                true => ()
+              ),
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          match(
+            found,
+            .None => {
+              assert(false, "v not found");
+            },
+            .Some(idx) => match(
+              values.get(idx),
+              .None => {
+                assert(false, "v idx missing");
+              },
+              .Some(rv) => match(
+                rv,
+                .IntLit(s) => assert(s == "4", "expected 4"),
+                _ => {
+                  assert(false, "v not IntLit");
+                }
+              )
+            )
+          );
+        },
+        _ => {
+          assert(false, "not ModuleVal");
+        }
+      )
+    );
+  });
+});
+test("macro helpers: .cdr on ComptimeListVal", {
+  // MACRO_DISPATCH_ENABLED is true (re-enabled 2026-06-11 — the old heap
+  // corruption is fixed, see issues/fixed/); this body runs for real.
+  if(MACRO_DISPATCH_ENABLED, {
+    exn := Exception(
+      throw : (
+        (err) -> {
+          assert(false, "unexpected error");
+          unwind(());
+        }
+      )
+    );
+    // Raw builtins — the `.get_args()/.cdr()/.len()` method sugar and `==`
+    // need the prelude, and TS rejects the old source under SkipPrelude (the
+    // real module evaluator matches TS). car(cdr(args((3 + 4)))) = 4 still
+    // exercises .cdr semantics (drops the first arg).
+    src := String.from("pragma(Pragma.SkipPrelude);\ncdr_first :: (fn(quote(e) : Expr) -> unquote(Expr))(__yo_comptime_list_car(__yo_comptime_list_cdr(__yo_expr_get_args(e))));\nv :: cdr_first((3 + 4));\nexport(v);\n");
+    eval := Evaluator.new(String.from("<phase6f3>"), String.from("<no-std>"), noop_loader, src, exn);
+    match(
+      eval.get_module_error(),
+      .Some(_) => {
+        assert(false, "module error");
+      },
+      .None => ()
+    );
+    match(
+      eval.get_module_value(),
+      .None => {
+        assert(false, "no module value");
+      },
+      .Some(mv) => match(
+        mv,
+        .StructVal(_, names, values) => {
+          (i : usize) = usize(0);
+          n := names.len();
+          (found : Option(usize)) =.None;
+          while(i < n, {
+            match(
+              names.get(i),
+              .Some(nm) => cond(
+                (nm == "v") => {
+                  found =.Some(i);
+                },
+                true => ()
+              ),
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          match(
+            found,
+            .None => {
+              assert(false, "v not found");
+            },
+            .Some(idx) => match(
+              values.get(idx),
+              .None => {
+                assert(false, "v idx missing");
+              },
+              .Some(rv) => match(
+                rv,
+                .IntLit(s) => assert(s == "4", "expected 4"),
+                _ => {
+                  assert(false, "v not IntLit");
+                }
+              )
+            )
+          );
+        },
+        _ => {
+          assert(false, "not ModuleVal");
+        }
+      )
+    );
+  });
+});

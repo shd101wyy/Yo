@@ -53,7 +53,7 @@ open(import("std/string"));
 { Exception } :: import("std/error");
 /// Helper: extract a TypeValue from an arg's ExprInfo value, or throw.
 /// If value is .None (runtime expression), throws.
-/// If value is .Some(.TypeVal(tv)), returns tv.*.
+/// If value is .Some(.TypeVal(tv)), returns tv.
 /// If value is .Some(other), throws with a descriptive error.
 _extract_type_val :: (
   fn(
@@ -80,7 +80,7 @@ _extract_type_val :: (
     },
     .Some(v) => match(
       v,
-      .TypeVal(tv) => tv.*,
+      .TypeVal(tv) => tv,
       _ => {
         exn.throw(
           dyn(
@@ -160,8 +160,18 @@ evaluate_yo_type_to_string :: (
     .Some(v) => match(
       v,
       .TypeVal(tv) => {
-        s := type_to_string(tv.*);
-        out_info.value = Option(EvalValue).Some(EvalValue.StrLit(s));
+        // StrLit comptime-string values carry SURROUNDING double-quotes (the
+        // lexer keeps them; `+` concat and the string method shims strip the
+        // first/last char to recover the inner text — see eval.yo). The raw type
+        // name from `type_to_string` has none, so wrap it to match the
+        // convention. Without the quotes the quote-stripping consumers eat the
+        // real first/last char — e.g. derive(Clone)'s `__s3(type_name, "(", …)`
+        // built `oke(…)` for `Token` and an empty callee for `T`, so the
+        // synthesized constructor failed to transpile. Mirrors process.yo's
+        // `__yo_process_platform` StrLit construction.
+        s := type_to_string(tv);
+        quoted := ((String.from("\"") + s) + String.from("\""));
+        out_info.value = Option(EvalValue).Some(EvalValue.StrLit(quoted));
       },
       _ => ()
     ),
@@ -599,7 +609,7 @@ evaluate_yo_type_impls :: (
   trait_type_opt := match(
     info1.value,
     .Some(v) => if(is_type_val(v), {
-      tv := match(v,.TypeVal(b) => b.*, _ => t_unit());
+      tv := match(v,.TypeVal(b) => b, _ => t_unit());
       if(is_trait_type(tv), Option(TypeValue).Some(tv), Option(TypeValue).None)
     }, Option(TypeValue).None),
     .None => Option(TypeValue).None
@@ -694,7 +704,7 @@ _ti_bind_type :: (
     env_ptr,
     name_str.clone(),
     t_type(),
-    Option(EvalValue).Some(EvalValue.TypeVal(box(ty))),
+    Option(EvalValue).Some(EvalValue.TypeVal(ty)),
     true,
     false,
     false,
@@ -760,7 +770,7 @@ _ti_bind_comptime_list :: (
     env_ptr.input_string = type_info.env.input_string;
     match(
       type_info.value,
-      .Some(v) => match(v,.TypeVal(tv) => tv.*, _ => t_unit()),
+      .Some(v) => match(v,.TypeVal(tv) => tv, _ => t_unit()),
       .None => t_unit()
     )
   });
@@ -873,6 +883,241 @@ _ti_bind_variant_info_list :: (
     i = (i + usize(1));
   });
   _ti_bind_comptime_list(env_ptr, vi_vals, String.from("VariantInfo"), String.from("vl"), ctx, exn)
+});
+/// Build a ComptimeList(TraitInfo) from trait types and bind to a temp var
+/// (port of bindTempTraitInfoList, type-fns.ts:1330).
+_ti_bind_trait_info_list :: (
+  fn(
+    env_ptr : Environment,
+    trait_types : ArrayList(TypeValue),
+    prefix : String,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> String
+)({
+  values := ArrayList(EvalValue).new();
+  (i : usize) = usize(0);
+  while(i < trait_types.len(), {
+    tt := match(trait_types.get(i),.Some(t) => t,.None => t_unit());
+    tt_name := _ti_bind_type(env_ptr, tt, ctx);
+    code := String.from("TraitInfo(");
+    code.push_string(tt_name);
+    code.push_str(")");
+    match(
+      _ti_eval_code(env_ptr, code, ctx, exn),
+      .Some(v) => {
+        _p := values.push(v);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  {
+    pfx := String.from("trl_");
+    pfx.push_string(prefix);
+    _ti_bind_comptime_list(env_ptr, values, String.from("TraitInfo"), pfx, ctx, exn)
+  }
+});
+/// Build one ParamInfo value (port of the loop body in bindTempParamInfoList,
+/// type-fns.ts:1128).
+_ti_build_param_info :: (
+  fn(
+    env_ptr : Environment,
+    label : String,
+    ty : TypeValue,
+    is_comptime : bool,
+    is_variadic : bool,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> EvalValue
+)({
+  ty_name := _ti_bind_type(env_ptr, ty, ctx);
+  code := String.from("ParamInfo(\"");
+  code.push_string(_ti_escape_str(label));
+  code.push_str("\", ");
+  code.push_string(ty_name);
+  code.push_str(", ");
+  code.push_str(cond(is_comptime => "true", true => "false"));
+  code.push_str(", false, ");
+  code.push_str(cond(is_variadic => "true", true => "false"));
+  code.push_str(")");
+  match(_ti_eval_code(env_ptr, code, ctx, exn),.Some(v) => v,.None => EvalValue.UnitVal)
+});
+/// Build a FunctionInfo temp var from a call signature (port of
+/// bindTempFunctionInfo, type-fns.ts:1064). Sources per-param data from
+/// what the type value CARRIES (labels/types/foralls/implicits + variadic
+/// flag); yo-self keeps per-param comptime in an expr-id side table
+/// unreachable from a bare TypeValue — recorded gap in the map.
+_ti_bind_function_info :: (
+  fn(
+    env_ptr : Environment,
+    param_labels : ArrayList(String),
+    param_types : ArrayList(TypeValue),
+    forall_labels : ArrayList(String),
+    forall_types : ArrayList(TypeValue),
+    implicit_labels : ArrayList(String),
+    implicit_types : ArrayList(TypeValue),
+    result_ty : TypeValue,
+    // The variadic parameter (0-or-1 in variadic_types; label/comptime from
+    // FuncMeta) — appended to the params list exactly as TS appends
+    // variadicParameter (type-fns.ts:1134).
+    variadic_types : ArrayList(TypeValue),
+    variadic_label : String,
+    variadic_comptime : bool,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> String
+)({
+  param_vals := ArrayList(EvalValue).new();
+  {
+    (i : usize) = usize(0);
+    n := param_types.len();
+    while(i < n, {
+      lbl := match(param_labels.get(i),.Some(l) => l,.None => String.new());
+      pty := match(param_types.get(i),.Some(t) => t,.None => t_unit());
+      _p := param_vals.push(_ti_build_param_info(env_ptr, lbl, pty, false, false, ctx, exn));
+      i = (i + usize(1));
+    });
+    match(
+      variadic_types.get(usize(0)),
+      .Some(vty) => {
+        _pv := param_vals.push(
+          _ti_build_param_info(env_ptr, variadic_label.clone(), vty, variadic_comptime, true, ctx, exn)
+        );
+      },
+      .None => ()
+    );
+  };
+  params_name := _ti_bind_comptime_list(env_ptr, param_vals, String.from("ParamInfo"), String.from("pl"), ctx, exn);
+  ret_name := _ti_bind_type(env_ptr, result_ty, ctx);
+  // Foralls.
+  forall_vals := ArrayList(EvalValue).new();
+  {
+    (i : usize) = usize(0);
+    while(i < forall_types.len(), {
+      lbl := match(forall_labels.get(i),.Some(l) => l,.None => String.new());
+      fty := match(forall_types.get(i),.Some(t) => t,.None => t_unit());
+      fn_ty_name := _ti_bind_type(env_ptr, fty, ctx);
+      code := String.from("ForallParamInfo(\"");
+      code.push_string(_ti_escape_str(lbl));
+      code.push_str("\", ");
+      code.push_string(fn_ty_name);
+      code.push_str(")");
+      match(
+        _ti_eval_code(env_ptr, code, ctx, exn),
+        .Some(v) => {
+          _p := forall_vals.push(v);
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+  };
+  foralls_name := _ti_bind_comptime_list(env_ptr, forall_vals, String.from("ForallParamInfo"), String.from("fpl"), ctx, exn);
+  // Implicits.
+  implicit_vals := ArrayList(EvalValue).new();
+  {
+    (i : usize) = usize(0);
+    while(i < implicit_types.len(), {
+      lbl := match(implicit_labels.get(i),.Some(l) => l,.None => String.new());
+      ity := match(implicit_types.get(i),.Some(t) => t,.None => t_unit());
+      it_name := _ti_bind_type(env_ptr, ity, ctx);
+      code := String.from("ImplicitParamInfo(\"");
+      code.push_string(_ti_escape_str(lbl));
+      code.push_str("\", ");
+      code.push_string(it_name);
+      code.push_str(")");
+      match(
+        _ti_eval_code(env_ptr, code, ctx, exn),
+        .Some(v) => {
+          _p := implicit_vals.push(v);
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+  };
+  implicits_name := _ti_bind_comptime_list(env_ptr, implicit_vals, String.from("ImplicitParamInfo"), String.from("ipl"), ctx, exn);
+  fni_code := String.from("FunctionInfo(");
+  fni_code.push_string(params_name);
+  fni_code.push_str(", ");
+  fni_code.push_string(ret_name);
+  fni_code.push_str(", ");
+  fni_code.push_string(foralls_name);
+  fni_code.push_str(", ");
+  fni_code.push_string(implicits_name);
+  fni_code.push_str(", false)");
+  fni_name := `__ti_fni_${random_id(env_ptr.module_path)}`;
+  match(
+    _ti_eval_code(env_ptr, fni_code, ctx, exn),
+    .Some(v) => {
+      _add := add_variable_to_env(
+        env_ptr,
+        fni_name.clone(),
+        type_of_eval_value(v),
+        Option(EvalValue).Some(v),
+        true,
+        false,
+        false,
+        false,
+        synthetic_token(fni_name.clone(), env_ptr.module_path)
+      );
+    },
+    .None => ()
+  );
+  fni_name
+});
+/// Build the TraitFieldInfo list for a TraitT (port of
+/// bindTempTraitFieldInfoList, type-fns.ts:1237). A field is an ASSOCIATED
+/// TYPE when its label is in the trait's assoc_type_names (TS
+/// `field.unassignedSomeType`).
+_ti_bind_trait_field_info_list :: (
+  fn(
+    env_ptr : Environment,
+    field_labels : ArrayList(String),
+    field_types : ArrayList(TypeValue),
+    assoc_type_names : ArrayList(String),
+    ctx : EvalContext,
+    exn : Exception
+  ) -> String
+)({
+  values := ArrayList(EvalValue).new();
+  (i : usize) = usize(0);
+  while(i < field_labels.len(), {
+    lbl := match(field_labels.get(i),.Some(l) => l,.None => String.new());
+    fty := match(field_types.get(i),.Some(t) => t,.None => t_unit());
+    ft_name := _ti_bind_type(env_ptr, fty, ctx);
+    (is_assoc : bool) = false;
+    {
+      (ai : usize) = usize(0);
+      while(ai < assoc_type_names.len(), {
+        match(
+          assoc_type_names.get(ai),
+          .Some(an) => if(an == lbl, {
+            is_assoc = true;
+          }),
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+    };
+    code := String.from("TraitFieldInfo(\"");
+    code.push_string(_ti_escape_str(lbl));
+    code.push_str("\", ");
+    code.push_string(ft_name);
+    code.push_str(", ");
+    code.push_str(cond(is_assoc => "true", true => "false"));
+    code.push_str(")");
+    match(
+      _ti_eval_code(env_ptr, code, ctx, exn),
+      .Some(v) => {
+        _p := values.push(v);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  _ti_bind_comptime_list(env_ptr, values, String.from("TraitFieldInfo"), String.from("tfl"), ctx, exn)
 });
 // ---------------------------------------------------------------------------
 // Phase 3 builtin implementations
@@ -990,19 +1235,19 @@ evaluate_yo_type_get_info :: (
     .Float(bits) => if(bits == u8(32), String.from("TypeInfo.F32"), String.from("TypeInfo.F64")),
     .TypeUni(level) => ((String.from("TypeInfo.Type(") + level.to_string()) + String.from(")")),
     .Pointer(pointee_box) => {
-      cn := _ti_bind_type(local_env, pointee_box.*, ctx);
+      cn := _ti_bind_type(local_env, pointee_box, ctx);
       (String.from("TypeInfo.Ptr(") + cn) + String.from(")")
     },
     .Array(element_box, length, _) => {
-      cn := _ti_bind_type(local_env, element_box.*, ctx);
+      cn := _ti_bind_type(local_env, element_box, ctx);
       (((String.from("TypeInfo.Array(") + cn) + String.from(", ")) + length.to_string()) + String.from(")")
     },
     .IsoT(child_box) => {
-      cn := _ti_bind_type(local_env, child_box.*, ctx);
+      cn := _ti_bind_type(local_env, child_box, ctx);
       (String.from("TypeInfo.Iso(") + cn) + String.from(")")
     },
     .ComptimeListT(child_box) => {
-      cn := _ti_bind_type(local_env, child_box.*, ctx);
+      cn := _ti_bind_type(local_env, child_box, ctx);
       (String.from("TypeInfo.ComptimeList(") + cn) + String.from(")")
     },
     .Tuple(labels, types) => {
@@ -1020,13 +1265,125 @@ evaluate_yo_type_get_info :: (
       );
       (((String.from("TypeInfo.Struct(") + fl_name) + String.from(", ")) + kind_str) + String.from(")")
     },
-    .EnumT(_, _, variant_names, variant_fields, _, variant_field_labels, _) => {
+    .EnumT(_, _, variant_names, variant_fields, _, variant_field_labels, _, _, _) => {
       vl_name := _ti_bind_variant_info_list(local_env, type_val, variant_names, variant_fields, variant_field_labels, ctx, exn);
       (String.from("TypeInfo.Enum(") + vl_name) + String.from(")")
     },
     .Union(_, labels, types) => {
       fl_name := _ti_bind_type_field_list(local_env, labels, types, ctx, exn);
       (String.from("TypeInfo.Union(") + fl_name) + String.from(")")
+    },
+    // === SomeType(name, required_traits, negative_traits, resolved_type) ===
+    // (type-fns.ts:896-930)
+    .SomeT({ name : st_name, required_trait_types : st_req, negative_trait_types : st_neg, resolved_concrete : st_res }) => {
+      req_name := _ti_bind_trait_info_list(local_env, st_req, String.from("req"), ctx, exn);
+      neg_name := _ti_bind_trait_info_list(local_env, st_neg, String.from("neg"), ctx, exn);
+      res_name := match(
+        st_res.get(usize(0)),
+        .Some(rt) => _ti_bind_type(local_env, rt, ctx),
+        .None => String.from("unit")
+      );
+      {
+        sc := String.from("TypeInfo.SomeType(\"");
+        sc.push_string(_ti_escape_str(st_name));
+        sc.push_str("\", ");
+        sc.push_string(req_name);
+        sc.push_str(", ");
+        sc.push_string(neg_name);
+        sc.push_str(", ");
+        sc.push_string(res_name);
+        sc.push_str(")");
+        sc
+      }
+    },
+    // === Dyn(required_traits, negative_traits) === (type-fns.ts:876-894)
+    .DynT(dt_req, _, dt_neg, _) => {
+      req_name := _ti_bind_trait_info_list(local_env, dt_req, String.from("req"), ctx, exn);
+      neg_name := _ti_bind_trait_info_list(local_env, dt_neg, String.from("neg"), ctx, exn);
+      {
+        dc := String.from("TypeInfo.Dyn(");
+        dc.push_string(req_name);
+        dc.push_str(", ");
+        dc.push_string(neg_name);
+        dc.push_str(")");
+        dc
+      }
+    },
+    // === Trait(fields, kind) === (type-fns.ts:858-874). yo-self splits TS's
+    // TraitType into TraitT / FnTraitT / FutureTraitT — one arm each.
+    .TraitT(_, tt_assoc_names, tt_flabels, tt_ftypes, _, _, _, _, _, _) => {
+      fl_name := _ti_bind_trait_field_info_list(local_env, tt_flabels, tt_ftypes, tt_assoc_names, ctx, exn);
+      {
+        tc := String.from("TypeInfo.Trait(");
+        tc.push_string(fl_name);
+        tc.push_str(", TraitKind.Normal)");
+        tc
+      }
+    },
+    .FnTraitT(_, ft_plabels, ft_ptypes, ft_result, ft_ilabels, ft_itypes, _, _) => {
+      fni_name := _ti_bind_function_info(
+        local_env,
+        ft_plabels,
+        ft_ptypes,
+        ArrayList(String).new(),
+        ArrayList(TypeValue).new(),
+        ft_ilabels,
+        ft_itypes,
+        ft_result,
+        ArrayList(TypeValue).new(),
+        String.from("..."),
+        false,
+        ctx,
+        exn
+      );
+      empty_fields := _ti_bind_comptime_list(local_env, ArrayList(EvalValue).new(), String.from("TraitFieldInfo"), String.from("tfl"), ctx, exn);
+      {
+        fc := String.from("TypeInfo.Trait(");
+        fc.push_string(empty_fields);
+        fc.push_str(", TraitKind.Fn(");
+        fc.push_string(fni_name);
+        fc.push_str("))");
+        fc
+      }
+    },
+    .FutureTraitT(_, fut_output, _, fut_etypes, _) => {
+      out_name := _ti_bind_type(local_env, fut_output, ctx);
+      eff_name := _ti_bind_trait_info_list(local_env, fut_etypes, String.from("eff"), ctx, exn);
+      empty_fields := _ti_bind_comptime_list(local_env, ArrayList(EvalValue).new(), String.from("TraitFieldInfo"), String.from("tfl"), ctx, exn);
+      {
+        uc := String.from("TypeInfo.Trait(");
+        uc.push_string(empty_fields);
+        uc.push_str(", TraitKind.Future(");
+        uc.push_string(out_name);
+        uc.push_str(", ");
+        uc.push_string(eff_name);
+        uc.push_str("))");
+        uc
+      }
+    },
+    // === Function(info) === (type-fns.ts:849-856)
+    .Func({ forall_types : fn_fts, param_types : fn_pts, implicit_types : fn_its, result : fn_res, meta : fn_meta, variadic_types : fn_vts }) => {
+      fni_name := _ti_bind_function_info(
+        local_env,
+        fn_meta.*.param_labels,
+        fn_pts,
+        fn_meta.*.forall_labels,
+        fn_fts,
+        fn_meta.*.implicit_labels,
+        fn_its,
+        fn_res,
+        fn_vts,
+        match(fn_meta.*.variadic_label,.Some(vl) => vl.clone(),.None => String.from("...")),
+        fn_meta.*.variadic_comptime,
+        ctx,
+        exn
+      );
+      {
+        nc := String.from("TypeInfo.Function(");
+        nc.push_string(fni_name);
+        nc.push_str(")");
+        nc
+      }
     },
     _ => {
       exn.throw(
@@ -1252,7 +1609,7 @@ evaluate_comptime_string_to_expr :: (
   );
   // Parse a single expression.
   parsed_expr := generate_expr_from_code(code_str.clone(), exn);
-  expr_val := EvalValue.ExprVal(box(parsed_expr));
+  expr_val := EvalValue.ExprVal(parsed_expr);
   out := new_expr_info(local_env, t_expr_t());
   out.value = Option(EvalValue).Some(expr_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
@@ -1411,7 +1768,7 @@ evaluate_type_join_fields :: (
     info2.value,
     .Some(v) => match(
       v,
-      .ExprVal(e_box) => e_box.*,
+      .ExprVal(e_box) => e_box,
       _ => {
         exn.throw(
           dyn(
@@ -1478,6 +1835,15 @@ evaluate_type_join_fields :: (
     );
   });
   // For each field, build FieldInfo and call mapper.
+  // Resolve the DECLARED `FieldInfo` struct type once for the temp-var
+  // bindings — same TS `value.type` parity (and same lossy
+  // `type_of_eval_value` pitfall) as the `VariantInfo` resolution in
+  // `evaluate_type_map_variants` below.
+  fi_declared_ty_opt := match(
+    _ti_eval_code(local_env, String.from("FieldInfo"), ctx, exn),
+    .Some(fi_tv) => match(fi_tv,.TypeVal(fi_tb) => Option(TypeValue).Some(fi_tb), _ => Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  );
   result_exprs := ArrayList(AstExpr).new();
   (si : usize) = usize(0);
   while(si < n_fields, {
@@ -1489,7 +1855,7 @@ evaluate_type_join_fields :: (
     fi_code := ((((String.from("FieldInfo(\"") + escaped_label) + String.from("\", ")) + ft_name) + String.from(")"));
     fi_val_opt := _ti_eval_code(local_env, fi_code, ctx, exn);
     fi_val := match(fi_val_opt,.Some(v) => v,.None => EvalValue.UnitVal);
-    fi_type := type_of_eval_value(fi_val);
+    fi_type := match(fi_declared_ty_opt,.Some(dt) => dt,.None => type_of_eval_value(fi_val));
     // Bind FieldInfo to temp var, then call mapper(fi_name).
     fi_name := `__da_${random_id(local_env.module_path)}`;
     _add_fi := add_variable_to_env(
@@ -1522,7 +1888,7 @@ evaluate_type_join_fields :: (
       call_info.value,
       .Some(v) => match(
         v,
-        .ExprVal(e_box) => e_box.*,
+        .ExprVal(e_box) => e_box,
         _ => {
           exn.throw(
             dyn(
@@ -1563,10 +1929,10 @@ evaluate_type_join_fields :: (
     combine_args := ArrayList(AstExpr).new();
     _p1 := combine_args.push(acc_expr);
     _p2 := combine_args.push(rhs);
-    acc_expr = AstExpr.FnCall(usize(0), box(AstExpr.Atom(usize(0), tok)), combine_args, true, tok);
+    acc_expr = AstExpr.FnCall(usize(0), AstExpr.Atom(usize(0), tok), combine_args, true, tok);
     ri = (ri + usize(1));
   });
-  combined_val := EvalValue.ExprVal(box(acc_expr));
+  combined_val := EvalValue.ExprVal(acc_expr);
   out := new_expr_info(local_env, t_expr_t());
   out.value = Option(EvalValue).Some(combined_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
@@ -1709,9 +2075,24 @@ evaluate_type_map_variants :: (
     synthetic_token(mapper_name.clone(), local_env.module_path)
   );
   // Extract enum variant data.
-  variant_names := match(target_type,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
-  variant_fields := match(target_type,.EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-  variant_field_labels := match(target_type,.EnumT(_, _, _, _, _, vfl, _) => vfl, _ => ArrayList(ArrayList(String)).new());
+  variant_names := match(target_type,.EnumT(_, _, vn, _, _, _, _, _, _) => vn, _ => ArrayList(String).new());
+  variant_fields := match(target_type,.EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+  variant_field_labels := match(target_type,.EnumT(_, _, _, _, _, vfl, _, _, _) => vfl, _ => ArrayList(ArrayList(String)).new());
+  // Resolve the DECLARED `VariantInfo` struct type from the env once — the
+  // type each per-variant temp var is bound with. Mirrors TS `argType:
+  // variantInfoValue.type` (type-fns.ts callMapperWithArg): TS values carry
+  // their evaluated type. yo-self values don't, and the
+  // `type_of_eval_value(vi_val)` stand-in reconstructs field types from field
+  // VALUES — lossy for `ComptimeListVal` fields (no case → `unit`), so the
+  // mapper param's `fields` slot lost its ComptimeList type and
+  // `variant.fields.len()` found no method (dispatch on `unit` → 0 hits) —
+  // the derive-enum mapper never folded. Fall back to the old reconstruction
+  // if the name is not resolvable here.
+  vi_declared_ty_opt := match(
+    _ti_eval_code(local_env, String.from("VariantInfo"), ctx, exn),
+    .Some(vi_tv) => match(vi_tv,.TypeVal(vi_tb) => Option(TypeValue).Some(vi_tb), _ => Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  );
   result_vals := ArrayList(EvalValue).new();
   (vi : usize) = usize(0);
   n_variants := variant_names.len();
@@ -1721,7 +2102,7 @@ evaluate_type_map_variants :: (
     v_field_labels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
     // Build VariantInfo value.
     vi_val := _ti_build_variant_info(local_env, v_name, v_field_labels, v_fields, target_type, vi, ctx, exn);
-    vi_type := type_of_eval_value(vi_val);
+    vi_type := match(vi_declared_ty_opt,.Some(dt) => dt,.None => type_of_eval_value(vi_val));
     // Bind VariantInfo to temp var, then call mapper(vi_var_name).
     vi_name := `__dvi_${random_id(local_env.module_path)}`;
     _add_vi := add_variable_to_env(

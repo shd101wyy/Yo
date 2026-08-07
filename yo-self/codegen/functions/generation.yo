@@ -1,0 +1,949 @@
+//! Function emission — mirrors `src/codegen/functions/generation.ts`
+//! (generateAllFunctions / generateFunction / generateFunctionBody, corpus path).
+//!
+//! generate_all_functions iterates the registered functions and emits each via
+//! generate_function (signature from generate_function_prototype + linkage) →
+//! generate_function_body (begin block: statements then `return <last>`;
+//! non-begin: implicit return / unit statement). The function's Func type is
+//! obtained via get_func_type(func_id) (Gap 10 resolution).
+//!
+//! DEFERRED (documented): the RUNTIME PRELUDE emitted by generateAllFunctions
+//! before the function loop — sys runtime, async/await runtime, parallelism
+//! runtime, GC/RC runtime functions (__yo_incr_rc/__yo_decr_rc/__yo_malloc/…),
+//! object + closure constructor functions — is a separate large subsystem
+//! (Phase 3/4/5: functions/generation.ts generateLightweightRCFunctions /
+//! generateAtomicGCRuntimeFunctions / generateRefStructConstructorFunctions /
+//! generateClosureConstructorFunctions). Without it the emitted C won't link;
+//! it is the next piece after this skeleton. Also gated: async-block return
+//! wrapping, begin-final deferred-dup, `-> inout(T)` return strip (no is_ref),
+//! evidence/effect/closure-capture context setup (Phase 5/3), specialized-base
+//! skip (Gap 2).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
+{ AstExpr, ast_expr_id, ast_expr_token, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr, BK_BEGIN, BK_RETURN, BK_ASSIGN, BK_INIT_ASSIGN } :: import("../../expr.yo");
+{ Environment } :: import("../../env.yo");
+{ EvalValue } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized, expr_info_consumed_variable_drop_expressions, is_module_level_global, module_global_c_suffix } :: import("../../expr_info.yo");
+{ is_unit_type } :: import("../../types/guards.yo");
+{ is_temp_variable_name } :: import("../../utils.yo");
+{ is_target_posix, is_target_linux } :: import("../../target.yo");
+{ get_func_type, is_closure_fn, get_closure_capture_info, is_effect_record_member } :: import("../../function_value.yo");
+{ get_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen } :: import("../utils/index.yo");
+{ get_shell_redirect } :: import("../../evaluator/values/type_trait_methods.yo");
+{ FunctionGenerationContext } :: import("./context.yo");
+{ generate_function_prototype, should_skip_function_codegen, _async_override_return_type } :: import("./declarations.yo");
+{ _call_generate_expr } :: import("../exprs/_expr.yo");
+{ resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
+{ generate_implicit_return_statement } :: import("../exprs/return.yo");
+{ generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("../exprs/drop_dup.yo");
+{ t_unit } :: import("../../types/creators.yo");
+{ collect_unwind_value_ctypes, generate_atomic_gc_runtime_functions } :: import("./gc_runtime.yo");
+{ generate_sys_runtime, AsyncRuntimeOptions } :: import("../async/runtime_io_common.yo");
+{ generate_async_runtime } :: import("../async/runtime.yo");
+{ generate_parallelism_runtime } :: import("../parallelism/runtime.yo");
+{ generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_closure_constructor_functions } :: import("./constructors.yo");
+/// Args of a FnCall (empty for an Atom).
+_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+  match(e,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new())
+);
+/// Shallow-copy a deferred-drop/dup expr list into a FRESH ArrayList (same AstExpr
+/// refs, independent list). Mirrors TS `[...(expr.$?.deferredDropExpressions ?? [])]`
+/// (generation.ts:1515): `context.pending_deferred_drops` is MUTATED as drops are
+/// emitted on control-flow exits, so it must NOT alias the begin block's recorded
+/// `ei.deferred_drop_expressions` — which is re-read for the scope-end drops. Aliasing
+/// (the previous yo-self behaviour) corrupted that list mid-codegen → memmove crash.
+_copy_expr_list :: (fn(opt : Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  match(
+    opt,
+    .Some(d) => {
+      (i : usize) = usize(0);
+      while(i < d.len(), {
+        match(
+          d.get(i),
+          .Some(e) => {
+            _p := out.push(e);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .None => ()
+  );
+  out
+});
+/// Generate a function's body with proper return handling. Mirrors
+/// `generateFunctionBody` (corpus path).
+generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, indent : String, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
+  context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
+  // Resolve a SomeT result through its concrete resolution BEFORE the unit
+  // check, so this agrees with what the PROTOTYPE renders (get_type_string
+  // resolves SomeT via the cell/global). A closure registered with the
+  // expected `T` (SomeT) whose resolution is unit rendered a `void` C
+  // signature while `is_unit_type(SomeT)=false` sent the body down the
+  // value-returning tail path — "void function should not return a value"
+  // (the async_await/worker void-closure class).
+  result_is_unit := match(function_type,.Func({ result : r }) => is_unit_type(resolve_some_type_to_concrete(r.clone())), _ => true);
+  if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), {
+    match(
+      context.base.get_expr_info(body_expr),
+      .Some(ei) => {
+        // Feed the function body's scope-end drops into the pending path,
+        // mirroring begin.ts:47-49 (the begin codegen pushes its
+        // deferredDropExpressions on ENTRY). This is what lets a nested
+        // short-circuit branch flush a branch-scoped temp's drop IN-branch
+        // (emitDropsForConditionalBranch scans pending) instead of the
+        // fn-end flush referencing an identifier whose C scope has closed.
+        // The old M1 conservatism (empty pending — an early return would
+        // drop not-yet-live locals) is superseded by the C-declaration-order
+        // gate in the drop emitters (declared_c_var_names +
+        // is_temp/minted-temp check): a not-yet-declared local at an early
+        // return is skipped there, which is the emission-level equivalent of
+        // TS's init-position filter (begin.ts:2068-2122).
+        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(ei.deferred_drop_expressions));
+        context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(expr_info_consumed_variable_drop_expressions(ei)));
+      },
+      .None => ()
+    );
+    args := _args(body_expr);
+    n := args.len();
+    if(n > usize(0), {
+      (find_return : bool) = false;
+      (i : usize) = usize(0);
+      while((i < (n - usize(1))) && !(find_return), {
+        match(
+          args.get(i),
+          .Some(arg) => {
+            if(ast_expr_is_fn_call_of(arg, BK_RETURN, Option(usize).None), {
+              find_return = true;
+            });
+            arg_code := _call_generate_expr(arg, indent.clone(), context);
+            skip_temp := match(context.base.get_expr_info(arg),.Some(aei) => is_temp_variable_name(aei.env.module_path.clone(), arg_code.clone()),.None => false);
+            if((arg_code.len() > usize(0)) && !(skip_temp), {
+              line := indent.clone();
+              line.push_string(arg_code);
+              line.push_str(";");
+              em.emit_string_line(line);
+            });
+            if(!(find_return), {
+              match(
+                context.base.get_expr_info(arg),
+                .Some(aei) => if(has_any_control_flow(aei.control_flow), {
+                  find_return = true;
+                }),
+                .None => ()
+              );
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      if(!(find_return), {
+        match(
+          args.get(n - usize(1)),
+          .Some(last_expr) => {
+            // Unit-result function: the tail emits as a plain STATEMENT, never
+            // `return <value>;` — mirrors generation.ts:1687-1694 (`else if
+            // (lastExpr && isUnitType(functionType.return.type))`). Without
+            // this, a non-unit-typed tail (e.g. a trailing assignment, whose
+            // expression value is the OLD lhs value) emitted `return <temp>;`
+            // inside a `void` C function — clang "void function should not
+            // return a value" (the async_await/worker void-closure class,
+            // issues/yo-self-async-emission-cluster.md item 3).
+            if(result_is_unit, {
+              u_code := _call_generate_expr(last_expr, indent.clone(), context);
+              u_skip_temp := match(context.base.get_expr_info(last_expr),.Some(uei) => is_temp_variable_name(uei.env.module_path.clone(), u_code.clone()),.None => false);
+              if((u_code.len() > usize(0)) && !(u_skip_temp), {
+                u_line := indent.clone();
+                u_line.push_string(u_code);
+                u_line.push_str(";");
+                em.emit_string_line(u_line);
+              });
+              generate_deferred_drop_expressions(body_expr, indent.clone(), context);
+              return(());
+            });
+            // Deferred-dup handling for the tail expression BEFORE the plain
+            // return paths — a borrowed tail (e.g. `self.program` field access:
+            // the evaluator attached a non-owning temp + ___dup) must return
+            // the DUP'd value, or the caller's scope-end drop of the source
+            // frees the returned object (stage-2 `parse` freed get_program's
+            // returned list; issues/retired/yo-self-stage2-unwind-check-coverage.md).
+            // Mirrors generation.ts:1699-1754.
+            last_ei_dups := match(
+              context.base.get_expr_info(last_expr),
+              .Some(lei) => match(lei.deferred_dup_expressions,.Some(d) => (d.len() > usize(0)),.None => false),
+              .None => false
+            );
+            if(last_ei_dups, {
+              match(
+                context.base.get_expr_info(last_expr),
+                .Some(lei) => {
+                  // Materialize the tail into its eval temp using the FN's
+                  // return type (the expr type may carry unresolved params) —
+                  // generation.ts:1707-1739 (inout-atom shadow skip included
+                  // via the raw-code == temp-name comparison).
+                  match(
+                    lei.variable_name,
+                    .Some(lvn) => {
+                      raw_code := _call_generate_expr(last_expr, indent.clone(), context);
+                      tail_tmp := get_variable_name_for_codegen(lvn.clone(), Option(Environment).Some(lei.env));
+                      ret_ty_dup := match(function_type,.Func({ result : r0 }) => r0, _ => t_unit());
+                      if(!(tail_tmp == raw_code), {
+                        // Declare via get_variable_type_string — the
+                        // declared_c_var_names choke-point — or the
+                        // undeclared-temp gate suppresses the very dup this
+                        // materialization enables (same trap as
+                        // emit_deferred_dup_or_code's materialize path).
+                        dline := indent.clone();
+                        dline.push_string(get_variable_type_string(ret_ty_dup, lvn.clone(), context.base));
+                        dline.push_str(" = ");
+                        dline.push_string(raw_code);
+                        dline.push_str(";");
+                        em.emit_string_line(dline);
+                      });
+                    },
+                    .None => ()
+                  );
+                  generate_deferred_dup_expressions(last_expr, indent.clone(), context);
+                  // Return the dup-result temp (generation.ts:1745-1752).
+                  match(
+                    lei.deferred_dup_expressions,
+                    .Some(dups2) => match(
+                      dups2.get(usize(0)),
+                      .Some(dup_expr) => match(
+                        context.base.get_expr_info(dup_expr),
+                        .Some(dei) => match(
+                          dei.variable_name,
+                          .Some(dvn) => {
+                            generate_deferred_drop_expressions(body_expr, indent.clone(), context);
+                            rdl := indent.clone();
+                            rdl.push_str("return ");
+                            rdl.push_string(get_variable_name_for_codegen(dvn.clone(), Option(Environment).Some(dei.env)));
+                            rdl.push_str(";");
+                            em.emit_string_line(rdl);
+                            return(());
+                          },
+                          .None => ()
+                        ),
+                        .None => ()
+                      ),
+                      .None => ()
+                    ),
+                    .None => ()
+                  );
+                  // Ref-handle dup with no result temp (inline incr_rc form):
+                  // the dup incremented in place — return the tail temp itself.
+                  match(
+                    lei.variable_name,
+                    .Some(lvn2) => {
+                      generate_deferred_drop_expressions(body_expr, indent.clone(), context);
+                      rtl := indent.clone();
+                      rtl.push_str("return ");
+                      rtl.push_string(get_variable_name_for_codegen(lvn2.clone(), Option(Environment).Some(lei.env)));
+                      rtl.push_str(";");
+                      em.emit_string_line(rtl);
+                      return(());
+                    },
+                    .None => ()
+                  );
+                },
+                .None => ()
+              );
+            });
+            expr_code := _call_generate_expr(last_expr, indent.clone(), context);
+            // B1 (plans/archive/YO_SELF_RC_EMISSION_LAYER.md §8): materialize the result
+            // into a temp BEFORE the scope-end drops, so a drop does not free a
+            // local the result expression reads (e.g. `i32(xs.len())` after `xs`
+            // is dropped → reads freed memory). Mirrors generation.ts:1587-1611.
+            // Only when there are drops + a non-unit return; else `return <expr>`.
+            ret_ty_opt := match(function_type,.Func({ result : r }) => Option(TypeValue).Some(r), _ => Option(TypeValue).None);
+            // DEGRADED tail return when the tail expression itself failed to
+            // transpile (its ExprInfo was dropped by an eval throw inside
+            // this definition — e.g. a comptime_expect_error that did not
+            // error abandons the fn body's begin). `return <comment>` would
+            // splice the closing brace into the return ("expected
+            // expression", the fn batch clang error). TS never emits such
+            // fns (the throw discards the definition); the fn has no callers
+            // — the calling statements were dropped by the same throw.
+            if(expr_code.starts_with("// Failed to transpile"), {
+              ftl := indent.clone();
+              ftl.push_string(expr_code);
+              em.emit_string_line(ftl);
+              return(());
+            });
+            has_drops := match(context.base.get_expr_info(body_expr),.Some(bei) => match(bei.deferred_drop_expressions,.Some(d) => (d.len() > usize(0)),.None => false),.None => false);
+            mat_ty := cond(
+              ((has_drops && (!(result_is_unit))) && (expr_code.len() > usize(0))) => ret_ty_opt,
+              true => Option(TypeValue).None
+            );
+            match(
+              mat_ty,
+              .Some(ret_ty) => {
+                decl := indent.clone();
+                decl.push_string(get_type_string(ret_ty, context.base));
+                decl.push_str(" __yo_scope_ret = ");
+                decl.push_string(expr_code);
+                decl.push_str(";");
+                em.emit_string_line(decl);
+                generate_deferred_drop_expressions(body_expr, indent.clone(), context);
+                rl := indent.clone();
+                rl.push_str("return __yo_scope_ret;");
+                em.emit_string_line(rl);
+              },
+              .None => {
+                generate_deferred_drop_expressions(body_expr, indent.clone(), context);
+                if(expr_code.len() > usize(0), {
+                  line := indent.clone();
+                  line.push_str("return ");
+                  line.push_string(expr_code);
+                  line.push_str(";");
+                  em.emit_string_line(line);
+                });
+              }
+            );
+          },
+          .None => ()
+        );
+      });
+    });
+  }, {
+    // Non-begin (bare tail-expression) body. Since _trial_eval_fn_body routes
+    // every fn body through evaluate_begin_expression, the body node carries
+    // the begin scope-end drops on its SHARED id. When the body is a bare
+    // `=` / `:=` STATEMENT (e.g. `___ := map.set(...)` — the whole body of a
+    // unit fn like evaluator/types/field.yo register_struct_fields), the
+    // drops must be flushed AFTER the statement, mirroring TS's begin path
+    // order for a unit tail (generation.ts:1688-1695: statement first, drops
+    // after — TS's body IS a begin node there, begin.ts:1122-1151). Flushing
+    // BEFORE emitted `___drop(___)` against a NOT-YET-DECLARED named binding
+    // — the undeclared-identifier clang error in tests/internal batch 5 (the
+    // declared_c_var_names gate only covers minted temp names, on purpose).
+    // Assignment emitters do not flush node drops themselves, so the
+    // post-statement flush cannot double-emit. Every OTHER body shape keeps
+    // the flush-first order (mirror of generation.ts:1827-1841): its arg-temp
+    // drops are gate-skipped up front (not yet declared) and emitted by the
+    // expression's own post-call flush (other_fn_call.yo, TS
+    // other-fn-call.ts:1511), which a second body-level flush would
+    // double-emit.
+    is_stmt_binding := (ast_expr_is_fn_call_of(body_expr, BK_INIT_ASSIGN, Option(usize).None) || ast_expr_is_fn_call_of(body_expr, BK_ASSIGN, Option(usize).None));
+    // PARAM-targeted drops are excluded from the flush-first (`skip_param_drops`):
+    // on this SHARED-id body node they are function-scope drops (the own-param
+    // scope-end release), and emitting them BEFORE the body both double-freed
+    // (the tail call's post-emit flush emitted them again — the use_and_sink
+    // glibc tcache abort) and freed the param before a body that may read it.
+    // They are emitted at the correct function-level points below / inside
+    // generate_implicit_return_statement (see drop_dup.yo
+    // _drop_target_is_parameter).
+    if(!(is_stmt_binding), {
+      generate_deferred_drop_expressions(body_expr, indent.clone(), context, true);
+    });
+    if(result_is_unit, {
+      ec := _call_generate_expr(body_expr, indent.clone(), context);
+      if(ec.len() > usize(0), {
+        line := indent.clone();
+        line.push_string(ec);
+        line.push_str(";");
+        em.emit_string_line(line);
+      });
+      if(is_stmt_binding, {
+        generate_deferred_drop_expressions(body_expr, indent.clone(), context);
+      }, {
+        // Own-param scope-end drops for a unit tail: AFTER the statement
+        // (mirrors the begin path's statement-then-drops order at :168).
+        generate_deferred_drop_expressions(body_expr, indent.clone(), context, false, true);
+      });
+    }, {
+      generate_implicit_return_statement(body_expr, indent.clone(), context);
+    });
+  });
+});
+/// Generate a single function (signature + linkage + body). Mirrors `generateFunction`.
+/// Comma-separated parameter names for a thunk's forwarding call, matching the
+/// names `generate_function_prototype` emits (sanitized param label, else `paramN`).
+_thunk_forward_args :: (fn(function_type : TypeValue) -> String)(
+  match(
+    function_type,
+    .Func({ param_types, meta : __fm1 }) => {
+      param_labels := __fm1.*.param_labels;
+      out := String.from("");
+      n := param_types.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        if(i > usize(0), {
+          out.push_str(", ");
+        });
+        pname := match(
+          param_labels.get(i),
+          .Some(lbl) => if(lbl.len() > usize(0), sanitize_for_c_identifier(lbl.clone(), false), {
+            p := String.from("param");
+            p.push_string(i.to_string());
+            p
+          }),
+          .None => {
+            p := String.from("param");
+            p.push_string(i.to_string());
+            p
+          }
+        );
+        out.push_string(pname);
+        i = (i + usize(1));
+      });
+      out
+    },
+    _ => String.from("")
+  )
+);
+generate_function :: (fn(function_value : EvalValue, c_function_name : String, context : FunctionGenerationContext) -> unit)(
+  match(
+    function_value,
+    .FuncVal(__fvm6, _) => {
+      body_box := __fvm6.*.body;
+      func_id := __fvm6.*.func_id;
+      em := context.base.emitter;
+      function_type := get_func_type(func_id.clone());
+      // Impl(Future(T))-returning async fns: override the C return type with the
+      // returned io.async block's state-machine struct (mirrors TS generation.ts:
+      // 1206). MUST match the forward declaration's override (generate_function_
+      // declaration uses the same helper) AND be threaded into return statements
+      // via context.override_return_type_str below — otherwise the fn is `void*`
+      // and callers' `io.await` do `void*->state`.
+      async_override := _async_override_return_type(function_type, Option(AstExpr).Some(body_box), context.base);
+      prototype := generate_function_prototype(function_type, c_function_name.clone(), context.base, async_override, is_closure_fn(func_id.clone()));
+      is_exported := ((c_function_name == "__yo_user_main") || context.base.exported_function_labels.contains_key(func_id.clone()));
+      is_rc := (!(is_exported) && ((c_function_name.contains("___drop")) || ((c_function_name.contains("___dup")) || (c_function_name.contains("___dispose")))));
+      linkage := if(is_exported, String.from(""), if(is_rc, String.from("static inline __attribute__((always_inline)) "), String.from("static inline ")));
+      open := linkage;
+      open.push_string(prototype);
+      open.push_str(" {");
+      // Mark the code position so a SUPERSEDED original whose body fails to
+      // transpile can be stubbed post-emission (see the check after the body).
+      // BYTE index (as_bytes() returns the internal buffer handle, O(1)):
+      // the former `em.code.len()` counted CHARS — an O(total-code) walk
+      // per function — and the post-body check below sliced the WHOLE
+      // accumulated buffer char-indexed, making the emit O(code x
+      // functions). `sample` attributed 75% of a stage2 emit to that one
+      // substring call.
+      stub_mark_b := em.code.as_bytes().len();
+      em.emit_string_line(open);
+      // Forward-shell thunk: if this func_id is a shell that was redirected to a
+      // real method (a forward-ref/recursive impl method, e.g. parser.yo's
+      // get_program), emit a thunk forwarding to the real method's C name instead
+      // of the shell's UNEVALUATED body. Both ids then resolve to the real body.
+      match(
+        get_shell_redirect(func_id.clone()),
+        .Some(real_fid) => {
+          real_cname := sanitize_for_c_identifier(real_fid.clone(), false);
+          fwd := _thunk_forward_args(function_type);
+          // Same SomeT-result resolution as result_is_unit above: the wrapper
+          // and its callee prototype must agree on void-ness.
+          ret_unit := match(function_type,.Func({ result : r }) => is_unit_type(resolve_some_type_to_concrete(r.clone())), _ => true);
+          if(ret_unit, {
+            em.emit_string_line(`  ${real_cname}(${fwd});`);
+          }, {
+            em.emit_string_line(`  return ${real_cname}(${fwd});`);
+          });
+          em.emit_string_line(String.from("}"));
+          return(());
+        },
+        .None => ()
+      );
+      prev_name := context.base.current_function_name;
+      prev_type := context.current_function_type;
+      prev_override := context.override_return_type_str;
+      context.base.current_function_name = c_function_name;
+      context.current_function_type = Option(TypeValue).Some(function_type);
+      // Thread the async return-type override into `return` statements (return.yo
+      // reads context.override_return_type_str) so the returned future is cast to
+      // the SM struct, matching the (overridden) signature. Restored after body.
+      context.override_return_type_str = async_override;
+      // Track effect-record-member (ctl handler) functions so `unwind(v)` stashes
+      // the unwound value into __yo_unwind_value (for retrieval at the install
+      // site) rather than returning it directly. Mirrors generation.ts:1245.
+      prev_is_erm := context.is_effect_record_member_function;
+      if(is_effect_record_member(func_id.clone()), {
+        context.is_effect_record_member_function = true;
+      });
+      // Closure-capture codegen context: for a marked closure, set the capture
+      // struct C name + captured field names + defining frame level so the atom
+      // emitter rewrites captured vars (e.g. `base`) to
+      // `((<cap>*)closure_context)->base`. Restored after the body.
+      prev_caps := context.current_closure_captures;
+      prev_cap_level := context.current_closure_capture_frame_level;
+      prev_cap_cname := context.current_closure_capture_type_c_name;
+      if(is_closure_fn(func_id.clone()), {
+        match(
+          get_closure_capture_info(func_id.clone()),
+          .Some(ci) => {
+            cap_labels := match(ci.capture_type,.Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
+            context.current_closure_captures = Option(ArrayList(String)).Some(cap_labels);
+            context.current_closure_capture_frame_level = Option(usize).Some(ci.frame_level);
+            context.current_closure_capture_type_c_name = Option(String).Some(get_type_string(ci.capture_type, context.base));
+          },
+          .None => ()
+        );
+      });
+      // Reset the per-function set of C variable names declared SO FAR (see
+      // declared_c_var_names / _keep_pending_drop): an early-return drop must be
+      // suppressed for a var whose C declaration has not yet been emitted at that
+      // point (a `x := match(...)` binding emits its declaration AFTER the RHS's
+      // switch, so a `throw` inside the RHS would otherwise drop the not-yet-
+      // declared `x`). Seed it with the parameters, which ARE in scope from entry
+      // (they are declared by the prototype, not via get_variable_type_string).
+      context.base.declared_c_var_names = HashSet(String).new();
+      // Also reset the block-scope stack (see declared_scopes / _keep_pending_drop
+      // escape path): the flat base frame is seeded with the parameters, which are
+      // in scope from entry. Body begin-blocks push/pop `"{"`-delimited sub-frames.
+      context.base.declared_scopes = ArrayList(String).new();
+      match(
+        function_type,
+        .Func({ param_types : _pt, meta : _pm }) => {
+          _pls := _pm.*.param_labels;
+          _pn := _pt.len();
+          (_pi : usize) = usize(0);
+          while(_pi < _pn, {
+            _pnm := match(
+              _pls.get(_pi),
+              .Some(_lbl) => if(_lbl.len() > usize(0), sanitize_for_c_identifier(_lbl.clone(), false), {
+                _p := String.from("param");
+                _p.push_string(_pi.to_string());
+                _p
+              }),
+              .None => {
+                _p := String.from("param");
+                _p.push_string(_pi.to_string());
+                _p
+              }
+            );
+            _dp := context.base.declared_c_var_names.add(_pnm.clone());
+            _dps := context.base.declared_scopes.push(_pnm);
+            _pi = (_pi + usize(1));
+          });
+        },
+        _ => ()
+      );
+      // Point the emitter at this function's declared_c_var_names so every body
+      // line that DECLARES a minted temp records it (in C-emission order),
+      // regardless of which codegen path built the declaration string — the
+      // drop-emission gate then never treats a declared temp as undeclared and
+      // skips its (live-RC) drop. Mirrors the TS Emitter fix. Restored below.
+      // Likewise point scope_ref at declared_scopes so each body line pushes/pops
+      // scope frames and records declared names — the escape gate's liveness signal.
+      prev_emitter_ref := context.base.emitter.declared_ref;
+      prev_scope_ref := context.base.emitter.scope_ref;
+      context.base.emitter.declared_ref = Option(HashSet(String)).Some(context.base.declared_c_var_names);
+      context.base.emitter.scope_ref = Option(ArrayList(String)).Some(context.base.declared_scopes);
+      generate_function_body(body_box, function_type, String.from("  "), context);
+      context.base.emitter.declared_ref = prev_emitter_ref;
+      context.base.emitter.scope_ref = prev_scope_ref;
+      context.current_closure_captures = prev_caps;
+      context.current_closure_capture_frame_level = prev_cap_level;
+      context.current_closure_capture_type_c_name = prev_cap_cname;
+      context.base.current_function_name = prev_name;
+      context.current_function_type = prev_type;
+      context.override_return_type_str = prev_override;
+      context.is_effect_record_member_function = prev_is_erm;
+      em.emit_string_line(String.from("}"));
+      // SUPERSEDED-original stub: when EVERY runtime call of this fid produced
+      // a call-site specialization (expr_info.yo counters — the callee infos
+      // all point at spec fids), the original is dispatch-dead; if its emitted
+      // body ALSO failed to transpile (a generic-impl body with unbound
+      // foralls, e.g. `SortedSet.new`'s `Self(_inner : SortedMap(T,
+      // bool).new())`), the broken C would fail the WHOLE compile for dead
+      // code TS never emits (TS's resolution replaces the value on the shared
+      // node, so the abstract original never reaches its emitter). Replace
+      // just this function's body with an abort() stub — non-dispatch
+      // references (fn pointers) stay linkable, and a reachable stub aborting
+      // at runtime is a visible bug, not a silent one. Emittable originals
+      // (thread_spawn's) are left exactly as emitted.
+      // Suffix-only FTT scan over BYTES — no substring materialization, no
+      // char re-walk of the prefix. The needle is ASCII so byte search is
+      // exact.
+      (stub_found_ftt : bool) = false;
+      {
+        sb := em.code.as_bytes();
+        total_b := sb.len();
+        needle := String.from("// Failed to transpile");
+        nb := needle.as_bytes();
+        nlen := nb.len();
+        if(total_b >= (stub_mark_b + nlen), {
+          (si : usize) = stub_mark_b;
+          last_start := (total_b - nlen);
+          while((si <= last_start) && !(stub_found_ftt), {
+            (mi : usize) = usize(0);
+            (all_eq : bool) = true;
+            while((mi < nlen) && all_eq, {
+              a := match(sb.get(si + mi),.Some(b0) => b0,.None => u8(0));
+              b := match(nb.get(mi),.Some(b1) => b1,.None => u8(1));
+              if(a != b, {
+                all_eq = false;
+              });
+              mi = (mi + usize(1));
+            });
+            if(all_eq, {
+              stub_found_ftt = true;
+            });
+            si = (si + usize(1));
+          });
+        });
+      };
+      if(stub_found_ftt && fid_fully_specialized(func_id.clone()), {
+        // RARE path (superseded generic original): rebuild the prefix from
+        // bytes once. Byte-exact equivalent of the former char-indexed
+        // `substring(0, stub_mark)` — stub_mark_b was taken at the same
+        // buffer position.
+        pb := em.code.as_bytes();
+        prefix_bytes := ArrayList(u8).new();
+        (pi : usize) = usize(0);
+        while(pi < stub_mark_b, {
+          prefix_bytes.push(match(pb.get(pi),.Some(b2) => b2,.None => u8(0)));
+          pi = (pi + usize(1));
+        });
+        em.code = String.from_bytes(prefix_bytes);
+        em.emit_string_line(open.clone());
+        em.emit_string_line(String.from("  abort(); /* superseded generic original: all call sites dispatch a specialization */"));
+        em.emit_string_line(String.from("}"));
+      });
+    },
+    _ => ()
+  )
+);
+/// Generate all collected functions. Mirrors `generateAllFunctions` (the
+/// runtime prelude is the deferred next subsystem — see file header).
+generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  em.emit_string_line(String.from("// Function implementations"));
+  // Always emit the synchronous system helpers (stat/sync ops/signal/TTY); they
+  // have no async dependency and unused ones are dead-code-eliminated.
+  generate_sys_runtime(context.base.emitter, context.base.target_info);
+  // The async/await runtime is emitted only when the program uses async code
+  // (avoids ~8K lines of C for non-async programs). Mirrors generateAllFunctions
+  // (generation.ts:360). register_dispose_type_id bridges to dispose_type_id_for.
+  if(context.uses_async, {
+    // Precompute the Linux timer dispose type-id. Only register it on the LINUX
+    // non-cycle-GC path — TS registers lazily inside the runtime's `if(is_linux)`
+    // branch, so on macOS the id is never allocated and __yo_timer_future_dispose
+    // (Linux-only) is never referenced by the dispose-dispatch switch. See
+    // AsyncRuntimeOptions for why this is a value, not a callback.
+    timer_dispose_type_id := if(!(context.base.needs_cycle_gc) && is_target_linux(context.base.target_info), Option(i64).Some(i64(context.base.dispose_type_id_for(String.from("__yo_timer_future_dispose")))), Option(i64).None);
+    opts := AsyncRuntimeOptions(
+      needs_cycle_gc : context.base.needs_cycle_gc,
+      timer_dispose_type_id : timer_dispose_type_id
+    );
+    generate_async_runtime(context.base.emitter, context.base.target_info, false, opts);
+  });
+  // Generate parallelism runtime only when the program uses threads/workers.
+  // This avoids ~450 lines of C thread pool code for single-threaded programs.
+  // Mirrors generateAllFunctions (generation.ts:386).
+  if(context.uses_parallelism, {
+    generate_parallelism_runtime(context.base.emitter, context.base.debug_parallelism, context.base.target_info, context.uses_async);
+  });
+  collect_unwind_value_ctypes(context);
+  generate_atomic_gc_runtime_functions(context);
+  generate_ref_struct_constructor_functions(context);
+  generate_ref_enum_constructor_functions(context);
+  generate_closure_constructor_functions(context);
+  // Iterate in INSERTION order (function_order), NOT HashMap bucket order, so
+  // body emission — and the specializations created during it — are ordered
+  // deterministically across the TS-compiled s1 and self-compiled s2. Index by
+  // position and re-read len() each pass so specs registered mid-emission are
+  // still emitted. Mirrors TS `for (funcId in context.functions)` (insertion
+  // order). See issues/fixed/yo-self-emission-order-nondeterminism.md.
+  (fi : usize) = usize(0);
+  while(fi < context.base.function_order.len(), {
+    match(
+      context.base.function_order.get(fi),
+      .Some(fid) => match(
+        context.base.get_function_entry(fid),
+        .Some(entry) => {
+          // Skip function bodies using the SAME predicate as the prototype loop
+          // (declarations.yo). The two MUST agree: a function whose prototype is
+          // skipped but whose body is emitted produces "call to undeclared
+          // function" / "static declaration follows non-static" at call sites
+          // preceding the definition. Mirrors TS generateAllFunctions
+          // (generation.ts:583-661), which applies the full skip set here too.
+          if(!(should_skip_function_codegen(fid, entry.c_name.clone(), entry.value, context.base)), {
+            generate_function(entry.value, entry.c_name, context);
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+});
+/// The C argument list for the `__yo_user_main` call: each runtime parameter
+/// zero-initialized as `(<cType>){0}` (e.g. `io : Io` → `(Io){0}`). Mirrors the
+/// non-evidence branch of `generateMainWrapper`. (Evidence-param mains are Phase 5.)
+_main_call_args :: (fn(main_func_id : String, context : FunctionGenerationContext) -> String)({
+  pts := match(get_func_type(main_func_id),.Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
+  out := String.from("(");
+  n := pts.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    if(i > usize(0), {
+      out.push_str(", ");
+    });
+    match(
+      pts.get(i),
+      .Some(pt) => {
+        out.push_str("(");
+        out.push_string(get_type_string(pt, context.base));
+        out.push_str("){0}");
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out.push_str(")");
+  out
+});
+/// A module-level mutable variable prepared for codegen: its resolved C name and
+/// its initializer RHS. Returned by `emit_module_level_variable_declarations` so
+/// `generate_main_wrapper` can emit the initialization. Mirrors the
+/// `{cVarName, cTypeStr, rhs}` triples in TS `emitModuleLevelVariableDeclarations`
+/// (generation.ts:786).
+ModuleLevelVarEntry :: struct(
+  c_var_name : String,
+  rhs : AstExpr
+);
+/// Resolve the variable atom of a module-level init expr — for `x := v` the LHS
+/// atom, for `(x : T) = v` the binding's atom. Returns None for other shapes.
+/// Mirrors the `varAtom` resolution in TS `emitModuleLevelVariableDeclarations`.
+_module_init_var_atom :: (fn(init_expr : AstExpr) -> Option(AstExpr))({
+  if(!(ast_expr_is_fn_call(init_expr)), {
+    return(Option(AstExpr).None);
+  });
+  init_args := _args(init_expr);
+  if(init_args.len() < usize(2), {
+    return(Option(AstExpr).None);
+  });
+  lhs := match(init_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
+  if(ast_expr_is_atom(lhs), {
+    return(Option(AstExpr).Some(lhs));
+  });
+  if(ast_expr_is_fn_call_of(lhs, ":", Option(usize).Some(usize(2))), {
+    binding_args := _args(lhs);
+    binding_lhs := match(binding_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
+    if(ast_expr_is_atom(binding_lhs), {
+      return(Option(AstExpr).Some(binding_lhs));
+    });
+  });
+  Option(AstExpr).None
+});
+/// Emit file-scope `static` declarations for module-level mutable variables and
+/// return the (c_var_name, rhs) list for initialization. Mirrors TS
+/// `emitModuleLevelVariableDeclarations` (generation.ts:782). Dedups by resolved
+/// C name because the evaluator's multiple passes may record a global under
+/// several clone ids (the collection side-table dedups by expr id, but clones
+/// carry distinct ids — the C-name dedup here is the definitive guard against
+/// duplicate declarations).
+emit_module_level_variable_declarations :: (
+  fn(context : FunctionGenerationContext) -> ArrayList(ModuleLevelVarEntry)
+)({
+  em := context.base.emitter;
+  result := ArrayList(ModuleLevelVarEntry).new();
+  seen := HashSet(String).new();
+  init_exprs := get_module_level_init_exprs();
+  n := init_exprs.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(
+      init_exprs.get(i),
+      .None => (),
+      .Some(init_expr) => match(
+        _module_init_var_atom(init_expr),
+        .None => (),
+        .Some(var_atom) => match(
+          context.base.get_expr_info(var_atom),
+          .None => (),
+          .Some(vi) => {
+            var_name := match(vi.variable_name,.Some(vn) => vn,.None => ast_expr_token(var_atom).value);
+            (c_var_name : String) = get_variable_name_for_codegen(var_name, Option(Environment).Some(vi.env));
+            // The recorded env for a `name := rhs` module init can miss the
+            // variable (resolution falls back to the bare name and the
+            // resolver's registry check never runs), while the READS resolve
+            // it and mangle — splitting decl from use. This path only ever
+            // handles module-level vars, so qualify directly from the
+            // registry using the declaration's own token
+            // (issues/fixed/module-global-c-names-are-not-namespaced.md).
+            mg_decl_path := ast_expr_token(var_atom).module_path;
+            if((c_var_name == sanitize_for_c_identifier(var_name.clone(), false)) && is_module_level_global(mg_decl_path.clone(), var_name), {
+              c_var_name = `${c_var_name}${module_global_c_suffix(mg_decl_path)}`;
+            });
+            // Dedup key includes the SOURCE TOKEN: the evaluator's multiple
+            // passes record the same source init under several clone ids
+            // (collapse those), but a genuine second top-level assignment to
+            // the same global (e.g. types/utils.yo's
+            // `g_size_of_type_fn = Some(get_size_of_type)` slot wiring after
+            // the `= None` declaration) is a DISTINCT source statement and
+            // must keep its init entry — TS emits every entry with no dedup
+            // at all (generation.ts:782). Keying by name alone dropped the
+            // slot wiring from the module init (the self-compiled binary's
+            // sizeof() folds all failed — the stage2/stage3 fixpoint residue).
+            dedup_key := `${c_var_name}#${ast_expr_token(init_expr).character.to_string()}`;
+            if(!(seen.contains(dedup_key.clone())), {
+              _s := seen.add(dedup_key.clone());
+              if(!(seen.contains(c_var_name.clone())), {
+                _s2 := seen.add(c_var_name.clone());
+                c_type_str := get_type_string(vi.ty, context.base);
+                em.emit_declaration_string_line(
+                  `static ${c_type_str} ${c_var_name}; // module-level mutable variable`
+                );
+              });
+              rhs := match(_args(init_expr).get(usize(1)),.Some(e) => e,.None => make_err_expr());
+              _p := result.push(ModuleLevelVarEntry(c_var_name : c_var_name, rhs : rhs));
+            });
+          }
+        )
+      )
+    );
+    i = (i + usize(1));
+  });
+  result
+});
+/// Generate the C `main()` wrapper that calls `__yo_user_main`. On POSIX the
+/// program body runs on a large-stack (1 GiB, YO_MAIN_STACK_MB-overridable)
+/// worker thread; Windows/WASM call directly. Mirrors `generateMainWrapper`.
+///
+/// `module_vars` (from emit_module_level_variable_declarations) are initialized
+/// first, in a dedicated `__yo_main_module_init()` helper on the worker path
+/// (a `void` helper so an effectful initializer's `return;` is valid) or inline
+/// on the direct path.
+///
+/// DEFERRED (documented): async runtime init/wait (no async in corpus — emitted
+/// empty), evidence-param mains (Phase 5).
+generate_main_wrapper :: (fn(context : FunctionGenerationContext, module_vars : ArrayList(ModuleLevelVarEntry)) -> unit)({
+  em := context.base.emitter;
+  // Find __yo_user_main and its func_id.
+  it := context.base.functions.keys();
+  (main_func_id : String) = String.from("");
+  (found : bool) = false;
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(fid) => match(
+        context.base.get_function_entry(fid),
+        .Some(entry) => if(entry.c_name == "__yo_user_main", {
+          match(
+            entry.value,
+            .FuncVal(__fvd1, _) => {
+              main_func_id = __fvd1.*.func_id;
+              found = true;
+              go = false;
+            },
+            _ => ()
+          );
+        }),
+        .None => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  if(!(found), {
+    return();
+  });
+  main_call_args := _main_call_args(main_func_id, context);
+  has_module_vars := (module_vars.len() > usize(0));
+  // Emit the module-level variable initialization helper `__yo_main_module_init()`
+  // directly (NOT into a detached string): an RC-returning initializer such as
+  // `HashMap(K, V).new()` makes `_call_generate_expr` emit auxiliary temp
+  // statements straight to the emitter, which must land INSIDE this function
+  // body — building a detached string would orphan them at file scope (an
+  // "initializer element is not a compile-time constant" C error). The helper is
+  // called first on the worker thread / from main on the direct path. Mirrors TS
+  // generateMainWrapper's __yo_main_module_init. Deferred drops are reset to a
+  // fresh empty list so the initializer's result is MOVED into the global (never
+  // dropped — module globals outlive the program body).
+  if(has_module_vars, {
+    saved_pending := context.pending_deferred_drops;
+    saved_consumed := context.consumed_var_pending_drops;
+    context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
+    context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
+    em.emit_string(
+      String.from("\n// Module-level mutable variable initialization (runs first).\nstatic void __yo_main_module_init(void) {\n")
+    );
+    (mvi : usize) = usize(0);
+    while(mvi < module_vars.len(), {
+      match(
+        module_vars.get(mvi),
+        .Some(mv) => {
+          rhs_code := _call_generate_expr(mv.rhs, String.from("  "), context);
+          em.emit_string_line(`  ${mv.c_var_name} = ${rhs_code};`);
+        },
+        .None => ()
+      );
+      mvi = (mvi + usize(1));
+    });
+    em.emit_string_line(String.from("}"));
+    context.pending_deferred_drops = saved_pending;
+    context.consumed_var_pending_drops = saved_consumed;
+  });
+  if(is_target_posix(context.base.target_info), {
+    init_call := if(has_module_vars, String.from("  __yo_main_module_init();\n"), String.new());
+    block :=
+      `
+// Program body runs on a large-stack worker thread (see generateMainWrapper).
+static void* __yo_main_thread_entry(void* __yo_unused_arg) {
+  (void)__yo_unused_arg;
+${init_call}  // Call sync main
+  __yo_user_main${main_call_args};
+  return NULL;
+}
+
+// Main wrapper - runs program body on a worker thread (default 1 GiB stack,
+// overridable via the YO_MAIN_STACK_MB env var)
+int main(int argc, char** argv) {
+  __yo_argc = (int32_t)argc;
+  __yo_argv = (uint8_t**)argv;
+  __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
+  pthread_attr_t __yo_main_attr;
+  pthread_t __yo_main_tid;
+  size_t __yo_main_stack = (size_t)1024 * 1024 * 1024; // 1 GiB
+  {
+    const char* __yo_stack_mb = getenv("YO_MAIN_STACK_MB");
+    if (__yo_stack_mb != NULL) {
+      long __yo_mb = atol(__yo_stack_mb);
+      if (__yo_mb > 0) __yo_main_stack = (size_t)__yo_mb * 1024 * 1024;
+    }
+  }
+  if (pthread_attr_init(&__yo_main_attr) == 0
+      && pthread_attr_setstacksize(&__yo_main_attr, __yo_main_stack) == 0
+      && pthread_create(&__yo_main_tid, &__yo_main_attr, __yo_main_thread_entry, NULL) == 0) {
+    pthread_attr_destroy(&__yo_main_attr);
+    pthread_join(__yo_main_tid, NULL);
+  } else {
+    __yo_main_thread_entry(NULL);
+  }
+  return 0;
+}
+`;
+    em.emit_string(block);
+  }, {
+    init_call := if(has_module_vars, String.from("  __yo_main_module_init();\n"), String.new());
+    block :=
+      `
+// Main wrapper - calls __yo_user_main directly
+int main(int argc, char** argv) {
+  __yo_argc = (int32_t)argc;
+  __yo_argv = (uint8_t**)argv;
+  __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
+${init_call}  // Call sync main
+  __yo_user_main${main_call_args};
+  return 0;
+}
+`;
+    em.emit_string(block);
+  });
+});
+export(generate_function_body, generate_function, generate_all_functions, generate_main_wrapper);
+export(ModuleLevelVarEntry, emit_module_level_variable_declarations);

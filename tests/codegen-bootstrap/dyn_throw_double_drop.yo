@@ -1,0 +1,54 @@
+// Regression: `dyn(payload)` takes OWNERSHIP of its payload. The self-hosted
+// evaluator (yo-self/evaluator/values/dyn.yo) must call
+// `set_expr_as_needs_to_call_dup` on the final inner value expr — mirroring TS
+// setExprAsNeedsToCallDup(finalValueExpr) (src/evaluator/values/dyn.ts:321) —
+// so an OWNING payload temp is marked consumed (its scope/escape drop
+// suppressed; the dyn's own `.data` drop is the single owner) and a BORROWED
+// source gets a deferred dup. Without it, every
+// `exn.throw(dyn(make_err(...)))` double-dropped the payload (the pre-existing
+// stage-2 startup heap corruption). See
+// issues/fixed/yo-self-dyn-throw-double-drop.md. Expected output: "done tracked=0".
+open(import("std/fmt"));
+open(import("std/string"));
+open(import("std/error"));
+Gc :: import("std/gc");
+// A cyclable ref-struct error (Gc.tracked_count sees it) built by a helper
+// call — the format_error_message analog. The dyn(make_err(...)) consumes the
+// fresh call result; the escape path after exn.throw must NOT also drop it.
+ErrObj :: ref(struct(msg : String, next : Option(Self)));
+impl(
+  ErrObj,
+  ToString(to_string : ((self) -> self.msg.clone()))
+);
+impl(ErrObj, Error());
+make_err :: (fn(m : String) -> ErrObj)(
+  ErrObj(msg : m, next :.None)
+);
+fail_op :: (fn(x : i32, exn : Exception) -> i32)({
+  // extra RC locals so the escape drop list is populated
+  note := String.from("context note");
+  cond(
+    (x == i32(0)) => exn.throw(dyn(make_err(`bad input: ${note}`))),
+    true => (x + i32(1))
+  )
+});
+run_once :: (fn(i : i32) -> unit)({
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(());
+      }
+    )
+  );
+  r := fail_op(i32(0), exn);
+  r;
+});
+main :: (fn() -> unit)({
+  (j : i32) = i32(0);
+  while(j < i32(50), {
+    run_once(j);
+    j = (j + i32(1));
+  });
+  println(`done tracked=${Gc.tracked_count()}`);
+});
+export(main);

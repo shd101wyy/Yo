@@ -1,0 +1,15 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+countdown :: (fn(n : i32) -> i32)(
+  cond(
+    (n <= i32(0)) => i32(0),
+    true => {
+      unsafe(_r := putchar(int(i32(48) + n)));
+      recur(n - i32(1))
+    }
+  )
+);
+main :: (fn() -> unit)({
+  _x := countdown(i32(5));
+});
+export(main);

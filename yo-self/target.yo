@@ -21,17 +21,21 @@ derive(Os, Eq(Os));
 Abi :: enum(Gnu, Musl, Msvc, Wasm_);
 derive(Abi, Eq(Abi));
 // ── Target info ───────────────────────────────────────────────────────
-TargetInfo :: object(
-  arch : Arch,
-  os : Os,
-  abi : Option(Abi),
-  pointer_size_bits : u32,
-  triple : String
+TargetInfo :: ref(
+  struct(
+    arch : Arch,
+    os : Os,
+    abi : Option(Abi),
+    pointer_size_bits : u32,
+    triple : String
+  )
 );
 // ── Host info ─────────────────────────────────────────────────────────
-HostInfo :: object(
-  platform : Os,
-  arch : Arch
+HostInfo :: ref(
+  struct(
+    platform : Os,
+    arch : Arch
+  )
 );
 // ── Enum ↔ string helpers ────────────────────────────────────────────
 arch_to_str :: (fn(a : Arch) -> str)(

@@ -10,7 +10,7 @@ import {
 } from "../../expr";
 import {
   isArrayType,
-  isObjectType,
+  isReferenceStructType,
   isStructType,
   isTupleType,
   isUnitType,
@@ -38,7 +38,7 @@ export function generateInitializationAssignment(
   indent: string,
   context: CodeGenContext
 ): string | undefined {
-  let lhs = expr.args[0]!;
+  const lhs = expr.args[0]!;
   const rhs = expr.args[1]!;
 
   // Debug: Log all := assignments in state machines
@@ -135,7 +135,8 @@ export function generateInitializationAssignment(
       }
 
       // Use -> for ref types (which are pointers), . for regular types
-      const memberAccessOp = rhsType && isObjectType(rhsType) ? "->" : ".";
+      const memberAccessOp =
+        rhsType && isReferenceStructType(rhsType) ? "->" : ".";
 
       context.emitter.emitLine(
         `${indent}${varTypeAndName} = ${rhsCode}${memberAccessOp}${fieldName}; // Destructuring ${label}`
@@ -402,7 +403,7 @@ export function generateInitializationAssignment(
                 tempVarName,
                 context
               );
-              // Phase B of plans/ITERATOR_REDESIGN.md — when the RHS is
+              // Phase B of plans/archive/ITERATOR_REDESIGN.md — when the RHS is
               // a call to a `-> ref(T)` function, the C-level result is
               // `T*` even though the evaluator-level type is `T`.
               // `attachTempVariableToExpr` marks the call's temp
@@ -492,11 +493,14 @@ export function generateInitializationAssignment(
         );
         context.emitter.emitLine(`${indent}sm->${fieldName} = ${rhsCode};`);
       } else {
-        // Check if RHS is a temp variable with a registered async struct name
-        const rhsIsTempVar = isTempVariableName(
-          rhs.$!.env.modulePath,
-          rhsCode.trim()
-        );
+        // Check if RHS is a temp variable with a registered async struct name.
+        // A temp variable always carries an ExprInfo with an env; when the RHS
+        // has no ExprInfo (rhs.$ undefined) it cannot be a temp var, so default
+        // to false rather than dereferencing rhs.$!.env.
+        const rhsEnvForTemp = rhs.$?.env;
+        const rhsIsTempVar = rhsEnvForTemp
+          ? isTempVariableName(rhsEnvForTemp.modulePath, rhsCode.trim())
+          : false;
         let cTypeString: string;
 
         if (rhsIsTempVar && context.tempVarAsyncStructNames) {
@@ -512,7 +516,7 @@ export function generateInitializationAssignment(
           cTypeString = getTypeString(lhs.$.type, context);
         }
 
-        // Phase B of plans/ITERATOR_REDESIGN.md — a `ref(name) := expr;`
+        // Phase B of plans/archive/ITERATOR_REDESIGN.md — a `ref(name) := expr;`
         // binding's `name` has `isRef: true`. The C-level storage
         // is `T*` (the same shape as `ref(name) : T` parameters);
         // subsequent reads of `name` emit `(*name)` via the

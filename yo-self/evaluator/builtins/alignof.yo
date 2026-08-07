@@ -22,7 +22,7 @@ open(import("std/string"));
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_usize } :: import("../../types/creators.yo");
 { get_alignment_of_type } :: import("../../types/utils.yo");
@@ -87,7 +87,7 @@ evaluate_align_of :: (
     info.value,
     .Some(v) => match(
       v,
-      .TypeVal(ty_box) => ty_box.*,
+      .TypeVal(ty_box) => ty_box,
       _ => info.ty
     ),
     .None => info.ty
@@ -101,7 +101,12 @@ evaluate_align_of :: (
       out_info.value =.Some(EvalValue.IntLit(bytes.to_string()));
     },
     .None => {
-      // Unknown alignment: leave out_info.value as .None (runtime unknown)
+      // Unknown alignment (e.g. `alignof(T)` with T a SomeT at def-eval): TS
+      // returns `createUnknownValue(usize)` (alignof.ts) — a comptime-acceptable
+      // typed unknown, NOT a value-less result. Leaving `.None` here made the
+      // def-time body eval throw "Incompatible types" downstream (mirrors the
+      // sizeof.yo:104-112 fix).
+      out_info.value =.Some(create_unknown_val(t_usize()));
     }
   );
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);

@@ -16,6 +16,7 @@ open(import("std/string"));
 { TypeValue } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell } :: import("./creators.yo");
 { is_int_type, is_float_type, is_some_type, is_dyn_type } :: import("./guards.yo");
+{ type_contains_some_type, get_all_some_types } :: import("./utils.yo");
 { TypeTag } :: import("./tags.yo");
 {
   is_comptime_int_type,
@@ -51,6 +52,55 @@ _is_in_used :: (fn(used : ArrayList(usize), idx : usize) -> bool)({
     i = (i + usize(1));
   });
   false
+});
+/// Walk a SomeT's resolution-cell chain (cycle-guarded) to its terminal.
+/// Returns the input unchanged when the chain doesn't terminate concrete.
+/// Used by the Future-effect comparison + the wrapper-carrier concreteness
+/// gate: io.async's returned `Impl(Future(i32, E))` carries the effect slot
+/// as the `E` SomeT whose CELL resolves to the concrete bundle — comparing
+/// or gating on the raw SomeT rejected `Impl(Future(i32, Ctx))` annotations
+/// (the async_await arm-65 family).
+_resolve_cell_chain :: (fn(t_in : TypeValue) -> TypeValue)({
+  (cur : TypeValue) = t_in;
+  (seen : ArrayList(String)) = ArrayList(String).new();
+  (walk : bool) = true;
+  while(walk, {
+    match(
+      cur,
+      .SomeT(id : rcc_id, resolved_concrete : rcc_rc) => {
+        (revisit : bool) = false;
+        (ri : usize) = usize(0);
+        while(ri < seen.len(), {
+          match(
+            seen.get(ri),
+            .Some(rs) => if(rs == rcc_id, {
+              revisit = true;
+            }),
+            .None => ()
+          );
+          ri = (ri + usize(1));
+        });
+        if(revisit, {
+          walk = false;
+        }, {
+          seen.push(rcc_id.clone());
+          match(
+            rcc_rc.get(usize(0)),
+            .Some(nx) => {
+              cur = nx;
+            },
+            .None => {
+              walk = false;
+            }
+          );
+        });
+      },
+      _ => {
+        walk = false;
+      }
+    );
+  });
+  if(is_some_type(cur), t_in, cur)
 });
 // Flatten effects arrays into out_labels / out_types, expanding EffectsRowT spreads.
 // ArrayList is RC-shared — mutations to out_* are visible to the caller.
@@ -96,8 +146,90 @@ _flatten_effects :: (
   });
 });
 // ---------------------------------------------------------------------------
+// trait-implements hook (types/ -> evaluator/ cycle breaker)
+// ---------------------------------------------------------------------------
+/// Hook to `type_implements_trait_bool` (evaluator/trait_checking.yo), installed
+/// by its init block. Routed through a fn-pointer slot because compatibility.yo
+/// (types/) cannot import evaluator/ modules (trait_checking.yo imports THIS
+/// file). Used by the concrete-vs-constrained-SomeT rule in `_compat_impl`.
+CompatImplementsTraitFn :: (fn(t : TypeValue, trait_type : TypeValue) -> bool);
+(g_compat_type_implements_trait_fn : Option(CompatImplementsTraitFn)) =
+  Option(CompatImplementsTraitFn).None;
+set_compat_type_implements_trait_fn :: (fn(f : CompatImplementsTraitFn) -> unit)({
+  g_compat_type_implements_trait_fn = Option(CompatImplementsTraitFn).Some(f);
+});
+/// Hook to `lookup_some_resolved_concrete` (expr_info.yo) — same cycle-breaker
+/// pattern. The given-SomeT resolution unwrap needs the DURABLE id-keyed
+/// registry: the def-time stamping often reaches only the registry, not every
+/// lineage cell copy already stored in variables/ExprInfos.
+CompatSomeResolvedFn :: (fn(some_id : String) -> Option(TypeValue));
+(g_compat_lookup_some_resolved : Option(CompatSomeResolvedFn)) =
+  Option(CompatSomeResolvedFn).None;
+set_compat_lookup_some_resolved_fn :: (fn(f : CompatSomeResolvedFn) -> unit)({
+  g_compat_lookup_some_resolved = Option(CompatSomeResolvedFn).Some(f);
+});
+// ---------------------------------------------------------------------------
 // Core implementation
 // ---------------------------------------------------------------------------
+/// TRUE when every type argument nested in a SomeT constraint list's
+/// Fn/Future trait CARRIERS is SomeT-free (deep). Gate for the narrow
+/// same-named-wrapper structural acceptance in `_compat_impl`'s SomeT arm —
+/// an unresolved carrier argument (`Future(T, E)`) must keep the strict
+/// name+frame-level rule, else a genuinely different instantiation could be
+/// accepted. Non-carrier constraints (plain TraitT) carry no arguments and
+/// are compared by the pairwise recursion itself.
+_wrapper_carrier_args_concrete :: (fn(rtts : ArrayList(TypeValue)) -> bool)({
+  (ok : bool) = true;
+  (i : usize) = usize(0);
+  while((i < rtts.len()) && ok, {
+    rtt := match(rtts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+    match(
+      rtt,
+      .FnTraitT(call_param_types : cc_pts, call_result : cc_cr) => {
+        (j : usize) = usize(0);
+        while((j < cc_pts.len()) && ok, {
+          match(
+            cc_pts.get(j),
+            .Some(pt) => if(get_all_some_types(pt).len() > usize(0), {
+              ok = false;
+            }),
+            .None => ()
+          );
+          j = (j + usize(1));
+        });
+        if(ok && (get_all_some_types(cc_cr).len() > usize(0)), {
+          ok = false;
+        });
+      },
+      .FutureTraitT(output : cc_fo, effect_types : cc_fets) => {
+        // TOP-LEVEL SomeT check only (after cell resolution): the gate's
+        // purpose is to reject a RAW forall carrier arg (`Future(T, E)`
+        // unresolved), not a concrete effect bundle that merely CONTAINS
+        // nested SomeTs (an effect struct's ctl members carry ResumeType
+        // SomeTs by construction — a deep SomeT-freeness test rejected
+        // every annotated `Impl(Future(_, Ctx))` binding, the async_await
+        // arm-65 family).
+        if(is_some_type(_resolve_cell_chain(cc_fo)), {
+          ok = false;
+        });
+        (k : usize) = usize(0);
+        while((k < cc_fets.len()) && ok, {
+          match(
+            cc_fets.get(k),
+            .Some(ft) => if(is_some_type(_resolve_cell_chain(ft)), {
+              ok = false;
+            }),
+            .None => ()
+          );
+          k = (k + usize(1));
+        });
+      },
+      _ => ()
+    );
+    i = (i + usize(1));
+  });
+  ok
+});
 _compat_impl :: (
   fn(
     actual : TypeValue,
@@ -165,8 +297,8 @@ _compat_impl :: (
             expected,
             .Str => true,
             .Pointer(einner) => cond(
-              is_u8_type(einner.*) => true,
-              is_char_type(einner.*) => true,
+              is_u8_type(einner) => true,
+              is_char_type(einner) => true,
               true => false
             ),
             _ => false
@@ -266,6 +398,133 @@ _compat_impl :: (
     });
     return(true);
   });
+  // --- Concrete (actual) vs SomeType (expected) ------------------------------
+  // Mirrors TS compatibility.ts:800-828 ("Given is a concrete type, expected is
+  // SomeType"): an UNCONSTRAINED SomeType (bare generic param, e.g. a ctl
+  // handler's free `ResumeType`) accepts ANY concrete type — non-exact only
+  // (exact/cache comparisons keep them distinct, like TS's requireExactMatch
+  // branch). A CONSTRAINED SomeType accepts a concrete type that implements ALL
+  // its required traits (`typeImplementsTraitBool`, routed through the hook
+  // above). Without this rule every concrete-vs-SomeT pair fell to the
+  // tag-mismatch guard below: a match/cond arm evaluated under a
+  // constrained-SomeT expected type (the prelude `(!)` operator module's
+  // `_Self : (LogicalNot)` param during overload trials) threw "Incompatible
+  // type with expected type", and a throw-arm's free `ResumeType` refused to
+  // unify with a concrete sibling arm — both def-time body-eval halts (stage-2
+  // "Failed to transpile" holes).
+  if(((!(require_exact)) && is_some_type(expected)) && !(is_some_type(actual)), {
+    erts2 := match(
+      expected,
+      .SomeT(required_trait_types : rtt2) => rtt2,
+      _ => ArrayList(TypeValue).new()
+    );
+    if(erts2.len() == usize(0), {
+      return(true);
+    });
+    match(
+      g_compat_type_implements_trait_fn,
+      .Some(impl_check) => {
+        (all_ok : bool) = true;
+        (ri2 : usize) = usize(0);
+        while((ri2 < erts2.len()) && all_ok, {
+          req2 := match(erts2.get(ri2),.Some(v) => v,.None => TypeValue.Unit);
+          if(!(impl_check(actual, req2)), {
+            all_ok = false;
+          });
+          ri2 = (ri2 + usize(1));
+        });
+        if(all_ok, {
+          return(true);
+        });
+      },
+      .None => ()
+    );
+  });
+  // --- Empty struct == unit (non-exact) -------------------------------------
+  // `{}` parses to the `_()` anon-struct literal (BK_ANON_STRUCT) — a 0-field,
+  // zero-size value used as a no-op match/cond arm (`.None => {}` / `_ => {}`).
+  // It must unify with a `()`/unit sibling arm. TS accepts this (verified:
+  // `./yo-cli compile` accepts `match(.Some(x) => (), .None => {})`); without
+  // this rule the tag-mismatch guard below rejects unit-vs-empty-struct, so
+  // every empty-`{}` arm paired with a unit sibling throws "Incompatible types"
+  // at def-time and loses the match's ExprInfo -> "Failed to transpile" marker.
+  // Exact compatibility (cache keys) stays strict (different tags). See
+  // issues/yo-self-p1-transpile-tail.md (arm-type / Incompatible-types cluster).
+  if(!(require_exact), {
+    unit_empty_struct := match(
+      actual,
+      .Unit => match(expected,.Struct({ field_types : eft }) => (eft.len() == usize(0)), _ => false),
+      .Struct({ field_types : aft }) => match(expected,.Unit => (aft.len() == usize(0)), _ => false),
+      _ => false
+    );
+    if(unit_empty_struct, {
+      return(true);
+    });
+  });
+  // --- SomeType (actual) vs concrete (expected) ------------------------------
+  // TS compatibility.ts:900-916: a GIVEN SomeType that already carries a
+  // resolved concrete type is compatible when its RESOLUTION is — e.g. an
+  // `Impl(RetI32)` receiver resolved to `bool` flowing into an impl method's
+  // `self : *(bool)` (the receiver-methods filter and the self-param check
+  // both route here). requireExactMatch passes through, exactly as TS does,
+  // so the pointer-children exact recursion also benefits. Reads the lineage
+  // CELL (the value-semantics surrogate of TS's mutated type object).
+  if(is_some_type(actual) && !(is_some_type(expected)), {
+    match(
+      actual,
+      .SomeT({ id : a_res_id, resolved_concrete : a_res_cell }) => {
+        a_resolution := match(
+          a_res_cell.get(usize(0)),
+          .Some(a_res_ty) => Option(TypeValue).Some(a_res_ty),
+          .None => match(
+            g_compat_lookup_some_resolved,
+            .Some(a_res_lookup) => a_res_lookup(a_res_id),
+            .None => Option(TypeValue).None
+          )
+        );
+        match(
+          a_resolution,
+          .Some(a_res_ty2) => {
+            if(recur(a_res_ty2, expected, require_exact, visited), {
+              return(true);
+            });
+          },
+          .None => ()
+        );
+      },
+      _ => ()
+    );
+  });
+  // Symmetric unwrap: several yo-self call sites pass (param, arg) with the
+  // SomeT in the EXPECTED slot (e.g. helper.yo Step 8's self-param check:
+  // expected = `Impl(RetI32)` receiver arg... or the roles reversed). A
+  // resolved SomeT stands for its concrete either way.
+  if(is_some_type(expected) && !(is_some_type(actual)), {
+    match(
+      expected,
+      .SomeT({ id : e_res_id, resolved_concrete : e_res_cell }) => {
+        e_resolution := match(
+          e_res_cell.get(usize(0)),
+          .Some(e_res_ty) => Option(TypeValue).Some(e_res_ty),
+          .None => match(
+            g_compat_lookup_some_resolved,
+            .Some(e_res_lookup) => e_res_lookup(e_res_id),
+            .None => Option(TypeValue).None
+          )
+        );
+        match(
+          e_resolution,
+          .Some(e_res_ty2) => {
+            if(recur(actual, e_res_ty2, require_exact, visited), {
+              return(true);
+            });
+          },
+          .None => ()
+        );
+      },
+      _ => ()
+    );
+  });
   // --- Tag mismatch ---------------------------------------------------------
   if(type_value_tag(actual) != type_value_tag(expected), {
     return(false);
@@ -301,19 +560,19 @@ _compat_impl :: (
     // Pointer children always use require_exact=true (TS semantics)
     .Pointer(ainner) => match(
       expected,
-      .Pointer(einner) => recur(ainner.*, einner.*, true, visited),
+      .Pointer(einner) => recur(ainner, einner, true, visited),
       _ => false
     ),
     .Array(ainner, alen, alvar) => match(
       expected,
       .Array(einner, elen, elvar) => {
-        // Variable-length arrays (forall `U : usize` patterns) are
+        // Variable-length arrays (generic `U : usize` patterns) are
         // length-compatible with anything; concrete lengths must match.
         len_ok := cond(
           ((alvar.len() > usize(0)) || (elvar.len() > usize(0))) => true,
           true => (alen == elen)
         );
-        len_ok && recur(ainner.*, einner.*, require_exact, visited)
+        len_ok && recur(ainner, einner, require_exact, visited)
       },
       _ => false
     ),
@@ -328,11 +587,9 @@ _compat_impl :: (
         while(i < n, {
           at := match(atypes.get(i),.Some(v) => v,.None => TypeValue.Unit);
           et := match(etypes.get(i),.Some(v) => v,.None => TypeValue.Unit);
-          al := match(alabels.get(i),.Some(v) => v,.None => ``);
-          el := match(elabels.get(i),.Some(v) => v,.None => ``);
-          if(al != el, {
-            return(false);
-          });
+          // Labels are deliberately NOT compared — a Tuple is a structural
+          // type, so `(1, 3.4, true)` flows into `Tuple(a : i32, b : f64,
+          // c : bool)` (TS compatibility.ts:242-264 has the same rule).
           if(!(recur(at, et, require_exact, visited)), {
             return(false);
           });
@@ -342,7 +599,7 @@ _compat_impl :: (
       },
       _ => false
     ),
-    // Function types: compare forall count, param count, types, return
+    // Function types: compare generic count, param count, types, return
     .Func({ forall_types : afts, param_types : apts, result : aret }) => match(
       expected,
       .Func({ forall_types : efts, param_types : epts, result : eret }) => {
@@ -370,7 +627,7 @@ _compat_impl :: (
           });
           i = (i + usize(1));
         });
-        recur(aret.*, eret.*, require_exact, visited)
+        recur(aret, eret, require_exact, visited)
       },
       _ => false
     ),
@@ -383,16 +640,100 @@ _compat_impl :: (
     // ArrayList(ME)))` hit a cached `(?*)(ME)` entry (both name=""), collapsing
     // HashMap's `data` field to `?*(ME)`. Structural exact comparison
     // distinguishes them (e.g. labels `[key, value]` vs `[name, kind]`).
-    .Struct({ id : aid, name : aname, field_labels : alabels, field_types : atypes, is_reference_semantics : aref, is_atomic_rc : aatomic, is_newtype : anew }) => match(
+    .Struct({ id : aid, name : aname, field_labels : alabels, field_types : atypes, is_reference_semantics : aref, is_atomic_rc : aatomic, is_newtype : anew, constructor_func_id : acfid, type_arguments : ata }) => match(
       expected,
-      .Struct({ id : eid, name : ename, field_labels : elabels, field_types : etypes, is_reference_semantics : eref, is_atomic_rc : eatomic, is_newtype : enew }) => cond(
+      .Struct({ id : eid, name : ename, field_labels : elabels, field_types : etypes, is_reference_semantics : eref, is_atomic_rc : eatomic, is_newtype : enew, constructor_func_id : ecfid, type_arguments : eta }) => cond(
         // Lenient: name equality, with EMPTY names as wildcards — types
         // reconstructed from values (type_of_eval_value) and pre-stamping
         // instantiations carry "" while `::`-bound types are now STAMPED
         // ("ArgParser" vs ""), and the mixed pair must stay compatible
         // (previously everything was "" so this never arose).
-        !(require_exact) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
+        //
+        // Non-exact struct compat. TS (compatibility.ts:288-331) has NO name-only
+        // shortcut for structs: it rejects only on field-count / nominal-distinctness
+        // and otherwise recurses field types. yo-self's old name-only rule rejected
+        // two instantiations of the SAME constructor whose STAMPED names differ —
+        // e.g. `Box(V)` (generic placeholder, or a recursive `Box(Self)` field whose
+        // name embeds the unresolved `__self_shell`) vs the resolved `Box(<final>)` —
+        // even though their fields are compatible. Restore TS behavior: accept the
+        // empty-name / equal-name wildcard fast paths, reject only genuinely-distinct
+        // nominals (different non-empty names, NO SomeT either side, DIFFERENT
+        // constructor_func_id — TS's `functionValue.funcId` check), and otherwise
+        // recurse field types (which resolves `__self_shell`s via the EnumT arm and
+        // treats a generic SomeT as compatible). See
+        // issues/yo-self-recursive-enum-nested-member-shell.md.
+        !(require_exact) => cond(
+          (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))) => true,
+          ((!(type_contains_some_type(actual)) && !(type_contains_some_type(expected))) && !((acfid.len() > usize(0)) && (acfid == ecfid))) => false,
+          (alabels.len() != elabels.len()) => false,
+          true => {
+            vkey_ne := ((aid + String.from("=>ne")) + eid);
+            cond(
+              _visited_contains(visited, vkey_ne) => true,
+              true => {
+                visited.push(vkey_ne);
+                (ok_ne : bool) = true;
+                (si_ne : usize) = usize(0);
+                while((si_ne < alabels.len()) && ok_ne, {
+                  al_ne := match(alabels.get(si_ne),.Some(v) => v,.None => ``);
+                  el_ne := match(elabels.get(si_ne),.Some(v) => v,.None => ``);
+                  at_ne := match(atypes.get(si_ne),.Some(v) => v,.None => TypeValue.Unit);
+                  et_ne := match(etypes.get(si_ne),.Some(v) => v,.None => TypeValue.Unit);
+                  if((al_ne != el_ne) || !(recur(at_ne, et_ne, false, visited)), {
+                    ok_ne = false;
+                  });
+                  si_ne = (si_ne + usize(1));
+                });
+                ok_ne
+              }
+            )
+          }
+        ),
+        // DISTINCT generic instantiations: two structs whose concrete
+        // `type_arguments` differ are DIFFERENT types even when they share a
+        // base `id` (yo-self ids churn) and their `field_types` are still the
+        // generic placeholder (`SomeT(T)` in both, so the field comparison below
+        // wrongly matches). e.g. `Iter(usize)` vs `Iter(String)` collapsed the
+        // specialization cache → one `.next()` served both, its return baked to
+        // whichever registered first → "incompatible type". Only fires when BOTH
+        // carry non-empty type_arguments of equal length and some arg is
+        // exact-incompatible; same-args (same instantiation) falls through to the
+        // id/field checks unchanged, so non-generic and identical structs are
+        // untouched.
+        ({
+          (ta_differ : bool) = false;
+          if((ata.len() > usize(0)) && (ata.len() == eta.len()), {
+            (tai : usize) = usize(0);
+            while((tai < ata.len()) && !(ta_differ), {
+              at2 := match(ata.get(tai),.Some(v) => v,.None => TypeValue.Unit);
+              et2 := match(eta.get(tai),.Some(v) => v,.None => TypeValue.Unit);
+              if(!(recur(at2, et2, true, visited)), {
+                ta_differ = true;
+              });
+              tai = (tai + usize(1));
+            });
+          });
+          ta_differ
+        }) => false,
         (aid == eid) => true,
+        // Self-SHELL identity (exact only): a struct self-shell is an
+        // EMPTY-FIELDS, empty-name struct sharing its FINAL's struct_id
+        // (struct.yo:76-95) — "distinguished from the final purely by its
+        // empty field list". Under exact comparison an empty-fields side must
+        // therefore compare by ID ONLY: two different structs' shells are both
+        // 0-field ""-named and would wrongly compare STRUCTURALLY EQUAL,
+        // colliding the comptime-fn CTFE cache — `Box(Self)` inside the
+        // SECOND `ref(struct(... : Option(Box(Self))))` hit the FIRST struct's
+        // cached `Box(shell)` entry, so e.g. SuspensionCapturedVariable's
+        // `is_owning_the_same_rc_value_as` field emitted as
+        // `Option(Box(Variable))` (stage-2 `__yo_t628 → __yo_t114`
+        // incompatible-type cluster). TS has no shells — its `Self` IS the
+        // final object mutated in place, so a cached Self arg "grows" with the
+        // final and never matches another struct's empty in-progress type;
+        // id-only comparison for shells is the faithful equivalent of that
+        // object identity. (aid == eid already returned true above, so
+        // reaching here with an empty side means different ids → distinct.)
+        ((atypes.len() == usize(0)) || (etypes.len() == usize(0))) => false,
         // Exact, different ids → structural. But the SEMANTICS KIND must match
         // first: a value `struct`, a reference `object`, an `atomic object`, and
         // a `newtype` with IDENTICAL fields are DISTINCT types. Without this, the
@@ -401,9 +742,63 @@ _compat_impl :: (
         // `Type.impls(RegularPoint, Send)` over `object(x:i32,y:i32)` share a cache
         // entry, so the second query returns the first's result.
         (((aref != eref) || (aatomic != eatomic)) || (anew != enew)) => false,
+        // NOMINAL distinctness by CONSTRUCTOR (mirrors TS compatibility.ts's
+        // `functionValue.funcId` check, the same signal the non-exact arm above
+        // already uses): two instantiations stamped with DIFFERENT non-empty
+        // constructor_func_ids come from DIFFERENT generic declarations and are
+        // DISTINCT under exact match even when their FIELD LAYOUTS are identical
+        // and their names are empty (instantiation copies don't stamp names).
+        // Without this, `DequeIterPtr(i32)` compared exact-equal to
+        // `DequeIter(i32)` (same `{_deque,_pos,_remaining}` layout, same
+        // type_arguments [i32]) and the shared Iterator-trait DEFAULT
+        // `into_iter : Self -> Self` served ONE spec for both — the second
+        // receiver passed its own C type into the first's param type
+        // ("passing __yo_t32 to __yo_t28", the collections identity-split;
+        // issues/repros/deque-identity-split-2arm.yo). SomeT-bearing sides and
+        // cfid-empty copies fall through exactly as before.
+        (((((acfid.len() != usize(0)) && (ecfid.len() != usize(0))) && (acfid != ecfid)) && (!(type_contains_some_type(actual)))) && (!(type_contains_some_type(expected)))) => false,
+        // NOMINAL distinctness (mirrors TS compatibility.ts:288-306): two structs
+        // with DIFFERENT non-empty names are DISTINCT types under exact match,
+        // UNLESS either contains a SomeT (a specialization placeholder). yo-self's
+        // struct `id` churns across generic instantiations (no stable funcId), so
+        // the stamped NAME is the nominal identity here — same-named instantiations
+        // (Box(i32) vs Box(String)) and ""-named reconstructions still fall through
+        // to the structural field comparison below. Without this, CodegenTypeEntry
+        // vs CodegenExternFnEntry (identical fields, distinct names) collided in the
+        // comptime-fn CTFE cache, collapsing HashMap(_, CodegenTypeEntry).values()
+        // and HashMap(_, CodegenExternFnEntry).values() to one instantiation.
+        ((((aname.len() != usize(0)) && (ename.len() != usize(0))) && (aname != ename)) && ((!(type_contains_some_type(actual))) && (!(type_contains_some_type(expected))))) => false,
+        // SAME-NAMED DISTINCT DECLARATIONS (mirrors TS requireExactMatch's
+        // strict type-ID comparison, helper.ts:2288-2292): reaching here means
+        // aid != eid (the id-equality arm above returned true otherwise). Two
+        // structs with the SAME non-empty stamped name, different ids, no
+        // SomeT on either side and NO type_arguments are DISTINCT
+        // declarations — e.g. per-test local `Counter :: struct(...)` in a
+        // batched test file. Falling through to the structural tail collided
+        // the specialization cache: ONE `ident(T)` spec served both Counters,
+        // its param C type from the first and its return from the second
+        // (arc.test.yo class). Generic instantiations/copies are untouched:
+        // instantiations carry type_arguments, and cfid-empty copies SHARE
+        // their original's id (caught by the id-equality arm). See
+        // issues/yo-self-same-name-local-struct-spec-cache-collision.md.
+        (((aname.len() != usize(0)) && (aname == ename)) && (((ata.len() == usize(0)) && (eta.len() == usize(0))) && ((!(type_contains_some_type(actual))) && (!(type_contains_some_type(expected)))))) => false,
+        // CAPTURE-STRUCT nominal identity (exact only): each closure's capture
+        // struct is minted ONCE under a deterministic `capture_<id>` struct id
+        // (utils/closure.yo g_capture_struct_ids) and is never re-minted as an
+        // id-churned copy, so different capture ids ARE different types — the
+        // faithful equivalent of TS's per-closure StructType object identity
+        // (TS compatibility.ts:292 rejects on id inequality for SomeT-free
+        // structs). Capture structs carry empty names and empty cfids, so the
+        // nominal arms above never fire for them; without this rule two
+        // same-shaped captures (`{a : i32}` from two different closures)
+        // compare exact-equal and collide the comptime-fn CTFE cache — the
+        // second `box(<closure>)`'s `Box(V)(value)` ctor hit the FIRST
+        // closure's cached Box instantiation ("passing __yo_t32 to parameter
+        // of incompatible type __yo_t26", the fn dyn-manual-boxing batch).
+        (aid.starts_with("capture_") && eid.starts_with("capture_")) => (aid == eid),
         (alabels.len() != elabels.len()) => false,
         true => {
-          vkey := ((aid.clone() + String.from("=>")) + eid);
+          vkey := ((aid + String.from("=>")) + eid);
           cond(
             _visited_contains(visited, vkey) => true,
             true => {
@@ -427,13 +822,13 @@ _compat_impl :: (
       ),
       _ => false
     ),
-    .EnumT(_, _, _, _, _, _, _) => match(
+    .EnumT(_, _, _, _, _, _, _, _, _) => match(
       // Resolve empty-variant Self shells (enum.yo) to their finalized
       // forms before comparing — pointer/exact children otherwise see a
       // 0-variant shell vs the real enum (`*(JsonValue)` vs
       // `*(<enum:..__self_shell>)`, std/encoding/json.yo).
       resolve_enum_shell(actual),
-      .EnumT(aid, aname, avns, avfs, _, avls, _) => match(
+      .EnumT(aid, aname, avns, avfs, _, avls, _, _, _) => match(
         resolve_enum_shell(expected),
         // Non-exact keeps the empty-name wildcard rule ("TomlValue" vs a
         // ""-named reconstruction of the same enum). Under `require_exact`
@@ -441,15 +836,25 @@ _compat_impl :: (
         // Struct arm: all yo-self enums carry an empty name, so e.g. the
         // CTFE cache key `Option(JsonValue)` matched a stale `Option(T)`
         // entry and returned `Option(Option(T))` (std/encoding/json.yo).
-        // Mirror TS compatibility.ts:344-399: equal ids → true; otherwise
-        // compare variant names, field labels, and field types exactly,
-        // with the same cycle guard as the Struct arm.
-        .EnumT(eid, ename, evns, evfs, _, evls, _) => cond(
+        // Mirror TS compatibility.ts:344-399: compare variant names, field
+        // labels, and field types exactly, with the same cycle guard as the
+        // Struct arm. NO id fast-ACCEPT: yo-self generic-enum INSTANTIATIONS
+        // share the declaration's eval id (both Option(i32) and
+        // Option(String) carry enum_yo_id_3135), so `aid == eid → true`
+        // declared different instantiations exact-equal — the spec cache
+        // then served the FIRST payload's specialization to every receiver
+        // (`Option(String).is_some()` called the Option(i32) spec:
+        // "passing __yo_t16 to parameter of type __yo_t9", the collections
+        // batch residual). TS's only id use here is object identity /
+        // an early REJECT — acceptance always runs the structural compare
+        // (compatibility.ts:354-389). Shells are already resolved above
+        // (resolve_enum_shell), so the shell-identity case the id compare
+        // once served compares structurally on the finalized forms.
+        .EnumT(eid, ename, evns, evfs, _, evls, _, _, _) => cond(
           !(require_exact) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
-          (aid == eid) => true,
           (avns.len() != evns.len()) => false,
           true => {
-            vkey := ((aid.clone() + String.from("=>")) + eid);
+            vkey := ((aid + String.from("=>")) + eid);
             cond(
               _visited_contains(visited, vkey) => true,
               true => {
@@ -505,10 +910,46 @@ _compat_impl :: (
       .TraitT(name : ename) => (aname == ename),
       _ => false
     ),
-    // SomeT: name + frame_level identity (Phase 2f: no env resolution)
-    .SomeT(name : aname, frame_level : alvl) => match(
+    // SomeT: name + frame_level identity (Phase 2f: no env resolution) —
+    // extended with a NARROW structural acceptance for same-NAMED wrappers
+    // minted at different frames whose constraint-carrier arguments are all
+    // CONCRETE (`Impl : (Future(i32, Io))` written at a binding annotation
+    // vs the same wrapper produced by the callee's return-type resolution).
+    // TS resolves both sides through env (compatibility.ts:676-796 + :916,
+    // getValueOfSomeTypeFromEnv); yo-self's `_compat_impl` carries no env,
+    // so two such wrappers compared as unequal even when they PRINT
+    // identically (tests/async_await.test.yo arm 65; scratchpad/t5/
+    // B_io_variant.yo). The acceptance is deliberately narrower than the
+    // refuted full port of the TS SomeT rule (whose unguarded trait-SUBSET
+    // walk self-recursed unboundedly in stage 2): it requires equal names,
+    // equal-length NON-EMPTY constraint lists, and every Fn/Future carrier
+    // argument SomeT-FREE — the pairwise recursion below then only ever
+    // descends into concrete types and terminates.
+    .SomeT(name : aname, frame_level : alvl, required_trait_types : artt) => match(
       expected,
-      .SomeT(name : ename, frame_level : elvl) => ((aname == ename) && (alvl == elvl)),
+      .SomeT(name : ename, frame_level : elvl, required_trait_types : ertt) => cond(
+        ((aname == ename) && (alvl == elvl)) => true,
+        true => {
+          (xw_ok : bool) = (
+            ((aname == ename) && (artt.len() == ertt.len()))
+            && (
+              (artt.len() > usize(0))
+              && (_wrapper_carrier_args_concrete(artt) && _wrapper_carrier_args_concrete(ertt))
+            )
+          );
+
+          (xw_i : usize) = usize(0);
+          while((xw_i < artt.len()) && xw_ok, {
+            xa := match(artt.get(xw_i),.Some(t) => t,.None => TypeValue.Unit);
+            xe := match(ertt.get(xw_i),.Some(t) => t,.None => TypeValue.Unit);
+            if(!(recur(xa, xe, require_exact, visited)), {
+              xw_ok = false;
+            });
+            xw_i = (xw_i + usize(1));
+          });
+          xw_ok
+        }
+      ),
       _ => false
     ),
     // -----------------------------------------------------------------------
@@ -517,7 +958,7 @@ _compat_impl :: (
     .ExprT => match(expected,.ExprT => true, _ => false),
     .ComptimeListT(achild) => match(
       expected,
-      .ComptimeListT(echild) => recur(achild.*, echild.*, require_exact, visited),
+      .ComptimeListT(echild) => recur(achild, echild, require_exact, visited),
       _ => false
     ),
     .EffectsRowT(implicit_labels : als, implicit_types : ats) => match(
@@ -548,13 +989,13 @@ _compat_impl :: (
       expected,
       .TypeAppT(constructor : econ, args : eargs) => {
         // Both constructors must be SomeT and share the same unique ID
-        acid_valid := match(acon.*,.SomeT(id : _) => true, _ => false);
-        ecid_valid := match(econ.*,.SomeT(id : _) => true, _ => false);
+        acid_valid := match(acon,.SomeT(id : _) => true, _ => false);
+        ecid_valid := match(econ,.SomeT(id : _) => true, _ => false);
         if((!(acid_valid)) || (!(ecid_valid)), {
           return(false);
         });
-        acid := match(acon.*,.SomeT(id : cid) => cid, _ => ``);
-        ecid := match(econ.*,.SomeT(id : cid) => cid, _ => ``);
+        acid := match(acon,.SomeT(id : cid) => cid, _ => ``);
+        ecid := match(econ,.SomeT(id : cid) => cid, _ => ``);
         if(acid != ecid, {
           return(false);
         });
@@ -576,7 +1017,7 @@ _compat_impl :: (
     ),
     .IsoT(achild) => match(
       expected,
-      .IsoT(echild) => recur(achild.*, echild.*, require_exact, visited),
+      .IsoT(echild) => recur(achild, echild, require_exact, visited),
       _ => false
     ),
     // DynT: subset-based — all expected required traits must appear in actual;
@@ -641,7 +1082,7 @@ _compat_impl :: (
           });
           i = (i + usize(1));
         });
-        recur(aret.*, eret.*, require_exact, visited)
+        recur(aret, eret, require_exact, visited)
       },
       _ => false
     ),
@@ -653,7 +1094,7 @@ _compat_impl :: (
           if(abn != ebn, {
             return(false);
           });
-          if(!(recur(aout.*, eout.*, require_exact, visited)), {
+          if(!(recur(aout, eout, require_exact, visited)), {
             return(false);
           });
           flat_a_labels := ArrayList(String).new();
@@ -669,19 +1110,23 @@ _compat_impl :: (
           if(flat_a_types.len() != flat_e_types.len(), {
             return(false);
           });
-          // Order-independent set matching
+          // Order-independent set matching by effect TYPE only. TS compares
+          // Future effects structurally by type (compatibility.ts:516-529 —
+          // a single optional effect, no label anywhere); yo-self's label
+          // equality requirement rejected `Impl(Future(i32, Ctx))` (declared
+          // label "Ctx") against io.async's return (its declared effect
+          // forall label "E", resolved to the same Ctx) — the whole
+          // async_await arm-65 family threw at the binding and hollowed.
           used := ArrayList(usize).new();
           ei := usize(0);
           while(ei < flat_e_types.len(), {
             et := match(flat_e_types.get(ei),.Some(v) => v,.None => TypeValue.Unit);
-            el := match(flat_e_labels.get(ei),.Some(v) => v,.None => ``);
             found := false;
             ai := usize(0);
             while(ai < flat_a_types.len(), {
               if(!(_is_in_used(used, ai)), {
                 at := match(flat_a_types.get(ai),.Some(v) => v,.None => TypeValue.Unit);
-                al := match(flat_a_labels.get(ai),.Some(v) => v,.None => ``);
-                if((al == el) && recur(et, at, require_exact, visited), {
+                if(recur(_resolve_cell_chain(et), _resolve_cell_chain(at), require_exact, visited), {
                   used.push(ai);
                   found = true;
                 });
@@ -715,4 +1160,4 @@ are_types_compatible_exact :: (fn(actual : TypeValue, expected : TypeValue) -> b
 are_function_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)(
   _compat_impl(actual, expected, false, ArrayList(String).new())
 );
-export(are_types_compatible, are_types_compatible_exact, are_function_types_compatible);
+export(are_types_compatible, are_types_compatible_exact, are_function_types_compatible, set_compat_type_implements_trait_fn, set_compat_lookup_some_resolved_fn);

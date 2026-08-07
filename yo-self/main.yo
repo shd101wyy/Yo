@@ -16,18 +16,19 @@ open(import("std/string"));
 open(import("std/error"));
 open(import("std/fmt"));
 { args } :: import("std/env");
+_(env : proc_env) :: import("std/env");
 { Path } :: import("std/path");
 { read_file, write_file, exists } :: import("std/fs/file");
 { metadata } :: import("std/fs/metadata");
-{ read_dir, FileType } :: import("std/fs/dir");
+{ read_dir, FileType, remove_file } :: import("std/fs/dir");
 { Command } :: import("std/process/command");
-{ exit, getenv } :: import("std/libc/stdlib");
+{ exit, getenv, setenv } :: import("std/libc/stdlib");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, BK_OPEN, BK_IMPORT } :: import("./expr.yo");
-{ ExprInfoTable } :: import("./expr_info.yo");
+{ AstExpr, BK_OPEN, BK_IMPORT, BK_TEST, ast_expr_is_fn_call_of, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
+{ ExprInfoTable, expr_info_table_new } :: import("./expr_info.yo");
 { TokenKind } :: import("./token.yo");
 { parse } :: import("./parser.yo");
-{ Environment, clone_env } :: import("./env.yo");
+{ Environment, clone_env, build_prelude_var_cache } :: import("./env.yo");
 // Cached prelude env — populated on first check, reused thereafter.
 (g_cached_prelude_env : Option(Environment)) = Option(Environment).None;
 // Demand-driven module loader state (set per `check_single_file` run). The
@@ -39,6 +40,14 @@ open(import("std/fmt"));
 (g_loader_io : Option(Io)) = Option(Io).None;
 (g_loader_std_path : Option(String)) = Option(String).None;
 (g_loader_exn : Option(Exception)) = Option(Exception).None;
+// Shared ExprInfoTable for codegen: when set (during `compile`), every
+// demand-loaded module's eval context writes its per-expression metadata into
+// THIS one table instead of a fresh per-module table. Codegen emits the bodies
+// of functions collected across ALL modules (e.g. std `println`/`to_string`),
+// so their ExprInfo must live in a single table. ExprIds are globally unique
+// (alloc_global_expr_id), so a shared table has no cross-module key collisions.
+// `.None` during `check`/`test` (each file keeps its own table).
+(g_shared_expr_info_table : Option(ExprInfoTable)) = Option(ExprInfoTable).None;
 { EvalContext, eval_context_new, LoadModuleResult } :: import("./evaluator/context.yo");
 { register_evaluate_expression } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
@@ -47,6 +56,10 @@ open(import("std/fmt"));
 { EvalValue } :: import("./value.yo");
 { TypeValue } :: import("./types/definitions.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
+{ host_target, parse_target, TargetInfo, is_target_linux, is_target_windows, is_target_wasm } :: import("./target.yo");
+{ compile_module } :: import("./codegen/codegen_c.yo");
+{ get_needs_intel_asm_syntax } :: import("./codegen/utils/index.yo");
+{ panic, assert } :: import("std/assert");
 // Temporary C source path used during compilation.
 C_TMP :: "/tmp/yo_self_out.c";
 extract_bare_import_path :: (fn(e : AstExpr) -> Option(String))(
@@ -59,7 +72,7 @@ extract_bare_import_path :: (fn(e : AstExpr) -> Option(String))(
       (
         !(
           match(
-            func_box.*,
+            func_box,
             .Atom(_, tok) => (tok.value == BK_IMPORT),
             .FnCall(_, _, _, _, _) => false
           )
@@ -95,7 +108,7 @@ extract_import_path :: (fn(expr : AstExpr) -> Option(String))(
     .Atom(_, _) => Option(String).None,
     .FnCall(_, func_box, fn_imp_args, is_infix, _) => {
       fval := match(
-        func_box.*,
+        func_box,
         .Atom(_, tok) => tok.value.clone(),
         .FnCall(_, _, _, _, _) => String.new()
       );
@@ -147,7 +160,7 @@ collect_import_paths_recursive :: (
     expr,
     .Atom(_, _) => (),
     .FnCall(_, fb, walk_args, _, _) => {
-      recur(fb.*, out);
+      recur(fb, out);
       (i : usize) = usize(0);
       while(i < walk_args.len(), {
         match(
@@ -246,7 +259,7 @@ extract_test_name :: (fn(expr : AstExpr) -> Option(String))(
       (
         !(
           match(
-            func_box.*,
+            func_box,
             .Atom(_, ftok) => (ftok.value == "test"),
             .FnCall(_, _, _, _, _) => false
           )
@@ -453,12 +466,35 @@ collect_module_deps :: (
 // so the loader is wired through this slot (set in the init IIFE below).
 (g_demand_loader : Option((fn(path : String) -> LoadModuleResult))) =
   Option((fn(path : String) -> LoadModuleResult)).None;
+/// Message slot for a module-eval error captured inside
+/// `_eval_module_exprs_capturing_error`'s handler. Handlers cannot
+/// reference outer runtime variables, but they CAN call module-level
+/// FUNCTIONS — so the handler stashes the message here and the loader
+/// takes it after the unwind, surfacing it as `LoadModuleResult.
+/// module_error`. That routes a failed `import("…")` back through the
+/// CALLER's exn at the import site (evaluate_import rethrows
+/// module_error), where `comptime_expect_error` can catch it — TS
+/// parity: a module whose top-level eval throws inside
+/// `comptime_expect_error(import("…"))` is an EXPECTED error, not a
+/// driver-fatal one (tests/circular_import.test.yo's circular_error
+/// fixture).
+(g_load_module_error : Option(String)) = Option(String).None;
+_stash_load_error :: (fn(msg : String) -> unit)({
+  g_load_module_error = Option(String).Some(msg);
+});
+_take_load_error :: (fn() -> Option(String))({
+  r := g_load_module_error;
+  g_load_module_error = Option(String).None;
+  r
+});
 /// Evaluate a module's top-level exprs, catching any evaluator error
 /// locally so the caller can unregister the currently-loading entry
 /// before re-throwing. Success: pushes the module value to `out`.
 /// Failure: the handler PRINTS the error (handlers cannot capture
 /// outer runtime vars, and an unwound String loses its Rc storage)
-/// and unwinds — `out` stays empty, which is the caller's signal.
+/// and unwinds — `out` stays empty, which is the caller's signal. The
+/// message is also stashed via `_stash_load_error` (a fn call — legal
+/// in handlers) so the loader can return it as `module_error`.
 _eval_module_exprs_capturing_error :: (
   fn(
     mod_exprs : ArrayList(AstExpr),
@@ -476,30 +512,35 @@ _eval_module_exprs_capturing_error :: (
   local_exn := Exception(
     throw : (
       (err) -> {
+        _stash_load_error(err.to_string());
         eprintln(`check: error in: ${err.to_string()}`);
         unwind(false)
       }
     )
   );
   result := evaluate_anonymous_module_begin_exprs(mod_exprs, env, ctx, false, false, local_exn);
-  ___ := out.push(result.module_value);
+  out.push(result.module_value);
   ___t := out_tys.push(result.module_type);
   true
 });
 /// Read + parse + evaluate the module at resolved abs `file://` path `abs` and
 /// register its exports. Registers it as "loading" (with its live env) BEFORE
 /// evaluating, so a circular import resolves to its partial exports. Uses the
-/// loader io / std_path / exn stashed by `check_single_file`.
-_load_module_at_abs :: (fn(abs : String) -> unit)({
+/// loader io / std_path / exn stashed by `check_single_file`. Returns
+/// `.Some(error)` when the module's top-level evaluation failed — the caller
+/// (demand_load_module) surfaces it as `LoadModuleResult.module_error` so the
+/// error rethrows through the IMPORT SITE's exn (catchable by
+/// `comptime_expect_error`), instead of unwinding the stashed driver exn.
+_load_module_at_abs :: (fn(abs : String) -> Option(String))({
   if(abs.ends_with(String.from("prelude.yo")), {
-    return(());
+    return(Option(String).None);
   });
   if(module_cache_has(abs.clone()), {
-    return(());
+    return(Option(String).None);
   });
-  io := match(g_loader_io,.Some(i) => i,.None => return(()));
+  io := match(g_loader_io,.Some(i) => i,.None => return(Option(String).None));
   std_path := match(g_loader_std_path,.Some(s) => s,.None => String.from(""));
-  exn := match(g_loader_exn,.Some(e) => e,.None => return(()));
+  exn := match(g_loader_exn,.Some(e) => e,.None => return(Option(String).None));
   fs_path := abs.replace(String.from("file://"), String.from(""));
   src_bytes := io.await(read_file(Path.new(fs_path.clone()), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
@@ -509,11 +550,20 @@ _load_module_at_abs :: (fn(abs : String) -> unit)({
   ctx := eval_context_new(std_path.clone(), abs.clone());
   ctx.is_executing = true;
   ctx.load_module = g_demand_loader;
+  // Codegen: route this module's per-expression metadata into the shared table
+  // (see g_shared_expr_info_table). No-op during check/test.
+  match(
+    g_shared_expr_info_table,
+    .Some(t) => {
+      ctx.expr_info_table = t;
+    },
+    .None => ()
+  );
   register_evaluate_expression();
   register_loading(abs.clone(), env);
   out_vals := ArrayList(EvalValue).new();
   out_tys := ArrayList(TypeValue).new();
-  _ := _eval_module_exprs_capturing_error(mod_exprs, env, ctx, out_vals, out_tys);
+  _eval_module_exprs_capturing_error(mod_exprs, env, ctx, out_vals, out_tys);
   // ALWAYS unregister — a leaked currently-loading entry poisons every
   // LATER check that imports this module: `demand_load_module` then
   // returns partial exports from the dead env (hangs/crashes; see
@@ -524,12 +574,20 @@ _load_module_at_abs :: (fn(abs : String) -> unit)({
     .Some(mv) => {
       reg_ty := match(out_tys.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
       register_module(abs.clone(), mv, reg_ty);
+      Option(String).None
     },
-    .None => {
-      // Root-cause detail printed by the helper's handler.
-      exn.throw(dyn(`Failed to evaluate module "${abs}"`));
-    }
-  );
+    // Root-cause detail printed by the helper's handler (and stashed).
+    // RETURN the error instead of throwing the stashed driver exn: the
+    // import site rethrows it through its own exn, so an import inside
+    // `comptime_expect_error` is caught as the EXPECTED error.
+    .None => Option(String).Some(
+      match(
+        _take_load_error(),
+        .Some(m) => m,
+        .None => `Failed to evaluate module "${abs}"`
+      )
+    )
+  )
 });
 /// Demand-driven `ctx.load_module`. `path` is the resolved `file://` abs path
 /// computed by `evaluate_import`. Cache hit -> cached exports; currently-loading
@@ -551,7 +609,19 @@ demand_load_module :: (fn(path : String) -> LoadModuleResult)({
     },
     .None => ()
   );
-  _load_module_at_abs(path.clone());
+  match(
+    _load_module_at_abs(path.clone()),
+    .Some(load_err) => {
+      return(
+        LoadModuleResult(
+          module_value : EvalValue.UnitVal,
+          module_type : TypeValue.Unit,
+          module_error : Option(String).Some(load_err)
+        )
+      );
+    },
+    .None => ()
+  );
   load_module_from_cache(path)
 });
 // Wire the slot (breaks the mutual-recursion forward ref).
@@ -637,7 +707,7 @@ collect_check_files :: (
     true => ()
   );
   // Drop any collected path that contains an `--exclude` path as a substring
-  // (so `--exclude yo-self/tests` skips that whole subtree from a directory
+  // (so `--exclude tests/internal` skips that whole subtree from a directory
   // check). Mirrors the exclude filter in `collectCheckFiles` (src/yo-cli.ts);
   // yo-self lacks `path.resolve`, so this uses path-segment containment on the
   // collected absolute paths rather than resolved-prefix matching.
@@ -702,6 +772,17 @@ check_single_file :: (
     prelude_env := Environment.new(input_path.clone());
     prelude_ctx := eval_context_new(std_path.clone(), input_path.clone());
     prelude_ctx.is_executing = true;
+    // Route the prelude's per-expression metadata into the shared codegen table
+    // when set (compile path), so codegen finds the body ExprInfo of prelude
+    // functions emitted directly (e.g. `assert`). No-op for `check`/`test`
+    // (g_shared is None there → prelude uses its own throwaway table).
+    match(
+      g_shared_expr_info_table,
+      .Some(t) => {
+        prelude_ctx.expr_info_table = t;
+      },
+      .None => ()
+    );
     register_evaluate_expression();
     println(`check: invoking evaluate_anonymous_module_begin_exprs (prelude)`);
     // keep_frame_at_end=true so the prelude's bindings survive into the
@@ -714,7 +795,16 @@ check_single_file :: (
       true,
       local_exn
     );
-    g_cached_prelude_env = Option(Environment).Some(prelude_env);
+    // Populate-once (the doc on g_cached_prelude_env). REPLACING an existing
+    // cached env — e.g. when a directory sweep reaches std/prelude.yo as a
+    // target AFTER the run_check pre-load — forks the type universe: every
+    // later file clones the NEW prelude (fresh FuncVal/trait ids) while
+    // demand-loaded modules stay cached from the OLD lineage, so an id-keyed
+    // check like `K <: Eq(K)` mints a trait no registered impl can match
+    // ("Type String does not implement required trait ...").
+    if(g_cached_prelude_env.is_none(), {
+      g_cached_prelude_env = Option(Environment).Some(prelude_env);
+    });
     println(`check: ${input_path} — evaluator OK`);
     return(true);
   });
@@ -753,7 +843,7 @@ check_single_file :: (
   println(`check: invoking evaluate_anonymous_module_begin_exprs`);
   out_vals_cf := ArrayList(EvalValue).new();
   out_tys_cf := ArrayList(TypeValue).new();
-  _ := _eval_module_exprs_capturing_error(exprs, env, ctx, out_vals_cf, out_tys_cf);
+  _eval_module_exprs_capturing_error(exprs, env, ctx, out_vals_cf, out_tys_cf);
   // ALWAYS unregister, error or not — a leaked currently-loading entry
   // poisons every LATER file in a directory check (see
   // issues/fixed/yo-self-dir-check-state-corruption-after-failure.md).
@@ -819,6 +909,9 @@ run_check :: (
   if(g_cached_prelude_env.is_none(), {
     prelude_path := `${std_path}/prelude.yo`;
     _pre := check_single_file(prelude_path, std_path.clone(), io, exn);
+    // Build the O(1) prelude variable cache (called here, not inside
+    // check_single_file, to avoid interference with the compile path).
+    match(g_cached_prelude_env,.Some(pe) => build_prelude_var_cache(pe),.None => ());
   });
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
@@ -843,6 +936,104 @@ run_check :: (
     exn.throw(dyn(`check: ${failed.to_string()} file(s) failed evaluator coverage`));
   });
 });
+/// The argv entry following index `i` (the value of a `--flag value` pair), or
+/// "" if `i` is the last argument. Used by the `compile` flag parser.
+_arg_val :: (fn(argv : ArrayList(String), i : usize) -> String)(
+  if((i + usize(1)) < argv.len(), argv(i + usize(1)), String.from(""))
+);
+/// Is liburing available for linking? Mirrors `isLiburingAvailable` in
+/// `src/compiler-utils.ts`: probe `pkg-config --exists liburing`.
+///
+/// LOAD-BEARING ON LINUX. `codegen/async/runtime_io_linux.yo` emits io_uring
+/// calls guarded by `#if __has_include(<liburing.h>)`, so when the header IS
+/// present the emitted C references `io_uring_*` and the LINK fails without
+/// `-luring`. That is exactly how tests/sys/bufio, tests/fs/{file,temp,walker},
+/// async_await and imm_string failed in CI with "undefined reference to
+/// io_uring_peek_batch_cqe" etc. while passing on macOS, which uses kqueue and
+/// never references those symbols. TS adds the flag in TWO places
+/// (`codegen/index.ts` and `test-runner.ts`); yo-self funnels `compile` and
+/// `test` through one link path, so it is added once here.
+///
+/// The probe runs under a SWALLOWING handler because `pkg-config` may not exist
+/// at all, in which case spawning throws (TS wraps the same probe in try/catch).
+/// A swallowed probe leaves `out` empty, read as "not available", so a box
+/// without liburing still links — matching TS, which warns and omits the flag.
+_probe_liburing :: (fn(io : Io, out : ArrayList(bool)) -> unit)({
+  probe_exn := Exception(
+    throw : (
+      (_e) -> {
+        unwind(());
+      }
+    )
+  );
+  probe := Command.new(String.from("pkg-config"));
+  probe.arg(String.from("--exists"));
+  probe.arg(String.from("liburing"));
+  st := io.await(probe.status(io), IoExn(io : io, exn : probe_exn));
+  out.push(st.raw == i32(0));
+});
+/// AddressSanitizer functionality probe — faithful port of TS
+/// `asanRuntimeIsUsable` (src/compiler-utils.ts): compile a trivial C program
+/// with `-fsanitize=address` via the SYSTEM `cc` (matching TS, which probes
+/// `cc` regardless of --cc) and run it under a 3-second shell watchdog. A
+/// healthy ASan binary exits 0 immediately; a clang/ASan-runtime mismatch
+/// (e.g. Nix clang 21 whose libclang_rt.asan deadlocks in its own dyld
+/// initializer BEFORE main on this macOS) never returns — the watchdog
+/// SIGKILLs it and the probe reports unusable, so the compile proceeds
+/// WITHOUT the sanitizer plus the same warning TS prints, instead of
+/// emitting a binary that hangs at startup (issues/fixed/yo-self-asan-init-hang.md).
+/// Result is cached process-wide (TS caches in _asanUsable).
+(g_asan_usable : Option(bool)) = Option(bool).None;
+_asan_runtime_is_usable :: (fn(base : String, io : Io) -> bool)({
+  match(
+    g_asan_usable,
+    .Some(u) => {
+      return(u);
+    },
+    .None => ()
+  );
+  // Any probe-step IO failure means "unusable" (TS's catch -> false).
+  probe_exn := Exception(
+    throw : (
+      (_e) -> {
+        unwind(false);
+      }
+    )
+  );
+  probe_src := `${base}.asan_probe.c`;
+  probe_bin := `${base}.asan_probe`;
+  io.await(write_file(Path.new(probe_src.clone()), String.from("int main(void) { return 0; }\n"), io), IoExn(io : io, exn : probe_exn));
+  cc_cmd := Command.new(String.from("cc"));
+  cc_cmd.arg(String.from("-x"));
+  cc_cmd.arg(String.from("c"));
+  cc_cmd.arg(String.from("-std=c11"));
+  cc_cmd.arg(String.from("-fsanitize=address"));
+  cc_cmd.arg(String.from("-o"));
+  cc_cmd.arg(probe_bin.clone());
+  cc_cmd.arg(probe_src.clone());
+  cc_st := io.await(cc_cmd.status(io), IoExn(io : io, exn : probe_exn));
+  (usable : bool) = false;
+  if(cc_st.success(), {
+    // Shell watchdog: `wait $p` yields the probe's own exit status; the
+    // backgrounded killer turns an ASan init deadlock into SIGKILL (137,
+    // not success). A healthy probe exits 0 long before the 3s fire.
+    run_cmd := Command.new(String.from("sh"));
+    run_cmd.arg(String.from("-c"));
+    run_cmd.arg(String.from("ASAN_OPTIONS=detect_leaks=0 \"$0\" & p=$!; { sleep 3; kill -9 $p; } 2>/dev/null & wait $p"));
+    run_cmd.arg(probe_bin.clone());
+    run_st := io.await(run_cmd.status(io), IoExn(io : io, exn : probe_exn));
+    usable = run_st.success();
+  });
+  // Cleanup (TS's finally-unlinks). The bin is only present when cc
+  // succeeded; a removal failure routes through probe_exn -> false, which
+  // is the correct verdict for any probe-environment breakage anyway.
+  io.await(remove_file(Path.new(probe_src.clone()), io), IoExn(io : io, exn : probe_exn));
+  if(cc_st.success(), {
+    io.await(remove_file(Path.new(probe_bin.clone()), io), IoExn(io : io, exn : probe_exn));
+  });
+  g_asan_usable = Option(bool).Some(usable);
+  usable
+});
 /// Run the `compile` subcommand.
 run_compile :: (
   fn(
@@ -851,10 +1042,466 @@ run_compile :: (
     exn : Exception
   ) -> unit
 )({
-  // The self-hosted C codegen (yo-self/codegen/) was removed pending the
-  // typed-pipeline codegen port — see plans/BOOTSTRAPPING_CODEGEN.md.
-  exn.throw(dyn(`compile: the self-hosted codegen was removed pending the codegen port (plans/BOOTSTRAPPING_CODEGEN.md). Use the TypeScript yo-cli for compilation.`));
+  if(argv.len() < usize(3), {
+    exn.throw(dyn(`compile: missing input file. Usage: yo-self compile <input.yo> [-o out] [--c-compiler cc] [--target <triple>] [--emit-c]`));
+  });
+  // Parse args. Mirrors the `compile` command options of the TypeScript
+  // `yo-cli` (src/yo-cli.ts / src/codegen/index.ts) for the clang/gcc/zig path.
+  (input_path : String) = String.from("");
+  (output : String) = String.from("a.out");
+  (cc : String) = String.from("clang");
+  (target_triple : String) = String.from("");
+  (sysroot : String) = String.from("");
+  (allocator : String) = String.from("libc");
+  (optimize : String) = String.from(""); // "" = unset; "0".."3"
+  (sanitize : String) = String.from(""); // "" / "address" / "leak" / "thread"
+  (cflags : String) = String.from("");
+  (skip_cc : bool) = false;
+  (skip_codegen : bool) = false;
+  (release : bool) = false;
+  (debug_gc : bool) = false;
+  (debug_parallelism : bool) = false;
+  (debug_async_await : bool) = false;
+  (debug_symbols : bool) = false; // -g
+  (strip_syms : bool) = false; // -s
+  (static_link : bool) = false; // --static
+  (static_library : bool) = false; // --static-library
+  defines := ArrayList(String).new(); // -D
+  include_paths := ArrayList(String).new(); // -I
+  library_paths := ArrayList(String).new(); // -L
+  libraries := ArrayList(String).new(); // -l
+  externs := ArrayList(String).new(); // --extern
+  (ai : usize) = usize(2);
+  while(ai < argv.len(), {
+    a := argv(ai);
+    cond(
+      (a == "-o") => {
+        output = _arg_val(argv, ai);
+        ai = (ai + usize(2));
+      },
+      ((a == "--c-compiler") || (a == "--cc")) => {
+        cc = _arg_val(argv, ai);
+        ai = (ai + usize(2));
+      },
+      ((a == "--target") || (a == "-t")) => {
+        target_triple = _arg_val(argv, ai);
+        ai = (ai + usize(2));
+      },
+      (a == "--sysroot") => {
+        sysroot = _arg_val(argv, ai);
+        ai = (ai + usize(2));
+      },
+      (a == "--allocator") => {
+        allocator = _arg_val(argv, ai);
+        ai = (ai + usize(2));
+      },
+      (a == "--optimize") => {
+        optimize = _arg_val(argv, ai);
+        ai = (ai + usize(2));
+      },
+      (a == "--sanitize") => {
+        sanitize = _arg_val(argv, ai);
+        ai = (ai + usize(2));
+      },
+      (a == "--cflags") => {
+        cflags = _arg_val(argv, ai);
+        ai = (ai + usize(2));
+      },
+      ((a == "-D") || (a == "--define")) => {
+        defines.push(_arg_val(argv, ai));
+        ai = (ai + usize(2));
+      },
+      (a == "-I") => {
+        include_paths.push(_arg_val(argv, ai));
+        ai = (ai + usize(2));
+      },
+      (a == "-L") => {
+        library_paths.push(_arg_val(argv, ai));
+        ai = (ai + usize(2));
+      },
+      (a == "-l") => {
+        libraries.push(_arg_val(argv, ai));
+        ai = (ai + usize(2));
+      },
+      (a == "--extern") => {
+        externs.push(_arg_val(argv, ai));
+        ai = (ai + usize(2));
+      },
+      ((a == "--emit-c") || (a == "--skip-c-compiler")) => {
+        skip_cc = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--skip-codegen") => {
+        skip_codegen = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--release") => {
+        release = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--debug-gc") => {
+        debug_gc = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--debug-parallelism") => {
+        debug_parallelism = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--debug-async-await") => {
+        debug_async_await = true;
+        ai = (ai + usize(1));
+      },
+      ((a == "-g") || (a == "--debug-symbols")) => {
+        debug_symbols = true;
+        ai = (ai + usize(1));
+      },
+      ((a == "-s") || (a == "--strip")) => {
+        strip_syms = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--static") => {
+        static_link = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--static-library") => {
+        static_library = true;
+        ai = (ai + usize(1));
+      },
+      // Accepted for parity; yo-self adds no default sanitizer so it is a no-op.
+      (a == "--disable-sanitize") => {
+        ai = (ai + usize(1));
+      },
+      a.starts_with("-") => {
+        ai = (ai + usize(1));
+      },
+      true => {
+        input_path = a;
+        ai = (ai + usize(1));
+      }
+    );
+  });
+  std_path := resolve_std_path();
+  // Create the shared ExprInfoTable BEFORE loading the prelude, and publish it
+  // via g_shared_expr_info_table now (not after the prelude load). The prelude
+  // is def-eval'd inside check_single_file; routing its per-expression metadata
+  // into THIS table makes codegen find the body ExprInfo of non-specialized
+  // prelude functions (e.g. `assert`'s `cond(flag => (), true => __yo_panic(msg))`).
+  // Previously the prelude loaded into a discarded table and g_shared was only
+  // set to the entry ctx's table afterwards, so a prelude function emitted
+  // directly (not re-specialized at a call site) had no cond ExprInfo →
+  // "Failed to transpile cond(...)". See issues/yo-self-cond-panic-arm-codegen.md.
+  // Make this compile SELF-CONTAINED. `run_test` calls `run_compile` once per
+  // test batch IN-PROCESS, and a fresh ExprInfoTable is created just below — but
+  // two caches outlive that table: the module cache (`g_module_cache_*`) and
+  // `g_cached_prelude_env`. On a SECOND batch the cached std/prelude ASTs are
+  // reused while their ExprInfo lives in the FIRST batch's discarded table, so
+  // codegen finds no info for those nodes and emits `// Failed to transpile` for
+  // std internals (ArrayList._length/_ptr/_capacity, String._bytes, std/env
+  // getenv, ...).
+  //
+  // MEASURED 2026-08-05: `test ./tests/string` (5 files) emitted 47 FTT markers
+  // on the second file's batch while every one of those files passed ALONE, and
+  // `test ./tests/internal` did the same with 59 — with an IDENTICAL import list
+  // either side, so the trigger was purely "second compile in one process". That
+  // is also why every per-file gate was green: they only ever compile one batch.
+  //
+  // This clearing is DEFENCE IN DEPTH, not the fix — it took 47 markers to 18,
+  // because the specialization and impl registries outlive the table too. The
+  // actual fix is that `run_test` now compiles each batch in a CHILD PROCESS, so
+  // no second in-process compile happens at all. Kept because it makes
+  // `run_compile` self-contained (free: a one-compile process starts with these
+  // caches empty), which is the invariant the child-process design relies on.
+  //
+  // TS needs no equivalent: it stores node info ON the AST node (`expr.$`), so a
+  // cached AST carries its annotations, whereas yo-self keys a SIDE TABLE by
+  // expr id. `run_check` already clears the module cache for the same reason.
+  clear_module_cache();
+  g_cached_prelude_env = Option(Environment).None;
+  shared_info_table := expr_info_table_new();
+  g_shared_expr_info_table = Option(ExprInfoTable).Some(shared_info_table);
+  // Ensure the prelude env is cached (provides std types to the evaluator).
+  if(g_cached_prelude_env.is_none(), {
+    _pre := check_single_file(`${std_path}/prelude.yo`, std_path.clone(), io, exn);
+    match(g_cached_prelude_env,.Some(pe) => build_prelude_var_cache(pe),.None => ());
+  });
+  // Read + parse the input module.
+  src_bytes := io.await(read_file(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
+  src := String.from_bytes(src_bytes);
+  exprs := parse(src, input_path.clone(), exn);
+  // Demand-driven module loading (mirrors check_single_file's loader setup).
+  g_loader_io = Option(Io).Some(io);
+  g_loader_std_path = Option(String).Some(std_path.clone());
+  g_loader_exn = Option(Exception).Some(exn);
+  entry_abs := match(
+    resolve_module_path(input_path.clone(), String.from("."), std_path.clone()),
+    .Found(p) => p,
+    .NotFound(_) => input_path.clone(),
+    .Ambiguous(_) => input_path.clone()
+  );
+  env := clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(entry_abs.clone())));
+  env.module_path = entry_abs.clone();
+  ctx := eval_context_new(std_path.clone(), entry_abs.clone());
+  ctx.is_executing = true;
+  ctx.load_module = g_demand_loader;
+  // Reuse the shared ExprInfoTable (created above, also used by the prelude load
+  // and every demand-loaded module) so codegen has metadata for the bodies of
+  // ALL collected functions — the prelude's, every imported module's, and the
+  // entry module's.
+  ctx.expr_info_table = shared_info_table;
+  register_evaluate_expression();
+  register_loading(entry_abs.clone(), env);
+  out_vals := ArrayList(EvalValue).new();
+  out_tys := ArrayList(TypeValue).new();
+  _eval_module_exprs_capturing_error(exprs, env, ctx, out_vals, out_tys);
+  unregister_loading(entry_abs.clone());
+  module_value := match(
+    out_vals.get(usize(0)),
+    .Some(mv) => mv,
+    .None => {
+      exn.throw(dyn(`compile: failed to evaluate module "${input_path}"`));
+      return(())
+    }
+  );
+  // Resolve the compilation target: --target <triple> if given, else host.
+  target := match(
+    cond(
+      (target_triple == "") => Result(TargetInfo, String).Ok(host_target()),
+      true => parse_target(target_triple)
+    ),
+    .Ok(t) => t,
+    .Err(e) => {
+      exn.throw(dyn(`compile: invalid --target "${target_triple}": ${e}`));
+      return(())
+    }
+  );
+  // --skip-codegen: evaluate only (type-check), emit no C.
+  if(skip_codegen, {
+    return(());
+  });
+  // Generate C11 from the evaluated module. A static library has no main()
+  // wrapper (is_library = true). Allocator + debug-logging flags are threaded
+  // through to the code generator (mirrors CodeGeneratorC.compileModule).
+  c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn);
+  c_path := `${output}.c`;
+  io.await(write_file(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
+  // --emit-c / --skip-c-compiler: write the C and stop.
+  if(skip_cc, {
+    return(());
+  });
+  // ----- assemble the C-compiler invocation (mirrors src/codegen/index.ts) ---
+  std_root := resolve_std_path();
+  cmd := Command.new(cc.clone());
+  // `zig` is invoked as `zig cc ...`.
+  if(cc == "zig", {
+    cmd.arg(String.from("cc"));
+  });
+  cmd.arg(String.from("-std=c11"));
+  cmd.arg(String.from("-fno-strict-aliasing"));
+  // -fwrapv: define signed overflow as two's-complement wrap (MEMORY_SAFETY.md
+  // Limitation #6); without it the optimizer may exploit overflow-UB.
+  cmd.arg(String.from("-fwrapv"));
+  // Inline assembly with intel_syntax needs the C compiler in Intel mode
+  // (mirrors codegen/index.ts:580-583; skipped for wasm targets).
+  if(get_needs_intel_asm_syntax() && !(is_target_wasm(target)), {
+    cmd.arg(String.from("-masm=intel"));
+  });
+  // Optimization + warnings: explicit --optimize wins over --release; the
+  // default and explicit `--optimize 0` use -O0 with the noisy warnings
+  // suppressed (mirrors the TS option logic).
+  cond(
+    ((optimize == "") && release) => {
+      cmd.arg(String.from("-w"));
+      cmd.arg(String.from("-O2"));
+    },
+    ((optimize != "") && (optimize != "0")) => {
+      cmd.arg(String.from("-w"));
+      cmd.arg(`-O${optimize}`);
+    },
+    true => {
+      cmd.arg(String.from("-Wall"));
+      cmd.arg(String.from("-Wextra"));
+      cmd.arg(String.from("-Wno-unused-variable"));
+      cmd.arg(String.from("-Wno-unused-parameter"));
+      cmd.arg(String.from("-Wno-unused-function"));
+      cmd.arg(String.from("-Wno-unused-but-set-variable"));
+      cmd.arg(String.from("-Wno-unused-label"));
+      cmd.arg(String.from("-Wno-unused-value"));
+      cmd.arg(String.from("-Wno-parentheses-equality"));
+      cmd.arg(String.from("-O0"));
+    }
+  );
+  if(debug_symbols, {
+    cmd.arg(String.from("-g"));
+  });
+  if(strip_syms, {
+    cmd.arg(String.from("-s"));
+  });
+  if(static_link, {
+    cmd.arg(String.from("-static"));
+  });
+  // Sanitizers (clang/gcc; mirror of TS getSanitizerFlags for the Unix path).
+  cond(
+    (sanitize == "address") => {
+      // Functionality probe first (TS getSanitizerFlags): a clang/ASan
+      // runtime mismatch produces binaries that deadlock in ASan's own
+      // init before main — skip the flags with TS's warning instead.
+      if(_asan_runtime_is_usable(output, io), {
+        cmd.arg(String.from("-fsanitize=address"));
+        cmd.arg(String.from("-fno-omit-frame-pointer"));
+      }, {
+        eprintln(String.from("AddressSanitizer is not functional with this compiler setup (likely a version mismatch between clang and the ASAN runtime library). Skipping sanitizer. Install a matching ASAN runtime or use --cc with a compatible compiler."));
+      });
+    },
+    (sanitize == "leak") => cmd.arg(String.from("-fsanitize=leak")),
+    (sanitize == "thread") => {
+      cmd.arg(String.from("-fsanitize=thread"));
+      cmd.arg(String.from("-fno-omit-frame-pointer"));
+    },
+    true => ()
+  );
+  // -I include paths, -D defines, -L library search paths.
+  (ii : usize) = usize(0);
+  while(ii < include_paths.len(), {
+    match(include_paths.get(ii),.Some(p) => cmd.arg(`-I${p}`),.None => ());
+    ii = (ii + usize(1));
+  });
+  (di : usize) = usize(0);
+  while(di < defines.len(), {
+    match(defines.get(di),.Some(d) => cmd.arg(`-D${d}`),.None => ());
+    di = (di + usize(1));
+  });
+  (li : usize) = usize(0);
+  while(li < library_paths.len(), {
+    match(library_paths.get(li),.Some(p) => cmd.arg(`-L${p}`),.None => ());
+    li = (li + usize(1));
+  });
+  // Arbitrary custom flags (--cflags "a b c").
+  if(cflags != "", {
+    parts := cflags.split(" ");
+    (ci : usize) = usize(0);
+    while(ci < parts.len(), {
+      match(parts.get(ci),.Some(f) => if(f.len() > usize(0), cmd.arg(f.clone())),.None => ());
+      ci = (ci + usize(1));
+    });
+  });
+  // Bundled mimalloc allocator (else libc): add static.c + its include path.
+  if(allocator == "mimalloc", {
+    cmd.arg(`-I${std_root}/../vendor/mimalloc/include`);
+    cmd.arg(`${std_root}/../vendor/mimalloc/src/static.c`);
+  });
+  // Cross-compile target / sysroot pass-through.
+  if(target_triple != "", {
+    cmd.arg(`--target=${target_triple}`);
+  });
+  if(sysroot != "", {
+    cmd.arg(`--sysroot=${sysroot}`);
+  });
+  // --static-library: compile to a .o (-c -fPIC) then archive into a .a.
+  // Otherwise compile + link into an executable.
+  if(static_library, {
+    obj_path := `${output}.o`;
+    cmd.arg(String.from("-c"));
+    if(!(is_target_windows(target)), {
+      cmd.arg(String.from("-fPIC"));
+    });
+    cmd.arg(c_path.clone());
+    cmd.arg(String.from("-o"));
+    cmd.arg(obj_path.clone());
+    cst := io.await(cmd.status(io), IoExn(io : io, exn : exn));
+    if(cst.raw != i32(0), {
+      exn.throw(dyn(`compile: C compiler failed (exit ${cst.raw.to_string()}) on ${c_path}`));
+      return(())
+    });
+    ar_out := if(output.clone().ends_with(".a"), output.clone(), `${output}.a`);
+    arcmd := Command.new(String.from("ar"));
+    arcmd.arg(String.from("rcs"));
+    arcmd.arg(ar_out.clone());
+    arcmd.arg(obj_path.clone());
+    ast := io.await(arcmd.status(io), IoExn(io : io, exn : exn));
+    if(ast.raw != i32(0), {
+      exn.throw(dyn(`compile: ar failed (exit ${ast.raw.to_string()}) creating ${ar_out}`));
+    });
+    return(())
+  });
+  // Executable: source + externs, output, then link libraries.
+  cmd.arg(c_path.clone());
+  (ei : usize) = usize(0);
+  while(ei < externs.len(), {
+    match(externs.get(ei),.Some(f) => cmd.arg(f.clone()),.None => ());
+    ei = (ei + usize(1));
+  });
+  cmd.arg(String.from("-o"));
+  cmd.arg(output.clone());
+  cmd.arg(String.from("-lm"));
+  cmd.arg(String.from("-pthread"));
+  // liburing for async I/O (io_uring) on Linux — see `_probe_liburing`. Without
+  // it every emitted `io_uring_*` reference is an undefined symbol at link time.
+  if(is_target_linux(target), {
+    ur := ArrayList(bool).new();
+    _probe_liburing(io, ur);
+    if(match(ur.get(usize(0)),.Some(b) => b,.None => false), {
+      cmd.arg(String.from("-luring"));
+    });
+  });
+  (xi : usize) = usize(0);
+  while(xi < libraries.len(), {
+    match(libraries.get(xi),.Some(lib) => cmd.arg(`-l${lib}`),.None => ());
+    xi = (xi + usize(1));
+  });
+  if(is_target_windows(target), {
+    cmd.arg(String.from("-lws2_32"));
+    cmd.arg(String.from("-lbcrypt"));
+  });
+  st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
+  if(st.raw != i32(0), {
+    exn.throw(dyn(`compile: C compiler failed (exit ${st.raw.to_string()}) on ${c_path}`));
+  });
 });
+/// Recursively collect `*.test.yo` files under `path_str` (or `[path_str]`
+/// for a file). Mirrors `findTestFiles` in src/test-runner.ts (reuses the
+/// check walker, then filters to `.test.yo`).
+_collect_test_files :: (
+  fn(
+    path_str : String,
+    excludes : ArrayList(String),
+    io : Io,
+    exn : Exception
+  ) -> ArrayList(String)
+)({
+  // `excludes` has the same semantics as `check --exclude`: a path is skipped if
+  // it equals an exclude or lives under one. Needed so `test ./tests` can skip
+  // `tests/internal`, whose files each pull ~99k lines through their import
+  // closure and peak near 6.5 GB — they cannot share a run with the fast
+  // language tests. Mirrors the `exclude` option on the TS `test` subcommand
+  // (src/yo-cli.ts) and `findTestFiles` (src/test-runner.ts).
+  all := collect_check_files(path_str, excludes, io, exn);
+  out := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < all.len(), {
+    match(
+      all.get(i),
+      .Some(f) => if(f.ends_with(String.from(".test.yo")), {
+        out.push(f.clone());
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// One extracted `test("name", { body })` declaration (source-string form).
+TestDecl :: struct(name : String, body_src : String);
+/// Run `*.test.yo` files with the self-hosted pipeline. Port of the TS
+/// test runner's BATCHED strategy (src/test-runner.ts): per file, parse and
+/// split `test(name, body)` declarations from the non-test content, synthesize
+/// ONE program whose `main` dispatches on the `YO_TEST_INDEX` env var over the
+/// inlined test bodies (generateBatchedTestProgram, test-runner.ts:340),
+/// compile it ONCE through the normal compile driver, then run the binary once
+/// per test (the spawn runtime passes the parent environment through, so a
+/// parent `setenv` reaches the child). v1 scope: sequential execution
+/// (--parallel accepted for CLI compatibility), --bail and
+/// --test-name-pattern honored; per-test ✓/✗ lines + the Test Summary
+/// footer mirror the TS output (without durations/colors).
 run_test :: (
   fn(
     argv : ArrayList(String),
@@ -862,8 +1509,218 @@ run_test :: (
     exn : Exception
   ) -> unit
 )({
-  // Test execution requires the C codegen — removed with yo-self/codegen/.
-  exn.throw(dyn(`test: the self-hosted codegen was removed pending the codegen port (plans/BOOTSTRAPPING_CODEGEN.md). Use 'check' for evaluator validation or the TypeScript yo-cli to run tests.`));
+  if(argv.len() < usize(3), {
+    exn.throw(dyn(`test: missing path. Usage: yo-self test <path> [--bail] [--test-name-pattern P] [--parallel N] [--exclude PATH]`));
+  });
+  (target_path : String) = String.from("");
+  (bail : bool) = false;
+  (name_pattern : String) = String.from("");
+  // `--exclude <path>` (repeatable), same semantics as `check --exclude`.
+  excludes := ArrayList(String).new();
+  (ai : usize) = usize(2);
+  while(ai < argv.len(), {
+    a := argv(ai);
+    cond(
+      (a == "--bail") => {
+        bail = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--test-name-pattern") => {
+        name_pattern = _arg_val(argv, ai);
+        ai = (ai + usize(2));
+      },
+      (a == "--parallel") => {
+        // Accepted for CLI compatibility; v1 runs sequentially.
+        ai = (ai + usize(2));
+      },
+      (a == "--exclude") => {
+        excludes.push(_arg_val(argv, ai));
+        ai = (ai + usize(2));
+      },
+      ((a == "-v") || (a == "--verbose")) => {
+        ai = (ai + usize(1));
+      },
+      true => {
+        target_path = a.clone();
+        ai = (ai + usize(1));
+      }
+    );
+  });
+  files := _collect_test_files(target_path, excludes, io, exn);
+  if(files.len() == usize(0), {
+    println(String.from("No test files found."));
+    return(());
+  });
+  (passed : usize) = usize(0);
+  (failed : usize) = usize(0);
+  (bailed : bool) = false;
+  (fi : usize) = usize(0);
+  while((fi < files.len()) && !(bailed), {
+    file := match(files.get(fi),.Some(f) => f,.None => String.from(""));
+    fi = (fi + usize(1));
+    println(``);
+    println(`${file}`);
+    src_bytes := io.await(read_file(Path.new(file.clone()), io), IoExn(io : io, exn : exn));
+    src := String.from_bytes(src_bytes);
+    prog := parse(src, file.clone(), exn);
+    tests := ArrayList(TestDecl).new();
+    non_test := ArrayList(String).new();
+    (pi : usize) = usize(0);
+    while(pi < prog.len(), {
+      e := match(prog.get(pi),.Some(x) => x,.None => make_err_expr());
+      pi = (pi + usize(1));
+      if(ast_expr_is_fn_call_of(e, BK_TEST,.None), {
+        targs := match(e,.FnCall(_, _, a2, _, _) => a2, _ => ArrayList(AstExpr).new());
+        if(targs.len() >= usize(2), {
+          tname := match(targs.get(usize(0)),.Some(ne) => match(ne,.Atom(_, ntok) => ntok.value, _ => String.from("unnamed_test")),.None => String.from("unnamed_test"));
+          tbody := match(targs.get(usize(1)),.Some(b) => b,.None => make_err_expr());
+          keep := if(name_pattern.len() > usize(0), tname.contains(name_pattern.clone()), true);
+          if(keep, {
+            tests.push(TestDecl(name : tname, body_src : ast_expr_to_string(tbody)));
+          });
+        });
+      }, {
+        non_test.push(ast_expr_to_string(e));
+      });
+    });
+    if(tests.len() == usize(0), {
+      println(String.from("  (no tests)"));
+    }, {
+      // Synthesize the batched program (mirror generateBatchedTestProgram).
+      prog_src := String.new();
+      (ni : usize) = usize(0);
+      while(ni < non_test.len(), {
+        match(
+          non_test.get(ni),
+          .Some(l) => {
+            prog_src.push_string(l.clone());
+            prog_src.push_str(";\n");
+          },
+          .None => ()
+        );
+        ni = (ni + usize(1));
+      });
+      prog_src.push_str("__yo_batch_env :: import(\"std/env\");\n");
+      prog_src.push_str("main :: (fn() -> unit)({\n");
+      prog_src.push_str("  io :: __yo_builtin_io;\n");
+      prog_src.push_str("  match(__yo_batch_env.env.get(`YO_TEST_INDEX`),\n");
+      prog_src.push_str("    .Some(__yo_test_idx) => cond(\n");
+      (ti : usize) = usize(0);
+      while(ti < tests.len(), {
+        t := match(tests.get(ti),.Some(x) => x,.None => TestDecl(name : String.from(""), body_src : String.from("()")));
+        prog_src.push_str("      (__yo_test_idx == `");
+        prog_src.push_string(ti.to_string());
+        prog_src.push_str("`) => { ");
+        prog_src.push_string(t.body_src.clone());
+        prog_src.push_str("; },\n");
+        ti = (ti + usize(1));
+      });
+      prog_src.push_str("      true => ()\n");
+      prog_src.push_str("    ),\n");
+      prog_src.push_str("    .None => ()\n");
+      prog_src.push_str("  );\n");
+      prog_src.push_str("});\n");
+      prog_src.push_str("export(main);\n");
+      // Write the batch program NEXT TO the test file (mirrors TS
+      // compileBatchedBinary: path.join(path.dirname(filePath), baseName)) —
+      // the batch must inherit the test file's relative-import base, so a
+      // /tmp placement breaks every `import("./...")` in non-test content.
+      batch_dir := match(
+        file.last_index_of(`/`),
+        .Some(sidx) => file.substring(usize(0), sidx),
+        .None => String.from(".")
+      );
+      tmp_yo := `${batch_dir}/.yo_selftest_batch_${fi.to_string()}.yo`;
+      tmp_bin := `${batch_dir}/.yo_selftest_batch_${fi.to_string()}.bin`;
+      io.await(write_file(Path.new(tmp_yo.clone()), prog_src.clone(), io), IoExn(io : io, exn : exn));
+      // Compile the batch in a CHILD PROCESS, not in-process.
+      //
+      // WHY: `run_compile` creates a fresh ExprInfoTable, but compiler state lives
+      // in module-level globals (func-type registry, specialization caches, impl
+      // registry, module cache, prelude env, ...) that OUTLIVE it. A second
+      // in-process compile therefore reused cached std ASTs whose ExprInfo was in
+      // the first batch's discarded table, and codegen emitted
+      // `// Failed to transpile` for std internals (ArrayList._length,
+      // String._bytes, Option.unwrap, std/env getenv). MEASURED 2026-08-05: 47
+      // markers on `test ./tests/string` — five ORDINARY language tests — and 59
+      // on tests/internal, while every one of those files passed ALONE. Batch 1
+      // and batch 2 had an IDENTICAL import list, so the trigger was purely
+      // "second compile in one process".
+      //
+      // TS gets fresh state per batch by construction: `src/test-runner.ts:503`
+      // does `moduleManager = new ModuleManager()`. yo-self has no instance to
+      // re-create, so a fresh PROCESS is the faithful equivalent — and it
+      // reproduces EXACTLY the standalone path, which is the verified-green one
+      // (all 58 tests/internal and all 187 ./tests files pass standalone).
+      //
+      // Uses argv(0), so the binary must be invoked by a usable path. CI and every
+      // gate script invoke it by explicit path (/tmp/yo-stage1,
+      // ./yo-self/yo-self-bin). See issues/fixed/yo-self-second-batch-in-process-ftt.md.
+      self_exe := argv(usize(0));
+      ccmd := Command.new(self_exe.clone());
+      ccmd.arg(String.from("compile"));
+      ccmd.arg(tmp_yo.clone());
+      ccmd.arg(String.from("-o"));
+      ccmd.arg(tmp_bin.clone());
+      bst := io.await(ccmd.status(io), IoExn(io : io, exn : exn));
+      if(bst.raw != i32(0), {
+        exn.throw(dyn(`test: batch compile failed (exit ${bst.raw.to_string()}) for ${tmp_yo}`));
+      });
+      // Run each test: YO_TEST_INDEX in the PARENT env (the spawn runtime
+      // passes environ through when envp is NULL).
+      (ri : usize) = usize(0);
+      while((ri < tests.len()) && !(bailed), {
+        t := match(tests.get(ri),.Some(x) => x,.None => TestDecl(name : String.from(""), body_src : String.from("()")));
+        idx_cstr := String.from("YO_TEST_INDEX").to_cstr().ptr().unwrap();
+        val_cstr := ri.to_string().to_cstr().ptr().unwrap();
+        _sv := unsafe(setenv(*(char)(idx_cstr), *(char)(val_cstr), int(1)));
+        tcmd := Command.new(tmp_bin.clone());
+        st := io.await(tcmd.status(io), IoExn(io : io, exn : exn));
+        if(st.success(), {
+          passed = (passed + usize(1));
+          println(`  ✓ ${t.name}`);
+        }, {
+          failed = (failed + usize(1));
+          println(`  ✗ ${t.name}`);
+          if(bail, {
+            bailed = true;
+          });
+        });
+        ri = (ri + usize(1));
+      });
+      // Clean up the batch artifacts (mirrors TS cleanup()) — they live in
+      // the test file's directory now, not /tmp. Debug affordance (yo-self
+      // only, no TS counterpart): YO_KEEP_BATCH=1 skips the cleanup so a
+      // failing batch's .yo/.c can be inspected — batch-only miscompiles
+      // (the collections residuals) are unreproducible otherwise.
+      if(proc_env.get(`YO_KEEP_BATCH`).is_none(), {
+        io.await(remove_file(Path.new(tmp_yo.clone()), io), IoExn(io : io, exn : exn));
+        io.await(remove_file(Path.new(tmp_bin.clone()), io), IoExn(io : io, exn : exn));
+        io.await(remove_file(Path.new(`${tmp_bin}.c`), io), IoExn(io : io, exn : exn));
+      });
+    });
+  });
+  if(bailed, {
+    println(``);
+    println(String.from("Bailing out early due to test failure (--bail)"));
+  });
+  println(``);
+  println(String.from("Test Summary"));
+  println(String.from("─────────────────────────────────"));
+  if(passed > usize(0), {
+    println(`${passed.to_string()} passed`);
+  });
+  if(failed > usize(0), {
+    println(`${failed.to_string()} failed`);
+  });
+  println(`${(passed + failed).to_string()} total`);
+  if(failed > usize(0), {
+    // Route the nonzero exit through the top-level throw handler (its
+    // `unsafe(exit(int(1)))` runs in the ctl-handler context, which exits
+    // cleanly); a plain exit() here on the normal path aborts under the
+    // self-compiled runtime (SIGABRT in teardown).
+    exn.throw(dyn(`${failed.to_string()} test(s) failed`));
+  });
 });
 run_fmt :: (
   fn(

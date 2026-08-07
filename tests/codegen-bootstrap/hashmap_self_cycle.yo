@@ -1,0 +1,32 @@
+// Regression: cycle collection through a `HashMap(_, Self)` field. The managed
+// references live in the map's malloc'd Bucket buffer, which the auto-derived
+// field walk cannot reach — so HashMap's hand-written `Trace` impl
+// (std/collections/hash_map.yo) must visit each full bucket slot, and
+// `can_type_form_rc_cycle` must see THROUGH the `?*(Bucket(K, V))` buffer to V to
+// mark the type cyclic. a <-> b reference each other through their maps; on return
+// the pair is unreachable and must be fully reclaimed (after == before). Both
+// compilers must agree.
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio.yo"));
+Gc :: import("std/gc");
+{ HashMap } :: import("std/collections/hash_map");
+N :: ref(struct(id : i32, links : HashMap(i32, Self)));
+form_cycle :: (fn() -> unit)({
+  a := N(1, HashMap(i32, N).new());
+  b := N(2, HashMap(i32, N).new());
+  a.links.set(10, b).unwrap(); // a -> b
+  b.links.set(20, a).unwrap(); // b -> a : a <-> b cycle through HashMap
+});
+main :: (fn() -> unit)({
+  before := Gc.tracked_count();
+  form_cycle();
+  mid := Gc.tracked_count();
+  Gc.collect();
+  after := Gc.tracked_count();
+  if((mid > before) && (after == before), {
+    unsafe(printf("hashmap cycle fully reclaimed\n"));
+  }, {
+    unsafe(printf("hashmap cycle leaked\n"));
+  });
+});
+export(main);

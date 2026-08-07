@@ -879,7 +879,7 @@ function generateSearchJS(): string {
 function generateHighlightJS(): string {
   return `
 (function() {
-  var KEYWORDS = /\\b(fn|struct|enum|union|module|trait|impl|object|newtype|open|import|export|return|escape|recur|match|cond|if|while|for|break|continue|test|assert|comptime|runtime|comptime_assert|comptime_expect_error|forall|using|given|where|defer|dyn|pub|let|const|type|true|false|else|in|as|self|Self)\\b/g;
+  var KEYWORDS = /\\b(fn|struct|enum|union|module|trait|impl|object|newtype|open|import|export|return|escape|recur|match|cond|if|while|for|break|continue|test|assert|comptime|runtime|comptime_assert|comptime_expect_error|generic|using|given|where|defer|dyn|pub|let|const|type|true|false|else|in|as|self|Self)\\b/g;
   var TYPES = /\\b(i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|char|rune|str|usize|isize|unit|void|Type|comptime_str|comptime_int|comptime_float)\\b/g;
   var BUILTINS = /\\b(Option|Result|Box|box|String|Future|Io|Impl|Slice|Array|Pointer|Fn|HashMap|ArrayList|BTreeMap|Deque|LinkedList|HashSet|BTreeSet|Rc|Arc|Mutex|Channel|WaitGroup|Thread|JoinHandle|Range)\\b/g;
   var STRINGS = /(\`(?:[^\`\\\\]|\\\\.)*\`|"(?:[^"\\\\]|\\\\.)*")/g;

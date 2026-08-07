@@ -1,17 +1,18 @@
+{ assert } :: import("std/assert");
 open(import("std/fmt"));
 open(import("std/string"));
 // ─────────────────────────────────────────────────────
-// Test 1: Basic TypeApplication — forall with function kind
+// Test 1: Basic TypeApplication — generic with function kind
 // ─────────────────────────────────────────────────────
 identity :: (
   fn(
-    forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
+    generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
     x : F(A)
   ) -> F(A)
 )(x);
 test("Basic HKT identity function", {
   (x : Option(i32)) =.Some(i32(42));
-  result := identity(forall(Option, i32), x);
+  result := identity(generic(Option, i32), x);
   match(
     result,
     .Some(v) => {
@@ -26,14 +27,14 @@ test("Basic HKT identity function", {
 // ─────────────────────────────────────────────────────
 Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
   trait(
-    map : (fn(forall(A : Type, B : Type), self : F(A), f : (fn(a : A) -> B)) -> F(B))
+    map : (fn(generic(A : Type, B : Type), self : F(A), f : (fn(a : A) -> B)) -> F(B))
   )
 );
 impl(
-  forall(A : Type),
+  generic(A : Type),
   Option(A),
   Functor(Option)(
-    map : (fn(forall(A : Type, B : Type), self : Option(A), f : (fn(a : A) -> B)) -> Option(B))(
+    map : (fn(generic(A : Type, B : Type), self : Option(A), f : (fn(a : A) -> B)) -> Option(B))(
       match(
         self,
         .Some(v) =>.Some(f(v)),
@@ -44,7 +45,7 @@ impl(
 );
 test("Functor map on Option Some", {
   (x : Option(i32)) =.Some(i32(42));
-  result := x.map(forall(i32), (fn(a : i32) -> i32)(a + i32(1)));
+  result := x.map(generic(i32), (fn(a : i32) -> i32)(a + i32(1)));
   match(
     result,
     .Some(v) => {
@@ -56,7 +57,7 @@ test("Functor map on Option Some", {
 });
 test("Functor map on Option None", {
   (x : Option(i32)) =.None;
-  result := x.map(forall(i32), (fn(a : i32) -> i32)(a + i32(1)));
+  result := x.map(generic(i32), (fn(a : i32) -> i32)(a + i32(1)));
   match(
     result,
     .Some(_) => assert(false, "expected None"),
@@ -66,7 +67,7 @@ test("Functor map on Option None", {
 });
 test("Functor map changing type", {
   (x : Option(i32)) =.Some(i32(42));
-  result := x.map(forall(bool), (fn(a : i32) -> bool)(a > i32(0)));
+  result := x.map(generic(bool), (fn(a : i32) -> bool)(a > i32(0)));
   match(
     result,
     .Some(v) => {
@@ -81,17 +82,17 @@ test("Functor map changing type", {
 // ─────────────────────────────────────────────────────
 do_map :: (
   fn(
-    forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
+    generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
     container : F(A),
     f : (fn(a : A) -> B),
     where(F(A) <: Functor(F))
   ) -> F(B)
 )(
-  container.map(forall(B), f)
+  container.map(generic(B), f)
 );
 test("Generic do_map with where clause", {
   (x : Option(i32)) =.Some(i32(10));
-  result := do_map(forall(Option, i32, i32), x, (fn(a : i32) -> i32)(a * i32(2)));
+  result := do_map(generic(Option, i32, i32), x, (fn(a : i32) -> i32)(a * i32(2)));
   match(
     result,
     .Some(v) => {
@@ -129,18 +130,18 @@ test("Partial application Result(str, _)", {
 // ─────────────────────────────────────────────────────
 Container :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
   trait(
-    get_value : (fn(forall(A : Type), self : F(A)) -> A)
+    get_value : (fn(generic(A : Type), self : F(A)) -> A)
   )
 );
 impl(
-  forall(A : Type),
+  generic(A : Type),
   Option(A),
   Container(Option)(
-    get_value : (fn(forall(A : Type), self : Option(A)) -> A)(
+    get_value : (fn(generic(A : Type), self : Option(A)) -> A)(
       match(
         self,
         .Some(v) => v,
-        .None => panic("called get_value on None")
+        .None => __yo_panic("called get_value on None")
       )
     )
   )
@@ -156,22 +157,22 @@ test("Container get_value on Option", {
 // ─────────────────────────────────────────────────────
 Mappable :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
   trait(
-    transform : (fn(forall(A : Type, B : Type), self : F(A), f : (fn(a : A) -> B)) -> F(B)),
-    contains_value : (fn(forall(A : Type), self : F(A)) -> bool)
+    transform : (fn(generic(A : Type, B : Type), self : F(A), f : (fn(a : A) -> B)) -> F(B)),
+    contains_value : (fn(generic(A : Type), self : F(A)) -> bool)
   )
 );
 impl(
-  forall(A : Type),
+  generic(A : Type),
   Option(A),
   Mappable(Option)(
-    transform : (fn(forall(A : Type, B : Type), self : Option(A), f : (fn(a : A) -> B)) -> Option(B))(
+    transform : (fn(generic(A : Type, B : Type), self : Option(A), f : (fn(a : A) -> B)) -> Option(B))(
       match(
         self,
         .Some(v) =>.Some(f(v)),
         .None =>.None
       )
     ),
-    contains_value : (fn(forall(A : Type), self : Option(A)) -> bool)(
+    contains_value : (fn(generic(A : Type), self : Option(A)) -> bool)(
       match(
         self,
         .Some(_) => true,
@@ -185,7 +186,7 @@ test("Multiple trait methods with HKT", {
   (y : Option(i32)) =.None;
   assert(x.contains_value(), "Some should contain value");
   assert(!(y.contains_value()), "None should not contain value");
-  result := x.transform(forall(i32), (fn(a : i32) -> i32)(a + i32(10)));
+  result := x.transform(generic(i32), (fn(a : i32) -> i32)(a + i32(10)));
   match(
     result,
     .Some(v) => assert(v == i32(15), "expected 15"),
@@ -208,7 +209,7 @@ test("Comptime HKT basic assertion", {
 // ─────────────────────────────────────────────────────
 test("do_map on None preserves None", {
   (x : Option(i32)) =.None;
-  result := do_map(forall(Option, i32, bool), x, (fn(a : i32) -> bool)(a > i32(0)));
+  result := do_map(generic(Option, i32, bool), x, (fn(a : i32) -> bool)(a > i32(0)));
   match(
     result,
     .Some(_) => assert(false, "expected None"),
@@ -217,9 +218,9 @@ test("do_map on None preserves None", {
   println(`  passed`);
 });
 // ─────────────────────────────────────────────────────
-// Test 9: Partial application used as HKT forall arg
+// Test 9: Partial application used as HKT generic arg
 // ─────────────────────────────────────────────────────
-test("Partial application as HKT forall arg", {
+test("Partial application as HKT generic arg", {
   IntResult :: Result(_, i32);
   (r : IntResult(bool)) =.Ok(true);
   match(
@@ -287,7 +288,7 @@ test("Partial application leaves one placeholder", {
 // ─────────────────────────────────────────────────────
 test("HKT identity with nested Option", {
   (x : Option(bool)) =.Some(true);
-  result := identity(forall(Option, bool), x);
+  result := identity(generic(Option, bool), x);
   match(
     result,
     .Some(v) => assert(v, "expected true"),
@@ -300,7 +301,7 @@ test("HKT identity with nested Option", {
 // ─────────────────────────────────────────────────────
 test("Functor map with different values", {
   (x : Option(i32)) =.Some(i32(5));
-  result := x.map(forall(i32), (fn(a : i32) -> i32)(a + i32(100)));
+  result := x.map(generic(i32), (fn(a : i32) -> i32)(a + i32(100)));
   match(
     result,
     .Some(v) => assert(v == i32(105), "expected 105"),
@@ -313,7 +314,7 @@ test("Functor map with different values", {
 // ─────────────────────────────────────────────────────
 test("do_map with type change", {
   (x : Option(i32)) =.Some(i32(0));
-  result := do_map(forall(Option, i32, bool), x, (fn(a : i32) -> bool)(a == i32(0)));
+  result := do_map(generic(Option, i32, bool), x, (fn(a : i32) -> bool)(a == i32(0)));
   match(
     result,
     .Some(v) => assert(v, "expected true (0 == 0)"),
@@ -336,7 +337,7 @@ test("Container get_value with bool", {
 test("Mappable transform and contains_value", {
   (x : Option(i32)) =.Some(i32(3));
   assert(x.contains_value(), "Some should contain value");
-  transformed := x.transform(forall(bool), (fn(a : i32) -> bool)(a > i32(0)));
+  transformed := x.transform(generic(bool), (fn(a : i32) -> bool)(a > i32(0)));
   assert(transformed.contains_value(), "transformed should contain value");
   match(
     transformed,
@@ -351,7 +352,7 @@ test("Mappable transform and contains_value", {
 test("Mappable transform on None", {
   (x : Option(i32)) =.None;
   assert(!(x.contains_value()), "None should not contain value");
-  result := x.transform(forall(bool), (fn(a : i32) -> bool)(true));
+  result := x.transform(generic(bool), (fn(a : i32) -> bool)(true));
   assert(!(result.contains_value()), "transformed None should not contain value");
   match(
     result,

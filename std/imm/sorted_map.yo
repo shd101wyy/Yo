@@ -32,19 +32,21 @@ RBNode :: (
   ) -> comptime(Type)
 )(
   atomic(
-    object(
-      _key : K,
-      _value : V,
-      _color : Color,
-      _left : Option(Self),
-      _right : Option(Self)
+    ref(
+      struct(
+        _key : K,
+        _value : V,
+        _color : Color,
+        _left : Option(Self),
+        _right : Option(Self)
+      )
     )
   )
 );
 // SAFETY: Manual Acyclic impl — RBNode is self-referential, so auto-derivation skips it.
 // This is safe because RBNode is immutable: all tree operations create new nodes
 // and never mutate existing ones, making it impossible to form cycles at runtime.
-impl(forall(K : Type, V : Type), where(K <: (Eq(K), Ord(K), Send), V <: Send), RBNode(K, V), Acyclic());
+impl(generic(K : Type, V : Type), where(K <: (Eq(K), Ord(K), Send), V <: Send), RBNode(K, V), Acyclic());
 /// Persistent immutable sorted map backed by a left-leaning red-black tree.
 SortedMap :: (
   fn(
@@ -521,7 +523,7 @@ _collect_values :: (
 // SortedMap impl
 // ---------------------------------------------------------------------------
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Ord(K), Send), V <: Send),
   SortedMap(K, V),
   /// Create an empty sorted map.
@@ -620,14 +622,14 @@ impl(
     i := usize(0);
     plen := pairs.len();
     while(i < plen, i = (i + usize(1)), {
-      p := match(pairs.get(i),.Some(__e) => __e,.None => panic("from_entries: index out of bounds"));
+      p := match(pairs.get(i),.Some(__e) => __e,.None => __yo_panic("from_entries: index out of bounds"));
       result = result.insert(p.key, p.value);
     });
     result
   })
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   where(K <: (Eq(K), Ord(K), Send), V <: (Eq(V), Send)),
   SortedMap(K, V),
   Eq(SortedMap(K, V))(

@@ -43,6 +43,13 @@ pragma_kind_from_variant_name :: (fn(name : String) -> Option(Pragma))(
     (name == "SkipWasm") => Option(Pragma).Some(.SkipWasm),
     (name == "SkipWasm32Emscripten") => Option(Pragma).Some(.SkipWasm32Emscripten),
     (name == "SkipWasm32Wasi") => Option(Pragma).Some(.SkipWasm32Wasi),
+    // Formal-verification pragmas (Phase 0 of plans/FORMAL_VERIFICATION.md).
+    // `NoContracts` is read by `wrap_function_body_with_contracts`;
+    // `Verify`/`VerifyOrAssert` are registered only (the SMT verifier is a
+    // later phase). Mirrors src/evaluator/builtins/pragma.ts:174-183.
+    (name == "Verify") => Option(Pragma).Some(.Verify),
+    (name == "VerifyOrAssert") => Option(Pragma).Some(.VerifyOrAssert),
+    (name == "NoContracts") => Option(Pragma).Some(.NoContracts),
     true => Option(Pragma).None
   )
 );
@@ -62,7 +69,7 @@ recognize_pragma_arg :: (fn(arg : AstExpr) -> Option(Pragma))(
     .Atom(_, _) => Option(Pragma).None,
     .FnCall(_, func_box, args, _, _) => {
       is_dot := match(
-        func_box.*,
+        func_box,
         .Atom(_, tok) => (tok.kind == TokenKind.Dot),
         .FnCall(_, _, _, _, _) => false
       );
@@ -72,7 +79,7 @@ recognize_pragma_arg :: (fn(arg : AstExpr) -> Option(Pragma))(
         args.get(usize(0)),
         .Some(lhs) => match(
           lhs,
-          .Atom(_, tok) => (tok.value == String.from("Pragma")),
+          .Atom(_, tok) => (tok.value == "Pragma"),
           .FnCall(_, _, _, _, _) => false
         ),
         .None => false

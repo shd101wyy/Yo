@@ -15,6 +15,7 @@ import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isEnumType,
   isFunctionType,
+  isReferenceEnumType,
   isSourceNamespaceType,
   isPtrType,
   isSomeType,
@@ -53,11 +54,11 @@ import {
 import { evaluateExpression } from "./expr";
 
 /**
- * Kind-constraint refinements of `Type`. Used in `forall(T : Type.Struct, ...)`
+ * Kind-constraint refinements of `Type`. Used in `generic(T : Type.Struct, ...)`
  * positions. Each refinement resolves to the same `TypeHierarchyType` value
  * `Type` itself returns — the kind is documentation/intent today, with
  * future enforcement (reject non-struct bindings) tracked separately. See
- * plans/EXPLICIT_EFFECTS.md §9.8.
+ * plans/archive/EXPLICIT_EFFECTS.md §9.8.
  */
 const TYPE_KIND_REFINEMENTS = new Set([
   "Struct",
@@ -66,6 +67,47 @@ const TYPE_KIND_REFINEMENTS = new Set([
   "Trait",
   "Function",
 ]);
+
+/**
+ * A payload-free variant of a reference-semantics enum (`ref(enum(UnitVal, …))`)
+ * still heap-allocates: `generateComptimeValue` emits
+ * `__yo_new_<Enum>_<Variant>()` (src/codegen/exprs/comptime-value.ts:149-154),
+ * which mallocs with `ref_count = 1`. The expression therefore OWNS an RC
+ * value, exactly like the payload-carrying form `E.IntVal(v : …)` — that form
+ * is a function call and gets its owning temp from the call path
+ * (src/evaluator/calls/function.ts:2555).
+ *
+ * Without a temp variable the allocation is never registered at the enclosing
+ * begin-block frame, so `getVariablesNeedingDrop` (src/env.ts:2272) never sees
+ * it, no `___drop` is emitted, and an inline `f(E.UnitVal)` leaks the object
+ * (the callee treats the parameter as borrowed and dups whatever it retains).
+ *
+ * Deliberately NOT `typeContainsRcType(expr.$.type)`: that is also true of a
+ * VALUE enum whose *other* variants carry RC payloads (`Option(String)`,
+ * `Result(…)`), whose payload-free variant materializes as a `{ .tag = … }`
+ * compound literal and allocates nothing. An owning temp there is pure
+ * overhead on the most common expression shape in std — and it makes
+ * `(x : Option(String)) ?= Option(String).None` fail the not-consumed gate.
+ *
+ * The "some variant has fields" conjunct mirrors `canOptimizeAsSimpleEnum`
+ * (src/codegen/utils/index.ts:961): an all-payload-free enum collapses to a
+ * plain C enum constant (comptime-value.ts:129-133) and also allocates nothing.
+ */
+function attachOwnedTempForRcUnitVariant(
+  expr: FnCallExpr,
+  enumType: EnumType
+): void {
+  if (!expr.$ || !isReferenceEnumType(enumType)) {
+    return;
+  }
+  const hasPayloadVariant = enumType.variants.some(
+    (variant) => !!variant.fields && variant.fields.length > 0
+  );
+  if (!hasPayloadVariant) {
+    return;
+  }
+  attachTempVariableToExpr(expr, true);
+}
 
 /**
  * Phase P (THREAD_SAFETY): Enforce `_`-prefix field visibility.
@@ -156,7 +198,7 @@ export function evaluatePropertyAccess({
 
   // Short-circuit: Type.<KindName> is a kind-constraint syntactic form.
   // The result is the same TypeHierarchyType value `Type` alone returns,
-  // letting `forall(E : Type.Struct, ...)` parse without a new keyword.
+  // letting `generic(E : Type.Struct, ...)` parse without a new keyword.
   if (
     exprIsFunctionCallOf(expr, ".", 2) &&
     exprIsAtom(expr.args[0]!) &&
@@ -232,8 +274,10 @@ export function evaluatePropertyAccess({
         pathCollection: [],
       };
 
+      attachOwnedTempForRcUnitVariant(expr, newEnumType);
+
       propertyExpr.$ = {
-        env,
+        env: expr.$.env,
         type: newEnumType,
         pathCollection: [],
       };
@@ -523,6 +567,8 @@ Raw pointer operations may dereference invalid memory.`,
           pathCollection: [],
         };
 
+        attachOwnedTempForRcUnitVariant(expr, newEnumType);
+
         propertyExpr.$ = expr.$;
       } else {
         /**
@@ -666,7 +712,7 @@ Raw pointer operations may dereference invalid memory.`,
           }
         }
 
-        // Check if there's a generic impl for this type (e.g., impl(forall(T), *(T), {...}))
+        // Check if there's a generic impl for this type (e.g., impl(generic(T), *(T), {...}))
         const genericMethods = findMethodsFromGenericImpls({
           concreteType: typeValue.value,
           methodName: propertyName,
@@ -846,7 +892,7 @@ Raw pointer operations may dereference invalid memory.`,
         }
 
         // Not found in receiverType.trait.fields - try generic impl registry
-        // This handles cases like `impl(forall(T : Type), Box(T), Isolation(...))`
+        // This handles cases like `impl(generic(T : Type), Box(T), Isolation(...))`
         const genericMethod = findMethodFromGenericImplForTrait({
           concreteType: traitType.receiverType,
           traitType,
@@ -1260,7 +1306,46 @@ Raw pointer operations may dereference invalid memory.`,
 
         return expr;
       } else {
-        // It could be enum method call, so we ignore here.
+        // No `selectedVariantName` — the enum isn't narrowed to a variant (e.g.
+        // a bare `fn(e : E)` parameter, whose runtime variant isn't statically
+        // known). Resolve the property against the variant that declares it,
+        // when exactly one does, so `e.field` / `e.field = x` works the same as
+        // struct-field access (a `ref(struct)` parameter already supports
+        // in-place field mutation; a `ref(enum)` parameter must too — reference
+        // semantics). The programmer asserts the active variant; codegen emits
+        // the unchecked `->data.<Variant>.<field>` access. Ambiguous field
+        // names or non-field property names fall through, preserving the
+        // enum-method-call path below.
+        const declaringVariants = objectType.variants.filter((v) =>
+          (v.fields ?? []).some((f) => f.label === propertyName)
+        );
+        if (declaringVariants.length === 1) {
+          const variant = declaringVariants[0]!;
+          const fieldIndex = (variant.fields ?? []).findIndex(
+            (f) => f.label === propertyName
+          );
+          const field = (variant.fields ?? [])[fieldIndex]!;
+          expr.$ = {
+            env,
+            type: field.type,
+            value: undefined,
+            pathCollection: [
+              [objectExpr.$!.variableName ?? "?", propertyExpr.token.value],
+            ],
+            isAccessingProperty: true,
+          };
+          const variantValue = objectExpr.$?.value;
+          if (
+            variantValue &&
+            isEnumValue(variantValue) &&
+            variantValue.variantName === variant.name
+          ) {
+            expr.$.value = variantValue.fields[fieldIndex];
+          }
+          propertyExpr.$ = expr.$;
+          return expr;
+        }
+        // Otherwise it could be an enum method call, so we ignore here.
       }
     }
   }

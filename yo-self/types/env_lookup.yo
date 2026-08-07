@@ -38,7 +38,7 @@ _is_type_eval_value :: (fn(val : EvalValue) -> bool)(
 );
 /// Extract the `TypeValue` from a `TypeVal`; returns Unit type on mismatch.
 _unwrap_type_eval_value :: (fn(val : EvalValue) -> TypeValue)(
-  match(val,.TypeVal(boxed_ty) => boxed_ty.*, _ => TypeValue.Unit)
+  match(val,.TypeVal(boxed_ty) => boxed_ty, _ => TypeValue.Unit)
 );
 /// True if `ty` is a `SomeT` whose `id` equals `id_to_compare`.
 _same_some_id :: (fn(ty : TypeValue, id_to_compare : String) -> bool)(
@@ -148,7 +148,7 @@ _lookup_by_frame :: (fn(env : Environment, fl : usize, name : String) -> Option(
                 cond(
                   (var.name == name) =>
                     match(
-                      var.value,
+                      var.value.get(usize(0)),
                       .Some(val) =>
                         cond(
                           _is_type_eval_value(val) => {
@@ -208,8 +208,11 @@ _def_frame_confirms_binding :: (
 _was_self_bound :: (fn(env : Environment, name : String, id_to_find : String) -> bool)({
   (found : bool) = false;
   n_frames := env.frames.len();
-  (fi : usize) = usize(0);
-  while((fi < n_frames) && !(found), {
+  // Search top-down (most recent frame first) so a per-call binding
+  // wins over a stale marker left by a prior synthesis / io.async call.
+  (fi : usize) = n_frames;
+  while((fi > usize(0)) && !(found), {
+    fi = (fi - usize(1));
     match(
       env.frames.get(fi),
       .Some(frame) => {
@@ -223,7 +226,7 @@ _was_self_bound :: (fn(env : Environment, name : String, id_to_find : String) ->
               cond(
                 (var.name == name) =>
                   match(
-                    var.value,
+                    var.value.get(usize(0)),
                     .Some(val) =>
                       cond(
                         _is_type_eval_value(val) => {
@@ -248,7 +251,6 @@ _was_self_bound :: (fn(env : Environment, name : String, id_to_find : String) ->
       },
       .None => ()
     );
-    fi = (fi + usize(1));
   });
   found
 });
@@ -273,7 +275,7 @@ get_trait_type_from_env :: (fn(env : Environment, trait_name : String) -> Option
         }
       );
       match(
-        last.value,
+        last.value.get(usize(0)),
         .Some(val) =>
           cond(
             _is_type_eval_value(val) => {
@@ -305,7 +307,7 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
         done = true;
       },
       true => {
-        ___ := visited_ids.push(cur_id);
+        visited_ids.push(cur_id);
         variables := get_variables_from_env(env, cur_name);
         n := variables.len();
         cond(
@@ -323,7 +325,7 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
               },
               .Some(last_var) =>
                 match(
-                  last_var.value,
+                  last_var.value.get(usize(0)),
                   .None => {
                     result = current;
                     done = true;
@@ -413,7 +415,12 @@ _chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayL
         r,
         .Some(tv) =>
           cond(
-            // Self-bound (SomeType binding to itself) → unbound
+            // Self-bound (SomeType binding to itself) at its own definition
+            // frame → UNBOUND, definitively. TS (env-lookup.ts:57-64) returns
+            // `someType` here without running the normal search; falling
+            // through to the name-keyed last-binding-wins scan lets a sibling
+            // call's same-named SomeT hijack the resolution (the mutable-env
+            // name-collision class).
             _same_some_id(tv, sid) => Option(TypeValue).Some(start),
             // Another SomeT at the same frame → fall through to chain search
             is_some_type(tv) => Option(TypeValue).None,
@@ -458,7 +465,7 @@ get_value_of_some_type_from_env :: (fn(env : Environment, some_type : TypeValue)
 create_str_type :: (fn(env : Environment) -> TypeValue)({
   // str is now the builtin static string view; no prelude lookup needed.
   // (env parameter kept for signature stability with callers.)
-  ___ := env;
+  env;
   t_str()
 });
 
@@ -468,7 +475,7 @@ create_str_type :: (fn(env : Environment) -> TypeValue)({
 _pointer_target_is_byte :: (fn(ty : TypeValue) -> bool)(
   match(
     ty,
-    .Pointer(pointee) => (is_u8_type(pointee.*) || is_char_type(pointee.*)),
+    .Pointer(pointee) => (is_u8_type(pointee) || is_char_type(pointee)),
     _ => false
   )
 );

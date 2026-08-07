@@ -88,31 +88,442 @@ jobs:
           cd tmp/hello-world
           node ../../out/cjs/yo-cli.cjs build run
 
+      # `tests/internal` (the compiler's own tests — they import yo-self/ evaluator
+      # and codegen internals) is excluded here and runs as its own job below.
+      # Without the exclude this step would pull in files that each cost minutes
+      # and gigabytes to compile, and the ~30 min fast suite would become ~70.
       - name: Run tests
         # run: ./yo-cli test ./tests --verbose
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --parallel 2 --bail --verbose --c-compiler clang --profile
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --exclude tests/internal --parallel 2 --bail --verbose --c-compiler clang --profile
 
-      # yo-self bootstrapping tests are green locally (2026-06) but stay out of CI
-      # for runtime reasons: the full directory takes ~90 min on an M4 (every file
-      # importing evaluator internals pays a multi-minute Yo-compile), and
-      # eval_basics/eval_tail_1/eval_tail_2 exceed the runner's 1800s
-      # isolated-process limit outright. Run locally per yo-self/README.md;
-      # the self-hosted binary sweeps (yo-self-bin check ./std ./tests ./yo-self)
-      # are the continuous evaluator gate.
-      # - name: Run yo-self bootstrapping tests
-      #   run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./yo-self/tests --parallel 2 --bail --verbose --c-compiler clang --profile
+  # Bootstrap fixpoint, split into TWO jobs so each self-emit gets a fresh
+  # 16 GB box (a single job's stage-3 starved the runner agent after the
+  # stage-2 emit had already churned the box for an hour — "the hosted
+  # runner lost communication with the server"). The emits run under
+  # nice(1) so the runner agent always keeps CPU, with GNU time -v so the
+  # logs record the actual Linux peak RSS; see the stage-2 step's comment
+  # for the measured memory plan (zswap, YO_GC_THRESHOLD=0, cgroup caps).
+  #
+  # NOW GATES PRs (continue-on-error dropped 2026-08-06, green on consecutive runs).
+  # It protects the bootstrap milestone: stage-2 clang clean + stage-2 ≡ stage-3
+  # byte-identical, first held at 65ebcdbb2.
+  bootstrap-fixpoint:
+    name: Bootstrap fixpoint (yo-self self-compile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Swap headroom: the run without swap died with "runner received a
+      # shutdown signal" (the OOM-kill signature). NOTE: /swapfile is taken
+      # (the runner ships with one active — creating it there fails with
+      # "Text file busy"); use the ~60 GB /mnt resource disk instead.
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
+
+      - name: Install liburing and GNU time
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev time
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: |
+          bun install
+          bun run build
+
+      # The whole chain runs on the bundled mimalloc: glibc malloc inflates
+      # the emit's RSS ~72% over its live set (15.5 GB observed vs 9.0 GB
+      # for the same emit on macOS), which put the libc-allocator runs right
+      # at the 16 GB box's edge — stage-3 thrashed swap until the runner
+      # agent starved ("runner has received a shutdown signal"). The
+      # --allocator flag changes the emitted C (a small __yo_malloc →
+      # mi_malloc header block), so BOTH emit commands pass it and the
+      # fixpoint compares mimalloc-flavored C on both sides (verified to
+      # hold locally).
+      - name: "Stage 1: build the self-hosted compiler with the TS compiler"
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o /tmp/yo-stage1
+
+      # Memory plan for the emits (measured 2026-08-04, handoff doc §1):
+      # the emit holds ~9 GB live but TOUCHES ~28 GB (stage-2) / ~39 GB
+      # (stage-3, the self-built binary) of churn pages — macOS hides this
+      # in its compressor; Linux pushes it all to swap. So:
+      #   * zswap on: compressed swap cache in RAM (~3x), the macOS
+      #     equivalent — cuts disk-swap I/O massively.
+      #   * cgroup MemoryHigh: reclaim pressure lands on the emit itself
+      #     instead of evicting the runner agent (whose missed heartbeats
+      #     killed earlier runs); MemoryMax turns a runaway into a visible
+      #     in-job OOM instead of a dead runner.
+      #   * THP off: measured neutral, kept to keep RSS accounting honest.
+      # The GC stays ON (default behavior is what this job protects); the
+      # footprint itself is tracked as evaluator-churn debt in the handoff
+      # doc's memory section.
+      - name: "Stage 2: self-emit C with the stage-1 binary"
+        run: |
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
+          ( while true; do free -m | awk '/Mem:/{u=$3} /Swap:/{s=$3} END{print "MEMSAMPLE used=" u "MB swap=" s "MB"}'; sleep 60; done ) &
+          SAMPLER=$!
+          sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
+            env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
+            /tmp/yo-stage1 compile yo-self/main.yo --release --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage2
+          kill $SAMPLER || true
+          markers=$(grep -cE '^\s*// (Failed to transpile|Unknown type:)' /tmp/yo-stage2.c || true)
+          echo "stage-2 markers: $markers"
+          test "$markers" = "0"
+
+      - name: "Stage 2: compile the emitted C with clang"
+        run: nice -n 10 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/yo-stage2.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o /tmp/yo-stage2-bin -luring
+
+      - name: Upload stage-2 artifacts for the stage-3 job
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-stage2
+          path: |
+            /tmp/yo-stage2.c
+            /tmp/yo-stage2-bin
+          retention-days: 1
+          if-no-files-found: error
+
+  # NOW GATES PRs (continue-on-error dropped 2026-08-06).
+  bootstrap-fixpoint-stage3:
+    name: Bootstrap fixpoint stage-3 (byte-identity)
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    needs: bootstrap-fixpoint
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
+
+      - name: Install liburing and GNU time
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev time
+
+      - name: Download stage-2 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: bootstrap-stage2
+          path: /tmp/stage2
+
+      # Same zswap + THP-off + cgroup-cap + sampler treatment as the
+      # stage-2 emit — see that step's comment. Extra context: the
+      # SELF-BUILT binary's emit touches ~39 GB (vs stage-1's ~28 GB), which
+      # is why every single-knob stage-3 attempt died — 16 GB RAM + 20 GB
+      # swap was simply less than the demand. 32 GB swap + zswap covers it.
+      - name: "Stage 3: self-emit with the stage-2 binary and compare (fixpoint)"
+        run: |
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
+          chmod +x /tmp/stage2/yo-stage2-bin
+          ( while true; do free -m | awk '/Mem:/{u=$3} /Swap:/{s=$3} END{print "MEMSAMPLE used=" u "MB swap=" s "MB"}'; sleep 60; done ) &
+          SAMPLER=$!
+          sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
+            env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
+            /tmp/stage2/yo-stage2-bin compile yo-self/main.yo --release --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage3
+          kill $SAMPLER || true
+          if cmp -s /tmp/stage2/yo-stage2.c /tmp/yo-stage3.c; then
+            echo "FIXPOINT_HOLDS: stage-2 and stage-3 C are byte-identical"
+          else
+            echo "FIXPOINT_BROKEN: stage-2 and stage-3 C differ"
+            cmp /tmp/stage2/yo-stage2.c /tmp/yo-stage3.c | head -3
+            exit 1
+          fi
+
+  # The self-hosted binary's OWN `test` subcommand. CI already runs `./tests`
+  # through the TypeScript compiler, and the bootstrap-fixpoint jobs run
+  # `<bin> compile`, but nothing ran `<bin> test` — so codegen bugs that only
+  # surface when the self-hosted compiler builds AND RUNS a test binary were not
+  # gated. That is exactly the class `check` cannot see (`check` never evaluates
+  # function bodies — see plans/archive/YO_SELF_STAGE2_HANDOFF.md).
+  #
+  # Runs scripts/bootstrap/gates_fast.sh, the same tier-1 gate used locally on
+  # every change: two repro compiles, a 20-file battery via `<bin> test` WITH
+  # HOLLOW DETECTION, the 155-program corpus diff-test (yo-self output vs TS
+  # output, byte-compared), and `<bin> check ./std`. The script exits non-zero if
+  # any of those fail.
+  #
+  # HOLLOW DETECTION is the point of the battery: a batch whose `__yo_user_main`
+  # contains "Failed to transpile" reports tests as passing while running nothing
+  # — that once counted 33 files green (issues/retired/yo-self-hollow-test-batch-main.md),
+  # so a bare "N passed" is never sufficient.
+  #
+  # Default (libc) allocator on purpose: measured 2026-08-05, mimalloc costs +53%
+  # wall and +15% peak footprint on this workload. The fixpoint jobs still use
+  # mimalloc because a self-EMIT is memory-bound on a 16 GB box; compiling small
+  # test programs is not.
+  #
+  # NOW GATES PRs (continue-on-error dropped 2026-08-06). It went green once the
+  # -luring link flag, the atomic rc() cast width and the sync-await RC dup were
+  # fixed; the 20-file battery's HOLLOW detection is the only gate that catches a
+  # batch reporting passes while running nothing.
+  bootstrap-self-test:
+    name: Self-hosted `test` subcommand (yo-self tier-1 gates)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install liburing
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: |
+          bun install
+          bun run build
+
+      - name: "Stage 1: build the self-hosted compiler with the TS compiler"
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release -o /tmp/yo-stage1
+
+      # YO_MAIN_STACK_MB: compiled Yo programs run main on a worker thread whose
+      # stack defaults to 1 GiB; the self-hosted compiler's deep comptime
+      # recursion needs more headroom (see the stack-ceiling note in AGENTS.md).
+      - name: "Tier-1 gates via the self-hosted binary (`test` + corpus + check)"
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: S1=/tmp/yo-stage1 P=ci bash scripts/bootstrap/gates_fast.sh
+
+      - name: Upload gate logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-self-test-logs
+          path: /tmp/ci_*.log
+          retention-days: 7
+          if-no-files-found: warn
+
+  # The compiler's own tests (`tests/internal`, formerly `yo-self/tests`): 58 files
+  # that import yo-self/ evaluator + codegen internals, so each one pays a full
+  # compiler-sized Yo compile. Kept out of the main `test ./tests` job (which
+  # excludes them) and given its own box because of runtime and memory:
+  #
+  #   MEASURED 2026-08-05, M4, --parallel 1: 40.5 min under the TS compiler,
+  #   22.2 min under the self-hosted binary (it is ~2x faster).
+  #
+  # --parallel 1 is REQUIRED, not conservative: macro_expansion alone peaks at
+  # ~6.5 GB, so two concurrent children on a 16 GB box swap, and the swapping
+  # trips the runner's own 600 s evaluator deadline — manufacturing failures that
+  # do not reproduce in isolation. The node heap cap is raised from the 4096 MB
+  # used elsewhere for the same reason.
+  #
+  # NOW GATES PRs (continue-on-error dropped 2026-08-06). Every job in this workflow
+  # gates. The two Linux-x86_64 parser SEGVs that had kept this job informational are
+  # FIXED (issues/fixed/escape-path-drops-unwound-call-result-temp.md), as is the
+  # node-heap OOM that used to kill the TS arm at ~file 40 of 58, and the 80-byte
+  # conditional-move leak in macro_helpers that kept this job red while it first
+  # gated (issues/fixed/where-constraints-arraylist-96b-leak.md — the dup/drop pair
+  # optimizer cancelled a conditional arm's dup as if unconditional).
+  #
+  # SHARDED 2026-08-06: the TS arm runs as a 4-way matrix (wall time ~25-30 min per
+  # shard instead of ~100 min serial). Every file still compiles in its own node
+  # process; each shard gets exactly one of the four heavy macro/reflection files
+  # (each pays a full compiler-sized compile, ~6.5 GB peak) plus a round-robin
+  # stripe of the rest. The self-hosted differential runs as its own job below.
+  compiler-internal-tests:
+    name: Compiler internal tests (tests/internal, TS arm shard ${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install liburing
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: |
+          bun install
+          bun run build
+
+      # NO --bail: every test binary runs under ASan/LeakSanitizer, so a leak fails
+      # one test. Bailing reported exactly ONE leak per ~3-hour run, which made
+      # convergence serial (it took a run each to surface the ref(enum) unit-variant
+      # leak and then the module-global collision). Without it a single run lists
+      # every failure, which is what a scorecard job should do anyway.
+      #
+      # YO_MAIN_STACK_MB matches what the self-hosted arm below already sets. Test
+      # binaries are compiled at -O0 (src/test-runner.ts), where clang gives every
+      # temporary its own stack slot and the big yo-self functions get multi-MB
+      # frames; AGENTS.md documents bumping this env var as the remedy for the
+      # resulting deep-recursion crashes. The TS arm not setting it was an
+      # inconsistency between the two arms, and Linux additionally gets no
+      # equivalent of the macOS-only `-Wl,-stack_size` reserve.
+      # ONE NODE PROCESS PER FILE. The Yo evaluator and codegen run IN-PROCESS —
+      # src/test-runner.ts only spawns the C compiler and the test binary — and
+      # per-file state (e.g. the process-lifetime ExprInfoTable, see
+      # plans/archive/YO_SELF_EXPRINFO_PRUNE.md) is retained across files. A single
+      # process over all 58 files therefore accumulates until V8 dies: run
+      # 31044378627 reported "Ineffective mark-compacts near heap limit" with
+      # 11.7 GB STILL LIVE after a reduce-mark-compact, at quote_macro_eval (~file 40
+      # of 58), 57 minutes in.
+      #
+      # Measured locally (peak RSS, 4 of the lighter files): 1.30 GB for all four
+      # in one process vs 1.166 GB for the heaviest alone — the heap does not
+      # return to baseline between files. Per-file processes bound it to the
+      # single-file peak; the heaviest, macro_expansion, needs ~6.5 GB, which fits.
+      #
+      # Deliberately NOT --bail and NOT one-file-per-step: the job's purpose is a
+      # full scorecard in one run, so every file runs and failures are summarised
+      # at the end.
+      - name: Run tests/internal under the TS compiler (ground truth, shard ${{ matrix.shard }})
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          # Shard selection: the four heavy macro/reflection files (each compiles
+          # the whole self-hosted evaluator, ~6.5 GB peak / ~3 min) go one per
+          # shard; the rest are striped round-robin over the sorted glob order.
+          heavies="tests/internal/ast_reflection.test.yo tests/internal/macro_expansion.test.yo tests/internal/macro_helpers.test.yo tests/internal/quote_macro_eval.test.yo"
+          shard=${{ matrix.shard }}
+          files=$(echo "$heavies" | tr ' ' '\n' | sed -n "$((shard + 1))p")
+          i=0
+          for f in tests/internal/*.test.yo; do
+            case " $heavies " in *" $f "*) continue ;; esac
+            if [ $((i % 4)) -eq "$shard" ]; then
+              files="$files $f"
+            fi
+            i=$((i + 1))
+          done
+          echo "shard $shard files:$files"
+          # `rc_all`, not `status` — `status` is read-only in some shells.
+          rc_all=0
+          failed=""
+          for f in $files; do
+            echo "::group::$f"
+            if node --expose-gc --max-old-space-size=12288 ./out/cjs/yo-cli.cjs test "$f" --parallel 1 --verbose --c-compiler clang; then
+              echo "::endgroup::"
+            else
+              echo "::endgroup::"
+              echo "::error file=$f::tests/internal failure under the TS compiler"
+              rc_all=1
+              failed="$failed $f"
+            fi
+          done
+          if [ -n "$failed" ]; then
+            echo "FAILED FILES:$failed"
+          fi
+          exit $rc_all
+
+  # The same 58 files under the self-hosted binary, as its own job so it runs in
+  # parallel with the TS shards. This is the differential that matters: a file
+  # passing under TS and failing here is a codegen or evaluator divergence in the
+  # bootstrap compiler (that is exactly how the effect_analysis unary-operator FTT
+  # was found, 2026-08-05). The self-hosted runner is sequential regardless of
+  # --parallel ("Accepted for CLI compatibility; v1 runs sequentially",
+  # yo-self/main.yo) and takes ~22 min after a ~5 min stage-1 build.
+  compiler-internal-tests-selfhosted:
+    name: Compiler internal tests (tests/internal, self-hosted differential)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install liburing
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: |
+          bun install
+          bun run build
+
+      - name: "Stage 1: build the self-hosted compiler with the TS compiler"
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release -o /tmp/yo-stage1
+
+      - name: Run tests/internal under the self-hosted binary (differential)
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: /tmp/yo-stage1 test ./tests/internal --parallel 1 --verbose
 
   test-tsan:
-    name: ThreadSanitizer (sync primitives — Linux/Clang, informational)
+    name: ThreadSanitizer (sync primitives — Linux/Clang)
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # Informational job: TSan + Yo runtime is not yet validated end-to-end
-    # on Linux clang. Local macOS arm64 testing showed Yo Thread.spawn
-    # programs crash on TSan startup with SIGSEGV even at minimal scope,
-    # likely a runtime-init / TSan-init ordering issue. Allow this to fail
-    # (continue-on-error) until we have a green Linux signal. Once stable
-    # the continue-on-error flag should be removed so the job gates PRs.
-    continue-on-error: true
+    # NOW GATES PRs (continue-on-error dropped 2026-08-06). This was informational
+    # while TSan + the Yo runtime was unvalidated on Linux clang — local macOS arm64
+    # runs crashed on TSan startup, suspected runtime-init / TSan-init ordering. The
+    # Linux signal has been green across consecutive runs, which is the condition the
+    # original comment set for removing the flag.
 
     steps:
       - name: Checkout repository
@@ -185,8 +596,10 @@ jobs:
           sed -i 's|exe :: build.executable({ name: "hello-world", root: "./src/main.yo" });|exe :: build.executable({ name: "hello-world", root: "./src/main.yo", target: build.CompilationTarget.Wasm32_Emscripten });|' build.yo
           node ../../out/cjs/yo-cli.cjs build run
 
+      # tests/internal is host-toolchain-only (it compiles the compiler); excluded
+      # from the cross-target jobs for the same runtime/memory reason as above.
       - name: Run WASM tests
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --parallel 2 --bail --verbose --c-compiler emcc --profile
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --exclude tests/internal --parallel 2 --bail --verbose --c-compiler emcc --profile
 
   test-wasm32_wasi:
     runs-on: ubuntu-latest
@@ -204,8 +617,12 @@ jobs:
           version: "latest"
 
       - name: Install wasmtime
+        # Pin the version: the installer's "latest release" lookup hits the
+        # GitHub API unauthenticated and gets rate-limited on shared runners
+        # ("Could not download Wasmtime version '{'"), leaving wasmtime
+        # uninstalled and every test failing with "exit code undefined".
         run: |
-          curl https://wasmtime.dev/install.sh -sSf | bash
+          curl https://wasmtime.dev/install.sh -sSf | bash -s -- --version v47.0.3
           echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
 
       - name: Setup Bun
@@ -224,5 +641,6 @@ jobs:
           bun install
           bun run build
 
+      # See the WASM job: tests/internal is host-toolchain-only.
       - name: Run WASI tests
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --parallel 2 --bail --verbose --target wasm-wasi --profile
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --exclude tests/internal --parallel 2 --bail --verbose --target wasm-wasi --profile

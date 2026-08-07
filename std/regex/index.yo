@@ -7,12 +7,14 @@ open(import("std/string"));
 { RegexFlags } :: import("./flags.yo");
 { RegexMatch } :: import("./match.yo");
 /// Compiled regular expression backed by an NFA program.
-Regex :: object(
-  _program : NfaProgram,
-  _flags : RegexFlags,
-  _pattern : String,
-  _n_groups : usize,
-  _group_names : ArrayList(GroupNameEntry)
+Regex :: ref(
+  struct(
+    _program : NfaProgram,
+    _flags : RegexFlags,
+    _pattern : String,
+    _n_groups : usize,
+    _group_names : ArrayList(GroupNameEntry)
+  )
 );
 // Block 1: Constructor and leaf methods
 impl(

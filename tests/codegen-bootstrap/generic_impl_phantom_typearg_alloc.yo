@@ -1,0 +1,19 @@
+pragma(Pragma.AllowUnsafe);
+{ GlobalAllocator } :: import("std/allocator");
+{ putchar } :: import("std/libc/stdio");
+Buf :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(_n : usize)));
+impl(
+  generic(T : Type),
+  Buf(T),
+  grow : (fn(self : Self, cap : usize) -> unit)({
+    m := unsafe(GlobalAllocator.malloc(sizeof(T) * cap));
+    match(m,.Some(p) => unsafe(GlobalAllocator.free(.Some(p))),.None => ());
+  }),
+  mk : (fn() -> Self)(Self(_n : usize(0)))
+);
+main :: (fn() -> unit)({
+  b := Buf(u8).mk();
+  b.grow(usize(4));
+  unsafe(putchar(int(i32(89))));
+});
+export(main);

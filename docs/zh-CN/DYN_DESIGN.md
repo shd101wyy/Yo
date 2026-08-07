@@ -4,10 +4,10 @@
 
 `Dyn(Trait)` 通过类型擦除的动态分派实现运行时多态。
 
-**重要说明**：`Dyn` 是一个**值类型**（包含数据指针和虚表的结构体）。其 `data` 字段**必须**指向一个 `object` 类型（引用计数类型）。
+**重要说明**：`Dyn` 是一个**值类型**（包含数据指针和虚表的结构体）。其 `data` 字段**必须**指向一个 `ref(struct(...))` 类型（引用计数类型）。
 
 ```typescript
-Id :: trait(id : (fn(ref(self) : Self) -> i32));
+Id :: trait(id : (fn(inout(self) : Self) -> i32));
 
 impl(i32, Id(id : ((self) -> { printf("i32: %d\n", self.*); return self.*; })));
 impl(bool, Id(id : ((self) -> { printf("bool\n"); return cond(self.* => 1, true => 0); })));
@@ -19,7 +19,7 @@ main :: (fn() -> unit) {
   use_id(dyn(box(42)));
   use_id(dyn(box(true)));
 
-  // 对象类型可以直接使用
+  // 引用语义类型可以直接使用
   point := Point(3, 4);
   use_id(dyn(point));
 };
@@ -33,7 +33,7 @@ main :: (fn() -> unit) {
 
 ```c
 typedef struct {
-  void* data;                    // 必须指向对象类型（具有 ref_header）
+  void* data;                    // 必须指向引用语义类型（具有 ref_header）
   const TraitVtable* vtable;    // 静态虚表指针
 } __yo_dyn_trait_id;
 ```
@@ -41,22 +41,22 @@ typedef struct {
 **要点：**
 
 - `Dyn` 是**值类型** — 像结构体一样按值复制
-- `data` **必须**指向对象类型（始终具有 ref_header）
+- `data` **必须**指向引用语义类型（始终具有 ref_header）
 - 复制 `Dyn` 时，对 `data` 指针执行 `___dup`
 - 销毁 `Dyn` 时，对 `data` 指针执行 `___drop`
 - `Dyn` 结构体本身不在堆上分配
 
-### 2. 数据存储（对象类型约束）
+### 2. 数据存储（引用语义类型约束）
 
-`data` 字段**必须**指向对象类型（引用计数类型）。值类型必须用 `Box(T)` 包装。
+`data` 字段**必须**指向引用语义类型（引用计数类型）。值类型必须用 `Box(T)` 包装。
 
 ```c
 // 对于值类型 — 必须使用 Box(T)
-Box_i32* boxed = /* box(42) */;  // Box(i32) 是对象类型
+Box_i32* boxed = /* box(42) */;  // Box(i32) 是引用语义类型
 void* data = boxed;               // 存储 Box 指针
 
-// 对于对象类型 — 直接使用
-Point* point = /* Point(3, 4) */;  // Point 是对象类型
+// 对于引用语义类型 — 直接使用
+Point* point = /* Point(3, 4) */;  // Point 是引用语义类型
 void* data = point;                // 存储 Point 指针
 ```
 
@@ -64,11 +64,11 @@ void* data = point;                // 存储 Point 指针
 
 ```rust
 Box :: (fn(comptime(V) : Type) -> comptime(Type))
-  object(
+  ref(struct(
     (*) : V
-  )
+  ))
 ;
-box :: (fn(forall(V : Type), value : V) -> Box(V))
+box :: (fn(generic(V : Type), value : V) -> Box(V))
   Box(V)(value)
 ;
 ```
@@ -91,14 +91,14 @@ typedef struct {
 
 **包装函数：**
 
-- **对象类型**：直接类型转换（无需包装函数）
+- **引用语义类型**：直接类型转换（无需包装函数）
 - **装箱的值类型**：生成包装函数，在调用 impl 前先解包 `Box(T)`
 
 ## 对象安全约束（遵循 Rust）
 
 **约束**：与 `Dyn()` 一起使用的 trait **不能**有以下类型的方法：
 
-1. 按值接收 `Self` — 必须使用 `ref(self) : Self` 替代
+1. 按值接收 `Self` — 必须使用 `inout(self) : Self` 替代
 2. 返回 `Self`
 3. 返回包含 `Self` 的类型（如 `Option(Self)`、`Result(Self, E)` 等）
 
@@ -111,8 +111,8 @@ typedef struct {
 
 ```typescript
 TestDyn :: trait(
-  return_i32 : fn(ref(self) : Self) -> i32,  // 接收 ref(Self)，返回具体类型 — OK！
-  print : fn(ref(self) : Self) -> unit        // 接收 ref(Self)，返回 unit — OK！
+  return_i32 : (fn(inout(self) : Self) -> i32),  // 接收 inout(Self)，返回具体类型 — OK！
+  print : (fn(inout(self) : Self) -> unit)        // 接收 inout(Self)，返回 unit — OK！
 );
 ```
 
@@ -120,16 +120,16 @@ TestDyn :: trait(
 
 ```typescript
 TestDyn :: trait(
-  by_value : fn(self : Self) -> unit,        // 按值接收 Self — 不满足对象安全！
-  id : fn(ref(self) : Self) -> Self           // 返回 Self — 不满足对象安全！
+  by_value : (fn(self : Self) -> unit),        // 按值接收 Self — 不满足对象安全！
+  id : (fn(inout(self) : Self) -> Self)           // 返回 Self — 不满足对象安全！
 );
 ```
 
 该约束在**方法调用时**强制检查，而非在 trait 定义时。你可以定义包含非对象安全方法的 trait，但不能在 Dyn 值上调用这些方法。
 
-## dyn(...) 的对象类型要求
+## dyn(...) 的引用语义类型要求
 
-**规则**：`dyn(value)` 要求 `value` 具有**对象类型**（指向引用计数数据的指针）。如果是值类型，则会自动进行 `box` 装箱。
+**规则**：`dyn(value)` 要求 `value` 具有**引用语义类型**（指向引用计数数据的指针）。如果是值类型，则会自动进行 `box` 装箱。
 
 **原因**：`Dyn` 中的 `data` 字段必须指向引用计数的内存。这确保了安全的内存管理，而无需为 `Dyn` 本身添加 ref_header。
 
@@ -137,12 +137,12 @@ TestDyn :: trait(
 
 ```rust
 // 值类型必须装箱
-dyn(box(42));           // OK：box(42) 返回 Box(i32)，这是一个对象类型
+dyn(box(42));           // OK：box(42) 返回 Box(i32)，这是一个引用语义类型
 dyn(box(true));         // OK：box(true) 返回 Box(bool)
 
-// 对象类型可以直接使用
-point := Point(3, 4);   // point : Point，Point 是对象类型
-dyn(point);             // OK：point 是对象类型
+// 引用语义类型可以直接使用
+point := Point(3, 4);   // point : Point，Point 是引用语义类型
+dyn(point);             // OK：point 是引用语义类型
 
 // 直接传值会自动装箱
 dyn(42);                // 42 自动变为 box(42)
@@ -171,7 +171,7 @@ static const __yo_dyn_trait_Id_vtable __yo_vtable_Box_i32_Id = {
 };
 ```
 
-**对于对象类型：**
+**对于引用语义类型：**
 
 ```c
 // Point 的原始方法实现
@@ -187,7 +187,7 @@ static const __yo_dyn_trait_Printer_vtable __yo_vtable_Point_Printer = {
 
 ## 构造：`dyn(value)`
 
-构造 `Dyn` 时，值必须是对象类型。`Dyn` 结构体在栈上创建，并存储数据指针。
+构造 `Dyn` 时，值必须是引用语义类型。`Dyn` 结构体在栈上创建，并存储数据指针。
 
 ```c
 // 对于 dyn(box(42))：
@@ -234,7 +234,7 @@ value.vtable->print(value.data);
 ```c
 __yo_dyn_trait_id __yo_dup_dyn_trait_Id(__yo_dyn_trait_id dyn) {
   if (dyn.data) {
-    __yo_incr_rc(dyn.data);  // data 始终是对象类型
+    __yo_incr_rc(dyn.data);  // data 始终是引用语义类型
   }
   return dyn;  // 返回复制的结构体
 }
@@ -247,23 +247,23 @@ __yo_dyn_trait_id __yo_dup_dyn_trait_Id(__yo_dyn_trait_id dyn) {
 ```c
 void __yo_drop_dyn_trait_Id(__yo_dyn_trait_id dyn) {
   if (dyn.data) {
-    __yo_decr_rc(dyn.data);  // data 始终是对象类型
+    __yo_decr_rc(dyn.data);  // data 始终是引用语义类型
   }
 }
 ```
 
 **要点：**
 
-- 无需类型特定的 dup/drop — `data` 始终是对象指针
-- `data` 对象的 dispose 函数负责清理（无论是 Box 还是普通对象）
+- 无需类型特定的 dup/drop — `data` 始终是引用语义类型指针
+- `data` 引用语义类型的 dispose 函数负责清理（无论是 Box 还是普通引用语义类型）
 - `Dyn` 本身从不在堆上分配，因此不需要 dispose 函数
 
 ## 设计总结
 
 1. **`Dyn` 是值类型**：简单结构体 `{ void* data, vtable* }`，无 ref_header
-2. **`data` 必须是对象类型**：确保数据始终是引用计数的
-3. **值类型使用 `box()`**：`dyn(box(42))` 将值包装在 `Box(T)` 对象类型中
-4. **对象类型直接使用**：`dyn(Point(3, 4))` 直接使用 Point 指针
+2. **`data` 必须是引用语义类型**：确保数据始终是引用计数的
+3. **值类型使用 `box()`**：`dyn(box(42))` 将值包装在 `Box(T)` 引用语义类型中
+4. **引用语义类型直接使用**：`dyn(Point(3, 4))` 直接使用 Point 指针
 5. **Box 的包装函数**：生成的包装函数在调用 impl 方法前先解包 `Box(T)`
 6. **简单的引用计数**：只有 `data` 是引用计数的，`Dyn` 结构体按值复制
 7. **Dup/Drop 函数**：标准函数，对 `data` 指针执行 dup/drop 操作

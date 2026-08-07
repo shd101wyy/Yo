@@ -55,7 +55,7 @@ impl(Thread,
   spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> Self),
 
   // 等待线程完成（阻塞）
-  join : (fn(ref(self) : Self) -> unit)
+  join : (fn(inout(self) : Self) -> unit)
 );
 ```
 
@@ -184,7 +184,7 @@ Thread.spawn(() => {
 });
 ```
 
-`Channel` 现在是一个 `atomic object(...)`，因此可以直接跨线程共享，
+`Channel` 现在是一个 `atomic(ref(struct(...)))`，因此可以直接跨线程共享，
 不再需要额外的 `arc()` 包装。
 
 Channel 内部使用 `Mutex` + `CondVar` 进行同步。当 Channel 满时 send 阻塞；当 Channel 空时 recv 阻塞。
@@ -194,7 +194,7 @@ Channel 内部使用 `Mutex` + `CondVar` 进行同步。当 Channel 满时 send 
 只有实现了 `Send` 的类型才能跨越线程边界：
 
 - **可发送**：基本类型（`i32`、`bool` 等）、由 Send 字段组成的值类型结构体
-- **不可发送**：`object(...)`、`Dyn`、捕获了非 Send 值的闭包
+- **不可发送**：`ref(struct(...))`、`ref(enum(...))`、`Dyn`、捕获了非 Send 值的闭包
 
 ```rust
 // ✅ 可发送
@@ -204,10 +204,10 @@ Thread.spawn(() => {
 });
 
 // ❌ 不可发送
-Node :: object(value: i32);
+Node :: ref(struct(value: i32));
 node := Node(42);
 Thread.spawn(() => {
-  // 错误：无法捕获 `node`（object 不是 Send）
+  // 错误：无法捕获 `node`（ref(struct(...)) 不是 Send）
   // node.value;
 });
 ```

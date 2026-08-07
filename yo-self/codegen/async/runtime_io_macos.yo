@@ -1,0 +1,1746 @@
+//! runtime_io_macos — macOS platform sync helpers + kqueue async I/O runtime.
+//! 1:1 port of `src/codegen/async/runtime-io-macos.ts`. The C bodies are
+//! verbatim (extracted, not hand-transcribed) — pure C, no interpolations.
+//! Phase 5 #4 (platform I/O backend). Inert until generate_async_runtime
+//! (runtime.yo dispatcher) wires it into codegen_c.
+open(import("std/string"));
+{ Emitter } :: import("../../emitter.yo");
+/// Emit macOS platform-specific SYNC helpers (pipe/dup/lseek/fcntl/flock/readv/
+/// stat/…). Mirrors `generatePlatformSysRuntimeMacOS`.
+generate_platform_sys_runtime_macos :: (fn(emitter : Emitter) -> unit)({
+  emitter.emit_string_line(
+    `
+// ============================================================================
+// Platform-specific sync helpers (macOS)
+// ============================================================================
+
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/utsname.h>
+#include <sys/mman.h>
+#include <sys/file.h>
+#include <sys/uio.h>
+#include <time.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
+#include <sys/un.h>
+
+// ============================================================================
+// Synchronous FD Operations (macOS) - no IoFuture overhead
+// ============================================================================
+
+static int32_t __yo_sync_pipe(int32_t* pipefd) {
+  int result = pipe((int*)pipefd);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_dup(int32_t oldfd) {
+  int result = dup(oldfd);
+  return (result < 0) ? -errno : result;
+}
+
+static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
+  int result = dup2(oldfd, newfd);
+  return (result < 0) ? -errno : result;
+}
+
+static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
+  off_t result = lseek(fd, (off_t)offset, whence);
+  return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
+}
+
+static int32_t __yo_sync_fallocate(int32_t fd, int32_t mode, int64_t offset, int64_t length) {
+  if (offset < 0 || length < 0) return -EINVAL;
+
+  uint64_t target_u = (uint64_t)offset + (uint64_t)length;
+  if (target_u > 0x7FFFFFFFFFFFFFFFULL) return -EINVAL;
+  off_t target = (off_t)target_u;
+  if ((uint64_t)target != target_u) return -EINVAL;
+
+  fstore_t store;
+  memset(&store, 0, sizeof(store));
+  store.fst_flags = F_ALLOCATECONTIG;
+  store.fst_posmode = F_VOLPOSMODE;
+  store.fst_offset = (off_t)offset;
+  store.fst_length = (off_t)length;
+
+  int result = fcntl(fd, F_PREALLOCATE, &store);
+  if (result < 0) {
+    store.fst_flags = F_ALLOCATEALL;
+    result = fcntl(fd, F_PREALLOCATE, &store);
+  }
+  if (result < 0) {
+    int alloc_errno = errno;
+
+    // Some filesystems may not support F_PREALLOCATE. Keep a best-effort
+    // fallocate behavior for basic allocation modes.
+    if (alloc_errno == ENOTSUP || alloc_errno == EOPNOTSUPP || alloc_errno == ENOSYS || alloc_errno == EINVAL) {
+      // FALLOC_FL_KEEP_SIZE = 0x01
+      if ((mode & 0x01) != 0) {
+        return 0;
+      }
+      if (ftruncate(fd, target) < 0) return -errno;
+      return 0;
+    }
+
+    return -alloc_errno;
+  }
+
+  // FALLOC_FL_KEEP_SIZE = 0x01
+  if ((mode & 0x01) == 0) {
+    struct stat st;
+    if (fstat(fd, &st) < 0) return -errno;
+    if (st.st_size < target) {
+      if (ftruncate(fd, target) < 0) return -errno;
+    }
+  }
+
+  return 0;
+}
+
+static int32_t __yo_sync_fcntl_getfl(int32_t fd) {
+  int result = fcntl(fd, F_GETFL, 0);
+  return (result < 0) ? -errno : result;
+}
+
+static int32_t __yo_sync_fcntl_setfl(int32_t fd, int32_t flags) {
+  int result = fcntl(fd, F_SETFL, flags);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fcntl_getfd(int32_t fd) {
+  int result = fcntl(fd, F_GETFD, 0);
+  return (result < 0) ? -errno : result;
+}
+
+static int32_t __yo_sync_fcntl_setfd(int32_t fd, int32_t flags) {
+  int result = fcntl(fd, F_SETFD, flags);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_flock(int32_t fd, int32_t operation) {
+  int result = flock(fd, operation);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_readv(int32_t fd, void* iov, int32_t iovcnt) {
+  ssize_t result = readv(fd, (const struct iovec*)iov, (int)iovcnt);
+  return (result < 0) ? -errno : (int32_t)result;
+}
+
+static int32_t __yo_sync_writev(int32_t fd, void* iov, int32_t iovcnt) {
+  ssize_t result = writev(fd, (const struct iovec*)iov, (int)iovcnt);
+  return (result < 0) ? -errno : (int32_t)result;
+}
+
+static int32_t __yo_sync_preadv(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
+  struct iovec* vec = (struct iovec*)iov;
+  ssize_t total = 0;
+  off_t current = (off_t)offset;
+
+  for (int32_t i = 0; i < iovcnt; i++) {
+    if (vec[i].iov_len == 0) continue;
+    ssize_t n = pread(fd, vec[i].iov_base, vec[i].iov_len, current);
+    if (n < 0) {
+      return (total > 0) ? (int32_t)total : -errno;
+    }
+    total += n;
+    if ((size_t)n < vec[i].iov_len) {
+      break;
+    }
+    current += (off_t)n;
+  }
+
+  return (int32_t)total;
+}
+
+static int32_t __yo_sync_pwritev(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
+  struct iovec* vec = (struct iovec*)iov;
+  ssize_t total = 0;
+  off_t current = (off_t)offset;
+
+  for (int32_t i = 0; i < iovcnt; i++) {
+    if (vec[i].iov_len == 0) continue;
+    ssize_t n = pwrite(fd, vec[i].iov_base, vec[i].iov_len, current);
+    if (n < 0) {
+      return (total > 0) ? (int32_t)total : -errno;
+    }
+    total += n;
+    if ((size_t)n < vec[i].iov_len) {
+      break;
+    }
+    current += (off_t)n;
+  }
+
+  return (int32_t)total;
+}
+
+static size_t __yo_iovec_size(void) {
+  return sizeof(struct iovec);
+}
+
+static void __yo_iovec_set(void* iov, size_t index, void* base, size_t len) {
+  struct iovec* vec = (struct iovec*)iov;
+  vec[index].iov_base = base;
+  vec[index].iov_len = len;
+}
+
+static int32_t __yo_sync_fadvise(int32_t fd, int64_t offset, int64_t len, int32_t advice) {
+  (void)fd;
+  (void)offset;
+  (void)len;
+  (void)advice;
+  // No direct equivalent on macOS; treat as advisory no-op.
+  return 0;
+}
+
+static int32_t __yo_sync_madvise(uint8_t* addr, size_t length, int32_t advice) {
+  int result = madvise((void*)addr, length, advice);
+  return (result < 0) ? -errno : 0;
+}
+
+static uint8_t* __yo_sync_mmap(uint8_t* addr, size_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset) {
+  void* result = mmap((void*)addr, length, prot, flags, fd, (off_t)offset);
+  if (result == MAP_FAILED) {
+    return (uint8_t*)(intptr_t)(-errno);
+  }
+  return (uint8_t*)result;
+}
+
+static bool __yo_sync_mmap_is_error(uint8_t* addr) {
+  intptr_t value = (intptr_t)addr;
+  return (value < 0) && (value >= -65535);
+}
+
+static int32_t __yo_sync_mmap_errno(uint8_t* addr) {
+  intptr_t value = (intptr_t)addr;
+  if ((value < 0) && (value >= -65535)) {
+    return (int32_t)(-value);
+  }
+  return 0;
+}
+
+static int32_t __yo_sync_munmap(uint8_t* addr, size_t length) {
+  int result = munmap((void*)addr, length);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_mprotect(uint8_t* addr, size_t length, int32_t prot) {
+  int result = mprotect((void*)addr, length, prot);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_msync(uint8_t* addr, size_t length, int32_t flags) {
+  int result = msync((void*)addr, length, flags);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchmod(int32_t fd, uint32_t mode) {
+  int result = fchmod(fd, (mode_t)mode);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchmodat(int32_t dirfd, const char* path, uint32_t mode, int32_t flags) {
+  int result;
+  if (dirfd == -100) {
+    result = chmod(path, (mode_t)mode);
+  } else {
+    result = fchmodat(dirfd, path, (mode_t)mode, flags);
+  }
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchown(int32_t fd, uint32_t uid, uint32_t gid) {
+  int result = fchown(fd, (uid_t)uid, (gid_t)gid);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchownat(int32_t dirfd, const char* path, uint32_t uid, uint32_t gid, int32_t flags) {
+  int result;
+  if (dirfd == -100) {
+    if (flags & AT_SYMLINK_NOFOLLOW) {
+      result = lchown(path, (uid_t)uid, (gid_t)gid);
+    } else {
+      result = chown(path, (uid_t)uid, (gid_t)gid);
+    }
+  } else {
+    result = fchownat(dirfd, path, (uid_t)uid, (gid_t)gid, flags);
+  }
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_readlinkat(int32_t dirfd, const char* path, char* buf, size_t bufsize) {
+  ssize_t result;
+  if (dirfd == -100) {
+    result = readlink(path, buf, bufsize);
+  } else {
+    result = readlinkat(dirfd, path, buf, bufsize);
+  }
+  return (result < 0) ? -errno : (int32_t)result;
+}
+
+// Sync getsockname - get local socket address
+static int32_t __yo_sync_getsockname(int32_t sockfd, void* addr, uint32_t* addrlen) {
+  socklen_t len = (socklen_t)(*addrlen);
+  int result = getsockname(sockfd, (struct sockaddr*)addr, &len);
+  if (result < 0) {
+    return -errno;
+  }
+  *addrlen = (uint32_t)len;
+  return 0;
+}
+
+// Sync getpeername - get remote peer address
+static int32_t __yo_sync_getpeername(int32_t sockfd, void* addr, uint32_t* addrlen) {
+  socklen_t len = (socklen_t)(*addrlen);
+  int result = getpeername(sockfd, (struct sockaddr*)addr, &len);
+  if (result < 0) {
+    return -errno;
+  }
+  *addrlen = (uint32_t)len;
+  return 0;
+}
+
+// Sync setsockopt - set socket option value
+static int32_t __yo_sync_setsockopt(int32_t sockfd, int32_t level, int32_t optname,
+                                     const void* optval, uint32_t optlen) {
+  int result = setsockopt(sockfd, level, optname, optval, (socklen_t)optlen);
+  return (result < 0) ? -errno : 0;
+}
+
+// Sync getsockopt - get socket option value
+static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optname,
+                                     void* optval, uint32_t* optlen) {
+  socklen_t len = (socklen_t)(*optlen);
+  int result = getsockopt(sockfd, level, optname, optval, &len);
+  if (result < 0) {
+    return -errno;
+  }
+  *optlen = (uint32_t)len;
+  return 0;
+}
+
+// Sync socketpair - create a connected socket pair
+static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t protocol, int32_t* sv) {
+  int result = socketpair(domain, sock_type, protocol, (int*)sv);
+  return (result < 0) ? -errno : 0;
+}
+
+// Sync clock_gettime - read current clock time
+static int32_t __yo_sync_clock_gettime(int32_t clock_id, int64_t* sec, int64_t* nsec) {
+  struct timespec ts;
+  int result = clock_gettime((clockid_t)clock_id, &ts);
+  if (result < 0) {
+    return -errno;
+  }
+  *sec = (int64_t)ts.tv_sec;
+  *nsec = (int64_t)ts.tv_nsec;
+  return 0;
+}
+
+// Sync uname - system identification
+static int32_t __yo_sync_uname(void* buf) {
+  int result = uname((struct utsname*)buf);
+  return (result < 0) ? -errno : 0;
+}
+
+// Sync gethostname - read host name
+static int32_t __yo_sync_gethostname(char* name, size_t len) {
+  int result = gethostname(name, len);
+  if (result < 0) {
+    return -errno;
+  }
+  if (len > 0) {
+    name[len - 1] = '\\0';
+  }
+  return 0;
+}
+
+// Sync umask - set process file mode creation mask
+static int32_t __yo_sync_umask(int32_t mask) {
+  mode_t prev = umask((mode_t)mask);
+  return (int32_t)prev;
+}
+
+// ============================================================================
+// Socket Address Helpers (macOS)
+// ============================================================================
+
+static size_t __yo_sockaddr_in_size(void) {
+  return sizeof(struct sockaddr_in);
+}
+
+static size_t __yo_sockaddr_in6_size(void) {
+  return sizeof(struct sockaddr_in6);
+}
+
+static size_t __yo_sockaddr_un_size(void) {
+  return sizeof(struct sockaddr_un);
+}
+
+static size_t __yo_sockaddr_storage_size(void) {
+  return sizeof(struct sockaddr_storage);
+}
+
+static void __yo_sockaddr_set_family(void* addr, uint16_t family) {
+  ((struct sockaddr*)addr)->sa_family = family;
+}
+
+static uint16_t __yo_sockaddr_get_family(void* addr) {
+  return ((struct sockaddr*)addr)->sa_family;
+}
+
+static void __yo_sockaddr_in_set_port(void* addr, uint16_t port) {
+  ((struct sockaddr_in*)addr)->sin_port = htons(port);
+}
+
+static uint16_t __yo_sockaddr_in_get_port(void* addr) {
+  return ntohs(((struct sockaddr_in*)addr)->sin_port);
+}
+
+static void __yo_sockaddr_in_set_addr(void* addr, uint32_t ip) {
+  ((struct sockaddr_in*)addr)->sin_addr.s_addr = ip;
+}
+
+static uint32_t __yo_sockaddr_in_get_addr(void* addr) {
+  return ((struct sockaddr_in*)addr)->sin_addr.s_addr;
+}
+
+static void __yo_sockaddr_in6_set_port(void* addr, uint16_t port) {
+  ((struct sockaddr_in6*)addr)->sin6_port = htons(port);
+}
+
+static uint16_t __yo_sockaddr_in6_get_port(void* addr) {
+  return ntohs(((struct sockaddr_in6*)addr)->sin6_port);
+}
+
+static void __yo_sockaddr_in6_set_addr(void* addr, const void* ip) {
+  memcpy(&((struct sockaddr_in6*)addr)->sin6_addr, ip, 16);
+}
+
+static void __yo_sockaddr_in6_get_addr(void* addr, void* out) {
+  memcpy(out, &((struct sockaddr_in6*)addr)->sin6_addr, 16);
+}
+
+static void __yo_sockaddr_un_set_path(void* addr, const char* path) {
+  strncpy(((struct sockaddr_un*)addr)->sun_path, path, sizeof(((struct sockaddr_un*)addr)->sun_path) - 1);
+}
+
+static char* __yo_sockaddr_un_get_path(void* addr) {
+  return ((struct sockaddr_un*)addr)->sun_path;
+}
+
+static int32_t __yo_inet_pton(int32_t af, const char* src, void* dst) {
+  return inet_pton(af, src, dst);
+}
+
+static char* __yo_inet_ntop(int32_t af, const void* src, char* dst, uint32_t size) {
+  return (char*)inet_ntop(af, src, dst, (socklen_t)size);
+}
+
+static uint16_t __yo_htons(uint16_t hostshort) {
+  return htons(hostshort);
+}
+
+static uint16_t __yo_ntohs(uint16_t netshort) {
+  return ntohs(netshort);
+}
+
+static uint32_t __yo_htonl(uint32_t hostlong) {
+  return htonl(hostlong);
+}
+
+static uint32_t __yo_ntohl(uint32_t netlong) {
+  return ntohl(netlong);
+}
+
+// Synchronous file operations
+static int32_t __yo_file_open(const char* path, int32_t flags, int32_t mode) {
+  int fd = open(path, flags, mode);
+  int result = fd >= 0 ? fd : -errno;
+  ASYNC_DEBUG("[Io] open(%s, 0x%x, 0%o) = %d\\n", path, flags, mode, result);
+  return result;
+}
+
+static void __yo_file_close(int32_t fd) {
+  ASYNC_DEBUG("[Io] close(%d)\\n", fd);
+  close(fd);
+}
+
+static int64_t __yo_file_size(int32_t fd) {
+  struct stat st;
+  if (fstat(fd, &st) < 0) {
+    int result = -errno;
+    ASYNC_DEBUG("[Io] fstat(%d) failed: %d\\n", fd, result);
+    return result;
+  }
+  ASYNC_DEBUG("[Io] fstat(%d) = %lld bytes\\n", fd, (long long)st.st_size);
+  return st.st_size;
+}
+
+// On macOS, we use struct stat instead of struct statx
+// These functions wrap struct stat access to match the Linux statx API
+static size_t __yo_statx_buf_size(void) {
+  return sizeof(struct stat);
+}
+
+static int64_t __yo_statx_size(void* statxbuf) {
+  return (int64_t)((struct stat*)statxbuf)->st_size;
+}
+
+static uint32_t __yo_statx_mode(void* statxbuf) {
+  return (uint32_t)((struct stat*)statxbuf)->st_mode;
+}
+
+static int64_t __yo_statx_mtime_sec(void* statxbuf) {
+  return (int64_t)((struct stat*)statxbuf)->st_mtimespec.tv_sec;
+}
+
+static uint32_t __yo_statx_mtime_nsec(void* statxbuf) {
+  return (uint32_t)((struct stat*)statxbuf)->st_mtimespec.tv_nsec;
+}
+
+static int64_t __yo_statx_atime_sec(void* statxbuf) {
+  return (int64_t)((struct stat*)statxbuf)->st_atimespec.tv_sec;
+}
+
+static uint32_t __yo_statx_atime_nsec(void* statxbuf) {
+  return (uint32_t)((struct stat*)statxbuf)->st_atimespec.tv_nsec;
+}
+
+static int64_t __yo_statx_ctime_sec(void* statxbuf) {
+  return (int64_t)((struct stat*)statxbuf)->st_ctimespec.tv_sec;
+}
+
+static uint32_t __yo_statx_ctime_nsec(void* statxbuf) {
+  return (uint32_t)((struct stat*)statxbuf)->st_ctimespec.tv_nsec;
+}
+
+static int64_t __yo_statx_btime_sec(void* statxbuf) {
+  return (int64_t)((struct stat*)statxbuf)->st_birthtimespec.tv_sec;
+}
+
+static uint32_t __yo_statx_btime_nsec(void* statxbuf) {
+  return (uint32_t)((struct stat*)statxbuf)->st_birthtimespec.tv_nsec;
+}
+
+static uint32_t __yo_statx_uid(void* statxbuf) {
+  return (uint32_t)((struct stat*)statxbuf)->st_uid;
+}
+
+static uint32_t __yo_statx_gid(void* statxbuf) {
+  return (uint32_t)((struct stat*)statxbuf)->st_gid;
+}
+
+static uint64_t __yo_statx_ino(void* statxbuf) {
+  return (uint64_t)((struct stat*)statxbuf)->st_ino;
+}
+
+static uint64_t __yo_statx_dev_major(void* statxbuf) {
+  return (uint64_t)major(((struct stat*)statxbuf)->st_dev);
+}
+
+static uint64_t __yo_statx_dev_minor(void* statxbuf) {
+  return (uint64_t)minor(((struct stat*)statxbuf)->st_dev);
+}
+
+static uint64_t __yo_statx_nlink(void* statxbuf) {
+  return (uint64_t)((struct stat*)statxbuf)->st_nlink;
+}
+
+static uint64_t __yo_statx_blksize(void* statxbuf) {
+  return (uint64_t)((struct stat*)statxbuf)->st_blksize;
+}
+
+static uint64_t __yo_statx_blocks(void* statxbuf) {
+  return (uint64_t)((struct stat*)statxbuf)->st_blocks;
+}
+
+`
+  );
+});
+/// Emit the macOS kqueue-based async I/O runtime. Mirrors
+/// `generateAsyncRuntimeIOMacOS`.
+generate_async_runtime_io_macos :: (fn(emitter : Emitter) -> unit)({
+  emitter.emit_string_line(
+    `
+// ============================================================================
+// Async I/O Runtime (macOS - kqueue)
+// ============================================================================
+
+#include <sys/event.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/utsname.h>
+#include <sys/mman.h>
+#include <sys/file.h>
+#include <sys/uio.h>
+#include <time.h>
+#include <errno.h>
+
+// kqueue file descriptor for async I/O (per-thread — each thread has its own event loop)
+static _Thread_local int __yo_io_kq = -1;
+// __yo_io_initialized is defined in runtime-core
+static _Thread_local size_t __yo_pending_io_count = 0;  // per-thread event loop counter
+
+// Batched kevent changelist. Instead of issuing one kevent() syscall per
+// I/O op to register EVFILT_READ/EVFILT_WRITE, we append changes to a
+// thread-local array and submit them in bulk as part of the kevent() call
+// in __yo_io_poll / __yo_io_wait. This is the kqueue analogue of deferred
+// io_uring submission on Linux and batched GetQueuedCompletionStatusEx on
+// Windows. Size = 64 matches the events[] buffer so EV_ERROR packets
+// always fit alongside the reaped events.
+#define __YO_KQ_CHANGES_MAX 64
+static _Thread_local struct kevent __yo_kq_changes[__YO_KQ_CHANGES_MAX];
+static _Thread_local size_t __yo_kq_n_changes = 0;
+
+// Pending operation types for kqueue completion dispatch
+typedef enum {
+  __YO_IO_OP_READ,
+  __YO_IO_OP_WRITE,
+  __YO_IO_OP_ACCEPT,
+  __YO_IO_OP_CONNECT,
+  __YO_IO_OP_SEND,
+  __YO_IO_OP_RECV,
+  __YO_IO_OP_SENDTO,
+  __YO_IO_OP_RECVFROM,
+} __yo_io_op_type;
+
+// Context for a pending kqueue operation — stored alongside the future
+typedef struct __yo_io_pending_op_t {
+  __yo_io_op_type op;
+  __yo_io_future_t* future;
+  union {
+    struct { int fd; void* buf; uint32_t size; } read;
+    struct { int fd; const void* buf; uint32_t size; } write;
+    struct { int fd; void* addr; uint32_t* addrlen; } accept;
+    struct { int fd; } connect;
+    struct { int fd; const void* buf; size_t len; int flags; } send;
+    struct { int fd; void* buf; size_t len; int flags; } recv;
+    struct { int fd; const void* buf; size_t len; int flags; const void* addr; uint32_t addrlen; } sendto;
+    struct { int fd; void* buf; size_t len; int flags; void* addr; uint32_t* addrlen; } recvfrom;
+  };
+} __yo_io_pending_op_t;
+
+// Per-thread free list for __yo_io_pending_op_t to eliminate malloc/free
+// per async I/O op. The first sizeof(void*) bytes are overlaid with a
+// 'next' pointer when the struct sits on the free list; allocation sites
+// fully re-initialize all fields they care about (op, future, and the
+// active union arm), so trampling the front of the struct is safe.
+static _Thread_local __yo_io_pending_op_t* __yo_io_pending_free_list = NULL;
+
+static inline __yo_io_pending_op_t* __yo_kq_alloc_pending(void) {
+  if (__yo_io_pending_free_list) {
+    __yo_io_pending_op_t* p = __yo_io_pending_free_list;
+    __yo_io_pending_free_list = *(__yo_io_pending_op_t**)p;
+    return p;
+  }
+  return (__yo_io_pending_op_t*)__yo_malloc(sizeof(__yo_io_pending_op_t));
+}
+
+static inline void __yo_kq_free_pending(__yo_io_pending_op_t* p) {
+  if (!p) return;
+  *(__yo_io_pending_op_t**)p = __yo_io_pending_free_list;
+  __yo_io_pending_free_list = p;
+}
+
+// Forward declaration — defined after __yo_io_init
+static void __yo_io_wake_continuation(__yo_io_future_t* future);
+
+static inline void __yo_kq_cancel_pending(__yo_io_pending_op_t* pending, int err, bool wake) {
+  if (!pending) return;
+  pending->future->result = -err;
+  __yo_pending_io_count--;
+  if (wake) {
+    __yo_io_wake_continuation(pending->future);
+  } else {
+    atomic_store_explicit(&pending->future->state, -1, memory_order_release);
+  }
+  __yo_kq_free_pending(pending);
+}
+
+// Initialize kqueue subsystem
+static void __yo_io_init(void) {
+  if (__yo_io_initialized) return;
+  
+  __yo_io_kq = kqueue();
+  if (__yo_io_kq < 0) {
+    fprintf(stderr, "panic: kqueue() failed: %s\\n", strerror(errno));
+    abort();
+  }
+  __yo_io_initialized = true;
+  ASYNC_DEBUG("[Io] kqueue initialized: kq=%d\\n", __yo_io_kq);
+}
+
+// Cleanup kqueue
+static void __yo_io_cleanup(void) {
+  if (!__yo_io_initialized) return;
+  // If async main returns while registrations are still only queued in the
+  // deferred changelist, cancel them explicitly instead of dropping them on
+  // close(kqueue).
+  for (size_t i = 0; i < __yo_kq_n_changes; i++) {
+    __yo_kq_cancel_pending((__yo_io_pending_op_t*)__yo_kq_changes[i].udata, ECANCELED, false);
+  }
+  __yo_kq_n_changes = 0;
+  if (__yo_io_kq >= 0) {
+    close(__yo_io_kq);
+    __yo_io_kq = -1;
+  }
+  __yo_io_initialized = false;
+  ASYNC_DEBUG("[Io] kqueue cleaned up\\n");
+}
+
+// Check if there are pending I/O operations
+static inline bool __yo_has_pending_io(void) {
+  return __yo_pending_io_count > 0 || __yo_active_watch_count > 0;
+}
+
+// Forward declaration for poll/fs_event tick (defined in runtime-io-common)
+static int __yo_poll_and_fs_event_tick(void);
+
+// Helper to wake continuation from I/O completion (inline, single-threaded)
+static void __yo_io_wake_continuation(__yo_io_future_t* future) {
+  // Mark as completed
+  atomic_store_explicit(&future->state, -1, memory_order_release);
+  
+  // Wake continuation if registered — enqueue directly (same thread)
+  void (*cont_fn)(void*) = atomic_load_explicit(&future->continuation_fn, memory_order_acquire);
+  void* cont_sm = atomic_load_explicit(&future->continuation_sm, memory_order_acquire);
+  
+  ASYNC_DEBUG("[Io] Waking continuation: cont_fn=%p, cont_sm=%p, result=%d\\n",
+              (void*)cont_fn, cont_sm, future->result);
+  
+  if (cont_fn && cont_sm) {
+    __yo_async_spawn_task(cont_fn, cont_sm);
+  }
+}
+
+// Process a single completed kqueue event
+static void __yo_io_process_event(struct kevent* ev) {
+  // Timer events use a different context struct
+  if (ev->filter == EVFILT_TIMER) {
+    typedef struct { __yo_io_future_t* future; } __yo_timer_ctx_t;
+    __yo_timer_ctx_t* ctx = (__yo_timer_ctx_t*)ev->udata;
+    ctx->future->result = (int32_t)sizeof(uint64_t);  // Match timerfd read size on Linux
+    __yo_pending_io_count--;
+    __yo_io_wake_continuation(ctx->future);
+    __yo_free(ctx);
+    return;
+  }
+  
+  __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)ev->udata;
+  __yo_io_future_t* future = pending->future;
+  
+  switch (pending->op) {
+    case __YO_IO_OP_READ: {
+      ssize_t r = read(pending->read.fd, pending->read.buf, pending->read.size);
+      future->result = (r < 0) ? -errno : (int32_t)r;
+      break;
+    }
+    case __YO_IO_OP_WRITE: {
+      ssize_t r = write(pending->write.fd, pending->write.buf, pending->write.size);
+      future->result = (r < 0) ? -errno : (int32_t)r;
+      break;
+    }
+    case __YO_IO_OP_ACCEPT: {
+      int r = accept(pending->accept.fd, (struct sockaddr*)pending->accept.addr,
+                     (socklen_t*)pending->accept.addrlen);
+      if (r >= 0) {
+        int fl = fcntl(r, F_GETFL, 0);
+        if (fl >= 0) fcntl(r, F_SETFL, fl | O_NONBLOCK);
+      }
+      future->result = (r < 0) ? -errno : r;
+      break;
+    }
+    case __YO_IO_OP_CONNECT: {
+      int so_error = 0;
+      socklen_t len = sizeof(so_error);
+      getsockopt(pending->connect.fd, SOL_SOCKET, SO_ERROR, &so_error, &len);
+      future->result = (so_error == 0) ? 0 : -so_error;
+      break;
+    }
+    case __YO_IO_OP_SEND: {
+      ssize_t r = send(pending->send.fd, pending->send.buf, pending->send.len, pending->send.flags);
+      future->result = (r < 0) ? -errno : (int32_t)r;
+      break;
+    }
+    case __YO_IO_OP_RECV: {
+      ssize_t r = recv(pending->recv.fd, pending->recv.buf, pending->recv.len, pending->recv.flags);
+      future->result = (r < 0) ? -errno : (int32_t)r;
+      break;
+    }
+    case __YO_IO_OP_SENDTO: {
+      ssize_t r = sendto(pending->sendto.fd, pending->sendto.buf, pending->sendto.len,
+                         pending->sendto.flags, (const struct sockaddr*)pending->sendto.addr,
+                         (socklen_t)pending->sendto.addrlen);
+      future->result = (r < 0) ? -errno : (int32_t)r;
+      break;
+    }
+    case __YO_IO_OP_RECVFROM: {
+      ssize_t r = recvfrom(pending->recvfrom.fd, pending->recvfrom.buf, pending->recvfrom.len,
+                           pending->recvfrom.flags, (struct sockaddr*)pending->recvfrom.addr,
+                           (socklen_t*)pending->recvfrom.addrlen);
+      future->result = (r < 0) ? -errno : (int32_t)r;
+      break;
+    }
+  }
+  
+  __yo_pending_io_count--;
+  __yo_io_wake_continuation(future);
+  __yo_kq_free_pending(pending);
+}
+
+// Flush any queued kevent changes to the kernel synchronously. Called when
+// the deferred changelist is full, or just before tearing down. Normal
+// flow amortizes changes into the next kevent() reap call in poll/wait.
+static void __yo_kq_flush_changes(void) {
+  if (__yo_kq_n_changes == 0) return;
+  struct kevent err_events[__YO_KQ_CHANGES_MAX];
+  int nchanges = (int)__yo_kq_n_changes;
+  int n;
+  do {
+    n = kevent(__yo_io_kq, __yo_kq_changes, nchanges,
+               err_events, __YO_KQ_CHANGES_MAX, NULL);
+  } while (n < 0 && errno == EINTR);
+  // On a true syscall failure (e.g., EBADF), the changelist was not processed.
+  // Surface each queued op as an error so counters/free list stay balanced.
+  if (n < 0) {
+    int err = errno;
+    for (int i = 0; i < nchanges; i++) {
+      __yo_kq_cancel_pending((__yo_io_pending_op_t*)__yo_kq_changes[i].udata, err, true);
+    }
+    __yo_kq_n_changes = 0;
+    return;
+  }
+  __yo_kq_n_changes = 0;
+  for (int i = 0; i < n; i++) {
+    // EV_ERROR entries report per-change registration failures.
+    if (err_events[i].flags & EV_ERROR) {
+      __yo_kq_cancel_pending((__yo_io_pending_op_t*)err_events[i].udata, (int)err_events[i].data, true);
+    } else {
+      __yo_io_process_event(&err_events[i]);
+    }
+  }
+}
+
+// Process completions (non-blocking poll)
+static int __yo_io_poll(void) {
+  struct kevent events[64];
+  struct timespec ts = {0, 0};  // non-blocking
+
+  // Submit any pending changes atomically with the reap syscall.
+  int nchanges = (int)__yo_kq_n_changes;
+  int n;
+  do {
+    n = kevent(__yo_io_kq, __yo_kq_changes, nchanges, events, 64, &ts);
+  } while (n < 0 && errno == EINTR);
+  // Only clear the changelist if kevent accepted it (n >= 0). On hard
+  // failure, surface each queued op so we do not leak pending_ops or
+  // desync __yo_pending_io_count.
+  if (n < 0) {
+    int err = errno;
+    for (int i = 0; i < nchanges; i++) {
+      __yo_kq_cancel_pending((__yo_io_pending_op_t*)__yo_kq_changes[i].udata, err, true);
+    }
+    __yo_kq_n_changes = 0;
+    return __yo_poll_and_fs_event_tick();
+  }
+  __yo_kq_n_changes = 0;
+
+  int processed = 0;
+  for (int i = 0; i < n; i++) {
+    if (events[i].flags & EV_ERROR) {
+      if (events[i].udata) {
+        __yo_kq_cancel_pending((__yo_io_pending_op_t*)events[i].udata, (int)events[i].data, true);
+        processed++;
+      }
+      continue;
+    }
+    __yo_io_process_event(&events[i]);
+    processed++;
+  }
+
+  if (processed > 0) {
+    ASYNC_DEBUG("[Io] Polled %d kqueue completions\\n", processed);
+  }
+
+  // Also tick poll/fs_event handles
+  int extra = __yo_poll_and_fs_event_tick();
+  return processed + extra;
+}
+
+// Wait for at least one I/O completion (blocking)
+static int __yo_io_wait(void) {
+  if (__yo_pending_io_count == 0 && __yo_active_watch_count > 0) {
+    // Only watches pending, use short sleep then tick
+    struct timespec ts = {0, 10 * 1000 * 1000};  // 10ms
+    nanosleep(&ts, NULL);
+    return __yo_poll_and_fs_event_tick();
+  }
+  if (__yo_pending_io_count == 0) {
+    // Defensive: if we have deferred changes but nothing pending, flush
+    // them so they do not sit indefinitely (rare -- registration bumps
+    // __yo_pending_io_count, so this should normally be a no-op).
+    if (__yo_kq_n_changes > 0) __yo_kq_flush_changes();
+    return 0;
+  }
+
+  struct kevent events[64];
+  struct timespec timeout = {0, 100 * 1000 * 1000};  // 100ms timeout
+
+  // Submit any pending changes atomically with the blocking wait. This
+  // turns N registration syscalls + 1 wait syscall into a single syscall.
+  int nchanges = (int)__yo_kq_n_changes;
+  int n;
+  do {
+    n = kevent(__yo_io_kq, __yo_kq_changes, nchanges, events, 64, &timeout);
+  } while (n < 0 && errno == EINTR);
+  if (n < 0) {
+    int err = errno;
+    for (int i = 0; i < nchanges; i++) {
+      __yo_kq_cancel_pending((__yo_io_pending_op_t*)__yo_kq_changes[i].udata, err, true);
+    }
+    __yo_kq_n_changes = 0;
+    return 0;
+  }
+  __yo_kq_n_changes = 0;
+
+  int processed = 0;
+  for (int i = 0; i < n; i++) {
+    if (events[i].flags & EV_ERROR) {
+      if (events[i].udata) {
+        __yo_kq_cancel_pending((__yo_io_pending_op_t*)events[i].udata, (int)events[i].data, true);
+        processed++;
+      }
+      continue;
+    }
+    __yo_io_process_event(&events[i]);
+    processed++;
+  }
+
+  return processed;
+}
+
+// Queue a kevent change onto the per-thread deferred changelist. The
+// actual kevent() syscall is amortized into the next poll/wait call —
+// see __yo_kq_flush_changes / __yo_io_poll / __yo_io_wait. If the
+// changelist is full we flush synchronously to make room.
+static void __yo_io_register_kevent(__yo_io_pending_op_t* pending, int fd, int16_t filter) {
+  if (__yo_kq_n_changes >= __YO_KQ_CHANGES_MAX) {
+    __yo_kq_flush_changes();
+  }
+  EV_SET(&__yo_kq_changes[__yo_kq_n_changes], fd, filter,
+         EV_ADD | EV_ONESHOT, 0, 0, (void*)pending);
+  __yo_kq_n_changes++;
+  __yo_pending_io_count++;
+}
+
+// Create and start an async read operation
+static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->state, 0);
+  future->result = 0;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  // Determine if this is a regular file (seekable) or pipe/socket/tty
+  struct stat st;
+  bool is_regular = false;
+  if (fstat(fd, &st) == 0) {
+    is_regular = S_ISREG(st.st_mode) || S_ISBLK(st.st_mode);
+  }
+  
+  if (is_regular) {
+    // Regular files: synchronous pread (fast, backed by unified buffer cache)
+    ssize_t result = pread(fd, buffer, size, (off_t)offset);
+    future->result = (result < 0) ? -errno : (int32_t)result;
+    atomic_store(&future->state, -1);
+    ASYNC_DEBUG("[Io] Sync file read completed: fd=%d result=%d\\n", fd, future->result);
+    return future;
+  }
+  
+  // Pipes/sockets/ttys: try non-blocking read first
+  ssize_t result = read(fd, buffer, size);
+  if (result >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+    future->result = (result < 0) ? -errno : (int32_t)result;
+    atomic_store(&future->state, -1);
+    ASYNC_DEBUG("[Io] Non-blocking read completed: fd=%d result=%d\\n", fd, future->result);
+    return future;
+  }
+  
+  // Would block — register kevent(EVFILT_READ) for readability notification
+  __yo_io_pending_op_t* pending = __yo_kq_alloc_pending();
+  pending->op = __YO_IO_OP_READ;
+  pending->future = future;
+  pending->read.fd = fd;
+  pending->read.buf = buffer;
+  pending->read.size = size;
+  
+  __yo_io_register_kevent(pending, fd, EVFILT_READ);
+  
+  ASYNC_DEBUG("[Io] Started async read: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
+              fd, buffer, size, (unsigned long long)offset, __yo_pending_io_count);
+  
+  return future;
+}
+
+// Create and start an async write operation
+static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, uint32_t size, uint64_t offset) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->state, 0);
+  future->result = 0;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  // Determine if this is a regular file (seekable) or pipe/socket/tty
+  struct stat st;
+  bool is_regular = false;
+  if (fstat(fd, &st) == 0) {
+    is_regular = S_ISREG(st.st_mode) || S_ISBLK(st.st_mode);
+  }
+  
+  if (is_regular) {
+    // Regular files: synchronous pwrite (fast, backed by unified buffer cache)
+    // For O_APPEND fds, use write() which respects the append flag
+    int fl = fcntl(fd, F_GETFL);
+    ssize_t written;
+    if (fl != -1 && (fl & O_APPEND)) {
+      written = write(fd, buffer, size);
+    } else {
+      written = pwrite(fd, buffer, size, (off_t)offset);
+    }
+    future->result = (written < 0) ? -errno : (int32_t)written;
+    atomic_store(&future->state, -1);
+    ASYNC_DEBUG("[Io] Sync file write completed: fd=%d result=%d\\n", fd, future->result);
+    return future;
+  }
+  
+  // Pipes/sockets/ttys: try non-blocking write first
+  ssize_t result = write(fd, buffer, size);
+  if (result >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+    future->result = (result < 0) ? -errno : (int32_t)result;
+    atomic_store(&future->state, -1);
+    ASYNC_DEBUG("[Io] Non-blocking write completed: fd=%d result=%d\\n", fd, future->result);
+    return future;
+  }
+  
+  // Would block — register kevent(EVFILT_WRITE) for writability notification
+  __yo_io_pending_op_t* pending = __yo_kq_alloc_pending();
+  pending->op = __YO_IO_OP_WRITE;
+  pending->future = future;
+  pending->write.fd = fd;
+  pending->write.buf = buffer;
+  pending->write.size = size;
+  
+  __yo_io_register_kevent(pending, fd, EVFILT_WRITE);
+  
+  ASYNC_DEBUG("[Io] Started async write: fd=%d buffer=%p size=%u offset=%llu (pending=%zu)\\n",
+              fd, (void*)buffer, size, (unsigned long long)offset, __yo_pending_io_count);
+  
+  return future;
+}
+
+// Async openat - synchronous open wrapped in immediately-completed future
+static __yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path, int32_t flags, int32_t mode) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  // Perform synchronous open
+  int fd;
+  if (dirfd == -100) {  // AT_FDCWD
+    fd = open(path, flags, mode);
+  } else {
+    fd = openat(dirfd, path, flags, mode);
+  }
+  
+  if (fd < 0) {
+    future->result = -errno;
+  } else {
+    future->result = fd;
+  }
+  
+  // Mark as immediately completed
+  atomic_init(&future->state, -1);
+  
+  ASYNC_DEBUG("[Io] openat completed: path=%s result=%d\\n", path, future->result);
+  
+  return future;
+}
+
+// Async close
+static __yo_io_future_t* __yo_async_close_start(int32_t fd) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  int result = close(fd);
+  future->result = (result < 0) ? -errno : 0;
+  atomic_init(&future->state, -1);
+  
+  ASYNC_DEBUG("[Io] close completed: fd=%d result=%d\\n", fd, future->result);
+  
+  return future;
+}
+
+// Async stat - uses synchronous fstatat on macOS
+static __yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, int32_t flags, uint32_t mask, void* statxbuf) {
+  __yo_io_init();
+  (void)mask;  // Unused on macOS
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  // On macOS, we use fstatat instead of statx
+  // The statxbuf is actually a struct stat on macOS
+  int at_flags = 0;
+  if (flags & AT_SYMLINK_NOFOLLOW) {
+    at_flags |= AT_SYMLINK_NOFOLLOW;
+  }
+  
+  int result;
+  if (dirfd == -100) {  // AT_FDCWD
+    if (at_flags & AT_SYMLINK_NOFOLLOW) {
+      result = lstat(path, (struct stat*)statxbuf);
+    } else {
+      result = stat(path, (struct stat*)statxbuf);
+    }
+  } else {
+    result = fstatat(dirfd, path, (struct stat*)statxbuf, at_flags);
+  }
+  
+  future->result = (result < 0) ? -errno : 0;
+  atomic_init(&future->state, -1);
+  
+  ASYNC_DEBUG("[Io] stat completed: path=%s result=%d\\n", path, future->result);
+  
+  return future;
+}
+
+// Async mkdirat
+static __yo_io_future_t* __yo_async_mkdirat_start(int32_t dirfd, const char* path, int32_t mode) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  int result;
+  if (dirfd == -100) {
+    result = mkdir(path, (mode_t)mode);
+  } else {
+    result = mkdirat(dirfd, path, (mode_t)mode);
+  }
+  
+  future->result = (result < 0) ? -errno : 0;
+  atomic_init(&future->state, -1);
+  
+  ASYNC_DEBUG("[Io] mkdirat completed: path=%s result=%d\\n", path, future->result);
+  
+  return future;
+}
+
+// Async unlinkat
+static __yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* path, int32_t flags) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  int result;
+  if (dirfd == -100) {
+    if (flags & 0x80) {  // AT_REMOVEDIR (macOS value)
+      result = rmdir(path);
+    } else {
+      result = unlink(path);
+    }
+  } else {
+    result = unlinkat(dirfd, path, flags);
+  }
+  
+  future->result = (result < 0) ? -errno : 0;
+  atomic_init(&future->state, -1);
+  
+  ASYNC_DEBUG("[Io] unlinkat completed: path=%s result=%d\\n", path, future->result);
+  
+  return future;
+}
+
+// Async renameat
+static __yo_io_future_t* __yo_async_renameat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  int result;
+  if (olddirfd == -100 && newdirfd == -100) {
+    result = rename(oldpath, newpath);
+  } else {
+    result = renameat(olddirfd, oldpath, newdirfd, newpath);
+  }
+  
+  future->result = (result < 0) ? -errno : 0;
+  atomic_init(&future->state, -1);
+  
+  ASYNC_DEBUG("[Io] renameat completed: %s -> %s result=%d\\n", oldpath, newpath, future->result);
+  
+  return future;
+}
+
+// Async symlinkat
+static __yo_io_future_t* __yo_async_symlinkat_start(const char* target, int32_t newdirfd, const char* linkpath) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  int result;
+  if (newdirfd == -100) {
+    result = symlink(target, linkpath);
+  } else {
+    result = symlinkat(target, newdirfd, linkpath);
+  }
+  
+  future->result = (result < 0) ? -errno : 0;
+  atomic_init(&future->state, -1);
+  
+  ASYNC_DEBUG("[Io] symlinkat completed: %s -> %s result=%d\\n", target, linkpath, future->result);
+  
+  return future;
+}
+
+// Async linkat
+static __yo_io_future_t* __yo_async_linkat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath, int32_t flags) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  int result;
+  if (olddirfd == -100 && newdirfd == -100) {
+    result = link(oldpath, newpath);
+  } else {
+    result = linkat(olddirfd, oldpath, newdirfd, newpath, flags);
+  }
+  
+  future->result = (result < 0) ? -errno : 0;
+  atomic_init(&future->state, -1);
+  
+  ASYNC_DEBUG("[Io] linkat completed: %s -> %s result=%d\\n", oldpath, newpath, future->result);
+  
+  return future;
+}
+
+// Async fsync
+static __yo_io_future_t* __yo_async_fsync_start(int32_t fd) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  int result = fsync(fd);
+  future->result = (result < 0) ? -errno : 0;
+  atomic_init(&future->state, -1);
+  
+  ASYNC_DEBUG("[Io] fsync completed: fd=%d result=%d\\n", fd, future->result);
+  
+  return future;
+}
+
+// Async fdatasync - macOS doesn't have fdatasync, use fsync
+static __yo_io_future_t* __yo_async_fdatasync_start(int32_t fd) {
+  // macOS: fdatasync is not available, fall back to fsync
+  // F_FULLFSYNC is even stronger than fsync on macOS
+  return __yo_async_fsync_start(fd);
+}
+
+// Async ftruncate
+static __yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  int result = ftruncate(fd, (off_t)length);
+  future->result = (result < 0) ? -errno : 0;
+  atomic_init(&future->state, -1);
+  
+  ASYNC_DEBUG("[Io] ftruncate completed: fd=%d length=%lld result=%d\\n",
+              fd, (long long)length, future->result);
+  
+  return future;
+}
+
+// ============================================================================
+// Socket Operations (macOS)
+// ============================================================================
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
+#include <sys/un.h>
+
+// Async socket - create socket (non-blocking for async kqueue operations)
+static __yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, int32_t protocol) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  int result = socket(domain, type, protocol);
+  if (result >= 0) {
+    int flags = fcntl(result, F_GETFL, 0);
+    if (flags >= 0) fcntl(result, F_SETFL, flags | O_NONBLOCK);
+  }
+  future->result = (result < 0) ? -errno : result;
+  atomic_init(&future->state, -1);
+  
+  ASYNC_DEBUG("[Io] socket completed: domain=%d type=%d protocol=%d result=%d\\n",
+              domain, type, protocol, future->result);
+  
+  return future;
+}
+
+// Async bind - bind socket to address
+static __yo_io_future_t* __yo_async_bind_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  int result = bind(sockfd, (const struct sockaddr*)addr, (socklen_t)addrlen);
+  future->result = (result < 0) ? -errno : 0;
+  atomic_init(&future->state, -1);
+  
+  ASYNC_DEBUG("[Io] bind completed: sockfd=%d result=%d\\n", sockfd, future->result);
+  
+  return future;
+}
+
+// Async listen - mark socket as listening
+static __yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  int result = listen(sockfd, backlog);
+  future->result = (result < 0) ? -errno : 0;
+  atomic_init(&future->state, -1);
+  
+  ASYNC_DEBUG("[Io] listen completed: sockfd=%d backlog=%d result=%d\\n", sockfd, backlog, future->result);
+  
+  return future;
+}
+
+// Async accept - accept incoming connection using kqueue for true async
+static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uint32_t* addrlen) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  // Try non-blocking accept first
+  int result = accept(sockfd, (struct sockaddr*)addr, (socklen_t*)addrlen);
+  if (result >= 0) {
+    // Set accepted socket to non-blocking too
+    int fl = fcntl(result, F_GETFL, 0);
+    if (fl >= 0) fcntl(result, F_SETFL, fl | O_NONBLOCK);
+    future->result = result;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[Io] accept completed immediately: sockfd=%d result=%d\\n", sockfd, result);
+    return future;
+  }
+  
+  if (errno != EAGAIN && errno != EWOULDBLOCK) {
+    future->result = -errno;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[Io] accept failed: sockfd=%d errno=%d\\n", sockfd, errno);
+    return future;
+  }
+  
+  // Socket not ready — wait for readable via kqueue
+  atomic_init(&future->state, 0);
+  future->result = 0;
+  
+  __yo_io_pending_op_t* pending = __yo_kq_alloc_pending();
+  pending->op = __YO_IO_OP_ACCEPT;
+  pending->future = future;
+  pending->accept.fd = sockfd;
+  pending->accept.addr = addr;
+  pending->accept.addrlen = addrlen;
+  
+  __yo_io_register_kevent(pending, sockfd, EVFILT_READ);
+  
+  ASYNC_DEBUG("[Io] accept waiting via kqueue: sockfd=%d\\n", sockfd);
+  return future;
+}
+
+// Async connect - connect to remote address using kqueue for true async
+static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  // Try non-blocking connect
+  int result = connect(sockfd, (const struct sockaddr*)addr, (socklen_t)addrlen);
+  if (result == 0) {
+    future->result = 0;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[Io] connect completed immediately: sockfd=%d\\n", sockfd);
+    return future;
+  }
+  
+  if (errno != EINPROGRESS) {
+    future->result = -errno;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[Io] connect failed: sockfd=%d errno=%d\\n", sockfd, errno);
+    return future;
+  }
+  
+  // Connection in progress — wait for writable via kqueue
+  atomic_init(&future->state, 0);
+  future->result = 0;
+  
+  __yo_io_pending_op_t* pending = __yo_kq_alloc_pending();
+  pending->op = __YO_IO_OP_CONNECT;
+  pending->future = future;
+  pending->connect.fd = sockfd;
+  
+  __yo_io_register_kevent(pending, sockfd, EVFILT_WRITE);
+  
+  ASYNC_DEBUG("[Io] connect waiting via kqueue: sockfd=%d\\n", sockfd);
+  return future;
+}
+
+// Async send - send data on socket using kqueue for true async
+static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, size_t len, int32_t flags) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  // Try non-blocking send first
+  ssize_t result = send(sockfd, buf, len, flags);
+  if (result >= 0) {
+    future->result = (int32_t)result;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[Io] send completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+    return future;
+  }
+  
+  if (errno != EAGAIN && errno != EWOULDBLOCK) {
+    future->result = -errno;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[Io] send failed: sockfd=%d errno=%d\\n", sockfd, errno);
+    return future;
+  }
+  
+  // Socket not writable — wait via kqueue
+  atomic_init(&future->state, 0);
+  future->result = 0;
+  
+  __yo_io_pending_op_t* pending = __yo_kq_alloc_pending();
+  pending->op = __YO_IO_OP_SEND;
+  pending->future = future;
+  pending->send.fd = sockfd;
+  pending->send.buf = buf;
+  pending->send.len = len;
+  pending->send.flags = flags;
+  
+  __yo_io_register_kevent(pending, sockfd, EVFILT_WRITE);
+  
+  ASYNC_DEBUG("[Io] send waiting via kqueue: sockfd=%d\\n", sockfd);
+  return future;
+}
+
+// Async recv - receive data from socket using kqueue for true async
+static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t len, int32_t flags) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  // Try non-blocking recv first
+  ssize_t result = recv(sockfd, buf, len, flags);
+  if (result >= 0) {
+    future->result = (int32_t)result;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[Io] recv completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+    return future;
+  }
+  
+  if (errno != EAGAIN && errno != EWOULDBLOCK) {
+    future->result = -errno;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[Io] recv failed: sockfd=%d errno=%d\\n", sockfd, errno);
+    return future;
+  }
+  
+  // No data available — wait for readable via kqueue
+  atomic_init(&future->state, 0);
+  future->result = 0;
+  
+  __yo_io_pending_op_t* pending = __yo_kq_alloc_pending();
+  pending->op = __YO_IO_OP_RECV;
+  pending->future = future;
+  pending->recv.fd = sockfd;
+  pending->recv.buf = buf;
+  pending->recv.len = len;
+  pending->recv.flags = flags;
+  
+  __yo_io_register_kevent(pending, sockfd, EVFILT_READ);
+  
+  ASYNC_DEBUG("[Io] recv waiting via kqueue: sockfd=%d\\n", sockfd);
+  return future;
+}
+
+// Async sendto - send data to specific address (UDP) using kqueue for true async
+static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf, size_t len, int32_t flags,
+                                                const void* dest_addr, uint32_t addrlen) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  // Try non-blocking sendto first
+  ssize_t result = sendto(sockfd, buf, len, flags, (const struct sockaddr*)dest_addr, (socklen_t)addrlen);
+  if (result >= 0) {
+    future->result = (int32_t)result;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[Io] sendto completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+    return future;
+  }
+  
+  if (errno != EAGAIN && errno != EWOULDBLOCK) {
+    future->result = -errno;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[Io] sendto failed: sockfd=%d errno=%d\\n", sockfd, errno);
+    return future;
+  }
+  
+  // Socket not writable — wait via kqueue
+  atomic_init(&future->state, 0);
+  future->result = 0;
+  
+  __yo_io_pending_op_t* pending = __yo_kq_alloc_pending();
+  pending->op = __YO_IO_OP_SENDTO;
+  pending->future = future;
+  pending->sendto.fd = sockfd;
+  pending->sendto.buf = buf;
+  pending->sendto.len = len;
+  pending->sendto.flags = flags;
+  pending->sendto.addr = dest_addr;
+  pending->sendto.addrlen = addrlen;
+  
+  __yo_io_register_kevent(pending, sockfd, EVFILT_WRITE);
+  
+  ASYNC_DEBUG("[Io] sendto waiting via kqueue: sockfd=%d\\n", sockfd);
+  return future;
+}
+
+// Async recvfrom - receive data with source address (UDP) using kqueue for true async
+static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, size_t len, int32_t flags,
+                                                  void* src_addr, uint32_t* addrlen) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  // Try non-blocking recvfrom first
+  ssize_t result = recvfrom(sockfd, buf, len, flags, (struct sockaddr*)src_addr, (socklen_t*)addrlen);
+  if (result >= 0) {
+    future->result = (int32_t)result;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[Io] recvfrom completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+    return future;
+  }
+  
+  if (errno != EAGAIN && errno != EWOULDBLOCK) {
+    future->result = -errno;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[Io] recvfrom failed: sockfd=%d errno=%d\\n", sockfd, errno);
+    return future;
+  }
+  
+  // No data available — wait for readable via kqueue
+  atomic_init(&future->state, 0);
+  future->result = 0;
+  
+  __yo_io_pending_op_t* pending = __yo_kq_alloc_pending();
+  pending->op = __YO_IO_OP_RECVFROM;
+  pending->future = future;
+  pending->recvfrom.fd = sockfd;
+  pending->recvfrom.buf = buf;
+  pending->recvfrom.len = len;
+  pending->recvfrom.flags = flags;
+  pending->recvfrom.addr = src_addr;
+  pending->recvfrom.addrlen = addrlen;
+  
+  __yo_io_register_kevent(pending, sockfd, EVFILT_READ);
+  
+  ASYNC_DEBUG("[Io] recvfrom waiting via kqueue: sockfd=%d\\n", sockfd);
+  return future;
+}
+
+// Async shutdown - shutdown socket
+static __yo_io_future_t* __yo_async_shutdown_start(int32_t sockfd, int32_t how) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  int result = shutdown(sockfd, how);
+  future->result = (result < 0) ? -errno : 0;
+  atomic_init(&future->state, -1);
+  
+  ASYNC_DEBUG("[Io] shutdown completed: sockfd=%d how=%d result=%d\\n", sockfd, how, future->result);
+  
+  return future;
+}
+
+// Async setsockopt - set socket option
+static __yo_io_future_t* __yo_async_setsockopt_start(int32_t sockfd, int32_t level, int32_t optname,
+                                                    const void* optval, uint32_t optlen) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  int result = setsockopt(sockfd, level, optname, optval, (socklen_t)optlen);
+  future->result = (result < 0) ? -errno : 0;
+  atomic_init(&future->state, -1);
+  
+  ASYNC_DEBUG("[Io] setsockopt completed: sockfd=%d level=%d optname=%d result=%d\\n",
+              sockfd, level, optname, future->result);
+  
+  return future;
+}
+
+// Async getsockopt - get socket option
+static __yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t level, int32_t optname,
+                                                    void* optval, uint32_t* optlen) {
+  __yo_io_init();
+  
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
+  
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  
+  int result = getsockopt(sockfd, level, optname, optval, (socklen_t*)optlen);
+  future->result = (result < 0) ? -errno : 0;
+  atomic_init(&future->state, -1);
+  
+  ASYNC_DEBUG("[Io] getsockopt completed: sockfd=%d level=%d optname=%d result=%d\\n",
+              sockfd, level, optname, future->result);
+  
+  return future;
+}
+
+`
+  );
+});
+export(generate_platform_sys_runtime_macos, generate_async_runtime_io_macos);

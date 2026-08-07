@@ -1,0 +1,32 @@
+//! Repro: a struct GENERIC OVER A CLOSURE TYPE emits `void* cb` instead of the
+//! closure's capture struct, so the C compiler rejects the initializer.
+//!
+//!   yo-self: error: initializing 'void *' with an expression of incompatible
+//!            type '__yo_t13' (aka 'struct __yo_t13_struct')
+//!   TS:      prints "B=12 v=7"
+//!
+//! Emitted field type, TS vs yo-self:
+//!   TS      -> `__yo_struct_yo6f45cce5_id_83 cb;`   (the capture struct)
+//!   yo-self -> `void* cb;`
+//!
+//! NOT a missing branch in get_type_string. TS's Impl(Fn) case
+//! (src/codegen/utils/index.ts:728) just returns
+//! `getTypeString(someType.resolvedConcreteType)`, and yo-self's SomeT arm
+//! (codegen/utils/index.yo:920) ALREADY consults `resolved_concrete` first
+//! (per-object cell, then the id-keyed global). The bug is that
+//! `resolved_concrete` is never STAMPED on this field's SomeT — same family as
+//! the Gap-6 spec-identity work, not a codegen type-string gap.
+//!
+//! This is the residual failure of tests/impl_fn_field_rejection.test.yo; the
+//! file's three `comptime_expect_error` rejections and its Dyn(Fn)-field
+//! workaround all behave identically to TS already (verified separately).
+open(import("std/fmt"));
+
+GenericCb :: (fn(comptime(F) : Type) -> comptime(Type))(struct(value : i32, cb : F));
+
+main :: (fn() -> unit)({
+  g := GenericCb(Impl(Fn(x : i32) -> i32))(value : i32(7), cb : ((x) => (x * i32(3))));
+  println(`B=${g.cb(i32(4)).to_string()} v=${g.value.to_string()}`);
+});
+
+export(main);

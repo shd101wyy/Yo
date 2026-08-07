@@ -7,15 +7,233 @@
 //!   declarations — struct/enum/typedef declarations
 //!   code         — function definitions and other body code
 open(import("std/string"));
+{ HashSet } :: import("std/collections/hash_set");
+{ ArrayList } :: import("std/collections/array_list");
+/// True iff `b` is a C identifier byte: [A-Za-z0-9_].
+_emitter_is_ident_byte :: (fn(b : u8) -> bool)(
+  ((b >= u8(48)) && (b <= u8(57))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(97)) && (b <= u8(122))) || (b == u8(95))))
+);
+/// True iff `cn` looks like an eval-minted temp C name: contains `_temp_`
+/// followed by ONLY digits to the end (mirrors begin.yo `_looks_like_minted_temp`
+/// and TS `isCodegenTempName`). Kept local so this low-level module needs no
+/// codegen imports.
+_emitter_is_minted_temp :: (fn(cn : String) -> bool)({
+  marker := String.from("_temp_");
+  match(
+    cn.index_of(marker),
+    .None => false,
+    .Some(idx) => {
+      start := (idx + marker.len());
+      n := cn.len();
+      if(start >= n, {
+        return(false);
+      });
+      (i : usize) = start;
+      (ok : bool) = true;
+      while(i < n, {
+        b := cn.byte_at(i);
+        if(!((b >= u8(48)) && (b <= u8(57))), {
+          ok = false;
+        });
+        i = (i + usize(1));
+      });
+      ok
+    }
+  )
+});
+/// When a line declares a minted temp (`<type> <temp> = …`), record its C name
+/// in `set`. Mirrors the TS Emitter's declaredCVarNames capture: the drop-emission
+/// gate skips a `___drop` for any minted temp NOT in declared_c_var_names, and the
+/// many temp-decl paths that build the declaration via get_type_string (not
+/// get_variable_type_string) otherwise leave their temps untracked → the gate
+/// wrongly skips their (live-RC) drops → LEAK. Recorded in C-emission order so
+/// forward-ref protection holds; a `___drop((cast)(temp))` use has the temp inside
+/// parens (not in `<type> <name> =` position), so genuine never-declared phantoms
+/// are never recorded. See issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
+_emitter_record_declared_temp :: (fn(set : HashSet(String), line : String) -> unit)({
+  if(!(line.contains(String.from("_temp_"))), {
+    return(());
+  });
+  eq_opt := line.index_of(String.from(" = "));
+  match(
+    eq_opt,
+    .None => (),
+    .Some(eq) => {
+      if(eq == usize(0), {
+        return(());
+      });
+      // Walk back over the identifier immediately preceding " = ".
+      (ns : usize) = eq;
+      while((ns > usize(0)) && _emitter_is_ident_byte(line.byte_at(ns - usize(1))), {
+        ns = (ns - usize(1));
+      });
+      if(ns == eq, {
+        return(());
+      });
+      // Declaration position: the identifier must be preceded by `<type> ` — i.e.
+      // a space (ns-1) that is itself preceded by a non-space type char (ns-2).
+      // An assignment `<temp> = …` has the identifier at line start (only indent
+      // before it) → skip (it declares nothing new).
+      if(ns < usize(2), {
+        return(());
+      });
+      if(line.byte_at(ns - usize(1)) != u8(32), {
+        return(());
+      });
+      if(line.byte_at(ns - usize(2)) == u8(32), {
+        return(());
+      });
+      name := line.substring(ns, eq);
+      if(_emitter_is_minted_temp(name.clone()), {
+        _r := set.add(name);
+      });
+    }
+  )
+});
+/// Pop the block-scope stack back through (and including) the most recent `"{"`
+/// sentinel — i.e. close one C block, discarding the names it declared.
+_emitter_pop_block :: (fn(stack : ArrayList(String)) -> unit)({
+  (done : bool) = false;
+  while(!(done) && (stack.len() > usize(0)), {
+    match(
+      stack.pop(),
+      .Some(v) => if(v == "{", {
+        done = true;
+      }),
+      .None => {
+        done = true;
+      }
+    );
+  });
+});
+/// If `line` DECLARES a C var (`<type> <name> = …`, name preceded by `<type> `),
+/// push that name onto the top scope frame. Assignments (`<name> = …`, name at
+/// line start after indent) and field initializers (`.field = …`, name preceded
+/// by `.`) declare nothing and are skipped. Called BEFORE brace scanning so a
+/// compound-literal decl (`Type name = { … }`) records `name` in the enclosing
+/// frame, above the `{` its initializer opens.
+_emitter_record_scope_decl :: (fn(stack : ArrayList(String), line : String) -> unit)({
+  eq_opt := line.index_of(String.from(" = "));
+  match(
+    eq_opt,
+    .None => (),
+    .Some(eq) => {
+      if(eq == usize(0), {
+        return(());
+      });
+      (ns : usize) = eq;
+      while((ns > usize(0)) && _emitter_is_ident_byte(line.byte_at(ns - usize(1))), {
+        ns = (ns - usize(1));
+      });
+      if(ns == eq, {
+        return(());
+      });
+      if(ns < usize(2), {
+        return(());
+      });
+      if(line.byte_at(ns - usize(1)) != u8(32), {
+        return(());
+      });
+      if(line.byte_at(ns - usize(2)) == u8(32), {
+        return(());
+      });
+      name := line.substring(ns, eq);
+      _ra := stack.push(name);
+    }
+  )
+});
+/// Maintain the C block-scope stack for the escape-gate liveness signal, encoded
+/// as a flat `ArrayList(String)` of declared C var names with `"{"` sentinels
+/// marking block boundaries (a real C identifier can never equal `"{"`, so the
+/// sentinel is unambiguous). This tracks EVERY C brace — begin-block, `if`/`else`,
+/// `switch`/`case`, and compound-literal braces alike — by scanning the emitted
+/// line character-by-character (skipping string literals, char literals and `//`
+/// comments so braces inside them are not miscounted): each structural `{` pushes
+/// a `"{"` sentinel, each `}` pops back through the last sentinel (discarding that
+/// block's declared names), and a declaration pushes its name first (recorded in
+/// the enclosing frame). Because a closed block's names are popped, the list only
+/// ever holds names from currently-open C blocks — so the escape gate keeps a
+/// pending drop iff its target APPEARS in the list (declared before this point AND
+/// still in C scope). This is the block-scope-aware, C-emission-order signal the
+/// flat set and source-token heuristics could not provide: begin-block markers
+/// alone are too coarse (a control-flow-initialized local buried in a `switch`/`if`
+/// C block goes out of C scope when that block closes, so its escape drop must be
+/// skipped, but a marker-only tracker never sees the intervening close). A flat
+/// `ArrayList(String)` is used rather than a stack of `HashSet` frames because
+/// yo-self's own codegen mis-drops the nested `ArrayList(HashSet(String))` generic
+/// (double-free in the self-compiled binary). See
+/// issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
+_emitter_track_scope :: (fn(stack : ArrayList(String), line : String) -> unit)({
+  _emitter_record_scope_decl(stack, line.clone());
+  // BYTE count, not len() (chars): the loop indexes with byte_at. Bounding by
+  // char count under-scans any line containing multibyte text — a closing
+  // `}`/`"` in the lost tail is missed, a compound-literal `{` becomes a
+  // phantom open sentinel, and the enclosing block's REAL close pops the
+  // phantom instead — its declared names then stay "in scope" forever and the
+  // escape gate emits drops for same-named locals of later sibling blocks
+  // before their C declaration (the regex.test.yo `undeclared m2` cluster).
+  // ASCII structural bytes cannot occur inside UTF-8 continuation sequences,
+  // so a plain byte scan is exact. See issues/fixed/yo-self-emitter-scope-scan-chars-vs-bytes.md.
+  n := line.bytes_len();
+  (i : usize) = usize(0);
+  (in_str : bool) = false;
+  (in_chr : bool) = false;
+  while(i < n, {
+    b := line.byte_at(i);
+    if(in_str, {
+      if(b == u8(92), {
+        i = (i + usize(1));
+      }, if(b == u8(34), {
+        in_str = false;
+      }));
+    }, if(in_chr, {
+      if(b == u8(92), {
+        i = (i + usize(1));
+      }, if(b == u8(39), {
+        in_chr = false;
+      }));
+    }, {
+      if((b == u8(47)) && (((i + usize(1)) < n) && (line.byte_at(i + usize(1)) == u8(47))), {
+        i = n;
+      }, {
+        if(b == u8(34), {
+          in_str = true;
+        });
+        if(b == u8(39), {
+          in_chr = true;
+        });
+        if(b == u8(123), {
+          _p := stack.push(String.from("{"));
+        });
+        if(b == u8(125), {
+          _emitter_pop_block(stack);
+        });
+      });
+    }));
+    i = (i + usize(1));
+  });
+});
 /// Simple string emitter with three output sections.
 ///
 /// Three buffers are maintained separately so that forward declarations
 /// and type definitions can be emitted out-of-order and still appear
 /// before function bodies in the final output.
-Emitter :: object(
-  headers : String,
-  declarations : String,
-  code : String
+Emitter :: ref(
+  struct(
+    headers : String,
+    declarations : String,
+    code : String,
+    /// When `.Some`, points at the current function's `declared_c_var_names`
+    /// (set by generate_function). `emit_*` code-section writes record any
+    /// minted-temp declaration into it so the drop-emission gate has the
+    /// C-emission-order ground truth. See `_emitter_record_declared_temp`.
+    declared_ref : Option(HashSet(String)),
+    /// When `.Some`, points at the current function's block-scope stack
+    /// (declared_scopes). Each emitted body line pushes/pops `"{"` frames on every
+    /// C brace and records named-local + temp decls — the escape gate's
+    /// block-scope-aware liveness signal. See `_emitter_track_scope`.
+    scope_ref : Option(ArrayList(String))
+  )
 );
 impl(
   Emitter,
@@ -24,52 +242,67 @@ impl(
     Self(
       headers : String.new(),
       declarations : String.new(),
-      code : String.new()
+      code : String.new(),
+      declared_ref : Option(HashSet(String)).None,
+      scope_ref : Option(ArrayList(String)).None
     )
   ),
   /// Append text to the code section (no trailing newline).
-  emit : (fn(ref(self) : Self, c : str) -> unit)(
+  emit : (fn(inout(self) : Self, c : str) -> unit)(
     self.code.push_str(c)
   ),
   /// Append text + newline to the code section.
-  emit_line : (fn(ref(self) : Self, c : str) -> unit)({
+  emit_line : (fn(inout(self) : Self, c : str) -> unit)({
     self.code.push_str(c);
     self.code.push_str("\n");
+    match(self.declared_ref,.Some(s) => _emitter_record_declared_temp(s, String.from(c)),.None => ());
+    match(self.scope_ref,.Some(st) => _emitter_track_scope(st, String.from(c)),.None => ());
   }),
   /// Append text + newline to the headers section.
-  emit_header_line : (fn(ref(self) : Self, c : str) -> unit)({
+  emit_header_line : (fn(inout(self) : Self, c : str) -> unit)({
     self.headers.push_str(c);
     self.headers.push_str("\n");
   }),
+  /// Append a raw `String` value to the headers section.
+  emit_header_string : (fn(inout(self) : Self, c : String) -> unit)(
+    self.headers.push_string(c)
+  ),
+  /// Append a raw `String` value + newline to the headers section.
+  emit_header_string_line : (fn(inout(self) : Self, c : String) -> unit)({
+    self.headers.push_string(c);
+    self.headers.push_str("\n");
+  }),
   /// Append text + newline to the declarations section.
-  emit_declaration_line : (fn(ref(self) : Self, c : str) -> unit)({
+  emit_declaration_line : (fn(inout(self) : Self, c : str) -> unit)({
     self.declarations.push_str(c);
     self.declarations.push_str("\n");
   }),
   /// Append text (no newline) to the declarations section.
-  emit_declaration : (fn(ref(self) : Self, c : str) -> unit)(
+  emit_declaration : (fn(inout(self) : Self, c : str) -> unit)(
     self.declarations.push_str(c)
   ),
   /// Append a raw `String` value (no newline) to the declarations section.
-  emit_declaration_string : (fn(ref(self) : Self, c : String) -> unit)(
+  emit_declaration_string : (fn(inout(self) : Self, c : String) -> unit)(
     self.declarations.push_string(c)
   ),
   /// Append a raw `String` value + newline to the declarations section.
-  emit_declaration_string_line : (fn(ref(self) : Self, c : String) -> unit)({
+  emit_declaration_string_line : (fn(inout(self) : Self, c : String) -> unit)({
     self.declarations.push_string(c);
     self.declarations.push_str("\n");
   }),
   /// Append a raw `String` value to the code section.
-  emit_string : (fn(ref(self) : Self, c : String) -> unit)(
+  emit_string : (fn(inout(self) : Self, c : String) -> unit)(
     self.code.push_string(c)
   ),
   /// Append a raw `String` value + newline to the code section.
-  emit_string_line : (fn(ref(self) : Self, c : String) -> unit)({
+  emit_string_line : (fn(inout(self) : Self, c : String) -> unit)({
+    match(self.declared_ref,.Some(s) => _emitter_record_declared_temp(s, c.clone()),.None => ());
+    match(self.scope_ref,.Some(st) => _emitter_track_scope(st, c.clone()),.None => ());
     self.code.push_string(c);
     self.code.push_str("\n");
   }),
   /// Return the full C source: headers + "\n" + declarations + "\n" + code.
-  print : (fn(ref(self) : Self) -> String)({
+  print : (fn(inout(self) : Self) -> String)({
     result := String.new();
     result.push_string(self.headers);
     result.push_str("\n");

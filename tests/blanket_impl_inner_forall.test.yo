@@ -1,13 +1,14 @@
-//! Tests for blanket impl methods with inner forall parameters.
+//! Tests for blanket impl methods with inner generic parameters.
 //!
-//! When a blanket impl (`impl(forall(I), ..., I, method: fn(forall(A, B), ...))`)
-//! defines a method with its own inner forall params (A, B), those params must
+//! When a blanket impl (`impl(generic(I), ..., I, method: fn(generic(A, B), ...))`)
+//! defines a method with its own inner generic params (A, B), those params must
 //! NOT be pre-evaluated as SomeTypes into the returned struct/enum types. They
 //! should remain unresolved until the call site binds them from arguments.
 //!
 //! Regression test for the "SomeType leakage" bug where `IterMap(Self, A, B)`
 //! returned by a blanket-impl `map` retained `SomeType(A)`, `SomeType(B)`,
 //! breaking subsequent `.next()` calls.
+{ assert } :: import("std/assert");
 open(import("std/collections/array_list"));
 // A simple "wrapper" struct parameterized by inner type and an extra type B.
 Wrap :: (fn(comptime(I) : Type, comptime(B) : Type) -> comptime(Type))(
@@ -18,34 +19,34 @@ Wrap :: (fn(comptime(I) : Type, comptime(B) : Type) -> comptime(Type))(
 );
 // Method on Wrap that returns the tag.
 impl(
-  forall(I : Type, B : Type),
+  generic(I : Type, B : Type),
   Wrap(I, B),
   get_tag : (fn(self : Self) -> B)(self._tag)
 );
-// Trait with a method that has inner forall params.
+// Trait with a method that has inner generic params.
 Wrappable :: trait(
-  wrap_with : (fn(forall(B : Type), self : Self, tag : B) -> Wrap(Self, B))
+  wrap_with : (fn(generic(B : Type), self : Self, tag : B) -> Wrap(Self, B))
 );
-// Blanket impl on any i32-like type. Inner forall (B) is method-level only.
+// Blanket impl on any i32-like type. Inner generic (B) is method-level only.
 impl(
-  forall(I : Type),
+  generic(I : Type),
   where(I <: Wrappable),
   I,
-  double_wrap : (fn(forall(B : Type), self : Self, tag : B) -> Wrap(Wrap(Self, B), B))(
+  double_wrap : (fn(generic(B : Type), self : Self, tag : B) -> Wrap(Wrap(Self, B), B))(
     Wrap(Wrap(Self, B), B)(_inner : Wrap(Self, B)(_inner : self, _tag : tag), _tag : tag)
   )
 );
 impl(
   i32,
   Wrappable(
-    wrap_with : (fn(forall(B : Type), self : Self, tag : B) -> Wrap(Self, B))(
+    wrap_with : (fn(generic(B : Type), self : Self, tag : B) -> Wrap(Self, B))(
       Wrap(Self, B)(_inner : self, _tag : tag)
     )
   )
 );
-test("Inner forall in blanket impl method returns concrete struct type", {
+test("Inner generic in blanket impl method returns concrete struct type", {
   x := i32(7);
-  // double_wrap is from blanket impl with inner forall(B). When called with
+  // double_wrap is from blanket impl with inner generic(B). When called with
   // tag = i32(99), B should resolve to i32 — NOT remain as SomeType(B).
   wrapped := x.double_wrap(i32(99));
   // The outer get_tag must return concrete i32 (not SomeType(B)).
@@ -57,7 +58,7 @@ test("Inner forall in blanket impl method returns concrete struct type", {
   assert(inner_tag == i32(99), "inner tag should be 99");
   assert(inner_wrap._inner == i32(7), "innermost value should be 7");
 });
-test("Inner forall with different B type", {
+test("Inner generic with different B type", {
   x := i32(5);
   wrapped := x.double_wrap(true);
   outer_tag := wrapped.get_tag();

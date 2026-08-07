@@ -6,7 +6,7 @@ import {
   hasAnyControlFlow,
 } from "../../expr";
 import { isUnitType } from "../../types/guards";
-import { isTempVariableName } from "../../utils";
+import { isCodegenTempName, isTempVariableName } from "../../utils";
 import { type FunctionGenerationContext } from "../functions/context";
 import {
   type CodeGenContext,
@@ -16,6 +16,7 @@ import {
   isDeferredDropForClosureCapture,
 } from "../utils";
 import { generateDeferredDupExpressions } from "./drop-dup";
+import { getDeferredDropTargetCName } from "./return";
 import { generateExpr } from "./expr";
 
 /**
@@ -36,6 +37,11 @@ export function generateBegin(
       context.emitter.emitLine(
         `${indent}${getTypeString(valueType, context)} ${tempVariableName};`
       );
+      // Record the C declaration so the drop-emission gate does not treat this
+      // (now-declared) temp as undeclared and SKIP its drop — a skipped drop for
+      // a live RC temp leaks. This declaration uses getTypeString (not
+      // getVariableTypeString), so declaredCVarNames must be updated explicitly.
+      context.declaredCVarNames?.add(tempVariableName);
     }
 
     // Evaluate each argument
@@ -162,6 +168,22 @@ export function generateBegin(
         ) {
           continue;
         }
+        // Skip a TEMP whose C declaration has not been emitted yet at this
+        // block's scope end (declaredCVarNames grows in C-emission order) — a
+        // synthetic temp scheduled for drop but declared only in a later/other
+        // branch would otherwise reference an undeclared C identifier. Applies
+        // only to temps; regular named locals are always declared. Mirrors
+        // yo-self begin.yo's declared_c_var_names gate.
+        {
+          const dropCName = getDeferredDropTargetCName(dropExpr);
+          if (
+            dropCName &&
+            isCodegenTempName(dropCName) &&
+            !(context.declaredCVarNames?.has(dropCName) ?? true)
+          ) {
+            continue;
+          }
+        }
 
         // Skip drops already emitted inside short-circuit conditional branches
         if (functionContext.shortCircuitHandledDropVarNames) {
@@ -230,6 +252,22 @@ export function generateBegin(
           )
         ) {
           continue;
+        }
+        // Skip a TEMP whose C declaration has not been emitted yet at this
+        // block's scope end (declaredCVarNames grows in C-emission order) — a
+        // synthetic temp scheduled for drop but declared only in a later/other
+        // branch would otherwise reference an undeclared C identifier. Applies
+        // only to temps; regular named locals are always declared. Mirrors
+        // yo-self begin.yo's declared_c_var_names gate.
+        {
+          const dropCName = getDeferredDropTargetCName(dropExpr);
+          if (
+            dropCName &&
+            isCodegenTempName(dropCName) &&
+            !(context.declaredCVarNames?.has(dropCName) ?? true)
+          ) {
+            continue;
+          }
         }
 
         // Skip drops already emitted inside short-circuit conditional branches

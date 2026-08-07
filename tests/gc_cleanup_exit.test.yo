@@ -1,0 +1,51 @@
+// Regression test: exit() while tracked (cycle-capable) objects are still
+// alive must terminate cleanly, not crash in the atexit GC teardown.
+//
+// Bug: __yo_cleanup_thread_gc force-disposes every tracked object, but a
+// dispose_fn side effect can drop the LAST reference on another tracked
+// object, freeing + unlinking it mid-walk; the walk then frees it again
+// (double free → SIGTRAP/SIGABRT in libmalloc). Fix: set __yo_gc_collecting
+// during the walk so __yo_decr_rc skips tracked objects (same protection
+// __yo_gc_collect uses).
+pragma(Pragma.AllowUnsafe);
+pragma(Pragma.SkipWasm32Emscripten); // no process model in WASM
+pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
+{ assert } :: import("std/assert");
+{ Command } :: import("std/process/command");
+{ Exception, AnyError, IoExn } :: import("std/error");
+open(import("std/string"));
+{ env, args } :: import("std/env");
+{ exit } :: import("std/libc/stdlib");
+List :: ref(
+  struct(
+    value : i32,
+    next : Option(Self)
+  )
+);
+test("exit with live tracked chain terminates cleanly (no GC teardown double-free)", {
+  match(
+    env.get(`YO_GC_EXIT_CHILD`),
+    .Some(_) => {
+      // Child mode: leak a tracked two-node chain where the inner node's
+      // only reference is the outer node's `next` field, then exit non-zero
+      // (skips scope cleanup, so both nodes reach the atexit teardown walk).
+      a := List(i32(1),.Some(List(i32(2),.None)));
+      unsafe(exit(int(1)));
+    },
+    .None => ()
+  );
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(());
+      }
+    )
+  );
+  _s := env.set(String.from("YO_GC_EXIT_CHILD"), String.from("1"));
+  argv := args();
+  cmd := Command.new(argv(usize(0)));
+  out := io.await(cmd.output(io), IoExn(io : io, exn : exn));
+  st := out.status;
+  assert(st.signal() == i32(0), `child must exit, not die on a signal (got signal ${st.signal()})`);
+  assert(st.code() != i32(0), `child must exit non-zero (got ${st.code()})`);
+});

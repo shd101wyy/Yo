@@ -263,7 +263,7 @@ read_dir :: (fn(path : Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)
         true => {
           offset := usize(0);
           while(runtime(offset < usize(n)), {
-            entry_ptr := (buf &+ offset);
+            entry_ptr := buf.add(offset);
             name_ptr := IO_dir.dirent_name(entry_ptr);
             name := String.from_cstr(name_ptr).unwrap();
             // Skip "." and ".."

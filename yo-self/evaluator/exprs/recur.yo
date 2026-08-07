@@ -36,7 +36,7 @@ open(import("std/fmt"));
   expr_info_table_get,
   expr_info_table_set
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 {
   EvalContext,
   FuncOrAsyncBlockKind,
@@ -44,7 +44,13 @@ open(import("std/fmt"));
 } :: import("../context.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ EvalValue, create_unknown_val, is_func_val, is_unknown_val } :: import("../../value.yo");
+{
+  EvalValue,
+  create_unknown_val,
+  create_runtime_unknown_val,
+  is_func_val,
+  is_unknown_val
+} :: import("../../value.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { random_id } :: import("../../utils.yo");
 { format_error_message } :: import("../../error.yo");
@@ -91,7 +97,7 @@ evaluate_recur :: (
       kind : FuncOrAsyncBlockKind.FunctionBody,
       func_type : Option(TypeValue).None,
       func_value : Option(EvalValue).None,
-      eval_env : env
+      eval_env : snapshot_env(env)
     )
   );
   // ------------------------------------------------------------------
@@ -153,7 +159,7 @@ evaluate_recur :: (
     // Extract callee and args from the recur(...) FnCall node.
     callee_expr := match(
       expr,
-      .FnCall(_, func_box, _, _, _) => func_box.*,
+      .FnCall(_, func_box, _, _, _) => func_box,
       _ => make_err_expr()
     );
     arg_exprs := match(
@@ -186,14 +192,26 @@ evaluate_recur :: (
     caller_env := call_result.caller_env;
     // Build an UnknownVal for the return type.
     //
-    // TODO (Phase 3): extend UnknownVal with `variable_name` and `is_runtime_only`
-    // to match TypeScript's `createUnknownValue({variableName, ...})` and the
-    // `recurUnknown.isRuntimeOnly = true` flag that prevents comptime overload
-    // selection on `recur(...)` results.
-    // See issues/recur-runtime-result-not-marked-runtime-only.md.
+    // When the function being recurred RETURNS AT RUNTIME (its return is not
+    // `comptime(...)`), the result is marked `is_runtime_only` — 1:1 with TS
+    // recur.ts:97-108, whose comment explains why: otherwise "overload
+    // resolution at the call site of `recur(...)` may incorrectly prefer a
+    // comptime overload (e.g. `comptime_not` over runtime `not` for
+    // `!recur(...)`), producing malformed C with a 0-arg comptime function
+    // call". See issues/recur-runtime-result-not-marked-runtime-only.md.
+    // (`variable_name` is still not carried — see the stub inventory.)
     return_type := call_result.return_type;
-    recur_unknown := create_unknown_val(return_type);
-    _ := random_id(caller_env.module_path); // mirrors: randomId(env.modulePath)
+    recur_ret_is_comptime := match(
+      func_body_ctx.func_type,
+      .Some(ft) => match(ft,.Func({ meta : __rc_fm }) => __rc_fm.*.result_is_comptime_only, _ => false),
+      .None => false
+    );
+    recur_unknown := if(
+      recur_ret_is_comptime,
+      create_unknown_val(return_type),
+      create_runtime_unknown_val(return_type)
+    );
+    random_id(caller_env.module_path); // mirrors: randomId(env.modulePath)
     // Write ExprInfo for this recur expression.
     out_info := new_expr_info(caller_env, return_type);
     out_info.value = Option(EvalValue).Some(recur_unknown);

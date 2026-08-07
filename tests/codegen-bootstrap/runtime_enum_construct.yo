@@ -1,0 +1,10 @@
+pragma(Pragma.AllowUnsafe);
+{ putchar } :: import("std/libc/stdio");
+mk :: (fn(v : i32) -> Option(i32))({
+  return(.Some(v));
+});
+main :: (fn() -> unit)({
+  o := mk(i32(65));
+  match(o,.Some(x) => unsafe(putchar(int(x))),.None => unsafe(putchar(int(i32(63)))));
+});
+export(main);

@@ -40,22 +40,24 @@ GroupNameEntry :: struct(
 // The regex AST node type.
 // Uses `object(...)` for reference counting since nodes are recursive.
 // Self-reference via `Self` (like LinkedList's Node).
-RegexNode :: object(
-  kind : NodeKind,
-  children : ArrayList(Self),
-  // For Literal nodes: the codepoint
-  codepoint : u32,
-  // For CharClass nodes: ranges and negation flag
-  ranges : ArrayList(CharRange),
-  negated : bool,
-  // For Quantifier nodes: min, max, greedy
-  q_min : usize,
-  q_max : usize,
-  q_greedy : bool,
-  // For Group/Save nodes: group index
-  group_index : usize,
-  // For Anchor nodes
-  anchor : AnchorKind
+RegexNode :: ref(
+  struct(
+    kind : NodeKind,
+    children : ArrayList(Self),
+    // For Literal nodes: the codepoint
+    codepoint : u32,
+    // For CharClass nodes: ranges and negation flag
+    ranges : ArrayList(CharRange),
+    negated : bool,
+    // For Quantifier nodes: min, max, greedy
+    q_min : usize,
+    q_max : usize,
+    q_greedy : bool,
+    // For Group/Save nodes: group index
+    group_index : usize,
+    // For Anchor nodes
+    anchor : AnchorKind
+  )
 );
 impl(
   RegexNode,

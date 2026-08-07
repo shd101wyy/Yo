@@ -17,23 +17,22 @@ import {
 } from "../../expr";
 import { type FunctionValue } from "../../function-value";
 import { areTypesCompatible } from "../../types/compatibility";
-import type {
-  EnumType,
-  FunctionType,
-  TraitType,
-  Type,
-} from "../../types/definitions";
+import type { FunctionType, TraitType, Type } from "../../types/definitions";
 import { getTraitTypeFromEnv } from "../../types/env-lookup";
 import {
+  isArrayType,
   isEnumType,
   isFunctionTypeGeneric,
   isFunctionTypeHardGeneric,
   isSomeType,
   isStructType,
+  isTupleType,
   isUnitType,
 } from "../../types/guards";
 import {
   canTypeFormRcCycle,
+  typeCanFormCyclicRcReference,
+  typeContainsRcType,
   typeContainsSomeType,
   typeContainsSomeTypeForCodegenParam,
   typeToString,
@@ -76,8 +75,8 @@ import {
 /**
  * Find the Dispose trait value attached to a type, if any.
  * Uses trait identity (not just method name) to match Dispose.
- * Also checks generic impl registry for forall impls like:
- *   impl(forall(T : Type), ArrayList(T), Dispose(...))
+ * Also checks generic impl registry for generic impls like:
+ *   impl(generic(T : Type), ArrayList(T), Dispose(...))
  */
 function findDisposeTraitValue(
   type: Type,
@@ -114,7 +113,7 @@ function findDisposeTraitValue(
     }
   }
 
-  // Fallback: check generic impl registry for forall impls
+  // Fallback: check generic impl registry for generic impls
   const genericImpl = findMatchingGenericImpl({
     concreteType: type,
     traitType: disposeTraitType,
@@ -187,6 +186,95 @@ function findUserDisposeMethodForType(
     }
   }
 
+  return undefined;
+}
+
+/**
+ * Find the Trace trait value attached to (or generic-impl'd for) `type`.
+ * Mirrors findDisposeTraitValue for the Trace trait.
+ */
+function findTraceTraitValue(
+  type: Type,
+  env: Environment
+): TraitValue | undefined {
+  const traceTraitType = getTraitTypeFromEnv(env, "Trace");
+  if (!traceTraitType) {
+    return undefined;
+  }
+  const expectedTraitWithReceiver: TraitType = {
+    ...traceTraitType,
+    receiverType: type,
+  };
+  if (type.trait) {
+    for (const field of type.trait.fields) {
+      if (!field.assignedValue || !isTraitValue(field.assignedValue)) {
+        continue;
+      }
+      if (
+        areTypesCompatible(
+          { type: expectedTraitWithReceiver, env },
+          { type: field.assignedValue.type, env }
+        )
+      ) {
+        return field.assignedValue;
+      }
+    }
+  }
+  const genericImpl = findMatchingGenericImpl({
+    concreteType: type,
+    traitType: traceTraitType,
+    env,
+  });
+  if (genericImpl) {
+    return genericImpl.traitValue;
+  }
+  return undefined;
+}
+
+/**
+ * Find the user's `trace` method (the Trace impl) for `type`, returning its C
+ * function name if found. Used to make the cycle-GC traverse function delegate to
+ * a container's hand-written Trace impl instead of the auto-derived field walk.
+ * Mirrors findUserDisposeMethodForType (the funcName search finds the specialized
+ * trace that collectTraceMethodsFromGenericImpls registered in context.functions).
+ */
+function findUserTraceMethodForType(
+  type: Type,
+  env: Environment,
+  context: CodeGenContext
+): string | undefined {
+  const traitValue = findTraceTraitValue(type, env);
+  if (!traitValue) {
+    return undefined;
+  }
+  const traceIndex = traitValue.type.fields.findIndex(
+    (field) => field.label === "trace"
+  );
+  if (traceIndex < 0) {
+    return undefined;
+  }
+  const traceValue = traitValue.fields[traceIndex];
+  if (!isFunctionValue(traceValue)) {
+    return undefined;
+  }
+  const directLookup = context.functions[traceValue.funcId]?.cName;
+  if (directLookup) {
+    return directLookup;
+  }
+  for (const funcId in context.functions) {
+    const funcEntry = context.functions[funcId]!;
+    const funcValue = funcEntry.value;
+    const funcType = funcValue.specializedType ?? funcValue.type;
+    if (funcValue.funcName !== "trace") {
+      continue;
+    }
+    if (
+      funcType.SelfType &&
+      areTypesCompatible({ type: funcType.SelfType, env }, { type, env })
+    ) {
+      return funcEntry.cName;
+    }
+  }
   return undefined;
 }
 
@@ -403,6 +491,9 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
   // Generate object constructor functions
   generateRefStructConstructorFunctions(context);
 
+  // Generate reference-semantics enum (ref(enum(…))) constructor functions
+  generateRefEnumConstructorFunctions(context);
+
   // Generate closure constructor and Rc functions
   generateClosureConstructorFunctions(context);
 
@@ -438,8 +529,8 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // sub-expressions may lack type annotations, making codegen impossible.
     // This applies even when the function was marked effectful — the effectful
     // generation needs properly annotated sub-expressions too.
-    // Exception: isEffectRecordMember functions (e.g., Exception.throw forall handlers)
-    // MUST still be emitted in their unspecialized form — their forall params are type-erased
+    // Exception: isEffectRecordMember functions (e.g., Exception.throw generic handlers)
+    // MUST still be emitted in their unspecialized form — their generic params are type-erased
     // (void), the body is just escape(), and the unspecialized name is stored as a void*
     // function pointer in async capture structs by emitEffectRecordInjection in await.ts.
     //
@@ -476,9 +567,9 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     //
     // "Cannot safely emit" covers:
     //   - the base has registered specializations (specializedFunctionCaches > 0):
-    //     its generic body has unresolved forall returns and sub-expression
+    //     its generic body has unresolved generic returns and sub-expression
     //     `.$` is only filled in on the specializations.
-    //   - the declared type carries a forall AND the body contains an explicit
+    //   - the declared type carries a generic AND the body contains an explicit
     //     `return(expr)` statement: the body was deferred at definition time
     //     (`shouldDeferBodyEvaluation`) and the `return`'s `.$` is unpopulated,
     //     so generateReturn would throw "missing metadata". Bodies that only
@@ -502,7 +593,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
         //     the named parameter, no flag — the caller of exn.throw
         //     resumes normally with the value.
         //   - anything else → conservative fallback to the unwind stub.
-        // See issues/fixed/codegen-forall-resume-handler-stub.md.
+        // See issues/fixed/codegen-generic-resume-handler-stub.md.
         const body = value.body;
         const isUnwindBody = !!body && bodyHasUnwind(body);
         const paramLabels = new Set(
@@ -555,11 +646,11 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // These exist only as compile-time templates — their unspecialized
     // bodies reference comptime bindings not available at runtime.
     // Exception: effect handler functions (isEffectRecordMember) must be
-    // generated even when hard-generic — their forall params are erased
+    // generated even when hard-generic — their generic params are erased
     // at runtime and they're stored as void* function pointers.
     // However, module members with comptime parameters MUST still be skipped —
     // comptime params reference compile-time bindings (sizeof, alignof, etc.)
-    // that don't exist at runtime, unlike forall params which are just erased.
+    // that don't exist at runtime, unlike generic params which are just erased.
     const hasComptimeParams = value.type.parameters.some(
       (p) => p.isCompileTimeOnly
     );
@@ -585,7 +676,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       // Hard-generic comptime-template skip — but closures are per-instance
       // (each io.async / Thread.spawn site gets its own closure value with a
       // concrete capture struct and unique funcId), so they must NOT be
-      // skipped here even when their parameter list still mentions forall
+      // skipped here even when their parameter list still mentions generic
       // SomeType (e.g. `e : E` from io.async's Impl(Fn(e : E) -> T)
       // signature). The later carve-out at the hasGenericParams gate already
       // exempts isClosure; mirror it here so the body emission path reaches
@@ -828,7 +919,7 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
         // at runtime if reached. The C main wrapper here covers the case
         // where main never invokes `exn.throw`; programs that do should
         // install a real handler at the call site via the explicit-effects
-        // machinery (see plans/EXPLICIT_EFFECTS.md §9.3 / §9.6).
+        // machinery (see plans/archive/EXPLICIT_EFFECTS.md §9.3 / §9.6).
         const cType = getTypeString(paramType, context);
         argTokens.push(`(${cType}){0}`);
       }
@@ -904,17 +995,31 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
     // those targets are not used for the bootstrap workload).
     const useWorkerStack = isTargetPosix(context.targetInfo);
     if (useWorkerStack) {
+      // Module-level variable initialization is emitted into a dedicated `void`
+      // helper rather than inline in the worker entry. An effectful initializer
+      // whose call escapes emits the effect-unwind check `if (__yo_effect_escaped)
+      // return;` — a bare `return;` is valid in this `void` helper but NOT in the
+      // `void*` worker entry (clang 21+ -Wreturn-mismatch is a hard error). The
+      // worker entry calls the helper, then bails on a startup escape.
+      if (moduleLevelVars.length > 0) {
+        emitter.emitLine(`
+// Module-level mutable variable initialization (runs first on the worker thread).
+static void __yo_main_module_init(void) {`);
+        for (const { cVarName, rhs } of moduleLevelVars) {
+          const rhsCode = generateExpr(rhs, "  ", context);
+          emitter.emitLine(`  ${cVarName} = ${rhsCode};`);
+        }
+        emitter.emitLine(`}`);
+      }
       // Worker-thread entry: runs scheduler init + module init + user main.
       emitter.emitLine(`
 // Program body runs on a large-stack worker thread (see generateMainWrapper).
 static void* __yo_main_thread_entry(void* __yo_unused_arg) {
   (void)__yo_unused_arg;${asyncInit}`);
       if (moduleLevelVars.length > 0) {
-        emitter.emitLine(`  // Initialize module-level mutable variables`);
-        for (const { cVarName, rhs } of moduleLevelVars) {
-          const rhsCode = generateExpr(rhs, "  ", context);
-          emitter.emitLine(`  ${cVarName} = ${rhsCode};`);
-        }
+        emitter.emitLine(`  // Initialize module-level mutable variables
+  __yo_main_module_init();
+  if (__yo_effect_escaped) return NULL;`);
       }
       emitter.emitLine(`  // Call sync main
   __yo_user_main${mainCallArgs};
@@ -1051,7 +1156,7 @@ export function preRegisterEffectfulFunctions(
     // evidence passing (fn ptr params) instead of SM-inlining.
     // Try the specialized type first (has expanded effect row spreads),
     // then fall back to the original type (retains implicit parameters
-    // that specialization may strip for forall effects only).
+    // that specialization may strip for generic effects only).
     let evidenceParams = getEvidenceParameters(
       functionValue.specializedType ?? functionValue.type
     );
@@ -1079,7 +1184,7 @@ export function preRegisterEffectfulFunctions(
     }
 
     // No evidence params — this shouldn't happen for current effect patterns.
-    // All effects (including forall) use evidence passing.
+    // All effects (including generic) use evidence passing.
   }
 }
 
@@ -1166,10 +1271,10 @@ export function generateFunction(
   // Pass the original (pre-specialization) type so evidence params are detected
   // even when specialization strips implicit parameters.
   // Pass original type so evidence params are detected when specialization
-  // strips implicit parameters (e.g., for forall effects).
+  // strips implicit parameters (e.g., for generic effects).
   // Only do this when specializedType has no evidence but the original does,
-  // AND the original has forall function evidence params (which need void* passing).
-  // Non-forall using params are resolved at specialization time and don't need this.
+  // AND the original has generic function evidence params (which need void* passing).
+  // Non-generic using params are resolved at specialization time and don't need this.
   const originalFunctionType =
     functionValue.specializedType &&
     getEvidenceParameters(functionType).length === 0 &&
@@ -1219,6 +1324,23 @@ export function generateFunction(
   const previousFunctionName = context.currentFunctionName;
   const previousFunctionType = (context as FunctionGenerationContext)
     .currentFunctionType;
+  // Per-function C-declared-name set (see declaredCVarNames). Reset here (saved
+  // for restore below so nested closure generation does not clobber the outer
+  // function's set) and seed with the parameters, which the C signature
+  // declares; body declarations grow it via getVariableTypeString.
+  const previousDeclaredCVarNames = context.declaredCVarNames;
+  context.declaredCVarNames = new Set<string>();
+  for (const param of functionType.parameters) {
+    if (param.label) {
+      context.declaredCVarNames.add(sanitizeForCIdentifier(param.label));
+    }
+  }
+  // Point the emitter at this function's set so every body line that DECLARES a
+  // codegen temp records it (in C-emission order) regardless of which codegen
+  // path built the declaration — the drop-emission gate then never treats a
+  // declared temp as undeclared and skips its (live-RC) drop. Restored below.
+  const previousEmitterDeclaredRef = context.emitter.declaredCVarNamesRef;
+  context.emitter.declaredCVarNamesRef = context.declaredCVarNames;
   context.currentFunctionName = functionName;
   (context as FunctionGenerationContext).currentFunctionType = functionType;
 
@@ -1241,7 +1363,7 @@ export function generateFunction(
   // fn ptr parameter names so body codegen can resolve them.
   // Try the specialized type first (has expanded effect row spreads),
   // then fall back to the original type (retains implicit parameters
-  // that specialization may strip for forall effects).
+  // that specialization may strip for generic effects).
   const previousEvidenceParams = (context as FunctionGenerationContext)
     .currentEvidenceParams;
   let evidenceParams = getEvidenceParameters(functionType);
@@ -1355,6 +1477,8 @@ export function generateFunction(
   generateFunctionBody(functionValue.body, functionType, "  ", context);
 
   // Restore previous function name, type, closure captures, and parameter aliases
+  context.declaredCVarNames = previousDeclaredCVarNames;
+  context.emitter.declaredCVarNamesRef = previousEmitterDeclaredRef;
   context.currentFunctionName = previousFunctionName;
   (context as FunctionGenerationContext).currentFunctionType =
     previousFunctionType;
@@ -1662,7 +1786,7 @@ export function generateFunctionBody(
           // More complex flowable expressions (field access on a
           // ref-bound base, projection calls) come in Phase B with
           // the `ref(name) := ...` binding and the flowability rule.
-          // See `plans/ITERATOR_REDESIGN.md`.
+          // See `plans/archive/ITERATOR_REDESIGN.md`.
           if (
             functionType.return.isRef &&
             lastExpr &&
@@ -1766,8 +1890,8 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
     // Also skip if any parameter type contains SomeType (generic type parameters)
     // This happens when a function specialization wasn't completed properly.
     // Use the codegen-aware variant: struct fields whose type is a function
-    // (effect-record handlers like `throw : ctl(forall, ...)`) are type-erased
-    // fn pointers at the C ABI, so their inner forall does NOT make the outer
+    // (effect-record handlers like `throw : ctl(generic, ...)`) are type-erased
+    // fn pointers at the C ABI, so their inner generic does NOT make the outer
     // struct "still generic" for codegen purposes.
     const hasGenericParams = functionValue.specializedType.parameters.some(
       (p) => typeContainsSomeTypeForCodegenParam(p.type)
@@ -1906,14 +2030,14 @@ static inline void* __yo_incr_rc(void* ptr) {
 static void* __yo_incr_rc_atomic(void* ptr) {
   if (ptr == NULL) return NULL;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  atomic_fetch_add_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_relaxed);
+  atomic_fetch_add_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_relaxed);
   return ptr;
 }
 
 static void __yo_decr_rc_atomic(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  size_t old_count = atomic_fetch_sub_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_acq_rel);
+  uint32_t old_count = atomic_fetch_sub_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_acq_rel);
   if (old_count == 1) {
     if (header->type_id) {
       __yo_dispose_dispatch(ptr);
@@ -1955,38 +2079,77 @@ function generateFullGCRuntimeFunctions(
 // already accounts for their references via trial deletion.
 static _Thread_local int __yo_gc_collecting = 0;
 
+// GC tracking state + thresholds (declared here so __yo_decr_rc, emitted below,
+// can buffer possible cycle roots and trigger collection — Bacon-Rajan).
+static _Thread_local __yo_thread_gc_state_t* __yo_current_thread_gc = NULL;  // Current thread's GC state
+static size_t __yo_gc_min_threshold = 256;       // Minimum / configured collection threshold
+static size_t __yo_gc_collect_threshold = 256;   // Incremental: collect when possible_roots reaches this
+static size_t __yo_gc_full_threshold = 256;      // Full: allocation-driven full-heap scan when tracked_count reaches this (adaptive Nx-live)
+static size_t __yo_gc_full_pct = 200;            // Full-scan growth factor as a percent of post-collection live (default 200 = 2x-live). Lower to cap peak memory on constrained boxes; raise for fewer (but larger) scans. Env: YO_GC_FULL_PCT.
+
 static inline void __yo_decr_rc(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  
-  // During GC collection, skip all tracked objects.
-  // The GC handles their lifecycle via trial deletion — decrementing here
-  // would double-count the reference removal. Non-tracked RC children are
-  // still decremented normally (they weren't trial-deleted).
-  if (__yo_gc_collecting && (header->gc_flags & __YO_GC_TRACKED)) {
+
+  // FAST PATH: untracked objects (their type cannot form reference cycles).
+  // No thread-local reads, no cycle bookkeeping: untracked objects are never
+  // registered, never BUFFERED, and never trial-deleted by the collector
+  // (its visitors skip non-TRACKED headers), so the collecting-skip,
+  // remove_root and unregister calls below are all no-ops for them. On Darwin
+  // every _Thread_local read is a _tlv_get_addr call, so keeping TLS out of
+  // this path measurably matters (profiled: __yo_decr_rc was 54% of a
+  // self-compile, with the TLS reads a further 10%).
+  if (!(header->gc_flags & __YO_GC_TRACKED)) {
+    GC_DEBUG("Decr: ptr=%p RC=%zu->%zu\\n", ptr, (size_t)header->ref_count, (size_t)(header->ref_count - 1));
+    if (header->ref_count == 1) {
+      GC_DEBUG("Decr: Deallocating ptr=%p (last ref)\\n", ptr);
+      if (header->dispose_fn) {
+        header->dispose_fn(ptr);
+      }
+      __yo_free(ptr);
+    } else {
+      header->ref_count--;
+    }
+    return;
+  }
+
+  // Tracked object. During GC collection, skip it: the GC handles tracked
+  // objects' lifecycle via trial deletion — decrementing here would
+  // double-count the reference removal.
+  if (__yo_gc_collecting) {
     GC_DEBUG("Decr: Skipping ptr=%p (GC collecting, tracked)\\n", ptr);
     return;
   }
-  
-  // Also skip objects marked as garbage by the GC (legacy guard for safety).
-  if ((header->gc_flags & __YO_GC_TRACKED) && header->gc_mark == __YO_GC_GARBAGE) {
-    GC_DEBUG("Decr: Skipping ptr=%p (marked as GC garbage)\\n", ptr);
-    return;
-  }
-  
-  GC_DEBUG("Decr: ptr=%p RC=%zu->%zu\\n", ptr, header->ref_count, header->ref_count - 1);
-  
+
+  GC_DEBUG("Decr: ptr=%p RC=%zu->%zu\\n", ptr, (size_t)header->ref_count, (size_t)(header->ref_count - 1));
+
   if (header->ref_count == 1) {
-    // Last reference - deallocate immediately without decrementing
+    // Last reference - deallocate immediately without decrementing (acyclic garbage).
     GC_DEBUG("Decr: Deallocating ptr=%p (last ref)\\n", ptr);
+    // Bacon-Rajan: if this object was buffered as a possible cycle root, unlink it
+    // from the possible-roots list FIRST (O(1)) so no dangling pointer survives.
+    if (header->gc_flags & __YO_GC_BUFFERED) {
+      __yo_gc_remove_root(ptr);
+    }
     __yo_gc_unregister(ptr);
     if (header->dispose_fn) {
       header->dispose_fn(ptr);
     }
     __yo_free(ptr);
   } else {
-    // More than one reference - just decrement
+    // More than one reference - just decrement. The object's RC dropped but it
+    // is not freed, so it is a possible root of a garbage CYCLE (Bacon-Rajan):
+    // buffer it for the next collection. Already-buffered objects (the steady
+    // state for hot objects) only need recoloring — a byte write on the header
+    // cache line this decrement already dirtied; the buffering + the
+    // collection-threshold check live in __yo_gc_add_root (the count can only
+    // cross the threshold when it grows there).
     header->ref_count--;
+    if (header->gc_flags & __YO_GC_BUFFERED) {
+      header->gc_mark = __YO_GC_CANDIDATE;
+    } else {
+      __yo_gc_add_root(ptr);
+    }
   }
 }
 
@@ -1994,7 +2157,7 @@ static inline void* __yo_incr_rc(void* ptr) {
   if (ptr == NULL) return NULL;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   header->ref_count++;
-  GC_DEBUG("Incr: ptr=%p RC=%zu\\n", ptr, header->ref_count);
+  GC_DEBUG("Incr: ptr=%p RC=%zu\\n", ptr, (size_t)header->ref_count);
   return ptr;
 }`);
 
@@ -2008,14 +2171,14 @@ static inline void* __yo_incr_rc(void* ptr) {
 static void* __yo_incr_rc_atomic(void* ptr) {
   if (ptr == NULL) return NULL;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  atomic_fetch_add_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_relaxed);
+  atomic_fetch_add_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_relaxed);
   return ptr;
 }
 
 static void __yo_decr_rc_atomic(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  size_t old_count = atomic_fetch_sub_explicit((_Atomic size_t*)&header->ref_count, 1, memory_order_acq_rel);
+  uint32_t old_count = atomic_fetch_sub_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_acq_rel);
   
   if (old_count == 1) {
     // Last reference - deallocate
@@ -2035,11 +2198,9 @@ static void __yo_decr_rc_atomic(void* ptr) {
   );
   emitUnwindValueBuffer(context);
   emitter.emitLine(`// Per-thread GC tracking state for cycle collection
-static _Thread_local __yo_thread_gc_state_t* __yo_current_thread_gc = NULL;  // Current thread's GC state
+// (__yo_current_thread_gc + thresholds are declared earlier, before __yo_decr_rc)
 static __yo_thread_gc_state_t* __yo_all_thread_gcs = NULL;  // Global list of all thread GC states (for cleanup)
 ${isTargetWindows(context.targetInfo) ? `static __YO_THREAD_SYNC_TYPE __yo_thread_list_mutex;` : `static __YO_THREAD_SYNC_TYPE __yo_thread_list_mutex = __YO_THREAD_SYNC_INIT;`}
-static size_t __yo_gc_min_threshold = 256;       // Minimum threshold for adaptive scaling
-static size_t __yo_gc_collect_threshold = 256;   // Adaptive: starts at min, grows to 2x live objects after each GC
 
 // Thread cleanup infrastructure
 ${
@@ -2098,6 +2259,39 @@ ${
   __yo_current_thread_gc->tracked_count = 0;
   __yo_current_thread_gc->thread_id = __yo_thread_self();
   __yo_current_thread_gc->alloc_count = 0;
+  __yo_current_thread_gc->possible_roots = NULL;
+  __yo_current_thread_gc->possible_roots_count = 0;
+  __yo_current_thread_gc->gc_white = NULL;
+  __yo_current_thread_gc->gc_white_count = 0;
+  __yo_current_thread_gc->gc_white_cap = 0;
+
+  // One-time: honor YO_GC_THRESHOLD to raise or DISABLE the cycle collector.
+  // For allocation-heavy, short-lived runs (e.g. the compiler itself, which
+  // builds a large mostly-live graph and exits), repeated full-heap trial
+  // deletion is near-quadratic overhead the OS reclaims at exit anyway. A value
+  // of 0 disables auto-collection (threshold = SIZE_MAX); any other value sets
+  // both the live threshold and the adaptive floor. Default (env unset) keeps
+  // the adaptive 256 behavior. Mirrors the YO_MAIN_STACK_MB knob.
+  {
+    static int __yo_gc_thr_env_read = 0;
+    if (!__yo_gc_thr_env_read) {
+      __yo_gc_thr_env_read = 1;
+      const char* __yo_gc_thr = getenv("YO_GC_THRESHOLD");
+      if (__yo_gc_thr != NULL) {
+        unsigned long long __yo_gc_thr_v = strtoull(__yo_gc_thr, NULL, 10);
+        __yo_gc_collect_threshold = (__yo_gc_thr_v == 0ULL) ? (size_t)-1 : (size_t)__yo_gc_thr_v;
+        __yo_gc_min_threshold = __yo_gc_collect_threshold;
+      }
+      // YO_GC_FULL_PCT: full-scan growth factor as a percent of live (default 200
+      // = 2x-live). Lower (e.g. 130) caps peak memory on constrained boxes at the
+      // cost of more frequent full scans; must be > 100 to make progress.
+      const char* __yo_gc_full = getenv("YO_GC_FULL_PCT");
+      if (__yo_gc_full != NULL) {
+        unsigned long long __yo_gc_full_v = strtoull(__yo_gc_full, NULL, 10);
+        if (__yo_gc_full_v > 100ULL) __yo_gc_full_pct = (size_t)__yo_gc_full_v;
+      }
+    }
+  }
 
   // Add to global thread list (for cleanup coordination)
   __yo_mutex_lock(&__yo_thread_list_mutex);
@@ -2141,10 +2335,20 @@ static void __yo_gc_init_thread() {
   }
   __yo_current_thread_gc->tracked_objects = header;
   __yo_current_thread_gc->tracked_count++;
-  
-  // Check if we should trigger GC (skip during active collection to prevent re-entrance)
-  if (!__yo_gc_collecting && __yo_current_thread_gc->tracked_count >= __yo_gc_collect_threshold) {
+  // Allocation-driven FULL collection. The incremental (Bacon-Rajan) path in
+  // __yo_decr_rc reclaims cheap decrement-rooted cycles, but CANNOT see cycles
+  // formed by a move into a self/child field (no decrement event) — those would
+  // leak unboundedly. So a full-heap scan still runs when the tracked set grows
+  // past an adaptive 2x-live threshold: this bounds memory and reclaims
+  // move-formed cycles. (On light workloads the incremental path keeps the live
+  // set small, so full collections are rare; the compiler's dense heap still pays
+  // ~O(heap) per full scan — see issues/yo-gc-full-heap-scan-bottleneck.md.)
+  if (!__yo_gc_collecting && __yo_current_thread_gc->tracked_count >= __yo_gc_full_threshold) {
     __yo_gc_collect();
+    size_t nt = (__yo_current_thread_gc->tracked_count * __yo_gc_full_pct) / 100;
+    if (nt <= __yo_current_thread_gc->tracked_count) nt = __yo_current_thread_gc->tracked_count + 1;
+    if (nt < 256) nt = 256;
+    __yo_gc_full_threshold = nt;
   }
 }
 
@@ -2174,165 +2378,257 @@ static void __yo_gc_unregister(void* ptr) {
   header->gc_flags &= ~__YO_GC_TRACKED;
 }`);
 
-  // Generate QuickJS-style trial deletion cycle collection
-  emitter.emitLine(`// QuickJS-style trial deletion for cycle collection
-// Phase 1: Trial deletion - decrement ref counts for internal references
+  // Generate Bacon-Rajan synchronous cycle collection.
+  //
+  // Instead of scanning the WHOLE tracked set on every collection (O(all live) —
+  // a stall on allocation-heavy, mostly-live, cycle-poor workloads like the
+  // compiler), we process only the "possible roots": objects whose ref count was
+  // decremented to a non-zero value (the only objects that can root a garbage
+  // cycle). decr_rc buffers them into the intrusive `possible_roots` list; this
+  // collector trial-deletes / scans / collects only the subgraph reachable from
+  // those roots. Colors reuse gc_mark: UNMARKED=black (in use), CANDIDATE=purple
+  // (buffered candidate), TRIAL_DELETED=gray (being trial-deleted),
+  // GARBAGE=white (cycle garbage), LIVE=gathered-for-free sentinel.
+  emitter.emitLine(`// Bacon-Rajan: buffer a possible cycle root (decremented to non-zero).
+static void __yo_gc_add_root(void* ptr) {
+  __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
+  // Flag check BEFORE the thread-local read: already-buffered only needs a
+  // recolor, and on Darwin every _Thread_local read is a _tlv_get_addr call.
+  if (h->gc_flags & __YO_GC_BUFFERED) { h->gc_mark = __YO_GC_CANDIDATE; return; }
+  __yo_thread_gc_state_t* gc = __yo_current_thread_gc;  // single TLS read
+  if (gc == NULL) return;
+  h->gc_flags |= __YO_GC_BUFFERED;
+  h->gc_mark = __YO_GC_CANDIDATE; // purple
+  h->roots_next = gc->possible_roots;
+  h->roots_prev = NULL;
+  if (gc->possible_roots != NULL) {
+    gc->possible_roots->roots_prev = h;
+  }
+  gc->possible_roots = h;
+  gc->possible_roots_count++;
+  // Incremental collection trigger. The possible-roots count only grows here,
+  // so the threshold can only be crossed here — checking it on every tracked
+  // decrement (as before) was pure overhead. decr_rc never calls add_root
+  // while collecting (tracked decrements are skipped), so the guard is
+  // belt-and-braces for any other caller.
+  if (!__yo_gc_collecting && gc->possible_roots_count >= __yo_gc_collect_threshold) {
+    __yo_gc_collect_incremental();
+  }
+}
+
+// Bacon-Rajan: unlink a possible root (O(1), called at free or during collection).
+static void __yo_gc_remove_root(void* ptr) {
+  __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
+  if (__yo_current_thread_gc == NULL) return;
+  if (!(h->gc_flags & __YO_GC_BUFFERED)) return;
+  if (h->roots_prev != NULL) h->roots_prev->roots_next = h->roots_next;
+  else __yo_current_thread_gc->possible_roots = h->roots_next;
+  if (h->roots_next != NULL) h->roots_next->roots_prev = h->roots_prev;
+  h->roots_next = NULL;
+  h->roots_prev = NULL;
+  h->gc_flags &= ~__YO_GC_BUFFERED;
+  __yo_current_thread_gc->possible_roots_count--;
+}
+
+// MarkGray: color the subgraph gray, trial-decrementing internal (tracked) refs.
+static void __yo_gc_mark_gray(__yo_ref_header_t* s);
+static void __yo_gc_mark_gray_visitor(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
+  if (!(h->gc_flags & __YO_GC_TRACKED)) return;
+  if (h->ref_count > 0) h->ref_count--;   // trial decrement of internal reference
+  __yo_gc_mark_gray(h);
+}
+static void __yo_gc_mark_gray(__yo_ref_header_t* s) {
+  if (s->gc_mark == __YO_GC_TRIAL_DELETED) return; // already gray
+  s->gc_mark = __YO_GC_TRIAL_DELETED;
+  if (s->traverse_fn) s->traverse_fn(s, __yo_gc_mark_gray_visitor);
+}
+
+// ScanBlack: a live object — restore the trial decrements over its subgraph.
+static void __yo_gc_scan_black(__yo_ref_header_t* s);
+static void __yo_gc_scan_black_visitor(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
+  if (!(h->gc_flags & __YO_GC_TRACKED)) return;
+  h->ref_count++;   // restore internal reference
+  if (h->gc_mark != __YO_GC_UNMARKED) __yo_gc_scan_black(h);
+}
+static void __yo_gc_scan_black(__yo_ref_header_t* s) {
+  s->gc_mark = __YO_GC_UNMARKED; // black (live)
+  if (s->traverse_fn) s->traverse_fn(s, __yo_gc_scan_black_visitor);
+}
+
+// Scan: gray object with RC>0 is live (ScanBlack); otherwise it is white garbage.
+static void __yo_gc_scan(__yo_ref_header_t* s);
+static void __yo_gc_scan_visitor(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_gc_scan((__yo_ref_header_t*)ptr);
+}
+static void __yo_gc_scan(__yo_ref_header_t* s) {
+  if (s->gc_mark != __YO_GC_TRIAL_DELETED) return; // only gray
+  if (s->ref_count > 0) {
+    __yo_gc_scan_black(s);
+  } else {
+    s->gc_mark = __YO_GC_GARBAGE; // white
+    if (s->traverse_fn) s->traverse_fn(s, __yo_gc_scan_visitor);
+  }
+}
+
+// GatherWhite: collect the white subgraph into the scratch array (do NOT free yet,
+// so a member's dispose never dereferences an already-freed sibling).
+static void __yo_gc_gather_white(__yo_ref_header_t* s);
+static void __yo_gc_gather_white_visitor(void* ptr) {
+  if (ptr == NULL) return;
+  __yo_gc_gather_white((__yo_ref_header_t*)ptr);
+}
+static void __yo_gc_gather_white(__yo_ref_header_t* s) {
+  if (!(s->gc_flags & __YO_GC_TRACKED)) return;
+  if (s->gc_mark != __YO_GC_GARBAGE) return;   // only white, and not already gathered
+  s->gc_mark = __YO_GC_LIVE;                    // sentinel: gathered (stops re-visit)
+  __yo_thread_gc_state_t* gc = __yo_current_thread_gc;
+  if (gc->gc_white_count == gc->gc_white_cap) {
+    size_t ncap = gc->gc_white_cap == 0 ? 64 : gc->gc_white_cap * 2;
+    gc->gc_white = (__yo_ref_header_t**)realloc(gc->gc_white, ncap * sizeof(__yo_ref_header_t*));
+    gc->gc_white_cap = ncap;
+  }
+  gc->gc_white[gc->gc_white_count++] = s;
+  if (s->traverse_fn) s->traverse_fn(s, __yo_gc_gather_white_visitor);
+}
+
+// INCREMENTAL collection (Bacon-Rajan): processes ONLY the possible-roots buffer
+// and the subgraph reachable from it — O(roots + closure), not O(all tracked).
+// This is the auto-trigger path (the compiler's hot path). It reclaims cycles
+// whose roots passed through a decrement (PossibleRoot). Cycles formed purely by
+// a MOVE into a self/child field (codegen elides the incr+decr, so no PossibleRoot
+// event) are NOT seen here — those are reclaimed by the full collector below
+// (explicit Gc.collect()) or at process exit.
+static void __yo_gc_collect_incremental() {
+  __yo_thread_gc_state_t* gc = __yo_current_thread_gc;
+  if (gc == NULL || gc->possible_roots == NULL) return;
+  __yo_gc_collecting = 1;
+
+  // MarkRoots: trial-delete the subgraph reachable from each purple root.
+  for (__yo_ref_header_t* s = gc->possible_roots; s != NULL; s = s->roots_next) {
+    if (s->gc_mark == __YO_GC_CANDIDATE) {
+      __yo_gc_mark_gray(s);
+    }
+  }
+  // ScanRoots: classify the gray subgraph — live (black) vs. white garbage.
+  for (__yo_ref_header_t* s = gc->possible_roots; s != NULL; s = s->roots_next) {
+    __yo_gc_scan(s);
+  }
+  // CollectRoots: drain the buffer; gather the white subgraph reachable from each
+  // (still-)white root, then dispose + free in two passes.
+  gc->gc_white_count = 0;
+  while (gc->possible_roots != NULL) {
+    __yo_ref_header_t* root = gc->possible_roots;
+    __yo_gc_remove_root(root);          // clears BUFFERED, unlinks (O(1))
+    __yo_gc_gather_white(root);
+  }
+  size_t nwhite = gc->gc_white_count;
+  // Pass 1: dispose (collecting=1 → decr_rc skips tracked children whose refs were
+  // already accounted by trial deletion; non-tracked children are released).
+  for (size_t i = 0; i < nwhite; i++) {
+    if (gc->gc_white[i]->dispose_fn) gc->gc_white[i]->dispose_fn(gc->gc_white[i]);
+  }
+  // Pass 2: unlink from the tracked list + free.
+  for (size_t i = 0; i < nwhite; i++) {
+    __yo_gc_unregister(gc->gc_white[i]);
+    __yo_free(gc->gc_white[i]);
+  }
+  gc->gc_white_count = 0;
+  __yo_gc_collecting = 0;
+
+  // Adaptive frequency. A cycle collection still traverses the subgraph reachable
+  // from the roots, which on a DENSELY-connected, mostly-live, cycle-poor heap
+  // (e.g. the compiler) is ~O(heap) per pass — so collecting on every 256 roots
+  // thrashes. __yo_gc_collect_threshold is the DYNAMIC trigger (floor =
+  // __yo_gc_min_threshold). When a pass reclaims NOTHING, grow it (×4, capped) so
+  // such passes become rare; when it reclaims a real cycle, reset to the floor.
+  // Skip when disabled (SIZE_MAX via YO_GC_THRESHOLD=0).
+  if (__yo_gc_collect_threshold != (size_t)-1) {
+    // Heap-PROPORTIONAL trigger: collect again only once the possible-roots buffer
+    // grows to ~the live-object count, so on a large heap collections stay rare
+    // (each is ~O(heap)) while memory stays bounded (≈2x live). A pass that
+    // reclaims nothing backs off a further ×4 (cycle-poor workload); the floor is
+    // __yo_gc_min_threshold (or the env-pinned value).
+    size_t base = gc->tracked_count;
+    if (base < __yo_gc_min_threshold) base = __yo_gc_min_threshold;
+    if (nwhite == 0) base = (base < (((size_t)-1) / 4)) ? base * 4 : ((size_t)-1) / 2;
+    __yo_gc_collect_threshold = base;
+  }
+}
+
+// Full-heap trial-deletion visitor (for the thorough collector below).
 static void __yo_gc_trial_delete_visitor(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  
-  // Only process tracked objects
   if (!(header->gc_flags & __YO_GC_TRACKED)) return;
-  
-  // Trial decrement
-  if (header->ref_count > 0) {
-    header->ref_count--;
-    GC_DEBUG("TrialDelete: ptr=%p, ref_count->%zu\\n", ptr, header->ref_count);
-  }
+  if (header->ref_count > 0) header->ref_count--;
 }
-
-// Phase 3: Recursive scan/restore visitor.
-// Restores trial-deleted ref counts and propagates liveness from live roots
-// to all reachable objects. Objects promoted from GARBAGE to live (UNMARKED)
-// have their children recursively scanned.
+// Full-heap scan/restore visitor.
 static void __yo_gc_scan_restore_visitor(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  
-  // Skip non-tracked objects (their RC was never trial-deleted)
   if (!(header->gc_flags & __YO_GC_TRACKED)) return;
-  
-  // Restore the trial-deleted reference
   header->ref_count++;
-  GC_DEBUG("ScanRestore: ptr=%p, ref_count->%zu, mark=%d\\n", ptr, header->ref_count, header->gc_mark);
-  
   if (header->gc_mark == __YO_GC_GARBAGE) {
-    // This object was tentatively marked garbage but is reachable from a live root.
-    // Promote to live (mark UNMARKED = "scanned") and recursively scan children.
     header->gc_mark = __YO_GC_UNMARKED;
-    if (header->traverse_fn) {
-      header->traverse_fn(ptr, __yo_gc_scan_restore_visitor);
-    }
+    if (header->traverse_fn) header->traverse_fn(ptr, __yo_gc_scan_restore_visitor);
   }
-  // If already LIVE or UNMARKED (already scanned), just restore RC — don't recurse again.
 }
 
+// THOROUGH collection: a full-heap trial-deletion mark-sweep over ALL tracked
+// objects. O(all tracked) — slow on large live heaps, so it is NOT the auto path;
+// it backs the explicit Gc.collect() and reclaims cycles the incremental collector
+// cannot see (e.g. move-formed self-cycles with no decrement event). It first
+// clears the possible-roots buffer (it supersedes incremental bookkeeping).
 static void __yo_gc_collect() {
-  if (__yo_current_thread_gc == NULL) return;
-  
-  __yo_ref_header_t* head = __yo_current_thread_gc->tracked_objects;
+  __yo_thread_gc_state_t* gc = __yo_current_thread_gc;
+  if (gc == NULL) return;
+  // Clear the incremental possible-roots buffer: a full scan covers everything,
+  // and freeing here must not leave dangling buffer entries.
+  while (gc->possible_roots != NULL) {
+    __yo_gc_remove_root(gc->possible_roots);
+  }
+  __yo_ref_header_t* head = gc->tracked_objects;
   if (head == NULL) return;
-  
-  GC_DEBUG("GC: Starting collection, tracked_count=%zu\\n", __yo_current_thread_gc->tracked_count);
-  
   __yo_gc_collecting = 1;
-  size_t collected = 0;
-  
-  // Phase 1: Mark all as candidates and trial-delete
-  __yo_ref_header_t* obj = head;
-  while (obj != NULL) {
-    obj->gc_mark = __YO_GC_CANDIDATE;
-    obj = obj->gc_next;
+
+  for (__yo_ref_header_t* obj = head; obj != NULL; obj = obj->gc_next) obj->gc_mark = __YO_GC_CANDIDATE;
+  for (__yo_ref_header_t* obj = head; obj != NULL; obj = obj->gc_next) {
+    if (obj->traverse_fn) obj->traverse_fn(obj, __yo_gc_trial_delete_visitor);
   }
-  
-  // Trial deletion: decrement RC for all internal (tracked→tracked) references
-  obj = head;
-  while (obj != NULL) {
-    if (obj->traverse_fn) {
-      obj->traverse_fn(obj, __yo_gc_trial_delete_visitor);
-    }
-    obj = obj->gc_next;
+  for (__yo_ref_header_t* obj = head; obj != NULL; obj = obj->gc_next) {
+    obj->gc_mark = (obj->ref_count == 0) ? __YO_GC_GARBAGE : __YO_GC_LIVE;
   }
-  
-  // Phase 2: Classify objects — RC > 0 means external references exist (live root),
-  // RC == 0 means only internal references (tentative garbage)
-  obj = head;
-  while (obj != NULL) {
-    if (obj->ref_count == 0) {
-      obj->gc_mark = __YO_GC_GARBAGE;
-      GC_DEBUG("GC: Marked as garbage: ptr=%p\\n", obj);
-    } else {
-      obj->gc_mark = __YO_GC_LIVE;
-      GC_DEBUG("GC: Marked as live root: ptr=%p (ref_count=%zu)\\n", obj, obj->ref_count);
-    }
-    obj = obj->gc_next;
-  }
-  
-  // Phase 3: Scan from live roots — restore ref counts and propagate liveness.
-  // Live roots (__YO_GC_LIVE) are scanned; their reachable GARBAGE children are
-  // promoted to UNMARKED (live+scanned). After this phase, only truly unreachable
-  // objects remain marked __YO_GC_GARBAGE.
-  obj = head;
-  while (obj != NULL) {
+  for (__yo_ref_header_t* obj = head; obj != NULL; obj = obj->gc_next) {
     if (obj->gc_mark == __YO_GC_LIVE) {
-      // Mark this root as scanned so the loop doesn't re-process it
-      // if the list order changes (defensive) and to distinguish from promoted objects
       obj->gc_mark = __YO_GC_UNMARKED;
-      if (obj->traverse_fn) {
-        obj->traverse_fn(obj, __yo_gc_scan_restore_visitor);
-      }
+      if (obj->traverse_fn) obj->traverse_fn(obj, __yo_gc_scan_restore_visitor);
     }
-    obj = obj->gc_next;
   }
-  
-  // Phase 4a: Call dispose functions on all garbage objects (while memory is still valid).
-  // __yo_gc_collecting flag ensures __yo_decr_rc skips tracked objects, preventing
-  // double RC decrements (trial deletion already accounted for those references).
-  // Non-tracked RC children are still properly released by dispose.
-  obj = head;
-  while (obj != NULL) {
-    if (obj->gc_mark == __YO_GC_GARBAGE && obj->dispose_fn) {
-      GC_DEBUG("GC: Disposing garbage: ptr=%p\\n", obj);
-      obj->dispose_fn(obj);
-    }
-    obj = obj->gc_next;
+  for (__yo_ref_header_t* obj = head; obj != NULL; obj = obj->gc_next) {
+    if (obj->gc_mark == __YO_GC_GARBAGE && obj->dispose_fn) obj->dispose_fn(obj);
   }
-  
-  // Phase 4b: Free all garbage objects and remove from tracking list
   __yo_ref_header_t* current = head;
   __yo_ref_header_t* prev = NULL;
-  
   while (current != NULL) {
     __yo_ref_header_t* next = current->gc_next;
-    
     if (current->gc_mark == __YO_GC_GARBAGE) {
-      GC_DEBUG("GC: Freeing garbage: ptr=%p\\n", current);
-      
-      // Remove from tracking list
-      if (prev == NULL) {
-        __yo_current_thread_gc->tracked_objects = next;
-      } else {
-        prev->gc_next = next;
-      }
-      if (next != NULL) {
-        next->gc_prev = prev;
-      }
-      
-      __yo_current_thread_gc->tracked_count--;
-      collected++;
-      
-      // Free the object (dispose was already called in Phase 4a)
+      if (prev == NULL) gc->tracked_objects = next; else prev->gc_next = next;
+      if (next != NULL) next->gc_prev = prev;
+      gc->tracked_count--;
       __yo_free(current);
-      
       current = next;
     } else {
-      // Reset mark for next collection
       current->gc_mark = __YO_GC_UNMARKED;
       prev = current;
       current = next;
     }
   }
-  
   __yo_gc_collecting = 0;
-  
-  // Adaptive threshold: set to max(min_threshold, 2 * remaining_objects)
-  size_t new_threshold = __yo_current_thread_gc->tracked_count * 2;
-  if (new_threshold < __yo_gc_min_threshold) {
-    new_threshold = __yo_gc_min_threshold;
-  }
-  __yo_gc_collect_threshold = new_threshold;
-  
-  GC_DEBUG("GC: Collection complete, collected=%zu, remaining=%zu, next_threshold=%zu\\n", collected, __yo_current_thread_gc->tracked_count, __yo_gc_collect_threshold);
 }
 
 static size_t __yo_gc_tracked_count() {
@@ -2353,18 +2649,31 @@ static void __yo_cleanup_thread_gc() {
   }
   
   GC_DEBUG("CleanupThread: tracked_count=%zu\\n", my_gc_state->tracked_count);
-  
-  // Force dispose all remaining tracked objects
+
+  // Force dispose all remaining tracked objects — in TWO passes, like the
+  // collectors. dispose_fn side effects can __yo_decr_rc other tracked
+  // objects; the collecting flag makes those decrements skip, but the skip
+  // check itself READS the target's header (gc_flags), which is only safe
+  // while every tracked header is still allocated. The old single-pass walk
+  // (dispose + free per object) made later disposes read headers the walk
+  // had already freed — a use-after-free, and a double free / glibc
+  // "corrupted double-linked list" when the allocator had reused the chunk
+  // and TRACKED appeared cleared. Left set: the thread is exiting, and any
+  // later decrement on tracked memory would be use-after-free.
+  __yo_gc_collecting = 1;
+  // Pass 1: dispose every tracked object (all headers still alive).
+  for (__yo_ref_header_t* obj = my_gc_state->tracked_objects; obj != NULL; obj = obj->gc_next) {
+    GC_DEBUG("CleanupThread: Disposing object ptr=%p\\n", obj);
+    if (obj->dispose_fn) {
+      obj->dispose_fn(obj);
+    }
+  }
+  // Pass 2: free them all.
   __yo_ref_header_t* current = my_gc_state->tracked_objects;
   while (current != NULL) {
     __yo_ref_header_t* next = current->gc_next;
-    
-    GC_DEBUG("CleanupThread: Disposing object ptr=%p\\n", current);
-    if (current->dispose_fn) {
-      current->dispose_fn(current);
-    }
+    GC_DEBUG("CleanupThread: Freeing object ptr=%p\\n", current);
     __yo_free(current);
-    
     current = next;
   }
   
@@ -2429,7 +2738,175 @@ static void __yo_init_process_cleanup(void) {
 }
 
 /**
- * Generate traversal functions for objects (used by GC for marking)
+ * Compositional cycle-GC traversal of a single value (Nim `=trace`-style; see
+ * plans/archive/CYCLE_GC_TRACE_HOOKS.md). Given the C lvalue `access` of Yo type `type`,
+ * emit C that calls `visit()` on every DIRECT reference-counted child reachable
+ * from that value — descending INLINE through value structs / value enums (incl.
+ * `Option`) / tuples / inline arrays, but STOPPING at managed handles (each is a
+ * single graph edge; the collector calls the handle's own traverse_fn later).
+ * Atomic (Iso) handles never participate in cycle collection. `visited` guards
+ * unbounded codegen recursion on inline-recursive value types (recursion normally
+ * terminates at the managed-handle case).
+ *
+ * Container element buffers (ArrayList/HashMap) are reached because the container
+ * is itself a managed handle (visited here) whose own traverse_fn iterates its
+ * buffer — see generateRefStructTraversalFunctions for those.
+ */
+export function emitTraverseValue(
+  access: string,
+  type: Type,
+  context: CodeGenContext,
+  visited: Set<string>,
+  visitExpr: string
+): void {
+  const emitter = context.emitter;
+
+  // Nothing reference-counted anywhere in this value → nothing to trace.
+  if (!typeContainsRcType(type)) {
+    return;
+  }
+
+  // Managed handle (ref(struct)/ref(enum)) — a single graph edge. Atomic RC
+  // (Iso) types do not participate in cycle collection. `visitExpr` is the C
+  // expression for the collector's callback; it is `void(*)(void*)` in the
+  // auto-derived traverse_fn (cast is identity) and an opaque `*(u8)` carried by
+  // a `GcTracer` inside a hand-written `Trace` impl (cast reinterprets) — both
+  // lower to the same indirect call.
+  if ((isStructType(type) || isEnumType(type)) && type.isReferenceSemantics) {
+    if (type.isAtomicRc) {
+      return;
+    }
+    emitter.emitLine(
+      `  if (${access}) { ((void(*)(void*))${visitExpr})(${access}); }`
+    );
+    return;
+  }
+
+  // Defensive guard for inline-recursive value types (a value type cannot be
+  // truly self-recursive without a managed indirection, which terminates above,
+  // so this is belt-and-suspenders).
+  if (type.id) {
+    if (visited.has(type.id)) {
+      return;
+    }
+    visited.add(type.id);
+  }
+  try {
+    if (isEnumType(type)) {
+      // Value enum (e.g. Option). A nullable-pointer optimization collapses
+      // Option(handle) to a bare pointer; typeContainsRcType(type) was true, so
+      // the payload is managed → visit the pointer directly.
+      if (canOptimizeAsNullablePointer(type)) {
+        emitter.emitLine(
+          `  if (${access}) { ((void(*)(void*))${visitExpr})(${access}); }`
+        );
+        return;
+      }
+      if (canOptimizeAsSimpleEnum(type)) {
+        return;
+      }
+      emitter.emitLine(`  switch (${access}.tag) {`);
+      for (const variant of type.variants) {
+        const fields = (variant.fields ?? []).filter((f) =>
+          typeContainsRcType(f.type)
+        );
+        if (fields.length > 0) {
+          emitter.emitLine(
+            `  case ${getEnumVariantCName(type, variant.name, context)}:`
+          );
+          for (const f of fields) {
+            emitTraverseValue(
+              `${access}.data.${variant.name}.${sanitizeForCIdentifier(f.label)}`,
+              f.type,
+              context,
+              visited,
+              visitExpr
+            );
+          }
+          emitter.emitLine(`    break;`);
+        }
+      }
+      emitter.emitLine(`  }`);
+      return;
+    }
+
+    if (isStructType(type)) {
+      const fields = getRuntimeStructFields(type);
+      if (type.isNewtype) {
+        // A newtype is a zero-cost / C-transparent typedef alias for its single
+        // underlying type — the value IS the inner value, so recurse with the
+        // SAME access (no field suffix).
+        if (fields.length > 0) {
+          emitTraverseValue(
+            access,
+            fields[0]!.type,
+            context,
+            visited,
+            visitExpr
+          );
+        }
+        return;
+      }
+      // Value struct: stored inline → recurse its fields.
+      for (const field of fields) {
+        emitTraverseValue(
+          `${access}.${sanitizeForCIdentifier(field.label)}`,
+          field.type,
+          context,
+          visited,
+          visitExpr
+        );
+      }
+      return;
+    }
+
+    if (isTupleType(type)) {
+      // Tuple fields are emitted as `_0`, `_1`, … (see property-access.ts).
+      type.fields.forEach((field, i) => {
+        emitTraverseValue(
+          `${access}._${i}`,
+          field.type,
+          context,
+          visited,
+          visitExpr
+        );
+      });
+      return;
+    }
+
+    if (isArrayType(type)) {
+      // Fixed-size inline array `Array(T, N)` — emitted as a C array, so the
+      // element count is `sizeof(arr)/sizeof(arr[0])`. Visit each element.
+      const elemCount = `(sizeof(${access}) / sizeof(${access}[0]))`;
+      emitter.emitLine(
+        `  for (size_t __yo_ti = 0; __yo_ti < ${elemCount}; __yo_ti++) {`
+      );
+      emitTraverseValue(
+        `${access}[__yo_ti]`,
+        type.childType,
+        context,
+        visited,
+        visitExpr
+      );
+      emitter.emitLine(`  }`);
+      return;
+    }
+
+    // Unions (no active-member discriminant at the C level → unsafe to walk) and
+    // any other shape: nothing. Unions of managed refs are not used in the
+    // self-host types; see plans/archive/CYCLE_GC_TRACE_HOOKS.md §7.
+  } finally {
+    if (type.id) {
+      visited.delete(type.id);
+    }
+  }
+}
+
+/**
+ * Generate traversal functions for objects (used by GC for marking).
+ * Per-field traversal is delegated to the compositional emitTraverseValue, which
+ * descends through value-enums/structs/tuples/arrays (so `Option(Self)` etc. are
+ * traced, not just direct handle fields).
  */
 function generateRefStructTraversalFunctions(
   context: FunctionGenerationContext
@@ -2454,73 +2931,27 @@ function generateRefStructTraversalFunctions(
         continue; // Skip generic structs
       }
 
-      // Generate traversal function for this struct type
-      const traversalFunctionName = `__yo_traverse_${cName}`;
       emitter.emitLine(
-        `static void ${traversalFunctionName}(void* ptr, void (*visit)(void*)) {`
+        `static void __yo_traverse_${cName}(void* ptr, void (*visit)(void*)) {`
       );
       emitter.emitLine(`  ${cName}* obj = (${cName}*)ptr;`);
-
-      // Visit each reference field in the struct
-      for (const field of runtimeFields) {
-        const fieldName = sanitizeForCIdentifier(field.label);
-        const fieldType = field.type;
-
-        if (isStructType(fieldType) && fieldType.isReferenceSemantics) {
-          // This field is a direct reference to another object
-          emitter.emitLine(`  if (obj->${fieldName}) {`);
-          emitter.emitLine(`    visit(obj->${fieldName});`);
-          emitter.emitLine(`  }`);
-        } else if (isEnumType(fieldType)) {
-          // This field is an enum - we need to check if any variants contain references
-          const enumType = fieldType as EnumType;
-
-          // Check if this enum is optimized as a nullable pointer
-          const nullablePointerType = canOptimizeAsNullablePointer(enumType);
-
-          if (nullablePointerType) {
-            // This is a nullable pointer optimization - just check if it's non-null
-            // No need to visit the pointer itself since it's not a reference-counted object
-            // (it's just a raw pointer or primitive value wrapped in Option)
-          } else if (canOptimizeAsSimpleEnum(enumType)) {
-            // Simple enums have no variant data, so no references to traverse
-          } else {
-            // Generate switch statement to handle enum variants
-            emitter.emitLine(`  switch (obj->${fieldName}.tag) {`);
-
-            for (const variant of enumType.variants || []) {
-              // Check if any of the variant's fields contain references
-              if (variant.fields && variant.fields.length > 0) {
-                const rcFields = variant.fields.filter(
-                  (f) => isStructType(f.type) && f.type.isReferenceSemantics
-                );
-
-                if (rcFields.length > 0) {
-                  const enumConstantName = getEnumVariantCName(
-                    enumType,
-                    variant.name,
-                    context
-                  );
-                  emitter.emitLine(`  case ${enumConstantName}:`);
-
-                  // Visit ALL reference-counted fields in this variant
-                  for (const variantField of rcFields) {
-                    emitter.emitLine(
-                      `    if (obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(variantField.label)}) {`
-                    );
-                    emitter.emitLine(
-                      `      visit(obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(variantField.label)});`
-                    );
-                    emitter.emitLine(`    }`);
-                  }
-
-                  emitter.emitLine(`    break;`);
-                }
-              }
-            }
-
-            emitter.emitLine(`  }`);
-          }
+      const traceCName = findUserTraceMethodForType(type, type.env, context);
+      if (traceCName) {
+        // A type with an explicit Trace impl (a container whose elements live in a
+        // malloc'd buffer a field walk can't reach): delegate to its monomorphized
+        // `trace`. `(void*)visit` becomes the GcTracer newtype (uint8_t*)
+        // implicitly; the impl iterates its buffer and re-enters tracing per
+        // element via `tracer.visit` (__yo_gc_trace_child).
+        emitter.emitLine(`  ${traceCName}(obj, (void*)visit);`);
+      } else {
+        for (const field of runtimeFields) {
+          emitTraverseValue(
+            `obj->${sanitizeForCIdentifier(field.label)}`,
+            field.type,
+            context,
+            new Set<string>(),
+            "visit"
+          );
         }
       }
       emitter.emitLine(`}`);
@@ -2655,6 +3086,211 @@ export function generateRefStructConstructorFunctions(
         emitter.emitLine(`  __yo_gc_register(obj);`);
       }
 
+      emitter.emitLine(`  return obj;`);
+      emitter.emitLine(`}`);
+      emitter.emitLine(``);
+    }
+  }
+}
+
+/**
+ * Generate cycle-GC traversal functions for reference-semantics enums.
+ * `__yo_traverse_${cName}` switches on the active variant's tag and `visit()`s
+ * each reference-counted field of that variant (mirrors the enum-field handling
+ * in generateRefStructTraversalFunctions, but for the ref-enum's own variants
+ * accessed through the handle pointer). plans/REF_REFERENCE_SEMANTICS.md Phase 3.
+ */
+function generateRefEnumTraversalFunctions(
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
+    if (!(isEnumType(type) && type.isReferenceSemantics)) {
+      continue;
+    }
+    // Atomic ref-enums never participate in cycle GC.
+    if (type.isAtomicRc) {
+      continue;
+    }
+    if (typeContainsSomeType(type)) {
+      continue;
+    }
+
+    emitter.emitLine(
+      `static void __yo_traverse_${cName}(void* ptr, void (*visit)(void*)) {`
+    );
+    // `${cName}` is the struct-VALUE typedef (getTypeString adds the `*`), so the
+    // handle is `${cName}*` — cast accordingly (matches the ref-struct traversal).
+    emitter.emitLine(`  ${cName}* obj = (${cName}*)ptr;`);
+    const traceCName = findUserTraceMethodForType(type, type.env, context);
+    if (traceCName) {
+      // A ref-enum with an explicit Trace impl — delegate to it (same as structs).
+      emitter.emitLine(`  ${traceCName}(obj, (void*)visit);`);
+      emitter.emitLine(`}`);
+      emitter.emitLine(``);
+      continue;
+    }
+    emitter.emitLine(`  switch (obj->tag) {`);
+    for (const variant of type.variants) {
+      const fields = (variant.fields ?? []).filter((f) =>
+        typeContainsRcType(f.type)
+      );
+      if (fields.length > 0) {
+        emitter.emitLine(
+          `  case ${getEnumVariantCName(type, variant.name, context)}:`
+        );
+        for (const f of fields) {
+          emitTraverseValue(
+            `obj->data.${variant.name}.${sanitizeForCIdentifier(f.label)}`,
+            f.type,
+            context,
+            new Set<string>(),
+            "visit"
+          );
+        }
+        emitter.emitLine(`    break;`);
+      }
+    }
+    emitter.emitLine(`  }`);
+    emitter.emitLine(`}`);
+    emitter.emitLine(``);
+  }
+}
+
+/**
+ * Generate per-variant constructor functions for reference-semantics enums
+ * (`ref(enum(…))`). Each `__yo_new_${cName}_${variant}(fields…)` heap-allocates
+ * the RC handle, initializes the reference-count header (and GC fields / dispose
+ * dispatch, mirroring the object path), sets the tag and the active variant's
+ * data, and returns the pointer. plans/REF_REFERENCE_SEMANTICS.md Phase 3.
+ */
+export function generateRefEnumConstructorFunctions(
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  // Cycle-GC traversal functions (only when cycle detection is needed).
+  if (context.needsCycleGC) {
+    generateRefEnumTraversalFunctions(context);
+  }
+
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
+    if (!(isEnumType(type) && type.isReferenceSemantics)) {
+      continue;
+    }
+    // Skip generic enums that still contain SomeType parameters.
+    if (typeContainsSomeType(type)) {
+      continue;
+    }
+
+    // Dispose dispatch is shared across all variants of this enum (it depends
+    // on the type, not the variant). Mirrors the object constructor logic.
+    const disposeInternalFunctionElement = type.trait.fields.find(
+      (field) =>
+        field.label === BuiltinFunctions.___dispose[0]! &&
+        field.assignedValue &&
+        isFunctionValue(field.assignedValue)
+    );
+    let disposeId: number | undefined;
+    let disposeFunctionCName: string | undefined;
+    if (
+      disposeInternalFunctionElement &&
+      isFunctionValue(disposeInternalFunctionElement.assignedValue)
+    ) {
+      const disposeFunctionValue = disposeInternalFunctionElement.assignedValue;
+      disposeFunctionCName =
+        context.functions[disposeFunctionValue.funcId]?.cName ||
+        disposeFunctionValue.funcId;
+      if (!context.needsCycleGC) {
+        if (!context.disposeTypeIds) {
+          context.disposeTypeIds = new Map();
+          context.nextDisposeTypeId = 1;
+        }
+        disposeId = context.disposeTypeIds.get(disposeFunctionCName);
+        if (disposeId === undefined) {
+          disposeId = context.nextDisposeTypeId!;
+          context.nextDisposeTypeId = disposeId + 1;
+          context.disposeTypeIds.set(disposeFunctionCName, disposeId);
+        }
+      }
+    }
+
+    const registersWithGc =
+      context.needsCycleGC &&
+      !type.isAtomicRc &&
+      canTypeFormRcCycle(type, new Set(), type.env);
+
+    for (const variant of type.variants) {
+      // Per-VARIANT registration gate: even in a cycle-capable ref-enum, a
+      // variant whose fields cannot reach back to the enum has no outgoing
+      // RC edge that could close a cycle — instances of it can be pointed
+      // AT but can never be cycle MEMBERS, so they skip GC tracking. This
+      // keeps the hot leaf variants (EvalValue.IntLit/StrLit/BoolVal,
+      // TypeValue primitive leaves, …) out of the tracked list entirely:
+      // no cycle can route THROUGH an unregistered node because any field
+      // that could reach a cycle-capable graph makes this predicate true.
+      const variantRegistersWithGc =
+        registersWithGc &&
+        (variant.fields ?? []).some((field) =>
+          typeCanFormCyclicRcReference(field.type, type, new Set(), type.env)
+        );
+      const nonUnitFields = (variant.fields ?? []).filter(
+        (field) => !isUnitType(field.type)
+      );
+      const params = nonUnitFields
+        .map((field) => {
+          const fieldType = getTypeString(field.type, context);
+          const fieldName = sanitizeForCIdentifier(field.label);
+          return `${fieldType} ${fieldName}`;
+        })
+        .join(", ");
+      const constructorName = `__yo_new_${cName}_${variant.name}`;
+
+      emitter.emitLine(`static ${cName}* ${constructorName}(${params}) {`);
+      emitter.emitLine(
+        `  ${cName}* obj = (${cName}*)__yo_malloc(sizeof(${cName}));`
+      );
+      emitter.emitLine(`  obj->header.ref_count = 1;`);
+      emitter.emitLine(`  obj->header.borrow_count = 0;`);
+      if (context.needsCycleGC && !type.isAtomicRc) {
+        emitter.emitLine(`  obj->header.gc_flags = 0;`);
+        emitter.emitLine(`  obj->header.gc_mark = __YO_GC_UNMARKED;`);
+        emitter.emitLine(`  obj->header.gc_next = NULL;`);
+        emitter.emitLine(`  obj->header.gc_prev = NULL;`);
+      }
+      if (disposeFunctionCName) {
+        if (context.needsCycleGC) {
+          emitter.emitLine(
+            `  obj->header.dispose_fn = (void(*)(void*))${disposeFunctionCName};`
+          );
+        } else {
+          emitter.emitLine(`  obj->header.type_id = ${disposeId};`);
+        }
+      } else {
+        if (context.needsCycleGC) {
+          emitter.emitLine(`  obj->header.dispose_fn = NULL;`);
+        } else {
+          emitter.emitLine(`  obj->header.type_id = 0;`);
+        }
+      }
+      if (context.needsCycleGC && !type.isAtomicRc) {
+        emitter.emitLine(`  obj->header.traverse_fn = __yo_traverse_${cName};`);
+      }
+      emitter.emitLine(
+        `  obj->tag = ${getEnumVariantCName(type, variant.name, context)};`
+      );
+      for (const field of nonUnitFields) {
+        const fieldName = sanitizeForCIdentifier(field.label);
+        emitter.emitLine(
+          `  obj->data.${variant.name}.${fieldName} = ${fieldName};`
+        );
+      }
+      if (variantRegistersWithGc) {
+        emitter.emitLine(`  __yo_gc_register(obj);`);
+      }
       emitter.emitLine(`  return obj;`);
       emitter.emitLine(`}`);
       emitter.emitLine(``);

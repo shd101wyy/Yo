@@ -1,4 +1,5 @@
 pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
 test("Test comments", {
   /*
     This is a block comment
@@ -263,7 +264,7 @@ test("Test type auto derive Send", {
   comptime_assert(Type.impls(i32, Send));
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Send) == true);
-  MyBox :: object(v : i32);
+  MyBox :: ref(struct(v : i32));
   comptime_assert(Type.impls(MyBox, Send) == false);
   GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
   comptime_assert(Type.impls(GenericPoint(i32), Send) == true);
@@ -271,7 +272,7 @@ test("Test type auto derive Send", {
 });
 test("Test Send on pointer-bearing types is conditional on the pointee", {
   // Pre-condition: a non-Send carrier to use as a negative pointee.
-  NonSendCarrier :: object(v : i32);
+  NonSendCarrier :: ref(struct(v : i32));
   comptime_assert(Type.impls(NonSendCarrier, Send) == false);
   // *(T): Send iff T: Send.
   comptime_assert(Type.impls(*(i32), Send) == true);
@@ -323,10 +324,10 @@ test("Test type auto derive Acyclic", {
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Acyclic) == true);
   // Object types that don't form cycles are Acyclic
-  SimpleBox :: object(v : i32);
+  SimpleBox :: ref(struct(v : i32));
   comptime_assert(Type.impls(SimpleBox, Acyclic) == true);
   // Self-referencing object (can form cycle) is NOT Acyclic
-  Node :: object(value : i32, next : Option(Self));
+  Node :: ref(struct(value : i32, next : Option(Self)));
   comptime_assert(Type.impls(Node, Acyclic) == false);
   //
   // Generic struct: Acyclic depends on type parameter
@@ -396,7 +397,7 @@ test("Test type auto derive Comptime", {
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Comptime) == true);
   // Object types are NOT Comptime (reference-counted, runtime-only)
-  MyBox :: object(v : i32);
+  MyBox :: ref(struct(v : i32));
   comptime_assert(Type.impls(MyBox, Comptime) == false);
   // Generic struct: Comptime depends on type parameter
   GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
@@ -417,10 +418,10 @@ test("Test type auto derive Comptime", {
   fn2 :: (fn(comptime(T) : Type, where(T <: Comptime)) -> unit)({
     comptime_assert(Type.impls(T, Comptime));
   });
-  fn3 :: (fn(forall(T : Type), v : T) -> unit)({
+  fn3 :: (fn(generic(T : Type), v : T) -> unit)({
     comptime_assert(Type.impls(T, Comptime) == false);
   });
-  fn4 :: (fn(forall(T : Type), v : T, where(T <: Comptime)) -> unit)({
+  fn4 :: (fn(generic(T : Type), v : T, where(T <: Comptime)) -> unit)({
     comptime_assert(Type.impls(T, Comptime));
   });
   // Recursive type
@@ -513,7 +514,7 @@ test("Test type auto derive Runtime", {
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Runtime) == true);
   // Object types are Runtime
-  MyBox :: object(v : i32);
+  MyBox :: ref(struct(v : i32));
   comptime_assert(Type.impls(MyBox, Runtime) == true);
   // Generic struct: Runtime depends on type parameter
   GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
@@ -533,10 +534,10 @@ test("Test type auto derive Runtime", {
   fn2 :: (fn(comptime(T) : Type, where(T <: !(Runtime))) -> unit)({
     comptime_assert(Type.impls(T, Runtime) == false);
   });
-  fn3 :: (fn(forall(T : Type), v : T) -> unit)({
+  fn3 :: (fn(generic(T : Type), v : T) -> unit)({
     comptime_assert(Type.impls(T, Runtime));
   });
-  fn4 :: (fn(forall(T : Type), v : T, where(T <: !(Runtime))) -> unit)({
+  fn4 :: (fn(generic(T : Type), v : T, where(T <: !(Runtime))) -> unit)({
     comptime_assert(Type.impls(T, Runtime) == false);
   });
   // Self recursive types
@@ -845,7 +846,7 @@ test("Test 'struct'", {
       struct(value : T)
     );
     impl(
-      forall(T : Type),
+      generic(T : Type),
       MyStruct(T),
       new : (fn(v : T) -> Self)(Self(v)),
       another_new : (fn(v : T) -> Self)(
@@ -1028,9 +1029,9 @@ test("Test raw pointer", {
     {
       ptr := (*(i32))(malloc(sizeof(i32) * 2).unwrap());
       ptr.* = 42;
-      (ptr &+ 1).* = 84;
+      (ptr.add(1)).* = 84;
       assert(ptr.* == 42);
-      assert((ptr &+ 1).* == 84);
+      assert((ptr.add(1)).* == 84);
       free(.Some(*(void)(ptr)));
     };
   };
@@ -1061,7 +1062,7 @@ test("Test raw pointer", {
   {
     comptime_expect_error(
       FuncType ::
-        fn() -> void // Cannot use DST directly in function return type
+        (fn() -> void) // Cannot use DST directly in function return type
     );
     use_void_ptr :: (fn(ptr : *(void)) -> unit)({
       comptime_expect_error(
@@ -1203,17 +1204,18 @@ test("Test 'match'", {
         (w * h)
     )
   );
-  // This should now fail - trying to use .Circle without destructuring
-  comptime_expect_error(
-    invalid_area :: (fn(shape : Shape) -> i32)(
-      match(
-        shape,
-        .Circle => 0,
-        // ERROR: Circle has fields and must be destructured
-        .Rectangle => 0 // ERROR: Rectangle has fields and must be destructured
-      )
+  // Bare `.Variant` (and `.Variant({})`) is allowed even for variants WITH
+  // fields: it matches the variant and binds none of its fields.
+  shape_kind :: (fn(shape : Shape) -> i32)(
+    match(
+      shape,
+      .Circle => 0,
+      // bind nothing
+      .Rectangle({}) => 1 // empty-curly: bind nothing
     )
   );
+  assert(shape_kind(Shape.Circle(3)) == 0);
+  assert(shape_kind(Shape.Rectangle(4, 5)) == 1);
   c1 := Color.Red;
   c2 := Color.Green;
   c3 := Color.Blue;
@@ -1958,7 +1960,7 @@ test("Test 'Impl'", {
     Id :: trait(
       id : (fn(self : Self) -> Self)
     );
-    test1 :: (fn(forall((T : Type) = Impl(Id)), x : T) -> T)({
+    test1 :: (fn(generic((T : Type) = Impl(Id)), x : T) -> T)({
       y := (typeof(x) <: Id).id(x);
       return(y.id());
     });
@@ -2101,18 +2103,18 @@ test("Test 'comptime_fn' function call and function overloading", {
     )
   );
   impl(
-    forall(T : Type),
+    generic(T : Type),
     MyOption(T),
     unwrap : (fn(self : Self) -> T)(
       match(
         self,
         .Some(value) => value,
-        .None => panic("Called unwrap on a None value")
+        .None => __yo_panic("Called unwrap on a None value")
       )
     )
   );
   impl(
-    forall(T : Type),
+    generic(T : Type),
     where(T <: Comptime),
     MyOption(T),
     comptime_unwrap : (fn(comptime(self) : Self) -> comptime(T))(

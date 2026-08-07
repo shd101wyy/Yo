@@ -1,0 +1,505 @@
+//! Compile-time value → C literal emission — mirrors
+//! `src/codegen/exprs/comptime-value.ts` (`generateComptimeValue`).
+//!
+//! GAP-8 RE-ARCHITECTURE: TS reads the value's own type (`value.type`,
+//! `value.tag`). yo-self `EvalValue` is type-less (IntLit/FloatLit store raw
+//! text; EnumVal/StructVal carry no TypeValue), so the resolved type is
+//! THREADED IN as the `ty` parameter — callers pass the ExprInfo type
+//! (`ei.ty` / `ei.converted_runtime_type`). Numeric suffix/format derive from
+//! `ty`; enum/struct/tuple/array cName + field types come from `ty`'s
+//! structure. The TS enum/struct sub-helpers are inlined here so all nested
+//! value emission is `recur` (no mutual recursion across helpers).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ EvalValue } :: import("../../value.yo");
+{ TypeValue, get_struct_field_comptime_flags } :: import("../../types/definitions.yo");
+{ is_unit_type, is_str_type, is_reference_enum_type } :: import("../../types/guards.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{
+  CodeGenContext,
+  type_key,
+  get_type_string,
+  get_enum_variant_c_name,
+  sanitize_for_c_identifier,
+  can_optimize_as_nullable_pointer,
+  can_optimize_as_simple_enum
+} :: import("../utils/index.yo");
+/// C integer-literal suffix for an integer type (ValueTag suffix logic, driven
+/// by the threaded type).
+_int_suffix :: (fn(ty : TypeValue) -> str)(
+  match(
+    ty,
+    .Int(bits, signed) => cond(
+      ((bits == u8(64)) && !(signed)) => "ULL",
+      ((bits == u8(64)) && signed) => "LL",
+      ((bits == u8(32)) && !(signed)) => "U",
+      true => ""
+    ),
+    .Usize => "ULL",
+    .Isize => "LL",
+    _ => ""
+  )
+);
+/// True if the type is a 32-bit float (needs the `f` suffix).
+_is_f32 :: (fn(ty : TypeValue) -> bool)(
+  match(ty,.Float(bits) => (bits == u8(32)), _ => false)
+);
+/// True if `ty` is the comptime_string type.
+_is_comptime_string :: (fn(ty : TypeValue) -> bool)(
+  match(ty,.ComptimeString => true, _ => false)
+);
+/// Strip the surrounding `"` delimiters that yo-self's `StrLit` convention
+/// keeps (see evaluator/values/string.yo:5 — `StrLit.raw` stores the raw token
+/// text *including* the quotes, unlike TS which strips them via `JSON.parse`).
+/// Codegen renders the string CONTENT, so the delimiters must come off here
+/// before re-escaping / length computation. Defensive: only strips when both
+/// ends are `"` and the string is at least 2 bytes (synthetic StrLits built
+/// without delimiters pass through unchanged).
+_strip_str_delims :: (fn(raw : String) -> String)({
+  // BYTE count, NOT String.len() (which counts CHARACTERS — std skips UTF-8
+  // continuation bytes): this function walks BYTES, and a char-counted bound
+  // made byte_at(n-1) miss the closing quote on multibyte content (strip
+  // no-op) while _c_string_literal below truncated the tail bytes — the
+  // em-dash template corruption in the stage-2 binary.
+  n := raw.as_bytes().len();
+  if((n >= usize(2)) && ((raw.byte_at(usize(0)) == u8(34)) && (raw.byte_at(n - usize(1)) == u8(34))), {
+    // Byte-exact strip of the first/last byte (the ASCII `"` delimiters).
+    // `len()`/`byte_at` are byte-indexed but `substring` is rune-indexed, so
+    // rebuild from the inner byte range to stay correct for multibyte UTF-8.
+    bytes := raw.as_bytes();
+    inner := ArrayList(u8).new();
+    (i : usize) = usize(1);
+    while(i < (n - usize(1)), {
+      _p := inner.push(match(bytes.get(i),.Some(b) => b,.None => u8(0)));
+      i = (i + usize(1));
+    });
+    String.from_bytes(inner)
+  }, raw.clone())
+});
+/// Produce a C string literal `"..."` from raw bytes, escaping C-special
+/// characters. The faithful stand-in for TS `JSON.stringify(value)`.
+_c_string_literal :: (fn(raw : String) -> String)({
+  out := String.from("\"");
+  // BYTE count (see _strip_str_delims note): this loop reads raw BYTES.
+  n := raw.as_bytes().len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    b := raw.byte_at(i);
+    cond(
+      (b == u8(34)) => out.push_str("\\\""),
+      (b == u8(92)) => out.push_str("\\\\"),
+      (b == u8(10)) => out.push_str("\\n"),
+      (b == u8(9)) => out.push_str("\\t"),
+      (b == u8(13)) => out.push_str("\\r"),
+      true => out.push_byte(b)
+    );
+    i = (i + usize(1));
+  });
+  out.push_str("\"");
+  out
+});
+/// Find a variant's index in an EnumT by name (or `.None`).
+_enum_variant_index :: (fn(enum_ty : TypeValue, name : String) -> Option(usize))(
+  match(
+    enum_ty,
+    .EnumT({ variant_names }) => {
+      n := variant_names.len();
+      (i : usize) = usize(0);
+      (found : Option(usize)) =.None;
+      while(i < n, {
+        match(
+          variant_names.get(i),
+          .Some(vn) => if(vn == name, {
+            found =.Some(i);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => Option(usize).None
+  )
+);
+/// True iff `t` is one of the extern("Yo") io-builtin fn types (TS's
+/// `Func.ioBuiltin` marker set: io.async / io.await / io.state / io.spawn and
+/// JoinHandle.await). These are markers with no C body — every call site is
+/// inlined into direct runtime calls — so a struct-literal field of one of
+/// these types lowers to a NULL fn pointer.
+_is_io_builtin_fn_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Func({ meta : __ibm1 }) => match(
+      __ibm1.*.is_extern,
+      .Some(lang) => if(
+        lang == "yo",
+        match(
+          __ibm1.*.extern_name,
+          .Some(en) => (
+            (
+              ((en == "__yo_io_async") || (en == "__yo_io_await")) ||
+                ((en == "__yo_io_state") || (en == "__yo_io_spawn"))
+            ) ||
+              (en == "__yo_join_handle_await")
+          ),
+          .None => false
+        ),
+        false
+      ),
+      .None => false
+    ),
+    _ => false
+  )
+);
+/// `generate_comptime_value` HEAP-ALLOCATES for exactly two shapes: a
+/// reference-semantics enum variant becomes `__yo_new_<cName>_<Variant>(…)` and
+/// a reference-semantics struct / `object` value becomes `__yo_new_<cName>(…)`.
+/// Both malloc with `ref_count = 1`, so the expression owns an RC value and
+/// needs a C binding to hang its `___drop` on. Every other comptime value
+/// renders as a literal or a compound literal and owns nothing — materializing
+/// one into a temp would make the scope-end pass emit a `___drop` against
+/// memory that was never allocated.
+///
+/// Keep in sync with the branches in `generate_comptime_value` below, and with
+/// `can_optimize_as_simple_enum` / `can_optimize_as_nullable_pointer` — both
+/// collapse a ref-enum into a non-allocating form: a plain C enum constant, or
+/// `NULL` / a bare pointer.
+///
+/// Mirrors `comptimeValueAllocatesRcObject` in
+/// `src/codegen/exprs/comptime-value.ts`.
+comptime_value_allocates_rc_object :: (fn(value : EvalValue, ty : TypeValue) -> bool)(
+  match(
+    value,
+    .EnumVal(_, _) => cond(
+      (!(is_reference_enum_type(ty))) => false,
+      can_optimize_as_nullable_pointer(ty).is_some() => false,
+      can_optimize_as_simple_enum(ty) => false,
+      true => true
+    ),
+    .StructVal(_, _, field_values) => match(
+      ty,
+      .Struct({ field_types, is_reference_semantics, is_newtype }) => cond(
+        // A newtype renders as a cast over its single underlying field.
+        ((is_newtype && (field_types.len() == usize(1))) && (field_values.len() == usize(1))) => false,
+        true => is_reference_semantics
+      ),
+      _ => false
+    ),
+    _ => false
+  )
+);
+/// Generate the C literal/initializer for a compile-time value of type `ty`.
+/// Mirrors `generateComptimeValue`. Self-recursion via recur.
+generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : CodeGenContext) -> String)(
+  match(
+    value,
+    .IntLit(raw) => {
+      out := raw.clone();
+      out.push_str(_int_suffix(ty));
+      out
+    },
+    .FloatLit(raw) => {
+      // A C floating constant is already float-typed if it has a radix point
+      // (`.`) OR an exponent (`e`/`E`). yo-self float raws come from f64
+      // `.to_string()` (C `%g`), which renders large magnitudes in exponent
+      // form (`1e+09`) — unlike TS's JS `Number.toString()` (`1000000000`).
+      // The `.`-only check (mirroring comptime-value.ts:60) then appended
+      // `.0` to an exponent form, producing invalid C like `1e+09.0`. Treat
+      // `e`/`E` as a float marker too so only bare integer-form raws get `.0`.
+      has_float_marker := (
+        (raw.contains(".") || raw.contains("e")) || raw.contains("E")
+      );
+      base := if(has_float_marker, raw.clone(), {
+        r := raw.clone();
+        r.push_str(".0");
+        r
+      });
+      if(_is_f32(ty), {
+        base.push_str("f");
+      });
+      base
+    },
+    .BoolVal(b) => if(b, String.from("true"), String.from("false")),
+    .StrLit(raw_with_delims) => {
+      // yo-self's StrLit keeps the surrounding `"` delimiters; codegen emits
+      // the CONTENT, so strip them before re-escaping / length computation.
+      raw := _strip_str_delims(raw_with_delims);
+      cond(
+        (is_str_type(ty) || _is_comptime_string(ty)) => {
+          lit := String.from("(__yo_str){ .ptr = (const uint8_t*)");
+          lit.push_string(_c_string_literal(raw.clone()));
+          lit.push_str(", .len = ");
+          // __yo_str .len is BYTES.
+          lit.push_string(raw.as_bytes().len().to_string());
+          lit.push_str(" }");
+          lit
+        },
+        true => _c_string_literal(raw)
+      )
+    },
+    // --- enum (nullable-pointer / simple / tagged-union) ---
+    .EnumVal(variant_raw, fields) => {
+      // An enum VALUE's variant name carries the leading `.` of the `.Variant`
+      // source form (e.g. `.Just`); the EnumT's variant_names are clean. Strip
+      // it so `_enum_variant_index` finds the variant (else None → the payload
+      // `.data` is silently dropped) and so the `.data.<variant>` field name is
+      // valid. Mirrors the same strip in get_enum_variant_c_name.
+      variant := if(variant_raw.starts_with("."), variant_raw.substring(usize(1), variant_raw.len()), variant_raw.clone());
+      ptr_opt := can_optimize_as_nullable_pointer(ty);
+      cond(
+        (ptr_opt.is_some() && (fields.len() == usize(0))) => String.from("NULL"),
+        (ptr_opt.is_some() && (fields.len() == usize(1))) => match(
+          ptr_opt,
+          .Some(pt) => recur(match(fields.get(usize(0)),.Some(v) => v,.None => EvalValue.UnitVal), pt, context),
+          .None => String.from("NULL")
+        ),
+        can_optimize_as_simple_enum(ty) => get_enum_variant_c_name(ty, variant.clone(), context),
+        true => {
+          c_name := match(context.get_type_c_name(type_key(ty)),.Some(cn) => cn,.None => String.from("__yo_unknown_enum"));
+          variant_tag := get_enum_variant_c_name(ty, variant.clone(), context);
+          // Reference-semantics enums (`ref(enum(…))`) heap-allocate via a
+          // per-variant constructor `__yo_new_<cName>_<variant>(positional…)`;
+          // value enums use a designated compound literal. Mirrors the
+          // designated/positional split in `generateComptimeValue`.
+          is_ref := is_reference_enum_type(ty);
+          vidx := _enum_variant_index(ty, variant.clone());
+          inits := String.from("");
+          positional := String.from("");
+          (any_field : bool) = false;
+          match(
+            ty,
+            .EnumT({ variant_fields, variant_field_labels }) => match(
+              vidx,
+              .Some(vi) => {
+                vftys := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+                vflabels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
+                nf := fields.len();
+                (fi : usize) = usize(0);
+                while(fi < nf, {
+                  fty := match(vftys.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+                  if(!(is_unit_type(fty)), {
+                    fcode := match(fields.get(fi),.Some(fv) => recur(fv, fty, context),.None => String.from(""));
+                    if(any_field, {
+                      inits.push_str(", ");
+                      positional.push_str(", ");
+                    });
+                    any_field = true;
+                    flabel := match(vflabels.get(fi),.Some(l) => l,.None => String.from(""));
+                    inits.push_str(".");
+                    inits.push_string(sanitize_for_c_identifier(flabel, false));
+                    inits.push_str(" = ");
+                    inits.push_string(fcode.clone());
+                    positional.push_string(fcode);
+                  });
+                  fi = (fi + usize(1));
+                });
+              },
+              .None => ()
+            ),
+            _ => ()
+          );
+          cond(
+            is_ref => {
+              out := String.from("__yo_new_");
+              out.push_string(c_name);
+              out.push_str("_");
+              out.push_string(variant.clone());
+              out.push_str("(");
+              out.push_string(positional);
+              out.push_str(")");
+              out
+            },
+            true => {
+              out := String.from("(");
+              out.push_string(c_name);
+              out.push_str("){ .tag = ");
+              out.push_string(variant_tag);
+              if(any_field, {
+                out.push_str(", .data = { .");
+                out.push_string(variant.clone());
+                out.push_str(" = { ");
+                out.push_string(inits);
+                out.push_str(" } }");
+              });
+              out.push_str(" }");
+              out
+            }
+          )
+        }
+      )
+    },
+    .TupleVal(fields) => match(
+      ty,
+      .Tuple({ field_types }) => {
+        out := String.from("(");
+        out.push_string(get_type_string(ty, context));
+        out.push_str("){ ");
+        n := fields.len();
+        (i : usize) = usize(0);
+        while(i < n, {
+          if(i > usize(0), {
+            out.push_str(", ");
+          });
+          fty := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          out.push_str("._");
+          out.push_string(i.to_string());
+          out.push_str(" = ");
+          match(fields.get(i),.Some(fv) => out.push_string(recur(fv, fty, context)),.None => ());
+          i = (i + usize(1));
+        });
+        out.push_str(" }");
+        out
+      },
+      _ => String.from("/* skip generating tuple value */")
+    ),
+    .ArrayVal(elements) => match(
+      ty,
+      .Array({ element }) => {
+        out := String.from("(");
+        out.push_string(get_type_string(ty, context));
+        out.push_str("){ .data = { ");
+        n := elements.len();
+        (i : usize) = usize(0);
+        while(i < n, {
+          if(i > usize(0), {
+            out.push_str(", ");
+          });
+          match(elements.get(i),.Some(ev) => out.push_string(recur(ev, element, context)),.None => ());
+          i = (i + usize(1));
+        });
+        out.push_str(" } }");
+        out
+      },
+      _ => String.from("/* skip generating array value */")
+    ),
+    // --- struct (newtype / object-constructor / plain literal) ---
+    .StructVal(_, field_names, field_values) => match(
+      ty,
+      .Struct({ id, field_types, is_reference_semantics, is_newtype }) => {
+        c_name := match(context.get_type_c_name(type_key(ty)),.Some(cn) => cn,.None => String.from("__yo_unknown_struct"));
+        // Comptime-only field flags, by FULL declaration index. TS pairs
+        // `type.fields[i]` with `value.fields[i]` and then FILTERS to
+        // `getRuntimeStructFields` (comptime-value.ts:276-298), so comptime-only
+        // fields are erased from the emitted literal / constructor args exactly
+        // as they are erased from the C struct layout. Both branches below
+        // previously indexed by the RUNTIME position (ref-semantics) or skipped
+        // only unit fields (plain literal) — a struct with a comptime-only
+        // field (e.g. `tag :: "..."`) emitted a `.tag = ...` designator that
+        // does not exist in the C type (tests/module_struct_unification.test.yo
+        // "Phase 1: comptime-only struct fields are erased from C layout").
+        ct_flags := get_struct_field_comptime_flags(id.clone());
+        cond(
+          (is_newtype && ((field_types.len() == usize(1)) && (field_values.len() == usize(1)))) => {
+            uty := match(field_types.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
+            uval := match(field_values.get(usize(0)),.Some(v) => v,.None => EvalValue.UnitVal);
+            out := String.from("((");
+            out.push_string(c_name);
+            out.push_str(")(");
+            out.push_string(recur(uval, uty, context));
+            out.push_str("))");
+            out
+          },
+          is_reference_semantics => {
+            out := String.from("__yo_new_");
+            out.push_string(c_name);
+            out.push_str("(");
+            nf := field_types.len();
+            (i : usize) = usize(0);
+            (any_arg : bool) = false;
+            while(i < nf, {
+              field_is_ct := match(
+                ct_flags,
+                .Some(flags) => match(flags.get(i),.Some(f) => f,.None => false),
+                .None => false
+              );
+              if(!(field_is_ct), {
+                if(any_arg, {
+                  out.push_str(", ");
+                });
+                any_arg = true;
+                fty := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+                match(field_values.get(i),.Some(fv) => out.push_string(recur(fv, fty, context)),.None => ());
+              });
+              i = (i + usize(1));
+            });
+            out.push_str(")");
+            out
+          },
+          true => {
+            out := String.from("(");
+            out.push_string(c_name);
+            out.push_str("){ ");
+            n := field_names.len();
+            (i : usize) = usize(0);
+            (any : bool) = false;
+            while(i < n, {
+              fty := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+              field_is_ct2 := match(
+                ct_flags,
+                .Some(flags) => match(flags.get(i),.Some(f) => f,.None => false),
+                .None => false
+              );
+              if(!(is_unit_type(fty)) && !(field_is_ct2), {
+                if(any, {
+                  out.push_str(", ");
+                });
+                any = true;
+                flabel := match(field_names.get(i),.Some(l) => l,.None => String.from(""));
+                out.push_str(".");
+                out.push_string(sanitize_for_c_identifier(flabel, false));
+                out.push_str(" = ");
+                match(field_values.get(i),.Some(fv) => out.push_string(recur(fv, fty, context)),.None => ());
+              });
+              i = (i + usize(1));
+            });
+            out.push_str(" }");
+            out
+          }
+        )
+      },
+      _ => String.from("/* skip generating struct value */")
+    ),
+    .TypeVal(t) => if(
+      is_str_type(t),
+      String.from("__yo_str"),
+      match(
+        context.get_type_c_name(type_key(t)),
+        .Some(cn) => cn,
+        .None => {
+          c := String.from("/* Error: no C type name for ");
+          c.push_string(type_to_string(t));
+          c.push_str(" */");
+          c
+        }
+      )
+    ),
+    // A first-class function VALUE lowers to its registered C function name —
+    // i.e. a function pointer. Mirrors `comptime-value.ts:266-283`
+    // (`isFunctionValue(value)` → `context.functions[value.funcId].cName`). The
+    // function must have been collected for codegen; if not, emit a diagnostic.
+    .FuncVal(__fvd1, _) => match(
+      context.get_function_entry(__fvd1.*.func_id),
+      .Some(e) => e.c_name,
+      .None => {
+        c := String.from("/* Error: no C function name for func value ");
+        c.push_string(__fvd1.*.func_id);
+        c.push_str(" */");
+        c
+      }
+    ),
+    // An io-builtin fn field (Io / JoinHandle struct literal) arrives as an
+    // UnknownVal carrying the extern("Yo") fn type (extern decls bind
+    // `create_unknown_val_with_name(field_ty_with_extern, …)`) — emit a NULL
+    // fn pointer so the initializer is valid C. Mirrors comptime-value.ts:
+    // 304-314 (`UnknownValue` whose own `type.ioBuiltin` is set → "NULL");
+    // the extern("Yo") name on the CARRIED type is yo-self's detection (the
+    // declared field type on the Io struct is a plain unmarked Func).
+    .UnknownVal(unk_ty, _) => if(
+      _is_io_builtin_fn_type(unk_ty) || _is_io_builtin_fn_type(ty),
+      String.from("NULL"),
+      String.from("/* skip generating value */")
+    ),
+    _ => if(_is_io_builtin_fn_type(ty), String.from("NULL"), String.from("/* skip generating value */"))
+  )
+);
+export(generate_comptime_value, comptime_value_allocates_rc_object, _c_string_literal, _strip_str_delims);

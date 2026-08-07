@@ -1,0 +1,62 @@
+// Regression: a REASSIGNED owning local must still be dropped at an early
+// `return` that precedes the reassignment.
+//
+// yo-self's reassignment path (evaluator/exprs/assignment.yo) rebuilt the
+// Variable with `initialized_at_token = <reassignment site>`. TS does the same
+// (assignment.ts:619-633), but TS's persistent envs give every expression a
+// point-in-time snapshot, so a `return` BEFORE the reassignment still sees the
+// original initialization token. yo-self shares ONE mutable Variable (its
+// recorded env is the END-of-scope env), so moving the token forward made
+// `_keep_pending_drop`'s forward-reference guard (codegen/exprs/return.yo)
+// treat the local as not-yet-declared at every earlier return and skip its
+// drop. Fix: a reassignment PRESERVES the first initialization token.
+//
+// This was the dominant compiler leak after the container-dispose fix:
+// `_synthesize_types_impl`'s anti-circularity early return
+// (`return(SynthesizeResult(expected_env : ee, given_env : ge))`) never
+// dropped ee/ge (reassigned later via `ee = res.expected_env`), leaking +1 on
+// both Environments per hit — the envs then pinned their Frame chains
+// (~1.6M Variables on the parser.yo proxy).
+//
+// Observable: `Gc.tracked_count()` with a CYCLABLE ref-struct (Option(Self)
+// field) and counts kept below the GC auto-collect threshold. Pre-fix yo-self
+// leaks both envs per call (count 20); TS and fixed yo-self return to 0.
+{ assert } :: import("std/assert");
+Gc :: import("std/gc");
+{ String } :: import("std/string");
+
+Env :: ref(struct(x : i32, cyc : Option(Self)));
+Res :: ref(struct(expected_env : Env, given_env : Env));
+
+name_of :: (fn(e : Env) -> String)(`n${e.x}`);
+has_pair :: (fn(a : String, b : String) -> bool)(a == b);
+
+// Mirrors _synthesize_types_impl's shape: owning locals bound from params,
+// used in an early-return constructor, and REASSIGNED in a later arm.
+f :: (fn(expected_env : Env, given_env : Env, deep : bool) -> Res)({
+  exp_id := name_of(expected_env);
+  (ee : Env) = expected_env;
+  (ge : Env) = given_env;
+  giv_id := name_of(given_env);
+  if(has_pair(exp_id, giv_id), {
+    return(Res(expected_env : ee, given_env : ge));
+  });
+  if(deep, {
+    res := Res(expected_env : ge, given_env : ee);
+    ee = res.expected_env;
+    ge = res.given_env;
+  });
+  Res(expected_env : ee, given_env : ge)
+});
+
+main :: (fn() -> unit)({
+  (i : i32) = i32(0);
+  while(i < i32(10), {
+    e := Env(x : i, cyc : Option(Env).None);
+    e2 := Env(x : i, cyc : Option(Env).None);
+    r := f(e, e2, false);
+    i = (i + i32(1));
+  });
+  assert(Gc.tracked_count() == u64(0), `expected 0 live tracked objects, got ${Gc.tracked_count()}`);
+});
+export(main);

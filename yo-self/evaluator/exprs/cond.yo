@@ -25,7 +25,13 @@ open(import("std/string"));
   control_flow_of,
   has_control_flow,
   has_any_control_flow,
-  merge_control_flows
+  merge_control_flows,
+  branch_init_log_len,
+  register_arm_init_range,
+  push_branch_group,
+  begin_branch_group_arm,
+  pop_branch_group,
+  expr_info_set_case_executed
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
@@ -39,7 +45,7 @@ open(import("std/string"));
   is_pointer_type,
   is_function_type_and_returns_comptime_value
 } :: import("../../types/guards.yo");
-{ type_contains_some_type } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -326,11 +332,14 @@ evaluate_cond :: (
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(cond_expr_true)),
         .None => (),
         .Some(ci) => {
-          ci.case_executed = Option(bool).Some(true);
+          expr_info_set_case_executed(ci, Option(bool).Some(true));
         }
       );
-      // Evaluate the body.
+      // Evaluate the body (branch-init window recorded for the cross-branch
+      // type checks in merge_and_check_envs).
+      bir_start_t := branch_init_log_len();
       evaluated_body := evaluate_begin_expression(case_body_true, case_env_true, ctx, ArrayList(Variable).new(), false, exn);
+      register_arm_init_range(ast_expr_id(evaluated_body), bir_start_t, branch_init_log_len());
       body_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body));
       body_cf := match(body_info_opt,.Some(bi) => bi.control_flow,.None => Option(ControlFlowFlags).None);
       if(has_any_control_flow(body_cf), {
@@ -343,7 +352,7 @@ evaluate_cond :: (
           }
         );
         result_ty := cond(
-          match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
+          match(ctx.expected_type,.Some(et) => !(type_contains_some_type_deep(et.ty)),.None => false) =>
             match(ctx.expected_type,.Some(et) => et.ty,.None => body_info.ty),
           true => body_info.ty
         );
@@ -379,7 +388,7 @@ evaluate_cond :: (
         env.function_declaration_frame_level = body_info.env.function_declaration_frame_level;
         env.input_string = body_info.env.input_string;
         result_ty := cond(
-          match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
+          match(ctx.expected_type,.Some(et) => !(type_contains_some_type_deep(et.ty)),.None => false) =>
             match(ctx.expected_type,.Some(et) => et.ty,.None => body_info.ty),
           true => body_info.ty
         );
@@ -403,6 +412,9 @@ evaluate_cond :: (
       return_bodies := ArrayList(AstExpr).new();
       (has_runtime_body_val : bool) = false;
       (nb_i : usize) = usize(0);
+      // Sibling-arm inits must not read as prior inits inside later arms
+      // (Impl reassignment rule) — group the arms' branch-init windows.
+      push_branch_group();
       while(nb_i < evaluated_conds.len(), {
         match(
           evaluated_conds.get(nb_i),
@@ -419,12 +431,14 @@ evaluate_cond :: (
                 expr_info_table_get(ctx.expr_info_table, ast_expr_id(ec_item.cond_expr)),
                 .None => (),
                 .Some(ci) => {
-                  ci.case_executed = Option(bool).Some(true);
+                  expr_info_set_case_executed(ci, Option(bool).Some(true));
                 }
               );
               // Evaluate body with is_executing = false (analysis only).
               old_executing := ctx.is_executing;
               ctx.is_executing = false;
+              begin_branch_group_arm();
+              bir_start_a := branch_init_log_len();
               evaluated_case_body := evaluate_begin_expression(
                 ec_item.case_body_expr,
                 ec_item.case_env,
@@ -433,6 +447,7 @@ evaluate_cond :: (
                 false,
                 exn
               );
+              register_arm_init_range(ast_expr_id(evaluated_case_body), bir_start_a, branch_init_log_len());
               ctx.is_executing = old_executing;
               // Consume the case body temp var to avoid phantom drops.
               body_env_for_consume := match(
@@ -484,7 +499,7 @@ evaluate_cond :: (
                   ctx.expected_type,
                   .None => (),
                   .Some(et) => {
-                    // For `-> ref(T)` enclosing functions the body's expected
+                    // For `-> inout(T)` enclosing functions the body's expected
                     // type is lowered to `*(T)` (function_type.yo
                     // `bodyExpectedType`). Cond arms that produce raw `T` (e.g.
                     // a field projection `p.x` of a ref-bound parameter) are
@@ -495,7 +510,7 @@ evaluate_cond :: (
                     is_ptr_relaxed_match := cond(
                       (is_pointer_type(et.ty) && !(is_pointer_type(body_einfo.ty))) => match(
                         et.ty,
-                        .Pointer(child_box) => are_types_compatible(body_einfo.ty, child_box.*),
+                        .Pointer(child_box) => are_types_compatible(body_einfo.ty, child_box),
                         _ => false
                       ),
                       true => false
@@ -556,6 +571,7 @@ evaluate_cond :: (
           }
         );
       });
+      pop_branch_group();
       // Merge all control-flow flags from the arms.
       final_cf := cond(
         (control_flows.len() > usize(0)) => Option(ControlFlowFlags).Some(merge_control_flows(control_flows)),
@@ -596,6 +612,57 @@ evaluate_cond :: (
           );
           fb_i = (fb_i + usize(1));
         });
+        // Impl(...) RESULT rule: arms yielding DIFFERENT closures cannot
+        // unify into one Impl value (static dispatch — TS rejects
+        // `(c : Impl(Fn...)) = cond(a => closureA, b => closureB)`).
+        // Per-arm result captures come from the arm bodies' ExprInfos.
+        {
+          (ir_first_cap : Option(TypeValue)) = Option(TypeValue).None;
+          (ir_i : usize) = usize(0);
+          while(ir_i < filtered_bodies.len(), {
+            ir_body := match(filtered_bodies.get(ir_i),.Some(b) => b,.None => make_err_expr());
+            match(
+              expr_info_table_get(ctx.expr_info_table, ast_expr_id(ir_body)),
+              .Some(ir_bi) => match(
+                ir_bi.capture_type,
+                .Some(ir_cap) => {
+                  match(
+                    ir_first_cap,
+                    .None => {
+                      ir_first_cap = Option(TypeValue).Some(ir_cap);
+                    },
+                    .Some(ir_fc) => {
+                      ir_conflict := match(
+                        ir_fc,
+                        .Struct({ id : ir_fid }) => match(
+                          ir_cap,
+                          .Struct({ id : ir_cid }) => ((ir_fid.len() > usize(0)) && (ir_fid != ir_cid)),
+                          _ => false
+                        ),
+                        _ => false
+                      );
+                      if(ir_conflict, {
+                        exn.throw(
+                          dyn(
+                            format_error_message(
+                              ast_expr_token(ir_body),
+                              String.from("Branches produce different concrete closure types for an Impl(...) result. Impl(...) uses static dispatch and requires the same concrete type across branches. Consider using Dyn(...) for dynamic dispatch if different concrete types are needed."),
+                              false,
+                              .None
+                            )
+                          )
+                        );
+                      });
+                    }
+                  );
+                },
+                .None => ()
+              ),
+              .None => ()
+            );
+            ir_i = (ir_i + usize(1));
+          });
+        };
         env = merge_and_check_envs(env, filtered_bodies, ctx, exn);
         // Determine the compile-time value.
         result_val := cond(
@@ -603,7 +670,7 @@ evaluate_cond :: (
           true => Option(EvalValue).Some(create_unknown_val(vts.ty))
         );
         result_ty := cond(
-          match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
+          match(ctx.expected_type,.Some(et) => !(type_contains_some_type_deep(et.ty)),.None => false) =>
             match(ctx.expected_type,.Some(et) => et.ty,.None => vts.ty),
           true => vts.ty
         );
@@ -670,7 +737,7 @@ evaluate_cond :: (
                           match(
                             ft,
                             .Func({ result : result_box }) => {
-                              return_type = Option(TypeValue).Some(result_box.*);
+                              return_type = Option(TypeValue).Some(result_box);
                             },
                             _ => ()
                           );

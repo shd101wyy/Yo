@@ -210,7 +210,7 @@ describe("renderTypeMd", () => {
       makeType({
         impls: [
           {
-            signature: "impl(forall(T : Type), where(T <: Send), List(T))",
+            signature: "impl(generic(T : Type), where(T <: Send), List(T))",
             methodNames: ["size", "is_empty"],
           },
         ],
@@ -221,7 +221,9 @@ describe("renderTypeMd", () => {
       })
     );
 
-    expect(md).toContain("`impl(forall(T : Type), where(T <: Send), List(T))`");
+    expect(md).toContain(
+      "`impl(generic(T : Type), where(T <: Send), List(T))`"
+    );
     expect(md).toContain("List.size");
     expect(md).toContain("List.is_empty");
   });

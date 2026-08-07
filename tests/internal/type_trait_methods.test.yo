@@ -1,0 +1,732 @@
+//! Round-trip tests for the trait-method registry +
+//! `get_type_trait_methods_by_name_from_env` in env.yo.
+//!
+//! The full impl-block evaluator-driven path (impl-block source →
+//! `evaluate_module_value` → `register_type_trait_method`) is
+//! covered by the end-to-end tests once `getReceiverMethodsByName…`
+//! lands. These tests poke the registry primitives directly so
+//! regressions in storage / lookup shape are caught in isolation.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TypeValue, FuncMeta } :: import("../../yo-self/types/definitions.yo");
+{ t_i32, t_comptime_int, t_comptime_float, t_comptime_string } :: import("../../yo-self/types/creators.yo");
+{ EvalValue } :: import("../../yo-self/value.yo");
+{ assert, panic } :: import("std/assert");
+{
+  Environment,
+  add_where_clause_constraint_for_type_application,
+  add_where_clause_constraint_to_env
+} :: import("../../yo-self/env.yo");
+{
+  get_type_trait_methods_by_name_from_env,
+  get_receiver_methods_by_name_from_env
+} :: import("../../yo-self/env.yo");
+{
+  MethodEntry,
+  register_type_trait_method,
+  get_type_trait_methods_for_type,
+  get_type_trait_methods_by_name,
+  clear_type_trait_methods,
+  type_id_or_empty
+} :: import("../../yo-self/evaluator/values/type_trait_methods.yo");
+_synth_struct :: (fn(id : String, name : String) -> TypeValue)(
+  TypeValue.Struct(
+    id : id,
+    name : name,
+    field_labels : ArrayList(String).new(),
+    field_types : ArrayList(TypeValue).new(),
+    is_reference_semantics : false,
+    is_atomic_rc : false,
+    is_newtype : false,
+    constructor_func_id : String.from(""),
+    type_arguments : ArrayList(TypeValue).new(),
+    is_source_namespace : false
+  )
+);
+_entry :: (fn(label : String) -> MethodEntry)(
+  MethodEntry(
+    label : label,
+    ty : t_i32(),
+    value : Option(EvalValue).None,
+    source_trait_id : String.from(""),
+    needs_pointer_conversion : false,
+    self_type : Option(TypeValue).None
+  )
+);
+test("type_id_or_empty: extracts struct id", {
+  s := _synth_struct(String.from("ty_a"), String.from("A"));
+  id := type_id_or_empty(s);
+  assert(id == "ty_a", "expected struct id");
+});
+test("type_id_or_empty: synthetic id for primitive types", {
+  // Primitives carry stable synthetic ids so `impl(unit, ...)` etc. can
+  // register methods in the trait-methods registry.
+  id := type_id_or_empty(TypeValue.Unit);
+  assert(id == "__yo_t_unit", "Unit has the synthetic unit id");
+});
+test("register + get_type_trait_methods_for_type: appends entries", {
+  clear_type_trait_methods();
+  register_type_trait_method(
+    String.from("ty_b"),
+    _entry(String.from("foo"))
+  );
+  register_type_trait_method(
+    String.from("ty_b"),
+    _entry(String.from("bar"))
+  );
+  list := get_type_trait_methods_for_type(String.from("ty_b"));
+  assert(list.len() == usize(2), "two entries registered");
+});
+test("get_type_trait_methods_by_name: filters by label", {
+  clear_type_trait_methods();
+  register_type_trait_method(
+    String.from("ty_c"),
+    _entry(String.from("foo"))
+  );
+  register_type_trait_method(
+    String.from("ty_c"),
+    _entry(String.from("bar"))
+  );
+  register_type_trait_method(
+    String.from("ty_c"),
+    _entry(String.from("foo"))
+  );
+  foos := get_type_trait_methods_by_name(
+    String.from("ty_c"),
+    String.from("foo")
+  );
+  assert(foos.len() == usize(2), "two foos");
+  bars := get_type_trait_methods_by_name(
+    String.from("ty_c"),
+    String.from("bar")
+  );
+  assert(bars.len() == usize(1), "one bar");
+  none := get_type_trait_methods_by_name(
+    String.from("ty_c"),
+    String.from("baz")
+  );
+  assert(none.len() == usize(0), "no baz");
+});
+test("get_type_trait_methods_by_name_from_env: registry hit", {
+  clear_type_trait_methods();
+  s := _synth_struct(String.from("ty_d"), String.from("D"));
+  register_type_trait_method(
+    String.from("ty_d"),
+    _entry(String.from("greet"))
+  );
+  env := Environment.new(String.from(""));
+  hits := get_type_trait_methods_by_name_from_env(
+    env,
+    String.from("greet"),
+    s
+  );
+  assert(hits.len() == usize(1), "one greet method");
+});
+test("get_type_trait_methods_by_name_from_env: empty id short-circuits", {
+  clear_type_trait_methods();
+  env := Environment.new(String.from(""));
+  hits := get_type_trait_methods_by_name_from_env(
+    env,
+    String.from("anything"),
+    TypeValue.Unit
+  );
+  assert(hits.len() == usize(0), "no hits for Unit");
+});
+test("get_receiver_methods_by_name_from_env: direct receiver", {
+  clear_type_trait_methods();
+  s := _synth_struct(String.from("ty_recv"), String.from("R"));
+  // `_entry` constructs a `MethodEntry` with `ty : t_i32()` (not
+  // Func) — the receiver-methods filter only drops 0-arg `Func`
+  // methods, so non-Func types pass through. That's enough to
+  // exercise the lookup + filter path on the direct-receiver
+  // branch.
+  register_type_trait_method(
+    String.from("ty_recv"),
+    _entry(String.from("greet"))
+  );
+  env := Environment.new(String.from(""));
+  hits := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("greet"),
+    s,
+    false
+  );
+  assert(hits.len() == usize(1), "one greet method on direct receiver");
+});
+test("get_receiver_methods_by_name_from_env: through pointer deref", {
+  clear_type_trait_methods();
+  s := _synth_struct(String.from("ty_pdr"), String.from("PD"));
+  register_type_trait_method(
+    String.from("ty_pdr"),
+    _entry(String.from("foo"))
+  );
+  // Pointer to struct s.
+  ptr_ty := TypeValue.Pointer(s);
+  env := Environment.new(String.from(""));
+  hits := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("foo"),
+    ptr_ty,
+    false
+  );
+  assert(hits.len() == usize(1), "method found via ptr-deref");
+});
+test("get_receiver_methods_by_name_from_env: empty when nothing matches", {
+  clear_type_trait_methods();
+  s := _synth_struct(String.from("ty_none"), String.from("N"));
+  env := Environment.new(String.from(""));
+  hits := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("missing"),
+    s,
+    false
+  );
+  assert(hits.len() == usize(0), "no hits for unregistered method");
+});
+test("get_receiver_methods_by_name_from_env: comptime receiver does not crash", {
+  // Numeric runtime types (i32/f64) don't carry an `id` in
+  // yo-self's `TypeValue` variant set, so the comptime → runtime
+  // retry path never finds anything to register against — but it
+  // should still complete without throwing for each of the three
+  // comptime literal shapes. The asserts pin the no-crash + zero
+  // results contract that the larger evaluator will rely on.
+  clear_type_trait_methods();
+  env := Environment.new(String.from(""));
+  hits_int := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("anything"),
+    t_comptime_int(),
+    false
+  );
+  assert(hits_int.len() == usize(0), "no methods on comptime_int");
+  hits_float := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("anything"),
+    t_comptime_float(),
+    false
+  );
+  assert(hits_float.len() == usize(0), "no methods on comptime_float");
+  hits_str := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("anything"),
+    t_comptime_string(),
+    false
+  );
+  assert(hits_str.len() == usize(0), "no methods on comptime_str");
+});
+test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
+  clear_type_trait_methods();
+  // Build a trait with one method: `greet : (fn(x : i32) -> i32)`.
+  param_labels := ArrayList(String).new();
+  param_labels.push(String.from("x"));
+  param_types := ArrayList(TypeValue).new();
+  param_types.push(t_i32());
+  fn_ty := TypeValue.Func(
+    ArrayList(TypeValue).new(),
+    param_types,
+    ArrayList(TypeValue).new(),
+    ArrayList(TypeValue).new(),
+    t_i32(),
+    box(
+      FuncMeta(
+        forall_labels : ArrayList(String).new(),
+        param_labels : param_labels,
+        implicit_labels : ArrayList(String).new(),
+        implicit_spreads : ArrayList(bool).new(),
+        result_is_comptime_only : false,
+        param_is_ref : ArrayList(bool).new(),
+        param_is_owning : ArrayList(bool).new(),
+        result_is_ref : false,
+        has_variadic : false,
+        is_extern : Option(String).None,
+        extern_name : Option(String).None,
+        is_control : false,
+        variadic_label : Option(String).None,
+        variadic_comptime : false
+      )
+    ),
+    ArrayList(TypeValue).new()
+  );
+  trait_field_labels := ArrayList(String).new();
+  trait_field_labels.push(String.from("greet"));
+  trait_field_types := ArrayList(TypeValue).new();
+  trait_field_types.push(fn_ty);
+  greeter_trait := TypeValue.TraitT(
+    name : String.from("Greeter"),
+    assoc_type_names : ArrayList(String).new(),
+    field_labels : trait_field_labels,
+    field_types : trait_field_types,
+    id : String.from("trait_greeter"),
+    is_concrete : Option(TypeValue).None,
+    self_constraints : ArrayList(TypeValue).new(),
+    neg_self_constraints : ArrayList(TypeValue).new(),
+    assoc_constraint_labels : ArrayList(String).new(),
+    assoc_constraint_types : ArrayList(TypeValue).new()
+  );
+  // SomeT requiring the Greeter trait.
+  required_traits := ArrayList(TypeValue).new();
+  required_traits.push(greeter_trait);
+  required_levels := ArrayList(usize).new();
+  required_levels.push(usize(0));
+  some_t := TypeValue.SomeT(
+    id : String.from("st_t"),
+    name : String.from("T"),
+    frame_level : usize(0),
+    parent_type : TypeValue.TypeUni(usize(0)),
+    required_trait_types : required_traits,
+    required_trait_levels : required_levels,
+    negative_trait_types : ArrayList(TypeValue).new(),
+    negative_trait_levels : ArrayList(usize).new(),
+    is_effects_row : false,
+    kind_function_type : Option(TypeValue).None,
+    resolved_concrete : ArrayList(TypeValue).new()
+  );
+  env := Environment.new(String.from(""));
+  hits := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("greet"),
+    some_t,
+    false
+  );
+  assert(hits.len() == usize(1), "one greet method via SomeT required-trait walk");
+  match(
+    hits.get(usize(0)),
+    .Some(m) =>
+      assert(
+        m.source_trait_id == String.from("trait_greeter"),
+        "method carries the source trait id"
+      ),
+    .None => assert(false, "expected a method entry")
+  );
+});
+test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
+  clear_type_trait_methods();
+  // Reuse the `fn(x : i32) -> i32` shape from the previous test.
+  param_labels := ArrayList(String).new();
+  param_labels.push(String.from("x"));
+  param_types := ArrayList(TypeValue).new();
+  param_types.push(t_i32());
+  fn_ty := TypeValue.Func(
+    ArrayList(TypeValue).new(),
+    param_types,
+    ArrayList(TypeValue).new(),
+    ArrayList(TypeValue).new(),
+    t_i32(),
+    box(
+      FuncMeta(
+        forall_labels : ArrayList(String).new(),
+        param_labels : param_labels,
+        implicit_labels : ArrayList(String).new(),
+        implicit_spreads : ArrayList(bool).new(),
+        result_is_comptime_only : false,
+        param_is_ref : ArrayList(bool).new(),
+        param_is_owning : ArrayList(bool).new(),
+        result_is_ref : false,
+        has_variadic : false,
+        is_extern : Option(String).None,
+        extern_name : Option(String).None,
+        is_control : false,
+        variadic_label : Option(String).None,
+        variadic_comptime : false
+      )
+    ),
+    ArrayList(TypeValue).new()
+  );
+  trait_field_labels := ArrayList(String).new();
+  trait_field_labels.push(String.from("greet"));
+  trait_field_types := ArrayList(TypeValue).new();
+  trait_field_types.push(fn_ty);
+  greeter_trait := TypeValue.TraitT(
+    name : String.from("Greeter"),
+    assoc_type_names : ArrayList(String).new(),
+    field_labels : trait_field_labels,
+    field_types : trait_field_types,
+    id : String.from("trait_greeter_dyn"),
+    is_concrete : Option(TypeValue).None,
+    self_constraints : ArrayList(TypeValue).new(),
+    neg_self_constraints : ArrayList(TypeValue).new(),
+    assoc_constraint_labels : ArrayList(String).new(),
+    assoc_constraint_types : ArrayList(TypeValue).new()
+  );
+  required_traits := ArrayList(TypeValue).new();
+  required_traits.push(greeter_trait);
+  required_levels := ArrayList(usize).new();
+  required_levels.push(usize(0));
+  dyn_ty := TypeValue.DynT(
+    required_trait_types : required_traits,
+    required_trait_levels : required_levels,
+    negative_trait_types : ArrayList(TypeValue).new(),
+    negative_trait_levels : ArrayList(usize).new()
+  );
+  env := Environment.new(String.from(""));
+  hits := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("greet"),
+    dyn_ty,
+    false
+  );
+  assert(hits.len() == usize(1), "one greet method via Dyn vtable");
+  match(
+    hits.get(usize(0)),
+    .Some(m) => assert(
+      m.source_trait_id == String.from("trait_greeter_dyn"),
+      "method carries the source trait id"
+    ),
+    .None => assert(false, "expected a method entry")
+  );
+});
+test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
+  clear_type_trait_methods();
+  // Synthetic `fn(x : i32) -> i32` for the trait method.
+  param_labels := ArrayList(String).new();
+  param_labels.push(String.from("x"));
+  param_types := ArrayList(TypeValue).new();
+  param_types.push(t_i32());
+  fn_ty := TypeValue.Func(
+    ArrayList(TypeValue).new(),
+    param_types,
+    ArrayList(TypeValue).new(),
+    ArrayList(TypeValue).new(),
+    t_i32(),
+    box(
+      FuncMeta(
+        forall_labels : ArrayList(String).new(),
+        param_labels : param_labels,
+        implicit_labels : ArrayList(String).new(),
+        implicit_spreads : ArrayList(bool).new(),
+        result_is_comptime_only : false,
+        param_is_ref : ArrayList(bool).new(),
+        param_is_owning : ArrayList(bool).new(),
+        result_is_ref : false,
+        has_variadic : false,
+        is_extern : Option(String).None,
+        extern_name : Option(String).None,
+        is_control : false,
+        variadic_label : Option(String).None,
+        variadic_comptime : false
+      )
+    ),
+    ArrayList(TypeValue).new()
+  );
+  // Trait `Functor` with `fmap` method.
+  trait_field_labels := ArrayList(String).new();
+  trait_field_labels.push(String.from("fmap"));
+  trait_field_types := ArrayList(TypeValue).new();
+  trait_field_types.push(fn_ty);
+  functor_trait := TypeValue.TraitT(
+    name : String.from("Functor"),
+    assoc_type_names : ArrayList(String).new(),
+    field_labels : trait_field_labels,
+    field_types : trait_field_types,
+    id : String.from("trait_functor"),
+    is_concrete : Option(TypeValue).None,
+    self_constraints : ArrayList(TypeValue).new(),
+    neg_self_constraints : ArrayList(TypeValue).new(),
+    assoc_constraint_labels : ArrayList(String).new(),
+    assoc_constraint_types : ArrayList(TypeValue).new()
+  );
+  // SomeT constructor `F` and arg `A`.
+  ctor_some_t := TypeValue.SomeT(
+    id : String.from("st_f"),
+    name : String.from("F"),
+    frame_level : usize(0),
+    parent_type : TypeValue.TypeUni(usize(0)),
+    required_trait_types : ArrayList(TypeValue).new(),
+    required_trait_levels : ArrayList(usize).new(),
+    negative_trait_types : ArrayList(TypeValue).new(),
+    negative_trait_levels : ArrayList(usize).new(),
+    is_effects_row : false,
+    kind_function_type : Option(TypeValue).None,
+    resolved_concrete : ArrayList(TypeValue).new()
+  );
+  arg_some_t := TypeValue.SomeT(
+    id : String.from("st_a"),
+    name : String.from("A"),
+    frame_level : usize(0),
+    parent_type : TypeValue.TypeUni(usize(0)),
+    required_trait_types : ArrayList(TypeValue).new(),
+    required_trait_levels : ArrayList(usize).new(),
+    negative_trait_types : ArrayList(TypeValue).new(),
+    negative_trait_levels : ArrayList(usize).new(),
+    is_effects_row : false,
+    kind_function_type : Option(TypeValue).None,
+    resolved_concrete : ArrayList(TypeValue).new()
+  );
+  args_list := ArrayList(TypeValue).new();
+  args_list.push(arg_some_t);
+  type_app := TypeValue.TypeAppT(
+    constructor : ctor_some_t,
+    args : args_list
+  );
+  // Push a frame so the where-clause-constraint setter has somewhere
+  // to record the entry, then register the constraint
+  // `F(A) <: Functor`.
+  env := Environment.new(String.from(""));
+  add_where_clause_constraint_for_type_application(
+    env,
+    type_app,
+    functor_trait,
+    false
+  );
+  hits := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("fmap"),
+    type_app,
+    false
+  );
+  assert(hits.len() == usize(1), "one fmap method via TypeApp where-clause");
+  match(
+    hits.get(usize(0)),
+    .Some(m) => assert(
+      m.source_trait_id == String.from("trait_functor"),
+      "method carries the source trait id"
+    ),
+    .None => assert(false, "expected a method entry")
+  );
+});
+test("get_receiver_methods_by_name_from_env: infix call keeps *(Self)-first-param methods without ptr conversion", {
+  clear_type_trait_methods();
+  s := _synth_struct(String.from("ty_infix"), String.from("I"));
+  // Build `+ : (fn(self : *(I), other : I) -> i32)` — a Self-as-ptr
+  // first-param shape. Mirrors TS env.ts:1278: infix calls suppress
+  // the auto-pointer-conversion MARKING but never drop the method —
+  // pointer-receiver operators (`zp &+ zi`) match `*(T)` directly.
+  param_labels := ArrayList(String).new();
+  param_labels.push(String.from("self"));
+  param_labels.push(String.from("other"));
+  param_types := ArrayList(TypeValue).new();
+  param_types.push(TypeValue.Pointer(s));
+  param_types.push(s);
+  fn_ty := TypeValue.Func(
+    ArrayList(TypeValue).new(),
+    param_types,
+    ArrayList(TypeValue).new(),
+    ArrayList(TypeValue).new(),
+    t_i32(),
+    box(
+      FuncMeta(
+        forall_labels : ArrayList(String).new(),
+        param_labels : param_labels,
+        implicit_labels : ArrayList(String).new(),
+        implicit_spreads : ArrayList(bool).new(),
+        result_is_comptime_only : false,
+        param_is_ref : ArrayList(bool).new(),
+        param_is_owning : ArrayList(bool).new(),
+        result_is_ref : false,
+        has_variadic : false,
+        is_extern : Option(String).None,
+        extern_name : Option(String).None,
+        is_control : false,
+        variadic_label : Option(String).None,
+        variadic_comptime : false
+      )
+    ),
+    ArrayList(TypeValue).new()
+  );
+  register_type_trait_method(
+    String.from("ty_infix"),
+    MethodEntry(
+      label : String.from("+"),
+      ty : fn_ty,
+      value : Option(EvalValue).None,
+      source_trait_id : String.from(""),
+      needs_pointer_conversion : false,
+      self_type : Option(TypeValue).None
+    )
+  );
+  env := Environment.new(String.from(""));
+  // Non-infix call → keep the method.
+  hits_normal := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("+"),
+    s,
+    false
+  );
+  assert(hits_normal.len() == usize(1), "non-infix call keeps *(Self) method");
+  // Infix call → keep the method, but without the conversion flag.
+  hits_infix := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("+"),
+    s,
+    true
+  );
+  assert(hits_infix.len() == usize(1), "infix call keeps *(Self) method");
+  match(
+    hits_infix.get(usize(0)),
+    .Some(m) => assert(
+      !(m.needs_pointer_conversion),
+      "infix call does not mark pointer conversion"
+    ),
+    .None => assert(false, "expected a method entry")
+  );
+});
+test("get_receiver_methods_by_name_from_env: non-infix call sets needs_pointer_conversion", {
+  clear_type_trait_methods();
+  s := _synth_struct(String.from("ty_ptrconv"), String.from("P"));
+  param_labels := ArrayList(String).new();
+  param_labels.push(String.from("self"));
+  param_types := ArrayList(TypeValue).new();
+  param_types.push(TypeValue.Pointer(s));
+  fn_ty := TypeValue.Func(
+    ArrayList(TypeValue).new(),
+    param_types,
+    ArrayList(TypeValue).new(),
+    ArrayList(TypeValue).new(),
+    t_i32(),
+    box(
+      FuncMeta(
+        forall_labels : ArrayList(String).new(),
+        param_labels : param_labels,
+        implicit_labels : ArrayList(String).new(),
+        implicit_spreads : ArrayList(bool).new(),
+        result_is_comptime_only : false,
+        param_is_ref : ArrayList(bool).new(),
+        param_is_owning : ArrayList(bool).new(),
+        result_is_ref : false,
+        has_variadic : false,
+        is_extern : Option(String).None,
+        extern_name : Option(String).None,
+        is_control : false,
+        variadic_label : Option(String).None,
+        variadic_comptime : false
+      )
+    ),
+    ArrayList(TypeValue).new()
+  );
+  register_type_trait_method(
+    String.from("ty_ptrconv"),
+    MethodEntry(
+      label : String.from("incr"),
+      ty : fn_ty,
+      value : Option(EvalValue).None,
+      source_trait_id : String.from(""),
+      needs_pointer_conversion : false,
+      self_type : Option(TypeValue).None
+    )
+  );
+  env := Environment.new(String.from(""));
+  hits := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("incr"),
+    s,
+    false
+  );
+  assert(hits.len() == usize(1), "one incr method via direct receiver");
+  match(
+    hits.get(usize(0)),
+    .Some(m) =>
+      assert(m.needs_pointer_conversion, "ptr-conversion flag set on non-infix *(T) method"),
+    .None => assert(false, "expected a method entry")
+  );
+});
+test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan", {
+  clear_type_trait_methods();
+  // Build `Greeter` trait with `greet : (fn(x : i32) -> i32)`.
+  param_labels := ArrayList(String).new();
+  param_labels.push(String.from("x"));
+  param_types := ArrayList(TypeValue).new();
+  param_types.push(t_i32());
+  fn_ty := TypeValue.Func(
+    ArrayList(TypeValue).new(),
+    param_types,
+    ArrayList(TypeValue).new(),
+    ArrayList(TypeValue).new(),
+    t_i32(),
+    box(
+      FuncMeta(
+        forall_labels : ArrayList(String).new(),
+        param_labels : param_labels,
+        implicit_labels : ArrayList(String).new(),
+        implicit_spreads : ArrayList(bool).new(),
+        result_is_comptime_only : false,
+        param_is_ref : ArrayList(bool).new(),
+        param_is_owning : ArrayList(bool).new(),
+        result_is_ref : false,
+        has_variadic : false,
+        is_extern : Option(String).None,
+        extern_name : Option(String).None,
+        is_control : false,
+        variadic_label : Option(String).None,
+        variadic_comptime : false
+      )
+    ),
+    ArrayList(TypeValue).new()
+  );
+  trait_field_labels := ArrayList(String).new();
+  trait_field_labels.push(String.from("greet"));
+  trait_field_types := ArrayList(TypeValue).new();
+  trait_field_types.push(fn_ty);
+  greeter_trait := TypeValue.TraitT(
+    name : String.from("Greeter"),
+    assoc_type_names : ArrayList(String).new(),
+    field_labels : trait_field_labels,
+    field_types : trait_field_types,
+    id : String.from("trait_greeter_envscan"),
+    is_concrete : Option(TypeValue).None,
+    self_constraints : ArrayList(TypeValue).new(),
+    neg_self_constraints : ArrayList(TypeValue).new(),
+    assoc_constraint_labels : ArrayList(String).new(),
+    assoc_constraint_types : ArrayList(TypeValue).new()
+  );
+  // Two SomeTypes sharing the SAME id — under
+  // `are_types_compatible` they unify (SomeT compat = id
+  // equality). A `where(_Self <: Greeter)` registered against
+  // `_self_t` should still surface when the call site queries
+  // `output_t` (same id, different name — like Output aliased
+  // to _Self during overload resolution).
+  _self_t := TypeValue.SomeT(
+    id : String.from("st_shared"),
+    name : String.from("_Self"),
+    frame_level : usize(0),
+    parent_type : TypeValue.TypeUni(usize(0)),
+    required_trait_types : ArrayList(TypeValue).new(),
+    required_trait_levels : ArrayList(usize).new(),
+    negative_trait_types : ArrayList(TypeValue).new(),
+    negative_trait_levels : ArrayList(usize).new(),
+    is_effects_row : false,
+    kind_function_type : Option(TypeValue).None,
+    resolved_concrete : ArrayList(TypeValue).new()
+  );
+  output_t := TypeValue.SomeT(
+    id : String.from("st_shared"),
+    name : String.from("Output"),
+    frame_level : usize(0),
+    parent_type : TypeValue.TypeUni(usize(0)),
+    required_trait_types : ArrayList(TypeValue).new(),
+    required_trait_levels : ArrayList(usize).new(),
+    negative_trait_types : ArrayList(TypeValue).new(),
+    negative_trait_levels : ArrayList(usize).new(),
+    is_effects_row : false,
+    kind_function_type : Option(TypeValue).None,
+    resolved_concrete : ArrayList(TypeValue).new()
+  );
+  env := Environment.new(String.from(""));
+  add_where_clause_constraint_to_env(env, _self_t, greeter_trait, false);
+  hits := get_receiver_methods_by_name_from_env(
+    env,
+    String.from("greet"),
+    output_t,
+    false
+  );
+  assert(
+    hits.len() == usize(1),
+    "env-frames scan finds method via compatible-SomeType match"
+  );
+  match(
+    hits.get(usize(0)),
+    .Some(m) => assert(
+      m.source_trait_id == String.from("trait_greeter_envscan"),
+      "method carries the source trait id"
+    ),
+    .None => assert(false, "expected a method entry")
+  );
+});
+test("clear_type_trait_methods: wipes state", {
+  register_type_trait_method(
+    String.from("ty_e"),
+    _entry(String.from("foo"))
+  );
+  clear_type_trait_methods();
+  list := get_type_trait_methods_for_type(String.from("ty_e"));
+  assert(list.len() == usize(0), "empty after clear");
+});

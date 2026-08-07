@@ -1,0 +1,158 @@
+//! Tests for yo-self/error.yo — mirrors src/error.ts
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TokenKind, Token } :: import("../../yo-self/token.yo");
+{ assert, panic } :: import("std/assert");
+{
+  ErrorKind,
+  TokenAndError,
+  TokenAndWarning,
+  YoLexerError,
+  YoError,
+  get_line_at_token,
+  get_line_at_position,
+  format_error_message,
+  format_error_messages,
+  format_warning_messages
+} :: import("../../yo-self/error.yo");
+// Build a dummy token for testing.
+make_token :: (fn(module_path : String, input : String, row : usize, column : usize, value : String) -> Token)(
+  Token(
+    kind : TokenKind.Identifier,
+    value : value,
+    row : row,
+    column : column,
+    character : usize(0),
+    module_path : module_path,
+    input : input
+  )
+);
+// ─── YoLexerError ────────────────────────────────────────────────────────────
+test("YoLexerError to_string", {
+  err := YoLexerError(
+    character_index : usize(5),
+    message : `unexpected character`,
+    row : usize(2)
+  );
+  assert(err.to_string() == `Lexer Error at row 3: unexpected character`, "lexer error message");
+});
+test("YoLexerError to_string row 0", {
+  err := YoLexerError(
+    character_index : usize(0),
+    message : `bad token`,
+    row : usize(0)
+  );
+  assert(err.to_string() == `Lexer Error at row 1: bad token`, "row 0 becomes row 1");
+});
+// ─── get_line_at_token ───────────────────────────────────────────────────────
+test("get_line_at_token single line", {
+  tok := make_token(`test.yo`, `hello world`, usize(0), usize(6), `world`);
+  line := get_line_at_token(tok);
+  // Expect: "test.yo:1:7:\nhello world\n       ^"
+  // caret_col = column(6) + len("world")/2 = 6 + 2 = 8 spaces
+  assert(line.contains(`test.yo:1:7:`), "header");
+  assert(line.contains(`hello world`), "source line");
+  assert(line.contains(`^`), "caret");
+});
+test("get_line_at_token multiline input selects correct row", {
+  input := `line0\nline1\nline2`;
+  tok := make_token(`src.yo`, input, usize(1), usize(0), `line1`);
+  line := get_line_at_token(tok);
+  assert(line.contains(`src.yo:2:1:`), "row 1 shown as row 2");
+  assert(line.contains(`line1`), "correct source line selected");
+});
+test("get_line_at_token missing row returns empty line", {
+  tok := make_token(`x.yo`, `only one line`, usize(5), usize(0), `x`);
+  line := get_line_at_token(tok);
+  assert(line.contains(`x.yo:6:1:`), "header still present");
+  assert(line.contains(`^`), "caret present even for missing row");
+});
+// ─── get_line_at_position ────────────────────────────────────────────────────
+test("get_line_at_position basic", {
+  result := get_line_at_position(`mod.yo`, `abc\ndef`, usize(0), usize(2));
+  assert(result.contains(`mod.yo:1:3:`), "header");
+  assert(result.contains(`abc`), "source line");
+  assert(result.contains(`^`), "caret");
+});
+// ─── format_error_message ────────────────────────────────────────────────────
+test("format_error_message creates YoError", {
+  tok := make_token(`test.yo`, `let x = 1;`, usize(0), usize(4), `x`);
+  err := format_error_message(tok, `undefined variable x`, false,.None);
+  s := err.to_string();
+  assert(s.contains(`Error:`), "has Error prefix");
+  assert(s.contains(`undefined variable x`), "contains error message");
+  assert(s.contains(`test.yo:1:5:`), "contains location");
+});
+test("format_error_message assertion error flag preserved", {
+  tok := make_token(`t.yo`, `assert(false)`, usize(0), usize(0), `assert`);
+  err := format_error_message(tok, `assertion failed`, true,.None);
+  assert(err.is_assertion_error, "is_assertion_error must be true");
+});
+test("format_error_message kind preserved", {
+  tok := make_token(`t.yo`, `999999`, usize(0), usize(0), `999999`);
+  err := format_error_message(tok, `integer overflow`, false,.Some(ErrorKind.Overflow));
+  match(
+    err.kind,
+    .Some(k) => assert(k == ErrorKind.Overflow, "kind must be Overflow"),
+    .None => assert(false, "kind must be Some")
+  );
+});
+// ─── format_error_messages ───────────────────────────────────────────────────
+test("format_error_messages with one entry", {
+  tok := make_token(`a.yo`, `foo`, usize(0), usize(0), `foo`);
+  entry := TokenAndError(token : tok, error_message : `missing semicolon`);
+  entries := ArrayList(TokenAndError).new();
+  entries.push(entry);
+  err := format_error_messages(entries, false,.None);
+  s := err.to_string();
+  assert(s.contains(`Error: missing semicolon`), "error message in output");
+});
+test("format_error_messages with two entries", {
+  tok1 := make_token(`b.yo`, `x y`, usize(0), usize(0), `x`);
+  tok2 := make_token(`b.yo`, `x y`, usize(0), usize(2), `y`);
+  e1 := TokenAndError(token : tok1, error_message : `first error`);
+  e2 := TokenAndError(token : tok2, error_message : `second error`);
+  list := ArrayList(TokenAndError).new();
+  list.push(e1);
+  list.push(e2);
+  err := format_error_messages(list, false,.None);
+  s := err.to_string();
+  assert(s.contains(`first error`), "first error present");
+  assert(s.contains(`second error`), "second error present");
+});
+// ─── format_warning_messages ─────────────────────────────────────────────────
+test("format_warning_messages no prefix", {
+  tok := make_token(`w.yo`, `foo`, usize(0), usize(0), `foo`);
+  entry := TokenAndWarning(token : tok, warning_message : `unused variable`);
+  warnset := ArrayList(TokenAndWarning).new();
+  warnset.push(entry);
+  result := format_warning_messages(.None, warnset);
+  assert(result.contains(`Warning: unused variable`), "warning message present");
+  assert(result.contains(`^`), "caret present");
+});
+test("format_warning_messages with prefix", {
+  tok := make_token(`w.yo`, `foo`, usize(0), usize(0), `foo`);
+  entry := TokenAndWarning(token : tok, warning_message : `deprecated usage`);
+  warnset := ArrayList(TokenAndWarning).new();
+  warnset.push(entry);
+  result := format_warning_messages(.Some(String.from("module warning")), warnset);
+  assert(result.contains(`Warning: module warning`), "prefix warning present");
+  assert(result.contains(`deprecated usage`), "per-token warning present");
+});
+test("format_warning_messages empty list with prefix", {
+  result := format_warning_messages(.Some(String.from("top warning")), ArrayList(TokenAndWarning).new());
+  assert(result.contains(`Warning: top warning`), "prefix only when list empty");
+});
+test("format_warning_messages empty list no prefix", {
+  result := format_warning_messages(.None, ArrayList(TokenAndWarning).new());
+  assert(result == ``, "empty result when no prefix and no warnings");
+});
+// ─── YoError.to_string ───────────────────────────────────────────────────────
+test("YoError to_string formats errors", {
+  tok := make_token(`main.yo`, `let`, usize(0), usize(0), `let`);
+  err := format_error_message(tok, `unexpected keyword`, false,.None);
+  s := err.to_string();
+  assert(s.contains(`Error:`), "Error: prefix present");
+  assert(s.contains(`unexpected keyword`), "message present");
+});

@@ -18,7 +18,9 @@ import {
   type FnCallExpr,
   hasAnyControlFlow,
 } from "../../expr";
+import { getVariablesFromEnv } from "../../env";
 import { isSomeType, isUnitType } from "../../types/guards";
+import { isTempVariableName } from "../../utils";
 import { isFunctionValue, isUnknownValue } from "../../value";
 import { isIoFutureType } from "../async/state-machine";
 import { BuiltinYoInlineFunctions } from "../constants";
@@ -28,6 +30,7 @@ import {
   getDeferredDropTargetAtomName,
   getTypeString,
   getVariableNameForCodegen,
+  getVariableTypeString,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
 } from "../utils";
 import { generateOpAnd, generateOpOr } from "./and-or";
@@ -45,14 +48,17 @@ import {
 import { generateBegin } from "./begin";
 import { generateBinding } from "./binding";
 import { generateClosureConstruction, isClosureConstruction } from "./closures";
-import { generateComptimeValue } from "./comptime-value";
+import {
+  comptimeValueAllocatesRcObject,
+  generateComptimeValue,
+} from "./comptime-value";
 import { generateCondExpression } from "./cond";
 import { generateConsume } from "./consume";
 import { generateDowncast } from "./downcast";
 import { generateDeferredDupExpressions } from "./drop-dup";
 import { generateDynCall } from "./dyn";
 import { generateExpr } from "./expr";
-import { generateYoGcCollect } from "./gc";
+import { generateYoGcCollect, generateYoGcTraceChild } from "./gc";
 import { generateInitializationAssignment } from "./initialization-assignment";
 import { generateYoInlineFunctionCall } from "./inline-fns";
 import {
@@ -63,7 +69,10 @@ import {
 } from "./iso";
 import { generateMatchExpression } from "./match";
 import { generateOpen } from "./open";
-import { generateOtherFunctionCall } from "./other-fn-call";
+import {
+  generateOtherFunctionCall,
+  storeTempVarToStateMachineIfNeeded,
+} from "./other-fn-call";
 import { generatePanic } from "./panic";
 import { generateAsm, generateGlobalAsm } from "./asm";
 import { generateYoThreadSetMaximumThreads } from "./parallelism";
@@ -141,6 +150,7 @@ function generateIndexTraitCall(
       context.emitter.emitLine(
         `${indent}${calleeType} ${tempName} = ${calleeCode};`
       );
+      context.declaredCVarNames?.add(tempName);
       calleeCode = tempName;
     }
   }
@@ -294,9 +304,19 @@ function generateUnwind(
   // effect record member function (e.g., Exception.throw handler):
   // Set thread-local flag so the calling SM knows this handler escaped.
   // Always set for any function that uses unwind (Phase 2).
-  functionContext.emitter.emitLine(`${indent}__yo_effect_escaped = 1;`);
+  //
+  // ORDER MATTERS for `unwind(<expr>)` with an argument: the flag is set
+  // AFTER the argument is evaluated. A may-unwind call inside the argument
+  // (e.g. `unwind(make_err())` where make_err is effect-analyzed as
+  // may-unwind) emits the caller-side protocol `__yo_effect_escaped = 0;
+  // <call>; if (__yo_effect_escaped) ...` — with the flag raised first, that
+  // pre-call clear CANCELLED the in-progress unwind, so the handler returned
+  // its dummy value ((T*){0} for ref results) with the flag DOWN and the
+  // raise site treated NULL as the real result
+  // (issues/yo-ts-codegen-branch-in-effect-handler-corruption.md).
 
   if (!arg) {
+    functionContext.emitter.emitLine(`${indent}__yo_effect_escaped = 1;`);
     // Emit handler param drops before returning
     if (functionContext.effectHandlerParamDrops) {
       for (const dropCode of functionContext.effectHandlerParamDrops) {
@@ -319,7 +339,7 @@ function generateUnwind(
     }
     // For functions with non-void return type, return a dummy value
     // (the caller checks __yo_effect_escaped and ignores the return value).
-    // Phase B of plans/ITERATOR_REDESIGN.md — for `-> ref(T)` functions,
+    // Phase B of plans/archive/ITERATOR_REDESIGN.md — for `-> ref(T)` functions,
     // the C-level return is `T*` (a pointer). The dummy must be NULL of
     // that pointer type, not `(T){0}` (which is a value of T).
     if (functionContext.currentFunctionType) {
@@ -350,6 +370,9 @@ function generateUnwind(
   const pendingDropsBaselineForEscapeArg =
     functionContext.pendingDeferredDrops?.length ?? 0;
   const argCode = generateExpr(arg, indent, context);
+  // The argument is fully evaluated — NOW raise the escape flag (see the
+  // ordering note above).
+  functionContext.emitter.emitLine(`${indent}__yo_effect_escaped = 1;`);
   if (
     functionContext.consumedVarPendingDrops &&
     functionContext.consumedVarPendingDrops.length >
@@ -446,6 +469,56 @@ function generateUnwind(
     return `return`;
   }
   return `return ${argCode}`;
+}
+
+/**
+ * Some compile-time values ALLOCATE when they materialize in C. The clearest
+ * case is a payload-free variant of a reference-semantics enum: its comptime
+ * value emits `__yo_new_<Enum>_<Variant>()`, which mallocs with
+ * `ref_count = 1`. Inlined at the use site that produces an owned RC object
+ * nothing ever drops — `f(E.UnitVal)` leaks it, because the callee treats the
+ * parameter as borrowed and dups whatever it retains.
+ *
+ * When the evaluator recorded such an expression as owning its RC value
+ * (`attachTempVariableToExpr(expr, true)`), it registered a temp variable at
+ * the enclosing begin-block frame so the normal scope-end drop pass releases
+ * it. That only works if codegen actually DECLARES the temp: the drop emitters
+ * skip any target missing from `declaredCVarNames`. So materialize the value
+ * into its temp and hand back the temp's name.
+ *
+ * Non-allocating comptime values (numbers, string literals, value-enum
+ * compound literals like `Color.Red`) carry no owning temp and are returned
+ * unchanged.
+ */
+function materializeOwnedRcComptimeValue(
+  expr: Expr,
+  comptimeCode: string,
+  indent: string,
+  context: CodeGenContext
+): string {
+  const info = expr.$;
+  if (!info?.variableName || !info.value) {
+    return comptimeCode;
+  }
+  const { variableName, env, type } = info;
+  // Only shapes that actually malloc need an owner (see the predicate's doc).
+  if (!comptimeValueAllocatesRcObject(info.value)) {
+    return comptimeCode;
+  }
+  if (!isTempVariableName(env.modulePath, variableName)) {
+    return comptimeCode;
+  }
+  const variables = getVariablesFromEnv(env, variableName);
+  const variable = variables[variables.length - 1];
+  if (!variable?.isOwningTheRcValue) {
+    return comptimeCode;
+  }
+  const cName = getVariableNameForCodegen(variableName, env);
+  context.emitter.emitLine(
+    `${indent}${getVariableTypeString(type, cName, context)} = ${comptimeCode};`
+  );
+  storeTempVarToStateMachineIfNeeded(variableName, indent, context);
+  return cName;
 }
 
 /**
@@ -631,13 +704,18 @@ function generateFuncCall(
     return generateYoGcCollect(expr, indent, context);
   }
 
+  // __yo_gc_trace_child - per-value edge tracer (body of GcTracer.visit)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_gc_trace_child)) {
+    return generateYoGcTraceChild(expr, indent, context);
+  }
+
   // rc - get the reference count of a value
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.rc)) {
     return generateRcCall(expr, indent, context);
   }
 
   // panic - print error message and call abort() [C stdlib]
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.panic)) {
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_panic)) {
     return generatePanic(expr, indent, context);
   }
 
@@ -810,7 +888,8 @@ function generateFuncCall(
     !isUnitType(expr.$.type) &&
     !hasAnyControlFlow(expr.$?.controlFlow)
   ) {
-    return generateComptimeValue(expr.$.value, context, expr);
+    const comptimeCode = generateComptimeValue(expr.$.value, context, expr);
+    return materializeOwnedRcComptimeValue(expr, comptimeCode, indent, context);
   }
   // . field access
   else if (exprIsFunctionCallOf(expr, ".", 2)) {

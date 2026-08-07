@@ -85,7 +85,7 @@ export function getValueOfSomeTypeFromEnv(
       // cannot use "isTypeValue" function here due to circular dependency
     });
     if (!variables.length) {
-      // NOTE: This might be SomeType defined from "forall"
+      // NOTE: This might be SomeType defined from "generic"
       // So it doesn't exist in the env.
       return someType; // Return itself
     }

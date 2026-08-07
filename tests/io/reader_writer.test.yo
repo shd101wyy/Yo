@@ -1,4 +1,5 @@
 pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
 { Reader } :: import("std/io/reader");
 { Writer } :: import("std/io/writer");
 { Exception } :: import("std/error");
@@ -17,15 +18,15 @@ impl(
 impl(
   TestBuf,
   Writer(
-    write : (fn(ref(self) : Self, buf : *(u8), size : usize, exn : Exception) -> usize)({
+    write : (fn(inout(self) : Self, buf : *(u8), size : usize, exn : Exception) -> usize)({
       i := usize(0);
       while(i < size, i = (i + usize(1)), {
-        ((&(self._data(0))) &+ (self._len + i)).* = (buf &+ i).*;
+        ((&(self._data(0))).add(self._len + i)).* = (buf.add(i)).*;
       });
       self._len = (self._len + size);
       size
     }),
-    flush : (fn(ref(self) : Self, exn : Exception) -> unit)(
+    flush : (fn(inout(self) : Self, exn : Exception) -> unit)(
       ()
     )
   )
@@ -33,7 +34,7 @@ impl(
 impl(
   TestBuf,
   Reader(
-    read : (fn(ref(self) : Self, buf : *(u8), size : usize, exn : Exception) -> usize)({
+    read : (fn(inout(self) : Self, buf : *(u8), size : usize, exn : Exception) -> usize)({
       available := (self._len - self._pos);
       to_read := cond(
         (size < available) => size,
@@ -41,7 +42,7 @@ impl(
       );
       i := usize(0);
       while(i < to_read, i = (i + usize(1)), {
-        (buf &+ i).* = ((&(self._data(0))) &+ (self._pos + i)).*;
+        (buf.add(i)).* = ((&(self._data(0))).add(self._pos + i)).*;
       });
       self._pos = (self._pos + to_read);
       to_read

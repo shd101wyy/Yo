@@ -1,0 +1,1210 @@
+//! `return` statement emitter — mirrors `src/codegen/exprs/return.ts`.
+//!
+//! Emits the return value into the evaluator-provided result temp (so deferred
+//! drops run after the value is captured), then the enclosing scope's pending
+//! deferred drops (filtered by variable identity + declaration position so a
+//! same-named shadowing binding never stands in for an outer variable, and
+//! consumed/uninitialized variables are skipped), then `return <temp>`.
+//!
+//! DEFERRED (documented): async state-machine return completion + ctl-handler
+//! resume (Phase 5 — emitAsyncFutureCompletion / continuation_variables not
+//! ported; gated on in_async_state_machine = .None for the corpus); the
+//! inout-param shadow guard uses Variable.isRef which yo-self lacks → false
+//! (inside the deferred-dup block, which is empty for the no-RC corpus).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BF_DROP, BF_DOT, BF_UNWIND, BK_RETURN } :: import("../../expr.yo");
+{ Token } :: import("../../token.yo");
+{ Variable, Environment, get_variables_from_env } :: import("../../env.yo");
+{ is_unit_type, is_some_type } :: import("../../types/guards.yo");
+{ lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ emit_async_future_escape, emit_async_future_completion } :: import("./async_completion.yo");
+{ resolve_some_type_to_concrete } :: import("./closures.yo");
+{ extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
+{ t_unit } :: import("../../types/creators.yo");
+{ generate_atom } :: import("./atom.yo");
+{ generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("./drop_dup.yo");
+{ get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains } :: import("../utils/index.yo");
+/// The atom a `___drop(x)` / `x.___drop()` drop expression targets.
+_drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
+  match(
+    drop_expr,
+    .FnCall(_, func, args, _, _) => if(
+      args.len() == usize(0),
+      match(
+        func,
+        .FnCall(_, _, fargs, _, _) => if(ast_expr_is_fn_call_of(func, BF_DOT, Option(usize).Some(usize(2))), {
+          a1_is_drop := match(fargs.get(usize(1)),.Some(a1) => if(ast_expr_is_atom(a1), ast_expr_token(a1).value == BF_DROP, false),.None => false);
+          if(a1_is_drop, match(fargs.get(usize(0)),.Some(a0) => if(ast_expr_is_atom(a0), Option(AstExpr).Some(a0), Option(AstExpr).None),.None => Option(AstExpr).None), Option(AstExpr).None)
+        }, Option(AstExpr).None),
+        .Atom(_, _) => Option(AstExpr).None
+      ),
+      if(ast_expr_is_fn_call_of(drop_expr, BF_DROP, Option(usize).None), match(args.get(usize(0)),.Some(a0) => if(ast_expr_is_atom(a0), Option(AstExpr).Some(a0), Option(AstExpr).None),.None => Option(AstExpr).None), Option(AstExpr).None)
+    ),
+    .Atom(_, _) => Option(AstExpr).None
+  )
+);
+/// Whether `drop_expr` targets the C variable named by `escaped_result` — the
+/// result temp of a call that just unwound. Mirrors TS's
+/// `getDeferredDropTargetCName(dropExpr) === escapedCallResultCName`
+/// (src/codegen/exprs/return.ts). The comparison is on the CODEGEN name, not the
+/// atom name, because that is the identifier the drop actually emits.
+_drop_targets_escaped_result :: (fn(drop_expr : AstExpr, escaped_result : Option(String), context : FunctionGenerationContext) -> bool)(
+  match(
+    escaped_result,
+    .Some(name) => match(
+      _drop_target_atom(drop_expr),
+      .Some(atom) => match(
+        context.base.get_expr_info(atom),
+        .Some(aei) => (
+          get_variable_name_for_codegen(
+            ast_expr_token(atom).value,
+            Option(Environment).Some(aei.env)
+          ) == name
+        ),
+        .None => false
+      ),
+      .None => false
+    ),
+    .None => false
+  )
+);
+/// The Variable a drop expression targets (resolved via the atom's ExprInfo env).
+/// Mirrors `getDeferredDropTargetVariable`.
+_get_deferred_drop_target_variable :: (fn(drop_expr : AstExpr, context : FunctionGenerationContext) -> Option(Variable))(
+  match(
+    _drop_target_atom(drop_expr),
+    .Some(atom) => match(
+      context.base.get_expr_info(atom),
+      .Some(aei) => {
+        vars := get_variables_from_env(aei.env, ast_expr_token(atom).value);
+        if(vars.len() == usize(0), Option(Variable).None, vars.get(vars.len() - usize(1)))
+      },
+      .None => Option(Variable).None
+    ),
+    .None => Option(Variable).None
+  )
+);
+/// Two tokens come from the same source location stream. Mirrors `tokensAreComparable`.
+_tokens_are_comparable :: (fn(left : Token, right : Token) -> bool)(
+  (left.module_path == right.module_path) && (left.input == right.input)
+);
+/// `left` is at or before `right` (same stream). Mirrors `tokenIsAtOrBefore`.
+_token_is_at_or_before :: (fn(left : Token, right : Token) -> bool)(
+  if(!(_tokens_are_comparable(left, right)), false, left.character <= right.character)
+);
+/// The latest comparable token in `node`'s tree (max character). Mirrors the
+/// `visit` walk of `getLastComparableTokenInExpr`.
+_max_comparable_token :: (fn(node : AstExpr, reference : Token, best : Token) -> Token)({
+  tok := ast_expr_token(node);
+  best2 := if(_tokens_are_comparable(tok, reference) && (tok.character > best.character), tok, best);
+  match(
+    node,
+    .FnCall(_, func, args, _, _) => {
+      (acc : Token) = recur(func, reference, best2);
+      n := args.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          args.get(i),
+          .Some(a) => {
+            acc = recur(a, reference, acc);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      acc
+    },
+    .Atom(_, _) => best2
+  )
+});
+/// Mirrors `getLastComparableTokenInExpr`.
+_get_last_comparable_token_in_expr :: (fn(expr : AstExpr, reference : Token) -> Token)({
+  init := ast_expr_token(expr);
+  init2 := if(!(_tokens_are_comparable(init, reference)), reference, init);
+  _max_comparable_token(expr, reference, init2)
+});
+/// Mirrors `variableWasConsumedBeforeCleanupPoint`.
+_variable_was_consumed_before_cleanup_point :: (fn(consumed_at_token : Token, cleanup_expr : AstExpr) -> bool)({
+  if(!(_tokens_are_comparable(consumed_at_token, ast_expr_token(cleanup_expr))), {
+    return(false);
+  });
+  cleanup_point := _get_last_comparable_token_in_expr(cleanup_expr, consumed_at_token);
+  _token_is_at_or_before(consumed_at_token, cleanup_point)
+});
+/// Resolve which in-scope variable a pending drop targets at a cleanup point.
+/// Prefer the id match; on absence decide by declaration position (a target
+/// declared AFTER the cleanup point is the shadowing-bug case → skip). Mirrors
+/// `resolveDropTargetInScope`.
+_resolve_drop_target_in_scope :: (fn(drop_expr : AstExpr, variables : ArrayList(Variable), cleanup_token : Token, context : FunctionGenerationContext) -> Option(Variable))(
+  match(
+    _get_deferred_drop_target_variable(drop_expr, context),
+    .None => if(variables.len() == usize(0), Option(Variable).None, variables.get(variables.len() - usize(1))),
+    .Some(tv) => {
+      n := variables.len();
+      (i : usize) = usize(0);
+      (by_id : Option(Variable)) = Option(Variable).None;
+      while(i < n, {
+        match(
+          variables.get(i),
+          .Some(v) => if(v.id == tv.id, {
+            by_id = Option(Variable).Some(v);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      match(
+        by_id,
+        .Some(v) => Option(Variable).Some(v),
+        .None => {
+          decl_token := match(tv.initialized_at_token,.Some(t) => t,.None => tv.token);
+          if(_tokens_are_comparable(decl_token, cleanup_token) && (decl_token.character > cleanup_token.character), Option(Variable).None, if(variables.len() == usize(0), Option(Variable).None, variables.get(variables.len() - usize(1))))
+        }
+      )
+    }
+  )
+);
+/// True if `init_token` (where a variable is initialized) is strictly AFTER
+/// the cleanup point of `cleanup_expr` in the SAME comparable token stream —
+/// i.e. the variable's C declaration appears LATER than this drop site, so it
+/// is not yet in C scope here. Mirrors `_variable_was_consumed_before_cleanup_point`
+/// (same token machinery). Conservative: returns false when the tokens are not
+/// comparable (different file/synthetic), so a drop is never wrongly suppressed
+/// outside the provable same-stream forward-reference case.
+_variable_initialized_after_cleanup_point :: (fn(init_token : Token, cleanup_expr : AstExpr) -> bool)({
+  if(!(_tokens_are_comparable(init_token, ast_expr_token(cleanup_expr))), {
+    return(false);
+  });
+  cleanup_point := _get_last_comparable_token_in_expr(cleanup_expr, init_token);
+  !(_token_is_at_or_before(init_token, cleanup_point))
+});
+/// Whether a pending drop should be emitted at this return's cleanup point.
+_keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet(String), additional_skip : Option(HashSet(String)), use_env : bool, context : FunctionGenerationContext) -> bool)({
+  var_name := match(get_deferred_drop_target_atom_name(drop_expr),.Some(vn) => vn,.None => return(false));
+  if(is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures), {
+    return(false);
+  });
+  // The enclosing assignment's save-old-value temp receives ownership only
+  // AFTER the assignment completes; while its RHS is being generated an
+  // escape here must NOT drop it — the local variable still owns the value
+  // and its own scope drop covers it (dropping both double-frees the old
+  // value: the round-4 `rhs = evaluate(rhs)` escape UAF in
+  // evaluate_initialization_assignment; TS's eval-time env excludes the
+  // not-yet-defined temp naturally — its escape lists drop only the local).
+  if(match(context.current_assignment_save_temp,.Some(sv) => (sv == var_name),.None => false), {
+    return(false);
+  });
+  if(already.contains(var_name.clone()), {
+    return(false);
+  });
+  if(match(additional_skip,.Some(s) => s.contains(var_name.clone()),.None => false), {
+    return(false);
+  });
+  // C-emission-order guard, applied on ALL paths — including the escape path,
+  // where the caller passes skip_env_check=true and the env-based resolution
+  // below (which also enforces this via declared_c_var_names at the end) is
+  // skipped. A minted codegen temp whose C declaration has NOT been emitted at
+  // this point holds no C value, so dropping it emits
+  // `__yo_decr_rc((void*)(x))` for an undeclared identifier. yo-self
+  // over-materializes some intermediate temps that codegen folds inline (never
+  // declaring them) yet still schedules their scope-end drop; TS does not
+  // create those frame variables, so its escape path never sees them. Skipping
+  // an undeclared temp's drop cannot double-free or leak (no C variable exists).
+  // See issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
+  guard_cn := sanitize_for_c_identifier(var_name.clone(), false);
+  if(guard_cn.contains(String.from("_temp_")) && !(context.base.declared_c_var_names.contains(guard_cn.clone())), {
+    return(false);
+  });
+  if(!(use_env), {
+    // Escape path (skip_env_check=true): yo-self's recorded env is END-of-scope,
+    // so the env-based filter below wrongly rejects a still-live local (a
+    // loop-body `h` across a may-unwind call — the per-call callee_env leak) and
+    // wrongly ACCEPTS a local whose C decl follows the escape (`p := if(… raise()
+    // …)`). The only sound signal is the block-scope stack maintained by the
+    // emitter (`_emitter_track_scope`): keep the drop iff its target C variable is
+    // in SOME still-open C block frame — declared BEFORE this escape AND still in
+    // scope. This drops a live loop-body/callee local (its frame is open → the
+    // callee_env leak this closes) while skipping a control-flow-initialized
+    // binding whose C decl lands in an enclosing frame only after its arm frames
+    // pop (absent here → op_result_val) and a sibling match-arm binding (its frame
+    // popped when the arm closed). Consumption still suppresses the drop.
+    // See issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
+    match(
+      _get_deferred_drop_target_variable(drop_expr, context),
+      .Some(tv) => {
+        consumed_esc := match(tv.consumed_at_token,.Some(ct) => _variable_was_consumed_before_cleanup_point(ct.*, expr),.None => false);
+        if(consumed_esc, {
+          return(false);
+        });
+      },
+      .None => ()
+    );
+    return(scope_stack_contains(context.base.declared_scopes, guard_cn.clone()));
+  });
+  env := match(context.base.get_expr_info(expr),.Some(ei) => ei.env,.None => return(true));
+  variables := get_variables_from_env(env, var_name);
+  if(variables.len() == usize(0), {
+    return(false);
+  });
+  latest_var := match(_resolve_drop_target_in_scope(drop_expr, variables, ast_expr_token(expr), context),.Some(v) => v,.None => return(false));
+  consumed_before := match(latest_var.consumed_at_token,.Some(ct) => _variable_was_consumed_before_cleanup_point(ct.*, expr),.None => false);
+  if(consumed_before, {
+    return(false);
+  });
+  // Skip a variable whose C declaration appears LATER than this drop site: a
+  // mid-body escape check (`if(__yo_effect_escaped){...}`) after a call drops
+  // the pending list, but that list (accumulated over the whole function body)
+  // includes locals declared AFTER this point (forward C references) — dropping
+  // them emits `__yo_decr_rc((void*)(x))` for an undeclared `x`. The env check
+  // above alone does NOT catch this: the recorded env is the END-of-scope env,
+  // which lists those later locals. (Stage-2 self-compile fixpoint; see
+  // issues/retired/yo-self-binary-codegen-state.md.)
+  //
+  // Authoritative C-emission-order guard. The source-order token heuristic below
+  // cannot see that a `x := match(...)` / `cond(...)` binding emits its C
+  // declaration AFTER the RHS's switch — so a `throw` inside the RHS precedes x's
+  // declaration in C, and dropping x here references an undeclared identifier.
+  // TS avoids this because each expr carries a point-in-time env (persistent —
+  // defineVariable/pushEnvFrame return NEW Environment objects) where the
+  // not-yet-completed binding's `initializedAtToken` is still unset; yo-self's
+  // recorded env is the END-of-scope env, so we use the emitter-maintained
+  // block-scope stack as the C-emission-order ground truth: the drop target's
+  // C declaration must have been emitted AND its enclosing C block must still
+  // be open at this exact point. The flat declared_c_var_names set is NOT
+  // enough — it is monotonic, so a same-named local declared in an earlier,
+  // already-CLOSED sibling block keeps the name in the set and the drop would
+  // reference an out-of-scope identifier. A target absent from the stack holds
+  // no C value here, so skipping its drop cannot double-free or leak.
+  c_name := sanitize_for_c_identifier(var_name, false);
+  if(!(scope_stack_contains(context.base.declared_scopes, c_name)), {
+    return(false);
+  });
+  match(
+    latest_var.initialized_at_token,
+    .Some(it) => !(_variable_initialized_after_cleanup_point(it, expr)),
+    .None => false
+  )
+});
+/// Generate pending deferred drops from enclosing scopes before an early
+/// return. Mirrors `generatePendingDeferredDrops` (the effect-SM consumed-arg
+/// clause is Phase 5 and omitted).
+/// `escaped_result` is the C name of the result temp of a call that just
+/// unwound. On that path the callee discarded its continuation instead of
+/// returning, so the temp was never assigned and still holds whatever the ABI
+/// left in the return registers — dropping it dereferences garbage. Mirrors
+/// TS's `escapedCallResultCName` (src/codegen/exprs/return.ts).
+generate_pending_deferred_drops :: (fn(indent : String, context : FunctionGenerationContext, expr : AstExpr, is_completion : bool, skip_already_dropped : bool, skip_env_check : bool, additional_skip : Option(HashSet(String)), escaped_result : Option(String)) -> unit)(
+  match(
+    context.pending_deferred_drops,
+    .Some(pending) => if(pending.len() > usize(0), {
+      already := HashSet(String).new();
+      if(!(skip_already_dropped), {
+        match(
+          context.base.get_expr_info(expr),
+          .Some(ei) => match(
+            ei.deferred_drop_expressions,
+            .Some(drops) => {
+              nd := drops.len();
+              (di : usize) = usize(0);
+              while(di < nd, {
+                match(
+                  drops.get(di),
+                  .Some(d) => match(
+                    get_deferred_drop_target_atom_name(d),
+                    .Some(vn) => {
+                      _a := already.add(vn);
+                    },
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                di = (di + usize(1));
+              });
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+      });
+      has_env := match(context.base.get_expr_info(expr),.Some(_) => true,.None => false);
+      use_env := (has_env && !(skip_env_check));
+      drops_to_emit := ArrayList(AstExpr).new();
+      n := pending.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          pending.get(i),
+          .Some(de) => if(_keep_pending_drop(de, expr, already, additional_skip, use_env, context) && !(_drop_targets_escaped_result(de, escaped_result, context)), {
+            _p := drops_to_emit.push(de);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      if(drops_to_emit.len() > usize(0), {
+        em := context.base.emitter;
+        msg := indent.clone();
+        msg.push_str(if(is_completion, "// Drop local variables before early completion", "// Drop local variables before early return"));
+        em.emit_string_line(msg);
+        m := drops_to_emit.len();
+        (j : usize) = usize(0);
+        while(j < m, {
+          match(
+            drops_to_emit.get(j),
+            .Some(de) => {
+              code := _call_generate_expr(de, indent.clone(), context);
+              if(code.len() > usize(0), {
+                line := indent.clone();
+                line.push_string(code);
+                line.push_str(";");
+                em.emit_string_line(line);
+              });
+            },
+            .None => ()
+          );
+          j = (j + usize(1));
+        });
+      });
+    }),
+    .None => ()
+  )
+);
+/// Generate drops for consumed variables on unwind/escape paths. Mirrors
+/// `generateConsumedVarDropsForEscape`.
+///
+/// `exclude` names variables already released earlier in this same escape
+/// sequence (the caller's own deferred drops); re-releasing one here would be a
+/// double free. TS spells this as an optional trailing `excludeVarNames`
+/// parameter — Yo has no optional parameters, so every call site passes it
+/// explicitly (`.None` where TS omits it).
+generate_consumed_var_drops_for_escape :: (fn(indent : String, context : FunctionGenerationContext, expr : AstExpr, skip_env_check : bool, exclude : Option(HashSet(String)), escaped_result : Option(String)) -> unit)(
+  match(
+    context.consumed_var_pending_drops,
+    .Some(pending) => if(pending.len() > usize(0), {
+      has_env := match(context.base.get_expr_info(expr),.Some(_) => true,.None => false);
+      use_env := (has_env && !(skip_env_check));
+      drops_to_emit := ArrayList(AstExpr).new();
+      n := pending.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          pending.get(i),
+          .Some(de) => {
+            // Excluded (already released by the caller's own drops) — skip
+            // before the env/initialization guards below.
+            excluded := if(
+              _drop_targets_escaped_result(de, escaped_result, context),
+              true,
+              match(
+                exclude,
+                .Some(ex) => match(
+                  get_deferred_drop_target_atom_name(de),
+                  .Some(vn) => ex.contains(vn),
+                  .None => false
+                ),
+                .None => false
+              )
+            );
+            keep := if(
+              excluded,
+              false,
+              if(
+                !(use_env),
+                true,
+                match(
+                  get_deferred_drop_target_atom_name(de),
+                  .Some(var_name) => match(
+                    context.base.get_expr_info(expr),
+                    .Some(ei) => {
+                      variables := get_variables_from_env(ei.env, var_name);
+                      if(variables.len() == usize(0), false, match(_resolve_drop_target_in_scope(de, variables, ast_expr_token(expr), context),.Some(lv) => match(lv.initialized_at_token,.Some(_) => true,.None => false),.None => false))
+                    },
+                    .None => false
+                  ),
+                  .None => false
+                )
+              )
+            );
+            if(keep, {
+              _p := drops_to_emit.push(de);
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      if(drops_to_emit.len() > usize(0), {
+        em := context.base.emitter;
+        hdr := indent.clone();
+        hdr.push_str("// Drop consumed variables (unwind propagation)");
+        em.emit_string_line(hdr);
+        m := drops_to_emit.len();
+        (j : usize) = usize(0);
+        while(j < m, {
+          match(
+            drops_to_emit.get(j),
+            .Some(de) => {
+              code := _call_generate_expr(de, indent.clone(), context);
+              if(code.len() > usize(0), {
+                line := indent.clone();
+                line.push_string(code);
+                line.push_str(";");
+                em.emit_string_line(line);
+              });
+            },
+            .None => ()
+          );
+          j = (j + usize(1));
+        });
+      });
+    }),
+    .None => ()
+  )
+);
+/// Emit the early-return-only deferred drops attached to `expr` (a return/unwind
+/// node) — M3. Mirrors `generateEarlyReturnOnlyDeferredDropExpressions`
+/// (src/codegen/exprs/return.ts): skip closure-capture drops, emit the rest.
+generate_early_return_only_deferred_drop_expressions :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> unit)(
+  match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => match(
+      ei.early_return_only_deferred_drop_expressions,
+      .Some(early_drops) => {
+        em := context.base.emitter;
+        (i : usize) = usize(0);
+        while(i < early_drops.len(), {
+          match(
+            early_drops.get(i),
+            .Some(drop_expr) => if(!(is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures)), {
+              // Gate: the drop target's C declaration must have been emitted AND
+              // its enclosing C block must still be open at this exact point
+              // (block-scope stack — same authoritative C-emission-order signal
+              // as _keep_pending_drop; params are seeded at function entry).
+              // Source-token gates at attach time cannot see C decl-emission
+              // order: a `x := match(...)` binding emits its C declaration
+              // AFTER the switch, so a `return` inside an arm precedes it in C
+              // while FOLLOWING x's init token in source — with the dup/drop
+              // pair optimizer consuming such bindings, the M3-attached drop
+              // referenced an undeclared identifier (stage-2 `result` /
+              // `temp_var_name`). A target absent from the stack holds no C
+              // value here, so skipping cannot double-free or leak. Subsumes
+              // the former minted-TEMP declared_c_var_names check.
+              skip_undeclared := match(
+                get_deferred_drop_target_atom_name(drop_expr),
+                .Some(vn) => {
+                  cn := sanitize_for_c_identifier(vn, false);
+                  !(scope_stack_contains(context.base.declared_scopes, cn))
+                },
+                .None => false
+              );
+              if(!(skip_undeclared), {
+                code := _call_generate_expr(drop_expr, indent.clone(), context);
+                if(code.len() > usize(0), {
+                  line := indent.clone();
+                  line.push_string(code);
+                  line.push_str(";");
+                  em.emit_string_line(line);
+                });
+              });
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  )
+);
+/// Deferred-dup handling for an atom return value. Mirrors `handleAtomDeferredDup`.
+handle_atom_deferred_dup :: (fn(expr : AstExpr, atom_code : String, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => match(
+      ei.deferred_dup_expressions,
+      .Some(dups) => if(dups.len() > usize(0), {
+        generate_deferred_dup_expressions(expr, indent.clone(), context);
+        match(dups.get(usize(0)),.Some(dup_expr) => if(ast_expr_is_fn_call(dup_expr), match(context.base.get_expr_info(dup_expr),.Some(dei) => match(dei.variable_name,.Some(dvn) => get_variable_name_for_codegen(dvn, Option(Environment).Some(dei.env)),.None => atom_code),.None => atom_code), atom_code),.None => atom_code)
+      }, atom_code),
+      .None => atom_code
+    ),
+    .None => atom_code
+  )
+);
+/// Deferred-dup handling for a function-call return value. Mirrors `handleFuncCallDeferredDup`.
+handle_func_call_deferred_dup :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(_call_generate_expr(expr, indent.clone(), context)));
+  match(
+    ei.deferred_dup_expressions,
+    .Some(dups) => if(dups.len() > usize(0), {
+      em := context.base.emitter;
+      match(
+        ei.variable_name,
+        .Some(saved) => {
+          ei.variable_name = Option(String).None;
+          raw_code := _call_generate_expr(expr, indent.clone(), context);
+          ei.variable_name = Option(String).Some(saved.clone());
+          expr_temp_var := get_variable_name_for_codegen(saved.clone(), Option(Environment).Some(ei.env));
+          if(!(expr_temp_var == raw_code), {
+            line := indent.clone();
+            line.push_string(get_type_string(ei.ty, context.base));
+            line.push_str(" ");
+            line.push_string(expr_temp_var.clone());
+            line.push_str(" = ");
+            line.push_string(raw_code);
+            line.push_str(";");
+            em.emit_string_line(line);
+            // Register the declared temp BEFORE the dup pass below — the dup
+            // emitter's undeclared-temp gate silently suppresses the +1 for
+            // names not yet in declared_c_var_names (round-3 field-tail UAF).
+            _hd := context.base.declared_c_var_names.add(expr_temp_var.clone());
+          });
+        },
+        .None => {
+          raw_code := _call_generate_expr(expr, indent.clone(), context);
+          line := indent.clone();
+          line.push_string(raw_code);
+          line.push_str(";");
+          em.emit_string_line(line);
+        }
+      );
+      generate_deferred_dup_expressions(expr, indent.clone(), context);
+      match(dups.get(usize(0)),.Some(dup_expr) => if(ast_expr_is_fn_call(dup_expr), match(context.base.get_expr_info(dup_expr),.Some(dei) => match(dei.variable_name,.Some(dvn) => return(get_variable_name_for_codegen(dvn, Option(Environment).Some(dei.env))),.None => ()),.None => ()), ()),.None => ());
+      _call_generate_expr(expr, indent.clone(), context)
+    }, _call_generate_expr(expr, indent.clone(), context)),
+    .None => _call_generate_expr(expr, indent.clone(), context)
+  )
+});
+/// Generate a `return` statement. Mirrors `generateReturn`.
+generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("// Error: return expression missing metadata")));
+  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  // (ctl-handler resume is Phase 5: FGC has no continuation_variables — omitted.)
+  match(
+    args.get(usize(0)),
+    .Some(arg) => {
+      is_unit := is_unit_type(ei.ty);
+      no_temp := match(ei.variable_name,.Some(_) => false,.None => true);
+      if(no_temp && !(is_unit), {
+        return(String.from("// Error: return expression missing temporary variable name"));
+      });
+      arg_ei_opt := context.base.get_expr_info(arg);
+      arg_has_dup := match(arg_ei_opt,.Some(aei) => match(aei.deferred_dup_expressions,.Some(d) => (d.len() > usize(0)),.None => false),.None => false);
+      // Deferred-dup-with-temp materialization (port of return.ts:556-598):
+      // when the arg has BOTH a variableName and deferred `___dup`s (returning
+      // a borrowed FIELD, e.g. `return(p.inner)`), declare the arg's eval temp
+      // BEFORE emitting the dup — the dup names that temp, and the dup
+      // emitter's undeclared-temp gate silently suppressed the +1 when the
+      // declaration had not been emitted yet (`T temp = p->inner;` was emitted
+      // AFTER the dup pass by the return-temp block below). The caller's scope
+      // drop then over-dropped the field (the round-3 borrowed-field UAF).
+      (arg_code : String) = String.from("");
+      arg_vn_with_dup := if(
+        arg_has_dup,
+        match(arg_ei_opt,.Some(aei) => aei.variable_name,.None => Option(String).None),
+        Option(String).None
+      );
+      match(
+        arg_vn_with_dup,
+        .Some(avn) => {
+          aei2 := match(arg_ei_opt,.Some(a) => a,.None => return(String.from("// unreachable: arg_vn_with_dup implies Some")));
+          aei2.variable_name = Option(String).None;
+          raw_arg_code := _call_generate_expr(arg, indent.clone(), context);
+          aei2.variable_name = Option(String).Some(avn.clone());
+          arg_temp_var := get_variable_name_for_codegen(avn.clone(), Option(Environment).Some(aei2.env));
+          // Skip the temp declaration when the arg is a ref-param atom —
+          // `T name = (*name);` would shadow the pointer parameter
+          // (return.ts:576-586, issues/inout-multi-stmt-body-shadow.md).
+          (is_inout_arg_atom : bool) = false;
+          if(ast_expr_is_atom(arg), {
+            ia_vars := get_variables_from_env(aei2.env, avn.clone());
+            if(ia_vars.len() > usize(0), {
+              match(
+                ia_vars.get(ia_vars.len() - usize(1)),
+                .Some(iav) => if(iav.is_ref, {
+                  is_inout_arg_atom = true;
+                }),
+                .None => ()
+              );
+            });
+          });
+          if((!(is_inout_arg_atom)) && (!(arg_temp_var == raw_arg_code)), {
+            dline := indent.clone();
+            dline.push_string(get_type_string(aei2.ty, context.base));
+            dline.push_str(" ");
+            dline.push_string(arg_temp_var.clone());
+            dline.push_str(" = ");
+            dline.push_string(raw_arg_code.clone());
+            dline.push_str(";");
+            em2 := context.base.emitter;
+            em2.emit_string_line(dline);
+            _ad := context.base.declared_c_var_names.add(arg_temp_var.clone());
+          });
+          arg_code = if(is_inout_arg_atom, raw_arg_code, arg_temp_var);
+        },
+        .None => {
+          arg_code = _call_generate_expr(arg, indent.clone(), context);
+        }
+      );
+      (handled_deferred_dup : bool) = false;
+      if(arg_has_dup, {
+        generate_deferred_dup_expressions(arg, indent.clone(), context);
+        match(
+          arg_ei_opt,
+          .Some(aei) => match(
+            aei.deferred_dup_expressions,
+            .Some(dups) => match(
+              dups.get(usize(0)),
+              .Some(dup_expr) => if(
+                ast_expr_is_fn_call(dup_expr),
+                match(
+                  context.base.get_expr_info(dup_expr),
+                  .Some(dei) => match(
+                    dei.variable_name,
+                    .Some(dvn) => {
+                      arg_code = get_variable_name_for_codegen(dvn, Option(Environment).Some(dei.env));
+                      handled_deferred_dup = true;
+                    },
+                    .None => ()
+                  ),
+                  .None => ()
+                ),
+                ()
+              ),
+              .None => ()
+            ),
+            .None => ()
+          ),
+          .None => ()
+        );
+      });
+      // The return statement yields the FUNCTION's value, so the return temp's
+      // C type is the function's (specialized) return type. When the return
+      // expression's OWN recorded type is an unresolved SomeT that lowers to
+      // `void*` — e.g. a generic operator's declared `_Self` return, which
+      // specialization concretizes only in the FUNCTION TYPE (used by the
+      // prototype), leaving the body's return-expr node at the abstract SomeT
+      // (comptime.test.yo `-(f32)`: `void* r = (-(self)); return r;` inside a
+      // `float` fn) — resolve it through the function's concrete return type.
+      // Mirrors the deferred-dup / scope-ret tail paths (generation.yo:196,265),
+      // which already type the tail temp from `function_type.Func.result`.
+      return_type := {
+        // Async SM: the return temp holds the FUTURE OUTPUT value (what
+        // `sm->result` stores) — but the return expr's recorded type here is
+        // the future itself, whose C name is the SM struct pointer (TS types
+        // this temp by the closure's own return type, which IS the output).
+        // The output value's concrete type is the ARG's type (resolved
+        // through the some-registry when abstract).
+        (sm_output_rt : Option(String)) = Option(String).None;
+        match(
+          context.in_async_state_machine,
+          .Some(_) => match(
+            arg_ei_opt,
+            .Some(aei_t) => {
+              at := aei_t.ty;
+              if(!(is_some_type(at)), {
+                sm_output_rt = Option(String).Some(get_type_string(at, context.base));
+              }, {
+                match(
+                  at,
+                  .SomeT({ id : aid_t }) => match(
+                    lookup_some_resolved_concrete(aid_t),
+                    .Some(act) => {
+                      sm_output_rt = Option(String).Some(get_type_string(act, context.base));
+                    },
+                    .None => ()
+                  ),
+                  _ => ()
+                );
+              });
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+        match(
+          sm_output_rt,
+          .Some(srt) => srt,
+          .None => {
+            raw_rt := get_type_string(ei.ty, context.base);
+            cond(
+              (raw_rt == "void*") => match(
+                context.current_function_type,
+                .Some(ft) => match(
+                  ft,
+                  .Func({ result : r }) => {
+                    fr := get_type_string(r, context.base);
+                    cond((fr == "void*") => raw_rt, true => fr)
+                  },
+                  _ => raw_rt
+                ),
+                .None => raw_rt
+              ),
+              true => raw_rt
+            )
+          }
+        )
+      };
+      return_temp_var := match(ei.variable_name,.Some(vn) => Option(String).Some(get_variable_name_for_codegen(vn, Option(Environment).Some(ei.env))),.None => Option(String).None);
+      match(
+        return_temp_var,
+        .Some(rtv) => if((!(handled_deferred_dup) && !(is_unit)) && !(rtv == arg_code), {
+          line := indent.clone();
+          line.push_string(return_type);
+          line.push_str(" ");
+          line.push_string(rtv.clone());
+          line.push_str(" = ");
+          line.push_string(arg_code.clone());
+          line.push_str(";");
+          em := context.base.emitter;
+          em.emit_string_line(line);
+        }),
+        .None => ()
+      );
+      // Record which variables THIS return's own deferred drops release, so the
+      // consumed-var escape drops below cannot release any of them a second
+      // time. Same pair `generate_pending_deferred_drops` treats as already
+      // dropped. Mirrors return.ts's `droppedByThisReturn`.
+      dropped_by_this_return := HashSet(String).new();
+      match(
+        context.base.get_expr_info(expr),
+        .Some(rei) => {
+          match(
+            rei.deferred_drop_expressions,
+            .Some(dds) => {
+              (ddi : usize) = usize(0);
+              while(ddi < dds.len(), {
+                match(
+                  dds.get(ddi),
+                  .Some(de) => match(
+                    get_deferred_drop_target_atom_name(de),
+                    .Some(vn) => {
+                      _a := dropped_by_this_return.add(vn);
+                    },
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                ddi = (ddi + usize(1));
+              });
+            },
+            .None => ()
+          );
+          match(
+            rei.early_return_only_deferred_drop_expressions,
+            .Some(eds) => {
+              (edi : usize) = usize(0);
+              while(edi < eds.len(), {
+                match(
+                  eds.get(edi),
+                  .Some(de) => match(
+                    get_deferred_drop_target_atom_name(de),
+                    .Some(vn) => {
+                      _a := dropped_by_this_return.add(vn);
+                    },
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                edi = (edi + usize(1));
+              });
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      generate_deferred_drop_expressions(expr, indent.clone(), context);
+      generate_early_return_only_deferred_drop_expressions(expr, indent.clone(), context);
+      // Async state-machine return: complete the Future instead of emitting a
+      // C `return <value>` (return.ts:653-683) — store the result on the SM,
+      // set state -1, spawn the continuation. Without this the closure's tail
+      // `return(x)` emitted NOTHING (the old Phase-5 stub returned "") and the
+      // machine never completed (fs/file read_string: empty final state).
+      match(
+        context.in_async_state_machine,
+        .Some(iasm) => {
+          child_ty := match(
+            extract_future_trait_from_type(iasm.future_type),
+            .Some(ftt) => match(ftt,.FutureTraitT({ output : o }) => o.clone(), _ => t_unit()),
+            .None => t_unit()
+          );
+          is_unit_result := is_unit_type(child_ty);
+          generate_pending_deferred_drops(indent.clone(), context, expr, true, false, false, Option(HashSet(String)).None, Option(String).None);
+          em_sm := context.base.emitter;
+          em_sm.emit_string_line(`${indent.clone()}// Final state - complete the result Future`);
+          result_code := if(
+            is_unit_result,
+            Option(String).None,
+            Option(String).Some(match(return_temp_var,.Some(rtv2) => rtv2,.None => arg_code.clone()))
+          );
+          emit_async_future_completion(em_sm, indent.clone(), result_code, Option(String).Some(context.base.current_function_name.clone()));
+          return(String.from(""));
+        },
+        .None => ()
+      );
+      // Returning a directly-consumed own parameter: skip its pending drop.
+      returned_own := if(
+        ast_expr_is_atom(arg) && !(arg_has_dup),
+        match(
+          context.base.get_expr_info(arg),
+          .Some(aei) => {
+            name := ast_expr_token(arg).value;
+            vars := get_variables_from_env(aei.env, name.clone());
+            if(
+              vars.len() == usize(0),
+              Option(HashSet(String)).None,
+              match(
+                vars.get(vars.len() - usize(1)),
+                .Some(v) => if(v.is_owning_the_rc_value, {
+                  s := HashSet(String).new();
+                  _a := s.add(name);
+                  Option(HashSet(String)).Some(s)
+                }, Option(HashSet(String)).None),
+                .None => Option(HashSet(String)).None
+              )
+            )
+          },
+          .None => Option(HashSet(String)).None
+        ),
+        Option(HashSet(String)).None
+      );
+      generate_pending_deferred_drops(indent.clone(), context, expr, false, false, false, returned_own, Option(String).None);
+      // A variable can appear BOTH in this return's own deferred/early-return
+      // drops and in `consumed_var_pending_drops` — e.g. `return(out)` for an
+      // OWNED local inside a branch: `out` is dup'd for the caller (rc 1->2),
+      // the early-return drop releases the local (2->1, correct), and then the
+      // consumed-var escape drop released it AGAIN (1->0), so the function
+      // returned a FREED pointer. Exclude anything already dropped just above —
+      // a second release of the same variable in one return sequence can only
+      // ever be a double free. Mirrors the same fix in return.ts; see
+      // issues/fixed/yo-return-owned-local-in-branch-double-drop.md (this is
+      // what made tests/fs/dir.test.yo HANG: state_code_gen.yo's
+      // `return(remaining_exprs)` handed back a freed ArrayList, so the async
+      // state machine read `after.len()` as 0 and dropped a while-loop's
+      // post-await tail — including the loop increment).
+      if(handled_deferred_dup, {
+        generate_consumed_var_drops_for_escape(indent.clone(), context, expr, false, Option(HashSet(String)).Some(dropped_by_this_return), Option(String).None);
+      });
+      if(is_unit, {
+        return(String.from("return"));
+      });
+      return_value := if(handled_deferred_dup, arg_code, match(return_temp_var,.Some(rtv) => rtv,.None => arg_code));
+      // DEGRADED return for an UNRESOLVED-SomeT fn return. A cee'd function
+      // definition whose Impl(...) return check threw mid-body (the divergent-
+      // return validation) leaves a half-registered fn in yo-self's mutable
+      // registries; its declared return stays an unresolved SomeT (C: void*)
+      // while an already-evaluated `return(<concrete>)` would emit e.g.
+      // `return <int32_t temp>;` — invalid C ("incompatible integer to
+      // pointer conversion", the tests/impl batch clang error). TS never
+      // emits such fns (the throw discards the whole definition); yo-self
+      // can't roll registrations back, so emit a null-pointer return instead.
+      // The fn has no callers — the statements that would call it were
+      // dropped by the same throw. Guarded to EXACTLY the mismatch case:
+      // declared return still SomeT after resolution AND the returned
+      // value's type is concrete (not a SomeT itself).
+      declared_ret_unresolved := match(
+        context.current_function_type,
+        .Some(cft_dr) => match(
+          cft_dr,
+          .Func({ result : dr_r }) => is_some_type(resolve_some_type_to_concrete(dr_r.clone())),
+          _ => false
+        ),
+        .None => false
+      );
+      if(declared_ret_unresolved && !(is_some_type(ei.ty)), {
+        return(String.from("return (void*)0; // degraded: unresolved Impl(...) return on a definition whose evaluation threw"));
+      });
+      // DEGRADED return when the VALUE expression itself failed to
+      // transpile (its ExprInfo was dropped by an eval throw inside the
+      // same definition — e.g. a comptime_expect_error that did not error
+      // abandons the fn body's begin). Emitting `return <comment>` splices
+      // the next C line into the return ("expected expression", the fn
+      // batch clang error). TS never emits such fns (the throw discards
+      // the definition); like the Impl(...) degrade above, the fn has no
+      // callers — the calling statements were dropped by the same throw.
+      if(return_value.starts_with("// Failed to transpile"), {
+        return(return_value);
+      });
+      out := String.from("return ");
+      out.push_string(return_value);
+      out
+    },
+    .None => {
+      // Unit return (no argument).
+      generate_deferred_drop_expressions(expr, indent.clone(), context);
+      generate_early_return_only_deferred_drop_expressions(expr, indent.clone(), context);
+      // Async state-machine early unit return: complete the Future
+      // (return.ts:740-756). A non-unit future output completes with a
+      // zeroed result.
+      match(
+        context.in_async_state_machine,
+        .Some(iasm_u) => {
+          child_ty_u := match(
+            extract_future_trait_from_type(iasm_u.future_type),
+            .Some(ftt_u) => match(ftt_u,.FutureTraitT({ output : ou }) => ou.clone(), _ => t_unit()),
+            .None => t_unit()
+          );
+          is_unit_result_u := is_unit_type(child_ty_u);
+          generate_pending_deferred_drops(indent.clone(), context, expr, true, false, false, Option(HashSet(String)).None, Option(String).None);
+          em_smu := context.base.emitter;
+          em_smu.emit_string_line(`${indent.clone()}// Final state - complete the result Future (early unit return)`);
+          result_code_u := if(
+            is_unit_result_u,
+            Option(String).None,
+            Option(String).Some(`(${get_type_string(child_ty_u, context.base)}){0}`)
+          );
+          emit_async_future_completion(em_smu, indent.clone(), result_code_u, Option(String).Some(context.base.current_function_name.clone()));
+          return(String.from(""));
+        },
+        .None => ()
+      );
+      generate_pending_deferred_drops(indent.clone(), context, expr, false, false, false, Option(HashSet(String)).None, Option(String).None);
+      String.from("return")
+    }
+  )
+});
+/// Generate an implicit function-body return. Mirrors `generateImplicitReturnStatement`.
+generate_implicit_return_statement :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  match(
+    expr,
+    .Atom(_, _) => {
+      atom_code := generate_atom(expr, context, indent.clone());
+      final_code := handle_atom_deferred_dup(expr, atom_code, indent.clone(), context);
+      // Own-param scope-end drops (function-scope, excluded from the caller's
+      // flush-first — generation.yo non-begin path): AFTER the tail's dup so a
+      // borrowed value leaving the fn keeps its +1, BEFORE the return.
+      generate_deferred_drop_expressions(expr, indent.clone(), context, false, true);
+      line := indent.clone();
+      line.push_str("return ");
+      line.push_string(final_code);
+      line.push_str(";");
+      em.emit_string_line(line);
+    },
+    .FnCall(_, _, _, _, _) => if(ast_expr_is_fn_call_of(expr, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
+      // Control-flow tail (`return(...)` / `unwind(...)`): its generator already emits
+      // the full control-flow statement (the escape flag + a `return` for unwind, or the
+      // return itself), so emit as-is — do NOT wrap in another `return` (that produced
+      // `return return (void*){0};`). Mirrors the `return` special-case; unwind is the
+      // same control-flow shape.
+      // Own-param drops: a RETURN tail flushes its own node drops inside
+      // generate_return (mode-unfiltered), which covers the shared-id body's
+      // param drops; an UNWIND tail does not — flush them here first.
+      if(ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
+        generate_deferred_drop_expressions(expr, indent.clone(), context, false, true);
+      });
+      code := _call_generate_expr(expr, indent.clone(), context);
+      line := indent.clone();
+      line.push_string(code);
+      line.push_str(";");
+      em.emit_string_line(line);
+    }, {
+      final_code := handle_func_call_deferred_dup(expr, indent.clone(), context);
+      // An EMPTY tail render means the expression emitted as STATEMENTS whose
+      // every path already returned (e.g. a tail `match` with returning arms)
+      // — a bare `return ;` here is a C constraint violation in a non-void fn
+      // ("non-void function should return a value", the install_command
+      // batch). Emit nothing: control cannot reach past the statement form.
+      if(final_code.trim().len() > usize(0), {
+        // Own-param scope-end drops: after the tail's statements/dups (the
+        // expression-level flushes skip param targets), before the return.
+        generate_deferred_drop_expressions(expr, indent.clone(), context, false, true);
+        line := indent.clone();
+        line.push_str("return ");
+        line.push_string(final_code);
+        line.push_str(";");
+        em.emit_string_line(line);
+      });
+    })
+  )
+});
+/// Emit the effect-handler parameter drops (if any) before an escape return.
+_emit_effect_handler_param_drops :: (fn(context : FunctionGenerationContext, indent : String) -> unit)(
+  match(
+    context.effect_handler_param_drops,
+    .Some(drops) => {
+      em := context.base.emitter;
+      (di : usize) = usize(0);
+      while(di < drops.len(), {
+        d := match(drops.get(di),.Some(s) => s,.None => String.from(""));
+        em.emit_string_line(`${indent.clone()}${d};`);
+        di = (di + usize(1));
+      });
+    },
+    .None => ()
+  )
+);
+/// Emit the dummy `return` statement for an escaping control function: `return;` for a
+/// unit/void result, else `return (RetT){0};` (the caller ignores it once it
+/// observes `__yo_effect_escaped`). Mirrors generation.ts:325-342/431-446.
+/// Returns "" (emits directly to avoid `return return` double-return from callers
+/// that also insert a `return` prefix).
+_unwind_dummy_return :: (fn(indent : String, context : FunctionGenerationContext) -> String)({
+  rt := match(
+    context.current_function_type,
+    .Some(ft) => match(ft,.Func({ result : r }) => r, _ => t_unit()),
+    .None => t_unit()
+  );
+  em := context.base.emitter;
+  if(is_unit_type(rt), em.emit_string_line(`${indent.clone()}return;`), {
+    rts := match(context.override_return_type_str,.Some(s) => s,.None => get_type_string(rt, context.base));
+    if(rts == "void", em.emit_string_line(`${indent.clone()}return;`), {
+      em.emit_string_line(`${indent.clone()}return (${rts}){0};`);
+    })
+  });
+  String.from("")
+});
+/// Emit an unwind check after calling a function that may set
+/// `__yo_effect_escaped`. Faithful port of `emitEffectUnwindCheck`
+/// (other-fn-call.ts:2778). At a handler-installation point
+/// (`is_handler_installation = true`) it clears the flag and extracts the
+/// unwound value from `__yo_unwind_value` as the call result; at a transitive
+/// point it returns a dummy to propagate the escape up the stack.
+///
+/// NOTE: the async-state-machine branch's segment-local RC arg-temp drop loop
+/// (TS 2808-2841) is DEFERRED — it needs `resolve_var_name_in_context` from
+/// `other_fn_call.yo`, which would close a `return -> other_fn_call` import
+/// cycle. The escape CONTROL FLOW is faithful (flag-clear at install + Future
+/// abort via `emit_async_future_escape`); only the leak-prevention drop of
+/// segment-local arg temps is omitted (not exercised by the corpus — no
+/// async+effect-unwind fixture).
+emit_effect_unwind_check :: (fn(indent : String, context : FunctionGenerationContext, is_handler_installation : bool, expr : AstExpr) -> unit)({
+  em := context.base.emitter;
+  em.emit_string_line(`${indent.clone()}if (__yo_effect_escaped) {`);
+  inner := indent.clone();
+  inner.push_str("  ");
+  // This call's own result temp must never be dropped on the escape path: the
+  // handler unwound instead of returning, so the temp was never assigned and
+  // still holds whatever the ABI left in the return registers. On x86_64 that is
+  // routinely a stack address, so the drop dereferences it and jumps into the
+  // stack. See issues/fixed/escape-path-drops-unwound-call-result-temp.md.
+  escaped_result := match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => ei.variable_name,
+    .None => Option(String).None
+  );
+  is_async := match(context.in_async_state_machine,.Some(_) => true,.None => false);
+  if(is_async, {
+    if(is_handler_installation, {
+      em.emit_string_line(`${inner.clone()}__yo_effect_escaped = 0;`);
+    });
+    emit_async_future_escape(em, inner.clone(), Option(String).None, Option(String).None);
+  }, {
+    // skip_env_check=true: use the block-scope-stack liveness signal in
+    // _keep_pending_drop's !use_env branch (context.declared_scopes), NOT the
+    // END-of-scope env which leaks live locals here. Closes the per-call
+    // callee_env leak on the __yo_effect_escaped path (stage-2 fixpoint).
+    generate_pending_deferred_drops(inner.clone(), context, expr, false, true, true, Option(HashSet(String)).None, escaped_result.clone());
+    generate_consumed_var_drops_for_escape(inner.clone(), context, expr, false, Option(HashSet(String)).None, escaped_result.clone());
+    ret_ty := match(context.current_function_type,.Some(ft) => match(ft,.Func({ result : r }) => r, _ => t_unit()),.None => t_unit());
+    if(is_handler_installation, {
+      em.emit_string_line(`${inner.clone()}__yo_effect_escaped = 0;`);
+      if(is_unit_type(ret_ty), em.emit_string_line(`${inner.clone()}return;`), {
+        cty := match(context.override_return_type_str,.Some(s) => s,.None => get_type_string(ret_ty, context.base));
+        if(cty == "void", em.emit_string_line(`${inner.clone()}return;`), {
+          em.emit_string_line(`${inner.clone()}${cty.clone()} _unw_result;`);
+          em.emit_string_line(`${inner.clone()}memcpy(&_unw_result, __yo_unwind_value, sizeof(${cty}));`);
+          em.emit_string_line(`${inner.clone()}return _unw_result;`);
+        });
+      });
+    }, {
+      if(is_unit_type(ret_ty), em.emit_string_line(`${inner.clone()}return;`), {
+        cty := match(context.override_return_type_str,.Some(s) => s,.None => get_type_string(ret_ty, context.base));
+        if(
+          cty == "void",
+          em.emit_string_line(`${inner.clone()}return;`),
+          em.emit_string_line(`${inner.clone()}return (${cty}){0};`)
+        );
+      });
+    });
+  });
+  em.emit_string_line(`${indent.clone()}}`);
+});
+/// `unwind(expr)` — discard the continuation and exit the enclosing control
+/// function. Faithful port of `generateUnwind` (generation.ts:198-448), minus the
+/// nested-resume-handler `continuationVariables` branch (yo-self has no such
+/// context field). Async-state-machine context routes through
+/// `emit_async_future_escape` (Future aborted). Synchronous effect handlers set
+/// the thread-local `__yo_effect_escaped` flag, drop locals, and — for an
+/// effect-record-member / evidence-passing handler — stash the unwound value into
+/// `__yo_unwind_value` (memcpy) before returning a dummy; otherwise `return <v>`.
+generate_unwind :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  arg_opt := match(expr,.FnCall(_, _, a, _, _) => a.get(usize(0)), _ => Option(AstExpr).None);
+  em := context.base.emitter;
+  is_async := match(context.in_async_state_machine,.Some(_) => true,.None => false);
+  if(is_async, {
+    match(
+      arg_opt,
+      .Some(arg) => {
+        argc := _call_generate_expr(arg, indent.clone(), context);
+        if((argc.len() > usize(0)) && !(argc == "(void)0"), {
+          em.emit_string_line(`${indent.clone()}(void)${argc};`);
+        });
+      },
+      .None => ()
+    );
+    _emit_effect_handler_param_drops(context, indent.clone());
+    generate_pending_deferred_drops(indent.clone(), context, expr, false, true, true, Option(HashSet(String)).None, Option(String).None);
+    generate_consumed_var_drops_for_escape(indent.clone(), context, expr, true, Option(HashSet(String)).None, Option(String).None);
+    emit_async_future_escape(em, indent.clone(), Option(String).None, Option(String).Some(context.base.current_function_name.clone()));
+    return(String.from(""));
+  });
+  // Synchronous effect handler: set the thread-local escape flag. ORDER
+  // MATTERS for `unwind(<expr>)` with an argument: the flag is raised AFTER
+  // the argument is evaluated — a may-unwind call inside the argument (e.g.
+  // `unwind(make_err_expr())`) emits the caller-side protocol
+  // `__yo_effect_escaped = 0; <call>; if (__yo_effect_escaped) ...`, and with
+  // the flag raised first that pre-call clear CANCELLED the in-progress
+  // unwind: the handler returned its dummy ((T*){0} for ref results) with the
+  // flag DOWN and the raise site treated NULL as the real result. Mirrors
+  // generation.ts generateUnwind (same fix, same ordering note); see
+  // issues/fixed/yo-ts-codegen-branch-in-effect-handler-corruption.md.
+  match(
+    arg_opt,
+    .None => {
+      em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 1;`);
+      _emit_effect_handler_param_drops(context, indent.clone());
+      generate_pending_deferred_drops(indent.clone(), context, expr, false, true, true, Option(HashSet(String)).None, Option(String).None);
+      if(!(context.is_effect_record_member_function), {
+        generate_consumed_var_drops_for_escape(indent.clone(), context, expr, true, Option(HashSet(String)).None, Option(String).None);
+      });
+      _unwind_dummy_return(indent.clone(), context)
+    },
+    .Some(arg) => {
+      argc := _call_generate_expr(arg, indent.clone(), context);
+      em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 1;`);
+      _emit_effect_handler_param_drops(context, indent.clone());
+      generate_pending_deferred_drops(indent.clone(), context, expr, false, true, true, Option(HashSet(String)).None, Option(String).None);
+      if(!(context.is_effect_record_member_function), {
+        generate_consumed_var_drops_for_escape(indent.clone(), context, expr, true, Option(HashSet(String)).None, Option(String).None);
+      });
+      has_evidence := match(context.current_evidence_params,.Some(ep) => (ep.len() > usize(0)),.None => false);
+      if(context.is_effect_record_member_function || has_evidence, {
+        match(
+          context.current_function_type,
+          .Some(_) => {
+            arg_ty := match(context.base.get_expr_info(arg),.Some(ei) => ei.ty,.None => t_unit());
+            if(!(is_unit_type(arg_ty)), {
+              ats := get_type_string(arg_ty, context.base);
+              em.emit_string_line(`${indent.clone()}{ ${ats.clone()} _unw_val = ${argc.clone()}; memcpy(__yo_unwind_value, &_unw_val, sizeof(${ats})); }`);
+            });
+          },
+          .None => ()
+        );
+        _unwind_dummy_return(indent.clone(), context)
+      }, {
+        em.emit_string_line(`${indent.clone()}return ${argc.clone()};`);
+        String.from("")
+      })
+    }
+  )
+});
+export(generate_return, generate_implicit_return_statement, generate_pending_deferred_drops, generate_consumed_var_drops_for_escape, handle_atom_deferred_dup, handle_func_call_deferred_dup, generate_unwind, emit_effect_unwind_check);

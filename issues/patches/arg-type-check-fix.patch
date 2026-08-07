@@ -1,0 +1,111 @@
+diff --git a/yo-self/evaluator/calls/function.yo b/yo-self/evaluator/calls/function.yo
+index b0178c65c..ecdd366e2 100644
+--- a/yo-self/evaluator/calls/function.yo
++++ b/yo-self/evaluator/calls/function.yo
+@@ -83,6 +83,7 @@ open(import("std/fmt"));
+ { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
+ { is_control_fn } :: import("../types/control_fn_registry.yo");
+ { are_types_compatible } :: import("../../types/compatibility.yo");
++{ type_contains_some_type } :: import("../../types/utils.yo");
+ { type_to_string } :: import("../../types/string.yo");
+ { get_all_some_types } :: import("../../types/utils.yo");
+ { type_id_or_empty, get_type_trait_methods_by_name, MethodEntry } :: import("../values/type_trait_methods.yo");
+@@ -1345,6 +1346,98 @@ _evaluate_funcval_runtime_call :: (
+     exn : Exception
+   ) -> AstExpr
+ )({
++  // ARGUMENT TYPE CHECK — the step this branch never performed.
++  //
++  // `_evaluate_funcval_runtime_call` is the runtime-return branch of the
++  // FuncVal arm (entered whenever the callee's return is neither a `Type` nor
++  // comptime — most ordinary calls). It was split out of
++  // `evaluate_function_call` for -O0 frame size as "pure code motion", and
++  // across its 327 lines it calls NEITHER
++  // `try_to_call_function_with_arguments` NOR
++  // `check_if_function_parameter_matches_argument`: it mirrors only that
++  // function's Step-4 comptime coercion. So
++  // `f :: (fn(x : i32) -> i32)(x); f(true)` was ACCEPTED and codegen emitted
++  // `yo_id_NNNN((int32_t)(true))`, where TS throws "Cannot unify incompatible
++  // types: Expected i32, Given bool" — every TS call goes through
++  // `tryToCallFunctionWithArguments`. See
++  // issues/yo-self-arg-type-check-bypassed.md.
++  //
++  // It runs HERE, on the unconditional path, and NOT in the per-argument loop
++  // further down: that loop builds the SPECIALIZATION argument list, so a
++  // non-generic callee (exactly the reproducer) skips it entirely.
++  //
++  // Deliberately CONSERVATIVE — this branch is on the hot path for nearly every
++  // call, and the supplied-argument list does not always line up index-for-index
++  // with the declared parameters (receiver / implicit / defaulted params shift
++  // it). Checks only when:
++  //   * the declared parameter count EQUALS the evaluated-argument count, so the
++  //     alignment is unambiguous;
++  //   * the declared parameter type is CONCRETE — a SomeT, or a type containing
++  //     one, is a generic slot bound by synthesis elsewhere;
++  //   * the ARGUMENT type is concrete and not comptime — a `comptime_int`
++  //     argument to an `i32` parameter is lowered further down, and a SomeT
++  //     argument is likewise resolved elsewhere.
++  match(
++    callee_func_type_opt,
++    .Some(_ac_cft) => match(
++      _ac_cft,
++      .Func({ param_types : _ac_pts }) => if(_ac_pts.len() == evaled_arg_infos.len(), {
++        (_ac_i : usize) = usize(0);
++        while(_ac_i < evaled_arg_infos.len(), {
++          match(
++            evaled_arg_infos.get(_ac_i),
++            .Some(_ac_ai) => {
++              _ac_aty := match(_ac_ai.capture_type,.Some(_ac_ct) => _ac_ct,.None => _ac_ai.ty);
++              match(
++                _ac_pts.get(_ac_i),
++                .Some(_ac_pty) => {
++                  // A FUNCTION-typed parameter is a callback slot: its forall
++                  // vars sit INSIDE the Func (`fn(e : E2) -> T2`) and
++                  // `type_contains_some_type` does not see through a Func, so
++                  // they would read as concrete. Those bindings are made by
++                  // synthesis / closure typing, not here — measured: without
++                  // this guard the check wrongly rejects
++                  // `fn(e : E2) -> T2  vs  fn(e : LogBundle) -> unit` and two
++                  // siblings, breaking async_await and
++                  // codegen-bootstrap/effect_polymorphism_forall_infer.
++                  _ac_p_generic := (
++                    (is_some_type(_ac_pty) || type_contains_some_type(_ac_pty))
++                    || is_function_type(_ac_pty)
++                  );
++                  _ac_a_generic := (
++                    (is_some_type(_ac_aty) || type_contains_some_type(_ac_aty))
++                    || is_function_type(_ac_aty)
++                  );
++                  _ac_a_comptime := (
++                    (is_comptime_int_type(_ac_aty) || is_comptime_float_type(_ac_aty))
++                    || is_comptime_string_type(_ac_aty)
++                  );
++                  if(((!(_ac_p_generic) && !(_ac_a_generic)) && !(_ac_a_comptime))
++                  && !(are_types_compatible(_ac_pty, _ac_aty)), {
++                    exn.throw(
++                      dyn(
++                        format_error_message(
++                          ast_expr_token(expr),
++                          `Cannot unify incompatible types:\nExpected: "${type_to_string(_ac_pty)}"\nGiven: "${type_to_string(_ac_aty)}"`,
++                          false,
++                          .None
++                        )
++                      )
++                    );
++                  });
++                },
++                .None => ()
++              );
++            },
++            .None => ()
++          );
++          _ac_i = (_ac_i + usize(1));
++        });
++      }),
++      _ => ()
++    ),
++    .None => ()
++  );
+   // Resolve forall SomeTs in the declared return type using the
+   // forall bindings just inferred from the call arguments — keyed
+   // by NAME against the SomeT occurrences in the return type, each

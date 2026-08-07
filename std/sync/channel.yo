@@ -24,26 +24,29 @@ pragma(Pragma.AllowUnsafe);
 { Mutex } :: import("./mutex");
 { Cond } :: import("./cond");
 { AtomicBool, AtomicUsize, MemoryOrder } :: import("./atomic");
+{ assert } :: import("../assert");
 /// Thread-safe bounded channel for passing values between threads.
 /// Uses atomic reference counting — implements `Send` and can be
 /// safely shared across threads without `Arc` wrapping.
 /// T must implement `Send` to ensure values are safe to transfer between threads.
 Channel :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
   atomic(
-    object(
-      _data : *(T),
-      _head : usize,
-      _len : AtomicUsize,
-      _capacity : usize,
-      _mutex : Mutex(bool),
-      _not_empty : Cond,
-      _not_full : Cond,
-      _closed : AtomicBool
+    ref(
+      struct(
+        _data : *(T),
+        _head : usize,
+        _len : AtomicUsize,
+        _capacity : usize,
+        _mutex : Mutex(bool),
+        _not_empty : Cond,
+        _not_full : Cond,
+        _closed : AtomicBool
+      )
     )
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   Channel(T),
   where(T <: Send),
   /// Create a bounded channel with the given capacity.
@@ -86,7 +89,7 @@ impl(
     // Write value at tail position
     (current_len : usize) = self._len.load(MemoryOrder.Relaxed);
     (tail : usize) = ((self._head + current_len) % self._capacity);
-    consume((self._data &+ tail).* = value);
+    consume((self._data.add(tail)).* = value);
     self._len.store(current_len + usize(1), MemoryOrder.Release);
     self._not_empty.signal();
     self._mutex._raw_unlock();
@@ -112,7 +115,7 @@ impl(
       true => ()
     );
     // Read value at head position and neutralize the slot's RC
-    element_ptr := (self._data &+ self._head);
+    element_ptr := self._data.add(self._head);
     (val : T) = element_ptr.*;
     unsafe.drop(element_ptr.*);
     self._head = ((self._head + usize(1)) % self._capacity);
@@ -137,7 +140,7 @@ impl(
     );
     (current_len : usize) = self._len.load(MemoryOrder.Relaxed);
     (tail : usize) = ((self._head + current_len) % self._capacity);
-    consume((self._data &+ tail).* = value);
+    consume((self._data.add(tail)).* = value);
     self._len.store(current_len + usize(1), MemoryOrder.Release);
     self._not_empty.signal();
     self._mutex._raw_unlock();
@@ -154,7 +157,7 @@ impl(
       },
       true => ()
     );
-    element_ptr := (self._data &+ self._head);
+    element_ptr := self._data.add(self._head);
     (val : T) = element_ptr.*;
     unsafe.drop(element_ptr.*);
     self._head = ((self._head + usize(1)) % self._capacity);
@@ -190,7 +193,7 @@ impl(
 );
 // Dispose: drop remaining elements and free the buffer
 impl(
-  forall(T : Type),
+  generic(T : Type),
   Channel(T),
   where(T <: Send),
   Dispose(
@@ -199,7 +202,7 @@ impl(
       (i : usize) = usize(0);
       while(runtime(i < current_len), {
         (idx : usize) = ((self._head + i) % self._capacity);
-        unsafe.drop((self._data &+ idx).*);
+        unsafe.drop((self._data.add(idx)).*);
         i = (i + usize(1));
       });
       free(.Some(*(void)(self._data)));

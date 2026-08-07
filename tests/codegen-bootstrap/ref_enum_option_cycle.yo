@@ -1,0 +1,42 @@
+// Regression: cycle collection for a recursive `ref(enum(...))` whose recursive
+// edge is wrapped in a value enum — `next : Option(Self)`. This is the shape the
+// compositional `traverse_value` (plans/archive/CYCLE_GC_TRACE_HOOKS.md, phase 1) was
+// written for: the collector's traversal must descend INLINE through the
+// `Option` value-enum to reach the managed `Self` handle inside `.Some`, and
+// `can_type_form_rc_cycle` must reach back to the root THROUGH the `Option`
+// instantiation (the self-shell nested in `Option(Self)` is patched to the real
+// enum so the cycle is detected). Both compilers must agree.
+//
+// Unlike a direct `Self` edge, the `.None` terminator allocates nothing, so there
+// is no terminator left behind — the a<->b cycle is the ONLY allocation and is
+// FULLY reclaimed (tracked returns to the baseline). We assert `after == before`,
+// a stronger property than `after < mid`, and emit a count-independent string so
+// the differential harness compares the outcome.
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio.yo"));
+Gc :: import("std/gc");
+ONode :: ref(
+  enum(
+    ONil,
+    OCons(value : i32, next : Option(Self))
+  )
+);
+form_cycle :: (fn() -> unit)({
+  a := ONode.OCons(1,.None);
+  b := ONode.OCons(2,.None);
+  a.next =.Some(b);
+  b.next =.Some(a); // a <-> b cycle through Option(Self); unreachable on return
+});
+main :: (fn() -> unit)({
+  before := Gc.tracked_count();
+  form_cycle();
+  mid := Gc.tracked_count();
+  Gc.collect();
+  after := Gc.tracked_count();
+  if((mid > before) && (after == before), {
+    unsafe(printf("ref-enum option cycle fully reclaimed\n"));
+  }, {
+    unsafe(printf("ref-enum option cycle leaked\n"));
+  });
+});
+export(main);

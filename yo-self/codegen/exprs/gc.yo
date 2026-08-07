@@ -1,0 +1,104 @@
+//! `__yo_gc_collect()` / `__yo_gc_trace_child(...)` emitters — mirrors
+//! `src/codegen/exprs/gc.ts`.
+open(import("std/string"));
+{ AstExpr } :: import("../../expr.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_pointer_type } :: import("../../types/guards.yo");
+{ type_key } :: import("../utils/index.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _traverse_value, set_traverse_visit_expr } :: import("../functions/constructors.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+/// `__yo_gc_collect()` — trigger a cycle-GC collection (0 args). Mirrors
+/// `generateYoGcCollect`.
+generate_yo_gc_collect :: (fn(expr : AstExpr, _indent : String, _context : FunctionGenerationContext) -> String)(
+  match(
+    expr,
+    .FnCall(_, _, args, _, _) => if(args.len() == usize(0), String.from("__yo_gc_collect()"), String.from("// Error: __yo_gc_collect requires exactly 0 arguments")),
+    .Atom(_, _) => String.from("// Error: __yo_gc_collect requires a call expression")
+  )
+);
+/// `__yo_gc_trace_child(tracer, slot)` — the body of `GcTracer.visit`. `slot`
+/// points at where the child lives (a struct field or a container buffer
+/// element); its type is `*(T)`. Lowers to the compositional per-value traverse
+/// (`_traverse_value`) of `(*(slot))` — a RAW C-lvalue read, no dup/no drop —
+/// using `tracer` (a `GcTracer`, i.e. the opaque `void(*)(void*)` collector
+/// callback carried as a raw pointer) as the visit callback: a managed child
+/// registers the edge, a value child recurses inline. Passing the slot pointer
+/// (not the element by value) keeps tracing RC-neutral. Returns unit. Mirrors
+/// `generateYoGcTraceChild`.
+generate_yo_gc_trace_child :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    expr,
+    .FnCall(_, _, args, _, _) => if(args.len() == usize(2), {
+      tracer_arg := match(args.get(usize(0)),.Some(a) => a,.None => expr);
+      slot_arg := match(args.get(usize(1)),.Some(a) => a,.None => expr);
+      match(
+        context.base.get_expr_info(slot_arg),
+        .Some(ei) => {
+          slot_ty := ei.ty;
+          if(!(is_pointer_type(slot_ty)), {
+            return(String.from("// Error: __yo_gc_trace_child slot must be a pointer"));
+          });
+          pointee := match(slot_ty,.Pointer(p) => p, _ => TypeValue.Unit);
+          // DIVERGENCE (deliberate): traverse the type the enclosing
+          // function's C SIGNATURE resolves to — NOT the slot expr's own
+          // ExprInfo type. The two are different TypeValue COPIES of the same
+          // logical instantiation: the visit fn's declared param carries a
+          // cfid-EMPTY Bucket copy (type_key → the shared merged key →
+          // whichever instantiation registered that key FIRST), while the
+          // slot expr's ExprInfo carries a cfid-CARRYING copy (type_key → the
+          // precise `gs_…` key → a DIFFERENT C type). Walking the ExprInfo
+          // copy emits field accesses that don't exist on the signature's C
+          // struct whenever the merged-key winner has another layout (the
+          // stage-2 `.key.tag on size_t` clang errors — registration-order-
+          // dependent). So: take the pointee from the enclosing function
+          // type's LAST param (visit's `slot : *(T)`), resolve it through the
+          // type registry, and walk THAT — body ≡ signature deterministically.
+          // TS needs none of this: its numeric `type.id` keys are
+          // instantiation-precise, so each instantiation gets its own C type
+          // AND its own visit specialization. Making yo-self equally precise
+          // (splitting the specializations) materializes per-instantiation
+          // bodies that expose a latent codegen bug — the stage-2 binary
+          // corrupts its heap at startup (bisected 2026-07-15); see
+          // issues/fixed/yo-self-specialization-signature-type-identity.md.
+          sig_pointee := match(
+            context.current_function_type,
+            .Some(ft) => match(
+              ft,
+              .Func({ param_types : pts }) => if(
+                pts.len() > usize(0),
+                match(
+                  pts.get(pts.len() - usize(1)),
+                  .Some(pt) => match(pt,.Pointer(p2) => p2, _ => pointee),
+                  .None => pointee
+                ),
+                pointee
+              ),
+              _ => pointee
+            ),
+            .None => pointee
+          );
+          walk_ty := match(
+            context.base.types.get(type_key(sig_pointee)),
+            .Some(entry) => entry.ty,
+            .None => sig_pointee
+          );
+          tracer_code := _call_generate_expr(tracer_arg, indent.clone(), context);
+          slot_code := _call_generate_expr(slot_arg, indent.clone(), context);
+          deref := String.from("(*(");
+          deref.push_string(slot_code);
+          deref.push_str("))");
+          // Set the traversal visit-callback global (see g_traverse_visit_expr
+          // in constructors.yo — hoisted out of a param to sidestep a codegen
+          // RC-lifetime bug, task #54).
+          set_traverse_visit_expr(tracer_code);
+          _traverse_value(deref, walk_ty, context);
+          String.from("((void)0)")
+        },
+        .None => String.from("// Error: __yo_gc_trace_child slot missing type information")
+      )
+    }, String.from("// Error: __yo_gc_trace_child requires exactly 2 arguments")),
+    .Atom(_, _) => String.from("// Error: __yo_gc_trace_child requires a call expression")
+  )
+);
+export(generate_yo_gc_collect, generate_yo_gc_trace_child);

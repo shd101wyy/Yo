@@ -15,6 +15,7 @@
 pragma(Pragma.AllowUnsafe);
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
+{ assert } :: import("../assert");
 { snprintf } :: import("../libc/stdio");
 { Error, AnyError, Exception } :: import("../error");
 { ToString } :: import("../fmt");
@@ -164,7 +165,7 @@ impl(
   JsonValue,
   Index(String)(
     Output : JsonValue,
-    index : (fn(ref(self) : Self, key : String) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, key : String) -> *(Self.Output))(
       match(
         self,
         .Object(keys, values) => {
@@ -178,9 +179,9 @@ impl(
               return(unsafe(&(values(i))));
             });
           });
-          panic("JsonValue: key not found in Object")
+          __yo_panic("JsonValue: key not found in Object")
         },
-        _ => panic("JsonValue: index by String requires .Object variant")
+        _ => __yo_panic("JsonValue: index by String requires .Object variant")
       )
     )
   )
@@ -191,18 +192,18 @@ impl(
   JsonValue,
   Index(usize)(
     Output : JsonValue,
-    index : (fn(ref(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
       match(
         self,
         .Array(items) => {
           assert(idx < items.len(), "JsonValue: Array index out of bounds");
           // SAFETY: assert above bounds `idx`; `items` is the
           // Rc-managed Array list whose storage outlives this call
-          // (ref(self) keeps `self` and therefore `items` alive);
+          // (inout(self) keeps `self` and therefore `items` alive);
           // `&(items(idx))` (Index trait) yields the element pointer.
           return(unsafe(&(items(idx))));
         },
-        _ => panic("JsonValue: index by usize requires .Array variant")
+        _ => __yo_panic("JsonValue: index by usize requires .Array variant")
       )
     )
   )
@@ -211,9 +212,11 @@ export(JsonValue, JsonKV);
 // ============================================================================
 // Parser state
 // ============================================================================
-_Parser :: object(
-  src : str,
-  pos : usize
+_Parser :: ref(
+  struct(
+    src : str,
+    pos : usize
+  )
 );
 impl(
   _Parser,

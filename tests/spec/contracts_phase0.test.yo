@@ -7,6 +7,7 @@
 // functions) or comptime_assert(...) (comptime functions). invariant,
 // ghost, ghost_fn, and old are markers/transparent in Phase 0. The
 // SMT verifier (Phase 1+) is not part of this surface.
+{ assert } :: import("std/assert");
 test("requires/ensures on a satisfying call run without panicking", {
   divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> i32)(
     x / y
@@ -29,12 +30,12 @@ test("multiple predicates inside a single requires/ensures", {
 });
 
 test("where clause may precede requires/ensures in a signature", {
-  // Use a simple forall + where(Runtime) — focus on the contract
+  // Use a simple generic + where(Runtime) — focus on the contract
   // syntax, not the trait machinery.
-  echo :: (fn(forall(T : Type), x : T, where(T <: Runtime), requires(i32(1) == i32(1))) -> T)(
+  echo :: (fn(generic(T : Type), x : T, where(T <: Runtime), requires(i32(1) == i32(1))) -> T)(
     x
   );
-  assert(echo(forall(i32), i32(7)) == i32(7), "echo returns its arg");
+  assert(echo(generic(i32), i32(7)) == i32(7), "echo returns its arg");
 });
 
 test("invariant referencing loop counters does not corrupt iteration", {
@@ -153,8 +154,8 @@ test("clause order: ensures before requires is rejected", {
 
 test("clause order: where after requires is rejected", {
   comptime_expect_error({
-    f :: (fn(forall(T : Type), x : T, requires(i32(1) == i32(1)), where(T <: Runtime)) -> T)(x);
-    f(forall(i32), i32(1));
+    f :: (fn(generic(T : Type), x : T, requires(i32(1) == i32(1)), where(T <: Runtime)) -> T)(x);
+    f(generic(i32), i32(1));
   }, "appears after");
 });
 
@@ -165,21 +166,21 @@ test("clause order: a regular parameter after requires is rejected", {
   }, "appears after");
 });
 
-test("canonical clause order forall/params/where/requires/ensures is accepted", {
+test("canonical clause order generic/params/where/requires/ensures is accepted", {
   full :: (
     fn(
-      forall(T : Type),
+      generic(T : Type),
       x : T,
       where(T <: Runtime),
       requires(i32(1) == i32(1)),
       ensures(i32(1) == i32(1))
     ) -> T
   )(x);
-  assert(full(forall(i32), i32(9)) == i32(9), "canonical order passes");
+  assert(full(generic(i32), i32(9)) == i32(9), "canonical order passes");
 });
 
 test("nested old(old(...)) in ensures resolves to the entry value", {
-  bump :: (fn(ref(n) : i32, ensures(n == (old(old(n)) + i32(1)))) -> unit)({
+  bump :: (fn(inout(n) : i32, ensures(n == (old(old(n)) + i32(1)))) -> unit)({
     n = (n + i32(1));
   });
   x := i32(7);
@@ -223,7 +224,7 @@ test("ensures(...) with multiple postconditions in a single call", {
 });
 
 test("ensures(...) with old(...) captures the entry value of a ref param", {
-  increment :: (fn(ref(n) : i32, requires(n < i32(100)), ensures(n == (old(n) + i32(1)))) -> unit)({
+  increment :: (fn(inout(n) : i32, requires(n < i32(100)), ensures(n == (old(n) + i32(1)))) -> unit)({
     n = (n + i32(1));
   });
   x := i32(5);
@@ -274,7 +275,7 @@ test("ensures(...) on a unit-returning function with a side effect", {
   // No meaningful return value; the postcondition is about the
   // mutated ref param. Exercises the unit-return lowering path
   // (no `result` binding — would otherwise emit invalid `void result`).
-  set :: (fn(ref(n) : i32, x : i32, ensures(n == x)) -> unit)({
+  set :: (fn(inout(n) : i32, x : i32, ensures(n == x)) -> unit)({
     n = x;
   });
   n := i32(0);
@@ -289,7 +290,7 @@ test("requires + ensures + old() together on a non-unit return", {
   // entry value of the mutated ref param, in the same ensures clause.
   bump_and_report :: (
     fn(
-      ref(n) : i32,
+      inout(n) : i32,
       requires(n >= i32(0)),
       ensures(n == (old(n) + i32(1)), result == old(n))
     ) -> i32
@@ -307,7 +308,7 @@ test("requires + ensures + old() together on a non-unit return", {
 test("ensures(...) with multiple old(...) snapshots", {
   // Two distinct old() expressions in one ensures clause — both must
   // be hoisted to separate entry snapshots.
-  swap_check :: (fn(ref(a) : i32, ref(b) : i32, ensures(a == old(b), b == old(a))) -> unit)({
+  swap_check :: (fn(inout(a) : i32, inout(b) : i32, ensures(a == old(b), b == old(a))) -> unit)({
     tmp := a;
     a = b;
     b = tmp;

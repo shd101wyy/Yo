@@ -1,14 +1,15 @@
-/// v4.1 (plans/BORROW_EXCLUSIVITY.md): `ref(name) := …` local bindings
+{ assert } :: import("std/assert");
+/// v4.1 (plans/archive/BORROW_EXCLUSIVITY.md): `inout(name) := …` local bindings
 /// were REMOVED — `ref` exists only in parameter position. These tests
 /// pin the ban and the migration recipes (direct field access; binding
 /// the handle).
 open(import("std/string"));
-Holder :: object(s : String, n : i32);
+Holder :: ref(struct(s : String, n : i32));
 // The binding form is rejected with the teaching error.
 comptime_expect_error(
   ref_binding_removed :: (fn() -> unit)({
     x := i32(42);
-    ref(r) := x;
+    inout(r) := x;
     consume(r);
   })
 );
@@ -16,14 +17,14 @@ comptime_expect_error(
 comptime_expect_error(
   ref_field_binding_removed :: (fn() -> unit)({
     h := Holder(s : String.from("a"), n : i32(1));
-    ref(r) := h.s;
+    inout(r) := h.s;
     consume(r);
   })
 );
 // The comptime form is rejected too.
 comptime_expect_error(
   ref_comptime_binding_removed :: (fn() -> unit)({
-    ref(r) :: i32(42);
+    inout(r) :: i32(42);
     consume(r);
   })
 );

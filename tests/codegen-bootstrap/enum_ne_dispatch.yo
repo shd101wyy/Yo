@@ -1,0 +1,24 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+// Runtime `!=` on a derived-Eq enum. `derive(Eq)` generates `==`; the `!=`
+// method is the Eq trait's `?=` default. derive(Eq) now ALSO generates `!=`
+// (`not(lhs == rhs)`) as a concrete method, so a runtime `a != b` dispatches and
+// codegens — previously it soft-fell to `unit`, only surfacing under a strict
+// bool check. This fixture exercises `!=` inside `&&` and as a `cond` guard
+// (the strict-bool contexts that exposed the bug). Receivers are parameters, so
+// the comparisons are genuinely runtime.
+Color :: enum(Red, Green, Blue);
+derive(Color, Eq(Color));
+classify :: (fn(c : Color, d : Color) -> i32)(
+  cond(
+    ((c != Color.Red) && (d != Color.Red)) => i32(89),
+    (c != d) => i32(78),
+    true => i32(83)
+  )
+);
+main :: (fn() -> unit)({
+  unsafe(_a := putchar(int(classify(Color.Green, Color.Blue))));
+  unsafe(_b := putchar(int(classify(Color.Red, Color.Green))));
+  unsafe(_c := putchar(int(classify(Color.Red, Color.Red))));
+});
+export(main);

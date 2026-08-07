@@ -1,0 +1,13 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+pick :: (fn(n : i32) -> i32)(
+  cond(
+    ((n > i32(0)) && (n < i32(100))) => i32(89),
+    true => i32(78)
+  )
+);
+main :: (fn() -> unit)({
+  unsafe(_a := putchar(int(pick(i32(50)))));
+  unsafe(_b := putchar(int(pick(i32(150)))));
+});
+export(main);

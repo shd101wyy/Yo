@@ -260,7 +260,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
     }
     env = rhs.$.env;
 
-    // Slice-flowability at the assignment boundary (plans/SLICE_FLOWABILITY.md;
+    // Slice-flowability at the assignment boundary (plans/archive/SLICE_FLOWABILITY.md;
     // issues/slice-flowability-assignment-escape.md). When the target's type
     // carries a raw pointer (a `Slice`/`str`/aggregate-thereof — owned `object`
     // types like `String`/`ArrayList` are excluded by the predicate), the RHS
@@ -438,11 +438,11 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
     // Deferred check (from `evaluateBinding`): when the LHS declares a
     // generic function type at the runtime level, we want to reject it
     // unless we can statically prove the bound lambda always unwinds.
-    // A handler that always unwinds never delivers its forall'd return
+    // A handler that always unwinds never delivers its generic'd return
     // value through the function pointer, so a single C fn pointer
     // (return-type-erased) faithfully represents every monomorphization
     // — the rule's underlying ABI mismatch doesn't apply. This is the
-    // same shape `Exception { throw : ctl(forall(ResumeType), ...) }`
+    // same shape `Exception { throw : ctl(generic(ResumeType), ...) }`
     // already relies on as a struct field.
     if (
       !variable.isCompileTimeOnly &&
@@ -464,7 +464,7 @@ ${typeToString(variable.type)}
 Generic functions must be compile-time known to enable monomorphization. Consider using:
 comptime(${variableName}) : ${typeToString(variable.type)}
 
-(Carve-out: when the bound lambda's body is a \`ctl(...)\` handler that always \`unwind\`s out of every path, the constraint is relaxed automatically because the C ABI never needs to deliver the forall'd return value. The analysis here didn't see an all-paths-unwind body.)`,
+(Carve-out: when the bound lambda's body is a \`ctl(...)\` handler that always \`unwind\`s out of every path, the constraint is relaxed automatically because the C ABI never needs to deliver the generic'd return value. The analysis here didn't see an all-paths-unwind body.)`,
         });
       }
     }
@@ -634,7 +634,7 @@ comptime(${variableName}) : ${typeToString(variable.type)}
     } else {
       // Disallow reassignment of Impl(...) SomeType variables.
       // Impl(...) uses static dispatch and the concrete type is fixed at first assignment.
-      // However, forall type parameters (SomeType without resolvedConcreteType) ARE
+      // However, generic type parameters (SomeType without resolvedConcreteType) ARE
       // reassignable — they represent abstract generic types, not Impl dispatch targets.
       if (
         isSomeType(variableType) &&
@@ -887,7 +887,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
     env = rhs.$.env;
 
     // Slice-flowability at the FIELD/INDEX-write boundary (the sibling of the
-    // simple-variable gate above; plans/SLICE_FLOWABILITY.md). Writing a
+    // simple-variable gate above; plans/archive/SLICE_FLOWABILITY.md). Writing a
     // raw-pointer-carrying value (`Slice`/`str`/aggregate) into a field or
     // element — `holder.s = localSlice`, `arr(0) = localSlice` — must root the
     // RHS in storage that outlives the field's CONTAINER. Otherwise the slice

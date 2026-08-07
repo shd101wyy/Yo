@@ -28,9 +28,11 @@ pragma(Pragma.AllowUnsafe);
 /// Execute a function exactly once, thread-safely.
 /// Uses atomic reference counting for safe cross-thread sharing.
 Once :: atomic(
-  object(
-    _done : atomic_bool,
-    _mutex : Mutex(bool)
+  ref(
+    struct(
+      _done : atomic_bool,
+      _mutex : Mutex(bool)
+    )
   )
 );
 impl(

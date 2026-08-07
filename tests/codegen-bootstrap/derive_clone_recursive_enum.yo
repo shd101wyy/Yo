@@ -1,0 +1,39 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+// Recursive enum + derive(Clone): the derived clone of `TreeNode` validates
+// `Box(TreeNode).clone`, whose prelude body (`box(self.*.clone())`) calls back
+// into `TreeNode.clone` WHILE the Clone impl is still being registered. The
+// method lookup must resolve that call from the trait's in-flight signature
+// (TS splices the registering trait's fields into `receiverType.trait`,
+// trait-type.ts:176-203; yo-self mirrors it with the provisional trait-method
+// registry). Regression shape: the lookup missed, the call degraded to the
+// non-Func unit fallback, and codegen emitted `fn_yo_id_NNNN();` with no args,
+// a `void _temp = ;` result, and a Box specialization with V = unit
+// ("argument may not have 'void' type").
+TreeNode :: enum(
+  Leaf(value : i32),
+  Branch(left : Box(Self), right : Box(Self))
+);
+derive(TreeNode, Clone);
+main :: (fn() -> unit)({
+  leaf_a := TreeNode.Leaf(i32(1));
+  leaf_b := TreeNode.Leaf(i32(2));
+  branch := TreeNode.Branch(left : box(leaf_a), right : box(leaf_b));
+  c := branch.clone();
+  match(
+    c,
+    .Branch(left, right) => {
+      match(
+        left.*,
+        .Leaf(v) => cond(
+          (v == i32(1)) => unsafe(_a := putchar(int(i32(89)))),
+          true => unsafe(_b := putchar(int(i32(78))))
+        ),
+        .Branch(_, _) => unsafe(_c := putchar(int(i32(66))))
+      );
+      consume(right);
+    },
+    .Leaf(_) => unsafe(_d := putchar(int(i32(76))))
+  );
+});
+export(main);

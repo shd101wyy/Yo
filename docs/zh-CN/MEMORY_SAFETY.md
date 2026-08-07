@@ -20,12 +20,12 @@ Yo **默认是内存安全的**。作为普通用户编写的代码无法解引�
 
 - **值类型。** `i32`、`bool`、`str`（指向**静态**字符串字节的视图 —— 背后存储永生）、struct、enum、tuple、`Array(T, N)`。
 - **堆管理的集合。** `ArrayList(T)`、`HashMap(K, V)`、`HashSet(T)`、`Deque(T)`、`LinkedList(T)`、`String`，以及 `std/imm/*` 中的不可变版本。
-- **共享所有权。** `object` 类型（单线程 Rc）、`Arc(T)`（跨线程共享的原子 Rc）、`Iso(T)`（所有权转移）。
+- **共享所有权。** 引用语义类型（`ref(struct(...))`/`ref(enum(...))`，单线程 Rc）、`Arc(T)`（跨线程共享的原子 Rc）、`Iso(T)`（所有权转移）。
 - **和类型 / Option / Result 类型。** `Option(T)`、`Result(T, E)`，以及你自定义的 `enum`。
 - **闭包和高阶函数** —— 在安全类型上。
 - **泛型、trait、GADT。** Yo 的全部类型系统特性。
 - **代数效应、async/await、comptime。** 完全可用。
-- **原地修改。** 通过 `ref(name) : T` 参数 —— 下面会讲。
+- **原地修改。** 通过 `inout(name) : T` 参数 —— 下面会讲。
 
 这是默认的用户体验。不需要 pragma、不需要 `&()` 注解、不需要 `*(T)` 类型、不需要 `unsafe(...)` 包装：
 
@@ -46,30 +46,30 @@ main :: (fn() -> unit)({
 });
 ```
 
-`for` 宏按值迭代（`(item) => …` 底层调用 `.into_iter()`）。object 元素是句柄，在循环体内变异 `item` 即就地变异元素；struct/标量元素用索引赋值写回（`coll(i) = v`）。旧的借用形式 `for(coll, ref(item) => …)` 已移除，使用时会产生带上述迁移指引的编译错误。
+`for` 宏按值迭代（`(item) => …` 底层调用 `.into_iter()`）。引用语义类型（`ref(struct(...))`）元素是句柄，在循环体内变异 `item` 即就地变异元素；struct/标量元素用索引赋值写回（`coll(i) = v`）。旧的借用形式 `for(coll, inout(item) => …)` 已移除，使用时会产生带上述迁移指引的编译错误。
 
 ## 安全代码不能做什么
 
 在没有 `pragma(Pragma.AllowUnsafe);` 的文件中，下列每一项都是编译错误。每个错误都附带"请改用"提示。
 
-| 构造                                  | 诊断（简短）                                                                     | 安全替代方案                                                                   |
-| ------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| 参数、字段或返回值中的 `*(T)` 类型    | "raw pointer types are not available in safe code"                               | 自有集合（`ArrayList`/`String`）、`ref(name) : T`、`object` 类型，或标准库包装 |
-| `&(expr)` 取地址                      | "this expression has type `*(T)`, which is not available in safe code"           | `ref(name) : T` 参数，或直接传自有集合                                         |
-| `unsafe(...)` 调用                    | "`unsafe(...)` is not available in safe code"                                    | 使用标准库的安全 API，或在确实需要原始操作时加 `pragma(Pragma.AllowUnsafe);`   |
-| `asm(...)` 块                         | "inline assembly is not available in safe code"                                  | 同上                                                                           |
-| `extern(...)` / `c_include(...)` 声明 | "extern FFI declarations are not available in safe code"                         | 调用标准库包装（如 `std/sys`、`std/fs`）                                       |
-| 指针算术（`&+`、`&-`、`&/`）          | "pointer arithmetic requires raw pointers, which are not available in safe code" | 在 `ArrayList(T)` / `Array(T, N)` 上使用索引                                   |
-| 在指针上 `consume(p.* = v)`           | "`consume` on a pointer deref requires raw pointers"                             | 对安全类型使用 `:=` 进行所有权转移                                             |
+| 构造                                                | 诊断（简短）                                                                     | 安全替代方案                                                                                                           |
+| --------------------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| 参数、字段或返回值中的 `*(T)` 类型                  | "raw pointer types are not available in safe code"                               | 自有集合（`ArrayList`/`String`）、`inout(name) : T`、引用语义类型（`ref(struct(...))`/`ref(enum(...))`），或标准库包装 |
+| `&(expr)` 取地址                                    | "this expression has type `*(T)`, which is not available in safe code"           | `inout(name) : T` 参数，或直接传自有集合                                                                               |
+| `unsafe(...)` 调用                                  | "`unsafe(...)` is not available in safe code"                                    | 使用标准库的安全 API，或在确实需要原始操作时加 `pragma(Pragma.AllowUnsafe);`                                           |
+| `asm(...)` 块                                       | "inline assembly is not available in safe code"                                  | 同上                                                                                                                   |
+| `extern(...)` / `c_include(...)` 声明               | "extern FFI declarations are not available in safe code"                         | 调用标准库包装（如 `std/sys`、`std/fs`）                                                                               |
+| 指针算术（`.add(n)`、`.sub(n)`、`.offset_from(q)`） | "pointer arithmetic requires raw pointers, which are not available in safe code" | 在 `ArrayList(T)` / `Array(T, N)` 上使用索引                                                                           |
+| 在指针上 `consume(p.* = v)`                         | "`consume` on a pointer deref requires raw pointers"                             | 对安全类型使用 `:=` 进行所有权转移                                                                                     |
 
 原则：**任何可能让用户写出 UB 的构造都被门控。** 用户既然无法构造原始指针，就无法解引用 —— 就这样。
 
-## 原地修改：`ref(name) : T`
+## 原地修改：`inout(name) : T`
 
 C / Rust 用 `&mut T` 解决的模式，在安全 Yo 中由一个参数修饰符解决：
 
 ```rust
-swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
+swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
   tmp := a;
   a = b;
   b = tmp;
@@ -78,18 +78,18 @@ swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
 main :: (fn() -> unit)({
   x := i32(1);
   y := i32(2);
-  swap(x, y);              // 调用处不需要 &() —— `ref` 性质在参数定义中
+  swap(x, y);              // 调用处不需要 &() —— `inout` 性质在参数定义中
   assert((x == i32(2)), "swapped");
 });
 ```
 
-`ref` 是**二等的**，且只存在于参数位置（`ref(name) : T`）。函数不能返回 `ref`，没有局部 ref 绑定（`ref(r) := …` 会被拒绝 —— 字段本来就能就地读写），不存在一等的"`ref` 类型"，借用也无法泄漏到 struct 字段或闭包捕获中。ref 实参是一个简单的左值位置（变量，或以局部/参数为根的 `var.field`），因此被借用的存储按构造在整个调用期间存活。见 [FLOWABILITY.md](./FLOWABILITY.md)。
+`inout` 是**二等的**，且只存在于参数位置（`inout(name) : T`）。函数不能返回 `inout`，没有局部 inout 绑定（`inout(r) := …` 会被拒绝 —— 字段本来就能就地读写），不存在一等的"`inout` 类型"，借用也无法泄漏到 struct 字段或闭包捕获中。inout 实参是一个简单的左值位置（变量，或以局部/参数为根的 `var.field`），因此被借用的存储按构造在整个调用期间存活。见 [FLOWABILITY.md](./FLOWABILITY.md)。
 
 使用场景：
 
-- 标准库中带变异的 trait 方法（`Hash.hash`、`Clone.clone`、`Iterator.next`）都接收 `ref(self) : Self`。你写 `value.hash()`、`it.next()` —— 不需要 `&()`。
-- 你自己的变异辅助函数（`swap`、`increment`、`clear` 等）使用 `ref(name) : T`。
-- 在一个作用域内出借值的回调 API：`Mutex.with_lock(body : Impl(Fn(ref(v) : T) -> R))`。
+- 标准库中带变异的 trait 方法（`Hash.hash`、`Clone.clone`、`Iterator.next`）都接收 `inout(self) : Self`。你写 `value.hash()`、`it.next()` —— 不需要 `&()`。
+- 你自己的变异辅助函数（`swap`、`increment`、`clear` 等）使用 `inout(name) : T`。
+- 在一个作用域内出借值的回调 API：`Mutex.with_lock(body : Impl(Fn(inout(v) : T) -> R))`。
 
 ## 标准库集合保持安全
 
@@ -136,13 +136,13 @@ copy_bytes :: (fn(dst : *(u8), src : *(u8), n : usize) -> unit)({
 
 在特权文件内，每一个可能触发 UB 的操作都必须出现在 `unsafe(...)` 调用中：
 
-| 操作                | 示例                                                  |
-| ------------------- | ----------------------------------------------------- |
-| 指针解引用（读）    | `unsafe(p.*)`                                         |
-| 指针解引用（写）    | `unsafe(p.* = v)`                                     |
-| `consume(p.* = v)`  | `unsafe(consume(p.* = v))`                            |
-| 指针算术            | `unsafe(p &+ n)`、`unsafe(p &- n)`、`unsafe(p &/ q)`  |
-| extern "c" 函数调用 | `unsafe(strlen(cstr))`、`unsafe(memcpy(dst, src, n))` |
+| 操作                | 示例                                                               |
+| ------------------- | ------------------------------------------------------------------ |
+| 指针解引用（读）    | `unsafe(p.*)`                                                      |
+| 指针解引用（写）    | `unsafe(p.* = v)`                                                  |
+| `consume(p.* = v)`  | `unsafe(consume(p.* = v))`                                         |
+| 指针算术            | `unsafe(p.add(n))`、`unsafe(p.sub(n))`、`unsafe(p.offset_from(q))` |
+| extern "c" 函数调用 | `unsafe(strlen(cstr))`、`unsafe(memcpy(dst, src, n))`              |
 
 这个包装是**纯编译时标记** —— 代码生成时会还原为内部表达式，所以没有运行时开销。它存在的目的是审计精度：`yo unsafe-report` 可以精确地指出发生 unsafe 操作的行号，而不只是列出文件。审计者 grep `unsafe(` 就能看到每一个可能触发 UB 的位置。
 
@@ -152,7 +152,7 @@ copy_bytes :: (fn(dst : *(u8), src : *(u8), n : usize) -> unit)({
 - 把 `*(T)` 传给函数
 - 把 `*(T)` 存进 struct 字段
 - 返回 `*(T)`
-- 指针比较：`p &== q`、`p &< q` 等
+- 指针比较：`p == q`、`p < q` 等
 - 指针类型转换：`*(u8)(p)`
 - `asm(...)` 块（`asm` 关键字本身就是标记）
 - `extern(...)` / `c_include(...)` _声明_（只有*调用处*需要包装）
@@ -167,7 +167,7 @@ match(
   // SAFETY: idx has been bounds-checked above (idx < self._length);
   // _ptr points at the Rc-managed heap buffer, alive while self
   // holds the Rc.
-  .Some(_ptr) => (_ptr &+ idx),
+  .Some(_ptr) => (_ptr.add(idx)),
   .None => panic("ArrayList: index on empty list")
 )
 ```
@@ -204,7 +204,7 @@ Top extern callees (by unsafe-wrapped call-site count):
      ...
 
 Findings (file:line:col):
-  std/collections/array_list.yo:521:24: unsafe(arith) — .Some(_ptr) => unsafe(_ptr &+ pos),
+  std/collections/array_list.yo:521:24: unsafe(arith) — .Some(_ptr) => unsafe(_ptr.add(pos)),
     SAFETY: assert above bounds `pos < self._length` and the
   ...
 ```
@@ -295,7 +295,7 @@ y := (x + i32(1));      // y == i32(-2147483648) —— 定义的回卷，不是
 
 - `plans/MEMORY_SAFETY.md` —— 安全模型的设计文档。覆盖完整的理由、阶段化推进和考虑过的替代方案。
 - [FLOWABILITY.md](./FLOWABILITY.md) —— 面向用户的 `ref`/借用规则（流动性 + 借用失效）。
-- `plans/SLICE_REWORK.md` —— 移除堆切片的设计（内建 `str`、拷贝式区间）。
-- `plans/EXTERN_UNSAFE_WRAP.md` —— 对 extern "c" 函数调用要求逐调用包装的设计。
-- `plans/ITERATOR_REDESIGN.md` —— 安全模型下迭代如何工作。
+- `plans/archive/SLICE_REWORK.md` —— 移除堆切片的设计（内建 `str`、拷贝式区间）。
+- `plans/archive/EXTERN_UNSAFE_WRAP.md` —— 对 extern "c" 函数调用要求逐调用包装的设计。
+- `plans/archive/ITERATOR_REDESIGN.md` —— 安全模型下迭代如何工作。
 - `docs/zh-CN/DESIGN.md` —— 更广的语言设计；指针 / unsafe 部分与本页交叉引用。

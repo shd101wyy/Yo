@@ -1,0 +1,61 @@
+{ assert } :: import("std/assert");
+// Tests for the "match a variant, bind none of its fields" forms:
+//   * bare `.Variant`        (allowed even when the variant HAS fields)
+//   * `.Variant({})`         (empty curly — the zero case of partial curly)
+// Both coexist with positional destructuring and partial curly destructuring.
+open(import("std/fmt"));
+Shape :: enum(Circle(r : i32), Rectangle(w : i32, h : i32), Dot);
+test("bare .Variant binds nothing for multi-field variants", {
+  kind :: (fn(s : Shape) -> i32)(
+    match(
+      s,
+      .Circle => i32(1),
+      .Rectangle => i32(2),
+      .Dot => i32(3)
+    )
+  );
+  assert(kind(Shape.Circle(5)) == i32(1));
+  assert(kind(Shape.Rectangle(3, 4)) == i32(2));
+  assert(kind(Shape.Dot) == i32(3));
+});
+test("empty-curly .Variant({}) binds nothing", {
+  kind :: (fn(s : Shape) -> i32)(
+    match(
+      s,
+      .Circle({}) => i32(10),
+      .Rectangle({}) => i32(20),
+      .Dot => i32(30)
+    )
+  );
+  assert(kind(Shape.Circle(5)) == i32(10));
+  assert(kind(Shape.Rectangle(3, 4)) == i32(20));
+  assert(kind(Shape.Dot) == i32(30));
+});
+test("bind-nothing coexists with positional and partial-curly destructuring", {
+  area :: (fn(s : Shape) -> i32)(
+    match(
+      s,
+      // positional destructuring
+      .Circle(r) => (i32(3) * (r * r)),
+      // partial curly: bind only `w`, ignore `h`
+      .Rectangle({ w }) => w,
+      // bare bind-nothing
+      .Dot => i32(0)
+    )
+  );
+  assert(area(Shape.Circle(2)) == i32(12));
+  assert(area(Shape.Rectangle(7, 99)) == i32(7));
+  assert(area(Shape.Dot) == i32(0));
+});
+test("bind-nothing arm can still use a wildcard fallback", {
+  is_dot :: (fn(s : Shape) -> bool)(
+    match(
+      s,
+      .Dot => true,
+      _ => false
+    )
+  );
+  assert(is_dot(Shape.Dot));
+  assert(!(is_dot(Shape.Circle(1))));
+});
+export(Shape);

@@ -5,28 +5,268 @@
 //! Phase 3 implementation:
 //!   - Handles `SomeT` (Impl) and `DynT` value types.
 //!   - Infers the DynType from the evaluated value type or from context.
-//!   - Auto-boxes non-object values by synthesising a `box(inner)` call.
+//!   - Auto-boxes non-object values by synthesising a `inner` call.
 //!   - Concrete `.trait` field access is NOT available in yo-self; only
 //!     SomeT, DynT, and expected-DynType-from-context are supported.
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, alloc_global_expr_id, ast_expr_is_fn_call_of } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
   expr_info_table_set,
-  expr_info_table_get
+  expr_info_table_get,
+  expr_info_set_dyn_call_trait_values
 } :: import("../../expr_info.yo");
-{ Environment, synthetic_token } :: import("../../env.yo");
-{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ Environment, synthetic_token, get_variables_from_env, add_variable_to_env } :: import("../../env.yo");
+{ EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry } :: import("../context.yo");
+{ EvalValue, is_func_val, create_type_value } :: import("../../value.yo");
+{ get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
+{ create_specialized_function_inline } :: import("../calls/helper.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, generate_some_type_id } :: import("../../types/creators.yo");
-{ is_dyn_type, is_some_type, is_object_type } :: import("../../types/guards.yo");
+{ t_unit, t_type, t_resolved_cell, generate_some_type_id } :: import("../../types/creators.yo");
+{ is_dyn_type, is_some_type, is_reference_struct_type, is_boxed_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
+{ evaluate_comptime_fn_call } :: import("../calls/comptime_fn.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
+{ attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup } :: import("../utils.yo");
+{ get_type_trait_methods_for_type, type_id_or_empty, get_trait_default } :: import("./type_trait_methods.yo");
 { Exception } :: import("std/error");
+/// Build the ordered TraitVal evidence for a DynType over a concrete value
+/// type, resolving each trait method to the concrete type's registered impl
+/// FuncVal (yo-self's type_trait_methods registry stands in for TS's
+/// `concreteType.trait.fields` with assignedValue FuncVals). C codegen's vtable
+/// wrappers read these FuncVals to dispatch; a field with no registered method
+/// falls back to None. Shared by both the executing and non-executing paths so
+/// codegen has the evidence regardless of the mode the body was evaluated in.
+/// For a BOXED dyn payload (`Box(Sq)`), return the box's underlying value type
+/// (`Sq`, its single `*` field) so trait methods resolve on the concrete type the
+/// impl is registered against; non-boxed passes through. The codegen wrapper's
+/// is_boxed branch then unboxes `Box* -> &box->*` at the call. Requires the box's
+/// `Box(...)` name (stamped in comptime_fn.yo) so is_boxed_type recognises it.
+/// Construct `Box(inner_type)` by calling the prelude `Box` comptime
+/// type-constructor with `V` pre-bound to inner_type in the callee env. Mirrors
+/// TS `createBoxedType` (dyn.ts:62-105). evaluate_comptime_fn_call evals the body
+/// in the passed callee_env and does NOT bind params, so V must be pre-bound.
+_create_boxed_type :: (fn(inner_type : TypeValue, env : Environment, ctx : EvalContext, exn : Exception) -> Option(TypeValue))({
+  vars := get_variables_from_env(env, String.from("Box"));
+  (box_fv : Option(EvalValue)) = Option(EvalValue).None;
+  (box_ft : TypeValue) = t_unit();
+  nv := vars.len();
+  (vi : usize) = usize(0);
+  while((vi < nv) && box_fv.is_none(), {
+    match(
+      vars.get(vi),
+      .Some(v) => match(
+        v.value.get(usize(0)),
+        .Some(val) => if(is_func_val(val), {
+          box_fv = Option(EvalValue).Some(val);
+          box_ft = v.ty;
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
+    vi = (vi + usize(1));
+  });
+  match(
+    box_fv,
+    .None => Option(TypeValue).None,
+    .Some(bfv) => {
+      param0_ty := match(box_ft,.Func({ param_types : pts }) => match(pts.get(usize(0)),.Some(p) => p,.None => t_type()), _ => t_type());
+      param0_label := match(box_ft,.Func({ meta : bm }) => match(bm.*.param_labels.get(usize(0)),.Some(l) => l,.None => String.from("V")), _ => String.from("V"));
+      (cenv : Environment) = env;
+      _cfr := cenv.push_frame(false);
+      vtok := synthetic_token(param0_label.clone(), cenv.module_path);
+      add_variable_to_env(cenv, param0_label.clone(), t_type(), Option(EvalValue).Some(create_type_value(inner_type)), true, false, false, false, vtok);
+      bargs := ArrayList(ArgEntry).new();
+      bargs.push(ArgEntry(value : Option(EvalValue).Some(create_type_value(inner_type)), parameter_type : param0_ty, arg_type : t_type()));
+      bav := ArgValues(
+        forall_args : ArrayList(ArgEntry).new(),
+        args : bargs,
+        implicit_args : Option(ArrayList(ArgEntry)).None,
+        variadic_args : ArrayList(VarArgEntry).new()
+      );
+      bres := evaluate_comptime_fn_call(Option(AstExpr).None, box_ft, bfv, bav, env, cenv, ctx, exn);
+      cenv.pop_frame();
+      match(bres.value,.TypeVal(bt) => if(is_reference_struct_type(bt), Option(TypeValue).Some(bt), Option(TypeValue).None), _ => Option(TypeValue).None)
+    }
+  )
+});
+_unwrap_box_for_method_lookup :: (fn(t : TypeValue) -> TypeValue)({
+  (result : TypeValue) = t;
+  if(is_boxed_type(t), {
+    match(
+      t,
+      .Struct({ field_types : fts }) => match(
+        fts.get(usize(0)),
+        .Some(ut) => {
+          result = ut;
+        },
+        .None => ()
+      ),
+      _ => ()
+    );
+  });
+  result
+});
+/// Monomorphize a trait `?=`-default method FuncVal to a concrete receiver.
+/// The registered default is GENERIC over `Self` (e.g. `Error.source ?= (self)
+/// -> .None`, typed `fn(inout(self):Self) -> Option(Dyn(SelfTrait))`); codegen
+/// skips its generic body (→ undeclared dyn wrapper `fn_..._source`, the stage-2
+/// Error.source cluster). Route it through `create_specialized_function_inline`
+/// with `ctx.self_type = value_type` so `Self` in the body/return resolves to the
+/// receiver, producing a concrete, collectable FuncVal with a per-type func_id.
+/// Applied whenever the resolved field value IS the trait default (matched by
+/// func_id) — the impl.yo default-fill registers the RAW generic default in the
+/// type-trait-method registry, so it is found via exact/by_label here, not only
+/// via the get_trait_default fall-through. Returns `fv` unchanged when it is not
+/// a FuncVal or not the default.
+_monomorphize_default_fv :: (
+  fn(fv : EvalValue, default_fid : String, value_type : TypeValue, caller_env : Environment, ctx : EvalContext, exn : Exception) -> EvalValue
+)(
+  cond(
+    !(is_func_val(fv)) => fv,
+    (default_fid == String.new()) => fv,
+    match(fv,.FuncVal(__mfv, _) => (__mfv.*.func_id == default_fid), _ => false) => {
+      default_ft := get_func_type(default_fid.clone());
+      self_args := ArrayList(ArgEntry).new();
+      _sa := self_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : value_type.clone(), arg_type : value_type.clone()));
+      spec_argvals := ArgValues(
+        forall_args : ArrayList(ArgEntry).new(),
+        args : self_args,
+        implicit_args : Option(ArrayList(ArgEntry)).None,
+        variadic_args : ArrayList(VarArgEntry).new()
+      );
+      saved_self_ty := ctx.self_type;
+      ctx.self_type = Option(TypeValue).Some(value_type.clone());
+      spec_fv := create_specialized_function_inline(fv, default_ft, spec_argvals, caller_env, caller_env, ctx, exn);
+      ctx.self_type = saved_self_ty;
+      spec_fv
+    },
+    true => fv
+  )
+);
+_resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue, ctx : EvalContext, caller_env : Environment, exn : Exception) -> ArrayList(EvalValue))({
+  trait_vals := ArrayList(EvalValue).new();
+  // Resolve trait methods on the UNDERLYING type when the payload is a Box.
+  method_lookup_type := _unwrap_box_for_method_lookup(value_type);
+  match(
+    dyn_type,
+    .DynT(required_trait_types : rtt) => {
+      n := rtt.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          rtt.get(i),
+          .Some(tt) => match(
+            tt,
+            .TraitT(name : tname, field_labels : fl, id : trait_id) => {
+              entries := get_type_trait_methods_for_type(type_id_or_empty(method_lookup_type));
+              n_fields := fl.len();
+              field_names := ArrayList(String).new();
+              field_vals := ArrayList(Option(EvalValue)).new();
+              (j : usize) = usize(0);
+              while(j < n_fields, {
+                fname := match(fl.get(j),.Some(s) => s,.None => String.from(""));
+                field_names.push(fname.clone());
+                // Prefer an entry matching BOTH label and trait id; fall back to
+                // a label-only match (the Dyn(Trait) annotation's trait id can
+                // differ from the impl's source_trait_id across trait-type
+                // instantiations). Read entry.value at most ONCE per entry —
+                // Option(EvalValue) reads MOVE (EvalValue holds reference-
+                // semantics members), so a double read is use-after-move (SIGBUS).
+                (exact : Option(EvalValue)) = Option(EvalValue).None;
+                (by_label : Option(EvalValue)) = Option(EvalValue).None;
+                (have_exact : bool) = false;
+                ne := entries.len();
+                (k : usize) = usize(0);
+                while((k < ne) && !(have_exact), {
+                  match(
+                    entries.get(k),
+                    .Some(entry) => if(entry.label == fname, {
+                      is_exact := (entry.source_trait_id == trait_id);
+                      ev := entry.value;
+                      if(is_exact, {
+                        exact = ev;
+                        have_exact = true;
+                      }, {
+                        by_label = ev;
+                      });
+                    }),
+                    .None => ()
+                  );
+                  k = (k + usize(1));
+                });
+                // Fall back to the trait's `?=` DEFAULT method when the concrete
+                // type implements the trait WITHOUT overriding this method (e.g.
+                // `Error.source ?= (self) -> .None` for a LexerError that omits
+                // `source`). The registered default is GENERIC over `Self`, so it
+                // must be MONOMORPHIZED to the concrete receiver: codegen would
+                // otherwise skip its generic body (undeclared wrapper) and the
+                // `Self`-bearing return type would mismatch the vtable slot. Route
+                // it through create_specialized_function_inline with `self :
+                // value_type` (ctx.self_type set so `Self` in the body/return
+                // resolves to the receiver), producing a concrete, collectable
+                // FuncVal. Falls back to the raw default if specialization is not
+                // possible.
+                // The trait's `?=` default func_id — used to detect (and
+                // monomorphize) a generic default whether it was found via the
+                // registry (exact/by_label, because impl.yo fills the raw default
+                // there) or via the get_trait_default fall-through.
+                default_fid_for_field := match(
+                  get_trait_default(trait_id.clone(), fname.clone()),
+                  .Some(dfv) => if(is_func_val(dfv), match(dfv,.FuncVal(__dfvd, _) => __dfvd.*.func_id.clone(), _ => String.new()), String.new()),
+                  .None => String.new()
+                );
+                resolved_field := match(
+                  exact,
+                  .Some(v) => Option(EvalValue).Some(_monomorphize_default_fv(v, default_fid_for_field.clone(), value_type.clone(), caller_env, ctx, exn)),
+                  .None => match(
+                    by_label,
+                    .Some(bv) => Option(EvalValue).Some(_monomorphize_default_fv(bv, default_fid_for_field.clone(), value_type.clone(), caller_env, ctx, exn)),
+                    .None => match(
+                      get_trait_default(trait_id.clone(), fname.clone()),
+                      .Some(default_fv) => Option(EvalValue).Some(_monomorphize_default_fv(default_fv, default_fid_for_field.clone(), value_type.clone(), caller_env, ctx, exn)),
+                      .None => Option(EvalValue).None
+                    )
+                  )
+                );
+                field_vals.push(resolved_field);
+                j = (j + usize(1));
+              });
+              trait_vals.push(EvalValue.TraitVal(tname, field_names, field_vals));
+              ()
+            },
+            // Fn trait (Dyn(Fn(...)) — e.g. a dyn'd CLOSURE stored in a struct
+            // field): the closure ITSELF is the implementation; there is no
+            // registry impl to resolve. Push a marker TraitVal so
+            // `generate_dyn_call` proceeds (it bails on an EMPTY list) — the
+            // C wrapper for the synthetic `call` slot resolves the closure fn
+            // via the impl_closure_call_map (capture-struct id → closure C
+            // name), mirroring TS's implClosureCallMap.
+            .FnTraitT(_, _, _, _, _, _, _, _) => {
+              trait_vals.push(
+                EvalValue.TraitVal(
+                  String.from("Fn"),
+                  ArrayList(String).new(),
+                  ArrayList(Option(EvalValue)).new()
+                )
+              );
+              ()
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+  trait_vals
+});
 evaluate_dyn_value :: (
   fn(
     expr : AstExpr,
@@ -81,7 +321,8 @@ evaluate_dyn_value :: (
   // negative traits (a type variable, which `synthesize` binds to the
   // concrete value and checks the trait constraints against); otherwise
   // clear the expected type entirely.
-  (inner_expected : Option(ExpectedTypeCtx)) = match(
+  (inner_expected : Option(ExpectedTypeCtx)) = Option(ExpectedTypeCtx).None;
+  match(
     ctx.expected_type,
     .Some(et) => match(
       et.ty,
@@ -90,33 +331,69 @@ evaluate_dyn_value :: (
         required_trait_levels : rtl,
         negative_trait_types : ntt,
         negative_trait_levels : ntl
-      ) =>
-        Option(ExpectedTypeCtx).Some(
-          ExpectedTypeCtx(
-            ty : TypeValue.SomeT(
-              generate_some_type_id(),
-              String.from(""),
-              env.frames.len(),
-              Box(TypeValue)(TypeValue.TypeUni(usize(0))),
-              rtt,
-              rtl,
-              ntt,
-              ntl,
-              false,
-              Option(Box(TypeValue)).None
+      ) => {
+        w_ty := TypeValue.SomeT(
+          generate_some_type_id(),
+          String.from(""),
+          env.frames.len(),
+          TypeValue.TypeUni(usize(0)),
+          rtt,
+          rtl,
+          ntt,
+          ntl,
+          false,
+          Option(TypeValue).None,
+          ArrayList(TypeValue).new()
+        );
+        (exp_ty : TypeValue) = w_ty;
+        // dyn(box(<closure>)) special case — faithful port of TS
+        // dyn.ts:210-224: pass `Box(Impl-SomeT)` as the box call's
+        // expected type so its early return-type synthesis binds
+        // `V := <the Fn-carrying wrapper>` and the closure argument is
+        // contextually typed from the wrapper's Fn trait (concrete
+        // param types). Without it the closure is created through the
+        // no-expected placeholder fallback (`fn(y : y) -> _ret`) and
+        // its C signature emits `void*` params (the cluster-B family).
+        // (TS's isBoxFunctionCall also accepts `Box(T)(...)` ctor
+        // calls; the bare `box` head covers the dyn-closure pattern.)
+        dyn_box_closure := if(
+          ast_expr_is_fn_call_of(value_arg, "box", Option(usize).Some(usize(1))),
+          match(
+            value_arg,
+            .FnCall(_, _, dbc_args, _, _) => match(
+              dbc_args.get(usize(0)),
+              .Some(dbc_a0) => ast_expr_is_fn_call_of(dbc_a0, "=>", Option(usize).None),
+              .None => false
             ),
+            _ => false
+          ),
+          false
+        );
+        if(dyn_box_closure, {
+          match(
+            _create_boxed_type(w_ty, env, ctx, exn),
+            .Some(dbc_bt) => {
+              exp_ty = dbc_bt;
+            },
+            .None => ()
+          );
+        });
+        inner_expected = Option(ExpectedTypeCtx).Some(
+          ExpectedTypeCtx(
+            ty : exp_ty,
             env : et.env
           )
-        ),
-      _ => Option(ExpectedTypeCtx).None
+        );
+      },
+      _ => ()
     ),
-    .None => Option(ExpectedTypeCtx).None
+    .None => ()
   );
   // Non-executing path: still type-check the inner expression, then return early.
   if(ctx.is_validating_function_definition || !(ctx.is_executing), {
     saved_et_ne := ctx.expected_type;
     ctx.expected_type = inner_expected;
-    _inner := evaluate_expression(value_arg, env, ctx);
+    inner_ne := evaluate_expression(value_arg, env, ctx);
     ctx.expected_type = saved_et_ne;
     (ret_type : TypeValue) = match(
       ctx.expected_type,
@@ -128,8 +405,116 @@ evaluate_dyn_value :: (
         negative_trait_levels : ArrayList(usize).new()
       )
     );
-    out_info := new_expr_info(env, ret_type);
+    out_info := new_expr_info(env, ret_type.clone());
+    // Even in validating mode, resolve the trait evidence from the registry so
+    // C codegen (which reads body ExprInfo produced in THIS mode — yo-self
+    // evaluates fn bodies in validating mode) has the vtable FuncVals. The
+    // resolution is structural (registry lookup), not execution-dependent.
+    ne_value_type := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(inner_ne)),.Some(ii) => ii.ty,.None => t_unit());
+    // Auto-box a non-object, non-dyn payload (mirrors TS evaluateDynValue, which
+    // always boxes), evaluating the synthetic `box(value)` with the EXPECTED
+    // `Box(value_type)` so the box's `generic(V)` binds. The synthetic atom/call
+    // get REAL ids (alloc_global_expr_id) — id=0 breaks the call's ExprInfo/generic
+    // setup. The boxed expr is surfaced via runtime_arg_exprs_in_order (the field
+    // generate_dyn_call reads). Trait evidence stays on the PRE-box concrete type.
+    //
+    // Dyn'd CLOSURE payload (Dyn(Fn(...)) struct fields): `Box(<fn type>)` is
+    // not constructible (fn-typed struct fields are rejected — the
+    // SuspensionPointDetector design note), and the closure's runtime value IS
+    // its capture struct — box THAT instead. Mirrors TS, whose box rtparam is
+    // the capture struct (`box_Impl(Fn...)(struct(base : i32))`); the capture
+    // struct is also the key the C wrapper resolves through
+    // impl_closure_call_map.
+    (ne_box_inner_ty : TypeValue) = ne_value_type;
+    match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(inner_ne)),
+      .Some(iiv) => match(
+        iiv.value,
+        .Some(ival) => match(
+          ival,
+          .FuncVal(__nfvd, _) => match(
+            get_closure_capture_info(__nfvd.*.func_id.clone()),
+            .Some(cci) => match(
+              inner_expected,
+              // Mirror TS: box with V = the Impl(Fn) SOMET whose
+              // resolved_concrete = the closure's CAPTURE STRUCT (TS's
+              // `box_Impl(Fn(...))` specialization; resolvedConcreteType
+              // carries the layout). The PER-OBJECT field survives the Box
+              // CTFE's clone/substitute/intern, so codegen's get_type_string
+              // lays the box payload out as the capture struct — the id-keyed
+              // global misses there (round-5 finding).
+              .Some(iec) => match(
+                iec.ty,
+                .SomeT(bx_id, bx_nm, bx_fl, bx_pt, bx_rtt, bx_rtl, bx_ntt, bx_ntl, bx_ier, bx_kft, _) => {
+                  ne_box_inner_ty = TypeValue.SomeT(
+                    bx_id,
+                    bx_nm,
+                    bx_fl,
+                    bx_pt,
+                    bx_rtt,
+                    bx_rtl,
+                    bx_ntt,
+                    bx_ntl,
+                    bx_ier,
+                    bx_kft,
+                    t_resolved_cell(cci.capture_type)
+                  );
+                },
+                _ => ()
+              ),
+              .None => ()
+            ),
+            .None => ()
+          ),
+          _ => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+    (ne_final_expr : AstExpr) = inner_ne;
+    if(!(is_reference_struct_type(ne_value_type)) && !(is_dyn_type(ne_value_type)), {
+      match(
+        _create_boxed_type(ne_box_inner_ty, env, ctx, exn),
+        .Some(box_ty) => {
+          ne_box_tok := synthetic_token(String.from("box"), env.module_path);
+          ne_box_atom := AstExpr.Atom(alloc_global_expr_id(), ne_box_tok);
+          ne_box_args := ArrayList(AstExpr).new();
+          ne_box_args.push(inner_ne);
+          ne_box_call := AstExpr.FnCall(alloc_global_expr_id(), ne_box_atom, ne_box_args, false, expr_tok);
+          saved_bet := ctx.expected_type;
+          ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : box_ty, env : env));
+          ne_boxed := evaluate_expression(ne_box_call, env, ctx);
+          ctx.expected_type = saved_bet;
+          match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(ne_boxed)),
+            .Some(_) => {
+              ne_final_expr = ne_boxed;
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+    });
+    // The dyn takes OWNERSHIP of its payload: mark the inner value's owning
+    // temp CONSUMED (or schedule a deferred dup for a borrowed source).
+    // Without this the payload temp keeps its scope-end/escape drop AND the
+    // dyn's own `.data` drop also fires — a double-drop of the same object on
+    // every `exn.throw(dyn(format_error_message(...)))` (the pre-existing
+    // stage-2 startup heap corruption; see
+    // issues/fixed/yo-self-dyn-throw-double-drop.md; repro /tmp/dd.yo). Mirrors TS
+    // `setExprAsNeedsToCallDup(finalValueExpr)` (values/dyn.ts:321).
+    set_expr_as_needs_to_call_dup(ne_final_expr, ctx, exn);
+    rt_args_ne := ArrayList(AstExpr).new();
+    rt_args_ne.push(ne_final_expr);
+    out_info.runtime_arg_exprs_in_order =.Some(rt_args_ne);
+    if(is_dyn_type(ret_type.clone()), {
+      expr_info_set_dyn_call_trait_values(out_info, Option(ArrayList(EvalValue)).Some(_resolve_dyn_trait_values(ret_type, ne_value_type, ctx, env, exn)));
+    });
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    // Attach the temp variable C codegen reads for the fat-pointer struct.
+    attach_temp_variable_to_expr(expr, true, ctx);
     return(expr);
   });
   // --- Executing path ---
@@ -162,22 +547,24 @@ evaluate_dyn_value :: (
   // Auto-box non-object, non-dyn values (mirrors TypeScript lines 251-310).
   // Note: Future-implementing SomeType check (typeImplementsFuture) is omitted
   // in Phase 3 — all non-object, non-dyn values are wrapped in box().
-  if(!(is_object_type(value_type)) && !(is_dyn_type(value_type)), {
+  (final_value_expr_ex : AstExpr) = eval_inner;
+  if(!(is_reference_struct_type(value_type)) && !(is_dyn_type(value_type)), {
     box_tok := synthetic_token(String.from("box"), cur_env.module_path);
     box_atom := AstExpr.Atom(usize(0), box_tok);
     box_args := ArrayList(AstExpr).new();
     box_args.push(eval_inner);
-    box_call := AstExpr.FnCall(usize(0), box(box_atom), box_args, false, expr_tok);
+    box_call := AstExpr.FnCall(usize(0), box_atom, box_args, false, expr_tok);
     boxed_expr := evaluate_expression(box_call, cur_env, ctx);
     boxed_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(boxed_expr));
     match(
       boxed_info_opt,
       .Some(bi) => {
         // Update the dyn(...) call's first arg to point at the boxed expression,
-        // so that C codegen sees box(inner) rather than the bare inner expression.
+        // so that C codegen sees inner rather than the bare inner expression.
         args(usize(0)) = boxed_expr;
         final_value_type = bi.ty;
         cur_env = bi.env;
+        final_value_expr_ex = boxed_expr;
       },
       .None => {
         exn.throw(
@@ -193,6 +580,9 @@ evaluate_dyn_value :: (
       }
     );
   });
+  // Same ownership-transfer consumption as the non-executing path above
+  // (mirrors TS setExprAsNeedsToCallDup(finalValueExpr), values/dyn.ts:321).
+  set_expr_as_needs_to_call_dup(final_value_expr_ex, ctx, exn);
   // Determine the expected DynType:
   //   1. From context.expected_type when it is already a DynT.
   //   2. From final_value_type when it is a DynT.
@@ -269,49 +659,18 @@ evaluate_dyn_value :: (
       }
     )
   );
-  // Collect a TraitVal for each required trait in the DynType.
-  // For each TraitT in required_trait_types, create a TraitVal whose
-  // field_values are all None (runtime-only; concrete values resolved later).
-  trait_vals := ArrayList(EvalValue).new();
-  match(
-    dyn_type,
-    .DynT(required_trait_types : rtt) => {
-      n := rtt.len();
-      (i : usize) = usize(0);
-      while(i < n, {
-        tt_opt := rtt.get(i);
-        match(
-          tt_opt,
-          .Some(tt) => match(
-            tt,
-            .TraitT(name : tname, field_labels : fl) => {
-              n_fields := fl.len();
-              field_names := ArrayList(String).new();
-              field_vals := ArrayList(Option(EvalValue)).new();
-              (j : usize) = usize(0);
-              while(j < n_fields, {
-                fname := match(fl.get(j),.Some(s) => s,.None => String.from(""));
-                field_names.push(fname);
-                field_vals.push(Option(EvalValue).None);
-                j = (j + usize(1));
-              });
-              trait_vals.push(EvalValue.TraitVal(tname, field_names, field_vals));
-              ()
-            },
-            _ => ()
-          ),
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-    },
-    _ => ()
-  );
+  // Collect a TraitVal for each required trait, resolving the concrete type's
+  // registered impl methods (the registry-based stand-in for TS's
+  // `concreteType.trait.fields`). Resolved on the pre-box concrete type.
+  trait_vals := _resolve_dyn_trait_values(dyn_type.clone(), value_type, ctx, cur_env, exn);
   // Annotate the outer dyn(...) expression with the resolved DynType and
   // the ordered trait values for C codegen vtable emission.
   out_info := new_expr_info(cur_env, dyn_type);
-  out_info.dyn_call_trait_values =.Some(trait_vals);
+  expr_info_set_dyn_call_trait_values(out_info, Option(ArrayList(EvalValue)).Some(trait_vals));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  // Attach the temp variable C codegen reads for the fat-pointer struct
+  // (mirrors TS attachTempVariableToExpr(expr, true), dyn.ts:594).
+  attach_temp_variable_to_expr(expr, true, ctx);
   expr
 });
 export(evaluate_dyn_value);

@@ -78,11 +78,13 @@ open(import("std/string"));
 /// because `SuspensionPointDetector` only accepts base `SuspensionPoint` objects.
 ///
 /// Internal — not exported.
-EffectCallPointExtra_ :: object(
-  operation_arg_types : ArrayList(TypeValue),
-  operation_result_type : TypeValue,
-  is_transitive_effect_call : bool,
-  is_transitive_closure_call : bool
+EffectCallPointExtra_ :: ref(
+  struct(
+    operation_arg_types : ArrayList(TypeValue),
+    operation_result_type : TypeValue,
+    is_transitive_effect_call : bool,
+    is_transitive_closure_call : bool
+  )
 );
 // ---------------------------------------------------------------------------
 // is_effect_call_ — checks if expr is a call to the effect parameter
@@ -112,7 +114,7 @@ is_effect_call_ :: (
     .Atom(_, _) => {
       return(false);
     },
-    .FnCall(_, fb, _, _, _) => fb.*
+    .FnCall(_, fb, _, _, _) => fb
   );
   // Dispatch: None or empty field path → Case 1 (direct call)
   //           non-empty field path     → Case 2 (module member)
@@ -352,13 +354,13 @@ has_effect_in_spread_ :: (
           }
         );
         match(
-          last_var.value,
+          last_var.value.get(usize(0)),
           .Some(eval_val) => {
             match(
               eval_val,
               .TypeVal(ty_box) => {
-                if(is_effects_row_type(ty_box.*.clone()), {
-                  effects_row_opt = Option(TypeValue).Some(ty_box.*);
+                if(is_effects_row_type(ty_box.clone()), {
+                  effects_row_opt = Option(TypeValue).Some(ty_box);
                 });
               },
               _ => ()
@@ -425,7 +427,7 @@ is_transitive_effect_call_ :: (
     .Atom(_, _) => {
       return(Option(bool).None);
     },
-    .FnCall(_, fb, _, _, _) => fb.*
+    .FnCall(_, fb, _, _, _) => fb
   );
   func_info := match(
     get_info(func_expr.clone()),
@@ -439,7 +441,9 @@ is_transitive_effect_call_ :: (
   if(is_function_type(func_type.clone()), {
     result := match(
       func_type,
-      .Func({ implicit_labels, implicit_types, implicit_spreads }) => {
+      .Func({ implicit_types, meta : __fm1 }) => {
+        implicit_labels := __fm1.*.implicit_labels;
+        implicit_spreads := __fm1.*.implicit_spreads;
         n := implicit_labels.len();
         i := usize(0);
         found := Option(bool).None;
@@ -489,7 +493,7 @@ is_transitive_effect_call_ :: (
     .Some(ftt) => {
       match(
         ftt,
-        .FnTraitT(_, _, _, _, implicit_labels, implicit_types, implicit_spreads) => {
+        .FnTraitT(_, _, _, _, implicit_labels, implicit_types, implicit_spreads, _) => {
           n2 := implicit_labels.len();
           (i2 : usize) = usize(0);
           while(i2 < n2, {
@@ -624,7 +628,7 @@ detect_effect_expr_ :: (
         .None => Option(TypeValue).None,
         .Some(fn_type) => match(
           fn_type,
-          .Func({ result }) => Option(TypeValue).Some(result.*),
+          .Func({ result }) => Option(TypeValue).Some(result),
           _ => Option(TypeValue).None
         )
       );
@@ -716,7 +720,7 @@ detect_effect_expr_ :: (
           transitive_result_type_opt := cond(
             via_closure => match(
               ctl_type,
-              .Func({ result }) => Option(TypeValue).Some(result.*),
+              .Func({ result }) => Option(TypeValue).Some(result),
               _ => Option(TypeValue).None
             ),
             true => match(

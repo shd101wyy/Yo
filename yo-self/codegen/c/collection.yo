@@ -1,0 +1,166 @@
+//! C include-header collection + emission — mirrors `src/codegen/c/collection.ts`.
+//!
+//! NOTE (issues/retired/codegen-port-type-model-gaps.md): TS reads `type.cInclude`
+//! off each collected type. yo-self's TypeValue carries no general cInclude,
+//! so the include is stored on the registry ENTRY (CodegenTypeEntry /
+//! CodegenExternFnEntry, supplied at registration) and read from there here.
+open(import("std/string"));
+{ CodeGenContext } :: import("../utils/index.yo");
+{ is_target_windows } :: import("../../target.yo");
+/// Collect C include headers from the collected types and extern functions.
+/// Mirrors `collectCIncludes`.
+collect_c_includes :: (fn(context : CodeGenContext) -> unit)({
+  // Collect cIncludes from all collected types. (Loop via a flag, NOT
+  // `return(())` — a bare return would exit the whole function and skip the
+  // extern-function pass below.)
+  type_vals := context.types.values();
+  (go_types : bool) = true;
+  while(go_types, {
+    match(
+      type_vals.next(),
+      .Some(type_entry) => {
+        match(
+          type_entry.c_include.clone(),
+          .Some(inc) => context.add_c_include(inc),
+          .None => ()
+        );
+      },
+      .None => {
+        go_types = false;
+      }
+    );
+  });
+  // Collect cIncludes from all extern functions.
+  fn_vals := context.extern_functions.values();
+  (go_fns : bool) = true;
+  while(go_fns, {
+    match(
+      fn_vals.next(),
+      .Some(fn_entry) => {
+        match(
+          fn_entry.c_include.clone(),
+          .Some(inc) => context.add_c_include(inc),
+          .None => ()
+        );
+      },
+      .None => {
+        go_fns = false;
+      }
+    );
+  });
+});
+/// Emit C include headers (platform feature macros, the collected includes
+/// with platform-incompatible headers filtered out, platform-specific file-op
+/// includes, and the allocator compatibility layer). Mirrors `emitCIncludes`.
+emit_c_includes :: (fn(context : CodeGenContext) -> unit)({
+  is_windows := is_target_windows(context.target_info);
+  // Emit platform-specific feature macros.
+  if(is_windows, {
+    context.emitter.emit_header_line("#ifndef WIN32_LEAN_AND_MEAN");
+    context.emitter.emit_header_line("#define WIN32_LEAN_AND_MEAN");
+    context.emitter.emit_header_line("#endif");
+    context.emitter.emit_header_line("#ifndef _WINSOCKAPI_");
+    context.emitter.emit_header_line("#define _WINSOCKAPI_");
+    context.emitter.emit_header_line("#endif");
+  }, {
+    context.emitter.emit_header_line("#define _DEFAULT_SOURCE");
+    context.emitter.emit_header_line("#define _GNU_SOURCE  // Needed for sched_getcpu() on Linux");
+  });
+  context.emitter.emit_header_line("");
+  // Headers that simply do not exist on the other platform. A registered
+  // c_include can leak from a comptime-eliminated platform branch — emitting
+  // it would be a fatal `file not found`. Code that genuinely uses these is
+  // platform-guarded in std, and the guarded block below re-adds the right
+  // ones for the actual target.
+  include_iter := context.c_includes.into_iter();
+  // Loop via a flag, NOT `return(())`: a bare return would exit the whole
+  // function and skip the platform includes + allocator defines below.
+  (go_inc : bool) = true;
+  while(go_inc, {
+    match(
+      include_iter.next(),
+      .Some(include) => {
+        skip_posix := (is_windows && ((include == "<unistd.h>") || (include == "<dirent.h>")));
+        skip_windows := ((!(is_windows)) && (((include == "<windows.h>") || (include == "<bcrypt.h>")) || (include == "<io.h>")));
+        if(!(skip_posix || skip_windows), {
+          line := String.from("#include ");
+          line.push_string(include);
+          context.emitter.emit_header_string_line(line);
+        });
+      },
+      .None => {
+        go_inc = false;
+      }
+    );
+  });
+  // Platform-specific includes for file operations.
+  if(is_windows, {
+    context.emitter.emit_header_line("#include <windows.h>");
+    context.emitter.emit_header_line("#include <bcrypt.h>");
+    context.emitter.emit_header_line("#include <io.h>");
+    context.emitter.emit_header_line("#include <sys/stat.h>");
+  }, {
+    context.emitter.emit_header_line("#include <unistd.h>");
+    context.emitter.emit_header_line("#include <sys/stat.h>");
+    context.emitter.emit_header_line("#include <sys/random.h>");
+  });
+  // Add allocator compatibility layer based on the allocator option.
+  context.emitter.emit_header_line("");
+  cond(
+    (context.allocator == "mimalloc") => {
+      context.emitter.emit_header_line("// Mimalloc compatibility layer - try mimalloc first, fallback to stdlib");
+      context.emitter.emit_header_line("#ifdef __has_include");
+      context.emitter.emit_header_line("  #if __has_include(<mimalloc.h>)");
+      context.emitter.emit_header_line("    #include <mimalloc.h>");
+      context.emitter.emit_header_line("    #define __yo_malloc mi_malloc");
+      context.emitter.emit_header_line("    #define __yo_calloc mi_calloc");
+      context.emitter.emit_header_line("    #define __yo_realloc mi_realloc");
+      context.emitter.emit_header_line("    #define __yo_free mi_free");
+      context.emitter.emit_header_line("    #define __yo_aligned_alloc mi_aligned_alloc");
+      context.emitter.emit_header_line("    #define __yo_aligned_free mi_free");
+      context.emitter.emit_header_line("  #else");
+      context.emitter.emit_header_line("    #define __yo_malloc malloc");
+      context.emitter.emit_header_line("    #define __yo_calloc calloc");
+      context.emitter.emit_header_line("    #define __yo_realloc realloc");
+      context.emitter.emit_header_line("    #define __yo_free free");
+      if(is_windows, {
+        context.emitter.emit_header_line("    static inline void* __yo_aligned_alloc(size_t alignment, size_t size) { return _aligned_malloc(size, alignment); }");
+        context.emitter.emit_header_line("    #define __yo_aligned_free _aligned_free");
+      }, {
+        context.emitter.emit_header_line("    #define __yo_aligned_alloc aligned_alloc");
+        context.emitter.emit_header_line("    #define __yo_aligned_free free");
+      });
+      context.emitter.emit_header_line("  #endif");
+      context.emitter.emit_header_line("#else");
+      context.emitter.emit_header_line("  // Fallback for older compilers without __has_include");
+      context.emitter.emit_header_line("  #define __yo_malloc malloc");
+      context.emitter.emit_header_line("  #define __yo_calloc calloc");
+      context.emitter.emit_header_line("  #define __yo_realloc realloc");
+      context.emitter.emit_header_line("  #define __yo_free free");
+      if(is_windows, {
+        context.emitter.emit_header_line("  static inline void* __yo_aligned_alloc(size_t alignment, size_t size) { return _aligned_malloc(size, alignment); }");
+        context.emitter.emit_header_line("  #define __yo_aligned_free _aligned_free");
+      }, {
+        context.emitter.emit_header_line("  #define __yo_aligned_alloc aligned_alloc");
+        context.emitter.emit_header_line("  #define __yo_aligned_free free");
+      });
+      context.emitter.emit_header_line("#endif");
+    },
+    true => {
+      context.emitter.emit_header_line("// Using libc allocator");
+      context.emitter.emit_header_line("#define __yo_malloc malloc");
+      context.emitter.emit_header_line("#define __yo_calloc calloc");
+      context.emitter.emit_header_line("#define __yo_realloc realloc");
+      context.emitter.emit_header_line("#define __yo_free free");
+      if(is_windows, {
+        context.emitter.emit_header_line("static inline void* __yo_aligned_alloc(size_t alignment, size_t size) { return _aligned_malloc(size, alignment); }");
+        context.emitter.emit_header_line("#define __yo_aligned_free _aligned_free");
+      }, {
+        context.emitter.emit_header_line("#define __yo_aligned_alloc aligned_alloc");
+        context.emitter.emit_header_line("#define __yo_aligned_free free");
+      });
+    }
+  );
+  context.emitter.emit_header_line("");
+});
+export(collect_c_includes, emit_c_includes);

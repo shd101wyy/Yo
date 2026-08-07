@@ -13,10 +13,11 @@ import type { Type } from "../../types/definitions";
 import {
   isBoxedType,
   isDynType,
+  isEnumType,
   isFunctionSpecializable,
   isFunctionType,
   isFunctionTypeHardGeneric,
-  isObjectType,
+  isReferenceStructType,
   isSomeType,
   isStructType,
   isUnitType,
@@ -227,7 +228,7 @@ function collectEffectRecordMembers(
         };
         findFunctionCallsInExpr(fieldValue.body, context);
       }
-      // Also collect specialized versions (e.g., forall throw handlers specialized
+      // Also collect specialized versions (e.g., generic throw handlers specialized
       // for concrete ResumeTypes such as SomeType or struct types). Without this,
       // the codegen emits a call to the specialized name but never defines it.
       if (fieldValue.specializedFunctionCaches) {
@@ -341,7 +342,7 @@ export function findFunctionCallsInExpr(
 
       if (
         traitValues.length > 0 &&
-        (isObjectType(valueType) || isBoxedType(valueType))
+        (isReferenceStructType(valueType) || isBoxedType(valueType))
       ) {
         const concreteType: Type = isBoxedType(valueType)
           ? valueType.fields[0]!.type
@@ -560,7 +561,7 @@ export function findFunctionCallsInExpr(
           cName: sanitizeForCIdentifier(functionValue.funcId),
         };
       }
-      // Also collect specialized versions of forall ctl handlers
+      // Also collect specialized versions of generic ctl handlers
       if (functionValue.specializedFunctionCaches) {
         for (const cache of functionValue.specializedFunctionCaches) {
           const specialized = cache.specializedFunction;
@@ -641,7 +642,7 @@ export function findFunctionCallsInExpr(
 /**
  * Collect dispose methods from generic impls for all collected struct types.
  * This is needed because generic impls like:
- *   impl(forall(T : Type), ArrayList(T), Dispose(...))
+ *   impl(generic(T : Type), ArrayList(T), Dispose(...))
  * store a generic dispose function that doesn't get specialized until it's called.
  * Since the ___dispose function needs to call the user's dispose method,
  * we need to specialize and collect it here.
@@ -690,6 +691,56 @@ export function collectDisposeMethodsFromGenericImpls(
         collectTypesFromFunctionType(funcValue.type, context);
 
         // Recursively collect functions called by this dispose function
+        findFunctionCallsInExpr(funcValue.body, context);
+      }
+    }
+  }
+}
+
+/**
+ * Collect `trace` methods (the Trace trait) from generic impls for all collected
+ * reference-counted types. Like collectDisposeMethodsFromGenericImpls: a generic
+ * impl such as `impl(ArrayList(generic(E)), Trace(...))` stores a generic `trace`
+ * that isn't specialized until called, but the cycle-GC traverse function for the
+ * container needs to CALL it — so specialize and collect it here (which also pulls
+ * in the per-element `GcTracer.visit` monomorphizations referenced in its body).
+ */
+export function collectTraceMethodsFromGenericImpls(
+  context: CodeGenContext
+): void {
+  const traceFuncName = "trace";
+
+  for (const typeId in context.types) {
+    const { type } = context.types[typeId]!;
+
+    // Reference-counted struct OR enum types can carry a Trace impl.
+    const isRc =
+      (isStructType(type) || isEnumType(type)) && type.isReferenceSemantics;
+    if (!isRc) {
+      continue;
+    }
+
+    const methods = findMethodsFromGenericImpls({
+      concreteType: type,
+      methodName: traceFuncName,
+      env: type.env,
+    });
+
+    for (const method of methods) {
+      if (method.value && isFunctionValue(method.value)) {
+        const funcValue = method.value;
+
+        if (context.functions[funcValue.funcId]) {
+          continue;
+        }
+        if (!funcValue.funcName) {
+          funcValue.funcName = traceFuncName;
+        }
+        context.functions[funcValue.funcId] = {
+          value: funcValue,
+          cName: sanitizeForCIdentifier(funcValue.funcId),
+        };
+        collectTypesFromFunctionType(funcValue.type, context);
         findFunctionCallsInExpr(funcValue.body, context);
       }
     }

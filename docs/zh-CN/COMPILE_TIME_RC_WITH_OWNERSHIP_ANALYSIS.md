@@ -106,7 +106,7 @@ call_consume_but_keep_using :: (fn(p : Box(i32)) -> unit) { // p 默认借用
 每个堆分配的 ARC 值在创建时有一个所有者，引用计数初始为 1。
 
 ```rust
-Point :: object(x : i32, y : i32);
+Point :: ref(struct(x : i32, y : i32));
 
 Point(3, 4); // temp_var 拥有 Point(3, 4)，RC = 1
 ```
@@ -210,10 +210,14 @@ printf("%d\n", x.*); // 始终有效：x 拥有一个有效引用
 **权衡：**
 
 - ✅ 简洁的思维模型（赋值始终拥有所有权）
-- ✅ 零内存安全风险
 - ✅ 参数默认借用（读取时高效）
 - ⚠️ 赋值可能带来 RC 开销
 - ✅ 可通过第二阶段分析优化消除
+- ⚠️ **已知的别名（aliasing）缺口：** 当被调用函数在**循环内**通过另一个句柄重新赋值
+  同一字段时，借用参数可能失效（直线代码由旧值 drop 延迟到作用域末尾来保护；循环内的
+  drop 无法跨迭代延迟）。Swift 通过独占性（exclusivity）检查解决，Lobster 通过借用推断
+  解决；Yo 尚未选定机制。复现程序与设计选项见
+  `issues/borrowed-arg-invalidated-by-aliased-container-mutation.md`。
 
 ## 何时调用 `___dup` 增加引用计数？
 
@@ -300,6 +304,24 @@ x := match(optional,
 ```
 
 **注意：** 第 1.5 阶段优化通常会在 dup 调用与对应的 drop 调用配对时取消它们，从而有效地转移所有权而非创建不必要的副本。
+
+#### dup/drop 取消优化的健全性条件
+
+将 dup 与作用域末尾的 drop 抵消等价于一次**移动（move）**：dup 消失，同时变量被标记为
+已消耗（consumed），因此任何路径都不再对它执行 drop。这只有在 **dup 在所有能到达作用域
+末尾的路径上都无条件执行**时才是健全的。优化器（`src/evaluator/exprs/begin.ts` 中的
+`searchRecursively`）因此：
+
+- 对 `cond`/`match` 进行**分支感知**的 dup 收集：只在部分 fallthrough 分支中出现的 dup
+  会把变量标记进 `varsWithPartialBranchDups`，配对被保留 —— 被执行的分支上有 dup，所有
+  路径上都有作用域末尾的 drop；
+- 每个分支都有 dup 时按分支各计一次，`runtimeDupCount > 1` 同样保留配对；
+- 沿 `$.macroExpansion` 递归，而不是宏调用的原始参数 —— `if(...)` 在 AST 中保留宏调用
+  头，只有记录下来的 `cond` 展开才暴露分支结构。沿原始参数递归会把分支内的 dup 当作
+  无条件 dup 并错误地取消它 —— 在所有跳过该分支的路径上各泄漏一个引用
+  （`issues/fixed/where-constraints-arraylist-96b-leak.md`，2026-08-06 修复）；
+- 绝不跨 `while` 循环体优化（循环体内的 dup 执行 N 次，作用域末尾的 drop 只执行一次）；
+- 跳过 `io.async` 捕获（状态机同时需要 dup 和 drop）。
 
 ### 规则 5：`own()` 关键字
 
@@ -388,6 +410,11 @@ while runtime(true), {
 2. 在 `while`-`match` 循环中，该变量是 match 的被匹配值
 3. 在某个 match 分支中，变量被重新赋值为 match 绑定的字段（遍历步骤）
 4. 变量不会逃逸循环作用域（循环后无引用，除了 begin 块返回值）
+5. **循环体既不修改被遍历的结构，也不让节点逃逸出当前迭代**（`traversalLoopHasUnsafeUse`）：
+   不允许通过投影或索引赋值（`node.next = …` 会切断链表并在遍历中途释放被借用的子链 ——
+   use-after-free，见 `issues/fixed/loop-traversal-borrow-chain-mutation-uaf.md`），也不允许
+   任何调用接收遍历名字或遍历类型的值（被调用者可能借此切断或保留节点）。只读遍历 ——
+   字段读取、标量比较、`return &(node.value)` —— 仍然优化到零 RC 操作。
 
 **被移除的操作：**
 

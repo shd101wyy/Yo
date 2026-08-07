@@ -1,0 +1,31 @@
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/collections/array_list"));
+{ assert } :: import("std/assert");
+
+apply_each :: (
+  fn(
+    generic(A : Type, F : Type),
+    items : ArrayList(A),
+    f : F,
+    where(F <: (Fn(item : A) -> unit))
+  ) -> unit
+)({
+  (i : usize) = usize(0);
+  while(i < items.len(), {
+    match(items.get(i),.Some(v) => f(v),.None => ());
+    i = (i + usize(1));
+  });
+});
+
+main :: (fn() -> unit)({
+  out := array_list(i32(0));
+  out.clear();
+  src := array_list(i32(1), i32(2), i32(3));
+  apply_each(src, (x) => {
+    out.push(x);
+  });
+  assert(out.len() == usize(3), "len 3");
+  println(`ok`);
+});
+export(main);

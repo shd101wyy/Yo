@@ -1,0 +1,220 @@
+//! `dyn(...)` constructor emitter — mirrors `src/codegen/exprs/dyn.ts`.
+//!
+//! Builds the fat-pointer literal `(<DynT>){ .data = <value>, .vtable =
+//! &__yo_vtable_<implKey> }` into the result temp, and registers the
+//! (concrete, dyn) impl pair so its vtable is emitted later. The wrapped value
+//! must be an object type (value types use `box()`); the inner value is dup'd
+//! so both the Dyn wrapper's drop and the scope-exit drop can each decrement RC.
+//!
+//! DEFERRED (documented, not hit by the no-RC/no-async corpus): Box-type unwrap
+//! (is_boxed_type ≡ false — Box not modeled); state-machine `sm->var_N` field
+//! routing (Phase 5, gated on in_async_state_machine = .Some).
+//! SomeType.resolvedConcreteType (Gap 6) is now PORTED for the impl KEY: see
+//! the resolve_some_type_to_concrete call in generate_dyn_call.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
+{ AstExpr, ast_expr_to_string } :: import("../../expr.yo");
+{ EvalValue } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_dyn_type, is_reference_struct_type, is_boxed_type } :: import("../../types/guards.yo");
+{ extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
+{ type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
+{ Environment } :: import("../../env.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ DynImplEntry } :: import("../utils/index.yo");
+{ type_key, get_variable_type_string, get_variable_name_for_codegen } :: import("../utils/index.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ generate_deferred_dup_expressions } :: import("./drop_dup.yo");
+{ resolve_some_type_to_concrete } :: import("./closures.yo");
+{ expr_info_dyn_call_trait_values } :: import("../../expr_info.yo");
+/// For a BOXED dyn payload (`Box(Sq)`), the impl concrete type is the UNDERLYING
+/// type (`Sq`, the box's single `*` field) while the runtime data type stays
+/// `Box(Sq)`. Mirrors TS `dyn.ts:66` (`concreteType = isBoxedType(v) ?
+/// v.fields[0].type : v`). Keeps the dyn-box / vtable / impl_key keyed on the
+/// concrete type consistently; a non-boxed value passes through unchanged.
+_unwrap_box_concrete :: (fn(t : TypeValue) -> TypeValue)({
+  (result : TypeValue) = t;
+  if(is_boxed_type(t), {
+    match(
+      t,
+      .Struct({ field_types : fts }) => match(
+        fts.get(usize(0)),
+        .Some(ut) => {
+          result = ut;
+        },
+        .None => ()
+      ),
+      _ => ()
+    );
+  });
+  result
+});
+/// The C name for `dyn_type` (registered, else `__yo_dyn_<id>`).
+_dyn_c_name :: (fn(dyn_type : TypeValue, context : FunctionGenerationContext) -> String)(
+  match(
+    context.base.get_type_c_name(type_key(dyn_type)),
+    .Some(cn) => cn,
+    .None => {
+      out := String.from("__yo_dyn_");
+      out.push_string(type_id_or_empty(dyn_type));
+      out
+    }
+  )
+);
+/// The C name for the concrete impl type (registered, else the Fn-trait's C
+/// name, else `unknown_<id>`).
+_concrete_c_name :: (fn(concrete_type : TypeValue, context : FunctionGenerationContext) -> String)(
+  match(
+    context.base.get_type_c_name(type_key(concrete_type)),
+    .Some(cn) => cn,
+    .None => match(
+      extract_fn_trait_from_type(concrete_type),
+      .Some(ft) => match(
+        context.base.get_type_c_name(type_key(ft)),
+        .Some(fcn) => fcn,
+        .None => {
+          out := String.from("unknown_");
+          out.push_string(type_id_or_empty(concrete_type));
+          out
+        }
+      ),
+      .None => {
+        out := String.from("unknown_");
+        out.push_string(type_id_or_empty(concrete_type));
+        out
+      }
+    )
+  )
+);
+/// Generate C code for a `dyn()` constructor call. Mirrors `generateDynCall`.
+generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("/* Error: dyn() not evaluated */")));
+  trait_values := match(expr_info_dyn_call_trait_values(ei),.Some(tv) => if(tv.len() == usize(0), return(String.from("/* Error: dyn() call missing trait values */")), tv),.None => return(String.from("/* Error: dyn() call missing trait values */")));
+  args0 := match(expr,.FnCall(_, _, a, _, _) => a.get(usize(0)),.Atom(_, _) => Option(AstExpr).None);
+  value_expr := match(ei.runtime_arg_exprs_in_order,.Some(rargs) => match(rargs.get(usize(0)),.Some(v) => v,.None => match(args0,.Some(a) => a,.None => return(String.from("/* Error: dyn() requires a value argument */")))),.None => match(args0,.Some(a) => a,.None => return(String.from("/* Error: dyn() requires a value argument */"))));
+  dyn_type := ei.ty;
+  if(!(is_dyn_type(dyn_type)), {
+    return(String.from("/* Error: dyn() result type is not DynType */"));
+  });
+  value_ei := match(context.base.get_expr_info(value_expr),.Some(e) => e,.None => return(String.from("/* Error: dyn() value has no type */")));
+  value_type := value_ei.ty;
+  // dyn() requires an object type (value types must use box()). Box is not
+  // modeled in yo-self (is_boxed_type ≡ false), so the Box branch is dead.
+  if(!(is_reference_struct_type(value_type)) && !(is_boxed_type(value_type)), {
+    return(String.from("/* Error: dyn() requires an object type (use box() for value types) */"));
+  });
+  // Unwrap a boxed payload: impl concrete type = underlying (`Sq`), runtime data
+  // type = `Box(Sq)`. Mirrors TS dyn.ts:66 / :95-96.
+  concrete_type := _unwrap_box_concrete(value_type);
+  // Resolve a SomeType (`Impl(Fn(...))` for a boxed closure) to its concrete
+  // type BEFORE deriving the impl KEY — TS dyn.ts:70-74 (resolvedConcreteType).
+  // The key is the wrapper/vtable dedup unit: unresolved, every same-signature
+  // closure keys on the SHARED Fn-shape (`unknown_<shape id>`), the last
+  // register_dyn_impl wins, and every dyn box dispatches into the single
+  // surviving closure's wrapper (suspension_analysis: the detect_all detector
+  // silently ran the noop detector's body → 0 suspension points). The ENTRY
+  // still stores the raw concrete_type, exactly like TS (dyn.ts:95) — the
+  // box-ctor/typedef passes do their own resolution (functions/dyn.yo:121,
+  // types/generation.yo:1068).
+  resolved_concrete_type := resolve_some_type_to_concrete(concrete_type.clone());
+  dyn_type_c_name := _dyn_c_name(dyn_type, context);
+  concrete_type_c_name := _concrete_c_name(resolved_concrete_type, context);
+  impl_key := concrete_type_c_name.clone();
+  impl_key.push_str("_");
+  impl_key.push_string(dyn_type_c_name.clone());
+  context.base.register_dyn_impl(impl_key.clone(), DynImplEntry(dyn_type : dyn_type, concrete_type : concrete_type, data_type : value_type, trait_values : trait_values));
+  (value_code : String) = _call_generate_expr(value_expr, indent.clone(), context);
+  em := context.base.emitter;
+  // DEGRADED dyn when the INNER value failed to transpile (e.g. a
+  // `box(<closure>)` whose spec was dropped — the c03 cluster-B shape):
+  // splicing the FTT comment into `<type> <tmp> = <comment>;` and then
+  // building a fat pointer over the missing temp breaks the whole batch C.
+  // Emit the comment and degrade the dyn expression itself to the same
+  // FTT marker — same convention as the return/tail/assignment degrades;
+  // TS never reaches this state.
+  if(value_code.starts_with("// Failed to transpile"), {
+    ftl := indent.clone();
+    ftl.push_string(value_code);
+    em.emit_string_line(ftl);
+    return(`// Failed to transpile ${ast_expr_to_string(expr)}`);
+  });
+  // Declare the inner value's temp if the evaluator assigned one (deferred
+  // drops may reference it).
+  match(
+    value_ei.variable_name,
+    .Some(vn) => if(!(value_code == vn), {
+      var_type_and_name := get_variable_type_string(value_type, vn.clone(), context.base);
+      line := indent.clone();
+      line.push_string(var_type_and_name);
+      line.push_str(" = ");
+      line.push_string(value_code.clone());
+      line.push_str(";");
+      em.emit_string_line(line);
+      value_code = vn;
+    }),
+    .None => ()
+  );
+  // Dup the inner value (Dyn wrapper holds a reference too).
+  match(
+    value_ei.deferred_dup_expressions,
+    .Some(dups) => if(dups.len() > usize(0), {
+      generate_deferred_dup_expressions(value_expr, indent.clone(), context);
+      match(
+        dups.get(usize(0)),
+        .Some(dup_expr) => match(
+          context.base.get_expr_info(dup_expr),
+          .Some(dei) => match(
+            dei.variable_name,
+            .Some(dvn) => {
+              value_code = get_variable_name_for_codegen(dvn, Option(Environment).Some(dei.env));
+            },
+            .None => ()
+          ),
+          .None => ()
+        ),
+        .None => ()
+      );
+    }),
+    .None => ()
+  );
+  temp_var_name := match(ei.variable_name,.Some(tv) => tv,.None => return(String.from("/* Error: dyn() expression missing temp variable name */")));
+  vtable_name := String.from("__yo_vtable_");
+  vtable_name.push_string(impl_key);
+  // Track the temp var (SM-field routing is Phase 5, gated dead here).
+  already := match(context.declared_temp_vars,.Some(s) => s.contains(temp_var_name.clone()),.None => false);
+  if(
+    !(already),
+    match(
+      context.declared_temp_vars,
+      .Some(s) => {
+        _a := s.add(temp_var_name.clone());
+      },
+      .None => {
+        ns := HashSet(String).new();
+        _a := ns.add(temp_var_name.clone());
+        context.declared_temp_vars = Option(HashSet(String)).Some(ns);
+      }
+    )
+  );
+  l1 := indent.clone();
+  l1.push_string(dyn_type_c_name);
+  l1.push_str(" ");
+  l1.push_string(temp_var_name.clone());
+  l1.push_str(" = {");
+  em.emit_string_line(l1);
+  l2 := indent.clone();
+  l2.push_str("  .data = ");
+  l2.push_string(value_code);
+  l2.push_str(",");
+  em.emit_string_line(l2);
+  l3 := indent.clone();
+  l3.push_str("  .vtable = &");
+  l3.push_string(vtable_name);
+  em.emit_string_line(l3);
+  l4 := indent.clone();
+  l4.push_str("};");
+  em.emit_string_line(l4);
+  temp_var_name
+});
+export(generate_dyn_call);

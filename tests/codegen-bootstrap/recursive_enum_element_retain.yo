@@ -1,0 +1,65 @@
+//! Regression: a RECURSIVE enum element pushed into ArrayList(Self) inside a
+//! recursive method must keep its RC-bearing payload. Three stacked shell/dup
+//! gaps lost it (the encoding/json value-loss):
+//!   1. emit_deferred_dup_or_code lacked TS's declare-first step, so a ctor
+//!      arg's deferred dup was suppressed as undeclared.
+//!   2. type_contains_rc_type read the recursive-Self SHELL (empty variants)
+//!      as containing no RC → the eval marker skipped the element retain.
+//!   3. generate_dup/drop_code_for_value walked the shell's EMPTY variant
+//!      list → emitted a dup switch with NO arms (a silent no-op +1).
+//! See issues/fixed/yo-self-recursive-enum-element-retain.md.
+open(import("std/string"));
+open(import("std/collections/array_list"));
+{ println } :: import("std/fmt");
+
+JV :: enum(
+  Str(value : String),
+  Arr(items : ArrayList(Self)),
+  Num(value : f64)
+);
+
+P :: ref(struct(depth : i32));
+
+impl(
+  P,
+  parse : (fn(self : Self) -> Result(JV, String))({
+    cond(
+      (self.depth > i32(0)) => {
+        self.depth = (self.depth - i32(1));
+        items := ArrayList(JV).new();
+        while(runtime(true), {
+          match(
+            recur(self),
+            .Err(e) => {
+              return(.Err(e));
+            },
+            .Ok(v) => {
+              items.push(v);
+            }
+          );
+          break;
+        });
+        return(.Ok(.Arr(items)));
+      },
+      true => ()
+    );
+    s := String.from("abc");
+    return(.Ok(.Str(s)));
+  })
+);
+
+main :: (fn() -> unit)({
+  p := P(depth : i32(1));
+  r := p.parse();
+  s0 := match(
+    r,
+    .Ok(jv) => match(
+      jv,
+      .Arr(items) => match(items(usize(0)),.Str(sv) => sv, _ => String.from("?")),
+      _ => String.from("??")
+    ),
+    .Err(_) => String.from("E")
+  );
+  println(`s0=[${s0}]`);
+});
+export(main);

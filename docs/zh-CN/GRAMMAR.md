@@ -147,8 +147,8 @@ FieldAccess ::= '.' Identifier
               | '.' Operator
 
 ;; 中缀运算符
-;; 空格敏感的解析规则影响运算符优先级
-;; 行首的运算符按左结合处理
+;; Yo 没有运算符优先级。相同运算符的链是左结合的；
+;; 相邻的不同运算符需要显式括号。
 InfixOperator ::=
   | Whitespace* Operator Whitespace* Expression       ;; 常规中缀：a + b
   | Whitespace* BacktickIdentifier Whitespace* Expression  ;; 反引号中缀：a `add` b
@@ -169,25 +169,24 @@ ArgumentList ::= [Expression (',' Expression)*]
 ```abnf
 Parameter ::= ParameterLabel ':' Type
 ParameterLabel ::=
-  | Identifier                  ;; 按值传递（object 类型即共享句柄）
-  | 'ref' '(' Identifier ')'    ;; 指向调用者左值的二等引用
+  | Identifier                  ;; 按值传递（引用语义类型即共享句柄）
+  | 'inout' '(' Identifier ')'  ;; 指向调用者左值的二等引用（绑定写回）
   | 'own' '(' Identifier ')'    ;; 消耗调用者的句柄（移动）
-  | 'inout' '(' Identifier ')'  ;; ref 的别名（绑定写回）
   | 'comptime' '(' Identifier ')' ;; 仅编译期参数
   | 'quote' '(' Identifier ')'  ;; 宏参数（接收 AST）
 ```
 
 ```rust
-swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({ ... });
+swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({ ... });
 sink :: (fn(own(victim) : Holder) -> unit)({ ... });
 ```
 
-`ref` 的位置规则：
+`inout` 的位置规则：
 
-- 参数位置（`ref(name) : T`）是 `ref` 唯一的合法位置。
-- `ref` 在**返回类型位置被拒绝**（`-> ref(T)`、`-> (ref(name) : T)`），
-  作为局部绑定（`ref(r) := lvalue;`）也被拒绝，更不能出现在任何其他
-  类型表达式中（`Option(ref(T))`、struct 字段、泛型实参）。
+- 参数位置（`inout(name) : T`）是 `inout` 唯一的合法位置。
+- `inout` 在**返回类型位置被拒绝**（`-> inout(T)`、`-> (inout(name) : T)`），
+  作为局部绑定（`inout(r) := lvalue;`）也被拒绝，更不能出现在任何其他
+  类型表达式中（`Option(inout(T))`、struct 字段、泛型实参）。
 - 语义详见 [FLOWABILITY.md](./FLOWABILITY.md)。
 
 ## 注释和空白
@@ -220,8 +219,9 @@ Separator ::= ',' | ';'
    - 无效：`func (arg1, arg2)` 或 `func arg1, arg2`
    - 前缀运算符也是调用：请写 `&(x)`、`!(ready)`、`return(value)`、`return()`、`unwind(value)` 或 `unwind()`
 
-3. **中缀运算符**：空格影响优先级
-   - 行首的运算符具有左结合性
+3. **中缀运算符**：无优先级
+   - 相同运算符的链是左结合的：`a + b + c` ⇒ `(a + b) + c`
+   - 相邻的不同运算符需要显式括号：`a + b * c` 是错误的；应写成 `(a + b) * c` 或 `a + (b * c)`
    - 标准中缀：`a + b`
    - 反引号中缀：``a `add` b``
 

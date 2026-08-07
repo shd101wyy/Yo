@@ -92,13 +92,13 @@ if(done, println("done"), println("pending"));
 
 ## String types
 
-| Syntax             | Type              | Context                          |
-| ------------------ | ----------------- | -------------------------------- |
-| `"hello"`          | `str`             | Runtime contexts (most code)     |
+| Syntax             | Type           | Context                          |
+| ------------------ | -------------- | -------------------------------- |
+| `"hello"`          | `str`          | Runtime contexts (most code)     |
 | `"hello"`          | `comptime_str` | Inside `comptime` functions      |
-| `` `hello ${x}` `` | `String`          | Always (template string)         |
-| `` `hello` ``      | `String`          | Always (template without interp) |
-| `*(u8)("hello")`   | `*(u8)`           | Pointer cast for C interop       |
+| `` `hello ${x}` `` | `String`       | Always (template string)         |
+| `` `hello` ``      | `String`       | Always (template without interp) |
+| `*(u8)("hello")`   | `*(u8)`        | Pointer cast for C interop       |
 
 Key rules:
 
@@ -106,7 +106,9 @@ Key rules:
 - In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_str` — it does NOT auto-convert to `str`.
 - For `String` constants, prefer `` `hello` `` over `String.from("hello")`.
 - **`String.from(`` `...` ``)` is WRONG**: `` `...` `` is already `String`; `String.from` takes `str`. Use `` `...` `` directly or `String.from("...")` with double quotes.
-- **`assert` takes `str`, not `String`**: `assert(cond, "message")` — always use `""`. Passing a template string `` `...` `` causes a type mismatch. Use a custom `check_str` helper when you need `String` diagnostics.
+- **`assert`/`panic` require an explicit import**: `{ assert, panic } :: import("std/assert");` — they are NOT prelude-ambient. Both are generic over `where(T <: ToString)`, so `str`, `String` (template strings), integers, etc. all work as messages: `assert(cond, `got ${x}`)`. `assert(cond)` uses the default message.
+- **`__yo_panic` is the diverging builtin** (message must be `str`/`comptime_str`/`*(u8)`). Use it (not `panic`) in VALUE-position match/cond arms — e.g. `.None => __yo_panic("...")` in an arm that must yield `T` — because `std/assert`'s `panic` is a normal fn returning `unit` and cannot adopt the sibling arm's type. Statement-position `panic("...")` from `std/assert` is fine.
+- Low-level std modules inside `std/assert`'s own dependency cycle (`std/string/string.yo`, `std/collections/array_list.yo`, …) cannot import it — they use `cond`/`if` + `__yo_panic` directly.
 
 ## Calls, operators, and whitespace
 
@@ -118,30 +120,29 @@ masked := ((A | B) | C);
 
 - Calls require immediate parentheses: `func(arg1, arg2)`
 - `func arg1, arg2` and `func (arg1, arg2)` are invalid
-- Yo has no operator precedence; fully parenthesize binary expressions
-- Preserve grouping around infix expressions on operator RHS positions: `true => (x / y)`, `value := (x + y)`, `(ptr &+ 1).*`
-- Line breaks can disambiguate operator chains; keep line-leading operators like `(4\n| 5\n| 6)` and newlines after `:` before a lambda unless you add equivalent grouping
-- When an operator ends a line, indent its RHS one level as a continuation: `(x : T) =\n  (v) -> { ... }`
+- Yo has no operator precedence: a chain of the SAME operator left-associates (`a + b + c` ⇒ `(a + b) + c`, no parens needed); adjacent DIFFERENT operators require parentheses (`(a + b) * c`, not `a + b * c`)
+- An operator RHS that itself contains a different top-level operator must be parenthesized: `true => (x / y)`, `value := (x + y)`, `(x : T) = ((v) -> { ... })`, `next : (fn(...) -> T)`
+- Source layout does NOT affect grouping — there is no newline-based associativity
 - Prefix operators (`!`, `&`, `-`, `~`) require parenthesized operands: `func(&(s), a, b)`, `!(ready)`, `-(value)`.
 - Tight special forms also require immediate parentheses: `#(expr)`, `?*(u8)`, `T <: !(Runtime)`
 - Dynamic field access with unquote must keep grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
 - Unquote splicing is the tight operator `...#(exprs)`; do not insert a space between `...` and `#`.
 - Canonical pointer dereference is `ptr.*`; formatter should canonicalize legacy `ptr.(*)` to `ptr.*`.
-- **Pointer deref (`p.*`), arithmetic (`&+`, `&-`, `&/`), and `consume(p.* = v)` require `unsafe(...)`, AND the file must declare `pragma(Pragma.AllowUnsafe);` at the top before `unsafe(...)` is usable.** Pointer comparison (`&==`, `&<`, etc.) and pointer-type casts (`*(u8)(p)`) stay safe. `unsafe(expr)` is a one-arg builtin call: `v := unsafe(p.*);`, `unsafe(p.* = i32(5));`, `unsafe(p &+ usize(1))`. Every file in `std/`, `yo-self/`, and `tests/` declares the pragma explicitly. User code (default) does not, so attempts to use `unsafe(...)` are rejected with a hint to add the pragma. See `plans/MEMORY_SAFETY.md`.
-- **In-place mutation without raw pointers:** use the `ref(name) : T` parameter modifier (parallel to `own(name)`). `swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({ tmp := a; a = b; b = tmp; });` — caller writes `swap(x, y)` with no `&()` syntax. The compiler lowers `ref(name) : T` to `T*` in C and inserts `&(arg)` at the call site automatically. Cannot combine with `own(...)` or with `forall`/`using` (those are erased at runtime — no binding to mutate). CAN combine with `comptime` as `comptime(ref(name)) : T` — the parameter is erased at runtime and mutations propagate via the evaluator's compile-time binding update path (used by prelude `ComptimeIndex`). See `plans/MEMORY_SAFETY.md` Phase B.
-- **Object-type params:** use plain `name : Type`, NOT `*(Type)` or `ref(name) : Type`. Object types (`Environment`, `EvalContext`, `CodegenContext`, `Emitter`, `HashMap`, `ArrayList`, …) carry reference semantics — passing by name already shares the underlying RC state, so mutations through the param propagate to the caller. `*(Type)` requires `pragma(Pragma.AllowUnsafe);` for the `.* ` derefs and clutters the API; `ref(name) : Type` is redundant since object semantics already share state. Use the plain form: `foo :: (fn(ctx : EvalContext) -> unit)(ctx.method());`. The same applies at call sites — don't wrap object arguments with `&(obj)`; just pass `obj`. For receivers on object methods, plain `self : Self` is the idiom (`yo-self/env.yo`, `yo-self/codegen/context.yo`, `yo-self/emitter.yo` all follow this). `ref(self) : Self` is reserved for receivers on value-type methods (the form used by `Hash`, `Clone`, `ToString`, `Index`, `ComptimeIndex`, `Writer`, `Reader`).
+- **Pointer comparison is plain `==`/`<`/… (Eq/Ord impls on `*(T)`, address identity); pointer arithmetic is METHODS**: `p.add(n)` / `p.sub(n)` (offset by `usize` elements), `p.offset_from(q)` (signed element distance, `isize`). All lower to the `__yo_ptr_*` builtins via the generic prelude impls. Comparisons are safe (no `unsafe(...)`); arithmetic methods require `unsafe(...)` — e.g. `unsafe(p.add(usize(1)))`. NOTE the identity-vs-value split: `*(T) ==` compares ADDRESSES, while reference-semantics object types (`ref(struct)`) compare VALUES via their own `Eq` impls (same split as Rust's `Rc` `==` vs `Rc::ptr_eq`).
+- **Pointer deref (`p.*`), arithmetic (`.add(n)`, `.sub(n)`, `.offset_from(q)`), and `consume(p.* = v)` require `unsafe(...)`, AND the file must declare `pragma(Pragma.AllowUnsafe);` at the top before `unsafe(...)` is usable.** Pointer comparison (`==`, `<`, etc.) and pointer-type casts (`*(u8)(p)`) stay safe. `unsafe(expr)` is a one-arg builtin call: `v := unsafe(p.*);`, `unsafe(p.* = i32(5));`, `unsafe(p.add(usize(1)))`. Every file in `std/`, `yo-self/`, and `tests/` declares the pragma explicitly. User code (default) does not, so attempts to use `unsafe(...)` are rejected with a hint to add the pragma. See `plans/MEMORY_SAFETY.md`.
+- **In-place mutation without raw pointers:** use the `inout(name) : T` parameter modifier (parallel to `own(name)`). `swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({ tmp := a; a = b; b = tmp; });` — caller writes `swap(x, y)` with no `&()` syntax. The compiler lowers `inout(name) : T` to `T*` in C and inserts `&(arg)` at the call site automatically. Cannot combine with `own(...)` or with `generic`/`using` (those are erased at runtime — no binding to mutate). CAN combine with `comptime` as `comptime(inout(name)) : T` — the parameter is erased at runtime and mutations propagate via the evaluator's compile-time binding update path (used by prelude `ComptimeIndex`). See `plans/MEMORY_SAFETY.md` Phase B.
+- **Reference-semantics-type params:** use plain `name : Type`, NOT `*(Type)` or `inout(name) : Type`. Reference-semantics types — `ref(struct(...))` / `ref(enum(...))` (and `atomic(ref(...))`) — such as `Environment`, `EvalContext`, `CodegenContext`, `Emitter`, `HashMap`, `ArrayList`, … carry reference semantics: passing by name already shares the underlying RC state, so mutations through the param propagate to the caller. `*(Type)` requires `pragma(Pragma.AllowUnsafe);` for the `.* ` derefs and clutters the API; `inout(name) : Type` is redundant since reference semantics already share state. Use the plain form: `foo :: (fn(ctx : EvalContext) -> unit)(ctx.method());`. The same applies at call sites — don't wrap reference-semantics arguments with `&(obj)`; just pass `obj`. For receivers on reference-semantics methods, plain `self : Self` is the idiom (`yo-self/env.yo`, `yo-self/codegen/context.yo`, `yo-self/emitter.yo` all follow this). `inout(self) : Self` is reserved for receivers on value-type methods (the form used by `Hash`, `Clone`, `ToString`, `Index`, `ComptimeIndex`, `Writer`, `Reader`).
 - **Byte-buffer params:** for SAFE public signatures use owned collections (`ArrayList(u8)`/`String`). For pragma'd internals/FFI, `RawSlice(u8)` carries ptr+len (construct with `RawSlice(u8)(ptr : &(buf(0)), len : n)`; read `.ptr`/`.len` fields). The `_cstr` family is the explicit raw-pointer variant — those names signal raw-pointer use by contract.
 - **Audit public stdlib safety with `./yo-cli public-safe-report [path]`.** Flags every top-level public `fn(...)` whose params or return type expose `*(T)` outside an `extern(...)` block. Skips FFI-by-construction directories (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`) and names that signal raw-pointer use by contract (`*_cstr`, `*_ptr`, `*_raw`, `raw_*`, `from_raw_parts`, `as_ptr`, `argv`, `argc`). Currently reports 0 findings on `./std` and `./yo-self`; keep it that way when adding new APIs.
-- **Extern "c" call sites require `unsafe(...)` even in pragma'd files.** `unsafe(memcpy(dst, src, n))`, `unsafe(strlen(s))`, etc. The pragma authorizes DECLARING the FFI symbol via `extern(...)` / `c_include(...)`; the wrap is the per-call audit marker so `yo unsafe-report` lines up with UB-capable lines. `asm(...)` and `extern(...)` / `c_include(...)` declarations themselves do NOT need a wrap (the keyword / declaration syntax is its own marker). See `plans/EXTERN_UNSAFE_WRAP.md`.
+- **Extern "c" call sites require `unsafe(...)` even in pragma'd files.** `unsafe(memcpy(dst, src, n))`, `unsafe(strlen(s))`, etc. The pragma authorizes DECLARING the FFI symbol via `extern(...)` / `c_include(...)`; the wrap is the per-call audit marker so `yo unsafe-report` lines up with UB-capable lines. `asm(...)` and `extern(...)` / `c_include(...)` declarations themselves do NOT need a wrap (the keyword / declaration syntax is its own marker). See `plans/archive/EXTERN_UNSAFE_WRAP.md`.
 - **Static-str model (post slice-rework):** builtin `Slice(T)`, `as_str()`, `as_slice()` are DELETED. `str` = static string view (no flow constraints); ranges COPY (`arr(a..b)` → ArrayList, String range → String, str range → str window); safe windows = `ListView(T)`; pragma'd ptr+len = `RawSlice(T)` (naming any raw-ptr-carrying type in an annotation requires the pragma). See `docs/en-US/FLOWABILITY.md`.
-- **`ref` is PARAMETER-ONLY (v4.1, plans/BORROW_EXCLUSIVITY.md).** `-> ref(T)`, `-> (ref(name) : T)`, `-> (name : ref(T))` AND the local binding form `ref(r) := lvalue` are all rejected (both compilers, teaching errors). Refs exist ONLY as `ref(name) : T` parameters. Migrations: return the value (object values are handles that mutate in place; struct values copy); read/write fields directly (`h.s = v`); bind the handle (`b := a.b`) to keep an object alive; or take a callback parameter receiving `ref(v) : T` (`Mutex.with_lock` pattern). A ref ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — intermediate-OBJECT hops and module-level field roots are rejected (bind to a local first). `comptime` return modifiers go on the LABEL when labeled: `-> comptime(T)` / `-> (comptime(name) : T)` valid; `-> (name : comptime(T))` rejected. See `tests/ref_return_ban.test.yo`, `tests/ref_local_binding.test.yo`, `tests/ref_field_borrow.test.yo`.
+- **`inout` is PARAMETER-ONLY (v4.1, plans/archive/BORROW_EXCLUSIVITY.md).** `-> inout(T)`, `-> (inout(name) : T)`, `-> (name : inout(T))` AND the local binding form `inout(r) := lvalue` are all rejected (both compilers, teaching errors). They exist ONLY as `inout(name) : T` parameters. Migrations: return the value (reference-semantics values are handles that mutate in place; struct values copy); read/write fields directly (`h.s = v`); bind the handle (`b := a.b`) to keep a reference-semantics value alive; or take a callback parameter receiving `inout(v) : T` (`Mutex.with_lock` pattern). An inout ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — intermediate reference-semantics-value hops and module-level field roots are rejected (bind to a local first). `comptime` return modifiers go on the LABEL when labeled: `-> comptime(T)` / `-> (comptime(name) : T)` valid; `-> (name : comptime(T))` rejected. See `tests/ref_return_ban.test.yo`, `tests/ref_local_binding.test.yo`, `tests/ref_field_borrow.test.yo`.
 - **Signed-integer overflow is defined (wrap-around).** Yo passes `-fwrapv` to clang/gcc/zig by default so `x + i32(1)` on `i32(MAX)` wraps to `i32(MIN)` instead of UB. Opt-out: `--cflags='-fno-wrapv'`.
 - **`// SAFETY:` comment convention.** Every non-obvious `unsafe(...)` site in stdlib should have a `// SAFETY:` comment in the previous ~8 lines explaining the contract. `yo unsafe-report` picks them up and shows them inline under each finding.
 - **User-facing memory-safety guide:** `docs/en-US/MEMORY_SAFETY.md` (English) and `docs/zh-CN/MEMORY_SAFETY.md` (Chinese). Refer users there instead of `plans/MEMORY_SAFETY.md` (which is the design document — not shipped via npm).
 - Keep single-line array and tuple literals compact during formatting: `[1, 2, 3]`, `(1, 2, 3)`.
 - Parenthesize other unary operands too: `!(ready)`, `-(value)`
-- **`!x && y` is parsed as `!(x && y)`**, not `(!x) && y`. Prefix `!` greedily consumes the full right-hand expression. To get `(!x) && y`, write `((!x) && y)` with explicit inner parens.
-- **Nested `&&` / `||` in a single compound condition causes "Ambiguous operator precedence"** even with explicit parentheses: `((A && B) && (C && D))` on one line triggers the error. Fix: extract sub-conditions into named booleans first: `_c1 := (A && B); _c2 := (C && D); if((_c1 && _c2), ...)`.
+- **`!x && y` is invalid** — `!x` is a paren-less unary. Unary and infix are different operators (no precedence), so parenthesize by intent: `!(x) && y` (= `(NOT x) AND y`) or `!(x && y)` (= `NOT (x AND y)`).
 
 ## Functions and methods
 
@@ -237,7 +238,7 @@ transform :: (fn(list : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
 
 - `(params) => expr` — lambda / closure syntax
 - `Impl(Fn(params) -> ReturnType)` — closure type
-- Value types are captured by copy; object types by reference
+- Value types are captured by copy; reference-semantics types by reference
 - Each closure has a unique type; you cannot assign different closures to the same variable
 
 ## Imports and modules
@@ -299,25 +300,39 @@ match(s,
 
 **Preferred form**: `.Variant({label, label: alias})`. Names only the fields the arm binds, so adding a field to the variant later doesn't silently break every arm. `tests/match_curly.test.yo` is the spec.
 
-Curly `{a, b: c}` is sugar for `(a: a, b: c)` — order-free, supports partial matches (omit fields). Use `{label: _}` to ignore a specific field. Bare `{_}` and empty `{}` are rejected.
+Curly `{a, b: c}` is sugar for `(a: a, b: c)` — order-free, supports partial matches (omit fields). Use `{label: _}` to ignore a specific field. Bare `{_}` is rejected.
+
+**Bind-nothing forms** (match a variant, ignore ALL its fields):
+
+```rust
+match(s,
+  .Circle           => 0,   // bare `.Variant` — allowed even when it has fields
+  .Rectangle({})    => 1    // empty curly — the zero case of partial curly
+)
+```
+
+Both `.Variant` and `.Variant({})` mean "match this variant, bind none of its
+fields" — use them instead of `.Variant(_, _, …)` when no field is needed.
+They are NOT errors for multi-field variants (this is intentionally more
+permissive than Rust). `tests/match_bind_nothing.test.yo` is the spec.
 
 > **Critical**: Within a single match arm, you must use **either all positional or all named** field patterns. Mixing positional and named fields in the same arm (e.g., `.Foo(x, y: z, w)`) causes C codegen to emit undeclared identifiers for the named fields. This is a parser/codegen limitation — do not mix.
 
 ## Generics and compile-time
 
 ```rust
-identity :: (fn(forall(T : Type), value : T) -> T)(value);
+identity :: (fn(generic(T : Type), value : T) -> T)(value);
 
 max :: (fn(comptime(a) : i32, comptime(b) : i32) -> comptime(i32))(
   cond((a > b) => a, true => b)
 );
 
-show :: (fn(forall(T : Type), value : T, where(T <: ToString)) -> unit)(
+show :: (fn(generic(T : Type), value : T, where(T <: ToString)) -> unit)(
   println(value)
 );
 ```
 
-- `forall(T : Type)` introduces a generic type parameter
+- `generic(T : Type)` introduces a generic type parameter
 - `comptime(x) : T` makes a parameter compile-time only
 - `where(T <: Trait)` constrains a type parameter
 - Functions returning `comptime(...)` are evaluated at compile time
@@ -337,6 +352,10 @@ export(
 - `export(name);` exports a single binding
 - Block form exports multiple bindings separated by commas
 - Every executable needs `export(main);`
+- **The parentheses are mandatory.** `export main;` is a syntax error — Yo has no
+  paren-less calls, and `export` is an ordinary call, not a keyword form. The
+  parser rejects it with "Paren-less function and operator calls are not
+  supported. Use parentheses."
 
 ## Static and dynamic dispatch types
 
@@ -385,8 +404,8 @@ while(comptime((i < 10)), {
 });
 
 // for loop — 2-arg prelude macro iterating BY VALUE (implicit
-// .into_iter()). Object elements are handles: mutating them in the
-// body mutates the element in place.
+// .into_iter()). Reference-semantics elements are handles: mutating
+// them in the body mutates the element in place.
 for(list, (x) => {
   process(x);
 });
@@ -410,8 +429,8 @@ for(list.into_iter().map((x) => (x + i32(1))), (y) => println(y));
 - `while(cond, body)` is **always a runtime loop** — use this for open-ended loops (e.g., server accept loops, event loops)
 - `while(comptime(cond), body)` explicitly unrolls at compile time — `cond` must be a compile-time-known value
 - Using a comptime-only (`::`) variable in a bare `while` condition without `comptime()` is a **compile error** (would be an infinite loop at runtime)
-- **`for(coll, (x) => body)`** — the only form; macro expands to `coll.into_iter()` then iterates by value (`x : T`; a handle for object element types).
-- **The borrow form `for(coll, ref(x) => body)` was REMOVED** (v4, plans/BORROW_EXCLUSIVITY.md — no interior refs); it emits a teaching compile error with the migration recipe.
+- **`for(coll, (x) => body)`** — the only form; macro expands to `coll.into_iter()` then iterates by value (`x : T`; a handle for reference-semantics element types).
+- **The borrow form `for(coll, ref(x) => body)` was REMOVED** (v4, plans/archive/BORROW_EXCLUSIVITY.md — no interior refs); it emits a teaching compile error with the migration recipe.
 - **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation, not valid top-level Yo syntax. (The self-hosted evaluator currently only understands the 3-arg form in its internal for-loop handler; track issue: `issues/eval-for-loop-3arg-vs-2arg.md`)
 
 ## Return and branch safety
@@ -480,7 +499,7 @@ for(list, (value) => {
 });
 
 // In-place element mutation: index writes (struct/scalar elements) or
-// mutate the handle (object elements).
+// mutate the handle (reference-semantics elements).
 i := usize(0);
 while(i < list.len(), {
   list(i) = (list(i) + i32(1));
@@ -488,7 +507,7 @@ while(i < list.len(), {
 });
 ```
 
-- `for(coll, (x) => body)` — macro expands to `coll.into_iter()` and yields elements by value (a handle for object element types — mutating it mutates the element in place).
+- `for(coll, (x) => body)` — macro expands to `coll.into_iter()` and yields elements by value (a handle for reference-semantics element types — mutating it mutates the element in place).
 - The borrow form `for(coll, ref(x) => body)` was REMOVED (v4); it emits a teaching compile error.
 - Combinator chains (`coll.into_iter().map(f).filter(g)`) work as the first arg with `(x) => body`.
 
@@ -511,8 +530,12 @@ test("Async test", {
 
 - `test("description", { body })` defines a test — `io : Io` is automatically available
 - All tests can use `io.async(...)`, `io.await(...)`, etc. without a `using` clause
-- `assert(condition, "message")` — runtime assertion (always include a message)
-- `comptime_assert(condition)` — compile-time assertion
+- In a standalone program, get `io` by declaring it in `main`'s SIGNATURE —
+  `main :: (fn(io : Io) -> unit)({ ... })` — codegen injects it automatically.
+  Do NOT write `io :: __yo_builtin_io` inside a fn body; that form is an
+  internal mechanism of the batched test runner's synthesized programs only.
+- `assert(condition, "message")` — runtime assertion; requires `{ assert } :: import("std/assert");` at the top of the test file
+- `comptime_assert(condition)` — compile-time assertion (builtin, no import)
 - `comptime_expect_error(expr)` — verify code produces a compile error
 
 ## Design-by-contract clauses
@@ -523,14 +546,14 @@ lower to runtime `assert(...)` (runtime fns) or `comptime_assert(...)`
 
 ```rust
 // requires/ensures are SIGNATURE clauses, after params and where(...).
-// ENFORCED order: forall, params, where, requires, ensures — a clause
+// ENFORCED order: generic, params, where, requires, ensures — a clause
 // out of order is a syntax error ("X appears after Y").
 divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> i32)(
   x / y
 );
 
 // Inside ensures: `result` = return value, old(expr) = entry-time value.
-increment :: (fn(ref(n) : i32, ensures(n == (old(n) + i32(1)))) -> unit)({ n = (n + i32(1)); });
+increment :: (fn(inout(n) : i32, ensures(n == (old(n) + i32(1)))) -> unit)({ n = (n + i32(1)); });
 
 // invariant(...) must be the FIRST statement of a while body.
 // NOTE: do NOT wrap the condition in runtime(...) — while conditions are
@@ -637,14 +660,41 @@ match(val,
 
 Same applies to `.IntLit(42)`, `.StrLit("hello")`, etc.
 
+### `forall` / `exists` / `∀` / `∃` are RESERVED — the type binder is `generic`
+
+The type-parameter binder is `generic(T : Type)`. `forall` was renamed to it
+(`plans/archive/FORALL_TO_GENERIC.md`) so the quantifier words stay free for
+Dafny-style verification, where they will bind VALUES with a predicate inside
+`requires` / `ensures`. All four words are rejected at LEX time with a targeted
+message, in both the TS lexer (`src/lexer.ts`) and the self-hosted one
+(`yo-self/lexer.yo`):
+
+```
+`forall` is reserved for verification quantifiers. Use `generic(T : Type)` to
+declare type parameters.
+```
+
+```rust
+// WRONG:
+sum :: (fn(forall(T : Type), a : T, b : T) -> T)((a + b));
+
+// CORRECT:
+sum :: (fn(generic(T : Type), a : T, b : T) -> T)((a + b));
+```
+
+Note the INTERNAL identifiers (`forall_labels`, `forall_types`,
+`forallParameters`, …) deliberately keep the old name in both compilers — they
+are invisible to users and renaming them would churn the bootstrap fixpoint for
+no gain.
+
 ### `type` is a reserved keyword — avoid as field/param name
 
 ```rust
 // WRONG:
-Variable :: object(name : String, type : TypeValue);
+Variable :: ref(struct(name : String, type : TypeValue));
 
 // CORRECT:
-Variable :: object(name : String, ty : TypeValue);
+Variable :: ref(struct(name : String, ty : TypeValue));
 ```
 
 ### 1-element array literals require a trailing comma
@@ -709,7 +759,7 @@ Both forms call the same `Index` trait method. The call-syntax form
 is shorter, doesn't need raw-pointer plumbing in user code, and
 panics on out-of-bounds identically to `.unwrap()` on `.get(...)`.
 
-### Named fields required for `struct`/`object` constructors
+### Named fields required for `struct`/`ref(struct(...))` constructors
 
 ```rust
 Point :: struct(x : i32, y : i32);
@@ -717,18 +767,18 @@ Point :: struct(x : i32, y : i32);
 // CORRECT:
 p := Point(x: i32(1), y: i32(2));
 
-// WRONG — positional not supported for struct/object:
+// WRONG — positional not supported for struct/ref(struct(...)):
 p := Point(i32(1), i32(2));
 ```
 
 Enum variant construction is positional (no field names needed).
 
-### Object types (RC) are passed by value
+### Reference-semantics types (RC) are passed by value
 
-`HashMap`, `ArrayList`, and other `object(...)` types are reference-counted. Passing them by value shares the underlying data — mutations are visible to all holders.
+`HashMap`, `ArrayList`, and other `ref(struct(...))` / `ref(enum(...))` types are reference-counted. Passing them by value shares the underlying data — mutations are visible to all holders.
 
 ```rust
-// DO NOT use pointer params for RC objects:
+// DO NOT use pointer params for RC reference-semantics values:
 // WRONG: fn(m : *(HashMap(String, V))) — will cause greedy & issues at call site
 // CORRECT: fn(m : HashMap(String, V)) — pass by value, mutations propagate via RC
 
@@ -766,7 +816,7 @@ This applies to ALL callee-before-caller relationships:
 
 ### Named tuple fields in type syntax are not allowed
 
-Yo does not support named tuple field types in the syntax `(name : Type, ...)`. Use an `object` struct instead:
+Yo does not support named tuple field types in the syntax `(name : Type, ...)`. Use a named struct instead:
 
 ```rust
 // WRONG — "Labelled field is not allowed in tuple value":
@@ -775,13 +825,13 @@ get_range :: (fn(ty : TypeValue) -> Option((min : i64, max : u64)))(
 );
 
 // CORRECT — define a named struct:
-Range :: object(min : i64, max : u64);
+Range :: ref(struct(min : i64, max : u64));
 get_range :: (fn(ty : TypeValue) -> Option(Range))(
   .Some({min: i64(-128), max: u64(127)})
 );
 ```
 
-Named fields work in struct/object constructors `{min: ..., max: ...}`, just not in the type syntax for tuples.
+Named fields work in struct/ref(struct(...)) constructors `{min: ..., max: ...}`, just not in the type syntax for tuples.
 
 ### `Option` equality comparison limitations
 
@@ -803,14 +853,14 @@ match(r,
 );
 ```
 
-The `!` operator is greedy and consumes all following args including the block. Always parenthesize:
+Unary `!` requires parentheses around its operand — a bare `!cond` is a paren-less error:
 
 ```rust
-// WRONG — ! consumes "cond, block" as one arg:
+// WRONG — paren-less unary operand:
 if(!cond, { do_thing(); });
 
-// CORRECT — ! only consumes (cond):
-if((!cond), { do_thing(); });
+// CORRECT — wrap the operand:
+if(!(cond), { do_thing(); });
 ```
 
 ### `unwind` requires a nested-function context
@@ -865,7 +915,7 @@ my_fn :: (fn(init_env : Environment) -> Environment)({
 });
 ```
 
-This also applies to `object` types: you can mutate fields (`env.field = val`)
+This also applies to reference-semantics types (`ref(struct(...))` / `ref(enum(...))`): you can mutate fields (`env.field = val`)
 but cannot rebind the variable (`env = other_env`).
 
 ### String cloning
@@ -886,25 +936,25 @@ name := token.value.clone();            // OK
 ```
 
 A heap `String` can NEVER become `str` (`as_str()` is deleted — `str` is
-the STATIC string view; plans/SLICE_REWORK.md). If a function must accept
+the STATIC string view; plans/archive/SLICE_REWORK.md). If a function must accept
 runtime text, its parameter should be `String`; `str` parameters are for
 literals/static text only.
 
 These features are powerful but less commonly used. Consult the linked docs for full details.
 
-| Feature                    | Syntax hint                                              | Documentation                                                                                                          |
-| -------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Higher-Kinded Types        | `forall(F : (fn(comptime(T) : Type) -> comptime(Type)))` | [DESIGN.md § HKT](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DESIGN.md#higher-kinded-types-hkt)           |
-| GADTs                      | `enum(IntVal(i : i32) -> recur(i32))`                    | [GADTS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/GADTS.md)                                           |
-| Derive traits              | `derive(MyType, Eq, Hash, Clone, Ord, ToString)`         | [DERIVE_TRAITS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DERIVE_TRAITS.md)                           |
-| Type reflection            | `Type.get_info(T)` returns `TypeInfo`                    | [TYPE_REFLECTION.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/TYPE_REFLECTION.md)                       |
-| Inline assembly            | `asm("mov {0}, #42", out(reg, i32))`                     | [INLINE_ASSEMBLY.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/INLINE_ASSEMBLY.md)                       |
-| Metaprogramming            | `quote(...)`, `unquote(...)`, `unquote_splicing(...)`    | [DESIGN.md § Meta](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DESIGN.md#meta-programming)                 |
-| Effect bundle polymorphism | `forall(E : Type.Struct)` over a bundle struct           | [ALGEBRAIC_EFFECTS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ALGEBRAIC_EFFECTS.md)                   |
-| Custom derive rules        | `derive_rule(MyTrait, (fn(...) -> unquote(Expr)){...})`  | [DERIVE_TRAITS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DERIVE_TRAITS.md#user-defined-derive-rules) |
-| Isolated types             | `Iso(T)` for data-race-free parallelism                  | [ISOLATED.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ISOLATED.md)                                     |
-| Arc (atomic ref count)     | `arc(value)`, `shared.(*)` for cross-thread sharing      | [ARC.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ARC.md)                                               |
-| Parallelism                | Thread pool, `io.spawn` for parallel work                | [PARALLELISM.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/PARALLELISM.md)                               |
+| Feature                    | Syntax hint                                               | Documentation                                                                                                          |
+| -------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Higher-Kinded Types        | `generic(F : (fn(comptime(T) : Type) -> comptime(Type)))` | [DESIGN.md § HKT](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DESIGN.md#higher-kinded-types-hkt)           |
+| GADTs                      | `enum(IntVal(i : i32) -> recur(i32))`                     | [GADTS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/GADTS.md)                                           |
+| Derive traits              | `derive(MyType, Eq, Hash, Clone, Ord, ToString)`          | [DERIVE_TRAITS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DERIVE_TRAITS.md)                           |
+| Type reflection            | `Type.get_info(T)` returns `TypeInfo`                     | [TYPE_REFLECTION.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/TYPE_REFLECTION.md)                       |
+| Inline assembly            | `asm("mov {0}, #42", out(reg, i32))`                      | [INLINE_ASSEMBLY.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/INLINE_ASSEMBLY.md)                       |
+| Metaprogramming            | `quote(...)`, `unquote(...)`, `unquote_splicing(...)`     | [DESIGN.md § Meta](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DESIGN.md#meta-programming)                 |
+| Effect bundle polymorphism | `generic(E : Type.Struct)` over a bundle struct           | [ALGEBRAIC_EFFECTS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ALGEBRAIC_EFFECTS.md)                   |
+| Custom derive rules        | `derive_rule(MyTrait, (fn(...) -> unquote(Expr)){...})`   | [DERIVE_TRAITS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DERIVE_TRAITS.md#user-defined-derive-rules) |
+| Isolated types             | `Iso(T)` for data-race-free parallelism                   | [ISOLATED.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ISOLATED.md)                                     |
+| Arc (atomic ref count)     | `arc(value)`, `shared.(*)` for cross-thread sharing       | [ARC.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/ARC.md)                                               |
+| Parallelism                | Thread pool, `io.spawn` for parallel work                 | [PARALLELISM.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/PARALLELISM.md)                               |
 
 ---
 
@@ -1004,9 +1054,27 @@ sep := `, `;
 lines.push(`**Implements:** ${sep.join(names)}`);
 ```
 
+### A backtick literal WITHOUT `${...}` interpolation is a `str`, not a `String`
+
+`String.from(`` `...` ``)` looks harmless but a backtick literal with no
+interpolation types as a plain `str`, and in some positions (e.g. a
+`format_error_message(tok, msg, ...)` argument chain inside a large fn)
+the def-time check reports a misleading `Cannot unify: Expected "String"
+Given "str"` pointing at the ENCLOSING fn's return type, not the literal.
+Use a double-quoted string (escape inner `"` as `\"`) for constant
+messages; reserve backticks for templates that actually interpolate.
+
+```rust
+// ❌ def-time check fails with a misleading location
+exn.throw(dyn(format_error_message(tok, String.from(`Cannot use "asm" here.`), false, .None)));
+
+// ✅ double-quoted with escapes
+exn.throw(dyn(format_error_message(tok, String.from("Cannot use \"asm\" here."), false, .None)));
+```
+
 ### Pushing RC struct fields into ArrayList does not need `.clone()`
 
-String (and other RC object) fields of structs can be passed directly to `ArrayList.push()` — the RC bump happens automatically:
+String (and other RC reference-semantics) fields of structs can be passed directly to `ArrayList.push()` — the RC bump happens automatically:
 
 ```rust
 names.push(param.name);
@@ -1226,3 +1294,22 @@ total := sums.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));
 **`&&` in `cond` conditions inside `while` body**: Crashes. Avoid by restructuring (e.g., start loop at 1 instead of 0 to eliminate the `&& (i > 0)` guard).
 
 **Test API format**: Use `evaluate_module_body(exprs, &(env))` (reference syntax, returns `Option`). Match with function-style `match(result, .None => ..., .Some(m) => ...)`. Do NOT use block-style `match(result) { ... }` — it causes a parse error ("Paren-less function and operator calls are not supported").
+
+**String indexing: `len()`/`substring`/`index_of` are RUNE-based; `byte_at`/`as_bytes` are BYTE-based — never mix.** `String.from("a→b").len()` is `3` (runes) while `.as_bytes().len()` is `5`. A loop `while(i < s.len(), { b := s.byte_at(i); ... })` UNDER-WALKS multibyte content by `bytes − runes` (this truncated emitted C in yo-self codegen: an `assert(_, "… → …")` message chopped the compound literal's closing `}`). `index_of` returns a RUNE index — never feed it to `byte_at`, and never feed a byte index to `substring`. Rules:
+
+```
+// ✅ byte loop: byte bound
+n := s.as_bytes().len();
+while(i < n, { b := s.byte_at(i); ... });
+
+// ✅ byte-exact slicing: rebuild from bytes (substring is rune-indexed)
+bytes := s.as_bytes();
+inner := ArrayList(u8).new();
+// push bytes[from..to), then:
+String.from_bytes(inner)
+
+// ❌ WRONG — rune bound, byte reads
+while(i < s.len(), { b := s.byte_at(i); ... });
+// ❌ WRONG — rune index from index_of fed to byte_at
+match(s.index_of(w, from), .Some(idx) => s.byte_at(idx - usize(1)), ...);
+```

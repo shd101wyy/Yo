@@ -1,0 +1,108 @@
+//! async_completion — shared helper for emitting "complete the async Future"
+//! boilerplate in C codegen. 1:1 port of `src/codegen/exprs/async-completion.ts`.
+//!
+//! Used by (Phase 5):
+//!   - generate_atom (return atom in a state machine)
+//!   - generate_return (return with/without arg in a state machine)
+//!   - async/state_machine (normal final-state completion)
+open(import("std/string"));
+{ Emitter } :: import("../../emitter.yo");
+/// Emits the C code to complete an async Future state machine:
+///   1. Optionally store the result value
+///   2. Set state to COMPLETED (-1) with release semantics
+///   3. Check for and spawn any waiting continuation
+///   4. Release the "running task" reference (decr rc)
+///   5. Return from the resume function
+///
+/// `result_code` — if `.Some`, emit `sm->result = <result_code>;` before completing.
+/// `debug_label` — optional label for ASYNC_DEBUG messages (e.g. function name).
+emit_async_future_completion :: (
+  fn(
+    emitter : Emitter,
+    indent : String,
+    result_code : Option(String),
+    debug_label : Option(String)
+  ) -> unit
+)({
+  match(
+    result_code,
+    .Some(rc) => emitter.emit_string_line(`${indent}sm->result = ${rc};`),
+    .None => ()
+  );
+  match(
+    debug_label,
+    .Some(dl) => emitter.emit_string_line(`${indent}ASYNC_DEBUG("${dl}: Setting state to COMPLETED\\n");`),
+    .None => ()
+  );
+  emitter.emit_string_line(`${indent}sm->state = -1;  // -1 = completed`);
+  emitter.emit_string_line(String.from(""));
+  emitter.emit_string_line(`${indent}void (*continuation_fn)(void*) = (void (*)(void*))sm->continuation_fn;`);
+  emitter.emit_string_line(`${indent}void* continuation_sm = sm->continuation_sm;`);
+  emitter.emit_string_line(String.from(""));
+  emitter.emit_string_line(`${indent}if (continuation_fn != NULL) {`);
+  match(
+    debug_label,
+    .Some(dl) => emitter.emit_string_line(`${indent}  ASYNC_DEBUG("${dl}: Spawning continuation: resume_fn=%p, sm=%p\\n", (void*)continuation_fn, continuation_sm);`),
+    .None => ()
+  );
+  emitter.emit_string_line(String.from(""));
+  emitter.emit_string_line(`${indent}  sm->continuation_fn = NULL;`);
+  emitter.emit_string_line(`${indent}  sm->continuation_sm = NULL;`);
+  emitter.emit_string_line(String.from(""));
+  emitter.emit_string_line(`${indent}  __yo_async_spawn_task(continuation_fn, continuation_sm);`);
+  emitter.emit_string_line(`${indent}}`);
+  emitter.emit_string_line(String.from(""));
+  emitter.emit_string_line(`${indent}__yo_decr_rc((void*)sm);`);
+  emitter.emit_string_line(String.from(""));
+  emitter.emit_string_line(`${indent}return;`);
+});
+/// Emits the C code to mark an async Future state machine as ABORTED (-2):
+///   1. Optionally store the result value (for proper RC cleanup in dispose)
+///   2. Set state to UNWOUND (-2) with release semantics
+///   3. Check for and spawn any waiting continuation (so awaiter can detect escape)
+///   4. Release the "running task" reference (decr rc)
+///   5. Return from the resume function
+///
+/// Called when `unwind` is used inside an async state machine's effect handler.
+/// Any task that `io.await`s this Future will panic.
+emit_async_future_escape :: (
+  fn(
+    emitter : Emitter,
+    indent : String,
+    result_code : Option(String),
+    debug_label : Option(String)
+  ) -> unit
+)({
+  match(
+    result_code,
+    .Some(rc) => emitter.emit_string_line(`${indent}sm->result = ${rc};`),
+    .None => ()
+  );
+  match(
+    debug_label,
+    .Some(dl) => emitter.emit_string_line(`${indent}ASYNC_DEBUG("${dl}: Setting state to UNWOUND (effect handler escape)\\n");`),
+    .None => ()
+  );
+  emitter.emit_string_line(`${indent}sm->state = -2;  // -2 = escaped`);
+  emitter.emit_string_line(String.from(""));
+  emitter.emit_string_line(`${indent}void (*continuation_fn)(void*) = (void (*)(void*))sm->continuation_fn;`);
+  emitter.emit_string_line(`${indent}void* continuation_sm = sm->continuation_sm;`);
+  emitter.emit_string_line(String.from(""));
+  emitter.emit_string_line(`${indent}if (continuation_fn != NULL) {`);
+  match(
+    debug_label,
+    .Some(dl) => emitter.emit_string_line(`${indent}  ASYNC_DEBUG("${dl}: Spawning continuation for escaped future: resume_fn=%p, sm=%p\\n", (void*)continuation_fn, continuation_sm);`),
+    .None => ()
+  );
+  emitter.emit_string_line(String.from(""));
+  emitter.emit_string_line(`${indent}  sm->continuation_fn = NULL;`);
+  emitter.emit_string_line(`${indent}  sm->continuation_sm = NULL;`);
+  emitter.emit_string_line(String.from(""));
+  emitter.emit_string_line(`${indent}  __yo_async_spawn_task(continuation_fn, continuation_sm);`);
+  emitter.emit_string_line(`${indent}}`);
+  emitter.emit_string_line(String.from(""));
+  emitter.emit_string_line(`${indent}__yo_decr_rc((void*)sm);`);
+  emitter.emit_string_line(String.from(""));
+  emitter.emit_string_line(`${indent}return;`);
+});
+export(emit_async_future_completion, emit_async_future_escape);

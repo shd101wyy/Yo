@@ -3,11 +3,11 @@
  *
  * Windows I/O helpers split into two categories:
  *
- * 1. generatePlatformSysRuntimeWindows — synchronous helpers (pipe, dup,
+ * 1. generatePlatformSysRuntimeWindows -- synchronous helpers (pipe, dup,
  *    lseek, fallocate, mmap, socket address helpers, statx wrappers, etc.)
  *    that do NOT depend on IoFuture or the async event loop.
  *
- * 2. generateAsyncRuntimeIOWindows — async I/O via IOCP (I/O Completion Ports).
+ * 2. generateAsyncRuntimeIOWindows -- async I/O via IOCP (I/O Completion Ports).
  *    Provides async read, write, openat, close, statx, mkdir, unlink, rename,
  *    symlink, link, fsync, fdatasync, ftruncate, and socket operations.
  */
@@ -15,7 +15,7 @@
 import { Emitter } from "../../emitter";
 
 // ---------------------------------------------------------------------------
-// 1. Synchronous platform helpers (Windows) — no IoFuture / event-loop dependency
+// 1. Synchronous platform helpers (Windows) -- no IoFuture / event-loop dependency
 // ---------------------------------------------------------------------------
 
 /**
@@ -1073,16 +1073,16 @@ static int32_t __yo_sync_clock_gettime(int32_t clock_id, int64_t* sec, int64_t* 
 static void __yo_win_copy_cstr_field(char* dst, size_t dst_len, const char* src) {
   if (!dst || dst_len == 0) return;
   if (!src) {
-    dst[0] = '\0';
+    dst[0] = '\\0';
     return;
   }
 
   size_t i = 0;
-  while (i + 1 < dst_len && src[i] != '\0') {
+  while (i + 1 < dst_len && src[i] != '\\0') {
     dst[i] = src[i];
     i++;
   }
-  dst[i] = '\0';
+  dst[i] = '\\0';
 }
 
 static int32_t __yo_sync_uname(void* buf) {
@@ -1100,11 +1100,11 @@ static int32_t __yo_sync_uname(void* buf) {
 
   // nodename
   char host[256];
-  host[0] = '\0';
+  host[0] = '\\0';
   if (gethostname(host, (int)sizeof(host)) == SOCKET_ERROR) {
     __yo_win_copy_cstr_field(out + (field_size * 1), field_size, "localhost");
   } else {
-    host[sizeof(host) - 1] = '\0';
+    host[sizeof(host) - 1] = '\\0';
     __yo_win_copy_cstr_field(out + (field_size * 1), field_size, host);
   }
 
@@ -1338,7 +1338,7 @@ static void __yo_sockaddr_in6_get_addr(void* addr, void* out) {
 static void __yo_sockaddr_un_set_path(void* addr, const char* path) {
   __yo_sockaddr_un_t* un = (__yo_sockaddr_un_t*)addr;
   strncpy(un->sun_path, path, UNIX_PATH_MAX - 1);
-  un->sun_path[UNIX_PATH_MAX - 1] = '\0';
+  un->sun_path[UNIX_PATH_MAX - 1] = '\\0';
 }
 
 static const char* __yo_sockaddr_un_get_path(void* addr) {
@@ -1998,7 +1998,7 @@ static bool __yo_win_associate_handle(HANDLE handle) {
     return true;
   }
   if (GetLastError() == ERROR_INVALID_PARAMETER) {
-    // Already associated — ensure skip-on-success mode is set.
+    // Already associated -- ensure skip-on-success mode is set.
     SetFileCompletionNotificationModes(handle, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
     return true;
   }
@@ -2193,7 +2193,7 @@ static int __yo_io_wait(void) {
 // ============================================================================
 
 // Track append-mode file descriptors (O_APPEND on Windows overlapped I/O
-// doesn't work automatically — we must use _write which respects the CRT flag)
+// doesn't work automatically -- we must use _write which respects the CRT flag)
 #define __YO_WIN_APPEND_FD_MAX 256
 static int __yo_win_append_fds[__YO_WIN_APPEND_FD_MAX];
 static int __yo_win_append_fd_count = 0;
@@ -2368,7 +2368,7 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
     return future;
   }
 
-  // Check if file was opened with O_APPEND — overlapped I/O doesn't auto-append
+  // Check if file was opened with O_APPEND -- overlapped I/O doesn't auto-append
   if (__yo_win_fd_is_append(fd)) {
     // Get file size and write at end
     LARGE_INTEGER fsize;
@@ -3112,7 +3112,7 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
   int result = WSASend(s, &ov->wsabuf, 1, &sent, (DWORD)flags, &ov->overlapped, NULL);
 
   if (result == 0) {
-    // Synchronous completion — FILE_SKIP_COMPLETION_PORT_ON_SUCCESS means
+    // Synchronous completion -- FILE_SKIP_COMPLETION_PORT_ON_SUCCESS means
     // no IOCP packet will be posted, so complete the future immediately.
     future->result = (int32_t)sent;
     atomic_init(&future->state, -1);
@@ -3161,7 +3161,7 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
   int result = WSARecv(s, &ov->wsabuf, 1, &received, &ov->sock_flags, &ov->overlapped, NULL);
 
   if (result == 0) {
-    // Synchronous completion — FILE_SKIP_COMPLETION_PORT_ON_SUCCESS means
+    // Synchronous completion -- FILE_SKIP_COMPLETION_PORT_ON_SUCCESS means
     // no IOCP packet will be posted, so complete the future immediately.
     future->result = (int32_t)received;
     atomic_init(&future->state, -1);

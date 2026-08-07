@@ -1,0 +1,25 @@
+// A runtime integer conversion (`u32(n)` with a runtime-unknown arg) in a
+// cond ARM-RESULT position. The eval lowers such conversions to a synthetic
+// `__yo_as` node attached to the original expr's ExprInfo as
+// `macro_expansion` — but cond arms are re-evaluated (branch-merge trials),
+// and a later pass overwrote the ExprInfo WITHOUT the expansion, so codegen
+// FTT'd the conversion (`u32(n)` / `i32(perm.mode)` / `i64(i)` — the stage-2
+// conversion cluster). Fixed by ALSO recording the lowering in the durable
+// id-keyed side-table (record_macro_expansion), same pattern as the if-macro
+// fix; codegen's lookup_macro_expansion fallback picks it up.
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+
+conv :: (fn(n : usize) -> u32)({
+  r := cond(
+    (n > usize(0)) => u32(n),
+    true => u32(0)
+  );
+  r
+});
+
+main :: (fn() -> unit)({
+  v := conv(usize(81));
+  unsafe(_x := putchar(int(v))); // 81 = 'Q'
+});
+export(main);

@@ -50,7 +50,7 @@ _effect_label_for :: (fn(effect_type : TypeValue, effect_expr : AstExpr) -> Stri
   match(
     effect_type,
     .Struct({ name, is_source_namespace : fl_sns }) => cond(fl_sns => name, true => ast_expr_to_string(effect_expr)),
-    .SomeT(_, name, _, _, _, _, _, _, _, _) => name,
+    .SomeT(_, name, _, _, _, _, _, _, _, _, _) => name,
     _ => ast_expr_to_string(effect_expr)
   )
 );
@@ -79,7 +79,7 @@ _resolve_effect_row_spread :: (
       dyn(
         format_error_message(
           ast_expr_token(effect_expr),
-          `Effect row variable "${row_var_name}" not found in scope. Declare it with forall(..., ...(${row_var_name}))`,
+          `Effect row variable "${row_var_name}" not found in scope. Declare it with generic(..., ...(${row_var_name}))`,
           false,
           .None
         )
@@ -90,14 +90,14 @@ _resolve_effect_row_spread :: (
     row_vars.get(row_vars.len() - usize(1)),
     .Some(row_var) => {
       match(
-        row_var.value,
+        row_var.value.get(usize(0)),
         .Some(e_value) => {
           match(
             e_value,
             // Case 1/2: TypeVal — check if EffectsRowT (expand) or SomeT (spread marker)
             .TypeVal(type_box) => {
               match(
-                type_box.*,
+                type_box,
                 .EffectsRowT(row_labels, row_types) => {
                   // Case 1: Concrete EffectsRowT — expand into non-spread params
                   (ri : usize) = usize(0);
@@ -124,10 +124,10 @@ _resolve_effect_row_spread :: (
                     ri = (ri + usize(1));
                   });
                 },
-                .SomeT(_, _, _, _, _, _, _, _, _, _) => {
+                .SomeT(_, _, _, _, _, _, _, _, _, _, _) => {
                   // Case 2: SomeT effects row variable — use as spread marker
                   out_labels.push(row_var_name);
-                  out_types.push(type_box.*);
+                  out_types.push(type_box);
                   out_spreads.push(true);
                 },
                 _ => {
@@ -135,7 +135,7 @@ _resolve_effect_row_spread :: (
                     dyn(
                       format_error_message(
                         ast_expr_token(effect_expr),
-                        `"...(${row_var_name})" requires "${row_var_name}" to be a forall-declared effect row variable, but it resolves to a concrete type. Use individual effect types directly instead of spreading them, e.g. Future(T, ${row_var_name}) instead of Future(T, ...(${row_var_name}))`,
+                        `"...(${row_var_name})" requires "${row_var_name}" to be a generic-declared effect row variable, but it resolves to a concrete type. Use individual effect types directly instead of spreading them, e.g. Future(T, ${row_var_name}) instead of Future(T, ...(${row_var_name}))`,
                         false,
                         .None
                       )
@@ -145,9 +145,9 @@ _resolve_effect_row_spread :: (
               );
             },
             // Case 3/4/5: UnknownVal — check the contained type
-            .UnknownVal(type_box) => {
+            .UnknownVal(type_box, _) => {
               match(
-                type_box.*,
+                type_box,
                 .EffectsRowT(row_labels, row_types) => {
                   // Case 3: UnknownVal with EffectsRowT — expand into concrete non-spread params
                   (ri : usize) = usize(0);
@@ -174,10 +174,10 @@ _resolve_effect_row_spread :: (
                     ri = (ri + usize(1));
                   });
                 },
-                .SomeT(_, _, _, _, _, _, _, _, _, _) => {
+                .SomeT(_, _, _, _, _, _, _, _, _, _, _) => {
                   // Case 4: UnknownVal with SomeT type — use SomeT as spread marker
                   out_labels.push(row_var_name);
-                  out_types.push(type_box.*);
+                  out_types.push(type_box);
                   out_spreads.push(true);
                 },
                 _ => {
@@ -190,13 +190,14 @@ _resolve_effect_row_spread :: (
                     generate_some_type_id(),
                     row_var_name,
                     frame_level,
-                    Box(TypeValue)(TypeValue.TypeUni(usize(1))),
+                    TypeValue.TypeUni(usize(1)),
                     ArrayList(TypeValue).new(),
                     ArrayList(usize).new(),
                     ArrayList(TypeValue).new(),
                     ArrayList(usize).new(),
                     true,
-                    Option(Box(TypeValue)).None
+                    Option(TypeValue).None,
+                    ArrayList(TypeValue).new()
                   );
                   out_labels.push(row_var_name);
                   out_types.push(new_some_t);
@@ -292,7 +293,7 @@ _resolve_effect_arg :: (
           });
           effect_type := match(
             info.value,
-            .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+            .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
             .None => TypeValue.Unit
           );
           label := _effect_label_for(effect_type, effect_expr);
@@ -382,7 +383,7 @@ evaluate_future_type :: (
   });
   output_type := match(
     elem_info.value,
-    .Some(v) => match(v,.TypeVal(b) => b.*, _ => TypeValue.Unit),
+    .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
     .None => TypeValue.Unit
   );
   // Process effect arguments (args 1..N)

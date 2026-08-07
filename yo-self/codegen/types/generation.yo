@@ -1,0 +1,1715 @@
+//! C type-declaration emission — mirrors `src/codegen/types/generation.ts`.
+//!
+//! PORT STATUS (incremental, plans/archive/BOOTSTRAPPING_CODEGEN.md Phase 3): this
+//! file currently carries the self-contained per-type DECLARATION emitters
+//! (str / array-wrapper / struct / tuple / union / enum). The big
+//! `generateTypeDeclarations` driver (runtime preamble: GC headers, atomics,
+//! thread-sync macros, __yo_ref_header_t, future types — then the type-walk),
+//! the Iso/closure/future declarations, and the dyn re-exports are pending.
+open(import("std/string"));
+{ resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
+{ ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
+{ HashMap } :: import("std/collections/hash_map");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_reference_struct_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
+{ type_contains_some_type } :: import("../../types/utils.yo");
+{ lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ is_target_windows, is_target_macos } :: import("../../target.yo");
+{
+  CodeGenContext,
+  RuntimeStructField,
+  get_type_string,
+  get_runtime_struct_fields,
+  sanitize_for_c_identifier,
+  can_optimize_as_nullable_pointer,
+  can_optimize_as_simple_enum,
+  type_key
+} :: import("../utils/index.yo");
+{ BF_DUP, BF_DROP } :: import("../../expr.yo");
+/// True when array-wrapper name `a` must be emitted before `b`: shorter
+/// names first (an OUTER wrapper's name is `Array_<child>_<len>` — strictly
+/// longer than its child's name, so length-ascending is dependency order),
+/// lexicographic within a length for determinism. Plain lexicographic would
+/// be WRONG ('A' < '_' puts deeper `Array_Array_…` names before their
+/// children).
+_array_wrapper_name_lt :: (fn(a : String, b : String) -> bool)(
+  cond(
+    (a.len() < b.len()) => true,
+    (a.len() > b.len()) => false,
+    true => (a < b)
+  )
+);
+/// Generate the array-wrapper struct typedefs collected during type lowering.
+/// Mirrors `generateArrayStructDeclarations`. TS iterates an
+/// insertion-ordered Map whose lazy registration recurses into the element
+/// FIRST (utils/index.ts:599), so inner wrappers always precede the outer
+/// ones that embed them by value. yo-self's `array_struct_types` is a
+/// HashMap — key iteration is HASH order — so a nested wrapper could be
+/// emitted before its child's typedef (`n := [m,]` over 4 levels: the
+/// 4-level wrapper referenced the 3-level type above its definition —
+/// tests/rc.test.yo "Rc in different data structures",
+/// issues/repros/nested-array-wrapper-order.yo). Emit in (length, lex)
+/// order instead: dependency-correct AND deterministic regardless of hash
+/// order (which STRICT_FIXPOINT wants anyway).
+generate_array_struct_declarations :: (fn(context : CodeGenContext) -> unit)({
+  keys := ArrayList(String).new();
+  kit := context.array_struct_types.keys();
+  (kdone : bool) = false;
+  while(!(kdone), {
+    match(
+      kit.next(),
+      .Some(k) => {
+        _kp := keys.push(k);
+      },
+      .None => {
+        kdone = true;
+      }
+    );
+  });
+  // Selection sort by (length, lexicographic) into a fresh list (ArrayList
+  // has no element assignment; the registry is small).
+  sorted_keys := ArrayList(String).new();
+  while(keys.len() > usize(0), {
+    (min_i : usize) = usize(0);
+    (ci : usize) = usize(1);
+    while(ci < keys.len(), {
+      cand := match(keys.get(ci),.Some(s) => s,.None => String.new());
+      cur_min := match(keys.get(min_i),.Some(s) => s,.None => String.new());
+      if(_array_wrapper_name_lt(cand, cur_min), {
+        min_i = ci;
+      });
+      ci = (ci + usize(1));
+    });
+    picked := match(keys.get(min_i),.Some(s) => s,.None => String.new());
+    sorted_keys.push(picked);
+    keys.remove(min_i, usize(1));
+  });
+  keys = sorted_keys;
+  n := keys.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    name := match(keys.get(i),.Some(k) => k,.None => String.from(""));
+    match(
+      context.array_struct_types.get(name.clone()),
+      .Some(info) => {
+        context.emitter.emit_declaration_line("typedef struct { // Array wrapper struct");
+        context.emitter.emit_declaration_string_line(`  ${info.child_type} data[${info.length.to_string()}];`);
+        context.emitter.emit_declaration_string_line(`} ${name};`);
+        context.emitter.emit_declaration_line("");
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Generate the builtin `str` type declaration. Mirrors `generateStrTypeDeclaration`.
+generate_str_type_declaration :: (fn(context : CodeGenContext) -> unit)({
+  context.emitter.emit_declaration_line("typedef struct { // str: builtin static string view");
+  context.emitter.emit_declaration_line("  const uint8_t* ptr;");
+  context.emitter.emit_declaration_line("  size_t len;");
+  context.emitter.emit_declaration_line("} __yo_str;");
+  context.emitter.emit_declaration_line("");
+});
+/// Emit `  <type> <name>;` for each runtime struct field.
+/// (Defined before generate_struct_declaration — Yo has no forward references.)
+_emit_runtime_fields :: (fn(fields : ArrayList(RuntimeStructField), context : CodeGenContext) -> unit)({
+  n := fields.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(
+      fields.get(i),
+      .Some(field) => {
+        fts := get_type_string(field.ty, context);
+        fname := sanitize_for_c_identifier(field.label.clone(), false);
+        context.emitter.emit_declaration_string_line(`  ${fts} ${fname};`);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Generate a struct/object declaration. Newtypes lower to a typedef;
+/// reference-semantics structs carry the RC header. Mirrors `generateStructDeclaration`.
+generate_struct_declaration :: (fn(struct_type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
+  match(
+    struct_type,
+    .Struct({ name, field_types, is_reference_semantics, is_atomic_rc, is_newtype }) => {
+      // Newtype: zero-cost typedef over the single underlying type.
+      if(is_newtype && (field_types.len() == usize(1)), {
+        underlying := match(field_types.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
+        uts := get_type_string(underlying, context);
+        context.emitter.emit_declaration_string_line(`typedef ${uts} ${c_name}; // ${name} : ${type_to_string(struct_type)} (newtype - zero-cost abstraction)`);
+        context.emitter.emit_declaration_line("");
+        return(());
+      });
+      runtime_fields := get_runtime_struct_fields(struct_type);
+      cond(
+        is_reference_semantics => {
+          atomic_word := if(is_atomic_rc, "atomic ", "");
+          header_word := if(is_atomic_rc, "Atomic r", "R");
+          context.emitter.emit_declaration_string_line(`struct ${c_name}_struct { // ${name} : ${type_to_string(struct_type)} (${atomic_word}reference counted)`);
+          context.emitter.emit_declaration_string_line(`  __yo_ref_header_t header; // ${header_word}eference count header`);
+          _emit_runtime_fields(runtime_fields, context);
+          context.emitter.emit_declaration_line("};");
+        },
+        true => {
+          context.emitter.emit_declaration_string_line(`struct ${c_name}_struct { // ${name} : ${type_to_string(struct_type)}`);
+          _emit_runtime_fields(runtime_fields, context);
+          context.emitter.emit_declaration_line("};");
+        }
+      );
+      context.emitter.emit_declaration_line("");
+    },
+    _ => ()
+  )
+);
+/// Generate a tuple declaration (numeric `_0`, `_1`, … fields; unit tuple gets
+/// a dummy byte). Mirrors `generateTupleDeclaration`.
+generate_tuple_declaration :: (fn(tuple_type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
+  match(
+    tuple_type,
+    .Tuple({ field_types }) => {
+      context.emitter.emit_declaration_string_line(`typedef struct { // ${type_to_string(tuple_type)}`);
+      cond(
+        (field_types.len() == usize(0)) => {
+          context.emitter.emit_declaration_line("  uint8_t _dummy; // zero-sized type marker");
+        },
+        true => {
+          n := field_types.len();
+          (i : usize) = usize(0);
+          while(i < n, {
+            match(
+              field_types.get(i),
+              .Some(ft) => {
+                fts := get_type_string(ft, context);
+                context.emitter.emit_declaration_string_line(`  ${fts} _${i.to_string()};`);
+              },
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+        }
+      );
+      context.emitter.emit_declaration_string_line(`} ${c_name};`);
+      context.emitter.emit_declaration_line("");
+    },
+    _ => ()
+  )
+);
+/// Generate a (C, untagged) union declaration. Mirrors `generateUnionDeclaration`.
+generate_union_declaration :: (fn(union_type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
+  match(
+    union_type,
+    .Union({ name, field_labels, field_types }) => {
+      context.emitter.emit_declaration_string_line(`typedef union { // ${name} : ${type_to_string(union_type)}`);
+      n := field_types.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        label := match(field_labels.get(i),.Some(l) => l,.None => String.from(""));
+        match(
+          field_types.get(i),
+          .Some(ft) => {
+            fts := get_type_string(ft, context);
+            fname := sanitize_for_c_identifier(label, false);
+            context.emitter.emit_declaration_string_line(`  ${fts} ${fname};`);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      context.emitter.emit_declaration_string_line(`} ${c_name};`);
+      context.emitter.emit_declaration_line("");
+    },
+    _ => ()
+  )
+);
+/// Emit one `  <tag> = <discriminant><comma>` line per variant.
+_emit_enum_tags :: (fn(c_name : String, variant_names : ArrayList(String), variant_discriminants : ArrayList(i64), context : CodeGenContext) -> unit)({
+  // Enumerator prefixes derive from the PASSED c_name, never by re-keying the
+  // enum type (get_enum_variant_c_name → get_type_c_name(type_key(t))): the
+  // type_key render can EVOLVE between this entry's registration and its
+  // emission, so a re-key here resolved to a DIFFERENT entry's C name and this
+  // declaration emitted another type's enumerator names (the
+  // redefinition-of-enumerator class — one Option instantiation's tag enum
+  // carrying a later duplicate's prefix).
+  n := variant_names.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    vname := match(variant_names.get(i),.Some(v) => v,.None => String.from(""));
+    clean := if(vname.starts_with("."), vname.substring(usize(1), vname.len()), vname.clone());
+    tag := c_name.to_uppercase();
+    tag.push_str("_");
+    tag.push_string(clean.to_uppercase());
+    comma := if(i < (n - usize(1)), ",", "");
+    disc := match(variant_discriminants.get(i),.Some(d) => d,.None => i64(i));
+    context.emitter.emit_declaration_string_line(`  ${tag} = ${disc.to_string()}${comma}`);
+    i = (i + usize(1));
+  });
+});
+/// Generate an enum declaration: a nullable-pointer typedef, a simple C enum,
+/// or a tag-enum + data-union + tagged-union struct. Mirrors `generateEnumDeclaration`.
+generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
+  match(
+    enum_type,
+    .EnumT({ name, variant_names, variant_fields, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc }) => {
+      // Nullable-pointer optimization.
+      match(
+        can_optimize_as_nullable_pointer(enum_type),
+        .Some(ptr_type) => {
+          pts := get_type_string(ptr_type, context);
+          context.emitter.emit_declaration_string_line(`typedef ${pts} ${c_name}; // ${name} : ${type_to_string(enum_type)} (optimized as nullable pointer)`);
+          context.emitter.emit_declaration_line("");
+          return(());
+        },
+        .None => ()
+      );
+      // Simple C enum (all variants fieldless).
+      if(can_optimize_as_simple_enum(enum_type), {
+        context.emitter.emit_declaration_string_line(`typedef enum { // ${name} : ${type_to_string(enum_type)} (optimized as simple enum)`);
+        _emit_enum_tags(c_name, variant_names, variant_discriminants, context);
+        context.emitter.emit_declaration_string_line(`} ${c_name};`);
+        context.emitter.emit_declaration_line("");
+        return(());
+      });
+      // Tag enum.
+      tag_enum_name := String.from("");
+      tag_enum_name.push_string(c_name.clone());
+      tag_enum_name.push_str("_tag");
+      context.emitter.emit_declaration_line("typedef enum {");
+      _emit_enum_tags(c_name, variant_names, variant_discriminants, context);
+      context.emitter.emit_declaration_string_line(`} ${tag_enum_name};`);
+      context.emitter.emit_declaration_line("");
+      // Data union (struct per variant with non-unit fields).
+      variant_union_name := String.from("");
+      variant_union_name.push_string(c_name.clone());
+      variant_union_name.push_str("_data");
+      context.emitter.emit_declaration_line("typedef union {");
+      nv := variant_names.len();
+      (vi : usize) = usize(0);
+      while(vi < nv, {
+        fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        labels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
+        // Count non-unit fields.
+        (non_unit : usize) = usize(0);
+        nf := fields.len();
+        (cfi : usize) = usize(0);
+        while(cfi < nf, {
+          match(
+            fields.get(cfi),
+            .Some(ft) => if(!(is_unit_type(ft)), {
+              non_unit = (non_unit + usize(1));
+            }),
+            .None => ()
+          );
+          cfi = (cfi + usize(1));
+        });
+        if(non_unit > usize(0), {
+          vname := match(variant_names.get(vi),.Some(v) => v,.None => String.from(""));
+          context.emitter.emit_declaration_line("  struct {");
+          (fi : usize) = usize(0);
+          while(fi < nf, {
+            match(
+              fields.get(fi),
+              .Some(ft) => if(!(is_unit_type(ft)), {
+                label := match(labels.get(fi),.Some(l) => l,.None => String.from(""));
+                fts := get_type_string(ft, context);
+                fname := sanitize_for_c_identifier(label, false);
+                context.emitter.emit_declaration_string_line(`    ${fts} ${fname};`);
+              }),
+              .None => ()
+            );
+            fi = (fi + usize(1));
+          });
+          context.emitter.emit_declaration_string_line(`  } ${vname};`);
+        });
+        vi = (vi + usize(1));
+      });
+      context.emitter.emit_declaration_string_line(`} ${variant_union_name};`);
+      context.emitter.emit_declaration_line("");
+      // Tagged-union struct. A reference-semantics enum (`ref(enum(…))`) is a
+      // heap-allocated, RC-managed handle (like a reference-semantics struct):
+      // prepend the reference-count header, and the `${c_name}` typedef is a
+      // pointer to this struct (get_type_string returns `${c_name}*`). Mirrors
+      // the struct reference-semantics layout. plans/REF_REFERENCE_SEMANTICS.md.
+      if(is_reference_semantics, {
+        atomic_tag := if(is_atomic_rc, String.from("atomic "), String.from(""));
+        header_tag := if(is_atomic_rc, String.from("Atomic r"), String.from("R"));
+        context.emitter.emit_declaration_string_line(`struct ${c_name}_struct { // ${name} : ${type_to_string(enum_type)} (${atomic_tag}reference counted)`);
+        context.emitter.emit_declaration_string_line(`  __yo_ref_header_t header; // ${header_tag}eference count header`);
+        context.emitter.emit_declaration_string_line(`  ${tag_enum_name} tag;`);
+        context.emitter.emit_declaration_string_line(`  ${variant_union_name} data;`);
+        context.emitter.emit_declaration_line("};");
+        context.emitter.emit_declaration_line("");
+        return(());
+      });
+      context.emitter.emit_declaration_string_line(`struct ${c_name}_struct { // ${name} : ${type_to_string(enum_type)}`);
+      context.emitter.emit_declaration_string_line(`  ${tag_enum_name} tag;`);
+      context.emitter.emit_declaration_string_line(`  ${variant_union_name} data;`);
+      context.emitter.emit_declaration_line("};");
+      context.emitter.emit_declaration_line("");
+    },
+    _ => ()
+  )
+);
+/// Emit the runtime preamble that opens `generateTypeDeclarations`: the GC debug
+/// macros + mark/flags, the target-specific thread-synchronization types/macros,
+/// the atomic wrappers, mutex/cond constructors, the `__yo_ref_header_t` (chosen
+/// by needs_cycle_gc), and the generic Future / I/O Future struct types. Mirrors
+/// the fixed-template head of `generateTypeDeclarations` (src lines 104-469).
+/// The type-walk (forward decls + topological emission) is the next increment.
+_emit_type_runtime_preamble :: (fn(context : CodeGenContext) -> unit)({
+  em := context.emitter;
+  debug_gc_define := if(context.debug_gc, String.from("#define __YO_DEBUG_GC 1"), String.from("// #define __YO_DEBUG_GC 1"));
+  debug_par_define := if(context.debug_parallelism, String.from("#define __YO_DEBUG_PARALLELISM 1"), String.from("// #define __YO_DEBUG_PARALLELISM 1"));
+  debug_async_define := if(context.debug_async_await, String.from("#define __YO_DEBUG_ASYNC_AWAIT 1"), String.from("// #define __YO_DEBUG_ASYNC_AWAIT 1"));
+  em.emit_declaration_string_line(
+    `// Non-atomic Reference Counting with Thread-Local Cycle Collection
+// Based on QuickJS trial deletion algorithm
+// See CYCLE_COLLECTION.md for design details
+
+// Debug flag for GC operations - use --debug-gc flag to enable
+${debug_gc_define}
+
+#ifdef __YO_DEBUG_GC
+  #define GC_DEBUG(...) fprintf(stderr, "GC: " __VA_ARGS__)
+#else
+  #define GC_DEBUG(...)
+#endif
+
+// Debug flag for parallelism operations - use --debug-parallelism flag to enable
+${debug_par_define}
+
+#ifdef __YO_DEBUG_PARALLELISM
+  #define PARALLELISM_DEBUG(...) fprintf(stderr, __VA_ARGS__)
+#else
+  #define PARALLELISM_DEBUG(...)
+#endif
+
+// Debug flag for async/await operations - use --debug-async-await flag to enable
+${debug_async_define}
+
+#ifdef __YO_DEBUG_ASYNC_AWAIT
+  #define ASYNC_DEBUG(...) fprintf(stderr, "ASYNC: " __VA_ARGS__)
+#else
+  #define ASYNC_DEBUG(...)
+#endif
+
+// GC mark states for QuickJS-style trial deletion cycle collection
+typedef enum {
+  __YO_GC_UNMARKED = 0,
+  __YO_GC_CANDIDATE = 1,
+  __YO_GC_TRIAL_DELETED = 2,
+  __YO_GC_LIVE = 3,
+  __YO_GC_GARBAGE = 4
+} __yo_gc_mark_t;
+
+// GC flags
+#define __YO_GC_TRACKED              0x01
+#define __YO_GC_BUFFERED             0x02
+`
+  );
+  // Thread synchronization — target-specific types + macros.
+  if(is_target_windows(context.target_info), {
+    em.emit_declaration_string_line(
+      `// Thread synchronization for stop-the-world GC (Windows)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef _WINSOCKAPI_
+#define _WINSOCKAPI_
+#endif
+#include <windows.h>
+#include <process.h>
+typedef CRITICAL_SECTION __YO_THREAD_SYNC_TYPE;
+typedef CONDITION_VARIABLE __YO_COND_TYPE;
+typedef HANDLE __YO_THREAD_TYPE;
+#define __YO_THREAD_SYNC_INIT {0}
+#define __YO_THREAD_SYNC_LOCK(m) EnterCriticalSection(m)
+#define __YO_THREAD_SYNC_UNLOCK(m) LeaveCriticalSection(m)
+#define __YO_COND_INIT CONDITION_VARIABLE_INIT
+#define __yo_mutex_init(m) InitializeCriticalSection(m)
+#define __yo_mutex_destroy(m) DeleteCriticalSection(m)
+#define __yo_mutex_lock(m) EnterCriticalSection(m)
+#define __yo_mutex_unlock(m) LeaveCriticalSection(m)
+#define __yo_cond_init(c) InitializeConditionVariable(c)
+#define __yo_cond_destroy(c) ((void)0)
+#define __yo_cond_wait(c, m) SleepConditionVariableCS(c, m, INFINITE)
+#define __yo_cond_signal(c) WakeConditionVariable(c)
+#define __yo_cond_broadcast(c) WakeAllConditionVariable(c)
+#define __yo_raw_thread_create(t, func, arg) (*(t) = (HANDLE)_beginthreadex(NULL, 0, func, arg, 0, NULL), *(t) != NULL ? 0 : -1)
+#define __yo_raw_thread_join(t) (WaitForSingleObject(t, INFINITE), CloseHandle(t), 0)
+#define __yo_thread_self() ((uintptr_t)GetCurrentThreadId())`
+    );
+  }, {
+    macos_includes := if(is_target_macos(context.target_info), String.from("#include <sys/types.h>\n#include <sys/sysctl.h>"), String.from(""));
+    em.emit_declaration_string_line(
+      `// Thread synchronization for stop-the-world GC (POSIX)
+#include <pthread.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+${macos_includes}
+typedef pthread_mutex_t __YO_THREAD_SYNC_TYPE;
+typedef pthread_cond_t __YO_COND_TYPE;
+typedef pthread_t __YO_THREAD_TYPE;
+#define __YO_THREAD_SYNC_INIT PTHREAD_MUTEX_INITIALIZER
+#define __YO_THREAD_SYNC_LOCK(m) pthread_mutex_lock(m)
+#define __YO_THREAD_SYNC_UNLOCK(m) pthread_mutex_unlock(m)
+#define __YO_COND_INIT PTHREAD_COND_INITIALIZER
+#define __yo_mutex_init(m) pthread_mutex_init(m, NULL)
+#define __yo_mutex_destroy(m) pthread_mutex_destroy(m)
+#define __yo_mutex_lock(m) pthread_mutex_lock(m)
+#define __yo_mutex_unlock(m) pthread_mutex_unlock(m)
+#define __yo_cond_init(c) pthread_cond_init(c, NULL)
+#define __yo_cond_destroy(c) pthread_cond_destroy(c)
+#define __yo_cond_wait(c, m) pthread_cond_wait(c, m)
+#define __yo_cond_signal(c) pthread_cond_signal(c)
+#define __yo_cond_broadcast(c) pthread_cond_broadcast(c)
+#define __yo_raw_thread_create(t, func, arg) pthread_create(t, NULL, func, arg)
+#define __yo_raw_thread_join(t) pthread_join(t, NULL)
+#define __yo_thread_self() ((uintptr_t)pthread_self())`
+    );
+  });
+  // Thread handle type, atomic wrappers, mutex/cond constructors, GC-state fwd decl.
+  em.emit_declaration_string_line(
+    `
+// Thread handle type for parallelism - value type, stack allocated
+typedef struct __yo_thread_t {
+  __YO_THREAD_TYPE handle;
+} __yo_thread_t;
+
+// Thread callback type for spawn
+typedef void (*__yo_thread_fn)(void* closure);
+
+static __YO_THREAD_SYNC_TYPE __yo_mutex_create(void);
+static __YO_COND_TYPE __yo_cond_create(void);
+
+#include <stdatomic.h>
+static inline int __yo_atomic_load_int(_Atomic int* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_int(_Atomic int* obj, int desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline int __yo_atomic_exchange_int(_Atomic int* obj, int desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_int(
+  _Atomic int* obj, int* expected, int desired,
+  memory_order success, memory_order failure
+) {
+  return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure);
+}
+
+static inline size_t __yo_atomic_load_size_t(_Atomic size_t* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_size_t(_Atomic size_t* obj, size_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline size_t __yo_atomic_exchange_size_t(_Atomic size_t* obj, size_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_size_t(
+  _Atomic size_t* obj, size_t* expected, size_t desired,
+  memory_order success, memory_order failure
+) {
+  return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure);
+}
+
+static inline long long __yo_atomic_load_llong(_Atomic long long* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_llong(_Atomic long long* obj, long long desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline long long __yo_atomic_exchange_llong(_Atomic long long* obj, long long desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_llong(
+  _Atomic long long* obj, long long* expected, long long desired,
+  memory_order success, memory_order failure
+) {
+  return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure);
+}
+
+static inline int8_t __yo_atomic_load_schar(_Atomic signed char* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_schar(_Atomic signed char* obj, int8_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline int8_t __yo_atomic_exchange_schar(_Atomic signed char* obj, int8_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_schar(
+  _Atomic signed char* obj, int8_t* expected, int8_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline int16_t __yo_atomic_load_short(_Atomic short* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_short(_Atomic short* obj, int16_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline int16_t __yo_atomic_exchange_short(_Atomic short* obj, int16_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_short(
+  _Atomic short* obj, int16_t* expected, int16_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline uint8_t __yo_atomic_load_uchar(_Atomic unsigned char* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_uchar(_Atomic unsigned char* obj, uint8_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline uint8_t __yo_atomic_exchange_uchar(_Atomic unsigned char* obj, uint8_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_uchar(
+  _Atomic unsigned char* obj, uint8_t* expected, uint8_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline uint16_t __yo_atomic_load_ushort(_Atomic unsigned short* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_ushort(_Atomic unsigned short* obj, uint16_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline uint16_t __yo_atomic_exchange_ushort(_Atomic unsigned short* obj, uint16_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_ushort(
+  _Atomic unsigned short* obj, uint16_t* expected, uint16_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline uint32_t __yo_atomic_load_uint(_Atomic unsigned int* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_uint(_Atomic unsigned int* obj, uint32_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline uint32_t __yo_atomic_exchange_uint(_Atomic unsigned int* obj, uint32_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_uint(
+  _Atomic unsigned int* obj, uint32_t* expected, uint32_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline uint64_t __yo_atomic_load_ullong(_Atomic unsigned long long* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_ullong(_Atomic unsigned long long* obj, uint64_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline uint64_t __yo_atomic_exchange_ullong(_Atomic unsigned long long* obj, uint64_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_ullong(
+  _Atomic unsigned long long* obj, uint64_t* expected, uint64_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static inline ptrdiff_t __yo_atomic_load_ptrdiff(_Atomic ptrdiff_t* obj, memory_order order) {
+  return atomic_load_explicit(obj, order);
+}
+static inline void __yo_atomic_store_ptrdiff(_Atomic ptrdiff_t* obj, ptrdiff_t desired, memory_order order) {
+  atomic_store_explicit(obj, desired, order);
+}
+static inline ptrdiff_t __yo_atomic_exchange_ptrdiff(_Atomic ptrdiff_t* obj, ptrdiff_t desired, memory_order order) {
+  return atomic_exchange_explicit(obj, desired, order);
+}
+static inline bool __yo_atomic_compare_exchange_ptrdiff(
+  _Atomic ptrdiff_t* obj, ptrdiff_t* expected, ptrdiff_t desired,
+  memory_order success, memory_order failure
+) { return atomic_compare_exchange_strong_explicit(obj, expected, desired, success, failure); }
+
+static __YO_THREAD_SYNC_TYPE __yo_mutex_create(void) {
+  __YO_THREAD_SYNC_TYPE mutex;
+  __yo_mutex_init(&mutex);
+  return mutex;
+}
+
+static __YO_COND_TYPE __yo_cond_create(void) {
+  __YO_COND_TYPE cond;
+  __yo_cond_init(&cond);
+  return cond;
+}
+
+// Forward declare __yo_thread_gc_state_t for use in __yo_ref_header_t
+typedef struct __yo_thread_gc_state __yo_thread_gc_state_t;
+`
+  );
+  // Reference-counting header — layout chosen by needs_cycle_gc.
+  if(context.needs_cycle_gc, {
+    em.emit_declaration_string_line(
+      `
+// Reference counting header - non-atomic RC with cycle collection support
+typedef struct __yo_ref_header_t {
+  // Packed into one 8-byte word (P2 memory): ref_count u32 (4B refs >> addressable
+  // memory), gc_mark/gc_flags as bytes, borrow_count u16. Shrinks the header 64 -> 56 B,
+  // saving ~8 B/object; e.g. ArrayList 88 -> 80 crosses the 96 -> 80 malloc class
+  // (~0.4 GB at self-compile scale). gc_mark holds __yo_gc_mark_t values 0..4.
+  uint32_t ref_count;
+  uint8_t gc_flags;
+  uint8_t gc_mark;
+  uint16_t borrow_count;
+  struct __yo_ref_header_t* gc_next;
+  struct __yo_ref_header_t* gc_prev;
+  struct __yo_ref_header_t* roots_next;  // Bacon-Rajan possible-roots intrusive list (O(1) unlink at free)
+  struct __yo_ref_header_t* roots_prev;
+  void (*dispose_fn)(void*);
+  void (*traverse_fn)(void*, void (*visit)(void*));
+} __yo_ref_header_t;
+
+// Per-thread GC state
+struct __yo_thread_gc_state {
+  __yo_ref_header_t* tracked_objects;
+  size_t tracked_count;
+  size_t thread_id;
+  size_t alloc_count;
+  __yo_ref_header_t* possible_roots;   // Bacon-Rajan: head of the possible-roots list
+  size_t possible_roots_count;         // length of possible_roots (collection trigger)
+  __yo_ref_header_t** gc_white;        // scratch buffer: white (garbage) objects gathered during a collection
+  size_t gc_white_count;
+  size_t gc_white_cap;
+  __yo_thread_gc_state_t* next;
+  __yo_thread_gc_state_t* prev;
+};`
+    );
+  }, {
+    em.emit_declaration_string_line(
+      `
+// Lightweight reference counting header — no cycle detection fields
+// Uses type_id dispatch instead of function pointer for dispose (faster in WASM: br_table vs call_indirect)
+typedef struct __yo_ref_header_t {
+  uint32_t ref_count;     // u32 (matches the atomic-RC casts; 4B refs >> addressable memory)
+  uint16_t type_id;
+  uint16_t borrow_count;
+} __yo_ref_header_t;`
+    );
+  });
+  // Generic Future + I/O Future struct types.
+  em.emit_declaration_string_line(
+    `
+// Generic Future type - used by async runtime for type-agnostic operations
+typedef struct {
+  __yo_ref_header_t header;
+  __yo_future_state_t state;
+  void* state_machine;
+  void (*state_machine_dispose_fn)(void*);
+  void (*resume_fn)(void*);
+  void* continuation_fn;
+  void* continuation_sm;
+  bool detached;
+} __yo_future_generic_t;
+
+// Generic I/O Future type for extern "Yo" functions returning Impl Future(T)
+typedef struct __yo_io_future_t {
+  __yo_ref_header_t header;
+  _Atomic int state;
+  int32_t result;
+  _Atomic(void (*)(void*)) continuation_fn;
+  _Atomic(void*) continuation_sm;
+} __yo_io_future_t;
+
+// Forward declarations will be added here if needed
+`
+  );
+});
+// ---------------------------------------------------------------------------
+// generateTypeDeclarations type-walk (src/codegen/types/generation.ts 471-968)
+// ---------------------------------------------------------------------------
+/// True if a struct's SomeType content is only inside function-typed fields.
+/// Replicated from types/collection.yo (`_struct_some_type_is_only_in_function_fields`)
+/// to avoid a collection↔generation import cycle.
+_walk_struct_some_only :: (fn(type : TypeValue, visited : HashSet(String)) -> bool)(
+  match(
+    type,
+    .Struct({ id, field_types }) => {
+      if(visited.contains(id.clone()), {
+        return(true);
+      });
+      _a := visited.add(id.clone());
+      (ok : bool) = true;
+      n := field_types.len();
+      (i : usize) = usize(0);
+      while((i < n) && ok, {
+        ft := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        cond(
+          is_function_type(ft) => (),
+          (is_struct_type(ft) && recur(ft, visited)) => (),
+          type_contains_some_type(ft) => {
+            ok = false;
+          },
+          true => ()
+        );
+        i = (i + usize(1));
+      });
+      ok
+    },
+    _ => false
+  )
+);
+/// True if an enum's SomeType content is only inside function-typed variant
+/// fields. Replicated from types/collection.yo (cycle avoidance).
+_walk_enum_some_only :: (fn(type : TypeValue, visited : HashSet(String)) -> bool)(
+  match(
+    type,
+    .EnumT({ id, variant_fields }) => {
+      if(visited.contains(id.clone()), {
+        return(true);
+      });
+      _a := visited.add(id.clone());
+      (ok : bool) = true;
+      nv := variant_fields.len();
+      (vi : usize) = usize(0);
+      while((vi < nv) && ok, {
+        fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        nf := fields.len();
+        (fi : usize) = usize(0);
+        while((fi < nf) && ok, {
+          ft := match(fields.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+          cond(
+            is_function_type(ft) => (),
+            (is_struct_type(ft) && _walk_struct_some_only(ft, visited)) => (),
+            type_contains_some_type(ft) => {
+              ok = false;
+            },
+            true => ()
+          );
+          fi = (fi + usize(1));
+        });
+        vi = (vi + usize(1));
+      });
+      ok
+    },
+    _ => false
+  )
+);
+/// True when a type must be SKIPPED in the type-walk: it contains a SomeType,
+/// unless it is a struct/enum whose only SomeType source is function-typed fields.
+_walk_skip_some :: (fn(type : TypeValue) -> bool)(
+  if(!(type_contains_some_type(type)), false, {
+    keep := ((is_struct_type(type) && _walk_struct_some_only(type, HashSet(String).new())) || (is_enum_type(type) && _walk_enum_some_only(type, HashSet(String).new())));
+    !(keep)
+  })
+);
+/// The newtype-struct pointee of a field type, if the field is a pointer to a
+/// newtype (direct `*(NT)`) or an enum optimized as a nullable pointer to one.
+/// Mirrors `extractPointeeNewtypeFromFieldType`.
+_walk_pointee_newtype :: (fn(ft : TypeValue) -> Option(TypeValue))(
+  match(
+    ft,
+    .Pointer(pointee) => {
+      p := pointee;
+      if(is_struct_type(p) && is_newtype_type(p), Option(TypeValue).Some(p), Option(TypeValue).None)
+    },
+    _ => if(
+      is_enum_type(ft),
+      match(
+        can_optimize_as_nullable_pointer(ft),
+        .Some(ptrty) => match(
+          ptrty,
+          .Pointer(pe) => {
+            p := pe;
+            if(is_struct_type(p) && is_newtype_type(p), Option(TypeValue).Some(p), Option(TypeValue).None)
+          },
+          _ => Option(TypeValue).None
+        ),
+        .None => Option(TypeValue).None
+      ),
+      Option(TypeValue).None
+    )
+  )
+);
+/// Add a dependency edge (self_type_id depends on dep_ty's type) if dep_ty is a
+/// collected type other than self. `cname_to_typeid` maps a C name to its typeId.
+_walk_add_dep :: (fn(deps_set : HashSet(String), dep_ty : TypeValue, self_type_id : String, cname_to_typeid : HashMap(String, String), context : CodeGenContext) -> unit)({
+  dep_cname := get_type_string(dep_ty, context);
+  match(
+    cname_to_typeid.get(dep_cname),
+    .Some(dep_tid) => if(!(dep_tid == self_type_id), {
+      _a := deps_set.add(dep_tid.clone());
+    }),
+    .None => ()
+  );
+});
+/// Add by-value dependencies for a single field type. `guard_nullable` is true
+/// for struct fields (an enum field optimized as a nullable pointer is NOT a
+/// by-value dep there); enum/tuple fields pass false. Mirrors the shared
+/// enum/newtype/value-struct/tuple by-value dependency chain.
+_walk_by_value_dep :: (fn(deps_set : HashSet(String), ft : TypeValue, self_type_id : String, guard_nullable : bool, cname_to_typeid : HashMap(String, String), context : CodeGenContext) -> unit)(
+  cond(
+    // A SomeT field with a per-object resolved concrete is EMITTED as that
+    // concrete (get_type_string SomeT arm) — order the decl after it
+    // (Box(Impl(Fn)-SomeT) embeds the closure CAPTURE STRUCT by value; without
+    // this edge the capture body comes later → "field has incomplete type").
+    is_some_type(ft) => match(
+      ft,
+      .SomeT({ id : w_sid, resolved_concrete : wrc }) => match(
+        wrc.get(usize(0)),
+        .Some(wrct) => recur(deps_set, wrct, self_type_id, guard_nullable, cname_to_typeid, context),
+        // No per-object resolution: fall back to the GLOBAL registry, exactly
+        // like get_type_string's SomeT arm (utils/index.yo) — a closure-param
+        // capture field (Impl(Fn) SomeT) is registered there
+        // (register_some_resolved_concrete at closure creation), so without
+        // this fallback the emitter prints the capture struct while the dep
+        // walk adds no edge → "field has incomplete type" when a capture
+        // struct embeds another closure's capture struct by value.
+        .None => match(
+          lookup_some_resolved_concrete(w_sid),
+          .Some(grct) => recur(deps_set, grct, self_type_id, guard_nullable, cname_to_typeid, context),
+          .None => ()
+        )
+      ),
+      _ => ()
+    ),
+    is_enum_type(ft) => if(guard_nullable && can_optimize_as_nullable_pointer(ft).is_some(), (), {
+      _walk_add_dep(deps_set, ft, self_type_id, cname_to_typeid, context);
+    }),
+    is_newtype_type(ft) => {
+      _walk_add_dep(deps_set, ft, self_type_id, cname_to_typeid, context);
+    },
+    (is_struct_type(ft) && (!(is_reference_struct_type(ft)) && !(is_newtype_type(ft)))) => {
+      _walk_add_dep(deps_set, ft, self_type_id, cname_to_typeid, context);
+    },
+    is_tuple_type(ft) => {
+      _walk_add_dep(deps_set, ft, self_type_id, cname_to_typeid, context);
+    },
+    // A closure-valued field types as the closure's Func type but is EMITTED
+    // as its capture STRUCT by value (get_type_string lowers a closure Func
+    // to the capture struct C name via the impl-closure map). Order the
+    // declaring struct after that capture struct: a capture struct that
+    // captures another closure (e.g. await-analysis's detect capturing
+    // get_info) otherwise emits before its field's definition ("field has
+    // incomplete type"). _walk_add_dep no-ops when the C name is not a
+    // known type id (a plain fn-pointer field), so this edge is safe.
+    is_function_type(ft) => {
+      _walk_add_dep(deps_set, ft, self_type_id, cname_to_typeid, context);
+    },
+    true => ()
+  )
+);
+/// A type collected for topological ordering: (typeId, type, cName, kind).
+_TypeWalkEntry :: ref(struct(type_id : String, ty : TypeValue, c_name : String, kind : String));
+/// Reserved ARC/GC method labels NOT emitted into the dyn vtable (dup/drop/
+/// dispose are generated separately). Mirrors `reservedDynMethodLabels`.
+_is_reserved_dyn_method :: (fn(label : String) -> bool)(
+  ((label == BF_DUP) || (label == BF_DROP)) || ((label == "___dispose") || (label == "dispose"))
+);
+/// Generate forward declarations for Dyn structs (vtable tag fwd-decl + the
+/// fat-pointer struct). Must precede enum/struct decls since enums may contain
+/// Dyn by value. Mirrors `generateDynForwardDeclarations` (types/dyn.ts:17).
+generate_dyn_forward_declarations :: (fn(context : CodeGenContext) -> unit)({
+  em := context.emitter;
+  keys := ArrayList(String).new();
+  fkit := context.types.keys();
+  (fkdone : bool) = false;
+  while(!(fkdone), {
+    match(
+      fkit.next(),
+      .Some(k) => {
+        _kp := keys.push(k);
+      },
+      .None => {
+        fkdone = true;
+      }
+    );
+  });
+  (has_any : bool) = false;
+  n := keys.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    key := match(keys.get(i),.Some(k) => k,.None => String.from(""));
+    match(
+      context.types.get(key.clone()),
+      .Some(entry) => if(is_dyn_type(entry.ty), {
+        if(!(has_any), {
+          em.emit_declaration_line("");
+          em.emit_declaration_line("// === Dyn Type Forward Declarations ===");
+          has_any = true;
+        });
+        vtable_name := `${entry.c_name}_vtable`;
+        em.emit_declaration_string_line(`typedef struct ${vtable_name}_s ${vtable_name};`);
+        em.emit_declaration_string_line(`typedef struct { // ${type_to_string(entry.ty)} (value type - fat pointer)`);
+        em.emit_declaration_line("  void* data; // Pointer to boxed data (with __yo_ref_header_t)");
+        em.emit_declaration_string_line(`  const ${vtable_name}* vtable; // Pointer to static vtable (no allocation needed)`);
+        em.emit_declaration_string_line(`} ${entry.c_name};`);
+        em.emit_declaration_line("");
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Emit one vtable method-pointer for a trait field (skips Self / reserved /
+/// already-processed / non-`self`-first methods). Mirrors the per-field body of
+/// generateDynDeclaration (types/dyn.ts:111-174).
+_emit_dyn_vtable_method :: (fn(label : String, field_ty : TypeValue, processed : HashSet(String), context : CodeGenContext) -> unit)({
+  em := context.emitter;
+  if((label == "Self") || _is_reserved_dyn_method(label), {
+    return(());
+  });
+  if(processed.contains(label.clone()), {
+    return(());
+  });
+  method_name := sanitize_for_c_identifier(label.clone(), false);
+  if(is_function_type(field_ty), {
+    _p := processed.add(label.clone());
+    match(
+      field_ty,
+      .Func({ param_types, result, meta : __fm1 }) => {
+        param_labels := __fm1.*.param_labels;
+        // Only methods whose first param is `self` go in the vtable.
+        if((param_labels.len() > usize(0)) && match(param_labels.get(usize(0)),.Some(l) => (l == "self"),.None => false), {
+          ret_str := get_type_string(result, context);
+          plist := String.new();
+          np := param_labels.len();
+          (pi : usize) = usize(0);
+          while(pi < np, {
+            if(pi > usize(0), {
+              plist.push_str(", ");
+            });
+            if(pi == usize(0), {
+              plist.push_str("void* self");
+            }, {
+              pty := match(param_types.get(pi),.Some(t) => get_type_string(t, context),.None => String.from("void*"));
+              pn := match(param_labels.get(pi),.Some(l) => sanitize_for_c_identifier(l, false),.None => String.from("arg"));
+              plist.push_string(pty);
+              plist.push_str(" ");
+              plist.push_string(pn);
+            });
+            pi = (pi + usize(1));
+          });
+          em.emit_declaration_string_line(`  ${ret_str} (*${method_name})(${plist}); // Method pointer for ${label}`);
+        });
+      },
+      _ => ()
+    );
+  }, {
+    em.emit_declaration_string_line(`  ${get_type_string(field_ty, context)} ${method_name}; // Non-function member ${label}`);
+  });
+});
+/// Generate a Dyn vtable declaration (the Dyn struct is forward-declared). The
+/// vtable has __yo_type_id + a function pointer per trait method (FnTrait → a
+/// `call` pointer). Mirrors `generateDynDeclaration` (types/dyn.ts:56).
+generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : CodeGenContext) -> unit)({
+  em := context.emitter;
+  vtable_name := `${c_name}_vtable`;
+  em.emit_declaration_string_line(`typedef struct ${vtable_name}_s { // Vtable for ${type_to_string(type)}`);
+  em.emit_declaration_line("  uintptr_t __yo_type_id; // Runtime type identity (address of unique static per concrete type)");
+  processed := HashSet(String).new();
+  match(
+    type,
+    .DynT({ required_trait_types }) => {
+      nt := required_trait_types.len();
+      (ti : usize) = usize(0);
+      while(ti < nt, {
+        tt := match(required_trait_types.get(ti),.Some(x) => x,.None => TypeValue.Unit);
+        cond(
+          is_fn_trait_type(tt) => match(
+            tt,
+            .FnTraitT({ call_param_labels, call_param_types, call_result }) => {
+              ret_str := get_type_string(call_result, context);
+              plist := String.new();
+              np := call_param_labels.len();
+              (pi : usize) = usize(0);
+              while(pi < np, {
+                if(pi > usize(0), {
+                  plist.push_str(", ");
+                });
+                pty := match(call_param_types.get(pi),.Some(t) => get_type_string(t, context),.None => String.from("void*"));
+                pn := match(call_param_labels.get(pi),.Some(l) => sanitize_for_c_identifier(l, false),.None => String.from("arg"));
+                plist.push_string(pty);
+                plist.push_str(" ");
+                plist.push_string(pn);
+                pi = (pi + usize(1));
+              });
+              sep := if(plist.len() > usize(0), String.from(", "), String.from(""));
+              em.emit_declaration_string_line(`  ${ret_str} (*call)(void* self${sep}${plist}); // Call function pointer`);
+              _p := processed.add(String.from("call"));
+            },
+            _ => ()
+          ),
+          true => match(
+            tt,
+            .TraitT({ field_labels, field_types }) => {
+              nf := field_labels.len();
+              (fi : usize) = usize(0);
+              while(fi < nf, {
+                flabel := match(field_labels.get(fi),.Some(l) => l,.None => String.from(""));
+                fty := match(field_types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+                _emit_dyn_vtable_method(flabel, fty, processed, context);
+                fi = (fi + usize(1));
+              });
+            },
+            _ => ()
+          )
+        );
+        ti = (ti + usize(1));
+      });
+    },
+    _ => ()
+  );
+  em.emit_declaration_string_line(`} ${vtable_name};`);
+  em.emit_declaration_line("");
+});
+/// Generate box types (RC-header-wrapped value structs) + their ctor/dispose
+/// declarations for every dyn() implementation. Mirrors `generateDynBoxTypes`
+/// (types/dyn.ts:185).
+generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
+  if(context.dyn_impls.is_empty(), {
+    return(());
+  });
+  em := context.emitter;
+  em.emit_declaration_line("");
+  em.emit_declaration_line("// === Dyn Box Types ===");
+  em.emit_declaration_line("// These structs wrap concrete types for dynamic dispatch");
+  em.emit_declaration_line("");
+  generated := HashSet(String).new();
+  keys := ArrayList(String).new();
+  bkit := context.dyn_impls.keys();
+  (bkdone : bool) = false;
+  while(!(bkdone), {
+    match(
+      bkit.next(),
+      .Some(k) => {
+        _kp := keys.push(k);
+      },
+      .None => {
+        bkdone = true;
+      }
+    );
+  });
+  n := keys.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    key := match(keys.get(i),.Some(k) => k,.None => String.from(""));
+    match(
+      context.dyn_impls.get(key.clone()),
+      .Some(impl_entry) => {
+        // resolvedConcreteType: a SomeT with a resolved concrete falls through
+        // to that concrete (codegen-side yo-self has no resolvedConcreteType,
+        // so the concrete_type is used directly).
+        // Resolve a SomeT concrete through the resolved-concrete side-table
+        // BEFORE keying: `get_type_c_name(type_key(SomeT))` misses (the key is
+        // the SomeT id) while `get_type_string` resolves — the ctor then
+        // referenced `__yo_dyn_box_unknown_<id>` with no typedef (the
+        // suspension_analysis batch "unknown type name"). Mirrors TS
+        // resolvedConcreteType (the stale "yo-self has no resolvedConcreteType"
+        // note predates the expr_info side-table).
+        concrete := resolve_some_type_to_concrete(impl_entry.concrete_type);
+        concrete_c_name := match(context.get_type_c_name(type_key(concrete)),.Some(cn) => cn,.None => `unknown_${type_key(concrete)}`);
+        box_name := `__yo_dyn_box_${concrete_c_name}`;
+        if(!(generated.contains(box_name.clone())), {
+          _g := generated.add(box_name.clone());
+          _g2 := context.dyn_box_typedefs.add(box_name.clone());
+          value_str := get_type_string(concrete, context);
+          em.emit_declaration_line("typedef struct {");
+          em.emit_declaration_line("  __yo_ref_header_t header;");
+          em.emit_declaration_string_line(`  ${value_str} value;`);
+          em.emit_declaration_string_line(`} ${box_name};`);
+          em.emit_declaration_line("");
+          em.emit_declaration_string_line(`static ${box_name}* __yo_new_${box_name}(${value_str} value);`);
+          em.emit_declaration_string_line(`static void __yo_dispose_${box_name}(void* ptr);`);
+          em.emit_declaration_line("");
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Generate a Future-trait declaration. DEFERRED (Phase-5 async,
+/// generateFutureTraitDeclaration) — not exercised by the corpus.
+/// Emit the generic Future trait-object interface struct for a
+/// `FutureTraitT`. Faithful port of `generateFutureTraitDeclaration`
+/// (src/codegen/types/generation.ts:982-1012). Every async state-machine
+/// struct begins with this exact prefix (header/state/result/continuation_fn/
+/// continuation_sm/__yo_resume_fn/__yo_set_effect_fn), so a concrete SM
+/// future pointer casts to this interface — it is the C lowering for a
+/// FUTURE-typed function parameter (`task : Impl(Future(T, E))`).
+generate_future_trait_declaration :: (fn(type : TypeValue, c_name : String, context : CodeGenContext) -> unit)({
+  em := context.emitter;
+  result_type := match(type,.FutureTraitT({ output : ftd_o }) => ftd_o.clone(), _ => return(()));
+  em.emit_declaration_string_line(`struct ${c_name.clone()}_struct { // Generic Future interface for ${type_to_string(type)}`);
+  em.emit_declaration_string_line(String.from("  __yo_ref_header_t header;"));
+  em.emit_declaration_string_line(String.from("  int state;  // 0 = cold, -1 = completed, -2 = aborted"));
+  if(is_unit_type(result_type), {
+    em.emit_declaration_string_line(String.from("  uint8_t result;"));
+  }, {
+    result_c := get_type_string(result_type, context);
+    em.emit_declaration_string_line(`  ${result_c.clone()} result;`);
+  });
+  em.emit_declaration_string_line(String.from("  void (*continuation_fn)(void*);"));
+  em.emit_declaration_string_line(String.from("  void* continuation_sm;"));
+  em.emit_declaration_string_line(String.from("  void (*__yo_resume_fn)(void*);"));
+  em.emit_declaration_string_line(String.from("  void (*__yo_set_effect_fn)(void*, const char*, void*);"));
+  em.emit_declaration_string_line(String.from("};"));
+  em.emit_declaration_string_line(String.from(""));
+});
+/// Generate Iso struct types + constructor declarations. DEFERRED (Phase-3 iso,
+/// generateIsoTypeDeclarations) — no iso types in the corpus.
+/// Emit Iso struct type declarations + create/extract/dispose helper decls and
+/// impls. Mirrors TS `generateIsoTypeDeclarations` (src/codegen/types/
+/// generation.ts:1047). `iso_types` is populated during collect_required_types
+/// (collection.yo:324 get_type_string side-effect), so it is filled by the time
+/// this runs at the end of the declaration phase. The inner-value drop is
+/// `__yo_decr_rc` — every Iso child is a reference-counted value, so decrementing
+/// its RC (which disposes at 0) is the correct release for all children.
+generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
+  em := context.emitter;
+  // Pass 1: Iso struct type + constructor declaration.
+  k1 := context.iso_types.keys();
+  (g1 : bool) = true;
+  while(g1, {
+    match(
+      k1.next(),
+      .Some(iso_name) => match(
+        context.iso_types.get(iso_name.clone()),
+        .Some(info) => if(!(info.struct_generated), {
+          child := info.child_type_c_name.clone();
+          em.emit_declaration_string_line(String.from("typedef struct { // Iso wrapper struct"));
+          em.emit_declaration_string_line(String.from("  __yo_ref_header_t header; // Atomic RC header"));
+          em.emit_declaration_string_line(String.from("  _Atomic bool extracted; // Extraction flag"));
+          em.emit_declaration_string_line(`  ${child.clone()} value; // Inner value`);
+          em.emit_declaration_string_line(`} ${iso_name.clone()}_struct;`);
+          em.emit_declaration_string_line(`typedef ${iso_name.clone()}_struct* ${iso_name.clone()};`);
+          em.emit_declaration_string_line(`${iso_name.clone()} __yo_create_iso_${iso_name.clone()}(${child.clone()} value);`);
+          info.struct_generated = true;
+        }),
+        .None => ()
+      ),
+      .None => {
+        g1 = false;
+      }
+    );
+  });
+  // Pass 2: extract function declarations.
+  k2 := context.iso_types.keys();
+  (g2 : bool) = true;
+  while(g2, {
+    match(
+      k2.next(),
+      .Some(iso_name) => match(
+        context.iso_types.get(iso_name.clone()),
+        .Some(info) => if(!(info.extract_generated), {
+          em.emit_declaration_string_line(`${info.child_type_c_name.clone()} __yo_iso_extract_${iso_name.clone()}(${iso_name.clone()} iso);`);
+        }),
+        .None => ()
+      ),
+      .None => {
+        g2 = false;
+      }
+    );
+  });
+  // Pass 3: dispose function declarations.
+  k3 := context.iso_types.keys();
+  (g3 : bool) = true;
+  while(g3, {
+    match(
+      k3.next(),
+      .Some(iso_name) => match(
+        context.iso_types.get(iso_name.clone()),
+        .Some(info) => if(info.struct_generated, {
+          em.emit_declaration_string_line(`void __yo_iso_dispose_${iso_name.clone()}(${iso_name.clone()} iso);`);
+          em.emit_declaration_string_line(`static void __yo_dispose_iso_${iso_name.clone()}(void* ptr);`);
+        }),
+        .None => ()
+      ),
+      .None => {
+        g3 = false;
+      }
+    );
+  });
+  // Pass 4: constructor implementations.
+  k4 := context.iso_types.keys();
+  (g4 : bool) = true;
+  while(g4, {
+    match(
+      k4.next(),
+      .Some(iso_name) => match(
+        context.iso_types.get(iso_name.clone()),
+        .Some(info) => if(!(info.create_generated), {
+          child := info.child_type_c_name.clone();
+          em.emit_string_line(`${iso_name.clone()} __yo_create_iso_${iso_name.clone()}(${child.clone()} value) {`);
+          em.emit_string_line(`  ${iso_name.clone()} iso = (${iso_name.clone()})__yo_malloc(sizeof(${iso_name.clone()}_struct));`);
+          em.emit_string_line(String.from("  iso->header.ref_count = 1;"));
+          em.emit_string_line(String.from("  iso->header.borrow_count = 0;"));
+          if(context.needs_cycle_gc, {
+            em.emit_string_line(String.from("  iso->header.gc_mark = __YO_GC_UNMARKED;"));
+            em.emit_string_line(String.from("  iso->header.gc_flags = 0;"));
+            em.emit_string_line(`  iso->header.dispose_fn = (void(*)(void*))__yo_dispose_iso_${iso_name.clone()};`);
+          }, {
+            tid := context.dispose_type_id_for(`__yo_dispose_iso_${iso_name.clone()}`);
+            em.emit_string_line(`  iso->header.type_id = ${tid.to_string()};`);
+          });
+          em.emit_string_line(String.from("  atomic_store(&iso->extracted, false);"));
+          em.emit_string_line(String.from("  iso->value = value;"));
+          em.emit_string_line(String.from("  return iso;"));
+          em.emit_string_line(String.from("}"));
+          info.create_generated = true;
+        }),
+        .None => ()
+      ),
+      .None => {
+        g4 = false;
+      }
+    );
+  });
+  // Pass 5: dispose implementations (public + internal wrapper).
+  k5 := context.iso_types.keys();
+  (g5 : bool) = true;
+  while(g5, {
+    match(
+      k5.next(),
+      .Some(iso_name) => match(
+        context.iso_types.get(iso_name.clone()),
+        .Some(info) => if(info.create_generated && !(info.dispose_generated), {
+          em.emit_string_line(`void __yo_iso_dispose_${iso_name.clone()}(${iso_name.clone()} iso) {`);
+          em.emit_string_line(String.from("  if (!atomic_load(&iso->extracted)) {"));
+          em.emit_string_line(String.from("    __yo_decr_rc((void*)iso->value);"));
+          em.emit_string_line(String.from("  }"));
+          em.emit_string_line(String.from("}"));
+          em.emit_string_line(`static void __yo_dispose_iso_${iso_name.clone()}(void* ptr) {`);
+          em.emit_string_line(`  __yo_iso_dispose_${iso_name.clone()}((${iso_name.clone()})ptr);`);
+          em.emit_string_line(String.from("}"));
+          info.dispose_generated = true;
+        }),
+        .None => ()
+      ),
+      .None => {
+        g5 = false;
+      }
+    );
+  });
+  // Pass 6: extract implementations.
+  k6 := context.iso_types.keys();
+  (g6 : bool) = true;
+  while(g6, {
+    match(
+      k6.next(),
+      .Some(iso_name) => match(
+        context.iso_types.get(iso_name.clone()),
+        .Some(info) => if(!(info.extract_generated), {
+          em.emit_string_line(`${info.child_type_c_name.clone()} __yo_iso_extract_${iso_name.clone()}(${iso_name.clone()} iso) {`);
+          em.emit_string_line(String.from("  bool was_extracted = atomic_exchange(&iso->extracted, true);"));
+          em.emit_string_line(String.from("  if (was_extracted) {"));
+          em.emit_string_line(`    fprintf(stderr, "panic: Iso::extract() called on already-extracted Iso\\n");`);
+          em.emit_string_line(String.from("    abort();"));
+          em.emit_string_line(String.from("  }"));
+          em.emit_string_line(String.from("  return iso->value;"));
+          em.emit_string_line(String.from("}"));
+          info.extract_generated = true;
+        }),
+        .None => ()
+      ),
+      .None => {
+        g6 = false;
+      }
+    );
+  });
+});
+/// Emit all C type declarations: runtime preamble, forward declarations, then the
+/// types in dependency (topological) order, then nullable-pointer enums and the
+/// dyn/union/future pass. Mirrors `generateTypeDeclarations` (src 90-968).
+///
+/// DEFERRED (documented): Gap-6 SomeType.resolvedConcreteType field-type
+/// resolution in the dependency analysis is skipped (the corpus is monomorphized
+/// — fields are already concrete); the dyn/iso/future sub-emitters are Phase-3/5
+/// no-ops (see above).
+generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
+  em := context.emitter;
+  _emit_type_runtime_preamble(context);
+  // Forward declarations for structs / enums / future traits.
+  fkeys := context.types.keys();
+  (gf : bool) = true;
+  while(gf, {
+    match(
+      fkeys.next(),
+      .Some(tid) => match(
+        context.get_type_entry(tid.clone()),
+        .Some(entry) => {
+          ty := entry.ty;
+          cn := entry.c_name.clone();
+          skip := (_walk_skip_some(ty) || entry.c_include.is_some());
+          if(
+            !(skip),
+            cond(
+              is_future_trait_type(ty) => {
+                l := String.from("typedef struct ");
+                l.push_string(cn.clone());
+                l.push_str("_struct ");
+                l.push_string(cn.clone());
+                l.push_str("; // Forward declaration");
+                em.emit_declaration_string_line(l);
+              },
+              is_struct_type(ty) => {
+                // Newtypes are plain typedefs — no forward struct declaration.
+                is_nt_single := (
+                  is_newtype_type(ty) && match(ty,.Struct({ field_types }) => (field_types.len() == usize(1)), _ => false)
+                );
+                if(!(is_nt_single), {
+                  l := String.from("typedef struct ");
+                  l.push_string(cn.clone());
+                  l.push_str("_struct ");
+                  l.push_string(cn.clone());
+                  l.push_str("; // Forward declaration");
+                  em.emit_declaration_string_line(l);
+                });
+              },
+              is_enum_type(ty) => {
+                optimized := (can_optimize_as_nullable_pointer(ty).is_some() || can_optimize_as_simple_enum(ty));
+                if(!(optimized), {
+                  l := String.from("typedef struct ");
+                  l.push_string(cn.clone());
+                  l.push_str("_struct ");
+                  l.push_string(cn.clone());
+                  l.push_str("; // Forward declaration");
+                  em.emit_declaration_string_line(l);
+                });
+              },
+              true => ()
+            )
+          );
+        },
+        .None => ()
+      ),
+      .None => {
+        gf = false;
+      }
+    );
+  });
+  em.emit_declaration_line("");
+  generate_array_struct_declarations(context);
+  generate_str_type_declaration(context);
+  generate_iso_type_declarations(context);
+  // Dedup type-DECLARATION emission by C name. `context.types` is keyed by
+  // `type_key`, and two distinct keys can resolve to entries carrying the SAME
+  // C name (e.g. an enum reached both directly and via a path whose key was
+  // registered separately). One C name MUST have exactly one definition —
+  // emitting the block twice is a clang "redefinition of enumerator"/type
+  // error. TS cannot hit this (numeric `type.id` → 1:1 cName), so the guard is
+  // yo-self-only plumbing, not a semantic divergence.
+  emitted_decl_cnames := HashSet(String).new();
+  // First pass: simple-enum declarations (leaf types).
+  skeys := context.types.keys();
+  (gs : bool) = true;
+  while(gs, {
+    match(
+      skeys.next(),
+      .Some(tid) => match(
+        context.get_type_entry(tid.clone()),
+        .Some(entry) => {
+          ty := entry.ty;
+          skip := (type_contains_some_type(ty) || entry.c_include.is_some());
+          if(!(skip) && (is_enum_type(ty) && can_optimize_as_simple_enum(ty)), {
+            if(!(emitted_decl_cnames.contains(entry.c_name.clone())), {
+              _dn := emitted_decl_cnames.add(entry.c_name.clone());
+              generate_enum_declaration(ty, entry.c_name.clone(), context);
+            });
+          });
+        },
+        .None => ()
+      ),
+      .None => {
+        gs = false;
+      }
+    );
+  });
+  // Second pass: collect structs, complex enums, tuples for topological sorting.
+  entries := ArrayList(_TypeWalkEntry).new();
+  cname_to_typeid := HashMap(String, String).new();
+  ckeys := context.types.keys();
+  (gc : bool) = true;
+  while(gc, {
+    match(
+      ckeys.next(),
+      .Some(tid) => match(
+        context.get_type_entry(tid.clone()),
+        .Some(entry) => {
+          ty := entry.ty;
+          skip := ((_walk_skip_some(ty) || entry.c_include.is_some()) || cname_to_typeid.contains_key(entry.c_name.clone()));
+          if(
+            !(skip),
+            cond(
+              is_struct_type(ty) => {
+                _e := entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("struct")));
+                _m := cname_to_typeid.set(entry.c_name.clone(), tid.clone());
+              },
+              (is_enum_type(ty) && (!(can_optimize_as_simple_enum(ty)) && !(can_optimize_as_nullable_pointer(ty).is_some()))) => {
+                _e := entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("enum")));
+                _m := cname_to_typeid.set(entry.c_name.clone(), tid.clone());
+              },
+              is_tuple_type(ty) => {
+                _e := entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("tuple")));
+                _m := cname_to_typeid.set(entry.c_name.clone(), tid.clone());
+              },
+              true => ()
+            )
+          );
+        },
+        .None => ()
+      ),
+      .None => {
+        gc = false;
+      }
+    );
+  });
+  // Build the dependency graph (edge A→B means B must be defined before A).
+  deps := HashMap(String, HashSet(String)).new();
+  ne := entries.len();
+  (ei : usize) = usize(0);
+  while(ei < ne, {
+    match(
+      entries.get(ei),
+      .Some(e) => {
+        dset := HashSet(String).new();
+        cond(
+          (e.kind == "struct") => {
+            rfs := get_runtime_struct_fields(e.ty);
+            nf := rfs.len();
+            (fi : usize) = usize(0);
+            while(fi < nf, {
+              match(
+                rfs.get(fi),
+                .Some(field) => {
+                  ft := field.ty;
+                  match(_walk_pointee_newtype(ft),.Some(p) => _walk_add_dep(dset, p, e.type_id.clone(), cname_to_typeid, context),.None => ());
+                  _walk_by_value_dep(dset, ft, e.type_id.clone(), true, cname_to_typeid, context);
+                },
+                .None => ()
+              );
+              fi = (fi + usize(1));
+            });
+          },
+          (e.kind == "enum") => match(
+            e.ty,
+            .EnumT({ variant_fields }) => {
+              nv := variant_fields.len();
+              (vi : usize) = usize(0);
+              while(vi < nv, {
+                vfs := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+                nvf := vfs.len();
+                (vfi : usize) = usize(0);
+                while(vfi < nvf, {
+                  match(vfs.get(vfi),.Some(ft) => _walk_by_value_dep(dset, ft, e.type_id.clone(), false, cname_to_typeid, context),.None => ());
+                  vfi = (vfi + usize(1));
+                });
+                vi = (vi + usize(1));
+              });
+            },
+            _ => ()
+          ),
+          (e.kind == "tuple") => match(
+            e.ty,
+            .Tuple(_, field_types) => {
+              nft := field_types.len();
+              (ti : usize) = usize(0);
+              while(ti < nft, {
+                match(field_types.get(ti),.Some(ft) => _walk_by_value_dep(dset, ft, e.type_id.clone(), false, cname_to_typeid, context),.None => ());
+                ti = (ti + usize(1));
+              });
+            },
+            _ => ()
+          ),
+          true => ()
+        );
+        _d := deps.set(e.type_id.clone(), dset);
+      },
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  // Kahn's topological sort.
+  in_degree := HashMap(String, usize).new();
+  (di : usize) = usize(0);
+  while(di < ne, {
+    match(
+      entries.get(di),
+      .Some(e) => match(
+        deps.get(e.type_id.clone()),
+        .Some(s) => {
+          _x := in_degree.set(e.type_id.clone(), s.len());
+        },
+        .None => {
+          _x := in_degree.set(e.type_id.clone(), usize(0));
+        }
+      ),
+      .None => ()
+    );
+    di = (di + usize(1));
+  });
+  queue := ArrayList(String).new();
+  (qi : usize) = usize(0);
+  while(qi < ne, {
+    match(
+      entries.get(qi),
+      .Some(e) => match(
+        in_degree.get(e.type_id.clone()),
+        .Some(d) => if(d == usize(0), {
+          _q := queue.push(e.type_id.clone());
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
+    qi = (qi + usize(1));
+  });
+  sorted_ids := ArrayList(String).new();
+  (head : usize) = usize(0);
+  while(head < queue.len(), {
+    tid := match(queue.get(head),.Some(t) => t,.None => String.from(""));
+    head = (head + usize(1));
+    _s := sorted_ids.push(tid.clone());
+    // Decrement in-degree of every node that depends on tid.
+    (oi : usize) = usize(0);
+    while(oi < ne, {
+      match(
+        entries.get(oi),
+        .Some(other) => match(
+          deps.get(other.type_id.clone()),
+          .Some(odeps) => if(odeps.contains(tid.clone()), {
+            cur := match(in_degree.get(other.type_id.clone()),.Some(d) => d,.None => usize(1));
+            nd := if(cur > usize(0), cur - usize(1), usize(0));
+            _u := in_degree.set(other.type_id.clone(), nd);
+            if(nd == usize(0), {
+              _qq := queue.push(other.type_id.clone());
+            });
+          }),
+          .None => ()
+        ),
+        .None => ()
+      );
+      oi = (oi + usize(1));
+    });
+  });
+  // Cycle fallback: append any not-yet-sorted entries in original order.
+  if(sorted_ids.len() < ne, {
+    (ci : usize) = usize(0);
+    while(ci < ne, {
+      match(
+        entries.get(ci),
+        .Some(e) => {
+          (seen : bool) = false;
+          (si : usize) = usize(0);
+          ns := sorted_ids.len();
+          while((si < ns) && !(seen), {
+            match(
+              sorted_ids.get(si),
+              .Some(s) => if(s == e.type_id, {
+                seen = true;
+              }),
+              .None => ()
+            );
+            si = (si + usize(1));
+          });
+          if(!(seen), {
+            _f := sorted_ids.push(e.type_id.clone());
+          });
+        },
+        .None => ()
+      );
+      ci = (ci + usize(1));
+    });
+  });
+  // Dyn forward declarations before the sorted struct/enum types.
+  generate_dyn_forward_declarations(context);
+  // Emit in sorted order. Look each id back up to its entry.
+  (xi : usize) = usize(0);
+  nx := sorted_ids.len();
+  while(xi < nx, {
+    sid := match(sorted_ids.get(xi),.Some(s) => s,.None => String.from(""));
+    // Find the matching entry (small N).
+    (yi : usize) = usize(0);
+    (found : bool) = false;
+    while((yi < ne) && !(found), {
+      match(
+        entries.get(yi),
+        .Some(e) => if(e.type_id == sid, {
+          found = true;
+          cond(
+            (e.kind == "struct") => generate_struct_declaration(e.ty, e.c_name.clone(), context),
+            (e.kind == "enum") => generate_enum_declaration(e.ty, e.c_name.clone(), context),
+            (e.kind == "tuple") => generate_tuple_declaration(e.ty, e.c_name.clone(), context),
+            true => ()
+          );
+        }),
+        .None => ()
+      );
+      yi = (yi + usize(1));
+    });
+    xi = (xi + usize(1));
+  });
+  // Fourth pass: nullable-pointer-optimized enums.
+  nkeys := context.types.keys();
+  (gn : bool) = true;
+  while(gn, {
+    match(
+      nkeys.next(),
+      .Some(tid) => match(
+        context.get_type_entry(tid.clone()),
+        .Some(entry) => {
+          ty := entry.ty;
+          skip := (_walk_skip_some(ty) || entry.c_include.is_some());
+          if(!(skip) && (is_enum_type(ty) && can_optimize_as_nullable_pointer(ty).is_some()), {
+            generate_enum_declaration(ty, entry.c_name.clone(), context);
+          });
+        },
+        .None => ()
+      ),
+      .None => {
+        gn = false;
+      }
+    );
+  });
+  // Fifth pass: dyn / union / future-trait declarations.
+  okeys := context.types.keys();
+  (go : bool) = true;
+  while(go, {
+    match(
+      okeys.next(),
+      .Some(tid) => match(
+        context.get_type_entry(tid.clone()),
+        .Some(entry) => {
+          ty := entry.ty;
+          skip := (type_contains_some_type(ty) || entry.c_include.is_some());
+          if(
+            !(skip),
+            cond(
+              is_dyn_type(ty) => generate_dyn_declaration(ty, entry.c_name.clone(), context),
+              is_union_type(ty) => generate_union_declaration(ty, entry.c_name.clone(), context),
+              is_future_trait_type(ty) => generate_future_trait_declaration(ty, entry.c_name.clone(), context),
+              true => ()
+            )
+          );
+        },
+        .None => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+});
+export(
+  generate_array_struct_declarations,
+  generate_str_type_declaration,
+  generate_struct_declaration,
+  generate_tuple_declaration,
+  generate_union_declaration,
+  generate_enum_declaration,
+  generate_future_trait_declaration,
+  _emit_type_runtime_preamble,
+  generate_type_declarations,
+  generate_dyn_box_types
+);

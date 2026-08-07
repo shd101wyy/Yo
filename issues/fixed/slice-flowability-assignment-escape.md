@@ -5,7 +5,7 @@ boundary, not only at `return`. See "Fix" below.
 
 ## Summary
 
-The slice-flowability check (`plans/SLICE_FLOWABILITY.md`) correctly rejects
+The slice-flowability check (`plans/archive/SLICE_FLOWABILITY.md`) correctly rejects
 returning a `str`/`Slice(T)` that borrows frame-local owned storage. But it
 only guards the **`return` boundary**. Assigning a borrowed slice to a
 binding that **outlives the slice's backing storage** (e.g. an outer-scope

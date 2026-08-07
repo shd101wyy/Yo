@@ -23,6 +23,7 @@ open(import("std/string"));
 {
   Environment,
   Variable,
+  value_cell_of,
   get_variables_from_env,
   add_variable_to_env,
   update_existing_variable,
@@ -30,8 +31,20 @@ open(import("std/string"));
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { TypeValue } :: import("../../types/definitions.yo");
+{ register_some_resolved_concrete, lookup_some_resolved_concrete, lookup_struct_ctor_fid } :: import("../../expr_info.yo");
 { type_value_tag, t_effects_row, t_usize, resolve_enum_shell } :: import("../../types/creators.yo");
-{ is_some_type, is_function_type, is_pointer_type } :: import("../../types/guards.yo");
+{
+  is_some_type,
+  is_function_type,
+  is_pointer_type,
+  is_comptime_int_type,
+  is_comptime_float_type
+} :: import("../../types/guards.yo");
+/// Runtime numeric (Int/Float of any width) — the lowering targets of
+/// comptime_int / comptime_float at a consuming boundary.
+_is_runtime_numeric :: (fn(t : TypeValue) -> bool)(
+  match(t,.Int(_, _) => true,.Float(_) => true, _ => false)
+);
 { TypeTag } :: import("../../types/tags.yo");
 {
   is_fn_trait_type,
@@ -54,6 +67,7 @@ open(import("std/string"));
 :: import("../../types/env_lookup.yo");
 { type_to_string, type_to_string_key } :: import("../../types/string.yo");
 { EvalValue, lookup_enum_cfid } :: import("../../value.yo");
+{ get_gadt_type_constructor_args } :: import("./gadt_registry.yo");
 { format_error_message, ErrorKind } :: import("../../error.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
@@ -61,36 +75,44 @@ open(import("std/string"));
 // ---------------------------------------------------------------------------
 /// Options controlling type synthesis behavior.
 /// Mirrors `SynthesizeTypesOptions` in TypeScript.
-SynthesizeOptions :: object(
-  /// When true, also sets `resolvedConcreteType` on SomeType objects
-  /// (skipped in yo-self — no such field on SomeT).
-  set_resolved_concrete_type : bool,
-  /// Optional source token for variable bindings created during synthesis.
-  token : Option(Token)
+SynthesizeOptions :: ref(
+  struct(
+    /// When true, also sets `resolvedConcreteType` on SomeType objects
+    /// (skipped in yo-self — no such field on SomeT).
+    set_resolved_concrete_type : bool,
+    /// Optional source token for variable bindings created during synthesis.
+    token : Option(Token)
+  )
 );
 /// Return type of `synthesize_types`.
 /// Mirrors `{ expectedEnv: Environment; givenEnv: Environment }` in TypeScript.
-SynthesizeResult :: object(
-  expected_env : Environment,
-  given_env : Environment
+SynthesizeResult :: ref(
+  struct(
+    expected_env : Environment,
+    given_env : Environment
+  )
 );
 // ---------------------------------------------------------------------------
 // Internal data type: one implicit/effect parameter entry
 // ---------------------------------------------------------------------------
 /// Mirrors `FunctionImplicitParameter` in TypeScript.
-ImplicitEntry :: object(
-  label : String,
-  ty : TypeValue,
-  is_spread : bool
+ImplicitEntry :: ref(
+  struct(
+    label : String,
+    ty : TypeValue,
+    is_spread : bool
+  )
 );
 // ---------------------------------------------------------------------------
 // Checked-pair anti-circularity state
 // ---------------------------------------------------------------------------
 /// A pair of type IDs used to detect circular synthesis.
 /// Mirrors `{ expected: Type; given: Type }[]` in TypeScript.
-TypePair :: object(
-  expected_id : String,
-  given_id : String
+TypePair :: ref(
+  struct(
+    expected_id : String,
+    given_id : String
+  )
 );
 // ---------------------------------------------------------------------------
 // synthesize_types — global function pointer (like evaluate_expression)
@@ -187,9 +209,9 @@ synthesis_type_id :: (fn(ty : TypeValue) -> String)(
   match(
     ty,
     .Struct({ id }) => id,
-    .EnumT(id, _, _, _, _, _, _) => id,
-    .TraitT(_, _, _, _, id, _, _, _) => id,
-    .SomeT(id, _, _, _, _, _, _, _, _, _) => id,
+    .EnumT(id, _, _, _, _, _, _, _, _) => id,
+    .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
+    .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id,
     _ => type_to_string_key(ty)
   )
 );
@@ -220,6 +242,7 @@ _bind_some_type :: (
   fn(
     env : Environment,
     name : String,
+    source_some_id : String,
     val : EvalValue,
     ty : TypeValue,
     tok : Option(Token),
@@ -232,7 +255,7 @@ _bind_some_type :: (
   cond(
     (n == usize(0)) => {
       // No existing binding — add one
-      _ := add_variable_to_env(
+      add_variable_to_env(
         env,
         name,
         ty,
@@ -250,7 +273,19 @@ _bind_some_type :: (
       ()
     },
     true => {
-      // Update the last binding
+      // Update the last binding — but ONLY when it lives in the CURRENT top
+      // frame (the call's own placeholder frame). An in-place update of an
+      // OUTER frame's binding is a DURABLE write-through in yo-self's mutable
+      // env model: a NESTED call's generic resolution (`T := unit` from
+      // yield's io.async inside every task body) persisted across def-eval
+      // generations and poisoned sibling closures' expected types (the
+      // async_await void-closure residual — the [REBIND] topology probe shows
+      // updates landing frames BELOW the top). TS's persistent env chains
+      // scope such updates automatically (updateExistingVariable produces a
+      // new chain visible only downstream); the yo-self equivalent is
+      // SHADOWING: for an outer-frame match, ADD a call-local binding in the
+      // top frame instead — it pops with the frame, and every read inside the
+      // call sees it (innermost-wins).
       last_idx := (n - usize(1));
       old_var := match(
         vars.get(last_idx),
@@ -259,13 +294,64 @@ _bind_some_type :: (
           return(());
         }
       );
+      // IDENTITY gate (sharper than the frame check): a placeholder slot
+      // self-binds `TypeVal(<the signature SomeT>)`. When the found binding
+      // still holds a SomeT whose id differs from the SomeT being resolved,
+      // it belongs to a DIFFERENT call's lineage (same NAME `T`, ambient
+      // frame) — never update it; shadow call-locally instead. Resolved slots
+      // (non-SomeT values) carry no id, so they fall through to the frame
+      // check below.
+      found_slot_someid := match(
+        old_var.value.get(usize(0)),
+        .Some(ov) => match(ov,.TypeVal(ovt) => match(ovt,.SomeT({ id : ovid }) => ovid, _ => String.from("")), _ => String.from("")),
+        .None => String.from("")
+      );
+      identity_mismatch := ((source_some_id.len() > usize(0)) && ((found_slot_someid.len() > usize(0)) && (found_slot_someid != source_some_id)));
+      // A SELF-MARKER shadow-add (`F := SomeT(F-source)`) over a DIFFERENT
+      // lineage's same-named binding is pure poison: it carries no binding
+      // information (the source SomeT resolves to "unbound" with or without
+      // it — without the marker the name lookup hits the sibling, fails the
+      // ownership check, and returns unbound), but as the new LAST binding
+      // it buries the sibling for every name-keyed read. TS never persists
+      // this write: its both-unbound unification updates the last variable
+      // in a SCRATCH chain that tryMatchGenericImpl discards
+      // (synthesizer.ts:319-335, impl.ts:2243 pushEnvFrame). Measured: the
+      // `.filter(p).fold(init, f)` where-check wrote filter's `F` marker
+      // into fold's live callee frame, routing fold's closure to filter's
+      // predicate (iterator_combinators arm 18).
+      val_is_self_marker := match(
+        val,
+        .TypeVal(vmt) => match(vmt,.SomeT({ id : vmid }) => (vmid == source_some_id), _ => false),
+        _ => false
+      );
+      if(identity_mismatch && val_is_self_marker, {
+        return(());
+      });
+      if(identity_mismatch || ((env.frames.len() > usize(0)) && (old_var.frame_level != (env.frames.len() - usize(1)))), {
+        add_variable_to_env(
+          env,
+          name,
+          ty,
+          Option(EvalValue).Some(val),
+          true,
+          // is_compile_time_only
+          false,
+          // is_reassignable
+          false,
+          // is_owning_the_rc_value
+          false,
+          // is_implicit
+          token
+        );
+        return(());
+      });
       new_var := Variable(
         id : old_var.id,
         name : old_var.name,
         ty : ty,
         is_compile_time_only : old_var.is_compile_time_only,
         frame_level : old_var.frame_level,
-        value : Option(EvalValue).Some(val),
+        value : value_cell_of(Option(EvalValue).Some(val)),
         is_owning_the_rc_value : old_var.is_owning_the_rc_value,
         is_owning_the_same_rc_value_as : old_var.is_owning_the_same_rc_value_as,
         is_reassignable : old_var.is_reassignable,
@@ -274,11 +360,10 @@ _bind_some_type :: (
         consumed_at_token : old_var.consumed_at_token,
         is_implicit : old_var.is_implicit,
         is_created_from_destructuring_atom_variable : old_var.is_created_from_destructuring_atom_variable,
-        parameter_alias : old_var.parameter_alias,
+        rare : old_var.rare,
         is_from_effect_spread : old_var.is_from_effect_spread,
         is_effect_param : old_var.is_effect_param,
         is_module_level : old_var.is_module_level,
-        doc_comment : old_var.doc_comment,
         is_ref : false,
         is_parameter : false
       );
@@ -337,7 +422,7 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
   visited.push(ty_id);
   match(
     ty,
-    .SomeT(sid, _, _, _, _, _, _, _, _, _) => (some_type_id == sid),
+    .SomeT(sid, _, _, _, _, _, _, _, _, _, _) => (some_type_id == sid),
     .Struct({ field_types }) => {
       (res : bool) = false;
       i := usize(0);
@@ -357,7 +442,7 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
       });
       res
     },
-    .EnumT(_, _, _, variant_fields, _, _, _) => {
+    .EnumT(_, _, _, variant_fields, _, _, _, _, _) => {
       (res : bool) = false;
       vi := usize(0);
       while((vi < variant_fields.len()) && !(res), {
@@ -407,23 +492,37 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
       });
       res
     },
-    .Array(elem, _, _) => recur(some_type_id, some_type_name, elem.*, visited, exn),
-    .ComptimeListT(child) => recur(some_type_id, some_type_name, child.*, visited, exn),
+    .Array(elem, _, _) => recur(some_type_id, some_type_name, elem, visited, exn),
+    .ComptimeListT(child) => recur(some_type_id, some_type_name, child, visited, exn),
     // Don't check inside pointer types (valid indirection)
     .Pointer(_) => false,
-    .IsoT(child) => recur(some_type_id, some_type_name, child.*, visited, exn),
-    .Func({ forall_labels, param_types, implicit_types, result }) => {
-      // A forall declared by this Func's OWN signature SHADOWS the
+    .IsoT(child) => recur(some_type_id, some_type_name, child, visited, exn),
+    .Func({ param_types, implicit_types, result, meta : __fm1 }) => {
+      forall_labels := __fm1.*.forall_labels;
+      // A generic declared by this Func's OWN signature SHADOWS the
       // searched variable: occurrences inside its params/return are
       // bound (alpha-renameable), not free occurrences. TS gets this
       // implicitly — each fn-type evaluation mints fresh SomeType ids,
       // so an embedded method signature never shares ids with the
       // call's foralls — but yo-self's value-typed struct copies
       // preserve ids: an `IoExn` struct embedding `Io.await :
-      // fn(forall(T, E), …)` made `E := IoExn` a false infinite type
-      // (std/http/client.yo). Within a Func that declares forall "E",
-      // any SomeT named "E" lexically IS that inner forall, so
+      // fn(generic(T, E), …)` made `E := IoExn` a false infinite type
+      // (std/http/client.yo). Within a Func that declares generic "E",
+      // any SomeT named "E" lexically IS that inner generic, so
       // name-based shadowing is sound.
+      //
+      // The anonymous `Impl(...)` sugar wrapper is per-signature too: an
+      // "Impl" SomeT reached THROUGH a nested Func is that Func's OWN
+      // param/return sugar (`action : Impl(Fn(e : E) -> T)`), never the outer
+      // var being unified. Same id-preservation trap: resolving a closure
+      // bundle param to a concrete `IoExn` (which embeds `Io`'s method fields,
+      // each `fn(generic(T,E), action : Impl(...)) -> Impl(...)`) made the outer
+      // closure-wrapper "Impl" a FALSE infinite type. "Impl" is a reserved
+      // sugar name (never a user var), so shadowing it inside a nested Func is
+      // sound — mirrors the generic-label shadowing below.
+      if(some_type_name == "Impl", {
+        return(false);
+      });
       {
         (sfi : usize) = usize(0);
         while(sfi < forall_labels.len(), {
@@ -458,14 +557,14 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
         i = (i + usize(1));
       });
       if(!(res), {
-        if(recur(some_type_id, some_type_name, result.*, visited, exn), {
+        if(recur(some_type_id, some_type_name, result, visited, exn), {
           res = true;
         });
       });
       res
     },
     .FutureTraitT(_, out_box, _, ets, _) => {
-      if(recur(some_type_id, some_type_name, out_box.*, visited, exn), {
+      if(recur(some_type_id, some_type_name, out_box, visited, exn), {
         return(true);
       });
       (res : bool) = false;
@@ -486,7 +585,7 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
       });
       res
     },
-    .FnTraitT(_, _, call_param_types, call_result, _, _, _) => {
+    .FnTraitT(_, _, call_param_types, call_result, _, _, _, _) => {
       (res : bool) = false;
       i := usize(0);
       while((i < call_param_types.len()) && !(res), {
@@ -504,14 +603,14 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
         i = (i + usize(1));
       });
       if(!(res), {
-        if(recur(some_type_id, some_type_name, call_result.*, visited, exn), {
+        if(recur(some_type_id, some_type_name, call_result, visited, exn), {
           res = true;
         });
       });
       res
     },
     .TypeAppT(constructor, args) => {
-      if(recur(some_type_id, some_type_name, constructor.*, visited, exn), {
+      if(recur(some_type_id, some_type_name, constructor, visited, exn), {
         return(true);
       });
       (res : bool) = false;
@@ -532,7 +631,7 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
       });
       res
     },
-    .TraitT(_, _, _, field_types, _, _, _, _) => {
+    .TraitT(_, _, _, field_types, _, _, _, _, _, _) => {
       (res : bool) = false;
       i := usize(0);
       while((i < field_types.len()) && !(res), {
@@ -700,7 +799,7 @@ _synthesize_implicit_params :: (
         }, {
           match(
             ty,
-            .SomeT(_, _, _, _, _, _, _, _, is_er, _) => {
+            .SomeT(_, _, _, _, _, _, _, _, is_er, _, _) => {
               if(is_er, {
                 unsolved_spreads.push(entry);
               });
@@ -911,7 +1010,7 @@ _synthesize_implicit_params :: (
     );
     match(
       unsolved.ty,
-      .SomeT(_, sname, _, _, _, _, _, _, is_er, _) => {
+      .SomeT(_, sname, _, _, _, _, _, _, is_er, _, _) => {
         if(is_er, {
           // Collect remaining unmatched given entries
           remaining_labels := ArrayList(String).new();
@@ -934,8 +1033,8 @@ _synthesize_implicit_params :: (
             ri = (ri + usize(1));
           });
           effects_row := t_effects_row(remaining_labels, remaining_types);
-          type_val := EvalValue.TypeVal(Box(TypeValue)(effects_row));
-          _bind_some_type(expected_env, sname, type_val, TypeValue.TypeUni(usize(1)), opts_token(opts, expected_env), exn);
+          type_val := EvalValue.TypeVal(effects_row);
+          _bind_some_type(expected_env, sname, String.from(""), type_val, TypeValue.TypeUni(usize(1)), opts_token(opts, expected_env), exn);
         });
       },
       _ => ()
@@ -957,10 +1056,40 @@ _synthesize_fn_traits :: (
     exn : Exception
   ) -> SynthesizeResult
 )({
-  exp_params := match(expected_ty,.FnTraitT(_, _, pts, _, _, _, _) => pts, _ => ArrayList(TypeValue).new());
-  giv_params := match(given_ty,.FnTraitT(_, _, pts, _, _, _, _) => pts, _ => ArrayList(TypeValue).new());
-  exp_result := match(expected_ty,.FnTraitT(_, _, _, r, _, _, _) => r.*, _ => TypeValue.Unit);
-  giv_result := match(given_ty,.FnTraitT(_, _, _, r, _, _, _) => r.*, _ => TypeValue.Unit);
+  // Either side may be a `Func` rather than an `FnTraitT`: this helper also
+  // synthesizes an `Impl(Fn(...))` (FnTraitT) against a concrete closure `Func`
+  // (see the caller guard `is_fn_trait_type(exp_trait) && is_function_type(given)`
+  // and the doc note below). TS converts the FnTraitT to its `isFn.callType`
+  // (a Func) and runs Func-vs-Func synthesis (synthesizer.ts:516-523); the
+  // value-space equivalent is to read params/result from whichever shape each
+  // side is. Without the `.Func` arms, a `Func` given fell to `TypeValue.Unit`
+  // for its result, so `Impl(Fn(e : E) -> T)` vs `fn(e : IoExn) -> i32` bound
+  // the io.async generic `T = unit` (→ later `Future(unit,E)` vs
+  // `Future(i32,IoExn)` "Cannot unify unit and i32").
+  exp_params := match(
+    expected_ty,
+    .FnTraitT(_, _, pts, _, _, _, _, _) => pts,
+    .Func({ param_types : pts }) => pts,
+    _ => ArrayList(TypeValue).new()
+  );
+  giv_params := match(
+    given_ty,
+    .FnTraitT(_, _, pts, _, _, _, _, _) => pts,
+    .Func({ param_types : pts }) => pts,
+    _ => ArrayList(TypeValue).new()
+  );
+  exp_result := match(
+    expected_ty,
+    .FnTraitT(_, _, _, r, _, _, _, _) => r,
+    .Func({ result : r }) => r,
+    _ => TypeValue.Unit
+  );
+  giv_result := match(
+    given_ty,
+    .FnTraitT(_, _, _, r, _, _, _, _) => r,
+    .Func({ result : r }) => r,
+    _ => TypeValue.Unit
+  );
   (ee : Environment) = expected_env;
   (ge : Environment) = given_env;
   n := exp_params.len();
@@ -1006,8 +1135,8 @@ _synthesize_future_traits :: (
     exn : Exception
   ) -> SynthesizeResult
 )({
-  exp_out := match(expected_ty,.FutureTraitT(_, out, _, _, _) => out.*, _ => TypeValue.Unit);
-  giv_out := match(given_ty,.FutureTraitT(_, out, _, _, _) => out.*, _ => TypeValue.Unit);
+  exp_out := match(expected_ty,.FutureTraitT(_, out, _, _, _) => out, _ => TypeValue.Unit);
+  giv_out := match(given_ty,.FutureTraitT(_, out, _, _, _) => out, _ => TypeValue.Unit);
   (ee : Environment) = expected_env;
   (ge : Environment) = given_env;
   res := _synthesize_call(exp_out, ee, giv_out, ge, checked, opts, exn);
@@ -1033,6 +1162,34 @@ _synthesize_future_traits :: (
     opts,
     exn
   );
+  // Effect-type (E) binding for Future traits: when the EXPECTED effect slot
+  // is still an abstract SomeT (the io.await callee's freshened `E`) and the
+  // GIVEN side is concrete (the task's `Ctx`), write the concrete type into
+  // the expected SomeT's OWN resolution cell — CELL-ONLY, never the env and
+  // never via opts. Binding `E` into the env buried sibling `E` names (e.g.
+  // Result's error param — "Cannot unify usize and unit" x5 across the async
+  // batch), and stamping through opts wrote into SHARED def-era cells,
+  // poisoning sibling calls (the io.await shared-wrapper cluster,
+  // issues/yo-self-io-await-shared-wrapper-poisoning.md). The cell here
+  // belongs to the per-call FRESHENED forall (_freshen_io_builtin_callee), so
+  // the write is call-local. TS gets this from synthesizeTypes binding the
+  // effect forall on the one shared SomeType object.
+  if((exp_et.len() == usize(1)) && (giv_et.len() == usize(1)), {
+    sfe_exp := match(exp_et.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
+    sfe_giv := match(giv_et.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
+    if(is_some_type(sfe_exp) && !(is_some_type(sfe_giv)), {
+      match(
+        sfe_exp,
+        .SomeT({ resolved_concrete : sfe_cell }) => {
+          if(sfe_cell.len() > usize(0), {
+            sfe_cell.remove(usize(0), sfe_cell.len());
+          });
+          sfe_cell.push(sfe_giv);
+        },
+        _ => ()
+      );
+    });
+  });
   SynthesizeResult(expected_env : ee, given_env : ge)
 });
 // ---------------------------------------------------------------------------
@@ -1072,39 +1229,39 @@ _synthesize_types_impl :: (
   if(is_some_type(expected_ty) && is_some_type(given_ty), {
     expected_bound := get_value_of_some_type_from_env(ee, expected_ty);
     given_bound := get_value_of_some_type_from_env(ge, given_ty);
-    exp_some_id := match(expected_ty,.SomeT(id, _, _, _, _, _, _, _, _, _) => id, _ => ``);
-    giv_some_id := match(given_ty,.SomeT(id, _, _, _, _, _, _, _, _, _) => id, _ => ``);
+    exp_some_id := match(expected_ty,.SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
+    giv_some_id := match(given_ty,.SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
     exp_bound_is_some := is_some_type(expected_bound);
     giv_bound_is_some := is_some_type(given_bound);
     cond(
       !(exp_bound_is_some) => {
         // Expected is bound — use its value to bind given
-        val := EvalValue.TypeVal(Box(TypeValue)(expected_bound));
-        _bind_some_type(ge, match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val, expected_bound, tok, exn);
+        val := EvalValue.TypeVal(expected_bound);
+        _bind_some_type(ge, match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), match(given_ty,.SomeT(gid9, _, _, _, _, _, _, _, _, _, _) => gid9, _ => ``), val, expected_bound, tok, exn);
       },
       !(giv_bound_is_some) => {
         // Given is bound — use its value to bind expected
-        val := EvalValue.TypeVal(Box(TypeValue)(given_bound));
-        _bind_some_type(ee, match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val, given_bound, tok, exn);
+        val := EvalValue.TypeVal(given_bound);
+        _bind_some_type(ee, match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), match(expected_ty,.SomeT(eid9, _, _, _, _, _, _, _, _, _, _) => eid9, _ => ``), val, given_bound, tok, exn);
       },
       (exp_some_id == giv_some_id) => (),
       // Same SomeType — nothing to do
       true => {
         // Both unbound — bind expected to given.type (given is the unification target)
-        val := EvalValue.TypeVal(Box(TypeValue)(given_ty));
-        _bind_some_type(ee, match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val, given_ty, tok, exn);
-        val2 := EvalValue.TypeVal(Box(TypeValue)(given_ty));
-        _bind_some_type(ge, match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), val2, given_ty, tok, exn);
+        val := EvalValue.TypeVal(given_ty);
+        _bind_some_type(ee, match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), match(expected_ty,.SomeT(eid8, _, _, _, _, _, _, _, _, _, _) => eid8, _ => ``), val, given_ty, tok, exn);
+        val2 := EvalValue.TypeVal(given_ty);
+        _bind_some_type(ge, match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), match(given_ty,.SomeT(gid8, _, _, _, _, _, _, _, _, _, _) => gid8, _ => ``), val2, given_ty, tok, exn);
       }
     );
     // After unifying, recursively synthesize required trait type parameters
     if(exp_some_id != giv_some_id, {
       match(
         expected_ty,
-        .SomeT(_, _, _, _, expected_traits, _, _, _, _, _) => {
+        .SomeT(_, _, _, _, expected_traits, _, _, _, _, _, _) => {
           match(
             given_ty,
-            .SomeT(_, _, _, _, given_traits, _, _, _, _, _) => {
+            .SomeT(_, _, _, _, given_traits, _, _, _, _, _, _) => {
               n_et := expected_traits.len();
               (eti : usize) = usize(0);
               while(eti < n_et, {
@@ -1175,10 +1332,10 @@ _synthesize_types_impl :: (
   // Case: expected is SomeType (given may be concrete)
   if(is_some_type(expected_ty), {
     bound := get_value_of_some_type_from_env(ee, expected_ty);
-    exp_id2 := match(expected_ty,.SomeT(id, _, _, _, _, _, _, _, _, _) => id, _ => ``);
-    exp_name := match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``);
-    exp_traits := match(expected_ty,.SomeT(_, _, _, _, rts, _, _, _, _, _) => rts, _ => ArrayList(TypeValue).new());
-    if(is_some_type(bound) && (match(bound,.SomeT(bid, _, _, _, _, _, _, _, _, _) => (bid == exp_id2), _ => false)), {
+    exp_id2 := match(expected_ty,.SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
+    exp_name := match(expected_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``);
+    exp_traits := match(expected_ty,.SomeT(_, _, _, _, rts, _, _, _, _, _, _) => rts, _ => ArrayList(TypeValue).new());
+    if(is_some_type(bound) && (match(bound,.SomeT(bid, _, _, _, _, _, _, _, _, _, _) => (bid == exp_id2), _ => false)), {
       // Unbound — bind to given_ty
       // Occurs check
       {
@@ -1197,8 +1354,32 @@ _synthesize_types_impl :: (
           return(SynthesizeResult(expected_env : ee, given_env : ge));
         });
       };
-      val := EvalValue.TypeVal(Box(TypeValue)(given_ty));
-      _bind_some_type(ee, exp_name, val, given_ty, tok, exn);
+      val := EvalValue.TypeVal(given_ty);
+      _bind_some_type(ee, exp_name, exp_id2, val, given_ty, tok, exn);
+      // Phase 5: record the resolved CONCRETE type for this SomeT (keyed by id)
+      // in the side-table when the caller asked for it. Mirrors
+      // synthesizer.ts:463 (`expected.type.resolvedConcreteType = given.type` when
+      // `options.setResolvedConcreteType`); yo-self has no SomeT field, so the
+      // `g_some_resolved_concrete` registry stands in (read by the async-Future /
+      // FSM codegen). Inert until the FSM readers land.
+      if(match(opts,.Some(o) => o.set_resolved_concrete_type,.None => false), {
+        register_some_resolved_concrete(exp_id2, given_ty);
+        // ALSO stamp the SHARED per-lineage CELL (definitions.yo SomeT
+        // resolved_concrete): every clone of this SomeT — including copies
+        // already stored in func types and registries — sees the resolution,
+        // the value-semantics equivalent of TS mutating resolvedConcreteType
+        // on the shared object (synthesizer.ts:463). Last-wins like TS.
+        match(
+          expected_ty,
+          .SomeT({ resolved_concrete : exp_cell }) => {
+            if(exp_cell.len() > usize(0), {
+              exp_cell.remove(usize(0), exp_cell.len());
+            });
+            exp_cell.push(given_ty);
+          },
+          _ => ()
+        );
+      });
       // Recursively synthesize required trait type parameters
       n_et := exp_traits.len();
       (eti : usize) = usize(0);
@@ -1239,8 +1420,8 @@ _synthesize_types_impl :: (
   // Case: given is SomeType (expected is concrete)
   if(is_some_type(given_ty), {
     existing_bound := get_value_of_some_type_from_env(ge, given_ty);
-    giv_id2 := match(given_ty,.SomeT(id, _, _, _, _, _, _, _, _, _) => id, _ => ``);
-    giv_name := match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``);
+    giv_id2 := match(given_ty,.SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
+    giv_name := match(given_ty,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``);
     if(!(is_some_type(existing_bound)), {
       // Given is already bound — recurse
       res := _synthesize_call(expected_ty, ee, existing_bound, ge, checked, opts, exn);
@@ -1264,8 +1445,26 @@ _synthesize_types_impl :: (
           return(SynthesizeResult(expected_env : ee, given_env : ge));
         });
       };
-      val := EvalValue.TypeVal(Box(TypeValue)(expected_ty));
-      _bind_some_type(ge, giv_name, val, expected_ty, tok, exn);
+      val := EvalValue.TypeVal(expected_ty);
+      _bind_some_type(ge, giv_name, giv_id2, val, expected_ty, tok, exn);
+      // Phase 5 (symmetric set-site): record the given SomeT's resolved concrete
+      // type (the expected concrete) in the side-table. Mirrors synthesizer.ts:595
+      // (`given.type.resolvedConcreteType = expected.type` under
+      // `setResolvedConcreteType`). Keyed by the given SomeT's id.
+      if(match(opts,.Some(o) => o.set_resolved_concrete_type,.None => false), {
+        register_some_resolved_concrete(giv_id2, expected_ty);
+        // Symmetric per-lineage CELL stamp — see the expected-side site above.
+        match(
+          given_ty,
+          .SomeT({ resolved_concrete : giv_cell }) => {
+            if(giv_cell.len() > usize(0), {
+              giv_cell.remove(usize(0), giv_cell.len());
+            });
+            giv_cell.push(expected_ty);
+          },
+          _ => ()
+        );
+      });
     });
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
@@ -1321,7 +1520,34 @@ _synthesize_types_impl :: (
     // comparing `functionValue.funcId`.
     exp_cfid3 := match(expected_ty,.Struct({ constructor_func_id : cfid }) => cfid, _ => ``);
     giv_cfid3 := match(given_ty,.Struct({ constructor_func_id : cfid }) => cfid, _ => ``);
-    same_constructor3 := ((exp_cfid3.len() > usize(0)) && (exp_cfid3 == giv_cfid3));
+    // An empty carried cfid may predate the constructor stamp (a self-recursive
+    // shell, or a memoized instantiation that embedded one) — recover it from
+    // the id-keyed stamp table, the value-semantics stand-in for TS mutating
+    // the shared type object (see expr_info.yo g_struct_ctor_fids). Without
+    // this, `SortedSet(T)` vs `SortedSet(i32)` FAILED to unify: the top-level
+    // pair matched by cfid but the `_inner : SortedMap(...)` FIELD instances
+    // carried pre-stamp empty cfids and threw here.
+    (exp_eff_cfid : String) = exp_cfid3;
+    (giv_eff_cfid : String) = giv_cfid3;
+    if(exp_eff_cfid.len() == usize(0), {
+      match(
+        lookup_struct_ctor_fid(exp_id3),
+        .Some(rec_cfid) => {
+          exp_eff_cfid = rec_cfid;
+        },
+        .None => ()
+      );
+    });
+    if(giv_eff_cfid.len() == usize(0), {
+      match(
+        lookup_struct_ctor_fid(giv_id3),
+        .Some(rec_cfid2) => {
+          giv_eff_cfid = rec_cfid2;
+        },
+        .None => ()
+      );
+    });
+    same_constructor3 := ((exp_eff_cfid.len() > usize(0)) && (exp_eff_cfid == giv_eff_cfid));
     if((exp_id3 != giv_id3) && !(same_constructor3), {
       exn.throw(
         dyn(
@@ -1369,8 +1595,8 @@ _synthesize_types_impl :: (
     // see resolve_enum_shell) before any guard looks at variants.
     exp_en_ty := resolve_enum_shell(expected_ty);
     giv_en_ty := resolve_enum_shell(given_ty);
-    exp_enum_id := match(exp_en_ty,.EnumT(id, _, _, _, _, _, _) => id, _ => ``);
-    giv_enum_id := match(giv_en_ty,.EnumT(id, _, _, _, _, _, _) => id, _ => ``);
+    exp_enum_id := match(exp_en_ty,.EnumT(id, _, _, _, _, _, _, _, _) => id, _ => ``);
+    giv_enum_id := match(giv_en_ty,.EnumT(id, _, _, _, _, _, _, _, _) => id, _ => ``);
     // Two instantiations of the same generic enum share a constructor_func_id
     // (value.yo enum-cfid side-table). Treat matching cfids as the same enum
     // constructor → unify variant fields. Mirrors the struct same_constructor.
@@ -1386,9 +1612,21 @@ _synthesize_types_impl :: (
     // proceed to the per-variant field unification below, which does the
     // real checking.
     (same_variants : bool) = false;
-    if((exp_enum_cf.len() == usize(0)) || (giv_enum_cf.len() == usize(0)), {
-      exp_vn := match(exp_en_ty,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
-      giv_vn := match(giv_en_ty,.EnumT(_, _, vn, _, _, _, _) => vn, _ => ArrayList(String).new());
+    // Run the structural fallback whenever the id guard would otherwise
+    // reject — including when BOTH sides carry cfids that DIFFER. Two ERA
+    // INSTANCES of the same generic enum can carry different cfids (the
+    // ctor reference cloned per evaluation context stamps a different fid),
+    // and the id guard then threw "Cannot unify incompatible enum types"
+    // for Option(B)-def-era vs Option(i32)-call-era BEFORE the per-variant
+    // unification could bind B — the whole and_then/combinator hollow
+    // cluster (issues/repros/option-and-then-closure-arg.yo). Identical
+    // variant-name lists → proceed; the per-variant FIELD unification below
+    // still does the real structural checking (it throws on genuine
+    // mismatches), so a same-shaped-but-different enum pair cannot silently
+    // unify beyond what field recursion admits.
+    if((exp_enum_id != giv_enum_id) && !(same_enum_ctor), {
+      exp_vn := match(exp_en_ty,.EnumT(_, _, vn, _, _, _, _, _, _) => vn, _ => ArrayList(String).new());
+      giv_vn := match(giv_en_ty,.EnumT(_, _, vn, _, _, _, _, _, _) => vn, _ => ArrayList(String).new());
       if(exp_vn.len() == giv_vn.len(), {
         (vni : usize) = usize(0);
         (vn_ok : bool) = (exp_vn.len() > usize(0));
@@ -1415,8 +1653,8 @@ _synthesize_types_impl :: (
         )
       );
     }, {
-      exp_vf := match(exp_en_ty,.EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-      giv_vf := match(giv_en_ty,.EnumT(_, _, _, vf, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+      exp_vf := match(exp_en_ty,.EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+      giv_vf := match(giv_en_ty,.EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
       n_v := exp_vf.len();
       (vi : usize) = usize(0);
       while(vi < n_v, {
@@ -1462,6 +1700,36 @@ _synthesize_types_impl :: (
         });
         vi = (vi + usize(1));
       });
+      // Also synthesize via the GADT type-constructor args
+      // (synthesizer.ts:738-756): for a GADT enum the variant field types
+      // are concrete and don't mention the type parameters (T appears only
+      // in `-> recur(...)`), so the field loop above binds NOTHING — the
+      // only carrier of `T := i32` is the instantiation's recorded
+      // type-constructor args ([SomeT T] on the def instance vs [i32] on
+      // the call-site instance).
+      exp_tca_sy := match(
+        get_gadt_type_constructor_args(exp_enum_id),
+        .Some(t) => t,
+        .None => ArrayList(TypeValue).new()
+      );
+      giv_tca_sy := match(
+        get_gadt_type_constructor_args(giv_enum_id),
+        .Some(t) => t,
+        .None => ArrayList(TypeValue).new()
+      );
+      tca_n_sy := cond(
+        (exp_tca_sy.len() < giv_tca_sy.len()) => exp_tca_sy.len(),
+        true => giv_tca_sy.len()
+      );
+      (tci_sy : usize) = usize(0);
+      while(tci_sy < tca_n_sy, {
+        et_sy := match(exp_tca_sy.get(tci_sy),.Some(t) => t,.None => TypeValue.Unit);
+        gt_sy := match(giv_tca_sy.get(tci_sy),.Some(t) => t,.None => TypeValue.Unit);
+        res_sy := _synthesize_call(et_sy, ee, gt_sy, ge, checked, opts, exn);
+        ee = res_sy.expected_env;
+        ge = res_sy.given_env;
+        tci_sy = (tci_sy + usize(1));
+      });
     });
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
@@ -1501,11 +1769,11 @@ _synthesize_types_impl :: (
   });
   // Case: TraitT + TraitT (same constructor)
   if(is_trait_type(expected_ty) && is_trait_type(given_ty), {
-    exp_trait_id := match(expected_ty,.TraitT(_, _, _, _, id, _, _, _) => id, _ => ``);
-    giv_trait_id := match(given_ty,.TraitT(_, _, _, _, id, _, _, _) => id, _ => ``);
+    exp_trait_id := match(expected_ty,.TraitT(_, _, _, _, id, _, _, _, _, _) => id, _ => ``);
+    giv_trait_id := match(given_ty,.TraitT(_, _, _, _, id, _, _, _, _, _) => id, _ => ``);
     if(exp_trait_id == giv_trait_id, {
-      exp_ft := match(expected_ty,.TraitT(_, _, _, fts, _, _, _, _) => fts, _ => ArrayList(TypeValue).new());
-      giv_ft := match(given_ty,.TraitT(_, _, _, fts, _, _, _, _) => fts, _ => ArrayList(TypeValue).new());
+      exp_ft := match(expected_ty,.TraitT(_, _, _, fts, _, _, _, _, _, _) => fts, _ => ArrayList(TypeValue).new());
+      giv_ft := match(given_ty,.TraitT(_, _, _, fts, _, _, _, _, _, _) => fts, _ => ArrayList(TypeValue).new());
       n := exp_ft.len();
       (i : usize) = usize(0);
       while(i < n, {
@@ -1535,8 +1803,8 @@ _synthesize_types_impl :: (
   });
   // Case: Pointer + Pointer
   if(is_pointer_type(expected_ty) && is_pointer_type(given_ty), {
-    exp_child := match(expected_ty,.Pointer(c) => c.*, _ => TypeValue.Unit);
-    giv_child := match(given_ty,.Pointer(c) => c.*, _ => TypeValue.Unit);
+    exp_child := match(expected_ty,.Pointer(c) => c, _ => TypeValue.Unit);
+    giv_child := match(given_ty,.Pointer(c) => c, _ => TypeValue.Unit);
     res := _synthesize_call(exp_child, ee, giv_child, ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
@@ -1544,8 +1812,8 @@ _synthesize_types_impl :: (
   });
   // Case: Iso + Iso
   if(is_iso_type(expected_ty) && is_iso_type(given_ty), {
-    exp_child := match(expected_ty,.IsoT(c) => c.*, _ => TypeValue.Unit);
-    giv_child := match(given_ty,.IsoT(c) => c.*, _ => TypeValue.Unit);
+    exp_child := match(expected_ty,.IsoT(c) => c, _ => TypeValue.Unit);
+    giv_child := match(given_ty,.IsoT(c) => c, _ => TypeValue.Unit);
     res := _synthesize_call(exp_child, ee, giv_child, ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
@@ -1553,13 +1821,13 @@ _synthesize_types_impl :: (
   });
   // Case: Array + Array
   if(is_array_type(expected_ty) && is_array_type(given_ty), {
-    exp_elem := match(expected_ty,.Array(e, _, _) => e.*, _ => TypeValue.Unit);
-    giv_elem := match(given_ty,.Array(e, _, _) => e.*, _ => TypeValue.Unit);
+    exp_elem := match(expected_ty,.Array(e, _, _) => e, _ => TypeValue.Unit);
+    giv_elem := match(given_ty,.Array(e, _, _) => e, _ => TypeValue.Unit);
     res := _synthesize_call(exp_elem, ee, giv_elem, ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
     // Array LENGTH synthesis (mirrors TS synthesizer.ts:884-940): when the
-    // EXPECTED length is an unresolved forall variable and the GIVEN length
+    // EXPECTED length is an unresolved generic variable and the GIVEN length
     // is concrete, bind the variable in the expected env to the concrete
     // count so `_resolve_one_forall_binding` sees `U := <n>`.
     exp_lvar := match(expected_ty,.Array(_, _, lv) => lv, _ => String.from(""));
@@ -1571,12 +1839,12 @@ _synthesize_types_impl :: (
         match(
           lvar_vars.get(lvar_vars.len() - usize(1)),
           .Some(lvar_var) => {
-            lvar_var.value = Option(EvalValue).Some(EvalValue.IntLit(giv_len.to_string()));
+            lvar_var.value = value_cell_of(Option(EvalValue).Some(EvalValue.IntLit(giv_len.to_string())));
           },
           .None => ()
         );
       }, {
-        ___ := add_variable_to_env(
+        add_variable_to_env(
           ee,
           exp_lvar.clone(),
           t_usize(),
@@ -1596,8 +1864,8 @@ _synthesize_types_impl :: (
   });
   // Case: ComptimeList + ComptimeList
   if(is_comptime_list_type(expected_ty) && is_comptime_list_type(given_ty), {
-    exp_elem := match(expected_ty,.ComptimeListT(e) => e.*, _ => TypeValue.Unit);
-    giv_elem := match(given_ty,.ComptimeListT(e) => e.*, _ => TypeValue.Unit);
+    exp_elem := match(expected_ty,.ComptimeListT(e) => e, _ => TypeValue.Unit);
+    giv_elem := match(given_ty,.ComptimeListT(e) => e, _ => TypeValue.Unit);
     res := _synthesize_call(exp_elem, ee, giv_elem, ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
@@ -1617,22 +1885,22 @@ _synthesize_types_impl :: (
     ge = res.given_env;
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
-  // Case: Func + Func (same forall+param count)
+  // Case: Func + Func (same generic+param count)
   if(is_function_type(expected_ty) && is_function_type(given_ty), {
     exp_fa := match(expected_ty,.Func({ forall_types : fats }) => fats, _ => ArrayList(TypeValue).new());
     giv_fa := match(given_ty,.Func({ forall_types : fats }) => fats, _ => ArrayList(TypeValue).new());
     exp_pt := match(expected_ty,.Func({ param_types : pts }) => pts, _ => ArrayList(TypeValue).new());
     giv_pt := match(given_ty,.Func({ param_types : pts }) => pts, _ => ArrayList(TypeValue).new());
-    exp_il := match(expected_ty,.Func({ implicit_labels : ils }) => ils, _ => ArrayList(String).new());
+    exp_il := match(expected_ty,.Func({ meta : __fm2 }) => __fm2.*.implicit_labels, _ => ArrayList(String).new());
     exp_it := match(expected_ty,.Func({ implicit_types : its }) => its, _ => ArrayList(TypeValue).new());
-    exp_is := match(expected_ty,.Func({ implicit_spreads : iss }) => iss, _ => ArrayList(bool).new());
-    giv_il := match(given_ty,.Func({ implicit_labels : ils }) => ils, _ => ArrayList(String).new());
+    exp_is := match(expected_ty,.Func({ meta : __fm3 }) => __fm3.*.implicit_spreads, _ => ArrayList(bool).new());
+    giv_il := match(given_ty,.Func({ meta : __fm4 }) => __fm4.*.implicit_labels, _ => ArrayList(String).new());
     giv_it := match(given_ty,.Func({ implicit_types : its }) => its, _ => ArrayList(TypeValue).new());
-    giv_is := match(given_ty,.Func({ implicit_spreads : iss }) => iss, _ => ArrayList(bool).new());
-    exp_ret := match(expected_ty,.Func({ result : r }) => r.*, _ => TypeValue.Unit);
-    giv_ret := match(given_ty,.Func({ result : r }) => r.*, _ => TypeValue.Unit);
+    giv_is := match(given_ty,.Func({ meta : __fm5 }) => __fm5.*.implicit_spreads, _ => ArrayList(bool).new());
+    exp_ret := match(expected_ty,.Func({ result : r }) => r, _ => TypeValue.Unit);
+    giv_ret := match(given_ty,.Func({ result : r }) => r, _ => TypeValue.Unit);
     if((exp_fa.len() == giv_fa.len()) && (exp_pt.len() == giv_pt.len()), {
-      // Synthesize forall type params
+      // Synthesize generic type params
       n_fa := exp_fa.len();
       (fai : usize) = usize(0);
       while(fai < n_fa, {
@@ -1705,8 +1973,8 @@ _synthesize_types_impl :: (
   });
   // Case: TypeApplication + TypeApplication
   if(is_type_application_type(expected_ty) && is_type_application_type(given_ty), {
-    exp_con := match(expected_ty,.TypeAppT(c, _) => c.*, _ => TypeValue.Unit);
-    giv_con := match(given_ty,.TypeAppT(c, _) => c.*, _ => TypeValue.Unit);
+    exp_con := match(expected_ty,.TypeAppT(c, _) => c, _ => TypeValue.Unit);
+    giv_con := match(given_ty,.TypeAppT(c, _) => c, _ => TypeValue.Unit);
     exp_args := match(expected_ty,.TypeAppT(_, args) => args, _ => ArrayList(TypeValue).new());
     giv_args := match(given_ty,.TypeAppT(_, args) => args, _ => ArrayList(TypeValue).new());
     res := _synthesize_call(exp_con, ee, giv_con, ge, checked, opts, exn);
@@ -1814,7 +2082,68 @@ _synthesize_types_impl :: (
   {
     exp_tag := type_value_tag(expected_ty);
     giv_tag := type_value_tag(given_ty);
+    // A comptime NUMERIC primitive against a runtime numeric is NOT a unify
+    // failure: the folded value is lowered at the consuming boundary
+    // (convert_comptime_type_to_runtime_type), and a comptime primitive
+    // carries no SomeTs to bind. Without this, `s := (1 + 2).to_string()` —
+    // the receiver `+` re-evaluated under to_string's expected i32 — threw
+    // "Cannot unify comptime_int and i32" from the comptime_add call's
+    // return-vs-expected synthesis (helper.yo Step 10) and hollowed every
+    // `${(expr)}` template statement (the fmt/basic/fn family;
+    // issues/repros/comptime-expr-to-string-runtime-binding.yo). The
+    // comptime_str-vs-String pair deliberately KEEPS throwing (untested
+    // whether prelude trials rely on it; numeric pairs suffice here).
+    ct_rt_pair := (
+      (is_comptime_int_type(expected_ty) || is_comptime_float_type(expected_ty))
+      && _is_runtime_numeric(given_ty)
+    );
+    rt_ct_pair := (
+      (is_comptime_int_type(given_ty) || is_comptime_float_type(given_ty))
+      && _is_runtime_numeric(expected_ty)
+    );
+    if(ct_rt_pair || rt_ct_pair, {
+      return(SynthesizeResult(expected_env : ee, given_env : ge));
+    });
     if(exp_tag != giv_tag, {
+      // A RESOLVED SomeT stands for its concrete on either side — an
+      // `Impl(RetI32)` receiver (resolution: bool) unifying against the impl
+      // method's `*(Self→bool)` self param reaches this fallback as
+      // (bool, Impl-SomeT). Mirror TS: given.resolvedConcreteType /
+      // getValueOfSomeTypeFromEnv resolve BEFORE declaring a mismatch
+      // (compatibility.ts:900-916; the synthesizer's SomeType arms assume
+      // unresolved vars). Retry the synthesis with the resolution.
+      giv_resolution := match(
+        given_ty,
+        .SomeT({ id : sg_id, resolved_concrete : sg_cell }) => match(
+          sg_cell.get(usize(0)),
+          .Some(sg_rt) => Option(TypeValue).Some(sg_rt),
+          .None => lookup_some_resolved_concrete(sg_id)
+        ),
+        _ => Option(TypeValue).None
+      );
+      match(
+        giv_resolution,
+        .Some(sg_rt2) => {
+          return(recur(expected_ty, ee, sg_rt2, ge, checked, opts, exn));
+        },
+        .None => ()
+      );
+      exp_resolution := match(
+        expected_ty,
+        .SomeT({ id : se_id, resolved_concrete : se_cell }) => match(
+          se_cell.get(usize(0)),
+          .Some(se_rt) => Option(TypeValue).Some(se_rt),
+          .None => lookup_some_resolved_concrete(se_id)
+        ),
+        _ => Option(TypeValue).None
+      );
+      match(
+        exp_resolution,
+        .Some(se_rt2) => {
+          return(recur(se_rt2, ee, given_ty, ge, checked, opts, exn));
+        },
+        .None => ()
+      );
       exn.throw(
         dyn(
           format_error_message(

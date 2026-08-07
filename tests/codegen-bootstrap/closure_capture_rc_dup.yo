@@ -1,0 +1,30 @@
+// Regression: an RC-typed value captured by a closure must be DUP'd into the
+// capture struct (the capture owns its own reference). The evaluator generates
+// evaluated `___dup(name)` exprs per RC capture
+// (evaluator/utils/closure.yo generate_captured_variable_dup_expressions,
+// mirroring TS utils/closure.ts:393) and codegen emits them as the capture
+// field initializers (codegen/exprs/closures.yo, mirroring TS
+// allocateClosureCapture). Without the dup, dropping the constructing scope's
+// local freed the value under the still-pending closure — Command.status's
+// spawn storage was read after free (argc=0 → NULL argv[0] → the
+// "Called unwrap on a None value" rc=134 abort that blocked `compile -o` /
+// `test` in the self-compiled compiler).
+{ Command, ExitStatus } :: import("std/process/command");
+{ Exception, AnyError, IoExn } :: import("std/error");
+open(import("std/string"));
+open(import("std/fmt"));
+
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(());
+      }
+    )
+  );
+  cmd := Command.new(`echo`);
+  cmd.arg(`capture_ok`);
+  st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
+  println(`rc=${st.code()}`);
+});
+export(main);

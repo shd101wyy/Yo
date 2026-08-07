@@ -1,5 +1,6 @@
 pragma(Pragma.SkipWasm32Wasi); // Emscripten syscalls (__syscall_*) not available in standalone WASI
 pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
 open(import("std/libc/stdio"));
 file :: import("std/sys/file");
 pipe_io :: import("std/sys/pipe");
@@ -9,8 +10,8 @@ test("pipe read/write", {
   pr := pipe_io.pipe(pipefd);
   unsafe(printf("  pipe = %d\n", pr));
   assert(pr == i32(0));
-  read_fd := (pipefd &+ usize(0)).*;
-  write_fd := (pipefd &+ usize(1)).*;
+  read_fd := (pipefd.add(usize(0))).*;
+  write_fd := (pipefd.add(usize(1))).*;
   assert(read_fd >= i32(0));
   assert(write_fd >= i32(0));
   data := *(u8)("hello pipe");
@@ -23,9 +24,9 @@ test("pipe read/write", {
   rd := io.await(file.read(read_fd, buf, u32(16), u64(0)), io);
   unsafe(printf("  read = %d\n", rd));
   assert(rd == i32(data_len));
-  assert((buf &+ usize(0)).* == u8(104));
-  assert((buf &+ usize(6)).* == u8(112));
-  assert((buf &+ usize(9)).* == u8(101));
+  assert((buf.add(usize(0))).* == u8(104));
+  assert((buf.add(usize(6))).* == u8(112));
+  assert((buf.add(usize(9))).* == u8(101));
   c1 := io.await(file.close(read_fd), io);
   c2 := io.await(file.close(write_fd), io);
   assert(c1 == i32(0));
@@ -36,8 +37,8 @@ test("dup reads from original pipe", {
   pipefd := *(i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0));
-  read_fd := (pipefd &+ usize(0)).*;
-  write_fd := (pipefd &+ usize(1)).*;
+  read_fd := (pipefd.add(usize(0))).*;
+  write_fd := (pipefd.add(usize(1))).*;
   dup_fd := pipe_io.dup(read_fd);
   unsafe(printf("  dup = %d\n", dup_fd));
   assert(dup_fd >= i32(0));
@@ -51,8 +52,8 @@ test("dup reads from original pipe", {
   buf := *(u8)(buf_uninit.as_ptr());
   rd := io.await(file.read(dup_fd, buf, u32(16), u64(0)), io);
   assert(rd == i32(data_len));
-  assert((buf &+ usize(0)).* == u8(100));
-  assert((buf &+ usize(7)).* == u8(116));
+  assert((buf.add(usize(0))).* == u8(100));
+  assert((buf.add(usize(7))).* == u8(116));
   c1 := io.await(file.close(dup_fd), io);
   c2 := io.await(file.close(write_fd), io);
   assert(c1 == i32(0));
@@ -67,10 +68,10 @@ test("dup2 redirects to target fd", {
   pipefd_b := *(i32)(pipefd_b_uninit.as_ptr());
   pr2 := pipe_io.pipe(pipefd_b);
   assert(pr2 == i32(0));
-  read_fd := (pipefd_a &+ usize(0)).*;
-  write_fd_src := (pipefd_a &+ usize(1)).*;
-  read_fd_b := (pipefd_b &+ usize(0)).*;
-  write_fd_dst := (pipefd_b &+ usize(1)).*;
+  read_fd := (pipefd_a.add(usize(0))).*;
+  write_fd_src := (pipefd_a.add(usize(1))).*;
+  read_fd_b := (pipefd_b.add(usize(0))).*;
+  write_fd_dst := (pipefd_b.add(usize(1))).*;
   dup2_fd := pipe_io.dup2(write_fd_src, write_fd_dst);
   unsafe(printf("  dup2 = %d\n", dup2_fd));
   assert(dup2_fd == write_fd_dst);
@@ -86,8 +87,8 @@ test("dup2 redirects to target fd", {
   buf := *(u8)(buf_uninit.as_ptr());
   rd := io.await(file.read(read_fd, buf, u32(16), u64(0)), io);
   assert(rd == i32(data_len));
-  assert((buf &+ usize(0)).* == u8(100));
-  assert((buf &+ usize(6)).* == u8(107));
+  assert((buf.add(usize(0))).* == u8(100));
+  assert((buf.add(usize(6))).* == u8(107));
   c3 := io.await(file.close(read_fd), io);
   c4 := io.await(file.close(write_fd_dst), io);
   assert(c3 == i32(0));

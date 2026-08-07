@@ -83,7 +83,7 @@ evaluate_yo_array_fill :: (
   // Validate: must be TypeVal containing an Array type.
   at_tv_opt := match(
     at_info.value,
-    .Some(v) => match(v,.TypeVal(ty) => Option(TypeValue).Some(ty.*), _ => Option(TypeValue).None),
+    .Some(v) => match(v,.TypeVal(ty) => Option(TypeValue).Some(ty), _ => Option(TypeValue).None),
     .None => Option(TypeValue).None
   );
   array_type_tv := match(
@@ -123,7 +123,7 @@ evaluate_yo_array_fill :: (
       return(expr);
     }
   );
-  element_type := element_box.*;
+  element_type := element_box;
   // Evaluate the fill value argument with expected element type.
   old_expected := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : element_type, env : cur_env));

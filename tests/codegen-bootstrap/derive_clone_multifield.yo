@@ -1,0 +1,27 @@
+// Regression: full derive(Clone) on a multi-field value struct with a PRIMITIVE
+// field. Exercises all four self-hosted codegen fixes that surface in a derived
+// clone body `T(self.kind.clone(), self.value.clone(), self.row.clone())`:
+//   1. Type.to_comptime_string keeps its StrLit quotes (constructor head ok).
+//   2. inout(self) field reads dereference the pointer (`(*self).field`).
+//   3. derived enum K clone matches inout(self) without redefining `self`.
+//   4. a primitive field's `.clone()` (inlined __yo_return_self) passes its
+//      receiver BY ADDRESS (`(*(&((*self).row)))`, not `(*((*self).row))`).
+// See issues/fixed/yo-self-derive-clone-typename-quote.md (4-layer overview).
+open(import("std/string"));
+{ println } :: import("std/fmt");
+
+K :: enum(A, B);
+derive(K, Clone, Eq(K));
+
+T :: struct(kind : K, value : String, row : usize);
+derive(T, Clone);
+
+mk :: (fn() -> T)(T(kind : K.A, value : String.from("hello"), row : usize(7)));
+
+main :: (fn() -> unit)({
+  a := mk();
+  b := a.clone();
+  println(b.value);
+  println(b.row.to_string());
+});
+export(main);

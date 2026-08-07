@@ -31,6 +31,7 @@ import {
 } from "../../types/guards";
 import { typeOfType } from "../../types/hierarchy";
 import {
+  bufferElementType,
   canTypeFormRcCycle,
   typeContainsRcType,
   typeContainsSomeType,
@@ -684,9 +685,17 @@ export function addRcFunctionSignaturesToStructType({
 }
 
 /**
- * Generate ___dispose function code for an enum type
+ * Generate ___dispose function code for an enum type.
+ *
+ * Only RC enums (`ref(enum(…))`) need a dispose body: it runs when the
+ * ref-count hits 0 (via the type-id dispatch / dispose_fn pointer) and must
+ * release the active variant's RC-managed fields — without it the C
+ * constructor tags the handle `type_id = 0` and every owned field leaks.
+ * Value enums drop their fields in ___drop instead and get an empty body.
+ *
+ * Note: a user's dispose() method from the Dispose trait is handled in C
+ * codegen, not here. This function only generates the field dropping logic.
  */
-/*
 function generateDisposeFunctionCodeForEnumType(enumType: EnumType): {
   signature: string;
   code: string;
@@ -696,31 +705,24 @@ function generateDisposeFunctionCodeForEnumType(enumType: EnumType): {
     return { signature, code: `(${signature})(())` };
   }
 
-  const hasDisposeFunction = enumType.trait.fields.some(
-    (field) => field.label === BuiltinFunctions.dispose[0]
-  );
-
   const variantsWithRcTypes = enumType.variants.filter(
     (variant) =>
       variant.fields &&
       variant.fields.some((field) => typeContainsRcType(field.type))
   );
 
-  if (!variantsWithRcTypes.length && !hasDisposeFunction) {
+  if (!variantsWithRcTypes.length) {
     return { signature, code: `(${signature})(())` };
   }
 
   const matchCases = variantsWithRcTypes
     .map((variant) => {
-      const destructurings = variant
+      const paramList = variant.fields!.map((field) => field.label).join(", ");
+      const dropStatements = variant
         .fields!.filter((field) => typeContainsRcType(field.type))
-        .map((field) => field.label);
-
-      const paramList = variant
-        .fields!.map((field) => field.label)
-        .join(", ");
-      const dropStatements = destructurings
-        .map((label) => `      (${BuiltinFunctions.___drop[0]!})(${label});`)
+        .map(
+          (field) => `      (${BuiltinFunctions.___drop[0]!})(${field.label});`
+        )
         .join("\n");
 
       return `.${variant.name}(${paramList}) => {
@@ -736,16 +738,14 @@ ${dropStatements}
 
   return {
     signature,
-    code: `(${signature} { // ___dispose
-      ${hasDisposeFunction ? `Self.dispose(${YoSelf});` : ""}
-      match(${YoSelf},
-        ${matchCases}${defaultCase}
-      );
-      return ();
-  })`,
+    code: `(${signature})({ // ___dispose
+  match(${YoSelf},
+    ${matchCases}${defaultCase}
+  );
+  return(());
+})`,
   };
 }
-*/
 
 /**
  * Generate ___drop function code for an enum type
@@ -909,8 +909,8 @@ export function addRcFunctionsToEnumType({
   const containsSomeType = typeContainsSomeType(enumType);
 
   // Auto-generate ___drop, ___dup, and ___dispose functions if needed
-  // const { code: disposeFunctionCode } =
-  //   generateDisposeFunctionCodeForEnumType(enumType);
+  const { code: disposeFunctionCode } =
+    generateDisposeFunctionCodeForEnumType(enumType);
   const { code: dropFunctionCode } =
     generateDropFunctionCodeForEnumType(enumType);
   const { code: dupFunctionCode } =
@@ -922,21 +922,21 @@ export function addRcFunctionsToEnumType({
 
   addRcFunctionSignaturesToEnumType({ enumType, env, context });
 
-  // Add ___dispose function
-  // env = addFunctionCodeToSelfTypeModule({
-  //   label: BuiltinFunctions.___dispose[0]!,
-  //   functionCode: disposeFunctionCode,
-  //   SelfType: enumType,
-  //   env,
-  //   context,
-  // });
-
   // For structs containing SomeType fields, skip full function body evaluation
   // to avoid infinite recursion during recursive type construction.
   // The signatures are already added, and codegen will handle the implementation.
   if (containsSomeType) {
     return env;
   }
+
+  // Add ___dispose function
+  env = addFunctionCodeToSelfTypeModule({
+    label: BuiltinFunctions.___dispose[0]!,
+    functionCode: disposeFunctionCode,
+    SelfType: enumType,
+    env,
+    context,
+  });
 
   // Add ___drop function to the enum type trait fields
   env = addFunctionCodeToSelfTypeModule({
@@ -1402,8 +1402,23 @@ export function autoDeriveAcyclicForStructType({
   context: EvaluatorContext;
 }): Environment {
   if (structType.isReferenceSemantics) {
+    // A container holds its elements behind a raw `?*(E)` buffer that
+    // canTypeFormRcCycle's field walk cannot see — and worse, this derive runs when
+    // the container is first instantiated, which for a self-referential element
+    // (`ArrayList(Self)` inside the type being defined) is BEFORE that element's own
+    // cycle status is known. So a container is Acyclic only if every buffer element
+    // type is itself Acyclic; for `ArrayList(Node)` the element `Node` is not (yet)
+    // Acyclic, so the container is correctly withheld from Acyclic and remains
+    // visible to cycle collection. (`ArrayList(i32)` stays Acyclic — i32 is Acyclic.)
+    const allBufferElementsAcyclic = structType.fields.every((field) => {
+      const elem = bufferElementType(field.type);
+      return !elem || typeImplementsAcyclic(elem, env);
+    });
     // For object types, check if they can form cycles (pass env for SomeType Acyclic checking)
-    if (!canTypeFormRcCycle(structType, new Set(), env)) {
+    if (
+      allBufferElementsAcyclic &&
+      !canTypeFormRcCycle(structType, new Set(), env)
+    ) {
       env = attachTraitToReceiverType("Acyclic", structType, env, context);
     }
   } else {

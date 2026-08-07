@@ -16,7 +16,7 @@
 //! TypeValue enum) and `creators.ts` (constructors).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue } :: import("./definitions.yo");
+{ TypeValue, FuncMeta } :: import("./definitions.yo");
 { TypeTag } :: import("./tags.yo");
 // ---------------------------------------------------------------------------
 // Global counter for generating unique SomeType IDs.
@@ -32,56 +32,95 @@ generate_some_type_id :: (fn() -> String)({
 // ---------------------------------------------------------------------------
 // Convenience constructors for primitive and pointer-sized types
 // ---------------------------------------------------------------------------
-t_unit :: (fn() -> TypeValue)(.Unit);
+// INTERNED leaf singletons: these TypeValue variants are field-less (or
+// carry only fixed immutable payloads) and are requested millions of times
+// per compile — every call used to heap-allocate a fresh 176-byte RC enum.
+// One module-global instance per shape is constructed at module init; each
+// creator returns the shared handle (the return dups the RC, the global
+// keeps its own +1 forever, so the singleton is never freed). Nothing
+// mutates a leaf in place (they have no mutable fields), and all TypeValue
+// comparisons in the compiler are structural, so sharing is unobservable.
+(g_t_unit : TypeValue) = TypeValue.Unit;
+(g_t_str : TypeValue) = TypeValue.Str;
+(g_t_bool : TypeValue) = TypeValue.BoolT;
+(g_t_void : TypeValue) = TypeValue.Void;
+(g_t_i8 : TypeValue) = TypeValue.Int(u8(8), true);
+(g_t_i16 : TypeValue) = TypeValue.Int(u8(16), true);
+(g_t_i32 : TypeValue) = TypeValue.Int(u8(32), true);
+(g_t_i64 : TypeValue) = TypeValue.Int(u8(64), true);
+(g_t_u8 : TypeValue) = TypeValue.Int(u8(8), false);
+(g_t_u16 : TypeValue) = TypeValue.Int(u8(16), false);
+(g_t_u32 : TypeValue) = TypeValue.Int(u8(32), false);
+(g_t_u64 : TypeValue) = TypeValue.Int(u8(64), false);
+(g_t_f32 : TypeValue) = TypeValue.Float(u8(32));
+(g_t_f64 : TypeValue) = TypeValue.Float(u8(64));
+(g_t_usize : TypeValue) = TypeValue.Usize;
+(g_t_isize : TypeValue) = TypeValue.Isize;
+(g_t_comptime_int : TypeValue) = TypeValue.ComptimeInt;
+(g_t_comptime_float : TypeValue) = TypeValue.ComptimeFloat;
+(g_t_comptime_string : TypeValue) = TypeValue.ComptimeString;
+(g_t_type : TypeValue) = TypeValue.TypeUni(usize(0));
+(g_t_type_1 : TypeValue) = TypeValue.TypeUni(usize(1));
+(g_t_c_char : TypeValue) = TypeValue.CChar;
+(g_t_c_short : TypeValue) = TypeValue.CShort;
+(g_t_c_ushort : TypeValue) = TypeValue.CUShort;
+(g_t_c_int : TypeValue) = TypeValue.CInt;
+(g_t_c_uint : TypeValue) = TypeValue.CUInt;
+(g_t_c_long : TypeValue) = TypeValue.CLong;
+(g_t_c_ulong : TypeValue) = TypeValue.CULong;
+(g_t_c_longlong : TypeValue) = TypeValue.CLongLong;
+(g_t_c_ulonglong : TypeValue) = TypeValue.CULongLong;
+(g_t_c_longdouble : TypeValue) = TypeValue.CLongDouble;
+t_unit :: (fn() -> TypeValue)(g_t_unit);
 /// `str` — the builtin static string view (mirrors TS TypeTag.Str: a
 /// dedicated fieldless tag; impl registry keys it by id "str").
-t_str :: (fn() -> TypeValue)(.Str);
-t_bool :: (fn() -> TypeValue)(.BoolT);
-t_void :: (fn() -> TypeValue)(.Void);
-t_i8 :: (fn() -> TypeValue)(.Int(u8(8), true));
-t_i16 :: (fn() -> TypeValue)(.Int(u8(16), true));
-t_i32 :: (fn() -> TypeValue)(.Int(u8(32), true));
-t_i64 :: (fn() -> TypeValue)(.Int(u8(64), true));
-t_u8 :: (fn() -> TypeValue)(.Int(u8(8), false));
-t_u16 :: (fn() -> TypeValue)(.Int(u8(16), false));
-t_u32 :: (fn() -> TypeValue)(.Int(u8(32), false));
-t_u64 :: (fn() -> TypeValue)(.Int(u8(64), false));
-t_f32 :: (fn() -> TypeValue)(.Float(u8(32)));
-t_f64 :: (fn() -> TypeValue)(.Float(u8(64)));
-t_usize :: (fn() -> TypeValue)(.Usize);
-t_isize :: (fn() -> TypeValue)(.Isize);
-t_comptime_int :: (fn() -> TypeValue)(.ComptimeInt);
-t_comptime_float :: (fn() -> TypeValue)(.ComptimeFloat);
-t_comptime_string :: (fn() -> TypeValue)(.ComptimeString);
-t_type :: (fn() -> TypeValue)(.TypeUni(usize(0)));
+t_str :: (fn() -> TypeValue)(g_t_str);
+t_bool :: (fn() -> TypeValue)(g_t_bool);
+t_void :: (fn() -> TypeValue)(g_t_void);
+t_i8 :: (fn() -> TypeValue)(g_t_i8);
+t_i16 :: (fn() -> TypeValue)(g_t_i16);
+t_i32 :: (fn() -> TypeValue)(g_t_i32);
+t_i64 :: (fn() -> TypeValue)(g_t_i64);
+t_u8 :: (fn() -> TypeValue)(g_t_u8);
+t_u16 :: (fn() -> TypeValue)(g_t_u16);
+t_u32 :: (fn() -> TypeValue)(g_t_u32);
+t_u64 :: (fn() -> TypeValue)(g_t_u64);
+t_f32 :: (fn() -> TypeValue)(g_t_f32);
+t_f64 :: (fn() -> TypeValue)(g_t_f64);
+t_usize :: (fn() -> TypeValue)(g_t_usize);
+t_isize :: (fn() -> TypeValue)(g_t_isize);
+t_comptime_int :: (fn() -> TypeValue)(g_t_comptime_int);
+t_comptime_float :: (fn() -> TypeValue)(g_t_comptime_float);
+t_comptime_string :: (fn() -> TypeValue)(g_t_comptime_string);
+t_type :: (fn() -> TypeValue)(g_t_type);
 // TypeUni(1) — the "kind" for Module and Trait (one level above Type(0))
-t_type_1 :: (fn() -> TypeValue)(.TypeUni(usize(1)));
+t_type_1 :: (fn() -> TypeValue)(g_t_type_1);
 // C-compatible types (platform-dependent size; no compile-time arithmetic)
-t_c_char :: (fn() -> TypeValue)(.CChar);
-t_c_short :: (fn() -> TypeValue)(.CShort);
-t_c_ushort :: (fn() -> TypeValue)(.CUShort);
-t_c_int :: (fn() -> TypeValue)(.CInt);
-t_c_uint :: (fn() -> TypeValue)(.CUInt);
-t_c_long :: (fn() -> TypeValue)(.CLong);
-t_c_ulong :: (fn() -> TypeValue)(.CULong);
-t_c_longlong :: (fn() -> TypeValue)(.CLongLong);
-t_c_ulonglong :: (fn() -> TypeValue)(.CULongLong);
-t_c_longdouble :: (fn() -> TypeValue)(.CLongDouble);
-t_ptr :: (fn(pointee : TypeValue) -> TypeValue)(.Pointer(box(pointee)));
+t_c_char :: (fn() -> TypeValue)(g_t_c_char);
+t_c_short :: (fn() -> TypeValue)(g_t_c_short);
+t_c_ushort :: (fn() -> TypeValue)(g_t_c_ushort);
+t_c_int :: (fn() -> TypeValue)(g_t_c_int);
+t_c_uint :: (fn() -> TypeValue)(g_t_c_uint);
+t_c_long :: (fn() -> TypeValue)(g_t_c_long);
+t_c_ulong :: (fn() -> TypeValue)(g_t_c_ulong);
+t_c_longlong :: (fn() -> TypeValue)(g_t_c_longlong);
+t_c_ulonglong :: (fn() -> TypeValue)(g_t_c_ulonglong);
+t_c_longdouble :: (fn() -> TypeValue)(g_t_c_longdouble);
+t_ptr :: (fn(pointee : TypeValue) -> TypeValue)(.Pointer(pointee));
 t_array :: (fn(element : TypeValue, length : usize) -> TypeValue)(
-  .Array(box(element), length, String.from(""))
+  .Array(element, length, String.from(""))
 );
-/// Array type whose LENGTH is an unresolved forall variable (`Array(T, U)`
-/// with `U : usize` in a forall list). `length` is a placeholder 0; the
+/// Array type whose LENGTH is an unresolved generic variable (`Array(T, U)`
+/// with `U : usize` in a generic list). `length` is a placeholder 0; the
 /// synthesizer binds `length_var` to the concrete count during matching
 /// (mirrors TS ArrayType.length being an UnknownValue with variableName).
 t_array_var :: (fn(element : TypeValue, length_var : String) -> TypeValue)(
-  .Array(box(element), usize(0), length_var)
+  .Array(element, usize(0), length_var)
 );
 // ---------------------------------------------------------------------------
 // Convenience constructors for compound types (Phase 2b)
 // ---------------------------------------------------------------------------
-/// Create a simple function type (no forall, implicit, or where constraints).
+/// Create a simple function type (no generic, implicit, or where constraints).
 t_func_simple :: (
   fn(
     param_labels : ArrayList(String),
@@ -90,30 +129,35 @@ t_func_simple :: (
   ) -> TypeValue
 )(
   .Func(
-    ArrayList(String).new(),
     ArrayList(TypeValue).new(),
-    param_labels,
     param_types,
-    ArrayList(String).new(),
     ArrayList(TypeValue).new(),
-    ArrayList(bool).new(),
     ArrayList(TypeValue).new(),
-    box(result),
-    false,
-    // result_is_comptime_only — simple (runtime) function type
-    ArrayList(bool).new(),
-    // param_is_ref — no ref params in a synthesized type
-    ArrayList(bool).new(),
-    // param_is_owning — no own params in a synthesized type
-    false,
-    // result_is_ref
-    false,
-    // has_variadic
-    Option(String).None,
-    // is_extern — synthesized types are never FFI
-    Option(String).None,
-    // extern_name
-    false // is_control — synthesized `fn` type, not `ctl`
+    result,
+    box(
+      FuncMeta(
+        forall_labels : ArrayList(String).new(),
+        param_labels : param_labels,
+        implicit_labels : ArrayList(String).new(),
+        implicit_spreads : ArrayList(bool).new(),
+        result_is_comptime_only : false,
+        // simple (runtime) function type
+        param_is_ref : ArrayList(bool).new(),
+        // no ref params in a synthesized type
+        param_is_owning : ArrayList(bool).new(),
+        // no own params in a synthesized type
+        result_is_ref : false,
+        has_variadic : false,
+        is_extern : Option(String).None,
+        // synthesized types are never FFI
+        extern_name : Option(String).None,
+        is_control : false // synthesized `fn` type, not `ctl`
+        ,
+        variadic_label : Option(String).None,
+        variadic_comptime : false
+      )
+    ),
+    ArrayList(TypeValue).new()
   )
 );
 /// Create a trait type with associated-type names and method/field lists.
@@ -125,11 +169,11 @@ t_trait :: (
     field_types : ArrayList(TypeValue)
   ) -> TypeValue
 )(
-  .TraitT(name, assoc_names, field_labels, field_types, String.from(""), Option(Box(TypeValue)).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new())
+  .TraitT(name, assoc_names, field_labels, field_types, String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), ArrayList(String).new(), ArrayList(TypeValue).new())
 );
 /// Create a named trait type with no fields.
 t_trait_simple :: (fn(name : String) -> TypeValue)(
-  .TraitT(name, ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new(), String.from(""), Option(Box(TypeValue)).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new())
+  .TraitT(name, ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new(), String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), ArrayList(String).new(), ArrayList(TypeValue).new())
 );
 /// Create a module type with field lists.
 t_module :: (
@@ -140,7 +184,7 @@ t_module :: (
   ) -> TypeValue
 )(
   // Source-namespace STRUCT — TS has no module type (SourceNamespaceType,
-  // src/types/definitions.ts:514). plans/MODULE_AS_STRUCT_ALIGNMENT.md.
+  // src/types/definitions.ts:514). plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
   .Struct(String.from(""), name, field_labels, field_types, false, false, false, String.from(""), ArrayList(TypeValue).new(), true)
 );
 /// Create a named module type with no fields.
@@ -152,16 +196,16 @@ t_module_simple :: (fn(name : String) -> TypeValue)(
 // ---------------------------------------------------------------------------
 t_expr_t :: (fn() -> TypeValue)(.ExprT);
 t_comptime_list :: (fn(child : TypeValue) -> TypeValue)(
-  .ComptimeListT(box(child))
+  .ComptimeListT(child)
 );
 t_effects_row :: (fn(labels : ArrayList(String), types : ArrayList(TypeValue)) -> TypeValue)(
   .EffectsRowT(labels, types)
 );
 t_type_app :: (fn(constructor : TypeValue, args : ArrayList(TypeValue)) -> TypeValue)(
-  .TypeAppT(box(constructor), args)
+  .TypeAppT(constructor, args)
 );
 t_iso :: (fn(child : TypeValue) -> TypeValue)(
-  .IsoT(box(child))
+  .IsoT(child)
 );
 t_dyn :: (
   fn(
@@ -184,10 +228,11 @@ t_fn_trait :: (
     call_result : TypeValue,
     implicit_labels : ArrayList(String),
     implicit_types : ArrayList(TypeValue),
-    implicit_spreads : ArrayList(bool)
+    implicit_spreads : ArrayList(bool),
+    call_param_is_ref : ArrayList(bool)
   ) -> TypeValue
 )(
-  .FnTraitT(base_name, call_param_labels, call_param_types, box(call_result), implicit_labels, implicit_types, implicit_spreads)
+  .FnTraitT(base_name, call_param_labels, call_param_types, call_result, implicit_labels, implicit_types, implicit_spreads, call_param_is_ref)
 );
 t_fn_trait_simple :: (
   fn(
@@ -196,7 +241,7 @@ t_fn_trait_simple :: (
     call_result : TypeValue
   ) -> TypeValue
 )(
-  .FnTraitT(base_name, ArrayList(String).new(), call_param_types, box(call_result), ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new())
+  .FnTraitT(base_name, ArrayList(String).new(), call_param_types, call_result, ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new(), ArrayList(bool).new())
 );
 t_future_trait :: (
   fn(
@@ -207,10 +252,10 @@ t_future_trait :: (
     effect_spreads : ArrayList(bool)
   ) -> TypeValue
 )(
-  .FutureTraitT(base_name, box(output), effect_labels, effect_types, effect_spreads)
+  .FutureTraitT(base_name, output, effect_labels, effect_types, effect_spreads)
 );
 t_future_trait_simple :: (fn(base_name : String, output : TypeValue) -> TypeValue)(
-  .FutureTraitT(base_name, box(output), ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new())
+  .FutureTraitT(base_name, output, ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new())
 );
 /// Create an unconstrained SomeType (generic type variable).
 t_some_t :: (fn(name : String, frame_level : usize) -> TypeValue)(
@@ -218,32 +263,41 @@ t_some_t :: (fn(name : String, frame_level : usize) -> TypeValue)(
     generate_some_type_id(),
     name,
     frame_level,
-    Box(TypeValue)(.TypeUni(usize(0))),
+    .TypeUni(usize(0)),
     ArrayList(TypeValue).new(),
     ArrayList(usize).new(),
     ArrayList(TypeValue).new(),
     ArrayList(usize).new(),
     false,
-    Option(Box(TypeValue)).None
+    Option(TypeValue).None,
+    ArrayList(TypeValue).new()
   )
 );
+/// Build a resolved-concrete CELL seeded with `t` (see definitions.yo SomeT:
+/// a one-element ArrayList used as a shared mutable box).
+t_resolved_cell :: (fn(t : TypeValue) -> ArrayList(TypeValue))({
+  cell := ArrayList(TypeValue).new();
+  cell.push(t);
+  cell
+});
 /// Create a SomeType with a `kind_function_type` set — represents a
 /// higher-kinded type variable like `F : (fn(T : Type) -> Type)`.
 /// `kind` must be a `Func` TypeValue. Mirrors TS's `SomeType.kindFunctionType`
 /// path; used by `evaluate_function_parameter` when binding HKT-kinded
-/// forall params so `F(A)` can later be evaluated as a TypeApplication.
+/// generic params so `F(A)` can later be evaluated as a TypeApplication.
 t_some_t_with_kind :: (fn(name : String, frame_level : usize, kind : TypeValue) -> TypeValue)(
   .SomeT(
     generate_some_type_id(),
     name,
     frame_level,
-    Box(TypeValue)(.TypeUni(usize(0))),
+    .TypeUni(usize(0)),
     ArrayList(TypeValue).new(),
     ArrayList(usize).new(),
     ArrayList(TypeValue).new(),
     ArrayList(usize).new(),
     false,
-    Option(Box(TypeValue)).Some(box(kind))
+    Option(TypeValue).Some(kind),
+    ArrayList(TypeValue).new()
   )
 );
 // ---------------------------------------------------------------------------
@@ -297,7 +351,7 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     // Source-namespace structs keep the TModule tag (yo-self TypeTag is
     // internal; TS has no module tag at all).
     .Struct({ is_source_namespace : sns_tag }) => cond(sns_tag => TypeTag.TModule, true => TypeTag.TStruct),
-    .EnumT(_, _, _, _, _, _, _) => TypeTag.TEnum,
+    .EnumT(_, _, _, _, _, _, _, _, _) => TypeTag.TEnum,
     .Union(_, _, _) => TypeTag.TUnion,
     .TraitT(name : _) => TypeTag.TTrait,
     .SomeT(name : _) => TypeTag.TSomeType,
@@ -309,6 +363,199 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .DynT(_, _, _, _) => TypeTag.TDyn,
     .FnTraitT(base_name : _) => TypeTag.TTrait,
     .FutureTraitT(base_name : _) => TypeTag.TTrait
+  )
+);
+/// True if `visited` already holds `tok` (linear scan — the set stays small:
+/// one token per distinct named type encountered on a shell walk).
+_shell_walk_visited :: (fn(visited : ArrayList(String), tok : String) -> bool)({
+  n := visited.len();
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < n) && !(found), {
+    // Compare in place — no deep clone per probe (see _tk_seen; statement-arm
+    // shape required — the bool-valued match form miscompiles self-hosted).
+    match(
+      visited.get(i),
+      .Some(e) => if(e == tok, {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// Read-only: does `t` (transitively, over the SAME containers
+/// `_patch_self_shell` rebuilds) contain the empty self-shell `shell_id`?
+/// `visited` is a MONOTONIC set of named-type tokens (never popped — the
+/// `type_intern_key` discipline): each distinct Struct/EnumT id is descended
+/// into ONCE, so the walk terminates on the CYCLIC type graphs the compiler's
+/// own sources produce (EvalValue → … → Variable → Option(EvalValue) → …)
+/// and is linear in distinct nodes. Zero allocation on the common
+/// no-shell path — this is the guard that keeps `_patch_self_shell` from
+/// rebuilding (and formerly recursing forever into) the whole type universe
+/// for every defined field (issues/fixed/patch-self-shell-exponential-walk.md).
+_contains_self_shell :: (
+  fn(t : TypeValue, shell_id : String, visited : ArrayList(String)) -> bool
+)(
+  match(
+    t,
+    .EnumT({ id, variant_names, variant_fields }) => cond(
+      ((id == shell_id) && (variant_names.len() == usize(0))) => true,
+      true => {
+        tok := String.from("E:");
+        tok.push_string(id.clone());
+        if(_shell_walk_visited(visited, tok.clone()), {
+          return(false);
+        });
+        visited.push(tok);
+        (hit : bool) = false;
+        (vi : usize) = usize(0);
+        while((vi < variant_fields.len()) && !(hit), {
+          inner := match(variant_fields.get(vi),.Some(x) => x,.None => ArrayList(TypeValue).new());
+          (fi : usize) = usize(0);
+          while((fi < inner.len()) && !(hit), {
+            ft := match(inner.get(fi),.Some(x) => x,.None => t_unit());
+            hit = recur(ft, shell_id, visited);
+            fi = (fi + usize(1));
+          });
+          vi = (vi + usize(1));
+        });
+        hit
+      }
+    ),
+    .Struct({ id, field_types, type_arguments }) => cond(
+      ((id == shell_id) && (field_types.len() == usize(0))) => true,
+      true => {
+        tok := String.from("S:");
+        tok.push_string(id.clone());
+        if(_shell_walk_visited(visited, tok.clone()), {
+          return(false);
+        });
+        visited.push(tok);
+        (hit : bool) = false;
+        (i : usize) = usize(0);
+        while((i < field_types.len()) && !(hit), {
+          ft := match(field_types.get(i),.Some(x) => x,.None => t_unit());
+          hit = recur(ft, shell_id, visited);
+          i = (i + usize(1));
+        });
+        (j : usize) = usize(0);
+        while((j < type_arguments.len()) && !(hit), {
+          ta := match(type_arguments.get(j),.Some(x) => x,.None => t_unit());
+          hit = recur(ta, shell_id, visited);
+          j = (j + usize(1));
+        });
+        hit
+      }
+    ),
+    .Pointer(inner) => recur(inner, shell_id, visited),
+    .Array(el, _, _) => recur(el, shell_id, visited),
+    .ComptimeListT(el) => recur(el, shell_id, visited),
+    _ => false
+  )
+);
+/// Replace an empty-variant/empty-field `Self` shell (matched by id +
+/// emptiness) with `final_ty` anywhere inside `t`. One-level rebuild over
+/// the standard type containers; the inserted `final_ty` itself still
+/// carries shells one level deeper — those resolve via the enum/struct-final
+/// registries at use sites (resolve_enum_shell / resolve_struct_shell).
+/// Shared by enum.yo (recursive enums) and struct.yo (recursive structs);
+/// the `shell_id` passed at the call site is unique per type, so the
+/// enum and struct arms never cross-fire.
+///
+/// TERMINATION + PERF (issues/fixed/patch-self-shell-exponential-walk.md): the
+/// compiler's own sources produce CYCLIC type graphs (EvalValue → … →
+/// Variable → Option(EvalValue) → …), and the unguarded rebuild recursion
+/// walked them forever, allocating rebuilt collections at every level
+/// (~500 MB/s — the self-compile runaway). Now `_contains_self_shell` (cheap,
+/// read-only, cycle-guarded) gates the walk: no shell → `t` returned
+/// UNCHANGED (no rebuild, no recursion). When a shell IS present the rebuild
+/// walk itself carries the same monotonic visited-id guard: a named type
+/// already descended into is returned unchanged — any shell leaked behind a
+/// shared/cyclic node resolves at use sites via the finals registries (the
+/// documented deep-resolution path above).
+_patch_self_shell_guarded :: (
+  fn(t : TypeValue, shell_id : String, final_ty : TypeValue, visited : ArrayList(String)) -> TypeValue
+)(
+  match(
+    t,
+    .EnumT({ id, name, variant_names, variant_fields, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc }) => cond(
+      ((id == shell_id) && (variant_names.len() == usize(0))) => final_ty,
+      // Recurse into every variant field so a shell nested inside a generic
+      // enum instantiation (e.g. `Option(Self)` / `Result(Self, E)`) is patched
+      // too. Mirrors the `.Struct` branch below — EnumT has no separate
+      // type_arguments list, the instantiated element types live in the variant
+      // fields. Without this, the shell inside `Option(Self)` stays an empty
+      // placeholder and `can_type_form_rc_cycle` never reaches back to the root.
+      true => {
+        tok := String.from("E:");
+        tok.push_string(id.clone());
+        // Cycle/shared-node guard — see the doc comment above.
+        if(_shell_walk_visited(visited, tok.clone()), {
+          return(t);
+        });
+        visited.push(tok);
+        new_vfs := ArrayList(ArrayList(TypeValue)).new();
+        (vi : usize) = usize(0);
+        while(vi < variant_fields.len(), {
+          inner := match(variant_fields.get(vi),.Some(x) => x,.None => ArrayList(TypeValue).new());
+          new_inner := ArrayList(TypeValue).new();
+          (fi : usize) = usize(0);
+          while(fi < inner.len(), {
+            ft := match(inner.get(fi),.Some(x) => x,.None => t_unit());
+            new_inner.push(recur(ft, shell_id, final_ty, visited));
+            fi = (fi + usize(1));
+          });
+          new_vfs.push(new_inner);
+          vi = (vi + usize(1));
+        });
+        .EnumT(id, name, variant_names, new_vfs, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc)
+      }
+    ),
+    .Pointer(inner) =>.Pointer(recur(inner, shell_id, final_ty, visited)),
+    .Array(el, n, lv) =>.Array(recur(el, shell_id, final_ty, visited), n, lv),
+    .ComptimeListT(el) =>.ComptimeListT(recur(el, shell_id, final_ty, visited)),
+    .Struct({ id, name, field_labels, field_types, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, type_arguments, is_source_namespace }) => cond(
+      ((id == shell_id) && (field_types.len() == usize(0))) => final_ty,
+      true => {
+        tok := String.from("S:");
+        tok.push_string(id.clone());
+        // Cycle/shared-node guard — see the doc comment above.
+        if(_shell_walk_visited(visited, tok.clone()), {
+          return(t);
+        });
+        visited.push(tok);
+        new_fts := ArrayList(TypeValue).new();
+        (i : usize) = usize(0);
+        while(i < field_types.len(), {
+          ft := match(field_types.get(i),.Some(x) => x,.None => t_unit());
+          new_fts.push(recur(ft, shell_id, final_ty, visited));
+          i = (i + usize(1));
+        });
+        new_tas := ArrayList(TypeValue).new();
+        (j : usize) = usize(0);
+        while(j < type_arguments.len(), {
+          ta := match(type_arguments.get(j),.Some(x) => x,.None => t_unit());
+          new_tas.push(recur(ta, shell_id, final_ty, visited));
+          j = (j + usize(1));
+        });
+        .Struct(id, name, field_labels, new_fts, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, new_tas, is_source_namespace)
+      }
+    ),
+    _ => t
+  )
+);
+/// Public entry — the signature enum.yo/struct.yo call. Gate with the cheap
+/// read-only containment check: the overwhelmingly common case (a field type
+/// that never mentions `Self`) returns `t` UNCHANGED with zero rebuilds.
+_patch_self_shell :: (
+  fn(t : TypeValue, shell_id : String, final_ty : TypeValue) -> TypeValue
+)(
+  cond(
+    _contains_self_shell(t, shell_id.clone(), ArrayList(String).new()) =>
+      _patch_self_shell_guarded(t, shell_id, final_ty, ArrayList(String).new()),
+    true => t
   )
 );
 // Enum finalization side-table: `enum_id -> finalized EnumT`. During an
@@ -325,7 +572,7 @@ EnumFinalEntry :: struct(enum_id : String, ty : TypeValue);
 (g_enum_finals : ArrayList(EnumFinalEntry)) = ArrayList(EnumFinalEntry).new();
 register_enum_final :: (fn(enum_id : String, ty : TypeValue) -> unit)({
   if(enum_id.len() > usize(0), {
-    _ := g_enum_finals.push(EnumFinalEntry(enum_id : enum_id, ty : ty));
+    g_enum_finals.push(EnumFinalEntry(enum_id : enum_id, ty : ty));
   });
 });
 /// Resolve an empty-variant EnumT shell to its finalized form (no-op for
@@ -333,7 +580,7 @@ register_enum_final :: (fn(enum_id : String, ty : TypeValue) -> unit)({
 resolve_enum_shell :: (fn(t : TypeValue) -> TypeValue)(
   match(
     t,
-    .EnumT(eid, _, vns, _, _, _, _) => {
+    .EnumT(eid, _, vns, _, _, _, _, _, _) => {
       if(vns.len() > usize(0), {
         return(t);
       });
@@ -355,9 +602,56 @@ resolve_enum_shell :: (fn(t : TypeValue) -> TypeValue)(
     _ => t
   )
 );
+// Struct finalization side-table: `struct_id -> finalized Struct`. During a
+// struct's own definition `Self` is bound to a PRELIMINARY empty-field shell
+// (struct.yo) carrying the SAME `struct_id` as the final (UNLIKE enum.yo,
+// which uses a distinct `__self_shell` id). The shell is distinguished from
+// the final purely by its EMPTY field list, so id-based comparisons treat
+// shell and final as one type for free and only FIELD-reading sites must
+// resolve. yo-self TypeValues are value-typed snapshots, so a leaked shell
+// keeps 0 fields forever (`box.*.field` on recursive structs like Variable
+// degenerates to unit); the registry lets field-read sites swap a 0-field
+// shell for its final form BY ID — the value-semantics mirror of TS's
+// in-place object mutation.
+StructFinalEntry :: struct(struct_id : String, ty : TypeValue);
+(g_struct_finals : ArrayList(StructFinalEntry)) = ArrayList(StructFinalEntry).new();
+register_struct_final :: (fn(struct_id : String, ty : TypeValue) -> unit)({
+  if(struct_id.len() > usize(0), {
+    g_struct_finals.push(StructFinalEntry(struct_id : struct_id, ty : ty));
+  });
+});
+/// Resolve an empty-field Struct shell to its finalized form (no-op for
+/// non-structs, populated structs, and unknown ids).
+resolve_struct_shell :: (fn(t : TypeValue) -> TypeValue)(
+  match(
+    t,
+    .Struct({ id : sid, field_types : fts }) => {
+      if(fts.len() > usize(0), {
+        return(t);
+      });
+      (i : usize) = usize(0);
+      n := g_struct_finals.len();
+      (r : Option(TypeValue)) = Option(TypeValue).None;
+      while((i < n) && r.is_none(), {
+        match(
+          g_struct_finals.get(i),
+          .Some(e) => if(e.struct_id == sid, {
+            r = Option(TypeValue).Some(e.ty);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      match(r,.Some(f) => f,.None => t)
+    },
+    _ => t
+  )
+);
 
-export(register_enum_final, resolve_enum_shell);
+export(register_enum_final, resolve_enum_shell, _patch_self_shell);
+export(register_struct_final, resolve_struct_shell);
 export(
+  t_resolved_cell,
   generate_some_type_id,
   t_unit,
   t_str,

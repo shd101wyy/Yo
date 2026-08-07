@@ -3,7 +3,7 @@
 //! Phase 3 implementation. 1:1 port of `src/evaluator/builtins/derive.ts`.
 //!
 //! Supports:
-//!   derive([forall(...)], [where(...)], TargetType, [where(...)], Trait1, Trait2, ...)
+//!   derive([generic(...)], [where(...)], TargetType, [where(...)], Trait1, Trait2, ...)
 //!
 //! Key difference from TypeScript: we use the global g_derive_rules registry
 //! (from derive_rule.yo) instead of deriveRule fields on FunctionValue/TraitType.
@@ -17,20 +17,23 @@ open(import("std/string"));
   ast_expr_id,
   ast_expr_is_fn_call_of,
   make_err_expr,
-  BK_FORALL,
+  BK_GENERIC,
   BK_WHERE
 } :: import("../../expr.yo");
 {
   Environment,
-  Variable,
   add_variable_to_env,
-  synthetic_token
+  synthetic_token,
+  push_env_frame,
+  pop_env_frame,
+  get_variables_from_env,
+  generate_variable_id
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_type } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_expr_t, t_comptime_list } :: import("../../types/creators.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
-{ EvalValue, create_unknown_val_with_name } :: import("../../value.yo");
-{ EvalContext, FuncOrAsyncBlockCtx } :: import("../context.yo");
+{ EvalValue, create_unknown_val_with_name, value_to_string } :: import("../../value.yo");
+{ EvalContext } :: import("../context.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -39,9 +42,7 @@ open(import("std/string"));
 } :: import("../../expr_info.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
-{ evaluate_begin_expression } :: import("../exprs/begin.yo");
-{ extract_derive_key, get_derive_rule } :: import("./derive_rule.yo");
-{ random_id } :: import("../../utils.yo");
+{ extract_derive_key, get_derive_rule, get_derive_rule_type } :: import("./derive_rule.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // call_registered_derive_rule
@@ -54,9 +55,77 @@ open(import("std/string"));
 // Returns the env after evaluating the generated impl expression.
 // Mirrors `callRegisteredDeriveRule` in `src/evaluator/builtins/derive.ts`.
 // ---------------------------------------------------------------------------
+// Bind a comptime-only variable (mirrors TS `addComptimeVar`:
+// isCompileTimeOnly=true, isOwningTheRcValue=false).
+add_comptime_var :: (
+  fn(env : Environment, name : String, ty : TypeValue, value : EvalValue) -> unit
+)({
+  _r := add_variable_to_env(
+    env,
+    name.clone(),
+    ty,
+    Option(EvalValue).Some(value),
+    true,
+    false,
+    false,
+    false,
+    synthetic_token(name, env.module_path)
+  );
+  ()
+});
+// Build + bind an `Option(Expr)` comptime var for a generic/where argument and
+// return its variable name. Evaluates a generated `((tmp : Option(Expr)) =
+// .Some(inner))` / `.None` so the bound value carries the real Option(Expr)
+// type (mirrors TS callRegisteredDeriveRule step 4).
+_derive_bind_opt :: (
+  fn(
+    env : Environment,
+    prefix : String,
+    arg_opt : Option(AstExpr),
+    ctx : EvalContext,
+    exn : Exception
+  ) -> String
+)({
+  var_name := `__derive_opt_${generate_variable_id(env.module_path, prefix.clone())}`;
+  tmp := `__derive_optT_${generate_variable_id(env.module_path, prefix.clone())}`;
+  opt_code := match(
+    arg_opt,
+    .Some(ae) => {
+      inner_var := `__derive_optI_${generate_variable_id(env.module_path, prefix.clone())}`;
+      add_comptime_var(env, inner_var.clone(), t_expr_t(), EvalValue.ExprVal(ae.clone()));
+      `((${tmp} : Option(Expr)) = .Some(${inner_var}))`
+    },
+    .None => `((${tmp} : Option(Expr)) = .None)`
+  );
+  _e := evaluate_expression(generate_expr_from_code(opt_code, exn), env, ctx);
+  tmp_vars := get_variables_from_env(env, tmp.clone());
+  match(
+    tmp_vars.get(tmp_vars.len() - usize(1)),
+    .Some(v) => match(
+      v.value.get(usize(0)),
+      .Some(ov) => add_comptime_var(env, var_name.clone(), v.ty, ov),
+      .None => ()
+    ),
+    .None => ()
+  );
+  var_name
+});
+// ---------------------------------------------------------------------------
+// call_registered_derive_rule
+//
+// Faithful 1:1 port of `callRegisteredDeriveRule` in
+// `src/evaluator/builtins/derive.ts`: bind the target type, rule fn, target
+// Expr, generic/where options, DeriveContext value and trait-params list as
+// comptime vars on a pushed temp frame, then evaluate a GENERATED call
+// `ruleFn(type, ctx, tps)` (so the rule runs through the normal call path with
+// correct RC — the previous hand-rolled FuncVal-call replication over-released
+// arg ExprInfos, see issues/retired/yo-self-stage2-unwind-check-coverage.md). The
+// returned Expr is the impl; evaluate it in the caller env and return that env.
+// ---------------------------------------------------------------------------
 call_registered_derive_rule :: (
   fn(
     derive_rule_val : EvalValue,
+    derive_rule_ty : TypeValue,
     target_type : TypeValue,
     target_type_expr : AstExpr,
     forall_arg_opt : Option(AstExpr),
@@ -68,41 +137,8 @@ call_registered_derive_rule :: (
   ) -> Environment
 )({
   tok := ast_expr_token(trait_arg_expr);
-  // Build the DeriveContext StructVal.
-  // target field: ExprVal wrapping the target type expression.
-  target_ev := EvalValue.ExprVal(box(target_type_expr));
-  // forall_params field: Option(Expr) → EnumVal.
-  forall_inner := ArrayList(EvalValue).new();
-  forall_pms_ev := match(
-    forall_arg_opt,
-    .Some(forall_expr) => {
-      forall_inner.push(EvalValue.ExprVal(box(forall_expr)));
-      EvalValue.EnumVal(String.from(".Some"), forall_inner)
-    },
-    .None => EvalValue.EnumVal(String.from(".None"), ArrayList(EvalValue).new())
-  );
-  // where_clause field: Option(Expr) → EnumVal.
-  where_inner := ArrayList(EvalValue).new();
-  where_pms_ev := match(
-    where_arg_opt,
-    .Some(where_expr) => {
-      where_inner.push(EvalValue.ExprVal(box(where_expr)));
-      EvalValue.EnumVal(String.from(".Some"), where_inner)
-    },
-    .None => EvalValue.EnumVal(String.from(".None"), ArrayList(EvalValue).new())
-  );
-  // Build DeriveContext StructVal.
-  dc_field_names := ArrayList(String).new();
-  dc_field_names.push(String.from("target"));
-  dc_field_names.push(String.from("forall_params"));
-  dc_field_names.push(String.from("where_clause"));
-  dc_field_vals := ArrayList(EvalValue).new();
-  dc_field_vals.push(target_ev);
-  dc_field_vals.push(forall_pms_ev);
-  dc_field_vals.push(where_pms_ev);
-  dc_ev := EvalValue.StructVal(String.from("DeriveContext"), dc_field_names, dc_field_vals);
-  // Build trait_params: ComptimeListVal of ExprVals extracted from trait arg.
-  trait_param_evs := ArrayList(EvalValue).new();
+  // Extract trait params (raw exprs) from the trait-arg call.
+  trait_params := ArrayList(AstExpr).new();
   match(
     trait_arg_expr,
     .FnCall(_, _, ta_args, _, _) => {
@@ -111,7 +147,7 @@ call_registered_derive_rule :: (
         match(
           ta_args.get(ti),
           .Some(ta) => {
-            trait_param_evs.push(EvalValue.ExprVal(box(ta)));
+            trait_params.push(ta);
           },
           .None => ()
         );
@@ -120,260 +156,111 @@ call_registered_derive_rule :: (
     },
     .Atom(_, _) => ()
   );
-  trait_params_ev := EvalValue.ComptimeListVal(trait_param_evs);
-  // Now replicate the FuncVal call pattern from function.yo.
-  result_env := match(
-    derive_rule_val,
-    .FuncVal(
-      forall_names,
-      param_names,
-      param_type_names,
-      evidence_names,
-      body_box,
-      cap_names,
-      cap_tys,
-      cap_vals,
-      _func_id
-    ) => {
-      n_p := param_names.len();
-      n_ev := evidence_names.len();
-      // Build evaled_arg_infos with 3 pre-constructed entries.
-      evaled_arg_infos := ArrayList(ExprInfo).new();
-      arg0 := new_expr_info(caller_env, t_type());
-      arg0.value = Option(EvalValue).Some(EvalValue.TypeVal(box(target_type.clone())));
-      evaled_arg_infos.push(arg0);
-      // The ctx/trait_params arg ExprInfos must carry their DECLARED types
-      // (DeriveContext / ComptimeList(Expr)) — NOT t_unit(). The param
-      // binding below uses `arg_inf.ty` as the bound variable's type, and
-      // `ctx.make_impl(...)` resolves `make_impl` by the receiver type's id
-      // (env.yo get_receiver_methods); a `unit`-typed `ctx` finds no method.
-      // Evaluate the type exprs to get the SAME ids the `impl(DeriveContext,
-      // …)` registration used. Mirrors TS evaluating `DeriveContext(...)` to
-      // obtain the real type (derive.ts:608-625).
-      dc_type := match(
-        expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluate_expression(generate_expr_from_code(String.from("DeriveContext").clone(), exn), caller_env, ctx))),
-        .Some(i) => match(i.value,.Some(v) => match(v,.TypeVal(t) => t.*, _ => t_unit()),.None => t_unit()),
-        .None => t_unit()
-      );
-      tps_type := match(
-        expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluate_expression(generate_expr_from_code(String.from("ComptimeList(Expr)").clone(), exn), caller_env, ctx))),
-        .Some(i) => match(i.value,.Some(v) => match(v,.TypeVal(t) => t.*, _ => t_unit()),.None => t_unit()),
-        .None => t_unit()
-      );
-      arg1 := new_expr_info(caller_env, dc_type);
-      arg1.value = Option(EvalValue).Some(dc_ev);
-      evaled_arg_infos.push(arg1);
-      arg2 := new_expr_info(caller_env, tps_type);
-      arg2.value = Option(EvalValue).Some(trait_params_ev);
-      evaled_arg_infos.push(arg2);
-      // Build a fresh environment for the function body.
-      fresh_env := Environment.new(caller_env.module_path);
-      // Bind captures.
-      (cap_i : usize) = usize(0);
-      n_cap := cap_names.len();
-      while(cap_i < n_cap, {
-        cn := match(cap_names.get(cap_i),.Some(n) => n,.None => String.from(""));
-        ct := match(cap_tys.get(cap_i),.Some(t) => t,.None => t_unit());
-        cap_v := match(
-          cap_vals.get(cap_i),
-          .Some(v) => Option(EvalValue).Some(v),
-          .None => Option(EvalValue).None
-        );
-        is_ct_only := match(cap_v,.Some(_) => true,.None => false);
-        _add_cap := add_variable_to_env(
-          fresh_env,
-          cn,
-          ct,
-          cap_v,
-          is_ct_only,
-          false,
-          false,
-          false,
-          synthetic_token(cn, caller_env.module_path)
-        );
-        cap_i = (cap_i + usize(1));
-      });
-      // Push frame and bind __recur_fn.
-      _fr := fresh_env.push_frame(false);
-      fv_for_recur := EvalValue.FuncVal(
-        forall_names,
-        param_names,
-        param_type_names,
-        evidence_names,
-        body_box,
-        cap_names,
-        cap_tys,
-        cap_vals,
-        random_id(caller_env.module_path)
-      );
-      _add_recur := add_variable_to_env(
-        fresh_env,
-        String.from("__recur_fn"),
-        t_unit(),
-        Option(EvalValue).Some(fv_for_recur),
-        true,
-        false,
-        false,
-        false,
-        synthetic_token(String.from("__recur_fn"), caller_env.module_path)
-      );
-      // Infer forall type params from argument types.
-      n_forall := forall_names.len();
-      (fa_i : usize) = usize(0);
-      while(fa_i < n_forall, {
-        fa_name := match(forall_names.get(fa_i),.Some(n) => n,.None => String.from(""));
-        n_ptn := param_type_names.len();
-        (ptn_i : usize) = usize(0);
-        (fa_bound : bool) = false;
-        while((ptn_i < n_ptn) && (!(fa_bound)), {
-          ptn := match(param_type_names.get(ptn_i),.Some(n) => n,.None => String.from(""));
-          if(ptn == fa_name, {
-            arg_inf := match(
-              evaled_arg_infos.get(ptn_i),
-              .Some(i) => i,
-              .None => new_expr_info(caller_env, t_unit())
-            );
-            _add_forall := add_variable_to_env(
-              fresh_env,
-              fa_name,
-              TypeValue.TypeUni(usize(0)),
-              Option(EvalValue).Some(EvalValue.TypeVal(box(arg_inf.ty))),
-              true,
-              false,
-              false,
-              false,
-              synthetic_token(fa_name, caller_env.module_path)
-            );
-            fa_bound = true;
-          });
-          ptn_i = (ptn_i + usize(1));
-        });
-        fa_i = (fa_i + usize(1));
-      });
-      // Bind regular params.
-      (pi : usize) = usize(0);
-      while(pi < n_p, {
-        pname := match(param_names.get(pi),.Some(n) => n,.None => String.from(""));
-        arg_inf := match(evaled_arg_infos.get(pi),.Some(i) => i,.None => new_expr_info(caller_env, t_unit()));
-        is_ct := match(arg_inf.value,.Some(_) => true,.None => false);
-        _add_p := add_variable_to_env(
-          fresh_env,
-          pname,
-          arg_inf.ty,
-          arg_inf.value,
-          is_ct,
-          false,
-          false,
-          false,
-          synthetic_token(pname, caller_env.module_path)
-        );
-        pi = (pi + usize(1));
-      });
-      // Bind evidence params.
-      (evi : usize) = usize(0);
-      while(evi < n_ev, {
-        ev_name := match(evidence_names.get(evi),.Some(n) => n,.None => String.from(""));
-        ev_inf := match(evaled_arg_infos.get(n_p + evi),.Some(i) => i,.None => new_expr_info(caller_env, t_unit()));
-        is_ct_ev := match(ev_inf.value,.Some(_) => true,.None => false);
-        _add_ev := add_variable_to_env(
-          fresh_env,
-          ev_name,
-          ev_inf.ty,
-          ev_inf.value,
-          is_ct_ev,
-          false,
-          false,
-          true,
-          synthetic_token(ev_name, caller_env.module_path)
-        );
-        evi = (evi + usize(1));
-      });
-      // Set function body context.
-      old_fn_ctx := ctx.is_evaluating_function_body_or_async_block;
-      old_ret_ty := ctx.enclosing_function_return_type;
-      fn_ctx := FuncOrAsyncBlockCtx(
-        kind :.FunctionBody,
-        func_type : Option(TypeValue).None,
-        func_value : Option(EvalValue).Some(derive_rule_val),
-        eval_env : fresh_env
-      );
-      ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(fn_ctx);
-      ctx.enclosing_function_return_type = Option(TypeValue).Some(t_unit());
-      // Evaluate the function body.
-      evaled_body := evaluate_begin_expression(
-        body_box.*,
-        fresh_env,
-        ctx,
-        ArrayList(Variable).new(),
-        true,
-        exn
-      );
-      ctx.is_evaluating_function_body_or_async_block = old_fn_ctx;
-      ctx.enclosing_function_return_type = old_ret_ty;
-      body_info := match(
-        expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_body)),
-        .Some(i) => i,
-        .None => new_expr_info(caller_env, t_unit())
-      );
-      // Extract the ExprVal from the body result.
-      body_val := match(
-        body_info.value,
-        .Some(v) => v,
-        .None => {
-          exn.throw(
-            dyn(
-              format_error_message(
-                tok,
-                String.from("derive: derive rule returned no value"),
-                false,
-                .None
-              )
-            )
-          );
-          EvalValue.UnitVal
-        }
-      );
-      result_expr := match(
-        body_val,
-        .ExprVal(expr_box) => expr_box.*,
-        _ => {
-          exn.throw(
-            dyn(
-              format_error_message(
-                tok,
-                String.from("derive: derive rule must return(comptime(Expr))"),
-                false,
-                .None
-              )
-            )
-          );
-          make_err_expr()
-        }
-      );
-      // Evaluate the returned Expr in caller_env.
-      evaled_result := evaluate_expression(result_expr, caller_env, ctx);
-      result_info := match(
-        expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_result)),
-        .Some(i) => i,
-        .None => new_expr_info(caller_env, t_unit())
-      );
-      result_info.env
-    },
-    _ => {
-      exn.throw(
-        dyn(
-          format_error_message(
-            tok,
-            String.from("derive: registered derive rule is not a function"),
-            false,
-            .None
-          )
-        )
-      );
-      caller_env
+  // Push a temp frame; all bindings below are comptime vars on it.
+  _pf := push_env_frame(caller_env, false);
+  // The DeriveContext / comptime_list / rule-call evaluations below must
+  // resolve the comptime bindings (TS passes `forceCompileTimeBindings: true`).
+  old_force_ct := ctx.force_compile_time_bindings;
+  ctx.force_compile_time_bindings = true;
+  // 1. target type.
+  type_var := `__derive_T_${generate_variable_id(caller_env.module_path, String.from("dT"))}`;
+  add_comptime_var(caller_env, type_var.clone(), t_type(), EvalValue.TypeVal(target_type.clone()));
+  // 2. rule fn (bound by VALUE; the declared type is irrelevant to the call).
+  rule_fn_name := `__derive_rule_${generate_variable_id(caller_env.module_path, String.from("dr"))}`;
+  add_comptime_var(caller_env, rule_fn_name.clone(), derive_rule_ty, derive_rule_val);
+  // 3. target Expr value.
+  target_expr_var := `__derive_te_${generate_variable_id(caller_env.module_path, String.from("dte"))}`;
+  add_comptime_var(caller_env, target_expr_var.clone(), t_expr_t(), EvalValue.ExprVal(target_type_expr.clone()));
+  // 4. forall_params / where_clause as Option(Expr).
+  forall_expr_var := _derive_bind_opt(caller_env, String.from("dfp"), forall_arg_opt, ctx, exn);
+  where_expr_var := _derive_bind_opt(caller_env, String.from("dwp"), where_arg_opt, ctx, exn);
+  // 5. DeriveContext(target, generic, where) — evaluated so it carries the
+  //    registered DeriveContext type (its id gates `ctx.make_impl` resolution).
+  ctx_var := `__derive_ctx_${generate_variable_id(caller_env.module_path, String.from("dctx"))}`;
+  ctx_code := `DeriveContext(${target_expr_var}, ${forall_expr_var}, ${where_expr_var})`;
+  ctx_result := evaluate_expression(generate_expr_from_code(ctx_code, exn), caller_env, ctx);
+  ctx_info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(ctx_result)),
+    .Some(i) => i,
+    .None => new_expr_info(caller_env, t_unit())
+  );
+  ctx_val := match(
+    ctx_info.value,
+    .Some(v) => v,
+    .None => {
+      exn.throw(dyn(format_error_message(tok, String.from("derive: failed to create DeriveContext"), false,.None)));
+      EvalValue.UnitVal
     }
   );
-  result_env
+  add_comptime_var(caller_env, ctx_var.clone(), ctx_info.ty, ctx_val);
+  // 6. trait_params as ComptimeList(Expr).
+  tps_var := `__derive_tps_${generate_variable_id(caller_env.module_path, String.from("dtps"))}`;
+  if(trait_params.len() > usize(0), {
+    param_names := ArrayList(String).new();
+    (tpi : usize) = usize(0);
+    while(tpi < trait_params.len(), {
+      pv := `__derive_tp_${generate_variable_id(caller_env.module_path, String.from("dtp"))}`;
+      pexpr := match(trait_params.get(tpi),.Some(p) => p,.None => make_err_expr());
+      add_comptime_var(caller_env, pv.clone(), t_expr_t(), EvalValue.ExprVal(pexpr.clone()));
+      param_names.push(pv);
+      tpi = (tpi + usize(1));
+    });
+    joined := String.from("");
+    (ji : usize) = usize(0);
+    while(ji < param_names.len(), {
+      if(ji > usize(0), {
+        joined = (joined + String.from(", "));
+      });
+      joined = (joined + match(param_names.get(ji),.Some(n) => n,.None => String.from("")));
+      ji = (ji + usize(1));
+    });
+    list_code := `comptime_list(${joined})`;
+    list_result := evaluate_expression(generate_expr_from_code(list_code, exn), caller_env, ctx);
+    list_info := match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(list_result)),
+      .Some(i) => i,
+      .None => new_expr_info(caller_env, t_unit())
+    );
+    list_val := match(list_info.value,.Some(v) => v,.None => EvalValue.ComptimeListVal(ArrayList(EvalValue).new()));
+    add_comptime_var(caller_env, tps_var.clone(), list_info.ty, list_val);
+  }, {
+    add_comptime_var(caller_env, tps_var.clone(), t_comptime_list(t_expr_t()), EvalValue.ComptimeListVal(ArrayList(EvalValue).new()));
+  });
+  // 7. Call the rule via a generated call expression.
+  call_code := `${rule_fn_name}(${type_var}, ${ctx_var}, ${tps_var})`;
+  call_result := evaluate_expression(generate_expr_from_code(call_code, exn), caller_env, ctx);
+  call_info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(call_result)),
+    .Some(i) => i,
+    .None => new_expr_info(caller_env, t_unit())
+  );
+  call_val := match(
+    call_info.value,
+    .Some(v) => v,
+    .None => {
+      exn.throw(dyn(format_error_message(tok, String.from("derive: derive rule function failed"), false,.None)));
+      EvalValue.UnitVal
+    }
+  );
+  result_expr := match(
+    call_val,
+    .ExprVal(e) => e,
+    _ => {
+      exn.throw(dyn(format_error_message(tok, `derive: derive rule must return(comptime(Expr)); got ${value_to_string(call_val)}`, false,.None)));
+      make_err_expr()
+    }
+  );
+  // Pop the temp frame, then evaluate the returned impl Expr in the caller env
+  // (TS uses `forceCompileTimeBindings: false` for this final evaluation).
+  ctx.force_compile_time_bindings = old_force_ct;
+  pop_env_frame(caller_env);
+  evaled_result := evaluate_expression(result_expr, caller_env, ctx);
+  result_info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_result)),
+    .Some(i) => i,
+    .None => new_expr_info(caller_env, t_unit())
+  );
+  result_info.env
 });
 // ---------------------------------------------------------------------------
 // process_trait_arg
@@ -432,9 +319,12 @@ process_trait_arg :: (
       EvalValue.UnitVal
     }
   );
+  // Look up the rule's Func type (needed to bind the rule fn callably).
+  derive_rule_ty := match(get_derive_rule_type(key.clone()),.Some(t) => t,.None => t_unit());
   // Call the registered derive rule.
   call_registered_derive_rule(
     derive_rule_val,
+    derive_rule_ty,
     target_type,
     target_type_expr,
     forall_arg_opt,
@@ -450,7 +340,7 @@ process_trait_arg :: (
 //
 // Entry point for `derive(Type, Trait1, Trait2, ...)`.
 // Argument layout:
-//   derive([forall(...)], [where(...)], TargetType, [where(...)], Trait1, Trait2, ...)
+//   derive([generic(...)], [where(...)], TargetType, [where(...)], Trait1, Trait2, ...)
 // Mirrors `evaluateDerive` in `src/evaluator/builtins/derive.ts`.
 // ---------------------------------------------------------------------------
 evaluate_derive :: (
@@ -490,16 +380,16 @@ evaluate_derive :: (
   (arg_idx : usize) = usize(0);
   (forall_arg_opt : Option(AstExpr)) = Option(AstExpr).None;
   (where_arg_opt : Option(AstExpr)) = Option(AstExpr).None;
-  // Check for optional forall(...).
+  // Check for optional generic(...).
   is_forall := match(
     args.get(arg_idx),
-    .Some(a) => ast_expr_is_fn_call_of(a, BK_FORALL,.None),
+    .Some(a) => ast_expr_is_fn_call_of(a, BK_GENERIC,.None),
     .None => false
   );
   if(is_forall, {
     forall_arg_opt = match(args.get(arg_idx),.Some(a) => Option(AstExpr).Some(a),.None => Option(AstExpr).None);
     arg_idx = (arg_idx + usize(1));
-    // Introduce forall type variables into env so that target type expressions
+    // Introduce generic type variables into env so that target type expressions
     // like Pair(T) can be evaluated.
     forall_expr := match(forall_arg_opt,.Some(fa) => fa,.None => make_err_expr());
     forall_params := match(
@@ -516,7 +406,7 @@ evaluate_derive :: (
         fp,
         .Atom(_, ftok) => ftok.value,
         .FnCall(_, func_b, fa2, _, _) => match(
-          func_b.*,
+          func_b,
           .Atom(_, op_tok) => cond(
             (op_tok.value == ":") => match(
               fa2.get(usize(0)),
@@ -602,7 +492,7 @@ evaluate_derive :: (
     target_info.value,
     .Some(tv) => match(
       tv,
-      .TypeVal(ty_box) => ty_box.*,
+      .TypeVal(ty_box) => ty_box,
       _ => {
         exn.throw(
           dyn(
@@ -635,7 +525,7 @@ evaluate_derive :: (
   match(
     target_type,
     .Struct({ id : _ }) => (),
-    .EnumT(_, _, _, _, _, _, _) => (),
+    .EnumT(_, _, _, _, _, _, _, _, _) => (),
     _ => {
       exn.throw(
         dyn(
@@ -650,7 +540,7 @@ evaluate_derive :: (
     }
   );
   arg_idx = (arg_idx + usize(1));
-  // Check for optional where(...) after target type (only when forall is present).
+  // Check for optional where(...) after target type (only when generic is present).
   is_where_post := match(
     args.get(arg_idx),
     .Some(a) => ast_expr_is_fn_call_of(a, BK_WHERE,.None),
@@ -662,7 +552,7 @@ evaluate_derive :: (
     });
     arg_idx = (arg_idx + usize(1));
   });
-  // Pop the forall frame before processing trait args.
+  // Pop the generic frame before processing trait args.
   if(forall_arg_opt.is_some(), {
     env.pop_frame();
   });

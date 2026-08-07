@@ -1,0 +1,44 @@
+/// Tests for format_yo_source (formatter.yo) — the source formatter had no
+/// dedicated test (only the indirect scripts/validate-yo-self-fmt.ts sweep).
+/// Pin the cheap invariants: idempotency (format(format(x)) == format(x)),
+/// stability of already-formatted input, and comment preservation.
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/error"));
+{ format_yo_source } :: import("../../yo-self/formatter.yo");
+{ assert, panic } :: import("std/assert");
+_fmt :: (fn(src : String) -> String)({
+  exn := Exception(
+    throw : (
+      (_err) -> {
+        assert(false, "formatter threw");
+        unwind(String.new());
+      }
+    )
+  );
+  format_yo_source(src, `<formatter-test>`, exn)
+});
+test("format_yo_source: empty input", {
+  assert(_fmt(String.from("")) == "", "empty stays empty");
+});
+test("format_yo_source: idempotent on a simple function", {
+  src := String.from("f :: (fn(x : i32) -> i32)((x + 1));\nexport(f);\n");
+  once := _fmt(src.clone());
+  twice := _fmt(once.clone());
+  assert(once == twice, "format is idempotent");
+});
+test("format_yo_source: already-formatted source is stable", {
+  src := String.from("x := 1;\n");
+  assert(_fmt(src.clone()) == src, "canonical form unchanged");
+});
+test("format_yo_source: preserves comments", {
+  src := String.from("// keep me\nx := 1;\n");
+  out := _fmt(src.clone());
+  assert(out.contains(`// keep me`), "line comment preserved");
+});
+test("format_yo_source: idempotent on nested calls and match", {
+  src := String.from("g :: (fn(o : Option(i32)) -> i32)(match(o, .Some(v) => v, .None => 0));\nexport(g);\n");
+  once := _fmt(src.clone());
+  twice := _fmt(once.clone());
+  assert(once == twice, "nested form idempotent");
+});

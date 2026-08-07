@@ -7,9 +7,10 @@
 //!
 //! NOTE: TS `evaluateUnwind` does NOT itself check that we are in a `given`
 //! handler — that constraint is enforced at the FunctionValue-creation sites
-//! (anonymous-function.ts / function-type.ts) which yo-self has not yet ported.
-//! The `ctx.is_inside_given_handler` gate below is a yo-self COMPENSATING
-//! control standing in for those unported checks; it is intentionally kept.
+//! (anonymous-function.ts / function-type.ts), which yo-self DOES port (the §4
+//! rule-1 post-eval gate keyed on `is_control`). So this evaluator does NOT gate
+//! on `ctx.is_inside_given_handler` (a former yo-self compensating control that
+//! wrongly threw during definition-time body eval of plain-`:=` handlers).
 open(import("std/string"));
 open(import("std/fmt"));
 {
@@ -96,19 +97,15 @@ evaluate_unwind :: (
       )
     );
   });
-  // Must be inside a `given` handler (yo-self compensating control; see header).
-  if(!(ctx.is_inside_given_handler), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(expr),
-          String.from("`unwind` can only be used inside a `given` handler definition."),
-          false,
-          .None
-        )
-      )
-    );
-  });
+  // (No `is_inside_given_handler` gate — matches TS `evaluateUnwind` (unwind.ts:20-32),
+  // which only checks for an enclosing function. TS enforces "unwind is valid only in a
+  // `ctl(...)` body" at the FunctionValue CREATION site, which yo-self ALSO ports: the §4
+  // rule-1 post-eval gate keyed on `is_control` (anonymous_function.yo:999 /
+  // function_type.yo). The old compensating gate threw during DEFINITION-TIME body eval of a
+  // plain `exn := Exception(throw : (err) -> unwind(...))` handler — where
+  // `is_inside_given_handler` is false (only set for `given(exn) :=`) — aborting before the
+  // `unwind` expr's ExprInfo was stamped, so codegen emitted "// Failed to transpile
+  // unwind(...)".)
   // No-argument form `unwind()` — type unit (mirrors unwind.ts:42-68).
   if(n_args == usize(0), {
     if(!(is_some_type(enclosing_ret)) && !(are_types_compatible(t_unit(), enclosing_ret)), {

@@ -1,0 +1,33 @@
+// Regression: two DIFFERENT generic declarations with IDENTICAL field layouts
+// (DequeIter(T) vs DequeIterPtr(T), both {_deque,_pos,_remaining}) must stay
+// DISTINCT under exact type comparison. Instantiation copies carry empty
+// names, fresh sids, and equal type_arguments ([i32] vs [i32]), so only the
+// stamped constructor_func_id separates them; without the cfid nominal rule
+// the shared Iterator-trait DEFAULT `into_iter : Self -> Self` served ONE
+// spec for both receivers ("passing __yo_t32 to parameter of __yo_t28" —
+// the collections identity-split family). The batch-dispatch shape below is
+// REQUIRED (both arms analysis-evaluated in one pass); a direct-call version
+// is green. See issues/yo-self-collections-batch-residuals.md.
+pragma(Pragma.AllowUnsafe);
+_(assert : assert) :: import("std/assert");
+open(import("std/collections/deque"));
+open(import("std/string"));
+();
+__yo_batch_env :: import("std/env");
+main :: (fn() -> unit)({
+  io :: __yo_builtin_io;
+  match(
+    __yo_batch_env.env.get(`YO_TEST_INDEX`),
+    .Some(__yo_test_idx) => cond(
+      (__yo_test_idx == `34`) => {
+        begin(d := (Deque(i32).new)(), (d.push_back)(i32(99)), (d.push_back)(i32(99)), (d.pop_front)(), (d.pop_front)(), (d.push_back)(i32(1)), (d.push_back)(i32(2)), (d.push_back)(i32(3)), sum := i32(0), for((d.into_iter)(), x => begin(sum = (sum + x), ())), assert(sum == i32(6)), ());
+      },
+      (__yo_test_idx == `37`) => {
+        begin(d := (Deque(i32).new)(), (d.push_back)(i32(1)), (d.push_back)(i32(2)), (d.push_back)(i32(3)), for((d.iter)(), ptr => begin((ptr.*) = ((ptr.*) * i32(10)), ())), assert(d(usize(0)) == i32(10)), assert(d(usize(1)) == i32(20)), assert(d(usize(2)) == i32(30)), ());
+      },
+      true => ()
+    ),
+    .None => ()
+  );
+});
+export(main);

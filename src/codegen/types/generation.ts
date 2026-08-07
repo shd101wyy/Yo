@@ -144,6 +144,7 @@ typedef enum {
 
 // GC flags
 #define __YO_GC_TRACKED              0x01  // Object is tracked by GC (might participate in cycles)
+#define __YO_GC_BUFFERED             0x02  // Object is in the possible-roots buffer (Bacon-Rajan candidate)
 `);
 
   // Thread synchronization — emit only target-specific types and macros
@@ -409,12 +410,18 @@ typedef struct __yo_thread_gc_state __yo_thread_gc_state_t;
     context.emitter.emitDeclarationLine(`
 // Reference counting header - non-atomic RC with cycle collection support
 typedef struct __yo_ref_header_t {
-  size_t ref_count;
+  // Packed into one 8-byte word (P2 memory): ref_count u32 (4B refs is far more
+  // than addressable memory can hold), gc_mark/gc_flags as bytes, borrow_count u16.
+  // Shrinks the header 64 -> 56 B, saving ~8 B on every RC object (~40M in the
+  // self-compile ⇒ ~0.3 GB). gc_mark holds __yo_gc_mark_t values 0..4.
+  uint32_t ref_count;
   uint8_t gc_flags;
+  uint8_t gc_mark;
   uint16_t borrow_count;  // Law-of-Exclusivity flag: # of live interior refs into this object
-  __yo_gc_mark_t gc_mark;
   struct __yo_ref_header_t* gc_next;
   struct __yo_ref_header_t* gc_prev;
+  struct __yo_ref_header_t* roots_next;  // Bacon-Rajan possible-roots intrusive list (O(1) unlink at free)
+  struct __yo_ref_header_t* roots_prev;
   void (*dispose_fn)(void*);
   void (*traverse_fn)(void*, void (*visit)(void*));
 } __yo_ref_header_t;
@@ -425,6 +432,11 @@ struct __yo_thread_gc_state {
   size_t tracked_count;
   size_t thread_id;
   size_t alloc_count;
+  __yo_ref_header_t* possible_roots;   // Bacon-Rajan: head of the possible-roots list (objects decremented to non-zero)
+  size_t possible_roots_count;         // length of possible_roots (collection trigger)
+  __yo_ref_header_t** gc_white;        // scratch buffer: white (garbage) objects gathered during a collection
+  size_t gc_white_count;
+  size_t gc_white_cap;
   __yo_thread_gc_state_t* next;
   __yo_thread_gc_state_t* prev;
 };`);
@@ -433,7 +445,7 @@ struct __yo_thread_gc_state {
 // Lightweight reference counting header — no cycle detection fields
 // Uses type_id dispatch instead of function pointer for dispose (faster in WASM: br_table vs call_indirect)
 typedef struct __yo_ref_header_t {
-  size_t ref_count;
+  uint32_t ref_count;     // u32 (4B refs >> addressable memory); matches the atomic-RC casts
   uint16_t type_id;
   uint16_t borrow_count;  // Law-of-Exclusivity flag (fits in existing tail padding: 0 extra bytes)
 } __yo_ref_header_t;`);
@@ -569,7 +581,7 @@ typedef struct __yo_io_future_t {
     const { type, cName } = context.types[typeId]!;
     if (typeContainsSomeType(type)) {
       // Exception: struct or enum whose only SomeType source is its
-      // function-typed fields (e.g., Io, Exception with forall fn-ptr
+      // function-typed fields (e.g., Io, Exception with generic fn-ptr
       // fields, or Option(EvaluateExprRawFn) with fn-typed variant field).
       if (
         !(
@@ -1496,7 +1508,26 @@ export function generateEnumDeclaration(
   emitter.emitDeclarationLine(`} ${variantUnionName};`);
   emitter.emitDeclarationLine("");
 
-  // Generate the main tagged union struct
+  // Generate the main tagged union struct. A reference-semantics enum
+  // (`ref(enum(…))`) is a heap-allocated, RC-managed handle (like an object):
+  // prepend the reference-count header, and the `${cName}` typedef is a pointer
+  // to this struct (see the forward-declaration site). Mirrors the struct
+  // reference-semantics layout. plans/REF_REFERENCE_SEMANTICS.md Phase 3.
+  if (enumType.isReferenceSemantics) {
+    const atomicTag = enumType.isAtomicRc ? "atomic " : "";
+    emitter.emitDeclarationLine(
+      `struct ${cName}_struct { // ${enumType.typeName} : ${typeToString(enumType)} (${atomicTag}reference counted)`
+    );
+    emitter.emitDeclarationLine(
+      `  __yo_ref_header_t header; // ${enumType.isAtomicRc ? "Atomic r" : "R"}eference count header`
+    );
+    emitter.emitDeclarationLine(`  ${tagEnumName} tag;`);
+    emitter.emitDeclarationLine(`  ${variantUnionName} data;`);
+    emitter.emitDeclarationLine(`};`);
+    emitter.emitDeclarationLine("");
+    return;
+  }
+
   emitter.emitDeclarationLine(
     `struct ${cName}_struct { // ${enumType.typeName} : ${typeToString(enumType)}`
   );

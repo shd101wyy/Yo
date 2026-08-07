@@ -1,0 +1,141 @@
+// Regression tests for a UNARY trait-dispatched operator applied DIRECTLY to a
+// PARAMETER inside a CLOSURE-SPECIALIZED function.
+//
+// The bug (issues/retired/yo-self-selftest-codegen-divergences.md): the self-hosted
+// compiler emitted
+//
+//   if (// Failed to transpile !(allow_missing_type)) {
+//
+// — an FTT comment INLINE in an `if` condition. The `//` swallows the closing
+// `)` and the `{`, so the C parse is wrecked and clang reports a cascade of
+// "expected expression" / "'case' statement not in switch" / "use of undeclared
+// identifier" errors against temps that are in fact declared. Found by the
+// first per-file TS-vs-yo-self differential of the `test` subcommand, which
+// caught `tests/internal/effect_analysis.test.yo` passing 19/19 under the TS
+// compiler while the self-hosted binary could not compile it at all.
+//
+// The trigger is a THREE-WAY CONJUNCTION — remove any one factor and the same
+// expression compiles fine. That is why the cases below are deliberately
+// near-identical: each one drops exactly one factor, so a future regression is
+// localised instead of merely detected.
+//
+//   unary `!` + on a PARAMETER + in a closure-specialized fn  -> was BROKEN
+//   unary `!` + on a LOCAL     + in a closure-specialized fn  -> worked
+//   INFIX op  + on a PARAMETER + in a closure-specialized fn  -> worked
+//                                (primitive infix ops take the
+//                                 `_is_primitive_infix_operator` fast path in
+//                                 codegen/exprs/generation.yo, which unary ops
+//                                 have no equivalent of)
+//   unary `!` + on a PARAMETER + NO closure parameter         -> worked
+//
+// TypeScript (the ground truth) resolves the `not` trait method and calls it,
+// exactly as yo-self already does for a local receiver — so the fix belongs in
+// the call dispatcher, NOT in a new unary-operator fast path.
+{ assert } :: import("std/assert");
+open(import("std/string"));
+open(import("std/fmt"));
+
+test("Test unary ! on a bool parameter inside a closure-specialized fn", {
+  // THE REGRESSION CASE. `!(b)` is a unary trait-dispatched operator applied
+  // straight to a parameter, and `f` makes this fn closure-specialized.
+  gate :: (fn(b : bool, f : Impl(Fn(x : usize) -> bool)) -> bool)({
+    if(!(b), {
+      return(false);
+    });
+    f(usize(1))
+  });
+  assert(gate(true, (x : usize) => (x > usize(0))), "!(param)=false so the closure runs and returns true");
+  assert(!(gate(false, (x : usize) => (x > usize(0)))), "!(param)=true so the early return fires");
+  // The closure must still be reachable and actually called, not skipped.
+  assert(!(gate(true, (x : usize) => (x > usize(9)))), "closure result is returned, not discarded");
+});
+
+test("Test unary ! on a LOCAL inside a closure-specialized fn", {
+  // Same shape, but the negation reads a local. This path always worked; it is
+  // here so a regression can be attributed to the parameter, not to `!`.
+  gate :: (fn(b : bool, f : Impl(Fn(x : usize) -> bool)) -> bool)({
+    ok := b;
+    if(!(ok), {
+      return(false);
+    });
+    f(usize(1))
+  });
+  assert(gate(true, (x : usize) => (x > usize(0))), "local negation, closure runs");
+  assert(!(gate(false, (x : usize) => (x > usize(0)))), "local negation, early return");
+});
+
+test("Test infix operator on a parameter inside a closure-specialized fn", {
+  // Primitive INFIX operators bypass the failing dispatcher via
+  // `_is_primitive_infix_operator`. Here so a regression can be attributed to
+  // unary-ness rather than to operators-on-parameters in general.
+  gate :: (fn(b : bool, f : Impl(Fn(x : usize) -> bool)) -> bool)({
+    if(b == false, {
+      return(false);
+    });
+    f(usize(1))
+  });
+  assert(gate(true, (x : usize) => (x > usize(0))), "infix compare on param, closure runs");
+  assert(!(gate(false, (x : usize) => (x > usize(0)))), "infix compare on param, early return");
+});
+
+test("Test unary ! on a bool parameter with NO closure parameter", {
+  // Drops the closure factor. Always worked; pins the third leg of the tripod.
+  gate :: (fn(b : bool) -> bool)({
+    if(!(b), {
+      return(false);
+    });
+    true
+  });
+  assert(gate(true), "no closure param, !(param) fine");
+  assert(!(gate(false)), "no closure param, early return fires");
+});
+
+test("Test unary ! on a parameter with an Option param, effect_analysis shape", {
+  // The real-world shape this was found in: `is_effect_call_` in
+  // yo-self/evaluator/effects/effect_analysis.yo takes an `Option(...)`, a
+  // `bool`, and a closure, and negates the bool twice.
+  probe :: (
+    fn(
+      maybe : Option(usize),
+      allow_missing : bool,
+      get_info : Impl(Fn(k : usize) -> Option(usize))
+    ) -> bool
+  )({
+    if(!(allow_missing), {
+      ok := match(maybe,.Some(_) => true,.None => false);
+      if(!(ok), {
+        return(false);
+      });
+    });
+    match(
+      get_info(usize(7)),
+      .Some(v) => (v == usize(7)),
+      .None => false
+    )
+  });
+  idf :: (fn(k : usize) -> Option(usize))(Option(usize).Some(k));
+  assert(probe(Option(usize).Some(usize(1)), false, idf), "present + require-type: reaches the closure");
+  assert(!(probe(Option(usize).None, false, idf)), "absent + require-type: rejected before the closure");
+  assert(probe(Option(usize).None, true, idf), "absent + allow-missing: skips the check, reaches the closure");
+});
+
+test("Test repeated unary ! on the same parameter in one closure-specialized fn", {
+  // Two negations of the SAME parameter in one body: effect_analysis emitted
+  // the FTT six times across specializations, so cover more than one use site.
+  gate :: (fn(b : bool, f : Impl(Fn(x : usize) -> bool)) -> usize)({
+    (n : usize) = usize(0);
+    if(!(b), {
+      n = (n + usize(1));
+    });
+    if(!(b), {
+      n = (n + usize(10));
+    });
+    if(f(usize(1)), {
+      n = (n + usize(100));
+    });
+    n
+  });
+  assert(gate(false, (x : usize) => (x > usize(0))) == usize(111), "both negations true, closure true");
+  assert(gate(true, (x : usize) => (x > usize(0))) == usize(100), "both negations false, closure true");
+  assert(gate(true, (x : usize) => (x > usize(9))) == usize(0), "both negations false, closure false");
+});

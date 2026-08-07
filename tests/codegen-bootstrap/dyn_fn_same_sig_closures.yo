@@ -1,0 +1,32 @@
+open(import("std/string"));
+open(import("std/fmt"));
+
+// Regression: TWO dyn'd closures with the SAME signature must get DISTINCT
+// wrappers/vtables. The dyn impl key is derived from the concrete type; when
+// the `Impl(Fn(...))` SomeT is not resolved to the closure's concrete
+// (capture-struct) type first (TS dyn.ts:70-74, resolvedConcreteType), every
+// same-signature closure keys on the SHARED Fn-shape, the last registration
+// wins, and ALL boxes dispatch into the single surviving closure's body
+// (suspension_analysis: detect_all silently ran the noop detector → 0 points).
+// See issues/fixed/yo-self-dyn-fn-field.md, FINAL LAYER.
+Pair :: struct(
+  first : Dyn(Fn(x : i32) -> i32),
+  second : Dyn(Fn(x : i32) -> i32)
+);
+
+apply_both :: (fn(p : Pair, seed : i32) -> i32)(
+  ((p.first)(seed) * i32(100)) + (p.second)(seed)
+);
+
+main :: (fn() -> unit)({
+  bump := i32(1);
+  scale := i32(2);
+  p := Pair(
+    first : dyn((x : i32) => (x + bump)),
+    second : dyn((x : i32) => (x * scale))
+  );
+  // first(7)=8, second(7)=14 → 814. A key collision makes both boxes call the
+  // SAME closure body: 8/8 → 808 or 14/14 → 1414.
+  println(`${apply_both(p, i32(7))}`);
+});
+export(main);

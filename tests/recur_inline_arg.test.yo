@@ -1,3 +1,4 @@
+{ assert } :: import("std/assert");
 // Regression tests for: recur(...) result not hoisted into a temp when used
 // as an argument, causing RC-typed return values to leak.
 // Tracking issue: issues/recur-call-result-not-hoisted-as-arg.md
@@ -7,7 +8,7 @@ open(import("std/string"));
 //
 // Without the fix, each recursive `recur(...)` call leaks one String per
 // call because String.concat would inline the recur result without a drop.
-Token :: object(name : String);
+Token :: ref(struct(name : String));
 to_str :: (fn(toks : ArrayList(Token), i : usize) -> String)({
   n := toks.len();
   cond(

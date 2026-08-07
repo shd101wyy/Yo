@@ -146,7 +146,7 @@ LSP 维护一个"最后成功模块"缓存。当用户正在输入时（如 `p2.
 
 ### 泛型 Impl 解析
 
-泛型 `impl` 块中的方法（如 `impl(forall(T), Option(T), ...)`）通过全局 `genericImplRegistry` 解析。LSP 枚举这些来为 `ArrayList`、`Option`、`Result` 和 `HashMap` 等类型提供补全。
+泛型 `impl` 块中的方法（如 `impl(generic(T), Option(T), ...)`）通过全局 `genericImplRegistry` 解析。LSP 枚举这些来为 `ArrayList`、`Option`、`Result` 和 `HashMap` 等类型提供补全。
 
 ### 文档注释传播
 

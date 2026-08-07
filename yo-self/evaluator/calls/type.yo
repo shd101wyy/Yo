@@ -30,8 +30,10 @@ open(import("std/string"));
   new_expr_info,
   expr_info_table_get,
   expr_info_table_set,
-  path_collection_new
+  path_collection_new,
+  register_some_resolved_concrete
 } :: import("../../expr_info.yo");
+{ is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -260,7 +262,52 @@ try_to_call_type_with_arguments :: (
       );
     });
     arg_info := match(arg_info_opt,.Some(it) => it,.None => new_expr_info(env, member_element.ty));
-    set_expr_as_needs_to_call_dup(evaluated_arg, ctx);
+    // Closure arg into an `Impl(Fn(...))`-SomeT FIELD: register the capture
+    // struct as the FIELD SomeT id's resolved concrete. TS needs no code here
+    // — the arg's expected type IS the field type object, so the lambda's
+    // `resolvedConcreteType` stamp (anonymous-function.ts:1183-1252) mutates
+    // the one shared object read by both the struct typedef and the member
+    // call. yo-self's lambda take-on stamps only the VALUE COPY's resolved
+    // cell (anonymous_function.yo — the global stamp there regressed
+    // fs/file+fs/temp via io.async's unresolved-`T` closures); the struct
+    // type's own field SomeT instance has no cell, so the field emitted
+    // `void*` while the initializer emitted the capture struct
+    // ("initializing 'void *' with __yo_tN" — tests/impl_fn_field_rejection
+    // workaround B; issues/retired/yo-self-69-red-list-map.md 2026-07-30 scoping).
+    // Gate: field SomeT wraps a CONCRETE-result Fn trait (the same gate as
+    // the lambda take-on) AND the arg carries a capture type.
+    match(
+      member_element.ty,
+      .SomeT({ id : fld_sid, required_trait_types : fld_rtt }) => {
+        (fld_has_concrete_fn : bool) = false;
+        (fri : usize) = usize(0);
+        while(fri < fld_rtt.len(), {
+          match(
+            fld_rtt.get(fri),
+            .Some(f_rt) => if(is_fn_trait_type(f_rt), {
+              match(
+                f_rt,
+                .FnTraitT({ call_result : fcr }) => if(!(is_some_type(fcr)), {
+                  fld_has_concrete_fn = true;
+                }),
+                _ => ()
+              );
+            }),
+            .None => ()
+          );
+          fri = (fri + usize(1));
+        });
+        if(fld_has_concrete_fn, {
+          match(
+            arg_info.capture_type,
+            .Some(fld_cap_t) => register_some_resolved_concrete(fld_sid.clone(), fld_cap_t),
+            .None => ()
+          );
+        });
+      },
+      _ => ()
+    );
+    set_expr_as_needs_to_call_dup(evaluated_arg, ctx, exn);
     env.frames = arg_info.env.frames;
     env.module_path = arg_info.env.module_path;
     env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
@@ -287,7 +334,7 @@ try_to_call_type_with_arguments :: (
     // Store the result.
     values(member_element_position_index) = arg_info.value;
     runtime_arg_exprs_in_order(member_element_position_index) = evaluated_arg;
-    ___ := checked_indices.set(member_element_position_index, true);
+    checked_indices.set(member_element_position_index, true);
     i = (i + usize(1));
   });
   // Check that all unchecked fields have defaults.
@@ -321,8 +368,27 @@ try_to_call_type_with_arguments :: (
                 true => Option(EvalValue).None
               );
               values(ci) = default_val;
-              // Note: we can't set the real expr here (TypeField doesn't store exprs),
-              // so runtime_arg_exprs_in_order[ci] remains the function_callee_expr placeholder.
+              // Put the field's OWN default/assigned EXPRESSION in the runtime
+              // slot, exactly as TS does
+              // (`runtimeArgExprsInOrder[i] = memberElement.exprs.defaultValueExpr
+              // ?? memberElement.exprs.assignedValueExpr`, calls/type.ts:206).
+              // The slot used to keep the callee expr as a placeholder, which
+              // codegen then emitted as the struct's own C TYPE NAME —
+              // `Point()` became `(Point){ .x = __yo_t0, .y = __yo_t0 }` and
+              // `Point(13)` became `{ .x = 13, .y = __yo_t0 }`.
+              match(
+                field.default_value_expr,
+                .Some(dve) => {
+                  runtime_arg_exprs_in_order(ci) = dve;
+                },
+                .None => match(
+                  field.assigned_value_expr,
+                  .Some(ave) => {
+                    runtime_arg_exprs_in_order(ci) = ave;
+                  },
+                  .None => ()
+                )
+              );
             });
           },
           .None => ()

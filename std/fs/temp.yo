@@ -47,9 +47,11 @@ _default_tmp_dir :: (fn() -> String)(
   )
 );
 /// Temporary directory that can be cleaned up with `remove`.
-TempDir :: object(
-  _path : Path,
-  _removed : bool
+TempDir :: ref(
+  struct(
+    _path : Path,
+    _removed : bool
+  )
 );
 impl(
   TempDir,
@@ -70,7 +72,7 @@ impl(
       // the trailing NUL at `buf[template_bytes.len()]`. `buf` is freed in
       // both the error branch and after `IO_temp.mkdtemp` returns.
       unsafe(memcpy(*(void)(buf), *(void)(template_bytes.ptr().unwrap()), template_bytes.len()));
-      (buf &+ template_bytes.len()).* = u8(0);
+      (buf.add(template_bytes.len())).* = u8(0);
       result := IO_temp.mkdtemp(buf);
       cond(
         (result < i32(0)) => {
@@ -109,10 +111,12 @@ impl(
 );
 export(TempDir);
 /// Temporary file backed by a `File` handle.
-TempFile :: object(
-  _file : _file_mod.File,
-  _path : Path,
-  _removed : bool
+TempFile :: ref(
+  struct(
+    _file : _file_mod.File,
+    _path : Path,
+    _removed : bool
+  )
 );
 impl(
   TempFile,
@@ -130,7 +134,7 @@ impl(
       // bytes plus a trailing NUL. `buf` is freed in the error branch and
       // released to mkstemp's owned-fd lifecycle on success.
       unsafe(memcpy(*(void)(buf), *(void)(template_bytes.ptr().unwrap()), template_bytes.len()));
-      (buf &+ template_bytes.len()).* = u8(0);
+      (buf.add(template_bytes.len())).* = u8(0);
       fd := IO_temp.mkstemp(buf);
       cond(
         (fd < i32(0)) => {

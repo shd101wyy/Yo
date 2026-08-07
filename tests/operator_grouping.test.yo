@@ -1,0 +1,79 @@
+//! Tests for the stricter operator-grouping rule
+//! (plans/OPERATOR_ASSOCIATIVITY.md).
+//!
+//! Yo has no operator precedence: a chain of the SAME operator is
+//! left-associative (no parentheses needed), while adjacent DIFFERENT operators
+//! require explicit parentheses (otherwise a parse error — that rejection is
+//! exercised by the parser-level test in `src/tests/operator-grouping.test.ts`).
+open(import("std/string"));
+{ assert } :: import("std/assert");
+
+test("same-operator chains left-associate", {
+  // `+` and `*` are associative, so these mainly confirm the chain parses:
+  comptime_assert((1 + 2 + 3) == 6, "(1 + 2) + 3 == 6");
+  comptime_assert((2 * 3 * 4) == 24, "(2 * 3) * 4 == 24");
+  // `-` and `/` are NON-associative, so the value distinguishes left grouping
+  // from right grouping and proves the chain is left-associative:
+  comptime_assert((10 - 3 - 2) == 5, "(10 - 3) - 2 == 5, not 10 - (3 - 2) == 9");
+  comptime_assert((100 / 5 / 2) == 10, "(100 / 5) / 2 == 10, not 100 / (5 / 2) == 50");
+  comptime_assert((20 - 5 - 4 - 3) == 8, "left-associative 4-operand chain");
+});
+
+test("explicit parentheses group mixed operators", {
+  comptime_assert(((1 + 2) * 3) == 9, "(1 + 2) * 3 == 9");
+  comptime_assert((1 + (2 * 3)) == 7, "1 + (2 * 3) == 7");
+  comptime_assert(((10 - 2) / (1 + 1)) == 4, "(10 - 2) / (1 + 1) == 4");
+});
+
+test("comparison chaining is rejected", {
+  // `1 < 2 < 3` left-associates to `(1 < 2) < 3`; `(1 < 2)` is a `bool`, so
+  // `bool < 3` is a type error. (Adjacent DIFFERENT operators without parens —
+  // e.g. `1 + 2 * 3` — are rejected at PARSE time, which `comptime_expect_error`
+  // cannot observe; that rejection is covered by the std/tests/yo-self migration
+  // itself, where every such site now requires explicit parentheses.)
+  comptime_expect_error(1 < 2 < 3);
+});
+
+test("unary negation of typed values (runtime and comptime)", {
+  // Regression: unary `-` on a TYPED value (not a comptime_int literal)
+  // dispatches through the prelude's generic `(neg)` whose trait return is
+  // `Self.Output`. The self-hosted compiler used to leave `Output`
+  // unresolved in registered trait-impl method types, breaking BOTH the
+  // CTFE path (`Return type mismatch: got "Output"`) and runtime codegen
+  // (`return // Failed to transpile -(y);`). See
+  // issues/fixed/yo-self-unary-neg-dispatch.md.
+  y := i32(50);
+  z := -(y);
+  assert(z == i32(-(50)), "runtime negation of an i32 variable");
+  abs :: (fn(comptime(x) : i32) -> comptime(i32))(cond((x >= i32(0)) => x, true => -(x)));
+  comptime_assert(abs(i32(-(50))) == i32(50), "CTFE negation of a comptime i32 param");
+  f :: (fn(v : i32) -> i32)(-(v));
+  assert(f(i32(7)) == i32(-(7)), "runtime negation in a fn body");
+});
+
+test("a negation feeding a numeric cast stays compile-time", {
+  // Regression: `f64(-(50.75))` — negation INSIDE the cast. The operand is a
+  // `comptime_float` literal, so the prelude's `(-)` module must select its
+  // COMPTIME overload (`Call :: (neg, comptime_neg)` lists the runtime one
+  // first). Selecting the runtime `neg` instead binds its `_Self` return to the
+  // literal's default runtime type and yields an UnknownVal without executing
+  // the body, so the cast saw no compile-time value and the `::` binding failed
+  // with "Got runtime value. Please consider using ':=' instead of '::'".
+  // See issues/fixed/yo-self-comptime-overload-preference.md.
+  neg_f64 :: f64(-(50.75));
+  comptime_assert(neg_f64 < f64(0.0), "f64(-(50.75)) is a comptime negative");
+  neg_f32 :: f32(-(50.75));
+  comptime_assert(neg_f32 < f32(0.0), "f32(-(50.75)) is a comptime negative");
+  neg_i32 :: i32(-(50));
+  comptime_assert(neg_i32 == i32(-(50)), "i32(-(50)) is a comptime negative");
+  // Same value reached through a BINDING rather than inline.
+  half :: -(50.75);
+  via_binding :: f64(half);
+  comptime_assert(via_binding == neg_f64, "casting a negated comptime binding");
+  // The negation must still work in a RUNTIME position (where the comptime
+  // overload cannot fold): `!`/`-` on a runtime value keeps the runtime path.
+  r := i32(7);
+  assert(-(r) == i32(-(7)), "runtime negation is unaffected");
+  b := (r > i32(0));
+  assert(!(b) == false, "runtime logical-not is unaffected");
+});

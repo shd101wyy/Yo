@@ -30,6 +30,14 @@ open(import("std/string"));
 { evaluate_expression } :: import("../exprs/expr.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { Exception } :: import("std/error");
+/// A fresh single-element PtrVal cell (TS `[value]` literal at the
+/// createPtrValue call sites).
+_cell1 :: (fn(v : EvalValue) -> ArrayList(EvalValue))({
+  c := ArrayList(EvalValue).new();
+  c.push(v);
+  c
+});
+{ panic, assert } :: import("std/assert");
 evaluate_address_call :: (
   fn(
     expr : AstExpr,
@@ -62,7 +70,7 @@ evaluate_address_call :: (
       dyn(
         format_error_message(
           ptok,
-          `Taking an address with '&(...)' produces a raw pointer ('*(T)'), which is not available in safe code.\n\nFor in-place mutation of a value, use the 'ref(name) : T' parameter form on the receiving function. For collections, the safe types (Slice(T), ArrayList(T), HashMap(K, V)) own their interior pointers — don't take an address of an element manually. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top.`,
+          `Taking an address with '&(...)' produces a raw pointer ('*(T)'), which is not available in safe code.\n\nFor in-place mutation of a value, use the 'inout(name) : T' parameter form on the receiving function. For collections, the safe types (Slice(T), ArrayList(T), HashMap(K, V)) own their interior pointers — don't take an address of an element manually. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top.`,
           false,
           .None
         )
@@ -75,7 +83,7 @@ evaluate_address_call :: (
   // `object` (reference semantics), so mutating an alias of the current
   // one would corrupt the EXPECTED TYPE captured by enclosing
   // expressions (e.g. a match arm's `et.ty` became the pointee, making
-  // `.None => panic(...)` arms fail "Expected u8, Actual *(u8)").
+  // `.None => __yo_panic(...)` arms fail "Expected u8, Actual *(u8)").
   old_expected := ctx.expected_type;
   match(
     ctx.expected_type,
@@ -84,7 +92,7 @@ evaluate_address_call :: (
         ectx.ty,
         .Pointer(pointee_box) => {
           ctx.expected_type = Option(ExpectedTypeCtx).Some(
-            ExpectedTypeCtx(ty : pointee_box.*, env : ectx.env)
+            ExpectedTypeCtx(ty : pointee_box, env : ectx.env)
           );
         },
         _ => ()
@@ -136,66 +144,86 @@ evaluate_address_call :: (
   pointer_type := t_ptr(arg_type);
   // Determine compile-time pointer value from comptimeRef.
   comptime_ref_opt := arg_info.comptime_ref;
+  // Each arm wraps the AGGREGATE value in a FRESH single-element cell (TS
+  // ptr-fns.ts:141-168 `createPtrValue(ptrType, [comptimeRef.arrayValue],
+  // index)`); aliasing is preserved through the aggregate's SHARED inner
+  // elements list, and `target_index` selects the element within it.
   ptr_val_from_comptime_ref := match(
     comptime_ref_opt,
     .Some(cref) => Option(EvalValue).Some(
       match(
         cref,
         .ArrayRef(elements, index) =>
-          EvalValue.PtrVal(box(EvalValue.ArrayVal(elements)), index),
+          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(elements)), index),
         .ComptimeListRef(elements, index) =>
-          EvalValue.PtrVal(box(EvalValue.ComptimeListVal(elements)), index),
+          EvalValue.PtrVal(_cell1(EvalValue.ComptimeListVal(elements)), index),
         .StructRef(field_values, field_index) =>
           // Treat field_values as an array to enable indexed access.
-          EvalValue.PtrVal(box(EvalValue.ArrayVal(field_values)), field_index),
+          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(field_values)), field_index),
         .TupleRef(fields, field_index) =>
-          EvalValue.PtrVal(box(EvalValue.ArrayVal(fields)), field_index)
+          EvalValue.PtrVal(_cell1(EvalValue.ArrayVal(fields)), field_index)
       )
     ),
     .None => Option(EvalValue).None
   );
-  // If no comptimeRef, check source_variable or unknown val.
-  ptr_val_opt := match(
+  // A compile-time PLACE: `comptimeRef` first, then `sourceVariable`
+  // (ptr-fns.ts:138-186). Kept separate from the UnknownValue fallback so the
+  // ladder below can follow TS's order exactly.
+  ptr_place_val_opt := match(
     ptr_val_from_comptime_ref,
     .Some(_) => ptr_val_from_comptime_ref,
-    .None => {
-      src_val := match(
-        arg_info.source_variable,
-        .Some(src_var) => match(
-          src_var.value,
-          .Some(sv) => Option(EvalValue).Some(EvalValue.PtrVal(box(sv), usize(0))),
-          .None => Option(EvalValue).None
-        ),
-        .None => Option(EvalValue).None
-      );
-      match(
-        src_val,
-        .Some(_) => src_val,
-        .None => match(
-          arg_info.value,
-          .Some(v) => if(
-            is_unknown_val(v),
-            Option(EvalValue).Some(create_unknown_val(pointer_type)),
-            Option(EvalValue).None
-          ),
-          .None => Option(EvalValue).None
-        )
-      )
-    }
+    .None => match(
+      arg_info.source_variable,
+      // Hand the variable's OWN value cell to the pointer (TS
+      // ptr-fns.ts:172 `createPtrValue(pointerType, sourceVariable.value)`)
+      // — writes through `p.*` land in the SAME list the variable reads,
+      // the arm-22 mutable-reference semantics. Empty cell = runtime
+      // variable (TS `sourceVariable.value` undefined) — no comptime place.
+      .Some(src_var) => if(
+        src_var.value.len() > usize(0),
+        Option(EvalValue).Some(EvalValue.PtrVal(src_var.value, usize(0))),
+        Option(EvalValue).None
+      ),
+      .None => Option(EvalValue).None
+    )
+  );
+  // Last arm (ptr-fns.ts:200-205): the argument itself is a comptime
+  // UnknownValue, so `&(arg)` is a comptime unknown pointer too.
+  ptr_unknown_val_opt := match(
+    arg_info.value,
+    .Some(v) => if(
+      is_unknown_val(v),
+      Option(EvalValue).Some(create_unknown_val(pointer_type)),
+      Option(EvalValue).None
+    ),
+    .None => Option(EvalValue).None
   );
   out_info := new_expr_info(cur_env, pointer_type);
-  // Handle index_trait_ptr_type: &(value(i)) skips auto-deref.
+  // TS's ladder, IN ORDER (ptr-fns.ts:130-205). Its own comment says the order
+  // is load-bearing: "We check comptimeRef BEFORE indexTraitPtrType because
+  // comptime arrays set both properties, and comptimeRef allows creating a
+  // comptime pointer whereas indexTraitPtrType would return a runtime-only
+  // pointer." yo-self had the index-trait arm FIRST, so `p :: &(arr(0))` on a
+  // COMPTIME array always took it and every later `p.*` / `p.* = v` emitted
+  // "// Failed to transpile" (tests/comptime.test.yo arms 22/23). The place arm
+  // deliberately leaves `ty` at `pointer_type` and does NOT set
+  // `is_index_trait_address_of` — TS sets neither there.
   match(
-    arg_info.index_trait_ptr_type,
-    .Some(itp_ty) => {
-      // Use the Index-trait pointer type; value is runtime only.
-      out_info.ty = itp_ty;
-      out_info.is_index_trait_address_of = Option(bool).Some(true);
+    ptr_place_val_opt,
+    .Some(_) => {
+      out_info.value = ptr_place_val_opt;
     },
-    .None => {
-      // Set compile-time pointer value if available.
-      out_info.value = ptr_val_opt;
-    }
+    .None => match(
+      arg_info.index_trait_ptr_type,
+      .Some(itp_ty) => {
+        // Use the Index-trait pointer type; value is runtime only.
+        out_info.ty = itp_ty;
+        out_info.is_index_trait_address_of = Option(bool).Some(true);
+      },
+      .None => {
+        out_info.value = ptr_unknown_val_opt;
+      }
+    )
   );
   // Propagate path_collection from arg.
   out_info.path_collection = arg_info.path_collection;

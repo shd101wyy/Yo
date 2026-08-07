@@ -1,0 +1,947 @@
+//! `asm(...)` / `global_asm(...)` emitters — mirrors `src/codegen/exprs/asm.ts`.
+//!
+//! Yo-port notes:
+//!   - TS Record maps → match chains (`_explicit_register_constraint`,
+//!     `_register_class_to_gcc`, `_template_modifier`).
+//!   - `JSON.stringify(template)` → `_c_string_literal` (comptime_value.yo).
+//!   - StrLit reads decode escapes + strip the quote delimiters (yo-self's
+//!     StrLit convention keeps them) so templates carry REAL newlines before
+//!     re-escaping for C.
+//!   - `_asmTempCounter` → module global bumped per temp.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr } :: import("../../expr.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ _c_string_literal, _strip_str_delims } :: import("./comptime_value.yo");
+{ decode_str_lit_escapes } :: import("../../evaluator/values/string.yo");
+{ get_type_string, mark_needs_intel_asm_syntax } :: import("../utils/index.yo");
+{ is_unit_type } :: import("../../types/guards.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ EvalValue } :: import("../../value.yo");
+{ Arch, is_target_wasm } :: import("../../target.yo");
+// ---------------------------------------------------------------------------
+// Constraint tables (asm.ts:13-58)
+// ---------------------------------------------------------------------------
+_is_register_class :: (fn(name : String) -> bool)(
+  (
+    (((name == "reg") || (name == "reg_byte")) || ((name == "reg_abcd") || (name == "xmm_reg"))) ||
+      ((name == "ymm_reg") || (name == "imm"))
+  ) || (name == "mem")
+);
+_explicit_register_constraint :: (fn(name : String) -> Option(String))(
+  cond(
+    (((name == "rax") || (name == "eax")) || ((name == "ax") || (name == "al"))) => Option(String).Some(String.from("a")),
+    (((name == "rbx") || (name == "ebx")) || ((name == "bx") || (name == "bl"))) => Option(String).Some(String.from("b")),
+    (((name == "rcx") || (name == "ecx")) || ((name == "cx") || (name == "cl"))) => Option(String).Some(String.from("c")),
+    (((name == "rdx") || (name == "edx")) || ((name == "dx") || (name == "dl"))) => Option(String).Some(String.from("d")),
+    (((name == "rsi") || (name == "esi")) || (name == "si")) => Option(String).Some(String.from("S")),
+    (((name == "rdi") || (name == "edi")) || (name == "di")) => Option(String).Some(String.from("D")),
+    true => Option(String).None
+  )
+);
+_register_class_to_gcc :: (fn(class_name : String, arch : Arch) -> String)(
+  cond(
+    (class_name == "reg") => String.from("r"),
+    (class_name == "reg_byte") => String.from("q"),
+    (class_name == "reg_abcd") => String.from("Q"),
+    (class_name == "xmm_reg") => match(arch,.Aarch64 => String.from("w"), _ => String.from("x")),
+    (class_name == "ymm_reg") => String.from("x"),
+    (class_name == "imm") => String.from("i"),
+    (class_name == "mem") => String.from("m"),
+    true => String.from("r")
+  )
+);
+_template_modifier :: (fn(m : String) -> String)(
+  cond(
+    (m == "e") => String.from("k"),
+    (m == "x") => String.from("w"),
+    (m == "l") => String.from("b"),
+    (m == "h") => String.from("h"),
+    (m == "w") => String.from("w"),
+    true => m.clone()
+  )
+);
+/// Resolve a constraint to a GCC constraint letter (asm.ts:72-98).
+_resolve_constraint :: (fn(constraint : Option(String), arch : Arch) -> String)({
+  c := match(
+    constraint,
+    .Some(x) => x,
+    .None => {
+      return(String.from("r"));
+    }
+  );
+  if(c.starts_with("raw:"), {
+    out := String.new();
+    b := c.as_bytes();
+    (i : usize) = usize(4);
+    while(i < b.len(), {
+      match(
+        b.get(i),
+        .Some(x) => {
+          out.push_byte(x);
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    return(out);
+  });
+  match(
+    _explicit_register_constraint(c.clone()),
+    .Some(e) => {
+      return(e);
+    },
+    .None => ()
+  );
+  if(_is_register_class(c.clone()), {
+    return(_register_class_to_gcc(c, arch));
+  });
+  c
+});
+/// Transform Yo template placeholders to GCC operand references
+/// (asm.ts:105-172): {name} -> %[name], {N} -> %N, {name:mod} -> %<gcc>[name],
+/// {{ -> {, }} -> }.
+_transform_template :: (fn(template : String) -> String)({
+  result := String.new();
+  b := template.as_bytes();
+  n := b.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    c := match(b.get(i),.Some(x) => x,.None => u8(0));
+    cond(
+      ((c == u8(123)) && match(b.get(i + usize(1)),.Some(x) => (x == u8(123)),.None => false)) => {
+        result.push_str("{");
+        i = (i + usize(2));
+      },
+      (c == u8(123)) => {
+        // Find closing }
+        (close_idx : usize) = i;
+        (found_close : bool) = false;
+        {
+          (j : usize) = (i + usize(1));
+          while((j < n) && !(found_close), {
+            if(match(b.get(j),.Some(x) => (x == u8(125)),.None => false), {
+              close_idx = j;
+              found_close = true;
+            });
+            j = (j + usize(1));
+          });
+        };
+        if(!(found_close), {
+          result.push_byte(c);
+          i = (i + usize(1));
+        }, {
+          // inner = template[i+1 .. close_idx); split at ':'
+          ref_str := String.new();
+          modifier := String.new();
+          (seen_colon : bool) = false;
+          {
+            (k : usize) = (i + usize(1));
+            while(k < close_idx, {
+              ck := match(b.get(k),.Some(x) => x,.None => u8(0));
+              cond(
+                ((ck == u8(58)) && !(seen_colon)) => {
+                  seen_colon = true;
+                },
+                seen_colon => modifier.push_byte(ck),
+                true => ref_str.push_byte(ck)
+              );
+              k = (k + usize(1));
+            });
+          };
+          gcc_mod := cond(
+            (modifier.len() > usize(0)) => _template_modifier(modifier),
+            true => String.new()
+          );
+          // Positional (all digits) or named?
+          (all_digits : bool) = (ref_str.len() > usize(0));
+          {
+            rb := ref_str.as_bytes();
+            (di : usize) = usize(0);
+            while(di < rb.len(), {
+              db := match(rb.get(di),.Some(x) => x,.None => u8(0));
+              if((db < u8(48)) || (db > u8(57)), {
+                all_digits = false;
+              });
+              di = (di + usize(1));
+            });
+          };
+          result.push_str("%");
+          result.push_string(gcc_mod.clone());
+          if(all_digits, {
+            result.push_string(ref_str.clone());
+          }, {
+            result.push_str("[");
+            result.push_string(ref_str.clone());
+            result.push_str("]");
+          });
+          i = (close_idx + usize(1));
+        });
+      },
+      ((c == u8(125)) && match(b.get(i + usize(1)),.Some(x) => (x == u8(125)),.None => false)) => {
+        result.push_str("}");
+        i = (i + usize(2));
+      },
+      true => {
+        result.push_byte(c);
+        i = (i + usize(1));
+      }
+    );
+  });
+  result
+});
+// ---------------------------------------------------------------------------
+// ParsedOperand (asm.ts:60-69)
+// ---------------------------------------------------------------------------
+ParsedOperand :: ref(
+  struct(
+    kind : String,
+    name : Option(String),
+    constraint : String,
+    c_expr : String,
+    c_type : String,
+    is_discarded : bool,
+    is_variable_target : bool
+  )
+);
+_atom_value_cg :: (fn(e : AstExpr) -> String)(
+  match(e,.Atom(_, tok) => tok.value.clone(), _ => String.from(""))
+);
+_fn_call_args_cg :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+  match(e,.FnCall(_, _, args, _, _) => args,.Atom(_, _) => ArrayList(AstExpr).new())
+);
+/// Read an expr's comptime-string VALUE (decoded, delimiters stripped).
+_cg_comptime_str :: (fn(e : AstExpr, context : FunctionGenerationContext) -> Option(String))(
+  match(
+    context.base.get_expr_info(e),
+    .Some(info) => match(
+      info.value,
+      .Some(v) => match(
+        v,
+        .StrLit(s) => Option(String).Some(_strip_str_delims(decode_str_lit_escapes(s.clone()))),
+        _ => Option(String).None
+      ),
+      .None => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+);
+_cg_is_type_value :: (fn(e : AstExpr, context : FunctionGenerationContext) -> Option(TypeValue))(
+  match(
+    context.base.get_expr_info(e),
+    .Some(info) => match(
+      info.value,
+      .Some(v) => match(
+        v,
+        .TypeVal(t) => Option(TypeValue).Some(t),
+        _ => Option(TypeValue).None
+      ),
+      .None => Option(TypeValue).None
+    ),
+    .None => Option(TypeValue).None
+  )
+);
+/// Constraint string from a constraint expr (asm.ts:331-353).
+_extract_constraint_string :: (fn(e : AstExpr, context : FunctionGenerationContext) -> String)({
+  if(ast_expr_is_atom(e) && _is_register_class(_atom_value_cg(e)), {
+    return(_atom_value_cg(e));
+  });
+  match(
+    _cg_comptime_str(e, context),
+    .Some(s) => {
+      return(s);
+    },
+    .None => ()
+  );
+  if(ast_expr_is_fn_call_of(e, "raw", Option(usize).Some(usize(1))), {
+    raw_arg := match(_fn_call_args_cg(e).get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    match(
+      _cg_comptime_str(raw_arg, context),
+      .Some(rs) => {
+        rr := String.from("raw:");
+        rr.push_string(rs);
+        return(rr);
+      },
+      .None => ()
+    );
+  });
+  String.from("r")
+});
+/// Parse an operand sub-call during codegen (asm.ts:178-317).
+_parse_operand_for_codegen :: (
+  fn(operand_expr : AstExpr, indent : String, context : FunctionGenerationContext, kind_in : String) -> ParsedOperand
+)({
+  args := _fn_call_args_cg(operand_expr);
+  arch := context.base.target_info.arch;
+  kind := cond((kind_in == String.from("ref")) => String.from("inout"), true => kind_in.clone());
+  if((kind == String.from("const_val")) || (kind == String.from("sym")), {
+    (name : Option(String)) = Option(String).None;
+    (value_idx : usize) = usize(0);
+    if(args.len() == usize(2), {
+      first := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+      match(
+        _cg_comptime_str(first, context),
+        .Some(s) => {
+          name = Option(String).Some(s);
+          value_idx = usize(1);
+        },
+        .None => ()
+      );
+    });
+    value_e := match(args.get(value_idx),.Some(a) => a,.None => make_err_expr());
+    value_code := _call_generate_expr(value_e, indent.clone(), context);
+    return(
+      ParsedOperand(
+        kind : kind.clone(),
+        name : name,
+        constraint : cond((kind == String.from("sym")) => String.from("i"), true => String.new()),
+        c_expr : value_code,
+        c_type : String.new(),
+        is_discarded : false,
+        is_variable_target : false
+      )
+    );
+  });
+  // (name?, constraint, value_or_type)
+  (name : Option(String)) = Option(String).None;
+  (constraint_idx : usize) = usize(0);
+  if(args.len() >= usize(2), {
+    first := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    is_reg_class_atom := (ast_expr_is_atom(first) && _is_register_class(_atom_value_cg(first)));
+    if(!(is_reg_class_atom), {
+      match(
+        _cg_comptime_str(first, context),
+        .Some(s) => {
+          name = Option(String).Some(s);
+          constraint_idx = usize(1);
+        },
+        .None => ()
+      );
+    });
+  });
+  has_constraint_arg := (constraint_idx < (args.len() - usize(1)));
+  (constraint_raw : Option(String)) = Option(String).None;
+  (value_type_idx : usize) = usize(0);
+  if(has_constraint_arg, {
+    c_e := match(args.get(constraint_idx),.Some(a) => a,.None => make_err_expr());
+    constraint_raw = Option(String).Some(_extract_constraint_string(c_e, context));
+    value_type_idx = (constraint_idx + usize(1));
+  }, {
+    match(
+      name,
+      .Some(nm) => {
+        constraint_raw = Option(String).Some(nm.clone());
+      },
+      .None => ()
+    );
+    value_type_idx = constraint_idx;
+  });
+  constraint := _resolve_constraint(constraint_raw, arch);
+  value_or_type := match(args.get(value_type_idx),.Some(a) => a,.None => make_err_expr());
+  // Discard `_`
+  if(ast_expr_is_atom(value_or_type) && (_atom_value_cg(value_or_type) == String.from("_")), {
+    return(
+      ParsedOperand(
+        kind : kind.clone(),
+        name : name,
+        constraint : constraint,
+        c_expr : String.new(),
+        c_type : String.from("int32_t"),
+        is_discarded : true,
+        is_variable_target : false
+      )
+    );
+  });
+  // Type (return-value output mode)
+  match(
+    _cg_is_type_value(value_or_type, context),
+    .Some(output_type) => {
+      return(
+        ParsedOperand(
+          kind : kind.clone(),
+          name : name,
+          constraint : constraint,
+          c_expr : String.new(),
+          c_type : get_type_string(output_type, context.base),
+          is_discarded : false,
+          is_variable_target : false
+        )
+      );
+    },
+    .None => ()
+  );
+  // Value expression (input, inout, or variable-target output)
+  c_expr := _call_generate_expr(value_or_type, indent.clone(), context);
+  c_type := match(
+    context.base.get_expr_info(value_or_type),
+    .Some(info) => get_type_string(info.ty, context.base),
+    .None => String.from("int32_t")
+  );
+  is_output_kind := ((kind == String.from("out")) || (kind == String.from("lateout")));
+  is_variable_target := (is_output_kind && ast_expr_is_atom(value_or_type));
+  ParsedOperand(
+    kind : kind.clone(),
+    name : name,
+    constraint : constraint,
+    c_expr : c_expr,
+    c_type : c_type,
+    is_discarded : false,
+    is_variable_target : is_variable_target
+  )
+});
+/// Clobber list from clobber()/clobber_abi() (asm.ts:358-419).
+_parse_clobbers :: (fn(clobber_expr : AstExpr, context : FunctionGenerationContext) -> ArrayList(String))({
+  clobbers := ArrayList(String).new();
+  kind := match(clobber_expr,.FnCall(_, f, _, _, _) => _atom_value_cg(f), _ => String.from("clobber"));
+  if(kind == String.from("clobber_abi"), {
+    arch := context.base.target_info.arch;
+    match(
+      arch,
+      .X86_64 => {
+        clobbers.push(String.from("rax"));
+        clobbers.push(String.from("rcx"));
+        clobbers.push(String.from("rdx"));
+        clobbers.push(String.from("rsi"));
+        clobbers.push(String.from("rdi"));
+        clobbers.push(String.from("r8"));
+        clobbers.push(String.from("r9"));
+        clobbers.push(String.from("r10"));
+        clobbers.push(String.from("r11"));
+        (xi : usize) = usize(0);
+        while(xi <= usize(15), {
+          clobbers.push(`xmm${xi.to_string()}`);
+          xi = (xi + usize(1));
+        });
+        clobbers.push(String.from("cc"));
+        clobbers.push(String.from("memory"));
+      },
+      .Aarch64 => {
+        (ri : usize) = usize(0);
+        while(ri <= usize(18), {
+          clobbers.push(`x${ri.to_string()}`);
+          ri = (ri + usize(1));
+        });
+        clobbers.push(String.from("x30"));
+        (vi : usize) = usize(0);
+        while(vi <= usize(31), {
+          clobbers.push(`v${vi.to_string()}`);
+          vi = (vi + usize(1));
+        });
+        clobbers.push(String.from("cc"));
+        clobbers.push(String.from("memory"));
+      },
+      _ => ()
+    );
+    return(clobbers);
+  });
+  args := _fn_call_args_cg(clobber_expr);
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+    match(
+      _cg_comptime_str(arg, context),
+      .Some(s) => {
+        clobbers.push(s);
+      },
+      .None => if(ast_expr_is_atom(arg), {
+        clobbers.push(_atom_value_cg(arg));
+      })
+    );
+    i = (i + usize(1));
+  });
+  clobbers
+});
+/// asm_options() flags for codegen (asm.ts:424-456). Returns
+/// (is_volatile, intel_syntax, noreturn).
+AsmCodegenOptions :: struct(is_volatile : bool, intel_syntax : bool, noreturn : bool);
+derive(AsmCodegenOptions, Clone);
+_parse_asm_options_for_codegen :: (fn(opt_expr : AstExpr) -> AsmCodegenOptions)({
+  (is_volatile : bool) = true;
+  (intel_syntax : bool) = false;
+  (noreturn : bool) = false;
+  args := _fn_call_args_cg(opt_expr);
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+    if(ast_expr_is_atom(arg), {
+      flag := _atom_value_cg(arg);
+      cond(
+        (flag == String.from("pure")) => {
+          is_volatile = false;
+        },
+        (flag == String.from("intel_syntax")) => {
+          intel_syntax = true;
+        },
+        (flag == String.from("noreturn")) => {
+          noreturn = true;
+        },
+        (flag == String.from("volatile")) => {
+          is_volatile = true;
+        },
+        true => ()
+      );
+    });
+    i = (i + usize(1));
+  });
+  AsmCodegenOptions(is_volatile : is_volatile, intel_syntax : intel_syntax, noreturn : noreturn)
+});
+_join_comma :: (fn(parts : ArrayList(String)) -> String)({
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < parts.len(), {
+    if(i > usize(0), {
+      out.push_str(", ");
+    });
+    match(
+      parts.get(i),
+      .Some(p) => {
+        out.push_string(p);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+(g_asm_temp_counter : ArrayList(usize)) = ArrayList(usize).new();
+_next_asm_temp :: (fn() -> usize)({
+  n := g_asm_temp_counter.len();
+  g_asm_temp_counter.push(n);
+  n
+});
+/// Generate C code for asm() (asm.ts:464-741).
+generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  em := context.base.emitter;
+  return_type := match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => ei.ty,
+    .None => {
+      return(String.from("/* Error: asm() missing type information */"));
+    }
+  );
+  if(is_target_wasm(context.base.target_info), {
+    l1 := indent.clone();
+    l1.push_str("/* Error: inline assembly is not supported on WebAssembly */");
+    em.emit_string_line(l1);
+    l2 := indent.clone();
+    l2.push_str("abort();");
+    em.emit_string_line(l2);
+    out_w := String.from("(*((");
+    out_w.push_string(get_type_string(return_type, context.base));
+    out_w.push_str("*)NULL))");
+    return(out_w);
+  });
+  args := _fn_call_args_cg(expr);
+  // --- Template strings ---
+  template_parts := ArrayList(String).new();
+  (arg_idx : usize) = usize(0);
+  (scanning : bool) = true;
+  while((arg_idx < args.len()) && scanning, {
+    arg := match(args.get(arg_idx),.Some(a) => a,.None => make_err_expr());
+    if(ast_expr_is_fn_call(arg), {
+      scanning = false;
+    }, {
+      match(
+        _cg_comptime_str(arg, context),
+        .Some(s) => {
+          template_parts.push(s);
+          arg_idx = (arg_idx + usize(1));
+        },
+        .None => {
+          scanning = false;
+        }
+      );
+    });
+  });
+  raw_template := String.new();
+  {
+    (ti : usize) = usize(0);
+    while(ti < template_parts.len(), {
+      if(ti > usize(0), {
+        raw_template.push_str("\n");
+      });
+      match(
+        template_parts.get(ti),
+        .Some(tp) => {
+          raw_template.push_string(tp);
+        },
+        .None => ()
+      );
+      ti = (ti + usize(1));
+    });
+  };
+  // --- Operands, clobbers, options ---
+  operands := ArrayList(ParsedOperand).new();
+  all_clobbers := ArrayList(String).new();
+  (opts : AsmCodegenOptions) = AsmCodegenOptions(is_volatile : true, intel_syntax : false, noreturn : false);
+  while(arg_idx < args.len(), {
+    arg := match(args.get(arg_idx),.Some(a) => a,.None => make_err_expr());
+    if(ast_expr_is_fn_call(arg), {
+      call_name := match(arg,.FnCall(_, f, _, _, _) => _atom_value_cg(f), _ => String.new());
+      is_operand := (
+        (
+          (((call_name == "in") || (call_name == "out")) || ((call_name == "inout") || (call_name == "lateout"))) ||
+            ((call_name == "inlateout") || (call_name == "ref"))
+        ) ||
+          ((call_name == "const_val") || (call_name == "sym"))
+      );
+      cond(
+        is_operand => {
+          operands.push(_parse_operand_for_codegen(arg, indent.clone(), context, call_name));
+        },
+        ((call_name == String.from("clobber")) || (call_name == String.from("clobber_abi"))) => {
+          cl := _parse_clobbers(arg, context);
+          (cli : usize) = usize(0);
+          while(cli < cl.len(), {
+            match(
+              cl.get(cli),
+              .Some(c) => {
+                all_clobbers.push(c);
+              },
+              .None => ()
+            );
+            cli = (cli + usize(1));
+          });
+        },
+        (call_name == String.from("asm_options")) => {
+          opts = _parse_asm_options_for_codegen(arg);
+        },
+        true => ()
+      );
+    });
+    arg_idx = (arg_idx + usize(1));
+  });
+  // --- const_val substitution into the template (asm.ts:559-576) ---
+  (processed_template : String) = raw_template;
+  {
+    (oi : usize) = usize(0);
+    while(oi < operands.len(), {
+      match(
+        operands.get(oi),
+        .Some(op) => if(op.kind == String.from("const_val"), {
+          // Replace {name}/{N} (with optional :modifier) with the bare value.
+          // Byte-scan replace: rebuild the template.
+          rebuilt := String.new();
+          b := processed_template.as_bytes();
+          n := b.len();
+          (i : usize) = usize(0);
+          while(i < n, {
+            c := match(b.get(i),.Some(x) => x,.None => u8(0));
+            (replaced : bool) = false;
+            if((c == u8(123)) && !(match(b.get(i + usize(1)),.Some(x) => (x == u8(123)),.None => false)), {
+              // find close and split ref
+              (close_idx : usize) = i;
+              (found_close : bool) = false;
+              {
+                (j : usize) = (i + usize(1));
+                while((j < n) && !(found_close), {
+                  if(match(b.get(j),.Some(x) => (x == u8(125)),.None => false), {
+                    close_idx = j;
+                    found_close = true;
+                  });
+                  j = (j + usize(1));
+                });
+              };
+              if(found_close, {
+                ref_str := String.new();
+                {
+                  (k : usize) = (i + usize(1));
+                  (stop : bool) = false;
+                  while((k < close_idx) && !(stop), {
+                    ck := match(b.get(k),.Some(x) => x,.None => u8(0));
+                    if(ck == u8(58), {
+                      stop = true;
+                    }, {
+                      ref_str.push_byte(ck);
+                    });
+                    k = (k + usize(1));
+                  });
+                };
+                name_match := match(op.name,.Some(nm) => (ref_str == nm),.None => false);
+                idx_match := (ref_str == oi.to_string());
+                if(name_match || idx_match, {
+                  rebuilt.push_string(op.c_expr.clone());
+                  i = (close_idx + usize(1));
+                  replaced = true;
+                });
+              });
+            });
+            if(!(replaced), {
+              rebuilt.push_byte(c);
+              i = (i + usize(1));
+            });
+          });
+          processed_template = rebuilt;
+        }),
+        .None => ()
+      );
+      oi = (oi + usize(1));
+    });
+  };
+  gcc_template := _transform_template(processed_template);
+  // --- Temps for outputs (asm.ts:583-618) ---
+  // Parallel lists: temp var name per operand index (empty = none).
+  temp_names := ArrayList(String).new();
+  {
+    (oi : usize) = usize(0);
+    while(oi < operands.len(), {
+      temp_names.push(String.new());
+      oi = (oi + usize(1));
+    });
+  };
+  {
+    (oi : usize) = usize(0);
+    while(oi < operands.len(), {
+      match(
+        operands.get(oi),
+        .Some(op) => {
+          cond(
+            op.is_discarded => {
+              vn := `__asm_discard_${_next_asm_temp().to_string()}`;
+              temp_names(oi) = vn.clone();
+              l := indent.clone();
+              l.push_string(op.c_type.clone());
+              l.push_str(" ");
+              l.push_string(vn);
+              l.push_str(";");
+              em.emit_string_line(l);
+            },
+            ((op.kind == String.from("out")) || (op.kind == String.from("lateout"))) => {
+              if(!(op.is_variable_target) && (op.c_type.len() > usize(0)), {
+                vn := `__asm_out_${_next_asm_temp().to_string()}`;
+                temp_names(oi) = vn.clone();
+                l := indent.clone();
+                l.push_string(op.c_type.clone());
+                l.push_str(" ");
+                l.push_string(vn);
+                l.push_str(";");
+                em.emit_string_line(l);
+              });
+            },
+            ((op.kind == String.from("inout")) || (op.kind == String.from("inlateout"))) => {
+              vn := `__asm_inout_${_next_asm_temp().to_string()}`;
+              temp_names(oi) = vn.clone();
+              l := indent.clone();
+              l.push_string(op.c_type.clone());
+              l.push_str(" ");
+              l.push_string(vn);
+              l.push_str(" = ");
+              l.push_string(op.c_expr.clone());
+              l.push_str(";");
+              em.emit_string_line(l);
+            },
+            true => ()
+          );
+        },
+        .None => ()
+      );
+      oi = (oi + usize(1));
+    });
+  };
+  if(opts.intel_syntax, {
+    context.base.needs_intel_asm_syntax = true;
+    mark_needs_intel_asm_syntax();
+  });
+  escaped_template := _c_string_literal(gcc_template);
+  // --- Output operand list (asm.ts:634-670) ---
+  output_parts := ArrayList(String).new();
+  {
+    (oi : usize) = usize(0);
+    while(oi < operands.len(), {
+      match(
+        operands.get(oi),
+        .Some(op) => {
+          skip := (((op.kind == String.from("in")) || (op.kind == String.from("const_val"))) || (op.kind == String.from("sym")));
+          if(!(skip), {
+            prefix := cond(
+              (op.kind == String.from("lateout")) => String.from("=&"),
+              (op.kind == String.from("out")) => String.from("="),
+              (op.kind == String.from("inlateout")) => String.from("+&"),
+              true => String.from("+")
+            );
+            target_var := cond(
+              op.is_discarded => match(temp_names.get(oi),.Some(t) => t,.None => String.new()),
+              op.is_variable_target => op.c_expr.clone(),
+              true => match(temp_names.get(oi),.Some(t) => t,.None => String.new())
+            );
+            part := String.new();
+            match(
+              op.name,
+              .Some(nm) => {
+                part.push_str("[");
+                part.push_string(nm.clone());
+                part.push_str("] ");
+              },
+              .None => ()
+            );
+            part.push_str("\"");
+            part.push_string(prefix);
+            part.push_string(op.constraint.clone());
+            part.push_str("\" (");
+            part.push_string(target_var);
+            part.push_str(")");
+            output_parts.push(part);
+          });
+        },
+        .None => ()
+      );
+      oi = (oi + usize(1));
+    });
+  };
+  // --- Input operand list (asm.ts:672-682) ---
+  input_parts := ArrayList(String).new();
+  {
+    (oi : usize) = usize(0);
+    while(oi < operands.len(), {
+      match(
+        operands.get(oi),
+        .Some(op) => if((op.kind == String.from("in")) || (op.kind == String.from("sym")), {
+          part := String.new();
+          match(
+            op.name,
+            .Some(nm) => {
+              part.push_str("[");
+              part.push_string(nm.clone());
+              part.push_str("] ");
+            },
+            .None => ()
+          );
+          part.push_str("\"");
+          part.push_string(op.constraint.clone());
+          part.push_str("\" (");
+          part.push_string(op.c_expr.clone());
+          part.push_str(")");
+          input_parts.push(part);
+        }),
+        .None => ()
+      );
+      oi = (oi + usize(1));
+    });
+  };
+  // --- Emit the __asm__ statement (asm.ts:684-698) ---
+  clobber_parts := ArrayList(String).new();
+  {
+    (ci : usize) = usize(0);
+    while(ci < all_clobbers.len(), {
+      match(
+        all_clobbers.get(ci),
+        .Some(c) => {
+          q := String.from("\"");
+          q.push_string(c);
+          q.push_str("\"");
+          clobber_parts.push(q);
+        },
+        .None => ()
+      );
+      ci = (ci + usize(1));
+    });
+  };
+  l_open := indent.clone();
+  l_open.push_str("__asm__");
+  if(opts.is_volatile, {
+    l_open.push_str(" __volatile__");
+  });
+  l_open.push_str(" (");
+  em.emit_string_line(l_open);
+  l_tpl := indent.clone();
+  l_tpl.push_str("    ");
+  l_tpl.push_string(escaped_template);
+  em.emit_string_line(l_tpl);
+  l_out := indent.clone();
+  l_out.push_str("    : ");
+  l_out.push_string(_join_comma(output_parts));
+  em.emit_string_line(l_out);
+  l_in := indent.clone();
+  l_in.push_str("    : ");
+  l_in.push_string(_join_comma(input_parts));
+  em.emit_string_line(l_in);
+  l_cl := indent.clone();
+  l_cl.push_str("    : ");
+  l_cl.push_string(_join_comma(clobber_parts));
+  em.emit_string_line(l_cl);
+  l_close := indent.clone();
+  l_close.push_str(");");
+  em.emit_string_line(l_close);
+  // noreturn (asm.ts:700-705)
+  if(opts.noreturn, {
+    l_nr := indent.clone();
+    l_nr.push_str("__builtin_unreachable();");
+    em.emit_string_line(l_nr);
+    out_nr := String.from("(*((");
+    out_nr.push_string(get_type_string(return_type, context.base));
+    out_nr.push_str("*)NULL))");
+    return(out_nr);
+  });
+  // --- Return expression (asm.ts:707-741) ---
+  if(is_unit_type(return_type), {
+    return(String.new());
+  });
+  return_exprs := ArrayList(String).new();
+  {
+    (oi : usize) = usize(0);
+    while(oi < operands.len(), {
+      match(
+        operands.get(oi),
+        .Some(op) => {
+          skip := (
+            (op.is_discarded || op.is_variable_target) ||
+              (((op.kind == String.from("in")) || (op.kind == String.from("const_val"))) || (op.kind == String.from("sym")))
+          );
+          if(!(skip), {
+            tv := match(temp_names.get(oi),.Some(t) => t,.None => String.new());
+            if(tv.len() > usize(0), {
+              return_exprs.push(tv);
+            });
+          });
+        },
+        .None => ()
+      );
+      oi = (oi + usize(1));
+    });
+  };
+  if(return_exprs.len() == usize(1), {
+    return(match(return_exprs.get(usize(0)),.Some(r) => r,.None => String.new()));
+  });
+  if(return_exprs.len() > usize(1), {
+    out_t := String.from("((");
+    out_t.push_string(get_type_string(return_type, context.base));
+    out_t.push_str("){ ");
+    (ri : usize) = usize(0);
+    while(ri < return_exprs.len(), {
+      if(ri > usize(0), {
+        out_t.push_str(", ");
+      });
+      out_t.push_str("._");
+      out_t.push_string(ri.to_string());
+      out_t.push_str(" = ");
+      out_t.push_string(match(return_exprs.get(ri),.Some(r) => r,.None => String.new()));
+      ri = (ri + usize(1));
+    });
+    out_t.push_str(" })");
+    return(out_t);
+  });
+  String.new()
+});
+/// Generate C code for global_asm() (asm.ts:743-761).
+generate_global_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  indent;
+  if(is_target_wasm(context.base.target_info), {
+    return(String.from("/* global_asm skipped: not supported on this target */"));
+  });
+  args := _fn_call_args_cg(expr);
+  template_e := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+  match(
+    _cg_comptime_str(template_e, context),
+    .Some(template) => {
+      decl := String.from("__asm__(");
+      decl.push_string(_c_string_literal(template));
+      decl.push_str(");");
+      em := context.base.emitter;
+      em.emit_declaration_string(decl);
+    },
+    .None => ()
+  );
+  String.new()
+});
+export(generate_asm, generate_global_asm);

@@ -12,6 +12,7 @@
 //! ```
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("./array_list");
+{ assert } :: import("../assert");
 open(import("../string"));
 /// Key-value pair entry stored in a BTreeMap.
 BTreeEntry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
@@ -23,12 +24,14 @@ _FindResult :: struct(idx : usize, found : bool);
 /// Sorted map maintaining entries in key order.
 /// Provides ordered iteration and O(log n) lookup via binary search. Insert is O(n).
 BTreeMap :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
-  object(
-    _entries : ArrayList(BTreeEntry(K, V))
+  ref(
+    struct(
+      _entries : ArrayList(BTreeEntry(K, V))
+    )
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMap(K, V),
   // Create an empty map.
   new : (fn() -> Self)(
@@ -131,11 +134,11 @@ BTreeMapIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMapIter(K, V),
   Iterator(
     Item : BTreeEntry(K, V),
-    next : (fn(ref(self) : Self) -> Option(BTreeEntry(K, V)))(
+    next : (fn(inout(self) : Self) -> Option(BTreeEntry(K, V)))(
       cond(
         (self._index >= self._entries.len()) =>.None,
         true => {
@@ -148,7 +151,7 @@ impl(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMap(K, V),
   into_iter : (fn(self : Self) -> BTreeMapIter(K, V))(
     BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0))
@@ -164,18 +167,18 @@ BTreeMapIterPtr :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type)
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMapIterPtr(K, V),
   Iterator(
     Item : *(BTreeEntry(K, V)),
-    next : (fn(ref(self) : Self) -> Option(*(BTreeEntry(K, V))))(
+    next : (fn(inout(self) : Self) -> Option(*(BTreeEntry(K, V))))(
       cond(
         (self._index >= self._entries.len()) =>.None,
         true =>
           match(
             self._entries._ptr,
             .Some(ptr) => {
-              element_ptr := (ptr &+ self._index);
+              element_ptr := ptr.add(self._index);
               self._index = (self._index + usize(1));
               .Some(element_ptr)
             },
@@ -186,7 +189,7 @@ impl(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMap(K, V),
   iter : (fn(self : Self) -> BTreeMapIterPtr(K, V))(
     BTreeMapIterPtr(K, V)(_entries : self._entries, _index : usize(0))
@@ -201,11 +204,11 @@ BTreeMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMapKeys(K, V),
   Iterator(
     Item : K,
-    next : (fn(ref(self) : Self) -> Option(K))(
+    next : (fn(inout(self) : Self) -> Option(K))(
       match(
         self._inner.next(),
         .None =>.None,
@@ -215,7 +218,7 @@ impl(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMap(K, V),
   keys : (fn(self : Self) -> BTreeMapKeys(K, V))(
     BTreeMapKeys(K, V)(_inner : BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0)))
@@ -230,11 +233,11 @@ BTreeMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMapValues(K, V),
   Iterator(
     Item : V,
-    next : (fn(ref(self) : Self) -> Option(V))(
+    next : (fn(inout(self) : Self) -> Option(V))(
       match(
         self._inner.next(),
         .None =>.None,
@@ -244,18 +247,18 @@ impl(
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMap(K, V),
   values : (fn(self : Self) -> BTreeMapValues(K, V))(
     BTreeMapValues(K, V)(_inner : BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0)))
   )
 );
 impl(
-  forall(K : Type, V : Type),
+  generic(K : Type, V : Type),
   BTreeMap(K, V),
   Index(K)(
     Output : V,
-    index : (fn(ref(self) : Self, idx : K, where(K <: Ord(K))) -> *(Self.Output))({
+    index : (fn(inout(self) : Self, idx : K, where(K <: Ord(K))) -> *(Self.Output))({
       r := self._find(idx);
       assert(r.found, "BTreeMap: key not found");
       entry_ptr := &(self._entries(r.idx));

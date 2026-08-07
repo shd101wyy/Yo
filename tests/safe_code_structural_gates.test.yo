@@ -1,3 +1,4 @@
+{ assert } :: import("std/assert");
 /// Phase C structural gates for safe code (per plans/MEMORY_SAFETY.md).
 ///
 /// The previous gates required `unsafe(...)` to wrap pointer ops but
@@ -47,7 +48,9 @@ comptime_expect_error(
   extern(
     "c",
     bad_strlen :
-      fn(s : *(u8)) -> usize
+      (
+        fn(s : *(u8)) -> usize
+      )
   )
 );
 // `c_include(...)` header imports are rejected in safe code (same
@@ -56,14 +59,16 @@ comptime_expect_error(
   c_include(
     "<string.h>",
     bad_strlen :
-      fn(s : *(u8)) -> usize
+      (
+        fn(s : *(u8)) -> usize
+      )
   )
 );
 // Pointer arithmetic `&+` is rejected in safe code.
 comptime_expect_error({
   x := i32(0);
   p := &(x);
-  q := (p &+ usize(1));
+  q := p.add(usize(1));
 });
 // Pointer cast `*(U)(p)` is rejected in safe code (result has type
 // `*(U)`, which is a forbidden expression type).
@@ -74,7 +79,7 @@ comptime_expect_error({
 });
 // Positive runtime guardrail: safe code with no pointer surface
 // compiles and runs cleanly.
-swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
+swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
   tmp := a;
   a = b;
   b = tmp;

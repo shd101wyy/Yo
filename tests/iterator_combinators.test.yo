@@ -1,3 +1,4 @@
+{ assert } :: import("std/assert");
 // Comprehensive verification of iterator combinators (blanket Iterator impls
 // in std/prelude.yo). Bootstrap §2.1 / §1.2.
 pragma(Pragma.AllowUnsafe);
@@ -10,7 +11,7 @@ impl(
   MyRange,
   Iterator(
     Item : i32,
-    next : (fn(ref(self) : Self) -> Option(i32))(
+    next : (fn(inout(self) : Self) -> Option(i32))(
       cond(
         (self._cur >= self._end) =>.None,
         true => {

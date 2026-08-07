@@ -1,0 +1,36 @@
+//! state_machine_naming — the `get_state_machine_field_name` helper, extracted to
+//! a leaf module to break the `state_machine.yo` ↔ `state_code_gen.yo` import
+//! cycle (both need it: state_machine.yo for the resume generator,
+//! state_code_gen.yo for match-with-await destructuring). TS keeps it in
+//! state-machine.ts — ES-module cycles link lazily there — but yo-self's loader
+//! rejects the destructuring import cycle, so the shared helper lives here (same
+//! structural necessity as `_fsm.yo` for the emitter mutual recursion). Mirrors
+//! `getStateMachineFieldName` (state-machine.ts:549).
+open(import("std/string"));
+{ HashMap } :: import("std/collections/hash_map");
+{ sanitize_for_c_identifier } :: import("../utils/index.yo");
+/// The C field name for a captured variable in a state-machine struct (consistent
+/// across struct definition and use): `outer` → `__capture.<id>`; an alias wins;
+/// otherwise `var_<id>`.
+get_state_machine_field_name :: (
+  fn(variable_id : String, kind : Option(String), aliases : Option(HashMap(String, String))) -> String
+)({
+  match(
+    kind,
+    .Some(k) => if(k == "outer", {
+      o := String.from("__capture.");
+      o.push_string(sanitize_for_c_identifier(variable_id.clone(), false));
+      return(o);
+    }),
+    .None => ()
+  );
+  match(
+    aliases,
+    .Some(a) => match(a.get(variable_id.clone()),.Some(al) => return(al),.None => ()),
+    .None => ()
+  );
+  pre := String.from("var_");
+  pre.push_string(variable_id);
+  sanitize_for_c_identifier(pre, false)
+});
+export(get_state_machine_field_name);

@@ -1,0 +1,218 @@
+//! plans/REF_REFERENCE_SEMANTICS.md Phase 3: reference-semantics enums
+//! `ref(enum(…))` / `atomic(ref(enum(…)))` — heap-allocated RC handles.
+{ assert } :: import("std/assert");
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+
+Shape :: ref(enum(Circle(r : i32), Square(s : i32)));
+Tree :: ref(enum(Leaf(value : i32), Node(left : Self, right : Self)));
+Atom :: atomic(ref(enum(Nil, Cons(v : i32))));
+Wrap :: ref(enum(Empty, Has(s : String)));
+// A recursive ref-enum reached BOTH via a direct `Self` field and via an
+// `ArrayList(Self)` field — the shape of the compiler's own `TypeValue` /
+// `AstExpr`. Its `Self` fields need no `Box`: a `ref(enum)` value is already a
+// heap RC handle (pointer). Regression guard for the `getSizeOfType` /
+// `getAlignmentOfType` enum bug: those walked variant field types inline and so
+// recursed forever on a `ref(enum)` whose variant field is typed `Self`, unless
+// the type is recognised as pointer-sized (the ref-semantics short-circuit the
+// struct branch already had). The bug only surfaced for a function that
+// RECONSTRUCTS the ref-enum (`fn(t) -> Self`), e.g. `nest_rebuild` below — a
+// merely-reducing recursion (`tree_sum -> i32`) does not trip it.
+Nest :: ref(enum(Tip(n : i32), One(inner : Self), Many(items : ArrayList(Self))));
+// A VALUE enum (self-recursive via `Box(Self)`) that holds the recursive
+// ref-enum `Nest` as a field — like the compiler's own `EvalValue` holding a
+// `TypeValue`. Regression guard for the RC-cycle analysis bug: analyzing such a
+// type walked `Nest`'s `Self` variant fields with no visited guard → infinite
+// recursion. (The struct path was guarded; the enum path was not.)
+Holder :: enum(Plain(n : i32), Boxed(b : Box(Self), t : Nest));
+
+// `ref`/`atomic` wrap inline struct/enum literals only.
+comptime_expect_error(bad_ref_named :: ref(Shape));
+comptime_expect_error(bad_atomic_prim :: atomic(i32));
+
+area :: (fn(sh : Shape) -> i32)(
+  match(sh,.Circle(r) => ((r * r) * i32(3)),.Square(s) => (s * s))
+);
+tree_sum :: (fn(t : Tree) -> i32)(
+  match(t,.Leaf(value) => value,.Node(left, right) => (recur(left) + recur(right)))
+);
+// Reduce a Nest to the sum of its tips (recurses through `Self` + ArrayList(Self)).
+nest_sum :: (fn(t : Nest) -> i32)(
+  match(
+    t,
+    .Tip(n) => n,
+    .One(inner) => recur(inner),
+    .Many(items) => {
+      (acc : i32) = i32(0);
+      (i : usize) = usize(0);
+      while(i < items.len(), {
+        match(
+          items.get(i),
+          .Some(e) => {
+            acc = (acc + recur(e));
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      acc
+    }
+  )
+);
+// RECONSTRUCT a Nest (returns `Self`) — this is the shape that tripped the
+// `getSizeOfType`/`getAlignmentOfType` ref-enum recursion bug at def-time eval.
+nest_rebuild :: (fn(t : Nest) -> Nest)(
+  match(
+    t,
+    .Tip(n) => Nest.Tip(n : n),
+    .One(inner) => Nest.One(inner : recur(inner)),
+    .Many(items) => {
+      out := ArrayList(Nest).new();
+      (i : usize) = usize(0);
+      while(i < items.len(), {
+        match(
+          items.get(i),
+          .Some(e) => {
+            _ := out.push(recur(e));
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      Nest.Many(items : out)
+    }
+  )
+);
+
+test("ref(enum) construct + match", {
+  c := Shape.Circle(r : i32(2));
+  assert(area(c) == i32(12), "circle area");
+  sq := Shape.Square(s : i32(3));
+  assert(area(sq) == i32(9), "square area");
+});
+
+test("ref(enum) is a shared handle (reference semantics)", {
+  c := Shape.Circle(r : i32(2));
+  c2 := c;
+  assert(area(c2) == i32(12), "copy shares the same handle");
+});
+
+test("ref(enum) re-match (handle borrowed, not consumed) + variant reassign", {
+  s := Shape.Circle(r : i32(5));
+  assert(area(s) == i32(75), "first match");
+  assert(area(s) == i32(75), "re-match works — match borrows the handle");
+  s = Shape.Square(s : i32(4));
+  assert(area(s) == i32(16), "in-place variant reassignment observed");
+});
+
+test("recursive ref(enum) builds + traverses", {
+  l := Tree.Leaf(value : i32(3));
+  r := Tree.Leaf(value : i32(4));
+  n := Tree.Node(left : l, right : r);
+  assert(tree_sum(n) == i32(7), "recursive sum over a ref-enum tree");
+});
+
+test("atomic(ref(enum)) construct + match", {
+  a := Atom.Cons(v : i32(42));
+  match(a,.Cons(v) => assert(v == i32(42), "atomic ref-enum field"),.Nil => ());
+});
+
+test("ref(enum) drops its variant's RC fields on free", {
+  w := Wrap.Has(s : `a heap string the ref-enum must free`);
+  match(w,.Has(sv) => assert(sv.len() > usize(0), "has a string"),.Empty => ());
+});
+
+test("recursive ref(enum) RECONSTRUCTION (Self + ArrayList(Self) fields)", {
+  // Build a Nest reached through both a direct `Self` (`One`) and an
+  // `ArrayList(Self)` (`Many`) field.
+  leaves := ArrayList(Nest).new();
+  _ := leaves.push(Nest.Tip(n : i32(1)));
+  _ := leaves.push(Nest.One(inner : Nest.Tip(n : i32(2))));
+  _ := leaves.push(Nest.Tip(n : i32(4)));
+  n := Nest.One(inner : Nest.Many(items : leaves));
+  assert(nest_sum(n) == i32(7), "sum over a recursive ref-enum");
+  // Reconstructing it (a `fn(t) -> Self`) must compile (regression: the size /
+  // alignment calculators used to recurse forever on a `Self` variant field)
+  // and preserve the structure.
+  rebuilt := nest_rebuild(n);
+  assert(nest_sum(rebuilt) == i32(7), "reconstructed ref-enum preserves structure");
+});
+
+test("value-enum holding a recursive ref(enum) field (RC-cycle analysis)", {
+  // Building/using a value-enum whose field is the recursive ref-enum `Nest`
+  // runs the RC-cycle analysis over `Nest`'s `Self` variant fields — which used
+  // to recurse forever (the enum walk had no visited guard).
+  h := Holder.Boxed(b : box(Holder.Plain(n : i32(1))), t : Nest.Tip(n : i32(9)));
+  match(
+    h,
+    .Boxed(b, t) => {
+      _ := b;
+      assert(nest_sum(t) == i32(9), "ref-enum field inside a value-enum");
+    },
+    .Plain(_) => ()
+  );
+});
+
+// -----------------------------------------------------------------------------
+// Reference-semantics field access/mutation through a `ref(enum)` VALUE whose
+// variant is not statically narrowed (e.g. a bare `fn(c : Counter)` parameter).
+// A `ref(struct)` parameter already supports `s.field = x`; a `ref(enum)`
+// parameter must too — the field resolves against the sole variant that
+// declares it (the caller asserts the active variant; codegen emits an
+// unchecked access). Regression guard for the "Failed to evaluate left-hand
+// side of assignment: (c.count)" bug (property-access enum-field resolution
+// only handled a narrowed `selectedVariantName`).
+// -----------------------------------------------------------------------------
+Counter :: ref(enum(Zero, Active(count : i32, step : i32)));
+
+// `c.count` here exercises BOTH the field READ (RHS) and field WRITE (LHS) on a
+// `ref(enum)` parameter — neither resolved before the fix.
+_bump_counter :: (fn(c : Counter) -> unit)({
+  c.count = (c.count + i32(10));
+});
+
+_read_counter :: (fn(c : Counter) -> i32)(c.count);
+
+test("ref(enum) parameter field mutation propagates via reference semantics", {
+  c := Counter.Active(count : i32(5), step : i32(1));
+  _bump_counter(c);
+  match(
+    c,
+    .Active({ count }) => assert(count == i32(15), "param field mutation propagates to caller"),
+    .Zero => assert(false, "unexpected Zero variant")
+  );
+});
+
+test("ref(enum) parameter field read (unnarrowed variant)", {
+  c := Counter.Active(count : i32(42), step : i32(1));
+  assert(_read_counter(c) == i32(42), "param field read resolves the declaring variant");
+});
+
+test("ref(enum) field mutation via an immutable local binding", {
+  c := Counter.Active(count : i32(3), step : i32(2));
+  c.count = i32(99);
+  match(
+    c,
+    .Active({ count }) => assert(count == i32(99), "immutable-local field mutation"),
+    .Zero => assert(false, "unexpected Zero variant")
+  );
+});
+
+// Regression (issues/fixed/fieldless-ref-enum-simple-enum-collapse.md): an
+// all-payload-free ref(enum) used to be collapsed to a bare C enum by
+// canOptimizeAsSimpleEnum while its constructors and match lowering kept the
+// heap-object shape (obj->header.ref_count / obj->tag) — 9 clang errors, the
+// shape did not compile at all. The collapse now excludes reference-semantics
+// enums in both compilers.
+Flag :: ref(enum(On, Off));
+
+test("fieldless ref(enum) compiles, matches, and is RC-managed", {
+  a := Flag.On;
+  b := Flag.Off;
+  on := match(a,.On => true,.Off => false);
+  off := match(b,.On => false,.Off => true);
+  assert(on && off, "fieldless ref enum variants distinguish in match");
+  a2 := a;
+  assert(rc(a) == 2, "fieldless ref enum is a heap RC object (rc visible)");
+  assert(rc(a2) == rc(a), "alias shares the same RC object");
+});

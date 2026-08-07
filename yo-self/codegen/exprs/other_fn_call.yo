@@ -1,0 +1,1979 @@
+//! Call/method/trait-dispatch emitter — mirrors `src/codegen/exprs/other-fn-call.ts`.
+//!
+//! PORT STATUS (incremental): the bounded self-contained HELPERS are ported here
+//! (the C-string addressability scanner, top-level arg splitter, interior-ref
+//! container extraction + borrow acquire/release bracketing, object-method
+//! detection, and the auto-borrow-assert). The ~2326-line
+//! generate_other_function_call ENTRY (regular calls, method/trait dispatch,
+//! specialization, extern, arg materialization with ref/closure/dyn handling)
+//! and the Phase-5 evidence/effect call-site machinery are the focused next
+//! effort; until they land the dispatcher routes other-fn-call → TODO stub.
+//!
+//! DEFERRED (documented): state-machine var→field resolution + temp-var storage
+//! (Phase 5 — getStateMachineFieldName / CapturedVariable not ported); these
+//! helpers are no-ops outside a state machine (the no-async corpus).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, ast_expr_id, make_err_expr, BF_DOT } :: import("../../expr.yo");
+{ lookup_method_callee_value, ExprInfo, new_expr_info, expr_info_effect_analysis } :: import("../../expr_info.yo");
+{ EvalValue, is_func_val, is_unknown_val, is_struct_val, is_enum_val } :: import("../../value.yo");
+{ get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
+{ get_func_type, is_control_fn, is_effect_record_member, is_io_async_sm_closure } :: import("../../function_value.yo");
+{ should_skip_function_codegen } :: import("../functions/declarations.yo");
+{ TypeValue, FuncMeta } :: import("../../types/definitions.yo");
+{ is_reference_struct_type, is_reference_enum_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type, is_union_type, is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
+{ type_is_control_bound } :: import("../../types/utils.yo");
+{ Environment, get_variables_from_env, find_innermost_frame_with_given_variable, Variable } :: import("../../env.yo");
+{ is_builtin_yo_inline_function } :: import("../constants.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains } :: import("../utils/index.yo");
+{ resolve_some_type_to_concrete } :: import("./closures.yo");
+{ extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
+{ generate_comptime_value } :: import("./comptime_value.yo");
+{ generate_deferred_drop_expressions, emit_deferred_dup_or_code } :: import("./drop_dup.yo");
+{ generate_yo_inline_function_call } :: import("./inline_fns.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+{ emit_effect_unwind_check } :: import("./return.yo");
+{ generate_thread_spawn_call, generate_worker_spawn_call } :: import("./parallelism.yo");
+{ assert, panic } :: import("std/assert");
+/// Monotonic counter for ref-spill temporaries (`__yo_ref_spill_N`). Must be
+/// unique per generated C function body, not per call's arg index — two
+/// separate calls in one function both spilling arg 0 would otherwise collide
+/// on `__yo_ref_spill_0`. Mirrors TS module-level `refSpillCounter`
+/// (src/codegen/exprs/other-fn-call.ts:84).
+(g_ref_spill_counter : usize) = usize(0);
+/// ASCII word byte ([A-Za-z0-9_]).
+_is_word_byte :: (fn(b : u8) -> bool)(
+  ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
+);
+/// ASCII identifier start byte ([A-Za-z_]).
+_is_ident_start :: (fn(b : u8) -> bool)(
+  ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (b == u8(95)))
+);
+/// Length of the C identifier at `start` in `s` (0 if none).
+_scan_ident :: (fn(s : String, start : usize) -> usize)({
+  // BYTE count — the loop reads byte_at (see _split_top_level_args_list).
+  n := s.as_bytes().len();
+  if((start >= n) || !(_is_ident_start(s.byte_at(start))), usize(0), {
+    (i : usize) = (start + usize(1));
+    while((i < n) && _is_word_byte(s.byte_at(i)), {
+      i = (i + usize(1));
+    });
+    i - start
+  })
+});
+/// Index of the matching close-bracket for the open at `open_idx` (`open_b` /
+/// `close_b` bytes), or `s.len()` if unbalanced.
+_match_bracket :: (fn(s : String, open_idx : usize, open_b : u8, close_b : u8) -> usize)({
+  // BYTE count — the loop reads byte_at (see _split_top_level_args_list).
+  n := s.as_bytes().len();
+  (depth : usize) = usize(0);
+  (k : usize) = open_idx;
+  while(k < n, {
+    b := s.byte_at(k);
+    if(b == open_b, {
+      depth = (depth + usize(1));
+    });
+    if(b == close_b, {
+      depth = (depth - usize(1));
+      if(depth == usize(0), {
+        return(k);
+      });
+    });
+    k = (k + usize(1));
+  });
+  n
+});
+/// Byte-exact slice `[from, to)` of `s` — `substring` is RUNE-indexed and
+/// cannot take the BYTE indices these C-code scanners produce (see
+/// _split_top_level_args_list's note).
+_byte_slice :: (fn(s : String, from : usize, to : usize) -> String)({
+  bytes := s.as_bytes();
+  out := ArrayList(u8).new();
+  (i : usize) = from;
+  while((i < to) && (i < bytes.len()), {
+    _p := out.push(match(bytes.get(i),.Some(b) => b,.None => u8(0)));
+    i = (i + usize(1));
+  });
+  String.from_bytes(out)
+});
+/// Whether `code` is an lvalue C expression whose address can be taken (a
+/// deref, or an identifier head + `.`/`->`/`[]` chain). Mirrors `isAddressableCExpr`.
+_is_addressable_c_expr :: (fn(code : String) -> bool)({
+  (s : String) = code.trim();
+  // Strip balanced fully-enclosing parens. BYTE indices throughout — the
+  // scanners read byte_at, and substring is rune-indexed (see _byte_slice).
+  (cont : bool) = true;
+  while(cont, {
+    if(!(s.starts_with("(") && s.ends_with(")")), {
+      cont = false;
+    }, {
+      close := _match_bracket(s, usize(0), u8(40), u8(41));
+      if(close < (s.as_bytes().len() - usize(1)), {
+        cont = false;
+      }, {
+        s = _byte_slice(s, usize(1), s.as_bytes().len() - usize(1)).trim();
+      });
+    });
+  });
+  if(s.len() == usize(0), {
+    return(false);
+  });
+  // A deref of anything is an lvalue.
+  if(s.byte_at(usize(0)) == u8(42), {
+    return(true);
+  });
+  n := s.as_bytes().len();
+  (i : usize) = usize(0);
+  if(s.byte_at(usize(0)) == u8(40), {
+    close := _match_bracket(s, usize(0), u8(40), u8(41));
+    if(close >= n, {
+      return(false);
+    });
+    inner := _byte_slice(s, usize(1), close).trim();
+    if((inner.len() == usize(0)) || !(inner.byte_at(usize(0)) == u8(42)), {
+      return(false);
+    });
+    i = (close + usize(1));
+  }, {
+    idlen := _scan_ident(s, usize(0));
+    if(idlen == usize(0), {
+      return(false);
+    });
+    i = idlen;
+  });
+  // Member / index tails.
+  while(i < n, {
+    b := s.byte_at(i);
+    if(b == u8(32), {
+      i = (i + usize(1));
+    }, if(b == u8(46), {
+      i = (i + usize(1));
+      idlen := _scan_ident(s, i);
+      if(idlen == usize(0), {
+        return(false);
+      });
+      i = (i + idlen);
+    }, if((b == u8(45)) && (((i + usize(1)) < n) && (s.byte_at(i + usize(1)) == u8(62))), {
+      i = (i + usize(2));
+      idlen := _scan_ident(s, i);
+      if(idlen == usize(0), {
+        return(false);
+      });
+      i = (i + idlen);
+    }, if(b == u8(91), {
+      close := _match_bracket(s, i, u8(91), u8(93));
+      if(close >= n, {
+        return(false);
+      });
+      i = (close + usize(1));
+    }, {
+      return(false);
+    }))));
+  });
+  true
+});
+/// Split a C arg list at top-level commas, respecting ()/[]/{} nesting.
+/// Mirrors `splitTopLevelArgsList`.
+_split_top_level_args_list :: (fn(s : String) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  (depth : usize) = usize(0);
+  cur := String.from("");
+  // BYTE count: this loop reads `byte_at(i)`, and `String.len()` counts
+  // RUNES (std skips UTF-8 continuation bytes) — a rune-counted bound made
+  // the walk stop (bytes − runes) bytes early on multibyte content,
+  // TRUNCATING the last arg's tail (`assert(_, "… → …")` lost its
+  // compound literal's closing " }": the collections batch C failed with
+  // "expected '}'"). Same hardening as comptime_value.yo's
+  // _strip_str_delims.
+  n := s.as_bytes().len();
+  (i : usize) = usize(0);
+  // Track whether we're inside a C string/char literal (0 = not; else the quote
+  // byte). A `)`/`}`/`,` inside a literal (e.g. the `)` in the str initializer
+  // `(__yo_str){ .ptr=(const uint8_t*)")", .len=1 }`) must not corrupt the depth
+  // count or trigger a split. Mirrors splitTopLevelArgsList (other-fn-call.ts).
+  (in_str : u8) = u8(0);
+  while(i < n, {
+    b := s.byte_at(i);
+    cond(
+      (in_str != u8(0)) => {
+        cur.push_byte(b);
+        cond(
+          (b == u8(92)) => {
+            // Escape sequence: consume the next byte verbatim.
+            i = (i + usize(1));
+            if(i < n, {
+              cur.push_byte(s.byte_at(i));
+            });
+          },
+          (b == in_str) => {
+            in_str = u8(0);
+          },
+          true => ()
+        );
+      },
+      ((b == u8(34)) || (b == u8(39))) => {
+        in_str = b;
+        cur.push_byte(b);
+      },
+      true => {
+        if((b == u8(40)) || ((b == u8(91)) || (b == u8(123))), {
+          depth = (depth + usize(1));
+        });
+        if((b == u8(41)) || ((b == u8(93)) || (b == u8(125))), {
+          depth = (depth - usize(1));
+        });
+        if((b == u8(44)) && (depth == usize(0)), {
+          _p := out.push(cur.trim());
+          cur = String.from("");
+        }, {
+          cur.push_byte(b);
+        });
+      }
+    );
+    i = (i + usize(1));
+  });
+  if(cur.trim().len() > usize(0), {
+    _p := out.push(cur.trim());
+  });
+  out
+});
+/// SM var→field resolution (Phase 5) — returns the name unchanged outside a
+/// state machine (the no-async corpus). Mirrors `resolveVarNameInContext`.
+_resolve_var_name_in_context :: (fn(var_name : String, context : FunctionGenerationContext) -> String)(
+  var_name
+);
+/// SM temp-var store (Phase 5) — no-op outside a state machine. Mirrors
+/// `storeTempVarToStateMachineIfNeeded`.
+_store_temp_var_to_state_machine_if_needed :: (fn(temp_var : String, indent : String, context : FunctionGenerationContext) -> unit)(
+  ()
+);
+/// The container-pointer C code for an interior `ref` argument (an Index-trait
+/// expression), or `.None`. Mirrors `getInteriorRefContainerCode`.
+_get_interior_ref_container_code :: (fn(arg_expr : AstExpr, param_is_ref : bool, indent : String, context : FunctionGenerationContext) -> Option(String))(
+  if(
+    !(param_is_ref),
+    Option(String).None,
+    match(
+      context.base.get_expr_info(arg_expr),
+      .Some(ei) => match(
+        ei.index_trait_ptr_type,
+        .Some(_) => if(
+          !(ast_expr_is_fn_call(arg_expr)),
+          Option(String).None,
+          match(
+            arg_expr,
+            .FnCall(_, func, _, _, _) => {
+              container := func;
+              if(ast_expr_is_atom(container) || ast_expr_is_fn_call_of(container, BF_DOT, Option(usize).Some(usize(2))), Option(String).Some(_call_generate_expr(container, indent.clone(), context)), Option(String).None)
+            },
+            .Atom(_, _) => Option(String).None
+          )
+        ),
+        .None => Option(String).None
+      ),
+      .None => Option(String).None
+    )
+  )
+);
+/// Emit `__yo_borrow_acquire` for each interior-ref arg's container; returns the
+/// acquired container codes (caller emits releases). Mirrors `emitBorrowAcquires`.
+_emit_borrow_acquires :: (fn(runtime_arg_exprs : ArrayList(AstExpr), runtime_param_is_ref : ArrayList(bool), indent : String, context : FunctionGenerationContext) -> ArrayList(String))({
+  containers := ArrayList(String).new();
+  em := context.base.emitter;
+  na := runtime_arg_exprs.len();
+  np := runtime_param_is_ref.len();
+  limit := if(na < np, na, np);
+  (ai : usize) = usize(0);
+  while(ai < limit, {
+    is_ref := match(runtime_param_is_ref.get(ai),.Some(r) => r,.None => false);
+    match(
+      runtime_arg_exprs.get(ai),
+      .Some(arg) => match(
+        _get_interior_ref_container_code(arg, is_ref, indent.clone(), context),
+        .Some(cc) => {
+          _p := containers.push(cc.clone());
+          line := indent.clone();
+          line.push_str("__yo_borrow_acquire((void*)(");
+          line.push_string(cc);
+          line.push_str("));");
+          em.emit_string_line(line);
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    ai = (ai + usize(1));
+  });
+  containers
+});
+/// Emit `__yo_borrow_release` (LIFO) for acquired containers. Mirrors `emitBorrowReleases`.
+_emit_borrow_releases :: (fn(containers : ArrayList(String), indent : String, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  n := containers.len();
+  if(n > usize(0), {
+    (ai : usize) = (n - usize(1));
+    (go : bool) = true;
+    while(go, {
+      match(
+        containers.get(ai),
+        .Some(cc) => {
+          line := indent.clone();
+          line.push_str("__yo_borrow_release((void*)(");
+          line.push_string(cc);
+          line.push_str("));");
+          em.emit_string_line(line);
+        },
+        .None => ()
+      );
+      if(ai == usize(0), {
+        go = false;
+      }, {
+        ai = (ai - usize(1));
+      });
+    });
+  });
+});
+/// Whether the current function is a method of an RC-managed object type
+/// (`self` parameter of object type). Mirrors `isInsideObjectMethod`.
+_is_inside_object_method :: (fn(context : FunctionGenerationContext) -> bool)(
+  match(context.current_function_type,.Some(ft) => match(ft,.Func({ param_types : pts, meta : __fm1 }) => if(__fm1.*.param_labels.len() == usize(0), false, match(__fm1.*.param_labels.get(usize(0)),.Some(l) => if(l == "self", match(pts.get(usize(0)),.Some(t) => is_reference_struct_type(t),.None => false), false),.None => false)), _ => false),.None => false)
+);
+/// Auto-emit `__yo_borrow_assert_unborrowed((void*)self)` before a realloc/free
+/// inside an RC-managed object method. Mirrors `maybeEmitAutoBorrowAssert`.
+_maybe_emit_auto_borrow_assert :: (fn(extern_func_name : String, indent : String, context : FunctionGenerationContext) -> unit)(
+  if(((extern_func_name == "__yo_realloc") || (extern_func_name == "__yo_free")) && _is_inside_object_method(context), {
+    em := context.base.emitter;
+    line := indent.clone();
+    line.push_str("__yo_borrow_assert_unborrowed((void*)self);");
+    em.emit_string_line(line);
+  })
+);
+/// The C function name registered for a func id, if any.
+_c_func_name :: (fn(func_id : String, context : FunctionGenerationContext) -> Option(String))(
+  match(context.base.get_function_entry(func_id),.Some(e) => Option(String).Some(e.c_name),.None => Option(String).None)
+);
+/// The last binding for `name` whose value is a registered FuncVal → its C name.
+_arg_fn_value_c_name :: (fn(env : Environment, name : String, context : FunctionGenerationContext) -> Option(String))({
+  vars := get_variables_from_env(env, name);
+  m := vars.len();
+  if(m == usize(0), Option(String).None, match(vars.get(m - usize(1)),.Some(v) => match(v.value.get(usize(0)),.Some(val) => if(is_func_val(val), match(val,.FuncVal(__fvd1, _) => _c_func_name(__fvd1.*.func_id, context), _ => Option(String).None), Option(String).None),.None => Option(String).None),.None => Option(String).None))
+});
+/// Whether the last binding for `name` is compile-time-only.
+_last_is_comptime_only :: (fn(env : Environment, name : String) -> bool)({
+  vars := get_variables_from_env(env, name);
+  m := vars.len();
+  if(m == usize(0), false, match(vars.get(m - usize(1)),.Some(v) => v.is_compile_time_only,.None => false))
+});
+/// Whether `c` is a bare C literal (int/float/true/false) — `&literal` is invalid.
+_is_bare_literal :: (fn(c : String) -> bool)({
+  n := c.len();
+  if(
+    n == usize(0),
+    false,
+    if((c == "true") || (c == "false"), true, {
+      (i : usize) = usize(0);
+      if(c.byte_at(usize(0)) == u8(45), {
+        i = usize(1);
+      });
+      if(i >= n, false, {
+        // A C numeric literal must START with a digit or `.` (after an
+        // optional `-`). Without this, identifiers made only of digits and
+        // the numeric-suffix letters [fFlLuU] — e.g. `l1`, `f2`, `u8x` — were
+        // classified as literals ("1l"-style), so a ref-param arg like `l1`
+        // was wrapped in a compound literal `(&((String){l1}))` instead of
+        // `(&(l1))`; for a newtype-over-enum (String = Option(ArrayList(u8)))
+        // that initializes the enum's `.tag` with a String → the stage-2
+        // "initializing __yo_t3_tag with __yo_t2" cluster (13 errors).
+        first_b := c.byte_at(i);
+        if(!(((first_b >= u8(48)) && (first_b <= u8(57))) || (first_b == u8(46))), {
+          return(false);
+        });
+        (ok : bool) = true;
+        (seen_digit : bool) = false;
+        while(i < n, {
+          b := c.byte_at(i);
+          if((b >= u8(48)) && (b <= u8(57)), {
+            seen_digit = true;
+          }, if((b == u8(46)) || ((b == u8(102)) || ((b == u8(70)) || ((b == u8(108)) || ((b == u8(76)) || ((b == u8(117)) || (b == u8(85))))))), (), {
+            ok = false;
+          }));
+          i = (i + usize(1));
+        });
+        ok && seen_digit
+      })
+    })
+  )
+});
+/// Materialize one runtime argument into its C code (temp-var decl for named
+/// non-ref values; closure-capture / SM / dyn-method handling is gated for the
+/// corpus). Mirrors the arg-map in `generateOtherFunctionCall`.
+_materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    context.base.get_expr_info(arg),
+    .Some(arg_ei) => match(
+      arg_ei.variable_name,
+      .Some(vname) => {
+        (arg_code : String) = _call_generate_expr(arg, indent.clone(), context);
+        // Function-typed atom argument → use the registered C function name.
+        if(ast_expr_is_atom(arg), {
+          match(
+            _arg_fn_value_c_name(arg_ei.env, vname.clone(), context),
+            .Some(cn) => {
+              arg_code = cn;
+            },
+            .None => ()
+          );
+        });
+        is_comptime_only := _last_is_comptime_only(arg_ei.env, vname.clone());
+        is_sm := arg_code.starts_with("sm->");
+        sanitized := get_variable_name_for_codegen(vname.clone(), Option(Environment).Some(arg_ei.env));
+        // A by-`ref` binding read passed BY VALUE generates `(*name)` (the deref
+        // of the same variable). That is a simple read, NOT a fresh temp — do not
+        // materialize it into `<T> name = (*name);` (which would redeclare and
+        // shadow the `T* name` param: C "redefinition with different type"). Emit
+        // `(*name)` inline. Mirrors TS, which passes the deref expression directly.
+        deref_form := {
+          d := String.from("(*");
+          d.push_string(sanitized.clone());
+          d.push_str(")");
+          d
+        };
+        is_deref_read := (arg_code == deref_form);
+        // Do not RE-declare a name already alive in an open scope: two
+        // effectful calls in one body can each materialize the SAME
+        // capture-read (`yield(io)` twice stamps `io` as the arg's
+        // variable_name both times) → C "redefinition of 'io'". It also
+        // covers the name being the closure's own C PARAMETER (seeded into
+        // the scope stack at function entry). The scope stack is the
+        // liveness signal (declared_c_var_names is monotonic across closed
+        // sibling blocks — see scope_stack_contains); the in-scope
+        // local/param holds the same value, so reuse it.
+        already_in_scope := scope_stack_contains(context.base.declared_scopes, vname.clone());
+        (emitted : bool) = false;
+        if(((((!(arg_code == vname) && !(is_comptime_only)) && !(is_sm)) && !(param_is_ref)) && !(is_deref_read)) && !(already_in_scope), {
+          if(!(arg_code == sanitized), {
+            line := indent.clone();
+            line.push_string(get_variable_type_string(arg_ei.ty, vname.clone(), context.base));
+            line.push_str(" = ");
+            line.push_string(arg_code.clone());
+            line.push_str(";");
+            em := context.base.emitter;
+            em.emit_string_line(line);
+            emitted = true;
+          });
+        });
+        final_name := if(emitted || already_in_scope, vname, arg_code.clone());
+        // dup-on-store for an owned param: emit the arg's deferred `___dup` (set by
+        // helper.yo's move-ownership branch) before the call uses it. Only in the
+        // value-pass case — ref/`inout`/comptime/sm/deref args transfer no ownership.
+        if(((is_comptime_only || is_sm) || param_is_ref) || is_deref_read, arg_code, emit_deferred_dup_or_code(arg, sanitize_for_c_identifier(final_name, false), indent.clone(), context))
+      },
+      .None => _call_generate_expr(arg, indent.clone(), context)
+    ),
+    .None => _call_generate_expr(arg, indent.clone(), context)
+  )
+);
+/// Apply the auto-`&` wrap to ref-parameter arguments (fold `(*x)`→`x`, wrap
+/// bare literals in a compound literal, address-of addressable exprs, else
+/// spill to a temp). Mirrors the inout/ref `&` section.
+_apply_ref_amp :: (fn(args : ArrayList(String), param_is_ref : ArrayList(bool), runtime_args : ArrayList(AstExpr), indent : String, context : FunctionGenerationContext) -> ArrayList(String))({
+  em := context.base.emitter;
+  out := ArrayList(String).new();
+  na := args.len();
+  (i : usize) = usize(0);
+  while(i < na, {
+    pref := match(param_is_ref.get(i),.Some(r) => r,.None => false);
+    c := match(args.get(i),.Some(x) => x,.None => String.from(""));
+    transformed := if(
+      !(pref),
+      c,
+      if(
+        (c.starts_with("(*")) && (c.ends_with(")")),
+        c.substring(usize(2), c.len() - usize(1)),
+        if(_is_bare_literal(c), {
+          cty := match(runtime_args.get(i),.Some(ra) => match(context.base.get_expr_info(ra),.Some(rei) => get_type_string(rei.ty, context.base),.None => String.from("size_t")),.None => String.from("size_t"));
+          w := String.from("(&((");
+          w.push_string(cty);
+          w.push_str("){");
+          w.push_string(c);
+          w.push_str("}))");
+          w
+        }, if(_is_addressable_c_expr(c.clone()), {
+          w := String.from("(&(");
+          w.push_string(c);
+          w.push_str("))");
+          w
+        }, {
+          cty := match(runtime_args.get(i),.Some(ra) => match(context.base.get_expr_info(ra),.Some(rei) => get_type_string(rei.ty, context.base),.None => String.from("size_t")),.None => String.from("size_t"));
+          spill := String.from("__yo_ref_spill_");
+          spill.push_string(g_ref_spill_counter.to_string());
+          g_ref_spill_counter = (g_ref_spill_counter + usize(1));
+          decl := indent.clone();
+          decl.push_string(cty);
+          decl.push_str(" ");
+          decl.push_string(spill.clone());
+          decl.push_str(" = ");
+          decl.push_string(c);
+          decl.push_str(";");
+          em.emit_string_line(decl);
+          w := String.from("(&(");
+          w.push_string(spill);
+          w.push_str("))");
+          w
+        }))
+      )
+    );
+    _p := out.push(transformed);
+    i = (i + usize(1));
+  });
+  out
+});
+/// Build an object/struct constructor's runtime-field VALUE exprs by matching
+/// the struct's runtime fields (in declaration order) to the FnCall's labeled
+/// args `label : value`. Used as a fallback when `runtime_arg_exprs_in_order` is
+/// empty for a constructor call — which happens for a ctor inside a SPECIALIZED
+/// method body (e.g. `ArrayList(u8).new`'s `Self(_ptr:.None, _length:0, ...)`),
+/// where the spec body re-eval does not record `runtime_arg_exprs`. Returns the
+/// value exprs in runtime-field order (so positional `__yo_new_(...)` matches).
+_ctor_args_from_labeled :: (fn(wrapped : TypeValue, fncall_args : ArrayList(AstExpr)) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  rfs := get_runtime_struct_fields(wrapped);
+  n := rfs.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    flabel := match(rfs.get(i),.Some(f) => f.label,.None => String.from(""));
+    (found : Option(AstExpr)) = Option(AstExpr).None;
+    (ai : usize) = usize(0);
+    na := fncall_args.len();
+    while((ai < na) && found.is_none(), {
+      match(
+        fncall_args.get(ai),
+        .Some(arg) => if(ast_expr_is_fn_call_of(arg, ":", Option(usize).Some(usize(2))), {
+          ca := match(arg,.FnCall(_, _, ca2, _, _) => ca2,.Atom(_, _) => ArrayList(AstExpr).new());
+          lbl := match(ca.get(usize(0)),.Some(l) => if(ast_expr_is_atom(l), ast_expr_token(l).value, String.from("")),.None => String.from(""));
+          if(lbl == flabel, {
+            found = match(ca.get(usize(1)),.Some(v) => Option(AstExpr).Some(v),.None => Option(AstExpr).None);
+          });
+        }),
+        .None => ()
+      );
+      ai = (ai + usize(1));
+    });
+    match(
+      found,
+      .Some(v) => {
+        _p := out.push(v);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// Per-argument cast to the callee's declared parameter C types (a no-op when
+/// types match; needed for specialized generic callees). Mirrors the
+/// namedCastedArgsList logic.
+_per_arg_cast :: (fn(args_list : String, param_types : ArrayList(TypeValue), param_is_ref : ArrayList(bool), context : FunctionGenerationContext) -> String)(
+  if(args_list.len() == usize(0), args_list, {
+    parts := _split_top_level_args_list(args_list);
+    np := param_types.len();
+    if(!(parts.len() == np), args_list, {
+      out := String.from("");
+      (i : usize) = usize(0);
+      while(i < np, {
+        if(i > usize(0), {
+          out.push_str(", ");
+        });
+        base_str := match(param_types.get(i),.Some(t) => get_type_string(t, context.base),.None => String.from("void*"));
+        pref := match(param_is_ref.get(i),.Some(r) => r,.None => false);
+        out.push_str("(");
+        out.push_string(base_str);
+        if(pref, {
+          out.push_str("*");
+        });
+        out.push_str(")(");
+        out.push_string(match(parts.get(i),.Some(p) => p,.None => String.from("")));
+        out.push_str(")");
+        i = (i + usize(1));
+      });
+      out
+    })
+  })
+);
+/// Join arg codes with ", ".
+_join_args :: (fn(args : ArrayList(String)) -> String)({
+  out := String.from("");
+  n := args.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    if(i > usize(0), {
+      out.push_str(", ");
+    });
+    out.push_string(match(args.get(i),.Some(a) => a,.None => String.from("")));
+    i = (i + usize(1));
+  });
+  out
+});
+/// Index of `name` in an EnumT's `variant_names` (local copy — comptime_value's
+/// is not exported). `name` must be the clean variant (no leading `.`).
+_enum_variant_index :: (fn(enum_ty : TypeValue, name : String) -> Option(usize))(
+  match(
+    enum_ty,
+    .EnumT({ variant_names }) => {
+      n := variant_names.len();
+      (i : usize) = usize(0);
+      (found : Option(usize)) = Option(usize).None;
+      while((i < n) && found.is_none(), {
+        match(
+          variant_names.get(i),
+          .Some(vn) => if(vn == name, {
+            found = Option(usize).Some(i);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => Option(usize).None
+  )
+);
+/// Emit a RUNTIME enum construction `.Variant(args...)` whose field values are
+/// runtime (so the evaluator left an EnumVal shell with holes that
+/// generate_comptime_value can't fill — `/* skip generating value */`). Mirrors
+/// other-fn-call.ts:2500-2680 (nullable-pointer / simple-enum / tagged-union),
+/// and the comptime enum emission shape in comptime_value.yo, but generates each
+/// field VALUE from the recorded runtime arg exprs. The runtime args are aligned
+/// by index with the variant's declared fields (unit fields are skipped).
+_generate_runtime_enum_construct :: (
+  fn(enum_ty : TypeValue, variant_raw : String, rt_args : ArrayList(AstExpr), indent : String, context : FunctionGenerationContext) -> String
+)({
+  // The EnumVal variant carries the leading `.` of the `.Variant` source form;
+  // strip it (variant_names are clean, and `.data.<variant>` must be valid C).
+  variant := if(variant_raw.starts_with("."), variant_raw.substring(usize(1), variant_raw.len()), variant_raw.clone());
+  ptr_opt := can_optimize_as_nullable_pointer(enum_ty);
+  cond(
+    (ptr_opt.is_some() && (rt_args.len() == usize(0))) => String.from("NULL"),
+    (ptr_opt.is_some() && (rt_args.len() == usize(1))) => match(
+      rt_args.get(usize(0)),
+      .Some(a) => emit_deferred_dup_or_code(a, _call_generate_expr(a, indent.clone(), context), indent.clone(), context),
+      .None => String.from("NULL")
+    ),
+    can_optimize_as_simple_enum(enum_ty) => get_enum_variant_c_name(enum_ty, variant.clone(), context.base),
+    true => {
+      c_name := match(context.base.get_type_c_name(type_key(enum_ty.clone())),.Some(cn) => cn,.None => String.from("__yo_unknown_enum"));
+      variant_tag := get_enum_variant_c_name(enum_ty, variant.clone(), context.base);
+      // Reference-semantics enums (`ref(enum(…))`) heap-allocate via a
+      // per-variant constructor; value enums use a compound literal.
+      is_ref := is_reference_enum_type(enum_ty);
+      vidx := _enum_variant_index(enum_ty, variant.clone());
+      inits := String.from("");
+      positional := String.from("");
+      (any_field : bool) = false;
+      match(
+        enum_ty,
+        .EnumT({ variant_fields, variant_field_labels }) => match(
+          vidx,
+          .Some(vi) => {
+            vftys := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+            vflabels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
+            n := rt_args.len();
+            (i : usize) = usize(0);
+            while(i < n, {
+              fty := match(vftys.get(i),.Some(t) => t,.None => TypeValue.Unit);
+              if(!(is_unit_type(fty)), {
+                fcode := match(rt_args.get(i),.Some(a) => emit_deferred_dup_or_code(a, _call_generate_expr(a, indent.clone(), context), indent.clone(), context),.None => String.from(""));
+                if(any_field, {
+                  inits.push_str(", ");
+                  positional.push_str(", ");
+                });
+                any_field = true;
+                flabel := match(vflabels.get(i),.Some(l) => l,.None => String.from(""));
+                inits.push_str(".");
+                inits.push_string(sanitize_for_c_identifier(flabel, false));
+                inits.push_str(" = ");
+                inits.push_string(fcode.clone());
+                positional.push_string(fcode);
+              });
+              i = (i + usize(1));
+            });
+          },
+          .None => ()
+        ),
+        _ => ()
+      );
+      cond(
+        is_ref => {
+          out := String.from("__yo_new_");
+          out.push_string(c_name);
+          out.push_str("_");
+          out.push_string(variant.clone());
+          out.push_str("(");
+          out.push_string(positional);
+          out.push_str(")");
+          out
+        },
+        true => {
+          out := String.from("(");
+          out.push_string(c_name);
+          out.push_str("){ .tag = ");
+          out.push_string(variant_tag);
+          if(any_field, {
+            out.push_str(", .data = { .");
+            out.push_string(variant.clone());
+            out.push_str(" = { ");
+            out.push_string(inits);
+            out.push_str(" } }");
+          });
+          out.push_str(" }");
+          out
+        }
+      )
+    }
+  )
+});
+/// FuncVal func_id, or empty if not a FuncVal.
+_func_val_id :: (fn(v : EvalValue) -> String)(match(v,.FuncVal(__fvd2, _) => __fvd2.*.func_id, _ => String.new()));
+/// Whether a call to this callee might trigger an effect escape (it directly is
+/// a control/effect-record fn, its resolved type is `ctl(...)`, it has a
+/// fn-typed / ctl-bound param a handler may be threaded through, its body has
+/// effects, or — TS's final fallback — it is a DIRECT call through an atom
+/// whose type is a function type). Mirrors the `callMayUnwind` computation in
+/// other-fn-call.ts:1205-1236 INCLUDING the atom fallback
+/// (`isFunctionType(functionType) && exprIsAtom(expr.func)`). That fallback is
+/// LOAD-BEARING for behavior parity with the TS-compiled compiler: TS brackets
+/// every such call with `__yo_effect_escaped = 0; call; if (escaped) ...`, and
+/// inside a ctl handler's `unwind(<call>)` argument the pre-call reset CLOBBERS
+/// the just-set unwind flag — so the reference compiler RESUMES past swallowed
+/// throws (`unwind(<literal>)` has no call and really unwinds). The evaluator's
+/// def-time trial-eval swallow-and-continue behavior depends on reproducing
+/// this exactly (issues/fixed/yo-self-stage2-dyn-closure-divergence.md).
+_call_may_unwind :: (fn(func_ei_value : Option(EvalValue), function_type : TypeValue, param_types : ArrayList(TypeValue), callee_is_atom : bool, context : FunctionGenerationContext) -> bool)({
+  fid_is_control := match(func_ei_value,.Some(v) => if(is_func_val(v), is_control_fn(_func_val_id(v)), false),.None => false);
+  fid_is_effect_member := match(func_ei_value,.Some(v) => if(is_func_val(v), is_effect_record_member(_func_val_id(v)), false),.None => false);
+  ft_is_control := match(function_type,.Func({ meta : __fm2 }) => __fm2.*.is_control, _ => false);
+  body_has_effects := match(
+    func_ei_value,
+    .Some(v) => match(v,.FuncVal(__fvd3, _) => match(context.base.get_expr_info(__fvd3.*.body),.Some(bei) => match(expr_info_effect_analysis(bei),.Some(ea) => ea.has_effects,.None => false),.None => false), _ => false),
+    .None => false
+  );
+  (param_fn_or_ctl : bool) = false;
+  npt := param_types.len();
+  (pi : usize) = usize(0);
+  while((pi < npt) && !(param_fn_or_ctl), {
+    match(
+      param_types.get(pi),
+      .Some(t) => if(is_function_type(t) || type_is_control_bound(t), {
+        param_fn_or_ctl = true;
+      }),
+      .None => ()
+    );
+    pi = (pi + usize(1));
+  });
+  ((((fid_is_control || fid_is_effect_member) || ft_is_control) || body_has_effects) || param_fn_or_ctl)
+  || (is_function_type(function_type) && callee_is_atom)
+});
+/// Whether the call site is the handler-installation point (where the unwound
+/// value is extracted, vs merely propagated). Mirrors the `callIsHandlerInstallation`
+/// computation in other-fn-call.ts:1240 (direct-control-fn given-binding check +
+/// the Phase-2 explicit-param fallback). The specialized-evidence branch is
+/// omitted (yo-self FuncVal has no specializedType — Gap 2).
+_call_is_handler_installation :: (fn(func_ei : ExprInfo, function_type : TypeValue, param_types : ArrayList(TypeValue), runtime_args : ArrayList(AstExpr), context : FunctionGenerationContext) -> bool)({
+  env := func_ei.env;
+  fdfl := match(env.function_declaration_frame_level,.Some(l) => l,.None => usize(0));
+  // (1) Direct call to a control/effect-record handler fn bound via a local
+  //     begin-block frame (handler installation) vs a function parameter.
+  is_direct_handler := match(func_ei.value,.Some(v) => if(is_func_val(v), is_control_fn(_func_val_id(v)) || is_effect_record_member(_func_val_id(v)), false),.None => false);
+  install1 := if(is_direct_handler, {
+    callee_fid := match(func_ei.value,.Some(v) => _func_val_id(v),.None => String.new());
+    match(
+      find_innermost_frame_with_given_variable(env, (v : Variable) => match(v.value.get(usize(0)),.Some(val) => (is_func_val(val) && (_func_val_id(val) == callee_fid)),.None => false)),
+      .Some(fidx) => ((fidx > fdfl) && match(env.frames.get(fidx),.Some(fr) => fr.is_begin_block,.None => false)),
+      .None => false
+    )
+  }, false);
+  if(install1, return(true));
+  // (2) Phase-2 fallback: a fn-typed / ctl-bound param whose threaded argument
+  //     variable is locally bound in a begin-block frame of the enclosing fn.
+  npt := param_types.len();
+  na := runtime_args.len();
+  (result : bool) = false;
+  (pi : usize) = usize(0);
+  while((pi < npt) && !(result), {
+    is_handler_param := match(param_types.get(pi),.Some(t) => (is_function_type(t) || type_is_control_bound(t)),.None => false);
+    if(is_handler_param, {
+      match(
+        runtime_args.get(pi),
+        .Some(arg) => if(ast_expr_is_atom(arg), {
+          arg_var := ast_expr_token(arg).value;
+          match(
+            find_innermost_frame_with_given_variable(env, (v : Variable) => (v.name == arg_var)),
+            .Some(fidx) => if((fidx > fdfl) && match(env.frames.get(fidx),.Some(fr) => fr.is_begin_block,.None => false), {
+              result = true;
+            }),
+            .None => ()
+          );
+        }),
+        .None => ()
+      );
+    });
+    pi = (pi + usize(1));
+  });
+  result
+});
+/// The call/method/trait-dispatch emitter. Mirrors `generateOtherFunctionCall`
+/// (corpus path). Returns `.None` to fall through (unhandled shape).
+///
+/// DEFERRED (documented, gated dead for the no-RC/no-async/no-effect corpus):
+/// dyn-method `.data` receiver transform (Gap 9 .trait); closure-captured-arg
+/// inline access (no closures in corpus); state-machine arg routing (Phase 5);
+/// deferred-dup arg rewrite (Phase 4); evidence-param call-through +
+/// effect-unwind propagation (Phase 5); the function-pointer (callback) call
+/// path with evidence; specialization uses the call-site Func type directly
+/// (FuncVal has no specializedType — Gap 2); `ref`-arg atom temp skip
+/// (Variable has no is_ref). The cFuncName direct-call path is the live corpus path.
+generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))({
+  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(Option(String).None));
+  // Compile-time value → generate it directly.
+  //
+  // EXCEPTION: a value-struct/newtype CONSTRUCTOR call with runtime field args
+  // (e.g. `Self(v : n)` in a method body) carries a `StructVal` shell whose
+  // field values are unknown (runtime). `generate_comptime_value` would emit
+  // `/* skip generating value */` for those holes. Skip the comptime short-cut
+  // so the value-struct constructor branch below emits the compound literal /
+  // newtype cast from the runtime arg exprs. Mirrors TS, where such an expr
+  // carries an UnknownValue (so the comptime short-cut never fires).
+  oc_has_runtime_args := match(ei.runtime_arg_exprs_in_order,.Some(ra) => (ra.len() > usize(0)),.None => false);
+  match(
+    ei.value,
+    .Some(v) => {
+      oc_is_runtime_ctor := ((is_struct_val(v) || is_enum_val(v)) && oc_has_runtime_args);
+      if(!(is_unknown_val(v)) && !(oc_is_runtime_ctor), {
+        generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+        if(is_unit_type(ei.ty), return(Option(String).Some(String.from(""))), return(Option(String).Some(generate_comptime_value(v, ei.ty, context.base))));
+      });
+    },
+    .None => ()
+  );
+  // Runtime enum construction `.Variant(args...)` with runtime field values: the
+  // evaluator left an EnumVal shell with holes (the comptime short-cut above is
+  // skipped for it via oc_is_runtime_ctor). Emit the construction from the runtime
+  // arg exprs. Mirrors other-fn-call.ts:2500 (the isEnumType construction case).
+  // Enum CONSTRUCTION (`.Some(args)`) — NOT a plain call returning an enum
+  // (`mk(x)`). The discriminator is the CALLEE's value: an enum constructor's
+  // callee resolves to a `TypeVal` wrapping an enum type (`.Some` → Option),
+  // whereas `mk(x)` has a `FuncVal` callee. Mirrors TS dispatch on
+  // `isEnumType(functionValue.value)`. Without this gate the branch wrongly fires
+  // for any enum-returning function call (e.g. `mk(i32(65))` → variant "mk").
+  callee_is_enum_ctor := match(
+    expr,
+    .FnCall(_, ecf, _, _, _) => match(
+      context.base.get_expr_info(ecf),
+      .Some(ecfei) => match(ecfei.value,.Some(ecfv) => match(ecfv,.TypeVal(ewb) => is_enum_type(ewb), _ => false),.None => false),
+      .None => false
+    ),
+    .Atom(_, _) => false
+  );
+  if((is_enum_type(ei.ty) && oc_has_runtime_args) && callee_is_enum_ctor, {
+    // The variant name. Sources in order: the `EnumVal` shell on `ei.value`
+    // (regular enums, e.g. `Option(i32)`); the result type's
+    // `selected_variant_name` (nullable-pointer-optimized `Option`, where the
+    // evaluator leaves `ei.value` as `None` — confirmed by probe — yet `ei.ty` IS
+    // the narrowed EnumT, mirroring TS `functionValue.value.selectedVariantName`);
+    // the callee source text (`.Some`) as a final fallback. All may carry a
+    // leading `.`, which _generate_runtime_enum_construct strips.
+    from_val := match(ei.value,.Some(ev) => match(ev,.EnumVal(vr, _) => vr, _ => String.new()),.None => String.new());
+    from_ty := match(ei.ty,.EnumT({ selected_variant_name }) => match(selected_variant_name,.Some(v) => v,.None => String.new()), _ => String.new());
+    from_callee := match(expr,.FnCall(_, f, _, _, _) => ast_expr_to_string(f),.Atom(_, _) => String.new());
+    variant_raw := if(from_val.len() > usize(0), from_val, if(from_ty.len() > usize(0), from_ty, from_callee));
+    if(variant_raw.len() > usize(0), {
+      rt_e := match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => ArrayList(AstExpr).new());
+      enum_code := _generate_runtime_enum_construct(ei.ty, variant_raw, rt_e, indent.clone(), context);
+      match(
+        ei.variable_name,
+        .Some(tv) => {
+          edecl := indent.clone();
+          edecl.push_string(get_variable_type_string(ei.ty, tv.clone(), context.base));
+          edecl.push_str(" = ");
+          edecl.push_string(enum_code);
+          edecl.push_str(";");
+          e_em := context.base.emitter;
+          e_em.emit_string_line(edecl);
+          generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+          return(Option(String).Some(tv));
+        },
+        .None => return(Option(String).Some(enum_code))
+      );
+    });
+  });
+  func_expr := match(expr,.FnCall(_, f, _, _, _) => f,.Atom(_, _) => return(Option(String).None));
+  // Dyn method-call dispatch: `obj.method(args)` where obj : Dyn(...). The callee
+  // dot-access (`s.speak`) has NO ExprInfo of its own (the evaluator resolves the
+  // method directly), so this MUST run before the func_ei early-return below.
+  // The evaluator's method-call path records the runtime args as
+  // [receiver, ...explicit]; we lower to `(recv).vtable->method((recv).data,
+  // explicit...)`. Mirrors other-fn-call.ts:478+.
+  if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
+    dmethod_args := match(func_expr,.FnCall(_, _, da, _, _) => da,.Atom(_, _) => ArrayList(AstExpr).new());
+    dm_runtime := match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => ArrayList(AstExpr).new());
+    // `recv_is_dyn` = is the prepended runtime-arg[0] itself a Dyn? Used ONLY by
+    // the concrete-dispatch branch below to exclude a `ctl`-FIELD effect call like
+    // `exn.throw(dyn(err))`, whose receiver `exn` is NOT prepended so the dyn
+    // ARGUMENT sits at runtime-arg[0]. NOT used to gate the dyn dispatch (a
+    // `self : *(Self)` dyn method wraps its prepended receiver in `&(..)`, making
+    // runtime-arg[0] a `*(Dyn)` pointer rather than a Dyn — see below).
+    recv_is_dyn := ((dm_runtime.len() > usize(0)) && match(dm_runtime.get(usize(0)),.Some(rv) => match(context.base.get_expr_info(rv),.Some(rvi) => is_dyn_type(rvi.ty),.None => false),.None => false));
+    // The DOT-RECEIVER (`obj` in `obj.method`) must itself be a Dyn for this to be
+    // a real Dyn method-dispatch — mirrors TS (other-fn-call.ts:478+), which keys
+    // `isDynMethodCall` off `expr.func.args[0].$.type` (the dot-receiver), NOT the
+    // prepended runtime arg. Two reasons the dot-receiver is the correct signal:
+    //   1. A `ctl`-FIELD effect call like `exn.throw(dyn(err))` (Exception.throw is
+    //      a `ctl(...)` struct field) does NOT prepend the receiver, so the dyn arg
+    //      sits at runtime-arg[0]; gating on the dot-receiver `exn` (a struct, not a
+    //      Dyn) correctly excludes it.
+    //   2. For a `self : *(Self)` trait method the receiver IS prepended but gets
+    //      WRAPPED in `&(recv)` (needs_pointer_conversion), so runtime-arg[0] is a
+    //      `*(Dyn)` pointer, not a Dyn — keying off it would wrongly skip the
+    //      dispatch. The dot-receiver stays a clean Dyn.
+    // The vtable dispatch below therefore emits off the dot-receiver
+    // (`(recv).vtable->method((recv).data, …)`), not the (possibly `&`-wrapped)
+    // prepended arg; explicit args still come from runtime-args[1..].
+    dot_recv_is_dyn := match(dmethod_args.get(usize(0)),.Some(dr) => match(context.base.get_expr_info(dr),.Some(dri) => is_dyn_type(dri.ty),.None => false),.None => false);
+    method_atom_ok := match(dmethod_args.get(usize(1)),.Some(ma) => ast_expr_is_atom(ma),.None => false);
+    if(dot_recv_is_dyn && method_atom_ok, {
+      recv_expr := match(dmethod_args.get(usize(0)),.Some(rv) => rv,.None => make_err_expr());
+      recv_code := _call_generate_expr(recv_expr, indent.clone(), context);
+      method_name := sanitize_for_c_identifier(ast_expr_token(match(dmethod_args.get(usize(1)),.Some(ma) => ma,.None => make_err_expr())).value, false);
+      dm_call := String.from("(");
+      dm_call.push_string(recv_code.clone());
+      dm_call.push_str(").vtable->");
+      dm_call.push_string(method_name);
+      dm_call.push_str("((");
+      dm_call.push_string(recv_code);
+      dm_call.push_str(").data");
+      ndm := dm_runtime.len();
+      (dmi : usize) = usize(1);
+      while(dmi < ndm, {
+        dm_call.push_str(", ");
+        match(dm_runtime.get(dmi),.Some(da) => dm_call.push_string(_call_generate_expr(da, indent.clone(), context)),.None => ());
+        dmi = (dmi + usize(1));
+      });
+      dm_call.push_str(")");
+      if(is_unit_type(ei.ty), {
+        dml := indent.clone();
+        dml.push_string(dm_call);
+        dml.push_str(";");
+        dm_em := context.base.emitter;
+        dm_em.emit_string_line(dml);
+        generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+        return(Option(String).Some(String.from("")));
+      });
+      match(
+        ei.variable_name,
+        .Some(tv) => {
+          dmd := indent.clone();
+          dmd.push_string(get_variable_type_string(ei.ty, tv.clone(), context.base));
+          dmd.push_str(" = ");
+          dmd.push_string(dm_call);
+          dmd.push_str(";");
+          dm_em2 := context.base.emitter;
+          dm_em2.emit_string_line(dmd);
+          generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+          return(Option(String).Some(tv));
+        },
+        .None => return(Option(String).Some(dm_call))
+      );
+    });
+    // Concrete (non-dyn) method-call dispatch: `recv.method(args)`. The callee
+    // dot-access has no ExprInfo of its own, so resolve the method from the
+    // evaluator's method-callee side-table (its resolved FuncVal → C name),
+    // falling back to the type_trait_methods registry (receiver type + method
+    // name → impl FuncVal), and emit a static call `<method_c_name>(recv,
+    // args...)`. The recorded runtime args lead with the receiver (pre-wrapped
+    // `&(..)` by the evaluator when self is by-pointer). Falls through if
+    // unresolved/uncollected.
+    if(method_atom_ok && !(recv_is_dyn), {
+      mname := ast_expr_token(match(dmethod_args.get(usize(1)),.Some(ma) => ma,.None => make_err_expr())).value;
+      // Receiver type id for the registry FALLBACK. Use the DOT-RECEIVER
+      // (`dmethod_args[0]`, e.g. `Environment` in `Environment.new(mp)`), NOT the
+      // first RUNTIME arg (`dm_runtime[0]`): for a STATIC call `Type.method(args)`
+      // the evaluator prepends no receiver, so dm_runtime[0] is the first
+      // ARGUMENT (e.g. `mp : String`) — using its id made the fallback resolve the
+      // wrong same-named method (`Environment.new` → `String.new`) → "incompatible
+      // type". The dot-receiver's ExprInfo value is a `TypeVal` for a static call
+      // (use its inner type) and the receiver instance for an instance call (use
+      // its type); fall back to the old dm_runtime[0] behavior if no ExprInfo.
+      recv_dot := match(dmethod_args.get(usize(0)),.Some(r) => r,.None => make_err_expr());
+      recv_ty := match(
+        context.base.get_expr_info(recv_dot),
+        .Some(rdi) => match(
+          rdi.value,
+          .Some(rv) => match(rv,.TypeVal(inner) => inner, _ => rdi.ty),
+          .None => rdi.ty
+        ),
+        .None => match(dm_runtime.get(usize(0)),.Some(rv) => match(context.base.get_expr_info(rv),.Some(rvi) => rvi.ty,.None => TypeValue.Unit),.None => TypeValue.Unit)
+      );
+      tid := type_id_or_empty(recv_ty);
+      // Enter the dispatch when we have EITHER a registry type-id OR a recorded
+      // method-callee (the side-table is keyed by this call's expr id, not by
+      // tid). A receiver whose type has no registry type-id — e.g. an `Iso(T)`,
+      // which lives only in `iso_types` — otherwise skipped the whole dispatch
+      // (incl. the expr-id side-table lookup that IS the resolution for generic
+      // methods like `Iso(T).extract`), falling through to the general path →
+      // "Failed to transpile (iso.extract)()". The registry fallback below stays
+      // effectively tid-gated (get_type_trait_methods_by_name("", ...) is empty).
+      if((tid.len() > usize(0)) || lookup_method_callee_value(ast_expr_id(expr)).is_some(), {
+        // Prefer the evaluator's RESOLVED method over a registry re-lookup. The
+        // evaluator did overload resolution + specialization and stashed the
+        // chosen FuncVal in the method-callee VALUE side-table (keyed by this
+        // call's expr id). The `type_trait_methods` registry, by contrast, is
+        // keyed only by (type id, method name) and returns the FIRST same-named
+        // entry — wrong for OVERLOADED methods (String's inherent
+        // `starts_with(prefix : String)` is registered before, and so shadows,
+        // the `StrPattern` `starts_with(prefix : str)` the evaluator selected for
+        // `s.starts_with("-")`) and for GENERIC-impl methods (registered under the
+        // generic `C(T)` id, so this concrete-id lookup misses). Mirrors TS, where
+        // a method call is lowered to a direct call to the resolved FunctionValue
+        // and codegen never re-resolves by name. Falls back to the registry
+        // first-hit only when no value was recorded (method resolved via a path
+        // that doesn't populate the side-table).
+        (mc_name : Option(String)) = Option(String).None;
+        (method_fv : Option(EvalValue)) = Option(EvalValue).None;
+        match(
+          lookup_method_callee_value(ast_expr_id(expr)),
+          .Some(mcv) => if(is_func_val(mcv), {
+            mfid2 := match(mcv,.FuncVal(__fvd5, _) => __fvd5.*.func_id, _ => String.from(""));
+            mc_name = _c_func_name(mfid2, context);
+            method_fv = Option(EvalValue).Some(mcv);
+          }),
+          .None => ()
+        );
+        if(mc_name.is_none(), {
+          entries := get_type_trait_methods_by_name(tid, mname.clone());
+          nme := entries.len();
+          (mei : usize) = usize(0);
+          while((mei < nme) && mc_name.is_none(), {
+            match(
+              entries.get(mei),
+              .Some(entry) => match(
+                entry.value,
+                .Some(mv) => if(is_func_val(mv), {
+                  mfid := match(mv,.FuncVal(__fvd4, _) => __fvd4.*.func_id, _ => String.from(""));
+                  mc_name = _c_func_name(mfid, context);
+                  method_fv = Option(EvalValue).Some(mv);
+                }),
+                .None => ()
+              ),
+              .None => ()
+            );
+            mei = (mei + usize(1));
+          });
+        });
+        // Inline a method whose body is a single builtin yo-inline call (e.g.
+        // `str.len`'s `__yo_str_len(self)`): such functions are deliberately
+        // SKIPPED at emission (declarations.yo should_skip_function_codegen), so
+        // a `<c_name>(recv, args)` call would reference an undeclared function.
+        // Emit the inline form directly — mirrors the registered-call path
+        // (the FuncVal-call arm does the same via generate_yo_inline_function_call).
+        match(
+          method_fv,
+          .Some(mfv) => match(
+            is_function_value_with_only_builtin_yo_inline_function_call(mfv),
+            .Some(op) => {
+              inline_args := ArrayList(String).new();
+              ia_n := dm_runtime.len();
+              (ia_i : usize) = usize(0);
+              while(ia_i < ia_n, {
+                match(
+                  dm_runtime.get(ia_i),
+                  .Some(a) => {
+                    _iap := inline_args.push(_call_generate_expr(a, indent.clone(), context));
+                  },
+                  .None => ()
+                );
+                ia_i = (ia_i + usize(1));
+              });
+              // Apply the method's per-param ref-amp (`&`) to the inline args, as
+              // the registered-call path does for `args2`. A `inout(self)` inline
+              // method — e.g. a primitive's derived `clone :
+              // ((self) -> __yo_return_self(self))` — must receive its receiver
+              // BY ADDRESS so `__yo_return_self` emits `(*(&recv))`, not `(*recv)`
+              // (which dereferences a value). Without this, a derived clone of a
+              // primitive STRUCT FIELD (`self.row.clone()`) emitted
+              // `(*((*self).row))` and failed to compile. Mirrors the param.isRef
+              // `&` in the main arg loop (other-fn-call.ts).
+              m_fid_amp := match(mfv,.FuncVal(__fvd6, _) => __fvd6.*.func_id, _ => String.from(""));
+              m_pir := match(get_func_type(m_fid_amp),.Func({ meta : __fm3 }) => __fm3.*.param_is_ref, _ => ArrayList(bool).new());
+              inline_args_amped := _apply_ref_amp(inline_args, m_pir, dm_runtime, indent.clone(), context);
+              return(Option(String).Some(generate_yo_inline_function_call(op, inline_args_amped, expr, context, indent.clone())));
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+        match(
+          mc_name,
+          .Some(cn) => {
+            // Materialize args, then auto-`&` ref params (e.g. a `inout(self)`
+            // receiver on a VALUE type — `String`/newtype — needs `&recv`; an
+            // object receiver is NOT a ref param so it's left as the pointer it
+            // already is). Mirrors the FuncVal-call path's _apply_ref_amp; without
+            // it, `w.bump()` emitted `bump(w)` for `bump(self*)` ("take the address
+            // with &"). param_is_ref comes from the resolved method's Func type.
+            cm_param_is_ref := match(
+              method_fv,
+              .Some(mfv2) => match(
+                get_func_type(match(mfv2,.FuncVal(__fvd7, _) => __fvd7.*.func_id, _ => String.from(""))),
+                .Func({ meta : __fm4 }) => __fm4.*.param_is_ref,
+                _ => ArrayList(bool).new()
+              ),
+              .None => ArrayList(bool).new()
+            );
+            cm_arg_list := ArrayList(String).new();
+            cnma := dm_runtime.len();
+            (cmi : usize) = usize(0);
+            while(cmi < cnma, {
+              match(
+                dm_runtime.get(cmi),
+                .Some(a) => {
+                  _cmp := cm_arg_list.push(_call_generate_expr(a, indent.clone(), context));
+                },
+                .None => ()
+              );
+              cmi = (cmi + usize(1));
+            });
+            cm_arg_list = _apply_ref_amp(cm_arg_list, cm_param_is_ref, dm_runtime, indent.clone(), context);
+            cm_call := cn.clone();
+            cm_call.push_str("(");
+            cm_call.push_string(_join_args(cm_arg_list));
+            cm_call.push_str(")");
+            // Effect-unwind coverage for METHOD calls. TS lowers a method call
+            // through the SAME checked call path as plain calls (the
+            // callMayUnwind sites, other-fn-call.ts:1384/1517), so
+            // `Parser.new(...)` / `p.get_program(exn)` get
+            // `__yo_effect_escaped = 0; call; if (escaped) ...` wraps. This
+            // separate method-dispatch emitter had NO check — after a throw
+            // deep inside a method, the caller CONTINUED with a garbage
+            // result (stage-2 prelude-eval SIGSEGV; see
+            // issues/retired/yo-self-stage2-unwind-check-coverage.md).
+            cm_mft := match(method_fv,.Some(mv) => get_func_type(_func_val_id(mv)),.None => TypeValue.Unit);
+            cm_ptypes := match(cm_mft,.Func({ param_types : cpt }) => cpt, _ => ArrayList(TypeValue).new());
+            // Method dispatch: the callee is a property access, not an atom —
+            // TS's exprIsAtom(expr.func) fallback is false here.
+            cm_may_unwind := _call_may_unwind(method_fv, cm_mft, cm_ptypes, false, context);
+            cm_install_ei := new_expr_info(ei.env, cm_mft);
+            cm_install_ei.value = method_fv;
+            cm_is_install := _call_is_handler_installation(cm_install_ei, cm_mft, cm_ptypes, dm_runtime, context);
+            if(is_unit_type(ei.ty), {
+              cm_em := context.base.emitter;
+              if(cm_may_unwind, {
+                cm_em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+              });
+              cml := indent.clone();
+              cml.push_string(cm_call);
+              cml.push_str(";");
+              cm_em.emit_string_line(cml);
+              generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+              if(cm_may_unwind, emit_effect_unwind_check(indent.clone(), context, cm_is_install, expr));
+              return(Option(String).Some(String.from("")));
+            });
+            match(
+              ei.variable_name,
+              .Some(tv) => {
+                cm_em2 := context.base.emitter;
+                if(cm_may_unwind, {
+                  cm_em2.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+                });
+                cmd := indent.clone();
+                cmd.push_string(get_variable_type_string(ei.ty, tv.clone(), context.base));
+                cmd.push_str(" = ");
+                cmd.push_string(cm_call);
+                cmd.push_str(";");
+                cm_em2.emit_string_line(cmd);
+                generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+                if(cm_may_unwind, emit_effect_unwind_check(indent.clone(), context, cm_is_install, expr));
+                return(Option(String).Some(tv));
+              },
+              // Inline-expression exit (no temp var): cannot emit statements
+              // around the expression here; TS gives may-unwind calls a temp
+              // var, so this exit stays uncheckable — acceptable only for
+              // non-unwinding calls.
+              .None => return(Option(String).Some(cm_call))
+            );
+          },
+          .None => ()
+        );
+      });
+    });
+  });
+  func_ei := match(context.base.get_expr_info(func_expr),.Some(e) => e,.None => return(Option(String).None));
+  // Closure-typed callee whose recorded type is ALREADY the bare capture
+  // struct (a specialized struct FIELD like `self._f`: the where-clause `F`
+  // resolved through `__impl_fn` to the concrete capture struct, and yo-self's
+  // substitution stamps the FIELD type fully concrete — TS keeps the SomeT
+  // wrapper on field types and unwraps only for runtime C signatures,
+  // helper.ts:2242-2252, so its dispatcher naturally reaches the
+  // implClosureCallMap route). Detect it once here: such a callee must BYPASS
+  // (a) the `!is_function_type` early return and (b) the named-FuncVal direct
+  // call (which would emit the closure impl fn WITHOUT its closure_context
+  // arg), so control reaches Piece C's closure-call emission below.
+  cc_early_hit := match(
+    resolve_some_type_to_concrete(func_ei.ty),
+    .Struct({ id : cc_eid }) => if(
+      cc_eid.len() > usize(0),
+      context.base.impl_closure_call_map.get(cc_eid).is_some(),
+      false
+    ),
+    _ => false
+  );
+  // REWRITTEN value-call `v(range)` → slice_copy/slice_copy_inclusive METHOD
+  // dispatch (a str/ArrayList range window). The evaluator rewrites the range
+  // index to a `.slice_copy(range)` method call reusing THIS call's id, and
+  // records the resolved method FuncVal in the method-callee side-table (keyed by
+  // the call id). But the SOURCE callee is still the bare receiver `v` (a non-dot
+  // atom), so the dot-method dispatch above never runs and the value-call tail
+  // below emits "// Failed to transpile" (an undeclared identifier). TS mutates
+  // `expr.func` in place so its codegen sees the method call; yo-self reads the
+  // recorded method here. Emit `<mcn>(<runtime args = recv, range>)`. Only fires
+  // for a NON-dot callee with a recorded method (dot calls are handled above; a
+  // normal function call never populates the method-callee side-table).
+  if(!(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2)))), {
+    match(
+      lookup_method_callee_value(ast_expr_id(expr)),
+      .Some(rmv) => if(is_func_val(rmv), {
+        rm_fid := match(rmv,.FuncVal(__fvdrm, _) => __fvdrm.*.func_id, _ => String.from(""));
+        match(
+          _c_func_name(rm_fid.clone(), context),
+          .Some(rmcn) => {
+            rm_runtime := match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => ArrayList(AstExpr).new());
+            rm_pir := match(get_func_type(rm_fid.clone()),.Func({ meta : __fmrm }) => __fmrm.*.param_is_ref, _ => ArrayList(bool).new());
+            rm_args := ArrayList(String).new();
+            rm_n := rm_runtime.len();
+            (rmi : usize) = usize(0);
+            while(rmi < rm_n, {
+              match(
+                rm_runtime.get(rmi),
+                .Some(a) => {
+                  _rmp := rm_args.push(_call_generate_expr(a, indent.clone(), context));
+                },
+                .None => ()
+              );
+              rmi = (rmi + usize(1));
+            });
+            rm_args = _apply_ref_amp(rm_args, rm_pir, rm_runtime, indent.clone(), context);
+            rm_call := rmcn.clone();
+            rm_call.push_str("(");
+            rm_call.push_string(_join_args(rm_args));
+            rm_call.push_str(")");
+            rm_mft := get_func_type(rm_fid.clone());
+            rm_ptypes := match(rm_mft,.Func({ param_types : cpt }) => cpt, _ => ArrayList(TypeValue).new());
+            rm_may_unwind := _call_may_unwind(Option(EvalValue).Some(rmv), rm_mft, rm_ptypes, false, context);
+            rm_install_ei := new_expr_info(ei.env, rm_mft);
+            rm_install_ei.value = Option(EvalValue).Some(rmv);
+            rm_is_install := _call_is_handler_installation(rm_install_ei, rm_mft, rm_ptypes, rm_runtime, context);
+            if(is_unit_type(ei.ty), {
+              rm_em := context.base.emitter;
+              if(rm_may_unwind, {
+                rm_em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+              });
+              rml := indent.clone();
+              rml.push_string(rm_call);
+              rml.push_str(";");
+              rm_em.emit_string_line(rml);
+              generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+              if(rm_may_unwind, emit_effect_unwind_check(indent.clone(), context, rm_is_install, expr));
+              return(Option(String).Some(String.from("")));
+            });
+            match(
+              ei.variable_name,
+              .Some(tv) => {
+                rm_em2 := context.base.emitter;
+                if(rm_may_unwind, {
+                  rm_em2.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+                });
+                rmd := indent.clone();
+                rmd.push_string(get_variable_type_string(ei.ty, tv.clone(), context.base));
+                rmd.push_str(" = ");
+                rmd.push_string(rm_call);
+                rmd.push_str(";");
+                rm_em2.emit_string_line(rmd);
+                generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+                if(rm_may_unwind, emit_effect_unwind_check(indent.clone(), context, rm_is_install, expr));
+                return(Option(String).Some(tv));
+              },
+              .None => return(Option(String).Some(rm_call))
+            );
+          },
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+  });
+  // Normalize a closure-trait callee type (`Impl(Fn(...))` SomeT / FnTraitT) to
+  // its Func signature so the `.Func`-keyed param/result extraction + the
+  // is_function_type guard below treat `cb(x)` as a function call. (Piece C's
+  // closure-call lookup re-reads the raw callee type separately, so this does
+  // not disturb it.) Mirrors the evaluator's normalization (helper.yo).
+  (function_type : TypeValue) = match(
+    func_ei.ty,
+    .Func({ result : _ }) => func_ei.ty,
+    _ => match(
+      extract_fn_trait_from_type(func_ei.ty),
+      .Some(ftt) => match(
+        ftt,
+        .FnTraitT(_, cpl, cpt, cr_box, _, _, _, cprf) => TypeValue.Func(
+          ArrayList(TypeValue).new(),
+          cpt,
+          ArrayList(TypeValue).new(),
+          ArrayList(TypeValue).new(),
+          cr_box,
+          box(
+            FuncMeta(
+              forall_labels : ArrayList(String).new(),
+              param_labels : cpl,
+              implicit_labels : ArrayList(String).new(),
+              implicit_spreads : ArrayList(bool).new(),
+              result_is_comptime_only : false,
+              param_is_ref : cprf,
+              param_is_owning : ArrayList(bool).new(),
+              result_is_ref : false,
+              has_variadic : false,
+              is_extern : Option(String).None,
+              extern_name : Option(String).None,
+              is_control : false,
+              variadic_label : Option(String).None,
+              variadic_comptime : false
+            )
+          ),
+          ArrayList(TypeValue).new()
+        ),
+        _ => func_ei.ty
+      ),
+      .None => func_ei.ty
+    )
+  );
+  // cc_early_hit with a bare-struct callee type: the Fn signature is not
+  // recoverable from the type (it IS the capture struct), but the recorded
+  // closure FuncVal's registered func type carries it. Without this the
+  // param list stays empty and arg materialization emits the closure call
+  // with NO runtime args ("too few arguments").
+  if(cc_early_hit && !(is_function_type(function_type)), {
+    // 1) The recorded closure FuncVal's registered func type (construction in
+    //    the same body).
+    match(
+      func_ei.value,
+      .Some(cc_fv) => if(is_func_val(cc_fv), {
+        match(
+          cc_fv,
+          .FuncVal(cc_fvd, _) => {
+            cc_ft := get_func_type(cc_fvd.*.func_id);
+            if(is_function_type(cc_ft), {
+              function_type = cc_ft;
+            });
+          },
+          _ => ()
+        );
+      }),
+      .None => ()
+    );
+    // 2) The map entry itself: call_type (construction-site registration) or
+    //    the closure fid's registered func type (pre-pass registration).
+    if(!(is_function_type(function_type)), {
+      match(
+        resolve_some_type_to_concrete(func_ei.ty),
+        .Struct({ id : cc_rid }) => match(
+          context.base.impl_closure_call_map.get(cc_rid),
+          .Some(cc_mp) => {
+            match(
+              cc_mp.call_type,
+              .Some(cc_ct) => if(is_function_type(cc_ct), {
+                function_type = cc_ct;
+              }),
+              .None => ()
+            );
+            if(!(is_function_type(function_type)), {
+              cc_ft2 := get_func_type(cc_mp.closure_fid.clone());
+              if(is_function_type(cc_ft2), {
+                function_type = cc_ft2;
+              });
+            });
+          },
+          .None => ()
+        ),
+        _ => ()
+      );
+    });
+  });
+  // Object (reference-semantics) constructor call: the callee is a TypeVal whose
+  // wrapped type is a reference-semantics struct, so emit `__yo_new_<cName>(args)`
+  // (the constructor function is generated by constructors.yo). Value structs are
+  // comptime StructVals handled by the comptime-value branch above; objects are
+  // runtime heap values and reach here. Mirrors other-fn-call.ts:2299.
+  match(
+    func_ei.value,
+    .Some(fv) => match(
+      fv,
+      .TypeVal(wrapped_box) => {
+        wrapped := wrapped_box;
+        if(is_reference_struct_type(wrapped), {
+          cname := match(context.base.get_type_c_name(type_key(wrapped.clone())),.Some(cn) => cn,.None => String.from("__yo_unknown_obj"));
+          obj_fncall_args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+          // Prefer the recorded runtime arg exprs; fall back to reconstructing
+          // them from the FnCall's labeled args when empty (ctor inside a
+          // specialized body — see _ctor_args_from_labeled).
+          ctor_args := match(
+            ei.runtime_arg_exprs_in_order,
+            .Some(ra) => if(ra.len() > usize(0), ra, _ctor_args_from_labeled(wrapped.clone(), obj_fncall_args)),
+            .None => _ctor_args_from_labeled(wrapped.clone(), obj_fncall_args)
+          );
+          ctor_list := String.from("");
+          nca := ctor_args.len();
+          (ci : usize) = usize(0);
+          while(ci < nca, {
+            if(ci > usize(0), {
+              ctor_list.push_str(", ");
+            });
+            match(ctor_args.get(ci),.Some(ca) => ctor_list.push_string(emit_deferred_dup_or_code(ca, _call_generate_expr(ca, indent.clone(), context), indent.clone(), context)),.None => ());
+            ci = (ci + usize(1));
+          });
+          ctor_call := String.from("__yo_new_");
+          ctor_call.push_string(cname);
+          ctor_call.push_str("(");
+          ctor_call.push_string(ctor_list);
+          ctor_call.push_str(")");
+          match(
+            ei.variable_name,
+            .Some(tv) => {
+              decl := indent.clone();
+              decl.push_string(get_variable_type_string(ei.ty, tv.clone(), context.base));
+              decl.push_str(" = ");
+              decl.push_string(ctor_call);
+              decl.push_str(";");
+              ctor_em := context.base.emitter;
+              ctor_em.emit_string_line(decl);
+              return(Option(String).Some(tv));
+            },
+            .None => return(Option(String).Some(ctor_call))
+          );
+        });
+        // Union constructor call: exactly ONE named member is initialised, so
+        // `SomeUnion(x : 12)` emits `(cName){ .x = 12 }`. Mirrors
+        // other-fn-call.ts:2468-2521 (`isUnionType(functionValue.value)`),
+        // including its "union is supposed to have only one member
+        // initialized" shape and its temp-variable declaration. Without this
+        // arm the call fell through to the generic fallback and emitted
+        // `// Failed to transpile SomeUnion(x : 12)` — yo-self could declare a
+        // union but never construct one (tests/basic.test.yo arm 14).
+        if(is_union_type(wrapped), {
+          u_cname := match(context.base.get_type_c_name(type_key(wrapped.clone())),.Some(cn) => cn,.None => String.from("__yo_unknown_union"));
+          u_args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+          match(
+            u_args.get(usize(0)),
+            .Some(u_arg) => if(ast_expr_is_fn_call_of(u_arg, ":", Option(usize).Some(usize(2))), {
+              u_pair := match(u_arg,.FnCall(_, _, pa, _, _) => pa,.Atom(_, _) => ArrayList(AstExpr).new());
+              u_label_e := match(u_pair.get(usize(0)),.Some(le) => le,.None => make_err_expr());
+              u_field_e := match(u_pair.get(usize(1)),.Some(fe) => fe,.None => make_err_expr());
+              if(ast_expr_is_atom(u_label_e), {
+                u_label := ast_expr_token(u_label_e).value;
+                u_code := emit_deferred_dup_or_code(u_field_e, _call_generate_expr(u_field_e, indent.clone(), context), indent.clone(), context);
+                u_value := String.from("(");
+                u_value.push_string(u_cname.clone());
+                u_value.push_str("){ .");
+                u_value.push_string(sanitize_for_c_identifier(u_label, false));
+                u_value.push_str(" = ");
+                u_value.push_string(u_code);
+                u_value.push_str(" }");
+                match(
+                  ei.variable_name,
+                  .Some(u_tv) => {
+                    u_decl := indent.clone();
+                    u_decl.push_string(get_variable_type_string(ei.ty, u_tv.clone(), context.base));
+                    u_decl.push_str(" = ");
+                    u_decl.push_string(u_value);
+                    u_decl.push_str(";");
+                    u_em := context.base.emitter;
+                    u_em.emit_string_line(u_decl);
+                    return(Option(String).Some(u_tv));
+                  },
+                  .None => return(Option(String).Some(u_value))
+                );
+              });
+            }),
+            .None => ()
+          );
+        });
+        // Value-struct / newtype constructor call with RUNTIME field args.
+        // Reference-semantics objects are handled above; comptime StructVals go
+        // through generate_comptime_value. A value struct built from runtime
+        // arguments (e.g. `Self(v : n)` in a method body) reaches here — emit
+        // either a newtype zero-cost cast `((cName)(arg))` or a C99 compound
+        // literal `(cName){ .field = arg, ... }`. Mirrors other-fn-call.ts
+        // :2235-2420 (the newtype + value-struct branches).
+        if(is_struct_type(wrapped) && !(is_reference_struct_type(wrapped)), {
+          vs_cname := match(context.base.get_type_c_name(type_key(wrapped.clone())),.Some(cn) => cn,.None => String.from("__yo_unknown_struct"));
+          vs_is_newtype := match(wrapped,.Struct({ is_newtype : nt }) => nt, _ => false);
+          rt_fields := get_runtime_struct_fields(wrapped.clone());
+          vs_args_raw := match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => ArrayList(AstExpr).new());
+          // `runtime_arg_exprs_in_order` records a slot for EVERY field, including
+          // COMPTIME-ONLY ones (`tag :: "..."`); for a struct with a comptime field
+          // it has MORE entries than the runtime-field list, so the per-runtime-
+          // field loop below misaligns — a comptime slot (e.g. a struct-type expr)
+          // pairs with a runtime field and emits a C TYPE NAME as its value
+          // ("unexpected type name '__yo_tN'"). When the counts disagree, re-derive
+          // the runtime-field values by matching the ctor call's labeled args to the
+          // runtime fields by name (the same matcher as the empty-args fallback).
+          vs_fncall_args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+          vs_args := if(vs_args_raw.len() == rt_fields.len(), vs_args_raw, _ctor_args_from_labeled(wrapped.clone(), vs_fncall_args));
+          vs_value := cond(
+            (vs_is_newtype && ((rt_fields.len() == usize(1)) && (vs_args.len() == usize(1)))) => {
+              inner := match(vs_args.get(usize(0)),.Some(a) => _call_generate_expr(a, indent.clone(), context),.None => String.from(""));
+              nt_out := String.from("((");
+              nt_out.push_string(vs_cname.clone());
+              nt_out.push_str(")(");
+              nt_out.push_string(inner);
+              nt_out.push_str("))");
+              nt_out
+            },
+            true => {
+              cl_out := String.from("(");
+              cl_out.push_string(vs_cname.clone());
+              cl_out.push_str("){ ");
+              nrf := rt_fields.len();
+              (rfi : usize) = usize(0);
+              while(rfi < nrf, {
+                if(rfi > usize(0), {
+                  cl_out.push_str(", ");
+                });
+                flabel := match(rt_fields.get(rfi),.Some(f) => f.label,.None => String.from(""));
+                cl_out.push_str(".");
+                cl_out.push_string(sanitize_for_c_identifier(flabel, false));
+                cl_out.push_str(" = ");
+                // RC-managed args: the EVALUATOR attached a deferred `___dup`
+                // to shared (non-owning / named) args and CONSUMED owning
+                // temps (set_expr_as_needs_to_call_dup at the ctor-arg site,
+                // calls/type.yo / record_type.yo) — mirror the other ctor
+                // paths (the ctor_list builder above) and emit/substitute it
+                // here. The earlier inline `(__yo_incr_rc(code), code)` comma
+                // expression evaluated `code` TWICE (a fresh `N(...)` ctor
+                // arg allocated two objects: one leaked incr'd, one stored
+                // un-incr'd) and over-counted moves that need no incr at all.
+                match(vs_args.get(rfi),.Some(a) => cl_out.push_string(emit_deferred_dup_or_code(a, _call_generate_expr(a, indent.clone(), context), indent.clone(), context)),.None => ());
+                rfi = (rfi + usize(1));
+              });
+              cl_out.push_str(" }");
+              cl_out
+            }
+          );
+          match(
+            ei.variable_name,
+            .Some(tv) => {
+              vs_decl := indent.clone();
+              vs_decl.push_string(get_variable_type_string(ei.ty, tv.clone(), context.base));
+              vs_decl.push_str(" = ");
+              vs_decl.push_string(vs_value);
+              vs_decl.push_str(";");
+              vs_em := context.base.emitter;
+              vs_em.emit_string_line(vs_decl);
+              return(Option(String).Some(tv));
+            },
+            .None => return(Option(String).Some(vs_value))
+          );
+        });
+      },
+      _ => ()
+    ),
+    .None => ()
+  );
+  // Array indexing `arr(i)`: a value-call whose callee is a concrete Array type
+  // lowers to a direct `<arr>.data[<i>]` (the array struct wrapper), NOT the
+  // generic Index trait. Mirrors TS generateOtherFunctionCall's isArrayType
+  // branch (other-fn-call.ts:2731).
+  if(is_array_type(function_type), {
+    arr_code := _call_generate_expr(func_expr, indent.clone(), context);
+    idx_args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+    match(
+      idx_args.get(usize(0)),
+      .Some(idx_expr) => {
+        out := arr_code;
+        out.push_str(".data[");
+        out.push_string(_call_generate_expr(idx_expr, indent.clone(), context));
+        out.push_str("]");
+        return(Option(String).Some(out));
+      },
+      .None => return(Option(String).None)
+    );
+  });
+  if(!(is_function_type(function_type)) && !(cc_early_hit), {
+    return(Option(String).None);
+  });
+  (runtime_args : ArrayList(AstExpr)) = match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => return(Option(String).None));
+  // cc_early_hit fallback: a closure-field call inside a SPECIALIZED body can
+  // reach codegen with an EMPTY recorded runtime-arg list (the re-evaluated
+  // body's call route never populated it — same gap as the reference-struct
+  // ctor `_ctor_args_from_labeled` fallback above). Reconstruct from the
+  // FnCall's own arg exprs so the closure call keeps its runtime arguments.
+  if(cc_early_hit && (runtime_args.len() == usize(0)), {
+    cc_ast_args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+    if(cc_ast_args.len() > usize(0), {
+      runtime_args = cc_ast_args;
+    });
+  });
+  param_types := match(function_type,.Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
+  param_is_ref := match(function_type,.Func({ meta : __fm5 }) => __fm5.*.param_is_ref, _ => ArrayList(bool).new());
+  // Materialize args, then auto-`&` ref params.
+  args := ArrayList(String).new();
+  na := runtime_args.len();
+  (ai : usize) = usize(0);
+  while(ai < na, {
+    pref := match(param_is_ref.get(ai),.Some(r) => r,.None => false);
+    match(
+      runtime_args.get(ai),
+      .Some(arg) => {
+        _p := args.push(_materialize_arg(arg, pref, expr, indent.clone(), context));
+      },
+      .None => ()
+    );
+    ai = (ai + usize(1));
+  });
+  args2 := _apply_ref_amp(args, param_is_ref, runtime_args, indent.clone(), context);
+  args_list := _join_args(args2);
+  em := context.base.emitter;
+  // extern "yo". (Run as a statement, not a binding: the match yields unit and
+  // exists only for its side-effects + early `return`s. Binding a unit-valued
+  // match to a `:=` temp made codegen emit an illegal `void temp = ;`.)
+  match(
+    function_type,
+    .Func({ result : r, meta : __fm6 }) => {
+      ie := __fm6.*.is_extern;
+      en := __fm6.*.extern_name;
+      // extern "yo" AND extern "c" both lower to a direct `<extern_name>(<args>)`
+      // C call (no per-arg cast). For extern "c" the symbol is a C library
+      // function (e.g. `exit`, `fwrite`); the unsafe(...) gate is enforced in the
+      // evaluator, so codegen just emits the call.
+      is_yo := match(ie,.Some(lang) => ((lang == "yo") || (lang == "c")),.None => false);
+      match(
+        en,
+        .Some(name) => if(is_yo, {
+          _maybe_emit_auto_borrow_assert(name.clone(), indent.clone(), context);
+          if(is_builtin_yo_inline_function(name.clone()), {
+            return(Option(String).Some(generate_yo_inline_function_call(name, args2, expr, context, indent.clone())));
+          });
+          // Parallelism spawn primitives: heap-copy the closure capture + emit a
+          // cleanup wrapper, then call the raw spawn. Mirrors other-fn-call.ts:906.
+          if(name == "__yo_thread_spawn", {
+            return(generate_thread_spawn_call(expr, indent.clone(), context));
+          });
+          if(name == "__yo_worker_spawn", {
+            return(generate_worker_spawn_call(expr, indent.clone(), context));
+          });
+          if(is_unit_type(r), {
+            line := indent.clone();
+            line.push_string(name);
+            line.push_str("(");
+            line.push_string(args_list.clone());
+            line.push_str(");");
+            em.emit_string_line(line);
+            generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+            return(Option(String).Some(String.from("")));
+          });
+          // Clone the extern name before mutating: `name` aliases the
+          // extern_name String stored in the (shared) extern Func TypeValue —
+          // the SAME Func instance is reused for every call to this symbol via
+          // the extern registry. `out := name; out.push_str(...)` would mutate
+          // that shared String in place, so the first `f(a)` call corrupts the
+          // stored name to `f(a)` and the next call to `f` emits `f(a)(b)`.
+          out := name.clone();
+          out.push_str("(");
+          out.push_string(args_list.clone());
+          out.push_str(")");
+          return(Option(String).Some(out));
+        }),
+        .None => ()
+      );
+    },
+    _ => ()
+  );
+  (result_type : TypeValue) = match(function_type,.Func({ result : r }) => r, _ => TypeValue.Unit);
+  // A SHARED field-fn type's declared result can be an unresolved per-call
+  // generic SomeT (Exception.throw's ResumeType) — the CALL's ExprInfo carries
+  // the per-call resolution (try_to_call rebuilds the result SomeT with
+  // resolved_concrete from expected/enclosing-return). Prefer it: reading the
+  // DECLARED result emitted `void*` fn-ptr casts/temps merge-assigned to
+  // concrete locals (the IoError.check stage-2 family).
+  if(is_some_type(result_type) && !(is_unit_type(ei.ty)), {
+    result_type = ei.ty;
+  });
+  // Effect-unwind detection (port of other-fn-call.ts callMayUnwind /
+  // callIsHandlerInstallation). When a call may unwind, an
+  // `emit_effect_unwind_check` is emitted after it: at the install frame the
+  // unwound value is extracted + returned; elsewhere the escape propagates.
+  ou_callee_atom := match(expr,.FnCall(_, __ouf, _, _, _) => ast_expr_is_atom(__ouf), _ => false);
+  ou_may_unwind := _call_may_unwind(func_ei.value, function_type, param_types, ou_callee_atom, context);
+  ou_is_install := if(ou_may_unwind, _call_is_handler_installation(func_ei, function_type, param_types, runtime_args, context), false);
+  // Registered (named) function call. A cc_early_hit callee (closure value
+  // whose type resolved to a registered capture struct) must NOT take this
+  // route: its FuncVal's direct C call would omit the closure_context arg —
+  // Piece C below emits the correct static-dispatch closure call.
+  match(
+    func_ei.value,
+    .Some(fv) => if(is_func_val(fv) && !(cc_early_hit), {
+      // Inline if the function body is a single builtin operator.
+      match(is_function_value_with_only_builtin_yo_inline_function_call(fv),.Some(op) => return(Option(String).Some(generate_yo_inline_function_call(op, args2, expr, context, indent.clone()))),.None => ());
+      fid := match(fv,.FuncVal(__fvd8, _) => __fvd8.*.func_id, _ => String.from(""));
+      match(
+        _c_func_name(fid, context),
+        .Some(c_func_name) => {
+          // DEGRADED call to a NEVER-EMITTED callee: a spec dropped by
+          // should_skip_function_codegen (e.g. its registered return still
+          // carries an unresolved SomeT — the cluster-7 shape) has no C
+          // definition, so a plain `yo_id_...(args)` call is an undeclared-
+          // function error that breaks the whole batch C (the fn
+          // Dyn-manual-boxing test). TS never drops emissions, so a call
+          // site can always assume its callee exists; yo-self degrades the
+          // CALL to the statement-level FTT comment instead — honest hollow
+          // markers, valid C. io.async SM closures are exempt (they are
+          // called through the FSM resume path, not here).
+          if(should_skip_function_codegen(fid.clone(), c_func_name.clone(), fv, context.base) && !(is_io_async_sm_closure(fid.clone())), {
+            return(Option(String).Some(`// Failed to transpile ${ast_expr_to_string(expr)}`));
+          });
+          casted := _per_arg_cast(args_list.clone(), param_types, param_is_ref, context);
+          if(is_unit_type(result_type), {
+            // Clear __yo_effect_escaped before the call so a stale flag from
+            // a previous unwind (already handled by a higher-level handler)
+            // doesn't leak into this call's escape check.
+            if(ou_may_unwind, {
+              em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+            });
+            line := indent.clone();
+            line.push_string(c_func_name);
+            line.push_str("(");
+            line.push_string(casted);
+            line.push_str(");");
+            em.emit_string_line(line);
+            generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+            if(ou_may_unwind, emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr));
+            return(Option(String).Some(String.from("")));
+          });
+          match(
+            ei.variable_name,
+            .Some(tv) => {
+              c_type := get_type_string(result_type, context.base);
+              already := match(context.declared_temp_vars,.Some(s) => s.contains(tv.clone()),.None => false);
+              if(!(already), {
+                match(
+                  context.declared_temp_vars,
+                  .Some(s) => {
+                    _a := s.add(tv.clone());
+                  },
+                  .None => {
+                    ns := HashSet(String).new();
+                    _a := ns.add(tv.clone());
+                    context.declared_temp_vars = Option(HashSet(String)).Some(ns);
+                  }
+                );
+                // Clear __yo_effect_escaped before the call so a stale flag from
+                // a previous unwind (already handled by a higher-level handler)
+                // doesn't leak into this call's escape check.
+                if(ou_may_unwind, {
+                  em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+                });
+                line := indent.clone();
+                line.push_string(c_type);
+                line.push_str(" ");
+                line.push_string(tv.clone());
+                line.push_str(" = ");
+                line.push_string(c_func_name);
+                line.push_str("(");
+                line.push_string(casted);
+                line.push_str(");");
+                em.emit_string_line(line);
+              });
+              generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+              if(ou_may_unwind, emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr));
+              return(Option(String).Some(tv));
+            },
+            .None => return(Option(String).Some(String.from("// Error: function call returns non-unit but no temp variable assigned")))
+          );
+        },
+        .None => ()
+      );
+    }),
+    .None => ()
+  );
+  // Function-pointer (callback) call: cast func code to the fn-ptr type.
+  // (Evidence-param fn-ptr calls are Phase 5 — gated.)
+  func_code := _call_generate_expr(func_expr, indent.clone(), context);
+  // Piece C — closure call: if the callee value's concrete type is a registered
+  // Impl(Fn) capture struct, call its impl fn with `&(capture)` as the
+  // closure_context (static dispatch). Mirrors the implClosureCallMap lookup
+  // (other-fn-call.ts:2103). MISS → the function-pointer cast fallback below.
+  cc_id := match(
+    context.base.get_expr_info(func_expr),
+    .Some(cei) => match(resolve_some_type_to_concrete(cei.ty),.Struct({ id : i }) => i,.SomeT({ id : i }) => i, _ => String.from("")),
+    .None => String.from("")
+  );
+  cc_mapped := if(cc_id.len() > usize(0), context.base.impl_closure_call_map.get(cc_id), Option(ImplClosureCallInfo).None);
+  (out : String) = match(
+    cc_mapped,
+    .Some(mp) => {
+      cc := mp.function_c_name.clone();
+      cc.push_str("(&(");
+      cc.push_string(func_code.clone());
+      cc.push_str(")");
+      if(args_list.len() > usize(0), {
+        cc.push_str(", ");
+        cc.push_string(args_list.clone());
+      });
+      cc.push_str(")");
+      cc
+    },
+    .None => {
+      // Dyn(Fn) VALUE call: the callee is a dyn fat pointer over the Fn trait
+      // (e.g. a `Dyn(Fn(...))` struct FIELD like SuspensionPointDetector.detect).
+      // Lower through the vtable: `(callee).vtable->call((callee).data, args...)`.
+      // Mirrors TS's `(h->apply).vtable->call((h->apply).data, 32)` emission.
+      // Without this the fallback below casts the fat-pointer STRUCT to a raw
+      // fn pointer ("operand of type X where arithmetic or pointer type is
+      // required") and drops the data argument.
+      (dyn_fn_callee : bool) = match(
+        context.base.get_expr_info(func_expr),
+        .Some(cei2) => match(
+          cei2.ty,
+          .DynT({ required_trait_types : dfr }) => {
+            (has_fn : bool) = false;
+            (dfi : usize) = usize(0);
+            while(dfi < dfr.len(), {
+              match(
+                dfr.get(dfi),
+                .Some(t) => if(is_fn_trait_type(t), {
+                  has_fn = true;
+                }),
+                .None => ()
+              );
+              dfi = (dfi + usize(1));
+            });
+            has_fn
+          },
+          _ => false
+        ),
+        .None => false
+      );
+      (arm_out : String) = String.new();
+      if(dyn_fn_callee, {
+        o2 := String.from("(");
+        o2.push_string(func_code.clone());
+        o2.push_str(").vtable->call((");
+        o2.push_string(func_code.clone());
+        o2.push_str(").data");
+        if(args_list.len() > usize(0), {
+          o2.push_str(", ");
+          o2.push_string(args_list.clone());
+        });
+        o2.push_str(")");
+        arm_out = o2;
+      }, {
+        ret_str := get_type_string(result_type, context.base);
+        cast := String.from("(");
+        cast.push_string(ret_str);
+        cast.push_str(" (*)(");
+        npt := param_types.len();
+        (pi : usize) = usize(0);
+        while(pi < npt, {
+          if(pi > usize(0), {
+            cast.push_str(", ");
+          });
+          cast.push_string(match(param_types.get(pi),.Some(t) => get_type_string(t, context.base),.None => String.from("void*")));
+          pi = (pi + usize(1));
+        });
+        cast.push_str("))");
+        // Cast each runtime arg to its corresponding parameter type —
+        // mirrors TS other-fn-call.ts:1647-1656 (castedArgsList). Without
+        // it a type-erased evidence-record call passes raw values into
+        // `void*` slots: `((i32 (*)(i32, void*))exn.throw)(x, 666)` was an
+        // int-to-pointer clang error (the algebraic_effects generic
+        // struct-record handler family).
+        (casted_args : String) = args_list.clone();
+        if((args_list.len() > usize(0)) && (npt > usize(0)), {
+          fa_parts := _split_top_level_args_list(args_list.clone());
+          if(fa_parts.len() == npt, {
+            (fa_out : String) = String.new();
+            (fa_i : usize) = usize(0);
+            while(fa_i < npt, {
+              if(fa_i > usize(0), {
+                fa_out.push_str(", ");
+              });
+              fa_pt := match(param_types.get(fa_i),.Some(t) => get_type_string(t, context.base),.None => String.from("void*"));
+              fa_part := match(fa_parts.get(fa_i),.Some(x) => x,.None => String.new());
+              fa_out.push_str("(");
+              fa_out.push_string(fa_pt);
+              fa_out.push_str(")(");
+              fa_out.push_string(fa_part);
+              fa_out.push_str(")");
+              fa_i = (fa_i + usize(1));
+            });
+            casted_args = fa_out;
+          });
+        });
+        o := String.from("((");
+        o.push_string(cast);
+        o.push_string(func_code.clone());
+        o.push_str(")(");
+        o.push_string(casted_args);
+        o.push_str("))");
+        arm_out = o;
+      });
+      arm_out
+    }
+  );
+  // Effect unwind: a fn-pointer call through a `ctl`/handler param may set
+  // __yo_effect_escaped. Unlike the inline-expression default, emit the call to
+  // a temp + post-call check so the escape propagates (mirrors TS, which always
+  // emits a temp + emitEffectUnwindCheck for such calls).
+  if(ou_may_unwind, {
+    if(is_unit_type(result_type), {
+      // Clear __yo_effect_escaped before the indirect call
+      em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+      ucall := indent.clone();
+      ucall.push_string(out.clone());
+      ucall.push_str(";");
+      em.emit_string_line(ucall);
+      generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+      emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);
+      return(Option(String).Some(String.from("")));
+    });
+    fp_tv := match(ei.variable_name,.Some(tv) => tv,.None => `_eu_${ast_expr_id(expr).to_string()}`);
+    already := match(context.declared_temp_vars,.Some(s) => s.contains(fp_tv.clone()),.None => false);
+    if(!(already), {
+      match(
+        context.declared_temp_vars,
+        .Some(s) => {
+          _a := s.add(fp_tv.clone());
+        },
+        .None => {
+          ns := HashSet(String).new();
+          _a := ns.add(fp_tv.clone());
+          context.declared_temp_vars = Option(HashSet(String)).Some(ns);
+        }
+      );
+      fpc := get_type_string(result_type, context.base);
+      fline := indent.clone();
+      fline.push_string(fpc);
+      fline.push_str(" ");
+      fline.push_string(fp_tv.clone());
+      fline.push_str(" = ");
+      fline.push_string(out.clone());
+      fline.push_str(";");
+      // Clear __yo_effect_escaped before the indirect call
+      em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+      em.emit_string_line(fline);
+    });
+    generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+    emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);
+    return(Option(String).Some(fp_tv));
+  });
+  Option(String).Some(out)
+});
+export(_is_addressable_c_expr, _split_top_level_args_list, _resolve_var_name_in_context, _store_temp_var_to_state_machine_if_needed, _get_interior_ref_container_code, _emit_borrow_acquires, _emit_borrow_releases, _is_inside_object_method, _maybe_emit_auto_borrow_assert, generate_other_function_call);

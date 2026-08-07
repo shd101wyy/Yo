@@ -1,0 +1,23 @@
+//! `sizeof(...)` emitter — mirrors `src/codegen/exprs/sizeof.ts`.
+open(import("std/string"));
+{ AstExpr } :: import("../../expr.yo");
+{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ _call_generate_expr } :: import("./_expr.yo");
+/// `sizeof(<arg>)` — the C sizeof operator on the argument. Mirrors `generateSizeOf`.
+generate_sizeof :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    expr,
+    .FnCall(_, _, args, _, _) => match(
+      args.get(usize(0)),
+      .Some(arg) => {
+        out := String.from("sizeof(");
+        out.push_string(_call_generate_expr(arg, indent, context));
+        out.push_str(")");
+        out
+      },
+      .None => String.from("// Error: sizeof requires exactly 1 argument")
+    ),
+    .Atom(_, _) => String.from("// Error: sizeof requires a call expression")
+  )
+);
+export(generate_sizeof);

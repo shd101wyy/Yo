@@ -1,5 +1,6 @@
+{ assert } :: import("std/assert");
 /// Flowability + memory-safety coverage for the STATIC-str model
-/// (plans/SLICE_REWORK.md).
+/// (plans/archive/SLICE_REWORK.md).
 ///
 /// After the slice rework, SAFE code cannot construct a value that carries
 /// a raw pointer into mortal storage:
@@ -11,7 +12,7 @@
 ///     `pragma(Pragma.AllowUnsafe)` via the raw-pointer gates.
 ///   - Range indexing COPIES (`arr(a..b)` → new ArrayList, String range →
 ///     new String); `str` ranges stay zero-copy static windows.
-///   - `ref(name) : T` flowability (rules R1–R4) is UNCHANGED and covered
+///   - `inout(name) : T` flowability (rules R1–R4) is UNCHANGED and covered
 ///     by tests/ref_*.test.yo.
 ///
 /// NOTE: this file must NOT declare `pragma(Pragma.AllowUnsafe);` — the

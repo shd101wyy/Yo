@@ -7,17 +7,17 @@ import {
 import type { Type } from "../../types/definitions";
 import {
   isArrayType,
-  isAtomicObjectType,
+  isAtomicReferenceStructType,
   isDynType,
   isEnumType,
   isIsoType,
-  isObjectType,
+  isReferenceStructType,
   isSomeType,
   isStructType,
   isTupleType,
 } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
-import { randomId } from "../../utils";
+import { isCodegenTempName, randomId } from "../../utils";
 import { isFunctionValue, isNumberValue } from "../../value";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
@@ -30,10 +30,10 @@ import { generateExpr } from "./expr";
 
 /**
  * If `valueArg` is an atom referring to a function parameter whose static type is an
- * unresolved SomeType (forall-typed), look up the concrete parameter type from
+ * unresolved SomeType (generic-typed), look up the concrete parameter type from
  * `currentFunctionType.parameters` so drop/dup codegen can find the right RC handler.
  *
- * This fixes a leak where forall-typed parameters (e.g., `f : F where F <: Fn(...)`)
+ * This fixes a leak where generic-typed parameters (e.g., `f : F where F <: Fn(...)`)
  * were silently skipped by drop/dup codegen because their AST `$.type` remains a
  * SomeType without `resolvedConcreteType`, even though the specialized C signature
  * uses the concrete type.
@@ -74,6 +74,20 @@ export function generateDropCodeForValue(
   valueType: Type,
   context: CodeGenContext
 ): string {
+  // Universal drop choke point (every `fn_TYPE___drop(value)` string flows
+  // through here). Skip dropping a codegen TEMP whose C declaration has not been
+  // emitted at this point — declaredCVarNames grows in C-emission order, so a
+  // synthetic temp scheduled for drop but declared only in a later/other branch
+  // would emit a drop on an undeclared C identifier. Only bare temp names match
+  // (recursive field/element valueCode like `x->f` does not). Mirrors yo-self's
+  // declared_c_var_names gate.
+  const trimmedDropValue = valueCode.trim();
+  if (
+    isCodegenTempName(trimmedDropValue) &&
+    !(context.declaredCVarNames?.has(trimmedDropValue) ?? true)
+  ) {
+    return "";
+  }
   const concreteType =
     isSomeType(valueType) && valueType.resolvedConcreteType
       ? valueType.resolvedConcreteType
@@ -130,10 +144,10 @@ export function generateDropCodeForValue(
   if (isDynType(concreteType)) {
     return `__yo_decr_rc((void*)(${valueCode}).data)`;
   }
-  if (isAtomicObjectType(concreteType)) {
+  if (isAtomicReferenceStructType(concreteType)) {
     return `__yo_decr_rc_atomic((void*)(${valueCode}))`;
   }
-  if (isObjectType(concreteType)) {
+  if (isReferenceStructType(concreteType)) {
     return `__yo_decr_rc((void*)(${valueCode}))`;
   }
   if (isIsoType(concreteType)) {
@@ -216,11 +230,11 @@ export function generateDupCodeForValue(
     const dynCName = getTypeString(concreteType, context);
     return `((${dynCName}){ .data = __yo_incr_rc((void*)(${valueCode}).data), .vtable = (${valueCode}).vtable })`;
   }
-  if (isAtomicObjectType(concreteType)) {
+  if (isAtomicReferenceStructType(concreteType)) {
     const objCName = getTypeString(concreteType, context);
     return `((${objCName})__yo_incr_rc_atomic((void*)(${valueCode})))`;
   }
-  if (isObjectType(concreteType)) {
+  if (isReferenceStructType(concreteType)) {
     const objCName = getTypeString(concreteType, context);
     return `((${objCName})__yo_incr_rc((void*)(${valueCode})))`;
   }
@@ -321,6 +335,23 @@ export function generateDeferredDropExpressions(
           dropExpr,
           context.currentClosureCaptures
         )
+      ) {
+        continue;
+      }
+
+      // Skip a TEMP whose C declaration has not been emitted yet at this point
+      // (declaredCVarNames grows in C-emission order). A synthetic temp scheduled
+      // for drop but declared only in a later/other branch would otherwise emit
+      // `___drop` on an undeclared C identifier (this loop is used for
+      // function-body/begin scope-end drops via generateFunctionBody). For a
+      // codegen temp the source atom name equals its C name, so
+      // getDeferredDropTargetAtomName suffices. Applies only to temps; regular
+      // named locals are always declared. Mirrors yo-self's declared_c_var_names.
+      const dropTargetName = getDeferredDropTargetAtomName(dropExpr);
+      if (
+        dropTargetName &&
+        isCodegenTempName(dropTargetName) &&
+        !(context.declaredCVarNames?.has(dropTargetName) ?? true)
       ) {
         continue;
       }

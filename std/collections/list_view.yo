@@ -1,6 +1,6 @@
 //! ListView — a SAFE window over an `ArrayList(T)`.
 //!
-//! The safe replacement for borrowed slices (plans/SLICE_REWORK.md §3):
+//! The safe replacement for borrowed slices (plans/archive/SLICE_REWORK.md §3):
 //! a ListView holds the Rc'd backing list and indexes through the LIVE
 //! handle. By construction it cannot dangle:
 //!   - the view's Rc keeps the backing object alive (reassigning the
@@ -21,7 +21,7 @@ ListView :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 impl(
-  forall(T : Type),
+  generic(T : Type),
   ListView(T),
   /// Create a view of `[offset, offset+len)` over `backing`. The window is
   /// clamped to the backing's CURRENT length.

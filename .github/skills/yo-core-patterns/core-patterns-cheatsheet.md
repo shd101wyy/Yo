@@ -22,10 +22,10 @@ println("plain str is also fine");
 
 ### String type disambiguation
 
-| Type              | When you see it                              | Key behavior                           |
-| ----------------- | -------------------------------------------- | -------------------------------------- |
-| `str`             | `"hello"` in runtime contexts                | View of STATIC bytes, no constraints   |
-| `String`          | Template strings `` `hello` ``               | Owned UTF-8, reference-counted         |
+| Type           | When you see it                              | Key behavior                           |
+| -------------- | -------------------------------------------- | -------------------------------------- |
+| `str`          | `"hello"` in runtime contexts                | View of STATIC bytes, no constraints   |
+| `String`       | Template strings `` `hello` ``               | Owned UTF-8, reference-counted         |
 | `comptime_str` | `"hello"` inside `comptime` functions/macros | Compile-time only, distinct from `str` |
 
 Key rules:
@@ -153,7 +153,7 @@ counts.set(`yo`, i32(1));
 ```rust
 Iterator :: trait(
   Item : Type,
-  next : (fn(ref(self) : Self) -> Option(Self.Item))
+  next : (fn(inout(self) : Self) -> Option(Self.Item))
 );
 ```
 
@@ -174,21 +174,23 @@ counter.* = (counter.* + i32(1));
 - Use `*(T)` for raw pointers
 - Model nullable pointers as `Option(*(T))` or `?*(T)`, not sentinel integers
 - Constructor syntax: `Box(T)(value)` — NOT `Box(T).new(value)`
-- Single-payload objects may use `(*) : T`; access the payload with `value.*`.
-  This is a value payload accessor for object values, while pointer dereference
+- Single-payload reference-semantics values may use `(*) : T`; access the payload with `value.*`.
+  This is a value payload accessor for reference-semantics values, while pointer dereference
   still applies when the receiver has pointer type.
-- For self-referential `object` types, use `Box(Self)` to break the recursive cycle:
+- For self-referential `ref(struct(...))` / `ref(enum(...))` types, use a DIRECT `Self` field —
+  NO `Box(Self)` needed. A reference-semantics value is already a heap pointer, so the
+  recursion terminates at the handle. (`Box(Self)` is only for self-referential VALUE
+  `struct(...)` / `enum(...)` types, where it breaks the recursive cycle.)
 
 ```rust
-Node :: object(
+Node :: ref(struct(
   value : i32,
-  next  : Option(Box(Self))   // Box(Self) breaks the recursive type cycle
-);
+  next  : Option(Self)   // direct Self — the ref handle is already a pointer
+));
 
-n := Node(value: i32(1), next: Option(Box(Node)).None);
-// Constructing a Box:
-child := Box(Node)(Node(value: i32(2), next: Option(Box(Node)).None));
-parent := Node(value: i32(1), next: Option(Box(Node)).Some(child));
+n := Node(value: i32(1), next: Option(Node).None);
+child := Node(value: i32(2), next: Option(Node).None);
+parent := Node(value: i32(1), next: Option(Node).Some(child));
 ```
 
 ## Unicode and platform checks
@@ -212,25 +214,27 @@ Point :: struct(x : i32, y : i32);
 
 FilePermission :: newtype(mode : u32);
 
-TcpStream :: object(fd : i32, buffer : ArrayList(u8));
+TcpStream :: ref(struct(fd : i32, buffer : ArrayList(u8)));
 ```
 
-| Keyword        | Semantics                               |
-| -------------- | --------------------------------------- |
-| `struct(...)`  | Value type, copied on assignment        |
-| `newtype(...)` | Single-field value wrapper              |
-| `object(...)`  | Reference-counted, shared on assignment |
+| Keyword                                               | Semantics                                      |
+| ----------------------------------------------------- | ---------------------------------------------- |
+| `struct(...)`                                         | Value type, copied on assignment               |
+| `newtype(...)`                                        | Single-field value wrapper                     |
+| `ref(struct(...))`                                    | Reference-counted struct, shared on assignment |
+| `ref(enum(...))`                                      | Reference-counted enum, shared on assignment   |
+| `atomic(ref(struct(...)))` / `atomic(ref(enum(...)))` | Atomic RC (cross-thread sharing)               |
 
 - Use `newtype(...)` when the type has exactly one field
-- Use `object(...)` for types that need shared ownership
+- Use `ref(struct(...))` / `ref(enum(...))` for types that need shared ownership (`atomic(ref(...))` for atomic RC)
 - **Parameter form by type kind:**
-  - `object(...)`: plain `name : Type` (reference semantics — no pointer or ref needed).
+  - `ref(struct(...))` / `ref(enum(...))`: plain `name : Type` (reference semantics — no pointer or inout needed).
     `foo :: (fn(ctx : EvalContext) -> unit)(ctx.do_stuff());`
   - `struct(...)` / `enum(...)` / primitive, read-only: plain `name : Type`.
-  - `struct(...)` / `enum(...)` / primitive, need mutation: `ref(name) : Type`.
-    `swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)(...);`
-  - Method receiver on `object`: plain `self : Self`.
-  - Method receiver on value type (traits + inherent mutators): `ref(self) : Self`.
+  - `struct(...)` / `enum(...)` / primitive, need mutation: `inout(name) : Type`.
+    `swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)(...);`
+  - Method receiver on `ref(struct(...))` / `ref(enum(...))`: plain `self : Self`.
+  - Method receiver on value type (traits + inherent mutators): `inout(self) : Self`.
   - Raw FFI pointer: `name : *(T)` (requires `pragma(Pragma.AllowUnsafe);`).
 - Source-file imports are namespace structs. The old `module(...)`, `Module`,
   and `SelfModule` syntax is gone; use `struct(...)`, `Type`, and normal `Self`.
@@ -248,7 +252,7 @@ impl(Point,
   })
 );
 
-impl(forall(T), where(T <: ToString), Box(T),
+impl(generic(T), where(T <: ToString), Box(T),
   show : (fn(self : Self) -> unit)(
     println(self.*)
   )
@@ -256,9 +260,9 @@ impl(forall(T), where(T <: ToString), Box(T),
 ```
 
 - Use `Self` inside impl method signatures
-- Use `Self` inside `struct(...)`, `object(...)`, `enum(...)` definitions for recursive type references (the type name is not yet available during its own definition)
+- Use `Self` inside `struct(...)`, `ref(struct(...))`, `ref(enum(...))`, `enum(...)` definitions for recursive type references (the type name is not yet available during its own definition)
 - `Self` also works inside generic type constructors — it refers to the current instantiation (e.g., `Tree(T)` inside `Tree`). Use `recur(args)` only when the type arguments differ from the current instantiation.
-- `forall(T)` + `where(T <: Trait)` for generic impls
+- `generic(T)` + `where(T <: Trait)` for generic impls
 - Trait impls: `impl(MyType, MyTrait(args), : trait_field_bindings...)`
 
 ### Method overloading: inherent NO, trait YES
@@ -433,7 +437,7 @@ transform :: (fn(values : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)
 
 - `(params) => expr` creates a closure
 - `Impl(Fn(params) -> ReturnType)` is the closure type
-- Closures capture: value types by copy, object types by reference
+- Closures capture: value types by copy, reference-semantics types by reference
 - Each closure has a unique type
 
 ## Iterator and for loop
@@ -458,13 +462,13 @@ while(i < list.len(), {
 });
 ```
 
-| Form                          | Expansion                                 | When to use                                                                  |
-| ----------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------- |
-| `for(coll, (x) => …)`         | `coll.into_iter()`, yields `T` by value   | All iteration; object elements are handles and mutate in place               |
-| index loop + `coll(i) = v`    | Index trait read/write                    | In-place struct/scalar element mutation                                       |
-| `for(chain.map(f), (x) => …)` | Treats chain as the iterator (value form) | Computed values                                                               |
+| Form                          | Expansion                                 | When to use                                                                 |
+| ----------------------------- | ----------------------------------------- | --------------------------------------------------------------------------- |
+| `for(coll, (x) => …)`         | `coll.into_iter()`, yields `T` by value   | All iteration; reference-semantics elements are handles and mutate in place |
+| index loop + `coll(i) = v`    | Index trait read/write                    | In-place struct/scalar element mutation                                     |
+| `for(chain.map(f), (x) => …)` | Treats chain as the iterator (value form) | Computed values                                                             |
 
-- The borrow form `for(coll, ref(x) => …)` was REMOVED (v4, plans/BORROW_EXCLUSIVITY.md — no interior refs); it emits a teaching compile error.
+- The borrow form `for(coll, ref(x) => …)` was REMOVED (v4, plans/archive/BORROW_EXCLUSIVITY.md — no interior refs); it emits a teaching compile error.
 - `Iterator` trait — defines `next() -> Option(Item)`. Custom iterables impl this.
 - `IntoIterator` trait — defines `into_iter() -> IntoIter`. Collections impl this so `for(coll, ...)` works.
 
@@ -513,4 +517,44 @@ String/str comparisons never need `as_str()` either (slice-rework step 2
 swept all of them): `token.value == "fn"`, `name != other_string`, and
 `"lit" == x` all dispatch directly via the heterogeneous `Eq(str)`/
 `Eq(String)` impls. `as_str()` itself is slated for deletion
-(plans/SLICE_REWORK.md) — do not introduce new calls to it.
+(plans/archive/SLICE_REWORK.md) — do not introduce new calls to it.
+
+## `unwind` in a swallow handler SKIPS the restore code after the guarded call
+
+`unwind(...)` discards the continuation and exits the **enclosing `fn`**. So when
+you wrap a call in a swallowing exception handler, every statement after that call —
+including `save`/`restore` of mutable state — is skipped on the failure path.
+
+```rust
+// ❌ BROKEN: on a swallowed error the restore never runs, and the flags stay set
+// for the REST OF THE COMPILE.
+_analyze :: (fn(..., ctx : EvalContext, exn : Exception) -> bool)({
+  saved := ctx.some_flag;
+  ctx.some_flag = true;
+  r := evaluate_something(..., exn);   // <-- throws; handler unwinds past everything below
+  ctx.some_flag = saved;               // <-- NEVER RUNS
+  r
+});
+```
+
+Fix: save and restore in the caller that the `unwind` lands in — `unwind` only
+unwinds as far as the `fn` whose body contains the handler, so code after _that_
+call always runs.
+
+```rust
+// ✅ the restore is OUTSIDE the unwind target
+saved := ctx.some_flag;
+_try_analyze_swallowing(..., ctx, out);   // handler's unwind exits THIS helper
+ctx.some_flag = saved;                    // always runs
+```
+
+**Why this matters:** the leak is invisible in isolation and only shows up when
+something else is compiled afterwards. Measured 2026-08-05: a leaked
+`is_analyzing_ctfe_capability` turned `tests/fn.test.yo` HOLLOW (its `main` failed
+to transpile so it reported "24 passed" while running nothing) even though all 24
+tests passed individually, and every single-file repro was clean. See
+`issues/yo-self-ctfe-nested-fn-analysis-gap.md`.
+
+Corollary: adding a swallow handler to existing code is NOT behaviour-preserving.
+Code whose errors previously propagated (aborting compilation, so leaked state never
+mattered) starts leaking the moment you swallow.

@@ -92,16 +92,16 @@ import { synthesizeTypes } from "../types/synthesizer";
  * Substitute SomeTypes in `type` with concrete types looked up by name from `env`.
  *
  * When a lambda is passed to a function like
- *   fold :: (forall(A, Acc, F), self, init: Acc, f: F, where(F <: Fn(acc: Acc, item: A) -> Acc)) -> Acc
+ *   fold :: (generic(A, Acc, F), self, init: Acc, f: F, where(F <: Fn(acc: Acc, item: A) -> Acc)) -> Acc
  * and called as `fold(0, (acc, x) => acc + x.*)`, the Fn trait's callType
- * still references the unresolved forall SomeTypes `Acc` and `A`. By the time
- * the lambda is being evaluated, these forall variables have been bound to
+ * still references the unresolved generic SomeTypes `Acc` and `A`. By the time
+ * the lambda is being evaluated, these generic variables have been bound to
  * concrete types in the callee's env (e.g., `Acc -> i32, A -> *(i32)`).
  *
  * This helper walks `type` and substitutes any SomeType whose `name` matches a
  * comptime variable in `env` whose value is a TypeValue. This ensures that the
  * lambda parameter bindings and downstream codegen see concrete types instead
- * of unresolved forall SomeTypes.
+ * of unresolved generic SomeTypes.
  *
  * Recurses through wrapper types (Ptr, Slice, Array, Iso) and FunctionType.
  * Does NOT recurse into nominal types (Struct/Enum/Module) — those are
@@ -221,10 +221,10 @@ export function evaluateAnonymousFunctionImplementation({
       isCreatingClosure = true;
       wrapperType = expectedType;
 
-      // Phase 2 (lambda-annotation-driven forall unification):
+      // Phase 2 (lambda-annotation-driven generic unification):
       // When the lambda explicitly annotates a parameter (e.g. `(io2 :
       // Io) =>`) and the expected closure parameter type is a bare
-      // NOTE: An attempted Phase 2 lambda-annotation-driven forall
+      // NOTE: An attempted Phase 2 lambda-annotation-driven generic
       // unification (binding `E := Io` in expectedTypeEnv when the
       // user wrote `(io2 : Io) =>`) was abandoned because:
       //   (a) addVariableToEnv on a name already present in the
@@ -241,7 +241,7 @@ export function evaluateAnonymousFunctionImplementation({
       // remain unhandled — a deeper refactor of the closure
       // capture/cache path is needed.
 
-      // Substitute forall SomeTypes (e.g., `Acc`, `A` from a generic
+      // Substitute generic SomeTypes (e.g., `Acc`, `A` from a generic
       // function's where-clause `F <: Fn(acc: Acc, item: A) -> Acc`) with
       // their concrete bindings from the callee's env. Without this, lambda
       // parameters keep unresolved SomeType refs and the closure's C
@@ -292,8 +292,8 @@ export function evaluateAnonymousFunctionImplementation({
     parameterExprs = [functionDeclarationExpr];
   }
 
-  // Parse parameter expressions to separate forall and regular parameters
-  // `using` keyword is gone. All non-forall params are regular.
+  // Parse parameter expressions to separate generic and regular parameters
+  // `using` keyword is gone. All non-generic params are regular.
   let forallParamExprs: Expr[] = [];
   const regularParamExprs: Expr[] = [];
 
@@ -302,12 +302,12 @@ export function evaluateAnonymousFunctionImplementation({
 
     if (
       exprIsFunctionCall(paramExpr) &&
-      exprIsFunctionCallOf(paramExpr, BuiltinKeywords.forall)
+      exprIsFunctionCallOf(paramExpr, BuiltinKeywords.generic)
     ) {
       if (i !== 0) {
         throw formatErrorMessage({
           token: paramExpr.token,
-          errorMessage: `forall(...) must be the first parameter expression`,
+          errorMessage: `generic(...) must be the first parameter expression`,
         });
       }
       forallParamExprs = paramExpr.args;
@@ -321,7 +321,7 @@ export function evaluateAnonymousFunctionImplementation({
   if (forallParamExprs.length !== functionType.forallParameters.length) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected ${functionType.forallParameters.length} forall parameters, got ${forallParamExprs.length}`,
+      errorMessage: `Expected ${functionType.forallParameters.length} generic parameters, got ${forallParamExprs.length}`,
     });
   }
   */
@@ -339,8 +339,8 @@ export function evaluateAnonymousFunctionImplementation({
   const outerEnv = env;
   env = pushEnvFrame(env);
 
-  // Validate parameter names for comptime parameters (forall, implicit, and comptime regular parameters)
-  // Check forall parameters (always comptime)
+  // Validate parameter names for comptime parameters (generic, implicit, and comptime regular parameters)
+  // Check generic parameters (always comptime)
   for (let i = 0; i < forallParamExprs.length; i++) {
     const paramExpr = forallParamExprs[i]!;
     const expectedParam = functionType.forallParameters[i]!;
@@ -348,7 +348,7 @@ export function evaluateAnonymousFunctionImplementation({
     if (!exprIsAtom(paramExpr)) {
       throw formatErrorMessage({
         token: paramExpr.token,
-        errorMessage: `Expected parameter name for forall parameter, got ${exprToString(paramExpr)}`,
+        errorMessage: `Expected parameter name for generic parameter, got ${exprToString(paramExpr)}`,
       });
     }
 
@@ -365,9 +365,9 @@ Got:      "${paramName}"`,
   for (let i = 0; i < functionType.forallParameters.length; i++) {
     const paramExpr = forallParamExprs[i];
     const expectedParam = functionType.forallParameters[i]!;
-    // Add forall parameter to environment.
+    // Add generic parameter to environment.
     // Allow variable shadowing because in nested ctl handlers, the inner handler's
-    // forall T needs to shadow the outer handler's T that exists in the env chain
+    // generic T needs to shadow the outer handler's T that exists in the env chain
     // (e.g., raise2's T inside raise's handler body which already has T bound).
     const { env: nextEnv } = addVariableToEnv({
       env,
@@ -461,7 +461,7 @@ Got:      "${paramName}"`,
       if (!substEnv) substEnv = pushEnvFrame(env);
       const someName = expectedParam.type.name;
       // Skip if a binding with this name already exists in the new frame
-      // (multi-param closures with two annotations using the same forall name).
+      // (multi-param closures with two annotations using the same generic name).
       const topFrame = substEnv.frames[substEnv.frames.length - 1]!;
       if (topFrame.variables.some((v) => v.name === someName)) continue;
       const addRes = addVariableToEnv({
@@ -593,10 +593,10 @@ Got:      "${paramName}"`,
 
   const parametersFrame = env.frames[env.frames.length - 1]!;
 
-  // Create new function type using expected forall/implicit parameters and mixing anonymous + expected regular parameters
+  // Create new function type using expected generic/implicit parameters and mixing anonymous + expected regular parameters
   const newFunctionType: FunctionType = {
     ...functionType,
-    // forall parameters must use expected names/types entirely (they're always comptime)
+    // generic parameters must use expected names/types entirely (they're always comptime)
     forallParameters: functionType.forallParameters,
     // For regular parameters: use expected types but allow anonymous names for non-comptime parameters
     parameters: functionType.parameters.map((expectedParam, index) => {
@@ -683,19 +683,19 @@ Got:      "${paramName}"`,
   // A function is a closure if it's being used as an implementation of an Fn trait (FnTraitType)
   const isClosureFunction = !!expectedFnTraitType;
 
-  // Check if the function depends on generic type variables (forall parameters or SomeType in Self/params).
+  // Check if the function depends on generic type variables (generic parameters or SomeType in Self/params).
   // If so, we should NOT evaluate the body at definition time because we can't
   // execute code that uses unresolved type variables. The body will be evaluated
   // when the function is specialized with concrete type arguments.
   //
-  // Only defer when the lambda explicitly declares forall parameters in its source.
-  // When the expected type has forall params but the lambda doesn't declare them
+  // Only defer when the lambda explicitly declares generic parameters in its source.
+  // When the expected type has generic params but the lambda doesn't declare them
   // (e.g., a concrete throw handler for Exception module), evaluate the body now —
-  // the forall type polymorphism is handled by void* erasure at runtime.
+  // the generic type polymorphism is handled by void* erasure at runtime.
   // Use the codegen-aware variant for the parameter check: an `exn :
   // Exception` or `io : Io` parameter must NOT trigger body deferral. These
-  // are concrete structs whose only forall content lives in function-typed
-  // fields (e.g. `throw : ctl(forall(R), ...) -> R`) — type-erased function
+  // are concrete structs whose only generic content lives in function-typed
+  // fields (e.g. `throw : ctl(generic(R), ...) -> R`) — type-erased function
   // pointers at runtime, not generic body content. Plain
   // `typeContainsSomeType` reports the parameter as generic via that
   // recursion, which previously deferred every `fn(..., exn : Exception)`
@@ -703,14 +703,14 @@ Got:      "${paramName}"`,
   // codegen (manifesting as link errors for `parse` etc. and
   // "Unhandled function call" errors for closures passed to Thread.spawn /
   // io.async / Worker).
-  // Use `typeContainsUnboundSomeType` (forall-scope aware) instead of the
+  // Use `typeContainsUnboundSomeType` (generic-scope aware) instead of the
   // older `typeContainsSomeTypeForCodegenParam` to decide whether a parameter
   // type carries a *free* SomeType that should defer body evaluation. The old
   // function-fields carve-out treated struct fields containing fn-typed
   // foralls as concrete, but it stopped recursing entirely — losing fidelity
   // for other shapes (e.g. `*(T)` direct fields). The unbound variant walks
   // every shape and only reports SomeTypes whose name isn't bound by a
-  // surrounding `forall(...)`.
+  // surrounding `generic(...)`.
   // Closure inference contract: when the surrounding context's expected
   // type still carries an unbound SomeType in a closure parameter
   // position AND the user did not provide a `(name : Type)` annotation
@@ -912,7 +912,7 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
   // type, which may not match the handler function's declared return type.
   const evaluatedBodyReturnType = evaluatedBody.$?.type;
 
-  // Phase B of plans/ITERATOR_REDESIGN.md — flowability check on
+  // Phase B of plans/archive/ITERATOR_REDESIGN.md — flowability check on
   // the return expression of a `-> ref(T)` function. The body must
   // root back to a `ref`-bound parameter along a
   // projection-respecting chain (R1–R4 in the plan); otherwise the
@@ -933,7 +933,7 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
     !functionType.return.isCompileTimeOnly &&
     !isImplicitlyUnsafeCapableFile(functionBodyExpr.token.modulePath)
   ) {
-    // plans/SLICE_FLOWABILITY.md Phase C — a function whose return
+    // plans/archive/SLICE_FLOWABILITY.md Phase C — a function whose return
     // type is value-typed but transitively carries a raw pointer in
     // its representation (e.g. `Slice(T)`, `str`, or any struct that
     // wraps one) must root the returned value in caller-owned storage.
@@ -960,7 +960,7 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
     }
   }
 
-  // For closures with SomeType return type (from forall parameters, e.g., T : Type),
+  // For closures with SomeType return type (from generic parameters, e.g., T : Type),
   // resolve the body's runtime type as the concrete type for the SomeType.
   // This handles cases like io.async(() => { return 12; }) where T is inferred
   // from the closure body's return type.
@@ -991,7 +991,7 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
   // a SomeType, resolve nested SomeTypes by matching the expected return type structure
   // against the actual body return type. synthesizeTypes will recursively walk the
   // type tree, and when it encounters a SomeType matched against a concrete type,
-  // it sets resolvedConcreteType on the SomeType (enabling forall inference in helper.ts).
+  // it sets resolvedConcreteType on the SomeType (enabling generic inference in helper.ts).
   // Also update the return type on both functionType and newFunctionType so codegen
   // sees the concrete type.
   if (
@@ -1060,7 +1060,7 @@ so only builtin functions (panic, escape) and local variables are accessible.`,
       if (variable?.isRef) {
         throw formatErrorMessage({
           token: captureInfo.token ?? expr.token,
-          errorMessage: `Cannot capture ref binding '${varName}' in a closure. \`ref(${varName}) : T\` is a second-class reference to the caller's storage; a closure that captures it could outlive the call frame. Pass the value through (e.g. read it into a local first, or restructure to take the closure as a callback parameter).`,
+          errorMessage: `Cannot capture inout binding '${varName}' in a closure. \`inout(${varName}) : T\` is a second-class reference to the caller's storage; a closure that captures it could outlive the call frame. Pass the value through (e.g. read it into a local first, or restructure to take the closure as a callback parameter).`,
         });
       }
       // §4 typing rule 4: closures cannot capture a value of
@@ -1190,7 +1190,7 @@ Pass \`${varName}\` as a regular function parameter instead of capturing it in a
       });
     }
 
-    // IMPORTANT: When wrapperType is a forall SomeType (e.g., F from `forall(F:Type)`)
+    // IMPORTANT: When wrapperType is a generic SomeType (e.g., F from `generic(F:Type)`)
     // whose Fn trait constraint comes from a where-clause (not requiredTraits),
     // setting wrapperType.resolvedConcreteType = captureType (the bare closure struct)
     // strips the Fn trait info. Subsequent where-clause checks would then fail with

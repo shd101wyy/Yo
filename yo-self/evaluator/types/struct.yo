@@ -23,16 +23,16 @@ open(import("std/fmt"));
   ast_expr_is_fn_call_of,
   make_err_expr,
   BK_STRUCT,
-  BK_OBJECT,
   BK_NEWTYPE
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, register_struct_field_comptime_flags } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message } :: import("../../error.yo");
+{ type_to_string } :: import("../../types/string.yo");
 { Exception } :: import("std/error");
 {
   TypeField,
@@ -41,8 +41,10 @@ open(import("std/fmt"));
   register_struct_fields
 } :: import("./field.yo");
 { random_id } :: import("../../utils.yo");
+{ register_struct_final, _patch_self_shell } :: import("../../types/creators.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ auto_derive_traits_for_struct_type } :: import("./utils.yo");
+{ auto_derive_traits_for_struct_type, enforce_atomic_object_send } :: import("./utils.yo");
+{ fields_have_incompatible_contexts } :: import("../../types/utils.yo");
 { is_iso_type } :: import("../../types/guards.yo");
 evaluate_struct_type :: (
   fn(
@@ -50,30 +52,45 @@ evaluate_struct_type :: (
     env_in : Environment,
     ctx : EvalContext,
     is_atomic_rc : bool,
+    force_reference_semantics : bool,
     exn : Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
-  is_object_keyword := ast_expr_is_fn_call_of(expr, BK_OBJECT, Option(usize).None);
   is_struct_keyword := ast_expr_is_fn_call_of(expr, BK_STRUCT, Option(usize).None);
   is_newtype_keyword := ast_expr_is_fn_call_of(expr, BK_NEWTYPE, Option(usize).None);
-  if(!((is_struct_keyword || is_object_keyword) || is_newtype_keyword), {
+  if(!(is_struct_keyword || is_newtype_keyword), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected "struct" or "object" or "newtype", got:\n${ast_expr_to_string(expr)}`,
+          `Expected "struct" or "newtype", got:\n${ast_expr_to_string(expr)}`,
           false,
           .None
         )
       )
     );
   });
-  is_reference_semantics := is_object_keyword;
+  is_reference_semantics := force_reference_semantics;
   is_newtype := is_newtype_keyword;
-  struct_id := `struct_${random_id(env.module_path)}`;
+  // DECLARATION-STABLE id at module level (ctfe_depth == 0) — the enum.yo
+  // twin (see there for the full rationale): re-evaluation generations of a
+  // module-level struct declaration share one identity; CTFE instantiations
+  // (generic constructors) keep eval-fresh ids so distinct instantiations
+  // never share (the recorded tk2/Bucket hazard of the unconditional swap).
+  struct_id := if(
+    ctx.ctfe_depth == usize(0),
+    `struct_decl_${ast_expr_id(expr).to_string()}_${env.module_path.replace(String.from("/"), String.from("_")).replace(String.from("."), String.from("_")).replace(String.from(":"), String.from("_"))}`,
+    `struct_${random_id(env.module_path)}`
+  );
   // Preliminary struct type (empty fields) used as SelfType during field evaluation.
   // This allows self-referential types like `struct(val: Option(Self))`.
+  // The shell shares the final's `struct_id` (UNLIKE enum.yo's distinct
+  // `__self_shell` id): id-based comparisons (compatibility `aid==eid`,
+  // codegen C-keying, method dispatch) then treat the shell and final as the
+  // same type for free, so only FIELD-reading sites need resolution. The shell
+  // is distinguished from the final purely by its EMPTY field list, which is
+  // exactly how `resolve_struct_shell`/`_patch_self_shell` detect it.
   prelim_ty := TypeValue.Struct(
     struct_id.clone(),
     String.from(""),
@@ -91,13 +108,26 @@ evaluate_struct_type :: (
   // Temporarily set SelfType in context for field evaluation.
   old_self_type := ctx.self_type;
   ctx.self_type = Option(TypeValue).Some(prelim_ty);
-  // TODO (Phase 3): addRcFunctionSignaturesToStructType stub — no-op for now.
-  // TODO (Phase 3): beginSendDerivation stub — no-op for now.
+  // RC functions (___drop/___dup) for reference-semantics structs are lowered
+  // DIRECTLY in codegen (drop_dup.yo: `is_reference_struct_type` →
+  // `__yo_decr_rc`/`__yo_incr_rc`), exactly as the TS reference does for ref
+  // structs (drop-dup.ts). TS ALSO synthesizes evaluator-side ___drop/___dup
+  // methods (addRcFunctionSignaturesToStructType), but that mutates
+  // `SelfType.trait.fields` — yo-self's TypeValue is a value enum with NO
+  // per-type trait-field list (trait methods live in a side-registry, see
+  // [[yo-self-typevalue-enum-interning]]), so the method-synthesis approach
+  // does not apply; the direct codegen lowering has the identical effect.
+  // Trait MARKERS (Send/Acyclic/Comptime/Runtime) are auto-derived AFTER field
+  // evaluation by `auto_derive_traits_for_struct_type` (below).
   // Evaluate fields
   args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
   runtime_field_types := ArrayList(TypeValue).new();
+  // Per-field is-compile-time-only flags, parallel to field_types. Recorded
+  // in the struct-field-comptime side-table so codegen's
+  // get_runtime_struct_fields can filter comptime-only fields (Gap 1).
+  field_comptime_flags := ArrayList(bool).new();
   fields := ArrayList(TypeField).new();
   (i : usize) = usize(0);
   while(i < args.len(), {
@@ -134,6 +164,7 @@ evaluate_struct_type :: (
     });
     field_labels.push(field.label.clone());
     field_types.push(field.ty);
+    field_comptime_flags.push(field.is_comptime);
     if(!(field.is_comptime), {
       runtime_field_types.push(field.ty);
     });
@@ -193,13 +224,37 @@ evaluate_struct_type :: (
       )
     );
   });
-  // Build final struct TypeValue with all fields populated.
+  // Build the final struct in two steps (mirrors enum.yo:663-707): an UNPATCHED
+  // pre-final used as the replacement target, then the real final with the
+  // self-shell patched out of the field types one level. Deeper self-nesting
+  // resolves through the struct-final registry (resolve_struct_shell) at use
+  // sites. TS needs no patch — its Self IS the same mutable object.
+  pre_final_ty := TypeValue.Struct(
+    struct_id.clone(),
+    String.from(""),
+    field_labels,
+    field_types,
+    is_reference_semantics,
+    is_atomic_rc,
+    is_newtype,
+    String.from(""),
+    ArrayList(TypeValue).new(),
+    false
+  );
+  patched_types := ArrayList(TypeValue).new();
+  (pt_i : usize) = usize(0);
+  while(pt_i < field_types.len(), {
+    ft := match(field_types.get(pt_i),.Some(t) => t,.None => TypeValue.Unit);
+    patched_types.push(_patch_self_shell(ft, struct_id.clone(), pre_final_ty));
+    pt_i = (pt_i + usize(1));
+  });
+  // Build final struct TypeValue with all fields populated (shell-patched).
   // (Built before auto-derive so the completed TypeValue can be passed as self_type.)
   struct_ty := TypeValue.Struct(
     struct_id.clone(),
     String.from(""),
     field_labels,
-    field_types,
+    patched_types,
     is_reference_semantics,
     is_atomic_rc,
     is_newtype,
@@ -209,6 +264,12 @@ evaluate_struct_type :: (
     // type_arguments — set later at the comptime-fn call site
     false // is_source_namespace
   );
+  // Record the finalized form under the struct id so leaked empty-field shells
+  // resolve at field-read use sites — see resolve_struct_shell (creators.yo).
+  register_struct_final(struct_id.clone(), struct_ty);
+  // Record the per-field comptime-only flags so codegen's
+  // get_runtime_struct_fields can filter comptime-only fields (Gap 1).
+  register_struct_field_comptime_flags(struct_id.clone(), field_comptime_flags);
   // Auto-derive trait markers (Send, Rc, Acyclic, Comptime, Runtime).
   // Mirrors `autoDeriveTraitsAndAddRcFunctionsForStructType` in TypeScript.
   auto_derive_traits_for_struct_type(
@@ -219,6 +280,38 @@ evaluate_struct_type :: (
     env,
     struct_ty
   );
+  // Enforce Send for atomic object types (struct.ts:152-173) — must run AFTER
+  // auto-derive so the Send-derivation cycle bracket is closed.
+  if(is_atomic_rc, {
+    enforce_atomic_object_send(
+      struct_ty,
+      field_labels,
+      patched_types,
+      env,
+      ast_expr_token(expr),
+      exn
+    );
+  });
+  // Validate the struct can exist in at least ONE evaluation context —
+  // mixed comptime-only + runtime-only fields (`x : comptime_int, y :
+  // Box(i32)`) have empty availability. TS runs this at the same point
+  // (utils.ts:1795 validateTypeAvailability after auto-derive); unported,
+  // the invalid definition was ACCEPTED and comptime_expect_error's
+  // no-error check hollowed the arm (basic arm 24). Structural field scan
+  // (see fields_have_incompatible_contexts) — the registry-based check
+  // false-fired on pointer-fielded prelude newtypes.
+  if(fields_have_incompatible_contexts(patched_types), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Type ${type_to_string(struct_ty)} has incompatible field contexts and cannot be used in any evaluation context.`,
+          false,
+          .None
+        )
+      )
+    );
+  });
   // Restore SelfType
   ctx.self_type = old_self_type;
   // Register TypeField metadata in global registry
@@ -229,7 +322,7 @@ evaluate_struct_type :: (
   out_info.value = Option(EvalValue).Some(struct_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   // Annotate callee (expr.func) with same info (mirrors TypeScript: expr.func.$ = expr.$)
-  callee_expr := match(expr,.FnCall(_, f_box, _, _, _) => f_box.*,.Atom(_, _) => expr);
+  callee_expr := match(expr,.FnCall(_, f_box, _, _, _) => f_box,.Atom(_, _) => expr);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), out_info);
   expr
 });

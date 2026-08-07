@@ -4,7 +4,7 @@ import { getCurrentTarget } from "../target";
 import { generateModuleId } from "../utils";
 import type { StructValue } from "../value";
 import { collectCIncludes, emitCIncludes } from "./c/collection";
-import { isStructType } from "../types/guards";
+import { isStructType, isEnumType } from "../types/guards";
 import { canTypeFormRcCycle, typeContainsSomeType } from "../types/utils";
 import {
   generateDeferredAsyncBlocks,
@@ -13,6 +13,7 @@ import {
 import {
   collectDisposeMethodsFromGenericImpls,
   collectRequiredFunctions,
+  collectTraceMethodsFromGenericImpls,
   findFunctionCallsInExpr,
 } from "./functions/collection";
 import type { FunctionGenerationContext } from "./functions/context";
@@ -137,8 +138,12 @@ export class CodeGeneratorC {
 
     // Collect dispose methods from generic impls for all collected types
     // This is needed because ___dispose functions may need to call user's dispose methods
-    // that are defined via generic impls like: impl(forall(T : Type), ArrayList(T), Dispose(...))
+    // that are defined via generic impls like: impl(generic(T : Type), ArrayList(T), Dispose(...))
     collectDisposeMethodsFromGenericImpls(context);
+
+    // Same for `trace` methods (Trace trait) from generic impls — the cycle-GC
+    // traverse function delegates to a container's hand-written Trace impl.
+    collectTraceMethodsFromGenericImpls(context);
 
     // Collect C includes from variables used in the module
     collectCIncludes(context);
@@ -162,16 +167,26 @@ typedef enum {
     context.needsCycleGC = false;
     for (const typeId in context.types) {
       const { type } = context.types[typeId]!;
-      if (
+      const isCyclableRefStruct =
         isStructType(type) &&
         type.isReferenceSemantics &&
         !type.isAtomicRc &&
-        !type.fields.some((field) => typeContainsSomeType(field.type))
+        !type.fields.some((field) => typeContainsSomeType(field.type));
+      // A reference-semantics enum (`ref(enum(…))`) can also form an RC cycle
+      // (e.g. a recursive `Self`-valued variant field), so it is a cycle root too.
+      const isCyclableRefEnum =
+        isEnumType(type) &&
+        type.isReferenceSemantics &&
+        !type.isAtomicRc &&
+        !type.variants.some((v) =>
+          (v.fields ?? []).some((f) => typeContainsSomeType(f.type))
+        );
+      if (
+        (isCyclableRefStruct || isCyclableRefEnum) &&
+        canTypeFormRcCycle(type, new Set(), type.env)
       ) {
-        if (canTypeFormRcCycle(type, new Set(), type.env)) {
-          context.needsCycleGC = true;
-          break;
-        }
+        context.needsCycleGC = true;
+        break;
       }
     }
 
