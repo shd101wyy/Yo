@@ -1157,11 +1157,20 @@ generate_unwind :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
     emit_async_future_escape(em, indent.clone(), Option(String).None, Option(String).Some(context.base.current_function_name.clone()));
     return(String.from(""));
   });
-  // Synchronous effect handler: set the thread-local escape flag.
-  em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 1;`);
+  // Synchronous effect handler: set the thread-local escape flag. ORDER
+  // MATTERS for `unwind(<expr>)` with an argument: the flag is raised AFTER
+  // the argument is evaluated — a may-unwind call inside the argument (e.g.
+  // `unwind(make_err_expr())`) emits the caller-side protocol
+  // `__yo_effect_escaped = 0; <call>; if (__yo_effect_escaped) ...`, and with
+  // the flag raised first that pre-call clear CANCELLED the in-progress
+  // unwind: the handler returned its dummy ((T*){0} for ref results) with the
+  // flag DOWN and the raise site treated NULL as the real result. Mirrors
+  // generation.ts generateUnwind (same fix, same ordering note); see
+  // issues/fixed/yo-ts-codegen-branch-in-effect-handler-corruption.md.
   match(
     arg_opt,
     .None => {
+      em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 1;`);
       _emit_effect_handler_param_drops(context, indent.clone());
       generate_pending_deferred_drops(indent.clone(), context, expr, false, true, true, Option(HashSet(String)).None, Option(String).None);
       if(!(context.is_effect_record_member_function), {
@@ -1171,6 +1180,7 @@ generate_unwind :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
     },
     .Some(arg) => {
       argc := _call_generate_expr(arg, indent.clone(), context);
+      em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 1;`);
       _emit_effect_handler_param_drops(context, indent.clone());
       generate_pending_deferred_drops(indent.clone(), context, expr, false, true, true, Option(HashSet(String)).None, Option(String).None);
       if(!(context.is_effect_record_member_function), {

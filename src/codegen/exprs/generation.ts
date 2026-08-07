@@ -304,9 +304,19 @@ function generateUnwind(
   // effect record member function (e.g., Exception.throw handler):
   // Set thread-local flag so the calling SM knows this handler escaped.
   // Always set for any function that uses unwind (Phase 2).
-  functionContext.emitter.emitLine(`${indent}__yo_effect_escaped = 1;`);
+  //
+  // ORDER MATTERS for `unwind(<expr>)` with an argument: the flag is set
+  // AFTER the argument is evaluated. A may-unwind call inside the argument
+  // (e.g. `unwind(make_err())` where make_err is effect-analyzed as
+  // may-unwind) emits the caller-side protocol `__yo_effect_escaped = 0;
+  // <call>; if (__yo_effect_escaped) ...` — with the flag raised first, that
+  // pre-call clear CANCELLED the in-progress unwind, so the handler returned
+  // its dummy value ((T*){0} for ref results) with the flag DOWN and the
+  // raise site treated NULL as the real result
+  // (issues/yo-ts-codegen-branch-in-effect-handler-corruption.md).
 
   if (!arg) {
+    functionContext.emitter.emitLine(`${indent}__yo_effect_escaped = 1;`);
     // Emit handler param drops before returning
     if (functionContext.effectHandlerParamDrops) {
       for (const dropCode of functionContext.effectHandlerParamDrops) {
@@ -360,6 +370,9 @@ function generateUnwind(
   const pendingDropsBaselineForEscapeArg =
     functionContext.pendingDeferredDrops?.length ?? 0;
   const argCode = generateExpr(arg, indent, context);
+  // The argument is fully evaluated — NOW raise the escape flag (see the
+  // ordering note above).
+  functionContext.emitter.emitLine(`${indent}__yo_effect_escaped = 1;`);
   if (
     functionContext.consumedVarPendingDrops &&
     functionContext.consumedVarPendingDrops.length >

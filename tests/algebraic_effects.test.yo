@@ -93,6 +93,45 @@ test("Test zero-arg unwind exits unit function", {
   });
   run_test();
 });
+// Regression (issues/fixed/yo-ts-codegen-branch-in-effect-handler-corruption.md):
+// the unwind ARGUMENT built by a may-unwind CALL. The unwind emitter used to
+// raise __yo_effect_escaped BEFORE evaluating the argument; the argument
+// call's own protocol (`__yo_effect_escaped = 0; <call>; if (...)`) then
+// cancelled the in-progress unwind, so the handler returned its dummy value
+// ((T*){0} for a ref result) with the flag DOWN and the raise site treated
+// NULL as the real result — SIGSEGV on first use of the unwound value.
+test("unwind argument built by a may-unwind call", {
+  ErrNode :: ref(enum(Leaf(name : String), Pair(a : String, b : String)));
+  Raise2 :: (ctl(msg : String) -> ErrNode);
+  make_err_node :: (fn() -> ErrNode)(ErrNode.Leaf(name : String.from("__err__")));
+  try_eval :: (fn(n : i32, raise : Raise2) -> ErrNode)(
+    cond(
+      ((n % i32(3)) == i32(0)) => raise(`raise-${n}`),
+      true => ErrNode.Pair(a : `left-${n}`, b : `right-${n}`)
+    )
+  );
+  eval_wrapper :: (fn(n : i32) -> ErrNode)({
+    (raise : Raise2) = ((msg) -> unwind(make_err_node()));
+    try_eval(n, raise)
+  });
+  (acc : usize) = usize(0);
+  (i : i32) = i32(0);
+  while(i < i32(30), {
+    r := eval_wrapper(i);
+    match(
+      r,
+      .Leaf(name) => {
+        acc = (acc + name.len());
+      },
+      .Pair(a, b) => {
+        acc = (acc + (a.len() + b.len()));
+      }
+    );
+    i = (i + i32(1));
+  });
+  // 10 raises x len("__err__")=7 + 20 pairs x (len("left-N")+len("right-N")).
+  assert(acc == usize(358), "unwound values and normal results both intact");
+});
 test("Test nested fn unwind inside resume handler", {
   Raise :: (ctl(msg : String, msg2 : String) -> i32);
   // raise2 is defined inside raise's handler body. raise2 aborts with i32(18),

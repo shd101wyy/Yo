@@ -1,6 +1,6 @@
 # yo-self: own-param scope-end drop emitted twice for single-expression bodies (CI glibc double-free)
 
-**Status:** fix implemented, validating.
+**Status:** FIXED — CI-confirmed (run 31159772012 fully green on 5e4b81186, including the previously-failing glibc tier-1 gates job).
 
 ## Symptom
 
