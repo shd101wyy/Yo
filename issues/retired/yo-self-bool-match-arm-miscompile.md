@@ -1,5 +1,16 @@
 # OPEN: bool-valued `match` with trait-call arms miscompiles under the self-hosted codegen
 
+> **RETIRED — verified moot 2026-08-07.** The doc's own step 3 ran: the
+> compact `found = match(..., .Some(e) => (e == s), .None => false)` form
+> was RESTORED at the two canary sites carrying the miscompile comment
+> (`types/type_key.yo` `_tk_seen`, `types/intern.yo` `_contains`) and the
+> stage-2/stage-3 fixpoint HOLDS (stage-2 emit 0 hollow, clang clean).
+> The r3-era divergence was fixed by intervening work — no single fixing
+> commit is identifiable (candidates: the branch-aware dup/drop
+> cancellation `ac85f6cfc`, the 2026-08-05/06 fix batch). The
+> `_shell_walk_visited` / `_tts_seen` statement-arm helpers keep their
+> historical shape (it predates the bug and is equivalent).
+
 **Status:** OPEN — worked around; needs a minimal repro + fix in yo-self codegen.
 
 ## Evidence

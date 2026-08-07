@@ -56,15 +56,10 @@ _contains :: (fn(xs : ArrayList(String), s : String) -> bool)({
   while((i < n) && !(found), {
     // Compare in place — no deep clone per probe (see _tk_seen; this was the
     // 83.8 M-allocation `_contains` site in the constructor census).
-    // Statement-arm shape required — the bool-valued match form miscompiles
-    // self-hosted (issues/yo-self-bool-match-arm-miscompile.md).
-    match(
-      xs.get(i),
-      .Some(e) => if(e == s, {
-        found = true;
-      }),
-      .None => ()
-    );
+    // Compact bool-valued arm form (an r3-era self-hosted miscompile of
+    // this shape was fixed by later work — restored 2026-08-07;
+    // issues/retired/yo-self-bool-match-arm-miscompile.md).
+    found = match(xs.get(i),.Some(e) => (e == s),.None => false);
     i = (i + usize(1));
   });
   found

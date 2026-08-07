@@ -342,7 +342,7 @@ Churn campaign rounds 3–5 (2026-08-04, `21fdc9b71`): the four
 seen/contains helpers deep-cloned every visited string per probe
 (~430 M buffer allocs — now compare in place; NOTE the compact
 bool-valued match form MISCOMPILES self-hosted, statement-arm shape
-required — issues/yo-self-bool-match-arm-miscompile.md, caught by the
+required — issues/retired/yo-self-bool-match-arm-miscompile.md, caught by the
 fixpoint gate); synthetic_token now interns Tokens by
 (module_path → name) — the census measured ~486 M calls / thousands of
 distinct pairs (Tokens are immutable, sharing unobservable).
