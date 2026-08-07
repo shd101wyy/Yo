@@ -1,0 +1,11 @@
+// Fixture for "module-level globals are isolated per module"
+// (issues/fixed/module-global-c-names-are-not-namespaced.md): declares the
+// SAME global name as global_b.yo — the two must be distinct C variables.
+{ HashMap } :: import("std/collections/hash_map");
+open(import("std/string"));
+(g_cache : HashMap(String, i32)) = HashMap(String, i32).new();
+a_put :: (fn() -> unit)({
+  g_cache.set(`k`, i32(1));
+});
+a_len :: (fn() -> usize)(g_cache.len());
+export(a_put, a_len);

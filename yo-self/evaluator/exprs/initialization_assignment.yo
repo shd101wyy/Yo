@@ -39,7 +39,8 @@ open(import("std/string"));
   expr_info_table_get,
   has_any_control_flow,
   path_collection_new,
-  expr_info_set_runtime_destructurings
+  expr_info_set_runtime_destructurings,
+  register_module_level_global
 } :: import("../../expr_info.yo");
 { Environment, Variable, add_variable_to_env, get_variables_from_env, variable_set_doc_comment } :: import("../../env.yo");
 {
@@ -679,6 +680,12 @@ Use \`::\` for compile-time definitions inside impl.`,
       new_var_opt,
       .Some(new_var) => {
         new_var.is_module_level = is_module_level;
+        // Also record it in the data-keyed registry — env copies can lose
+        // the flag on some resolution paths (see expr_info.yo
+        // g_module_level_globals).
+        if(is_module_level, {
+          register_module_level_global(actual_lhs_tok.module_path.clone(), var_name.clone());
+        });
         variable_set_doc_comment(new_var, doc_comment_opt);
         // Set is_owning_the_same_rc_value_as when applicable.
         match(

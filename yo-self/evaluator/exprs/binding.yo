@@ -25,7 +25,7 @@ open(import("std/fmt"));
   BK_COLON,
   make_err_expr
 } :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_paths_for_write } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_paths_for_write, register_module_level_global } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind } :: import("../context.yo");
 { EvalValue, is_type_value, create_unknown_val } :: import("../../value.yo");
@@ -416,6 +416,15 @@ evaluate_binding :: (
     _var_opt,
     .Some(new_binding_var) => {
       new_binding_var.initialized_at_token =.None;
+      // Stamp module-level-ness — computed above but previously never
+      // patched onto the variable for the `(name : T) = ...` binding form
+      // (add_variable_to_env has no is_module_level parameter). Also record
+      // it in the data-keyed registry, which survives env copies (see
+      // expr_info.yo g_module_level_globals).
+      new_binding_var.is_module_level = is_module_level;
+      if(is_module_level, {
+        register_module_level_global(ast_expr_token(lhs).module_path.clone(), variable_name.clone());
+      });
     },
     .None => ()
   );

@@ -25,7 +25,7 @@ open(import("std/string"));
 { Environment } :: import("../../env.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized, expr_info_consumed_variable_drop_expressions } :: import("../../expr_info.yo");
+{ has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized, expr_info_consumed_variable_drop_expressions, is_module_level_global, module_global_c_suffix } :: import("../../expr_info.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { is_target_posix, is_target_linux } :: import("../../target.yo");
@@ -753,7 +753,18 @@ emit_module_level_variable_declarations :: (
           .None => (),
           .Some(vi) => {
             var_name := match(vi.variable_name,.Some(vn) => vn,.None => ast_expr_token(var_atom).value);
-            c_var_name := get_variable_name_for_codegen(var_name, Option(Environment).Some(vi.env));
+            (c_var_name : String) = get_variable_name_for_codegen(var_name, Option(Environment).Some(vi.env));
+            // The recorded env for a `name := rhs` module init can miss the
+            // variable (resolution falls back to the bare name and the
+            // resolver's registry check never runs), while the READS resolve
+            // it and mangle — splitting decl from use. This path only ever
+            // handles module-level vars, so qualify directly from the
+            // registry using the declaration's own token
+            // (issues/fixed/module-global-c-names-are-not-namespaced.md).
+            mg_decl_path := ast_expr_token(var_atom).module_path;
+            if((c_var_name == sanitize_for_c_identifier(var_name.clone(), false)) && is_module_level_global(mg_decl_path.clone(), var_name), {
+              c_var_name = `${c_var_name}${module_global_c_suffix(mg_decl_path)}`;
+            });
             // Dedup key includes the SOURCE TOKEN: the evaluator's multiple
             // passes record the same source init under several clone ids
             // (collapse those), but a genuine second top-level assignment to

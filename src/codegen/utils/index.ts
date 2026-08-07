@@ -43,6 +43,7 @@ import {
 } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
 import { typeToString } from "../../types/utils";
+import { generateModuleId } from "../../utils";
 import { isNumberValue, type TraitValue } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
 
@@ -1007,6 +1008,15 @@ export function getVariableNameForCodegen(
     // where a module-level function shadows a local variable.
     if (varName !== variableName && /^fn_/.test(varName)) {
       return sanitizeForCIdentifier(variableName);
+    }
+    // Module-qualify module-level globals like every other emitted
+    // identifier class (types/functions/temps all carry a yoXXXXXXXX
+    // module hash). Without this, same-named globals in two modules
+    // become ONE C static — silent shared state plus a leaked
+    // initializer (issues/fixed/module-global-c-names-are-not-namespaced.md).
+    // extern "c" globals keep their raw name: it is an ABI contract.
+    if (variable.isModuleLevel && variable.type.isExtern !== "c") {
+      return `${varName}_${generateModuleId(variable.token.modulePath)}`;
     }
     return varName;
   }

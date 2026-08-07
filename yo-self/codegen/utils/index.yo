@@ -23,6 +23,12 @@
 //! isDeferredDropForClosureCapture; findReturnedAsyncBlock;
 //! isFunctionValueWithOnlyBuiltinYoInlineFunctionCall.
 open(import("std/string"));
+_(env : cgu_env) :: import("std/env");
+// YO_DEBUG_MG=1 prints every module-global name resolution (name, token
+// path, param-ness, registry hit) — the fastest way to see WHY a global's
+// declaration and reads disagree. Snapshot once at module init: name
+// resolution is hot, a per-call getenv is not acceptable there.
+(g_debug_mg : bool) = cgu_env.get(`YO_DEBUG_MG`).is_some();
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
@@ -50,7 +56,7 @@ mark_needs_intel_asm_syntax :: (fn() -> unit)({
   g_needs_intel_asm_syntax = true;
 });
 get_needs_intel_asm_syntax :: (fn() -> bool)(g_needs_intel_asm_syntax);
-{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_type, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_type, is_module_level_global, module_global_c_suffix, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 {
   AstExpr,
   BF_UNSAFE,
@@ -1224,6 +1230,50 @@ get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Enviro
           // A generated fn_* name shadowing a local → prefer the original name.
           if((var_name != variable_name) && var_name.starts_with(String.from("fn_")), {
             return(sanitize_for_c_identifier(variable_name.clone(), false));
+          });
+          // Module-qualify module-level globals — without this, same-named
+          // globals in two modules alias to ONE C static (silent shared
+          // state + a leaked initializer). TS suffixes its yoXXXXXXXX
+          // module hash (getVariableNameForCodegen, keyed on
+          // Variable.isModuleLevel); yo-self keys on the DATA-keyed
+          // registry instead of the is_module_level flag, because env
+          // copies drop the flag on some resolution paths while keeping it
+          // on others — which split the declaration (unmangled) from the
+          // reads (mangled). The qualifier is the module path's FNV-1a
+          // hash (std String.hash — deterministic per path, so stage-2 ≡
+          // stage-3 is unaffected). extern-C globals keep their raw name
+          // (ABI contract); parameters may shadow a registered name and
+          // must keep theirs.
+          // issues/fixed/module-global-c-names-are-not-namespaced.md.
+          if(g_debug_mg, {
+            eprintln(`[mg] name=${variable.name} path=${variable.token.module_path} param=${variable.is_parameter} hit=${is_module_level_global(variable.token.module_path, variable.name)}`);
+          });
+          // Never qualify when ANY match for this name is a PARAMETER: a
+          // same-named parameter lexically shadows the global, so the bare
+          // name in this scope means the parameter (whose C name is the
+          // bare name). yo-self's specialized-body envs can list a
+          // caller-module global as the LAST match ahead of the parameter
+          // (divergence from TS resolution order) — std/assert's
+          // `flag` parameter resolved to the test batch's `flag` global,
+          // which was harmless only while both emitted the same C name.
+          (mg_any_param : bool) = false;
+          {
+            (mg_i : usize) = usize(0);
+            while(mg_i < n, {
+              match(
+                variables.get(mg_i),
+                .Some(mv) => {
+                  if(mv.is_parameter, {
+                    mg_any_param = true;
+                  });
+                },
+                .None => ()
+              );
+              mg_i = (mg_i + usize(1));
+            });
+          };
+          if((!(is_extern_c) && !(mg_any_param)) && is_module_level_global(variable.token.module_path, variable.name), {
+            return(`${var_name}${module_global_c_suffix(variable.token.module_path)}`);
           });
           var_name
         },

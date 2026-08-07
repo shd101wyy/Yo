@@ -31,6 +31,7 @@ open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ cwd } :: import("std/env");
 // Pointer-identity builtin — `expr_info_paths_for_write` uses it to detect the
 // SHARED empty PathCollection before a push (same local-extern pattern as
 // env.yo / std/string/string.yo).
@@ -809,6 +810,58 @@ get_extern_c_global_type :: (fn(name : String) -> Option(TypeValue))(
 is_extern_c_global :: (fn(name : String) -> bool)(
   g_extern_c_globals.get(name).is_some()
 );
+/// Registry of module-level RUNTIME globals, keyed "module_path|#|name".
+/// Populated by the evaluator at binding creation
+/// (initialization_assignment.yo and binding.yo); read by codegen's
+/// get_variable_name_for_codegen to module-qualify the C static's name. A
+/// registry rather than the Variable.is_module_level flag because env
+/// COPIES (def-time body envs, module import snapshots) drop the flag on
+/// some resolution paths while keeping it on others — which split the
+/// declaration (unmangled) from the reads (mangled). Keyed by data, not
+/// object identity, so every copy of the variable resolves consistently.
+/// See issues/fixed/module-global-c-names-are-not-namespaced.md.
+(g_module_level_globals : HashMap(String, bool)) = HashMap(String, bool).new();
+/// Canonicalize a module path for the registry key. Token module paths
+/// carry TWO spellings of the same file — the CLI-arg spelling of the root
+/// module (`./tests/x.yo`) and the loader's canonical `file://` absolute
+/// key (main.yo `_load_module_at_abs`) — and a key mismatch splits the
+/// declaration (one spelling) from the reads (the other). Strip the scheme
+/// and absolutize relative paths against the CWD (`Path.new` collapses
+/// `.`/`..` segments on construction).
+_mg_canon :: (fn(module_path : String) -> String)({
+  (p : String) = module_path.replace(String.from("file://"), String.from(""));
+  if(!(p.starts_with(String.from("/"))), {
+    base := match(cwd(),.Ok(c) => c.to_string(),.Err(_) => String.from("."));
+    p = `${base}/${p}`;
+  });
+  // Collapse `/./` segments (the CLI-arg spelling `./tests/x.yo` after the
+  // CWD prepend). `..` is not collapsed: the two spellings of one module
+  // are the CLI arg and the loader's file:// key, and neither emits `..`
+  // after Path.new normalization in the loader.
+  while(p.contains(String.from("/./")), {
+    p = p.replace(String.from("/./"), String.from("/"));
+  });
+  p
+});
+/// Record that module `module_path` declared the module-level runtime
+/// global `name`.
+register_module_level_global :: (fn(module_path : String, name : String) -> unit)({
+  g_module_level_globals.set(`${_mg_canon(module_path)}|#|${name}`, true);
+  ()
+});
+/// True if module `module_path` declared the module-level runtime global
+/// `name`.
+is_module_level_global :: (fn(module_path : String, name : String) -> bool)(
+  g_module_level_globals.get(`${_mg_canon(module_path)}|#|${name}`).is_some()
+);
+/// The C-name suffix for a module-level global declared in `module_path`
+/// (`_m<fnv1a-of-canonical-path>`). Hashes the CANONICAL path so the
+/// declaration and every read agree on the suffix regardless of which
+/// spelling the resolved variable's token carries.
+module_global_c_suffix :: (fn(module_path : String) -> String)({
+  cp := _mg_canon(module_path);
+  `_m${cp.hash()}`
+});
 // Phase 5 (async/effects): the resolved CONCRETE type for a `SomeT`, keyed by the
 // SomeT's unique `id`. TS stores this as a mutable `SomeType.resolvedConcreteType`
 // field set during return-type resolution / synthesis; yo-self's `SomeT` has no
@@ -1273,6 +1326,7 @@ export(record_method_callee_type, lookup_method_callee_type);
 export(record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, lookup_io_builtin_call);
 export(record_method_callee_value, lookup_method_callee_value);
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_type);
+export(register_module_level_global, is_module_level_global, module_global_c_suffix);
 export(register_some_resolved_concrete, lookup_some_resolved_concrete, unregister_some_resolved_concrete);
 export(
   register_struct_ctor_fid,

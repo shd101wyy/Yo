@@ -115,7 +115,7 @@ That last one is worth remembering for its own sake: the aliasing was **load-bea
 The evaluator wrote through one copy and the codegen read through the other, so
 namespacing module globals correctly — which is what a reader would assume already
 happens — would have silently broken control-function (`unwind`) handling. Filed as
-`issues/module-global-c-names-are-not-namespaced.md`; tree audit says
+`issues/fixed/module-global-c-names-are-not-namespaced.md`; tree audit says
 `std` 0 globals, `yo-self` 181/181 distinct, `tests` 2/2, so there is no second instance.
 
 **Why `compiler-internal-tests` still carries the flag.** Dropping `--bail` (so one run

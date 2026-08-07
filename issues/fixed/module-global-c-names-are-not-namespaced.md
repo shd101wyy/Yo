@@ -1,5 +1,32 @@
 # Module-level globals get unmangled C names, so same-named globals in different modules alias
 
+> **FIXED — 2026-08-07** (option 1: mangle per module, both compilers).
+>
+> - **TS:** `getVariableNameForCodegen` (`src/codegen/utils/index.ts`)
+>   suffixes `_yoXXXXXXXX` (the existing `generateModuleId` hash) for
+>   `isModuleLevel` variables; extern-"c" globals keep their raw name (ABI).
+>   Declaration, init, and every read already flow through this choke point.
+> - **yo-self:** keys off a DATA-keyed registry
+>   (`expr_info.yo` `g_module_level_globals`, populated at binding creation
+>   in `initialization_assignment.yo`/`binding.yo`) instead of the
+>   `is_module_level` flag, because env copies drop the flag on some
+>   resolution paths. Registry keys and the `_m<fnv1a>` suffix both use the
+>   CANONICALIZED module path (CLI-arg spelling vs the loader's `file://`
+>   key named the same file two ways). The `name := rhs` decl path
+>   qualifies registry-direct (its recorded env can predate the binding),
+>   and the qualifier is skipped when any match for the name is a
+>   PARAMETER — which surfaced a real latent divergence, filed as
+>   `issues/yo-self-specialized-body-env-param-resolution-order.md`.
+>   Bonus fix: the `(name : T) = ...` binding form never stamped
+>   `is_module_level` on its variable at all (`binding.yo`).
+>
+> Verified: the repro prints 0 with 0 leaks under BOTH compilers (was 1 +
+> 3 leaks/528 B); `tests/module.test.yo` 13/13 both compilers including
+> the new "module-level globals are isolated per module" test
+> (fixtures: `tests/module_globals/`). No in-tree behavior change: the
+> pre-fix audit found 181/181 distinct names in yo-self and only two
+> same-named-global modules in std (none aliasing-reliant).
+
 **Found 2026-08-05** while fixing
 `issues/fixed/module-global-c-name-collision-leak.md`. That issue was one _instance_; this
 is the underlying compiler behaviour, which is unchanged and will bite again.
