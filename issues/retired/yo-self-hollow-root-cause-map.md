@@ -640,7 +640,7 @@ DIRECT `(fn(...))(body)` definitions (calls/function_type.yo) with throwaway
 trial FuncVal id + trial-abstract skip.
 
 **fn.test.yo — 1 root left**: anon-path deferred return check parked on the
-parameter-aliasing gap — see `issues/yo-self-fn-param-aliasing.md`.
+parameter-aliasing gap — see `issues/fixed/yo-self-fn-param-aliasing.md`.
 
 **basic.test.yo — 4 PRE-EXISTING single-arm roots left** (baseline-hollow too;
 masked by the all-or-nothing batch; bisected via subset_arms.py on /tmp/s2h25):
@@ -695,7 +695,7 @@ markers 1 -> 0 (sh31 vs sh32). basic arm 24 stays hollow via ANOTHER sub-arm
 | asm                                                                  | `evaluate_asm: not yet implemented (Phase 3)`                                                                                                          | unported feature                                  |
 | type_reflection                                                      | `__yo_type_get_info: unsupported type variant` (markers=24)                                                                                            | unported variants                                 |
 | async_await                                                          | 1× Incompatible types (Ctx/E bundle, existing notes)                                                                                                   | needs full message                                |
-| fn                                                                   | 1× Cannot unify (arms 9/11-14; arm 9 = anon-check routing, issues/yo-self-fn-param-aliasing.md)                                                        | mixed                                             |
+| fn                                                                   | 1× Cannot unify (arms 9/11-14; arm 9 = anon-check routing, issues/fixed/yo-self-fn-param-aliasing.md)                                                  | mixed                                             |
 
 Probe binary recipe: current tree + the \_\_DBG_F un-silencing in
 calls/function_type.yo `_trial_eval_fn_body` (+ `open(import("std/fmt"))`).

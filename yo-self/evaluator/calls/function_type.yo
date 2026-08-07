@@ -51,6 +51,7 @@ _(env : fnty_env) :: import("std/env");
   clear_flow_violation,
   flow_violation_pending,
   flow_violation_message,
+  flag_flow_violation,
   propagate_def_time_errors
 } :: import("../../types/flowability.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -1238,9 +1239,24 @@ try_to_implement_function_by_function_type :: (
                   // imm vec Index, corpus deque_self_cycle).
                   dg_trial_abstract := type_contains_some_type_for_codegen_param(dg_trial_ty, ArrayList(String).new());
                   dg_trial_degenerate := (is_unit_type(dg_trial_ty) && !(is_unit_type(dg_expected)));
-                  if((((!(dg_skip_cf) && !(dg_own_forall_skip)) && !(dg_trial_abstract)) && !(dg_trial_degenerate)) && !(are_types_compatible_exact(dg_trial_ty, dg_expected)), {
+                  // Parametricity twin of the anon-path fix (see
+                  // values/anonymous_function.yo): an own-forall SomeT return
+                  // can never be satisfied by a CONCRETE trial type; the exact
+                  // check alone cannot convict (unresolved SomeT unifies with
+                  // anything).
+                  dg_expected_is_some := is_some_type(dg_expected);
+                  if((((!(dg_skip_cf) && !(dg_own_forall_skip)) && !(dg_trial_abstract)) && !(dg_trial_degenerate)) && (dg_expected_is_some || !(are_types_compatible_exact(dg_trial_ty, dg_expected))), {
                     dg_exp_str := type_to_string(dg_expected);
                     dg_got_str := type_to_string(dg_trial_ty);
+                    // Deliberate user-facing rejection — flag for the def-time re-raise
+                    // (see the anon twin in values/anonymous_function.yo).
+                    if(!(ctx.is_in_function_call_checking_phase) && (!(propagate_def_time_errors()) && !(flow_violation_pending())), {
+                      flag_flow_violation(
+                        `Incompatible function return type for:
+- Expected: ${dg_exp_str}
+- Given  : ${dg_got_str}`
+                      );
+                    });
                     exn.throw(
                       dyn(
                         format_error_message(

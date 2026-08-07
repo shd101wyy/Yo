@@ -2,22 +2,30 @@
 
 ## Status
 
-PARTIALLY LANDED (batch-3, 2026-07-31): the spec-label fix and the anon-path
-check are both in. `create_specialized_function_inline` (helper.yo) now names
-the spec's C params after the FuncVal's OWN `params` when arity matches — the
-`return a;` mis-emission is gone (fn.test.yo no longer flips RED when its cee
-arms proceed). The anon-path `checkDeferredGenericReturnType` twin is landed in
-`values/anonymous_function.yo` with the same skips as the direct twin.
+FIXED (2026-08-07, validating): the missing rejection is landed via a
+**parametricity conviction** in BOTH deferred-generic return-check twins
+(`calls/function_type.yo` dg block and `values/anonymous_function.yo` dgc
+twin): when the expected return is an own-forall bare `SomeT`
+(`is_some_type(expected)`), no CONCRETE trial return can ever satisfy it —
+`are_types_compatible_exact` alone cannot convict (an unresolved SomeT unifies
+with anything). Both twins now OR `is_some_type(dg_expected)` into the convict
+condition. The throw must be paired with `flag_flow_violation(...)` (the
+established def-time re-raise channel) or the def-time body-eval wall swallows
+the rejection — that was why the first landing did not reject.
 
-STILL OPEN — the check does not FIRE for fn.test.yo test 9's actual shape:
-`(comptime(identity2) : fn2) = (value -> ...)` where `fn2 :: (fn(generic(T),
-value : T) -> T)` evaluates successfully under yo-self while TS rejects
-(verified: TS_RC=1, SELF_RC=0 on the minimal repro). The `value -> ...` against
-a fn-type VARIABLE routes through a different evaluator entry than
-try_to_create_anonymous_function's defer branch (candidates: closure_type.yo,
-or the assignment's expected-type flow) — find that route and apply the same
-check. fn.test.yo also has 4 more pre-existing hollow arms (11-14, bisected
-via subset_arms.py) needing their own diagnosis.
+Verified: the minimal repro (`fn2 :: (fn(generic(T : Type), value : T) -> T)`
+with `(comptime(identity2) : fn2) = (value -> begin(return(i32(0))))`) now
+rejects under stage-1 with TS's diagnostic ("Incompatible function return type
+for: ..."), rc=1 matching TS; `tests/fn.test.yo` 24/24 (TS parity, TRUE GREEN
+bar met).
+
+Earlier rounds (batch-3, 2026-07-31): the spec-label fix and the anon-path
+check are in. `create_specialized_function_inline` (helper.yo) names the
+spec's C params after the FuncVal's OWN `params` when arity matches — the
+`return a;` mis-emission is gone. `Variable.parameter_alias` (env.yo:121)
+remains DEAD — the label fix covers the corpus without it; port
+`needsParameterAliasing` (function-type.ts:283-375) only if a call-site
+NAMED-argument shape against differently-labeled fn types surfaces.
 
 ## The chain (measured on /tmp/sh22–sh24, 2026-07-31)
 

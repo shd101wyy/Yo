@@ -114,6 +114,7 @@ open(import("std/fmt"));
   clear_flow_violation,
   flow_violation_pending,
   flow_violation_message,
+  flag_flow_violation,
   propagate_def_time_errors
 } :: import("../../types/flowability.yo");
 /// Walk a parameter-declaration AST (`(a, b)` tuple or single atom)
@@ -1748,9 +1749,30 @@ evaluate_anonymous_function_implementation :: (
             dgc_trial_ty := dgc_info.ty;
             dgc_trial_abstract := (get_all_some_types(dgc_trial_ty).len() > usize(0));
             dgc_trial_degenerate := (is_unit_type(dgc_trial_ty) && !(is_unit_type(dgc_expected)));
-            if((((!(dgc_skip_cf) && !(dgc_own_forall_skip)) && !(dgc_trial_abstract)) && !(dgc_trial_degenerate)) && !(are_types_compatible_exact(dgc_trial_ty, dgc_expected)), {
+            // Parametricity: when the expected return is the fn's OWN forall
+            // SomeT (own_forall_skip false) a CONCRETE trial type can never
+            // satisfy it — only an expression typed T itself can. The exact
+            // compatibility check cannot convict here because an unresolved
+            // SomeT unifies with anything even in exact mode, which is why
+            // `(value -> return(i32(0)))` against `fn(generic(T), value : T)
+            // -> T` was accepted while TS rejects
+            // (anonymous-function.ts:773).
+            dgc_expected_is_some := is_some_type(dgc_expected);
+            if((((!(dgc_skip_cf) && !(dgc_own_forall_skip)) && !(dgc_trial_abstract)) && !(dgc_trial_degenerate)) && (dgc_expected_is_some || !(are_types_compatible_exact(dgc_trial_ty, dgc_expected))), {
               dgc_exp_str := type_to_string(dgc_expected);
               dgc_got_str := type_to_string(dgc_trial_ty);
+              // A deliberate user-facing rejection: outside a dry-run, flag
+              // it on the flow-violation channel so the def-time caller
+              // re-raises it via the real exn (the wall otherwise swallows
+              // the throw and the enclosing body silently hollows — same
+              // pattern as helper.yo Step 5b's no-matching-overload flag).
+              if(!(ctx.is_in_function_call_checking_phase) && (!(propagate_def_time_errors()) && !(flow_violation_pending())), {
+                flag_flow_violation(
+                  `Incompatible function return type for:
+- Expected: ${dgc_exp_str}
+- Given  : ${dgc_got_str}`
+                );
+              });
               exn.throw(
                 dyn(
                   format_error_message(
