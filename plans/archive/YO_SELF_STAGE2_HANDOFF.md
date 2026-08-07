@@ -703,7 +703,7 @@ this restores the full fixpoint gate AND is probably upstream of §3.1.
 
 ### Other recorded divergences (small, non-blocking)
 
-- `issues/yo-self-no-matching-overload-silent-drop.md` — when EVERY overload
+- `issues/fixed/yo-self-no-matching-overload-silent-drop.md` — when EVERY overload
   candidate is rejected, TS hard-errors; yo-self drops the statement.
 - `issues/fixed/yo-self-ctfe-route-return-type-unresolved.md` — FIXED; kept for
   the soundness-hole postmortem (vacuous comptime_asserts).
@@ -967,17 +967,17 @@ you touch address-of / Index-trait / comptime-place code.
 
 ## 8. Key locations
 
-| path                                                 | what                                                                                              |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `issues/yo-self-closure-f-identity-split.md`         | **§3.1's whole context** — repro, TS mechanism, measured dead ends, io_async hazards              |
-| `issues/yo-self-stage2-get-type-string-cycle.md`     | **§3.5** — the fixpoint blocker: crash controls, the guard, the 4-error residual                  |
-| `issues/retired/handoff-2026-08-02/`                 | the ten reports behind the morning's §3 — read each `-VERIFY` before its `-scope`; 06↔08 SWAPPED |
-| `issues/retired/yo-self-hollow-root-cause-map.md`    | per-file evidence base + the noise table + every measured dead end                                |
-| `issues/yo-self-no-matching-overload-silent-drop.md` | zero-surviving-overload-candidates drops the statement (TS hard-errors)                           |
-| `issues/retired/yo-self-stub-inventory.md`           | 311 unported/divergent findings, each with a TS file:line                                         |
-| `tests/codegen-bootstrap/`                           | the 152-file differential corpus (add a regression test per fix)                                  |
-| `scripts/bootstrap/apply_*.py`                       | landed and reverted patch scripts, each with its evidence in the docstring                        |
-| agent auto-memory (outside the repo)                 | `MEMORY.md` indexes distilled lessons — recall before re-deriving                                 |
+| path                                                       | what                                                                                              |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `issues/yo-self-closure-f-identity-split.md`               | **§3.1's whole context** — repro, TS mechanism, measured dead ends, io_async hazards              |
+| `issues/yo-self-stage2-get-type-string-cycle.md`           | **§3.5** — the fixpoint blocker: crash controls, the guard, the 4-error residual                  |
+| `issues/retired/handoff-2026-08-02/`                       | the ten reports behind the morning's §3 — read each `-VERIFY` before its `-scope`; 06↔08 SWAPPED |
+| `issues/retired/yo-self-hollow-root-cause-map.md`          | per-file evidence base + the noise table + every measured dead end                                |
+| `issues/fixed/yo-self-no-matching-overload-silent-drop.md` | zero-surviving-overload-candidates drops the statement (TS hard-errors)                           |
+| `issues/retired/yo-self-stub-inventory.md`                 | 311 unported/divergent findings, each with a TS file:line                                         |
+| `tests/codegen-bootstrap/`                                 | the 152-file differential corpus (add a regression test per fix)                                  |
+| `scripts/bootstrap/apply_*.py`                             | landed and reverted patch scripts, each with its evidence in the docstring                        |
+| agent auto-memory (outside the repo)                       | `MEMORY.md` indexes distilled lessons — recall before re-deriving                                 |
 
 `tmp/` is a git-ignored scratch dir with stale `*.test.yo` files; a bare
 `./yo-cli test` sweeps them up and they all fail. Always pass an explicit path.

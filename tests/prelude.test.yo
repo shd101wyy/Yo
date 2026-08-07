@@ -63,6 +63,39 @@ test("Test TryFrom/TryInto traits", {
   b := y.unwrap().try_into(i64).unwrap();
   assert(b == i64(10));
 });
+
+// Regression (issues/fixed/yo-self-no-matching-overload-silent-drop.md):
+// asking a value-based overload for a target NO impl provides must be a
+// compile error ("Value mismatch for parameter" / "No matching call"), not a
+// silently dropped statement. yo-self used to return rc=0 and emit the
+// statement as `// Failed to transpile ...` because the def-time wall
+// swallowed the rejection; it now flags the rejection for a def-time
+// re-raise (helper.yo Step 5b -> the flow-violation channel).
+test("try_into to a type with no matching impl is a compile error", {
+  EvenNumber2 :: struct(value : i32);
+  impl(
+    EvenNumber2,
+    TryInto(i32)(
+      Error : str,
+      try_into : ((self, _) ->.Ok(self.value))
+    )
+  );
+  impl(
+    EvenNumber2,
+    TryInto(i64)(
+      Error : str,
+      try_into : ((self, _) ->.Ok(i64(self.value)))
+    )
+  );
+  comptime_expect_error({
+    n := EvenNumber2(value : i32(7));
+    b := n.try_into(u8);
+    consume(b);
+  });
+  n2 := EvenNumber2(value : i32(9));
+  ok := n2.try_into(i32).unwrap();
+  assert(ok == i32(9), "matching overload still resolves after the rejection");
+});
 test("Test 'Rc' and 'Dispose' traits", {
   MyBox :: ref(
     struct(

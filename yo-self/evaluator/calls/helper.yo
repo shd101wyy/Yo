@@ -144,7 +144,7 @@ open(import("std/fmt"));
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { format_error_message } :: import("../../error.yo");
-{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places } :: import("../../types/flowability.yo");
+{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, propagate_def_time_errors } :: import("../../types/flowability.yo");
 {
   mark_as_control_fn,
   is_control_fn,
@@ -894,6 +894,27 @@ check_if_function_parameter_matches_argument :: (
       .Some(agv) => {
         (pav_matches : bool) = are_values_equal(pav, callee_env_r, agv, caller_env_r);
         if(!(pav_matches), {
+          // Outside a dry-run this rejection is a REAL user error: every
+          // overload candidate was already trial-rejected, the fallback
+          // committed to this one, and its assigned value still mismatches
+          // (`n.try_into(u8)` with only i32/i64 impls). TS's error
+          // propagates because its def-time body eval has no catch; here
+          // the def-time wall would swallow the throw and the statement
+          // would silently hollow (rc=0 + "// Failed to transpile") —
+          // issues/fixed/yo-self-no-matching-overload-silent-drop.md. Flag it on
+          // the flow-violation channel so the def-time caller re-raises it
+          // via the real exn (function_type.yo's flow_violation_pending
+          // re-raise). Skipped during trials (checking phase — rejection
+          // is HOW candidates are filtered), in cee propagate mode (the
+          // throw itself reaches the comptime_expect_error catch), and
+          // when an earlier flag is pending.
+          if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
+            flag_flow_violation(
+              `No matching call found: every overload candidate was rejected, and the closest one failed with:
+Value mismatch for parameter "${param_label}"
+${ast_expr_to_string(actual_arg)}`
+            );
+          });
           exn.throw(
             dyn(
               format_error_message(

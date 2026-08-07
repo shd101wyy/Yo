@@ -1,5 +1,38 @@
 # yo-self: all overload candidates rejected ⇒ statement silently dropped instead of TS's hard error
 
+> **FIXED — 2026-08-07.** The suspected root below was half right: the wall
+> was the problem, but no error ever reached it from the RESOLUTION — the
+> zero-match path in `_select_matching_overload` falls back to the first
+> hit by design ("the real call surfaces the genuine error"), and the real
+> call's Step-5b `Value mismatch for parameter "_To"` throw was then
+> swallowed by `_trial_eval_fn_body`'s handler (visible under
+> `YO_DEBUG_SWALLOW=1`).
+>
+> Fix (two parts, both in yo-self):
+>
+> 1. `_select_matching_overload`'s dry-runs now set
+>    `is_in_function_call_checking_phase` (TS sets it on every dry-run,
+>    function.ts:822-831; the Call-overload loop already did) — restored in
+>    the LOOP, not the trial helper, because the swallow handler unwinds
+>    past the helper's tail.
+> 2. Step 5b (`calls/helper.yo`) flags a rejection that fires OUTSIDE the
+>    checking phase on the flow-violation channel before throwing; the
+>    def-time caller re-raises it via the real exn
+>    (`function_type.yo`'s `flow_violation_pending` re-raise). Skipped in
+>    cee propagate mode (the throw itself reaches the
+>    `comptime_expect_error` catch) and when a flag is already pending.
+>    Sound because yo-self faithfully mirrors `shouldDeferBodyEvaluation`:
+>    generic bodies are never def-time evaluated, so a non-checking-phase
+>    Step-5b failure is always one TS would report too.
+>
+> Verified: the repro now hard-errors (rc=1, "No matching call found:
+> every overload candidate was rejected … Value mismatch for parameter
+> \"\_To\"") where it was rc=0 + 2 FTT markers; overload-heavy suites at
+> parity under the fixed stage-1 (prelude 5/5 incl. the new regression
+> arm, fn 24/24, imm_string 28/28, comptime 28/28). Regression test:
+> tests/prelude.test.yo "try_into to a type with no matching impl is a
+> compile error" (cee-based, differential-safe).
+
 Found 2026-08-02 while verifying the `= <value>` assigned-parameter overload
 filter port (`issues/retired/handoff-2026-08-02/04-prelude-arm1-VERIFY.md`, correction 1).
 

@@ -598,6 +598,17 @@ _select_matching_overload :: (
   // operator bound an unknown — the batch-arm undeclared-identifier family
   // (issues/fixed/yo-self-comptime-const-batch-undeclared.md).
   matching := ArrayList(usize).new();
+  // Mark the dry-runs on ctx — TS sets isInFunctionCallCheckingPhase on
+  // every dry-run (function.ts:822-831); the Call-overload loop already
+  // does the same externally. These trials previously ran WITHOUT it,
+  // which made a trial's parameter-check rejections (helper.yo Step 5b)
+  // indistinguishable from a real call's — the distinction the
+  // no-matching-overload user-error flag depends on. Save/restore in THIS
+  // loop (not inside the trial helper) because the trial's swallow handler
+  // unwinds past the helper's own tail on failure — same reason as the
+  // Call-path's placement.
+  smo_checking_was := ctx.is_in_function_call_checking_phase;
+  ctx.is_in_function_call_checking_phase = true;
   (hi : usize) = usize(0);
   while(hi < base.all_hits.len(), {
     match(
@@ -618,6 +629,7 @@ _select_matching_overload :: (
     );
     hi = (hi + usize(1));
   });
+  ctx.is_in_function_call_checking_phase = smo_checking_was;
   if(matching.len() == usize(0), {
     return(base);
   });
