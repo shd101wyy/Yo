@@ -1,17 +1,17 @@
 //! `recur(...)` self-call emitter — mirrors `src/codegen/exprs/recur.ts`.
 //!
 //! DEFERRED (documented divergences, none reached by the no-RC/no-effect
-//! corpus): the `(*name)`→`name` ref-argument strip (yo-self Variable has no
-//! is_ref flag); deferred dup/drop emission for moved RC arguments (Phase 4);
-//! evidence-parameter forwarding for `using()`/effects (Phase 3/5).
+//! corpus): evidence-parameter forwarding for `using()`/effects (Phase 3/5).
 open(import("std/string"));
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_fn_call } :: import("../../expr.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_variable_name_for_codegen, get_type_string } :: import("../utils/index.yo");
+{ get_variable_name_for_codegen, get_type_string, get_variable_type_string } :: import("../utils/index.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
+{ expr_info_converted_runtime_type } :: import("../../expr_info.yo");
+{ generate_deferred_dup_expressions, generate_deferred_drop_expressions } :: import("./drop_dup.yo");
 /// Emit a recursive self-call `<currentFunctionName>(<args>)`. If the recur
 /// has a result variable name, emit it into a named temp first (so enclosing
 /// scope drops don't run before the call). Mirrors `generateRecur`.
@@ -54,6 +54,78 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
               ),
               .None => ()
             );
+            // Deferred `___dup` on a recur argument (aliasing Stage 0
+            // projection dups): materialize the argument into its eval temp
+            // FIRST — the dup names that temp, and without the declaration
+            // the emitted C references an undeclared identifier while the
+            // raw projection read is lost (arg_code is replaced by the dup
+            // result below). get_variable_type_string is the
+            // declared_c_var_names choke-point, so the dup emitter's
+            // undeclared-temp gate sees the declaration. Mirrors TS
+            // recur.ts (`recur(K, V, h._left, key)` in
+            // std/imm/sorted_map.yo _node_contains surfaced this).
+            match(
+              context.base.get_expr_info(arg),
+              .Some(aei2) => match(
+                aei2.deferred_dup_expressions,
+                .Some(dups) => if(dups.len() > usize(0), {
+                  match(
+                    aei2.variable_name,
+                    .Some(avn) => {
+                      sanitized_arg_temp := get_variable_name_for_codegen(avn.clone(), Option(Environment).Some(aei2.env));
+                      if(!(arg_code == sanitized_arg_temp), {
+                        already_arg := match(context.declared_temp_vars,.Some(s) => s.contains(sanitized_arg_temp.clone()),.None => false);
+                        if(!(already_arg), {
+                          match(
+                            context.declared_temp_vars,
+                            .Some(s) => {
+                              _aa := s.add(sanitized_arg_temp.clone());
+                            },
+                            .None => {
+                              ns0 := HashSet(String).new();
+                              _aa := ns0.add(sanitized_arg_temp.clone());
+                              context.declared_temp_vars = Option(HashSet(String)).Some(ns0);
+                            }
+                          );
+                          eff_ty := match(expr_info_converted_runtime_type(aei2),.Some(ct) => ct,.None => aei2.ty);
+                          dline := indent.clone();
+                          dline.push_string(get_variable_type_string(eff_ty, avn.clone(), context.base));
+                          dline.push_str(" = ");
+                          dline.push_string(arg_code.clone());
+                          dline.push_str(";");
+                          dem := context.base.emitter;
+                          dem.emit_string_line(dline);
+                        });
+                      });
+                    },
+                    .None => ()
+                  );
+                  generate_deferred_dup_expressions(arg, indent.clone(), context);
+                  // Pass the dup RESULT temp instead of the original.
+                  match(
+                    dups.get(usize(0)),
+                    .Some(de) => if(
+                      ast_expr_is_fn_call(de),
+                      match(
+                        context.base.get_expr_info(de),
+                        .Some(dei) => match(
+                          dei.variable_name,
+                          .Some(dvn) => {
+                            arg_code = get_variable_name_for_codegen(dvn.clone(), Option(Environment).Some(dei.env));
+                          },
+                          .None => ()
+                        ),
+                        .None => ()
+                      ),
+                      ()
+                    ),
+                    .None => ()
+                  );
+                }),
+                .None => ()
+              ),
+              .None => ()
+            );
             args_list.push_string(arg_code);
           },
           .None => ()
@@ -92,6 +164,14 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
             line.push_str(";");
             em := context.base.emitter;
             em.emit_string_line(line);
+            // Deferred drops on the recur node — flushed AFTER the call is
+            // emitted (aliasing Stage 0 attaches the balancing drop of a
+            // projection-arg dup here; flushing BEFORE the call freed the
+            // argument the recursion was about to consume — the stage-2
+            // dup-for-value UAF, gmalloc-traced: clone at +5276, freed at
+            // +5320, consumed at +5340). Expression-level flush: skip
+            // param-targeted drops (drop_dup.yo _drop_target_is_parameter).
+            generate_deferred_drop_expressions(expr, indent.clone(), context, true);
           });
           return(temp_var_name);
         }),

@@ -1,15 +1,19 @@
 open(import("std/fmt"));
-{ ArrayList } :: import("std/collections/array_list");
-g_seen := ArrayList(ArrayList(i32)).new();
-mk :: (fn() -> ArrayList(i32))({
-  l := ArrayList(i32).new();
-  g_seen.push(l);
-  l
+open(import("std/string"));
+
+Wrap :: ref(struct(b : Box(i32)));
+
+poke_loop :: (fn(w : Wrap, borrowed : Box(i32)) -> unit)({
+  (i : i32) = i32(0);
+  while(runtime(i < i32(2)), {
+    w.b = box(i32(100) + i);
+    i = (i + i32(1));
+  });
+  println(`borrowed: ${borrowed.*}`);
 });
-discard_stmt_body :: (fn() -> unit)(___ := mk());
+
 main :: (fn() -> unit)({
-  discard_stmt_body();
-  survivor := match(g_seen.get(usize(0)),.Some(l) => l,.None => ArrayList(i32).new());
-  println(`rc=${rc(survivor)}`);
+  w := Wrap(b : box(i32(42)));
+  poke_loop(w, w.b);
 });
 export(main);

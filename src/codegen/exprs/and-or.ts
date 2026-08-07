@@ -57,6 +57,20 @@ function collectCreatedVarNamesFromExpr(expr: Expr, result: Set<string>): void {
     if (expr.$?.variableName) {
       result.add(expr.$.variableName);
     }
+    // Deferred `___dup` results are temps too — they are DECLARED next to the
+    // expression they balance (inside this conditional branch), but they live
+    // in the ExprInfo side-channel, not the syntactic tree. Without this, an
+    // aliasing-Stage-0 borrow dup on a projection argument inside a
+    // short-circuit RHS (`a && f(w.b)`) left its scope-end drop at the outer
+    // block level: an undeclared identifier in C (the declaration is inside
+    // the `if`), and an unconditional drop for a conditionally-run dup.
+    if (expr.$?.deferredDupExpressions) {
+      for (const dupExpr of expr.$.deferredDupExpressions) {
+        if (dupExpr.$?.variableName) {
+          result.add(dupExpr.$.variableName);
+        }
+      }
+    }
 
     // For nested &&/||, only collect from the first (unconditional) arg.
     // Subsequent args are inside conditional branches and their drops are

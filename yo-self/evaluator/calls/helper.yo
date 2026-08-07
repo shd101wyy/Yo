@@ -51,7 +51,7 @@ open(import("std/fmt"));
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args (TS helper.ts:411-451). utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, are_values_equal, require_expr_not_consumed } :: import("../utils.yo");
+{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed } :: import("../utils.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { Token } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
@@ -440,7 +440,12 @@ CheckParamResult :: ref(
     caller_env : Environment,
     arg_value : Option(EvalValue),
     arg_type : TypeValue,
-    resolved_param_type : TypeValue
+    resolved_param_type : TypeValue,
+    /// Aliasing Stage 0: the synthesized `___drop(<dup temp>)` balancing this
+    /// argument's projection dup — the CALLER attaches it to the call node's
+    /// deferred drops (single post-call emission; scope-end machinery emits
+    /// on non-exclusive exits, see the marker's note in utils.yo).
+    s0_drop : Option(AstExpr)
   )
 );
 // ---------------------------------------------------------------------------
@@ -628,7 +633,11 @@ check_if_function_parameter_matches_argument :: (
     /// The parameter's `= <value>` ASSIGNED value, or `.None`. Appended last
     /// with a default so existing call sites need no change. See the Step-5b
     /// guard below (TS helper.ts:481-497).
-    (param_assigned_value : Option(EvalValue)) ?= Option(EvalValue).None
+    (param_assigned_value : Option(EvalValue)) ?= Option(EvalValue).None,
+    /// Aliasing Stage 0: true when the CALLEE is extern/builtin (no Yo code
+    /// runs inside — its borrows cannot dangle), so Step 4c skips the
+    /// projection dup. Mirrors TS helper.ts `!functionType.externName`.
+    (callee_is_extern : bool) ?= false
   ) -> CheckParamResult
 )({
   // Step 1: Strip "label: value" colon-label wrapper from arg if present,
@@ -832,6 +841,20 @@ check_if_function_parameter_matches_argument :: (
         });
       }
     );
+  });
+  // Step 4c: Aliasing Stage 0 (mirrors TS helper.ts's borrow-projection
+  // branch; issues/borrowed-arg-invalidated-by-aliased-container-mutation.md).
+  // An RC-typed field PROJECTION passed to a BORROWING parameter hands the
+  // callee a view into storage it may reassign through an aliased handle
+  // (`f(w, w.b)` reassigning `w.b` in a loop frees the old value mid-call —
+  // the borrowed parameter dangles). Materialize a caller-owned +1 for the
+  // call; the caller's scope-end drop releases it. Plain locals and owned
+  // temps stay +0 (the marker no-ops on owning temps), `inout` (ref) params
+  // are place writes, and — like Step 4b — trial calls in the CHECKING PHASE
+  // must not mutate the real caller env.
+  (s0_drop_captured : Option(AstExpr)) = Option(AstExpr).None;
+  if(((((!(param_is_owning)) && !(is_ct_only)) && ((!(param_is_ref)) && !(ctx.is_in_function_call_checking_phase))) && !(callee_is_extern)) && arg_is_rc_projection_place(actual_arg, caller_env_r), {
+    s0_drop_captured = set_expr_as_needs_to_call_dup_for_borrowed_projection(evaled_arg, ctx, exn);
   });
   // Step 5: Comptime check — runtime arg cannot fill a comptime parameter.
   //
@@ -1101,7 +1124,8 @@ ${ast_expr_to_string(actual_arg)}`
     caller_env : caller_env_r,
     arg_value : arg_value,
     arg_type : arg_type,
-    resolved_param_type : final_pt
+    resolved_param_type : final_pt,
+    s0_drop : s0_drop_captured
   )
 });
 // ---------------------------------------------------------------------------
@@ -4501,6 +4525,10 @@ try_to_call_function_with_arguments :: (
       il := __fm8.*.implicit_labels;
       ispr := __fm8.*.implicit_spreads;
       fn_has_variadic := __fm8.*.has_variadic;
+      // Aliasing Stage 0: extern/builtin callees run no Yo code, so their
+      // borrows cannot dangle — Step 4c skips the projection dup for them
+      // (mirrors TS helper.ts `!functionType.externName`).
+      callee_is_extern := __fm8.*.extern_name.is_some();
       ispr;
       wt;
       // ----------------------------------------------------------------
@@ -5540,6 +5568,10 @@ try_to_call_function_with_arguments :: (
       );
       io_async_param_direct := (is_io_async_call(expr) && !(io_async_has_ret_constraint));
       (pi : usize) = usize(0);
+      // Aliasing Stage 0: per-call `___drop(<dup temp>)`s from the params
+      // (CheckParamResult.s0_drop) — attached to the call node via
+      // FuncCallResult.deferred_drop_expressions (post-call flush).
+      s0_call_drops := ArrayList(AstExpr).new();
       while(pi < n_params, {
         plabel := match(pl.get(pi),.Some(l) => l,.None => String.from(""));
         ptype := match(pt.get(pi),.Some(t) => t,.None => t_unit());
@@ -5656,7 +5688,15 @@ try_to_call_function_with_arguments :: (
           ctx,
           rt_args,
           exn,
-          match(call_param_assigned.get(pi),.Some(a) => a,.None => Option(EvalValue).None)
+          match(call_param_assigned.get(pi),.Some(a) => a,.None => Option(EvalValue).None),
+          callee_is_extern
+        );
+        match(
+          pr.s0_drop,
+          .Some(s0d) => {
+            s0_call_drops.push(s0d);
+          },
+          .None => ()
         );
         callee_env_m = pr.callee_env;
         caller_env_m = pr.caller_env;
@@ -6498,7 +6538,7 @@ try_to_call_function_with_arguments :: (
         ),
         runtime_arg_exprs_in_order : rt_args,
         specialized_function_value : spec_func_val,
-        deferred_drop_expressions : Option(ArrayList(AstExpr)).None
+        deferred_drop_expressions : if(s0_call_drops.len() > usize(0), Option(ArrayList(AstExpr)).Some(s0_call_drops), Option(ArrayList(AstExpr)).None)
       )
     },
     _ => {

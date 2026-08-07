@@ -6,6 +6,7 @@ import {
   type CodeGenContext,
   getTypeString,
   getVariableNameForCodegen,
+  getVariableTypeString,
 } from "../utils";
 import {
   generateDeferredDropExpressions,
@@ -56,6 +57,37 @@ export function generateRecur(
           arg.$?.deferredDupExpressions &&
           arg.$.deferredDupExpressions.length > 0
         ) {
+          // Materialize the argument into its eval temp BEFORE the dup: the
+          // dup names that temp (`___dup(<temp>)`), so without the
+          // declaration the emitted C references an undeclared identifier
+          // AND the raw projection read is lost (argCode is discarded below
+          // in favor of the dup result). Mirrors other-fn-call.ts's arg-temp
+          // declaration; surfaced by aliasing-Stage-0 projection dups on
+          // recur args (`recur(K, V, h._left, key)` in
+          // std/imm/sorted_map.yo _node_contains).
+          if (arg.$.variableName) {
+            const sanitizedArgTemp = getVariableNameForCodegen(
+              arg.$.variableName,
+              arg.$.env
+            );
+            if (argCode !== sanitizedArgTemp) {
+              if (!functionContext.declaredTempVars) {
+                functionContext.declaredTempVars = new Set();
+              }
+              if (!functionContext.declaredTempVars.has(sanitizedArgTemp)) {
+                functionContext.declaredTempVars.add(sanitizedArgTemp);
+                const effectiveType = arg.$.convertedRuntimeType || arg.$.type;
+                const varTypeAndName = getVariableTypeString(
+                  effectiveType,
+                  arg.$.variableName,
+                  context
+                );
+                context.emitter.emitLine(
+                  `${indent}${varTypeAndName} = ${argCode};`
+                );
+              }
+            }
+          }
           generateDeferredDupExpressions(arg, indent, functionContext);
           // Use the dup result variable instead of the original
           const dupExpr = arg.$.deferredDupExpressions[0]!;

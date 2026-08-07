@@ -606,3 +606,29 @@ test("Bare discard-statement fn body compiles and drops the discarded value", {
     "discarded value must be dropped (rc 3, not 4)"
   );
 });
+// Regression (issues/borrowed-arg-invalidated-by-aliased-container-mutation.md,
+// aliasing Stage 0): an RC-typed field PROJECTION passed to a BORROWING
+// parameter gets a caller-owned +1 for the call. Without it, `poke(w, w.b)`
+// reassigning `w.b` in a LOOP freed the old box mid-call (the loop cannot
+// defer the old-value drop across iterations) — the borrowed parameter then
+// read a RECYCLED allocation (printed 101, the newest box, instead of 42).
+AliasWrap :: ref(struct(b : Box(i32)));
+alias_poke_loop :: (fn(w : AliasWrap, borrowed : Box(i32)) -> unit)({
+  (i : i32) = i32(0);
+  while(runtime(i < i32(2)), {
+    w.b = box(i32(100) + i);
+    i = (i + i32(1));
+  });
+  assert(borrowed.* == i32(42), "borrowed projection reads the pre-mutation value");
+});
+test("borrowed projection argument survives aliased container mutation", {
+  w := AliasWrap(b : box(i32(42)));
+  b0 := w.b;
+  assert(rc(b0) == 2, "w.b + b0 before the call");
+  alias_poke_loop(w, w.b);
+  // After the call: the callee's reassignment dropped w.b's handle on the
+  // 42-box; b0 plus the Stage-0 dup temp (released at THIS scope's end)
+  // remain. rc 3 = the dup leaked twice; rc 1 = it was double-dropped.
+  assert(rc(b0) == 2, "exactly one Stage-0 +1 outstanding until scope end");
+  assert(b0.* == i32(42), "original box intact after the aliased mutation");
+});

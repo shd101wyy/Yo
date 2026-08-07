@@ -888,7 +888,34 @@ generate_deferred_dup_expressions :: (fn(expr : AstExpr, indent : String, contex
               if(!(dup_undeclared_temp), {
                 code := _call_generate_expr(dup_expr, indent.clone(), context);
                 if(code.len() > usize(0), {
+                  // A SYNTHESIZED dup (aliasing Stage 0's borrow marker —
+                  // no nested evaluation, so no other_fn_call temp
+                  // materialization) renders as a bare inline-incr
+                  // expression while its RESULT temp name is what call
+                  // sites pass. Declare-assign the result temp via the
+                  // get_variable_type_string choke-point; evaluated dups
+                  // already render AS their temp name and skip this.
+                  dup_result_decl := match(
+                    context.base.get_expr_info(dup_expr),
+                    .Some(ddei) => match(
+                      ddei.variable_name,
+                      .Some(ddvn) => {
+                        ddtn := get_variable_name_for_codegen(ddvn.clone(), Option(Environment).Some(ddei.env));
+                        if((!(ddtn == code)) && (!(context.base.declared_c_var_names.contains(ddtn.clone()))), Option(String).Some(get_variable_type_string(ddei.ty, ddvn, context.base)), Option(String).None)
+                      },
+                      .None => Option(String).None
+                    ),
+                    .None => Option(String).None
+                  );
                   line := indent.clone();
+                  match(
+                    dup_result_decl,
+                    .Some(dr_decl) => {
+                      line.push_string(dr_decl);
+                      line.push_str(" = ");
+                    },
+                    .None => ()
+                  );
                   line.push_string(code);
                   line.push_str(";");
                   em.emit_string_line(line);
