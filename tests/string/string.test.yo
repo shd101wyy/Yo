@@ -1327,6 +1327,17 @@ test("String replace only occurrence", {
   result := s.replace(String.from("world"), String.from("universe"));
   assert(result == String.from("hello universe"));
 });
+// Regression: `replace` with a needle LONGER than the haystack used to
+// compute `self_bytes - search_bytes` on usize as the loop bound — the
+// subtraction underflowed and the scan ran ~2^64 iterations (an
+// effective hang; found via the module-global registry's
+// `"test".replace("file://", "")` canonicalization).
+test("String replace with needle longer than the string", {
+  s := String.from("test");
+  result := s.replace(String.from("file://"), String.from(""));
+  assert(result == s, "needle longer than haystack: unchanged, no hang");
+});
+
 test("String replace not found", {
   s := String.from("hello world");
   result := s.replace(String.from("xyz"), String.from("abc"));

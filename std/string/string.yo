@@ -1062,6 +1062,14 @@ impl(
           .Some(search_al) => {
             self_bytes := self_al.len();
             search_bytes := search_al.len();
+            // A needle longer than the haystack cannot occur — and the loop
+            // bound below computes `self_bytes - search_bytes` on usize, so
+            // without this guard the subtraction UNDERFLOWS and the scan
+            // runs ~2^64 iterations (an effective hang). _index_of_impl has
+            // the same guard; replace_all uses an additive bound.
+            if(search_bytes > self_bytes, {
+              return(self);
+            });
             byte_index := usize(0);
             (found_at : Option(usize)) =.None;
             while(byte_index <= (self_bytes - search_bytes), byte_index = (byte_index + usize(1)), {
