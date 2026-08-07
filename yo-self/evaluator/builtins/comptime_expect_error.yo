@@ -22,7 +22,7 @@ open(import("std/string"));
   make_err_expr
 } :: import("../../expr.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ Environment } :: import("../../env.yo");
+{ Environment, invalidate_frame_index } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { format_error_message } :: import("../../error.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
@@ -209,9 +209,19 @@ evaluate_comptime_expect_error :: (
       match(
         env.frames.get(rfv_i),
         .Some(rfv_f) => {
+          (rfv_popped : bool) = false;
           while(rfv_f.variables.len() > rfv_saved, {
             rfv_f.variables.pop();
+            rfv_popped = true;
             ()
+          });
+          // A shrunk frame violates Frame.index_key's append-only contract —
+          // drop its name index so the next lookup rebuilds from the
+          // current list. This invalidation is what makes env.yo's
+          // g_frame_indexes size bound sound
+          // (issues/fixed/yo-self-frame-index-bound-breaks-fixpoint.md).
+          if(rfv_popped, {
+            invalidate_frame_index(rfv_f);
           });
         },
         .None => ()

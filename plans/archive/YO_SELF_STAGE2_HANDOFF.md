@@ -415,7 +415,7 @@ with copy-on-write at the three push sites (`expr_info_paths_for_write` detects
 the shared instance by `__yo_ptr_eq`). A third — bounding the never-evicted
 `g_frame_indexes`, worth **−1.8 GB** — passed every gate but BROKE the
 stage-2/3 fixpoint (type-numbering divergence): reverted and written up in
-`issues/yo-self-frame-index-bound-breaks-fixpoint.md`, which also names the
+`issues/fixed/yo-self-frame-index-bound-breaks-fixpoint.md`, which also names the
 latent bug it points at (frames DO shrink — `comptime_expect_error.yo:213` pops
 variables — so a pop-then-push leaves the name index stale with
 `indexed_len == n`, and forcing a rebuild changes lookup results).
@@ -425,7 +425,7 @@ the capture frames' `index_key`s when `capture_env_for` drops its cache (they ar
 built once by the capture loop and never mutated, so a rebuild is identical)
 recovers 0.76 GB with **R12_FIXPOINT_HOLDS**. The remaining ~1 GB the wholesale
 clear reached belongs to frames that DO mutate — do not touch those until the
-staleness bug in issues/yo-self-frame-index-bound-breaks-fixpoint.md is fixed.
+staleness bug in issues/fixed/yo-self-frame-index-bound-breaks-fixpoint.md is fixed.
 
 **READ THIS BEFORE QUOTING ANY NUMBER IN THE LEDGER ABOVE: the whole ledger was
 measured with `--allocator mimalloc`, which on this machine is BOTH SLOWER AND

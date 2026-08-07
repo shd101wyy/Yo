@@ -1,7 +1,28 @@
-# OPEN: bounding `g_frame_indexes` frees 1.8 GB but breaks the stage-2/3 fixpoint
+# Bounding `g_frame_indexes` frees 1.8 GB but broke the stage-2/3 fixpoint
 
-**Status:** OPEN — the change is REVERTED. The memory win is real and measured;
-the divergence it exposes is not understood yet.
+**Status: FIXED — 2026-08-07.** Both hypotheses resolved by the two-step
+experiment this doc prescribed:
+
+1. **Step 1 (H1 test):** invalidating the frame's index entry at the
+   `comptime_expect_error` `variables.pop()` site, with NO bound —
+   **FIXPOINT_HOLDS**. The shrunk-frame staleness was NOT load-bearing
+   for today's output; the index is sound once shrink sites invalidate.
+2. **Step 2 (re-land):** the original 3-line bound
+   (`g_frame_indexes.len() > 2048 → clear`) PLUS the step-1 invalidation
+   — **FIXPOINT_HOLDS**, battery green, corpus 155/155 DIFF 0,
+   `check ./std` 153/153. The original break was the wholesale clear
+   dropping SHRUNK frames' stale entries at arbitrary times (H1's
+   mechanism at H2's timing); with the shrink-site invalidation keeping
+   those entries fresh, the clear is behavior-neutral and deterministic.
+
+Landed: `invalidate_frame_index` (env.yo) called from
+`comptime_expect_error.yo`'s stranded-variable pop, and the size bound in
+`_frame_positions`. The memory win is the doc's measured −1.8 GB touched;
+the +26 s wall observed in the original attempt was not re-measured in
+isolation — if the self-compile regresses noticeably, the bound constant
+(2048) is the tuning knob.
+
+Historical content below is frozen at its writing date.
 
 ## The memory problem (measured, still present)
 

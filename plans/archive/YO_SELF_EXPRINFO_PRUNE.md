@@ -289,7 +289,7 @@ the corpus may not surface.
 diff-test 155, `check ./std` 153) then `bash scripts/bootstrap/fixpoint_only.sh`
 for the byte-identical stage-2 ≡ stage-3 check. The fixpoint is the gate that
 catches "gates pass but output changed" — it is what caught the frame-index
-regression in `issues/yo-self-frame-index-bound-breaks-fixpoint.md`.
+regression in `issues/fixed/yo-self-frame-index-bound-breaks-fixpoint.md`.
 
 ## 7. Ruled out — do not re-derive these
 
@@ -307,5 +307,5 @@ regression in `issues/yo-self-frame-index-bound-breaks-fixpoint.md`.
   not worth it and the change is not safely possible.
 - **Bounding `g_frame_indexes` wholesale.** Frees 1.8 GB, passes every gate,
   **breaks the fixpoint** — see
-  `issues/yo-self-frame-index-bound-breaks-fixpoint.md`. Only the capture-frame
+  `issues/fixed/yo-self-frame-index-bound-breaks-fixpoint.md`. Only the capture-frame
   half is safe (landed as r12).
