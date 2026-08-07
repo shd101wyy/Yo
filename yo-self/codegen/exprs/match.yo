@@ -550,7 +550,7 @@ generate_primitive_match_expression :: (fn(expr : AstExpr, indent : String, cont
   close := indent.clone();
   close.push_str("}");
   em.emit_string_line(close);
-  generate_deferred_drop_expressions(expr, indent.clone(), context);
+  generate_deferred_drop_expressions(expr, indent.clone(), context, true);
   if(is_unit, String.from(""), match(temp_var_opt,.Some(tv) => tv,.None => String.from("")))
 });
 /// Whether a match arm's pattern was executed (comptime branch elimination).
@@ -1103,7 +1103,7 @@ _gen_tagged_union_match :: (fn(expr : AstExpr, indent : String, context : Functi
   close := indent.clone();
   close.push_str("}");
   em.emit_string_line(close);
-  generate_deferred_drop_expressions(expr, indent.clone(), context);
+  generate_deferred_drop_expressions(expr, indent.clone(), context, true);
   if(is_unit, String.from(""), match(temp_var_opt,.Some(tv) => tv,.None => String.from("")))
 });
 /// Generate a match expression. Mirrors `generateMatchExpression`.

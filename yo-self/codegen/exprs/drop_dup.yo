@@ -30,7 +30,7 @@ open(import("std/string"));
 { _call_generate_expr } :: import("./_expr.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key } :: import("../utils/index.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, get_variables_from_env } :: import("../../env.yo");
 /// The registered C name of the first `method_name` entry for `type`, if it is
 /// a function value registered in the codegen function table.
 _method_c_name :: (fn(type : TypeValue, method_name : str, context : FunctionGenerationContext) -> Option(String))({
@@ -730,10 +730,67 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
     true => value_code.clone()
   )
 });
+/// The `___drop(name)` / `(name.___drop)()` target ATOM node (mirror of
+/// return.yo's private `_drop_target_atom`; duplicated to avoid a
+/// drop_dup -> return import cycle).
+_dd_drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
+  match(
+    drop_expr,
+    .FnCall(_, func, args, _, _) => if(
+      args.len() == usize(0),
+      match(
+        func,
+        .FnCall(_, _, fargs, _, _) => if(ast_expr_is_fn_call_of(func, BF_DOT, Option(usize).Some(usize(2))), {
+          a1_is_drop := match(fargs.get(usize(1)),.Some(a1) => if(ast_expr_is_atom(a1), ast_expr_token(a1).value == BF_DROP, false),.None => false);
+          if(a1_is_drop, match(fargs.get(usize(0)),.Some(a0) => if(ast_expr_is_atom(a0), Option(AstExpr).Some(a0), Option(AstExpr).None),.None => Option(AstExpr).None), Option(AstExpr).None)
+        }, Option(AstExpr).None),
+        .Atom(_, _) => Option(AstExpr).None
+      ),
+      if(ast_expr_is_fn_call_of(drop_expr, BF_DROP, Option(usize).None), match(args.get(usize(0)),.Some(a0) => if(ast_expr_is_atom(a0), Option(AstExpr).Some(a0), Option(AstExpr).None),.None => Option(AstExpr).None), Option(AstExpr).None)
+    ),
+    .Atom(_, _) => Option(AstExpr).None
+  )
+);
+/// True when a deferred `___drop` targets a function PARAMETER (the target
+/// atom's innermost env binding carries `is_parameter`). Param drops are
+/// FUNCTION-scope drops (the own-param scope-end release the evaluator merges
+/// onto the fn-body node, begin.yo's params-frame pass) — only function-level
+/// emission points may emit them. Expression-level flushes (a call/match
+/// statement's post-emit flush) pass `skip_param_drops = true`: on a
+/// SINGLE-EXPRESSION body the fn-body node IS the tail expression node
+/// (yo-self shares the id where TS clones a begin wrapper), so an unfiltered
+/// expression-level flush emitted the own-param drop a SECOND time next to the
+/// function-level one — the use_and_sink double-free glibc caught in CI
+/// (tcache "unaligned chunk", tests/ref_field_borrow.test.yo).
+_drop_target_is_parameter :: (fn(drop_expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+  match(
+    _dd_drop_target_atom(drop_expr),
+    .Some(atom) => match(
+      context.base.get_expr_info(atom),
+      .Some(aei) => {
+        vars := get_variables_from_env(aei.env, ast_expr_token(atom).value);
+        if(vars.len() == usize(0), false, match(vars.get(vars.len() - usize(1)),.Some(v) => v.is_parameter,.None => false))
+      },
+      .None => false
+    ),
+    .None => false
+  )
+);
 /// Emit the evaluator-deferred drop expressions for `expr` (closure-capture and
 /// short-circuit-handled drops are skipped). Mirrors `generateDeferredDropExpressions`.
+/// `skip_param_drops` / `only_param_drops` split ownership of PARAM-targeted
+/// drops between expression-level and function-level emission points — see
+/// `_drop_target_is_parameter`.
 { _looks_like_minted_temp } :: import("./begin.yo");
-generate_deferred_drop_expressions :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> unit)(
+generate_deferred_drop_expressions :: (
+  fn(
+    expr : AstExpr,
+    indent : String,
+    context : FunctionGenerationContext,
+    (skip_param_drops : bool) ?= false,
+    (only_param_drops : bool) ?= false
+  ) -> unit
+)(
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
@@ -746,7 +803,9 @@ generate_deferred_drop_expressions :: (fn(expr : AstExpr, indent : String, conte
           match(
             drops.get(i),
             .Some(drop_expr) => {
-              skip_capture := is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures);
+              param_target := if(skip_param_drops || only_param_drops, _drop_target_is_parameter(drop_expr, context), false);
+              param_filtered := ((skip_param_drops && param_target) || (only_param_drops && !(param_target)));
+              skip_capture := (param_filtered || is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures));
               // Skip a drop whose target TEMP was never emitted as a C declaration
               // (declaration elided while its deferred-drop survived) — emitting
               // `__yo_decr_rc(undeclared_temp)` is an undeclared-identifier error.

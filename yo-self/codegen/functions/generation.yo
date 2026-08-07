@@ -332,8 +332,16 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
     // other-fn-call.ts:1511), which a second body-level flush would
     // double-emit.
     is_stmt_binding := (ast_expr_is_fn_call_of(body_expr, BK_INIT_ASSIGN, Option(usize).None) || ast_expr_is_fn_call_of(body_expr, BK_ASSIGN, Option(usize).None));
+    // PARAM-targeted drops are excluded from the flush-first (`skip_param_drops`):
+    // on this SHARED-id body node they are function-scope drops (the own-param
+    // scope-end release), and emitting them BEFORE the body both double-freed
+    // (the tail call's post-emit flush emitted them again — the use_and_sink
+    // glibc tcache abort) and freed the param before a body that may read it.
+    // They are emitted at the correct function-level points below / inside
+    // generate_implicit_return_statement (see drop_dup.yo
+    // _drop_target_is_parameter).
     if(!(is_stmt_binding), {
-      generate_deferred_drop_expressions(body_expr, indent.clone(), context);
+      generate_deferred_drop_expressions(body_expr, indent.clone(), context, true);
     });
     if(result_is_unit, {
       ec := _call_generate_expr(body_expr, indent.clone(), context);
@@ -345,6 +353,10 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
       });
       if(is_stmt_binding, {
         generate_deferred_drop_expressions(body_expr, indent.clone(), context);
+      }, {
+        // Own-param scope-end drops for a unit tail: AFTER the statement
+        // (mirrors the begin path's statement-then-drops order at :168).
+        generate_deferred_drop_expressions(body_expr, indent.clone(), context, false, true);
       });
     }, {
       generate_implicit_return_statement(body_expr, indent.clone(), context);

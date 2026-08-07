@@ -979,6 +979,10 @@ generate_implicit_return_statement :: (fn(expr : AstExpr, indent : String, conte
     .Atom(_, _) => {
       atom_code := generate_atom(expr, context, indent.clone());
       final_code := handle_atom_deferred_dup(expr, atom_code, indent.clone(), context);
+      // Own-param scope-end drops (function-scope, excluded from the caller's
+      // flush-first — generation.yo non-begin path): AFTER the tail's dup so a
+      // borrowed value leaving the fn keeps its +1, BEFORE the return.
+      generate_deferred_drop_expressions(expr, indent.clone(), context, false, true);
       line := indent.clone();
       line.push_str("return ");
       line.push_string(final_code);
@@ -991,6 +995,12 @@ generate_implicit_return_statement :: (fn(expr : AstExpr, indent : String, conte
       // return itself), so emit as-is — do NOT wrap in another `return` (that produced
       // `return return (void*){0};`). Mirrors the `return` special-case; unwind is the
       // same control-flow shape.
+      // Own-param drops: a RETURN tail flushes its own node drops inside
+      // generate_return (mode-unfiltered), which covers the shared-id body's
+      // param drops; an UNWIND tail does not — flush them here first.
+      if(ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
+        generate_deferred_drop_expressions(expr, indent.clone(), context, false, true);
+      });
       code := _call_generate_expr(expr, indent.clone(), context);
       line := indent.clone();
       line.push_string(code);
@@ -1004,6 +1014,9 @@ generate_implicit_return_statement :: (fn(expr : AstExpr, indent : String, conte
       // ("non-void function should return a value", the install_command
       // batch). Emit nothing: control cannot reach past the statement form.
       if(final_code.trim().len() > usize(0), {
+        // Own-param scope-end drops: after the tail's statements/dups (the
+        // expression-level flushes skip param targets), before the return.
+        generate_deferred_drop_expressions(expr, indent.clone(), context, false, true);
         line := indent.clone();
         line.push_str("return ");
         line.push_string(final_code);

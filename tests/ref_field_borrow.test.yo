@@ -131,6 +131,22 @@ test("ref and own arguments of distinct objects are allowed", {
   assert(n == usize(5), "borrow read fine while a distinct object was consumed");
 });
 
+// Regression (issues/yo-self-own-param-double-drop-single-expr-body.md): an
+// own param of a SINGLE-EXPRESSION body must be released exactly once, AFTER
+// the body's read. yo-self shares the body node id with the tail expression
+// (TS clones a begin wrapper), and the scope-end drop attached there was
+// emitted by BOTH the body-level flush-first (before the read!) and the tail
+// call's post-emit flush — rc()==0 double-free (glibc tcache abort in CI).
+test("own param of a single-expression body is released exactly once", {
+  read_and_sink :: (fn(own(victim) : Holder) -> usize)(victim.s.len());
+  h := Holder(s : String.from("single-expr"), n : i32(3));
+  h2 := h;
+  assert(rc(h) == 2, "two handles before the sink call");
+  n := read_and_sink(h2);
+  assert(n == usize(11), "field read before the own release");
+  assert(rc(h) == 1, "own param released exactly once at scope end");
+});
+
 // Regression (issues/fixed/own-param-discard-leak.md): discarding an own
 // param via `___ := victim` must release the owned reference exactly once.
 // The body-context capture map used to record the fn's OWN parameters as

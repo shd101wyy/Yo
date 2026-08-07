@@ -851,7 +851,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     .Some(v) => {
       oc_is_runtime_ctor := ((is_struct_val(v) || is_enum_val(v)) && oc_has_runtime_args);
       if(!(is_unknown_val(v)) && !(oc_is_runtime_ctor), {
-        generate_deferred_drop_expressions(expr, indent.clone(), context);
+        generate_deferred_drop_expressions(expr, indent.clone(), context, true);
         if(is_unit_type(ei.ty), return(Option(String).Some(String.from(""))), return(Option(String).Some(generate_comptime_value(v, ei.ty, context.base))));
       });
     },
@@ -901,7 +901,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           edecl.push_str(";");
           e_em := context.base.emitter;
           e_em.emit_string_line(edecl);
-          generate_deferred_drop_expressions(expr, indent.clone(), context);
+          generate_deferred_drop_expressions(expr, indent.clone(), context, true);
           return(Option(String).Some(tv));
         },
         .None => return(Option(String).Some(enum_code))
@@ -967,7 +967,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         dml.push_str(";");
         dm_em := context.base.emitter;
         dm_em.emit_string_line(dml);
-        generate_deferred_drop_expressions(expr, indent.clone(), context);
+        generate_deferred_drop_expressions(expr, indent.clone(), context, true);
         return(Option(String).Some(String.from("")));
       });
       match(
@@ -980,7 +980,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           dmd.push_str(";");
           dm_em2 := context.base.emitter;
           dm_em2.emit_string_line(dmd);
-          generate_deferred_drop_expressions(expr, indent.clone(), context);
+          generate_deferred_drop_expressions(expr, indent.clone(), context, true);
           return(Option(String).Some(tv));
         },
         .None => return(Option(String).Some(dm_call))
@@ -1175,7 +1175,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               cml.push_string(cm_call);
               cml.push_str(";");
               cm_em.emit_string_line(cml);
-              generate_deferred_drop_expressions(expr, indent.clone(), context);
+              generate_deferred_drop_expressions(expr, indent.clone(), context, true);
               if(cm_may_unwind, emit_effect_unwind_check(indent.clone(), context, cm_is_install, expr));
               return(Option(String).Some(String.from("")));
             });
@@ -1192,7 +1192,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 cmd.push_string(cm_call);
                 cmd.push_str(";");
                 cm_em2.emit_string_line(cmd);
-                generate_deferred_drop_expressions(expr, indent.clone(), context);
+                generate_deferred_drop_expressions(expr, indent.clone(), context, true);
                 if(cm_may_unwind, emit_effect_unwind_check(indent.clone(), context, cm_is_install, expr));
                 return(Option(String).Some(tv));
               },
@@ -1282,7 +1282,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               rml.push_string(rm_call);
               rml.push_str(";");
               rm_em.emit_string_line(rml);
-              generate_deferred_drop_expressions(expr, indent.clone(), context);
+              generate_deferred_drop_expressions(expr, indent.clone(), context, true);
               if(rm_may_unwind, emit_effect_unwind_check(indent.clone(), context, rm_is_install, expr));
               return(Option(String).Some(String.from("")));
             });
@@ -1299,7 +1299,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 rmd.push_string(rm_call);
                 rmd.push_str(";");
                 rm_em2.emit_string_line(rmd);
-                generate_deferred_drop_expressions(expr, indent.clone(), context);
+                generate_deferred_drop_expressions(expr, indent.clone(), context, true);
                 if(rm_may_unwind, emit_effect_unwind_check(indent.clone(), context, rm_is_install, expr));
                 return(Option(String).Some(tv));
               },
@@ -1676,7 +1676,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             line.push_string(args_list.clone());
             line.push_str(");");
             em.emit_string_line(line);
-            generate_deferred_drop_expressions(expr, indent.clone(), context);
+            generate_deferred_drop_expressions(expr, indent.clone(), context, true);
             return(Option(String).Some(String.from("")));
           });
           // Clone the extern name before mutating: `name` aliases the
@@ -1753,7 +1753,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             line.push_string(casted);
             line.push_str(");");
             em.emit_string_line(line);
-            generate_deferred_drop_expressions(expr, indent.clone(), context);
+            generate_deferred_drop_expressions(expr, indent.clone(), context, true);
             if(ou_may_unwind, emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr));
             return(Option(String).Some(String.from("")));
           });
@@ -1791,7 +1791,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 line.push_str(");");
                 em.emit_string_line(line);
               });
-              generate_deferred_drop_expressions(expr, indent.clone(), context);
+              generate_deferred_drop_expressions(expr, indent.clone(), context, true);
               if(ou_may_unwind, emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr));
               return(Option(String).Some(tv));
             },
@@ -1940,7 +1940,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
       ucall.push_string(out.clone());
       ucall.push_str(";");
       em.emit_string_line(ucall);
-      generate_deferred_drop_expressions(expr, indent.clone(), context);
+      generate_deferred_drop_expressions(expr, indent.clone(), context, true);
       emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);
       return(Option(String).Some(String.from("")));
     });
@@ -1970,7 +1970,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
       em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
       em.emit_string_line(fline);
     });
-    generate_deferred_drop_expressions(expr, indent.clone(), context);
+    generate_deferred_drop_expressions(expr, indent.clone(), context, true);
     emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);
     return(Option(String).Some(fp_tv));
   });
