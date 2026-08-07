@@ -198,3 +198,32 @@ test("Exception install-point clears __yo_effect_escaped after unwind", {
   assert(r2 == false, "second call must also unwind cleanly");
   assert(reached_after.* == i32(1), "post-install code must run");
 });
+
+// Regression (issues/retired/codegen-dead-code-after-exn-throw.md): a
+// comptime-only call in the dead tail of a match arm after `exn.throw` used
+// to reach codegen un-folded ("Unhandled function call: ..."). The tail must
+// stay LIVE for typing (a handler may resume), so the evaluator has to fold
+// the nested `i32(mk(...))` cast, and the emitted code must still unwind.
+test("comptime call after exn.throw in a match arm compiles and unwinds", {
+  mk :: (fn(comptime(x) : i32) -> i32)(x * i32(2));
+  f :: (fn(v : i32, exn : Exception) -> i32)(
+    match(
+      v > i32(0),
+      true => v,
+      false => {
+        exn.throw(dyn(`neg`));
+        i32(mk(i32(3)))
+      }
+    )
+  );
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(());
+      }
+    )
+  );
+  assert(f(i32(5), exn) == i32(5), "positive path returns the value");
+  f(i32(0) - i32(1), exn);
+  assert(false, "unreachable: the negative path must unwind"); // Shouldn't enter this line
+});

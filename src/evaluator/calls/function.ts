@@ -2180,7 +2180,7 @@ Fix: wrap the call:
       // a `raise(...)`-style escape — breaking closure return-type
       // inference for tests like `tests/async_await.test.yo`'s
       // "Test escape in async closure".
-      // See `issues/codegen-dead-code-after-exn-throw.md` for the original
+      // See `issues/retired/codegen-dead-code-after-exn-throw.md` for the original
       // problem this was trying to solve.
 
       // For io.async calls, propagate awaitAnalysis and captureType from the closure

@@ -1,5 +1,27 @@
 # Codegen attempts to emit comptime-only function call after `exn.throw`
 
+> **RETIRED — verified moot at HEAD (2026-08-07).** All three shapes were
+> re-tested on the post-bootstrap evaluator:
+>
+> 1. The re-scoped minimal shape — `y := i32(mk(3));` with `mk` comptime-only
+>    (both the `comptime(x)`-param and `comptime(mk) :` declaration forms) —
+>    now FOLDS correctly and compiles clean.
+> 2. The original symptom shape — a comptime call after `exn.throw(dyn(...))`
+>    in a dead match arm inside a runtime fn — compiles and runs correctly
+>    (the unwind path works; rc=0).
+> 3. The literal original (`t_i32()` from a comptime-Type-returning fn with a
+>    runtime `exn : Exception` param) can no longer be declared at all: the
+>    checker rejects it with "Expected all parameters to be compile time only
+>    given the return type is compile time only."
+>
+> The class was closed by the intervening evaluator rework (control-flow
+> marking for UnknownValue `exn.throw` calls landed with the 2026-08-06
+> escape-path fixes; the comptime-only-fn front-door rule removes the original
+> construction). No single fixing commit is identifiable — hence retired, not
+> fixed. The reverted parametricity approach stays reverted and is not needed.
+> The `yo-self/evaluator/exprs/escape.yo` split-match workaround remains in
+> tree (harmless).
+
 ## Status: OPEN (parametricity fix reverted) — RE-SCOPED 2026-06-12
 
 > **Investigation update (2026-06-12):** the symptom is NOT specific to
@@ -10,6 +32,7 @@
 > comptime-only callee → `Unhandled function call: i32(mk(3))`. Verified
 > pre-existing (fails identically on 85c56747); no throw, match arm, or
 > dead code required. Two further findings that constrain the fix:
+>
 > 1. A codegen-side "skip the arm tail after a control-flow statement"
 >    approach is UNSOUND: `Exception.throw` handlers may RESUME, making
 >    the post-throw tail live (a resumed continuation needs the arm
@@ -21,7 +44,7 @@
 >    the issue disappears. The reverted parametricity approach is not
 >    needed.
 > 3. Probe asymmetry to start from: the SPLIT form `y := mk(3);
->    z := i32(y);` compiles and runs (prints 3) while the NESTED
+z := i32(y);` compiles and runs (prints 3) while the NESTED
 >    `z := i32(mk(3));` fails — yet both evaluate the argument with
 >    `expectedType: undefined` (numeric-type.ts:288) and both flow into
 >    Case 2.5's UnknownValue-placeholder branch
