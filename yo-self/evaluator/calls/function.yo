@@ -3807,7 +3807,7 @@ Fix: wrap the call:
         // already carries this (helper.yo Step 1 / Step 6); this inline arm
         // counted `generic(i32)` as a regular argument and died in the arity
         // check below with "Argument count mismatch: expected 1, got 2"
-        // (issues/yo-self-explicit-call-site-generic-args.md). Only the index-0
+        // (issues/fixed/yo-self-explicit-call-site-generic-args.md). Only the index-0
         // form is handled here: this arm never prepends a receiver — the method
         // path builds `all_args` and routes through
         // `try_to_call_function_with_arguments`, whose index-1 variant is the
@@ -4871,6 +4871,36 @@ Fix: wrap the call:
             bind_ty = resolved_decl_pt.clone();
             bind_val = Option(EvalValue).Some(create_unknown_val(resolved_decl_pt));
             is_ct = false;
+          });
+          // With an EXPLICIT call-site type application, the resolved param
+          // type is authoritative — TS checks every argument against it and
+          // rejects `pick(generic(i32), u8(1), ...)` ("the whole inference
+          // block is guarded by !forallArgsExpr", helper.ts:1470). This
+          // inline arm bound args UNCHECKED, so the mismatch evaluated
+          // "successfully"; comptime_expect_error then threw its
+          // expected-an-error diagnostic, the def-time wall swallowed it,
+          // and the whole enclosing body hollowed
+          // (issues/fixed/yo-self-explicit-call-site-generic-args.md).
+          // Narrowly scoped to the explicit-generic case; guarded off
+          // degenerate/def-eval shapes (unit args, fn-typed args, params
+          // that still carry a SomeT after resolution).
+          if((fv_forall_arg_exprs.is_some() && (pi < n_supplied_reg)) && !(type_contains_some_type_deep(resolved_decl_pt)), {
+            etc_arg_ty := arg_info.ty;
+            etc_skip := ((is_unit_type(etc_arg_ty) || is_function_type(etc_arg_ty)) || (is_fn_trait_type(etc_arg_ty) || is_some_type(etc_arg_ty)));
+            if((!(etc_skip)) && !(are_types_compatible(resolved_decl_pt, etc_arg_ty)), {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(match(fv_args.get(pi),.Some(ae) => ae,.None => expr)),
+                    `Incompatible type with expected type:
+- Expected: ${type_to_string(resolved_decl_pt)}
+- Actual  : ${type_to_string(etc_arg_ty)}`,
+                    false,
+                    .None
+                  )
+                )
+              );
+            });
           });
           p_is_ref := match(fv_param_is_ref.get(pi),.Some(b) => b,.None => false);
           // Bind via add_parameter_to_env (NOT add_variable_to_env, which

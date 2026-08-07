@@ -1,6 +1,33 @@
 # yo-self: explicit call-site `generic(...)` type application is not ported
 
-Status: OPEN
+> **FIXED — 2026-08-07.** The two residual roots closed:
+>
+> 1. `contracts_phase0` arms 2/18 and the `higher_kinded_types` arms
+>    (HKT-kinded binder + method form) are at exact TS parity with 0
+>    hollow markers — closed by intervening work (the def-time re-raise
+>    for overload rejections, the param-binding flag fixes, the
+>    index-trait expected-type fix). Verified: contracts 31/31, hkt
+>    20/20 both compilers, batch markers 0.
+> 2. The cee + explicit-type-arg hollow had a deeper root than the wall:
+>    the inline FuncVal arm bound arguments to parameters with NO type
+>    check at all, so `pick(generic(i32), u8(1), u8(2))` evaluated
+>    "successfully"; `comptime_expect_error` then threw its
+>    expected-an-error diagnostic and the wall swallowed it, hollowing
+>    the whole enclosing body — by 2026-08-07 this reproduced STANDALONE
+>    too (the doc's "passes standalone" note was stale). Fixed by
+>    checking each supplied argument against the RESOLVED declared param
+>    type when an explicit `generic(...)` application is present
+>    (mirrors TS: with explicit type args the resolved param type is
+>    authoritative, helper.ts:1470), guarded off degenerate def-eval
+>    shapes (unit / fn-typed / SomeT-carrying). The parked negative case
+>    is un-parked as a real test arm: tests/explicit_type_args.test.yo
+>    "explicit type argument rejects a mismatching argument" — 4/4 with
+>    0 markers under both compilers.
+>
+> Gates: battery green; corpus 155/155 DIFF 0; check ./std 153/153;
+> FIXPOINT_HOLDS.
+
+Status at filing: OPEN
 
 ## Symptom
 

@@ -38,13 +38,11 @@ test("explicit type argument in a comptime call", {
   comptime_assert(ct_pick(generic(i32), i32(5), i32(6)) == i32(5), "CTFE with an explicit type arg");
 });
 
-// NOT YET COVERED: the negative case
-//
-//   comptime_expect_error(pick(generic(i32), u8(1), u8(2)));
-//
-// — `generic(i32)` fixes `T`, so a `u8` argument must no longer fit. It passes
-// under the TypeScript compiler and standalone under the self-hosted one, but
-// inside a generated test-batch arm it leaves the batch dispatch hollow (the
-// other arms of this file then would not run at all under the self-hosted
-// compiler, which is why it is parked here instead of in a `test(...)` block).
-// See issues/yo-self-explicit-call-site-generic-args.md.
+// The negative case: `generic(i32)` fixes `T`, so a `u8` argument must no
+// longer fit. Previously parked (the cee arm hollowed the whole batch under
+// the self-hosted compiler); un-parked 2026-08-07 after the def-time
+// re-raise/overload fixes closed the hollow
+// (issues/fixed/yo-self-explicit-call-site-generic-args.md).
+test("explicit type argument rejects a mismatching argument", {
+  comptime_expect_error(pick(generic(i32), u8(1), u8(2)));
+});
