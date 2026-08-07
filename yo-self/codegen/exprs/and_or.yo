@@ -15,10 +15,11 @@ open(import("std/string"));
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_is_fn_call_of, BK_OP_AND, BK_OP_OR } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
-{ random_id } :: import("../../utils.yo");
+{ random_id, is_temp_variable_name } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_deferred_drop_target_atom_name } :: import("../utils/index.yo");
+{ get_deferred_drop_target_atom_name, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ _looks_like_minted_temp } :: import("./begin.yo");
 /// `base` followed by `n` levels of two-space indent.
 _indent_n :: (fn(base : String, n : usize) -> String)({
   out := base.clone();
@@ -79,13 +80,49 @@ _collect_created_var_names_from_expr :: (fn(expr : AstExpr, result : HashSet(Str
     .FnCall(_, func, args, _, _) => {
       match(
         context.base.get_expr_info(expr),
-        .Some(ei) => match(
-          ei.variable_name,
-          .Some(vn) => {
-            _a := result.add(vn.clone());
-          },
-          .None => ()
-        ),
+        .Some(ei) => {
+          match(
+            ei.variable_name,
+            .Some(vn) => {
+              _a := result.add(vn.clone());
+            },
+            .None => ()
+          );
+          // Deferred `___dup` results are temps too — declared next to the
+          // expression they balance (inside this conditional branch) but
+          // living in the ExprInfo side-channel, not the syntactic tree.
+          // Without this, an aliasing-Stage-0 borrow dup on a projection
+          // argument inside a short-circuit RHS (`a && f(w.b)`) left its
+          // scope-end drop at the outer block level — an undeclared C
+          // identifier and an unconditional drop for a conditionally-run
+          // dup. Mirrors TS and-or.ts collectCreatedVarNamesFromExpr.
+          match(
+            ei.deferred_dup_expressions,
+            .Some(dups) => {
+              nd := dups.len();
+              (di : usize) = usize(0);
+              while(di < nd, {
+                match(
+                  dups.get(di),
+                  .Some(de) => match(
+                    context.base.get_expr_info(de),
+                    .Some(dei) => match(
+                      dei.variable_name,
+                      .Some(dvn) => {
+                        _b := result.add(dvn.clone());
+                      },
+                      .None => ()
+                    ),
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                di = (di + usize(1));
+              });
+            },
+            .None => ()
+          );
+        },
         .None => ()
       );
       is_nested := (ast_expr_is_fn_call_of(expr, BK_OP_AND, Option(usize).None) || ast_expr_is_fn_call_of(expr, BK_OP_OR, Option(usize).None));
@@ -131,13 +168,23 @@ _emit_drops_for_conditional_branch :: (fn(var_names : HashSet(String), indent : 
           .Some(drop_expr) => match(
             get_deferred_drop_target_atom_name(drop_expr),
             .Some(target) => if(var_names.contains(target.clone()), {
-              drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
-              if(drop_code.len() > usize(0), {
-                line := indent.clone();
-                line.push_string(drop_code);
-                line.push_str(";");
-                em := context.base.emitter;
-                em.emit_string_line(line);
+              // Skip a drop whose target TEMP was never emitted as a C
+              // declaration (e.g. an aliasing-Stage-0 dup RESULT temp whose
+              // dup was itself gate-skipped) — same undeclared-temp gate as
+              // generate_deferred_drop_expressions. A never-declared temp
+              // holds no +1 to release; emitting the drop is an undeclared-
+              // identifier C error (the rc1 stage-2 clang break).
+              sc_target_cn := sanitize_for_c_identifier(target.clone(), false);
+              sc_undeclared := ((is_temp_variable_name(String.from(""), sc_target_cn.clone()) || _looks_like_minted_temp(sc_target_cn.clone())) && (!(context.base.declared_c_var_names.contains(sc_target_cn))));
+              if(!(sc_undeclared), {
+                drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
+                if(drop_code.len() > usize(0), {
+                  line := indent.clone();
+                  line.push_string(drop_code);
+                  line.push_str(";");
+                  em := context.base.emitter;
+                  em.emit_string_line(line);
+                });
               });
               match(
                 context.short_circuit_handled_drop_var_names,

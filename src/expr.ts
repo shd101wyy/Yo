@@ -2444,6 +2444,85 @@ export function setExprAsConsumed(
 }
 
 /**
+ * Aliasing Stage 0 (issues/borrowed-arg-invalidated-by-aliased-container-mutation.md):
+ * dup an RC-typed PROJECTION argument passed to a BORROWING parameter, keeping
+ * the +1 in the CALLER.
+ *
+ * A field projection (`w.b`) evaluates to a non-owning temp — a view into
+ * storage the callee may reassign through an aliased handle (`f(w, w.b)`
+ * reassigning `w.b` in a loop frees the old value mid-call: the borrowed
+ * parameter dangles). The dup materializes an owned +1 for the call; unlike
+ * `setExprAsNeedsToCallDup` (the own-param path), the dup RESULT temp is left
+ * OWNING and UNCONSUMED so the caller's normal scope-end drop releases it,
+ * and the SOURCE binding is not consumed (a borrow stays usable).
+ *
+ * No-ops when the argument's temp already OWNS its value (an owned temp is
+ * kept alive to scope end regardless — no aliasing hole) or when the value is
+ * compile-time (inlined, no RC traffic).
+ */
+export function setExprAsNeedsToCallDupForBorrowedProjection(
+  expr: Expr,
+  context: EvaluatorContext
+): void {
+  if (!expr.$ || !expr.$.variableName) {
+    return;
+  }
+  if (expr.$.value) {
+    return;
+  }
+  if (!typeContainsRcType(expr.$.type)) {
+    return;
+  }
+  const variableName = expr.$.variableName;
+  const variables = getVariablesFromEnv(expr.$.env, variableName);
+  const variable = variables.length
+    ? variables[variables.length - 1]
+    : undefined;
+  if (!variable || variable.isOwningTheRcValue) {
+    return;
+  }
+  const dupCallExpr = generateExprFromCode(
+    `${BuiltinFunctions.___dup[0]!}(${variableName})`
+  );
+  const evaluatedDupCallExpr = evaluateExpression({
+    expr: dupCallExpr,
+    env: expr.$.env,
+    context: { ...context, expectedType: undefined },
+  }) as FnCallExpr;
+  // Stamp the USE SITE's source token (same rationale as
+  // setExprAsNeedsToCallDup below: the optimizer needs the real source
+  // position, not the generated token).
+  (
+    evaluatedDupCallExpr as FnCallExpr & { __useSiteToken?: Token }
+  ).__useSiteToken = expr.token;
+  // evaluateDup marks its result temp NON-owning (the own-param contract —
+  // the callee drops the transferred +1). Here the CALLER keeps the +1, so
+  // flip the result temp back to OWNING: the enclosing scope's normal
+  // scope-end drop is the balancing -1. (The dup/drop pair optimizer cannot
+  // cancel this pair into a move: the dup targets the SOURCE temp, the drop
+  // targets the dup RESULT temp — different variables.)
+  const dupResultTempName = evaluatedDupCallExpr.$?.variableName;
+  if (dupResultTempName) {
+    const dupResultVars = getVariablesFromEnv(
+      evaluatedDupCallExpr.$!.env,
+      dupResultTempName
+    );
+    if (dupResultVars.length) {
+      const dupResultVar = dupResultVars[dupResultVars.length - 1]!;
+      if (!dupResultVar.isOwningTheRcValue) {
+        evaluatedDupCallExpr.$!.env = updateExistingVariable(
+          evaluatedDupCallExpr.$!.env,
+          dupResultVar,
+          { ...dupResultVar, isOwningTheRcValue: true }
+        );
+      }
+    }
+  }
+  expr.$.deferredDupExpressions = [evaluatedDupCallExpr];
+  expr.$.env = evaluatedDupCallExpr.$!.env;
+}
+
+/**
  * @param expr
  * @param context
  * @returns

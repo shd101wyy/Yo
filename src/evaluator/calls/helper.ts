@@ -32,6 +32,7 @@ import {
   requireExprNotConsumed,
   setExprAsConsumed,
   setExprAsNeedsToCallDup,
+  setExprAsNeedsToCallDupForBorrowedProjection,
 } from "../../expr";
 import { evaluatedBodyContainsEscape } from "../../expr-traversal";
 import type {
@@ -227,6 +228,43 @@ function generateDeferredDropExpressions({
       deferredDropExpressions.length > 0 ? deferredDropExpressions : undefined,
     env: finalEnv,
   };
+}
+
+/**
+ * Aliasing Stage 0 predicate: a bare field-access chain (`w.b`, `a.b.c`)
+ * rooted at a RUNTIME variable — a PROJECTION place. A bare atom is NOT a
+ * projection (the caller's own binding keeps a plain local alive for the
+ * call, so it stays +0). A method call (`x.f()`) is not a 2-arg dot call —
+ * its `func` is the dot — and produces an owned temp anyway. Mirrors
+ * match.ts `exprIsPlaceExpression` minus the atom case (kept local: match.ts
+ * importing from this module makes the reverse import a cycle).
+ */
+function exprIsRcProjectionPlace(
+  expr: Expr | undefined,
+  env: Environment
+): boolean {
+  if (
+    !expr ||
+    !exprIsFunctionCall(expr) ||
+    !exprIsFunctionCallOf(expr, ".", 2) ||
+    !exprIsAtom(expr.args[1]!)
+  ) {
+    return false;
+  }
+  let root: Expr = expr.args[0]!;
+  while (
+    exprIsFunctionCall(root) &&
+    exprIsFunctionCallOf(root, ".", 2) &&
+    exprIsAtom(root.args[1]!)
+  ) {
+    root = root.args[0]!;
+  }
+  if (!exprIsAtom(root)) {
+    return false;
+  }
+  const rootVars = getVariablesFromEnv(env, root.token.value);
+  const rootVar = rootVars.length ? rootVars[rootVars.length - 1] : undefined;
+  return rootVar !== undefined && !rootVar.isCompileTimeOnly;
 }
 
 export function checkIfFunctionParameterMatchesArgument({
@@ -447,6 +485,33 @@ export function checkIfFunctionParameterMatchesArgument({
             callerEnv,
             true // NOTE: Allow to consume again here is necessary.
           );
+        }
+      } else if (
+        !parameter.isOwningTheRcValue &&
+        !parameter.isCompileTimeOnly &&
+        !parameter.isRef &&
+        // EXTERN/builtin callees run no Yo code — nothing inside them can
+        // reassign an aliased Yo container field, so their borrows cannot
+        // dangle and the +1 would be pure overhead on the hottest
+        // primitives (`__yo_ptr_eq`, libc shims). Also dodges the inline-
+        // builtin emitters, which render args inline (no temp to dup).
+        !functionType.externName &&
+        exprIsRcProjectionPlace(argExpr, callerEnv)
+      ) {
+        // Aliasing Stage 0
+        // (issues/borrowed-arg-invalidated-by-aliased-container-mutation.md):
+        // an RC-typed field PROJECTION passed to a borrowing parameter hands
+        // the callee a view into storage it may reassign through an aliased
+        // handle (`f(w, w.b)` reassigning `w.b` in a loop frees the old value
+        // mid-call — the borrowed parameter dangles). Materialize a caller-
+        // owned +1 for the call; the caller's normal scope-end drop releases
+        // it. Plain locals stay +0 (the caller's binding keeps them alive),
+        // owned temps stay +0 (alive to scope end already — the marker
+        // no-ops), and `inout` (ref) parameters are place writes, not RC
+        // handles.
+        setExprAsNeedsToCallDupForBorrowedProjection(evaluatedArgExpr, context);
+        if (evaluatedArgExpr.$?.env) {
+          callerEnv = evaluatedArgExpr.$.env;
         }
       }
     }

@@ -587,11 +587,41 @@ export function generateOtherFunctionCall(
           // Track whether we emitted a temp variable declaration
           let emittedTempVarDeclaration = false;
 
+          // A deferred `___dup` that targets THIS argument's own eval temp
+          // forces the temp declaration even for closure/state-machine
+          // captured accesses: the dup names the temp
+          // (`___dup(<temp>)`), so skipping the declaration emits an
+          // undeclared C identifier and loses the raw read (aliasing
+          // Stage 0 projection dups on `self._buf` inside an async loop
+          // surfaced the SM case). The capture exclusions below exist to
+          // avoid REDUNDANT copies of already-addressable storage — a
+          // dup-carrying arg needs the materialization regardless.
+          let argDupForcesTempDeclaration = false;
+          if (
+            arg.$?.variableName &&
+            arg.$?.deferredDupExpressions &&
+            arg.$.deferredDupExpressions.length > 0
+          ) {
+            const argTempCName = getVariableNameForCodegen(
+              arg.$.variableName,
+              arg.$.env
+            );
+            argDupForcesTempDeclaration = arg.$.deferredDupExpressions.some(
+              (e) => {
+                const target = getDeferredDupTargetAtomName(e);
+                return (
+                  !!target &&
+                  getVariableNameForCodegen(target, e.$?.env) === argTempCName
+                );
+              }
+            );
+          }
+
           if (
             argCode &&
             argCode !== arg.$.variableName &&
-            !isClosureCapturedVariable &&
-            !isStateMachineCapturedVariable &&
+            ((!isClosureCapturedVariable && !isStateMachineCapturedVariable) ||
+              argDupForcesTempDeclaration) &&
             !isComptimeOnlyArg &&
             !isRefArg &&
             !paramIsRef

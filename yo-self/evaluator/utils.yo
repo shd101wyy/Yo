@@ -52,9 +52,12 @@ open(import("std/string"));
   ast_expr_token,
   ast_expr_id,
   ast_expr_is_atom,
+  ast_expr_is_fn_call_of,
   ast_expr_to_string,
   make_err_expr,
-  BF_DUP
+  BF_DUP,
+  BF_DROP,
+  BF_DOT
 } :: import("../expr.yo");
 {
   ExprInfo,
@@ -63,7 +66,8 @@ open(import("std/string"));
   expr_info_origin_type,
   expr_info_set_origin_type,
   get_arm_init_range,
-  get_branch_init_record
+  get_branch_init_record,
+  new_expr_info
 } :: import("../expr_info.yo");
 {
   Environment,
@@ -770,6 +774,188 @@ set_expr_as_needs_to_call_dup :: (
       );
     }
   );
+});
+/// Aliasing Stage 0 (issues/borrowed-arg-invalidated-by-aliased-container-mutation.md):
+/// dup an RC-typed PROJECTION argument passed to a BORROWING parameter,
+/// keeping the +1 in the CALLER. Mirrors TS
+/// `setExprAsNeedsToCallDupForBorrowedProjection` (expr.ts).
+///
+/// Unlike `set_expr_as_needs_to_call_dup` above (the own-param path, whose
+/// dup RESULT temp is consumed because the callee drops the transferred +1),
+/// the dup result here is left OWNING and UNCONSUMED so the caller's normal
+/// scope-end drop is the balancing -1, and the SOURCE binding is never
+/// consumed (a borrow stays usable). No-ops when the argument's temp already
+/// OWNS its value (alive to scope end regardless — no aliasing hole) or when
+/// the value is a codegen-inlinable comptime constant (no RC traffic).
+set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
+  fn(
+    rhs : AstExpr,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> Option(AstExpr)
+)({
+  var_name_opt := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs)),
+    .Some(info) => info.variable_name,
+    .None => Option(String).None
+  );
+  (s0_result : Option(AstExpr)) = Option(AstExpr).None;
+  match(
+    var_name_opt,
+    .None => (),
+    .Some(variable_name) => {
+      ei := match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs)),
+        .Some(info) => info,
+        .None => new_expr_info_placeholder_for_unreachable_(rhs)
+      );
+      // Same concrete-value inlinability gate as set_expr_as_needs_to_call_dup:
+      // only a value codegen actually INLINES has no C variable to dup.
+      has_concrete_value := match(
+        ei.value,
+        .Some(cv) => (!(is_unknown_val(cv)) && !(type_contains_rc_type(ei.ty))),
+        .None => false
+      );
+      if(has_concrete_value, {
+        return(Option(AstExpr).None);
+      });
+      if(!(type_contains_rc_type(ei.ty)), {
+        return(Option(AstExpr).None);
+      });
+      match(
+        find_variable_in_env(ei.env, variable_name),
+        .None => (),
+        .Some(v) => {
+          if(v.is_owning_the_rc_value, {
+            return(Option(AstExpr).None);
+          });
+          // SYNTHESIZE the evaluated dup form instead of evaluating it.
+          // Evaluating a fresh `___dup(...)` expression from INSIDE a
+          // derive/quote-generated body's def-time eval corrupts the
+          // enclosing module evaluation through shared state (no throw —
+          // bisected in issues/yo-self-dup-eval-inside-macro-generated-body-
+          // corrupts-module-eval.md). A dup of a KNOWN temp needs no general
+          // evaluation: mint the result temp OWNING in the rhs env (its
+          // scope-end drop is the balancing -1; the pair optimizer cannot
+          // cancel dup-of-SOURCE against drop-of-RESULT), and stamp the dup
+          // node + its arg atom with the ExprInfo codegen's deferred-dup
+          // emitter reads (dei.variable_name / target atom env). Deliberate
+          // mechanism divergence from TS (which evaluates the dup): the
+          // nested eval is unsound in yo-self's def-time contexts.
+          dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);
+          dup_temp := generate_new_temp_variable_name(ei.env.module_path);
+          reg_var := add_variable_to_begin_block_frame(
+            ei.env,
+            dup_temp.clone(),
+            ei.ty,
+            Option(EvalValue).None,
+            false,
+            true,
+            ast_expr_token(rhs)
+          );
+          // CONSUME the dup temp immediately: the balancing -1 is the
+          // EXPLICIT `___drop` returned below, attached by the caller to the
+          // CALL node's deferred drops (single post-call emission). Leaving
+          // the temp unconsumed-owning let yo-self's multi-exit cleanup
+          // machinery (match-arm exits + escape paths + scope end) emit its
+          // drop on NON-exclusive paths — the stage-2 binary over-released
+          // context.base and corrupted the whole emit (FIXPOINT_BROKEN,
+          // recycled-name garbage; gmalloc-traced to dup-for-value's enum
+          // arm).
+          match(
+            reg_var,
+            .Some(rv) => {
+              rv.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(rhs)));
+            },
+            .None => ()
+          );
+          dup_info := new_expr_info(ei.env, ei.ty);
+          dup_info.variable_name = Option(String).Some(dup_temp.clone());
+          expr_info_table_set(ctx.expr_info_table, ast_expr_id(dup_expr), dup_info);
+          match(
+            dup_expr,
+            .FnCall(_, _, dd_args, _, _) => match(
+              dd_args.get(usize(0)),
+              .Some(dd_atom) => {
+                dd_atom_info := new_expr_info(ei.env, ei.ty);
+                dd_atom_info.variable_name = Option(String).Some(variable_name.clone());
+                expr_info_table_set(ctx.expr_info_table, ast_expr_id(dd_atom), dd_atom_info);
+              },
+              .None => ()
+            ),
+            .Atom(_, _) => ()
+          );
+          g_dup_use_site_tokens.set(ast_expr_id(dup_expr), ast_expr_token(rhs));
+          dup_list := ArrayList(AstExpr).new();
+          dup_list.push(dup_expr);
+          ei.deferred_dup_expressions = Option(ArrayList(AstExpr)).Some(dup_list);
+          // Synthesize the balancing `___drop(dup_temp)` for the CALLER to
+          // attach to the call node's deferred drops.
+          s0_drop_expr := generate_expr_from_code(`${BF_DROP}(${dup_temp})`, exn);
+          s0_drop_info := new_expr_info(ei.env, ei.ty);
+          expr_info_table_set(ctx.expr_info_table, ast_expr_id(s0_drop_expr), s0_drop_info);
+          match(
+            s0_drop_expr,
+            .FnCall(_, _, sd_args, _, _) => match(
+              sd_args.get(usize(0)),
+              .Some(sd_atom) => {
+                sd_atom_info := new_expr_info(ei.env, ei.ty);
+                sd_atom_info.variable_name = Option(String).Some(dup_temp.clone());
+                expr_info_table_set(ctx.expr_info_table, ast_expr_id(sd_atom), sd_atom_info);
+              },
+              .None => ()
+            ),
+            .Atom(_, _) => ()
+          );
+          s0_result = Option(AstExpr).Some(s0_drop_expr);
+          // NOTE: deliberately NOT propagating the dup eval's env onto the
+          // rhs ExprInfo (unlike set_expr_as_needs_to_call_dup above). The
+          // dup temp was added IN PLACE to ei.env's current frame, so the
+          // rhs env already resolves it — and REPLACING ei.env here leaked a
+          // def-time BODY env into the enclosing statement flow: yo-self
+          // threads env through statement infos, so a module-level derive's
+          // generated-body eval replaced the MODULE env mid-module
+          // ("Variable Tok not found" on the impl FOLLOWING derive(Eq) of a
+          // String-field ref struct — the tok_i minimal repro).
+        }
+      );
+    }
+  );
+  s0_result
+});
+/// Aliasing Stage 0 predicate: a bare field-access chain (`w.b`, `a.b.c`)
+/// rooted at a RUNTIME variable — a PROJECTION place. A bare atom is NOT a
+/// projection (the caller's binding keeps a plain local alive for the call,
+/// +0). A method call (`x.f()`) is not a 2-arg dot call — its `func` is the
+/// dot — and produces an owned temp anyway. Mirrors TS helper.ts
+/// `exprIsRcProjectionPlace`.
+arg_is_rc_projection_place :: (fn(e : AstExpr, env : Environment) -> bool)({
+  if(!(ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2)))), {
+    return(false);
+  });
+  e_args := match(e,.FnCall(_, _, __aipp_a, _, _) => __aipp_a,.Atom(_, _) => ArrayList(AstExpr).new());
+  e_a1 := match(e_args.get(usize(1)),.Some(x) => x,.None => return(false));
+  if(!(ast_expr_is_atom(e_a1)), {
+    return(false);
+  });
+  (root : AstExpr) = match(e_args.get(usize(0)),.Some(x) => x,.None => return(false));
+  while(ast_expr_is_fn_call_of(root, BF_DOT, Option(usize).Some(usize(2))), {
+    r_args := match(root,.FnCall(_, _, __aipp_ra, _, _) => __aipp_ra,.Atom(_, _) => ArrayList(AstExpr).new());
+    r_a1 := match(r_args.get(usize(1)),.Some(x) => x,.None => return(false));
+    if(!(ast_expr_is_atom(r_a1)), {
+      return(false);
+    });
+    root = match(r_args.get(usize(0)),.Some(x) => x,.None => return(false));
+  });
+  if(!(ast_expr_is_atom(root)), {
+    return(false);
+  });
+  vars := get_variables_from_env(env, ast_expr_token(root).value);
+  if(vars.len() == usize(0), {
+    return(false);
+  });
+  v := match(vars.get(vars.len() - usize(1)),.Some(x) => x,.None => return(false));
+  !(v.is_compile_time_only)
 });
 // ---------------------------------------------------------------------------
 // doc_comment_lookup_key_from_token
@@ -1651,7 +1837,7 @@ export(
 );
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
-export(set_expr_as_needs_to_call_dup);
+export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place);
 export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);
 export(doc_comment_lookup_key_from_token);

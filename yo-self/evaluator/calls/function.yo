@@ -72,7 +72,7 @@ open(import("std/fmt"));
 { Token, TokenKind, string_is_operator } :: import("../../token.yo");
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, create_runtime_unknown_val_with_name } :: import("../../value.yo");
 { random_id } :: import("../../utils.yo");
-{ attach_temp_variable_to_expr, set_expr_as_consumed, set_expr_as_needs_to_call_dup, parse_raw_int } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, parse_raw_int } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -2697,6 +2697,7 @@ evaluate_function_call :: (
       // (comptime scalars are unaffected — they never hit is_runtime_ctor).
       if(op_result_is_runtime, {
         out_op.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_op.runtime_arg_exprs_in_order);
+        out_op.deferred_drop_expressions = call_result_op.deferred_drop_expressions;
       });
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_op);
       // RUNTIME operator on a non-primitive type (e.g. derived `==`/`<` on an
@@ -3922,6 +3923,9 @@ Fix: wrap the call:
           ),
           .None => ArrayList(bool).new()
         );
+        // Aliasing Stage 0: drops synthesized for projection args in THIS
+        // call's inline arg loop; merged into the call's ExprInfo below.
+        fv_s0_drops := ArrayList(AstExpr).new();
         fv_param_is_owning := match(
           callee_info_opt,
           .Some(ci) => match(
@@ -4480,6 +4484,33 @@ Fix: wrap the call:
                     });
                   });
                 }
+              );
+            });
+            // Step 4c: Aliasing Stage 0 (twin of helper.yo's Step 4c — this
+            // inline FuncVal arg loop BYPASSES
+            // try_to_call_function_with_arguments, so the projection dup must
+            // land here too or plain calls to module fns keep the hole). An
+            // RC-typed field PROJECTION passed to a BORROWING parameter gets
+            // a caller-owned +1 for the call; extern/builtin callees run no
+            // Yo code and are skipped.
+            fv_p_is_ref := match(fv_param_is_ref.get(ai),.Some(r) => r,.None => false);
+            fv_callee_is_extern := match(
+              callee_info_opt,
+              .Some(fv_ci_ext) => match(
+                fv_ci_ext.ty,
+                .Func({ meta : __fmext }) => __fmext.*.extern_name.is_some(),
+                _ => false
+              ),
+              .None => false
+            );
+            fv_s0_gates := ((((!(fv_p_owning)) && !(fv_p_is_ct)) && ((!(fv_p_is_ref)) && !(fv_callee_is_extern))) && !(ctx.is_in_function_call_checking_phase));
+            if(fv_s0_gates && arg_is_rc_projection_place(arg_expr_eff, env), {
+              match(
+                set_expr_as_needs_to_call_dup_for_borrowed_projection(evaled_arg, ctx, exn),
+                .Some(fv_s0d) => {
+                  fv_s0_drops.push(fv_s0d);
+                },
+                .None => ()
               );
             });
           };
@@ -5459,6 +5490,9 @@ Fix: wrap the call:
         out.value = body_info.value;
         // Runtime arg exprs for codegen (the call's C-argument materialization).
         out.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
+        if(fv_s0_drops.len() > usize(0), {
+          out.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(fv_s0_drops);
+        });
         // control_flow is intentionally NOT propagated (Return is consumed here).
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
         // Temp variable for the (non-unit) call result (mirrors TS
@@ -5623,6 +5657,7 @@ Fix: wrap the call:
         out_rt := new_expr_info(call_result_rt.caller_env, ret_type_rt);
         out_rt.value = Option(EvalValue).Some(_call_result_unknown(ret_type_rt, env));
         out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_rt.runtime_arg_exprs_in_order);
+        out_rt.deferred_drop_expressions = call_result_rt.deferred_drop_expressions;
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);
         // Same temp attachment as the method + valueless-callee arms (TS
         // function.ts:2263 attaches for EVERY runtime call). Without it, an
@@ -5965,6 +6000,7 @@ Fix: wrap the call:
           out_m := new_expr_info(call_result_m.caller_env, m_out_ty);
           out_m.value = m_result_val;
           out_m.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_m.runtime_arg_exprs_in_order);
+          out_m.deferred_drop_expressions = call_result_m.deferred_drop_expressions;
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_m);
           // Attach the call-result temp (TS function.ts:2263 does this for
           // EVERY runtime call, methods included). Without it a method call's
@@ -6106,6 +6142,7 @@ Fix: wrap the call:
           out_none := new_expr_info(call_result_none.caller_env, ret_type_none);
           out_none.value = Option(EvalValue).Some(_call_result_unknown(ret_type_none, callee_env));
           out_none.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_none.runtime_arg_exprs_in_order);
+          out_none.deferred_drop_expressions = call_result_none.deferred_drop_expressions;
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_none);
           // Same temp attachment as the method arm (TS function.ts:2263).
           attach_temp_variable_to_expr(expr, true, ctx);
