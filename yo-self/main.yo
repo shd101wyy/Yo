@@ -972,6 +972,68 @@ _probe_liburing :: (fn(io : Io, out : ArrayList(bool)) -> unit)({
   st := io.await(probe.status(io), IoExn(io : io, exn : probe_exn));
   out.push(st.raw == i32(0));
 });
+/// AddressSanitizer functionality probe — faithful port of TS
+/// `asanRuntimeIsUsable` (src/compiler-utils.ts): compile a trivial C program
+/// with `-fsanitize=address` via the SYSTEM `cc` (matching TS, which probes
+/// `cc` regardless of --cc) and run it under a 3-second shell watchdog. A
+/// healthy ASan binary exits 0 immediately; a clang/ASan-runtime mismatch
+/// (e.g. Nix clang 21 whose libclang_rt.asan deadlocks in its own dyld
+/// initializer BEFORE main on this macOS) never returns — the watchdog
+/// SIGKILLs it and the probe reports unusable, so the compile proceeds
+/// WITHOUT the sanitizer plus the same warning TS prints, instead of
+/// emitting a binary that hangs at startup (issues/fixed/yo-self-asan-init-hang.md).
+/// Result is cached process-wide (TS caches in _asanUsable).
+(g_asan_usable : Option(bool)) = Option(bool).None;
+_asan_runtime_is_usable :: (fn(base : String, io : Io) -> bool)({
+  match(
+    g_asan_usable,
+    .Some(u) => {
+      return(u);
+    },
+    .None => ()
+  );
+  // Any probe-step IO failure means "unusable" (TS's catch -> false).
+  probe_exn := Exception(
+    throw : (
+      (_e) -> {
+        unwind(false);
+      }
+    )
+  );
+  probe_src := `${base}.asan_probe.c`;
+  probe_bin := `${base}.asan_probe`;
+  io.await(write_file(Path.new(probe_src.clone()), String.from("int main(void) { return 0; }\n"), io), IoExn(io : io, exn : probe_exn));
+  cc_cmd := Command.new(String.from("cc"));
+  cc_cmd.arg(String.from("-x"));
+  cc_cmd.arg(String.from("c"));
+  cc_cmd.arg(String.from("-std=c11"));
+  cc_cmd.arg(String.from("-fsanitize=address"));
+  cc_cmd.arg(String.from("-o"));
+  cc_cmd.arg(probe_bin.clone());
+  cc_cmd.arg(probe_src.clone());
+  cc_st := io.await(cc_cmd.status(io), IoExn(io : io, exn : probe_exn));
+  (usable : bool) = false;
+  if(cc_st.success(), {
+    // Shell watchdog: `wait $p` yields the probe's own exit status; the
+    // backgrounded killer turns an ASan init deadlock into SIGKILL (137,
+    // not success). A healthy probe exits 0 long before the 3s fire.
+    run_cmd := Command.new(String.from("sh"));
+    run_cmd.arg(String.from("-c"));
+    run_cmd.arg(String.from("ASAN_OPTIONS=detect_leaks=0 \"$0\" & p=$!; { sleep 3; kill -9 $p; } 2>/dev/null & wait $p"));
+    run_cmd.arg(probe_bin.clone());
+    run_st := io.await(run_cmd.status(io), IoExn(io : io, exn : probe_exn));
+    usable = run_st.success();
+  });
+  // Cleanup (TS's finally-unlinks). The bin is only present when cc
+  // succeeded; a removal failure routes through probe_exn -> false, which
+  // is the correct verdict for any probe-environment breakage anyway.
+  io.await(remove_file(Path.new(probe_src.clone()), io), IoExn(io : io, exn : probe_exn));
+  if(cc_st.success(), {
+    io.await(remove_file(Path.new(probe_bin.clone()), io), IoExn(io : io, exn : probe_exn));
+  });
+  g_asan_usable = Option(bool).Some(usable);
+  usable
+});
 /// Run the `compile` subcommand.
 run_compile :: (
   fn(
@@ -1280,8 +1342,15 @@ run_compile :: (
   // Sanitizers (clang/gcc; mirror of TS getSanitizerFlags for the Unix path).
   cond(
     (sanitize == "address") => {
-      cmd.arg(String.from("-fsanitize=address"));
-      cmd.arg(String.from("-fno-omit-frame-pointer"));
+      // Functionality probe first (TS getSanitizerFlags): a clang/ASan
+      // runtime mismatch produces binaries that deadlock in ASan's own
+      // init before main — skip the flags with TS's warning instead.
+      if(_asan_runtime_is_usable(output, io), {
+        cmd.arg(String.from("-fsanitize=address"));
+        cmd.arg(String.from("-fno-omit-frame-pointer"));
+      }, {
+        eprintln(String.from("AddressSanitizer is not functional with this compiler setup (likely a version mismatch between clang and the ASAN runtime library). Skipping sanitizer. Install a matching ASAN runtime or use --cc with a compatible compiler."));
+      });
     },
     (sanitize == "leak") => cmd.arg(String.from("-fsanitize=leak")),
     (sanitize == "thread") => {
