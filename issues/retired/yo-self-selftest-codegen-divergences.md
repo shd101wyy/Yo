@@ -169,7 +169,7 @@ and 21 clang errors**, i.e. it fails before the fix as a regression test must.
 
 ### SUPERSEDED HYPOTHESIS: the known-OPEN shared-id clobber
 
-`issues/yo-self-begin-shared-id-clobber.md` already documents the mechanism, and its
+`issues/fixed/yo-self-begin-shared-id-clobber.md` already documents the mechanism, and its
 own affected-expression table lists **`effect_analysis` | "bare effectful call as arm
 body"** (line 131) as a still-latent instance. This is that instance firing.
 

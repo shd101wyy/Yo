@@ -44,10 +44,9 @@ open(import("std/string"));
 {
   ExprInfo,
   new_expr_info,
+  clone_expr_info_for_shared_begin_result,
   expr_info_table_set,
   expr_info_table_get,
-  expr_info_is_primitive_match,
-  expr_info_set_is_primitive_match,
   ControlFlowFlags,
   control_flow_of,
   has_control_flow,
@@ -2259,9 +2258,51 @@ evaluate_begin_expression :: (
   );
   env.pop_frame_nonmutating();
   // -------------------------------------------------------------------------
-  // Build ExprInfo for the begin expression itself
+  // Build ExprInfo for the begin expression itself.
+  //
+  // A SINGLE-expression begin block (`expr` was not a real `begin(...)` call,
+  // so it was wrapped in a 1-element list at the top) has its result node
+  // EQUAL to the inner expression node — yo-self reuses `expr`'s id rather
+  // than clone+mutate-into-begin like TS (begin.ts:1016-1045, which clones
+  // the inner expr so its `$` lives on a separate node). Codegen then reads
+  // this ONE id in BOTH roles: the inner expression's shape (the match/call/
+  // address-of emitters) and the begin block (scope-end drops). A fresh info
+  // here therefore CLOBBERED every inner field codegen needs unless it was on
+  // a hand-picked carry list — four separate miscompiles came from that
+  // (issues/yo-self-begin-shared-id-clobber.md). INVERT the merge instead:
+  // start from a copy of the tail's info (preservation is the default),
+  // override what the begin level owns (env/ty in the clone helper; value +
+  // deferred_drop_expressions below), and explicitly CLEAR the fields whose
+  // begin-role meaning conflicts with the inner-role one — the old carries'
+  // gates, applied as clears:
+  //   - `runtime_arg_exprs_in_order` + the index-field triplet: cleared for a
+  //     comptime-FOLDED tail (`!carry_runtime_args`) — a folded construct
+  //     (`.Some(i32(7))`) emits via the comptime-value path, and carrying its
+  //     arg list wrongly tripped the runtime-construction codegen
+  //     (`ctor_has_runtime_args`), corrupting the literal's type name
+  //     (match_arm_folded_fncall + runtime_enum_construct regressions).
+  //   - `variable_name`: cleared unless FUNCTION-BODY begin AND runtime tail —
+  //     for match/cond ARM begins the attach_temp_variable_to_expr below would
+  //     re-register the carried name as an OWNING variable in the ENCLOSING
+  //     begin frame of the SAME C function, scheduling a scope-end drop
+  //     against a declared temp whose value the arm's `_result` assignment
+  //     already moved out (over-release); a folded tail's recorded temp would
+  //     pollute downstream type names.
+  // Kept from the tail without a gate (the old unconditional carries):
+  // `deferred_dup_expressions` (begin-tail ownership +1 — losing it freed
+  // `.Ok(map) => map` while the caller held it), `is_index_trait_address_of`
+  // (dangling stack pointer on `s(i) = ...` writes), the `rare` group's
+  // `is_primitive_match` (bare primitive `match` fn body took the enum
+  // branch), and now every OTHER inner field (source_variable, origin_type,
+  // early-return-only drops, converted type / dyn traits / async analysis...)
+  // that previously needed its own empirical carry.
   // -------------------------------------------------------------------------
-  out_info := new_expr_info(env, return_type);
+  shared_with_tail := (ast_expr_id(expr) == ast_expr_id(last_expr));
+  (out_info : ExprInfo) = if(
+    shared_with_tail,
+    clone_expr_info_for_shared_begin_result(last_info, env, return_type),
+    new_expr_info(env, return_type)
+  );
   out_info.deferred_drop_expressions = scope_end_drops;
   out_info.value = cond(has_runtime_side_effects => Option(EvalValue).None, true => last_info.value);
   out_info.control_flow = last_info.control_flow;
@@ -2274,102 +2315,25 @@ evaluate_begin_expression :: (
   // dominant self-compile eval leaker, 2.7M live) on the whole-compile
   // expr_info_table forever. Not storing it lets `current_frame_opt` (and its
   // Variables) be RC-freed at scope end. See issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
-  // A SINGLE-expression begin block (`expr` was not a real `begin(...)` call, so
-  // it was wrapped in a 1-element list at the top) has its result node EQUAL to
-  // the inner expression node — yo-self reuses `expr`'s id rather than
-  // clone+mutate-into-begin like TS (begin.ts:1016-1045, which clones the inner
-  // expr so its `$` lives on a separate node). The fresh `out_info` therefore
-  // CLOBBERS the inner expression's own ExprInfo on that shared id. Most fields
-  // are re-derived above, but `runtime_arg_exprs_in_order` (the call-argument
-  // materialization list codegen needs) is dropped — so a bare runtime CALL as a
-  // match/cond arm body or a single-expression function body emitted
-  // "Failed to transpile". Carry that one field across — but ONLY for a runtime
-  // RESULT: a bare runtime call (UnknownVal), a unit-returning call (UnitVal), no
-  // value, OR a RUNTIME enum/struct construction whose shell carries an UnknownVal
-  // payload (`.Some((p &+ i).*)` in ArrayList.get → runtime construction codegen).
-  // A fully comptime-FOLDED construct (`.None`, `.Some(i32(7))`, `i32(0)`) has only
-  // concrete leaves and emits via the comptime-value path; carrying its arg list
-  // would wrongly trip the runtime enum/struct-construction codegen
-  // (`ctor_has_runtime_args`), corrupting the literal's type name — that regressed
-  // match_arm_folded_fncall + runtime_enum_construct. (Do NOT alias the whole
-  // `last_info` either: its `variable_name` temp would pollute downstream type names.)
+  // Runtime-RESULT gate for the clears below: a bare runtime call
+  // (UnknownVal), a unit-returning call (UnitVal), no value, OR a RUNTIME
+  // enum/struct construction whose shell carries an UnknownVal payload
+  // (`.Some((p &+ i).*)` in ArrayList.get → runtime construction codegen). A
+  // fully comptime-FOLDED construct (`.None`, `.Some(i32(7))`, `i32(0)`) has
+  // only concrete leaves and emits via the comptime-value path.
   carry_runtime_args := match(
     last_info.value,
     .None => true,
     .Some(v) => match(v,.UnitVal => true, _ => _value_contains_unknown(v))
   );
-  if((ast_expr_id(expr) == ast_expr_id(last_expr)) && carry_runtime_args, {
-    out_info.runtime_arg_exprs_in_order = last_info.runtime_arg_exprs_in_order;
+  if(shared_with_tail && !(carry_runtime_args), {
+    out_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).None;
+    out_info.index_trait_ptr_type = Option(TypeValue).None;
+    out_info.index_method_type = Option(TypeValue).None;
+    out_info.index_method_value = Option(EvalValue).None;
   });
-  // Same shared-id clobber: an Index-trait call stamped `index_trait_ptr_type`
-  // / `index_method_type` / `index_method_value` on this id (function.yo's
-  // out_idx paths); dropping them turns a bare `xs(i)` cond/if arm body into
-  // "Failed to transpile" (generation.yo's index branch needs both). Carry
-  // them across when the result node IS the inner call node AND the result is
-  // runtime (same gate as runtime_arg_exprs_in_order above: a comptime-FOLDED
-  // element access emits via the comptime-value path — carrying the index
-  // fields would wrongly route it through the index-call C branch). (TS clones
-  // the inner expr into the begin node, so its `$` never collides —
-  // begin.ts:1016-1045.)
-  if(((ast_expr_id(expr) == ast_expr_id(last_expr)) && carry_runtime_args) && last_info.index_method_type.is_some(), {
-    out_info.index_trait_ptr_type = last_info.index_trait_ptr_type;
-    out_info.index_method_type = last_info.index_method_type;
-    out_info.index_method_value = last_info.index_method_value;
-  });
-  // Same shared-id clobber: `&(xs(i))` — an address-of whose operand resolves
-  // through the Index trait — is stamped `is_index_trait_address_of` by
-  // evaluate_address_call (builtins/ptr_fns.yo, mirroring ptr-fns.ts:198).
-  // Codegen's generate_address_of reads it to emit the index method's returned
-  // pointer DIRECTLY; without it the operand is auto-dereffed into a stack temp
-  // whose address is then returned — a dangling pointer (`uint8_t t = *idx_fn(..);
-  // return &t;`). That is exactly what String's `Index.index` body
-  // (`.Some(bytes) => &(bytes(idx))`, std/string/string.yo:2397) emitted, so
-  // `s(i) = ...` byte writes silently mutated a dead temp. Carry it across
-  // whenever the result node IS the inner node.
-  if((ast_expr_id(expr) == ast_expr_id(last_expr)) && last_info.is_index_trait_address_of.is_some(), {
-    out_info.is_index_trait_address_of = last_info.is_index_trait_address_of;
-  });
-  // Same shared-id clobber: the begin-tail ownership pass above may have
-  // attached a deferred `___dup` to the tail's ExprInfo (non-owning local
-  // shared out — e.g. `.Ok(map) => map`). Losing it un-balances the owner's
-  // scope-end drop (the map is freed while the caller still holds it). Carry
-  // it across unconditionally when the result node IS the inner node.
-  if((ast_expr_id(expr) == ast_expr_id(last_expr)) && last_info.deferred_dup_expressions.is_some(), {
-    out_info.deferred_dup_expressions = last_info.deferred_dup_expressions;
-  });
-  // Same shared-id clobber: a bare primitive (int/bool) `match` tail carries
-  // `is_primitive_match` on the MATCH node itself (evaluator/exprs/match.yo);
-  // codegen's generate_match_expression reads it to take the C-switch path
-  // (codegen/exprs/match.yo:1186). Dropping it sent a bare
-  // `(fn(n : i32) -> i32)(match(n, ...))` body down the enum branch —
-  // `// Error: "match" expression requires an enum type` spliced into a
-  // `return` (tests/basic.test.yo under stage-1). Harmless for folded
-  // matches: the comptime-value path never consults it. (TS clones the inner
-  // expr into the begin node, so its `$` never collides — begin.ts:1131-1151.)
-  if((ast_expr_id(expr) == ast_expr_id(last_expr)) && expr_info_is_primitive_match(last_info).is_some(), {
-    expr_info_set_is_primitive_match(out_info, expr_info_is_primitive_match(last_info));
-  });
-  // Same shared-id clobber: the tail's recorded temp `variable_name` (e.g. the
-  // borrowed field-read temp of a bare `(fn(p : Pair) -> Krate)(p.inner)`
-  // body). The carried deferred `___dup` above references that temp, and the
-  // begin-tail / implicit-return dup materialization declares it via
-  // `lei.variable_name` — losing the name suppressed the balancing +1 (the
-  // undeclared-temp gate skipped the dup) and re-opened the round-3
-  // borrowed-field-tail UAF (tests/codegen-bootstrap/borrowed_field_return.yo
-  // printed "2 2" instead of "2 3"). Gates:
-  //   - carry_runtime_args: a comptime-FOLDED tail must keep the fresh info
-  //     (its recorded temp name would pollute downstream type names — see the
-  //     carry_runtime_args comment above);
-  //   - FUNCTION-BODY begins only: for match/cond ARM begins the
-  //     attach_temp_variable_to_expr below would re-register the carried name
-  //     as an OWNING variable in the ENCLOSING begin frame of the SAME C
-  //     function, scheduling a scope-end drop against a declared temp whose
-  //     value the arm's `_result` assignment already moved out — an
-  //     over-release. Arm sites pass `false`; every fn-body eval site
-  //     (function_type.yo / closure_type.yo / helper.yo / comptime_fn.yo /
-  //     function.yo) passes `true`.
-  if(((ast_expr_id(expr) == ast_expr_id(last_expr)) && is_evaluating_function_body_begin_block) && (carry_runtime_args && last_info.variable_name.is_some()), {
-    out_info.variable_name = last_info.variable_name;
+  if(shared_with_tail && !(is_evaluating_function_body_begin_block && carry_runtime_args), {
+    out_info.variable_name = Option(String).None;
   });
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   // Attach temp variable for the begin block result (no-op stub in Phase 2aa).

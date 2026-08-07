@@ -496,6 +496,55 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
     early_return_only_deferred_drop_expressions : Option(ArrayList(AstExpr)).None
   )
 );
+/// ExprInfo for a SHARED-id begin result — `evaluate_begin_expression` on a
+/// single-expression body/arm, where the result node IS the inner expression
+/// node (yo-self reuses the id where TS clones a begin wrapper,
+/// begin.ts:1016-1045). Codegen reads this ONE id in BOTH roles (inner
+/// expression shape + begin block), so preservation is the default: every
+/// field is copied from the inner expression's info (sharing payloads,
+/// including the whole `rare` group) and only what the begin level owns is
+/// overridden here — `env` (the post-pop scope snapshot), `ty` (the begin's
+/// return type), `path_collection` (begin-owned, empty), and
+/// `popped_env_frame` (never stored — the eval-phase leak fix, see begin.yo).
+/// The caller applies the remaining begin-level overrides (`value`,
+/// `deferred_drop_expressions`) and the conditional CLEARS (`variable_name`,
+/// `runtime_arg_exprs_in_order`, the index-field group) — see begin.yo's
+/// shared-id tail. This INVERTS the old fresh-info + carry-whitelist merge
+/// (issues/yo-self-begin-shared-id-clobber.md): loss is now the explicit
+/// choice, so fields codegen reads on the inner node's shape (source_variable,
+/// origin_type, early_return_only drops, the rare group's converted type /
+/// dyn traits / async analysis, ...) survive without per-field carries.
+clone_expr_info_for_shared_begin_result :: (fn(src : ExprInfo, env : Environment, ty : TypeValue) -> ExprInfo)(
+  ExprInfo(
+    env : snapshot_env(env),
+    ty : ty,
+    path_collection : g_empty_path_collection,
+    value : src.value,
+    variable_name : src.variable_name,
+    is_accessing_property : src.is_accessing_property,
+    runtime_arg_exprs_in_order : src.runtime_arg_exprs_in_order,
+    control_flow : src.control_flow,
+    doc_comment : src.doc_comment,
+    deferred_dup_expressions : src.deferred_dup_expressions,
+    deferred_drop_expressions : src.deferred_drop_expressions,
+    capture_type : src.capture_type,
+    origin_type : src.origin_type,
+    rare : src.rare,
+    macro_expansion : src.macro_expansion,
+    popped_env_frame : Option(Frame).None,
+    original_expr : src.original_expr,
+    source_variable : src.source_variable,
+    comptime_ref : src.comptime_ref,
+    index_trait_ptr_type : src.index_trait_ptr_type,
+    index_method_type : src.index_method_type,
+    index_method_value : src.index_method_value,
+    is_index_trait_address_of : src.is_index_trait_address_of,
+    is_compile_time_only_assignment : src.is_compile_time_only_assignment,
+    is_anonymous_function_definition : src.is_anonymous_function_definition,
+    comptime_unrolled_bodies : src.comptime_unrolled_bodies,
+    early_return_only_deferred_drop_expressions : src.early_return_only_deferred_drop_expressions
+  )
+);
 // ---------------------------------------------------------------------------
 // ExprInfoRare accessors
 // ---------------------------------------------------------------------------
@@ -1298,7 +1347,7 @@ export(ControlFlowKind, ControlFlowFlags);
 export(control_flow_of, has_control_flow, has_any_control_flow, merge_control_flows, control_flow_to_string);
 export(ComptimeRef);
 export(RuntimeDestructuring);
-export(ExprInfo, new_expr_info);
+export(ExprInfo, new_expr_info, clone_expr_info_for_shared_begin_result);
 // `ExprInfoRare` accessors — see the `ExprInfoRare` doc comment. The thirteen
 // fields they cover are NOT reachable as `info.<field>` any more.
 export(ExprInfoRare);

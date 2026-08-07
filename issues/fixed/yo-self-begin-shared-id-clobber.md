@@ -1,6 +1,17 @@
 # yo-self: single-expression `begin` clobbers the inner expression's ExprInfo (shared AstExpr id)
 
-**Status:** one instance FIXED (`is_index_trait_address_of`); the underlying class is OPEN.
+**Status:** durable merge inversion LANDED (2026-08-07, validating) — the main
+tail path now starts from a copy of the tail's info
+(`clone_expr_info_for_shared_begin_result`, expr_info.yo) and applies the old
+carries' gates as explicit CLEARS (`variable_name`,
+`runtime_arg_exprs_in_order` + index triplet); every other inner field —
+including the whole `rare` group — is preserved by default. Remaining
+instances of the class: the early-escape set sites inside
+`evaluate_begin_expression` (begin.yo ~1363/1461/1652/1677/1701/1770/1826,
+control-flow escapes storing fresh infos on `expr_to_eval`) still replace
+whatever the escape node recorded — same mechanism, separately reachable
+(e.g. a shared-id `return(x)` body's early-return-only drops); convert them
+the same way if one surfaces.
 
 ## The mechanism
 
@@ -137,14 +148,27 @@ an unconditional carry regressed `match_arm_folded_fncall` and
 `macro_expansion` is already immune — it was moved to a durable side-table for
 exactly this reason (`recur` codegen, commit `4529a1b94`).
 
-### Proposed durable fix
+### The durable fix (landed 2026-08-07)
 
 Invert the merge on the shared-id path: instead of a fresh `out_info` plus a
-whitelist, start from `last_info` and apply the begin-level overrides
-(`ty`/`return_type`, `deferred_drop_expressions`, the `value`/`control_flow`/
-`comptime_ref` derivations) while explicitly **clearing** the fields the begin level
-must own — notably `variable_name` (aliasing the inner temp name pollutes downstream
-type names, per the existing warning at `begin.yo:2165`) and the conditionally-gated
-`runtime_arg_exprs_in_order` / index-field group. This makes preservation the default
-and loss the explicit choice, which is the direction TS's node-cloning achieves
-structurally. It is a behaviour-visible refactor and needs a full TIER 2 pass.
+whitelist, start from a copy of `last_info`
+(`clone_expr_info_for_shared_begin_result` in expr_info.yo — shares payloads
+including the `rare` group; overrides `env` to the post-pop snapshot, `ty` to
+the begin return type, `path_collection` to empty, `popped_env_frame` to None
+per the eval-phase leak fix) and apply the begin-level overrides (`value`,
+`deferred_drop_expressions`) while explicitly **clearing** the fields the
+begin level must own:
+
+- `variable_name` unless (function-body begin && runtime tail) — the old
+  carry's gate, now a clear;
+- `runtime_arg_exprs_in_order` + `index_trait_ptr_type`/`index_method_type`/
+  `index_method_value` for a comptime-folded tail (`!carry_runtime_args`).
+
+This makes preservation the default and loss the explicit choice, which is
+the direction TS's node-cloning achieves structurally. The four historical
+carries reduce to two clear-gates; `is_index_trait_address_of`,
+`deferred_dup_expressions`, and `is_primitive_match` are preserved by
+construction, as are all previously-latent fields in the table above.
+
+Validation: battery + corpus 155 + check ./std, fast language suite
+(tests/ minus internal), stage-2/3 fixpoint.
