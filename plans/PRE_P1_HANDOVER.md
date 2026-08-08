@@ -12,11 +12,15 @@ Everything below is verified unless marked as a hypothesis.
 
 ## 0. TL;DR
 
-**Two hard blockers**, both small:
+**One hard blocker** remaining:
 
 1. The **3 HOLLOW test files** — 60 tests reporting success while running nothing.
    Handed off; see [`issues/handover-yo-self-hollow-files.md`](../issues/handover-yo-self-hollow-files.md).
-2. **Branch protection is off** — every gate below is correct but _advisory_.
+
+~~2. Branch protection is off~~ — **DONE 2026-08-08.** The `develop` ruleset is
+`enforcement: active` with **15** required status checks, up from a disabled
+ruleset naming 4 (one of them a `test` context that no longer existed). Every gate
+below is now binding rather than advisory.
 
 **One thing to decide consciously, not by default**: the `ctl` ABI issue. It is
 no longer latent, and adjudicating it gets permanently harder once P2 retires the
@@ -81,19 +85,36 @@ ruled-out fix attempts**. Full brief:
 **Done means** `scripts/bootstrap/known-failing.tsv` is empty, at which point the
 gate demands a fully clean sweep on its own.
 
-### 2.2 Branch protection is disabled
+### 2.2 ~~Branch protection is disabled~~ — RESOLVED 2026-08-08
 
-`gh api repos/shd101wyy/Yo/rules/branches/develop` returns `[]`. The ruleset
-exists but is `enforcement: "disabled"`, and its required-checks list names only 4
-of the 14 jobs (including a stale `test` context that no longer exists).
+Previously `gh api repos/shd101wyy/Yo/rules/branches/develop` returned `[]`: the
+ruleset existed but was `enforcement: "disabled"`, and its required-checks list
+named only 4 of the jobs — one of them a `test` context that no longer exists. So
+~55 minutes of green CI blocked nothing and a red PR could be merged by hand.
 
-So **~55 minutes of green CI blocks nothing** — a red PR can still be merged by
-hand. Everything in §1 is correct but advisory until this is flipped.
+Now `enforcement: "active"` with **15** required status checks, and the branch
+returns `["deletion","non_fast_forward","required_status_checks"]`.
 
-A ready-to-run script was prepared (prints before/after and a one-line revert).
-The sandbox blocks repo-settings changes, so this needs a human. Deferred by
-explicit decision on 2026-08-08 — recorded here so it is a choice, not an
-oversight.
+Two notes for whoever maintains it:
+
+- **The required list is not self-updating.** It is a literal list of job names.
+  The first pass built it from a CI run that predated the `hollow-sweep` job, so
+  the newest gate — the one that found both RED files — was running but not
+  blocking until it was added explicitly. **Any new CI job must be added by hand**,
+  or it silently does not gate. Check with:
+
+  ```bash
+  gh api repos/shd101wyy/Yo/rulesets/13548862 \
+    --jq '[.rules[]|select(.type=="required_status_checks")|.parameters.required_status_checks[].context]' \
+    | diff - <(gh api repos/shd101wyy/Yo/actions/runs/<recent-run-id>/jobs --paginate --jq '[.jobs[].name]|sort')
+  ```
+
+- `strict_required_status_checks_policy` is `true`, so a PR must be up to date
+  with `develop` to merge. With ~55 min CI that means re-running when someone
+  lands ahead of you; flip it to `false` if that becomes a tax.
+
+Revert, if ever needed: `gh api -X PUT repos/shd101wyy/Yo/rulesets/13548862 --input /tmp/rs_before.json`
+(or rebuild the payload with `enforcement: "disabled"`).
 
 ---
 
@@ -159,8 +180,7 @@ Two more scoping facts:
 ## 5. Suggested order
 
 1. **Fix the 3 HOLLOW files** (§2.1) — in flight with another agent.
-2. **Enable branch protection** (§2.2) — minutes, needs a human, makes everything
-   else real.
+2. ~~Enable branch protection~~ — **done**; the gates are binding.
 3. **Start P1 with `init`.** It is genuinely ready (239 lines, complete
    `init_project`) and has **five observable divergences** a differential harness
    catches on day one — including one where **yo-self is right and TS is stale**
