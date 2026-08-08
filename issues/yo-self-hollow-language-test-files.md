@@ -204,6 +204,23 @@ Do Layer 1 as well; it is a genuine port gap and will be needed once the callee
 resolves. Gate the change with the full battery: this is the shared def-time body
 eval, so the blast radius is every function definition in the language.
 
+**ATTEMPTED AND RULED OUT (2026-08-08).** The suggested fix above was implemented —
+the variadic binding moved into `_build_def_time_body_env` (so all three call sites
+get it), `PendingDefEval` given a `variadic_param` field for the re-run path, and
+the flow path's bespoke copy deleted. It type-checks cleanly and produces **exactly
+the same error at exactly the same line**. So the failing evaluation **does not go
+through any of the three `_build_def_time_body_env` call sites** — or
+`get_func_variadic_param` returns `None` there (the side table is keyed by fn-type
+expr id, and `copy_func_variadic_param` at `:854` re-keys it to the func-val id, so
+a key mismatch is a live but unverified hypothesis). Reverted.
+
+That is now **four** failed attempts on this bug. **Stop guessing and instrument**:
+put a marker in the `.None` arm that yields `Variable "types" not found`, or at each
+`_trial_eval_fn_body` call site, and run the repro. One build answers what four
+speculative fixes did not. See
+[`handover-yo-self-hollow-files.md`](handover-yo-self-hollow-files.md) for the full
+working brief.
+
 ### A tempting codegen "fix" that is actively harmful — do not do it
 
 `generate_func_call` bails to the marker whenever `get_expr_info` misses, _before_
