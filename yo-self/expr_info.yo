@@ -894,8 +894,48 @@ _mg_canon :: (fn(module_path : String) -> String)({
 });
 /// Record that module `module_path` declared the module-level runtime
 /// global `name`.
+/// Rollback support for `comptime_expect_error`. A module-level binding
+/// inside a REJECTED `comptime_expect_error(...)` still reaches
+/// `register_module_level_global` before the expected error is raised, and
+/// the entry outlived the rejection: codegen then module-qualified every
+/// LATER local of that name while its declaration stayed unqualified —
+/// `cee(begin(x := i32(0), (p : *(i32)) = &(x), ()))` made a later
+/// `x := i32(1)` emit `int32_t x = 1;` and read `x_m<hash>`, an undeclared
+/// identifier (tests/safe_code_structural_gates.test.yo).
+///
+/// Recording is a mark/rollback pair over an append-only key list, the same
+/// shape as `branch_group_stack_len` / `truncate_branch_group_stack`, so
+/// nested `comptime_expect_error`s nest correctly. Only keys this recording
+/// window ADDED are rolled back; a name already registered stays.
+(g_mg_recording_depth : usize) = usize(0);
+(g_mg_recorded_keys : ArrayList(String)) = ArrayList(String).new();
+module_global_recording_mark :: (fn() -> usize)({
+  g_mg_recording_depth = (g_mg_recording_depth + usize(1));
+  g_mg_recorded_keys.len()
+});
+rollback_module_level_globals_to :: (fn(mark : usize) -> unit)({
+  while(g_mg_recorded_keys.len() > mark, {
+    match(
+      g_mg_recorded_keys.get(g_mg_recorded_keys.len() - usize(1)),
+      .Some(k) => {
+        g_module_level_globals.remove(k);
+        ()
+      },
+      .None => ()
+    );
+    g_mg_recorded_keys.pop();
+    ()
+  });
+  if(g_mg_recording_depth > usize(0), {
+    g_mg_recording_depth = (g_mg_recording_depth - usize(1));
+  });
+});
 register_module_level_global :: (fn(module_path : String, name : String) -> unit)({
-  g_module_level_globals.set(`${_mg_canon(module_path)}|#|${name}`, true);
+  mg_key := `${_mg_canon(module_path)}|#|${name}`;
+  if((g_mg_recording_depth > usize(0)) && g_module_level_globals.get(mg_key.clone()).is_none(), {
+    g_mg_recorded_keys.push(mg_key.clone());
+  });
+  g_module_level_globals.set(mg_key, true);
   ()
 });
 /// True if module `module_path` declared the module-level runtime global
@@ -1376,6 +1416,7 @@ export(record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io
 export(record_method_callee_value, lookup_method_callee_value);
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_type);
 export(register_module_level_global, is_module_level_global, module_global_c_suffix);
+export(module_global_recording_mark, rollback_module_level_globals_to);
 export(register_some_resolved_concrete, lookup_some_resolved_concrete, unregister_some_resolved_concrete);
 export(
   register_struct_ctor_fid,

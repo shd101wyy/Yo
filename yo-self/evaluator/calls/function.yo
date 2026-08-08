@@ -1003,6 +1003,11 @@ _try_rewrite_range_index_to_slice_copy :: (
     func_expr : AstExpr,
     args : ArrayList(AstExpr),
     recv_ty : TypeValue,
+    /// The receiver's evaluated VALUE. A receiver that already holds a
+    /// CONCRETE comptime value (an array/slice literal, a `comptime_str`)
+    /// must keep the comptime slicing path in `try_to_call_with_index_trait`
+    /// — see the guard below.
+    recv_val : Option(EvalValue),
     env : Environment
   ) -> Option(AstExpr)
 )({
@@ -1023,6 +1028,29 @@ _try_rewrite_range_index_to_slice_copy :: (
   });
   // Function-typed receivers are real calls, not indexing.
   if(is_function_type(recv_ty), {
+    return(Option(AstExpr).None);
+  });
+  // COMPTIME-valued receivers keep the comptime slicing path (TS
+  // function.ts:815-823: `!isTypeValue(recvValue) && !recvHasComptimeSliceValue`,
+  // whose comment reads "Comptime-valued receivers (array/slice/comptime_str
+  // literals) keep the comptime slicing path in tryToCallWithIndexTrait").
+  // The rewrite proceeds ONLY for a receiver with no value or an unknown one
+  // — i.e. a genuinely runtime receiver.
+  //
+  // Unported until now, and it is what made tests/index.test.yo HOLLOW:
+  // `x :: "Hello World"; x(0 .. 5)` matched `str`'s `slice_copy` (measured:
+  // 1 method for recv=comptime_str), so the comptime string slice was
+  // rewritten into a RUNTIME `x.slice_copy(0 .. 5)` whose `Range(usize)`
+  // parameter then failed to unify with the `Range(comptime_int)` argument
+  // ("Cannot unify incompatible types") — one swallowed error that erased
+  // all 49 tests in the file's batch dispatch.
+  recv_has_comptime_slice_value := match(
+    recv_val,
+    .Some(rv) => (!(is_unknown_val(rv)) && !(is_type_val(rv))),
+    .None => false
+  );
+  recv_is_type_val := match(recv_val,.Some(rv2) => is_type_val(rv2),.None => false);
+  if(recv_is_type_val || recv_has_comptime_slice_value, {
     return(Option(AstExpr).None);
   });
   method_name := if(is_incl, String.from("slice_copy_inclusive"), String.from("slice_copy"));
@@ -5694,7 +5722,7 @@ Fix: wrap the call:
         // plans/archive/SLICE_REWORK.md Part C: range indexing on a runtime receiver
         // rewrites to slice_copy / slice_copy_inclusive method dispatch.
         match(
-          _try_rewrite_range_index_to_slice_copy(expr, func_expr, args, callee_ty, callee_env),
+          _try_rewrite_range_index_to_slice_copy(expr, func_expr, args, callee_ty, callee_value, callee_env),
           .Some(rewritten) => {
             return(recur(rewritten, env, t_unit(), Option(EvalValue).None, ctx, exn));
           },
@@ -6199,7 +6227,7 @@ Fix: wrap the call:
           // plans/archive/SLICE_REWORK.md Part C: range indexing on a runtime receiver
           // rewrites to slice_copy / slice_copy_inclusive method dispatch.
           match(
-            _try_rewrite_range_index_to_slice_copy(expr, func_expr, args, callee_ty_none, callee_env),
+            _try_rewrite_range_index_to_slice_copy(expr, func_expr, args, callee_ty_none, callee_value, callee_env),
             .Some(rewritten) => {
               return(recur(rewritten, env, t_unit(), Option(EvalValue).None, ctx, exn));
             },
