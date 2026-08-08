@@ -1052,8 +1052,22 @@ _optimize_dup_drop_pairs :: (
   //    e1-e7 gates plus the captured filter (begin.ts:1802-1804) so only
   //    variables the scheduler WOULD drop are optimized.
   remove_ids := HashSet(usize).new();
-  (vi : usize) = usize(0);
-  while(vi < fvars.len(), {
+  // Walk the frame in REVERSE declaration order. TS iterates
+  // `getVariablesNeedingDrop(env)` (begin.ts:1889, 1997), and that helper
+  // returns its list ALREADY REVERSED (env.ts:2304-2305, "Return in reverse
+  // order (end to start) for proper drop order"). Order is not cosmetic here:
+  // when several variables share one base — `a := Holder(...); b := a;` — the
+  // single collected dup can cancel the scope-end drop of EITHER of them, and
+  // whichever the loop reaches first wins. Walking forwards picked `a`, leaving
+  // `b`'s drop in place alongside the saved-old-value temp's, so the same rc=1
+  // object was decremented TWICE: a double free, which glibc aborts on and
+  // macOS malloc tolerates (hence "passes locally, fails on Linux CI").
+  // `_schedule_scope_end_drops` already reverses explicitly (see below); the
+  // optimizer was never brought in line.
+  // See issues/yo-self-hollow-language-test-files.md.
+  (vi : usize) = fvars.len();
+  while(vi > usize(0), {
+    vi = (vi - usize(1));
     match(
       fvars.get(vi),
       .Some(v) => {
@@ -1172,6 +1186,14 @@ _optimize_dup_drop_pairs :: (
                     );
                     rmi = (rmi + usize(1));
                   });
+                  // Clear the list (begin.ts:2108-2109, `dupCalls.length = 0`).
+                  // REQUIRED, not tidying: `dups` is the live ArrayList held in
+                  // `merged.dup_calls`, so emptying it means a LATER variable
+                  // sharing this same base sees no dups and therefore keeps its
+                  // own scope-end drop instead of cancelling a second time
+                  // against the one dup. Without it, reversing the walk above
+                  // just moves the double-drop from `b` to `a`.
+                  dups.clear();
                   // Consume at the dup's USE SITE when there is exactly one
                   // runtime dup (begin.ts:2019-2040): early returns AFTER the
                   // transfer must not re-drop the moved value; ones BEFORE it
@@ -1200,7 +1222,6 @@ _optimize_dup_drop_pairs :: (
       },
       .None => ()
     );
-    vi = (vi + usize(1));
   });
   // 4. Strip the cancelled dups from the tree (begin.ts:2056-2061).
   if(remove_ids.len() > usize(0), {

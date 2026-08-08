@@ -902,3 +902,62 @@ test("statement-hidden mutation keeps the borrowed-projection dup", {
     "borrow survives a mutation behind a declaration"
   );
 });
+// Regression: aliasing a ref local must drop each object EXACTLY ONCE.
+//
+// `b := a` creates ONE deferred `___dup`, keyed under `a`. The dup/drop pair
+// optimizer cancels it against the scope-end drop of one variable in the alias
+// chain, and whichever it reaches first wins. yo-self walked the frame forwards
+// and cancelled the wrong one; TS iterates `getVariablesNeedingDrop`, which is
+// already reversed (src/env.ts:2304). The same root cause showed up as a DOUBLE
+// FREE in one shape (tests/ref_local_binding.test.yo, which aborted under glibc
+// and passed under macOS malloc) and as a LEAK in the reassignment shape below.
+//
+// Counting disposals is deliberate. The miscount happens at SCOPE END, after any
+// in-body assert could observe it, and whether a double free actually crashes is
+// allocator-dependent — which is exactly why this stayed invisible on macOS.
+// The counter is MODULE-LEVEL on purpose: module-level mutables have program
+// lifetime and are never dropped (getVariablesNeedingDrop skips isModuleLevel),
+// so it is still readable after the handles are gone. A counter stored INSIDE
+// the handle is not — passing it into the struct hands over ownership, so
+// disposing the handle frees the counter and reading it afterwards is a UAF.
+(g_alias_disposed : i32) = i32(0);
+AliasHandle :: ref(struct(tag : i32));
+impl(
+  AliasHandle,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_alias_disposed = (g_alias_disposed + i32(1));
+    })
+  )
+);
+// CONTROL, not the regression guard: this shape disposed correctly even before
+// the fix, so it cannot catch the original bug. It is kept because it DOES guard
+// the reversal itself — if walking the frame backwards ever broke the simple
+// single-alias case, this is what fails. The discriminating test is the next one.
+test("aliasing a ref local disposes the object exactly once", {
+  {
+    a := AliasHandle(tag : i32(1));
+    b := a;
+    assert(b.tag == i32(1), "the alias sees the same object");
+    assert(g_alias_disposed == i32(0), "nothing disposed while the scope is live");
+  };
+  assert(
+    g_alias_disposed == i32(1),
+    "the aliased object is disposed exactly once, not twice and not never"
+  );
+});
+test("reassigning after aliasing disposes both objects exactly once", {
+  {
+    a := AliasHandle(tag : i32(1));
+    b := a;
+    a = AliasHandle(tag : i32(2));
+    assert(b.tag == i32(1), "b keeps the original object alive");
+    assert(a.tag == i32(2), "a points at the replacement");
+  };
+  // Two objects were created, so two disposals. Before the fix this reported
+  // ONE — the original was never disposed at all.
+  assert(
+    g_alias_disposed == i32(2),
+    "both the original and the replacement are disposed exactly once each"
+  );
+});

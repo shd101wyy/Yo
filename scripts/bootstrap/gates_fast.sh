@@ -64,9 +64,21 @@ for t in tests/comptime.test.yo tests/prelude.test.yo tests/arc.test.yo tests/as
   # the same reason.)
   YO_KEEP_BATCH=1 timeout 1200 "$S1" test "$t" &> "/tmp/${P}_${name}.log"
   rc=$?
-  c="$d/.yo_selftest_batch_1.bin.c"
+  # Check EVERY batch, not a hardcoded `.yo_selftest_batch_1.bin.c`: the runner
+  # now splits a file's tests into batches of TEST_BATCH_SIZE (mirroring TS's
+  # DEFAULT_TEST_BATCH_SIZE=100), so the artifacts are
+  # `.yo_selftest_batch_<file>_<batch>.bin.c` and a big file emits several. A
+  # hardcoded name reported hollow=NA for every file once batching landed, and
+  # would silently skip batches 2..N even if it still matched batch 1.
+  # hollow_sweep69.sh already globs the same way.
+  batch_cs=$(ls "$d"/.yo_selftest_batch_*.bin.c 2>/dev/null)
   hollow=NA
-  [ -f "$c" ] && { if sed -n '/^void __yo_user_main() {/,/^}/p' "$c" | grep -q 'Failed to transpile'; then hollow=1; else hollow=0; fi; }
+  if [ -n "$batch_cs" ]; then
+    hollow=0
+    for c in $batch_cs; do
+      if sed -n '/^void __yo_user_main() {/,/^}/p' "$c" | grep -q 'Failed to transpile'; then hollow=1; fi
+    done
+  fi
   echo "$name rc=$rc hollow=$hollow $(grep -oE '[0-9]+ passed' "/tmp/${P}_${name}.log" | tail -1)"
   if [ "$rc" != "0" ]; then
     fail "battery $name rc=$rc"

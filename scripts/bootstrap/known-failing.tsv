@@ -23,12 +23,17 @@ tests/index.test.yo	HOLLOW
 tests/safe_code_structural_gates.test.yo	HOLLOW
 tests/variadic_comptime.test.yo	HOLLOW
 
-# --- RED: fail outright under the self-hosted compiler ON LINUX ONLY ---
-# Both PASS under the self-hosted binary on macOS arm64 and pass under the TS
-# compiler everywhere, so this is a platform-specific divergence in yo-self.
-# Neither file is in the 23-file gates_fast battery, so neither had ever been
-# run under the self-hosted compiler on Linux before this sweep existed.
-#   ref_local_binding: rc=1 after reporting "1 passed" -> a later test fails
-#   string/string:     rc=1 with no summary at all     -> dies before running
-tests/ref_local_binding.test.yo	RED
-tests/string/string.test.yo	RED
+# --- RED: none. ---
+# The two Linux-only RED files found by the first CI run of this sweep are FIXED:
+#   tests/string/string.test.yo      — the runner compiled all 252 tests as ONE
+#     batch, whose `cond` dispatch nests one brace level per test (261 deep),
+#     past clang's default -fbracket-depth=256. Fixed by porting TS's test
+#     batching (TEST_BATCH_SIZE=100).
+#   tests/ref_local_binding.test.yo  — the dup/drop pair optimizer walked the
+#     frame forwards where TS walks it reversed, so an alias binding's drop
+#     survived alongside the saved-old-value temp's: a double free on one rc=1
+#     object. Fixed in yo-self/evaluator/exprs/begin.yo.
+# Regression coverage for the second lives in tests/rc.test.yo ("aliasing a ref
+# local drops the object exactly once" + the reassignment variant), which counts
+# disposals so it fails on EVERY platform rather than only where the allocator
+# happens to detect the double free.
