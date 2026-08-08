@@ -263,7 +263,26 @@ Two more scoping facts:
   done | wc -l
   ```
 
-  **The dominant remaining class is not spacing — it is SOURCE DESTRUCTION.**
+  **Status 2026-08-09: 339 → 17 of 808 files, and both root causes are fixed.**
+
+  1. ~~The Dot case ate the space the Comma/operator handler had just set~~ —
+     fixed in both formatters (339 → 253).
+  2. ~~The self-hosted formatter DESTROYED any file with a multi-byte character
+     plus a backtick string~~ — fixed (253 → 17). It was a character index used
+     as a byte offset (`formatter.yo:1460` → `read_raw_template_string`); ASCII
+     hid it, so no existing test could catch it, and `fmt` exited 0 with output
+     that did not parse. 23 of 40 sampled `std/` files were being destroyed.
+     [`issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md`](../issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md)
+
+  **What remains is ONE class, 17 files**: a stray space before `)` after an
+  operator token in a MULTILINE paren frame — `(==)`, `(..)`, `(..=)`,
+  `quote(=>)`, and the C-variadic `...`. It does NOT reproduce on a minimal
+  single-line case, so the multiline frame is part of the trigger. This is the
+  last thing between here and wiring the `fmt` differential gate.
+
+  Historical note on what this class used to look like:
+
+  **The dominant remaining class was not spacing — it was SOURCE DESTRUCTION.**
   `yo-self fmt` rewrites any file containing a multi-byte character plus a
   backtick string into something that **does not parse**, and exits 0. **23 of 40**
   sampled `std/` files with a backtick are destroyed this way; 774 of 922 captured
@@ -272,7 +291,7 @@ Two more scoping facts:
   `read_raw_template_string`, whose parameter is documented and used as a BYTE
   offset. ASCII-only input hides it, which is why every existing test misses it.
   4-line reproducer and full analysis:
-  [`issues/yo-self-formatter-corrupts-files-with-non-ascii.md`](../issues/yo-self-formatter-corrupts-files-with-non-ascii.md).
+  [`issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md`](../issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md).
 
   This **must be fixed before the `fmt` differential gate can be wired at all** —
   the gate would otherwise be measuring corruption rather than style. It is also

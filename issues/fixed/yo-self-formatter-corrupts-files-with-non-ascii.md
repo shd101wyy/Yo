@@ -1,5 +1,16 @@
 # The self-hosted formatter DESTROYS any file with non-ASCII + a backtick string
 
+> **FIXED 2026-08-09** — `read_raw_template_string` now converts the character
+> index to a byte offset itself (counting UTF-8 lead bytes), so the two index
+> spaces can no longer disagree. Verified: the 4-line repro round-trips clean,
+> `std/encoding/html.yo` now matches the reference formatter byte-for-byte, and
+> full-corpus formatter divergence went **253 → 17 of 808 files**.
+>
+> **The audit in "Fix direction" is still open** and deliberately not done here:
+> any OTHER consumer of `Token.character` that indexes bytes has the same latent
+> bug. The fix was kept local so it could ship with its regression guard;
+> widening it to a `Token.byte_offset` field is the follow-up.
+
 **Found 2026-08-09** while measuring the `fmt` divergence for
 [`plans/PRE_P1_HANDOVER.md`](../plans/PRE_P1_HANDOVER.md) §6. This is not a
 spacing disagreement — it is **silent source destruction**, and it is the
