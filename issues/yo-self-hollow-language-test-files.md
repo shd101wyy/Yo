@@ -69,6 +69,68 @@ Candidate constructs per file (each file's arms are dominated by one theme):
   `test(...)`, the rest module-level `comptime_expect_error(...)` negative cases
 - `variadic_comptime.test.yo` — variadic comptime functions
 
+## ROOT CAUSE TRACED 2026-08-08 — it is the EVALUATOR, not codegen
+
+The `// Failed to transpile` marker is a **symptom**. The chain, established with
+`YO_DEBUG_SWALLOW=1` (which prints every def-time error yo-self swallows):
+
+1. A comptime call fails to evaluate — `evaluate_comptime_fn_call: function_value
+is not a FuncVal` (`yo-self/evaluator/calls/comptime_fn.yo:500`).
+2. So the enclosing comparison has type `unknown`.
+3. So `comptime_assert` rejects it — `Expected bool value for "comptime_assert"`
+   (`yo-self/evaluator/builtins/comptime_assert.yo:120-151`). **Swallowed.**
+4. So the whole `main` body's evaluation aborts and **no ExprInfo is recorded**.
+5. So codegen's `get_expr_info` lookup takes its `.None` arm and emits the marker
+   — and because the batch's body is one giant `match`, that marker replaces the
+   entire dispatch, taking every sibling test arm with it.
+
+### Minimal repro (5 lines, clean TS/yo-self differential)
+
+```rust
+count_types :: (fn(...(comptime(types) : ComptimeList(Type))) -> comptime(usize))(types.len());
+comptime_assert(count_types(i32) == usize(1), "one");
+main :: (fn() -> unit)({ (); });
+export(main);
+```
+
+- **TS**: compiles clean, 0 markers.
+- **yo-self**: `error: Expected bool value for "comptime_assert"`, exit 1.
+
+Not the round-trip: the `ast_expr_to_string` form `(types.len)()` fails
+identically to the original `types.len()`. Not batch-specific either — this is at
+module level, no `test(...)` and no dispatch. Note the original test FILE
+`check`s clean (rc=0), because `check` does not force the comptime evaluation
+that a real compile does.
+
+### This is NOT the def-time swallow surface
+
+That was my first hypothesis and it is wrong. `issues/def-time-body-eval-swallow-surface.md`
+is why the error is _invisible_, but the defect itself is one specific failure in
+comptime call evaluation. Fixing the swallow would only make it _loud_. Start from
+the repro above and `comptime_fn.yo:500` — ask what `function_value` actually is
+for a variadic comptime function, since it is evidently not a `.FuncVal`.
+
+Expect the three files to need **separate** fixes: `variadic_comptime` is variadic
+comptime calls, `index` is comptime string/`ComptimeList` slicing, and
+`safe_code_structural_gates` routes through `comptime_expect_error`.
+
+### A tempting codegen "fix" that is actively harmful — do not do it
+
+`generate_func_call` bails to the marker whenever `get_expr_info` misses, _before_
+reaching its compile-time-marker skip list. Hoisting the structural
+`begin`/`cond`/`match` dispatches above that lookup (none of them take an
+ExprInfo) makes all three files report `hollow=0`. **It is not a fix.** The bodies
+still do not run — the failure just moves into `generate_match_expression`, which
+emits `/* "match" expression is not evaluated */`, a comment the hollow detector
+does not grep for. Verified by injecting `assert(i32(1) == i32(2))` into a test
+body: it still reported "10 passed".
+
+That would convert a _detectable_ hollow into an _invisible_ one, silencing the
+gate. `yo-self/codegen/exprs/generation.yo` carries a comment at that spot saying
+so. Hoisting only the compile-time markers (which genuinely emit no C, matching
+`generation.ts:1081-1102`) IS correct and is done; it fixes the standalone case
+and leaves the batch failure detectable.
+
 ## Do not extract a minimal `main` — it false-passes
 
 Both obvious reductions were tried and **both compile cleanly** under the

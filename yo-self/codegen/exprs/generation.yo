@@ -501,6 +501,44 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, BF_UNSAFE, Option(usize).None), return(_passthrough_first_arg(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_OLD, Option(usize).None), return(_passthrough_first_arg(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_GHOST_FN, Option(usize).None), return(_passthrough_first_arg(expr, indent.clone(), context)));
+  // Compile-time-only markers: no C output. These MUST be checked BEFORE the
+  // get_expr_info lookup below, for exactly the reason stated for the
+  // transparent wrappers above — a call the evaluator fully consumed at compile
+  // time has NO ExprInfo entry, so the lookup's `.None` arm returned
+  // "// Failed to transpile ..." before these checks were ever reached. They
+  // produce no C and need no ExprInfo, so the lookup is irrelevant to them.
+  //
+  // That ordering is what made three test files HOLLOW: a single
+  // `comptime_assert` (or `comptime_expect_error`) whose argument is
+  // comptime-only — a variadic comptime call, a comptime string slice — emitted
+  // a failure marker, and in the generated test batch that marker replaced the
+  // WHOLE `match` dispatch, so every sibling test arm was silently lost too.
+  // tests/index.test.yo reported "49 passed" while running nothing; 31 of its
+  // arms are ordinary runtime tests that were collateral.
+  // TS checks the same list without needing ExprInfo (generation.ts:1081-1102).
+  // See issues/yo-self-hollow-language-test-files.md.
+  if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_EXPECT_ERROR, Option(usize).None), return(String.from("")));
+  if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_ASSERT, Option(usize).None), return(String.from("")));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_VAR_PRINT_INFO, Option(usize).None), return(String.from("")));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_VAR_IS_OWNING_RC, Option(usize).None), return(String.from("")));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_VAR_HAS_OTHER_ALIASES, Option(usize).None), return(String.from("")));
+  if(ast_expr_is_fn_call_of(expr, BF_REQUIRES, Option(usize).None), return(String.from("")));
+  if(ast_expr_is_fn_call_of(expr, BF_ENSURES, Option(usize).None), return(String.from("")));
+  if(ast_expr_is_fn_call_of(expr, BF_INVARIANT, Option(usize).None), return(String.from("")));
+  if(ast_expr_is_fn_call_of(expr, BF_GHOST, Option(usize).None), return(String.from("")));
+  // DO NOT hoist the structural `begin` / `cond` / `match` dispatches above this
+  // lookup. It is tempting — none of those generators takes an ExprInfo — and it
+  // does make the "Failed to transpile" marker disappear for the hollow test
+  // files. But the marker is a SYMPTOM, not the bug: those nodes genuinely have
+  // no ExprInfo because the evaluator never recorded one for the batch `main`
+  // body, so hoisting only moves the failure into generate_match_expression,
+  // which emits `/* "match" expression is not evaluated */` instead. The test
+  // bodies still do not run, and because the hollow detector greps for "Failed to
+  // transpile", that comment makes an undetectable hollow out of a detectable
+  // one — strictly worse. Verified by injecting `assert(i32(1) == i32(2))` into a
+  // test body: with the hoist it still reported "10 passed".
+  // The real cause is upstream, in the evaluator. See
+  // issues/yo-self-hollow-language-test-files.md.
   ei := match(
     context.base.get_expr_info(expr),
     .Some(e) => e,
@@ -687,16 +725,6 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, BF_CONSUME, Option(usize).None), return(generate_consume(expr, indent.clone(), context)));
   // (unsafe / old / ghost_fn transparent pass-through handled at the top, before
   // the ExprInfo lookup.)
-  // Compile-time-only markers: no C output.
-  if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_EXPECT_ERROR, Option(usize).None), return(String.from("")));
-  if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_ASSERT, Option(usize).None), return(String.from("")));
-  if(ast_expr_is_fn_call_of(expr, BF_YO_VAR_PRINT_INFO, Option(usize).None), return(String.from("")));
-  if(ast_expr_is_fn_call_of(expr, BF_YO_VAR_IS_OWNING_RC, Option(usize).None), return(String.from("")));
-  if(ast_expr_is_fn_call_of(expr, BF_YO_VAR_HAS_OTHER_ALIASES, Option(usize).None), return(String.from("")));
-  if(ast_expr_is_fn_call_of(expr, BF_REQUIRES, Option(usize).None), return(String.from("")));
-  if(ast_expr_is_fn_call_of(expr, BF_ENSURES, Option(usize).None), return(String.from("")));
-  if(ast_expr_is_fn_call_of(expr, BF_INVARIANT, Option(usize).None), return(String.from("")));
-  if(ast_expr_is_fn_call_of(expr, BF_GHOST, Option(usize).None), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, BK_OPEN, Option(usize).None), return(generate_open(expr, indent.clone(), context)));
   // Index trait dispatch: `value(i)` → `*index_fn(&value, i)`. The evaluator
   // stamps the specialized `index()` method FuncVal + pointer-return type on the
