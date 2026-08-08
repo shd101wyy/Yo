@@ -99,10 +99,14 @@ tests/string/string.test.yo      RED rc=1 hollow=0 markers=0  none
 - `string/string` exits 1 with no summary at all — it dies before running anything.
 
 Both pass under the TS compiler on Linux (the `test (ubuntu-latest)` job is green),
-so this is a **platform-specific divergence in `yo-self` itself**, not a broken test.
-Neither file is in the 23-file `gates_fast` battery, so neither had ever been run
-under the self-hosted compiler on Linux before this sweep existed — which is exactly
-the blind spot the sweep was written to close.
+so both are divergences in `yo-self` itself, not broken tests. Neither file is in
+the 23-file `gates_fast` battery, so neither had ever been run under the
+self-hosted compiler on Linux before this sweep existed — exactly the blind spot
+the sweep was written to close.
+
+**Neither turned out to be genuinely platform-specific.** Linux merely exposed
+both: one through a stricter clang default, the other through a stricter
+allocator. Both reproduce and are fixable from macOS once you know that.
 
 ### Root causes (from the uploaded sweep logs — they are two different bugs)
 
@@ -116,12 +120,22 @@ yo-self: error: compile: C compiler failed (exit 256)
 
 Not an RC or semantics bug — the self-hosted compiler emits **more deeply nested C
 than the reference does** for this file, and trips clang's default
-`-fbracket-depth=256`. The TS compiler builds the same test fine on the same runner,
-so the emitted nesting genuinely differs between the two. Two candidate fixes, and
-the choice matters: pass `-fbracket-depth=<N>` in the C-compiler invocation (papers
-over it, and the flag is clang/gcc-specific), or find why yo-self nests deeper and
-flatten it (addresses the divergence). Prefer diagnosing the divergence first — a
-gratuitously deeper emit is itself a signal.
+`-fbracket-depth=256`.
+
+**RESOLVED — it was a missing port, and the deeper nesting was the symptom.**
+yo-self compiled every test in a file as ONE batch, and the generated `cond`
+dispatch nests one brace level per test: 252 tests → 261 levels. TS was already
+batching at `DEFAULT_TEST_BATCH_SIZE = 100` (`src/test-runner.ts:54`), so its emit
+for the same file peaks at 105 across 3 batches.
+
+It is also not platform-specific: local clang 21.1.7 just defaults to a higher
+bracket depth than CI's. `clang -fbracket-depth=256 -fsyntax-only <batch>.c`
+reproduces it exactly on macOS, which is what made it debuggable.
+
+The tempting fix — passing `-fbracket-depth=<N>` — was rejected: it papers over a
+real divergence and the flag is clang/gcc-specific. Porting the batching addresses
+the cause. After the fix: 3 batches at depth 109/109/61, 252/252 passing, every
+batch clean under an explicit `-fbracket-depth=256`.
 
 **`tests/ref_local_binding.test.yo` — an RC lifetime failure.**
 
@@ -138,9 +152,8 @@ a = Holder(s : String.from("other"), n : i32(1));
 assert(b.s == "kept", "b's handle keeps the original object alive");
 ```
 
-so `b` must keep the first `Holder` alive after `a` is reassigned. This is the
-premature-drop / use-after-free shape, in the RC area — treat it as the higher
-severity of the two.
+so `b` must keep the first `Holder` alive after `a` is reassigned. This was the
+higher-severity of the two — an RC lifetime defect rather than a build failure.
 
 **RESOLVED.** It _was_ allocator-dependent, but not in the way the obvious
 hypothesis predicted, which is why `MallocScribble` came back negative:
@@ -177,7 +190,8 @@ land), and a listed entry that no longer matches also fails (the list cannot go
 stale). A missing allowlist file fails loudly too. `ALLOWLIST=/dev/null` demands a
 fully-clean sweep. The sweep is resumable via `$OUT/results.txt`.
 
-That banks the 165-file differential immediately, while these five are worked down.
+That banks the 165-file differential immediately, while the remaining three are
+worked down.
 **Fixing one means deleting its line** — the gate will tell you to.
 
 > **Do not rename the allowlist to `.txt`.** `.gitignore` carries a blanket `*.txt`
