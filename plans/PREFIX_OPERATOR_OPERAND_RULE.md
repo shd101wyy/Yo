@@ -175,7 +175,10 @@ the inconsistency this plan fixes was never lexical.
 - **Tight deref forms.** `ptr.*(x)`, `ptr.&(x)` keep working; the spaced
   spellings become legal by the same rule.
 - **Match arms.** `match(x, .Some(v) => v)` is unaffected (prefix dot after a
-  comma); `. Some(v)` also becomes legal.
+  comma). The spaced spelling `. Some(v)` is **already legal today** (verified
+  2026-08-09: the prefix branch parses the operand via `parsePrimary`, which
+  skips whitespace) — no change needed, it just joins the canonical
+  `, .Some` spacing.
 
 ## Implementation sketch
 
