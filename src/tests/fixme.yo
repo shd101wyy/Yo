@@ -3,26 +3,15 @@ open(import("std/libc/stdio"));
 
 AliasWrap :: ref(struct(b : Box(i32)));
 
-alias_poke_loop :: (fn(w : AliasWrap, borrowed : Box(i32)) -> unit)({
-  (i : i32) = i32(0);
-  while(runtime(i < i32(2)), {
-    w.b = box(i32(100) + i);
-    i = (i + i32(1));
-  });
-  unsafe(printf("  in-callee borrowed=%d (want 42)\n", borrowed.*));
+stage1_drop_owned :: (fn(own(h) : Box(i32), borrowed : Box(i32)) -> usize)({
+  ___drop(h);
+  rc(borrowed)
 });
 
 main :: (fn() -> unit)({
   w := AliasWrap(b : box(i32(42)));
-  b0 := w.b;
-  unsafe(printf("rc before=%d (want 2)\n", i32(rc(b0))));
-  {
-    alias_poke_loop(w, w.b);
-  };
-  // After the enclosing STATEMENT SCOPE has ended, both release points have
-  // fired: post-call (yo-self) and scope-end (TS) agree here.
-  unsafe(printf("rc after scope=%d (want 1)\n", i32(rc(b0))));
-  unsafe(printf("value=%d (want 42)\n", b0.*));
+  unsafe(printf("during=%d (want 2)\n", i32(stage1_drop_owned(w.b, w.b))));
+  unsafe(printf("val=%d (want 42)\n", w.b.*));
 });
 
 export(main);

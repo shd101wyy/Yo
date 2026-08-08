@@ -701,13 +701,18 @@ stage1_honest :: (fn(w : AliasWrap, borrowed : Box(i32), seed : i32) -> i32)({
 // An explicit RC decrement releases the container-held reference directly,
 // without any assignment for the walk's assignment rule to see. Both the
 // high-level drop and the raw primitive count.
-stage1_drop_field :: (fn(w : AliasWrap, borrowed : Box(i32)) -> i32)({
-  ___drop(w.b);
-  borrowed.*
-});
-stage1_decr_field :: (fn(w : AliasWrap, borrowed : Box(i32)) -> i32)({
-  __yo_decr_rc(w.b);
-  borrowed.*
+// NOTE on shape: the decrement must target a handle the callee OWNS. An
+// explicit `___drop(w.b)` on a place the callee does not own is an
+// unbalanced program — it releases the container's reference without
+// clearing the field, so dropping the container later double-frees. (macOS's
+// allocator tolerates that; glibc aborts. It is a bug in the test, not in
+// the compiler.) Raw `__yo_decr_rc` is unbalanced in EVERY shape — it does
+// not consume its operand, so the scope-end drop decrements a second time —
+// so no valid program exercises it and it gets no test; the classification
+// rule still lists it, documented in mutation-summary.ts.
+stage1_drop_owned :: (fn(own(h) : Box(i32), borrowed : Box(i32)) -> usize)({
+  ___drop(h);
+  rc(borrowed)
 });
 // The mutation happens only on the BACK EDGE of a mutual recursion, so the
 // walk meets the cycle guard before it ever reaches the assignment.
@@ -807,19 +812,18 @@ test("a benign extern does not defeat the read-only elision", {
     "printf must not make a callee may-mutate (elision preserved)"
   );
 });
-test("explicit ___drop of the container field keeps the borrow alive", {
+test("a callee containing an explicit ___drop keeps the borrow alive", {
   w := AliasWrap(b : box(i32(42)));
+  // rc during the call: the container's 1, the own-param's dup, and the
+  // Stage-0 borrow dup = 3; `___drop(h)` consumes the own-param's, leaving
+  // 2. A 1 here would mean the borrow dup was elided — i.e. a callee that
+  // explicitly releases RC storage was classified read-only, which is how
+  // `___drop` sitting in the safe-recurse list used to read.
   assert(
-    stage1_drop_field(w, w.b) == i32(42),
-    "___drop(w.b) must count as a mutation"
+    stage1_drop_owned(w.b, w.b) == 2,
+    "an explicit ___drop must not be walked through as safe"
   );
-});
-test("raw __yo_decr_rc of the container field keeps the borrow alive", {
-  w := AliasWrap(b : box(i32(42)));
-  assert(
-    stage1_decr_field(w, w.b) == i32(42),
-    "__yo_decr_rc(w.b) must count as a mutation"
-  );
+  assert(w.b.* == i32(42), "the container's own handle is still valid");
 });
 test("mutation on a mutual-recursion back edge keeps the borrow alive", {
   w := AliasWrap(b : box(i32(42)));
