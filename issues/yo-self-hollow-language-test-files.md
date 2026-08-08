@@ -74,10 +74,23 @@ declarations interacting with batch generation. Reduce by **deleting arms from
 the real file** (keeping the `test(...)` wrapper and the module preamble) rather
 than by writing a new small file.
 
-## Suggested next step
+## Gated as a ratchet (done)
 
-Wire the sweep into CI as a **ratchet** rather than waiting on all three fixes:
-fail on any hollow file not in a checked-in allowlist, and also fail when a
-listed file stops being hollow (so the list cannot go stale). That banks the
-165-file differential immediately — no _new_ hollow file can land — while the
-three known ones are worked down. The sweep is resumable via `$OUT/results.txt`.
+The sweep now runs in CI as the `hollow-sweep` job, scored against
+`scripts/bootstrap/known-hollow.txt`. It fails in **both** directions: a hollow
+file that is not allowlisted fails (so no _new_ hollow file can land), and an
+allowlisted file that is no longer hollow also fails (so the list cannot go
+stale). `ALLOWLIST=/dev/null` demands a fully-clean sweep. The sweep is
+resumable via `$OUT/results.txt`.
+
+That banks the 165-file differential immediately, while these three are worked
+down. **Fixing one means deleting its line from the allowlist** — the gate will
+tell you to.
+
+## Remaining work
+
+Root-cause and fix the three, then empty the allowlist. Start with
+`safe_code_structural_gates.test.yo`: it is the smallest (115 lines, a single
+`test(...)`, the rest module-level `comptime_expect_error(...)`), so it has the
+fewest confounders — and per the section above, reduce it by deleting arms from
+the real file, not by writing a new one.
