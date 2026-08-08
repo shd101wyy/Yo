@@ -1,16 +1,15 @@
-# `ctl` handlers are emitted `void` but called through value-returning casts (latent x86_64 ABI break)
+# `ctl` handlers are emitted `void` but called through value-returning casts (x86_64 ABI break)
 
 **Found 2026-08-06** while root-causing
 `issues/fixed/escape-path-drops-unwound-call-result-temp.md`.
 
 **Severity revised 2026-08-08.** This was filed as _latent_ on the premise that no
-reachable `ctl` has a `ResumeType` over 16 bytes. Measurement refuted that: **95
-`exn.throw` call sites in `yo-self`'s own stage-2 C** cast to one of 7 distinct
-
-> 16-byte structs, and all 29 handlers bound to `.throw` are emitted `void*`. Nothing
-> fails today only because most handlers **discard `err`** — an accidental invariant, not
-> an enforced one, and at least one handler does dereference `err.vtable`. See
-> "MEASURED 2026-08-08" below.
+reachable `ctl` has a `ResumeType` over 16 bytes. Measurement refuted that premise: 95
+`exn.throw` call sites in `yo-self`'s own stage-2 C cast to one of 7 distinct structs
+that each exceed 16 bytes, and all 29 handlers bound to `.throw` are emitted `void*`.
+Nothing fails today only because most handlers **discard `err`** — an accidental
+invariant, not an enforced one, and at least one handler does dereference
+`err.vtable`. See "MEASURED 2026-08-08" below.
 
 ## What codegen does
 
