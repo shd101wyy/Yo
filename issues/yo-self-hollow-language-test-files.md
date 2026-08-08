@@ -34,10 +34,10 @@ evidence that anything ran.
 ## Why this was invisible
 
 CI runs `<bin> test` on only the **23-file** `gates_fast.sh` battery; the other
-**165 language files are exercised solely by the TypeScript compiler**. All
+**165 language files were exercised solely by the TypeScript compiler**. All
 three hollow files are outside the battery. `hollow_sweep69.sh` was written
-precisely to close this and is wired into no workflow
-(`grep -rn hollow_sweep .github/` returns nothing).
+precisely to close this and had been wired into no workflow at all
+(`grep -rn hollow_sweep .github/` returned nothing) — see the ratchet below.
 
 This matters for `plans/SELF_HOSTING_COMPLETION.md` **P2**: after `src/` is
 retired, the self-hosted binary's "N passed" becomes the only signal there is.
