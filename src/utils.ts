@@ -31,6 +31,25 @@ export function generateModuleId(modulePath: string) {
 const moduleIdCounters = new Map<string, number>();
 
 /**
+ * Bumped whenever module id counters are reset, i.e. whenever previously
+ * issued `funcId`s may be handed out AGAIN to different functions (the test
+ * runner clears counters per test file; the module manager resets a module's
+ * counter when the module is dropped/reloaded).
+ *
+ * Anything memoizing by `funcId` across compilations in one process MUST
+ * invalidate when this changes — otherwise a verdict computed for one
+ * function silently applies to an unrelated one that reused the id. Exposed
+ * as a plain number so consumers poll it without importing anything (this
+ * module is a leaf; an inbound import would be a cycle).
+ */
+let moduleIdGeneration = 0;
+
+/** Current module-id generation. See `moduleIdGeneration`. */
+export function getModuleIdGeneration(): number {
+  return moduleIdGeneration;
+}
+
+/**
  * Generate a random id for the module
  * @param modulePath
  * @returns
@@ -46,6 +65,7 @@ export function randomId(modulePath: string) {
 
 export function resetModuleIdCounter(modulePath: string) {
   moduleIdCounters.delete(modulePath);
+  moduleIdGeneration++;
 }
 
 let tempVariableNameCount = 1;
@@ -112,4 +132,5 @@ export function clearAllModuleCounters(): void {
   moduleIdCounters.clear();
   IdMap.clear();
   tempVariableNameCount = 1;
+  moduleIdGeneration++;
 }

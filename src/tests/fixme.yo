@@ -1,45 +1,33 @@
 pragma(Pragma.AllowUnsafe);
-{ assert } :: import("std/assert");
 open(import("std/libc/stdio"));
 
 AliasWrap :: ref(struct(b : Box(i32)));
 
-read_borrow :: (fn(w : AliasWrap, borrowed : Box(i32)) -> usize)(
-  // Read-only callee: Stage 1 must elide the Stage-0 dup, so during the
-  // call the box's rc is 2 (w.b + the caller's b0) — not 3.
-  rc(borrowed)
-);
-
-alias_poke_loop :: (fn(w : AliasWrap, borrowed : Box(i32)) -> unit)({
-  (i : i32) = i32(0);
-  while(runtime(i < i32(2)), {
-    w.b = box(i32(100) + i);
-    i = (i + i32(1));
-  });
-  assert(borrowed.* == i32(42), "borrowed projection reads the pre-mutation value");
+stage1_poke :: (fn(w : AliasWrap, seed : i32) -> i32)({
+  w.b = box(i32(100) + seed);
+  w.b.*
 });
 
-// Generic read-only callee: exercises the POST-SPECIALIZATION unmark path
-// (generic callees cannot be pre-skipped at mark time).
-rc_of :: (fn(generic(T : Type), borrowed : T) -> usize)(
-  rc(borrowed)
-);
+// mutating call on the RHS of a REASSIGNMENT statement
+stage1_sneaky :: (fn(w : AliasWrap, borrowed : Box(i32), seed : i32) -> i32)({
+  (t : i32) = i32(0);
+  t = stage1_poke(w, seed);
+  borrowed.* + (t - t)
+});
+
+// mutating call on the RHS of a DECLARATION
+stage1_honest :: (fn(w : AliasWrap, borrowed : Box(i32), seed : i32) -> i32)({
+  t := stage1_poke(w, seed);
+  borrowed.* + (t - t)
+});
 
 main :: (fn() -> unit)({
   w := AliasWrap(b : box(i32(42)));
-  b0 := w.b;
-  assert(rc(b0) == 2, "w.b + b0 before any call");
-  in_call_rc := read_borrow(w, w.b);
-  unsafe(printf("in_call_rc: %d\n", i32(in_call_rc)));
-  assert(in_call_rc == 2, "read-only callee must see rc 2 (Stage-1 elision)");
-  assert(rc(b0) == 2, "no leak after the elided call");
-  gen_rc := rc_of(w.b);
-  assert(gen_rc == 2, "generic read-only callee must see rc 2 (post-spec unmark)");
-  assert(rc(b0) == 2, "no leak after the generic elided call");
-  alias_poke_loop(w, w.b);
-  assert(rc(b0) == 2, "exactly one Stage-0 +1 outstanding until scope end");
-  assert(b0.* == i32(42), "original box intact after the aliased mutation");
-  unsafe(printf("fixme ok\n"));
+  v := stage1_sneaky(w, w.b, i32(0));
+  unsafe(printf("sneaky=%d (want 42)\n", v));
+  w2 := AliasWrap(b : box(i32(42)));
+  v2 := stage1_honest(w2, w2.b, i32(0));
+  unsafe(printf("honest=%d (want 42)\n", v2));
 });
 
 export(main);

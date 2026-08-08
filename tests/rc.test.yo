@@ -657,3 +657,39 @@ test("read-only callee elides the Stage-0 borrowed-projection dup", {
   );
   assert(rc(b0) == 2, "rc balanced after both elided calls");
 });
+// Aliasing Stage 1 SOUNDNESS: the mutation-summary walk must not be fooled by
+// a mutation hidden behind a STATEMENT. An assignment carries a compile-time
+// UNIT value simply because that is its type — not because it was folded away
+// — so a walk that treats "has a compile-time value" as "emits no runtime
+// code" skips the statement whole, never sees the mutating call on its
+// right-hand side, and wrongly reports the caller read-only. That would elide
+// the Stage-0 dup and reopen the aliasing hole this whole arc closes.
+stage1_poke :: (fn(w : AliasWrap, seed : i32) -> i32)({
+  w.b = box(i32(100) + seed);
+  w.b.*
+});
+// The mutating call sits on the RHS of a REASSIGNMENT statement.
+stage1_sneaky :: (fn(w : AliasWrap, borrowed : Box(i32), seed : i32) -> i32)({
+  (t : i32) = i32(0);
+  t = stage1_poke(w, seed);
+  borrowed.* + (t - t)
+});
+// Control: the same mutation behind a `:=` declaration.
+stage1_honest :: (fn(w : AliasWrap, borrowed : Box(i32), seed : i32) -> i32)({
+  t := stage1_poke(w, seed);
+  borrowed.* + (t - t)
+});
+test("statement-hidden mutation keeps the borrowed-projection dup", {
+  w := AliasWrap(b : box(i32(42)));
+  // The callee reassigns `w.b`, dropping the 42-box's container reference.
+  // Without the caller's Stage-0 +1 the borrow would read recycled memory.
+  assert(
+    stage1_sneaky(w, w.b, i32(0)) == i32(42),
+    "borrow survives a mutation hidden behind a reassignment statement"
+  );
+  w2 := AliasWrap(b : box(i32(42)));
+  assert(
+    stage1_honest(w2, w2.b, i32(0)) == i32(42),
+    "borrow survives a mutation behind a declaration"
+  );
+});

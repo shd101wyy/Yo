@@ -50,17 +50,10 @@ open(import("std/string"));
   is_io_spawn_call,
   is_join_handle_await_call
 } :: import("../async/await_analysis.yo");
-/// TEMP DEBUG: last mutation reason (set at each may-mutate return).
-(g_ms_last_reason : String) = String.new();
 /// func_id → may-mutate verdict (true = may mutate).
 (g_ms_summary_by_fid : HashMap(String, bool)) = HashMap(String, bool).new();
 /// func_ids whose bodies are currently being walked (cycle guard).
 (g_ms_in_progress : HashMap(String, bool)) = HashMap(String, bool).new();
-/// TEMP DEBUG: record the reason and answer "may mutate".
-_ms_mut :: (fn(reason : str) -> bool)({
-  g_ms_last_reason = String.from(reason);
-  true
-});
 /// Builtin heads that are pure structure/control flow: walk the arguments,
 /// the head itself mutates nothing. Mirrors TS `SAFE_RECURSE_HEADS`.
 _ms_head_is_safe_recurse :: (fn(h : String) -> bool)(
@@ -315,14 +308,6 @@ impl(
         if(expr_info_closure_function_value(info).is_some(), {
           return(false);
         });
-        // A compile-time-known result is inlined by codegen — no runtime call.
-        match(
-          info.value,
-          .Some(v) => if(!(is_unknown_val(v)), {
-            return(false);
-          }),
-          .None => ()
-        );
       },
       .None => ()
     );
@@ -356,11 +341,11 @@ impl(
         lhs_info,
         .Some(li) => {
           if(type_contains_rc_type(li.ty), {
-            return(_ms_mut("rc-store"));
+            return(true);
           });
         },
         .None => {
-          return(_ms_mut("untyped-lhs"));
+          return(true);
         }
       );
       return(_MsW.walk_args(args, ctx, touched));
@@ -429,9 +414,29 @@ impl(
     if((head.len() > usize(0)) && _ms_head_is_safe_recurse(head.clone()), {
       return(_MsW.walk_args(args, ctx, touched));
     });
+    // A compile-time-known result is inlined by codegen — the call never runs
+    // at runtime, so nothing inside it can mutate.
+    //
+    // This MUST stay below the structural forms above. Every statement-shaped
+    // expression (an assignment, a declaration) carries a compile-time UNIT
+    // value simply because that is its type — not because it was folded away.
+    // Checking earlier made the walk skip `t = poke(w);` whole, never visiting
+    // the mutating call on its right-hand side, and report a mutating function
+    // as read-only.
+    match(
+      info_opt,
+      .Some(vinfo) => match(
+        vinfo.value,
+        .Some(v) => if(!(is_unknown_val(v)), {
+          return(false);
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
     // io builtins yield to the event loop — other tasks run mid-call.
     if(_MsW.is_io_builtin_call(e), {
-      return(_ms_mut("io-builtin"));
+      return(true);
     });
     // General call: classify the callee.
     callee_opt := _MsW.callee_value(e, func_expr, ctx);
@@ -451,7 +456,7 @@ impl(
           fid := fvd.*.func_id.clone();
           if(is_control_fn(fid.clone()), {
             // Effect handler / ctl body — caller-side code runs mid-call.
-            return(_ms_mut("ctl-callee"));
+            return(true);
           });
           callee_ty := get_func_type(fid.clone());
           (callee_extern : Option(String)) = Option(String).None;
@@ -470,7 +475,6 @@ impl(
             callee_extern,
             .Some(en) => {
               if(_ms_extern_may_mutate(en, callee_ptypes, callee_vtypes), {
-                g_ms_last_reason = `extern-mutates:${en}`;
                 return(true);
               });
             },
@@ -486,7 +490,7 @@ impl(
           return(_MsW.walk_args(args, ctx, touched));
         },
         _ => {
-          return(_ms_mut("odd-callee-value"));
+          return(true);
         }
       ),
       .None => ()
@@ -521,7 +525,6 @@ impl(
             tm.*.extern_name,
             .Some(ten) => {
               if(_ms_extern_may_mutate(ten, tpt, tvt), {
-                g_ms_last_reason = `extern-type-mutates:${ten}`;
                 return(true);
               });
               if(_MsW.walk(func_expr, ctx, touched), {
@@ -538,7 +541,6 @@ impl(
     );
     // Unresolved callee: runtime closure, dyn dispatch, fn pointer, ctl
     // parameter — arbitrary code may run.
-    g_ms_last_reason = `unresolved-callee:${head}`;
     true
   })
 );
@@ -549,8 +551,6 @@ function_may_mutate_rc_storage :: (
   fn(fid : String, body : AstExpr, ctx : EvalContext) -> bool
 )({
   touched := ArrayList(String).new();
-  g_ms_last_reason = String.new();
-  verdict := _MsW.summary_for(fid, body, ctx, touched);
-  verdict
+  _MsW.summary_for(fid, body, ctx, touched)
 });
 export(function_may_mutate_rc_storage);

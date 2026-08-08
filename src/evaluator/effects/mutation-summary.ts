@@ -6,6 +6,7 @@ import { isFunctionValue, isTypeValue, isUnknownValue } from "../../value";
 import type { FunctionType, Type } from "../../types/definitions";
 import { isFunctionType, isPtrType } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
+import { getModuleIdGeneration } from "../../utils";
 
 /**
  * Aliasing Stage 1 — per-callee MUTATION SUMMARIES
@@ -55,6 +56,24 @@ import { typeContainsRcType } from "../../types/utils";
 const summaryByFuncId = new Map<string, boolean>();
 /** funcIds whose bodies are currently being walked (cycle guard). */
 const inProgressIds = new Set<string>();
+
+/**
+ * `funcId`s are per-module COUNTERS (`utils.ts randomId`), and the test and
+ * build runners reset those counters between compilations in one process —
+ * so the same id is handed out again to an unrelated function in the next
+ * file. Left unguarded, this cache would answer "read-only" for a function
+ * that actually mutates, eliding a borrow dup that was load-bearing. Drop
+ * the memo whenever the id generation moves.
+ */
+let cacheGeneration = getModuleIdGeneration();
+function invalidateSummariesIfIdsWereReset(): void {
+  const generation = getModuleIdGeneration();
+  if (generation !== cacheGeneration) {
+    cacheGeneration = generation;
+    summaryByFuncId.clear();
+    inProgressIds.clear();
+  }
+}
 
 const isDebugEnabled = !!process.env["YO_DEBUG_MUTATION_SUMMARY"];
 
@@ -176,6 +195,7 @@ function isPureBuiltinHead(head: string): boolean {
  * reachable from its parameters, captures, or globals?
  */
 export function functionMayMutateRcStorage(fv: FunctionValue): boolean {
+  invalidateSummariesIfIdsWereReset();
   const touched = new Set<string>();
   const reason = summaryFor(fv, touched);
   if (isDebugEnabled) {
@@ -274,10 +294,6 @@ function walkExpr(
   if (exprIsAtom(expr)) {
     return undefined;
   }
-  // A compile-time-known result is inlined by codegen — no runtime call.
-  if (info?.value && !isUnknownValue(info.value)) {
-    return undefined;
-  }
 
   const fn = expr as FnCallExpr;
   const head = headAtomName(fn);
@@ -338,6 +354,20 @@ function walkExpr(
   }
   if (head !== undefined && SAFE_RECURSE_HEADS.has(head)) {
     return walkExprs(fn.args, touched);
+  }
+
+  // A compile-time-known result is inlined by codegen — the call never runs
+  // at runtime, so nothing inside it can mutate.
+  //
+  // This MUST stay BELOW the structural forms above. A declaration
+  // (`t := f(x)`) carries a compile-time value of its own, and every
+  // statement-shaped expression is unit-typed — neither means "this was
+  // folded away". Checking here first made the walk skip the declaration
+  // whole, never visit the mutating call on its right-hand side, and report
+  // a mutating function as read-only: a real use-after-free (the borrowed
+  // projection read recycled memory, returning 2 instead of 42).
+  if (info?.value && !isUnknownValue(info.value)) {
+    return undefined;
   }
 
   // General call: classify the callee.
