@@ -735,6 +735,78 @@ stage1_closure :: (fn(w : AliasWrap, borrowed : Box(i32)) -> i32)({
   z := f(w);
   borrowed.* + z
 });
+// The mutation sits in a runtime-selected cond arm, then a match arm — the
+// walk must not let arm-skipping (`caseExecuted`) hide a live branch.
+stage1_cond_arm :: (fn(w : AliasWrap, borrowed : Box(i32), go : bool) -> i32)({
+  cond(
+    (go == true) => {
+      w.b = box(i32(555));
+      i32(0)
+    },
+    true => i32(0)
+  );
+  borrowed.*
+});
+stage1_match_arm :: (fn(w : AliasWrap, borrowed : Box(i32), o : Option(i32)) -> i32)({
+  match(
+    o,
+    .Some(_) => {
+      w.b = box(i32(666));
+      ()
+    },
+    .None => ()
+  );
+  borrowed.*
+});
+// Transitivity: the mutation is three calls deep.
+stage1_deep3 :: (fn(w : AliasWrap) -> unit)({
+  w.b = box(i32(333));
+});
+stage1_deep2 :: (fn(w : AliasWrap) -> unit)(
+  stage1_deep3(w)
+);
+stage1_deep1 :: (fn(w : AliasWrap, borrowed : Box(i32)) -> i32)({
+  stage1_deep2(w);
+  borrowed.*
+});
+// Over-conservatism guard: a callee whose only "effect" is a benign extern
+// (printf takes no callback and is not the runtime/allocator family) must
+// STILL be read-only, so the +1 is elided. If this starts failing, the
+// extern rule has become too broad and Stage 1 is losing its benefit.
+stage1_benign_extern :: (fn(w : AliasWrap, borrowed : Box(i32)) -> usize)({
+  unsafe(printf(""));
+  rc(borrowed)
+});
+test("mutation inside a runtime cond arm keeps the borrow alive", {
+  w := AliasWrap(b : box(i32(42)));
+  assert(
+    stage1_cond_arm(w, w.b, true) == i32(42),
+    "a live cond arm's mutation must count"
+  );
+});
+test("mutation inside a match arm keeps the borrow alive", {
+  w := AliasWrap(b : box(i32(42)));
+  assert(
+    stage1_match_arm(w, w.b, Option(i32).Some(i32(1))) == i32(42),
+    "a live match arm's mutation must count"
+  );
+});
+test("mutation three calls deep keeps the borrow alive", {
+  w := AliasWrap(b : box(i32(42)));
+  assert(
+    stage1_deep1(w, w.b) == i32(42),
+    "the summary must be transitive through the call graph"
+  );
+});
+test("a benign extern does not defeat the read-only elision", {
+  w := AliasWrap(b : box(i32(42)));
+  b0 := w.b;
+  assert(rc(b0) == 2, "w.b + b0 before the call");
+  assert(
+    stage1_benign_extern(w, w.b) == 2,
+    "printf must not make a callee may-mutate (elision preserved)"
+  );
+});
 test("explicit ___drop of the container field keeps the borrow alive", {
   w := AliasWrap(b : box(i32(42)));
   assert(
