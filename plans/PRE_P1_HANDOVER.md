@@ -12,10 +12,12 @@ Everything below is verified unless marked as a hypothesis.
 
 ## 0. TL;DR
 
-**One hard blocker** remaining:
+**No hard blockers remain.**
 
-1. The **3 HOLLOW test files** — 60 tests reporting success while running nothing.
-   Handed off; see [`issues/handover-yo-self-hollow-files.md`](../issues/handover-yo-self-hollow-files.md).
+~~1. The 3 HOLLOW test files~~ — **DONE 2026-08-08.** All three run their
+assertions, and `scripts/bootstrap/known-failing.tsv` is **empty**, so the
+full-corpus sweep now demands a clean run on its own. Five distinct bugs, not
+three; see [`issues/fixed/handover-yo-self-hollow-files.md`](../issues/fixed/handover-yo-self-hollow-files.md).
 
 ~~2. Branch protection is off~~ — **DONE 2026-08-08.** The `develop` ruleset is
 `enforcement: active` with **15** required status checks, up from a disabled
@@ -58,32 +60,41 @@ Gates that now exist and pass:
 
 ---
 
-## 2. Hard blockers
+## 2. Hard blockers — none left
 
-### 2.1 The 3 HOLLOW test files
+### 2.1 ~~The 3 HOLLOW test files~~ — RESOLVED 2026-08-08
 
-`tests/index.test.yo` (49), `tests/safe_code_structural_gates.test.yo` (1),
-`tests/variadic_comptime.test.yo` (10) exit 0 and report passing while executing
-**no assertions**. `index.test.yo` matters most: **31 of its 49 arms are ordinary
-runtime tests** lost as collateral.
+`tests/index.test.yo` (49), `tests/safe_code_structural_gates.test.yo` (1) and
+`tests/variadic_comptime.test.yo` (10) exited 0 and reported passing while
+executing **no assertions**. All three now run them, `known-failing.tsv` is
+**empty**, and the sweep demands a clean corpus on its own.
 
-Why this blocks P1 rather than riding along: after P2 the self-hosted binary's
-"N passed" is the _only_ signal there is. A silent-success failure mode is the
-worst thing to carry across that boundary, and P1 is the last phase where the TS
-compiler can adjudicate it.
+They were **five** bugs, not three, each hidden behind the next because one
+swallowed error erases a batch's entire `__yo_user_main` dispatch:
 
-Root-caused to the evaluator (not codegen), with a 5-line reproducer and **four
-ruled-out fix attempts**. Full brief:
-[`issues/handover-yo-self-hollow-files.md`](../issues/handover-yo-self-hollow-files.md).
+| file                         | bugs                                                                                                                                                                                                                    |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `variadic_comptime`          | a comptime variadic parameter was never bound into the CALLEE env — the `quote` sibling was, the comptime one had no branch at all                                                                                      |
+| `index`                      | the `slice_copy` rewrite fired on comptime receivers (TS guards it) · the range-type test matched a struct NAME that is always empty · `Range`/`RangeInclusive` are structurally identical, so every `..` read as `..=` |
+| `safe_code_structural_gates` | `comptime_expect_error` restored the frame DEPTH but not the frames, losing the MODULE frame outright · a rejected module-level binding leaked its name into the codegen module-global registry                         |
 
-> **Two warnings, both learned the expensive way.** `hollow=0` is **not** proof of
-> a fix — one attempt achieved it while the bodies still ran nothing, by moving the
-> failure into a comment the detector does not grep for. And `check` passes on all
-> of this, because it never forces the comptime evaluation a real compile does.
-> Validate with an injected `assert(i32(1) == i32(2))`, nothing less.
+**The method note worth keeping** — the previous four attempts all failed
+because the brief's step 1 was wrong, and it was wrong in a way that looked
+certain: the error's token pointed at the function's DEFINITION line, so the
+def-time body eval was blamed. The token points there only because that is where
+the body is. Compiling the definition **alone** (clean) versus definition + one
+call (fails) settles it in one compile, and is cheaper than either the four
+speculative fixes or the instrumented build that followed them. Full write-up:
+[`issues/fixed/handover-yo-self-hollow-files.md`](../issues/fixed/handover-yo-self-hollow-files.md).
 
-**Done means** `scripts/bootstrap/known-failing.tsv` is empty, at which point the
-gate demands a fully clean sweep on its own.
+> **Two warnings, both learned the expensive way, and still binding for the next
+> change in this area.** `hollow=0` is **not** proof of a fix — one attempt
+> achieved it while the bodies still ran nothing, by moving the failure into a
+> comment the detector does not grep for. And `check` passes on all of this,
+> because it never forces the comptime evaluation a real compile does. Validate
+> with an injected `assert(i32(1) == i32(2))`, nothing less. That is what was
+> used here: it now FAILS in all three files, where before it reported a clean
+> pass.
 
 ### 2.2 ~~Branch protection is disabled~~ — RESOLVED 2026-08-08
 
@@ -179,7 +190,7 @@ Two more scoping facts:
 
 ## 5. Suggested order
 
-1. **Fix the 3 HOLLOW files** (§2.1) — in flight with another agent.
+1. ~~Fix the 3 HOLLOW files~~ (§2.1) — **done**; the allowlist is empty.
 2. ~~Enable branch protection~~ — **done**; the gates are binding.
 3. **Start P1 with `init`.** It is genuinely ready (239 lines, complete
    `init_project`) and has **five observable divergences** a differential harness
