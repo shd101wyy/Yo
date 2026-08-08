@@ -9,7 +9,6 @@
 //! For runtime values: looks up the index method and returns UnknownVal.
 //!
 //! Phase 3u simplifications:
-//!   - _check_range_type: uses struct name heuristic (no CTFE resolution)
 //!   - Custom type ComptimeIndex: dispatched via _try_comptime_custom_type_index
 //!   - has_index_impl: Array fast path + trait-field/registry method lookup
 pragma(Pragma.AllowUnsafe);
@@ -17,10 +16,10 @@ open(import("std/string"));
 { str_lit_unquote_bytes } :: import("../../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
-{ Environment, get_receiver_methods_by_name_from_env, add_variable_to_env, synthetic_token } :: import("../../env.yo");
+{ Environment, get_receiver_methods_by_name_from_env, get_variables_from_env, add_variable_to_env, synthetic_token } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_ptr } :: import("../../types/creators.yo");
-{ is_array_type, is_pointer_type, is_trait_type } :: import("../../types/guards.yo");
+{ t_unit, t_ptr, t_usize, t_type } :: import("../../types/creators.yo");
+{ is_array_type, is_pointer_type, is_trait_type, is_struct_type, is_function_type } :: import("../../types/guards.yo");
 {
   EvalValue,
   is_array_val,
@@ -85,21 +84,198 @@ _str_quote :: (fn(s : String) -> String)(
 // ---------------------------------------------------------------------------
 // _check_range_type
 // ---------------------------------------------------------------------------
-/// Returns a `_RangeCheck` based on the struct type name heuristic.
-///   "RangeInclusive..." → { is_range: true,  is_inclusive: true  }
-///   "Range..."          → { is_range: true,  is_inclusive: false }
-///   other              → { is_range: false, is_inclusive: false }
-_check_range_type :: (fn(arg_type : TypeValue) -> _RangeCheck)(
+/// CTFE-call one candidate constructor with `usize`; a resolved struct type
+/// rides out via `out`. The swallowing handler is a capture-free `->` that
+/// unwinds UNIT — never the resolved type: `unwind(v)` memcpys `v` into the
+/// fixed 64-byte `__yo_unwind_value` buffer, and a `TypeValue` does not fit
+/// (same constraint as `_trial_eval_fn_body`, function_type.yo:239).
+_try_ctfe_range_ctor :: (
+  fn(
+    fn_ty : TypeValue,
+    fn_val : EvalValue,
+    env : Environment,
+    ctx : EvalContext,
+    out : ArrayList(TypeValue)
+  ) -> unit
+)({
+  local_exn := Exception(
+    throw : (
+      (_e) -> unwind(())
+    )
+  );
+  ct_args := ArrayList(ArgEntry).new();
+  ct_args.push(
+    ArgEntry(
+      value : Option(EvalValue).Some(EvalValue.TypeVal(t_usize())),
+      parameter_type : t_type(),
+      arg_type : t_type()
+    )
+  );
+  res := evaluate_comptime_fn_call(
+    Option(AstExpr).None,
+    fn_ty,
+    fn_val,
+    ArgValues(
+      forall_args : ArrayList(ArgEntry).new(),
+      args : ct_args,
+      implicit_args : Option(ArrayList(ArgEntry)).None,
+      variadic_args : ArrayList(VarArgEntry).new()
+    ),
+    env,
+    env,
+    ctx,
+    local_exn
+  );
   match(
-    arg_type,
-    .Struct({ name }) => {
-      is_incl := name.starts_with(`RangeInclusive`);
-      is_rng := (is_incl || name.starts_with(`Range`));
-      _RangeCheck(is_range : is_rng, is_inclusive : is_incl)
-    },
-    _ => _RangeCheck(is_range : false, is_inclusive : false)
+    res.value,
+    .TypeVal(rt) => if(is_struct_type(rt.clone()), {
+      out.push(rt);
+    }),
+    _ => ()
+  );
+});
+/// Resolve a prelude type constructor (`Range` / `RangeInclusive`) applied to
+/// `usize`, by looking the constructor up in `env` and CTFE-calling it.
+/// 1:1 port of `resolvePreludeTypeWithUsize` (index-trait.ts:663-711); the
+/// constructor call is run under a swallowing local exn, matching TS's
+/// `try { … } catch { return undefined }`.
+_resolve_prelude_range_type :: (
+  fn(name : String, env : Environment, ctx : EvalContext) -> Option(TypeValue)
+)({
+  vars := get_variables_from_env(env, name.clone());
+  out := ArrayList(TypeValue).new();
+  (vi : usize) = usize(0);
+  while((vi < vars.len()) && (out.len() == usize(0)), {
+    match(
+      vars.get(vi),
+      .Some(v) => match(
+        v.value.get(usize(0)),
+        .Some(fv) => if(is_func_val(fv) && is_function_type(v.ty), {
+          _try_ctfe_range_ctor(v.ty, fv, env, ctx, out);
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
+    vi = (vi + usize(1));
+  });
+  out.get(usize(0))
+});
+/// The type constructor a struct type came from (`""` when it was not built
+/// by one). See `_check_range_type`.
+_struct_ctor_fid :: (fn(t : TypeValue) -> String)(
+  match(
+    t,
+    .Struct({ constructor_func_id : cfid }) => cfid,
+    _ => String.from("")
   )
 );
+/// False when `a` and `b` are structs built by DIFFERENT type constructors —
+/// a nominal distinction `are_types_compatible` cannot make for two anonymous
+/// structs of the same shape. `""` on either side means "unknown", which
+/// defers to the structural check.
+_ctor_ids_agree :: (fn(a : TypeValue, b : TypeValue) -> bool)({
+  a_fid := _struct_ctor_fid(a);
+  b_fid := _struct_ctor_fid(b);
+  if((a_fid.len() > usize(0)) && (b_fid.len() > usize(0)), {
+    return(a_fid == b_fid);
+  });
+  true
+});
+/// Process-lifetime cache for `Range(usize)` / `RangeInclusive(usize)` —
+/// TS caches these in a WeakMap keyed on the first env frame
+/// (index-trait.ts:714-737). Both come from the prelude, which is shared by
+/// every module in a compilation, so a plain global is the same thing here.
+/// Only SUCCESSFUL resolutions are cached, so an early call against an env
+/// that cannot see the prelude does not poison later ones.
+(g_range_ty_cache : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+(g_range_incl_ty_cache : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+_cached_range_type :: (
+  fn(inclusive : bool, env : Environment, ctx : EvalContext) -> Option(TypeValue)
+)({
+  cache := if(inclusive, g_range_incl_ty_cache, g_range_ty_cache);
+  match(
+    cache.get(usize(0)),
+    .Some(hit) => Option(TypeValue).Some(hit),
+    .None => {
+      name := if(inclusive, String.from("RangeInclusive"), String.from("Range"));
+      resolved := _resolve_prelude_range_type(name, env, ctx);
+      match(
+        resolved,
+        .Some(rt) => {
+          cache.push(rt.clone());
+          Option(TypeValue).Some(rt)
+        },
+        .None => Option(TypeValue).None
+      )
+    }
+  )
+});
+/// Is `arg_type` a `Range(...)` / `RangeInclusive(...)`?
+///
+/// 1:1 port of `checkRangeType` (index-trait.ts:745-775): resolve the prelude
+/// constructors applied to `usize` and ask `are_types_compatible`. The
+/// previous implementation matched on the struct's NAME (`starts_with("Range")`),
+/// a Phase-3u shortcut that never fired — `Range :: (fn(comptime(T) : Type) ->
+/// comptime(Type))(struct(start : T, end : T))` yields an ANONYMOUS struct, so
+/// the name is empty and every range was reported as a non-range. Comptime
+/// STRING slicing is the one caller that needs a `true` here (the array caller
+/// only uses it to fall through to the runtime path, which is also what a
+/// wrong `false` did), so `x(0 .. 5)` on a `comptime_str` took the
+/// single-character branch — one swallowed error that hollowed all 49 tests
+/// in tests/index.test.yo.
+_check_range_type :: (
+  fn(arg_type : TypeValue, env : Environment, ctx : EvalContext) -> _RangeCheck
+)({
+  if(!(is_struct_type(arg_type.clone())), {
+    return(_RangeCheck(is_range : false, is_inclusive : false));
+  });
+  // The TYPE CONSTRUCTOR's id is the discriminator, not the shape.
+  // `Range` and `RangeInclusive` are BOTH `struct(start : T, end : T)` and
+  // both anonymous, so `are_types_compatible` says yes to either — with
+  // the inclusive test first (TS's order), every exclusive `a .. b` was
+  // read as INCLUSIVE and `"Hello World"(0 .. 5)` sliced one byte too far.
+  // TS distinguishes them nominally; yo-self's equivalent is
+  // `Struct.constructor_func_id`, stamped by `evaluate_comptime_fn_call`
+  // on every comptime type-constructor result — and shared by all of one
+  // constructor's instantiations, so the `Range(comptime_int)` argument
+  // matches the `Range(usize)` probe. `are_types_compatible` stays as the
+  // fallback for a struct that carries no constructor id.
+  arg_fid := _struct_ctor_fid(arg_type.clone());
+  ri_opt := _cached_range_type(true, env, ctx);
+  r_opt := _cached_range_type(false, env, ctx);
+  if(arg_fid.len() > usize(0), {
+    match(
+      ri_opt,
+      .Some(ri_ty) => if(_struct_ctor_fid(ri_ty) == arg_fid, {
+        return(_RangeCheck(is_range : true, is_inclusive : true));
+      }),
+      .None => ()
+    );
+    match(
+      r_opt,
+      .Some(r_ty) => if(_struct_ctor_fid(r_ty) == arg_fid, {
+        return(_RangeCheck(is_range : true, is_inclusive : false));
+      }),
+      .None => ()
+    );
+  });
+  match(
+    ri_opt,
+    .Some(ri_ty2) => if(are_types_compatible(arg_type.clone(), ri_ty2), {
+      return(_RangeCheck(is_range : true, is_inclusive : true));
+    }),
+    .None => ()
+  );
+  match(
+    r_opt,
+    .Some(r_ty2) => if(are_types_compatible(arg_type.clone(), r_ty2), {
+      return(_RangeCheck(is_range : true, is_inclusive : false));
+    }),
+    .None => ()
+  );
+  _RangeCheck(is_range : false, is_inclusive : false)
+});
 // ---------------------------------------------------------------------------
 // _extract_range_indices
 // ---------------------------------------------------------------------------
@@ -533,7 +709,7 @@ _try_comptime_array_index :: (
   caller_env := info.env;
   arg_type := info.ty;
   arg_val := info.value;
-  rc := _check_range_type(arg_type);
+  rc := _check_range_type(arg_type, env, ctx);
   if(rc.is_range, {
     // Range slicing is no longer a comptime operation — fall through to the
     // runtime path (slice_copy rewriting happens before Index dispatch;
@@ -744,7 +920,7 @@ _try_comptime_string_index :: (
   );
   caller_env := info.env;
   arg_type := info.ty;
-  rc := _check_range_type(arg_type);
+  rc := _check_range_type(arg_type, env, ctx);
   result_val := _compute_comptime_string_index(
     str_value,
     arg_val,
@@ -878,7 +1054,16 @@ _find_comptime_index_method :: (
                       // (index-trait.ts:404-406), but ITS first position is `expected` and
                       // its second is `given` — the opposite order from yo-self's, so a
                       // faithful port must swap.
-                      p1_compatible := are_types_compatible(arg_type, p1);
+                      // Range vs RangeInclusive are BOTH `struct(start : T, end : T)` and
+                      // both anonymous, so `are_types_compatible` accepts either for either
+                      // and the FIRST registered impl won: `l(usize(1) ..= usize(3))` on a
+                      // ComptimeList picked prelude's `ComptimeIndex(Range(usize))` (declared
+                      // first) and sliced EXCLUSIVELY — 2 elements where 3 were asserted.
+                      // Discriminate by the type CONSTRUCTOR (see `_check_range_type`):
+                      // two structs built by DIFFERENT constructors are different types,
+                      // while `Range(comptime_int)` and `Range(usize)` share one and stay
+                      // compatible. Only fires when both sides carry a constructor id.
+                      p1_compatible := (_ctor_ids_agree(arg_type, p1) && are_types_compatible(arg_type, p1));
                       ret_is_ptr := is_pointer_type(ci_result);
                       if(((p0_is_ptr || p0_is_ref) && p1_compatible) && ret_is_ptr, {
                         // Comptime-parameter gate (TS index-trait.ts:414).

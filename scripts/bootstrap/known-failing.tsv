@@ -12,16 +12,32 @@
 #
 # This is an ALLOWLIST OF KNOWN DEBT, not a permanent exemption. It exists so the
 # full-corpus sweep can gate CI TODAY — blocking any NEW failure — while these are
-# worked down. See issues/yo-self-hollow-language-test-files.md.
+# worked down. See issues/fixed/yo-self-hollow-language-test-files.md.
 #
 # The gate fails in BOTH directions: a failing file missing from this list fails,
 # and a listed file that now passes (or changed verdict) ALSO fails, so the list
 # cannot go stale. Fixing one means deleting its line.
 
-# --- HOLLOW: report passes while running nothing (found 2026-08-08) ---
-tests/index.test.yo	HOLLOW
-tests/safe_code_structural_gates.test.yo	HOLLOW
-tests/variadic_comptime.test.yo	HOLLOW
+# --- HOLLOW: none. ---
+# The list is EMPTY, which is the point: the sweep now demands a fully clean
+# corpus on its own, and any new failure — HOLLOW or RED — turns CI red.
+# The three HOLLOW files found 2026-08-08 are FIXED (2026-08-08):
+#   tests/variadic_comptime.test.yo          — a comptime variadic parameter
+#     (`...(comptime(t) : ComptimeList(T))`) was never bound into the CALLEE
+#     env, so every call ran the body with the name unbound. The quote sibling
+#     was bound; the comptime one had no branch at all.
+#   tests/index.test.yo                      — three layered range bugs: the
+#     slice_copy rewrite fired on comptime receivers (TS guards it), the
+#     range-type test matched on a struct NAME that is always empty, and
+#     Range/RangeInclusive are structurally identical so every `..` read as
+#     `..=`. Discriminated by the type constructor id.
+#   tests/safe_code_structural_gates.test.yo — `comptime_expect_error`'s
+#     restore snapshotted only the frame DEPTH, so a throw that unwound past a
+#     `pop_frame` lost the MODULE frame for good; and a rejected module-level
+#     binding left its name in the codegen module-global registry.
+# All three now run their assertions: verified with an injected
+# `assert(i32(1) == i32(2))`, which FAILS in each (it reported a clean pass
+# before). See issues/fixed/yo-self-hollow-language-test-files.md.
 
 # --- RED: none. ---
 # The two Linux-only RED files found by the first CI run of this sweep are FIXED:

@@ -1703,6 +1703,24 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   // resolved_concrete from expected/enclosing-return). Prefer it: reading the
   // DECLARED result emitted `void*` fn-ptr casts/temps merge-assigned to
   // concrete locals (the IoError.check stage-2 family).
+  // A generic-ResumeType `ctl` (`Exception.throw`) is emitted as ONE
+  // `void*`-returning C function — one handler serves every instantiation, so
+  // it cannot return a ResumeType it does not know. The per-call resolution
+  // below is right for the TEMP's type but WRONG for the fn-pointer CAST: it
+  // made the cast claim the instantiated type while the callee is `void*`, and
+  // on x86_64 SysV an instantiated type over 16 bytes (MEMORY class) then
+  // displaces `err` out of RDI into the hidden sret slot — a handler that reads
+  // `err.vtable` dispatches through the caller's stack.
+  // See issues/fixed/ctl-handler-void-signature-vs-sret-cast.md and its two repros.
+  ctl_generic_ret := (
+    is_some_type(result_type) &&
+      match(function_type,.Func({ meta : __ctlm }) => __ctlm.*.is_control, _ => false)
+  );
+  ctl_callee_ret_str := if(
+    ctl_generic_ret,
+    get_type_string(result_type, context.base),
+    String.new()
+  );
   if(is_some_type(result_type) && !(is_unit_type(ei.ty)), {
     result_type = ei.ty;
   });
@@ -1875,7 +1893,13 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         o2.push_str(")");
         arm_out = o2;
       }, {
-        ret_str := get_type_string(result_type, context.base);
+        // The CALLEE's real return type, not this call site's instantiation —
+        // see the ctl_generic_ret comment above.
+        ret_str := if(
+          ctl_generic_ret,
+          ctl_callee_ret_str.clone(),
+          get_type_string(result_type, context.base)
+        );
         cast := String.from("(");
         cast.push_string(ret_str);
         cast.push_str(" (*)(");
@@ -1959,16 +1983,26 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         }
       );
       fpc := get_type_string(result_type, context.base);
-      fline := indent.clone();
-      fline.push_string(fpc);
-      fline.push_str(" ");
-      fline.push_string(fp_tv.clone());
-      fline.push_str(" = ");
-      fline.push_string(out.clone());
-      fline.push_str(";");
       // Clear __yo_effect_escaped before the indirect call
       em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
-      em.emit_string_line(fline);
+      if(ctl_generic_ret, {
+        // Declare the temp BEFORE the call — escape-path drops reference it —
+        // and call as a STATEMENT. A generic-ResumeType handler cannot resume
+        // with a value, so the zero-init IS the result. Assigning a
+        // differently-typed call's result to it would reintroduce the very
+        // mismatch this guards against.
+        em.emit_string_line(`${indent.clone()}${fpc.clone()} ${fp_tv.clone()} = (${fpc.clone()}){0};`);
+        em.emit_string_line(`${indent.clone()}${out.clone()};`);
+      }, {
+        fline := indent.clone();
+        fline.push_string(fpc);
+        fline.push_str(" ");
+        fline.push_string(fp_tv.clone());
+        fline.push_str(" = ");
+        fline.push_string(out.clone());
+        fline.push_str(";");
+        em.emit_string_line(fline);
+      });
     });
     generate_deferred_drop_expressions(expr, indent.clone(), context, true);
     emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);
