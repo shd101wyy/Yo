@@ -28,6 +28,7 @@ _(env : proc_env) :: import("std/env");
 { ExprInfoTable, expr_info_table_new } :: import("./expr_info.yo");
 { TokenKind } :: import("./token.yo");
 { parse } :: import("./parser.yo");
+{ InitOptions, init_project } :: import("./init.yo");
 { Environment, clone_env, build_prelude_var_cache } :: import("./env.yo");
 // Cached prelude env — populated on first check, reused thereafter.
 (g_cached_prelude_env : Option(Environment)) = Option(Environment).None;
@@ -1751,6 +1752,55 @@ run_test :: (
     exn.throw(dyn(`${failed.to_string()} test(s) failed`));
   });
 });
+/// Run the `init` subcommand — scaffold a new Yo project.
+///
+/// Flag contract mirrors the TS command (`src/yo-cli.ts:840-859`):
+///   yo init [dir] [--name <project-name>]
+/// `dir` is a POSITIONAL defaulting to "." and `--name` overrides the project
+/// name that would otherwise be derived from the directory basename. Anything
+/// else is rejected rather than silently swallowed — `main.yo`'s other arg loops
+/// assign unrecognized tokens to a path, which is how `yo test ./tests --profile`
+/// ends up running against a path literally named `--profile`
+/// (plans/PRE_P1_HANDOVER.md §4). Do not copy that shape here.
+run_init :: (
+  fn(
+    argv : ArrayList(String),
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  (dir : String) = String.from(".");
+  (dir_seen : bool) = false;
+  (name : Option(String)) = Option(String).None;
+  (ai : usize) = usize(2); // skip program name + "init"
+  while(ai < argv.len(), {
+    arg := argv(ai);
+    cond(
+      (arg == "--name") => {
+        if((ai + usize(1)) >= argv.len(), {
+          exn.throw(dyn(String.from("init: --name requires a value")));
+        });
+        name = Option(String).Some(argv(ai + usize(1)));
+        ai = (ai + usize(1));
+      },
+      arg.starts_with(String.from("--name=")) => {
+        name = Option(String).Some(arg.substring(usize(7), arg.len()));
+      },
+      arg.starts_with(String.from("-")) => {
+        exn.throw(dyn(`init: unknown option '${arg}'. Usage: yo init [dir] [--name <name>]`));
+      },
+      dir_seen => {
+        exn.throw(dyn(`init: unexpected extra argument '${arg}'. Usage: yo init [dir] [--name <name>]`));
+      },
+      true => {
+        dir = arg;
+        dir_seen = true;
+      }
+    );
+    ai = (ai + usize(1));
+  });
+  io.await(init_project(InitOptions(dir : dir, name : name), io, exn), IoExn(io : io, exn : exn));
+});
 run_fmt :: (
   fn(
     argv : ArrayList(String),
@@ -1818,7 +1868,7 @@ main :: (fn(io : Io) -> unit)({
   );
   argv := args();
   if(argv.len() < usize(2), {
-    exn.throw(dyn(`no subcommand given. Usage: yo-self <compile|test> ...`));
+    exn.throw(dyn(`no subcommand given. Usage: yo-self <compile|test|fmt|check|init> ...`));
   });
   subcmd := argv(usize(1));
   if(subcmd == "compile", {
@@ -1829,8 +1879,10 @@ main :: (fn(io : Io) -> unit)({
     run_fmt(argv, io, exn);
   }, if(subcmd == "check", {
     run_check(argv, io, exn);
+  }, if(subcmd == "init", {
+    run_init(argv, io, exn);
   }, {
-    exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo-self <compile|test|fmt|check> ...`));
-  }))));
+    exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo-self <compile|test|fmt|check|init> ...`));
+  })))));
 });
 export(main);
