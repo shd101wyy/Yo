@@ -113,6 +113,19 @@ Two notes for whoever maintains it:
   with `develop` to merge. With ~55 min CI that means re-running when someone
   lands ahead of you; flip it to `false` if that becomes a tax.
 
+- **Repository admins can bypass** (`bypass_actors: [{RepositoryRole 5, always}]`),
+  added deliberately the same day. It was `[]` at first, which meant _nobody_ —
+  including the owner — could merge without all 15 checks green, so a broken
+  `develop` or an urgent revert had no path in except waiting out the full matrix.
+  `always` rather than `pull_request` so it also covers a direct push in that case.
+
+  The checks still run and still block by default; this only permits a deliberate
+  override. Which makes the gate exactly as strong as the discipline not to reach
+  for `--admin` — **if you find yourself using it routinely, that is the signal
+  the required set is wrong, not that the bypass is useful.** Recorded here rather
+  than left as a quiet loophole. Revert:
+  `gh api -X PUT repos/shd101wyy/Yo/rulesets/13548862 --input /tmp/rs_pre_bypass.json`
+
 Revert, if ever needed: `gh api -X PUT repos/shd101wyy/Yo/rulesets/13548862 --input /tmp/rs_before.json`
 (or rebuild the payload with `enforcement: "disabled"`).
 
