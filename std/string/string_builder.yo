@@ -68,15 +68,17 @@ impl(
       s._bytes,
       .None => (),
       .Some(al) => {
-        i := usize(0);
+        // Bulk-copy, the same path `write_str` takes. The byte-at-a-time
+        // `push` loop this replaces was the top user-code cost of a
+        // self-compile (sample-profiled: ArrayList(u8).push 2778) — each
+        // byte paid a bounds check, an Option match, and a capacity test.
+        // `src` points into `s`'s buffer, a different allocation from
+        // `self._buf`, so the growth realloc inside cannot invalidate it.
         n := al.len();
-        while(i < n, i = (i + usize(1)), {
-          byte_opt := al.get(i);
+        if(n > usize(0), {
           match(
-            byte_opt,
-            .Some(b) => {
-              self._buf.push(b);
-            },
+            al.ptr(),
+            .Some(src) => self._buf.extend_from_ptr(src, n),
             .None => ()
           );
         });
