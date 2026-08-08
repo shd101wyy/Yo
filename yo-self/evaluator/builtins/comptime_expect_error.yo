@@ -22,7 +22,7 @@ open(import("std/string"));
   make_err_expr
 } :: import("../../expr.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ Environment, invalidate_frame_index } :: import("../../env.yo");
+{ Environment, Frame, invalidate_frame_index } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { format_error_message } :: import("../../error.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
@@ -31,7 +31,9 @@ open(import("std/string"));
   new_expr_info,
   expr_info_table_set,
   branch_group_stack_len,
-  truncate_branch_group_stack
+  truncate_branch_group_stack,
+  module_global_recording_mark,
+  rollback_module_level_globals_to
 } :: import("../../expr_info.yo");
 { t_unit } :: import("../../types/creators.yo");
 { set_propagate_def_time_errors, set_cee_observed_error, clear_cee_observed_error, cee_observed_error } :: import("../../types/flowability.yo");
@@ -109,6 +111,30 @@ evaluate_comptime_expect_error :: (
   // (the algebraic_effects batch FTT). Restore env frame depth + the ctx
   // mode fields after the arg eval, success or throw.
   saved_frames_len := env.frames.len();
+  // Snapshot the FRAME OBJECTS, not just the depth. The expected throw can
+  // unwind past a `pop_frame` and leave the env SHORTER than it started —
+  // measured on `cee(begin((p : *(i32)) = i32(0), ()))`: 3 frames in, 2 out,
+  // and the frame that vanished was the MODULE frame. A depth-only restore
+  // can only pop, never re-push, so every module binding made BEFORE the
+  // `comptime_expect_error` was lost and the rest of the file could not see
+  // it ("Variable "assert" not found" from a later `test(...)` arm, which
+  // then hollowed the whole batch — tests/safe_code_structural_gates.test.yo).
+  // TS needs no equivalent: its envs are persistent values, so the rejected
+  // eval's env is simply discarded and the caller keeps the original.
+  saved_frames := ArrayList(Frame).new();
+  {
+    (sf_i : usize) = usize(0);
+    while(sf_i < env.frames.len(), {
+      match(
+        env.frames.get(sf_i),
+        .Some(sf) => {
+          saved_frames.push(sf);
+        },
+        .None => ()
+      );
+      sf_i = (sf_i + usize(1));
+    });
+  };
   // Per-frame variable counts: an EXPECTED throw can strand a half-made
   // binding in a surviving frame (e.g. `cee((z : Point1) := (3, 4))` adds
   // `z` before the type-mismatch throw). TS's persistent envs discard the
@@ -164,6 +190,9 @@ evaluate_comptime_expect_error :: (
   // The expected throw can strand cond.yo's branch-group entries (push
   // without pop) — truncate back to this depth after the arg eval.
   saved_branch_groups := branch_group_stack_len();
+  // Module-level globals registered by the (expected-to-fail) arg eval must
+  // not survive it — see expr_info.yo's rollback comment.
+  saved_mg_mark := module_global_recording_mark();
   set_propagate_def_time_errors(true);
   arg_threw := _comptime_expect_error_arg_threw(arg_expr.clone(), env, ctx);
   set_propagate_def_time_errors(false);
@@ -200,6 +229,20 @@ evaluate_comptime_expect_error :: (
   while(env.frames.len() > saved_frames_len, {
     env.pop_frame();
   });
+  // ...and re-push the ones it POPPED (see the snapshot comment above).
+  {
+    (rf_i : usize) = env.frames.len();
+    while(rf_i < saved_frames_len, {
+      match(
+        saved_frames.get(rf_i),
+        .Some(rf) => {
+          env.frames.push(rf);
+        },
+        .None => ()
+      );
+      rf_i = (rf_i + usize(1));
+    });
+  };
   // Drop variables the (expected-to-fail) arg eval stranded in surviving
   // frames — see the snapshot comment above.
   {
@@ -230,6 +273,7 @@ evaluate_comptime_expect_error :: (
     });
   };
   truncate_branch_group_stack(saved_branch_groups);
+  rollback_module_level_globals_to(saved_mg_mark);
   if(arg_threw, {
     out_unit := new_expr_info(env, t_unit());
     out_unit.value = Option(EvalValue).Some(EvalValue.UnitVal);

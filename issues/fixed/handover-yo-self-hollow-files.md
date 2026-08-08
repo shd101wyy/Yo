@@ -1,10 +1,58 @@
-# HANDOVER — the 3 HOLLOW test files
+# HANDOVER — the 3 HOLLOW test files (RESOLVED)
 
-**Written 2026-08-08** after four failed fix attempts. Everything here is
-verified unless explicitly marked as a hypothesis. Full history and the RED-file
-work live in
-[`yo-self-hollow-language-test-files.md`](yo-self-hollow-language-test-files.md);
-this file is the working brief.
+**Written 2026-08-08** after four failed fix attempts; **all three fixed the
+same day.** Full history and the RED-file work live in
+[`yo-self-hollow-language-test-files.md`](yo-self-hollow-language-test-files.md).
+
+---
+
+## 0. Resolution — and the one wrong assumption that cost four attempts
+
+**§4's failure chain is wrong at step 1, and that is why every attempt built on
+it failed.** It reads "evaluating `count_types`'s **body at definition time**,
+the variadic parameter `types` is not in scope". The error's token points at the
+definition line, so this looked certain — but the token points there only
+because that is where the BODY is; the failing evaluation was the **call**.
+
+One experiment settles it, and it needs no instrumentation at all:
+
+```bash
+# definition ALONE — rc=0, compiles clean
+count_types :: (fn(...(comptime(types) : ComptimeList(Type))) -> comptime(usize))(types.len());
+main :: (fn() -> unit)({ (); }); export(main);
+
+# definition + ONE call — rc=1, `Variable "types" not found`
+n :: count_types(i32);
+```
+
+The def-time body env **does** bind the variadic (`function_type.yo:918`, the
+`__DBG_VP` hit §6 measured). The **callee** env at a call site never did:
+`function.yo`'s inline FuncVal arm binds a `quote` variadic
+(`...(quote(elems))`, the `array_list`/`hash_map` macros) and had **no branch at
+all** for the comptime one. That is the whole of `variadic_comptime`.
+
+**Generalising the method note**: an error whose token sits inside a function
+body says nothing about WHO evaluated that body. Splitting the reproducer into
+"definition alone" vs "definition + call" costs one compile and is decisive —
+cheaper than the four speculative fixes, and cheaper than the instrumentation
+build in §6.
+
+The other two files were **not** the same root cause (§7 was right to assume
+separate bugs) and were **not** one bug each — they were four more, each hidden
+behind the next:
+
+| file                         | bugs                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index`                      | the `slice_copy` rewrite fired on COMPTIME receivers, so `x(0 .. 5)` on a `comptime_str` matched `str`'s runtime `slice_copy` (TS guards exactly this, function.ts:815-823) · `_check_range_type` matched a struct NAME that is structurally always empty, so no range was ever recognised · `Range` and `RangeInclusive` are both anonymous `struct(start : T, end : T)`, so type compatibility cannot tell them apart and every `..` resolved as `..=` |
+| `safe_code_structural_gates` | `comptime_expect_error` snapshotted the frame DEPTH only, and an expected throw can unwind past a `pop_frame` — measured 3 frames in, 2 out, the lost one being the MODULE frame · a rejected module-level binding still registered its name as a module-level global, so codegen module-qualified every later local of that name while its declaration stayed unqualified                                                                               |
+
+Each file surfaced its next bug only once the previous one was fixed, because a
+single swallowed error erases the batch's ENTIRE `__yo_user_main` dispatch. Budget
+for that shape: "the file still fails" after a correct fix is the expected
+intermediate state, not evidence the fix was wrong.
+
+Everything below is the brief as it stood before the fix, kept for the method
+notes and the four ruled-out attempts.
 
 ---
 

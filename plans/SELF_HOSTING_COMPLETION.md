@@ -80,16 +80,14 @@ Also in scope:
   caveat recorded there: the TS formatter preserves existing line structure
   rather than canonicalizing it, so a raw "would format" count conflates real
   spacing bugs with line-breaking differences.
-- **The 3 hollow language test files**
-  ([`issues/yo-self-hollow-language-test-files.md`](../issues/yo-self-hollow-language-test-files.md)).
-  The first full-corpus sweep scored 185 GREEN / 3 HOLLOW — files that report
-  passes (one claims 49) while running no assertions. Its first CI run added **2 RED
-  files that pass on macOS but fail on Linux** (`ref_local_binding`,
-  `string/string`) — a platform divergence in `yo-self` that was invisible because
-  neither file is in the 23-file battery. CI now runs the sweep as a ratchet against
-  `scripts/bootstrap/known-failing.tsv`, so no NEW regression can land; all five
-  still need root-causing. For the HOLLOW ones, reduce by deleting arms from the
-  real file — both obvious minimal extractions compile cleanly and prove nothing.
+- ~~**The 3 hollow language test files**~~ — **RESOLVED 2026-08-08**
+  ([`issues/fixed/yo-self-hollow-language-test-files.md`](../issues/fixed/yo-self-hollow-language-test-files.md)).
+  The first full-corpus sweep scored 185 GREEN / 3 HOLLOW — files that reported
+  passes (one claimed 49) while running no assertions — and its first CI run added
+  **2 RED files that pass on macOS but fail on Linux** (`ref_local_binding`,
+  `string/string`). All five are now fixed and
+  `scripts/bootstrap/known-failing.tsv` is EMPTY, so the sweep ratchet demands a
+  fully clean corpus rather than a frozen one.
   For the RED ones, start from the `hollow-sweep-results` CI artifact; they do not
   reproduce on macOS.
 - Leftover from the port: activate `types/flowability.yo` (setter/caller

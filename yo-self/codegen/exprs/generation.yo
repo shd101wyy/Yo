@@ -516,7 +516,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // tests/index.test.yo reported "49 passed" while running nothing; 31 of its
   // arms are ordinary runtime tests that were collateral.
   // TS checks the same list without needing ExprInfo (generation.ts:1081-1102).
-  // See issues/yo-self-hollow-language-test-files.md.
+  // See issues/fixed/yo-self-hollow-language-test-files.md.
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_EXPECT_ERROR, Option(usize).None), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_ASSERT, Option(usize).None), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, BF_YO_VAR_PRINT_INFO, Option(usize).None), return(String.from("")));
@@ -538,7 +538,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // one — strictly worse. Verified by injecting `assert(i32(1) == i32(2))` into a
   // test body: with the hoist it still reported "10 passed".
   // The real cause is upstream, in the evaluator. See
-  // issues/yo-self-hollow-language-test-files.md.
+  // issues/fixed/yo-self-hollow-language-test-files.md.
   ei := match(
     context.base.get_expr_info(expr),
     .Some(e) => e,

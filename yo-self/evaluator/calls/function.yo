@@ -86,7 +86,7 @@ open(import("std/fmt"));
   ArgEntry,
   VarArgEntry
 } :: import("../context.yo");
-{ is_pointer_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0 } :: import("../../types/guards.yo");
+{ is_pointer_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0 } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_contains_some_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
@@ -1003,6 +1003,11 @@ _try_rewrite_range_index_to_slice_copy :: (
     func_expr : AstExpr,
     args : ArrayList(AstExpr),
     recv_ty : TypeValue,
+    /// The receiver's evaluated VALUE. A receiver that already holds a
+    /// CONCRETE comptime value (an array/slice literal, a `comptime_str`)
+    /// must keep the comptime slicing path in `try_to_call_with_index_trait`
+    /// — see the guard below.
+    recv_val : Option(EvalValue),
     env : Environment
   ) -> Option(AstExpr)
 )({
@@ -1023,6 +1028,29 @@ _try_rewrite_range_index_to_slice_copy :: (
   });
   // Function-typed receivers are real calls, not indexing.
   if(is_function_type(recv_ty), {
+    return(Option(AstExpr).None);
+  });
+  // COMPTIME-valued receivers keep the comptime slicing path (TS
+  // function.ts:815-823: `!isTypeValue(recvValue) && !recvHasComptimeSliceValue`,
+  // whose comment reads "Comptime-valued receivers (array/slice/comptime_str
+  // literals) keep the comptime slicing path in tryToCallWithIndexTrait").
+  // The rewrite proceeds ONLY for a receiver with no value or an unknown one
+  // — i.e. a genuinely runtime receiver.
+  //
+  // Unported until now, and it is what made tests/index.test.yo HOLLOW:
+  // `x :: "Hello World"; x(0 .. 5)` matched `str`'s `slice_copy` (measured:
+  // 1 method for recv=comptime_str), so the comptime string slice was
+  // rewritten into a RUNTIME `x.slice_copy(0 .. 5)` whose `Range(usize)`
+  // parameter then failed to unify with the `Range(comptime_int)` argument
+  // ("Cannot unify incompatible types") — one swallowed error that erased
+  // all 49 tests in the file's batch dispatch.
+  recv_has_comptime_slice_value := match(
+    recv_val,
+    .Some(rv) => (!(is_unknown_val(rv)) && !(is_type_val(rv))),
+    .None => false
+  );
+  recv_is_type_val := match(recv_val,.Some(rv2) => is_type_val(rv2),.None => false);
+  if(recv_is_type_val || recv_has_comptime_slice_value, {
     return(Option(AstExpr).None);
   });
   method_name := if(is_incl, String.from("slice_copy_inclusive"), String.from("slice_copy"));
@@ -4046,12 +4074,22 @@ Fix: wrap the call:
         (fv_variadic_label : String) = String.from("...");
         (fv_variadic_ty : TypeValue) = t_unit();
         (fv_variadic_is_quote : bool) = false;
+        // A COMPTIME variadic (`...(comptime(name) : ComptimeList(T))`), the
+        // other named form. The side table registers only NAMED variadics —
+        // a bare `...` (C-extern) is skipped by `register_func_variadic_param`
+        // and `...(name)` is rejected at signature evaluation ("not supported
+        // yet", types/function.yo) — so a registered non-quote variadic is
+        // necessarily the comptime one. Mirrors the TS predicate
+        // `variadicParameter.isCompileTimeOnly &&
+        // isComptimeListType(variadicParameter.type)` (helper.ts:1834).
+        (fv_variadic_is_comptime : bool) = false;
         match(
           fv_variadic_entry_opt,
           .Some(vpe) => {
             fv_variadic_label = vpe.label;
             fv_variadic_ty = vpe.ty;
             fv_variadic_is_quote = is_expr_list_type(fv_variadic_ty.clone());
+            fv_variadic_is_comptime = (!(fv_variadic_is_quote) && is_comptime_list_type(fv_variadic_ty.clone()));
           },
           .None => ()
         );
@@ -4530,7 +4568,16 @@ Fix: wrap the call:
               }
             );
             _push_arg := evaled_arg_infos.push(arg_info);
-            rt_arg_is_ct := match(rt_ct_flags_args.get(ai),.Some(f) => f,.None => false);
+            // A COMPTIME variadic's trailing args (indices >= n_p) are not C
+            // arguments either — `rt_ct_flags_args` only covers the FIXED
+            // params, so without this they fell through the `.None => false`
+            // default and were spliced into the emitted call. TS pushes a
+            // variadic arg to `runtimeArgExprsInOrder` only when
+            // `!variadicParameter.isCompileTimeOnly` (helper.ts:1802).
+            rt_arg_is_ct := cond(
+              (fv_variadic_is_comptime && (ai >= n_p)) => true,
+              true => match(rt_ct_flags_args.get(ai),.Some(f) => f,.None => false)
+            );
             if(!(rt_arg_is_ct), {
               _push_rt := runtime_arg_exprs.push(evaled_arg);
             });
@@ -5074,6 +5121,51 @@ Fix: wrap the call:
             fv_variadic_label.clone(),
             fv_variadic_ty.clone(),
             Option(EvalValue).Some(EvalValue.ComptimeListVal(velems)),
+            true,
+            false,
+            false,
+            false,
+            tok
+          );
+        });
+        // Bind a COMPTIME VARIADIC parameter (`...(comptime(types) :
+        // ComptimeList(Type))`): gather the EVALUATED trailing args
+        // (regular-arg indices n_p..n_supplied_reg) into a `ComptimeList` and
+        // bind it under the variadic's name in `fresh_env` — the env this arm
+        // hands to `evaluate_comptime_fn_call` below as the callee env. The
+        // quote sibling above binds RAW AST; this one binds VALUES, matching
+        // TS's two branches (helper.ts:1810 vs :1834).
+        //
+        // Unported until now, and the whole of tests/variadic_comptime.test.yo
+        // rode on it: with the name unbound, EVERY call site threw
+        // `Variable "types" not found` from inside the body, the def-time
+        // swallow hid it, and the failed comptime_assert erased the batch's
+        // `__yo_user_main` — 10 tests reporting "passed" while running nothing
+        // (issues/fixed/handover-yo-self-hollow-files.md). The failure is at the CALL,
+        // not at the definition: the definition alone compiles clean, because
+        // the def-time body env DOES bind the variadic (function_type.yo:918).
+        if(fv_variadic_is_comptime, {
+          ct_velems := ArrayList(EvalValue).new();
+          (ct_vidx : usize) = n_p;
+          while(ct_vidx < n_supplied_reg, {
+            match(
+              evaled_arg_infos.get(ct_vidx),
+              .Some(ct_vinfo) => match(
+                ct_vinfo.value,
+                .Some(ct_vv) => {
+                  _ctvp := ct_velems.push(ct_vv);
+                },
+                .None => ()
+              ),
+              .None => ()
+            );
+            ct_vidx = (ct_vidx + usize(1));
+          });
+          _ctvbind := add_variable_to_env(
+            fresh_env,
+            fv_variadic_label.clone(),
+            fv_variadic_ty.clone(),
+            Option(EvalValue).Some(EvalValue.ComptimeListVal(ct_velems)),
             true,
             false,
             false,
@@ -5630,7 +5722,7 @@ Fix: wrap the call:
         // plans/archive/SLICE_REWORK.md Part C: range indexing on a runtime receiver
         // rewrites to slice_copy / slice_copy_inclusive method dispatch.
         match(
-          _try_rewrite_range_index_to_slice_copy(expr, func_expr, args, callee_ty, callee_env),
+          _try_rewrite_range_index_to_slice_copy(expr, func_expr, args, callee_ty, callee_value, callee_env),
           .Some(rewritten) => {
             return(recur(rewritten, env, t_unit(), Option(EvalValue).None, ctx, exn));
           },
@@ -6135,7 +6227,7 @@ Fix: wrap the call:
           // plans/archive/SLICE_REWORK.md Part C: range indexing on a runtime receiver
           // rewrites to slice_copy / slice_copy_inclusive method dispatch.
           match(
-            _try_rewrite_range_index_to_slice_copy(expr, func_expr, args, callee_ty_none, callee_env),
+            _try_rewrite_range_index_to_slice_copy(expr, func_expr, args, callee_ty_none, callee_value, callee_env),
             .Some(rewritten) => {
               return(recur(rewritten, env, t_unit(), Option(EvalValue).None, ctx, exn));
             },

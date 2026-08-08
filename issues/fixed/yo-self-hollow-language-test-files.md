@@ -1,5 +1,23 @@
 # 3 of 188 language test files are HOLLOW under the self-hosted compiler
 
+> **RESOLVED 2026-08-08.** All three are fixed and
+> `scripts/bootstrap/known-failing.tsv` is EMPTY — the full-corpus sweep now
+> demands a clean run on its own. What actually caused them, and why the first
+> four fix attempts all missed, is in
+> [`handover-yo-self-hollow-files.md`](handover-yo-self-hollow-files.md);
+> the short version is that **all three were five separate bugs**, each hidden
+> behind ONE swallowed error that erased the file's whole batch dispatch:
+>
+> | file                         | bug                                                                                                                                                                                                   |
+> | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+> | `variadic_comptime`          | a comptime variadic parameter was never bound into the CALLEE env (the `quote` sibling was; the comptime one had no branch at all)                                                                    |
+> | `index`                      | the `slice_copy` rewrite fired on comptime receivers; the range-type test matched a struct NAME that is always empty; `Range`/`RangeInclusive` are structurally identical so every `..` read as `..=` |
+> | `safe_code_structural_gates` | `comptime_expect_error` restored the frame DEPTH but not the frames themselves, losing the MODULE frame; and a rejected module-level binding leaked into the codegen module-global registry           |
+>
+> Validation used the bar this document itself sets: an injected
+> `assert(i32(1) == i32(2))` now FAILS in each of the three (it reported a
+> clean pass before).
+
 **Found 2026-08-08** by the first full-corpus hollow sweep. They exit 0 and report
 passing tests while **running no assertions at all**.
 
